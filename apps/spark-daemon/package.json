@@ -28,6 +28,7 @@
     "@orpc/server": "catalog:",
     "@zendev-lab/spark-ai": "workspace:^",
     "@zendev-lab/spark-artifacts": "workspace:^",
+    "@zendev-lab/spark-ask": "workspace:^",
     "@zendev-lab/spark-channels": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-daemon-client": "workspace:^",

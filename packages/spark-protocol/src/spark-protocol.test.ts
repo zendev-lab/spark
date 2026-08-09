@@ -134,7 +134,7 @@ test("spark protocol validates interaction requests and typed responses", () => 
     ownerStepOrUnresolvedId: "step:numerical-boundary",
     stepDefinitionDigest: "step-digest",
     requestHash: "a".repeat(64),
-    ownerQuestionId: "decision",
+    ownerQuestionId: "topology",
     expectedAnswerKind: "single" as const,
   };
   const asyncEvidence = parseSparkInteractionRequest({

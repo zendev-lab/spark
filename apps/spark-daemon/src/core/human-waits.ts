@@ -135,6 +135,11 @@ interface HumanAnswerEventRow {
   eventJson: string;
 }
 
+export interface HumanAnswerEventWakeClaim {
+  loopId: string;
+  generation: number;
+}
+
 /**
  * Daemon-owned human interaction state.
  *
@@ -159,7 +164,18 @@ export class SparkDaemonHumanWaitRegistry {
         throw new Error("evidence-bound human interaction requires async delivery and correlation");
       }
     }
+    if (input.evidenceRequest && !input.interactionRequestId) {
+      throw new Error("async evidence request requires a canonical interactionRequestId");
+    }
     if (input.evidenceRequest && input.interactionRequestId) {
+      const expectedAskRef = `ask:${input.evidenceRequest.requestHash}`;
+      const expectedInteractionRequestId = `ask_async:${input.evidenceRequest.requestHash}`;
+      if (
+        input.evidenceRequest.askRef !== expectedAskRef ||
+        input.interactionRequestId !== expectedInteractionRequestId
+      ) {
+        throw new Error("async evidence request identity does not match its canonical requestHash");
+      }
       const existing = this.readByEvidenceInteraction(input.interactionRequestId);
       if (existing) {
         if (JSON.stringify(existing.evidenceRequest) !== JSON.stringify(input.evidenceRequest)) {
@@ -275,6 +291,21 @@ export class SparkDaemonHumanWaitRegistry {
       answers: input.answers ?? {},
       acceptedAt,
     });
+    if (
+      existing.wait.status === "pending" &&
+      existing.wait.evidenceRequest &&
+      input.status === "answered" &&
+      !answerEvent
+    ) {
+      return {
+        outcome: "transient",
+        retryable: true,
+        returnedToTool: false,
+        message:
+          "Human answer did not satisfy the canonical evidence request; the wait remains pending.",
+        wait: existing.wait,
+      };
+    }
     const response: SparkDaemonHumanWaitResponse = {
       humanRequestId: input.humanRequestId,
       humanResponseId,
@@ -432,6 +463,40 @@ export class SparkDaemonHumanWaitRegistry {
 
   listPendingEvidenceAnswerEvents(): SparkEvidenceAnswerEvent[] {
     return this.readEvidenceAnswerEvents("WHERE wake_completed_at IS NULL", []);
+  }
+
+  getEvidenceAnswerEventWakeClaim(answerEventId: string): HumanAnswerEventWakeClaim | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT wake_loop_id AS loopId, wake_generation AS generation
+         FROM daemon_human_answer_events
+         WHERE answer_event_id = ?`,
+      )
+      .get(answerEventId) as { loopId: string | null; generation: number | null } | undefined;
+    return row?.loopId && row.generation !== null
+      ? { loopId: row.loopId, generation: row.generation }
+      : undefined;
+  }
+
+  claimEvidenceAnswerEventWake(
+    answerEventId: string,
+    claim: HumanAnswerEventWakeClaim,
+  ): HumanAnswerEventWakeClaim {
+    this.db
+      .prepare(
+        `UPDATE daemon_human_answer_events
+         SET wake_loop_id = ?, wake_generation = ?
+         WHERE answer_event_id = ?
+           AND wake_completed_at IS NULL
+           AND wake_loop_id IS NULL
+           AND wake_generation IS NULL`,
+      )
+      .run(claim.loopId, claim.generation, answerEventId);
+    const persisted = this.getEvidenceAnswerEventWakeClaim(answerEventId);
+    if (!persisted) {
+      throw new Error(`cannot claim AnswerEvent wake for ${answerEventId}`);
+    }
+    return persisted;
   }
 
   isEvidenceAnswerEventWakePending(answerEventId: string): boolean {

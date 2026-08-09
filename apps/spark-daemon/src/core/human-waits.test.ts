@@ -354,7 +354,7 @@ describe("SparkDaemonHumanWaitRegistry", () => {
     try {
       const evidenceRequest = {
         schema: "spark.evidence-request/v1" as const,
-        askRef: "ask:topology",
+        askRef: `ask:${"c".repeat(64)}`,
         ownerSessionId: "session-1",
         goalOrReproId: "repro:glm52",
         modeScope: "repro" as const,
@@ -367,12 +367,20 @@ describe("SparkDaemonHumanWaitRegistry", () => {
       };
       expect(() =>
         waits.register({
+          ...waitInput("hreq-evidence-bad-identity"),
+          interactionRequestId: `ask_async:${evidenceRequest.requestHash}`,
+          evidenceRequest: { ...evidenceRequest, askRef: "ask:forged" },
+        }),
+      ).toThrow(/canonical requestHash/u);
+      expect(() =>
+        waits.register({
           ...waitInput("hreq-evidence-blocking", "blocking"),
           evidenceRequest,
         }),
       ).toThrow(/requires async delivery and correlation/u);
       const firstRegistration = waits.register({
         ...waitInput("hreq-evidence"),
+        interactionRequestId: `ask_async:${evidenceRequest.requestHash}`,
         questions: [
           {
             id: "topology",
@@ -386,7 +394,7 @@ describe("SparkDaemonHumanWaitRegistry", () => {
       });
       const repeatedRegistration = waits.register({
         ...waitInput("hreq-evidence-retry"),
-        interactionRequestId: "interaction-hreq-evidence",
+        interactionRequestId: `ask_async:${evidenceRequest.requestHash}`,
         evidenceRequest,
       });
       expect(firstRegistration.created).toBe(true);
@@ -397,7 +405,7 @@ describe("SparkDaemonHumanWaitRegistry", () => {
       expect(() =>
         waits.register({
           ...waitInput("hreq-evidence-conflict"),
-          interactionRequestId: "interaction-hreq-evidence",
+          interactionRequestId: `ask_async:${evidenceRequest.requestHash}`,
           evidenceRequest: { ...evidenceRequest, planRevision: 8 },
         }),
       ).toThrow(/retried with a different binding/u);
@@ -424,7 +432,7 @@ describe("SparkDaemonHumanWaitRegistry", () => {
           schema: "spark.evidence-answer-event/v1",
           answerEventId: expect.stringMatching(/^answer-event:[a-f0-9]{64}$/u),
           humanRequestId: "hreq-evidence",
-          interactionRequestId: "interaction-hreq-evidence",
+          interactionRequestId: `ask_async:${evidenceRequest.requestHash}`,
           humanResponseId: "hres-evidence",
           provenance: "direct_user",
           binding: evidenceRequest,
@@ -454,7 +462,7 @@ describe("SparkDaemonHumanWaitRegistry", () => {
     const { db, waits } = createHarness();
     const evidenceRequest = {
       schema: "spark.evidence-request/v1" as const,
-      askRef: "ask:owner-question",
+      askRef: `ask:${"f".repeat(64)}`,
       ownerSessionId: "session-1",
       goalOrReproId: "repro:owner-question",
       modeScope: "repro" as const,
@@ -487,6 +495,7 @@ describe("SparkDaemonHumanWaitRegistry", () => {
       expect(() =>
         waits.register({
           ...waitInput("hreq-owner-mismatch"),
+          interactionRequestId: `ask_async:${evidenceRequest.requestHash}`,
           questions,
           evidenceRequest: { ...evidenceRequest, ownerQuestionId: "missing" },
         }),
@@ -501,11 +510,16 @@ describe("SparkDaemonHumanWaitRegistry", () => {
       ];
       invalidAnswers.forEach((answers, index) => {
         const humanRequestId = `hreq-owner-${index}`;
+        const requestHash = index.toString(16).repeat(64);
         waits.register({
           ...waitInput(humanRequestId),
-          interactionRequestId: `interaction-owner-${index}`,
+          interactionRequestId: `ask_async:${requestHash}`,
           questions,
-          evidenceRequest,
+          evidenceRequest: {
+            ...evidenceRequest,
+            askRef: `ask:${requestHash}`,
+            requestHash,
+          },
         });
         const delivered = waits.deliver({
           humanRequestId,
@@ -515,6 +529,8 @@ describe("SparkDaemonHumanWaitRegistry", () => {
           answers,
         });
         expect(delivered.answerEvent).toBeUndefined();
+        expect(delivered.outcome).toBe("transient");
+        expect(waits.get(humanRequestId)?.status).toBe("pending");
       });
       expect(waits.listEvidenceAnswerEvents()).toEqual([]);
     } finally {
@@ -526,7 +542,7 @@ describe("SparkDaemonHumanWaitRegistry", () => {
     const { db, waits } = createHarness();
     const evidenceRequest = {
       schema: "spark.evidence-request/v1" as const,
-      askRef: "ask:publish",
+      askRef: `ask:${"d".repeat(64)}`,
       ownerSessionId: "session-1",
       goalOrReproId: "goal:release",
       modeScope: "goal" as const,
@@ -538,16 +554,20 @@ describe("SparkDaemonHumanWaitRegistry", () => {
       expectedAnswerKind: "approval" as const,
     };
     try {
-      for (const [suffix, status, provenance, answers] of [
-        ["cancelled", "cancelled", "direct_user", {}],
-        ["archived", "archived", "direct_user", { approval: "approve" }],
-        ["empty", "answered", "direct_user", { approval: "  " }],
-        ["system", "answered", "system", { approval: "approve" }],
-        ["wrong-kind", "answered", "direct_user", { approval: ["approve", "reject"] }],
-      ] as const) {
+      for (const [index, [suffix, status, provenance, answers]] of (
+        [
+          ["cancelled", "cancelled", "direct_user", {}],
+          ["archived", "archived", "direct_user", { approval: "approve" }],
+          ["empty", "answered", "direct_user", { approval: "  " }],
+          ["system", "answered", "system", { approval: "approve" }],
+          ["wrong-kind", "answered", "direct_user", { approval: ["approve", "reject"] }],
+        ] as const
+      ).entries()) {
         const humanRequestId = `hreq-${suffix}`;
+        const requestHash = (index + 1).toString(16).repeat(64);
         waits.register({
           ...waitInput(humanRequestId),
+          interactionRequestId: `ask_async:${requestHash}`,
           questions: [
             {
               id: "approval",
@@ -560,15 +580,23 @@ describe("SparkDaemonHumanWaitRegistry", () => {
               ],
             },
           ],
-          evidenceRequest,
+          evidenceRequest: {
+            ...evidenceRequest,
+            askRef: `ask:${requestHash}`,
+            requestHash,
+          },
         });
-        waits.deliver({
+        const delivered = waits.deliver({
           humanRequestId,
           humanResponseId: `hres-${suffix}`,
           status,
           provenance,
           answers,
         });
+        if (status === "answered") {
+          expect(delivered.outcome).toBe("transient");
+          expect(waits.get(humanRequestId)?.status).toBe("pending");
+        }
       }
       expect(waits.listEvidenceAnswerEvents()).toEqual([]);
       expect(

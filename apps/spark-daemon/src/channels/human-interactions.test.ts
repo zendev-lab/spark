@@ -393,14 +393,14 @@ describe("daemon channel human interactions", () => {
       );
       waits.register({
         humanRequestId: "hreq_callback",
-        interactionRequestId: "ask_async:callback",
+        interactionRequestId: `ask_async:${"a".repeat(64)}`,
         sessionId: "session:channel-owner",
         workspaceBindingId: "rtwb_1",
         workspaceId: "ws_1",
         delivery: "async",
         evidenceRequest: {
           schema: "spark.evidence-request/v1",
-          askRef: "ask:callback",
+          askRef: `ask:${"a".repeat(64)}`,
           ownerSessionId: "session:channel-owner",
           goalOrReproId: "goal:channel",
           modeScope: "goal",
@@ -465,7 +465,7 @@ describe("daemon channel human interactions", () => {
       expect(onAnswerEvent.mock.calls[0]?.[0]).toMatchObject({
         schema: "spark.evidence-answer-event/v1",
         provenance: "direct_user",
-        binding: { askRef: "ask:callback" },
+        binding: { askRef: `ask:${"a".repeat(64)}` },
         answers: { route: { questionId: "route", values: ["safe"] } },
       });
       expect(waits.listEvidenceAnswerEvents("hreq_callback")).toHaveLength(1);

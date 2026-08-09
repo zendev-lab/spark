@@ -22,12 +22,12 @@ describe("human AnswerEvent Evidence projection", () => {
       schema: "spark.evidence-answer-event/v1" as const,
       answerEventId: `answer-event:${"a".repeat(64)}`,
       humanRequestId: "hreq-answer",
-      interactionRequestId: "ask_async:request",
+      interactionRequestId: `ask_async:${"b".repeat(64)}`,
       humanResponseId: "hres-answer",
       provenance: "direct_user" as const,
       binding: {
         schema: "spark.evidence-request/v1" as const,
-        askRef: "ask:request",
+        askRef: `ask:${"b".repeat(64)}`,
         ownerSessionId: "session:owner",
         goalOrReproId: "repro:glm52",
         modeScope: "repro" as const,
@@ -50,7 +50,7 @@ describe("human AnswerEvent Evidence projection", () => {
         ref: first.ref,
         provenance: { producer: "ask" },
         body: event,
-        links: [{ to: "ask:request", relation: "answer-to" }],
+        links: [{ to: `ask:${"b".repeat(64)}`, relation: "answer-to" }],
       });
       expect(await defaultEvidenceStore(cwd).list({ producer: "ask" })).toHaveLength(1);
     } finally {
@@ -64,7 +64,7 @@ describe("human AnswerEvent Evidence projection", () => {
     migrateSparkDaemonDatabase(db);
     const binding = {
       schema: "spark.evidence-request/v1" as const,
-      askRef: "ask:restart",
+      askRef: `ask:${"c".repeat(64)}`,
       ownerSessionId: "session:owner",
       goalOrReproId: "goal:restart",
       modeScope: "goal" as const,
@@ -79,7 +79,7 @@ describe("human AnswerEvent Evidence projection", () => {
       const waits = new SparkDaemonHumanWaitRegistry(db);
       waits.register({
         humanRequestId: "hreq-restart",
-        interactionRequestId: "ask_async:restart",
+        interactionRequestId: `ask_async:${binding.requestHash}`,
         sessionId: "session:owner",
         workspaceBindingId: "binding-restart",
         workspaceId: "workspace-restart",
@@ -175,41 +175,65 @@ describe("human AnswerEvent Evidence projection", () => {
     try {
       start("loop-matching", "repro:glm52", "session:owner");
       start("loop-other", "repro:other", "session:other");
-      const awakenedEvent = {
-        schema: "spark.evidence-answer-event/v1" as const,
-        answerEventId: `answer-event:${"d".repeat(64)}`,
-        humanRequestId: "hreq-wake",
-        interactionRequestId: "ask_async:wake",
-        humanResponseId: "hres-wake",
-        provenance: "direct_user" as const,
-        binding: {
-          schema: "spark.evidence-request/v1" as const,
-          askRef: "ask:wake",
-          ownerSessionId: "session:owner",
-          goalOrReproId: "repro:glm52",
-          modeScope: "repro" as const,
-          planRevision: 3,
-          ownerStepOrUnresolvedId: "step:decision",
-          stepDefinitionDigest: "wake-digest",
-          requestHash: "e".repeat(64),
-          ownerQuestionId: "decision",
-          expectedAnswerKind: "single" as const,
-        },
-        answers: { decision: { questionId: "decision", values: ["continue"] } },
-        acceptedAt: "2026-08-07T00:00:00.000Z",
+      const requestHash = "e".repeat(64);
+      const binding = {
+        schema: "spark.evidence-request/v1" as const,
+        askRef: `ask:${requestHash}`,
+        ownerSessionId: "session:owner",
+        goalOrReproId: "repro:glm52",
+        modeScope: "repro" as const,
+        planRevision: 3,
+        ownerStepOrUnresolvedId: "step:decision",
+        stepDefinitionDigest: "wake-digest",
+        requestHash,
+        ownerQuestionId: "decision",
+        expectedAnswerKind: "single" as const,
       };
-      const awakened = wakeHumanAnswerEvidenceOwner(loops, awakenedEvent);
+      const waits = new SparkDaemonHumanWaitRegistry(db);
+      waits.register({
+        humanRequestId: "hreq-wake",
+        interactionRequestId: `ask_async:${requestHash}`,
+        sessionId: "session:owner",
+        delivery: "async",
+        evidenceRequest: binding,
+        kind: "ask_user",
+        title: "Continue",
+        prompt: "Continue?",
+        questions: [
+          {
+            id: "decision",
+            type: "single",
+            prompt: "Continue?",
+            required: true,
+            options: [{ value: "continue", label: "Continue" }],
+          },
+        ],
+      });
+      const delivered = waits.deliver({
+        humanRequestId: "hreq-wake",
+        humanResponseId: "hres-wake",
+        status: "answered",
+        provenance: "direct_user",
+        answers: { decision: "continue" },
+      });
+      if (!delivered.answerEvent) throw new Error("missing accepted AnswerEvent");
+      const awakenedEvent = delivered.answerEvent;
+      const awakened = wakeHumanAnswerEvidenceOwner(loops, awakenedEvent, waits);
 
       expect(awakened.woken).toHaveLength(1);
       expect(awakened.completed).toBe(true);
       expect(loops.require("loop-matching")).toMatchObject({
         status: "scheduled",
-        reason: "direct-user AnswerEvent accepted for step:decision",
+        reason: `direct-user AnswerEvent ${awakenedEvent.answerEventId} accepted for step:decision`,
+      });
+      expect(waits.getEvidenceAnswerEventWakeClaim(awakenedEvent.answerEventId)).toEqual({
+        loopId: "loop-matching",
+        generation: awakened.woken[0]?.generation,
       });
       expect(loops.require("loop-other").status).toBe("dormant");
-      expect(wakeHumanAnswerEvidenceOwner(loops, awakenedEvent)).toMatchObject({
+      expect(wakeHumanAnswerEvidenceOwner(loops, awakenedEvent, waits)).toMatchObject({
         woken: [],
-        completed: false,
+        completed: true,
       });
     } finally {
       db.close();

@@ -788,11 +788,14 @@ export const sparkAskFlowInteractionRequestSchema = sparkInteractionBaseRequestS
       });
     }
     const expectedType = expectedQuestionType(request.evidenceRequest.expectedAnswerKind);
-    if (!request.questions.some((question) => expectedType.includes(question.type))) {
+    const ownerQuestions = request.questions.filter(
+      (question) => question.id === request.evidenceRequest?.ownerQuestionId,
+    );
+    if (ownerQuestions.length !== 1 || !expectedType.includes(ownerQuestions[0]!.type)) {
       context.addIssue({
         code: "custom",
         path: ["questions"],
-        message: `evidenceRequest expectedAnswerKind=${request.evidenceRequest.expectedAnswerKind} does not match any question`,
+        message: `evidenceRequest ownerQuestionId=${request.evidenceRequest.ownerQuestionId} does not match expectedAnswerKind=${request.evidenceRequest.expectedAnswerKind}`,
       });
     }
     if (request.evidenceRequest.expectedAnswerKind === "approval" && request.mode !== "approval") {
@@ -809,8 +812,9 @@ function expectedQuestionType(
 ): Array<"single" | "multi" | "preview" | "freeform"> {
   switch (expected) {
     case "single":
-    case "approval":
       return ["single", "preview"];
+    case "approval":
+      return ["single"];
     case "multi":
       return ["multi"];
     case "freeform":

@@ -9,7 +9,10 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
-import { verifyCanonicalAskEvidence } from "@zendev-lab/spark-ask";
+import {
+  verifyCanonicalAnswerEventEvidence,
+  verifyCanonicalAskEvidence,
+} from "@zendev-lab/spark-ask";
 import { isRef, type EvidenceRef, type TaskRef } from "@zendev-lab/spark-core";
 import { sparkStateCwd, updateSubgoalStatus } from "@zendev-lab/spark-loop";
 import {
@@ -1168,7 +1171,7 @@ async function verifyReproStepEvidence(
   }
 
   for (const entry of presentEntries) {
-    const answerEvent = canonicalProjectedAnswerEvent(entry);
+    const answerEvent = await canonicalProjectedAnswerEvent(cwd, entry);
     if (answerEvent) {
       const expectedBinding = createReproStepAskBinding(repro, step);
       const binding = answerEvent.binding;
@@ -1241,24 +1244,19 @@ async function verifyReproStepEvidence(
   };
 }
 
-function canonicalProjectedAnswerEvent(entry: {
-  ref: string;
-  body: unknown;
-  provenance: { producer: string };
-  links?: readonly { to: string; relation: string }[];
-}): SparkEvidenceAnswerEvent | undefined {
-  const parsed = sparkEvidenceAnswerEventSchema.safeParse(entry.body);
-  if (!parsed.success) return undefined;
-  if (entry.ref !== `evidence:${parsed.data.answerEventId}`) return undefined;
-  if (entry.provenance.producer !== "ask") return undefined;
-  if (
-    !entry.links?.some(
-      (link) => link.relation === "answer-to" && link.to === parsed.data.binding.askRef,
-    )
-  ) {
-    return undefined;
-  }
-  return parsed.data;
+async function canonicalProjectedAnswerEvent(
+  cwd: string,
+  entry: {
+    ref: string;
+    body: unknown;
+    provenance: { producer: string };
+    links?: readonly { to: string; relation: string }[];
+  },
+): Promise<SparkEvidenceAnswerEvent | undefined> {
+  return await verifyCanonicalAnswerEventEvidence(
+    cwd,
+    entry as Parameters<typeof verifyCanonicalAnswerEventEvidence>[1],
+  );
 }
 
 function answerEventSelectedValues(
@@ -1319,7 +1317,7 @@ async function validateReproStepEvidence(cwd: string, step: SparkReproStep): Pro
   }
   if (step.status !== "done" || step.authority === "safe_local") return;
   for (const entry of evidence) {
-    if (entry && canonicalProjectedAnswerEvent(entry)) return;
+    if (entry && (await canonicalProjectedAnswerEvent(cwd, entry))) return;
     if (entry && (await verifyCanonicalAskEvidence(cwd, entry))) return;
   }
   throw new Error(

@@ -310,7 +310,7 @@ async function createPreparedDaemonRuntime(
     },
   });
   onAnswerEvidenceProjected = (event) => {
-    const wake = wakeHumanAnswerEvidenceOwner(loopStore, event);
+    const wake = wakeHumanAnswerEvidenceOwner(loopStore, event, humanWaits);
     for (const loop of wake.woken) {
       emitLoopUpdate({ invocationStore, eventHub }, loop, loop.lastInvocationId);
     }
@@ -1243,7 +1243,7 @@ async function reconcilePendingHumanAnswerEvidence(runtime: PreparedDaemonRuntim
       resolveWorkspaceLocalPath(runtime.options.db, wait.workspaceBindingId || wait.workspaceId),
     (error) => console.error("[spark-daemon] failed to reconcile AnswerEvent Evidence", error),
     (event) => {
-      const wake = wakeHumanAnswerEvidenceOwner(runtime.loopStore, event);
+      const wake = wakeHumanAnswerEvidenceOwner(runtime.loopStore, event, runtime.humanWaits);
       for (const loop of wake.woken) {
         emitLoopUpdate(
           { invocationStore: runtime.invocationStore, eventHub: runtime.eventHub },

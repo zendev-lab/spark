@@ -720,6 +720,10 @@ export type {
   SparkAskAutoAnswerProvider,
   SparkAskAutoAnswerResolver,
 } from "./action-tool.ts";
+export {
+  recordCanonicalAnswerEventEvidenceReceipt,
+  verifyCanonicalAnswerEventEvidence,
+} from "./answer-event-evidence.ts";
 export { isUserAnsweredAskEvidenceBody, verifyCanonicalAskEvidence } from "./evidence.ts";
 export type {
   CanonicalAskEvidenceAnswer,

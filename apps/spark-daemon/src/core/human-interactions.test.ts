@@ -141,7 +141,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
     try {
       const evidenceRequest = {
         schema: "spark.evidence-request/v1" as const,
-        askRef: "ask:interaction-async",
+        askRef: `ask:${"e".repeat(64)}`,
         ownerSessionId: "session-1",
         goalOrReproId: "repro:async",
         modeScope: "repro" as const,
@@ -153,7 +153,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
         expectedAnswerKind: "single" as const,
       };
       const response = await broker.interact(
-        askRequest("interaction-async", "async", undefined, evidenceRequest),
+        askRequest("ask_async:" + "e".repeat(64), "async", undefined, evidenceRequest),
         {
           ...interactionContext(),
         },
@@ -161,7 +161,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
 
       expect(response).toMatchObject({
         kind: "askFlow",
-        requestId: "interaction-async",
+        requestId: `ask_async:${"e".repeat(64)}`,
         status: "pending",
         nextAction: "resume",
         metadata: { delivery: "async", evidenceRequest },
@@ -175,7 +175,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
 
       expect(waits.hasActive(response.humanRequestId)).toBe(false);
       expect(waits.get(response.humanRequestId)).toMatchObject({
-        interactionRequestId: "interaction-async",
+        interactionRequestId: `ask_async:${"e".repeat(64)}`,
         delivery: "async",
         status: "pending",
         workspaceBindingId: WORKSPACE_BINDING_ID,
@@ -194,7 +194,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
             humanRequestId: response.humanRequestId,
             payload: expect.objectContaining({
               delivery: "async",
-              interactionRequestId: "interaction-async",
+              interactionRequestId: `ask_async:${"e".repeat(64)}`,
               evidenceRequest,
             }),
           }),
@@ -211,13 +211,13 @@ describe("SparkDaemonHumanInteractionBroker", () => {
       expect(opened).toHaveLength(1);
       expect(opened[0]).toMatchObject({
         wait: { humanRequestId: response.humanRequestId, delivery: "async" },
-        request: { requestId: "interaction-async", kind: "askFlow" },
+        request: { requestId: `ask_async:${"e".repeat(64)}`, kind: "askFlow" },
         channel: { adapterId: "qq-main", recipient: "c2c:user-1" },
       });
       expect(opened[0]?.callbackOptions).toHaveLength(2);
       const firstCallback = opened[0]?.callbackOptions[0];
       expect(firstCallback?.token).toMatch(/^[A-Za-z0-9_-]+$/u);
-      expect(firstCallback?.token).not.toContain("interaction-async");
+      expect(firstCallback?.token).not.toContain("ask_async");
       expect(waits.findCallback(firstCallback?.token ?? "")).toMatchObject({
         wait: { humanRequestId: response.humanRequestId },
         questionId: "decision",

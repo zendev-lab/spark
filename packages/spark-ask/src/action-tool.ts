@@ -379,7 +379,7 @@ function autonomousOwnerQuestion(params: Record<string, unknown>): {
   }
   const type = owner.type ?? "single";
   if (params.mode === "approval") {
-    if (type !== "single" && type !== "preview") {
+    if (type !== "single") {
       throw new Error("AUTONOMOUS_EVIDENCE_BINDING_REQUIRED: approval owner must be single-choice");
     }
     return { id: owner.id.trim(), kind: "approval" };

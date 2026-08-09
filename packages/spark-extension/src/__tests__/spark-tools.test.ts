@@ -16,7 +16,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "vitest";
 
-import { sparkLoopCountersSchema, sparkLoopPolicySchema } from "@zendev-lab/spark-protocol";
+import {
+  sparkEvidenceAnswerEventSchema,
+  sparkLoopCountersSchema,
+  sparkLoopPolicySchema,
+} from "@zendev-lab/spark-protocol";
 
 import { RoleRegistry } from "@zendev-lab/spark-roles";
 import { registerSparkRolesTools } from "@zendev-lab/spark-roles/extension";
@@ -64,6 +68,7 @@ import {
 } from "@zendev-lab/spark-tasks";
 import { registerSparkEvidenceTool } from "@zendev-lab/spark-artifacts/extension";
 import { registerSparkMemoryTool } from "@zendev-lab/spark-memory/extension";
+import { recordCanonicalAnswerEventEvidenceReceipt } from "@zendev-lab/spark-ask";
 import piAskExtension from "@zendev-lab/spark-ask/extension";
 import sparkExtension from "../extension/index.ts";
 import { SparkWorkflowRunManagerController } from "../extension/spark-workflow-run-manager.ts";
@@ -7772,29 +7777,32 @@ test("repro approval Step accepts only current direct-user AnswerEvent Evidence"
       revision?: number;
       provenance?: string;
       expectedAnswerKind?: "single" | "approval";
-    }) => ({
-      schema: "spark.evidence-answer-event/v1",
-      answerEventId: `answer-event:${input.response}`,
-      humanRequestId: `hreq-${input.response}`,
-      interactionRequestId: `ask_async:${input.response}`,
-      humanResponseId: `hres-${input.response}`,
-      provenance: input.provenance ?? "direct_user",
-      binding: {
-        schema: "spark.evidence-request/v1",
-        askRef: `ask:${input.response}`,
-        ownerSessionId: repro.sessionKey,
-        goalOrReproId: repro.reproId,
-        modeScope: "repro",
-        planRevision: input.revision ?? binding.planRevision,
-        ownerStepOrUnresolvedId: binding.stepId,
-        stepDefinitionDigest: binding.definitionDigest,
-        requestHash: "a".repeat(64),
-        ownerQuestionId: "approval",
-        expectedAnswerKind: input.expectedAnswerKind ?? "approval",
-      },
-      answers: { approval: { questionId: "approval", values: ["approve"] } },
-      acceptedAt: new Date().toISOString(),
-    });
+    }) => {
+      const requestHash = "a".repeat(64);
+      return {
+        schema: "spark.evidence-answer-event/v1" as const,
+        answerEventId: `answer-event:${input.response}`,
+        humanRequestId: `hreq-${input.response}`,
+        interactionRequestId: `ask_async:${requestHash}`,
+        humanResponseId: `hres-${input.response}`,
+        provenance: input.provenance ?? "direct_user",
+        binding: {
+          schema: "spark.evidence-request/v1" as const,
+          askRef: `ask:${requestHash}`,
+          ownerSessionId: repro.sessionKey,
+          goalOrReproId: repro.reproId,
+          modeScope: "repro" as const,
+          planRevision: input.revision ?? binding.planRevision,
+          ownerStepOrUnresolvedId: binding.stepId,
+          stepDefinitionDigest: binding.definitionDigest,
+          requestHash,
+          ownerQuestionId: "approval",
+          expectedAnswerKind: input.expectedAnswerKind ?? "approval",
+        },
+        answers: { approval: { questionId: "approval", values: ["approve"] } },
+        acceptedAt: new Date().toISOString(),
+      };
+    };
     const store = defaultEvidenceStore(dir);
     const staleBody = eventBody({ response: "stale", revision: binding.planRevision - 1 });
     const stale = await store.put({
@@ -7806,6 +7814,11 @@ test("repro approval Step accepts only current direct-user AnswerEvent Evidence"
       provenance: { producer: "ask" },
       links: [{ to: staleBody.binding.askRef as AskRef, relation: "answer-to" as const }],
     });
+    await recordCanonicalAnswerEventEvidenceReceipt(
+      dir,
+      stale,
+      sparkEvidenceAnswerEventSchema.parse(staleBody),
+    );
     const staleResult = await executeSparkTool(tools, "repro", ctx, {
       action: "step",
       stepId,
@@ -7824,6 +7837,11 @@ test("repro approval Step accepts only current direct-user AnswerEvent Evidence"
       provenance: { producer: "ask" },
       links: [{ to: wrongKindBody.binding.askRef as AskRef, relation: "answer-to" as const }],
     });
+    await recordCanonicalAnswerEventEvidenceReceipt(
+      dir,
+      wrongKind,
+      sparkEvidenceAnswerEventSchema.parse(wrongKindBody),
+    );
     const wrongKindResult = await executeSparkTool(tools, "repro", ctx, {
       action: "step",
       stepId,
@@ -7903,6 +7921,11 @@ test("repro approval Step accepts only current direct-user AnswerEvent Evidence"
       provenance: { producer: "ask" },
       links: [{ to: directBody.binding.askRef as AskRef, relation: "answer-to" as const }],
     });
+    await recordCanonicalAnswerEventEvidenceReceipt(
+      dir,
+      direct,
+      sparkEvidenceAnswerEventSchema.parse(directBody),
+    );
     const approved = await executeSparkTool(tools, "repro", ctx, {
       action: "step",
       stepId,
