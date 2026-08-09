@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { access, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { writeJsonFileAtomic, writeTextFileAtomic } from "@zendev-lab/spark-core";
 import {
   asJsonValue,
@@ -235,7 +235,17 @@ export class ArtifactStore {
     if (stored.blobPath) {
       const blobPath = resolveBlobPath(this.rootDir, stored.blobPath);
       if (!blobPath) throw new ArtifactValidationError(`blob path escapes store: ${ref}`);
-      stored.body = parseStoredBody(await readFile(blobPath, "utf8"));
+      const serializedBody = await readFile(blobPath, "utf8");
+      const actualHash = createHash("sha256").update(serializedBody).digest("hex");
+      const blobNameHash = basename(stored.blobPath).split(".", 1)[0];
+      if (stored.hash !== undefined && stored.hash !== actualHash) {
+        throw new ArtifactValidationError(`artifact blob hash mismatch: ${ref}`);
+      }
+      if (blobNameHash !== actualHash) {
+        throw new ArtifactValidationError(`artifact blob path hash mismatch: ${ref}`);
+      }
+      stored.hash = actualHash;
+      stored.body = parseStoredBody(serializedBody);
     }
     assertStoredKindMatchesBody(stored.kind, stored.body);
     return normalizeStoredArtifact(stored) as Artifact<T>;

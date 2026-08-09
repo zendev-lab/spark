@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -193,6 +193,30 @@ describe("artifact kinds", () => {
         expectedRevision: 2,
       }),
     ).resolves.toMatchObject({ artifact: { body: { revision: 3 } } });
+  });
+
+  it("rejects a blob whose bytes no longer match its metadata hash", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-managed-document-integrity-"));
+    const store = defaultArtifactStore(dir);
+    const ref = "artifact:managed-integrity" as ArtifactRef;
+    await store.putManagedDocument({
+      ref,
+      bindingId: "workbench-binding-integrity",
+      title: "Workbench",
+      mediaType: "application/vnd.a2ui+json",
+      content: '{"messages":[]}',
+      expectedRevision: null,
+    });
+    const metadata = JSON.parse(await readFile(store.pathFor(ref), "utf8")) as {
+      blobPath?: string;
+    };
+    if (!metadata.blobPath) throw new Error("missing managed Document blobPath");
+    const blobPath = join(dir, ".spark", "artifacts", metadata.blobPath);
+    const body = JSON.parse(await readFile(blobPath, "utf8")) as Record<string, unknown>;
+    body.content = '{"messages":[{"forged":true}]}';
+    await writeFile(blobPath, JSON.stringify(body), "utf8");
+
+    await expect(store.get(ref)).rejects.toThrow("artifact blob hash mismatch");
   });
 
   it("stores documents with continuous revisioned updates", async () => {

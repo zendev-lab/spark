@@ -128,12 +128,14 @@ describe("trusted Workbench Loop control", () => {
       }),
     ).rejects.toThrow("managed Document writes require expected-revision authority");
     const metadataPath = artifactStore.pathFor(refreshedBinding.artifactRef);
-    const tamperedMetadata = JSON.parse(await readFile(metadataPath, "utf8")) as Record<
-      string,
-      unknown
-    >;
-    tamperedMetadata.hash = "f".repeat(64);
-    await writeFile(metadataPath, `${JSON.stringify(tamperedMetadata, null, 2)}\n`, "utf8");
+    const tamperedMetadata = JSON.parse(await readFile(metadataPath, "utf8")) as {
+      blobPath?: string;
+    };
+    if (!tamperedMetadata.blobPath) throw new Error("missing Workbench blobPath fixture");
+    const blobPath = join(workspaceCwd, ".spark", "artifacts", tamperedMetadata.blobPath);
+    const tamperedBody = JSON.parse(await readFile(blobPath, "utf8")) as Record<string, unknown>;
+    tamperedBody.content = '{"messages":[{"forged":true}]}';
+    await writeFile(blobPath, JSON.stringify(tamperedBody), "utf8");
     await expect(
       handleLoopRequest(context, {
         method: "loop.control",

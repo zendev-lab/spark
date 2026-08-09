@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { writeJsonFileAtomic, writeTextFileAtomic } from "@zendev-lab/spark-core";
 import { isArtifactKind } from "./artifact/types.ts";
 
@@ -391,7 +391,7 @@ export class EvidenceStore {
   ): Promise<EvidenceRecord<T>> {
     this.assertEvidenceRef(ref, "ref");
     const evidence = await this.readMetadata<T>(ref);
-    if (evidence.bodyTruncated && evidence.blobPath) {
+    if (evidence.blobPath) {
       const body = await this.getBody(ref);
       return {
         ...evidence,
@@ -408,14 +408,18 @@ export class EvidenceStore {
       const blobPath = resolveEvidenceBlobPath(this.rootDir, evidence.blobPath);
       if (blobPath) {
         try {
-          return await readFile(blobPath, "utf8");
+          const serializedBody = await readFile(blobPath, "utf8");
+          assertEvidenceBodyIntegrity(evidence, serializedBody);
+          return serializedBody;
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
       }
       throw new Error(`evidence blob path is unavailable in evidence store: ${evidence.ref}`);
     }
-    return serializeEvidenceBody(evidence.format, evidence.body);
+    const serializedBody = serializeEvidenceBody(evidence.format, evidence.body);
+    assertEvidenceBodyIntegrity(evidence, serializedBody);
+    return serializedBody;
   }
 
   async tryGet<T extends JsonValue | string = JsonValue | string>(
@@ -782,6 +786,19 @@ export function refId(ref: string): string {
 
 export function contentHash(input: string | Uint8Array): string {
   return createHash("sha256").update(input).digest("hex");
+}
+
+function assertEvidenceBodyIntegrity(
+  evidence: Pick<EvidenceRecord, "ref" | "hash" | "blobPath">,
+  serializedBody: string,
+): void {
+  const actualHash = contentHash(serializedBody);
+  if (evidence.hash !== undefined && evidence.hash !== actualHash) {
+    throw new EvidenceValidationError(`evidence body hash mismatch: ${evidence.ref}`);
+  }
+  if (evidence.blobPath && basename(evidence.blobPath).split(".", 1)[0] !== actualHash) {
+    throw new EvidenceValidationError(`evidence blob path hash mismatch: ${evidence.ref}`);
+  }
 }
 
 export function nowIso(): string {
