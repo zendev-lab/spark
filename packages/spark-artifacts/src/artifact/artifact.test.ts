@@ -97,6 +97,43 @@ describe("artifact kinds", () => {
     });
   });
 
+  it("serializes managed Document CAS so one concurrent stale writer loses", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-managed-document-cas-"));
+    const store = defaultArtifactStore(dir);
+    const ref = "artifact:managed-cas" as ArtifactRef;
+    await store.putManagedDocument({
+      ref,
+      bindingId: "workbench-binding-cas",
+      title: "Workbench",
+      mediaType: "application/vnd.a2ui+json",
+      content: '{"revision":1}',
+      expectedRevision: null,
+    });
+
+    const results = await Promise.allSettled(
+      ["a", "b"].map((writer) =>
+        store.putManagedDocument({
+          ref,
+          bindingId: "workbench-binding-cas",
+          title: "Workbench",
+          mediaType: "application/vnd.a2ui+json",
+          content: JSON.stringify({ writer }),
+          expectedRevision: 1,
+        }),
+      ),
+    );
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(rejected).toMatchObject({
+      status: "rejected",
+      reason: expect.objectContaining({
+        message: expect.stringContaining("DOCUMENT_REVISION_CONFLICT"),
+      }),
+    });
+    expect((await store.get(ref)).body).toMatchObject({ revision: 2 });
+  });
+
   it("stores documents with continuous revisioned updates", async () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-artifact-preview-"));
     const store = defaultArtifactStore(dir);

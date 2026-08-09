@@ -622,6 +622,7 @@ export function buildSparkReproWorkSummary(
   const tasks = (input.tasks ?? []).map((task) => ({ ...task }));
   validateUniqueIds(tasks, "tasks");
   for (const [index, task] of tasks.entries()) validateTask(task, index);
+  if (strictVNext) validateUniqueTaskRefs(tasks);
 
   const todos = (input.todos ?? []).map((todo) => ({ ...todo }));
   validateUniqueIds(todos, "todos");
@@ -1039,7 +1040,7 @@ export function validateSparkReproCurrentRetirementAuthority(
       if (current.taskStatusByRef[taskRef] !== "done") {
         throw new Error(`Repro completion requires current durable Task done: ${taskRef}`);
       }
-      if (work.tasks.find((task) => task.id === taskRef)?.status !== "done") {
+      if (work.tasks.find((task) => task.taskRef === taskRef)?.status !== "done") {
         throw new Error(`Repro completion omits a current done Task: ${taskRef}`);
       }
     }
@@ -1694,6 +1695,17 @@ function validateDecision(decision: SparkReproDecisionRequest, field: string): v
   validateEvidenceRefs(decision.evidenceRefs, `${field}.evidenceRefs`);
   if (typeof decision.askRef !== "string" || !isRef(decision.askRef, "ask")) {
     throw new Error(`${field}.askRef must be an ask: ref`);
+  }
+}
+
+function validateUniqueTaskRefs(tasks: readonly SparkReproWorkTask[]): void {
+  const seen = new Set<string>();
+  for (const [index, task] of tasks.entries()) {
+    if (!task.taskRef) continue;
+    if (seen.has(task.taskRef)) {
+      throw new Error(`tasks[${index}].taskRef must be unique`);
+    }
+    seen.add(task.taskRef);
   }
 }
 

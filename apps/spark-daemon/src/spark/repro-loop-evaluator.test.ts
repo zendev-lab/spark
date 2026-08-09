@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import type { AskRef, EvidenceRef } from "@zendev-lab/spark-core";
+import type { AskRef, EvidenceRef, TaskRef } from "@zendev-lab/spark-core";
 import {
   buildSparkReproWorkSummary,
   sparkReproProfileDigest,
@@ -665,7 +665,15 @@ function strictCompleteSummaryInput(): SparkReproWorkSummaryInput {
     },
     schedulerActivity: "sealed",
     independentReadyCount: 0,
-    tasks: [{ id: "task:delivery", title: "Deliver Repro", stage: "delivery", status: "done" }],
+    tasks: [
+      {
+        id: "delivery-task",
+        taskRef: "task:delivery" as TaskRef,
+        title: "Deliver Repro",
+        stage: "delivery",
+        status: "done",
+      },
+    ],
     retirementBlocks: [],
     unresolved: [],
     nextAction: {

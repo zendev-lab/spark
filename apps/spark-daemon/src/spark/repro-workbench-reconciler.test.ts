@@ -138,6 +138,52 @@ describe("Repro Workbench Artifact reconciliation", () => {
       body: { management: { lifecycle: "live" } },
     });
 
+    const reopenedBinding = bindings.getByLoop("loop-1")!;
+    const reopenedArtifact = await artifactStore.get(sparkReproWorkbenchArtifactRef("repro-1"));
+    if (reopenedArtifact.body.kind !== "document") throw new Error("expected Workbench document");
+    const sealedBeforeError = await artifactStore.putManagedDocument({
+      ref: reopenedArtifact.ref,
+      bindingId: reopenedBinding.bindingId,
+      title: reopenedArtifact.title,
+      mediaType: reopenedArtifact.body.mediaType,
+      content: reopenedArtifact.body.content,
+      expectedRevision: reopenedArtifact.body.revision,
+      seal: true,
+    });
+    bindings.recordProjection({
+      bindingId: reopenedBinding.bindingId,
+      expectedRevision: reopenedBinding.revision,
+      revision: sealedBeforeError.artifact.body.revision,
+      artifactHash: sealedBeforeError.artifact.hash!,
+      projectionDigest: "sealed-before-error",
+      generation: loops.get("loop-1")!.generation,
+      stage: "contract",
+      sealed: true,
+    });
+    const authorityError = await reconcileReproWorkbenchArtifacts({
+      loopStore: loops,
+      bindings,
+      resolveWorkspaceCwd: (workspaceId) =>
+        workspaceId === "workspace-1" ? workspaceCwd : undefined,
+      async validateFormalEvidence() {
+        throw new Error("current authority rejected reopened work");
+      },
+    });
+    expect(authorityError).toMatchObject({ projected: 0, sealed: 0 });
+    expect(authorityError.errors).toEqual([
+      { loopId: "loop-1", message: "current authority rejected reopened work" },
+    ]);
+    expect(bindings.getByLoop("loop-1")).toMatchObject({ lifecycle: "error" });
+    expect(await artifactStore.get(sparkReproWorkbenchArtifactRef("repro-1"))).toMatchObject({
+      body: {
+        management: { lifecycle: "live" },
+        progress: { label: expect.stringMatching(/^error/u) },
+      },
+    });
+    const recovered = await reconcile();
+    expect(recovered).toMatchObject({ projected: 1, sealed: 0 });
+    expect(bindings.getByLoop("loop-1")).toMatchObject({ lifecycle: "live" });
+
     db.prepare(
       `UPDATE loop_wakeups
        SET status = 'stopped', generation = generation + 1, due_at = NULL,

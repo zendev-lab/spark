@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { writeJsonFileAtomic, writeTextFileAtomic } from "@zendev-lab/spark-core";
 import {
@@ -161,6 +162,17 @@ export class ArtifactStore {
    * the same binding after the canonical Repro returns to live work.
    */
   async putManagedDocument(input: PutManagedDocumentInput): Promise<PutManagedDocumentResult> {
+    const release = await acquireManagedDocumentLock(this.rootDir, input.ref);
+    try {
+      return await this.#putManagedDocumentUnlocked(input);
+    } finally {
+      await release();
+    }
+  }
+
+  async #putManagedDocumentUnlocked(
+    input: PutManagedDocumentInput,
+  ): Promise<PutManagedDocumentResult> {
     const existing = await this.tryGet<DocumentArtifactBody>(input.ref);
     if (existing && existing.kind !== "document") {
       throw new ArtifactValidationError(`managed Document ref is not a document: ${input.ref}`);
@@ -259,6 +271,43 @@ export class ArtifactStore {
   pathFor(ref: ArtifactRef): string {
     assertArtifactRef(ref);
     return join(this.rootDir, `${refId(ref)}.json`);
+  }
+}
+
+const MANAGED_DOCUMENT_LOCK_TIMEOUT_MS = 10_000;
+const MANAGED_DOCUMENT_LOCK_STALE_MS = 300_000;
+
+async function acquireManagedDocumentLock(
+  rootDir: string,
+  ref: ArtifactRef,
+): Promise<() => Promise<void>> {
+  const lockRoot = join(rootDir, ".managed-document-locks");
+  const lockPath = join(lockRoot, `${refId(ref)}.lock`);
+  await mkdir(lockRoot, { recursive: true });
+  const startedAt = Date.now();
+  for (;;) {
+    try {
+      await mkdir(lockPath);
+      return async () => {
+        await rm(lockPath, { recursive: true, force: true });
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      try {
+        const lockStat = await stat(lockPath);
+        if (Date.now() - lockStat.mtimeMs >= MANAGED_DOCUMENT_LOCK_STALE_MS) {
+          await rm(lockPath, { recursive: true, force: true });
+          continue;
+        }
+      } catch (statError) {
+        if ((statError as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw statError;
+      }
+      if (Date.now() - startedAt >= MANAGED_DOCUMENT_LOCK_TIMEOUT_MS) {
+        throw new ArtifactValidationError(`managed Document lock timed out: ${ref}`);
+      }
+      await delay(10);
+    }
   }
 }
 

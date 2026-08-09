@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ArtifactRef, AskRef, EvidenceRef } from "@zendev-lab/spark-core";
+import type { ArtifactRef, AskRef, EvidenceRef, TaskRef } from "@zendev-lab/spark-core";
 import {
   SPARK_REPRO_SINGLE_PROCESS_TOPOLOGY,
   SPARK_REPRO_STAGE_WEIGHTS,
@@ -532,6 +532,27 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
     expect(() => buildSparkReproWorkSummary(input)).toThrow(
       "tasks inventory is required for strict work-summary/v2",
     );
+  });
+
+  it("rejects duplicate durable taskRef bindings in strict v2 inventories", () => {
+    const input = v2Input();
+    input.tasks = [
+      {
+        id: "delivery-a",
+        taskRef: "task:delivery" as TaskRef,
+        title: "Delivery A",
+        stage: "delivery",
+        status: "done",
+      },
+      {
+        id: "delivery-b",
+        taskRef: "task:delivery" as TaskRef,
+        title: "Delivery B",
+        stage: "delivery",
+        status: "done",
+      },
+    ];
+    expect(() => buildSparkReproWorkSummary(input)).toThrow("taskRef must be unique");
   });
 
   it("rejects v2 payloads that self-assert a legacy migration downgrade", () => {

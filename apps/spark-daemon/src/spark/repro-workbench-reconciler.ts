@@ -60,6 +60,7 @@ export async function reconcileReproWorkbenchArtifacts(input: {
   };
   for (const loop of loops) {
     let binding: WorkbenchArtifactBinding | undefined;
+    let stateCwd: string | undefined;
     try {
       binding = input.bindings.ensure({
         ownerSessionId: loop.ownerSessionId,
@@ -69,7 +70,7 @@ export async function reconcileReproWorkbenchArtifacts(input: {
         reproId: loop.binding.reproId!,
         generation: loop.generation,
       });
-      const stateCwd = resolveLoopStateCwd(loop, input.resolveWorkspaceCwd);
+      stateCwd = resolveLoopStateCwd(loop, input.resolveWorkspaceCwd);
       const summary = await readCanonicalSummary(loop, stateCwd);
       if (!summary) continue;
       await input.validateFormalEvidence?.({
@@ -127,14 +128,68 @@ export async function reconcileReproWorkbenchArtifacts(input: {
       result.projected += Number(projected);
       result.sealed += Number(projected && terminal);
     } catch (error) {
-      if (binding) input.bindings.recordError(binding.bindingId, error);
+      if (binding) {
+        try {
+          await reopenSealedWorkbenchAfterError(
+            stateCwd ?? resolveLoopStateCwd(loop, input.resolveWorkspaceCwd),
+            binding,
+            error,
+          );
+          input.bindings.recordError(binding.bindingId, error);
+        } catch (lifecycleError) {
+          result.errors.push({
+            loopId: loop.loopId,
+            message: `Workbench error projection failed: ${errorMessage(lifecycleError)}`,
+          });
+          continue;
+        }
+      }
       result.errors.push({
         loopId: loop.loopId,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }
   return result;
+}
+
+async function reopenSealedWorkbenchAfterError(
+  artifactCwd: string,
+  binding: WorkbenchArtifactBinding,
+  error: unknown,
+): Promise<void> {
+  const store = defaultArtifactStore(artifactCwd);
+  const current = await store.tryGet(binding.artifactRef);
+  if (
+    current?.body.kind !== "document" ||
+    current.body.management?.bindingId !== binding.bindingId
+  ) {
+    if (binding.lifecycle === "sealed") {
+      throw new Error(`sealed Workbench Artifact is unavailable: ${binding.artifactRef}`);
+    }
+    return;
+  }
+  if (current.body.management.lifecycle === "live") return;
+  if (current.body.management.lifecycle !== "sealed") {
+    throw new Error(`sealed Workbench Artifact has invalid lifecycle: ${binding.artifactRef}`);
+  }
+  await store.putManagedDocument({
+    ref: binding.artifactRef,
+    bindingId: binding.bindingId,
+    title: current.title,
+    mediaType: current.body.mediaType,
+    content: current.body.content,
+    expectedRevision: current.body.revision,
+    progress: {
+      ...(current.body.progress ?? {}),
+      label: `error · ${errorMessage(error).slice(0, 160)}`,
+    },
+    reopen: true,
+  });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function shouldSealReproWorkbench(
