@@ -23,7 +23,7 @@ function captureOutput() {
 }
 
 describe("PR workflow contract", () => {
-  it("runs repository-owned validators without mutable nested action refs", async () => {
+  it("uses pinned zendev validators without local runtime setup", async () => {
     const source = await readFile(
       new URL("../.github/workflows/ci-pr-checks.yml", import.meta.url),
       "utf8",
@@ -31,17 +31,21 @@ describe("PR workflow contract", () => {
     expect(source).toContain("pull_request:");
     expect(source).toContain("merge_group:");
     expect(source).toContain("renovate[bot]");
-    expect(source).toContain("node scripts/validate-pr-title.mjs");
-    expect(source).toContain("node scripts/validate-pr-body.mjs");
-    expect(source).not.toContain("zendev/actions/validate-");
+    expect(source).not.toContain("node scripts/validate-pr-title.mjs");
+    expect(source).not.toContain("node scripts/validate-pr-body.mjs");
+    expect(source).toContain(
+      "zendev-lab/zendev/actions/validate-title@8f336868ce2cd685cfa8c62882acefc3acbb4ead",
+    );
+    expect(source).toContain(
+      "zendev-lab/zendev/actions/validate-body@344af123be2442a48ae791935bf4df5f8fb2539b",
+    );
     const actions = [...source.matchAll(/^\s+(?:-\s+)?uses: ([^\s#]+)/gmu)].map(
       (match) => match[1],
     );
     expect(actions).toEqual([
+      "zendev-lab/zendev/actions/validate-title@8f336868ce2cd685cfa8c62882acefc3acbb4ead",
       "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-      "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
-      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-      "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+      "zendev-lab/zendev/actions/validate-body@344af123be2442a48ae791935bf4df5f8fb2539b",
     ]);
   });
 });
@@ -76,7 +80,7 @@ describe("PR title validation", () => {
   });
 });
 
-describe("PR body validation", () => {
+describe("legacy local PR body validation", () => {
   it("requires exactly the template H2 headings in order", () => {
     expect(validatePrBody("## Summary\n\nDone.\n\n## Notes\n\nNone.\n", template)).toEqual({
       valid: true,
@@ -115,17 +119,33 @@ describe("PR body validation", () => {
     });
   });
 
-  it("prints the repository-compatible error for an invalid body", async () => {
+  it("remains a strict compatibility parser, not the repository CI authority", async () => {
     const capture = captureOutput();
     const exitCode = await runPrBodyValidation({
-      body: "## Summary\n",
+      body: [
+        "## 动机",
+        "",
+        "Reason.",
+        "",
+        "## 解决方案",
+        "",
+        "Change.",
+        "",
+        "## 说明",
+        "",
+        "Context.",
+        "",
+        "## 后续",
+        "",
+        "Follow-up.",
+        "",
+      ].join("\n"),
       templatePath: new URL("../.github/pull_request_template.md", import.meta.url).pathname,
       stdout: capture.stdout,
     });
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(0);
     expect(capture.read()).toContain(
-      "::error::PR body headings do not match the repository template.",
+      'Required headings: ["动机","解决方案","说明","后续"]',
     );
-    expect(capture.read()).toContain('Expected headings: ["Summary","Notes"]');
   });
 });
