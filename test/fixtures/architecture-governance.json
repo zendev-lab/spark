@@ -174,14 +174,14 @@
     },
     {
       "path": "scripts/check-test-quality.d.mts",
-      "lineCount": 11,
+      "lineCount": 23,
       "domainOwner": "test-quality",
       "callers": ["operator/manual entrypoint"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/check-test-quality.mjs",
-      "lineCount": 304,
+      "lineCount": 541,
       "domainOwner": "test-quality",
       "callers": [
         "package.json",

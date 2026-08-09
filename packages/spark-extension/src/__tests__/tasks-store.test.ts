@@ -89,7 +89,12 @@ async function loadLegacyTaskRunEvidenceFixture(): Promise<LegacyTaskRunEvidence
     import.meta.dirname,
     "../../../../test/fixtures/legacy-evidence/task-run-v1-fields.json",
   );
-  return JSON.parse(await readFile(path, "utf8")) as LegacyTaskRunEvidenceFixture;
+  const source = await readFile(path, "utf8");
+  try {
+    return JSON.parse(source) as LegacyTaskRunEvidenceFixture;
+  } catch (error) {
+    throw new Error(`Invalid JSON fixture: ${path}`, { cause: error });
+  }
 }
 
 function executionReadyPlan(objective: string): TaskPlan {
@@ -2532,12 +2537,6 @@ test("Spark runtime Pi command args use current CLI flags and explicit session d
   assert.equal(args.includes("--fork"), false);
   assert.equal(args.includes("role:builtin-worker"), false);
   assert.equal(args.at(-2), "You are a worker.");
-  assert.equal(args.at(-1)?.includes("Spark role-run interaction policy:"), true);
-  assert.equal(args.at(-1)?.includes("You do not have interactive ask tools"), true);
-  assert.equal(args.at(-1)?.includes("Spark naming quality policy:"), true);
-  assert.equal(args.at(-1)?.includes("placeholder, generic, stale"), true);
-  assert.equal(args.at(-1)?.includes("Stable refs must remain unchanged"), true);
-  assert.equal(args.at(-1)?.includes("Instruction:\n\nImplement the task."), true);
   assert.throws(
     () =>
       buildRoleRunArgs({
@@ -2548,72 +2547,6 @@ test("Spark runtime Pi command args use current CLI flags and explicit session d
       }),
     /forked role launch requires forkFromSession/,
   );
-});
-
-test("runSparkTask includes plan and a bounded active plan item preview in role instruction", async () => {
-  const graph = new TaskGraph();
-  const project = graph.createProject({ title: "Demo", description: "demo" });
-  const task = graph.createTask({
-    projectRef: project.ref,
-    name: "bounded-preview",
-    title: "Implement bounded preview",
-    description: "Implement the bounded child prompt preview.",
-    roleRef: builtinRoleRef("worker"),
-    plan: {
-      ...executionReadyPlan("Implement the bounded child prompt preview."),
-      constraints: ["Do not dump every TODO into the prompt."],
-      nonGoals: ["Do not redesign the role runner."],
-    },
-  });
-  graph.applyTodoOps(task.ref, [
-    {
-      op: "init",
-      items: [
-        "Validate first active preview item",
-        "Validate second active preview item",
-        "Validate third hidden preview item",
-      ],
-    },
-  ]);
-  const [firstTodo, secondTodo] = graph.taskTodos(task.ref);
-  assert.ok(firstTodo);
-  assert.ok(secondTodo);
-  graph.applyTodoOps(task.ref, [{ op: "start", id: firstTodo.id }]);
-  const dir = await mkdtemp(join(tmpdir(), "spark-task-instruction-preview-"));
-  try {
-    let prompt = "";
-
-    await runSparkTask({
-      graph,
-      taskRef: task.ref,
-      registry: new RoleRegistry(),
-      cwd: dir,
-      dryRun: false,
-      roleExecutor: async (input) => {
-        prompt = input.instruction.instruction;
-        return testRoleRunResult(input, { stdout: "preview validated\n" });
-      },
-      timeoutMs: 5_000,
-      claim: { sessionId: "session:preview" },
-    });
-
-    assert.match(prompt, /Task plan \(execution contract\):/);
-    assert.match(prompt, /- Objective: Implement the bounded child prompt preview\./);
-    assert.match(prompt, /- Constraints:\n  - Do not dump every TODO into the prompt\./);
-    assert.match(prompt, /Current task plan item preview \(showing 2\/3 active items/);
-    assert.match(
-      prompt,
-      new RegExp(`\\[in_progress\\] ${firstTodo.id}: Validate first active preview item`),
-    );
-    assert.match(
-      prompt,
-      new RegExp(`\\[pending\\] ${secondTodo.id}: Validate second active preview item`),
-    );
-    assert.doesNotMatch(prompt, /Validate third hidden preview item/);
-    assert.match(prompt, /1 more TODO\(s\) hidden/);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
 });
 
 test("runSparkTask marks native role timeout failed and clears the task claim", async () => {

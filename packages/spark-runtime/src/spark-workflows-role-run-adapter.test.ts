@@ -183,15 +183,6 @@ test("spark-workflows role-run adapter maps workflow agents to Spark dependency 
   assert.equal(request.allowedTools?.includes("read"), false);
   assert.equal(request.allowedTools?.includes("write"), false);
   assert.equal(request.allowedTools?.includes("edit"), false);
-  assert.match(request.instruction, /Spark workflow child run/);
-  assert.match(request.instruction, /Inspect auth routes/);
-  assert.match(request.instruction, /Stage: Review/);
-  assert.match(request.instruction, /Isolation: graft/);
-  assert.match(request.instruction, /Briefing evidence: evidence:brief-123/);
-  assert.match(request.instruction, /Environment keys: GRAFT_BASE_REF/);
-  assert.match(request.instruction, /Allowed tools: graft/);
-  assert.match(request.instruction, /Graft isolation is active/);
-  assert.match(request.instruction, /candidate_from_scratch/);
 });
 
 test("Spark workflow role-run adapter refuses graft isolation without a base", async () => {

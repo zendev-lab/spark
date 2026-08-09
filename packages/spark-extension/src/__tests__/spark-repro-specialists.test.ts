@@ -32,7 +32,6 @@ test("Repro extension roles are bounded specialists without ask or spawn authori
       role.allowedTools?.some((tool) => forbidden.has(tool)),
       false,
     );
-    assert.match(role.systemPrompt, /do not|never/iu);
   }
   assert.equal(
     roles.find((role) => role.id === "repro-precision-fixer")?.allowedTools?.includes("edit"),

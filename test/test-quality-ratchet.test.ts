@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { findSourceMirrorAssertions } from "../scripts/check-test-quality.mjs";
+import {
+  findBrittlePromptTextAssertions,
+  findSourceMirrorAssertions,
+} from "../scripts/check-test-quality.mjs";
 
 test("source-mirror detector catches Vitest fragment assertions on production source", () => {
   const findings = findSourceMirrorAssertions(`
@@ -53,6 +56,68 @@ test("source-mirror detector ignores persisted state and rendered output asserti
       const rendered = renderComponent();
       expect(rendered).toContain("Ready");
     }
+  `);
+
+  assert.deepEqual(findings, []);
+});
+
+test("prompt-text detector catches fragment, snapshot, and includes assertions", () => {
+  const findings = findBrittlePromptTextAssertions(`
+    import assert from "node:assert/strict";
+    import { expect } from "vitest";
+    const instruction = renderReviewerInstruction(input);
+    assert.match(instruction, /must approve/);
+    const prompt = tool.promptGuidelines.join(" ");
+    expect(prompt).not.toContain("legacy");
+    assert.equal(prompt.includes("required"), true);
+    const systemPrompts = ["panel", "judge"];
+    assert.equal(systemPrompts.filter((prompt) => prompt.includes("judge")).length, 1);
+    expect(renderSystemPrompt()).toMatchSnapshot();
+    expect(run).toHaveBeenCalledWith(
+      expect.objectContaining({ systemPrompt: expect.stringContaining("embedded fragment") }),
+    );
+  `);
+
+  assert.deepEqual(
+    findings.map(({ assertion, subject }) => ({ assertion, subject })),
+    [
+      { assertion: "assert.match", subject: "instruction" },
+      { assertion: "expect(prompt).not.toContain", subject: "prompt" },
+      { assertion: "assert.equal", subject: 'prompt.includes("required")' },
+      { assertion: "assert.equal", subject: 'prompt.includes("judge")' },
+      {
+        assertion: "expect(renderSystemPrompt()).toMatchSnapshot",
+        subject: "renderSystemPrompt()",
+      },
+      {
+        assertion: "expect(run).toHaveBeenCalledWith",
+        subject: 'expect.stringContaining("embedded fragment")',
+      },
+    ],
+  );
+});
+
+test("prompt-text detector follows prompt-producing declarations and boolean assertions", () => {
+  const findings = findBrittlePromptTextAssertions(`
+    import assert from "node:assert/strict";
+    const rendered = formatSkillsForPrompt(skills);
+    assert.ok(rendered.startsWith("<skills>"));
+    assert.strictEqual(/hidden/.test(rendered), false);
+  `);
+
+  assert.deepEqual(
+    findings.map(({ assertion }) => assertion),
+    ["assert.ok", "assert.strictEqual"],
+  );
+});
+
+test("prompt-text detector leaves user-visible output and structured state assertions alone", () => {
+  const findings = findBrittlePromptTextAssertions(`
+    import assert from "node:assert/strict";
+    const output = runCli();
+    assert.match(output, /Usage: spark/);
+    assert.equal(result.instructionCount, 1);
+    assert.deepEqual(parsed.actions, ["list", "show"]);
   `);
 
   assert.deepEqual(findings, []);

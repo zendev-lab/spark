@@ -396,9 +396,6 @@ test("spark-workflows research builtin fans out with collected errors and report
   );
   assert.equal(agentCalls[1]?.model, "provider/fast");
   assert.equal(agentCalls[4]?.model, "provider/judge");
-  assert.match(agentCalls[1]?.prompt ?? "", /Assess the source evidence/);
-  assert.match(agentCalls[3]?.prompt ?? "", /MODEL_BLOCKED/);
-  assert.match(agentCalls[4]?.prompt ?? "", /final user-facing deep research report/);
   assert.equal((run.result as { report?: unknown }).report, "final synthesis");
 });
 
@@ -806,9 +803,6 @@ test("spark-workflows fan_out_with_brief records one brief and fans out with evi
     run.stages?.map((stage) => `${stage.title}:${stage.status ?? "open"}`),
     ["Brief:success", "Fan out:success", "Fan in:open"],
   );
-  assert.match(prompts[0] ?? "", /CONTEXT_BUNDLE: read evidence ref evidence:brief-xyz/);
-  assert.match(prompts[0] ?? "", /audit task output/);
-  assert.match(prompts[1] ?? "", /audit artifact output/);
   assert.deepEqual(JSON.parse(JSON.stringify(run.result)), {
     briefRef: "evidence:brief-xyz",
     outputs: [
@@ -872,8 +866,6 @@ return await parallel([
   );
   for (const request of requests) {
     assert.deepEqual(request.allowedTools, SPARK_WORKFLOW_GRAFT_ISOLATION_TOOLS);
-    assert.match(request.instruction, /Graft isolation is active/);
-    assert.match(request.instruction, /shared\.txt/);
   }
   const results = run.result as SparkWorkflowGraftAgentResult[];
   assert.deepEqual(
@@ -955,8 +947,6 @@ return await agent('do the work', { label: 'worker', evidenceRef: 'evidence:brie
     },
   });
 
-  assert.match(prompts[0] ?? "", /CONTEXT_BUNDLE: read evidence ref evidence:brief-123/);
-  assert.match(prompts[0] ?? "", /Workflow agent request:\ndo the work/);
   assert.equal(run.result, "done");
 });
 

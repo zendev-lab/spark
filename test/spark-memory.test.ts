@@ -94,7 +94,6 @@ test("spark memory extension registers only the canonical memory tool by default
     assert.deepEqual([...api.tools.keys()], ["memory"]);
     const tool = api.tools.get("memory");
     assert.ok(tool);
-    assert.match(tool.promptGuidelines?.join("\n") ?? "", /policy-only/i);
     assert.match(renderSparkMemoryPolicy(), /explicit/);
 
     await assert.rejects(
