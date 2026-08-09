@@ -70,7 +70,7 @@ export function renderSparkReproWorkbenchA2ui(input: SparkReproWorkbenchProjecti
     {
       id: "status",
       component: "Text",
-      text: `**${input.work.status}** · ${input.work.stage} · ${input.work.progress.percent}% · Loop ${input.loop.status}`,
+      text: `**${input.work.status}** · ${input.work.stage} · ${formatProgress(input.work.progress)} · Loop ${input.loop.status}`,
     },
     {
       id: "tabs",
@@ -222,7 +222,7 @@ function coverageMarkdown(input: SparkReproWorkbenchProjectionInput): string {
     `- ${profile.id}: ${profile.model}/${profile.compute}; steps ${profile.steps.completed}/${profile.steps.target}`,
     `- topology: dp=${profile.topology.dp} tp=${profile.topology.tp} pp=${profile.topology.pp} ep=${profile.topology.ep} cp=${profile.topology.cp} sp=${profile.topology.sp}`,
     "",
-    `## Gates (${input.work.progress.percent}%)`,
+    `## Gates (${formatProgress(input.work.progress)})`,
     ...(gates.length ? gates : ["- none"]),
     "",
     "## Claims",
@@ -272,6 +272,10 @@ function assertProjectionBinding(input: SparkReproWorkbenchProjectionInput): voi
   if (input.revision < 1 || !Number.isInteger(input.revision)) {
     throw new Error("Workbench revision must be a positive integer");
   }
+}
+
+function formatProgress(progress: SparkReproWorkSummary["progress"]): string {
+  return progress.quantified ? `${progress.percent}%` : "unquantified";
 }
 
 function actionLabel(action: SparkWorkbenchActionId): string {

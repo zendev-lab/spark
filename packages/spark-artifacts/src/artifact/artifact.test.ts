@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, stat, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { ToolConfig } from "@zendev-lab/spark-core";
@@ -25,7 +25,7 @@ describe("artifact kinds", () => {
     expect(ARTIFACT_KINDS).toEqual(["issue", "git_change", "document"]);
   });
 
-  it("CAS-updates daemon-managed Documents and rejects writes after sealing", async () => {
+  it("CAS-updates daemon-managed Documents and requires an explicit reopen after sealing", async () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-managed-document-"));
     const store = defaultArtifactStore(dir);
     const ref = "artifact:managed-workbench" as ArtifactRef;
@@ -38,6 +38,43 @@ describe("artifact kinds", () => {
       expectedRevision: null,
     });
     expect(first.artifact.body.revision).toBe(1);
+
+    await expect(
+      store.put({
+        ref,
+        kind: "document",
+        title: "Forged Workbench",
+        body: {
+          ...first.artifact.body,
+          mediaType: "text/markdown",
+          content: "forged through generic put",
+          revision: 1,
+        },
+      }),
+    ).rejects.toThrow("managed Document writes require expected-revision authority");
+    await expect(
+      store.put({
+        ref: "artifact:forged-managed" as ArtifactRef,
+        kind: "document",
+        title: "Forged managed document",
+        body: {
+          ...first.artifact.body,
+          mediaType: "text/markdown",
+          content: "forged managed creation",
+          revision: 1,
+        },
+      }),
+    ).rejects.toThrow("managed Document writes require expected-revision authority");
+    await expect(
+      store.update(ref, {
+        body: {
+          ...first.artifact.body,
+          mediaType: "text/markdown",
+          content: "forged through generic update",
+          revision: 1,
+        },
+      }),
+    ).rejects.toThrow("managed Document writes require expected-revision authority");
 
     await expect(
       store.putManagedDocument({
@@ -81,7 +118,125 @@ describe("artifact kinds", () => {
           revision: 3,
         },
       }),
-    ).rejects.toThrow("managed Document is sealed");
+    ).rejects.toThrow("managed Document writes require expected-revision authority");
+    const reopened = await store.putManagedDocument({
+      ref,
+      bindingId: "workbench-binding-1",
+      title: "Workbench",
+      mediaType: "application/vnd.a2ui+json",
+      content: '{"messages":[{"reopened":true}]}',
+      expectedRevision: 2,
+      reopen: true,
+    });
+    expect(reopened.artifact.body).toMatchObject({
+      revision: 3,
+      management: { lifecycle: "live" },
+    });
+  });
+
+  it("serializes managed Document CAS so one concurrent stale writer loses", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-managed-document-cas-"));
+    const store = defaultArtifactStore(dir);
+    const ref = "artifact:managed-cas" as ArtifactRef;
+    await store.putManagedDocument({
+      ref,
+      bindingId: "workbench-binding-cas",
+      title: "Workbench",
+      mediaType: "application/vnd.a2ui+json",
+      content: '{"revision":1}',
+      expectedRevision: null,
+    });
+
+    const results = await Promise.allSettled(
+      ["a", "b"].map((writer) =>
+        store.putManagedDocument({
+          ref,
+          bindingId: "workbench-binding-cas",
+          title: "Workbench",
+          mediaType: "application/vnd.a2ui+json",
+          content: JSON.stringify({ writer }),
+          expectedRevision: 1,
+        }),
+      ),
+    );
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected");
+    expect(rejected).toMatchObject({
+      status: "rejected",
+      reason: expect.objectContaining({
+        message: expect.stringContaining("DOCUMENT_REVISION_CONFLICT"),
+      }),
+    });
+    expect((await store.get(ref)).body).toMatchObject({ revision: 2 });
+
+    const deadLock = join(
+      dir,
+      ".spark",
+      "artifacts",
+      ".managed-document-locks",
+      "managed-cas.lock",
+    );
+    await mkdir(deadLock, { recursive: true });
+    await writeFile(
+      join(deadLock, "owner.json"),
+      JSON.stringify({ hostname: hostname(), pid: 2_147_483_647, token: "dead-owner" }),
+      "utf8",
+    );
+    await expect(
+      store.putManagedDocument({
+        ref,
+        bindingId: "workbench-binding-cas",
+        title: "Workbench",
+        mediaType: "application/vnd.a2ui+json",
+        content: '{"afterDeadOwner":true}',
+        expectedRevision: 2,
+      }),
+    ).resolves.toMatchObject({ artifact: { body: { revision: 3 } } });
+  });
+
+  it("rejects a blob whose bytes no longer match its metadata hash", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-managed-document-integrity-"));
+    const store = defaultArtifactStore(dir);
+    const ref = "artifact:managed-integrity" as ArtifactRef;
+    await store.putManagedDocument({
+      ref,
+      bindingId: "workbench-binding-integrity",
+      title: "Workbench",
+      mediaType: "application/vnd.a2ui+json",
+      content: '{"messages":[]}',
+      expectedRevision: null,
+    });
+    const metadata = JSON.parse(await readFile(store.pathFor(ref), "utf8")) as {
+      blobPath?: string;
+    };
+    if (!metadata.blobPath) throw new Error("missing managed Document blobPath");
+    const blobPath = join(dir, ".spark", "artifacts", metadata.blobPath);
+    const body = JSON.parse(await readFile(blobPath, "utf8")) as Record<string, unknown>;
+    body.content = '{"messages":[{"forged":true}]}';
+    await writeFile(blobPath, JSON.stringify(body), "utf8");
+
+    await expect(store.get(ref)).rejects.toThrow("artifact blob hash mismatch");
+
+    const missingHashRef = "artifact:managed-missing-hash" as ArtifactRef;
+    await store.putManagedDocument({
+      ref: missingHashRef,
+      bindingId: "workbench-binding-missing-hash",
+      title: "Workbench",
+      mediaType: "application/vnd.a2ui+json",
+      content: '{"messages":[]}',
+      expectedRevision: null,
+    });
+    const metadataPath = store.pathFor(missingHashRef);
+    const missingHashMetadata = JSON.parse(await readFile(metadataPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    delete missingHashMetadata.hash;
+    await writeFile(metadataPath, JSON.stringify(missingHashMetadata), "utf8");
+    await expect(store.get(missingHashRef)).rejects.toThrow(
+      "artifact blob metadata hash is missing",
+    );
   });
 
   it("stores documents with continuous revisioned updates", async () => {

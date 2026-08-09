@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { writeJsonFileAtomic, writeTextFileAtomic } from "@zendev-lab/spark-core";
 import { isArtifactKind } from "./artifact/types.ts";
 
@@ -391,7 +391,7 @@ export class EvidenceStore {
   ): Promise<EvidenceRecord<T>> {
     this.assertEvidenceRef(ref, "ref");
     const evidence = await this.readMetadata<T>(ref);
-    if (evidence.bodyTruncated && evidence.blobPath) {
+    if (evidence.blobPath) {
       const body = await this.getBody(ref);
       return {
         ...evidence,
@@ -408,14 +408,18 @@ export class EvidenceStore {
       const blobPath = resolveEvidenceBlobPath(this.rootDir, evidence.blobPath);
       if (blobPath) {
         try {
-          return await readFile(blobPath, "utf8");
+          const bodyBytes = await readFile(blobPath);
+          assertEvidenceBodyIntegrity(evidence, bodyBytes);
+          return bodyBytes.toString("utf8");
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
       }
       throw new Error(`evidence blob path is unavailable in evidence store: ${evidence.ref}`);
     }
-    return serializeEvidenceBody(evidence.format, evidence.body);
+    const serializedBody = serializeEvidenceBody(evidence.format, evidence.body);
+    assertEvidenceBodyIntegrity(evidence, serializedBody);
+    return serializedBody;
   }
 
   async tryGet<T extends JsonValue | string = JsonValue | string>(
@@ -467,17 +471,18 @@ export class EvidenceStore {
       const filePath = join(this.rootDir, entry.name);
       let evidenceRecord: EvidenceRecord;
       try {
-        evidenceRecord = await readEvidenceMetadataFile(filePath);
+        const metadata = await readEvidenceMetadataFile(filePath);
+        if (!this.acceptsRef(metadata.ref)) {
+          diagnostics.push({
+            filePath,
+            reason: "invalid_metadata",
+            message: `${filePath}: evidence store cannot read ${metadata.ref}`,
+          });
+          continue;
+        }
+        evidenceRecord = await this.get(metadata.ref);
       } catch (error) {
         diagnostics.push(evidenceListDiagnostic(filePath, error));
-        continue;
-      }
-      if (!this.acceptsRef(evidenceRecord.ref)) {
-        diagnostics.push({
-          filePath,
-          reason: "invalid_metadata",
-          message: `${filePath}: evidence store cannot read ${evidenceRecord.ref}`,
-        });
         continue;
       }
       if (!matchesQuery(evidenceRecord, filter)) continue;
@@ -782,6 +787,22 @@ export function refId(ref: string): string {
 
 export function contentHash(input: string | Uint8Array): string {
   return createHash("sha256").update(input).digest("hex");
+}
+
+function assertEvidenceBodyIntegrity(
+  evidence: Pick<EvidenceRecord, "ref" | "hash" | "blobPath">,
+  serializedBody: string | Uint8Array,
+): void {
+  const actualHash = contentHash(serializedBody);
+  if (evidence.blobPath && evidence.hash === undefined) {
+    throw new EvidenceValidationError(`evidence blob metadata hash is missing: ${evidence.ref}`);
+  }
+  if (evidence.hash !== undefined && evidence.hash !== actualHash) {
+    throw new EvidenceValidationError(`evidence body hash mismatch: ${evidence.ref}`);
+  }
+  if (evidence.blobPath && basename(evidence.blobPath).split(".", 1)[0] !== actualHash) {
+    throw new EvidenceValidationError(`evidence blob path hash mismatch: ${evidence.ref}`);
+  }
 }
 
 export function nowIso(): string {

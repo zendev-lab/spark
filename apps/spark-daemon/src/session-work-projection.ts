@@ -236,6 +236,13 @@ async function readGoal(
   }
 }
 
+export async function readSessionReproForDaemon(
+  cwd: string,
+  sessionId: string,
+): Promise<SparkSessionRepro | undefined> {
+  return await readRepro(cwd, sessionId);
+}
+
 async function readRepro(
   cwd: string,
   sessionId: string,
@@ -247,7 +254,7 @@ async function readRepro(
       return new Error(`invalid JSON at ${filePath}: ${message}`);
     });
     if (raw === undefined) return undefined;
-    if (!isRecord(raw) || (raw.version !== 5 && raw.version !== 6)) {
+    if (!isRecord(raw) || (raw.version !== 5 && raw.version !== 6 && raw.version !== 7)) {
       recordDiagnostic({ sessionId, onDiagnostic }, "repro_state_unavailable", "repro");
       return undefined;
     }

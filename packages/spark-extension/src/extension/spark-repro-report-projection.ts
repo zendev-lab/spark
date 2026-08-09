@@ -7,6 +7,7 @@ import {
   type SparkReproWorkSummary,
   type SparkReproWorkSummaryInput,
 } from "@zendev-lab/spark-repro/work-summary";
+import type { SparkSessionRepro } from "@zendev-lab/spark-repro";
 
 import {
   composeSparkReproReportSummary,
@@ -14,9 +15,11 @@ import {
   SPARK_REPRO_REPORT_SUMMARY_PATH,
   type SparkReproReportSummary,
 } from "../repro-report-summary.ts";
+import type { SparkDaemonReproFormalEvidenceControl } from "./spark-daemon-repro-formal-evidence-client.ts";
 import type { SparkDaemonUsageControl } from "./spark-daemon-usage-client.ts";
 import {
   resolveAcceptedFormalEvidence,
+  verifyCurrentReproReportAuthority,
   type SparkReproEvidenceLookup,
 } from "./spark-repro-report-evidence.ts";
 import {
@@ -48,6 +51,9 @@ export async function projectSparkReproReportSummary(input: {
   currentReproId: string;
   workSummaryInput: unknown;
   usageControl: SparkDaemonUsageControl;
+  reproState?: SparkSessionRepro;
+  taskStatusByRef?: Readonly<Record<string, string | undefined>>;
+  formalEvidenceControl?: SparkDaemonReproFormalEvidenceControl;
   evidenceLookup?: SparkReproEvidenceLookup;
   signal?: AbortSignal;
 }): Promise<SparkReproReportProjectionResult> {
@@ -75,10 +81,17 @@ export async function projectSparkReproReportSummary(input: {
     );
   }
 
-  await resolveAcceptedFormalEvidence(
+  const evidenceLookup = input.evidenceLookup ?? defaultEvidenceStore(input.cwd);
+  await resolveAcceptedFormalEvidence(work, evidenceLookup);
+  await verifyCurrentReproReportAuthority({
+    cwd: input.cwd,
     work,
-    input.evidenceLookup ?? defaultEvidenceStore(input.cwd),
-  );
+    repro: input.reproState,
+    taskStatusByRef: input.taskStatusByRef,
+    evidenceLookup,
+    control: input.formalEvidenceControl,
+    signal: input.signal,
+  });
 
   let tokenUsage: Awaited<ReturnType<SparkDaemonUsageControl["summary"]>> | undefined;
   let warning: string | undefined;

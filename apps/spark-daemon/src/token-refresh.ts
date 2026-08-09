@@ -115,6 +115,9 @@ export async function refreshSparkDaemonCredentials(options: {
     writeSparkDaemonConfig(options.paths, {
       installationId: identity.installationId,
       displayName: identity.displayName,
+      ...(identity.reproFormalEvidencePublicKeysJson
+        ? { reproFormalEvidencePublicKeysJson: identity.reproFormalEvidencePublicKeysJson }
+        : {}),
     });
   }
 

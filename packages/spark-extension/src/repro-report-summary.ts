@@ -5,9 +5,10 @@ import {
   type SparkTokenUsageAggregate,
 } from "@zendev-lab/spark-protocol/token-usage";
 import {
-  buildSparkReproWorkSummary,
+  normalizeSparkReproWorkSummary,
+  SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA,
+  SPARK_REPRO_WORK_SUMMARY_SCHEMA,
   type SparkReproWorkSummary,
-  type SparkReproWorkSummaryInput,
 } from "@zendev-lab/spark-repro/work-summary";
 
 export const SPARK_REPRO_REPORT_SUMMARY_FORMAT = "spark-repro-summary/v1" as const;
@@ -34,7 +35,7 @@ export interface SparkReproReportSummaryInput {
 export function composeSparkReproReportSummary(
   input: SparkReproReportSummaryInput,
 ): SparkReproReportSummary {
-  if (input.work.schema !== "spark.repro.work-summary/v1") {
+  if (input.work.schema !== SPARK_REPRO_WORK_SUMMARY_SCHEMA) {
     throw new Error(`unsupported Repro work summary schema: ${String(input.work.schema)}`);
   }
 
@@ -67,11 +68,14 @@ export function parseSparkReproReportSummary(value: unknown): SparkReproReportSu
   if (!isRecord(value.work)) throw new Error("Repro report summary work must be an object");
 
   const storedWork = value.work;
-  const work = buildSparkReproWorkSummary(storedWork as unknown as SparkReproWorkSummaryInput);
-  assertCanonicalField(storedWork, work, "schema");
-  assertCanonicalField(storedWork, work, "status");
-  assertCanonicalField(storedWork, work, "progress");
-  assertCanonicalField(storedWork, work, "technicalGoal");
+  const legacyWork = storedWork.schema === SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA;
+  const work = normalizeSparkReproWorkSummary(storedWork);
+  if (!legacyWork) {
+    assertCanonicalField(storedWork, work, "schema");
+    assertCanonicalField(storedWork, work, "status");
+    assertCanonicalField(storedWork, work, "progress");
+    assertCanonicalField(storedWork, work, "technicalGoal");
+  }
 
   return composeSparkReproReportSummary({
     work,

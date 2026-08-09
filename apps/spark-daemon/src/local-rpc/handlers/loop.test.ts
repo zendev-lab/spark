@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -114,16 +114,28 @@ describe("trusted Workbench Loop control", () => {
     db.prepare(
       `UPDATE workbench_artifact_bindings SET generation = ?, updated_at = ? WHERE binding_id = ?`,
     ).run(2, "2026-08-04T01:00:00.000Z", refreshedBinding.bindingId);
-    await defaultArtifactStore(workspaceCwd).put({
-      ref: refreshedBinding.artifactRef,
-      kind: "document",
-      title: "Forged Workbench",
-      body: {
-        ...artifact.artifact.body,
-        content: '{"messages":[{"forged":true}]}',
-        revision: 2,
-      },
-    });
+    const artifactStore = defaultArtifactStore(workspaceCwd);
+    await expect(
+      artifactStore.put({
+        ref: refreshedBinding.artifactRef,
+        kind: "document",
+        title: "Forged Workbench",
+        body: {
+          ...artifact.artifact.body,
+          content: '{"messages":[{"forged":true}]}',
+          revision: 2,
+        },
+      }),
+    ).rejects.toThrow("managed Document writes require expected-revision authority");
+    const metadataPath = artifactStore.pathFor(refreshedBinding.artifactRef);
+    const tamperedMetadata = JSON.parse(await readFile(metadataPath, "utf8")) as {
+      blobPath?: string;
+    };
+    if (!tamperedMetadata.blobPath) throw new Error("missing Workbench blobPath fixture");
+    const blobPath = join(workspaceCwd, ".spark", "artifacts", tamperedMetadata.blobPath);
+    const tamperedBody = JSON.parse(await readFile(blobPath, "utf8")) as Record<string, unknown>;
+    tamperedBody.content = '{"messages":[{"forged":true}]}';
+    await writeFile(blobPath, JSON.stringify(tamperedBody), "utf8");
     await expect(
       handleLoopRequest(context, {
         method: "loop.control",

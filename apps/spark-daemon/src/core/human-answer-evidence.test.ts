@@ -212,6 +212,20 @@ describe("human AnswerEvent Evidence projection", () => {
       answers: { decision: "continue" },
     });
     if (!delivered.answerEvent) throw new Error("missing accepted AnswerEvent");
+    const originalWake = loops.wake.bind(loops);
+    const failedWake = vi.spyOn(loops, "wake").mockImplementation((loopId, input) => {
+      originalWake(loopId, input);
+      throw new Error("simulated crash before atomic wake commit");
+    });
+    expect(() => wakeHumanAnswerEvidenceOwner(loops, delivered.answerEvent!, waits)).toThrow(
+      "simulated crash before atomic wake commit",
+    );
+    expect(
+      waits.getEvidenceAnswerEventWakeClaim(delivered.answerEvent.answerEventId),
+    ).toBeUndefined();
+    expect(loops.require("loop-atomic")).toMatchObject({ status: "dormant", generation: 1 });
+    failedWake.mockRestore();
+
     const first = wakeHumanAnswerEvidenceOwner(loops, delivered.answerEvent, waits);
     const second = wakeHumanAnswerEvidenceOwner(loops, delivered.answerEvent, waits);
 

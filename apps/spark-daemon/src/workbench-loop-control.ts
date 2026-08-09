@@ -52,9 +52,17 @@ export async function executeTrustedWorkbenchLoopControl(input: {
     );
   }
   assertTrustedWorkbenchAction({ binding, current, action });
-  const artifact = await defaultArtifactStore(resolveLoopStateCwd(input.db, current)).tryGet(
-    actionContext.artifactRef,
-  );
+  let artifact: Awaited<ReturnType<ReturnType<typeof defaultArtifactStore>["tryGet"]>>;
+  try {
+    artifact = await defaultArtifactStore(resolveLoopStateCwd(input.db, current)).tryGet(
+      actionContext.artifactRef,
+    );
+  } catch (error) {
+    throw new SparkDaemonControlError(
+      "workbench_action_untrusted",
+      `Workbench Artifact integrity check failed: ${binding.artifactRef} (${errorMessage(error)})`,
+    );
+  }
   if (
     artifact?.body.kind !== "document" ||
     artifact.body.management?.authority !== "daemon" ||
@@ -187,6 +195,10 @@ function staleActionState(
     "workbench_action_stale",
     `Workbench action ${actionId} is unavailable for Loop ${loopId} in ${status}`,
   );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function safeId(value: string): string {

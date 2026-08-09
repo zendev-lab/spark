@@ -80,6 +80,7 @@ import {
   type SparkDaemonUsageControl,
 } from "./spark-daemon-usage-client.ts";
 import { projectSparkReproReportSummary } from "./spark-repro-report-projection.ts";
+import type { SparkDaemonReproFormalEvidenceControl } from "./spark-daemon-repro-formal-evidence-client.ts";
 
 function reproStepPlanSchema() {
   return Type.Object({
@@ -106,6 +107,7 @@ interface SparkReproToolDeps {
   loopControl: SparkDaemonLoopControl;
   /** Host/test override; production reads only the public daemon usage projection. */
   usageControl?: SparkDaemonUsageControl;
+  formalEvidenceControl?: SparkDaemonReproFormalEvidenceControl;
   refreshSparkWidget?: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
 }
 
@@ -257,7 +259,13 @@ export function registerSparkReproTool(
       if (action === "sync_report") {
         const repro = await readSessionRepro(cwd, ctx);
         if (!repro) throw new Error("sync_report requires an active or completed Repro run");
-        const synced = await syncSparkReproReportArtifact(cwd, repro.reproId);
+        const taskStatusByRef = await currentReproTaskStatusByRef(stateCwd, repro);
+        const synced = await syncSparkReproReportArtifact(stateCwd, repro.reproId, {
+          reproState: repro,
+          taskStatusByRef,
+          formalEvidenceControl: deps.formalEvidenceControl,
+          signal,
+        });
         return {
           content: [
             {
@@ -269,7 +277,9 @@ export function registerSparkReproTool(
             active: synced.work.status === "active",
             status: synced.work.status,
             stage: synced.work.stage,
-            progressPercent: synced.work.progress.percent,
+            ...(synced.work.progress.quantified
+              ? { progressPercent: synced.work.progress.percent }
+              : {}),
             changed: synced.changed,
             created: synced.created,
             refs: { reportArtifactRef: synced.reportArtifactRef },
@@ -286,11 +296,15 @@ export function registerSparkReproTool(
       if (action === "project_report") {
         const repro = await readSessionRepro(cwd, ctx);
         if (!repro) throw new Error("project_report requires an active or completed Repro run");
+        const taskStatusByRef = await currentReproTaskStatusByRef(stateCwd, repro);
         const projected = await projectSparkReproReportSummary({
-          cwd,
+          cwd: stateCwd,
           currentReproId: repro.reproId,
+          reproState: repro,
+          taskStatusByRef,
           workSummaryInput: params.workSummary,
           usageControl: deps.usageControl ?? sparkDaemonUsageControl,
+          formalEvidenceControl: deps.formalEvidenceControl,
           signal,
         });
         return {
@@ -310,7 +324,9 @@ export function registerSparkReproTool(
               schema: projected.work.schema,
               status: projected.work.status,
               stage: projected.work.stage,
-              progressPercent: projected.work.progress.percent,
+              ...(projected.work.progress.quantified
+                ? { progressPercent: projected.work.progress.percent }
+                : {}),
               technicalGoalAchieved: projected.work.technicalGoal.achieved,
             },
             tokenUsage: projected.summary.tokenUsage
@@ -781,7 +797,7 @@ export async function ensureActiveReproLoop(
       },
       ownerSessionId,
       continuity: "session",
-      cwd: ctx.cwd,
+      cwd: sparkStateCwd(ctx.cwd, ctx),
       prompt: renderReproTickInstruction(repro),
       reason: options.reason ?? "active Repror recovered",
     });
@@ -1608,6 +1624,18 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     }
   }
   return lines.filter((line): line is string => line !== undefined).join("\n");
+}
+
+async function currentReproTaskStatusByRef(
+  stateCwd: string,
+  repro: SparkSessionRepro,
+): Promise<Readonly<Record<string, string | undefined>>> {
+  const graph = await defaultTaskGraphStore(stateCwd).load();
+  return Object.fromEntries(
+    repro.subgoals.flatMap((subgoal) =>
+      subgoal.taskRef ? [[subgoal.taskRef, graph?.getTask(subgoal.taskRef)?.status] as const] : [],
+    ),
+  );
 }
 
 function renderRequirementNextStep(requirement: SparkReproRequirement): string {

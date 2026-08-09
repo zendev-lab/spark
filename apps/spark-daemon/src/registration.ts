@@ -667,9 +667,13 @@ async function persistSparkDaemonCredentials(
   });
   // The upsert migrates any legacy tuple before daemon.toml is reduced to the
   // stable daemon identity. Do not select the newly registered Hub globally.
+  const current = readSparkDaemonConfig(paths);
   writeSparkDaemonConfig(paths, {
     installationId: input.installationId,
     displayName: input.displayName,
+    ...(current.reproFormalEvidencePublicKeysJson
+      ? { reproFormalEvidencePublicKeysJson: current.reproFormalEvidencePublicKeysJson }
+      : {}),
   });
 }
 

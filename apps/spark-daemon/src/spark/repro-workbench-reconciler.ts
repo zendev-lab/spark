@@ -9,7 +9,7 @@ import {
   type SparkTokenUsageAggregate,
 } from "@zendev-lab/spark-protocol/token-usage";
 import {
-  buildSparkReproWorkSummary,
+  normalizeSparkReproWorkSummary,
   type SparkReproWorkSummary,
 } from "@zendev-lab/spark-repro/work-summary";
 import {
@@ -44,6 +44,11 @@ export async function reconcileReproWorkbenchArtifacts(input: {
   loopStore: SparkLoopStore;
   bindings: WorkbenchArtifactBindingStore;
   resolveWorkspaceCwd?: (workspaceId: string) => string | undefined;
+  validateFormalEvidence?: (input: {
+    cwd: string;
+    ownerSessionId: string;
+    work: SparkReproWorkSummary;
+  }) => Promise<void>;
 }): Promise<ReproWorkbenchReconcileResult> {
   const loops = input.loopStore.list({ includeTerminal: true }).filter(isReproWorkbenchLoop);
   const result: ReproWorkbenchReconcileResult = {
@@ -55,6 +60,7 @@ export async function reconcileReproWorkbenchArtifacts(input: {
   };
   for (const loop of loops) {
     let binding: WorkbenchArtifactBinding | undefined;
+    let stateCwd: string | undefined;
     try {
       binding = input.bindings.ensure({
         ownerSessionId: loop.ownerSessionId,
@@ -64,10 +70,14 @@ export async function reconcileReproWorkbenchArtifacts(input: {
         reproId: loop.binding.reproId!,
         generation: loop.generation,
       });
-      if (binding.lifecycle === "sealed") continue;
-      const stateCwd = resolveLoopStateCwd(loop, input.resolveWorkspaceCwd);
-      const summary = await readCanonicalSummary(loop);
+      stateCwd = resolveLoopStateCwd(loop, input.resolveWorkspaceCwd);
+      const summary = await readCanonicalSummary(loop, stateCwd);
       if (!summary) continue;
+      await input.validateFormalEvidence?.({
+        cwd: stateCwd,
+        ownerSessionId: loop.ownerSessionId,
+        work: summary.work,
+      });
       const goal = await loadSessionGoal(stateCwd, { sessionId: loop.ownerSessionId });
       if (!goal || goal.goalId !== binding.goalId) {
         throw new Error(`Goal ${binding.goalId} is unavailable for Workbench projection`);
@@ -103,7 +113,7 @@ export async function reconcileReproWorkbenchArtifacts(input: {
         result.checkpointed += Number(finalCreated);
       }
       const checkpoints = input.bindings.listCheckpoints(binding.bindingId);
-      const terminal = loop.status === "completed" || loop.status === "stopped";
+      const terminal = shouldSealReproWorkbench(loop.status, summary.work.status);
       const projected = await projectLiveWorkbench({
         binding: input.bindings.getByLoop(loop.loopId) ?? binding,
         bindings: input.bindings,
@@ -118,14 +128,81 @@ export async function reconcileReproWorkbenchArtifacts(input: {
       result.projected += Number(projected);
       result.sealed += Number(projected && terminal);
     } catch (error) {
-      if (binding) input.bindings.recordError(binding.bindingId, error);
+      if (binding) {
+        try {
+          await reopenSealedWorkbenchAfterError(
+            stateCwd ?? resolveLoopStateCwd(loop, input.resolveWorkspaceCwd),
+            binding,
+            error,
+          );
+          input.bindings.recordError(binding.bindingId, error);
+        } catch (lifecycleError) {
+          input.bindings.recordError(
+            binding.bindingId,
+            new Error(
+              `${errorMessage(error)}; Workbench Artifact reopen pending: ${errorMessage(lifecycleError)}`,
+            ),
+          );
+          result.errors.push({
+            loopId: loop.loopId,
+            message: `Workbench error projection failed: ${errorMessage(lifecycleError)}`,
+          });
+          continue;
+        }
+      }
       result.errors.push({
         loopId: loop.loopId,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }
   return result;
+}
+
+async function reopenSealedWorkbenchAfterError(
+  artifactCwd: string,
+  binding: WorkbenchArtifactBinding,
+  error: unknown,
+): Promise<void> {
+  const store = defaultArtifactStore(artifactCwd);
+  const current = await store.tryGet(binding.artifactRef);
+  if (
+    current?.body.kind !== "document" ||
+    current.body.management?.bindingId !== binding.bindingId
+  ) {
+    if (binding.lifecycle === "sealed") {
+      throw new Error(`sealed Workbench Artifact is unavailable: ${binding.artifactRef}`);
+    }
+    return;
+  }
+  if (current.body.management.lifecycle === "live") return;
+  if (current.body.management.lifecycle !== "sealed") {
+    throw new Error(`sealed Workbench Artifact has invalid lifecycle: ${binding.artifactRef}`);
+  }
+  await store.putManagedDocument({
+    ref: binding.artifactRef,
+    bindingId: binding.bindingId,
+    title: current.title,
+    mediaType: current.body.mediaType,
+    content: current.body.content,
+    expectedRevision: current.body.revision,
+    progress: {
+      ...(current.body.progress ?? {}),
+      label: `error · ${errorMessage(error).slice(0, 160)}`,
+    },
+    reopen: true,
+  });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function shouldSealReproWorkbench(
+  loopStatus: SparkLoopRecord["status"],
+  workStatus: SparkReproWorkSummary["status"],
+): boolean {
+  return loopStatus === "completed" && workStatus === "complete";
 }
 
 async function projectLiveWorkbench(input: {
@@ -167,6 +244,7 @@ async function projectLiveWorkbench(input: {
     });
     if (
       current.body.management?.bindingId === input.binding.bindingId &&
+      current.body.management.lifecycle === lifecycle &&
       current.body.content === expectedCurrentContent &&
       current.hash
     ) {
@@ -196,9 +274,13 @@ async function projectLiveWorkbench(input: {
     progress: {
       stage: input.work.stage,
       label: `${input.work.stage} · ${input.work.status}`,
-      percent: input.work.progress.percent,
+      ...(input.work.progress.quantified ? { percent: input.work.progress.percent } : {}),
     },
     seal: input.seal,
+    reopen:
+      current?.body.kind === "document" &&
+      current.body.management?.lifecycle === "sealed" &&
+      !input.seal,
   });
   input.bindings.recordProjection({
     bindingId: input.binding.bindingId,
@@ -302,13 +384,16 @@ function resolveLoopStateCwd(
   return workspaceCwd;
 }
 
-async function readCanonicalSummary(loop: SparkLoopRecord): Promise<{
+async function readCanonicalSummary(
+  loop: SparkLoopRecord,
+  stateCwd: string,
+): Promise<{
   work: SparkReproWorkSummary;
   tokenUsage?: SparkTokenUsageAggregate;
 } | null> {
   let text: string;
   try {
-    text = await readFile(resolve(loop.route.cwd, REPRO_SUMMARY_PATH), "utf8");
+    text = await readFile(resolve(stateCwd, REPRO_SUMMARY_PATH), "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
@@ -318,9 +403,7 @@ async function readCanonicalSummary(loop: SparkLoopRecord): Promise<{
     throw new Error(`invalid ${REPRO_SUMMARY_PATH} envelope`);
   }
   const stored = value.work;
-  const work = buildSparkReproWorkSummary(
-    stored as unknown as Parameters<typeof buildSparkReproWorkSummary>[0],
-  );
+  const work = normalizeSparkReproWorkSummary(stored);
   for (const field of ["schema", "status", "progress", "technicalGoal"] as const) {
     if (!isDeepStrictEqual(stored[field], work[field])) {
       throw new Error(`${REPRO_SUMMARY_PATH} work.${field} is not canonical`);

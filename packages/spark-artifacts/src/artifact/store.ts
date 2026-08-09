@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { hostname } from "node:os";
+import { access, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { writeJsonFileAtomic, writeTextFileAtomic } from "@zendev-lab/spark-core";
 import {
   asJsonValue,
@@ -43,6 +45,8 @@ export interface PutManagedDocumentInput {
   expectedRevision: number | null;
   progress?: DocumentArtifactBody["progress"];
   seal?: boolean;
+  /** Explicit daemon-owned transition from sealed back to live after a Repro reopens. */
+  reopen?: boolean;
 }
 
 export interface PutManagedDocumentResult {
@@ -73,6 +77,14 @@ export class ArtifactStore {
   }
 
   async put<T extends ArtifactBody>(input: PutArtifactInput<T>): Promise<Artifact<T>> {
+    return await this.#put(input, false, false);
+  }
+
+  async #put<T extends ArtifactBody>(
+    input: PutArtifactInput<T>,
+    allowManagedWrite: boolean,
+    allowManagedReopen: boolean,
+  ): Promise<Artifact<T>> {
     await mkdir(this.rootDir, { recursive: true });
     await mkdir(this.blobDir, { recursive: true });
     if (!isArtifactKind(input.kind)) {
@@ -106,7 +118,7 @@ export class ArtifactStore {
         : (input.format ?? defaultFormatForBody(input.body));
     const ref = input.ref ?? newArtifactRef();
     const existing = input.ref ? await this.tryGet(input.ref) : null;
-    assertDocumentOverwriteAllowed(existing, input.body);
+    assertDocumentOverwriteAllowed(existing, input.body, allowManagedWrite, allowManagedReopen);
     const updatedAt = nextArtifactTimestamp(existing?.updatedAt);
     const serialized = serializeBody(input.body);
     const hash = createHash("sha256").update(serialized).digest("hex");
@@ -148,9 +160,21 @@ export class ArtifactStore {
   /**
    * Daemon-owned Document update with an explicit expected revision. Identical
    * content keeps its revision; content/media changes advance it exactly once.
-   * A sealed binding is immutable.
+   * A sealed binding is immutable unless its owning daemon explicitly reopens
+   * the same binding after the canonical Repro returns to live work.
    */
   async putManagedDocument(input: PutManagedDocumentInput): Promise<PutManagedDocumentResult> {
+    const release = await acquireManagedDocumentLock(this.rootDir, input.ref);
+    try {
+      return await this.#putManagedDocumentUnlocked(input);
+    } finally {
+      await release();
+    }
+  }
+
+  async #putManagedDocumentUnlocked(
+    input: PutManagedDocumentInput,
+  ): Promise<PutManagedDocumentResult> {
     const existing = await this.tryGet<DocumentArtifactBody>(input.ref);
     if (existing && existing.kind !== "document") {
       throw new ArtifactValidationError(`managed Document ref is not a document: ${input.ref}`);
@@ -160,8 +184,11 @@ export class ArtifactStore {
       if (current.management.bindingId !== input.bindingId) {
         throw new ArtifactValidationError(`managed Document binding mismatch: ${input.ref}`);
       }
-      if (current.management.lifecycle === "sealed") {
+      if (current.management.lifecycle === "sealed" && !input.reopen) {
         throw new ArtifactValidationError(`managed Document is sealed: ${input.ref}`);
+      }
+      if (input.reopen && input.seal) {
+        throw new ArtifactValidationError(`managed Document cannot reopen and seal: ${input.ref}`);
       }
     } else if (current) {
       throw new ArtifactValidationError(
@@ -177,24 +204,28 @@ export class ArtifactStore {
     const changed =
       !current || current.content !== input.content || current.mediaType !== input.mediaType;
     const revision = current ? current.revision + (changed ? 1 : 0) : 1;
-    const artifact = await this.put<DocumentArtifactBody>({
-      ref: input.ref,
-      kind: "document",
-      title: input.title,
-      body: {
-        schemaVersion: 2,
+    const artifact = await this.#put<DocumentArtifactBody>(
+      {
+        ref: input.ref,
         kind: "document",
-        mediaType: input.mediaType,
-        content: input.content,
-        revision,
-        ...(input.progress ? { progress: input.progress } : {}),
-        management: {
-          authority: "daemon",
-          bindingId: input.bindingId,
-          lifecycle: input.seal ? "sealed" : "live",
+        title: input.title,
+        body: {
+          schemaVersion: 2,
+          kind: "document",
+          mediaType: input.mediaType,
+          content: input.content,
+          revision,
+          ...(input.progress ? { progress: input.progress } : {}),
+          management: {
+            authority: "daemon",
+            bindingId: input.bindingId,
+            lifecycle: input.seal ? "sealed" : "live",
+          },
         },
       },
-    });
+      true,
+      input.reopen === true,
+    );
     return { artifact, created: !existing, changed };
   }
 
@@ -204,7 +235,19 @@ export class ArtifactStore {
     if (stored.blobPath) {
       const blobPath = resolveBlobPath(this.rootDir, stored.blobPath);
       if (!blobPath) throw new ArtifactValidationError(`blob path escapes store: ${ref}`);
-      stored.body = parseStoredBody(await readFile(blobPath, "utf8"));
+      const blobBytes = await readFile(blobPath);
+      const actualHash = createHash("sha256").update(blobBytes).digest("hex");
+      const blobNameHash = basename(stored.blobPath).split(".", 1)[0];
+      if (stored.hash === undefined) {
+        throw new ArtifactValidationError(`artifact blob metadata hash is missing: ${ref}`);
+      }
+      if (stored.hash !== actualHash) {
+        throw new ArtifactValidationError(`artifact blob hash mismatch: ${ref}`);
+      }
+      if (blobNameHash !== actualHash) {
+        throw new ArtifactValidationError(`artifact blob path hash mismatch: ${ref}`);
+      }
+      stored.body = parseStoredBody(blobBytes.toString("utf8"));
     }
     assertStoredKindMatchesBody(stored.kind, stored.body);
     return normalizeStoredArtifact(stored) as Artifact<T>;
@@ -246,9 +289,137 @@ export class ArtifactStore {
   }
 }
 
-function assertDocumentOverwriteAllowed(existing: Artifact | null, nextBody: ArtifactBody): void {
+const MANAGED_DOCUMENT_LOCK_TIMEOUT_MS = 10_000;
+
+async function acquireManagedDocumentLock(
+  rootDir: string,
+  ref: ArtifactRef,
+): Promise<() => Promise<void>> {
+  const lockRoot = join(rootDir, ".managed-document-locks");
+  const lockPath = join(lockRoot, `${refId(ref)}.lock`);
+  await mkdir(lockRoot, { recursive: true });
+  const startedAt = Date.now();
+  for (;;) {
+    try {
+      await mkdir(lockPath);
+      if (await pathExists(`${lockPath}.recovery`)) {
+        await rm(lockPath, { recursive: true, force: true });
+        await delay(10);
+        continue;
+      }
+      const ownerToken = randomUUID();
+      try {
+        await writeJsonFileAtomic(join(lockPath, "owner.json"), {
+          hostname: hostname(),
+          pid: process.pid,
+          token: ownerToken,
+        });
+      } catch (error) {
+        await rm(lockPath, { recursive: true, force: true });
+        throw error;
+      }
+      return async () => {
+        await rm(lockPath, { recursive: true, force: true });
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (await recoverDeadManagedDocumentLock(lockPath)) continue;
+      if (Date.now() - startedAt >= MANAGED_DOCUMENT_LOCK_TIMEOUT_MS) {
+        throw new ArtifactValidationError(`managed Document lock timed out: ${ref}`);
+      }
+      await delay(10);
+    }
+  }
+}
+
+async function recoverDeadManagedDocumentLock(lockPath: string): Promise<boolean> {
+  const recoveryPath = `${lockPath}.recovery`;
+  try {
+    await mkdir(recoveryPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw error;
+  }
+  try {
+    return await recoverDeadManagedDocumentLockWithFence(lockPath);
+  } finally {
+    await rm(recoveryPath, { recursive: true, force: true });
+  }
+}
+
+async function recoverDeadManagedDocumentLockWithFence(lockPath: string): Promise<boolean> {
+  let owner: unknown;
+  try {
+    owner = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    return false;
+  }
+  if (
+    !isRecord(owner) ||
+    owner.hostname !== hostname() ||
+    typeof owner.pid !== "number" ||
+    !Number.isInteger(owner.pid) ||
+    owner.pid <= 0 ||
+    typeof owner.token !== "string" ||
+    owner.token.length === 0 ||
+    isProcessAlive(owner.pid)
+  ) {
+    return false;
+  }
+  const quarantinePath = `${lockPath}.dead-${randomUUID()}`;
+  try {
+    await rename(lockPath, quarantinePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
+    return false;
+  }
+  await rm(quarantinePath, { recursive: true, force: true });
+  return true;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function assertDocumentOverwriteAllowed(
+  existing: Artifact | null,
+  nextBody: ArtifactBody,
+  allowManagedWrite = false,
+  allowManagedReopen = false,
+): void {
+  const nextManagement = nextBody.kind === "document" ? nextBody.management : undefined;
+  if (nextManagement?.authority === "daemon" && !allowManagedWrite) {
+    throw new ArtifactValidationError(
+      `managed Document writes require expected-revision authority: ${existing?.ref ?? "new document"}`,
+    );
+  }
   if (existing?.body.kind !== "document" || !existing.body.management) return;
-  if (existing.body.management.lifecycle === "sealed") {
+  if (!allowManagedWrite) {
+    throw new ArtifactValidationError(
+      `managed Document requires managed write authority: ${existing.ref}`,
+    );
+  }
+  if (existing.body.management.lifecycle === "sealed" && !allowManagedReopen) {
     throw new ArtifactValidationError(`managed Document is sealed: ${existing.ref}`);
   }
   if (

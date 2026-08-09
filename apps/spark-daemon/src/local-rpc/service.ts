@@ -18,6 +18,7 @@ import { handleLoopRequest } from "./handlers/loop.ts";
 import { handleDelegationRequest } from "./handlers/delegation.ts";
 import { handleHumanRequest } from "./handlers/human.ts";
 import { handleModelRequest } from "./handlers/model.ts";
+import { handleReproRequest } from "./handlers/repro.ts";
 import { handleSessionRequest } from "./handlers/session.ts";
 import { handleSideThreadRequest } from "./handlers/side-thread.ts";
 import { handleTaskClaimRequest } from "./handlers/task-claim.ts";
@@ -64,6 +65,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "invocation.retention.apply",
   ],
   usage: ["usage.summary", "usage.persistence", "usage.backfill"],
+  repro: ["repro.formal-evidence.record"],
   loop: [
     "loop.start",
     "loop.status",
@@ -233,6 +235,9 @@ async function dispatchLocalRpcServiceRequest(
   }
   if (requestBelongsToHandlerGroup(request, "usage")) {
     return handleUsageRequest(context, request);
+  }
+  if (requestBelongsToHandlerGroup(request, "repro")) {
+    return handleReproRequest(context, request);
   }
   if (requestBelongsToHandlerGroup(request, "loop")) {
     return handleLoopRequest(context, request);

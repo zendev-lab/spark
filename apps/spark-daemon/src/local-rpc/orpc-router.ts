@@ -138,6 +138,13 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
         invoke("usage.backfill", params),
       ),
     },
+    repro: {
+      formalEvidence: {
+        record: os.repro.formalEvidence.record.handler(async ({ input: params }) =>
+          invoke("repro.formal-evidence.record", params),
+        ),
+      },
+    },
     loop: {
       start: os.loop.start.handler(async ({ input: params }) => invoke("loop.start", params)),
       status: os.loop.status.handler(async ({ input: params }) => invoke("loop.status", params)),

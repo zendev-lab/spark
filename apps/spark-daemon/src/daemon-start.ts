@@ -7,6 +7,7 @@ import {
   runtimeProtocolVersion,
 } from "@zendev-lab/spark-protocol";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
+import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { resolveSparkUserPaths, writePrivateFile } from "@zendev-lab/spark-system";
 import { resolveWorkflowDefinition } from "@zendev-lab/spark-workflows";
 import { readSparkDaemonConfig, type SparkDaemonConfig } from "./config.js";
@@ -79,7 +80,11 @@ import {
   type SparkInvocationRecord,
 } from "./store/invocations.ts";
 import { SparkTokenUsageStore } from "./store/token-usage.ts";
-import { resolveActiveSessionReproUsageScope } from "./session-work-projection.ts";
+import { SparkReproFormalEvidenceReceiptStore } from "./store/repro-formal-evidence.ts";
+import {
+  readSessionReproForDaemon,
+  resolveActiveSessionReproUsageScope,
+} from "./session-work-projection.ts";
 import { loopUpdateEvent, SparkLoopStore, type SparkLoopRecord } from "./store/loops.ts";
 import { SparkLoopEvaluatorRegistry } from "./store/loop-evaluators.ts";
 import { WorkbenchArtifactBindingStore } from "./store/workbench-artifact-bindings.ts";
@@ -90,8 +95,9 @@ import {
   GITHUB_MERGED_PRS_LOOP_EVALUATOR,
 } from "./spark/github-merged-prs-loop-evaluator.ts";
 import {
-  reproCompletionEvaluator,
+  createReproCompletionEvaluator,
   reproPendingDecisionEvaluator,
+  validateAcceptedFormalEvidenceAuthority,
 } from "./spark/repro-loop-evaluator.ts";
 import { reconcileReproWorkbenchArtifacts } from "./spark/repro-workbench-reconciler.ts";
 import { reconcileLoopGoalSettlements } from "./spark/loop-goal-settlements.ts";
@@ -299,7 +305,10 @@ async function createPreparedDaemonRuntime(
       checkpoints: ["before_tick"],
     },
     "builtin:repro-reviewer": {
-      evaluator: reproCompletionEvaluator,
+      evaluator: createReproCompletionEvaluator(
+        new SparkReproFormalEvidenceReceiptStore(options.db),
+        resolveReproFormalStepState,
+      ),
       checkpoints: ["after_tick"],
     },
   });
@@ -796,6 +805,48 @@ async function runDaemonOnce(runtime: PreparedDaemonRuntime): Promise<void> {
   await runSparkDaemonServerConnectionsOnce(daemonServerConnectionOptions(runtime));
 }
 
+async function resolveReproFormalStepState(cwd: string, ownerSessionId: string) {
+  const repro = await readSessionReproForDaemon(cwd, ownerSessionId);
+  if (!repro) return undefined;
+  const graph = await defaultTaskGraphStore(cwd).load();
+  return {
+    reproId: repro.reproId,
+    dualLane: {
+      planRevision: repro.dualLane.planRevision,
+      normative: {
+        orderedStepIds: [...repro.dualLane.normative.orderedStepIds],
+        ...(repro.dualLane.normative.currentStepId
+          ? { currentStepId: repro.dualLane.normative.currentStepId }
+          : {}),
+        retiredStepIds: [...repro.dualLane.normative.retiredStepIds],
+      },
+    },
+    subgoals: repro.subgoals.map((subgoal) => ({
+      id: subgoal.id,
+      planRevision: subgoal.planRevision,
+      ...(subgoal.taskRef ? { taskRef: subgoal.taskRef } : {}),
+    })),
+    taskStatusByRef: Object.fromEntries(
+      repro.subgoals.flatMap((subgoal) =>
+        subgoal.taskRef
+          ? [[subgoal.taskRef, graph?.getTask(subgoal.taskRef)?.status] as const]
+          : [],
+      ),
+    ),
+    plan: {
+      currentRevision: repro.plan.currentRevision,
+      steps: repro.plan.steps.map((step) => ({
+        id: step.id,
+        status: step.status,
+        authority: step.authority,
+        doneWhen: [...step.doneWhen],
+        evidenceRefs: [...step.evidenceRefs],
+        ...(step.verification ? { verification: step.verification } : {}),
+      })),
+    },
+  };
+}
+
 async function reconcileReproWorkbenches(runtime: PreparedDaemonRuntime): Promise<void> {
   runtime.nextWorkbenchReconcileAtMs = Date.now() + 1_000;
   try {
@@ -804,6 +855,13 @@ async function reconcileReproWorkbenches(runtime: PreparedDaemonRuntime): Promis
       bindings: runtime.workbenchBindings,
       resolveWorkspaceCwd: (workspaceId) =>
         resolveWorkspaceLocalPath(runtime.options.db, workspaceId),
+      validateFormalEvidence: async ({ cwd, ownerSessionId, work }) =>
+        await validateAcceptedFormalEvidenceAuthority(
+          cwd,
+          work,
+          new SparkReproFormalEvidenceReceiptStore(runtime.options.db),
+          await resolveReproFormalStepState(cwd, ownerSessionId),
+        ),
     });
     for (const failure of result.errors) {
       console.error(

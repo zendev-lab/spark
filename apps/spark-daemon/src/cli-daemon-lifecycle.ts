@@ -24,6 +24,10 @@ import { createSparkDaemonUplinkControl } from "./daemon.js";
 import { startSparkDaemon } from "./daemon-start.js";
 import { getSparkDaemonServerProfile } from "./server-profiles.js";
 import { createSparkDaemonModelControl } from "./model-control.ts";
+import {
+  createEd25519ReproFormalEvidenceVerifier,
+  parseReproFormalEvidencePublicKeys,
+} from "./repro-formal-evidence-verifier.ts";
 import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
 import { migrateDaemonGlobalSessions } from "./session-scope-migration.ts";
 import { unifyDaemonSessionTranscripts } from "./session-transcript-unification.ts";
@@ -189,6 +193,13 @@ export async function start(
     ? readSparkDaemonConfig(paths)
     : defaultSparkDaemonConfig();
   if (!existsSync(paths.configFile)) writeSparkDaemonConfig(paths, config);
+  const reproFormalEvidencePublicKeys = parseReproFormalEvidencePublicKeys(
+    config.reproFormalEvidencePublicKeysJson,
+  );
+  const reproFormalEvidenceVerifier =
+    Object.keys(reproFormalEvidencePublicKeys).length > 0
+      ? createEd25519ReproFormalEvidenceVerifier(reproFormalEvidencePublicKeys)
+      : undefined;
   const roleInvocationStore = new SparkInvocationStore(db);
   const roleLoopStore = new SparkLoopStore(db, roleInvocationStore);
   const sessionRegistry = createDaemonSessionRegistry(sparkHome, {
@@ -335,6 +346,7 @@ export async function start(
       sessionRegistry,
       modelControl,
       humanWaits,
+      ...(reproFormalEvidenceVerifier ? { reproFormalEvidenceVerifier } : {}),
       leaseTransfers,
       onHumanRequestOutboxReady: () => {
         flushHumanRequestOutbox?.();

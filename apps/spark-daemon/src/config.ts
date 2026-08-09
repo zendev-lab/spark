@@ -13,6 +13,8 @@ export interface SparkDaemonConfig {
   refreshToken?: string;
   refreshTokenExpiresAt?: string;
   webSocketUrl?: string;
+  /** JSON object mapping registered formal Evidence verifier ids to base64 SPKI Ed25519 keys. */
+  reproFormalEvidencePublicKeysJson?: string;
 }
 
 export function defaultSparkDaemonConfig(): SparkDaemonConfig {
@@ -65,6 +67,9 @@ function parseTomlSubset(contents: string): Partial<SparkDaemonConfig> {
   if (values.refreshToken) config.refreshToken = values.refreshToken;
   if (values.refreshTokenExpiresAt) config.refreshTokenExpiresAt = values.refreshTokenExpiresAt;
   if (values.webSocketUrl) config.webSocketUrl = values.webSocketUrl;
+  if (values.reproFormalEvidencePublicKeysJson) {
+    config.reproFormalEvidencePublicKeysJson = values.reproFormalEvidencePublicKeysJson;
+  }
   return config;
 }
 
@@ -83,6 +88,9 @@ function serializeTomlSubset(config: SparkDaemonConfig): string {
       ? `refreshTokenExpiresAt = "${escapeTomlString(config.refreshTokenExpiresAt)}"`
       : undefined,
     config.webSocketUrl ? `webSocketUrl = "${escapeTomlString(config.webSocketUrl)}"` : undefined,
+    config.reproFormalEvidencePublicKeysJson
+      ? `reproFormalEvidencePublicKeysJson = "${escapeTomlString(config.reproFormalEvidencePublicKeysJson)}"`
+      : undefined,
     "",
   ]
     .filter((line): line is string => line !== undefined)
