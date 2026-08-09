@@ -61,6 +61,7 @@ async function withExecutorFixture<T>(
 
 test.sequential("isolated reviewer executor owns a fresh worker module graph without parent authority", async () => {
   const parentEnvironmentKeys = [
+    "SPARK_HOME",
     "PI_ROLE_DEPTH",
     "API_TOKEN",
     "AWS_SECRET_ACCESS_KEY",
@@ -75,6 +76,7 @@ test.sequential("isolated reviewer executor owns a fresh worker module graph wit
 
   try {
     const syntheticParentValues = [
+      "/daemon/parent-spark-home",
       "spark-isolated-parent-depth-marker",
       "spark-isolated-parent-api-marker",
       "spark-isolated-parent-aws-marker",
@@ -100,7 +102,7 @@ test.sequential("isolated reviewer executor owns a fresh worker module graph wit
                hasInputControl: "inputControl" in request,
                env: request.env,
                processEnv: Object.fromEntries(
-                 ["PI_ROLE_DEPTH", "API_TOKEN", "AWS_SECRET_ACCESS_KEY", "DATABASE_URL"].map((key) => [key, process.env[key]]),
+                 ["SPARK_HOME", "PI_ROLE_DEPTH", "API_TOKEN", "AWS_SECRET_ACCESS_KEY", "DATABASE_URL"].map((key) => [key, process.env[key]]),
                ),
              }),
              stderr: "",
@@ -141,30 +143,38 @@ test.sequential("isolated reviewer executor owns a fresh worker module graph wit
 });
 
 test("isolated reviewer executor forwards daemon runtime roots only to the worker factory", async () => {
-  await withExecutorFixture(
-    `export const createSparkHeadlessSessionExecutor = () => async () => ({});
-     export const createSparkHeadlessRoleExecutor = (options) => async (request) => ({
-       record: { ...request.record, status: "succeeded" },
-       outcome: { kind: "completed", code: "completed", reason: JSON.stringify(options) },
-       stdout: "approved",
-       stderr: "",
-       jsonEvents: [],
-     });`,
-    async (moduleSpecifier) => {
-      const result = await runIsolatedRoleNativeExecutor(request(), {
-        moduleSpecifier,
-        sparkHome: "/daemon/session-state",
-        controlSparkHome: "/daemon/provider-config",
-      });
-      assert.equal(
-        result.outcome?.reason,
-        JSON.stringify({
+  const previousSparkHome = process.env.SPARK_HOME;
+  process.env.SPARK_HOME = "/daemon/parent-spark-home";
+  try {
+    await withExecutorFixture(
+      `export const createSparkHeadlessSessionExecutor = () => async () => ({});
+       export const createSparkHeadlessRoleExecutor = (options) => async (request) => ({
+         record: { ...request.record, status: "succeeded" },
+         outcome: { kind: "completed", code: "completed", reason: JSON.stringify(options) },
+         stdout: JSON.stringify({ sparkHome: process.env.SPARK_HOME }),
+         stderr: "",
+         jsonEvents: [],
+       });`,
+      async (moduleSpecifier) => {
+        const result = await runIsolatedRoleNativeExecutor(request(), {
+          moduleSpecifier,
           sparkHome: "/daemon/session-state",
           controlSparkHome: "/daemon/provider-config",
-        }),
-      );
-    },
-  );
+        });
+        assert.equal(
+          result.outcome?.reason,
+          JSON.stringify({
+            sparkHome: "/daemon/session-state",
+            controlSparkHome: "/daemon/provider-config",
+          }),
+        );
+        assert.deepEqual(JSON.parse(result.stdout), {});
+      },
+    );
+  } finally {
+    if (previousSparkHome === undefined) delete process.env.SPARK_HOME;
+    else process.env.SPARK_HOME = previousSparkHome;
+  }
 });
 
 test("isolated reviewer executor aborts execution and cannot return late success", async () => {
@@ -230,7 +240,6 @@ test("isolated worker environment keeps runtime paths and denies credentials and
     {
       HOME: "/home/reviewer",
       PATH: "/bin",
-      SPARK_HOME: "/state/spark",
       XDG_CONFIG_HOME: "/state/config",
       LANG: "en_US.UTF-8",
     },

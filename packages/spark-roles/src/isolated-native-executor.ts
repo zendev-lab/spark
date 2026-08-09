@@ -349,7 +349,6 @@ function isolatedAbortError(): Error {
 const ISOLATED_WORKER_ENV_KEYS = [
   "HOME",
   "PATH",
-  "SPARK_HOME",
   "TMPDIR",
   "TEMP",
   "TMP",
