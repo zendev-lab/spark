@@ -288,6 +288,7 @@ export async function runSparkHeadlessSession(
     input.signal?.removeEventListener("abort", abortFromSignal);
     unsubscribe();
     unsubscribeDaemon();
+    await services.runtime.shutdown("headless session completed");
   }
 }
 
@@ -342,7 +343,12 @@ export async function runSparkHeadlessRoleInstruction(
       forkFromSession,
     });
   }
-  throwIfHeadlessAborted(input.signal);
+  try {
+    throwIfHeadlessAborted(input.signal);
+  } catch (error) {
+    await services.runtime.shutdown("headless role setup aborted");
+    throw error;
+  }
 
   const recordEvent = (event: unknown) => {
     jsonEvents.push(event);
@@ -361,10 +367,10 @@ export async function runSparkHeadlessRoleInstruction(
     } catch (error) {
       recordEvent(providerResolutionFailedEvent(input.model.trim(), error));
       const outcome = failedRoleRunOutcome("provider_resolution_failed", errorMessage(error));
-      return {
+      const result = {
         record: {
           ...input.record,
-          status: "failed",
+          status: "failed" as const,
           outcome,
           startedAt,
           finishedAt: new Date().toISOString(),
@@ -381,6 +387,8 @@ export async function runSparkHeadlessRoleInstruction(
           .join("\n"),
         jsonEvents,
       };
+      await services.runtime.shutdown("headless role provider resolution failed");
+      return result;
     }
   }
   const observeTokenUsage = createHeadlessTokenUsageObserver(options.tokenUsage);
@@ -490,6 +498,7 @@ export async function runSparkHeadlessRoleInstruction(
     unregisterInputControl?.();
     unsubscribe();
     unsubscribeDaemon();
+    await services.runtime.shutdown("headless role completed");
   }
 }
 

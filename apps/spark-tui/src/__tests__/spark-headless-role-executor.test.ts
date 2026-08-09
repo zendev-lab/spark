@@ -11,6 +11,7 @@ import {
   loadSparkHeadlessSessionModule,
   type SparkHeadlessTokenUsageObservation,
 } from "@zendev-lab/spark-host/headless-loader";
+import { SparkHostRuntime } from "../host/runtime.ts";
 import {
   runSparkHeadlessRoleInstruction,
   runSparkHeadlessSession,
@@ -49,6 +50,42 @@ test("runSparkHeadlessSession streams events without retaining a duplicate event
   );
   assert.equal(buffered.eventsStreamed, undefined);
   assert.equal(buffered.jsonEvents.length, 3);
+});
+
+test("headless sessions release extension resources after success and failure", async () => {
+  const shutdownReasons: string[] = [];
+  const completedBase = headlessServices(async () => successfulOutcome("done"));
+  const completedRuntime = new SparkHostRuntime({ cwd: process.cwd() });
+  completedRuntime.on("session_shutdown", (event: unknown) => {
+    shutdownReasons.push((event as { reason: string }).reason);
+  });
+  const completed = {
+    ...completedBase,
+    runtime: completedRuntime,
+  };
+  await runSparkHeadlessSession(
+    { cwd: process.cwd(), sessionId: "session-shutdown-success", prompt: "finish" },
+    { createServices: async () => completed as never },
+  );
+
+  const failedBase = failedModelCallHeadlessServices();
+  const failedRuntime = new SparkHostRuntime({ cwd: process.cwd() });
+  failedRuntime.on("session_shutdown", (event: unknown) => {
+    shutdownReasons.push((event as { reason: string }).reason);
+  });
+  const failed = {
+    ...failedBase,
+    runtime: failedRuntime,
+  };
+  await assert.rejects(
+    runSparkHeadlessSession(
+      { cwd: process.cwd(), sessionId: "session-shutdown-failure", prompt: "fail" },
+      { createServices: async () => failed as never },
+    ),
+    /provider stream failed/u,
+  );
+
+  assert.deepEqual(shutdownReasons, ["headless session completed", "headless session completed"]);
 });
 
 test("runSparkHeadlessSession records actual responses but not tool errors", async () => {
@@ -199,6 +236,7 @@ test("runSparkHeadlessSession times out a never-resolving agent turn", async () 
       onDaemonEvent: () => () => unsubscribed.push("runtime"),
       setSessionId: () => undefined,
       makeContext: () => ({}),
+      shutdown: async () => undefined,
     },
     sessionStore: {
       createSession: () => record,
@@ -742,6 +780,7 @@ function headlessRoleServices(
       onDaemonEvent: () => () => undefined,
       setSessionId: () => undefined,
       makeContext: () => ({}),
+      shutdown: async () => undefined,
       registerTool: (tool: ToolConfig) => tools.set(tool.name, tool),
       getActiveTools: () => [...activeTools],
       setActiveTools: (names: string[]) => {
@@ -964,6 +1003,7 @@ function headlessServices(submitWithOutcome: () => Promise<SparkRunOutcome>) {
       onDaemonEvent: () => () => undefined,
       setSessionId: () => undefined,
       makeContext: () => ({}),
+      shutdown: async () => undefined,
     },
     sessionStore: {
       createSession: () => record,
