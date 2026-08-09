@@ -93,6 +93,7 @@ const messages = {
     },
     aria: {
       workspaceNavigation: "Workspace navigation",
+      skipToContent: "Skip to main content",
       breadcrumb: "Breadcrumb",
       globalSearch: "Global search",
       workspaceMenu: "Workspace menu",
@@ -689,6 +690,12 @@ const messages = {
       responses: "responses",
       noTokenBreakdown: "No measured usage",
       unknownTokenUsage: "Token usage unavailable",
+      reproWorkbenchAria: "Repro Workbench",
+      reproWorkbenchLoading: "Loading trusted Repro Workbench…",
+      reproWorkbenchSyncing: "Workbench projection is being synchronized.",
+      reproWorkbenchPendingTitle: "Repro Workbench pending",
+      reproWorkbenchPendingBody: "The daemon has not projected this revision yet.",
+      reproWorkbenchUnavailable: "Workbench document is unavailable.",
       noActiveWork: "No active work",
       noActiveWorkBody: "This conversation has no daemon-owned Goal, Repro, or driver state.",
       continueSubmit: "Continue",
@@ -1566,6 +1573,10 @@ const messages = {
       emptyBody: "Generate a separate one-time key for each additional browser user.",
       defaultTokenLabel: "Hub browser access",
       revoke: "Revoke",
+      revokeConfirmTitle: "Revoke Hub key?",
+      revokeConfirm:
+        "Revoke this browser access key? Any unexpired login link built from it stops working immediately.",
+      revokeCancel: "Cancel",
     },
     metrics: {
       aria: "Connection status",
@@ -1625,6 +1636,8 @@ const messages = {
       emptyRest: "and appears here.",
       pathPending: "Waiting for daemon to report the directory",
       unbind: "Disconnect",
+      unbindTitle: "Disconnect directory?",
+      unbindCancel: "Cancel",
       unbindConfirm:
         "Disconnect this directory from the Hub workspace? The daemon-owned directory and its sessions stay local and can be connected again.",
     },

@@ -34,16 +34,27 @@ describe("Svelte AI Elements Response boundary", () => {
     );
   });
 
-  it("imports the complete rich-markdown component stack", () => {
+  it("loads the rich-markdown component stack on demand", () => {
     const imports: string[] = [];
+    const dynamicImports: string[] = [];
     walk(responseAst().instance, (node) => {
-      if (node.type !== "ImportDeclaration") return;
+      if (node.type === "ImportDeclaration") {
+        const source = node.source as { value?: unknown } | undefined;
+        if (typeof source?.value === "string") imports.push(source.value);
+        return;
+      }
+      const isDynamicImport =
+        node.type === "ImportExpression" ||
+        (node.type === "CallExpression" &&
+          (node.callee as { type?: unknown } | undefined)?.type === "Import");
+      if (!isDynamicImport) return;
       const source = node.source as { value?: unknown } | undefined;
-      if (typeof source?.value === "string") imports.push(source.value);
+      if (typeof source?.value === "string") dynamicImports.push(source.value);
     });
 
-    expect(imports).toEqual([
-      "svelte-streamdown",
+    // Heavy grammars (shiki, KaTeX, mermaid) stay out of the initial bundle.
+    expect(imports).toEqual(["svelte", "svelte-streamdown"]);
+    expect(dynamicImports).toEqual([
       "svelte-streamdown/code",
       "svelte-streamdown/math",
       "svelte-streamdown/mermaid",
@@ -88,6 +99,8 @@ describe("Svelte AI Elements Response boundary", () => {
         declarations: [
           ["animation-duration", "0.01ms !important"],
           ["transition-duration", "0.01ms !important"],
+          ["animation", "none"],
+          ["content", "none"],
         ],
       },
     ]);

@@ -180,6 +180,7 @@
           class="shell-nav-link workbench-nav-link"
           class:active={isActive(item.href)}
           href={item.href}
+          aria-current={isActive(item.href) ? "page" : undefined}
           onclick={closeNavigation}
         >
           <Icon name={item.icon} size={18} />
@@ -189,6 +190,7 @@
       <a
         class="shell-nav-link workbench-nav-link"
         class:active={page.url.pathname === "/delegations" || page.url.pathname.endsWith("/delegations")}
+        aria-current={page.url.pathname === "/delegations" || page.url.pathname.endsWith("/delegations") ? "page" : undefined}
         href={activeWorkspacePath ? `${activeWorkspacePath}/delegations` : "/delegations"}
         onclick={closeNavigation}
       >

@@ -6,6 +6,7 @@
     size = "default",
     type = "button",
     href,
+    loading = false,
     disabled = false,
     title,
     name,
@@ -24,6 +25,7 @@
     size?: "compact" | "default";
     type?: "button" | "submit";
     href?: string;
+    loading?: boolean;
     disabled?: boolean;
     title?: string;
     name?: string;
@@ -43,6 +45,7 @@
 {#if href}
   <a
     class="ui-button {className}"
+    class:loading
     data-variant={variant}
     data-size={size}
     {href}
@@ -51,24 +54,32 @@
     {rel}
     aria-label={ariaLabel}
   >
+    {#if loading}
+      <span class="ui-button-spinner" aria-hidden="true"></span>
+    {/if}
     {@render children()}
   </a>
 {:else}
   <button
     class="ui-button {className}"
+    class:loading
     data-variant={variant}
     data-size={size}
     {type}
-    {disabled}
+    disabled={disabled || loading}
     {title}
     {name}
     {value}
     {form}
+    aria-busy={loading || undefined}
     aria-label={ariaLabel}
     aria-expanded={ariaExpanded}
     aria-controls={ariaControls}
     {onclick}
   >
+    {#if loading}
+      <span class="ui-button-spinner" aria-hidden="true"></span>
+    {/if}
     {@render children()}
   </button>
 {/if}
@@ -155,6 +166,41 @@
     border-color: var(--color-border);
     color: var(--color-ink-disabled);
     cursor: not-allowed;
+  }
+
+  .ui-button.loading,
+  .ui-button.loading:disabled {
+    cursor: wait;
+  }
+
+  .ui-button-spinner {
+    border: 2px solid currentColor;
+    border-bottom-color: transparent;
+    border-radius: var(--rounded-full);
+    box-sizing: border-box;
+    display: inline-block;
+    flex: 0 0 auto;
+    height: 1em;
+    opacity: 0.7;
+    width: 1em;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .ui-button-spinner {
+      animation: ui-button-spin 0.8s linear infinite;
+    }
+  }
+
+  @keyframes ui-button-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ui-button-spinner {
+      animation: none;
+    }
   }
 
   @media (pointer: coarse) {

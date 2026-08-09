@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from "$app/forms";
   import { Icon } from "@zendev-lab/spark-ui";
   import { enumLabel, formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
   import {
@@ -18,6 +19,8 @@
   let common = $derived(data.messages.common);
   let workspaceUrl = $derived(data.workspace ? workspacePath(data.workspace) : "/");
   let resourceKind = $state("repo");
+  let mutatingId = $state<string | null>(null);
+  let creating = $state(false);
   let resourceKindGroups = $derived([
     {
       id: "resource-kind",
@@ -86,9 +89,19 @@
                   <small>{resource.projectCount} {t.list.linkedUses} · {t.list.updatedPrefix} {formatRelative(resource.updatedAt)}</small>
                 </div>
                 <span class="status-pill {resource.status}">{statusLabel(resource.status)}</span>
-                <form method="POST" action={resource.status === "archived" ? "?/restoreResource" : "?/archiveResource"}>
+                <form
+                  method="POST"
+                  action={resource.status === "archived" ? "?/restoreResource" : "?/archiveResource"}
+                  use:enhance={() => {
+                    mutatingId = resource.id;
+                    return async ({ update }) => {
+                      mutatingId = null;
+                      await update();
+                    };
+                  }}
+                >
                   <input type="hidden" name="resourceId" value={resource.id} />
-                  <Button variant="secondary" type="submit">
+                  <Button variant="secondary" type="submit" loading={mutatingId === resource.id}>
                     {resource.status === "archived" ? t.list.restore : t.list.archive}
                   </Button>
                 </form>
@@ -103,7 +116,18 @@
           <div class="form-error" role="alert">{form.message}</div>
         {/if}
 
-        <form class="create-form" method="POST" action="?/createResource">
+        <form
+          class="create-form"
+          method="POST"
+          action="?/createResource"
+          use:enhance={() => {
+            creating = true;
+            return async ({ update }) => {
+              creating = false;
+              await update({ reset: true });
+            };
+          }}
+        >
           <Field id="resource-kind" label={t.create.kind} required>
             <Select
               id="resource-kind"
@@ -123,7 +147,7 @@
           <Field id="resource-notes" label={t.create.notes}>
             <Textarea id="resource-notes" name="notes" rows={4} placeholder={t.create.notesPlaceholder} />
           </Field>
-          <Button type="submit"><Icon name="plus" size={16} />{t.create.submit}</Button>
+          <Button type="submit" loading={creating}><Icon name="plus" size={16} />{t.create.submit}</Button>
         </form>
       </Panel>
     </section>

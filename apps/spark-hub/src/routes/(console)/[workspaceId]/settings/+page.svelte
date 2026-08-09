@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from "$app/forms";
   import { Icon } from "@zendev-lab/spark-ui";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
   import { Button, Field, Input, PageHeader, Panel } from "@zendev-lab/spark-ui";
@@ -19,6 +20,8 @@
   function statusLabel(status: string) {
     return getStatusLabel(status, common);
   }
+
+  let submitting = $state(false);
 </script>
 
 <svelte:head>
@@ -34,7 +37,18 @@
   />
 
   <Panel ariaLabel={t.workspace.title}>
-    <form class="workspace-form" method="POST" action="?/updateWorkspace">
+    <form
+      class="workspace-form"
+      method="POST"
+      action="?/updateWorkspace"
+      use:enhance={() => {
+        submitting = true;
+        return async ({ update }) => {
+          submitting = false;
+          await update();
+        };
+      }}
+    >
       <div class="wide-field">
         <Field id="workspace-local-path" label={t.workspace.localPath} hint={t.workspace.localPathHint}>
           <Input
@@ -77,7 +91,7 @@
           <span>{t.workspace.created} {formatRelative(data.workspace.createdAt)}</span>
           <span>{t.workspace.updated} {formatRelative(data.workspace.updatedAt)}</span>
         </div>
-        <Button type="submit">
+        <Button type="submit" loading={submitting}>
           <Icon name="check" size={16} stroke={2.4} />
           <span>{t.workspace.save}</span>
         </Button>

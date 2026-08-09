@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from "$app/forms";
   import type { Snippet } from "svelte";
   import { Icon } from "@zendev-lab/spark-ui";
   import type { IconName } from "@zendev-lab/spark-ui";
@@ -44,6 +45,8 @@
     tokens: Snippet;
     children?: Snippet;
   } = $props();
+
+  let submitting = $state(false);
 </script>
 
 <section class="panel-card">
@@ -57,11 +60,22 @@
     </div>
   {/if}
 
-  <form class="token-form" method="POST" action={formAction}>
+  <form
+    class="token-form"
+    method="POST"
+    action={formAction}
+    use:enhance={() => {
+      submitting = true;
+      return async ({ update }) => {
+        submitting = false;
+        await update();
+      };
+    }}
+  >
     <Field id={fieldId} label={fieldLabel} reserveMeta={false}>
       <Input id={fieldId} name="label" placeholder={fieldPlaceholder} />
     </Field>
-    <Button type="submit">
+    <Button type="submit" loading={submitting}>
       <Icon name="plus" size={16} stroke={2.4} />
       <span>{submitLabel}</span>
     </Button>

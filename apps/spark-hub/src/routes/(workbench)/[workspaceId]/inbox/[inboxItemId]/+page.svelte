@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from "$app/forms";
   import AskQuestionField from "$lib/AskQuestionField.svelte";
   import { Icon } from "@zendev-lab/spark-ui";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
@@ -24,6 +25,8 @@
   function formatJson(value: unknown) {
     return JSON.stringify(value, null, 2);
   }
+
+  let submitting = $state(false);
 </script>
 
 <svelte:head>
@@ -64,7 +67,17 @@
       {/if}
 
       {#if data.item.status === "pending" && data.item.requestStatus === "pending" && !responsePending}
-        <form method="POST" action="?/respond">
+        <form
+          method="POST"
+          action="?/respond"
+          use:enhance={() => {
+            submitting = true;
+            return async ({ update }) => {
+              submitting = false;
+              await update();
+            };
+          }}
+        >
           {#if data.item.questions.length === 0}
             <Field id="answer-message" label={t.response.answer} required>
               <Textarea
@@ -98,14 +111,14 @@
           </details>
 
           <div class="form-actions">
-            <Button type="submit" name="status" value="answered">{t.response.send}</Button>
-            <Button variant="secondary" type="submit" name="status" value="cancelled">{t.response.cancel}</Button>
+            <Button type="submit" name="status" value="answered" loading={submitting}>{submitting ? t.response.sending : t.response.send}</Button>
+            <Button variant="secondary" type="submit" name="status" value="cancelled" disabled={submitting}>{t.response.cancel}</Button>
           </div>
 
           <details class="optional-note more-actions">
             <summary>{t.response.moreActions}</summary>
             <p>{t.response.archiveHint}</p>
-            <Button variant="secondary" type="submit" name="status" value="archived">{t.response.archive}</Button>
+            <Button variant="secondary" type="submit" name="status" value="archived" disabled={submitting}>{t.response.archive}</Button>
           </details>
         </form>
       {:else if latestResponse}

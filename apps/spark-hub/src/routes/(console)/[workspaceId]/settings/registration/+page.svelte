@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { enhance } from "$app/forms";
   import { Icon } from "@zendev-lab/spark-ui";
   import TokenManagementSurface from "$lib/TokenManagementSurface.svelte";
   import { daemonDisplayStatus, type DaemonDisplayStatus } from "$lib/daemon-status";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
-  import { Button, PageHeader } from "@zendev-lab/spark-ui";
+  import { Button, ConfirmDialog, PageHeader } from "@zendev-lab/spark-ui";
+  import { DialogTrigger } from "@zendev-lab/spark-ui/headless";
 
   let { data, form } = $props();
 
@@ -53,6 +55,9 @@
     }
     return "ready";
   }
+
+  let revokingId = $state<string | null>(null);
+  let unbindingId = $state<string | null>(null);
 </script>
 
 <svelte:head>
@@ -125,9 +130,25 @@
               <span><small>{t.enrollment.runner}</small>{token.runtimeName ?? t.enrollment.notUsed}</span>
               <time><small>{t.enrollment.created}</small>{formatRelative(token.createdAt)}</time>
               <time><small>{t.enrollment.expires}</small>{formatRelative(token.expiresAt)}</time>
-              <form method="POST" action="?/revokeEnrollmentToken">
+              <form
+                method="POST"
+                action="?/revokeEnrollmentToken"
+                use:enhance={() => {
+                  revokingId = token.id;
+                  return async ({ update }) => {
+                    revokingId = null;
+                    await update();
+                  };
+                }}
+              >
                 <input type="hidden" name="tokenId" value={token.id} />
-                <Button variant="secondary" size="compact" type="submit" disabled={status !== "ready"}>
+                <Button
+                  variant="secondary"
+                  size="compact"
+                  type="submit"
+                  disabled={status !== "ready"}
+                  loading={revokingId === token.id}
+                >
                   {t.enrollment.revoke}
                 </Button>
               </form>
@@ -212,14 +233,36 @@
               <span class="status-pill {binding.status}">{statusLabel(binding.status)}</span>
               <time>{formatRelative(binding.updatedAt)}</time>
               <form
+                id={`unbind-form-${binding.id}`}
                 method="POST"
                 action="?/unbindWorkspace"
-                onsubmit={(event) => {
-                  if (!confirm(t.bindings.unbindConfirm)) event.preventDefault();
+                use:enhance={() => {
+                  unbindingId = binding.id;
+                  return async ({ update }) => {
+                    unbindingId = null;
+                    await update();
+                  };
                 }}
               >
                 <input type="hidden" name="bindingId" value={binding.id} />
-                <Button variant="danger" size="compact" type="submit">{t.bindings.unbind}</Button>
+                <ConfirmDialog
+                  danger
+                  title={t.bindings.unbindTitle}
+                  description={t.bindings.unbindConfirm}
+                  confirmLabel={t.bindings.unbind}
+                  cancelLabel={t.bindings.unbindCancel}
+                  loading={unbindingId === binding.id}
+                  onConfirm={() =>
+                    (document.getElementById(`unbind-form-${binding.id}`) as HTMLFormElement | null)
+                      ?.requestSubmit()
+                  }
+                >
+                  {#snippet trigger()}
+                    <DialogTrigger class="unbind-trigger-button" disabled={unbindingId !== null}>
+                      {t.bindings.unbind}
+                    </DialogTrigger>
+                  {/snippet}
+                </ConfirmDialog>
               </form>
             </div>
           {/each}
@@ -646,6 +689,29 @@
     color: var(--color-ink-muted);
     font-size: 12px;
     white-space: nowrap;
+  }
+
+  :global(.unbind-trigger-button) {
+    align-items: center;
+    background: var(--color-danger);
+    border: 1px solid var(--color-danger);
+    border-radius: var(--rounded-md);
+    color: var(--color-on-primary);
+    cursor: pointer;
+    display: inline-flex;
+    font-family: var(--font-sans);
+    font-size: var(--text-caption);
+    font-weight: var(--weight-button);
+    justify-content: center;
+    min-height: var(--control-height-compact);
+    padding: 5px 10px;
+  }
+
+  :global(.unbind-trigger-button:disabled) {
+    background: var(--color-border);
+    border-color: var(--color-border);
+    color: var(--color-ink-disabled);
+    cursor: not-allowed;
   }
 
   @media (max-width: 980px) {

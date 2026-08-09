@@ -1,16 +1,9 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { Streamdown, type StreamdownProps } from "svelte-streamdown";
-  import Code from "svelte-streamdown/code";
-  import Math from "svelte-streamdown/math";
-  import Mermaid from "svelte-streamdown/mermaid";
 
   type Props = StreamdownProps;
-
-  const richMarkdownComponents = {
-    code: Code,
-    math: Math,
-    mermaid: Mermaid,
-  };
+  type RichComponents = NonNullable<StreamdownProps["components"]>;
 
   let {
     content,
@@ -20,6 +13,25 @@
     static: isStatic,
     ...restProps
   }: Props = $props();
+
+  // Code/math/mermaid renderers pull in heavy grammars (shiki, KaTeX, mermaid).
+  // Load them on demand so surfaces that rarely render math or diagrams do not
+  // pay for them in the initial bundle; content upgrades in place once loaded.
+  let richMarkdownComponents = $state<RichComponents>({});
+
+  onMount(() => {
+    void Promise.all([
+      import("svelte-streamdown/code"),
+      import("svelte-streamdown/math"),
+      import("svelte-streamdown/mermaid"),
+    ]).then(([code, math, mermaid]) => {
+      richMarkdownComponents = {
+        code: code.default,
+        math: math.default,
+        mermaid: mermaid.default,
+      } as RichComponents;
+    });
+  });
 
   const resolvedComponents = $derived({
     ...richMarkdownComponents,
@@ -302,6 +314,11 @@
     .ai-response :global(*) {
       animation-duration: 0.01ms !important;
       transition-duration: 0.01ms !important;
+    }
+
+    .ai-response[data-streaming="true"] :global(.streamdown-content)::after {
+      animation: none;
+      content: none;
     }
   }
 </style>

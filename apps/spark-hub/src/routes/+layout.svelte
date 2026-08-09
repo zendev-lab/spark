@@ -1,7 +1,19 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import "@zendev-lab/spark-ui/tokens.css";
 
   let { children } = $props();
+
+  // Keep the theme-color meta in sync with the design token so browser chrome
+  // tracks palette changes instead of a hardcoded hex copy.
+  onMount(() => {
+    const primary = getComputedStyle(document.documentElement)
+      .getPropertyValue("--color-primary")
+      .trim();
+    if (primary) {
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", primary);
+    }
+  });
 </script>
 
 <svelte:head>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from "$app/forms";
   import type { SparkSessionRelation } from "@zendev-lab/spark-protocol";
   import { Icon } from "@zendev-lab/spark-ui";
   import ChannelSessionIcon from "$lib/ChannelSessionIcon.svelte";
@@ -88,6 +89,7 @@
   } = $props();
 
   let filter = $state("");
+  let archivingId = $state<string | null>(null);
   let activeWorkspace = $derived(
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
   );
@@ -397,10 +399,18 @@
                       class="session-archive-form"
                       method="POST"
                       action={`${sessionsHref}?/archiveSession`}
+                      use:enhance={() => {
+                        archivingId = session.sessionId;
+                        return async ({ update }) => {
+                          archivingId = null;
+                          await update();
+                        };
+                      }}
                     >
                       <input type="hidden" name="sessionId" value={session.sessionId} />
                       <button
                         type="submit"
+                        disabled={archivingId === session.sessionId}
                         aria-label={`${messages.archiveSubmit}: ${sessionTitle(session)}`}
                         title={messages.archiveSubmit}
                       >
