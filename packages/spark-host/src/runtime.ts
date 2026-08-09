@@ -195,6 +195,7 @@ export class SparkHostRuntime implements SparkHostAPI {
   readonly #memoryDirectIntentAuthority: SparkMemoryDirectIntentTurnAuthority | undefined;
   private sessionLeaseProvider: (() => SparkSessionLeaseIdentity | undefined) | undefined;
   private sessionId: string | undefined;
+  private shutdownPromise: Promise<void> | undefined;
   private idle = true;
   private readonly keybindings: SparkKeybindings;
 
@@ -479,6 +480,11 @@ export class SparkHostRuntime implements SparkHostAPI {
       listener.effects !== undefined &&
       listener.effects.every((effect) => this.allowedToolEffects!.has(effect))
     );
+  }
+
+  async shutdown(reason = "host shutdown"): Promise<void> {
+    this.shutdownPromise ??= this.emit("session_shutdown", { reason }).then(() => undefined);
+    await this.shutdownPromise;
   }
 
   /**

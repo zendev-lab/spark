@@ -127,6 +127,18 @@ describe("SparkHostRuntime effect contract", () => {
     expect(invoked).toEqual(["read"]);
   });
 
+  it("broadcasts session shutdown exactly once", async () => {
+    const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-shutdown-test" });
+    const reasons: unknown[] = [];
+    host.on("session_shutdown", (event) => {
+      reasons.push(event);
+    });
+
+    await Promise.all([host.shutdown("first"), host.shutdown("second")]);
+
+    expect(reasons).toEqual([{ reason: "first" }]);
+  });
+
   it("HOST-EFFECT-003 preserves unrestricted ordinary-session behavior", async () => {
     const host = new SparkHostRuntime({
       cwd: "/tmp/spark-host-runtime-unrestricted-test",
