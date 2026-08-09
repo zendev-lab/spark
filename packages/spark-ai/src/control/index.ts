@@ -52,6 +52,7 @@ export type {
 } from "./provider-control.ts";
 export {
   DEFAULT_SPARK_PROVIDER_SPECS,
+  createSparkProviderImporter,
   defaultSparkProviderConfigPath,
   loadSparkProviderCatalog,
   mergeSparkProviderSpecs,

@@ -85,7 +85,7 @@
   "scriptsInventory": [
     {
       "path": "scripts/build-npm-product.mjs",
-      "lineCount": 338,
+      "lineCount": 351,
       "domainOwner": "distribution",
       "callers": [
         "scripts/pack-release.mjs",
@@ -162,7 +162,7 @@
     },
     {
       "path": "scripts/check-npm-product.mjs",
-      "lineCount": 322,
+      "lineCount": 327,
       "domainOwner": "distribution",
       "callers": [
         "package.json",
@@ -239,7 +239,7 @@
     },
     {
       "path": "scripts/npm-distributions.mjs",
-      "lineCount": 130,
+      "lineCount": 137,
       "domainOwner": "distribution",
       "callers": [
         "scripts/build-npm-product.mjs",
@@ -261,7 +261,7 @@
     },
     {
       "path": "scripts/product-runtime-closure.mjs",
-      "lineCount": 124,
+      "lineCount": 130,
       "domainOwner": "distribution",
       "callers": ["scripts/build-npm-product.mjs", "scripts/check-npm-product.mjs"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
@@ -303,7 +303,7 @@
     },
     {
       "path": "scripts/smoke-npm-product.mjs",
-      "lineCount": 497,
+      "lineCount": 570,
       "domainOwner": "distribution",
       "callers": [
         ".github/workflows/cd-publish.yml",

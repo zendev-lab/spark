@@ -201,6 +201,73 @@ function fileSpecifier(_fromDirectory, file) {
   return pathToFileURL(file).href;
 }
 
+async function probeInstalledHeadlessExecutor(installRoot, packageName, env) {
+  const moduleSpecifier = `${packageName}/headless-role-executor`;
+  const script = `
+const headless = await import(${JSON.stringify(moduleSpecifier)});
+if (typeof headless.createSparkHeadlessRoleExecutor !== "function") {
+  throw new Error("headless package export is missing createSparkHeadlessRoleExecutor");
+}
+const executor = headless.createSparkHeadlessRoleExecutor();
+if (typeof executor !== "function") {
+  throw new Error("headless role executor factory did not return a function");
+}
+const result = await executor({
+  role: {
+    ref: "role:builtin-reviewer",
+    id: "reviewer",
+    systemPrompt: "Return a structured reviewer verdict.",
+    allowedTools: [],
+  },
+  instruction: {
+    roleRef: "role:builtin-reviewer",
+    instruction: "Return a structured reviewer verdict.",
+  },
+  record: {
+    ref: "run:npm-product-smoke",
+    roleRef: "role:builtin-reviewer",
+    instruction: "Return a structured reviewer verdict.",
+    status: "running",
+    launch: "fresh",
+    noSession: true,
+    sessionPersistence: "anonymous",
+  },
+  cwd: process.cwd(),
+  timeoutMs: 30_000,
+  phase: "implement",
+  requireStructuredOutcome: false,
+  signal: new AbortController().signal,
+  launch: "fresh",
+  model: "openai-codex/__spark_smoke_missing_model__",
+  noSession: true,
+  sessionPersistence: "anonymous",
+  env: process.env,
+  inputControl: { register() { return () => {}; } },
+});
+if (
+  result.record?.status !== "failed" ||
+  result.outcome?.code !== "provider_resolution_failed" ||
+  !result.outcome.reason?.includes('Provider "openai-codex" has no model')
+) {
+  throw new Error(
+    "headless reviewer did not initialize its bundled provider: " + JSON.stringify(result),
+  );
+}
+const diagnostics = String(result.stderr ?? "") + "\\n" + String(result.outcome.reason ?? "");
+if (
+  diagnostics.includes("Cannot find package '@zendev-lab/spark-ai'") ||
+  diagnostics.includes("defaultSparkConfigPath") ||
+  diagnostics.includes("Dynamic require of")
+) {
+  throw new Error("headless reviewer bootstrap failed: " + diagnostics);
+}
+`;
+  await run(process.execPath, ["--input-type=module", "--eval", script], {
+    cwd: installRoot,
+    env,
+  });
+}
+
 async function installCandidates(temporary, id, packageIds, tarballs) {
   const installRoot = resolve(temporary, `install-${id}`);
   await mkdir(installRoot, { recursive: true });
@@ -306,6 +373,12 @@ try {
     PATH: cleanPath(),
     SPARK_HOME: resolve(temporary, "spark-hub-home"),
   };
+
+  console.log("Probing installed daemon and TUI headless role executor exports...");
+  await Promise.all([
+    probeInstalledHeadlessExecutor(daemonRoot, "@zendev-lab/spark-daemon", nodeEnvironment),
+    probeInstalledHeadlessExecutor(tuiRoot, "@zendev-lab/spark-tui", nodeEnvironment),
+  ]);
 
   console.log("Probing the complete meta package and the real spark CLI package...");
   await run(spark.command, [...spark.argvPrefix, "--help"], {

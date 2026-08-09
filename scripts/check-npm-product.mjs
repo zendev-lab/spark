@@ -181,6 +181,7 @@ const assetPolicy = {
     required: [
       "bin/spark-tui",
       "dist/spark-tui.js",
+      "dist/spark-headless-role-executor.js",
       "dist/build-info.json",
       "skills/spark-cue/SKILL.md",
     ],
@@ -256,7 +257,11 @@ for (const product of npmDistributions) {
   if (!manifest.files?.includes("THIRD_PARTY_NOTICES.md")) {
     failures.push(`${product.id} product files must include THIRD_PARTY_NOTICES.md`);
   }
-  const discovered = await resolveProductRuntimeDependencies(root, product.directory);
+  const discovered = await resolveProductRuntimeDependencies(
+    root,
+    product.directory,
+    product.exactDependencies,
+  );
   const expectedDependencies = sortedRecord({
     ...discovered,
     ...Object.fromEntries(product.exactDependencies.map((name) => [name, releaseVersion])),

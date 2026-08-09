@@ -16,6 +16,7 @@
  * (`spark-cue`, `spark/extension`) and absolute file URLs.
  */
 
+import { createSparkProviderImporter } from "@zendev-lab/spark-ai/control";
 import type { SparkHostAPI } from "@zendev-lab/spark-core";
 
 import { createSparkExtensionImporter } from "./extension-loader.ts";
@@ -46,12 +47,13 @@ export interface LoadPluginsOptions {
 }
 
 export async function loadPlugins(options: LoadPluginsOptions): Promise<LoadResult> {
-  const importer = options.importer ?? createSparkExtensionImporter(defaultImporter);
+  const extensionImporter = options.importer ?? createSparkExtensionImporter(defaultImporter);
+  const providerImporter = options.importer ?? createSparkProviderImporter(defaultImporter);
   const outcomes: PluginLoadOutcome[] = [];
 
   for (const specifier of options.extensions) {
     outcomes.push(
-      await invokePlugin(specifier, "extension", importer, (mod) => {
+      await invokePlugin(specifier, "extension", extensionImporter, (mod) => {
         const factory = pickDefault(mod);
         if (typeof factory !== "function") {
           throw new Error(
@@ -66,7 +68,7 @@ export async function loadPlugins(options: LoadPluginsOptions): Promise<LoadResu
 
   for (const specifier of options.providers) {
     outcomes.push(
-      await invokePlugin(specifier, "provider", importer, (mod) => {
+      await invokePlugin(specifier, "provider", providerImporter, (mod) => {
         const factory = pickDefault(mod);
         if (typeof factory !== "function") {
           throw new Error(
