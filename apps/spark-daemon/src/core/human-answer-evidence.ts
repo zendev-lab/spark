@@ -2,17 +2,22 @@ import { defaultEvidenceStore, type EvidenceRecord } from "@zendev-lab/spark-art
 import { recordCanonicalAnswerEventEvidenceReceipt } from "@zendev-lab/spark-ask";
 import type { AskRef, EvidenceRef, JsonValue } from "@zendev-lab/spark-core";
 import type { SparkEvidenceAnswerEvent } from "@zendev-lab/spark-protocol";
-import type { HumanAnswerEventWakeClaim, SparkDaemonHumanWaitRecord } from "./human-waits.ts";
+import type {
+  HumanAnswerEventWakeClaim,
+  HumanAnswerEventWakeClaimResult,
+  SparkDaemonHumanWaitRecord,
+} from "./human-waits.ts";
 import type { SparkLoopStore } from "../store/loops.ts";
 
 interface PersistedHumanAnswerEventSource {
   listPendingEvidenceAnswerEvents(): SparkEvidenceAnswerEvent[];
   markEvidenceAnswerEventWakeCompleted(answerEventId: string): boolean;
   getEvidenceAnswerEventWakeClaim(answerEventId: string): HumanAnswerEventWakeClaim | undefined;
-  claimEvidenceAnswerEventWake(
+  withEvidenceAnswerEventWakeClaim<T>(
     answerEventId: string,
     claim: HumanAnswerEventWakeClaim,
-  ): HumanAnswerEventWakeClaim;
+    action: (claim: HumanAnswerEventWakeClaim) => T,
+  ): HumanAnswerEventWakeClaimResult & { result?: T };
   get(humanRequestId: string): SparkDaemonHumanWaitRecord | null | undefined;
 }
 
@@ -89,7 +94,7 @@ export function wakeHumanAnswerEvidenceOwner(
   event: SparkEvidenceAnswerEvent,
   claims?: Pick<
     PersistedHumanAnswerEventSource,
-    "getEvidenceAnswerEventWakeClaim" | "claimEvidenceAnswerEventWake"
+    "getEvidenceAnswerEventWakeClaim" | "withEvidenceAnswerEventWakeClaim"
   >,
 ): HumanAnswerEvidenceOwnerWakeResult {
   const { binding } = event;
@@ -106,47 +111,44 @@ export function wakeHumanAnswerEvidenceOwner(
   }
   const [loop] = matching;
   if (!loop) return { woken: [], completed: false };
-  const existingClaim = claims?.getEvidenceAnswerEventWakeClaim(event.answerEventId);
-  if (existingClaim) {
-    if (existingClaim.loopId !== loop.loopId) {
-      throw new Error(`AnswerEvent ${event.answerEventId} wake claim changed owner loop`);
-    }
-    if (loop.generation >= existingClaim.generation && loop.reason?.includes(event.answerEventId)) {
+  const wakeable = new Set(["retry_wait", "dormant", "blocked"]);
+  const wake = (claim: HumanAnswerEventWakeClaim): HumanAnswerEvidenceOwnerWakeResult => {
+    const current = loopStore.require(claim.loopId);
+    if (current.generation >= claim.generation && current.reason?.includes(event.answerEventId)) {
       return { woken: [], completed: true };
     }
-  }
-  if (loop.status === "running" || loop.status === "scheduled") {
-    if (claims && !existingClaim) {
-      claims.claimEvidenceAnswerEventWake(event.answerEventId, {
-        loopId: loop.loopId,
-        generation: loop.generation + 1,
-      });
+    if (current.status === "running" || current.status === "scheduled") {
+      return { woken: [], completed: false };
     }
-    return { woken: [], completed: false };
+    if (current.status === "completed" || current.status === "stopped") {
+      return { woken: [], completed: true };
+    }
+    if (!wakeable.has(current.status)) return { woken: [], completed: false };
+    const woken = [
+      loopStore.wake(current.loopId, {
+        reason: `direct-user AnswerEvent ${event.answerEventId} accepted for ${binding.ownerStepOrUnresolvedId}`,
+      }),
+    ];
+    return {
+      woken,
+      completed: woken[0]!.generation >= claim.generation,
+    };
+  };
+
+  if (!claims) {
+    return wake({ loopId: loop.loopId, generation: loop.generation + 1 });
   }
-  if (loop.status === "completed" || loop.status === "stopped") {
-    return { woken: [], completed: true };
-  }
-  const wakeable = new Set(["retry_wait", "dormant", "blocked"]);
-  if (!wakeable.has(loop.status)) return { woken: [], completed: false };
-  const claim = claims
-    ? claims.claimEvidenceAnswerEventWake(
-        event.answerEventId,
-        existingClaim ?? { loopId: loop.loopId, generation: loop.generation + 1 },
-      )
-    : undefined;
-  if (claim && claim.loopId !== loop.loopId) {
+
+  const existingClaim = claims.getEvidenceAnswerEventWakeClaim(event.answerEventId);
+  if (existingClaim && existingClaim.loopId !== loop.loopId) {
     throw new Error(`AnswerEvent ${event.answerEventId} wake claim changed owner loop`);
   }
-  const woken = [
-    loopStore.wake(loop.loopId, {
-      reason: `direct-user AnswerEvent ${event.answerEventId} accepted for ${binding.ownerStepOrUnresolvedId}`,
-    }),
-  ];
-  return {
-    woken,
-    completed: claim ? woken[0]!.generation >= claim.generation : true,
-  };
+  if (!existingClaim && (loop.status === "completed" || loop.status === "stopped")) {
+    return { woken: [], completed: true };
+  }
+  const claim = existingClaim ?? { loopId: loop.loopId, generation: loop.generation + 1 };
+  const claimed = claims.withEvidenceAnswerEventWakeClaim(event.answerEventId, claim, wake);
+  return claimed.result ?? { woken: [], completed: false };
 }
 
 /** Reproject every durable AnswerEvent after daemon restart without duplicating Evidence. */

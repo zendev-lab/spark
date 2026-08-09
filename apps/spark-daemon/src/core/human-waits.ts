@@ -140,6 +140,11 @@ export interface HumanAnswerEventWakeClaim {
   generation: number;
 }
 
+export interface HumanAnswerEventWakeClaimResult {
+  claim: HumanAnswerEventWakeClaim;
+  acquired: boolean;
+}
+
 /**
  * Daemon-owned human interaction state.
  *
@@ -482,21 +487,45 @@ export class SparkDaemonHumanWaitRegistry {
     answerEventId: string,
     claim: HumanAnswerEventWakeClaim,
   ): HumanAnswerEventWakeClaim {
-    this.db
-      .prepare(
-        `UPDATE daemon_human_answer_events
-         SET wake_loop_id = ?, wake_generation = ?
-         WHERE answer_event_id = ?
-           AND wake_completed_at IS NULL
-           AND wake_loop_id IS NULL
-           AND wake_generation IS NULL`,
-      )
-      .run(claim.loopId, claim.generation, answerEventId);
-    const persisted = this.getEvidenceAnswerEventWakeClaim(answerEventId);
-    if (!persisted) {
-      throw new Error(`cannot claim AnswerEvent wake for ${answerEventId}`);
+    return this.withEvidenceAnswerEventWakeClaim(answerEventId, claim).claim;
+  }
+
+  withEvidenceAnswerEventWakeClaim<T>(
+    answerEventId: string,
+    claim: HumanAnswerEventWakeClaim,
+    action?: (claim: HumanAnswerEventWakeClaim) => T,
+  ): HumanAnswerEventWakeClaimResult & { result?: T } {
+    const ownsTransaction = !this.db.isTransaction;
+    if (ownsTransaction) this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const acquired =
+        this.db
+          .prepare(
+            `UPDATE daemon_human_answer_events
+             SET wake_loop_id = ?, wake_generation = ?
+             WHERE answer_event_id = ?
+               AND wake_completed_at IS NULL
+               AND wake_loop_id IS NULL
+               AND wake_generation IS NULL`,
+          )
+          .run(claim.loopId, claim.generation, answerEventId).changes === 1;
+      const persisted = this.getEvidenceAnswerEventWakeClaim(answerEventId);
+      if (!persisted) {
+        throw new Error(`cannot claim AnswerEvent wake for ${answerEventId}`);
+      }
+      if (
+        persisted.loopId !== claim.loopId ||
+        (acquired && persisted.generation !== claim.generation)
+      ) {
+        throw new Error(`AnswerEvent ${answerEventId} wake claim changed owner loop`);
+      }
+      const result = action ? action(persisted) : undefined;
+      if (ownsTransaction) this.db.exec("COMMIT");
+      return { claim: persisted, acquired, ...(result === undefined ? {} : { result }) };
+    } catch (error) {
+      if (ownsTransaction) this.db.exec("ROLLBACK");
+      throw error;
     }
-    return persisted;
   }
 
   isEvidenceAnswerEventWakePending(answerEventId: string): boolean {

@@ -156,6 +156,76 @@ describe("human AnswerEvent Evidence projection", () => {
     }
   });
 
+  it("does not invoke a competing wake action after a durable claim is acquired", () => {
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    const loops = new SparkLoopStore(db, new SparkInvocationStore(db));
+    loops.start({
+      loopId: "loop-atomic",
+      ownerSessionId: "session:atomic",
+      cwd: "/workspace",
+      prompt: "continue",
+      binding: { reproId: "repro:atomic" },
+    });
+    db.prepare("UPDATE loop_wakeups SET status = 'dormant', due_at = NULL WHERE loop_id = ?").run(
+      "loop-atomic",
+    );
+    const requestHash = "f".repeat(64);
+    const binding = {
+      schema: "spark.evidence-request/v1" as const,
+      askRef: `ask:${requestHash}`,
+      ownerSessionId: "session:atomic",
+      goalOrReproId: "repro:atomic",
+      modeScope: "repro" as const,
+      planRevision: 1,
+      ownerStepOrUnresolvedId: "step:atomic",
+      stepDefinitionDigest: "atomic-digest",
+      requestHash,
+      ownerQuestionId: "decision",
+      expectedAnswerKind: "single" as const,
+    };
+    const waits = new SparkDaemonHumanWaitRegistry(db);
+    waits.register({
+      humanRequestId: "hreq-atomic",
+      interactionRequestId: `ask_async:${requestHash}`,
+      sessionId: "session:atomic",
+      delivery: "async",
+      evidenceRequest: binding,
+      kind: "ask_user",
+      title: "Continue",
+      prompt: "Continue?",
+      questions: [
+        {
+          id: "decision",
+          type: "single",
+          prompt: "Continue?",
+          required: true,
+          options: [{ value: "continue", label: "Continue" }],
+        },
+      ],
+    });
+    const delivered = waits.deliver({
+      humanRequestId: "hreq-atomic",
+      humanResponseId: "hres-atomic",
+      status: "answered",
+      provenance: "direct_user",
+      answers: { decision: "continue" },
+    });
+    if (!delivered.answerEvent) throw new Error("missing accepted AnswerEvent");
+    const first = wakeHumanAnswerEvidenceOwner(loops, delivered.answerEvent, waits);
+    const second = wakeHumanAnswerEvidenceOwner(loops, delivered.answerEvent, waits);
+
+    expect(first.woken).toHaveLength(1);
+    expect(first.completed).toBe(true);
+    expect(second.woken).toHaveLength(0);
+    expect(second.completed).toBe(true);
+    expect(waits.getEvidenceAnswerEventWakeClaim(delivered.answerEvent.answerEventId)).toEqual({
+      loopId: "loop-atomic",
+      generation: 2,
+    });
+    expect(loops.require("loop-atomic").generation).toBe(2);
+  });
+
   it("wakes only the dormant Goal/Repro loop bound to the accepted answer", () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
