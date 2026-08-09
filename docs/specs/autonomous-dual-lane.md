@@ -286,9 +286,9 @@ stageContribution(s) = stageWeight(s) × stageFraction(s)
 formalProgress = Σ stageContribution(s)
 ```
 
-Eligible means accepted `entrypoint` evidence at the frozen `minimum_complete` acceptance Profile, including an exact `validationTopology + strategies[]` match. Explore, probe, reduced/full observed Profiles, diagnostic observation, active experiment, child-run terminal status, Task count, and token usage contribute zero.
+A gate is **formally eligible** when the frozen contract requires that gate at the `minimum_complete` acceptance Profile and the gate declares an exact `validationTopology + strategies[]` match. Eligibility is independent of gate outcome: pending, failed, and accepted required gates all remain in `totalEligibleWeight(s)`. A gate contributes to `acceptedEligibleWeight(s)` only after its accepted status is backed by the required current-plan Evidence. Explore, probe, reduced/full observed Profiles, diagnostic observation, active experiment, child-run terminal status, Task count, and token usage are never formally eligible and contribute zero.
 
-If a required denominator is unknown, `progress.quantified=false` and `percent=null`. Surfaces render `unquantified`, not an estimate disguised as formal precision. A separate explicitly labelled forecast may exist in future but cannot share the formal progress field.
+The denominator is the frozen inventory of all formally eligible gate weights across every stage, not the subset that has already produced accepted Evidence. If the frozen contract cannot enumerate that complete required inventory or any required gate weight is unknown, `progress.quantified=false` and `percent=null`. Surfaces render `unquantified`, not an estimate disguised as formal precision. A separate explicitly labelled forecast may exist in future but cannot share the formal progress field.
 
 ### Reproducible examples
 
