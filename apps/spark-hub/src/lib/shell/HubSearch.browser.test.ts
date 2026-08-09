@@ -16,14 +16,18 @@ describe("HubSearch browser contract", () => {
       sessionMessages: messages.sessions,
     });
 
-    expect(screen.container.querySelector('[role="dialog"]')).toBeNull();
+    // The shared Dialog shell portals its content to document.body.
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
     window.dispatchEvent(new Event(hubOpenSearchEvent));
     await vi.waitFor(() => {
-      expect(screen.container.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
     });
     expect(addListener).toHaveBeenCalledWith(hubOpenSearchEvent, expect.any(Function));
 
     await screen.unmount();
     expect(removeListener).toHaveBeenCalledWith(hubOpenSearchEvent, expect.any(Function));
+    await vi.waitFor(() => {
+      expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    });
   });
 });
