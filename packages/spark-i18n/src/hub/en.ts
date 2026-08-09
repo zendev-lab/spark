@@ -202,22 +202,15 @@ const messages = {
   updateStatus: {
     navLabel: "Hub updates",
     title: "Spark Hub updates",
-    lede: "Read-only status for this Hub installation. Connected daemon installations are updated on their own machines.",
     current: "Current",
     available: "Available",
     pending: "Pending",
     policy: "Policy",
-    installation: "Installation owner",
+    installation: "Installation method",
     none: "None",
-    unmanaged: "Not a managed installation",
-    unmanagedBody:
-      "Source checkouts are never modified. Run the exact migration command below in a terminal.",
-    packageManaged: "Package-manager installation",
-    packageManagedBody:
-      "Spark delegates exact updates to this installation owner while keeping one updater policy and service handoff.",
+    unmanaged: "Enable managed updates",
+    packageManaged: "Update command",
     quarantined: "Quarantined versions",
-    readOnly:
-      "This page only displays the Hub installation's updater state. Installation, rollback, and quarantine are owned by its external spark updater.",
   },
   errorPage: {
     brandLabel: "Spark Hub",

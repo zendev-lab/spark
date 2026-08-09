@@ -202,21 +202,15 @@ const messages = {
   updateStatus: {
     navLabel: "Hub 更新",
     title: "Spark Hub 更新",
-    lede: "只读显示当前 Hub 安装的状态；已连接的 daemon 仍在各自机器上独立更新。",
     current: "当前版本",
     available: "可用版本",
     pending: "待切换版本",
     policy: "更新策略",
-    installation: "安装所有者",
+    installation: "安装方式",
     none: "无",
-    unmanaged: "当前不是托管安装",
-    unmanagedBody: "源码 checkout 不会被自动修改。请在终端执行下面的精确迁移命令。",
-    packageManaged: "包管理器安装",
-    packageManagedBody:
-      "Spark 将精确版本更新委托给当前安装所有者，同时保持统一的更新策略与服务交接。",
+    unmanaged: "启用托管更新",
+    packageManaged: "更新命令",
     quarantined: "已隔离版本",
-    readOnly:
-      "此页面只显示 Hub 安装自身的 updater 状态；安装、回滚和隔离由对应的外部 spark updater 独占管理。",
   },
   errorPage: {
     brandLabel: "Spark Hub",
