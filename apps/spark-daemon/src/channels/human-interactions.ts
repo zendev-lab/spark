@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import { createId, parseSparkAskChoice } from "@zendev-lab/spark-protocol";
+import {
+  createId,
+  hasNonEmptySparkHumanAnswer,
+  parseSparkAskChoice,
+  type SparkEvidenceAnswerEvent,
+} from "@zendev-lab/spark-protocol";
 import type { ChannelAskRequest, IncomingMessage } from "@zendev-lab/spark-channels";
 import { renderTextChannelAsk } from "@zendev-lab/spark-channels";
 import { runtimeEnvelope } from "../protocol/outbound.ts";
@@ -153,6 +158,10 @@ export async function settleChannelAskInteraction(
     /** Resolve the runtime that owns the callback's workspace route. */
     getRuntimeId?: (wait: SparkDaemonHumanWaitRecord) => string | undefined;
     deliveryOutbox?: Pick<DaemonChannelDeliveryOutbox, "enqueueInteractionAck">;
+    onAnswerEvent?: (
+      event: SparkEvidenceAnswerEvent,
+      wait: SparkDaemonHumanWaitRecord,
+    ) => void | Promise<void>;
   },
 ): Promise<void> {
   const { event, workspaceId } = input;
@@ -187,15 +196,20 @@ export async function settleChannelAskInteraction(
     const messageId = createId("msg");
     const payload = {
       source: "channel" as const,
+      provenance: "direct_user" as const,
       status: "answered" as const,
       answers: { [callback.questionId]: callback.value },
       responseArtifactRefs: [],
     };
-    outcome = waits.deliver(
+    if (!hasNonEmptySparkHumanAnswer(payload.answers)) {
+      throw new Error("channel callback produced an empty human answer");
+    }
+    const delivered = waits.deliver(
       {
         humanRequestId: callback.wait.humanRequestId,
         humanResponseId,
         status: payload.status,
+        provenance: "direct_user",
         answers: payload.answers,
       },
       {
@@ -216,7 +230,15 @@ export async function settleChannelAskInteraction(
           { messageId },
         ),
       },
-    ).outcome;
+    );
+    if (
+      (delivered.outcome === "accepted" || delivered.outcome === "replayed") &&
+      delivered.answerEvent &&
+      delivered.wait
+    ) {
+      await Promise.resolve(options.onAnswerEvent?.(delivered.answerEvent, delivered.wait));
+    }
+    outcome = delivered.outcome;
   } catch (error) {
     await deliverInteractionAck(channelIngress, event, workspaceId, "rate_limited", options);
     throw error;
@@ -244,6 +266,10 @@ export async function settleChannelAskTextReply(
   options: {
     runtimeId?: string;
     getRuntimeId?: (wait: SparkDaemonHumanWaitRecord) => string | undefined;
+    onAnswerEvent?: (
+      event: SparkEvidenceAnswerEvent,
+      wait: SparkDaemonHumanWaitRecord,
+    ) => void | Promise<void>;
   },
 ): Promise<"settled" | "continue"> {
   if (input.message.adapter !== "infoflow") return "continue";
@@ -259,7 +285,7 @@ export async function settleChannelAskTextReply(
   if (!wait) return "continue";
 
   const answers = parseInfoflowTextAskAnswers(wait, text);
-  if (!answers) return "continue";
+  if (!answers || !hasNonEmptySparkHumanAnswer(answers)) return "continue";
 
   const runtimeId = options.getRuntimeId?.(wait)?.trim() || options.runtimeId?.trim();
   if (!runtimeId) {
@@ -274,15 +300,17 @@ export async function settleChannelAskTextReply(
   const messageId = createId("msg");
   const payload = {
     source: "channel" as const,
+    provenance: "direct_user" as const,
     status: "answered" as const,
     answers,
     responseArtifactRefs: [],
   };
-  waits.deliver(
+  const delivered = waits.deliver(
     {
       humanRequestId: wait.humanRequestId,
       humanResponseId,
       status: payload.status,
+      provenance: "direct_user",
       answers: payload.answers,
     },
     {
@@ -304,6 +332,13 @@ export async function settleChannelAskTextReply(
       ),
     },
   );
+  if (
+    (delivered.outcome === "accepted" || delivered.outcome === "replayed") &&
+    delivered.answerEvent &&
+    delivered.wait
+  ) {
+    await Promise.resolve(options.onAnswerEvent?.(delivered.answerEvent, delivered.wait));
+  }
   return "settled";
 }
 

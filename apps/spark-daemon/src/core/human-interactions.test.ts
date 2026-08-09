@@ -69,6 +69,7 @@ function askRequest(
   requestId: string,
   delivery: "blocking" | "async",
   timeoutMs?: number,
+  evidenceRequest?: Extract<SparkInteractionRequest, { kind: "askFlow" }>["evidenceRequest"],
 ): SparkInteractionRequest {
   return parseSparkInteractionRequest({
     requestId,
@@ -76,6 +77,7 @@ function askRequest(
     title: "Choose a direction",
     prompt: "How should Spark continue?",
     delivery,
+    ...(evidenceRequest ? { evidenceRequest } : {}),
     ...(timeoutMs ? { timeoutMs } : {}),
     mode: "decision",
     source: "daemon",
@@ -137,16 +139,32 @@ describe("SparkDaemonHumanInteractionBroker", () => {
     });
 
     try {
-      const response = await broker.interact(askRequest("interaction-async", "async"), {
-        ...interactionContext(),
-      });
+      const evidenceRequest = {
+        schema: "spark.evidence-request/v1" as const,
+        askRef: `ask:${"e".repeat(64)}`,
+        ownerSessionId: "session-1",
+        goalOrReproId: "repro:async",
+        modeScope: "repro" as const,
+        planRevision: 4,
+        ownerStepOrUnresolvedId: "step:decision",
+        stepDefinitionDigest: "decision-digest",
+        requestHash: "e".repeat(64),
+        ownerQuestionId: "decision",
+        expectedAnswerKind: "single" as const,
+      };
+      const response = await broker.interact(
+        askRequest("ask_async:" + "e".repeat(64), "async", undefined, evidenceRequest),
+        {
+          ...interactionContext(),
+        },
+      );
 
       expect(response).toMatchObject({
         kind: "askFlow",
-        requestId: "interaction-async",
+        requestId: `ask_async:${"e".repeat(64)}`,
         status: "pending",
         nextAction: "resume",
-        metadata: { delivery: "async" },
+        metadata: { delivery: "async", evidenceRequest },
       });
       expect(response.kind === "askFlow" ? response.humanRequestId : undefined).toEqual(
         expect.any(String),
@@ -157,11 +175,12 @@ describe("SparkDaemonHumanInteractionBroker", () => {
 
       expect(waits.hasActive(response.humanRequestId)).toBe(false);
       expect(waits.get(response.humanRequestId)).toMatchObject({
-        interactionRequestId: "interaction-async",
+        interactionRequestId: `ask_async:${"e".repeat(64)}`,
         delivery: "async",
         status: "pending",
         workspaceBindingId: WORKSPACE_BINDING_ID,
         workspaceId: WORKSPACE_ID,
+        evidenceRequest,
       });
       expect(onOutboxReady).toHaveBeenCalledTimes(1);
       expect(waits.listPendingOutbox()).toEqual([
@@ -175,7 +194,8 @@ describe("SparkDaemonHumanInteractionBroker", () => {
             humanRequestId: response.humanRequestId,
             payload: expect.objectContaining({
               delivery: "async",
-              interactionRequestId: "interaction-async",
+              interactionRequestId: `ask_async:${"e".repeat(64)}`,
+              evidenceRequest,
             }),
           }),
         }),
@@ -191,19 +211,58 @@ describe("SparkDaemonHumanInteractionBroker", () => {
       expect(opened).toHaveLength(1);
       expect(opened[0]).toMatchObject({
         wait: { humanRequestId: response.humanRequestId, delivery: "async" },
-        request: { requestId: "interaction-async", kind: "askFlow" },
+        request: { requestId: `ask_async:${"e".repeat(64)}`, kind: "askFlow" },
         channel: { adapterId: "qq-main", recipient: "c2c:user-1" },
       });
       expect(opened[0]?.callbackOptions).toHaveLength(2);
       const firstCallback = opened[0]?.callbackOptions[0];
       expect(firstCallback?.token).toMatch(/^[A-Za-z0-9_-]+$/u);
-      expect(firstCallback?.token).not.toContain("interaction-async");
+      expect(firstCallback?.token).not.toContain("ask_async");
       expect(waits.findCallback(firstCallback?.token ?? "")).toMatchObject({
         wait: { humanRequestId: response.humanRequestId },
         questionId: "decision",
         value: "yes",
         label: "Continue",
       });
+
+      const restartedWaits = new SparkDaemonHumanWaitRegistry(db);
+      const restartedBroker = new SparkDaemonHumanInteractionBroker({
+        db,
+        waits: restartedWaits,
+        getRuntimeId: primaryRuntimeId,
+      });
+      const restartedWait = restartedWaits.get(response.humanRequestId);
+      if (!restartedWait) throw new Error("pending async evidence request did not survive restart");
+      const accepted = await restartedBroker.respond(restartedWait, {
+        humanResponseId: "hres-async-evidence",
+        status: "answered",
+        provenance: "direct_user",
+        answers: { decision: "yes" },
+        responseArtifactRefs: [],
+      });
+      const replayed = await restartedBroker.respond(restartedWait, {
+        humanResponseId: "hres-async-evidence",
+        status: "answered",
+        provenance: "direct_user",
+        answers: { decision: "tampered" },
+        responseArtifactRefs: [],
+      });
+      expect(accepted).toMatchObject({
+        outcome: "accepted",
+        returnedToTool: false,
+        answerEvent: {
+          binding: evidenceRequest,
+          answers: { decision: { questionId: "decision", values: ["yes"] } },
+          provenance: "direct_user",
+        },
+      });
+      expect(replayed).toMatchObject({
+        outcome: "replayed",
+        answerEvent: {
+          answers: { decision: { questionId: "decision", values: ["yes"] } },
+        },
+      });
+      expect(restartedWaits.listEvidenceAnswerEvents(response.humanRequestId)).toHaveLength(1);
     } finally {
       db.close();
     }
@@ -244,6 +303,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
       await expect(
         broker.respond(wait!, {
           status: "answered",
+          provenance: "direct_user",
           answers: {
             decision: {
               values: ["yes"],
@@ -373,6 +433,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
       await expect(
         broker.respond(wait, {
           status: "answered",
+          provenance: "direct_user",
           answers: { decision: "yes" },
           responseArtifactRefs: [],
         }),
@@ -428,6 +489,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
         });
         await broker.respond(wait, {
           status: "answered",
+          provenance: "direct_user",
           answers: { decision: "yes" },
           responseArtifactRefs: [],
         });
@@ -510,6 +572,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
       await expect(
         broker.respond(wait, {
           status: "answered",
+          provenance: "direct_user",
           answers: { decision: "yes" },
           responseArtifactRefs: [],
         }),
@@ -760,6 +823,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
       await expect(
         broker.respond(wait, {
           status: "answered",
+          provenance: "direct_user",
           answers: {
             approval: {
               values: ["approve"],

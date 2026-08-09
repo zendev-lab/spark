@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { sparkDocumentMediaTypeSchema } from "./artifact-document.ts";
+import {
+  sparkEvidenceRequestBindingSchema,
+  type SparkEvidenceExpectedAnswerKind,
+} from "./human-interaction.ts";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
 import { sparkSessionPendingTurnSchema } from "./session-assignment.ts";
 import { sparkLoopViewSchema } from "./loop.ts";
@@ -753,25 +757,70 @@ export const sparkInteractionBaseRequestSchema = z.object({
   metadata: sparkJsonObjectSchema.default({}),
 });
 
-export const sparkAskFlowInteractionRequestSchema = sparkInteractionBaseRequestSchema.extend({
-  kind: z.literal("askFlow"),
-  /**
-   * `blocking` keeps the tool call suspended until a human answers. `async`
-   * durably opens the request and returns its handle to the caller immediately.
-   */
-  delivery: z.enum(["blocking", "async"]).optional(),
-  /** Host-owned blocking wait deadline. A timeout closes the human wait before fallback begins. */
-  timeoutMs: z
-    .number()
-    .int()
-    .positive()
-    .max(24 * 60 * 60_000)
-    .optional(),
-  mode: z.enum(["clarification", "decision", "approval", "unblock"]).default("clarification"),
-  flow: z.string().min(1).optional(),
-  questions: z.array(sparkAskQuestionViewSchema).min(1),
-  allowElaborate: z.boolean().optional(),
-});
+export const sparkAskFlowInteractionRequestSchema = sparkInteractionBaseRequestSchema
+  .extend({
+    kind: z.literal("askFlow"),
+    /**
+     * `blocking` keeps the tool call suspended until a human answers. `async`
+     * durably opens the request and returns its handle to the caller immediately.
+     */
+    delivery: z.enum(["blocking", "async"]).optional(),
+    /** Host-owned blocking wait deadline. A timeout closes the human wait before fallback begins. */
+    timeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .max(24 * 60 * 60_000)
+      .optional(),
+    mode: z.enum(["clarification", "decision", "approval", "unblock"]).default("clarification"),
+    flow: z.string().min(1).optional(),
+    questions: z.array(sparkAskQuestionViewSchema).min(1),
+    allowElaborate: z.boolean().optional(),
+    evidenceRequest: sparkEvidenceRequestBindingSchema.optional(),
+  })
+  .superRefine((request, context) => {
+    if (!request.evidenceRequest) return;
+    if (request.delivery !== "async") {
+      context.addIssue({
+        code: "custom",
+        path: ["delivery"],
+        message: "evidenceRequest requires delivery=async",
+      });
+    }
+    const expectedType = expectedQuestionType(request.evidenceRequest.expectedAnswerKind);
+    const ownerQuestions = request.questions.filter(
+      (question) => question.id === request.evidenceRequest?.ownerQuestionId,
+    );
+    if (ownerQuestions.length !== 1 || !expectedType.includes(ownerQuestions[0]!.type)) {
+      context.addIssue({
+        code: "custom",
+        path: ["questions"],
+        message: `evidenceRequest ownerQuestionId=${request.evidenceRequest.ownerQuestionId} does not match expectedAnswerKind=${request.evidenceRequest.expectedAnswerKind}`,
+      });
+    }
+    if (request.evidenceRequest.expectedAnswerKind === "approval" && request.mode !== "approval") {
+      context.addIssue({
+        code: "custom",
+        path: ["mode"],
+        message: "approval evidenceRequest requires mode=approval",
+      });
+    }
+  });
+
+function expectedQuestionType(
+  expected: SparkEvidenceExpectedAnswerKind,
+): Array<"single" | "multi" | "preview" | "freeform"> {
+  switch (expected) {
+    case "single":
+      return ["single", "preview"];
+    case "approval":
+      return ["single"];
+    case "multi":
+      return ["multi"];
+    case "freeform":
+      return ["freeform"];
+  }
+}
 
 export const sparkModelSelectOptionSchema = sparkModelRefSchema.extend({
   value: z.string().min(1),

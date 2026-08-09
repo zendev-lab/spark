@@ -57,8 +57,16 @@ must persist detached asynchronous evidence requests and continue independent
 work. Their pending decision status is orthogonal to daemon scheduler activity.
 Omitted/default blocking delivery, explicit blocking delivery, Ask aliases, and
 `autoAnswer=true` must fail at the execution boundary before creating an
-in-turn UI wait or durable blocking continuation. AnswerEvents retain this
-specification's request/response correlation and direct-user provenance rules.
+in-turn UI wait or durable blocking continuation. Each detached EvidenceRequest
+freezes exactly one owner question id and answer kind. The daemon validates all
+submitted question ids, required answers, options, and cardinalities against the
+durable canonical request, then stores only the normalized owner answer in the
+AnswerEvent. A side-question answer cannot release the bound Goal/Repro action.
+AnswerEvents retain this specification's request/response correlation and
+direct-user provenance rules. An answer accepted while the owner loop is
+`running` or `scheduled` remains wake-pending until reconciliation commits a
+later wake or observes the owner terminal; projection alone never acknowledges
+wake completion.
 
 Ordinary non-autonomous sessions retain the existing interaction contract.
 

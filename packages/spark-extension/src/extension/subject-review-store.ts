@@ -1,5 +1,5 @@
-import { readdir } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { mkdir, readdir, rename } from "node:fs/promises";
+import { dirname, join, relative, sep } from "node:path";
 
 import {
   nowIso,
@@ -66,6 +66,12 @@ export interface SubjectReviewIndexEntry {
   sessionKey?: string;
 }
 
+export interface SubjectReviewSkippedEntry {
+  path: string;
+  reason: "legacy_artifact_review_not_promoted";
+  legacyArtifactRef: `artifact:${string}`;
+}
+
 export interface SubjectReviewIndexSnapshot {
   version: 1;
   rebuildable: true;
@@ -73,6 +79,7 @@ export interface SubjectReviewIndexSnapshot {
   source: "subject-review-records";
   legacyImportOnly: string[];
   reviews: SubjectReviewIndexEntry[];
+  skipped: SubjectReviewSkippedEntry[];
 }
 
 export interface WorkspaceSubjectReviewIndexEntry extends SubjectReviewIndexEntry {
@@ -86,9 +93,25 @@ export interface WorkspaceSubjectReviewIndexSnapshot {
   source: "subject-review-records";
   legacyImportOnly: string[];
   reviews: WorkspaceSubjectReviewIndexEntry[];
+  skipped: SubjectReviewSkippedEntry[];
 }
 
-const LEGACY_REVIEW_IMPORT_ONLY = [".spark/review-gate.json"];
+export interface LegacyArtifactSubjectReviewQuarantineEntry {
+  sourcePath: string;
+  quarantinePath: string;
+  legacyArtifactRef: `artifact:${string}`;
+}
+
+export interface LegacyArtifactSubjectReviewQuarantineResult {
+  version: 1;
+  applied: boolean;
+  generatedAt: string;
+  manifestPath: string;
+  entries: LegacyArtifactSubjectReviewQuarantineEntry[];
+}
+
+const LEGACY_ARTIFACT_REVIEW_QUARANTINE = ".spark/reviews/legacy-artifact-records";
+const LEGACY_REVIEW_IMPORT_ONLY = [".spark/review-gate.json", LEGACY_ARTIFACT_REVIEW_QUARANTINE];
 
 export async function recordTaskSubjectReview(
   cwd: string,
@@ -206,13 +229,20 @@ export async function rebuildSubjectReviewIndex(
   reviewDirectory: string,
 ): Promise<SubjectReviewIndexSnapshot> {
   const entries: SubjectReviewIndexEntry[] = [];
+  const skipped: SubjectReviewSkippedEntry[] = [];
   for (const fileName of await listReviewRecordFiles(reviewDirectory)) {
     const filePath = join(reviewDirectory, fileName);
     const record = await readJsonFileOptional<Record<string, unknown>>(filePath);
     if (!record) continue;
+    const legacySkip = legacyArtifactReviewSkip(record, fileName);
+    if (legacySkip) {
+      skipped.push(legacySkip);
+      continue;
+    }
     entries.push(subjectReviewIndexEntry(record, fileName));
   }
   entries.sort((left, right) => right.reviewedAt.localeCompare(left.reviewedAt));
+  skipped.sort((left, right) => left.path.localeCompare(right.path));
   const snapshot: SubjectReviewIndexSnapshot = {
     version: 1,
     rebuildable: true,
@@ -220,9 +250,110 @@ export async function rebuildSubjectReviewIndex(
     source: "subject-review-records",
     legacyImportOnly: LEGACY_REVIEW_IMPORT_ONLY,
     reviews: entries,
+    skipped,
   };
   await writeJsonFileAtomic(join(reviewDirectory, "index.json"), snapshot);
   return snapshot;
+}
+
+export async function quarantineLegacyArtifactSubjectReviews(
+  cwd: string,
+  options: { apply: boolean },
+): Promise<LegacyArtifactSubjectReviewQuarantineResult> {
+  const root = join(cwd, ".spark");
+  const quarantineRoot = join(cwd, LEGACY_ARTIFACT_REVIEW_QUARANTINE);
+  const manifestPath = join(quarantineRoot, "manifest.json");
+  const existingValue = await readJsonFileOptional<Record<string, unknown>>(manifestPath);
+  const existing = existingValue
+    ? parseLegacyArtifactSubjectReviewQuarantineResult(existingValue)
+    : undefined;
+  const files = [
+    ...(await findSubjectReviewRecordFiles(join(root, "projects"))),
+    ...(await findSubjectReviewRecordFiles(join(root, "sessions"))),
+  ];
+  const discovered: LegacyArtifactSubjectReviewQuarantineEntry[] = [];
+  for (const filePath of files) {
+    const record = await readJsonFileOptional<Record<string, unknown>>(filePath);
+    if (!record) continue;
+    const sourcePath = relative(cwd, filePath);
+    const legacySkip = legacyArtifactReviewSkip(record, sourcePath);
+    if (!legacySkip) continue;
+    discovered.push({
+      sourcePath,
+      quarantinePath: relative(cwd, join(quarantineRoot, relative(root, filePath))),
+      legacyArtifactRef: legacySkip.legacyArtifactRef,
+    });
+  }
+  const bySource = new Map(
+    [...(existing?.entries ?? []), ...discovered].map((entry) => [entry.sourcePath, entry]),
+  );
+  const entries = [...bySource.values()].sort((left, right) =>
+    left.sourcePath.localeCompare(right.sourcePath),
+  );
+  const result: LegacyArtifactSubjectReviewQuarantineResult = {
+    version: 1,
+    applied: options.apply && discovered.length === 0 ? (existing?.applied ?? true) : false,
+    generatedAt: nowIso(),
+    manifestPath: relative(cwd, manifestPath),
+    entries,
+  };
+  if (!options.apply) return result;
+
+  await writeJsonFileAtomic(manifestPath, result);
+  for (const entry of discovered) {
+    const sourcePath = join(cwd, entry.sourcePath);
+    const quarantinePath = join(cwd, entry.quarantinePath);
+    if (await readJsonFileOptional(quarantinePath)) {
+      throw new Error(
+        `legacy Artifact review quarantine target already exists: ${entry.quarantinePath}`,
+      );
+    }
+    await mkdir(dirname(quarantinePath), { recursive: true });
+    await rename(sourcePath, quarantinePath);
+  }
+  const applied = { ...result, applied: true, generatedAt: nowIso() };
+  await writeJsonFileAtomic(manifestPath, applied);
+  return applied;
+}
+
+function parseLegacyArtifactSubjectReviewQuarantineResult(
+  value: Record<string, unknown>,
+): LegacyArtifactSubjectReviewQuarantineResult {
+  if (
+    value.version !== 1 ||
+    typeof value.applied !== "boolean" ||
+    typeof value.generatedAt !== "string" ||
+    typeof value.manifestPath !== "string" ||
+    !Array.isArray(value.entries)
+  ) {
+    throw new Error("legacy Artifact review quarantine manifest is malformed");
+  }
+  const entries = value.entries.map((entry) => {
+    if (
+      !entry ||
+      typeof entry !== "object" ||
+      Array.isArray(entry) ||
+      typeof entry.sourcePath !== "string" ||
+      typeof entry.quarantinePath !== "string" ||
+      typeof entry.legacyArtifactRef !== "string" ||
+      !entry.legacyArtifactRef.startsWith("artifact:") ||
+      entry.legacyArtifactRef.length === "artifact:".length
+    ) {
+      throw new Error("legacy Artifact review quarantine manifest entry is malformed");
+    }
+    return {
+      sourcePath: entry.sourcePath,
+      quarantinePath: entry.quarantinePath,
+      legacyArtifactRef: entry.legacyArtifactRef as `artifact:${string}`,
+    };
+  });
+  return {
+    version: 1,
+    applied: value.applied,
+    generatedAt: value.generatedAt,
+    manifestPath: value.manifestPath,
+    entries,
+  };
 }
 
 export async function rebuildWorkspaceReviewIndex(
@@ -234,15 +365,23 @@ export async function rebuildWorkspaceReviewIndex(
     ...(await findSubjectReviewRecordFiles(join(root, "sessions"))),
   ];
   const reviews: WorkspaceSubjectReviewIndexEntry[] = [];
+  const skipped: SubjectReviewSkippedEntry[] = [];
   for (const filePath of files) {
     const record = await readJsonFileOptional<Record<string, unknown>>(filePath);
     if (!record) continue;
+    const path = relative(root, filePath);
+    const legacySkip = legacyArtifactReviewSkip(record, path);
+    if (legacySkip) {
+      skipped.push(legacySkip);
+      continue;
+    }
     reviews.push({
-      ...subjectReviewIndexEntry(record, relative(root, filePath)),
-      path: relative(root, filePath),
+      ...subjectReviewIndexEntry(record, path),
+      path,
     });
   }
   reviews.sort((left, right) => right.reviewedAt.localeCompare(left.reviewedAt));
+  skipped.sort((left, right) => left.path.localeCompare(right.path));
   const snapshot: WorkspaceSubjectReviewIndexSnapshot = {
     version: 1,
     rebuildable: true,
@@ -250,6 +389,7 @@ export async function rebuildWorkspaceReviewIndex(
     source: "subject-review-records",
     legacyImportOnly: LEGACY_REVIEW_IMPORT_ONLY,
     reviews,
+    skipped,
   };
   await writeJsonFileAtomic(join(root, "reviews", "index.json"), snapshot);
   return snapshot;
@@ -319,6 +459,25 @@ async function collectSubjectReviewRecordFiles(root: string, files: string[]): P
       files.push(path);
     }
   }
+}
+
+function legacyArtifactReviewSkip(
+  value: Record<string, unknown>,
+  path: string,
+): SubjectReviewSkippedEntry | undefined {
+  if (value.evidenceRef !== undefined || value.artifactRef === undefined) return undefined;
+  const legacyArtifactRef = stringField(value.artifactRef, "artifactRef");
+  if (
+    !legacyArtifactRef.startsWith("artifact:") ||
+    legacyArtifactRef.length === "artifact:".length
+  ) {
+    return undefined;
+  }
+  return {
+    path,
+    reason: "legacy_artifact_review_not_promoted",
+    legacyArtifactRef: legacyArtifactRef as `artifact:${string}`,
+  };
 }
 
 function subjectReviewIndexEntry(

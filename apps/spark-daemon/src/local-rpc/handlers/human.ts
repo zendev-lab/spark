@@ -45,6 +45,7 @@ export async function handleHumanRequest(
           ? { humanResponseId: request.params.humanResponseId }
           : {}),
         status: request.params.status,
+        provenance: "direct_user",
         answers: request.params.answers,
         responseArtifactRefs: request.params.responseArtifactRefs,
       });
