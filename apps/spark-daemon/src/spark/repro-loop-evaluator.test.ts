@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -128,6 +128,25 @@ describe("trusted Repro Loop evaluators", () => {
     });
   });
 
+  it("rejects formal completion when an owning-entrypoint receipt is stale", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    await persistAcceptedFormalEvidence(cwd, input);
+    const row = input.validationMatrix!.rows.find(
+      (candidate) => candidate.evidenceClass === "entrypoint",
+    );
+    if (!row?.receiptPath) throw new Error("missing formal receipt fixture");
+    const receiptFile = join(cwd, row.receiptPath);
+    const receipt = JSON.parse(await readFile(receiptFile, "utf8")) as Record<string, unknown>;
+    receipt.stale = true;
+    await writeFile(receiptFile, JSON.stringify(receipt));
+    await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
+    await writeSummary(cwd, input);
+
+    await expect(reproCompletionEvaluator(context(cwd))).rejects.toThrow(
+      /formal Evidence receipt is not current and accepted/u,
+    );
+  });
   it("rejects a persisted status that does not match canonical typed facts", async () => {
     const cwd = await workspace();
     const work = buildSparkReproWorkSummary(summaryInput(false));

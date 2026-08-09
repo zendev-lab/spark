@@ -2669,6 +2669,7 @@ function cloneValidationMatrix(matrix: SparkReproValidationMatrix): SparkReproVa
     rows: matrix.rows.map((row) => ({
       ...row,
       profile: canonicalProfile(row.profile),
+      evidenceRefs: [...row.evidenceRefs],
       artifactRefs: [...row.artifactRefs],
     })),
   };
