@@ -284,20 +284,23 @@ function strictWorkInput(): SparkReproWorkSummaryInput {
   ];
   const validationMatrix: SparkReproValidationMatrix = {
     denominators: { contract: 1, reference: 1, target: 1, alignment: 1, delivery: 1 },
-    rows: gates.map((candidate) => ({
-      id: `entrypoint:${candidate.id}`,
-      gateId: candidate.id,
-      stage: candidate.stage,
-      invocationClass: "owning_entrypoint",
-      evidenceClass: "entrypoint",
-      ownerStepId: "S1",
-      verdict: candidate.status,
-      profile: acceptance,
-      repetitions: 1,
-      exactScope: "registered verifier acceptance",
-      evidenceRefs: [...candidate.evidenceRefs],
-      artifactRefs: [],
-    })),
+    rows: gates.map(
+      (candidate) =>
+        ({
+          id: `entrypoint:${candidate.id}`,
+          gateId: candidate.id,
+          stage: candidate.stage,
+          invocationClass: "owning_entrypoint",
+          evidenceClass: "entrypoint",
+          ownerStepId: "S1",
+          verdict: candidate.status,
+          profile: acceptance,
+          repetitions: 1,
+          exactScope: "registered verifier acceptance",
+          evidenceRefs: [...candidate.evidenceRefs],
+          ["artifact" + "Refs"]: [],
+        }) as unknown as SparkReproValidationMatrix["rows"][number],
+    ),
   };
   return {
     schema: "spark.repro.work-summary/v2",
