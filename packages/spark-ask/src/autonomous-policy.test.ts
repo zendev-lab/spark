@@ -109,6 +109,7 @@ describe("autonomous canonical Ask", () => {
       ownerStepOrUnresolvedId: "unresolved:decision",
       stepDefinitionDigest: "definition",
       requestHash: String(first?.interactionRequestId).slice("ask_async:".length),
+      ownerQuestionId: "choice",
       expectedAnswerKind: "single",
     });
     expect(second?.interactionRequestId).not.toBe(first?.interactionRequestId);

@@ -436,6 +436,7 @@ export interface ExtensionEvidenceRequestBinding {
   ownerStepOrUnresolvedId: string;
   stepDefinitionDigest: string;
   requestHash: string;
+  ownerQuestionId: string;
   expectedAnswerKind: "single" | "multi" | "freeform" | "approval";
 }
 

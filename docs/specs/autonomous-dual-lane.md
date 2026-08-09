@@ -233,6 +233,7 @@ planRevision
 ownerStepId or unresolvedId
 stepDefinitionDigest
 requestHash
+ownerQuestionId
 expectedAnswerKind
 lifecycle: pending → answered | cancelled | archived
 ```
@@ -244,6 +245,10 @@ In active Goal/Repro:
 - canonical Ask accepts only detached asynchronous delivery;
 - omitted/default blocking delivery, explicit blocking delivery, and `autoAnswer=true` fail with a stable `AUTONOMOUS_ASYNC_ONLY` policy error before UI/broker invocation;
 - legacy Ask aliases cannot bypass the guard;
+- canonical Ask freezes one `ownerQuestionId`; `expectedAnswerKind` is derived from that question only, never by scanning or flattening the whole Ask;
+- daemon validation rejects unknown question ids, missing required answers, invalid option values, mismatched embedded question ids, and wrong single/multi/freeform cardinality before creating an AnswerEvent;
+- AnswerEvent stores only the normalized owner answer, so an answer to a side question cannot release the bound Step or unresolved item;
+- an answer arriving while the owner loop is `running` or `scheduled` remains durably wake-pending; reconciliation marks wake complete only after a wake is committed or the matching owner is terminal;
 - reviewer timeout never synthesizes a user decision;
 - an approval fences only its bound external/destructive action.
 
@@ -265,6 +270,10 @@ Ordinary non-autonomous sessions retain their existing interaction policy.
 | `AE-10` | Daemon restarts with a pending request and running/ready independent work | Request, correlation, activity, and idempotency reconstruct; no duplicate request/dispatch; independent work resumes |
 | `AE-11` | Pending request exists and every remaining action depends on it | `waiting_decision + dormant`; no busy poll or semantic-stagnation increment from elapsed waiting alone |
 | `AE-12` | Synthetic reviewer timeout result resembles a user answer | Rejected as direct-user decision Evidence; no gate or fenced action release |
+| `AE-13` | Side question is answered while the bound owner question is empty | Human response may settle, but no accepted AnswerEvent or Evidence candidate is created |
+| `AE-14` | Answer includes an unknown question id, invalid option, or wrong cardinality | Fail closed at the daemon boundary; no accepted AnswerEvent |
+| `AE-15` | Owner answer arrives while its loop is `running` or `scheduled` | Evidence is projected idempotently, wake acknowledgement remains pending, and reconciliation wakes after the current cycle becomes wakeable |
+| `AE-16` | Repro verifier receives a forged multi-question event whose side value appears valid | It reads only `binding.ownerQuestionId`; the Step remains incomplete |
 
 ## Formal progress
 

@@ -362,6 +362,7 @@ describe("SparkDaemonHumanWaitRegistry", () => {
         ownerStepOrUnresolvedId: "step:topology",
         stepDefinitionDigest: "topology-digest",
         requestHash: "c".repeat(64),
+        ownerQuestionId: "topology",
         expectedAnswerKind: "single" as const,
       };
       expect(() =>
@@ -427,12 +428,14 @@ describe("SparkDaemonHumanWaitRegistry", () => {
           humanResponseId: "hres-evidence",
           provenance: "direct_user",
           binding: evidenceRequest,
-          answers: { topology: "tp2" },
+          answers: { topology: { questionId: "topology", values: ["tp2"] } },
         },
       });
       expect(replayed).toMatchObject({
         outcome: "replayed",
-        answerEvent: { answers: { topology: "tp2" } },
+        answerEvent: {
+          answers: { topology: { questionId: "topology", values: ["tp2"] } },
+        },
       });
       const restarted = new SparkDaemonHumanWaitRegistry(db);
       expect(restarted.listEvidenceAnswerEvents("hreq-evidence")).toEqual([accepted.answerEvent]);
@@ -442,6 +445,78 @@ describe("SparkDaemonHumanWaitRegistry", () => {
       expect(db.prepare("SELECT COUNT(*) AS count FROM daemon_human_answer_events").get()).toEqual({
         count: 1,
       });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rejects side, unknown, invalid-option, and wrong-cardinality owner answers", () => {
+    const { db, waits } = createHarness();
+    const evidenceRequest = {
+      schema: "spark.evidence-request/v1" as const,
+      askRef: "ask:owner-question",
+      ownerSessionId: "session-1",
+      goalOrReproId: "repro:owner-question",
+      modeScope: "repro" as const,
+      planRevision: 3,
+      ownerStepOrUnresolvedId: "step:owner-question",
+      stepDefinitionDigest: "owner-question-digest",
+      requestHash: "f".repeat(64),
+      ownerQuestionId: "decision",
+      expectedAnswerKind: "single" as const,
+    };
+    const questions = [
+      {
+        id: "decision",
+        type: "single" as const,
+        prompt: "Decision?",
+        required: true,
+        options: [
+          { value: "continue", label: "Continue" },
+          { value: "stop", label: "Stop" },
+        ],
+      },
+      {
+        id: "notes",
+        type: "freeform" as const,
+        prompt: "Notes?",
+        required: false,
+      },
+    ];
+    try {
+      expect(() =>
+        waits.register({
+          ...waitInput("hreq-owner-mismatch"),
+          questions,
+          evidenceRequest: { ...evidenceRequest, ownerQuestionId: "missing" },
+        }),
+      ).toThrow(/exactly one owner question/u);
+
+      const invalidAnswers = [
+        { notes: { customText: "side only" } },
+        { unknown: "continue" },
+        { decision: "invalid" },
+        { decision: ["continue", "stop"] },
+        { decision: "continue", unknown: "side" },
+      ];
+      invalidAnswers.forEach((answers, index) => {
+        const humanRequestId = `hreq-owner-${index}`;
+        waits.register({
+          ...waitInput(humanRequestId),
+          interactionRequestId: `interaction-owner-${index}`,
+          questions,
+          evidenceRequest,
+        });
+        const delivered = waits.deliver({
+          humanRequestId,
+          humanResponseId: `hres-owner-${index}`,
+          status: "answered",
+          provenance: "direct_user",
+          answers,
+        });
+        expect(delivered.answerEvent).toBeUndefined();
+      });
+      expect(waits.listEvidenceAnswerEvents()).toEqual([]);
     } finally {
       db.close();
     }
@@ -459,6 +534,7 @@ describe("SparkDaemonHumanWaitRegistry", () => {
       ownerStepOrUnresolvedId: "unresolved:publish",
       stepDefinitionDigest: "publish-digest",
       requestHash: "d".repeat(64),
+      ownerQuestionId: "approval",
       expectedAnswerKind: "approval" as const,
     };
     try {

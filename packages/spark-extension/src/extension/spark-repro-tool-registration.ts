@@ -1172,7 +1172,11 @@ async function verifyReproStepEvidence(
     if (answerEvent) {
       const expectedBinding = createReproStepAskBinding(repro, step);
       const binding = answerEvent.binding;
-      const selectedValues = answerEventSelectedValues(answerEvent.answers);
+      const selectedValues = answerEventSelectedValues(
+        answerEvent.answers,
+        binding.ownerQuestionId,
+        binding.expectedAnswerKind,
+      );
       if (
         binding.modeScope === "repro" &&
         binding.goalOrReproId === repro.reproId &&
@@ -1257,22 +1261,36 @@ function canonicalProjectedAnswerEvent(entry: {
   return parsed.data;
 }
 
-function answerEventSelectedValues(answers: Record<string, unknown>): string[] {
-  const selected = Object.values(answers).flatMap((answer) => {
-    if (typeof answer === "string") return answer.trim() ? [answer.trim()] : [];
-    if (Array.isArray(answer)) {
-      return answer.filter((value): value is string => typeof value === "string" && Boolean(value));
+function answerEventSelectedValues(
+  answers: Record<string, unknown>,
+  ownerQuestionId: string,
+  expectedKind: SparkEvidenceAnswerEvent["binding"]["expectedAnswerKind"],
+): string[] {
+  if (Object.keys(answers).length !== 1 || !(ownerQuestionId in answers)) return [];
+  const answer = answers[ownerQuestionId];
+  if (!isRecord(answer) || answer.questionId !== ownerQuestionId) return [];
+  if (!Array.isArray(answer.values)) return [];
+  const values = answer.values.filter(
+    (value): value is string => typeof value === "string" && Boolean(value.trim()),
+  );
+  if (values.length !== answer.values.length || new Set(values).size !== values.length) return [];
+  const customText =
+    typeof answer.customText === "string" && answer.customText.trim()
+      ? answer.customText.trim()
+      : undefined;
+  switch (expectedKind) {
+    case "approval":
+    case "single":
+      return values.length === 1 && !customText ? values : [];
+    case "multi":
+      return values.length > 0 && !customText ? values : [];
+    case "freeform":
+      return values.length === 0 && customText ? [customText] : [];
+    default: {
+      const exhaustive: never = expectedKind;
+      return exhaustive;
     }
-    if (!isRecord(answer)) return [];
-    if (Array.isArray(answer.values)) {
-      return answer.values.filter(
-        (value): value is string => typeof value === "string" && Boolean(value.trim()),
-      );
-    }
-    const value = answer.value ?? answer.selected ?? answer.choice ?? answer.customText;
-    return typeof value === "string" && value.trim() ? [value.trim()] : [];
-  });
-  return [...new Set(selected)];
+  }
 }
 
 function isStepProofEvidence(value: unknown): value is SparkReproStepProofEvidence {

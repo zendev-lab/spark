@@ -268,7 +268,7 @@ async function createPreparedDaemonRuntime(
   const getRuntimeId = (route: { serverUrl: string }) => getRuntimeIdForServer(route.serverUrl);
   let onAnswerEvidenceProjected: (
     event: Parameters<typeof ensureHumanAnswerEventEvidence>[1],
-  ) => void | Promise<void> = () => undefined;
+  ) => boolean | Promise<boolean> = () => false;
   const { humanInteractions, registerHumanRequestOutboxTarget } = await configureHumanInteractions({
     options,
     channelIngress,
@@ -310,9 +310,11 @@ async function createPreparedDaemonRuntime(
     },
   });
   onAnswerEvidenceProjected = (event) => {
-    for (const loop of wakeHumanAnswerEvidenceOwner(loopStore, event)) {
+    const wake = wakeHumanAnswerEvidenceOwner(loopStore, event);
+    for (const loop of wake.woken) {
       emitLoopUpdate({ invocationStore, eventHub }, loop, loop.lastInvocationId);
     }
+    return wake.completed;
   };
   await reconcileHumanAnswerEventEvidence(
     humanWaits,
@@ -732,6 +734,7 @@ async function runSchedulerLoop(runtime: PreparedDaemonRuntime): Promise<void> {
     if (Date.now() >= runtime.nextStorageMaintenanceAtMs) {
       runStorageMaintenance(runtime);
     }
+    if (runtime.admission.open) await reconcilePendingHumanAnswerEvidence(runtime);
     if (runtime.admission.open) await reconcileLoopGoalSettlements(runtime.loopStore);
     if (runtime.admission.open && Date.now() >= runtime.nextWorkbenchReconcileAtMs) {
       await reconcileReproWorkbenches(runtime);
@@ -1183,7 +1186,7 @@ async function configureHumanInteractions(input: {
   humanRequestOutboxTargets: Set<() => void>;
   onAnswerEvidenceProjected: (
     event: Parameters<typeof ensureHumanAnswerEventEvidence>[1],
-  ) => void | Promise<void>;
+  ) => boolean | Promise<boolean>;
 }): Promise<{
   humanInteractions: SparkDaemonHumanInteractionBroker;
   registerHumanRequestOutboxTarget: (flush: () => void) => () => boolean;
@@ -1227,8 +1230,30 @@ async function projectHumanAnswerForInput(
   }
   if (!input.humanWaits.isEvidenceAnswerEventWakePending(event.answerEventId)) return;
   await ensureHumanAnswerEventEvidence(workspacePath, event);
-  await Promise.resolve(input.onAnswerEvidenceProjected(event));
-  input.humanWaits.markEvidenceAnswerEventWakeCompleted(event.answerEventId);
+  const wakeCompleted = await Promise.resolve(input.onAnswerEvidenceProjected(event));
+  if (wakeCompleted) {
+    input.humanWaits.markEvidenceAnswerEventWakeCompleted(event.answerEventId);
+  }
+}
+
+async function reconcilePendingHumanAnswerEvidence(runtime: PreparedDaemonRuntime): Promise<void> {
+  await reconcileHumanAnswerEventEvidence(
+    runtime.humanWaits,
+    (wait) =>
+      resolveWorkspaceLocalPath(runtime.options.db, wait.workspaceBindingId || wait.workspaceId),
+    (error) => console.error("[spark-daemon] failed to reconcile AnswerEvent Evidence", error),
+    (event) => {
+      const wake = wakeHumanAnswerEvidenceOwner(runtime.loopStore, event);
+      for (const loop of wake.woken) {
+        emitLoopUpdate(
+          { invocationStore: runtime.invocationStore, eventHub: runtime.eventHub },
+          loop,
+          loop.lastInvocationId,
+        );
+      }
+      return wake.completed;
+    },
+  );
 }
 
 async function handleChannelInteraction(

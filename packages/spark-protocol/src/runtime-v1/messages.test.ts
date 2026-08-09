@@ -292,6 +292,7 @@ describe("human question option identity", () => {
       ownerStepOrUnresolvedId: "unresolved:publish",
       stepDefinitionDigest: "publish-definition",
       requestHash: "b".repeat(64),
+      ownerQuestionId: "approval",
       expectedAnswerKind: "approval" as const,
     };
     const parsed = humanRequestCreatedPayloadSchema.parse({

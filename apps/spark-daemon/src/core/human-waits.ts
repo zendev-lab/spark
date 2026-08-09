@@ -170,6 +170,9 @@ export class SparkDaemonHumanWaitRegistry {
         return { wait: existing, created: false };
       }
     }
+    if (input.evidenceRequest) {
+      requireEvidenceOwnerQuestion(input.evidenceRequest, input.questions ?? []);
+    }
     const now = new Date().toISOString();
     const wait: SparkDaemonHumanWaitRecord = {
       humanRequestId: input.humanRequestId ?? createId("hreq"),
@@ -740,12 +743,13 @@ function createEvidenceAnswerEvent(
     acceptedAt: string;
   },
 ): SparkEvidenceAnswerEvent | undefined {
+  const canonicalAnswers = canonicalEvidenceOwnerAnswer(wait, input.answers);
   if (
     wait.delivery !== "async" ||
     !wait.evidenceRequest ||
     input.status !== "answered" ||
     input.provenance !== "direct_user" ||
-    !hasExpectedEvidenceAnswer(wait, input.answers)
+    !canonicalAnswers
   ) {
     return undefined;
   }
@@ -760,38 +764,117 @@ function createEvidenceAnswerEvent(
     humanResponseId: input.humanResponseId,
     provenance: "direct_user",
     binding: wait.evidenceRequest,
-    answers: input.answers,
+    answers: canonicalAnswers,
     acceptedAt: input.acceptedAt,
   });
 }
 
-function hasExpectedEvidenceAnswer(wait: SparkDaemonHumanWaitRecord, answers: JsonObject): boolean {
-  const expected = wait.evidenceRequest?.expectedAnswerKind;
-  if (!expected) return false;
-  const eligibleQuestionTypes =
-    expected === "approval" || expected === "single"
-      ? new Set(["single", "preview"])
-      : new Set([expected]);
-  return wait.questions.some((question) => {
-    if (!eligibleQuestionTypes.has(question.type)) return false;
-    const answer = answers[question.id];
-    if (!hasNonEmptySparkHumanAnswer(answer)) return false;
-    const values = evidenceAnswerValues(answer);
-    switch (expected) {
-      case "approval":
-        return values.length === 1;
-      case "single":
-        return values.length === 1 || (values.length === 0 && hasEvidenceFreeformText(answer));
-      case "multi":
-        return values.length > 0 || hasEvidenceFreeformText(answer);
-      case "freeform":
-        return hasEvidenceFreeformText(answer);
-      default: {
-        const exhaustive: never = expected;
-        return exhaustive;
-      }
+function requireEvidenceOwnerQuestion(
+  binding: SparkEvidenceRequestBinding,
+  questions: readonly HumanQuestion[],
+): HumanQuestion {
+  const ownerQuestions = questions.filter((question) => question.id === binding.ownerQuestionId);
+  if (ownerQuestions.length !== 1) {
+    throw new Error("evidence-bound human interaction must contain exactly one owner question");
+  }
+  const owner = ownerQuestions[0]!;
+  const expectedTypes =
+    binding.expectedAnswerKind === "approval"
+      ? new Set(["single"])
+      : binding.expectedAnswerKind === "single"
+        ? new Set(["single", "preview"])
+        : new Set([binding.expectedAnswerKind]);
+  if (!expectedTypes.has(owner.type)) {
+    throw new Error("evidence-bound human interaction owner question kind does not match binding");
+  }
+  return owner;
+}
+
+function canonicalEvidenceOwnerAnswer(
+  wait: SparkDaemonHumanWaitRecord,
+  answers: JsonObject,
+): JsonObject | undefined {
+  const binding = wait.evidenceRequest;
+  if (!binding) return undefined;
+  const knownQuestions = new Map(wait.questions.map((question) => [question.id, question]));
+  if (Object.keys(answers).some((questionId) => !knownQuestions.has(questionId))) return undefined;
+  try {
+    requireEvidenceOwnerQuestion(binding, wait.questions);
+  } catch {
+    return undefined;
+  }
+  const normalized = new Map<string, JsonObject>();
+  for (const question of wait.questions) {
+    const rawAnswer = answers[question.id];
+    if (!hasNonEmptySparkHumanAnswer(rawAnswer)) {
+      if (question.required) return undefined;
+      continue;
     }
-  });
+    const answer = canonicalQuestionAnswer(question, rawAnswer);
+    if (!answer) return undefined;
+    normalized.set(question.id, answer);
+  }
+  const ownerAnswer = normalized.get(binding.ownerQuestionId);
+  if (!ownerAnswer) return undefined;
+  const values = ownerAnswer.values as string[];
+  const customText =
+    typeof ownerAnswer.customText === "string" ? ownerAnswer.customText : undefined;
+  switch (binding.expectedAnswerKind) {
+    case "approval":
+    case "single":
+      if (values.length !== 1 || customText) return undefined;
+      break;
+    case "multi":
+      if (values.length === 0 || customText) return undefined;
+      break;
+    case "freeform":
+      if (values.length > 0 || !customText) return undefined;
+      break;
+    default: {
+      const exhaustive: never = binding.expectedAnswerKind;
+      return exhaustive;
+    }
+  }
+  return { [binding.ownerQuestionId]: ownerAnswer };
+}
+
+function canonicalQuestionAnswer(
+  question: HumanQuestion,
+  rawAnswer: unknown,
+): JsonObject | undefined {
+  const record = recordValue(rawAnswer);
+  if (record?.questionId !== undefined && record.questionId !== question.id) return undefined;
+  const stringFreeform =
+    question.type === "freeform" && typeof rawAnswer === "string" && rawAnswer.trim()
+      ? rawAnswer.trim()
+      : undefined;
+  const values = stringFreeform ? [] : evidenceAnswerValues(rawAnswer);
+  if (new Set(values).size !== values.length) return undefined;
+  const customText = stringFreeform ?? evidenceFreeformText(rawAnswer);
+  const optionValues = new Set((question.options ?? []).map((option) => option.value));
+  switch (question.type) {
+    case "single":
+    case "preview":
+      if (values.length !== 1 || customText || !optionValues.has(values[0]!)) return undefined;
+      break;
+    case "multi":
+      if (values.length === 0 || customText || values.some((value) => !optionValues.has(value))) {
+        return undefined;
+      }
+      break;
+    case "freeform":
+      if (values.length > 0 || !customText) return undefined;
+      break;
+    default: {
+      const exhaustive: never = question.type;
+      return exhaustive;
+    }
+  }
+  return {
+    questionId: question.id,
+    values,
+    ...(customText ? { customText } : {}),
+  };
 }
 
 function evidenceAnswerValues(answer: unknown): string[] {
@@ -807,13 +890,14 @@ function evidenceAnswerValues(answer: unknown): string[] {
   return typeof record.value === "string" && record.value.trim() ? [record.value.trim()] : [];
 }
 
-function hasEvidenceFreeformText(answer: unknown): boolean {
-  if (typeof answer === "string") return answer.trim().length > 0;
+function evidenceFreeformText(answer: unknown): string | undefined {
+  if (typeof answer === "string") return undefined;
   const record = recordValue(answer);
-  if (!record) return false;
-  return [record.customText, record.notes, record.comment].some(
-    (value) => typeof value === "string" && value.trim().length > 0,
-  );
+  if (!record) return undefined;
+  for (const value of [record.customText, record.notes, record.comment]) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
 }
 
 function unknownRequest(message: string): SparkDaemonHumanWaitDeliveryResult {

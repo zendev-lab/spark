@@ -35,9 +35,10 @@ describe("human AnswerEvent Evidence projection", () => {
         ownerStepOrUnresolvedId: "step:reference",
         stepDefinitionDigest: "reference-digest",
         requestHash: "b".repeat(64),
+        ownerQuestionId: "reference",
         expectedAnswerKind: "single" as const,
       },
-      answers: { reference: "official" },
+      answers: { reference: { questionId: "reference", values: ["official"] } },
       acceptedAt: "2026-08-07T00:00:00.000Z",
     };
     try {
@@ -71,6 +72,7 @@ describe("human AnswerEvent Evidence projection", () => {
       ownerStepOrUnresolvedId: "unresolved:restart",
       stepDefinitionDigest: "restart-digest",
       requestHash: "c".repeat(64),
+      ownerQuestionId: "decision",
       expectedAnswerKind: "single" as const,
     };
     try {
@@ -118,7 +120,16 @@ describe("human AnswerEvent Evidence projection", () => {
       expect(waits.listPendingEvidenceAnswerEvents()).toHaveLength(1);
       expect(await defaultEvidenceStore(cwd).list({ producer: "ask" })).toHaveLength(1);
 
-      const projected = vi.fn(async () => undefined);
+      const deferred = await reconcileHumanAnswerEventEvidence(
+        waits,
+        () => cwd,
+        () => undefined,
+        () => false,
+      );
+      expect(deferred).toEqual({ projected: 0, existing: 0, skipped: 1, failed: 0 });
+      expect(waits.listPendingEvidenceAnswerEvents()).toHaveLength(1);
+
+      const projected = vi.fn(async () => true);
       const restarted = new SparkDaemonHumanWaitRegistry(db);
       const recovered = await reconcileHumanAnswerEventEvidence(
         restarted,
@@ -181,20 +192,25 @@ describe("human AnswerEvent Evidence projection", () => {
           ownerStepOrUnresolvedId: "step:decision",
           stepDefinitionDigest: "wake-digest",
           requestHash: "e".repeat(64),
+          ownerQuestionId: "decision",
           expectedAnswerKind: "single" as const,
         },
-        answers: { decision: "continue" },
+        answers: { decision: { questionId: "decision", values: ["continue"] } },
         acceptedAt: "2026-08-07T00:00:00.000Z",
       };
       const awakened = wakeHumanAnswerEvidenceOwner(loops, awakenedEvent);
 
-      expect(awakened).toHaveLength(1);
+      expect(awakened.woken).toHaveLength(1);
+      expect(awakened.completed).toBe(true);
       expect(loops.require("loop-matching")).toMatchObject({
         status: "scheduled",
         reason: "direct-user AnswerEvent accepted for step:decision",
       });
       expect(loops.require("loop-other").status).toBe("dormant");
-      expect(wakeHumanAnswerEvidenceOwner(loops, awakenedEvent)).toHaveLength(0);
+      expect(wakeHumanAnswerEvidenceOwner(loops, awakenedEvent)).toMatchObject({
+        woken: [],
+        completed: false,
+      });
     } finally {
       db.close();
     }

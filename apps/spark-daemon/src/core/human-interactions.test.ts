@@ -149,6 +149,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
         ownerStepOrUnresolvedId: "step:decision",
         stepDefinitionDigest: "decision-digest",
         requestHash: "e".repeat(64),
+        ownerQuestionId: "decision",
         expectedAnswerKind: "single" as const,
       };
       const response = await broker.interact(
@@ -251,13 +252,15 @@ describe("SparkDaemonHumanInteractionBroker", () => {
         returnedToTool: false,
         answerEvent: {
           binding: evidenceRequest,
-          answers: { decision: "yes" },
+          answers: { decision: { questionId: "decision", values: ["yes"] } },
           provenance: "direct_user",
         },
       });
       expect(replayed).toMatchObject({
         outcome: "replayed",
-        answerEvent: { answers: { decision: "yes" } },
+        answerEvent: {
+          answers: { decision: { questionId: "decision", values: ["yes"] } },
+        },
       });
       expect(restartedWaits.listEvidenceAnswerEvents(response.humanRequestId)).toHaveLength(1);
     } finally {

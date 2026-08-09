@@ -71,25 +71,39 @@ export async function ensureHumanAnswerEventEvidence(
   return { record, created: true };
 }
 
+export interface HumanAnswerEvidenceOwnerWakeResult {
+  woken: ReturnType<SparkLoopStore["wake"]>[];
+  completed: boolean;
+}
+
 export function wakeHumanAnswerEvidenceOwner(
   loopStore: SparkLoopStore,
   event: SparkEvidenceAnswerEvent,
-) {
+): HumanAnswerEvidenceOwnerWakeResult {
   const { binding } = event;
-  const wakeable = new Set(["retry_wait", "dormant", "blocked"]);
-  return loopStore
+  const matching = loopStore
     .list({ ownerSessionId: binding.ownerSessionId })
-    .filter((loop) => {
-      if (!wakeable.has(loop.status)) return false;
-      return binding.modeScope === "repro"
+    .filter((loop) =>
+      binding.modeScope === "repro"
         ? loop.binding.reproId === binding.goalOrReproId
-        : loop.binding.goalId === binding.goalOrReproId;
-    })
+        : loop.binding.goalId === binding.goalOrReproId,
+    );
+  if (matching.length === 0) return { woken: [], completed: false };
+  if (matching.some((loop) => loop.status === "running" || loop.status === "scheduled")) {
+    return { woken: [], completed: false };
+  }
+  const wakeable = new Set(["retry_wait", "dormant", "blocked"]);
+  const woken = matching
+    .filter((loop) => wakeable.has(loop.status))
     .map((loop) =>
       loopStore.wake(loop.loopId, {
         reason: `direct-user AnswerEvent accepted for ${binding.ownerStepOrUnresolvedId}`,
       }),
     );
+  const completed =
+    woken.length > 0 ||
+    matching.every((loop) => loop.status === "completed" || loop.status === "stopped");
+  return { woken, completed };
 }
 
 /** Reproject every durable AnswerEvent after daemon restart without duplicating Evidence. */
@@ -100,7 +114,7 @@ export async function reconcileHumanAnswerEventEvidence(
   onProjected: (
     event: SparkEvidenceAnswerEvent,
     wait: SparkDaemonHumanWaitRecord,
-  ) => void | Promise<void> = () => undefined,
+  ) => boolean | void | Promise<boolean | void> = () => true,
 ): Promise<HumanAnswerEvidenceReconciliationResult> {
   const result: HumanAnswerEvidenceReconciliationResult = {
     projected: 0,
@@ -121,7 +135,11 @@ export async function reconcileHumanAnswerEventEvidence(
     }
     try {
       const projection = await ensureHumanAnswerEventEvidence(cwd, event);
-      await Promise.resolve(onProjected(event, wait));
+      const wakeCompleted = await Promise.resolve(onProjected(event, wait));
+      if (wakeCompleted === false) {
+        result.skipped += 1;
+        continue;
+      }
       source.markEvidenceAnswerEventWakeCompleted(event.answerEventId);
       if (projection.created) {
         result.projected += 1;

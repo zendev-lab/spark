@@ -878,6 +878,7 @@ describe("projection services", () => {
           ownerStepOrUnresolvedId: "unresolved:scope",
           stepDefinitionDigest: "scope-digest",
           requestHash: "a".repeat(64),
+          ownerQuestionId: "decision",
           expectedAnswerKind: "single",
         },
         contextArtifactRefs: [],
@@ -903,6 +904,7 @@ describe("projection services", () => {
         ownerStepOrUnresolvedId: "unresolved:scope",
         stepDefinitionDigest: "scope-digest",
         requestHash: "a".repeat(64),
+        ownerQuestionId: "decision",
         expectedAnswerKind: "single",
       },
     });

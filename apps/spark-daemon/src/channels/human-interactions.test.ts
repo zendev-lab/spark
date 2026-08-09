@@ -408,6 +408,7 @@ describe("daemon channel human interactions", () => {
           ownerStepOrUnresolvedId: "unresolved:channel",
           stepDefinitionDigest: "channel-digest",
           requestHash: "a".repeat(64),
+          ownerQuestionId: "route",
           expectedAnswerKind: "single",
         },
         kind: "ask_user",
@@ -465,7 +466,7 @@ describe("daemon channel human interactions", () => {
         schema: "spark.evidence-answer-event/v1",
         provenance: "direct_user",
         binding: { askRef: "ask:callback" },
-        answers: { route: "safe" },
+        answers: { route: { questionId: "route", values: ["safe"] } },
       });
       expect(waits.listEvidenceAnswerEvents("hreq_callback")).toHaveLength(1);
 

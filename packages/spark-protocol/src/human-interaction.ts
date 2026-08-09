@@ -62,6 +62,7 @@ export const sparkEvidenceRequestBindingSchema = z.object({
   ownerStepOrUnresolvedId: z.string().min(1),
   stepDefinitionDigest: z.string().min(1),
   requestHash: z.string().regex(/^[a-f0-9]{64}$/u),
+  ownerQuestionId: z.string().min(1),
   expectedAnswerKind: sparkEvidenceExpectedAnswerKindSchema,
 });
 

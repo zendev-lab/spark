@@ -332,6 +332,7 @@ async function createAutonomousEvidenceRequest(
   evidenceRequest: ExtensionEvidenceRequestBinding;
 }> {
   const resolved = await policy.resolveBinding(params);
+  const ownerQuestion = autonomousOwnerQuestion(params);
   const requestHash = createHash("sha256")
     .update(
       canonicalJson({
@@ -353,7 +354,8 @@ async function createAutonomousEvidenceRequest(
     ownerStepOrUnresolvedId: resolved.ownerStepOrUnresolvedId,
     stepDefinitionDigest: resolved.stepDefinitionDigest,
     requestHash,
-    expectedAnswerKind: expectedAutonomousAnswerKind(params),
+    ownerQuestionId: ownerQuestion.id,
+    expectedAnswerKind: ownerQuestion.kind,
   }) as ExtensionEvidenceRequestBinding;
   return {
     interactionRequestId: `ask_async:${requestHash}`,
@@ -361,16 +363,30 @@ async function createAutonomousEvidenceRequest(
   };
 }
 
-function expectedAutonomousAnswerKind(
-  params: Record<string, unknown>,
-): ExtensionEvidenceRequestBinding["expectedAnswerKind"] {
-  if (params.mode === "approval") return "approval";
+function autonomousOwnerQuestion(params: Record<string, unknown>): {
+  id: string;
+  kind: ExtensionEvidenceRequestBinding["expectedAnswerKind"];
+} {
   const questions = Array.isArray(params.questions)
     ? (params.questions as Array<Record<string, unknown>>)
     : [];
-  if (questions.some((question) => question.type === "freeform")) return "freeform";
-  if (questions.some((question) => question.type === "multi")) return "multi";
-  return "single";
+  const owner =
+    params.mode === "approval"
+      ? (questions.find((question) => question.id === "approval") ?? questions[0])
+      : questions[0];
+  if (!owner || typeof owner.id !== "string" || !owner.id.trim()) {
+    throw new Error("AUTONOMOUS_EVIDENCE_BINDING_REQUIRED: owner question is unavailable");
+  }
+  const type = owner.type ?? "single";
+  if (params.mode === "approval") {
+    if (type !== "single" && type !== "preview") {
+      throw new Error("AUTONOMOUS_EVIDENCE_BINDING_REQUIRED: approval owner must be single-choice");
+    }
+    return { id: owner.id.trim(), kind: "approval" };
+  }
+  if (type === "freeform" || type === "multi") return { id: owner.id.trim(), kind: type };
+  if (type === "single" || type === "preview") return { id: owner.id.trim(), kind: "single" };
+  throw new Error("AUTONOMOUS_EVIDENCE_BINDING_REQUIRED: owner question type is invalid");
 }
 
 function canonicalJson(value: unknown): string {

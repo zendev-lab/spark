@@ -6780,6 +6780,7 @@ test("active goal remains async-only inside manual implement mode", async () => 
       stepDefinitionDigest: (capturedRequest?.evidenceRequest as { stepDefinitionDigest?: string })
         ?.stepDefinitionDigest,
       requestHash: String(capturedRequest?.requestId).slice("ask_async:".length),
+      ownerQuestionId: "mode",
       expectedAnswerKind: "single",
     });
   } finally {
@@ -7230,6 +7231,7 @@ test("active Repro binds detached Ask to its current step revision", async () =>
       ownerStepOrUnresolvedId: stepBinding.stepId,
       stepDefinitionDigest: stepBinding.definitionDigest,
       requestHash: evidenceRequest?.requestHash,
+      ownerQuestionId: "reference",
       expectedAnswerKind: "single",
     });
   } finally {
@@ -7787,9 +7789,10 @@ test("repro approval Step accepts only current direct-user AnswerEvent Evidence"
         ownerStepOrUnresolvedId: binding.stepId,
         stepDefinitionDigest: binding.definitionDigest,
         requestHash: "a".repeat(64),
+        ownerQuestionId: "approval",
         expectedAnswerKind: input.expectedAnswerKind ?? "approval",
       },
-      answers: { approval: "approve" },
+      answers: { approval: { questionId: "approval", values: ["approve"] } },
       acceptedAt: new Date().toISOString(),
     });
     const store = defaultEvidenceStore(dir);
@@ -7843,6 +7846,52 @@ test("repro approval Step accepts only current direct-user AnswerEvent Evidence"
       stepEvidenceRefs: [synthetic.ref],
     });
     assert.equal(syntheticResult.isError, true);
+
+    const sideAnswerBody = {
+      ...eventBody({ response: "side-answer" }),
+      answers: { notes: { questionId: "notes", values: ["approve"] } },
+    };
+    const sideAnswer = await store.put({
+      ref: `evidence:${sideAnswerBody.answerEventId}` as EvidenceRef,
+      kind: "record",
+      title: "Side-question AnswerEvent",
+      format: "json",
+      body: sideAnswerBody,
+      provenance: { producer: "ask" },
+      links: [{ to: sideAnswerBody.binding.askRef as AskRef, relation: "answer-to" as const }],
+    });
+    const sideAnswerResult = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [sideAnswer.ref],
+    });
+    assert.equal(sideAnswerResult.isError, true);
+
+    const wrongCardinalityBody = {
+      ...eventBody({ response: "wrong-cardinality" }),
+      answers: {
+        approval: { questionId: "approval", values: ["approve", "reject"] },
+      },
+    };
+    const wrongCardinality = await store.put({
+      ref: `evidence:${wrongCardinalityBody.answerEventId}` as EvidenceRef,
+      kind: "record",
+      title: "Wrong-cardinality AnswerEvent",
+      format: "json",
+      body: wrongCardinalityBody,
+      provenance: { producer: "ask" },
+      links: [
+        { to: wrongCardinalityBody.binding.askRef as AskRef, relation: "answer-to" as const },
+      ],
+    });
+    const wrongCardinalityResult = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [wrongCardinality.ref],
+    });
+    assert.equal(wrongCardinalityResult.isError, true);
 
     const directBody = eventBody({ response: "direct" });
     const direct = await store.put({
