@@ -547,6 +547,7 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     XDG_STATE_HOME: resolve(temporary, "xdg/state"),
     XDG_DATA_HOME: resolve(temporary, "xdg/data"),
     SPARK_DAEMON_SERVICE_MODE: "detached",
+    SPARK_HEADLESS_EXECUTOR_MODULE: resolve(root, "apps/spark-tui/src/headless-role-executor.ts"),
     SPARK_REPRO_SCRIPTED_PROVIDER_LEDGER: providerLedgerPath,
     SPARK_REPRO_FORGE_LEDGER: forgeLedgerPath,
     PATH: `${binDir}:${process.env.PATH ?? ""}`,

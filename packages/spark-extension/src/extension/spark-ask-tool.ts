@@ -225,6 +225,7 @@ async function runSparkAskToolRequest(
   request: SparkAskFlowRequest,
   ui: SparkAskToolUi | undefined,
 ): Promise<SparkAskFlowResult> {
+  if (ui?.interaction) return runSparkAskFlow(request, ui);
   if (ui?.custom) {
     const fullscreenResult = await runSparkAskFullscreen(request, ui.custom, ui.customTimeoutMs);
     if (fullscreenResult) return fullscreenResult;

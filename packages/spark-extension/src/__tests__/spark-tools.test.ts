@@ -7223,6 +7223,10 @@ test("active Repro binds detached Ask to its current step revision", async () =>
     });
     assert.equal((asked.details as { result?: { status?: string } }).result?.status, "pending");
     assert.equal(interactionCalls, 1);
+    assert.equal(
+      capturedRequest?.kind === "askFlow" ? capturedRequest.toolCallId : undefined,
+      "call-ask",
+    );
     const evidenceRequest =
       capturedRequest?.kind === "askFlow" ? capturedRequest.evidenceRequest : undefined;
     assert.deepEqual(evidenceRequest, {

@@ -216,7 +216,10 @@ export class SparkDaemonHumanInteractionBroker {
     const callbackOptions = createCallbackOptions(durable.ask);
     const delivery = durable.ask.delivery ?? "blocking";
     const toolCallId =
-      context.toolCallId ?? (request.kind === "toolApproval" ? request.toolCallId : undefined);
+      context.toolCallId ??
+      (request.kind === "toolApproval" || request.kind === "askFlow"
+        ? request.toolCallId
+        : undefined);
     const reusable =
       context.sessionId.trim() && toolCallId?.trim()
         ? this.options.waits.findUniqueInteraction({ toolCallId, sessionId: context.sessionId })
@@ -319,7 +322,9 @@ export class SparkDaemonHumanInteractionBroker {
             projectId: context.projectId,
             toolCallId,
             delivery,
-            ...(durable.ask.evidenceRequest ? { evidenceRequest: durable.ask.evidenceRequest } : {}),
+            ...(durable.ask.evidenceRequest
+              ? { evidenceRequest: durable.ask.evidenceRequest }
+              : {}),
             kind: "ask_user",
             title: durable.ask.title,
             prompt,

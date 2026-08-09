@@ -70,7 +70,7 @@ function askRequest(
   delivery: "blocking" | "async",
   timeoutMs?: number,
   evidenceRequest?: Extract<SparkInteractionRequest, { kind: "askFlow" }>["evidenceRequest"],
-): SparkInteractionRequest {
+): Extract<SparkInteractionRequest, { kind: "askFlow" }> {
   return parseSparkInteractionRequest({
     requestId,
     kind: "askFlow",
@@ -99,7 +99,7 @@ function askRequest(
       },
     ],
     metadata: { source: "test" },
-  });
+  }) as Extract<SparkInteractionRequest, { kind: "askFlow" }>;
 }
 
 function interactionContext() {
@@ -282,10 +282,13 @@ describe("SparkDaemonHumanInteractionBroker", () => {
     });
 
     try {
-      const initial = await firstBroker.interact(askRequest("interaction-before-restart", "async"), {
-        ...interactionContext(),
-        toolCallId: "tool-call-repro-repair",
-      });
+      const initial = await firstBroker.interact(
+        {
+          ...askRequest("interaction-before-restart", "async"),
+          toolCallId: "tool-call-repro-repair",
+        },
+        interactionContext(),
+      );
       if (initial.kind !== "askFlow" || !initial.humanRequestId) {
         throw new Error("expected an async ask response with humanRequestId");
       }
@@ -306,11 +309,13 @@ describe("SparkDaemonHumanInteractionBroker", () => {
         onRequestOpened: opened,
       });
       const resumed = await restartedBroker.interact(
-        askRequest("interaction-after-restart", "blocking", 500),
+        {
+          ...askRequest("interaction-after-restart", "blocking", 500),
+          toolCallId: "tool-call-repro-repair",
+        },
         {
           ...interactionContext(),
           invocationId: "invocation-2",
-          toolCallId: "tool-call-repro-repair",
         },
       );
 
@@ -324,9 +329,9 @@ describe("SparkDaemonHumanInteractionBroker", () => {
         metadata: { delivery: "blocking", humanResponseId: expect.stringMatching(/^hres_/u) },
       });
       expect(opened).toHaveBeenCalledTimes(1);
-      expect(
-        db.prepare("SELECT COUNT(*) AS count FROM daemon_human_waits").get(),
-      ).toEqual({ count: 1 });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM daemon_human_waits").get()).toEqual({
+        count: 1,
+      });
     } finally {
       db.close();
     }

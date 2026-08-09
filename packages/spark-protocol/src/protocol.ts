@@ -760,6 +760,8 @@ export const sparkInteractionBaseRequestSchema = z.object({
 export const sparkAskFlowInteractionRequestSchema = sparkInteractionBaseRequestSchema
   .extend({
     kind: z.literal("askFlow"),
+    /** Host-generated tool invocation identity used to resume the same durable wait. */
+    toolCallId: z.string().min(1).optional(),
     /**
      * `blocking` keeps the tool call suspended until a human answers. `async`
      * durably opens the request and returns its handle to the caller immediately.

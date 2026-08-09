@@ -287,10 +287,10 @@ export function registerSparkAskTools(pi: SparkAskHostApi): void {
         theme,
       );
     },
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(toolCallId, params, _signal, _onUpdate, ctx) {
       rejectAutonomousAskAlias(ctx as SparkHostContext);
       const request = decodeAskRequest(params);
-      const rawResult = await askUser(request, ctxUi(ctx));
+      const rawResult = await askUser(request, ctxUi(ctx, toolCallId));
       const result = annotateAskUserAnswerSource(rawResult, ctx);
       return {
         content: [{ type: "text", text: summarizeResult(request, result) }],
@@ -350,7 +350,7 @@ function decodeAskRequest(params: Record<string, unknown>): SparkAskRequest {
   });
 }
 
-function ctxUi(ctx: unknown): SparkAskUi | undefined {
+function ctxUi(ctx: unknown, toolCallId?: string): SparkAskUi | undefined {
   if (!ctx || typeof ctx !== "object") return undefined;
   const ui = (ctx as { ui?: unknown }).ui;
   if (!ui || typeof ui !== "object") return undefined;
@@ -373,7 +373,12 @@ function ctxUi(ctx: unknown): SparkAskUi | undefined {
         : undefined,
     interaction:
       typeof (ui as { interaction?: unknown }).interaction === "function"
-        ? (ui as { interaction: SparkAskUi["interaction"] }).interaction
+        ? async (request) =>
+            await (ui as { interaction: NonNullable<SparkAskUi["interaction"]> }).interaction(
+              request.kind === "askFlow" && toolCallId?.trim()
+                ? { ...request, toolCallId: toolCallId.trim() }
+                : request,
+            )
         : undefined,
     notify:
       typeof (ui as { notify?: unknown }).notify === "function"
