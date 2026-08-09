@@ -41,6 +41,12 @@ export interface InvokeSupervisedSessionInput {
   sourceRef?: string;
   parentInvocationId?: string;
   structured?: boolean;
+  model?: string;
+  roleSystemPrompt?: string;
+  roleAllowedTools?: string[];
+  roleRunRef?: string;
+  requireStructuredOutcome?: boolean;
+  signal?: AbortSignal;
   now?: string;
 }
 
@@ -75,7 +81,7 @@ export interface SessionSupervisorOptions {
 export class SessionSupervisor {
   readonly registry: DaemonSessionRegistry;
   readonly invocations: SparkInvocationStore;
-  private readonly scheduler?: SessionSupervisorOptions["scheduler"];
+  private scheduler?: SessionSupervisorOptions["scheduler"];
   private readonly deleteTranscript: NonNullable<SessionSupervisorOptions["deleteTranscript"]>;
   private readonly ownerExists?: SessionSupervisorOptions["ownerExists"];
   private readonly resolveWorkspaceBindingId?: SessionSupervisorOptions["resolveWorkspaceBindingId"];
@@ -88,6 +94,13 @@ export class SessionSupervisor {
       options.deleteTranscript ?? (async (path) => await rm(path, { force: true }));
     this.ownerExists = options.ownerExists;
     this.resolveWorkspaceBindingId = options.resolveWorkspaceBindingId;
+  }
+
+  attachScheduler(scheduler: NonNullable<SessionSupervisorOptions["scheduler"]>): void {
+    if (this.scheduler && this.scheduler !== scheduler) {
+      throw new Error("SessionSupervisor scheduler is already attached");
+    }
+    this.scheduler = scheduler;
   }
 
   async ensureWorkspaceAdministrator(workspaceId: string): Promise<SparkSessionRegistryRecord> {
@@ -135,7 +148,7 @@ export class SessionSupervisor {
     if (owner && !(await this.isOwnerReferenceValid(owner, workspaceId))) {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
-        `owner ${owner.kind}:${owner.ref} is not valid in workspace ${workspaceId}`,
+        `owner ${owner.kind}:${owner.ref} is not active in workspace ${workspaceId}`,
       );
     }
     return await this.registry.createSupervised({
@@ -193,6 +206,14 @@ export class SessionSupervisor {
             }
           : {}),
         ...(session.cwd ? { cwd: session.cwd } : {}),
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.roleSystemPrompt ? { roleSystemPrompt: input.roleSystemPrompt } : {}),
+        ...(input.roleAllowedTools ? { roleAllowedTools: input.roleAllowedTools } : {}),
+        ...(input.roleRunRef ? { roleRunRef: input.roleRunRef } : {}),
+        ...(input.requireStructuredOutcome !== undefined
+          ? { requireStructuredOutcome: input.requireStructuredOutcome }
+          : {}),
+        reset: true,
       },
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       sourceKind: input.sourceKind ?? "session.supervised",
@@ -203,9 +224,21 @@ export class SessionSupervisor {
     });
     if (!structured) return invocation;
     if (!this.scheduler) throw new Error("structured Session scheduler is unavailable");
-    if (invocation.status === "queued") {
-      return await this.scheduler.executeStructured(invocation.invocationId);
+    const cancelFromSignal = () =>
+      this.scheduler?.cancel(invocation.invocationId, "structured Role caller cancelled");
+    if (input.signal?.aborted) {
+      cancelFromSignal();
+      return this.invocations.require(invocation.invocationId);
     }
+    input.signal?.addEventListener("abort", cancelFromSignal, { once: true });
+    if (invocation.status === "queued") {
+      try {
+        return await this.scheduler.executeStructured(invocation.invocationId);
+      } finally {
+        input.signal?.removeEventListener("abort", cancelFromSignal);
+      }
+    }
+    input.signal?.removeEventListener("abort", cancelFromSignal);
     return invocation;
   }
 

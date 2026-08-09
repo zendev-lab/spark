@@ -23,6 +23,7 @@ import {
   createSparkWorkflowRoleRunAdapter,
   type SparkRoleRunResult,
 } from "@zendev-lab/spark-runtime";
+import { defaultProjectRoleModelSettingsStore } from "@zendev-lab/spark-roles";
 import {
   registerSparkWorkflowRunTool,
   workflowAgentTelemetryFromRoleRun,
@@ -361,6 +362,7 @@ return 'ok'`;
 test("Spark workflow_run tool routes default agents through ctx.runRole", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-dynamic-workflow-native-role-"));
   try {
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     type TestWorkflowRunTool = {
       execute: (
         toolCallId: string,

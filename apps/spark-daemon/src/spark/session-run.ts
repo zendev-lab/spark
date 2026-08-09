@@ -57,6 +57,8 @@ import { ensureDaemonSessionTranscript } from "../session-transcript-control.ts"
 import { ChannelReplyEventProjector } from "../channels/reply-stream.ts";
 import type { ChannelReplyDeliveryStore } from "../channels/reply-delivery.ts";
 import { assignCompletedSessionRole } from "./session-title.ts";
+import type { SessionSupervisor } from "../session-supervisor.ts";
+import { createSupervisedRoleRunner } from "../supervised-role-runner.ts";
 
 export const CHANNEL_REPLY_EMPTY_ERROR_CODE = "CHANNEL_REPLY_EMPTY";
 export const CHANNEL_REPLY_TERMINAL_PRESENTED_ERROR_CODE = "CHANNEL_REPLY_TERMINAL_PRESENTED";
@@ -105,6 +107,7 @@ export interface SparkDaemonTaskExecutorOptions {
     "recordRun" | "recordTurnQueued" | "recordTurnSettled"
   > &
     Partial<Pick<DaemonSessionRegistry, "bindTranscriptPath" | "get" | "setRoleIfMissing">>;
+  sessionSupervisor?: SessionSupervisor;
   createSparkHeadlessSessionExecutor?: CreateSparkHeadlessSessionExecutorFn;
   refreshSessionSnapshotIndex?: typeof refreshSparkSessionSnapshotIndex;
   sessionLeaseControl?: {
@@ -867,6 +870,7 @@ function sessionExecutionPolicy(
       : {}),
     ...(sessionContext.sideThread ? { allowedToolEffects: ["read"] as const } : {}),
     ...(loop?.binding.workflowRunId && !loop.binding.reproId ? { allowedTools: ["workflow"] } : {}),
+    ...(task.roleAllowedTools ? { allowedTools: task.roleAllowedTools } : {}),
   };
 }
 
@@ -905,8 +909,19 @@ export async function executeSparkDaemonSessionRunTask(
     : sessionContext.taskSession
       ? "task_execution"
       : "root_session";
+  const executionIdentity = await sessionExecutionIdentity(task, options, sessionContext);
+  const roleRunner =
+    options.sessionSupervisor && executionIdentity.workspaceId
+      ? createSupervisedRoleRunner({
+          supervisor: options.sessionSupervisor,
+          workspaceId: executionIdentity.workspaceId,
+          parentSessionId: task.sessionId,
+          parentInvocationId: context.invocationId,
+          cwd: executionIdentity.cwd,
+        })
+      : undefined;
   return await options.executeSession({
-    ...(await sessionExecutionIdentity(task, options, sessionContext)),
+    ...executionIdentity,
     prompt: await sessionRunPrompt(task, options.paths, context.invocationId),
     signal: context.signal,
     // The daemon scheduler is the single execution-time budget owner. It can
@@ -920,6 +935,11 @@ export async function executeSparkDaemonSessionRunTask(
       ? { yieldForRestartIfRequested: checkpointRestart }
       : {}),
     ...sessionExecutionPolicy(task, sessionContext, binding, loop),
+    ...(roleRunner ? { roleRunner } : {}),
+    ...(task.roleRunRef ? { roleRunRef: task.roleRunRef } : {}),
+    ...(task.requireStructuredOutcome !== undefined
+      ? { requireStructuredOutcome: task.requireStructuredOutcome }
+      : {}),
     invocationId: context.invocationId,
     ...(context.recordTokenUsage
       ? {
@@ -1245,6 +1265,9 @@ async function systemPromptForSession(
   role: string | undefined,
   sideThread = false,
 ): Promise<string | undefined> {
+  if (task.roleSystemPrompt) {
+    return composeAgentSystemPrompt([DEFAULT_SPARK_IDENTITY_PROMPT, task.roleSystemPrompt]);
+  }
   const channelPrompt = await systemPromptForChannelSession(task, options, sessionSurface);
   const rolePrompt = role ? renderPersistentSessionRolePrompt(role) : undefined;
   const sideThreadPrompt = sideThread ? SPARK_SIDE_THREAD_EXECUTION_PROMPT : undefined;

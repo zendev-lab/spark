@@ -268,7 +268,7 @@ test("role spec tools keep patch presets out of builtin role lookup", async () =
   }
 });
 
-test("call_role launches fresh role runs", async () => {
+test("call_role launches fresh owned Role Sessions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-tool-"));
   const previousBindingHome = process.env.SPARK_HOME;
   process.env.SPARK_HOME = dir;
@@ -313,10 +313,10 @@ test("call_role launches fresh role runs", async () => {
     assert.ok(capturedNativeInput?.role.allowedTools?.includes("edit"));
     assert.equal(capturedNativeInput?.instruction.instruction, "Run the fake worker.");
     assert.equal(capturedNativeInput?.launch, "fresh");
-    assert.equal(capturedNativeInput?.noSession, true);
-    assert.equal(capturedNativeInput?.sessionPersistence, "anonymous");
-    assert.equal(capturedNativeInput?.record.noSession, true);
-    assert.equal(capturedNativeInput?.record.sessionPersistence, "anonymous");
+    assert.equal(capturedNativeInput?.noSession, undefined);
+    assert.equal(capturedNativeInput?.record.noSession, undefined);
+    assert.equal(capturedNativeInput?.role.modelType, "implementation");
+    assert.equal(capturedNativeInput?.role.instantiation, "owned");
     assert.equal(capturedNativeInput?.model, "test/model");
     assert.equal(capturedNativeInput?.timeoutMs, 5_000);
     assert.equal(capturedNativeInput?.cwd, dir);
@@ -344,28 +344,31 @@ test("call_role launches fresh role runs", async () => {
   }
 });
 
-test("call_role inherits the active session model when no role model is saved", async () => {
+test("call_role rejects an unconfigured Model Type instead of inheriting the session model", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-session-model-"));
   const previousBindingHome = process.env.SPARK_HOME;
   process.env.SPARK_HOME = dir;
   try {
     const tools = registerRoleToolsForTest();
 
-    const result = await executeRoleTool(
-      tools,
-      "role",
-      {
-        action: "call",
-        role: "worker",
-        instruction: "Run with the inherited session model.",
-        timeoutMs: 5_000,
-      },
-      dir,
-      { model: { provider: "test", id: "model", api: "openai-responses" } },
+    await assert.rejects(
+      executeRoleTool(
+        tools,
+        "role",
+        {
+          action: "call",
+          role: "worker",
+          instruction: "Do not inherit the active session model.",
+          timeoutMs: 5_000,
+        },
+        dir,
+        { model: { provider: "test", id: "model", api: "openai-responses" } },
+      ),
+      (error: unknown) =>
+        error instanceof Error &&
+        error.name === "RoleModelTypeUnconfiguredError" &&
+        (error as Error & { code?: string }).code === "role_model_type_unconfigured",
     );
-
-    assert.match(result.content[0]?.text ?? "", /Role call succeeded: executor/);
-    assert.match(result.content[0]?.text ?? "", /model=test\/model/);
   } finally {
     if (previousBindingHome === undefined) delete process.env.SPARK_HOME;
     else process.env.SPARK_HOME = previousBindingHome;

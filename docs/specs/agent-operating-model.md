@@ -138,7 +138,7 @@ Prompt layers have these owners:
 3. **Continuation driver**
    - only Goal, Loop, or Repro continuation and completion semantics.
 4. **Agent identity**
-   - persistent Role, anonymous Role, Skill Agent, Workflow child, reviewer, or
+   - persistent Role, owned Role call, Skill Agent, Workflow child, reviewer, or
      leaf responsibility and authority.
 5. **Tool guidance**
    - only tool-specific invocation constraints.
@@ -174,8 +174,9 @@ many requests. Reuse the closest existing responsibility before creating a new
 Session. A specialist directly completes ordinary work within its responsibility
 and does not recursively delegate routine substeps.
 
-An anonymous Role Agent is appropriate for one bounded invocation of a stable
-Role without conversation continuity.
+An owned Role Session is appropriate for one bounded invocation of a stable
+Role without conversation continuity. The daemon closes it when its owner
+settles; `RoleRun` remains a compatibility query projection.
 
 ## Multi-Skill Agent
 
@@ -199,7 +200,7 @@ Rules:
 - duplicate names are rejected or normalized before execution;
 - the host resolves and loads every complete Skill body exactly once;
 - the aggregate Skill source is bounded and never silently truncated;
-- one fresh anonymous Agent receives the combined Skill set;
+- one fresh owned Agent Session receives the combined Skill set;
 - the parent transcript is intentionally unavailable, so `instruction` is
   self-contained;
 - the child cannot call Role, Session, Task, Skill Agent, Workflow, Git

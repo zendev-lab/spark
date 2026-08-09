@@ -418,8 +418,9 @@ export class TaskGraph {
   }
 
   recordRun(run: TaskRun): TaskRun {
-    this.#runs.set(run.ref, run);
-    return run;
+    const normalized = normalizeTaskRun(run);
+    this.#runs.set(run.ref, normalized);
+    return normalized;
   }
 
   mergeTaskProgressFrom(source: TaskGraph, taskRefs: Iterable<TaskRef>): void {

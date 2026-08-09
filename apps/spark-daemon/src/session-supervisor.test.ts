@@ -62,8 +62,8 @@ describe("SessionSupervisor", () => {
     harness.invocations.submit({
       invocationId: "inv-role",
       sessionId: first.sessionId,
-      prompt: "own child",
-      task: { type: "session.run", sessionId: first.sessionId, prompt: "own child" },
+      prompt: "own a Role call",
+      task: { type: "session.run", sessionId: first.sessionId, prompt: "own a Role call" },
     });
 
     const owners = [
@@ -101,6 +101,15 @@ describe("SessionSupervisor", () => {
         parentSessionId: first.sessionId,
         owner: { kind: "driver", ref: "driver:invalid" },
         purpose: "invalid persistent owner",
+      }),
+    ).rejects.toMatchObject({ code: "session_owner_invalid" });
+    await expect(
+      harness.supervisor.instantiate({
+        workspaceId: "ws-test",
+        role: executorRole,
+        parentSessionId: first.sessionId,
+        owner: { kind: "role_call", ref: "inv-missing" },
+        purpose: "invalid role-call owner",
       }),
     ).rejects.toMatchObject({ code: "session_owner_invalid" });
     harness.close();

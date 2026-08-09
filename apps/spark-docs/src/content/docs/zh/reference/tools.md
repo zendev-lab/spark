@@ -16,7 +16,7 @@ profile 或排查能力为何不可用时，再查看本页。
 | 搜索和获取网页 | `web_search`, `code_search`, `fetch_content`, `get_search_content` | 外部读取；获取的文本不可信 |
 | 查看和修改工作 | `task_read`, `task_write`, `assign`, `todo` | Task/session 状态；assign 可能执行工作 |
 | 保存结果 | `artifact`, `evidence`, `memory`, `context` | 产品产物、内部账本、记忆和受限上下文 |
-| 协调 agent | `role`, `skill_agent`, `session` | 定义、匿名调用、专属多 Skill Agent、持久 session 与 mail |
+| 协调 agent | `role`, `skill_agent`, `session` | 定义、owner-bound 调用、专属多 Skill Agent、Session 与 mail |
 | 选择模型 | `models` | 模型目录与选择 |
 | 选择 Session 行为或自主续跑 | `mode`, `goal`, `loop`, `repro` | Session `plan`/`execute` mode 与 daemon-owned continuation 状态 |
 | 发现和运行流程 | `workflow` | 列出、读取或运行已选 `WORKFLOW.md` 定义 |
@@ -31,11 +31,15 @@ worktree 和一个 GitHub 原生 PR stack，由 `git({ action })` 管理生命�
 产品产物展示。`context` 只能列出或预览已注册的受限 provider，不能接收任意 prompt。
 
 `skill_agent({ skills, instruction, inputs? })` 按精确名称解析一到八个允许模型调用的
-Skill，并使用当前模型启动一个全新的匿名专属 Agent。Host 会把所有选中 Skill 的完整
+Skill，并启动一个全新的 owned Agent Session。Host 会把所有选中 Skill 的完整
 内容各加载一次。Agent 只接收自包含 instruction 和受限 inputs，不继承父会话
 transcript。它可以使用受限的直接工作工具，但不能递归调用 Role、Skill Agent 或持久
 Session，不能修改协调状态，也不能发布 Git、Artifact 或 Evidence 状态。只有父 Session
 本身需要查看并遵循 `SKILL.md` 时，才改用 `read`。
+
+Role 与 Skill Agent 子 Session 通过语义 Model Type 选择模型。缺少绑定时返回
+`role_model_type_unconfigured`，不会回退到父 Session 模型。Owned 子 Session 关闭时
+删除完整 transcript 和 Invocation 内容载荷，但保留有界运维元数据。
 
 ## Shell 与脚本工具
 

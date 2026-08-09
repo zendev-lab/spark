@@ -1,6 +1,10 @@
 import type { SparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
 import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
-import type { SparkSessionLeaseIdentity, ToolEffect } from "@zendev-lab/spark-core";
+import type {
+  ExtensionRoleRunner,
+  SparkSessionLeaseIdentity,
+  ToolEffect,
+} from "@zendev-lab/spark-core";
 import type { SparkConfig } from "./config.ts";
 import type { SparkExtensionLoadResult } from "./extension-loader.ts";
 import type { SparkKeybindings } from "./keybindings.ts";
@@ -73,6 +77,8 @@ export interface SparkCliHostServicesOptions {
   loop?: SparkHostRuntimeOptions["loop"];
   sessionQuestionChain?: readonly string[];
   allowedTools?: readonly string[];
+  /** Host-private nested Role port; daemon executions inject SessionSupervisor here. */
+  roleRunner?: ExtensionRoleRunner;
   allowedToolEffects?: readonly ToolEffect[];
   config?: SparkConfig;
   configPath?: string;

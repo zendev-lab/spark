@@ -52,6 +52,11 @@ spark tui --session-id <session-id>
 
 会话标识会保留对话与执行连续性，但不会绕过 workspace 绑定或权限检查。
 
+每个 workspace 只有一个受保护的 Administrator 根 Session。Role、Skill、Task 与
+Workflow 工作运行在 owner-bound 子 Session 中；活跃状态由 queued/running
+Invocation 推导，不依赖 UI 计时器。临时 owned 子 Session 会随 owner 关闭并默认删除
+完整 transcript；只有保留公开记录的 Session 才能用同一稳定 ID 创建新 incarnation。
+
 ## 应该使用哪一种？
 
 - 只要一个前台结果时使用 `spark run`。

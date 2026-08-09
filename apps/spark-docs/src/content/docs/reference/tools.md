@@ -17,7 +17,7 @@ building a host profile, or diagnosing why a capability is unavailable.
 | Search and fetch the Web | `web_search`, `code_search`, `fetch_content`, `get_search_content` | External read; fetched text is untrusted |
 | Inspect and change work | `task_read`, `task_write`, `assign`, `todo` | Task/session state; assignment may execute work |
 | Preserve results | `artifact`, `evidence`, `memory`, `context` | Product output, internal ledger, memory, bounded context |
-| Coordinate agents | `role`, `skill_agent`, `session` | Definitions, anonymous calls, dedicated multi-Skill Agents, persistent sessions, and mail |
+| Coordinate agents | `role`, `skill_agent`, `session` | Definitions, owner-bound calls, dedicated multi-Skill Agents, sessions, and mail |
 | Choose models | `models` | Model catalog and selection |
 | Choose Session behavior or autonomous continuation | `mode`, `goal`, `loop`, `repro` | Session `plan`/`execute` mode plus daemon-owned continuation state |
 | Discover and run procedures | `workflow` | List, read, or run a selected `WORKFLOW.md` definition |
@@ -37,13 +37,18 @@ Artifact kind.
 accept an arbitrary prompt.
 
 `skill_agent({ skills, instruction, inputs? })` resolves one to eight exact
-model-invocable Skills and runs one fresh anonymous dedicated Agent with every
+model-invocable Skills and runs one fresh owned Agent Session with every
 selected Skill body loaded in full exactly once. The Agent receives the
 self-contained instruction and bounded inputs, not the parent transcript. It
 can use a bounded direct-work tool profile, but cannot recurse into Roles,
 Skill Agents, or persistent Sessions, mutate coordination state, or publish
 Git, Artifact, or Evidence state. Use `read` instead when the parent Session
 itself must inspect and follow `SKILL.md`.
+
+Role and Skill Agent children select models through semantic Model Types. A
+missing binding fails with `role_model_type_unconfigured`; Spark does not fall
+back to the parent Session model. Owned children discard their full transcript
+and Invocation payload on close while retaining bounded operational metadata.
 
 ## Shell and script tools
 

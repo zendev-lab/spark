@@ -22,7 +22,7 @@ import {
   subgoalDefinitionDigest,
   type SparkSessionContext,
 } from "@zendev-lab/spark-loop";
-import type { RoleRegistry } from "@zendev-lab/spark-roles";
+import type { RoleRegistry, RoleSpec } from "@zendev-lab/spark-roles";
 import { sparkTaskExecutorRoleRef } from "@zendev-lab/spark-runtime";
 import { defaultTaskGraphStore, type TaskGraph } from "@zendev-lab/spark-tasks";
 import type { SparkReproSubgoal } from "./spark-session-repro.ts";
@@ -105,6 +105,7 @@ export async function dispatchManagedTaskSessions(
     try {
       const execution = reservation.run.execution;
       if (!execution) throw new Error(`task run ${reservation.run.ref} has no execution binding`);
+      const sessionId = taskExecutionSessionId(execution);
       await ensureTaskExecutionSession({
         cwd: input.cwd,
         ctx: input.ctx,
@@ -112,20 +113,21 @@ export async function dispatchManagedTaskSessions(
         taskRef: reservation.run.taskRef,
         runRef: reservation.run.ref,
         roleRef: reservation.roleRef,
+        role: input.registry.get(reservation.roleRef),
         goal: reservation.goal,
         evidenceRequired: reservation.evidenceRequired,
         execution,
         daemonRequest,
       });
       const submitted = await daemonRequest("turn.submit", {
-        sessionId: execution.executionSessionId,
+        sessionId,
         prompt: renderTaskExecutionPrompt(reservation),
         ...(input.parentInvocationId ? { parentInvocationId: input.parentInvocationId } : {}),
         idempotencyKey: `${execution.jobId}:attempt:${execution.attempt}`,
         assignment: {
           goal: reservation.goal,
           target: {
-            sessionId: execution.executionSessionId,
+            sessionId,
             role: reservation.roleRef,
           },
           constraints: [
@@ -158,7 +160,7 @@ export async function dispatchManagedTaskSessions(
         runRef: reservation.run.ref,
         taskRef: reservation.run.taskRef,
         roleRef: reservation.roleRef,
-        sessionId: execution.executionSessionId,
+        sessionId,
         goalId: execution.sessionGoalId,
         jobId: execution.jobId,
         attempt: execution.attempt,
@@ -350,6 +352,24 @@ export async function reconcileManagedTaskSessions(input: {
     },
     { createIfMissing: false },
   );
+  const graph = reconciled.graph;
+  if (graph) {
+    const closeSessionIds = active.flatMap((previous) => {
+      const run = graph.runs(input.projectRef).find((candidate) => candidate.ref === previous.ref);
+      if (!run?.execution || run.status === "queued" || run.status === "running") return [];
+      const task = graph.getTask(run.taskRef);
+      const revisionEnded =
+        task.status === "done" || task.status === "failed" || task.status === "cancelled";
+      return run.execution.sessionLifetime === "task_run" || revisionEnded
+        ? [taskExecutionSessionId(run.execution)]
+        : [];
+    });
+    await Promise.all(
+      [...new Set(closeSessionIds)].map(
+        async (sessionId) => await daemonRequest("session.archive", { sessionId }),
+      ),
+    );
+  }
   return reconciled.result;
 }
 
@@ -414,16 +434,18 @@ function reserveTaskSessionRuns(
       .filter((run) => run.execution?.jobId === jobId)
       .sort((left, right) => (left.startedAt ?? "").localeCompare(right.startedAt ?? ""))
       .at(-1);
-    const reuseSession = executionPolicy?.continuity !== "fresh";
+    const reuseSession = executionPolicy?.sessionLifetime === "task_revision";
     const reusableExecution = reuseSession ? priorInRevision?.execution : undefined;
-    const executionSessionId =
-      reusableExecution?.executionSessionId ??
+    const sessionId =
+      (reusableExecution ? taskExecutionSessionId(reusableExecution) : undefined) ??
       `sess_task_${stableId(`${input.projectRef}:${taskRef}:${jobId}:attempt:${attempt}`)}`;
     const sessionGoalId = reusableExecution?.sessionGoalId ?? randomUUID();
     const execution: TaskRunExecutionBinding = {
       ownerSessionId: input.ownerSessionId,
-      executionSessionId,
+      sessionId,
+      executionSessionId: sessionId,
       sessionGoalId,
+      sessionLifetime: executionPolicy?.sessionLifetime ?? "task_revision",
       ...(subgoal ? { subgoalRef: subgoal.ref, planRevision: subgoal.planRevision } : {}),
       ...(definitionDigest ? { definitionDigest } : {}),
       jobId,
@@ -431,7 +453,7 @@ function reserveTaskSessionRuns(
     };
     const runRef = newRef("run");
     const runName = `${task.name}-attempt-${attempt}`;
-    const claimSessionId = sparkSessionKey({ sessionId: executionSessionId });
+    const claimSessionId = sparkSessionKey({ sessionId });
     graph.claimTask(taskRef, {
       kind: "role-run",
       claimedBy: claimSessionId,
@@ -482,17 +504,19 @@ async function ensureTaskExecutionSession(input: {
   taskRef: TaskRef;
   runRef: RunRef;
   roleRef: RoleRef;
+  role: RoleSpec;
   goal: string;
   evidenceRequired: string[];
   execution: TaskRunExecutionBinding;
   daemonRequest: typeof requestSparkDaemon;
 }): Promise<void> {
+  const sessionId = taskExecutionSessionId(input.execution);
   const owner = await input.daemonRequest("session.get", {
     sessionId: input.execution.ownerSessionId,
   });
   try {
     await input.daemonRequest("session.create", {
-      sessionId: input.execution.executionSessionId,
+      sessionId,
       scope:
         owner.scope.kind === "workspace"
           ? { kind: "workspace", workspaceId: owner.scope.workspaceId }
@@ -508,6 +532,9 @@ async function ensureTaskExecutionSession(input: {
         sessionGoalId: input.execution.sessionGoalId,
         ...(input.execution.subgoalRef ? { subgoalRef: input.execution.subgoalRef } : {}),
         roleRef: input.roleRef,
+        roleRevision: input.role.revision,
+        modelType: input.role.modelType,
+        sessionLifetime: input.execution.sessionLifetime,
         ...(input.execution.planRevision ? { planRevision: input.execution.planRevision } : {}),
         ...(input.execution.definitionDigest
           ? { definitionDigest: input.execution.definitionDigest }
@@ -519,7 +546,7 @@ async function ensureTaskExecutionSession(input: {
   } catch (error) {
     if (!isSessionAlreadyExists(error)) throw error;
     const existing = await input.daemonRequest("session.get", {
-      sessionId: input.execution.executionSessionId,
+      sessionId,
     });
     if (
       existing.relation?.kind !== "task_execution" ||
@@ -527,14 +554,12 @@ async function ensureTaskExecutionSession(input: {
       existing.relation.taskRef !== input.taskRef ||
       existing.relation.sessionGoalId !== input.execution.sessionGoalId
     ) {
-      throw new Error(
-        `managed session ${input.execution.executionSessionId} has a conflicting relation`,
-      );
+      throw new Error(`managed session ${sessionId} has a conflicting relation`);
     }
   }
   const goal = await setSessionGoal(
     input.cwd,
-    { ...input.ctx, sessionId: input.execution.executionSessionId },
+    { ...input.ctx, sessionId },
     {
       objective: input.goal,
       source: "explicit",
@@ -543,7 +568,7 @@ async function ensureTaskExecutionSession(input: {
     },
   );
   if (goal.goalId !== input.execution.sessionGoalId) {
-    throw new Error(`managed session ${input.execution.executionSessionId} has a conflicting goal`);
+    throw new Error(`managed session ${sessionId} has a conflicting goal`);
   }
 }
 
@@ -598,7 +623,7 @@ function renderTaskExecutionPrompt(reservation: ReservedTaskSessionRun): string 
     `Execute the Project Task ${reservation.run.taskRef}.`,
     `Your Session Goal is exactly: ${reservation.goal}`,
     `TaskRun: ${reservation.run.ref}; jobId=${execution.jobId}; attempt=${execution.attempt}.`,
-    `Execution policy: continuity=${reservation.executionPolicy.continuity}; isolation=${reservation.executionPolicy.isolation}; comparison=${reservation.executionPolicy.comparison}; maxAttempts=${reservation.executionPolicy.maxAttempts}.`,
+    `Execution policy: sessionLifetime=${reservation.executionPolicy.sessionLifetime}; isolation=${reservation.executionPolicy.isolation}; comparison=${reservation.executionPolicy.comparison}; maxAttempts=${reservation.executionPolicy.maxAttempts}.`,
     reservation.executionPolicy.isolation === "readonly"
       ? "Do not modify repository source or external state."
       : reservation.executionPolicy.isolation === "isolated_worktree"
@@ -667,6 +692,13 @@ function taskRunTimedOut(run: TaskRun, timeoutMs: number): boolean {
   if (run.timeoutRequestedAt) return true;
   const startedAt = Date.parse(run.startedAt ?? "");
   return Number.isFinite(startedAt) && Date.now() - startedAt >= timeoutMs;
+}
+
+/** Decode old TaskRun snapshots once; active dispatch consumes the canonical sessionId. */
+function taskExecutionSessionId(execution: TaskRunExecutionBinding): string {
+  const sessionId = execution.sessionId ?? execution.executionSessionId;
+  if (!sessionId?.trim()) throw new Error("task execution binding sessionId is required");
+  return sessionId;
 }
 
 function isSessionAlreadyExists(error: unknown): boolean {

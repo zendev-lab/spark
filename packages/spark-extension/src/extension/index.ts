@@ -207,7 +207,6 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     return new SparkRolesReviewerRunner({
       registry: await createSparkRoleRegistry(sparkStateCwd(cwd, ctx)),
       cwd,
-      sessionModel: sessionModelName(ctx.model),
       reviewerThinkingLevel: capReviewerThinkingLevel(pi.getThinkingLevel?.()),
       nativeExecutor: ctx.runRole,
       nativeExecutorFallback: ctx.roleNativeCompatibilityRecovery,

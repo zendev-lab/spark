@@ -297,7 +297,24 @@ async function resolveCreateRequest(
   };
   const createInput: Omit<CreateSparkSessionInput, "scope"> = {
     ...ordinaryInput,
-    ...(taskExecution ? { relation: { kind: "task_execution", ...taskExecution } } : {}),
+    ...(taskExecution
+      ? {
+          relation: { kind: "task_execution", ...taskExecution },
+          lifetime: "owned" as const,
+          owner:
+            taskExecution.sessionLifetime === "task_revision"
+              ? ({ kind: "task_revision", ref: taskExecution.jobId } as const)
+              : ({ kind: "task_run", ref: taskExecution.runRef } as const),
+          authority: { kind: "task", ref: taskExecution.taskRef } as const,
+          stateBinding: { kind: "task", ref: taskExecution.taskRef } as const,
+          visibility: "internal" as const,
+          retention: "discard_on_close" as const,
+          purpose: taskExecution.sessionLifetime ?? "task_run",
+          roleRef: taskExecution.roleRef,
+          ...(taskExecution.roleRevision ? { roleRevision: taskExecution.roleRevision } : {}),
+          ...(taskExecution.modelType ? { modelType: taskExecution.modelType } : {}),
+        }
+      : {}),
   };
   if (!scope) return await resolveRegistryCreateInput(createInput, options);
   if (scope.kind === "daemon") {

@@ -26,11 +26,12 @@ over copied prose.
 - `memory` owns durable memory, learnings, candidates, and reflection state.
   `context` only exposes registered bounded providers; it accepts no arbitrary
   provider prompt.
-- `role` owns reusable definitions, semantic Model Type settings, and fresh
-  anonymous calls.
-  `session` owns persistent identity, lifecycle, bindings, calls, and mail.
-  `skill_delegate` runs a fresh anonymous Skill Worker and does not create a
-  persistent Session.
+- `role` owns reusable definitions and semantic Model Type settings. Calls
+  instantiate owner-bound child Sessions; `RoleRun` is a compatibility query
+  projection only.
+  `session` owns identity, lifecycle, bindings, calls, and mail.
+  `skill_agent` instantiates one owned child Session and does not create a
+  parallel Agent lifecycle.
 - `mode`, `goal`, `loop`, `workflow`, and `repro` bind capability contracts to
   daemon-owned continuation. They do not create another executor or timer.
 - Files, Cue execution, Web reads, Git delivery, Fusion, and Graft retain their
@@ -83,9 +84,11 @@ only an admissible ready frontier and dry-runs by default. Repro-owned dispatch
 must use the verified safe frontier and fail closed when it cannot prove that
 frontier.
 
-Task execution policy may constrain continuity, isolation, comparison side,
+Task execution policy uses `sessionLifetime=task_run | task_revision` and may
+constrain isolation, comparison side,
 GPU count/memory/topology, exclusivity, concurrency keys, timeout, and bounded
-attempts. Resource leases are scheduler-owned durable state reconstructed from
+attempts. Legacy `continuity` is decode/projection-only. Resource leases are
+scheduler-owned durable state reconstructed from
 queued/running TaskRuns after restart; terminal TaskRuns release those leases.
 Daemon execution attaches a fenced Session lease to every workspace-owned
 persistent Session turn, including the owning root Loop and managed Task
@@ -152,8 +155,9 @@ fields.
 
 ## Role, Skill Worker, and Session invariants
 
-`role` must not accept persistent Session lifecycle, mail, or a `sessionId`.
-`session` is the only persistent conversation lifecycle surface.
+`role` must not accept lifecycle, mail, or a `sessionId`; the daemon
+`SessionSupervisor` instantiates the owned child and closes it after the call.
+`session` is the only conversation lifecycle surface.
 
 Current builtin Role names and Model Types are `administrator → coordination`,
 `explorer → exploration`, `researcher → research`, `executor → implementation`,
@@ -161,7 +165,7 @@ and `reviewer → verification`. Model Types are open semantic routing keys, not
 model tiers. `scout` and `worker` remain decode-only aliases for `explorer` and
 `executor`; new configuration and listings must not expose them.
 
-A Skill Worker receives the selected Skill instructions plus an explicit,
+A Skill Agent receives the selected Skill instructions plus an explicit,
 self-contained delegation packet rather than the parent transcript. Its direct
 work profile is bounded and cannot recurse into Roles/Skills, manage persistent
 Sessions, mutate Tasks, or publish Git/Artifact/Evidence state.

@@ -12,6 +12,7 @@ import { normalizeTaskExecutionPolicy, type TaskPlanResult } from "@zendev-lab/s
 
 export function taskExecutionPolicySchema() {
   return Type.Object({
+    sessionLifetime: Type.Optional(Type.String({ description: "task_run | task_revision" })),
     continuity: Type.Optional(Type.String({ description: "reuse_within_revision | fresh" })),
     isolation: Type.Optional(
       Type.String({ description: "readonly | isolated_worktree | isolated_results" }),
@@ -52,6 +53,10 @@ export function normalizeTaskExecutionPolicyPatch(
     "reuse_within_revision",
     "fresh",
   ] as const);
+  const sessionLifetime = optionalChoice(value.sessionLifetime, `${path}.sessionLifetime`, [
+    "task_run",
+    "task_revision",
+  ] as const);
   const isolation = optionalChoice(value.isolation, `${path}.isolation`, [
     "readonly",
     "isolated_worktree",
@@ -80,6 +85,7 @@ export function normalizeTaskExecutionPolicyPatch(
   const maxAttempts = optionalPositiveInteger(value.maxAttempts, `${path}.maxAttempts`);
   return normalizeTaskExecutionPolicy(
     {
+      sessionLifetime,
       continuity,
       isolation,
       comparison,

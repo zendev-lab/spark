@@ -362,28 +362,10 @@ async function createPreparedDaemonRuntime(
       },
     });
   const sessionCompletionDeliveryStore = new SessionRequestCompletionDeliveryStore(options.db);
-  const scheduler = createDaemonScheduler({
-    options,
-    runtimeSignal,
-    admission,
-    invocationStore,
-    loopStore,
-    loopEvaluators,
-    channelDeliveryStore,
-    channelIngress,
-    channelReplyDeliveryStore,
-    humanInteractions,
-    eventHub,
-    controlSparkHome: userPaths.configRoot,
-    channelsSparkHome: userPaths.dataRoot,
-    mailStore,
-    sessionCompletionDeliveryStore,
-  });
   const sessionSupervisor = options.sessionRegistry
     ? new SessionSupervisor({
         registry: options.sessionRegistry,
         invocations: invocationStore,
-        ...(scheduler ? { scheduler } : {}),
         ownerExists: async (owner, session) => {
           if (
             (owner.kind !== "task_run" && owner.kind !== "task_revision") ||
@@ -407,6 +389,25 @@ async function createPreparedDaemonRuntime(
         },
       })
     : null;
+  const scheduler = createDaemonScheduler({
+    options,
+    runtimeSignal,
+    admission,
+    invocationStore,
+    loopStore,
+    loopEvaluators,
+    channelDeliveryStore,
+    channelIngress,
+    channelReplyDeliveryStore,
+    humanInteractions,
+    eventHub,
+    controlSparkHome: userPaths.configRoot,
+    channelsSparkHome: userPaths.dataRoot,
+    mailStore,
+    sessionCompletionDeliveryStore,
+    sessionSupervisor,
+  });
+  if (scheduler) sessionSupervisor?.attachScheduler(scheduler);
   const closeRestartAdmission = () => {
     admission.open = false;
     scheduler?.beginDrain();
@@ -1009,6 +1010,7 @@ function createDaemonScheduler(input: {
   channelsSparkHome: string;
   mailStore: SparkSessionMailStore;
   sessionCompletionDeliveryStore: SessionRequestCompletionDeliveryStore;
+  sessionSupervisor: SessionSupervisor | null;
 }): SparkInvocationScheduler | null {
   if (input.options.runScheduler === false) return null;
   const { options } = input;
@@ -1037,6 +1039,7 @@ function createDaemonScheduler(input: {
         ...(sessionRegistry
           ? {
               sessionRegistry,
+              ...(input.sessionSupervisor ? { sessionSupervisor: input.sessionSupervisor } : {}),
               sessionLeaseControl: {
                 acquire: async (task, context) =>
                   await acquireDaemonSessionLease({

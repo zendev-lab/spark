@@ -108,6 +108,13 @@ describe("managed Task Session dispatch", () => {
           completedAt: "2026-07-29T00:01:00.000Z",
         };
       }
+      if (method === "session.archive") {
+        return {
+          sessionId: String(input.sessionId),
+          lifecycle: "closed",
+          archived: true,
+        };
+      }
       throw new Error(`unexpected daemon method: ${method}`);
     }) as typeof requestSparkDaemon;
 
@@ -222,6 +229,7 @@ describe("managed Task Session dispatch", () => {
         kind: "research",
         roleRef: "role:builtin-explorer",
         executionPolicy: {
+          sessionLifetime: reusesSession ? "task_revision" : "task_run",
           continuity,
           isolation: "isolated_results",
           comparison: "single_side",
@@ -354,6 +362,7 @@ describe("managed Task Session dispatch", () => {
       kind: "implement",
       roleRef: "role:builtin-worker",
       executionPolicy: {
+        sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
         isolation: "isolated_worktree",
         comparison: "single_side",
@@ -506,6 +515,7 @@ describe("managed Task Session dispatch", () => {
       kind: "implement",
       roleRef: "role:builtin-worker",
       executionPolicy: {
+        sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
         isolation: "isolated_worktree",
         comparison: "single_side",
@@ -531,6 +541,7 @@ describe("managed Task Session dispatch", () => {
       kind: "implement",
       roleRef: "role:builtin-worker",
       executionPolicy: {
+        sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
         isolation: "isolated_worktree",
         comparison: "single_side",
@@ -640,6 +651,7 @@ describe("managed Task Session dispatch", () => {
       kind: "research",
       roleRef: "role:builtin-explorer",
       executionPolicy: {
+        sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
         isolation: "isolated_results",
         comparison: "single_side",
@@ -712,6 +724,13 @@ describe("managed Task Session dispatch", () => {
           invocationId: "inv_timeout",
           status: invocationStatus,
           cancelRequested: true,
+        };
+      }
+      if (method === "session.archive") {
+        return {
+          sessionId: String(input.sessionId),
+          lifecycle: "closed",
+          archived: true,
         };
       }
       throw new Error(`unexpected daemon method: ${method}`);

@@ -8,6 +8,7 @@ import {
   listActiveRoleRuns,
   parsePiJsonlEvents,
   resolveRoleModelSetting,
+  RoleModelTypeUnconfiguredError,
   RoleRunCancelledError as PiRoleRunCancelledError,
   RoleRunTimeoutError as PiRoleRunTimeoutError,
   runRole,
@@ -1266,7 +1267,8 @@ async function runNativeSparkRole(
     projectStore: defaultProjectRoleModelSettingsStore(options.cwd),
     userStore: defaultUserRoleModelSettingsStore(),
   });
-  const model = roleModel?.model ?? (options.sessionModel?.trim() || undefined);
+  if (!roleModel) throw new RoleModelTypeUnconfiguredError(role.ref, role.modelType);
+  const model = roleModel.model;
   let streamedEventCount = 0;
   const onEvent = options.onRoleEvent
     ? async (event: unknown) => {
@@ -1278,6 +1280,11 @@ async function runNativeSparkRole(
     runRef: baseRecord.ref,
     roleRef: role.ref,
     roleId: role.id,
+    roleRevision: role.revision,
+    roleSource: role.source,
+    roleCapabilities: role.capabilities,
+    roleModelType: role.modelType,
+    roleInstantiation: "owned",
     systemPrompt: role.systemPrompt,
     instruction: instruction.instruction,
     model,
@@ -1294,7 +1301,6 @@ async function runNativeSparkRole(
     env: options.env,
     nativeExecutor: options.roleExecutor,
     onEvent,
-    noSession: options.launch !== "forked",
     onTimeout: () => undefined,
   });
   if (streamedEventCount === 0) {
