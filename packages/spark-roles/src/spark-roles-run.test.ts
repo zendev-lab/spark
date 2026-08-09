@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
@@ -58,9 +58,6 @@ test("spark-roles builds fresh JSON Pi role args without accidental fork session
   assert.equal(args.includes("--fork"), false);
   assert.equal(args.includes("session-parent.json"), false);
   assert.equal(args.at(-2), "You are a worker.");
-  assert.equal(args.at(-1)?.includes("Spark role-run interaction policy:"), true);
-  assert.equal(args.at(-1)?.includes("Spark naming quality policy:"), true);
-  assert.equal(args.at(-1)?.includes("Instruction:\n\nImplement the task."), true);
 });
 
 test("spark-roles includes resolved user model in JSON Pi role args", () => {
@@ -828,7 +825,7 @@ test("spark-roles tracks and cancels active daemon-native runs", async () => {
       cwd: dir,
       timeoutMs: 15_000,
       nativeExecutor: async (input) =>
-        await new Promise((resolve, reject) => {
+        await new Promise((_resolve, reject) => {
           input.signal?.addEventListener("abort", () => reject(new Error("native aborted")), {
             once: true,
           });

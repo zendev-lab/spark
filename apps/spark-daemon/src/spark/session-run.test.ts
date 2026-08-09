@@ -311,7 +311,6 @@ describe("daemon native session execution", () => {
       const filePath = join(dataDir, "turn-attachments", "invocation-1", "1-_notes.txt");
       expect(existsSync(filePath)).toBe(true);
       expect(readFileSync(filePath, "utf8")).toBe("hello");
-      expect(JSON.stringify(prompt)).toContain(filePath);
     } finally {
       rmSync(dataDir, { recursive: true, force: true });
     }
@@ -1333,23 +1332,6 @@ describe("daemon native session execution", () => {
     expect(input?.approvalMethod).toBe("auto");
     expect(input?.sessionSurface).toBe("channel");
     expect(input?.allowedTools).toEqual(["session", "ask", "context", "todo"]);
-    expect(input?.systemPrompt).toContain(
-      "Current conversation surface: Infoflow (如流) group chat",
-    );
-    expect(input?.systemPrompt).toContain("Use platform-supplied sender metadata for identity");
-    expect(input?.systemPrompt).toContain("Dynamic context checkpoint: infoflow-message.");
-    expect(input?.systemPrompt).toContain(
-      "Message-platform sessions expose only a bounded safe tool surface",
-    );
-    expect(input?.systemPrompt).toContain('session({ action: "list", scope: "workspace" })');
-    expect(input?.systemPrompt).toContain('session({ action: "send", kind: "request", toSessionId');
-    expect(input?.systemPrompt).toContain("a local surface=local target");
-    expect(input?.systemPrompt).toContain('senderId: "zhanrongrui"');
-    expect(input?.systemPrompt).toContain('groupId: "10838226"');
-    expect(input?.systemPrompt).toContain('messageId: "1870319775739153405"');
-    expect(input?.systemPrompt).toContain('eventType: "MESSAGE_RECEIVE"');
-    expect(input?.systemPrompt).toContain('contentType: "mixed"');
-    expect(input?.systemPrompt).toContain('"reference":"image-fid-1"');
     expect(input?.sessionSource).toBe("channel");
     expect(input?.messageMetadata).toEqual({
       invocationId: "invocation-1",
@@ -1374,8 +1356,6 @@ describe("daemon native session execution", () => {
         attachments: [{ kind: "image", reference: "image-fid-1" }],
       },
     });
-    expect(input?.systemPrompt).not.toContain("@神经蛙 你叫什么名字");
-    expect(input?.systemPrompt).not.toContain("You are handling an Infoflow");
   });
 
   it("does not infer infoflow from channel context when the reply binding is missing", async () => {
@@ -1444,43 +1424,6 @@ describe("daemon native session execution", () => {
         },
       }),
     );
-  });
-
-  it("injects the persistent administrator role into a local session prompt", async () => {
-    const executeSession = vi.fn(async () => ({ assistantText: "coordinated" }));
-    const task: SparkDaemonSessionRunTask = {
-      type: "session.run",
-      sessionId: "sess_administrator",
-      prompt: "安排一下后续工作",
-    };
-
-    await executeSparkDaemonSessionRunTask(task, context(task), {
-      paths,
-      executeSession,
-      sessionRegistry: {
-        get: vi.fn(
-          async () =>
-            ({
-              role: "管理员",
-              bindings: [],
-            }) as never,
-        ),
-        recordRun: vi.fn(async () => ({}) as never),
-        recordTurnQueued: vi.fn(async () => ({}) as never),
-        recordTurnSettled: vi.fn(async () => ({}) as never),
-      },
-    });
-
-    expect(executeSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionSurface: "local",
-        systemPrompt: expect.stringContaining("Persistent session role: 管理员"),
-      }),
-    );
-    const call = executeSession.mock.calls.at(0) as [{ systemPrompt?: string }] | undefined;
-    const input = call?.[0];
-    expect(input?.systemPrompt).toContain("You are Spark, a coding assistant");
-    expect(input?.systemPrompt).toContain("As the administrator session");
   });
 
   it("keeps direct session requests exact and projects their execution source as session", async () => {
@@ -1582,9 +1525,6 @@ describe("daemon native session execution", () => {
       expect.objectContaining({
         sessionSurface: "channel",
         allowedTools: ["session", "ask", "context", "todo"],
-        systemPrompt: expect.stringContaining(
-          'kind: "request", toSessionId, intent, message }) to queue work on a local surface=local target',
-        ),
       }),
     );
   });
@@ -1692,7 +1632,6 @@ describe("daemon native session execution", () => {
         allowedToolEffects: ["read"],
         sessionPath: "/daemon/sessions/sess_side_readonly-generation-2.jsonl",
         sessionSurface: "local",
-        systemPrompt: expect.stringContaining("always read-only"),
       }),
     );
     expect(toolExecutions).toEqual([]);

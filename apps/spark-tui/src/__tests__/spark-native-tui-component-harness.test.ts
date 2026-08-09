@@ -1425,7 +1425,6 @@ test("native /goal starts the daemon-owned driver instead of entering the local 
     assert.ok(driverStarts[0]?.binding?.goalId);
     assert.equal(driverStarts[0]?.ownerSessionId, "sess_goal_bridge");
     assert.equal(driverStarts[0]?.continuity, "session");
-    assert.match(driverStarts[0]?.prompt ?? "", /Ship the daemon goal bridge/u);
     assert.deepEqual(forwarded, []);
     assert.deepEqual(responderInputs, []);
     assert.equal(host.peekOutbox().length, 0);

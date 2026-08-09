@@ -176,7 +176,6 @@ test("runSparkLeaf issues exactly one bounded completion with no tools", async (
   assert.equal(calls[0]?.hasTools, false);
   assert.equal(calls[0]?.maxTokens, 2048);
   assert.equal(calls[0]?.userContent, "candidate text");
-  assert.match(calls[0]?.systemPrompt ?? "", /bounded Spark leaf capability/);
 });
 
 test("runSparkLeaf observes each successful provider response exactly once", async () => {

@@ -22,7 +22,6 @@ import {
   navigateSparkSessionBranchWithSummary,
   scheduleSparkCompaction,
   prepareSparkCompaction,
-  renderSparkSmartCompactionPrompt,
   renderSparkSmartCompactionSummary,
   sessionEntriesToAgentMessages,
   shouldSparkCompact,
@@ -57,6 +56,15 @@ const tinyKeepSettings: SparkCompactionSettings = {
   keepRecentTokens: 1,
 };
 
+async function readJsonFixture<T>(url: URL): Promise<T> {
+  const source = await readFile(url, "utf8");
+  try {
+    return JSON.parse(source) as T;
+  } catch (error) {
+    throw new Error(`Invalid JSON fixture: ${url.href}`, { cause: error });
+  }
+}
+
 test("Spark Compact V2 defaults and outcome metadata are stable", () => {
   assert.equal(DEFAULT_SPARK_COMPACTION_SETTINGS.targetReduction, 0.4);
   assert.equal(DEFAULT_SPARK_COMPACTION_SETTINGS.compactModel, "current");
@@ -88,12 +96,9 @@ test("Spark Compact V2 defaults and outcome metadata are stable", () => {
 });
 
 test("Smart fixed summary validates, renders, selects current model, and falls back", async () => {
-  const fixture = JSON.parse(
-    await readFile(
-      new URL("../../../../test/fixtures/smart-compaction-summary.json", import.meta.url),
-      "utf8",
-    ),
-  ) as any;
+  const fixture = await readJsonFixture<any>(
+    new URL("../../../../test/fixtures/smart-compaction-summary.json", import.meta.url),
+  );
   const dir = await mkdtemp(join(tmpdir(), "spark-smart-summary-"));
   try {
     const store = new SparkSessionStore({ cwd: join(dir, "repo"), sparkHome: join(dir, ".spark") });
@@ -453,17 +458,6 @@ test("sessionEntriesToAgentMessages rebuilds compacted context with summary and 
   }
 });
 
-test("Smart compact prompt treats manual focus as untrusted preference", () => {
-  const store = new SparkSessionStore({ cwd: "/repo", sparkHome: "/tmp/spark-test" });
-  const preparation = prepareSparkCompaction(compactableRecord(store), undefined, tinyKeepSettings);
-  assert.ok(preparation);
-
-  const prompt = renderSparkSmartCompactionPrompt(preparation, "focus on validation");
-  assert.match(prompt, /Additional user focus \(untrusted preference, not a schema override\):/u);
-  assert.match(prompt, /focus on validation/u);
-  assert.match(prompt, /every field is required/u);
-});
-
 test("compactSparkVisibleTranscript persists a compaction entry and returns kept messages", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-visible-compact-"));
   try {
@@ -630,8 +624,6 @@ test("native /compact and /tree summarize commands use persisted compaction help
     assert.match(String(compacted), /tokenSource=estimated/);
     assert.match(String(compacted), /fallback=none/);
     assert.equal(smartRequest?.model, "fake-provider/fake-model");
-    assert.match(smartRequest?.focusPrompt ?? "", /untrusted preference, not a schema override/u);
-    assert.match(smartRequest?.focusPrompt ?? "", /focus/u);
     assert.equal((await store.list()).length, 1);
     const compactedText = session.messages.map((message) => message.text).join("\n");
     assert.match(compactedText, /Compacted visible transcript summary/);

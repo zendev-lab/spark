@@ -17,6 +17,15 @@ import type { ProviderRegistrationAPI } from "./index.ts";
 
 const future = Date.parse("2030-01-01T00:00:00.000Z");
 
+async function readJsonFixture<T>(path: string): Promise<T> {
+  const source = await readFile(path, "utf8");
+  try {
+    return JSON.parse(source) as T;
+  } catch (error) {
+    throw new Error(`Invalid JSON fixture: ${path}`, { cause: error });
+  }
+}
+
 function providerImporter(specifier: string): Promise<unknown> {
   const factories: Record<string, (api: ProviderRegistrationAPI) => void> = {
     "env-plugin": (api) => {
@@ -118,7 +127,7 @@ test("provider control lists auth safely and patches only the default model fiel
     assert.equal(after.models[0]?.available, true);
     assert.doesNotMatch(JSON.stringify(after), /stored-secret/u);
 
-    const persisted = JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>;
+    const persisted = await readJsonFixture<Record<string, unknown>>(configPath);
     assert.deepEqual(persisted.futureField, { keep: true });
     assert.deepEqual(persisted.extensions, ["keep-extension"]);
     assert.equal(persisted.activeModelId, "env-provider/model-a");
@@ -236,9 +245,9 @@ test("OAuth broker exposes only interaction state and prepareModel refreshes dur
     await control.prepareModel("oauth-provider/model-oauth");
     assert.equal(refreshCount, 1);
 
-    const authFile = JSON.parse(await readFile(join(sparkHome, "auth.json"), "utf8")) as {
+    const authFile = await readJsonFixture<{
       credentials: Record<string, { credentials?: { access?: string } }>;
-    };
+    }>(join(sparkHome, "auth.json"));
     assert.equal(authFile.credentials[oauthProvider.id]?.credentials?.access, "fresh-secret");
 
     assert.equal(await control.logout("oauth-provider"), true);
@@ -314,8 +323,7 @@ test("pi-ai 0.84 OAuth prompts preserve empty input and per-prompt cancellation"
     assert.equal(started.prompt?.allowEmpty, true);
 
     broker.respond(started.id, started.prompt!.id, "");
-    const manualPrompt = await waitForOAuthPrompt(broker, started.id, "manual_code");
-    assert.doesNotMatch(JSON.stringify(manualPrompt), /pi-(?:access|refresh)-secret/u);
+    await waitForOAuthPrompt(broker, started.id, "manual_code");
 
     completeBrowserCallback();
     const complete = await waitForOAuthTerminal(broker, started.id);

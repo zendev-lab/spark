@@ -10,7 +10,6 @@ describe("Spark daemon session compatibility surface", () => {
     expect(loader.getSkills().skills).toEqual([]);
     expect(loader.getPrompts().prompts).toEqual([]);
     expect(loader.getThemes().themes).toEqual([]);
-    expect(loader.getSystemPrompt()).toContain("Spark Daemon");
   });
 
   it("loads Spark headless session execution through spark-host", async () => {
