@@ -7,6 +7,7 @@ import type { AskRef, EvidenceRef } from "@zendev-lab/spark-core";
 import {
   buildSparkReproWorkSummary,
   sparkReproProfileDigest,
+  sparkReproTopologyDigest,
   SPARK_REPRO_SINGLE_PROCESS_TOPOLOGY,
   type SparkReproDecisionRequest,
   type SparkReproEvidenceGate,
@@ -168,6 +169,39 @@ async function persistAcceptedFormalEvidence(
         .flatMap((gate) => gate.evidenceRefs),
     ),
   ];
+  const formalRows =
+    input.validationMatrix?.rows.filter(
+      (row) => row.evidenceClass === "entrypoint" && row.invocationClass === "owning_entrypoint",
+    ) ?? [];
+  for (const row of formalRows) {
+    const evidenceRef = row.evidenceRefs[0];
+    if (!evidenceRef) continue;
+    const receiptPath = `receipts/${row.id}.json`;
+    row.receiptPath = receiptPath;
+    await mkdir(join(cwd, "receipts"), { recursive: true });
+    await writeFile(
+      join(cwd, receiptPath),
+      JSON.stringify({
+        schema: "spark.repro.formal-evidence-receipt/v1",
+        evidenceRef,
+        reproId: input.reproId,
+        requirementId: row.gateId,
+        stepId: "S1",
+        planRevision: 1,
+        stepDefinitionDigest: "digest:S1",
+        invocationClass: "owning_entrypoint",
+        evidenceClass: "entrypoint",
+        profileDigest: sparkReproProfileDigest(input.target.acceptanceProfile ?? input.profile),
+        topologyDigest: sparkReproTopologyDigest(input.target.validationTopology),
+        verifierId: "test-verifier",
+        verifierVersion: "1",
+        verdict: "accepted",
+        verifiedAt: new Date().toISOString(),
+        stale: false,
+        superseded: false,
+      }),
+    );
+  }
   await persistEvidenceRefs(cwd, refs);
 }
 

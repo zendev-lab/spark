@@ -288,6 +288,26 @@ export type SparkReproInvocationClass = "owning_entrypoint" | "isolated_diagnost
 export type SparkReproValidationEvidenceClass = "entrypoint" | "probe";
 export type SparkReproValidationVerdict = "open" | "accepted" | "rejected";
 
+export interface SparkReproFormalEvidenceReceipt {
+  schema: "spark.repro.formal-evidence-receipt/v1";
+  evidenceRef: EvidenceRef;
+  reproId: string;
+  requirementId?: string;
+  stepId?: string;
+  planRevision: number;
+  stepDefinitionDigest: string;
+  invocationClass: "owning_entrypoint";
+  evidenceClass: SparkReproValidationEvidenceClass;
+  profileDigest: string;
+  topologyDigest: string;
+  verifierId: string;
+  verifierVersion: string;
+  verdict: "accepted" | "rejected";
+  verifiedAt: string;
+  stale: boolean;
+  superseded: boolean;
+}
+
 export interface SparkReproValidationMatrixRow {
   id: string;
   gateId: string;
@@ -1395,6 +1415,12 @@ export function sparkReproProfileDigest(profile: SparkReproProfile): string {
         unknownFields: canonical.unknownFields ?? [],
       }),
     )
+    .digest("hex");
+}
+
+export function sparkReproTopologyDigest(topology: SparkReproTopology): string {
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalTopology(topology)))
     .digest("hex");
 }
 
@@ -2643,7 +2669,6 @@ function cloneValidationMatrix(matrix: SparkReproValidationMatrix): SparkReproVa
     rows: matrix.rows.map((row) => ({
       ...row,
       profile: canonicalProfile(row.profile),
-      evidenceRefs: [...row.evidenceRefs],
       artifactRefs: [...row.artifactRefs],
     })),
   };

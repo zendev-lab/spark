@@ -7,7 +7,10 @@ import { newRef, nowIso, type EvidenceRef, type JsonValue } from "@zendev-lab/sp
 import {
   normalizeSparkReproWorkSummary,
   sparkReproCompletionEvidenceRefs,
+  sparkReproProfileDigest,
+  sparkReproTopologyDigest,
   SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA,
+  type SparkReproFormalEvidenceReceipt,
   type SparkReproWorkSummary,
 } from "@zendev-lab/spark-repro/work-summary";
 import type {
@@ -131,9 +134,72 @@ async function resolveAcceptedFormalEvidence(
   const store = defaultEvidenceStore(cwd);
   const resolved = await Promise.all(refs.map((ref) => store.tryGet(ref)));
   for (let index = 0; index < refs.length; index += 1) {
-    if (!resolved[index]) {
+    const evidence = resolved[index];
+    if (!evidence) {
       throw new Error(`Repro completion evidence not found: ${refs[index]}`);
     }
+  }
+  const formalRows = work.validationMatrix.rows.filter(
+    (row) =>
+      row.evidenceClass === "entrypoint" &&
+      row.invocationClass === "owning_entrypoint" &&
+      row.verdict === "accepted" &&
+      work.gates.find((gate) => gate.id === row.gateId)?.status === "accepted",
+  );
+  for (const row of formalRows) {
+    const receipt = await readFormalEvidenceReceipt(cwd, row.receiptPath);
+    validateFormalEvidenceReceipt(receipt, work, row, row.evidenceRefs[0]);
+  }
+}
+
+async function readFormalEvidenceReceipt(
+  cwd: string,
+  receiptPath: string | undefined,
+): Promise<SparkReproFormalEvidenceReceipt> {
+  if (!receiptPath || receiptPath.includes("..") || receiptPath.startsWith("/")) {
+    throw new Error("Repro formal Evidence requires a workspace-relative receiptPath");
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await readFile(resolve(cwd, receiptPath), "utf8")) as unknown;
+  } catch (error) {
+    throw new Error(`Repro formal Evidence receipt not found: ${receiptPath}`, { cause: error });
+  }
+  if (!isRecord(raw) || raw.schema !== "spark.repro.formal-evidence-receipt/v1") {
+    throw new Error(`Invalid Repro formal Evidence receipt: ${receiptPath}`);
+  }
+  return raw as unknown as SparkReproFormalEvidenceReceipt;
+}
+
+function validateFormalEvidenceReceipt(
+  receipt: SparkReproFormalEvidenceReceipt,
+  work: SparkReproWorkSummary,
+  row: SparkReproWorkSummary["validationMatrix"]["rows"][number],
+  evidenceRef: EvidenceRef,
+): void {
+  if (!evidenceRef) {
+    throw new Error(`Repro formal Evidence row has no evidence ref: ${row.gateId}`);
+  }
+  const expectedProfile = work.acceptanceProfile ?? work.profile;
+  const expectedTopology = expectedProfile.validationTopology ?? expectedProfile.topology;
+  if (
+    receipt.evidenceRef !== evidenceRef ||
+    receipt.reproId !== work.reproId ||
+    receipt.invocationClass !== "owning_entrypoint" ||
+    receipt.evidenceClass !== "entrypoint" ||
+    receipt.verdict !== "accepted" ||
+    receipt.stale ||
+    receipt.superseded ||
+    receipt.planRevision !== work.normativeCursor.planRevision ||
+    receipt.requirementId !== row.gateId ||
+    sparkReproProfileDigest(expectedProfile) !== receipt.profileDigest ||
+    sparkReproTopologyDigest(expectedTopology) !== receipt.topologyDigest ||
+    (receipt.stepId === undefined
+      ? !receipt.stepDefinitionDigest
+      : work.normativeCursor.stepDefinitionDigests?.[receipt.stepId] !==
+        receipt.stepDefinitionDigest)
+  ) {
+    throw new Error(`Repro formal Evidence receipt is not current and accepted: ${evidenceRef}`);
   }
 }
 
