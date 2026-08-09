@@ -302,6 +302,7 @@ requirementId or stepId
 planRevision
 stepDefinitionDigest
 invocationClass: owning_entrypoint
+evidenceClass: entrypoint | probe
 profileDigest
 topologyDigest
 verifierId / verifierVersion
@@ -311,7 +312,7 @@ stale: boolean
 superseded: boolean
 ```
 
-The `profileDigest` covers the normalized frozen `minimum_complete` acceptance Profile. The `topologyDigest` covers the exact normalized `validationTopology + strategies[]`; partial matching is forbidden. A gate enters `acceptedEligibleWeight` only when the receipt resolves to the same current Repro and gate, the revision and definition digest are current, invocation class is `owning_entrypoint`, both digests match the frozen contract, `verdict=accepted`, and both `stale` and `superseded` are false. Missing receipt, diagnostic/probe class, failed verifier, another Repro, stale revision, Profile/topology mismatch, or superseded Evidence all carry zero numerator weight. A plain `EvidenceStore.tryGet(ref)` success is never a formal verifier.
+The `profileDigest` covers the normalized frozen `minimum_complete` acceptance Profile. The `topologyDigest` covers the exact normalized `validationTopology + strategies[]`; partial matching is forbidden. A gate enters `acceptedEligibleWeight` only when the receipt resolves to the same current Repro and gate, the revision and definition digest are current, invocation class is `owning_entrypoint`, evidence class is `entrypoint`, both digests match the frozen contract, `verdict=accepted`, and both `stale` and `superseded` are false. Missing receipt, diagnostic/probe class, failed verifier, another Repro, stale revision, Profile/topology mismatch, or superseded Evidence all carry zero numerator weight. A plain `EvidenceStore.tryGet(ref)` success is never a formal verifier.
 
 The receipt is an output of the registered verifier, not a field callers may self-assert in a work summary. ReportModel, Markdown, A2UI, transcripts, and historical review records cannot manufacture or amend it. Verification tests must cover every rejected case above plus one complete current receipt.
 
