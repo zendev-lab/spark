@@ -1,6 +1,12 @@
 import { type ContractRouterClient, type ErrorMap, oc } from "@orpc/contract";
 import { z } from "zod";
 import {
+  sparkDirectAnswerProvenanceSchema,
+  sparkEvidenceAnswerEventSchema,
+  sparkEvidenceRequestBindingSchema,
+  sparkHumanInteractionDeliveryOutcomeSchema,
+} from "./human-interaction.ts";
+import {
   localRpcMethodToSparkCommandKind,
   sparkProtocolJsonObjectSchema,
   sparkProtocolJsonValueSchema,
@@ -1246,6 +1252,7 @@ const sparkLocalRpcHumanWaitSchema = z.object({
   projectId: z.string(),
   toolCallId: z.string(),
   delivery: z.enum(["blocking", "async"]),
+  evidenceRequest: sparkEvidenceRequestBindingSchema.optional(),
   kind: z.string().min(1),
   title: z.string(),
   prompt: z.string(),
@@ -1261,9 +1268,18 @@ const sparkLocalRpcHumanWaitResponseSchema = z.object({
   humanRequestId: z.string().min(1),
   humanResponseId: z.string().min(1),
   status: z.enum(["answered", "cancelled", "archived"]),
+  provenance: sparkDirectAnswerProvenanceSchema.optional(),
   answers: sparkProtocolJsonObjectSchema,
   responseArtifactRefs: z.array(z.string()),
+  answerEventId: z
+    .string()
+    .regex(/^answer-event:.+/u)
+    .optional(),
   deliveredAt: isoDateTimeSchema,
+});
+
+const sparkLocalRpcEvidenceAnswerEventSchema = sparkEvidenceAnswerEventSchema.safeExtend({
+  answers: sparkProtocolJsonObjectSchema,
 });
 
 export const sparkLocalRpcHumanInteractionListResultSchema = z.object({
@@ -1271,20 +1287,14 @@ export const sparkLocalRpcHumanInteractionListResultSchema = z.object({
 });
 
 export const sparkLocalRpcHumanInteractionRespondResultSchema = z.object({
-  outcome: z.enum([
-    "accepted",
-    "replayed",
-    "already_resolved",
-    "orphaned",
-    "unknown_request",
-    "transient",
-  ]),
+  outcome: sparkHumanInteractionDeliveryOutcomeSchema,
   retryable: z.boolean(),
   returnedToTool: z.boolean(),
   message: z.string(),
   winnerResponseId: z.string().min(1).optional(),
   wait: sparkLocalRpcHumanWaitSchema.optional(),
   response: sparkLocalRpcHumanWaitResponseSchema.optional(),
+  answerEvent: sparkLocalRpcEvidenceAnswerEventSchema.optional(),
 });
 
 const workspaceIdInputSchema = z.object({ workspaceId: z.string().trim().min(1) });

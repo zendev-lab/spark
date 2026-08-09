@@ -1,0 +1,12 @@
+{
+  "legacyFieldNames": ["artifactRef"],
+  "value": {
+    "version": 1,
+    "subjectKind": "task",
+    "subjectRef": "task:legacy-artifact",
+    "artifactRef": "artifact:legacy-review",
+    "status": "resolved",
+    "outcome": "approved",
+    "reviewedAt": "2026-06-30T00:00:00.000Z"
+  }
+}

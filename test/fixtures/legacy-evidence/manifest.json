@@ -3,6 +3,7 @@
   "purpose": "Controlled read-compatibility and fail-closed fixtures for pre-hard-cut Evidence schemas. Production and ordinary feature tests must not add these fields.",
   "fixtures": {
     "subject-review-v1.json": "v1 review reader normalization",
+    "subject-review-artifact-v1.json": "legacy Artifact-backed review quarantine",
     "subject-review-mixed-v1.json": "canonical and legacy field ambiguity rejection",
     "session-goal-v1.json": "v1 goal review reader normalization",
     "session-goal-mixed-v1.json": "canonical and legacy goal review ambiguity rejection",

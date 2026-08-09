@@ -2,10 +2,12 @@ import type {
   ExtensionAskFlowInteractionResponse,
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
+  SparkHostContext,
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
 import { Type } from "typebox";
 
+import { rejectAutonomousAskAlias } from "./autonomous-policy.ts";
 import { SparkAskFlowController } from "./ui/controller.ts";
 import { SparkAskFlowPayloadStore } from "./ask-payload-store.ts";
 import { normalizeSparkAskAnswerSource } from "./answer-source.ts";
@@ -321,6 +323,7 @@ export function registerSparkAskFlowTool(pi: SparkHostAPI): void {
     },
 
     async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
+      rejectAutonomousAskAlias(ctx as SparkHostContext);
       const request = createSparkAskFlowRequest(rawParams as SparkAskFlowRequest);
       const context = decodeSparkAskFlowToolContext(ctx);
       const ui = context.ui;
@@ -456,12 +459,13 @@ function createSparkAskFlowInteractionRequest(
   return {
     version: 1,
     kind: "askFlow",
-    requestId: `ask_flow:${Date.now().toString(36)}`,
+    requestId: request.interactionRequestId ?? `ask_flow:${Date.now().toString(36)}`,
     title: request.title?.trim() || "Ask flow",
     prompt: request.context,
     source: "extension",
     metadata: { tool: "ask_flow" },
     delivery: request.delivery ?? "blocking",
+    ...(request.evidenceRequest ? { evidenceRequest: request.evidenceRequest } : {}),
     ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
     mode: request.mode ?? "clarification",
     ...(request.flow ? { flow: request.flow } : {}),

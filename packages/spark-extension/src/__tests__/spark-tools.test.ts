@@ -5779,18 +5779,10 @@ test("subject review rebuild reads a controlled v1 Evidence fixture and writes c
     const reviewDir = join(dir, "reviews");
     await mkdir(reviewDir, { recursive: true });
     await writeFile(join(reviewDir, "legacy.json"), JSON.stringify(fixture.value));
-    await writeFile(
-      join(reviewDir, "legacy-artifact.json"),
-      JSON.stringify({
-        version: 1,
-        subjectKind: "task",
-        subjectRef: "task:legacy-artifact",
-        artifactRef: "artifact:legacy-review",
-        status: "resolved",
-        outcome: "approved",
-        reviewedAt: "2026-06-30T00:00:00.000Z",
-      }),
-    );
+    const artifactFixture = await loadLegacyEvidenceFixture<
+      LegacyEvidenceFixture<Record<string, unknown>>
+    >("subject-review-artifact-v1.json");
+    await writeFile(join(reviewDir, "legacy-artifact.json"), JSON.stringify(artifactFixture.value));
 
     const index = await rebuildSubjectReviewIndex(reviewDir);
     assert.equal(index.reviews[0]?.evidenceRef, "evidence:legacy-review");
@@ -5842,6 +5834,9 @@ test("workspace review migration quarantines legacy Artifact reviews without pro
       "reviews",
     );
     await mkdir(reviewDir, { recursive: true });
+    const artifactFixture = await loadLegacyEvidenceFixture<
+      LegacyEvidenceFixture<Record<string, unknown>>
+    >("subject-review-artifact-v1.json");
     await writeFile(
       join(reviewDir, "evidence-current.json"),
       JSON.stringify({
@@ -5855,18 +5850,7 @@ test("workspace review migration quarantines legacy Artifact reviews without pro
       }),
     );
     const sourcePath = join(reviewDir, "artifact-legacy.json");
-    await writeFile(
-      sourcePath,
-      JSON.stringify({
-        version: 1,
-        subjectKind: "task",
-        subjectRef: "task:legacy",
-        artifactRef: "artifact:legacy-review",
-        status: "resolved",
-        outcome: "needs_changes",
-        reviewedAt: "2026-07-01T00:00:00.000Z",
-      }),
-    );
+    await writeFile(sourcePath, JSON.stringify(artifactFixture.value));
 
     const dryRun = await quarantineLegacyArtifactSubjectReviews(dir, { apply: false });
     assert.equal(dryRun.applied, false);
