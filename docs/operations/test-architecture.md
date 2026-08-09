@@ -37,8 +37,15 @@ the component harness or require a terminal multiplexer for either lane.
 Real process tests stay out of the root Vitest suite. Source and packed-product checks share the same
 daemon lifecycle harness, but invoke different executable targets. This prevents the source launcher
 and generated npm product from drifting while keeping failures attributable to distinct named steps.
-`pnpm run check` remains the serial local gate; CI runs grouped checks, tests, and smoke jobs in
-parallel, then requires a single aggregate `required` job.
+`pnpm run check` remains the serial local gate. Static CI always runs the complete architecture,
+test-quality, documentation, formatting, lint, and type checks. Pull-request runtime CI uses
+`scripts/changed-ci-scope.mjs` to select workspace checks and the process, macOS, and browser lanes;
+unknown or root-owned changes fail safe to the full matrix. `merge_group` and `main` pushes always
+run the full matrix. These jobs are advisory and there is no aggregate required test job.
+
+`prek` is the local fast-fix boundary: use native pre-commit integrations for file-format and
+workflow checks, plus the repository's `spark-check-fix` hook. Repository-specific read-only checks
+such as architecture and test quality stay in static CI instead of being wrapped as system hooks.
 
 Continuous-evaluation lanes remain separate from merge gates. Capability CE repeats the exact
 owner tests selected by the deterministic sentinel runner and preserves missing runs, inventory
@@ -95,6 +102,7 @@ Reading production source and asserting that fragments are present is not a beha
 usually a brittle implementation mirror. Move a real repository constraint into its authoritative
 static checker; otherwise delete the assertion. The same rule applies to prompt and instruction
 wording: verify structured behavior at the consuming boundary instead of matching text fragments.
+The gate scans current tests directly and has no exemption catalog or historical count to refresh.
 
 ## Golden files
 
