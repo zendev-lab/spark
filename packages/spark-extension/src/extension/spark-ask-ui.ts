@@ -1,4 +1,9 @@
-export function sparkAskUi(ctx: unknown) {
+import type {
+  ExtensionInteractionRequest,
+  ExtensionInteractionResponse,
+} from "@zendev-lab/spark-core";
+
+export function sparkAskUi(ctx: unknown, toolCallId?: string) {
   if (!ctx || typeof ctx !== "object") return undefined;
   const ui = (ctx as { ui?: unknown }).ui;
   if (!ui || typeof ui !== "object") return undefined;
@@ -26,6 +31,21 @@ export function sparkAskUi(ctx: unknown) {
               input: (title: string, defaultValue?: string) => Promise<string | undefined>;
             }
           ).input
+        : undefined,
+    interaction:
+      typeof (ui as { interaction?: unknown }).interaction === "function"
+        ? async (request: ExtensionInteractionRequest): Promise<ExtensionInteractionResponse> =>
+            await (
+              ui as {
+                interaction: (
+                  request: ExtensionInteractionRequest,
+                ) => Promise<ExtensionInteractionResponse>;
+              }
+            ).interaction(
+              request.kind === "askFlow" && toolCallId?.trim()
+                ? { ...request, toolCallId: toolCallId.trim() }
+                : request,
+            )
         : undefined,
     notify:
       typeof (ui as { notify?: unknown }).notify === "function"
