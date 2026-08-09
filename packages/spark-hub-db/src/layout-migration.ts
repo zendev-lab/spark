@@ -88,7 +88,9 @@ export function migrateLegacyCockpitLayout(
   if (processRecordIsActive(legacyWebLockPath) || processRecordIsActive(legacyPidPath)) {
     throw new HubLayoutMigrationLockedError(legacyWebLockPath);
   }
-  const candidates = plannedMoves(legacy, hub);
+  const candidates = plannedMoves(legacy, hub).filter(
+    ({ from, to }) => !sameFilesystemEntry(from, to),
+  );
   const directoryMerge = planCacheDirectoryMerge(candidates, legacy.cacheDir);
   const planned = candidates.flatMap((candidate) => {
     if (candidate.from !== legacy.cacheDir) return [candidate];
@@ -233,6 +235,13 @@ function visitMergeTree(source: string, target: string, plan: DirectoryMergePlan
   for (const entry of readdirSync(source)) {
     visitMergeTree(join(source, entry), join(target, entry), plan);
   }
+}
+
+function sameFilesystemEntry(left: string, right: string): boolean {
+  if (!existsSync(left) || !existsSync(right)) return false;
+  const leftStat = statSync(left);
+  const rightStat = statSync(right);
+  return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
 }
 
 function isDirectory(path: string): boolean {

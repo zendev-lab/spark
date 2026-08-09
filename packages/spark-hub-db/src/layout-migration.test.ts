@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -90,6 +90,25 @@ describe("Cockpit-to-Hub filesystem migration", () => {
     expect(readFileSync(join(hub.cacheDir, "hub-only"), "utf8")).toBe("hub");
     expect(readFileSync(join(hub.cacheDir, "nested", "shared"), "utf8")).toBe("same");
     expect(existsSync(legacy.cacheDir)).toBe(false);
+  });
+
+  it("treats compatibility symlinks to the same cache tree as already migrated", async () => {
+    const { root, env } = await fixtureEnvironment();
+    const legacy = resolveLegacyCockpitPaths({ env, cwd: "/" });
+    const hub = resolveSparkPaths({ app: "hub", env, cwd: "/" });
+    const sharedCache = join(root, "shared-cache");
+    mkdirSync(sharedCache, { recursive: true });
+    mkdirSync(join(legacy.cacheDir, ".."), { recursive: true });
+    mkdirSync(join(hub.cacheDir, ".."), { recursive: true });
+    symlinkSync(sharedCache, legacy.cacheDir, "dir");
+    symlinkSync(sharedCache, hub.cacheDir, "dir");
+
+    expect(migrateLegacyCockpitLayout({ env, cwd: "/" })).toEqual({
+      status: "not-needed",
+      moves: [],
+    });
+    expect(existsSync(legacy.cacheDir)).toBe(true);
+    expect(existsSync(hub.cacheDir)).toBe(true);
   });
 
   it("fails before mutation when existing cache files differ", async () => {

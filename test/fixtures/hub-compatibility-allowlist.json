@@ -196,8 +196,8 @@
     {
       "pattern": "packages/spark-hub-db/src/layout-migration.test.ts",
       "category": "legacy-layout-migration-test",
-      "approvedOccurrenceCount": 23,
-      "approvedOccurrencesSha256": "539b65dbff86688c33a1a905b2e6e338a6f29613faef8b8234bb61ac32419eed"
+      "approvedOccurrenceCount": 25,
+      "approvedOccurrencesSha256": "6245e321dc4518b096f76b2d41c0311abfaf275d2bf0d9d4fc47b2370d9f0d4a"
     },
     {
       "pattern": "packages/spark-hub-db/src/migrate.ts",
