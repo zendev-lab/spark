@@ -77,11 +77,12 @@ export class ArtifactStore {
   }
 
   async put<T extends ArtifactBody>(input: PutArtifactInput<T>): Promise<Artifact<T>> {
-    return await this.#put(input, false);
+    return await this.#put(input, false, false);
   }
 
   async #put<T extends ArtifactBody>(
     input: PutArtifactInput<T>,
+    allowManagedWrite: boolean,
     allowManagedReopen: boolean,
   ): Promise<Artifact<T>> {
     await mkdir(this.rootDir, { recursive: true });
@@ -117,7 +118,7 @@ export class ArtifactStore {
         : (input.format ?? defaultFormatForBody(input.body));
     const ref = input.ref ?? newArtifactRef();
     const existing = input.ref ? await this.tryGet(input.ref) : null;
-    assertDocumentOverwriteAllowed(existing, input.body, allowManagedReopen);
+    assertDocumentOverwriteAllowed(existing, input.body, allowManagedWrite, allowManagedReopen);
     const updatedAt = nextArtifactTimestamp(existing?.updatedAt);
     const serialized = serializeBody(input.body);
     const hash = createHash("sha256").update(serialized).digest("hex");
@@ -222,6 +223,7 @@ export class ArtifactStore {
           },
         },
       },
+      true,
       input.reopen === true,
     );
     return { artifact, created: !existing, changed };
@@ -390,9 +392,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function assertDocumentOverwriteAllowed(
   existing: Artifact | null,
   nextBody: ArtifactBody,
+  allowManagedWrite = false,
   allowManagedReopen = false,
 ): void {
+  const nextManagement = nextBody.kind === "document" ? nextBody.management : undefined;
+  if (nextManagement?.authority === "daemon" && !allowManagedWrite) {
+    throw new ArtifactValidationError(
+      `managed Document writes require expected-revision authority: ${existing?.ref ?? "new document"}`,
+    );
+  }
   if (existing?.body.kind !== "document" || !existing.body.management) return;
+  if (!allowManagedWrite) {
+    throw new ArtifactValidationError(
+      `managed Document requires managed write authority: ${existing.ref}`,
+    );
+  }
   if (existing.body.management.lifecycle === "sealed" && !allowManagedReopen) {
     throw new ArtifactValidationError(`managed Document is sealed: ${existing.ref}`);
   }

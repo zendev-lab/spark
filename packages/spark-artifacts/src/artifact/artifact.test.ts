@@ -40,6 +40,43 @@ describe("artifact kinds", () => {
     expect(first.artifact.body.revision).toBe(1);
 
     await expect(
+      store.put({
+        ref,
+        kind: "document",
+        title: "Forged Workbench",
+        body: {
+          ...first.artifact.body,
+          mediaType: "text/markdown",
+          content: "forged through generic put",
+          revision: 1,
+        },
+      }),
+    ).rejects.toThrow("managed Document writes require expected-revision authority");
+    await expect(
+      store.put({
+        ref: "artifact:forged-managed" as ArtifactRef,
+        kind: "document",
+        title: "Forged managed document",
+        body: {
+          ...first.artifact.body,
+          mediaType: "text/markdown",
+          content: "forged managed creation",
+          revision: 1,
+        },
+      }),
+    ).rejects.toThrow("managed Document writes require expected-revision authority");
+    await expect(
+      store.update(ref, {
+        body: {
+          ...first.artifact.body,
+          mediaType: "text/markdown",
+          content: "forged through generic update",
+          revision: 1,
+        },
+      }),
+    ).rejects.toThrow("managed Document writes require expected-revision authority");
+
+    await expect(
       store.putManagedDocument({
         ref,
         bindingId: "workbench-binding-1",
@@ -81,7 +118,7 @@ describe("artifact kinds", () => {
           revision: 3,
         },
       }),
-    ).rejects.toThrow("managed Document is sealed");
+    ).rejects.toThrow("managed Document writes require expected-revision authority");
     const reopened = await store.putManagedDocument({
       ref,
       bindingId: "workbench-binding-1",
