@@ -174,15 +174,22 @@ export function registerSparkRunReadyTasksTool(
             maxConcurrency,
           });
           if (packing.scheduled.length === 0) {
+            const attemptLimitDeferred = packing.deferred.filter(
+              (deferred) => deferred.reason === "attempt_limit",
+            );
+            const attemptLimitReached = attemptLimitDeferred.length > 0;
             return {
               content: [
                 {
                   type: "text",
-                  text: `Accepted 0 managed Task Session runs for “${project.title}”; ${packing.deferred.length} task(s) are waiting for resources or retry authority.`,
+                  text: attemptLimitReached
+                    ? `Refused managed Task Session assignment for “${project.title}”; ${attemptLimitDeferred.length} task(s) reached their attempt limit.`
+                    : `Accepted 0 managed Task Session runs for “${project.title}”; ${packing.deferred.length} task(s) are waiting for resources.`,
                 },
               ],
               details: {
-                accepted: true,
+                accepted: !attemptLimitReached,
+                ...(attemptLimitReached ? { reason: "attempt_limit" as const } : {}),
                 dryRun: false,
                 projectRef: project.ref,
                 taskRefs: [],

@@ -762,6 +762,7 @@ type TestSparkContext = {
   hasUI: boolean;
   notifications: TestNotification[];
   runRole?: ExtensionRoleRunner;
+  model?: { provider: string; id: string };
   modelRegistry?: unknown;
   selected?: string;
   inputValue?: string;
@@ -4858,6 +4859,87 @@ test("split task tools dispatch read, write, and assign actions", async () => {
       budgetChars: 1_000,
     });
     assert.match(toolText(contextPreview), /Spark context/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("canonical assign refuses attempt-exhausted Tasks without creating identities", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "task-tool-attempt-limit-refusal-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    ctx.model = { provider: "test-provider", id: "test-model" };
+    const store = defaultTaskGraphStore(dir);
+    const graph = await store.load();
+    assert.ok(graph);
+    const project = graph.projects()[0];
+    assert.ok(project);
+    const task = graph.createTask({
+      projectRef: project.ref,
+      name: "attempt-exhausted",
+      title: "Attempt exhausted",
+      description: "Canonical assign must fail closed before durable dispatch identities exist.",
+      kind: "implement",
+      status: "ready",
+      roleRef: "role:builtin-worker" as RoleRef,
+      executionPolicy: {
+        continuity: "reuse_within_revision",
+        isolation: "isolated_worktree",
+        comparison: "single_side",
+        resources: { gpuCount: 0 },
+        concurrencyKeys: [],
+        maxAttempts: 2,
+      },
+      plan: executionReadyPlan("Refuse exhausted canonical assignment"),
+    });
+    for (const attempt of [1, 2]) {
+      graph.recordRun({
+        ref: `run:attempt-exhausted-${attempt}` as RunRef,
+        projectRef: project.ref,
+        taskRef: task.ref,
+        roleRef: "role:builtin-worker" as RoleRef,
+        runName: `${task.name}-attempt-${attempt}`,
+        ownerSessionId: "session:historical-owner",
+        status: "failed",
+        startedAt: `2026-08-01T00:0${attempt}:00.000Z`,
+        finishedAt: `2026-08-01T00:0${attempt}:30.000Z`,
+        outputEvidenceRefs: [],
+      });
+    }
+    await store.save(graph);
+    await saveCurrentProjectRef(dir, ctx, project.ref);
+    const { tools } = registerSparkToolsForTest();
+
+    const assigned = await executeSparkTool(tools, "assign", ctx, {
+      dryRun: false,
+      maxConcurrency: 1,
+      taskRefs: [task.ref],
+    });
+
+    assert.match(toolText(assigned), /Refused managed Task Session assignment/u);
+    const details = assigned.details as {
+      accepted?: boolean;
+      reason?: string;
+      taskRefs?: string[];
+      bindings?: unknown[];
+      resourceDeferred?: Array<{ taskRef?: string; reason?: string }>;
+    };
+    assert.equal(details.accepted, false);
+    assert.equal(details.reason, "attempt_limit");
+    assert.deepEqual(details.taskRefs, []);
+    assert.deepEqual(details.bindings, []);
+    assert.deepEqual(details.resourceDeferred, [
+      { taskRef: task.ref, reason: "attempt_limit", message: "Task reached maxAttempts=2." },
+    ]);
+    for (const identity of ["runRef", "executionSessionId", "invocationId", "leaseId"]) {
+      assert.equal(identity in details, false);
+    }
+
+    const persisted = await store.load();
+    assert.equal(persisted?.runs(project.ref).length, 2);
+    assert.equal(persisted?.getTask(task.ref).claim, undefined);
+    assert.equal(persisted?.getTask(task.ref).status, "ready");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
