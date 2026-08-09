@@ -78,10 +78,10 @@ Repository policy belongs to dedicated static tools invoked by `pnpm run check:s
 Static checker self-tests do not belong in the root code-test suite. Validate repository policy by
 running its dedicated tool against the repository and keep code tests focused on product behavior.
 
-`pnpm run check:test-quality` enforces this split. Its committed baseline remains
-`legacyFiles=0` and `sourceMirrorAssertions=0`; the detector follows direct and locally wrapped
-file reads and recognizes both production source and repository configuration. A new
-source-fragment assertion is a regression even when the total suite still passes.
+`pnpm run check:test-quality` enforces this split with no compatibility baseline. The detector
+follows direct and locally wrapped file reads, recognizes both production source and repository
+configuration, and rejects prompt or instruction fragment matching, including equivalent snapshot
+assertions. Any finding fails the gate even when the total suite still passes.
 
 Prefer, in order:
 
@@ -93,16 +93,8 @@ Prefer, in order:
 
 Reading production source and asserting that fragments are present is not a behavior test. It is
 usually a brittle implementation mirror. Move a real repository constraint into its authoritative
-static checker; otherwise delete the assertion. If an older branch still carries non-zero baseline
-debt, update and review the lower baseline after removing it:
-
-```bash
-pnpm run check:test-quality:update
-pnpm run check:test-quality
-```
-
-The baseline is a ratchet, not an exemption catalog: new files start at zero, and the main branch
-must stay at zero.
+static checker; otherwise delete the assertion. The same rule applies to prompt and instruction
+wording: verify structured behavior at the consuming boundary instead of matching text fragments.
 
 ## Golden files
 
