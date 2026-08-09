@@ -62,6 +62,17 @@ export interface ManagedTaskSessionReconcileResult {
   superseded: number;
 }
 
+class ManagedTaskSessionDispatchRefusal extends Error {
+  readonly accepted = false;
+  readonly reason: "attempt_limit";
+
+  constructor(message: string, reason: "attempt_limit") {
+    super(message);
+    this.name = "ManagedTaskSessionDispatchRefusal";
+    this.reason = reason;
+  }
+}
+
 interface ReservedTaskSessionRun {
   run: TaskRun;
   roleRef: RoleRef;
@@ -380,26 +391,27 @@ function reserveTaskSessionRuns(
           }
         : {}),
     });
-    const prior = graph
+    const historicalRuns = graph
       .runs(input.projectRef)
-      .filter((run) => run.taskRef === taskRef && run.execution?.jobId === jobId)
-      .sort((left, right) => (left.execution?.attempt ?? 0) - (right.execution?.attempt ?? 0))
-      .at(-1);
-    const attempt = (prior?.execution?.attempt ?? 0) + 1;
+      .filter((run) => run.taskRef === taskRef && !run.dryRun);
+    const attempt = historicalRuns.length + 1;
     const executionPolicy = task.executionPolicy;
     if (attempt > (executionPolicy?.maxAttempts ?? 2)) {
-      throw new Error(
-        `task ${taskRef} reached maxAttempts=${executionPolicy?.maxAttempts ?? 2} for ${jobId}`,
+      throw new ManagedTaskSessionDispatchRefusal(
+        `task ${taskRef} reached maxAttempts=${executionPolicy?.maxAttempts ?? 2}; immutable run history requires attempt=${attempt}`,
+        "attempt_limit",
       );
     }
+    const priorInRevision = historicalRuns
+      .filter((run) => run.execution?.jobId === jobId)
+      .sort((left, right) => (left.startedAt ?? "").localeCompare(right.startedAt ?? ""))
+      .at(-1);
     const reuseSession = executionPolicy?.continuity !== "fresh";
+    const reusableExecution = reuseSession ? priorInRevision?.execution : undefined;
     const executionSessionId =
-      (reuseSession ? prior?.execution?.executionSessionId : undefined) ??
-      `sess_task_${stableId(
-        `${input.projectRef}:${taskRef}:${jobId}:${reuseSession ? "stable" : attempt}`,
-      )}`;
-    const sessionGoalId =
-      (reuseSession ? prior?.execution?.sessionGoalId : undefined) ?? randomUUID();
+      reusableExecution?.executionSessionId ??
+      `sess_task_${stableId(`${input.projectRef}:${taskRef}:${jobId}:attempt:${attempt}`)}`;
+    const sessionGoalId = reusableExecution?.sessionGoalId ?? randomUUID();
     const execution: TaskRunExecutionBinding = {
       ownerSessionId: input.ownerSessionId,
       executionSessionId,
