@@ -109,6 +109,35 @@ describe("Repro Workbench Artifact reconciliation", () => {
       checkpointed: 0,
     });
 
+    const artifactStore = defaultArtifactStore(workspaceCwd);
+    const liveArtifact = await artifactStore.get(sparkReproWorkbenchArtifactRef("repro-1"));
+    if (liveArtifact.body.kind !== "document") throw new Error("expected Workbench document");
+    const staleSealed = await artifactStore.putManagedDocument({
+      ref: liveArtifact.ref,
+      bindingId: binding.bindingId,
+      title: liveArtifact.title,
+      mediaType: liveArtifact.body.mediaType,
+      content: liveArtifact.body.content,
+      expectedRevision: liveArtifact.body.revision,
+      seal: true,
+    });
+    bindings.recordProjection({
+      bindingId: binding.bindingId,
+      expectedRevision: binding.revision,
+      revision: staleSealed.artifact.body.revision,
+      artifactHash: staleSealed.artifact.hash!,
+      projectionDigest: "stale-sealed",
+      generation: loops.get("loop-1")!.generation,
+      stage: "contract",
+      sealed: true,
+    });
+    const reopened = await reconcile();
+    expect(reopened).toMatchObject({ projected: 1, sealed: 0 });
+    expect(bindings.getByLoop("loop-1")).toMatchObject({ lifecycle: "live" });
+    expect(await artifactStore.get(sparkReproWorkbenchArtifactRef("repro-1"))).toMatchObject({
+      body: { management: { lifecycle: "live" } },
+    });
+
     db.prepare(
       `UPDATE loop_wakeups
        SET status = 'stopped', generation = generation + 1, due_at = NULL,

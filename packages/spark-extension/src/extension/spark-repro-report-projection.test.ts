@@ -387,6 +387,7 @@ function strictWorkInput(): SparkReproWorkSummaryInput {
     },
     schedulerActivity: "dormant",
     independentReadyCount: 0,
+    tasks: [],
     retirementBlocks: [],
     unresolved: [],
     nextAction: {
@@ -400,6 +401,15 @@ function strictWorkInput(): SparkReproWorkSummaryInput {
 function strictReproState(): SparkSessionRepro {
   return {
     reproId: "repro-verified",
+    dualLane: {
+      planRevision: 1,
+      normative: {
+        orderedStepIds: ["S1"],
+        currentStepId: "S1",
+        retiredStepIds: [],
+      },
+    },
+    subgoals: [{ id: "S1", planRevision: 1 }],
     plan: {
       currentRevision: 1,
       steps: [

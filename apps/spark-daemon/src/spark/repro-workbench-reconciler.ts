@@ -69,7 +69,6 @@ export async function reconcileReproWorkbenchArtifacts(input: {
         reproId: loop.binding.reproId!,
         generation: loop.generation,
       });
-      if (binding.lifecycle === "sealed") continue;
       const stateCwd = resolveLoopStateCwd(loop, input.resolveWorkspaceCwd);
       const summary = await readCanonicalSummary(loop, stateCwd);
       if (!summary) continue;
@@ -184,6 +183,7 @@ async function projectLiveWorkbench(input: {
     });
     if (
       current.body.management?.bindingId === input.binding.bindingId &&
+      current.body.management.lifecycle === lifecycle &&
       current.body.content === expectedCurrentContent &&
       current.hash
     ) {
@@ -216,6 +216,10 @@ async function projectLiveWorkbench(input: {
       ...(input.work.progress.quantified ? { percent: input.work.progress.percent } : {}),
     },
     seal: input.seal,
+    reopen:
+      current?.body.kind === "document" &&
+      current.body.management?.lifecycle === "sealed" &&
+      !input.seal,
   });
   input.bindings.recordProjection({
     bindingId: input.binding.bindingId,

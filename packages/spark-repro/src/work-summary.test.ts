@@ -526,6 +526,14 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
     }
   });
 
+  it("requires an explicit Task inventory for strict v2 summaries", () => {
+    const input = v2Input();
+    delete input.tasks;
+    expect(() => buildSparkReproWorkSummary(input)).toThrow(
+      "tasks inventory is required for strict work-summary/v2",
+    );
+  });
+
   it("rejects v2 payloads that self-assert a legacy migration downgrade", () => {
     const input = v2Input();
     input.migration = {
@@ -985,6 +993,7 @@ function v2Input(): SparkReproWorkSummaryInput {
     },
     schedulerActivity: "dormant",
     independentReadyCount: 0,
+    tasks: [],
     retirementBlocks: [],
     unresolved: [],
     numericalFrontier: numericalFrontier(),

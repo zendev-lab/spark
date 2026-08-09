@@ -43,6 +43,8 @@ export interface PutManagedDocumentInput {
   expectedRevision: number | null;
   progress?: DocumentArtifactBody["progress"];
   seal?: boolean;
+  /** Explicit daemon-owned transition from sealed back to live after a Repro reopens. */
+  reopen?: boolean;
 }
 
 export interface PutManagedDocumentResult {
@@ -73,6 +75,13 @@ export class ArtifactStore {
   }
 
   async put<T extends ArtifactBody>(input: PutArtifactInput<T>): Promise<Artifact<T>> {
+    return await this.#put(input, false);
+  }
+
+  async #put<T extends ArtifactBody>(
+    input: PutArtifactInput<T>,
+    allowManagedReopen: boolean,
+  ): Promise<Artifact<T>> {
     await mkdir(this.rootDir, { recursive: true });
     await mkdir(this.blobDir, { recursive: true });
     if (!isArtifactKind(input.kind)) {
@@ -106,7 +115,7 @@ export class ArtifactStore {
         : (input.format ?? defaultFormatForBody(input.body));
     const ref = input.ref ?? newArtifactRef();
     const existing = input.ref ? await this.tryGet(input.ref) : null;
-    assertDocumentOverwriteAllowed(existing, input.body);
+    assertDocumentOverwriteAllowed(existing, input.body, allowManagedReopen);
     const updatedAt = nextArtifactTimestamp(existing?.updatedAt);
     const serialized = serializeBody(input.body);
     const hash = createHash("sha256").update(serialized).digest("hex");
@@ -148,7 +157,8 @@ export class ArtifactStore {
   /**
    * Daemon-owned Document update with an explicit expected revision. Identical
    * content keeps its revision; content/media changes advance it exactly once.
-   * A sealed binding is immutable.
+   * A sealed binding is immutable unless its owning daemon explicitly reopens
+   * the same binding after the canonical Repro returns to live work.
    */
   async putManagedDocument(input: PutManagedDocumentInput): Promise<PutManagedDocumentResult> {
     const existing = await this.tryGet<DocumentArtifactBody>(input.ref);
@@ -160,8 +170,11 @@ export class ArtifactStore {
       if (current.management.bindingId !== input.bindingId) {
         throw new ArtifactValidationError(`managed Document binding mismatch: ${input.ref}`);
       }
-      if (current.management.lifecycle === "sealed") {
+      if (current.management.lifecycle === "sealed" && !input.reopen) {
         throw new ArtifactValidationError(`managed Document is sealed: ${input.ref}`);
+      }
+      if (input.reopen && input.seal) {
+        throw new ArtifactValidationError(`managed Document cannot reopen and seal: ${input.ref}`);
       }
     } else if (current) {
       throw new ArtifactValidationError(
@@ -177,24 +190,27 @@ export class ArtifactStore {
     const changed =
       !current || current.content !== input.content || current.mediaType !== input.mediaType;
     const revision = current ? current.revision + (changed ? 1 : 0) : 1;
-    const artifact = await this.put<DocumentArtifactBody>({
-      ref: input.ref,
-      kind: "document",
-      title: input.title,
-      body: {
-        schemaVersion: 2,
+    const artifact = await this.#put<DocumentArtifactBody>(
+      {
+        ref: input.ref,
         kind: "document",
-        mediaType: input.mediaType,
-        content: input.content,
-        revision,
-        ...(input.progress ? { progress: input.progress } : {}),
-        management: {
-          authority: "daemon",
-          bindingId: input.bindingId,
-          lifecycle: input.seal ? "sealed" : "live",
+        title: input.title,
+        body: {
+          schemaVersion: 2,
+          kind: "document",
+          mediaType: input.mediaType,
+          content: input.content,
+          revision,
+          ...(input.progress ? { progress: input.progress } : {}),
+          management: {
+            authority: "daemon",
+            bindingId: input.bindingId,
+            lifecycle: input.seal ? "sealed" : "live",
+          },
         },
       },
-    });
+      input.reopen === true,
+    );
     return { artifact, created: !existing, changed };
   }
 
@@ -246,9 +262,13 @@ export class ArtifactStore {
   }
 }
 
-function assertDocumentOverwriteAllowed(existing: Artifact | null, nextBody: ArtifactBody): void {
+function assertDocumentOverwriteAllowed(
+  existing: Artifact | null,
+  nextBody: ArtifactBody,
+  allowManagedReopen = false,
+): void {
   if (existing?.body.kind !== "document" || !existing.body.management) return;
-  if (existing.body.management.lifecycle === "sealed") {
+  if (existing.body.management.lifecycle === "sealed" && !allowManagedReopen) {
     throw new ArtifactValidationError(`managed Document is sealed: ${existing.ref}`);
   }
   if (

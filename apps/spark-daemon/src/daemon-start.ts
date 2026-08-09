@@ -7,6 +7,7 @@ import {
   runtimeProtocolVersion,
 } from "@zendev-lab/spark-protocol";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
+import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { resolveSparkUserPaths, writePrivateFile } from "@zendev-lab/spark-system";
 import { resolveWorkflowDefinition } from "@zendev-lab/spark-workflows";
 import { readSparkDaemonConfig, type SparkDaemonConfig } from "./config.js";
@@ -807,6 +808,7 @@ async function runDaemonOnce(runtime: PreparedDaemonRuntime): Promise<void> {
 async function resolveReproFormalStepState(cwd: string, ownerSessionId: string) {
   const repro = await readSessionReproForDaemon(cwd, ownerSessionId);
   if (!repro) return undefined;
+  const graph = await defaultTaskGraphStore(cwd).load();
   return {
     reproId: repro.reproId,
     dualLane: {
@@ -819,6 +821,18 @@ async function resolveReproFormalStepState(cwd: string, ownerSessionId: string) 
         retiredStepIds: [...repro.dualLane.normative.retiredStepIds],
       },
     },
+    subgoals: repro.subgoals.map((subgoal) => ({
+      id: subgoal.id,
+      planRevision: subgoal.planRevision,
+      ...(subgoal.taskRef ? { taskRef: subgoal.taskRef } : {}),
+    })),
+    taskStatusByRef: Object.fromEntries(
+      repro.subgoals.flatMap((subgoal) =>
+        subgoal.taskRef
+          ? [[subgoal.taskRef, graph?.getTask(subgoal.taskRef)?.status] as const]
+          : [],
+      ),
+    ),
     plan: {
       currentRevision: repro.plan.currentRevision,
       steps: repro.plan.steps.map((step) => ({

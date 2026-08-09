@@ -616,6 +616,9 @@ export function buildSparkReproWorkSummary(
     validateDecision(decision, `pendingDecisions[${index}]`);
   }
 
+  if (strictVNext && input.tasks === undefined) {
+    throw new Error("tasks inventory is required for strict work-summary/v2");
+  }
   const tasks = (input.tasks ?? []).map((task) => ({ ...task }));
   validateUniqueIds(tasks, "tasks");
   for (const [index, task] of tasks.entries()) validateTask(task, index);
@@ -923,7 +926,7 @@ export function deriveSparkReproTechnicalGoal(
 
 export interface SparkReproCurrentStepAuthority {
   reproId: string;
-  dualLane?: {
+  dualLane: {
     planRevision: number;
     normative: {
       orderedStepIds: readonly string[];
@@ -931,6 +934,8 @@ export interface SparkReproCurrentStepAuthority {
       retiredStepIds: readonly string[];
     };
   };
+  subgoals: readonly { id: string; planRevision: number; taskRef?: string }[];
+  taskStatusByRef: Readonly<Record<string, string | undefined>>;
   plan: {
     currentRevision: number;
     steps: readonly {
@@ -965,8 +970,11 @@ export function validateSparkReproCurrentRetirementAuthority(
   work: SparkReproWorkSummary,
   current: SparkReproCurrentStepAuthority | undefined,
 ): void {
-  const currentBound = work.normativeCursor.orderedStepIds.length > 0;
-  if (!currentBound && work.normativeCursor.retirementLog.length === 0) return;
+  const currentBound =
+    work.normativeCursor.orderedStepIds.length > 0 ||
+    work.normativeCursor.retirementLog.length > 0 ||
+    work.status === "complete";
+  if (!currentBound) return;
   if (!current || current.reproId !== work.reproId) {
     throw new Error("Repro retirement requires current durable StepVerifier state");
   }
@@ -974,19 +982,21 @@ export function validateSparkReproCurrentRetirementAuthority(
     throw new Error("Repro retirement StepVerifier plan revision is stale");
   }
   if (
-    current.dualLane &&
-    (current.dualLane.planRevision !== work.normativeCursor.planRevision ||
-      JSON.stringify(current.dualLane.normative.orderedStepIds) !==
-        JSON.stringify(work.normativeCursor.orderedStepIds) ||
-      current.dualLane.normative.currentStepId !== work.normativeCursor.currentStepId ||
-      JSON.stringify(current.dualLane.normative.retiredStepIds) !==
-        JSON.stringify(work.normativeCursor.retiredStepIds))
+    current.dualLane.planRevision !== work.normativeCursor.planRevision ||
+    JSON.stringify(current.dualLane.normative.orderedStepIds) !==
+      JSON.stringify(work.normativeCursor.orderedStepIds) ||
+    current.dualLane.normative.currentStepId !== work.normativeCursor.currentStepId ||
+    JSON.stringify(current.dualLane.normative.retiredStepIds) !==
+      JSON.stringify(work.normativeCursor.retiredStepIds)
   ) {
     throw new Error("Repro summary is stale against the current durable Normative cursor");
   }
   for (const record of work.normativeCursor.retirementLog) {
     const step = current.plan.steps.find((candidate) => candidate.id === record.stepId);
     const verification = step?.verification;
+    const effectiveStepRevision =
+      current.subgoals.find((subgoal) => subgoal.id === record.stepId)?.planRevision ??
+      current.plan.currentRevision;
     const expectedDigest = work.normativeCursor.stepDefinitionDigests?.[record.stepId];
     const expectedProofKind =
       step?.authority === "ask_approval"
@@ -1000,7 +1010,7 @@ export function validateSparkReproCurrentRetirementAuthority(
       !verification ||
       verification.verdict !== "Pass" ||
       verification.stepId !== record.stepId ||
-      verification.planRevision !== current.plan.currentRevision ||
+      verification.planRevision !== effectiveStepRevision ||
       !expectedDigest ||
       record.stepDefinitionDigest !== expectedDigest ||
       verification.definitionDigest !== expectedDigest ||
@@ -1009,7 +1019,7 @@ export function validateSparkReproCurrentRetirementAuthority(
       JSON.stringify(verification.verifiedDoneWhen) !== JSON.stringify(step.doneWhen) ||
       !step.evidenceRefs ||
       JSON.stringify(verification.evidenceRefs) !== JSON.stringify(step.evidenceRefs) ||
-      record.evidenceRefs.some((ref) => !verification.evidenceRefs.includes(ref)) ||
+      JSON.stringify(record.evidenceRefs) !== JSON.stringify(verification.evidenceRefs) ||
       (expectedProofKind !== "evidence" &&
         (!verification.askRequestHash ||
           !verification.acceptedAnswerHash ||
@@ -1019,6 +1029,19 @@ export function validateSparkReproCurrentRetirementAuthority(
           JSON.stringify(verification.selectedValues) !== JSON.stringify(["approve"])))
     ) {
       throw new Error(`Repro retirement lacks current StepVerifier PASS: ${record.stepId}`);
+    }
+  }
+  if (work.status === "complete") {
+    const requiredTaskRefs = [
+      ...new Set(current.subgoals.flatMap((subgoal) => (subgoal.taskRef ? [subgoal.taskRef] : []))),
+    ];
+    for (const taskRef of requiredTaskRefs) {
+      if (current.taskStatusByRef[taskRef] !== "done") {
+        throw new Error(`Repro completion requires current durable Task done: ${taskRef}`);
+      }
+      if (work.tasks.find((task) => task.id === taskRef)?.status !== "done") {
+        throw new Error(`Repro completion omits a current done Task: ${taskRef}`);
+      }
     }
   }
 }

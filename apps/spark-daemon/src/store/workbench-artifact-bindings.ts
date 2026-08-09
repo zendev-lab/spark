@@ -88,16 +88,8 @@ export class WorkbenchArtifactBindingStore {
            artifact_ref, revision, lifecycle, generation, created_at, updated_at
          ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'pending', ?, ?, ?)
          ON CONFLICT(loop_id) DO UPDATE SET
-           generation = CASE
-             WHEN workbench_artifact_bindings.lifecycle = 'sealed'
-               THEN workbench_artifact_bindings.generation
-             ELSE excluded.generation
-           END,
-           updated_at = CASE
-             WHEN workbench_artifact_bindings.lifecycle = 'sealed'
-               THEN workbench_artifact_bindings.updated_at
-             ELSE excluded.updated_at
-           END`,
+           generation = excluded.generation,
+           updated_at = excluded.updated_at`,
       )
       .run(
         bindingId,
@@ -178,7 +170,7 @@ export class WorkbenchArtifactBindingStore {
           `UPDATE workbench_artifact_bindings
            SET revision = ?, artifact_hash = ?, projection_digest = ?, generation = ?,
                last_stage = ?, lifecycle = ?, last_error = NULL, updated_at = ?, sealed_at = ?
-           WHERE binding_id = ? AND revision = ? AND lifecycle <> 'sealed'`,
+           WHERE binding_id = ? AND revision = ?`,
         )
         .run(
           input.revision,
@@ -203,7 +195,7 @@ export class WorkbenchArtifactBindingStore {
     this.#db
       .prepare(
         `UPDATE workbench_artifact_bindings
-         SET lifecycle = CASE WHEN lifecycle = 'sealed' THEN lifecycle ELSE 'error' END,
+         SET lifecycle = 'error', sealed_at = NULL,
              last_error = ?, updated_at = ?
          WHERE binding_id = ?`,
       )

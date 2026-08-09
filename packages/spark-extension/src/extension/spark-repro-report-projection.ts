@@ -52,6 +52,7 @@ export async function projectSparkReproReportSummary(input: {
   workSummaryInput: unknown;
   usageControl: SparkDaemonUsageControl;
   reproState?: SparkSessionRepro;
+  taskStatusByRef?: Readonly<Record<string, string | undefined>>;
   formalEvidenceControl?: SparkDaemonReproFormalEvidenceControl;
   evidenceLookup?: SparkReproEvidenceLookup;
   signal?: AbortSignal;
@@ -86,6 +87,7 @@ export async function projectSparkReproReportSummary(input: {
     cwd: input.cwd,
     work,
     repro: input.reproState,
+    taskStatusByRef: input.taskStatusByRef,
     evidenceLookup,
     control: input.formalEvidenceControl,
     signal: input.signal,

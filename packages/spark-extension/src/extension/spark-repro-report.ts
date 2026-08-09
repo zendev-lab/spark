@@ -88,6 +88,7 @@ export async function syncSparkReproReportArtifact(
   currentReproIdValue: string,
   options: {
     reproState?: SparkSessionRepro;
+    taskStatusByRef?: Readonly<Record<string, string | undefined>>;
     formalEvidenceControl?: SparkDaemonReproFormalEvidenceControl;
     signal?: AbortSignal;
   } = {},
@@ -118,6 +119,7 @@ async function readCanonicalReportWork(
   reportArtifactRef: ArtifactRef,
   options: {
     reproState?: SparkSessionRepro;
+    taskStatusByRef?: Readonly<Record<string, string | undefined>>;
     formalEvidenceControl?: SparkDaemonReproFormalEvidenceControl;
     signal?: AbortSignal;
   },
@@ -154,6 +156,7 @@ async function readCanonicalReportWork(
     cwd,
     work: summary.work,
     repro: options.reproState,
+    taskStatusByRef: options.taskStatusByRef,
     evidenceLookup,
     control: options.formalEvidenceControl,
     signal: options.signal,

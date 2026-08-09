@@ -259,8 +259,10 @@ export function registerSparkReproTool(
       if (action === "sync_report") {
         const repro = await readSessionRepro(cwd, ctx);
         if (!repro) throw new Error("sync_report requires an active or completed Repro run");
+        const taskStatusByRef = await currentReproTaskStatusByRef(stateCwd, repro);
         const synced = await syncSparkReproReportArtifact(stateCwd, repro.reproId, {
           reproState: repro,
+          taskStatusByRef,
           formalEvidenceControl: deps.formalEvidenceControl,
           signal,
         });
@@ -294,10 +296,12 @@ export function registerSparkReproTool(
       if (action === "project_report") {
         const repro = await readSessionRepro(cwd, ctx);
         if (!repro) throw new Error("project_report requires an active or completed Repro run");
+        const taskStatusByRef = await currentReproTaskStatusByRef(stateCwd, repro);
         const projected = await projectSparkReproReportSummary({
           cwd: stateCwd,
           currentReproId: repro.reproId,
           reproState: repro,
+          taskStatusByRef,
           workSummaryInput: params.workSummary,
           usageControl: deps.usageControl ?? sparkDaemonUsageControl,
           formalEvidenceControl: deps.formalEvidenceControl,
@@ -1620,6 +1624,18 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     }
   }
   return lines.filter((line): line is string => line !== undefined).join("\n");
+}
+
+async function currentReproTaskStatusByRef(
+  stateCwd: string,
+  repro: SparkSessionRepro,
+): Promise<Readonly<Record<string, string | undefined>>> {
+  const graph = await defaultTaskGraphStore(stateCwd).load();
+  return Object.fromEntries(
+    repro.subgoals.flatMap((subgoal) =>
+      subgoal.taskRef ? [[subgoal.taskRef, graph?.getTask(subgoal.taskRef)?.status] as const] : [],
+    ),
+  );
 }
 
 function renderRequirementNextStep(requirement: SparkReproRequirement): string {

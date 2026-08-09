@@ -25,7 +25,7 @@ describe("artifact kinds", () => {
     expect(ARTIFACT_KINDS).toEqual(["issue", "git_change", "document"]);
   });
 
-  it("CAS-updates daemon-managed Documents and rejects writes after sealing", async () => {
+  it("CAS-updates daemon-managed Documents and requires an explicit reopen after sealing", async () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-managed-document-"));
     const store = defaultArtifactStore(dir);
     const ref = "artifact:managed-workbench" as ArtifactRef;
@@ -82,6 +82,19 @@ describe("artifact kinds", () => {
         },
       }),
     ).rejects.toThrow("managed Document is sealed");
+    const reopened = await store.putManagedDocument({
+      ref,
+      bindingId: "workbench-binding-1",
+      title: "Workbench",
+      mediaType: "application/vnd.a2ui+json",
+      content: '{"messages":[{"reopened":true}]}',
+      expectedRevision: 2,
+      reopen: true,
+    });
+    expect(reopened.artifact.body).toMatchObject({
+      revision: 3,
+      management: { lifecycle: "live" },
+    });
   });
 
   it("stores documents with continuous revisioned updates", async () => {

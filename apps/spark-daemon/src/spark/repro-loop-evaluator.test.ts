@@ -63,6 +63,64 @@ describe("trusted Repro Loop evaluators", () => {
     expect(result.evidenceRefs?.[0]).toMatch(/^evidence:/u);
   });
 
+  it("preserves an unchanged retired step proof across a later global plan append", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    input.exploreFrontier!.planRevision = 2;
+    input.normativeCursor!.planRevision = 2;
+    for (const candidate of input.normativeCursor!.candidateBuffer) candidate.planRevision = 2;
+    for (const record of input.normativeCursor!.retirementLog) record.planRevision = 2;
+    await persistAcceptedFormalEvidence(cwd, input);
+    await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
+    await writeSummary(cwd, input);
+
+    await expect(
+      reproCompletionEvaluator(context(cwd), {
+        currentRevision: 2,
+        effectiveS1Revision: 1,
+      }),
+    ).resolves.toMatchObject({ verdict: "achieved" });
+  });
+
+  it("rejects a retirement log that hides one current StepVerifier Evidence ref", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    await persistAcceptedFormalEvidence(cwd, input);
+    await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
+    await writeSummary(cwd, input);
+
+    await expect(
+      reproCompletionEvaluator(context(cwd), {
+        extraS1EvidenceRef: "evidence:hidden-missing" as EvidenceRef,
+      }),
+    ).rejects.toThrow(/retirement lacks current StepVerifier PASS: S1/u);
+  });
+
+  it("rejects completion when a required durable Task is omitted from the summary", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    input.tasks = [];
+    await persistAcceptedFormalEvidence(cwd, input);
+    await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
+    await writeSummary(cwd, input);
+
+    await expect(reproCompletionEvaluator(context(cwd))).rejects.toThrow(
+      /completion omits a current done Task: task:delivery/u,
+    );
+  });
+
+  it("rejects a caller-declared done Task when the durable Task is still running", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    await persistAcceptedFormalEvidence(cwd, input);
+    await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
+    await writeSummary(cwd, input);
+
+    await expect(
+      reproCompletionEvaluator(context(cwd), { currentTaskStatus: "running" }),
+    ).rejects.toThrow(/requires current durable Task done: task:delivery/u);
+  });
+
   it("rejects completion when a retired non-Matrix step lacks current StepVerifier PASS", async () => {
     const cwd = await workspace();
     const input = strictCompleteSummaryInput();
@@ -98,7 +156,7 @@ describe("trusted Repro Loop evaluators", () => {
     ]);
     await writeSummary(cwd, input);
 
-    await expect(reproCompletionEvaluator(context(cwd))).rejects.toThrow(
+    await expect(reproCompletionEvaluator(context(cwd), { includeS2: true })).rejects.toThrow(
       /retirement lacks current StepVerifier PASS: S2/u,
     );
   });
@@ -343,7 +401,16 @@ function testReceiptKey(
   });
 }
 
-function completionEvaluator(context: SparkLoopEvaluationContext) {
+function completionEvaluator(
+  context: SparkLoopEvaluationContext,
+  options: {
+    includeS2?: boolean;
+    effectiveS1Revision?: number;
+    currentRevision?: number;
+    extraS1EvidenceRef?: EvidenceRef;
+    currentTaskStatus?: string;
+  } = {},
+) {
   return createReproCompletionEvaluator(
     {
       get(cwd, identity) {
@@ -352,8 +419,24 @@ function completionEvaluator(context: SparkLoopEvaluationContext) {
     },
     async (cwd) => ({
       reproId: "repro-1",
+      dualLane: {
+        planRevision: options.currentRevision ?? 1,
+        normative: {
+          orderedStepIds: options.includeS2 ? ["S1", "S2"] : ["S1"],
+          retiredStepIds: options.includeS2 ? ["S1", "S2"] : ["S1"],
+        },
+      },
+      subgoals: [
+        {
+          id: "S1",
+          planRevision: options.effectiveS1Revision ?? 1,
+          taskRef: "task:delivery",
+        },
+        ...(options.includeS2 ? [{ id: "S2", planRevision: 1 }] : []),
+      ],
+      taskStatusByRef: { "task:delivery": options.currentTaskStatus ?? "done" },
       plan: {
-        currentRevision: 1,
+        currentRevision: options.currentRevision ?? 1,
         steps: [
           {
             id: "S1",
@@ -365,11 +448,12 @@ function completionEvaluator(context: SparkLoopEvaluationContext) {
                 (receipt) => receipt.evidenceRef as EvidenceRef,
               ),
               "evidence:retirement-S1" as EvidenceRef,
+              ...(options.extraS1EvidenceRef ? [options.extraS1EvidenceRef] : []),
             ],
             verification: {
               verdict: "Pass",
               stepId: "S1",
-              planRevision: 1,
+              planRevision: options.effectiveS1Revision ?? 1,
               definitionDigest: "digest:S1",
               proofKind: "evidence",
               evidenceRefs: [
@@ -377,10 +461,22 @@ function completionEvaluator(context: SparkLoopEvaluationContext) {
                   (receipt) => receipt.evidenceRef as EvidenceRef,
                 ),
                 "evidence:retirement-S1" as EvidenceRef,
+                ...(options.extraS1EvidenceRef ? [options.extraS1EvidenceRef] : []),
               ],
               verifiedDoneWhen: ["S1 passed"],
             },
           },
+          ...(options.includeS2
+            ? [
+                {
+                  id: "S2",
+                  status: "done",
+                  authority: "safe_local",
+                  doneWhen: ["S2 passed"],
+                  evidenceRefs: ["evidence:retirement-S2" as EvidenceRef],
+                },
+              ]
+            : []),
         ],
       },
     }),
@@ -501,7 +597,10 @@ function strictCompleteSummaryInput(): SparkReproWorkSummaryInput {
     stepDefinitionDigest: "digest:S1",
     verdict: "accepted" as const,
     profile,
-    evidenceRefs: ["evidence:retirement-S1" as EvidenceRef],
+    evidenceRefs: [
+      ...gates.flatMap((gate) => gate.evidenceRefs),
+      "evidence:retirement-S1" as EvidenceRef,
+    ],
     unresolvedIds: [],
   };
   return {
@@ -566,6 +665,7 @@ function strictCompleteSummaryInput(): SparkReproWorkSummaryInput {
     },
     schedulerActivity: "sealed",
     independentReadyCount: 0,
+    tasks: [{ id: "task:delivery", title: "Deliver Repro", stage: "delivery", status: "done" }],
     retirementBlocks: [],
     unresolved: [],
     nextAction: {

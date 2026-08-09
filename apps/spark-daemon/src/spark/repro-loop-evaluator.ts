@@ -168,8 +168,15 @@ async function resolveCompletionEvidence(cwd: string, work: SparkReproWorkSummar
   const store = defaultEvidenceStore(cwd);
   const resolved = await Promise.all(refs.map((ref) => store.tryGet(ref)));
   for (let index = 0; index < refs.length; index += 1) {
-    if (!resolved[index]) {
+    const evidence = resolved[index];
+    if (!evidence) {
       throw new Error(`Repro completion evidence not found: ${refs[index]}`);
+    }
+    if (
+      evidence.curation?.status === "superseded" ||
+      (evidence.curation?.supersededBy?.length ?? 0) > 0
+    ) {
+      throw new Error(`Repro completion evidence is superseded: ${refs[index]}`);
     }
   }
 }
@@ -180,8 +187,8 @@ export async function validateAcceptedFormalEvidenceAuthority(
   receiptStore: SparkReproFormalEvidenceReceiptLookup | undefined,
   stepState: SparkReproFormalStepState | undefined,
 ): Promise<void> {
-  validateSparkReproCurrentRetirementAuthority(work, stepState);
   await resolveCompletionEvidence(cwd, work);
+  validateSparkReproCurrentRetirementAuthority(work, stepState);
   const formalRows = work.validationMatrix.rows.filter(
     (row) =>
       row.evidenceClass === "entrypoint" &&
@@ -216,6 +223,9 @@ export async function validateAcceptedFormalEvidenceAuthority(
     }
     const step = stepState.plan.steps.find((candidate) => candidate.id === row.ownerStepId);
     const verification = step?.verification;
+    const effectiveStepRevision =
+      stepState.subgoals.find((subgoal) => subgoal.id === row.ownerStepId)?.planRevision ??
+      stepState.plan.currentRevision;
     const expectedDigest = work.normativeCursor.stepDefinitionDigests?.[row.ownerStepId];
     if (
       !step ||
@@ -223,7 +233,7 @@ export async function validateAcceptedFormalEvidenceAuthority(
       !verification ||
       verification.verdict !== "Pass" ||
       verification.stepId !== row.ownerStepId ||
-      verification.planRevision !== stepState.plan.currentRevision ||
+      verification.planRevision !== effectiveStepRevision ||
       !expectedDigest ||
       verification.definitionDigest !== expectedDigest
     ) {
@@ -237,8 +247,15 @@ export async function validateAcceptedFormalEvidenceAuthority(
       if (!evidence?.hash) {
         throw new Error(`Repro formal Evidence lacks an immutable hash: ${evidenceRef}`);
       }
-      const receipt = readFormalEvidenceReceipt(receiptStore, cwd, work, row, evidence);
-      validateFormalEvidenceReceipt(receipt, cwd, work, row, evidence);
+      const receipt = readFormalEvidenceReceipt(
+        receiptStore,
+        cwd,
+        work,
+        row,
+        evidence,
+        effectiveStepRevision,
+      );
+      validateFormalEvidenceReceipt(receipt, cwd, work, row, evidence, effectiveStepRevision);
     }
   }
 }
@@ -249,6 +266,7 @@ function readFormalEvidenceReceipt(
   work: SparkReproWorkSummary,
   row: SparkReproWorkSummary["validationMatrix"]["rows"][number],
   evidence: NonNullable<Awaited<ReturnType<ReturnType<typeof defaultEvidenceStore>["tryGet"]>>>,
+  effectiveStepRevision: number,
 ): SparkReproFormalEvidenceReceipt {
   const stepId = row.ownerStepId;
   if (!stepId) throw new Error(`Repro formal Evidence row has no ownerStepId: ${row.gateId}`);
@@ -266,7 +284,7 @@ function readFormalEvidenceReceipt(
     stepId,
     evidenceRef: evidence.ref,
     evidenceHash: evidence.hash,
-    planRevision: work.normativeCursor.planRevision,
+    planRevision: effectiveStepRevision,
     stepDefinitionDigest,
     profileDigest: sparkReproProfileDigest(expectedProfile),
     topologyDigest: sparkReproTopologyDigest(expectedTopology),
@@ -283,6 +301,7 @@ function validateFormalEvidenceReceipt(
   work: SparkReproWorkSummary,
   row: SparkReproWorkSummary["validationMatrix"]["rows"][number],
   evidence: NonNullable<Awaited<ReturnType<ReturnType<typeof defaultEvidenceStore>["tryGet"]>>>,
+  effectiveStepRevision: number,
 ): void {
   const expectedProfile = work.acceptanceProfile ?? work.profile;
   const expectedTopology = expectedProfile.validationTopology ?? expectedProfile.topology;
@@ -299,7 +318,7 @@ function validateFormalEvidenceReceipt(
     receipt.verdict !== "accepted" ||
     receipt.stale ||
     receipt.superseded ||
-    receipt.planRevision !== work.normativeCursor.planRevision ||
+    receipt.planRevision !== effectiveStepRevision ||
     receipt.requirementId !== row.gateId ||
     receipt.stepId !== row.ownerStepId ||
     receipt.verifierId.trim().length === 0 ||

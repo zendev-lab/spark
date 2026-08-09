@@ -33,8 +33,18 @@ export async function resolveAcceptedFormalEvidence(
   ];
   const resolved = await Promise.all(refs.map((ref) => evidenceLookup.tryGet(ref)));
   for (let index = 0; index < refs.length; index += 1) {
-    if (!resolved[index]) {
+    const evidence = resolved[index];
+    if (!evidence) {
       throw new Error(`report work evidence not found: ${refs[index]}`);
+    }
+    if (
+      isRecord(evidence) &&
+      ((isRecord(evidence.curation) && evidence.curation.status === "superseded") ||
+        (isRecord(evidence.curation) &&
+          Array.isArray(evidence.curation.supersededBy) &&
+          evidence.curation.supersededBy.length > 0))
+    ) {
+      throw new Error(`report work evidence is superseded: ${refs[index]}`);
     }
   }
 }
@@ -44,6 +54,7 @@ export async function verifyCurrentReproReportAuthority(input: {
   cwd: string;
   work: SparkReproWorkSummary;
   repro?: SparkSessionRepro;
+  taskStatusByRef?: Readonly<Record<string, string | undefined>>;
   evidenceLookup: SparkReproEvidenceLookup;
   control?: SparkDaemonReproFormalEvidenceControl;
   signal?: AbortSignal;
@@ -59,7 +70,10 @@ export async function verifyCurrentReproReportAuthority(input: {
   ) {
     throw new Error("report work is stale against the current durable Repro plan revision");
   }
-  validateSparkReproCurrentRetirementAuthority(input.work, input.repro);
+  validateSparkReproCurrentRetirementAuthority(
+    input.work,
+    input.repro ? { ...input.repro, taskStatusByRef: input.taskStatusByRef ?? {} } : undefined,
+  );
   const rows = input.work.validationMatrix.rows.filter(
     (row) =>
       row.evidenceClass === "entrypoint" &&
@@ -85,6 +99,9 @@ export async function verifyCurrentReproReportAuthority(input: {
     const stepId = row.ownerStepId!;
     const step = input.repro.plan.steps.find((candidate) => candidate.id === stepId);
     const verification = step?.verification;
+    const effectiveStepRevision =
+      input.repro.subgoals.find((subgoal) => subgoal.id === stepId)?.planRevision ??
+      input.repro.plan.currentRevision;
     const expectedDefinitionDigest = input.work.normativeCursor.stepDefinitionDigests?.[stepId];
     if (
       !step ||
@@ -92,7 +109,7 @@ export async function verifyCurrentReproReportAuthority(input: {
       !verification ||
       verification.verdict !== "Pass" ||
       verification.stepId !== stepId ||
-      verification.planRevision !== input.work.normativeCursor.planRevision ||
+      verification.planRevision !== effectiveStepRevision ||
       !expectedDefinitionDigest ||
       verification.definitionDigest !== expectedDefinitionDigest
     ) {
