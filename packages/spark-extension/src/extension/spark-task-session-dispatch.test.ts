@@ -499,6 +499,31 @@ describe("managed Task Session dispatch", () => {
     roots.push(cwd);
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Exhausted", description: "Exhausted" });
+    const runnable = graph.createTask({
+      projectRef: project.ref,
+      title: "Runnable task",
+      description: "Must not receive an identity before batch attempt preflight completes.",
+      kind: "implement",
+      roleRef: "role:builtin-worker",
+      executionPolicy: {
+        continuity: "reuse_within_revision",
+        isolation: "isolated_worktree",
+        comparison: "single_side",
+        resources: { gpuCount: 0 },
+        concurrencyKeys: [],
+        maxAttempts: 2,
+      },
+      plan: normalizeTaskPlan(
+        {
+          objective: "Keep the runnable task unassigned",
+          successCriteria: ["No identity is created for a partially accepted batch."],
+          evidenceRequired: ["The exhausted peer causes an atomic refusal."],
+          steps: ["Preflight every requested task before reserving any run."],
+        },
+        "Runnable task",
+        "Runnable task",
+      ),
+    });
     const task = graph.createTask({
       projectRef: project.ref,
       title: "Exhausted task",
@@ -546,6 +571,7 @@ describe("managed Task Session dispatch", () => {
         outputEvidenceRefs: [],
       });
     }
+    graph.updateTask(runnable.ref, { status: "pending" });
     graph.updateTask(task.ref, { status: "pending" });
     await defaultTaskGraphStore(cwd).save(graph);
     let daemonCalls = 0;
@@ -556,9 +582,18 @@ describe("managed Task Session dispatch", () => {
         ctx: { sessionId: "sess_owner" },
         ownerSessionId: "sess_owner",
         projectRef: project.ref,
-        taskRefs: [task.ref],
+        taskRefs: [runnable.ref, task.ref],
         registry: new RoleRegistry(),
         resourceAllocations: {
+          [runnable.ref]: {
+            leaseId: "resource:runnable-must-not-persist",
+            nodeId: "node-new",
+            groups: [],
+            gpuIds: [],
+            concurrencyKeys: [],
+            exclusiveNode: false,
+            allocatedAt: "2026-07-29T00:03:00.000Z",
+          },
           [task.ref]: {
             leaseId: "resource:must-not-persist",
             nodeId: "node-new",
@@ -589,6 +624,7 @@ describe("managed Task Session dispatch", () => {
     expect(daemonCalls).toBe(0);
     const persisted = await defaultTaskGraphStore(cwd).load();
     expect(persisted?.runs(project.ref)).toHaveLength(2);
+    expect(persisted?.getTask(runnable.ref).claim).toBeUndefined();
     expect(persisted?.getTask(task.ref).claim).toBeUndefined();
   });
 

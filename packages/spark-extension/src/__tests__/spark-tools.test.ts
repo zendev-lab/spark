@@ -4864,7 +4864,7 @@ test("split task tools dispatch read, write, and assign actions", async () => {
   }
 });
 
-test("canonical assign refuses attempt-exhausted Tasks without creating identities", async () => {
+test("canonical assign rejects a mixed frontier before creating any identities", async () => {
   const dir = await mkdtemp(join(tmpdir(), "task-tool-attempt-limit-refusal-"));
   try {
     await writeEmptySparkProject(dir);
@@ -4875,6 +4875,24 @@ test("canonical assign refuses attempt-exhausted Tasks without creating identiti
     assert.ok(graph);
     const project = graph.projects()[0];
     assert.ok(project);
+    const runnable = graph.createTask({
+      projectRef: project.ref,
+      name: "attempt-available",
+      title: "Attempt available",
+      description: "Must not be dispatched when another requested Task is exhausted.",
+      kind: "implement",
+      status: "ready",
+      roleRef: "role:builtin-worker" as RoleRef,
+      executionPolicy: {
+        continuity: "reuse_within_revision",
+        isolation: "isolated_worktree",
+        comparison: "single_side",
+        resources: { gpuCount: 0 },
+        concurrencyKeys: [],
+        maxAttempts: 2,
+      },
+      plan: executionReadyPlan("Do not partially dispatch a mixed exhausted frontier"),
+    });
     const task = graph.createTask({
       projectRef: project.ref,
       name: "attempt-exhausted",
@@ -4914,7 +4932,7 @@ test("canonical assign refuses attempt-exhausted Tasks without creating identiti
     const assigned = await executeSparkTool(tools, "assign", ctx, {
       dryRun: false,
       maxConcurrency: 1,
-      taskRefs: [task.ref],
+      taskRefs: [runnable.ref, task.ref],
     });
 
     assert.match(toolText(assigned), /Refused managed Task Session assignment/u);
@@ -4938,6 +4956,8 @@ test("canonical assign refuses attempt-exhausted Tasks without creating identiti
 
     const persisted = await store.load();
     assert.equal(persisted?.runs(project.ref).length, 2);
+    assert.equal(persisted?.getTask(runnable.ref).claim, undefined);
+    assert.equal(persisted?.getTask(runnable.ref).status, "ready");
     assert.equal(persisted?.getTask(task.ref).claim, undefined);
     assert.equal(persisted?.getTask(task.ref).status, "ready");
   } finally {

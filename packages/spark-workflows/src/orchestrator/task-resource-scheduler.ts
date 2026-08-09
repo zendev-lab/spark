@@ -36,6 +36,25 @@ export interface TaskResourcePackingResult {
   activeLeaseIds: string[];
 }
 
+export function taskAttemptLimitDeferrals(
+  tasks: readonly Task[],
+  runs: readonly TaskRun[],
+): DeferredTaskResource[] {
+  return tasks.flatMap((task) => {
+    const policy = effectiveTaskExecutionPolicy(task);
+    const attempts = runs.filter((run) => run.taskRef === task.ref && !run.dryRun).length;
+    return attempts >= policy.maxAttempts
+      ? [
+          {
+            taskRef: task.ref,
+            reason: "attempt_limit" as const,
+            message: `Task reached maxAttempts=${policy.maxAttempts}.`,
+          },
+        ]
+      : [];
+  });
+}
+
 export function packTaskResourceFrontier(input: {
   tasks: readonly Task[];
   runs: readonly TaskRun[];
@@ -60,7 +79,19 @@ export function packTaskResourceFrontier(input: {
   const availableConcurrency = Math.max(0, maxConcurrency - activeAllocations.length);
   const allocatedAt = input.now ?? nowIso();
 
+  const attemptLimitByTask = new Map(
+    taskAttemptLimitDeferrals(input.tasks, input.runs).map((deferred) => [
+      deferred.taskRef,
+      deferred,
+    ]),
+  );
+
   for (const task of input.tasks) {
+    const attemptLimit = attemptLimitByTask.get(task.ref);
+    if (attemptLimit) {
+      deferred.push(attemptLimit);
+      continue;
+    }
     if (scheduled.length >= availableConcurrency) {
       deferred.push({
         taskRef: task.ref,
@@ -71,14 +102,6 @@ export function packTaskResourceFrontier(input: {
     }
     const policy = effectiveTaskExecutionPolicy(task);
     const attempts = input.runs.filter((run) => run.taskRef === task.ref && !run.dryRun).length;
-    if (attempts >= policy.maxAttempts) {
-      deferred.push({
-        taskRef: task.ref,
-        reason: "attempt_limit",
-        message: `Task reached maxAttempts=${policy.maxAttempts}.`,
-      });
-      continue;
-    }
 
     const conflictingKey = policy.concurrencyKeys.find((key) => usedConcurrencyKeys.has(key));
     if (conflictingKey) {

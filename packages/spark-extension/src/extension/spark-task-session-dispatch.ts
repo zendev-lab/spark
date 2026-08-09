@@ -359,6 +359,22 @@ function reserveTaskSessionRuns(
   taskRefs: TaskRef[],
 ): ReservedTaskSessionRun[] {
   const ready = new Set(graph.readyTasks(input.projectRef).map((task) => task.ref));
+  const projectRuns = graph.runs(input.projectRef);
+  for (const taskRef of taskRefs) {
+    const task = graph.getTask(taskRef);
+    if (task.projectRef !== input.projectRef) {
+      throw new Error(`task ${taskRef} does not belong to project ${input.projectRef}`);
+    }
+    const historicalRuns = projectRuns.filter((run) => run.taskRef === taskRef && !run.dryRun);
+    const attempt = historicalRuns.length + 1;
+    const maxAttempts = task.executionPolicy?.maxAttempts ?? 2;
+    if (attempt > maxAttempts) {
+      throw new ManagedTaskSessionDispatchRefusal(
+        `task ${taskRef} reached maxAttempts=${maxAttempts}; immutable run history requires attempt=${attempt}`,
+        "attempt_limit",
+      );
+    }
+  }
   const reservations: ReservedTaskSessionRun[] = [];
   for (const taskRef of taskRefs) {
     const task = graph.getTask(taskRef);
@@ -391,17 +407,9 @@ function reserveTaskSessionRuns(
           }
         : {}),
     });
-    const historicalRuns = graph
-      .runs(input.projectRef)
-      .filter((run) => run.taskRef === taskRef && !run.dryRun);
+    const historicalRuns = projectRuns.filter((run) => run.taskRef === taskRef && !run.dryRun);
     const attempt = historicalRuns.length + 1;
     const executionPolicy = task.executionPolicy;
-    if (attempt > (executionPolicy?.maxAttempts ?? 2)) {
-      throw new ManagedTaskSessionDispatchRefusal(
-        `task ${taskRef} reached maxAttempts=${executionPolicy?.maxAttempts ?? 2}; immutable run history requires attempt=${attempt}`,
-        "attempt_limit",
-      );
-    }
     const priorInRevision = historicalRuns
       .filter((run) => run.execution?.jobId === jobId)
       .sort((left, right) => (left.startedAt ?? "").localeCompare(right.startedAt ?? ""))
