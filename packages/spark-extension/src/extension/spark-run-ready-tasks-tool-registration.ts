@@ -168,7 +168,6 @@ export function registerSparkRunReadyTasksTool(
           }
           const dispatch = deps.dispatchManagedTaskSessions ?? dispatchManagedTaskSessions;
           const requestedTasks = taskRefs.map((taskRef) => graph.getTask(taskRef));
-          const resourceInventory = await discoverTaskResourceInventory();
           const attemptLimitDeferred = taskAttemptLimitDeferrals(requestedTasks, graph.runs());
           if (attemptLimitDeferred.length > 0) {
             return {
@@ -185,12 +184,12 @@ export function registerSparkRunReadyTasksTool(
                 projectRef: project.ref,
                 taskRefs: [],
                 bindings: [],
-                resourceInventory,
                 resourceDeferred: attemptLimitDeferred,
                 policy: { maxConcurrency, timeoutMs },
               },
             };
           }
+          const resourceInventory = await discoverTaskResourceInventory();
           const packing = packTaskResourceFrontier({
             tasks: requestedTasks,
             runs: graph.runs(),
