@@ -2,13 +2,14 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultArtifactStore, defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
   sparkLocalRpcProcedureSchemas,
   type SparkLocalRpcMethod,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { upsertSparkDaemonServerProfile } from "../server-profiles.ts";
+import { SparkReproFormalEvidenceReceiptStore } from "../store/repro-formal-evidence.ts";
 import { openSparkDaemonDatabase } from "../store/schema.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";
 import { SparkTokenUsageStore } from "../store/token-usage.ts";
@@ -45,6 +46,97 @@ describe("transport-neutral local RPC service", () => {
     expect(direct).not.toHaveProperty("id");
     expect(direct).not.toHaveProperty("ok");
     expect(legacy).toEqual({ id: "rpc_workspace_list", ok: true, result: direct });
+    db.close();
+  });
+
+  it("records only registered-verifier formal Evidence receipts in daemon-owned SQLite", async () => {
+    const { paths, db } = createFixture();
+    const cwd = join(paths.dataDir, "workspace");
+    mkdirSync(cwd, { recursive: true });
+    registerWorkspace(db, { localPath: cwd });
+    const evidence = await defaultEvidenceStore(cwd).put({
+      ref: "evidence:formal-proof",
+      kind: "record",
+      title: "formal proof",
+      format: "json",
+      body: { signed: true },
+      provenance: { producer: "spark" },
+    });
+    if (!evidence.hash) throw new Error("test Evidence lacks a durable hash");
+    const candidate = {
+      workspaceCwd: cwd,
+      evidenceRef: evidence.ref,
+      evidenceHash: evidence.hash,
+      reproId: "repro-rpc",
+      requirementId: "alignment",
+      stepId: "S1",
+      planRevision: 3,
+      stepDefinitionDigest: "digest:S1",
+      invocationClass: "owning_entrypoint" as const,
+      evidenceClass: "entrypoint" as const,
+      profileDigest: "b".repeat(64),
+      topologyDigest: "c".repeat(64),
+    };
+    const receipt = {
+      schema: "spark.repro.formal-evidence-receipt/v1" as const,
+      ...candidate,
+      verifierId: "registered-verifier",
+      verifierVersion: "1",
+      verdict: "accepted" as const,
+      verifiedAt: "2026-08-09T00:00:00.000Z",
+      stale: false,
+      superseded: false,
+    };
+
+    await expect(
+      invokeLocalRpcService(
+        "repro.formal-evidence.record",
+        { workspaceCwd: cwd, candidate },
+        { paths, db },
+      ),
+    ).rejects.toThrow("no registered daemon formal Evidence verifier");
+    await expect(
+      invokeLocalRpcService(
+        "repro.formal-evidence.record",
+        { workspaceCwd: cwd, candidate: { ...candidate, evidenceHash: "d".repeat(64) } },
+        {
+          paths,
+          db,
+          handlerOptions: {
+            reproFormalEvidenceVerifier: {
+              async verify() {
+                throw new Error("must not verify a mismatched durable Evidence hash");
+              },
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow("does not match durable workspace Evidence");
+    await expect(
+      invokeLocalRpcService(
+        "repro.formal-evidence.record",
+        { workspaceCwd: cwd, candidate },
+        {
+          paths,
+          db,
+          handlerOptions: {
+            reproFormalEvidenceVerifier: {
+              async verify(actual, body) {
+                expect(actual).toEqual(candidate);
+                expect(body).toEqual({ signed: true });
+                return {
+                  verifierId: "registered-verifier",
+                  verifierVersion: "1",
+                  verdict: "accepted",
+                  verifiedAt: "2026-08-09T00:00:00.000Z",
+                };
+              },
+            },
+          },
+        },
+      ),
+    ).resolves.toEqual({ recorded: true, receipt });
+    expect(new SparkReproFormalEvidenceReceiptStore(db).get(cwd, candidate)).toEqual(receipt);
     db.close();
   });
 

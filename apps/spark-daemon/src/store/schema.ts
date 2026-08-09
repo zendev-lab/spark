@@ -352,6 +352,18 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       UNIQUE (interaction_request_id, human_response_id)
     );
 
+    CREATE TABLE IF NOT EXISTS daemon_repro_formal_evidence_receipts (
+      receipt_key TEXT PRIMARY KEY,
+      workspace_cwd TEXT NOT NULL,
+      repro_id TEXT NOT NULL,
+      requirement_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      evidence_ref TEXT NOT NULL,
+      receipt_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS lens_provider_results (
       provider_id TEXT NOT NULL,
       capability TEXT NOT NULL,

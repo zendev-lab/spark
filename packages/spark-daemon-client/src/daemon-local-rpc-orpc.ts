@@ -238,6 +238,11 @@ const invocationLoopInvokers = {
       sparkLocalRpcProcedureSchemas["usage.backfill"].output,
       client.usage.backfill(input, options),
     ),
+  "repro.formal-evidence.record": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["repro.formal-evidence.record"].output,
+      client.repro.formalEvidence.record(input, options),
+    ),
   "loop.start": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["loop.start"].output,
@@ -282,6 +287,7 @@ const invocationLoopInvokers = {
   | "usage.summary"
   | "usage.persistence"
   | "usage.backfill"
+  | "repro.formal-evidence.record"
   | "loop.start"
   | "loop.status"
   | "loop.stop"

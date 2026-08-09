@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,6 +10,7 @@ import {
   sparkReproTopologyDigest,
   SPARK_REPRO_SINGLE_PROCESS_TOPOLOGY,
   type SparkReproDecisionRequest,
+  type SparkReproFormalEvidenceReceipt,
   type SparkReproEvidenceGate,
   type SparkReproProfile,
   type SparkReproWorkSummaryInput,
@@ -17,11 +18,19 @@ import {
 } from "@zendev-lab/spark-repro/work-summary";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SparkLoopEvaluationContext } from "../store/loop-evaluators.ts";
-import { reproCompletionEvaluator, reproPendingDecisionEvaluator } from "./repro-loop-evaluator.ts";
+import {
+  createReproCompletionEvaluator,
+  reproPendingDecisionEvaluator,
+} from "./repro-loop-evaluator.ts";
 
+const receiptsByCwd = new Map<string, Map<string, SparkReproFormalEvidenceReceipt>>();
+const reproCompletionEvaluator = completionEvaluator;
 const dirs: string[] = [];
 afterEach(async () => {
-  for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0)) {
+    receiptsByCwd.delete(dir);
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 describe("trusted Repro Loop evaluators", () => {
@@ -52,6 +61,23 @@ describe("trusted Repro Loop evaluators", () => {
     expect(result).toMatchObject({ verdict: "achieved" });
     expect(result.evidenceRefs).toHaveLength(1);
     expect(result.evidenceRefs?.[0]).toMatch(/^evidence:/u);
+  });
+
+  it("rejects a typed completion projection without daemon-resolved StepVerifier state", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    await persistAcceptedFormalEvidence(cwd, input);
+    await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
+    await writeSummary(cwd, input);
+    const evaluator = createReproCompletionEvaluator({
+      get(actualCwd, identity) {
+        return receiptsByCwd.get(actualCwd)?.get(testReceiptKey(identity));
+      },
+    });
+
+    await expect(evaluator(context(cwd))).rejects.toThrow(
+      /requires current daemon-resolved StepVerifier state/u,
+    );
   });
 
   it("rejects accepted formal gates whose Evidence refs are not durable", async () => {
@@ -135,11 +161,18 @@ describe("trusted Repro Loop evaluators", () => {
     const row = input.validationMatrix!.rows.find(
       (candidate) => candidate.evidenceClass === "entrypoint",
     );
-    if (!row?.receiptPath) throw new Error("missing formal receipt fixture");
-    const receiptFile = join(cwd, row.receiptPath);
-    const receipt = JSON.parse(await readFile(receiptFile, "utf8")) as Record<string, unknown>;
-    receipt.stale = true;
-    await writeFile(receiptFile, JSON.stringify(receipt));
+    if (!row?.ownerStepId) throw new Error("missing formal receipt fixture");
+    const evidenceRef = row.evidenceRefs[0]!;
+    const receiptEntry = [...(receiptsByCwd.get(cwd)?.entries() ?? [])].find(
+      ([, candidate]) =>
+        candidate.reproId === input.reproId &&
+        candidate.requirementId === row.gateId &&
+        candidate.stepId === row.ownerStepId &&
+        candidate.evidenceRef === evidenceRef,
+    );
+    if (!receiptEntry) throw new Error("missing formal receipt fixture");
+    const [key, receipt] = receiptEntry;
+    receiptsByCwd.get(cwd)!.set(key, { ...receipt, stale: true });
     await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
     await writeSummary(cwd, input);
 
@@ -192,20 +225,25 @@ async function persistAcceptedFormalEvidence(
     input.validationMatrix?.rows.filter(
       (row) => row.evidenceClass === "entrypoint" && row.invocationClass === "owning_entrypoint",
     ) ?? [];
+  await persistEvidenceRefs(cwd, refs);
+  const store = defaultEvidenceStore(cwd);
+  const receipts = receiptsByCwd.get(cwd) ?? new Map();
+  receiptsByCwd.set(cwd, receipts);
   for (const row of formalRows) {
-    const evidenceRef = row.evidenceRefs[0];
-    if (!evidenceRef) continue;
-    const receiptPath = `receipts/${row.id}.json`;
-    row.receiptPath = receiptPath;
-    await mkdir(join(cwd, "receipts"), { recursive: true });
-    await writeFile(
-      join(cwd, receiptPath),
-      JSON.stringify({
+    const stepId = row.ownerStepId;
+    if (!stepId) continue;
+    for (const evidenceRef of row.evidenceRefs) {
+      const evidence = await store.tryGet(evidenceRef);
+      if (!evidence) continue;
+      if (!evidence.hash) throw new Error(`missing Evidence hash: ${evidenceRef}`);
+      const receipt: SparkReproFormalEvidenceReceipt = {
         schema: "spark.repro.formal-evidence-receipt/v1",
+        workspaceCwd: cwd,
         evidenceRef,
+        evidenceHash: evidence.hash,
         reproId: input.reproId,
         requirementId: row.gateId,
-        stepId: "S1",
+        stepId,
         planRevision: 1,
         stepDefinitionDigest: "digest:S1",
         invocationClass: "owning_entrypoint",
@@ -218,10 +256,10 @@ async function persistAcceptedFormalEvidence(
         verifiedAt: new Date().toISOString(),
         stale: false,
         superseded: false,
-      }),
-    );
+      };
+      receipts.set(testReceiptKey(receipt), receipt);
+    }
   }
-  await persistEvidenceRefs(cwd, refs);
 }
 
 async function persistEvidenceRefs(cwd: string, refs: EvidenceRef[]): Promise<void> {
@@ -236,6 +274,62 @@ async function persistEvidenceRefs(cwd: string, refs: EvidenceRef[]): Promise<vo
       provenance: { producer: "spark" },
     });
   }
+}
+
+function testReceiptKey(
+  receipt: Pick<
+    SparkReproFormalEvidenceReceipt,
+    | "reproId"
+    | "requirementId"
+    | "stepId"
+    | "evidenceRef"
+    | "evidenceHash"
+    | "planRevision"
+    | "stepDefinitionDigest"
+    | "profileDigest"
+    | "topologyDigest"
+  >,
+): string {
+  return JSON.stringify({
+    reproId: receipt.reproId,
+    requirementId: receipt.requirementId,
+    stepId: receipt.stepId,
+    evidenceRef: receipt.evidenceRef,
+    evidenceHash: receipt.evidenceHash,
+    planRevision: receipt.planRevision,
+    stepDefinitionDigest: receipt.stepDefinitionDigest,
+    profileDigest: receipt.profileDigest,
+    topologyDigest: receipt.topologyDigest,
+  });
+}
+
+function completionEvaluator(context: SparkLoopEvaluationContext) {
+  return createReproCompletionEvaluator(
+    {
+      get(cwd, identity) {
+        return receiptsByCwd.get(cwd)?.get(testReceiptKey(identity));
+      },
+    },
+    async (cwd) => ({
+      reproId: "repro-1",
+      planRevision: 1,
+      steps: [
+        {
+          id: "S1",
+          status: "done",
+          verification: {
+            verdict: "Pass",
+            stepId: "S1",
+            planRevision: 1,
+            definitionDigest: "digest:S1",
+            evidenceRefs: [...(receiptsByCwd.get(cwd)?.values() ?? [])].map(
+              (receipt) => receipt.evidenceRef as EvidenceRef,
+            ),
+          },
+        },
+      ],
+    }),
+  )(context);
 }
 
 function context(cwd: string): SparkLoopEvaluationContext {
@@ -377,6 +471,7 @@ function strictCompleteSummaryInput(): SparkReproWorkSummaryInput {
         stage: gate.stage,
         invocationClass: "owning_entrypoint",
         evidenceClass: "entrypoint",
+        ownerStepId: "S1",
         verdict: "accepted",
         profile,
         repetitions: 1,

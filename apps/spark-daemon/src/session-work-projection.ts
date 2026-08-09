@@ -236,6 +236,13 @@ async function readGoal(
   }
 }
 
+export async function readSessionReproForDaemon(
+  cwd: string,
+  sessionId: string,
+): Promise<SparkSessionRepro | undefined> {
+  return await readRepro(cwd, sessionId);
+}
+
 async function readRepro(
   cwd: string,
   sessionId: string,

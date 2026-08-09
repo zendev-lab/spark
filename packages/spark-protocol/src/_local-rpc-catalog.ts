@@ -116,6 +116,10 @@ import {
   sparkTokenUsagePersistenceRequestSchema,
   sparkTokenUsageSummaryRequestSchema,
 } from "./token-usage.ts";
+import {
+  sparkReproFormalEvidenceRecordRequestSchema,
+  sparkReproFormalEvidenceRecordResultSchema,
+} from "./repro-formal-evidence.ts";
 import { sparkSessionViewSchema } from "./protocol.ts";
 import { SPARK_PROTOCOL_VERSION } from "./version.ts";
 import {
@@ -1410,6 +1414,10 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkLegacyTokenUsageBackfillRequestSchema,
     output: sparkLegacyTokenUsageBackfillResultSchema,
   },
+  "repro.formal-evidence.record": {
+    input: sparkReproFormalEvidenceRecordRequestSchema,
+    output: sparkReproFormalEvidenceRecordResultSchema,
+  },
   "loop.start": { input: sparkLoopStartRequestSchema, output: sparkLoopMutationResultSchema },
   "loop.status": { input: sparkLoopStatusRequestSchema, output: sparkLoopListResultSchema },
   "loop.stop": {
@@ -1789,6 +1797,16 @@ export const sparkLocalRpcOrpcContract = {
       sparkLocalRpcNoOrpcErrors,
     ),
     backfill: procedure("POST", "/usage/backfill", p["usage.backfill"], sparkLocalRpcNoOrpcErrors),
+  },
+  repro: {
+    formalEvidence: {
+      record: procedure(
+        "POST",
+        "/repro/formal-evidence/record",
+        p["repro.formal-evidence.record"],
+        sparkLocalRpcReadinessOrpcErrors,
+      ),
+    },
   },
   loop: {
     start: procedure(

@@ -49,6 +49,7 @@ describe("SparkCommand vocabulary", () => {
       "usage.summary",
       "usage.persistence",
       "usage.backfill",
+      "repro.formal-evidence.record",
       "loop.start",
       "loop.status",
       "loop.stop",

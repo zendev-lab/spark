@@ -80,6 +80,7 @@ import {
   type SparkDaemonUsageControl,
 } from "./spark-daemon-usage-client.ts";
 import { projectSparkReproReportSummary } from "./spark-repro-report-projection.ts";
+import type { SparkDaemonReproFormalEvidenceControl } from "./spark-daemon-repro-formal-evidence-client.ts";
 
 function reproStepPlanSchema() {
   return Type.Object({
@@ -106,6 +107,7 @@ interface SparkReproToolDeps {
   loopControl: SparkDaemonLoopControl;
   /** Host/test override; production reads only the public daemon usage projection. */
   usageControl?: SparkDaemonUsageControl;
+  formalEvidenceControl?: SparkDaemonReproFormalEvidenceControl;
   refreshSparkWidget?: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
 }
 
@@ -289,10 +291,12 @@ export function registerSparkReproTool(
         const repro = await readSessionRepro(cwd, ctx);
         if (!repro) throw new Error("project_report requires an active or completed Repro run");
         const projected = await projectSparkReproReportSummary({
-          cwd,
+          cwd: stateCwd,
           currentReproId: repro.reproId,
+          reproState: repro,
           workSummaryInput: params.workSummary,
           usageControl: deps.usageControl ?? sparkDaemonUsageControl,
+          formalEvidenceControl: deps.formalEvidenceControl,
           signal,
         });
         return {
@@ -785,7 +789,7 @@ export async function ensureActiveReproLoop(
       },
       ownerSessionId,
       continuity: "session",
-      cwd: ctx.cwd,
+      cwd: sparkStateCwd(ctx.cwd, ctx),
       prompt: renderReproTickInstruction(repro),
       reason: options.reason ?? "active Repror recovered",
     });

@@ -305,13 +305,15 @@ Resolving an `evidence:*` ref proves only that a structured record exists. It co
 
 ```text
 schema: spark.repro.formal-evidence-receipt/v1
-evidenceRef
+workspaceCwd
+evidenceRef / evidenceHash
 reproId
-requirementId or stepId
+requirementId
+stepId
 planRevision
 stepDefinitionDigest
 invocationClass: owning_entrypoint
-evidenceClass: entrypoint | probe
+evidenceClass: entrypoint
 profileDigest
 topologyDigest
 verifierId / verifierVersion
@@ -323,7 +325,9 @@ superseded: boolean
 
 The `profileDigest` covers the normalized frozen `minimum_complete` acceptance Profile. The `topologyDigest` covers the exact normalized `validationTopology + strategies[]`; partial matching is forbidden. A gate enters `acceptedEligibleWeight` only when the receipt resolves to the same current Repro and gate, the revision and definition digest are current, invocation class is `owning_entrypoint`, evidence class is `entrypoint`, both digests match the frozen contract, `verdict=accepted`, and both `stale` and `superseded` are false. Missing receipt, diagnostic/probe class, failed verifier, another Repro, stale revision, Profile/topology mismatch, or superseded Evidence all carry zero numerator weight. A plain `EvidenceStore.tryGet(ref)` success is never a formal verifier.
 
-The receipt is an output of the registered verifier, not a field callers may self-assert in a work summary. ReportModel, Markdown, A2UI, transcripts, and historical review records cannot manufacture or amend it. Verification tests must cover every rejected case above plus one complete current receipt.
+The receipt is daemon-owned and is never accepted as caller input. The exact chain is: an independent validator signs `spark.repro.formal-evidence-attestation/v1`; the daemon selects its configured Ed25519 public key by `verifierId`, verifies the signature and exact workspace/Repro/gate/step/revision/Profile/topology binding, reloads the durable Evidence record from the exact registered workspace, checks its `evidenceHash`, and only then binds the actual `evidenceRef + evidenceHash` into `spark.repro.formal-evidence-receipt/v1` in daemon SQLite. The attestation omits `evidenceRef` deliberately so the independent validator can sign before the Evidence store allocates a ref; the receipt adds that immutable storage identity. The caller supplies only a candidate binding to `repro.formal-evidence.record`; it cannot supply the verdict, verifier identity, verification time, or receipt. `reproFormalEvidencePublicKeysJson` maps registered verifier ids to base64 SPKI Ed25519 public keys. A missing key registry, unknown verifier, invalid signature, non-exact workspace, missing/superseded Evidence, or hash mismatch fails closed.
+
+The receipt is an output of this daemon registered-verifier path, not a field callers may self-assert in a work summary or write under the workspace. ReportModel, Markdown, A2UI, transcripts, StepVerifier state, and historical review records cannot manufacture or amend it. StepVerifier PASS remains a separate prerequisite and cannot sign its own formal attestation. Verification tests must cover every rejected case above plus one complete current receipt.
 
 ### Reproducible examples
 

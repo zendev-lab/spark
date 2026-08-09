@@ -10,11 +10,14 @@ import type { SparkTokenUsageAggregate } from "@zendev-lab/spark-protocol/token-
 import {
   SPARK_REPRO_SINGLE_PROCESS_TOPOLOGY,
   type SparkReproEvidenceGate,
+  type SparkReproFormalEvidenceReceipt,
+  type SparkReproValidationMatrix,
   type SparkReproProfile,
   type SparkReproWorkStage,
   type SparkReproWorkSummaryInput,
 } from "@zendev-lab/spark-repro/work-summary";
 
+import type { SparkSessionRepro } from "@zendev-lab/spark-repro";
 import type { SparkDaemonUsageControl } from "./spark-daemon-usage-client.ts";
 import {
   projectSparkReproReportSummary,
@@ -165,6 +168,82 @@ describe("canonical Repro report runtime projection", () => {
     expect(usageControl.requests).toEqual([]);
   });
 
+  it("rejects caller-asserted formal acceptance without a registered verifier", async () => {
+    const cwd = await temporaryDirectory();
+    const store = defaultEvidenceStore(cwd);
+    await store.put({
+      ref: evidence("contract"),
+      kind: "record",
+      title: "contract",
+      format: "json",
+      body: { passed: true },
+      provenance: { producer: "spark" },
+    });
+
+    await expect(
+      projectSparkReproReportSummary({
+        cwd,
+        currentReproId: "repro-verified",
+        reproState: strictReproState(),
+        workSummaryInput: strictWorkInput(),
+        usageControl: fixedUsageControl(usage("repro-verified")),
+      }),
+    ).rejects.toThrow("daemon registered-verifier receipt authority");
+  });
+
+  it("records hash-bound receipts only after the registered verifier accepts", async () => {
+    const cwd = await temporaryDirectory();
+    const store = defaultEvidenceStore(cwd);
+    const evidenceRecord = await store.put({
+      ref: evidence("contract"),
+      kind: "record",
+      title: "contract",
+      format: "json",
+      body: { passed: true },
+      provenance: { producer: "spark" },
+    });
+    const recorded: SparkReproFormalEvidenceReceipt[] = [];
+
+    await projectSparkReproReportSummary({
+      cwd,
+      currentReproId: "repro-verified",
+      reproState: strictReproState(),
+      workSummaryInput: strictWorkInput(),
+      usageControl: fixedUsageControl(usage("repro-verified")),
+      formalEvidenceControl: {
+        async verifyAndRecord(input) {
+          const receipt: SparkReproFormalEvidenceReceipt = {
+            schema: "spark.repro.formal-evidence-receipt/v1",
+            ...input.candidate,
+            verifierId: "registered-test-verifier",
+            verifierVersion: "1",
+            verdict: "accepted",
+            verifiedAt: "2026-08-09T00:00:00.000Z",
+            stale: false,
+            superseded: false,
+          };
+          recorded.push(receipt);
+          return { recorded: true, receipt };
+        },
+      },
+    });
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      evidenceRef: evidenceRecord.ref,
+      evidenceHash: evidenceRecord.hash,
+      reproId: "repro-verified",
+      requirementId: "contract",
+      stepId: "S1",
+      planRevision: 1,
+      stepDefinitionDigest: "digest:S1",
+      verifierId: "registered-test-verifier",
+      verdict: "accepted",
+      stale: false,
+      superseded: false,
+    });
+  });
+
   it("accepts formal gate refs resolved through the durable evidence store", async () => {
     const cwd = await temporaryDirectory();
     const store = defaultEvidenceStore(cwd);
@@ -193,6 +272,125 @@ describe("canonical Repro report runtime projection", () => {
     );
   });
 });
+
+function strictWorkInput(): SparkReproWorkSummaryInput {
+  const acceptance = strictProfile();
+  const gates: SparkReproEvidenceGate[] = [
+    gate("contract", "contract", "accepted"),
+    gate("reference", "reference", "open", acceptance),
+    gate("target", "target", "open", acceptance),
+    gate("alignment", "alignment", "open", acceptance),
+    gate("delivery", "delivery", "open"),
+  ];
+  const validationMatrix: SparkReproValidationMatrix = {
+    denominators: { contract: 1, reference: 1, target: 1, alignment: 1, delivery: 1 },
+    rows: gates.map((candidate) => ({
+      id: `entrypoint:${candidate.id}`,
+      gateId: candidate.id,
+      stage: candidate.stage,
+      invocationClass: "owning_entrypoint",
+      evidenceClass: "entrypoint",
+      ownerStepId: "S1",
+      verdict: candidate.status,
+      profile: acceptance,
+      repetitions: 1,
+      exactScope: "registered verifier acceptance",
+      evidenceRefs: [...candidate.evidenceRefs],
+      artifactRefs: [],
+    })),
+  };
+  return {
+    schema: "spark.repro.work-summary/v2",
+    reproId: "repro-verified",
+    title: "Verified formal projection",
+    stage: "contract",
+    target: {
+      model: "minimum_complete",
+      requiredSteps: 1,
+      referenceStrategies: [],
+      validationTopology: acceptance.validationTopology!,
+      acceptanceProfile: acceptance,
+    },
+    profile: acceptance,
+    gates,
+    validationMatrix,
+    exploreFrontier: {
+      stage: "contract",
+      profile: acceptance,
+      planRevision: 1,
+      observationId: "obs-contract",
+      ownerStepId: "S1",
+      stepDefinitionDigest: "digest:S1",
+      evidenceRefs: [],
+      unresolvedIds: [],
+    },
+    normativeCursor: {
+      planRevision: 1,
+      orderedStepIds: ["S1"],
+      stepDefinitionDigests: { S1: "digest:S1" },
+      stepDependencies: { S1: [] },
+      currentStepId: "S1",
+      retiredStepIds: [],
+      candidateBuffer: [],
+      retirementLog: [],
+    },
+    schedulerActivity: "dormant",
+    independentReadyCount: 0,
+    retirementBlocks: [],
+    unresolved: [],
+    nextAction: {
+      id: "verify-reference",
+      summary: "Verify the reference entrypoint",
+      passCriterion: "The registered verifier accepts the next formal receipt",
+    },
+  };
+}
+
+function strictReproState(): SparkSessionRepro {
+  return {
+    reproId: "repro-verified",
+    plan: {
+      currentRevision: 1,
+      steps: [
+        {
+          id: "S1",
+          status: "done",
+          evidenceRefs: [evidence("contract")],
+          verification: {
+            verdict: "Pass",
+            planRevision: 1,
+            stepId: "S1",
+            definitionDigest: "digest:S1",
+            proofKind: "evidence",
+            evidenceRefs: [evidence("contract")],
+            verifiedDoneWhen: ["contract accepted"],
+          },
+        },
+      ],
+    },
+  } as unknown as SparkSessionRepro;
+}
+
+function strictProfile(): SparkReproProfile {
+  return {
+    id: "minimum-complete",
+    model: "minimum_complete",
+    compute: "optimizer",
+    modelScope: "minimum_complete",
+    computeScope: "optimizer",
+    steps: { completed: 1, target: 1 },
+    topology: { ...SPARK_REPRO_SINGLE_PROCESS_TOPOLOGY },
+    validationTopology: { ...SPARK_REPRO_SINGLE_PROCESS_TOPOLOGY },
+    runtime: {
+      framework: "paddle",
+      device: "gpu",
+      dtype: "bf16",
+      hardware: "h800",
+      modelRevision: "model-r1",
+      configDigest: "sha256:model-config",
+    },
+  };
+}
 
 function workInput(reproId: string): SparkReproWorkSummaryInput {
   return {

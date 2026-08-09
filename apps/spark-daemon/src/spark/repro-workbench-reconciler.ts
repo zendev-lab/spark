@@ -44,6 +44,11 @@ export async function reconcileReproWorkbenchArtifacts(input: {
   loopStore: SparkLoopStore;
   bindings: WorkbenchArtifactBindingStore;
   resolveWorkspaceCwd?: (workspaceId: string) => string | undefined;
+  validateFormalEvidence?: (input: {
+    cwd: string;
+    ownerSessionId: string;
+    work: SparkReproWorkSummary;
+  }) => Promise<void>;
 }): Promise<ReproWorkbenchReconcileResult> {
   const loops = input.loopStore.list({ includeTerminal: true }).filter(isReproWorkbenchLoop);
   const result: ReproWorkbenchReconcileResult = {
@@ -66,8 +71,13 @@ export async function reconcileReproWorkbenchArtifacts(input: {
       });
       if (binding.lifecycle === "sealed") continue;
       const stateCwd = resolveLoopStateCwd(loop, input.resolveWorkspaceCwd);
-      const summary = await readCanonicalSummary(loop);
+      const summary = await readCanonicalSummary(loop, stateCwd);
       if (!summary) continue;
+      await input.validateFormalEvidence?.({
+        cwd: stateCwd,
+        ownerSessionId: loop.ownerSessionId,
+        work: summary.work,
+      });
       const goal = await loadSessionGoal(stateCwd, { sessionId: loop.ownerSessionId });
       if (!goal || goal.goalId !== binding.goalId) {
         throw new Error(`Goal ${binding.goalId} is unavailable for Workbench projection`);
@@ -302,13 +312,16 @@ function resolveLoopStateCwd(
   return workspaceCwd;
 }
 
-async function readCanonicalSummary(loop: SparkLoopRecord): Promise<{
+async function readCanonicalSummary(
+  loop: SparkLoopRecord,
+  stateCwd: string,
+): Promise<{
   work: SparkReproWorkSummary;
   tokenUsage?: SparkTokenUsageAggregate;
 } | null> {
   let text: string;
   try {
-    text = await readFile(resolve(loop.route.cwd, REPRO_SUMMARY_PATH), "utf8");
+    text = await readFile(resolve(stateCwd, REPRO_SUMMARY_PATH), "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;

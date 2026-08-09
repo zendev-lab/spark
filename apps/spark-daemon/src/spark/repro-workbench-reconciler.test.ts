@@ -19,7 +19,7 @@ describe("Repro Workbench Artifact reconciliation", () => {
   it("persists a stable live binding, typed stage checkpoint, and terminal seal", async () => {
     const workspaceCwd = await mkdtemp(join(tmpdir(), "spark-repro-workbench-"));
     const cwd = join(workspaceCwd, "packages", "demo");
-    await mkdir(join(cwd, "outputs"), { recursive: true });
+    await mkdir(join(workspaceCwd, "outputs"), { recursive: true });
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
     const loops = new SparkLoopStore(db, new SparkInvocationStore(db));
@@ -53,11 +53,24 @@ describe("Repro Workbench Artifact reconciliation", () => {
     );
     const work = reproWorkSummary("repro-1", "Align model");
     await writeFile(
-      join(cwd, "outputs", "spark-summary.json"),
+      join(workspaceCwd, "outputs", "spark-summary.json"),
       `${JSON.stringify({ format: "spark-repro-summary/v1", work }, null, 2)}\n`,
       "utf8",
     );
     const bindings = new WorkbenchArtifactBindingStore(db);
+    const rejected = await reconcileReproWorkbenchArtifacts({
+      loopStore: loops,
+      bindings,
+      resolveWorkspaceCwd: (workspaceId) =>
+        workspaceId === "workspace-1" ? workspaceCwd : undefined,
+      async validateFormalEvidence() {
+        throw new Error("formal receipt authority unavailable");
+      },
+    });
+    expect(rejected).toMatchObject({ examined: 1, projected: 0, checkpointed: 0 });
+    expect(rejected.errors).toEqual([
+      { loopId: "loop-1", message: "formal receipt authority unavailable" },
+    ]);
 
     const reconcile = () =>
       reconcileReproWorkbenchArtifacts({

@@ -8,6 +8,10 @@ import {
   type TaskRef,
 } from "@zendev-lab/spark-core";
 
+import type { SparkReproFormalEvidenceReceipt } from "@zendev-lab/spark-protocol/repro-formal-evidence";
+
+export type { SparkReproFormalEvidenceReceipt } from "@zendev-lab/spark-protocol/repro-formal-evidence";
+
 export const SPARK_REPRO_WORK_SUMMARY_SCHEMA = "spark.repro.work-summary/v2" as const;
 export const SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA = "spark.repro.work-summary/v1" as const;
 
@@ -288,26 +292,6 @@ export type SparkReproInvocationClass = "owning_entrypoint" | "isolated_diagnost
 export type SparkReproValidationEvidenceClass = "entrypoint" | "probe";
 export type SparkReproValidationVerdict = "open" | "accepted" | "rejected";
 
-export interface SparkReproFormalEvidenceReceipt {
-  schema: "spark.repro.formal-evidence-receipt/v1";
-  evidenceRef: EvidenceRef;
-  reproId: string;
-  requirementId?: string;
-  stepId?: string;
-  planRevision: number;
-  stepDefinitionDigest: string;
-  invocationClass: "owning_entrypoint";
-  evidenceClass: SparkReproValidationEvidenceClass;
-  profileDigest: string;
-  topologyDigest: string;
-  verifierId: string;
-  verifierVersion: string;
-  verdict: "accepted" | "rejected";
-  verifiedAt: string;
-  stale: boolean;
-  superseded: boolean;
-}
-
 export interface SparkReproValidationMatrixRow {
   id: string;
   gateId: string;
@@ -318,6 +302,7 @@ export interface SparkReproValidationMatrixRow {
   profile: SparkReproProfile;
   repetitions: number;
   exactScope: string;
+  ownerStepId?: string;
   command?: string;
   receiptPath?: string;
   evidenceRefs: EvidenceRef[];
@@ -701,12 +686,18 @@ export function buildSparkReproWorkSummary(
     ? migrationValidationMatrix(gates, acceptanceProfile)
     : input.validationMatrix
       ? (() => {
-          validateValidationMatrix(input.validationMatrix!, input.gates, input.target, strictVNext);
+          validateValidationMatrix(
+            input.validationMatrix!,
+            input.gates,
+            input.target,
+            normativeCursor,
+            strictVNext,
+          );
           return cloneValidationMatrix(input.validationMatrix!);
         })()
       : compatibilityValidationMatrix(gates, acceptanceProfile);
   if (!input.validationMatrix) {
-    validateValidationMatrix(validationMatrix, gates, input.target, strictVNext);
+    validateValidationMatrix(validationMatrix, gates, input.target, normativeCursor, strictVNext);
   }
 
   const rawNumericalFrontier =
@@ -1941,6 +1932,7 @@ function validateValidationMatrix(
   matrix: SparkReproValidationMatrix,
   gates: readonly SparkReproEvidenceGate[],
   target: SparkReproTechnicalTarget,
+  normativeCursor: SparkReproNormativeCursor,
   requireVNext: boolean,
 ): void {
   for (const stage of SPARK_REPRO_WORK_STAGES) {
@@ -1969,6 +1961,17 @@ function validateValidationMatrix(
     assertOneOf(row.verdict, ["open", "accepted", "rejected"] as const, `${field}.verdict`);
     assertPositiveInteger(row.repetitions, `${field}.repetitions`);
     assertNonEmpty(row.exactScope, `${field}.exactScope`);
+    if (requireVNext && row.evidenceClass === "entrypoint") {
+      if (!row.ownerStepId?.trim()) {
+        throw new Error(`${field}.ownerStepId is required`);
+      }
+      if (!normativeCursor.stepDefinitionDigests?.[row.ownerStepId]) {
+        throw new Error(`${field}.ownerStepId must reference a current Normative step`);
+      }
+      if (row.receiptPath !== undefined) {
+        throw new Error(`${field}.receiptPath is verifier-owned and cannot be supplied`);
+      }
+    }
     validateSparkReproProfile(row.profile, target, { requireVNext, field: `${field}.profile` });
     validateEvidenceRefs(row.evidenceRefs, `${field}.evidenceRefs`);
     if (requireVNext && row.evidenceClass === "entrypoint") {

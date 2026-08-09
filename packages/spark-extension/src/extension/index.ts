@@ -71,6 +71,10 @@ import { loadSessionGoal } from "./spark-session-goals.ts";
 import { readSessionRepro } from "./spark-session-repro.ts";
 import { sparkDaemonLoopControl, type SparkDaemonLoopControl } from "./spark-daemon-loop-client.ts";
 import {
+  sparkDaemonReproFormalEvidenceControl,
+  type SparkDaemonReproFormalEvidenceControl,
+} from "./spark-daemon-repro-formal-evidence-client.ts";
+import {
   sparkDaemonUsageControl,
   type SparkDaemonUsageControl,
 } from "./spark-daemon-usage-client.ts";
@@ -82,6 +86,8 @@ interface SparkProductFacadeApi extends SparkCommandApi {
   loopControl?: SparkDaemonLoopControl;
   /** Host/test override; production reads the daemon-owned token ledger projection. */
   usageControl?: SparkDaemonUsageControl;
+  /** Test/host override; production asks the daemon registered verifier and receipt store. */
+  reproFormalEvidenceControl?: SparkDaemonReproFormalEvidenceControl;
   /** Test/compatible-host override; production claim authority remains daemon RPC. */
   taskClaimDaemonClient?: SparkTaskClaimDaemonClient;
   registerTool?(config: SparkRegisteredToolConfig): void;
@@ -281,6 +287,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkReproTool(registerSparkTool, {
     loopControl,
     usageControl,
+    formalEvidenceControl: pi.reproFormalEvidenceControl ?? sparkDaemonReproFormalEvidenceControl,
     refreshSparkWidget,
   });
 

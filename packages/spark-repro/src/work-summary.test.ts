@@ -373,6 +373,10 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
       candidateBuffer: [],
       retirementLog: [],
     };
+    input.validationMatrix!.rows = input.validationMatrix!.rows.map((row) => ({
+      ...row,
+      ownerStepId: "S1-reference",
+    }));
     input.unresolved = [
       {
         ...unresolved("u-adapter"),
@@ -632,6 +636,7 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
         stage: gate.stage,
         invocationClass: "owning_entrypoint" as const,
         evidenceClass: "entrypoint" as const,
+        ownerStepId: "S1",
         verdict: gate.status,
         profile: acceptance,
         repetitions: 2,
@@ -1057,6 +1062,7 @@ function matrixFor(
       stage: gate.stage,
       invocationClass: "owning_entrypoint",
       evidenceClass: "entrypoint",
+      ownerStepId: "S1",
       verdict: gate.status,
       profile: acceptance,
       repetitions: 2,
