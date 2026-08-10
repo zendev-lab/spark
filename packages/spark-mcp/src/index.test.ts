@@ -93,7 +93,7 @@ describe("spark-mcp", () => {
     tempDirs.push(dir);
     const storePath = join(dir, "memory.json");
     await writeFile(storePath, JSON.stringify({ version: 1, entries: [] }), "utf8");
-    const entry = new URL("../scripts/stdio.ts", import.meta.url).pathname;
+    const entry = new URL("../bin/spark-mcp.ts", import.meta.url).pathname;
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: ["--experimental-strip-types", entry],

@@ -48,8 +48,8 @@ export const npmDistributions = [
     },
     bundles: {
       "spark-cli.js": "apps/spark-cli/src/cli.ts",
-      "spark-acp.js": "packages/spark-acp/scripts/stdio.ts",
-      "spark-mcp.js": "packages/spark-mcp/scripts/stdio.ts",
+      "spark-acp.js": "packages/spark-acp/bin/spark-acp.ts",
+      "spark-mcp.js": "packages/spark-mcp/bin/spark-mcp.ts",
       "spark-update.js": "packages/spark-update/src/entry.ts",
     },
     files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
