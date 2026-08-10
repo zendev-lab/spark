@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 
@@ -40,6 +40,15 @@ const invalidInventoryCases = [
     diagnostic: "must be equal to one of the allowed values",
   },
 ] as const;
+const governanceDocumentationExpectations = [
+  "inventory JSON shape, required fields, and enums",
+  "https://ajv.js.org/json-schema.html",
+  "dependency-version/specifier consistency across manifests",
+  "https://github.com/JoshuaKGoldberg/syncpack",
+  "cycles and dependency direction",
+  "https://github.com/sverweij/dependency-cruiser",
+  "Spark package identity, owner/state ownership, workspace dependency declarations",
+] as const;
 interface ArchitectureInventory {
   packages: Record<string, Record<string, unknown>>;
 }
@@ -54,6 +63,23 @@ function parseJson<T>(source: string, label: string): T {
 
 async function readJson<T>(path: string): Promise<T> {
   return parseJson<T>(await readFile(path, "utf8"), path);
+}
+
+async function workspaceManifestPaths(): Promise<string[]> {
+  const manifests: string[] = [];
+  for (const root of ["apps", "packages"]) {
+    const entries = await readdir(root, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      try {
+        await readFile(join(root, entry.name, "package.json"), "utf8");
+        manifests.push(join(root, entry.name, "package.json"));
+      } catch {
+        // Non-workspace directories are outside the active package inventory.
+      }
+    }
+  }
+  return manifests.sort();
 }
 
 function runArchitectureInventoryValidator(
@@ -92,6 +118,27 @@ describe("workspace dependency declaration ratchet", () => {
 });
 
 describe("architecture governance contracts", () => {
+  it("requires every active workspace declaration to carry every ownership field", async () => {
+    const inventory = await readJson<ArchitectureInventory>("architecture/packages.json");
+    const workspacePaths = await workspaceManifestPaths();
+    expect(workspacePaths).not.toHaveLength(0);
+    for (const workspacePath of workspacePaths) {
+      const manifest = await readJson<{ name: string }>(workspacePath);
+      const declaration = inventory.packages[manifest.name];
+      expect(declaration, manifest.name).toBeDefined();
+      for (const field of requiredInventoryFields) {
+        expect(declaration?.[field], `${manifest.name}.${field}`).toBeTruthy();
+      }
+    }
+  });
+
+  it("checks the architecture documentation contract", async () => {
+    const docs = await readFile("docs/specs/package-architecture.md", "utf8");
+    for (const expectation of governanceDocumentationExpectations) {
+      expect(docs).toContain(expectation);
+    }
+  });
+
   it.each(requiredInventoryFields)("rejects an independently missing %s field", async (field) => {
     const root = await mkdtemp(join(tmpdir(), "spark-architecture-missing-field-"));
     try {
