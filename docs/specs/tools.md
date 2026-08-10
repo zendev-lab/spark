@@ -86,6 +86,10 @@ Task execution policy may constrain continuity, isolation, comparison side,
 GPU count/memory/topology, exclusivity, concurrency keys, timeout, and bounded
 attempts. Resource leases are scheduler-owned durable state reconstructed from
 queued/running TaskRuns after restart; terminal TaskRuns release those leases.
+Daemon execution attaches a fenced Session lease to every workspace-owned
+persistent Session turn, including the owning root Loop and managed Task
+Sessions. Task claim mutation must present that exact current Session lease;
+unowned or mismatched Sessions receive no claim authority.
 
 Task state, Goal/Repro state, and transcript summaries are not interchangeable
 sources of truth. Historical text or hook-projected context must never authorize
@@ -126,6 +130,9 @@ write paths expose revision, lease, or equivalent conflict validation.
 - Document preview is a view, not an Artifact kind.
 - Agent-authored Document content is bounded to supported safe formats; unknown
   or executable document payloads are not promoted to trusted UI.
+- Public `artifact.sync_file` input remains capped at 32 KiB. A Spark-generated
+  Repro report may use the internal 128 KiB cap only after its typed summary,
+  current StepVerifier authority, and formal Evidence receipts are validated.
 - `artifact.update` and `evidence.update` remain distinct event channels.
 - Repro Workbench interaction is daemon-bound Session control and does not turn
   Artifact previews into a generic interactive execution surface.

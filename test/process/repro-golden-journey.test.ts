@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -17,11 +27,20 @@ import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hu
 import { createRuntimeEnrollmentToken } from "@zendev-lab/spark-hub-coordination/runtime-registration";
 import { sessionReproStorePathV2 } from "@zendev-lab/spark-loop";
 import {
+  sparkReproFormalEvidenceAttestationPayload,
+  type SparkReproFormalEvidenceAttestation,
+} from "@zendev-lab/spark-protocol/repro-formal-evidence";
+import {
   DEFAULT_REPRO_STAGES,
   encodeReproStepAskBinding,
   stepDefinitionDigest,
   type SparkReproStepDefinition,
 } from "@zendev-lab/spark-repro";
+import {
+  sparkReproProfileDigest,
+  sparkReproTopologyDigest,
+  type SparkReproProfile,
+} from "@zendev-lab/spark-repro/work-summary";
 
 import { runSparkProcess, type SparkProcessTarget } from "../support/spark-process-harness.ts";
 
@@ -31,6 +50,19 @@ const fixtureRoot = resolve(root, "test/fixtures/repro/minimal-alignment");
 const providerPlugin = resolve(root, "test/fixtures/repro/scripted-provider-plugin.ts");
 const forgeShim = resolve(root, "test/fixtures/repro/forge-shim.mjs");
 const reproId = "repro:golden-journey-source-process";
+const formalVerifierId = "golden-journey-validator";
+const formalVerifierVersion = "2026.08";
+const formalGateSpecs = [
+  { id: "contract-frozen", stage: "contract", establishes: [] },
+  { id: "reference-ready", stage: "reference", establishes: ["reference_ready"] },
+  { id: "target-ready", stage: "target", establishes: ["target_ready"] },
+  {
+    id: "required-alignment",
+    stage: "alignment",
+    establishes: ["required_steps_aligned", "reference_parity"],
+  },
+  { id: "delivery-ready", stage: "delivery", establishes: [] },
+] as const;
 const requiredMilestoneNames = [
   "repro.started",
   "decision.requested",
@@ -252,7 +284,14 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     assert.equal(completed.toolApprovalCount, 0);
     assert.equal(repro.reproId, reproId);
     assert.equal(repro.status, "complete");
-    const resumedLedger = await readProviderLedger(fixture.providerLedgerPath);
+    const resumedLedger = await waitFor(
+      async () => {
+        const ledger = await readProviderLedger(fixture.providerLedgerPath);
+        return ledger.cursor === ledger.rounds.length ? ledger : undefined;
+      },
+      60_000,
+      "provider ledger completion",
+    );
     const resumeCount = resumedLedger.requests.filter(
       (request) => request.label === "decision.replayed",
     ).length;
@@ -269,6 +308,12 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
         (request) => request.label === "auxiliary.tool-approval.verdict",
       ).length,
       1,
+    );
+    assert.equal(
+      resumedLedger.auxiliaryRequests?.filter(
+        (request) => request.label === "auxiliary.task-review",
+      ).length,
+      DEFAULT_REPRO_STAGES.flatMap((stage) => stage.acceptance).length,
     );
     assert.deepEqual(await sessionToolErrorIds(fixture.sparkHome, sessionId), [
       "validation.failed_before_fix",
@@ -305,6 +350,7 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     assert.equal(terminal.activeInvocationCount, 0);
     assert.equal(terminal.workbenchLifecycle, "sealed");
     assert.equal(terminal.writableWorkbenchCount, 0);
+    assert.equal(terminal.formalEvidenceReceiptCount, formalGates.length);
 
     const forge = jsonObject(await readFile(fixture.forgeLedgerPath, "utf8"));
     assert.equal(forge.draftPrCreates, 1);
@@ -439,8 +485,8 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
 }, 300_000);
 
 async function createJourneyFixture(): Promise<JourneyFixture> {
-  const temporary = await mkdtemp(
-    join(process.platform === "darwin" ? "/tmp" : tmpdir(), "spark-repro-journey-"),
+  const temporary = await realpath(
+    await mkdtemp(join(process.platform === "darwin" ? "/tmp" : tmpdir(), "spark-repro-journey-")),
   );
   await chmod(temporary, 0o700);
   const workspace = resolve(temporary, "ws");
@@ -453,6 +499,7 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     mkdir(workspace, { recursive: true }),
     mkdir(sourceRepo, { recursive: true }),
     mkdir(sparkHome, { recursive: true }),
+    mkdir(resolve(sparkHome, "apps/daemon"), { recursive: true }),
     mkdir(binDir, { recursive: true }),
     mkdir(resolve(temporary, "home"), { recursive: true }),
   ]);
@@ -502,7 +549,8 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     { mode: 0o600 },
   );
 
-  const rounds = createJourneyRounds();
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const rounds = createJourneyRounds({ workspace, privateKey });
   const managedWorktree = resolve(
     workspace,
     ".agents/worktrees/acme/minimal-alignment/fix-minimal-normalization",
@@ -535,6 +583,19 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
       null,
       2,
     )}\n`,
+    { mode: 0o600 },
+  );
+  const formalPublicKeysJson = JSON.stringify({
+    [formalVerifierId]: publicKey.export({ format: "der", type: "spki" }).toString("base64"),
+  });
+  await writeFile(
+    resolve(sparkHome, "apps/daemon/config.toml"),
+    [
+      'installationId = "spark-daemon-repro-golden-journey"',
+      'displayName = "Repro Golden Journey"',
+      `reproFormalEvidencePublicKeysJson = "${formalPublicKeysJson.replaceAll('"', '\\"')}"`,
+      "",
+    ].join("\n"),
     { mode: 0o600 },
   );
 
@@ -575,9 +636,10 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
   };
 }
 
-function createJourneyRounds(): ScriptedRound[] {
+function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }): ScriptedRound[] {
   const rounds: ScriptedRound[] = [];
   let evidenceIndex = 1;
+  const stepProofRefs = new Map<string, string>();
   const tool = (label: string, name: string, arguments_: Record<string, unknown>, id = label) =>
     rounds.push({ label, toolCalls: [{ id, name, arguments: arguments_ }] });
   const text = (label: string, value: string) => rounds.push({ label, text: value });
@@ -715,11 +777,13 @@ function createJourneyRounds(): ScriptedRound[] {
     view: "summary",
     limit: 10,
   });
+  const askEvidenceRef = evidenceRef(1);
+  stepProofRefs.set(askStep.id, askEvidenceRef);
   tool("decision.step.done", "repro", {
     action: "step",
     stepId: askStep.id,
     stepStatus: "done",
-    stepEvidenceRefs: ["${LAST_EVIDENCE_REF}"],
+    stepEvidenceRefs: [askEvidenceRef],
   });
   for (const requirement of DEFAULT_REPRO_STAGES[0]!.acceptance.filter(
     (candidate) => candidate.kind === "decision",
@@ -729,7 +793,7 @@ function createJourneyRounds(): ScriptedRound[] {
       requirementId: requirement.id,
       proof: {
         kind: "decision",
-        decisionRef: "${LAST_EVIDENCE_REF}",
+        decisionRef: askEvidenceRef,
         selectedValue: "approve",
         rationale: "The user approved the localized target-only repair.",
       },
@@ -758,16 +822,19 @@ function createJourneyRounds(): ScriptedRound[] {
     askRequirementId: askStep.id,
     observation:
       "Frozen contract, runnable reference, and expected failing target baseline observed.",
+    stepProofRefs,
   });
   tool("stage.contract.advance", "repro", { action: "advance" });
 
   completeStage(rounds, "reference", evidence, evidenceRef, tool, {
     observation: "The zero-dependency reference verifier passed.",
+    stepProofRefs,
   });
   tool("stage.reference.advance", "repro", { action: "advance" });
 
   completeStage(rounds, "target", evidence, evidenceRef, tool, {
     observation: "The target probe produced the contractually expected pre-repair failure.",
+    stepProofRefs,
   });
   tool("stage.target.evaluate", "repro", { action: "evaluate" });
   tool("stage.target.advance", "repro", { action: "advance" });
@@ -799,6 +866,7 @@ function createJourneyRounds(): ScriptedRound[] {
   });
   completeStage(rounds, "alignment", evidence, evidenceRef, tool, {
     observation: "The repaired target passed once and across 100 deterministic repetitions.",
+    stepProofRefs,
   });
   tool("stage.alignment.evaluate", "repro", { action: "evaluate" });
   tool("stage.alignment.advance", "repro", { action: "advance" });
@@ -817,12 +885,78 @@ function createJourneyRounds(): ScriptedRound[] {
   });
   completeStage(rounds, "delivery", evidence, evidenceRef, tool, {
     observation: "One target-only commit and one Draft PR were created by the GitChange owner.",
+    stepProofRefs,
   });
   tool("stage.delivery.evaluate", "repro", { action: "evaluate" });
 
+  const currentPlanSteps = [
+    ...plannedContractSteps,
+    ...DEFAULT_REPRO_STAGES.slice(1).flatMap((stage) => minimalStageSteps(stage.name)),
+  ];
+  const formalOwnerStep = currentPlanSteps.find((step) => step.id === "no-runtime-patches");
+  assert.ok(formalOwnerStep);
+  const profile = goldenJourneyProfile();
+  const formalEvidenceRefs = formalGateSpecs.map((gate) => {
+    const index = evidence(
+      `formal-evidence.${gate.id}`,
+      createFormalAttestation({
+        workspace: input.workspace,
+        privateKey: input.privateKey,
+        requirementId: gate.id,
+        step: formalOwnerStep,
+        profile,
+      }),
+    );
+    return evidenceRef(index);
+  });
+
+  // The final plan revision rebases the durable Normative cursor. Re-run the
+  // already-passing StepVerifiers in current plan order so each exact step is
+  // retired by owner state instead of being trusted from a legacy summary.
+  // Complete each bound Task through the canonical Task owner on the same
+  // evidence before projecting the strict completion summary.
+  for (const step of currentPlanSteps) {
+    const proofRef = stepProofRefs.get(step.id);
+    if (!proofRef) throw new Error(`Missing Golden Journey StepVerifier proof: ${step.id}`);
+    const taskRef = goldenJourneyTaskRef(step.id);
+    const verificationRefs =
+      step.id === formalOwnerStep.id ? [proofRef, ...formalEvidenceRefs] : [proofRef];
+    tool(`task.${step.id}.claim`, "task_write", {
+      action: "claim",
+      taskRef,
+    });
+    tool(`task.${step.id}.plan.complete`, "task_write", {
+      action: "plan_update",
+      scope: "task",
+      taskRef,
+      ops: [
+        { op: "done", id: "item-1", evidenceRefs: verificationRefs },
+        { op: "done", id: "item-2", evidenceRefs: verificationRefs },
+      ],
+    });
+    tool(`task.${step.id}.finish`, "task_write", {
+      action: "finish",
+      taskRef,
+      status: "done",
+      summary: `Golden Journey verified ${step.id} through current owner evidence.`,
+      evidenceRefs: verificationRefs,
+    });
+    tool(`retirement.${step.id}`, "repro", {
+      action: "step",
+      stepId: step.id,
+      stepStatus: "done",
+      stepEvidenceRefs: verificationRefs,
+    });
+  }
+
   tool("report.projected", "repro", {
     action: "project_report",
-    workSummary: completeWorkSummary(),
+    workSummary: completeWorkSummary({
+      currentPlanSteps,
+      stepProofRefs,
+      formalEvidenceRefs,
+      profile,
+    }),
   });
   tool("report.synced", "repro", { action: "sync_report" });
   tool("report.synced.idempotent", "repro", { action: "sync_report" });
@@ -837,7 +971,11 @@ function completeStage(
   evidence: (label: string, body: Record<string, unknown>) => number,
   evidenceRef: (index: number) => string,
   tool: (label: string, name: string, arguments_: Record<string, unknown>, id?: string) => void,
-  options: { askRequirementId?: string; observation: string },
+  options: {
+    askRequirementId?: string;
+    observation: string;
+    stepProofRefs: Map<string, string>;
+  },
 ): void {
   const stage = DEFAULT_REPRO_STAGES.find((candidate) => candidate.name === stageName)!;
   for (const requirement of stage.acceptance) {
@@ -871,6 +1009,7 @@ function completeStage(
       observation: options.observation,
     });
     const ref = evidenceRef(index);
+    options.stepProofRefs.set(step.id, ref);
     tool(`step.${stageName}.${requirement.id}.done`, "repro", {
       action: "step",
       stepId: requirement.id,
@@ -917,27 +1056,130 @@ function minimalStageSteps(
     }));
 }
 
-function completeWorkSummary(): Record<string, unknown> {
-  const topology = { dp: 1, tp: 1, pp: 1, ep: 1, cp: 1, sp: false };
-  const profile = {
+function goldenJourneyTaskRef(stepId: string): string {
+  const taskIds = DEFAULT_REPRO_STAGES.flatMap((stage) =>
+    stage.acceptance.map((requirement) => requirement.id),
+  );
+  const index = taskIds.indexOf(stepId);
+  if (index < 0) throw new Error(`Missing Golden Journey task placeholder: ${stepId}`);
+  return `\${TASK_REF_${index + 1}}`;
+}
+
+function goldenJourneyProfile(): SparkReproProfile {
+  const topology = {
+    dp: 1,
+    tp: 1,
+    pp: 1,
+    ep: 1,
+    etp: 1,
+    cp: 1,
+    sp: false,
+    worldSize: 1,
+    strategies: [],
+  };
+  return {
     id: "minimum-complete",
     model: "minimum_complete",
     compute: "optimizer",
+    modelScope: "minimum_complete",
+    computeScope: "optimizer",
     steps: { completed: 100, target: 100 },
     topology,
+    validationTopology: structuredClone(topology),
+    runtime: {
+      framework: "node",
+      device: "cpu",
+      dtype: "float64",
+      hardware: "deterministic-fixture",
+      modelRevision: "minimal-alignment-v1",
+      configDigest: "sha256:minimal-alignment-v1",
+    },
   };
-  const gate = (id: string, stage: string, establishes: string[] = [], withProfile = false) => ({
-    id,
-    title: id,
-    stage,
+}
+
+function createFormalAttestation(input: {
+  workspace: string;
+  privateKey: KeyObject;
+  requirementId: string;
+  step: SparkReproStepDefinition;
+  profile: SparkReproProfile;
+}): SparkReproFormalEvidenceAttestation {
+  const topology = input.profile.validationTopology ?? input.profile.topology;
+  const unsigned = {
+    schema: "spark.repro.formal-evidence-attestation/v1" as const,
+    verifierId: formalVerifierId,
+    verifierVersion: formalVerifierVersion,
+    verifiedAt: "2026-08-10T00:00:00.000Z",
+    binding: {
+      workspaceCwd: input.workspace,
+      reproId,
+      requirementId: input.requirementId,
+      stepId: input.step.id,
+      planRevision: 8,
+      stepDefinitionDigest: stepDefinitionDigest(input.step),
+      invocationClass: "owning_entrypoint" as const,
+      evidenceClass: "entrypoint" as const,
+      profileDigest: sparkReproProfileDigest(input.profile),
+      topologyDigest: sparkReproTopologyDigest(topology),
+    },
+    verdict: "accepted" as const,
+    resultDigest: sha256(
+      JSON.stringify({ fixture: "minimal-alignment", requirementId: input.requirementId }),
+    ),
+  };
+  return {
+    ...unsigned,
+    signature: sign(
+      null,
+      Buffer.from(sparkReproFormalEvidenceAttestationPayload(unsigned)),
+      input.privateKey,
+    ).toString("base64"),
+  };
+}
+
+function completeWorkSummary(input: {
+  currentPlanSteps: SparkReproStepDefinition[];
+  stepProofRefs: ReadonlyMap<string, string>;
+  formalEvidenceRefs: string[];
+  profile: SparkReproProfile;
+}): Record<string, unknown> {
+  const { currentPlanSteps, formalEvidenceRefs, profile } = input;
+  const topology = profile.validationTopology ?? profile.topology;
+  const profileDigest = sparkReproProfileDigest(profile);
+  const taskIds = DEFAULT_REPRO_STAGES.flatMap((stage) =>
+    stage.acceptance.map((requirement) => requirement.id),
+  );
+  const evidenceRefsForStep = (step: SparkReproStepDefinition): string[] => {
+    const proofRef = input.stepProofRefs.get(step.id);
+    if (!proofRef) throw new Error(`Missing Golden Journey proof ref: ${step.id}`);
+    return step.id === "no-runtime-patches" ? [proofRef, ...formalEvidenceRefs] : [proofRef];
+  };
+  const candidates = currentPlanSteps.map((step) => ({
+    id: `candidate:${step.id}`,
+    stepId: step.id,
+    dependsOn: [...(step.dependsOn ?? [])],
+    planRevision: 8,
+    stepDefinitionDigest: stepDefinitionDigest(step),
+    verdict: "accepted",
+    profile,
+    evidenceRefs: evidenceRefsForStep(step),
+    unresolvedIds: [],
+  }));
+  const gates = formalGateSpecs.map((gate, index) => ({
+    id: gate.id,
+    title: gate.id,
+    stage: gate.stage,
     evidenceClass: "formal",
     status: "accepted",
     weight: 1,
-    evidenceRefs: ["${LAST_EVIDENCE_REF}"],
-    ...(establishes.length > 0 ? { establishes } : {}),
-    ...(withProfile ? { profile } : {}),
-  });
+    evidenceRefs: [formalEvidenceRefs[index]!],
+    ...(gate.establishes.length > 0 ? { establishes: [...gate.establishes] } : {}),
+    ...(gate.stage === "reference" || gate.stage === "target" || gate.stage === "alignment"
+      ? { profile }
+      : {}),
+  }));
   return {
+    schema: "spark.repro.work-summary/v2",
     reproId: "${REPRO_ID}",
     title: "Minimal normalization Golden Journey",
     stage: "delivery",
@@ -946,23 +1188,83 @@ function completeWorkSummary(): Record<string, unknown> {
       requiredSteps: 100,
       referenceStrategies: [],
       validationTopology: topology,
+      acceptanceProfile: profile,
     },
     profile,
     artifactRefs: ["${ARTIFACT_REF_1}"],
-    gates: [
-      gate("contract-frozen", "contract"),
-      gate("reference-ready", "reference", ["reference_ready"], true),
-      gate("target-ready", "target", ["target_ready"], true),
-      gate("required-alignment", "alignment", ["required_steps_aligned", "reference_parity"], true),
-      gate("delivery-ready", "delivery"),
-    ],
+    gates,
+    validationMatrix: {
+      denominators: { contract: 1, reference: 1, target: 1, alignment: 1, delivery: 1 },
+      rows: formalGateSpecs.map((gate, index) => ({
+        id: `entrypoint:${gate.id}`,
+        gateId: gate.id,
+        stage: gate.stage,
+        invocationClass: "owning_entrypoint",
+        evidenceClass: "entrypoint",
+        ownerStepId: "no-runtime-patches",
+        verdict: "accepted",
+        profile,
+        repetitions: gate.stage === "alignment" ? 100 : 1,
+        exactScope: "immutable minimal-alignment owner entrypoint",
+        evidenceRefs: [formalEvidenceRefs[index]!],
+        artifactRefs: [],
+      })),
+    },
+    exploreFrontier: {
+      stage: "delivery",
+      profile,
+      planRevision: 8,
+      evidenceRefs: [],
+      unresolvedIds: [],
+    },
+    normativeCursor: {
+      planRevision: 8,
+      orderedStepIds: currentPlanSteps.map((step) => step.id),
+      stepDefinitionDigests: Object.fromEntries(
+        currentPlanSteps.map((step) => [step.id, stepDefinitionDigest(step)]),
+      ),
+      stepDependencies: Object.fromEntries(
+        currentPlanSteps.map((step) => [step.id, [...(step.dependsOn ?? [])]]),
+      ),
+      retiredStepIds: currentPlanSteps.map((step) => step.id),
+      candidateBuffer: candidates,
+      retirementLog: currentPlanSteps.map((step) => ({
+        stepId: step.id,
+        candidateId: `candidate:${step.id}`,
+        planRevision: 8,
+        stepDefinitionDigest: stepDefinitionDigest(step),
+        profile,
+        profileDigest,
+        evidenceRefs: evidenceRefsForStep(step),
+      })),
+    },
+    schedulerActivity: "sealed",
+    independentReadyCount: 0,
+    tasks: taskIds.map((id) => {
+      const step = currentPlanSteps.find((candidate) => candidate.id === id);
+      if (!step) throw new Error(`Missing Golden Journey task binding: ${id}`);
+      return {
+        id,
+        taskRef: goldenJourneyTaskRef(id),
+        title: step.goal,
+        stage: step.stage,
+        status: "done",
+      };
+    }),
+    retirementBlocks: [],
+    unresolved: [],
+    nextAction: {
+      id: "sealed",
+      summary: "No further action",
+      passCriterion: "The trusted daemon keeps the completed Workbench sealed",
+    },
     conclusions: [
       {
         id: "target-aligned",
         claim: "The localized target repair matches all immutable fixture vectors.",
         verdict: "confirmed",
         profile,
-        evidenceRefs: ["${LAST_EVIDENCE_REF}"],
+        evidenceRefs: [formalEvidenceRefs[3]!],
       },
     ],
   };
@@ -1144,6 +1446,13 @@ async function waitForTerminalOwnerState(dbPath: string, id: string) {
               )
               .get(),
           );
+          const formalEvidenceReceiptCount = numberResult(
+            db
+              .prepare(
+                "SELECT COUNT(*) AS count FROM daemon_repro_formal_evidence_receipts WHERE repro_id = ?",
+              )
+              .get(id),
+          );
           if (
             pendingAskCount === 0 &&
             activeInvocationCount === 0 &&
@@ -1157,6 +1466,7 @@ async function waitForTerminalOwnerState(dbPath: string, id: string) {
               activeInvocationCount,
               workbenchLifecycle: binding.lifecycle,
               writableWorkbenchCount,
+              formalEvidenceReceiptCount,
             };
           }
         } finally {

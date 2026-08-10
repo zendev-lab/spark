@@ -94,11 +94,13 @@ Journey cursor.
 The first Ask opens asynchronously so the daemon can restart while the durable
 request is pending. The test answers it through `spark daemon ask answer`, then
 replays the same response over public local RPC to prove idempotency. A blocking
-replay with the same stable `flow` reattaches to the settled request and records
-the canonical Ask Evidence; it does not insert another decision row. The isolated reviewer model setting routes
-Git external-write review through the same scripted provider, which returns a valid
-structured approval without advancing the main Journey cursor or creating a second
-human request. The test fails closed if a tool-approval Ask appears.
+replay with the same owning Session and stable `toolCallId` reattaches to the
+settled request and records the canonical Ask Evidence; mutable `flow` text is
+not replay identity and no second decision row is inserted. The isolated
+reviewer model setting routes Git external-write review through the same
+scripted provider, which returns a valid structured approval without advancing
+the main Journey cursor or creating a second human request. The test fails
+closed if a tool-approval Ask appears.
 
 Local Git remains real. The forge shim replaces only `gh stack`/GitHub network
 operations and records exactly one Draft PR. The typed summary is compared with

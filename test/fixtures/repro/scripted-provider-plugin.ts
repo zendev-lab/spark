@@ -56,25 +56,39 @@ export default function registerScriptedJourneyProvider(api: {
       const toolApprovalReview = serializedContext.includes(
         "Review this Spark tool-call approval request before execution.",
       );
-      if (availableTools.length === 0 || toolApprovalReview) {
+      const reviewerRequest = availableTools.some(
+        (tool) => (tool as { name?: unknown }).name === "role_report_outcome",
+      );
+      const taskCompletionReview = reviewerRequest && !toolApprovalReview;
+      if (availableTools.length === 0 || toolApprovalReview || taskCompletionReview) {
         const toolApprovalOutcomeRecorded = serializedContext.includes(
           "Recorded completed outcome (journey_tool_approval_approved).",
         );
-        const auxiliaryText = toolApprovalReview
+        const auxiliaryText = taskCompletionReview
           ? JSON.stringify({
               outcome: "approved",
-              summary:
-                "The deterministic Journey contract authorizes the Draft forge-shim submission.",
+              summary: "The Task plan and cited Golden Journey evidence satisfy this transition.",
               findings: [],
               blockers: [],
               confidence: "high",
             })
-          : "The deterministic Repro Journey is active and its durable owner state remains authoritative.";
-        const auxiliaryLabel = toolApprovalReview
-          ? toolApprovalOutcomeRecorded
-            ? "auxiliary.tool-approval.verdict"
-            : "auxiliary.tool-approval.outcome"
-          : "auxiliary.compaction";
+          : toolApprovalReview
+            ? JSON.stringify({
+                outcome: "approved",
+                summary:
+                  "The deterministic Journey contract authorizes the Draft forge-shim submission.",
+                findings: [],
+                blockers: [],
+                confidence: "high",
+              })
+            : "The deterministic Repro Journey is active and its durable owner state remains authoritative.";
+        const auxiliaryLabel = taskCompletionReview
+          ? "auxiliary.task-review"
+          : toolApprovalReview
+            ? toolApprovalOutcomeRecorded
+              ? "auxiliary.tool-approval.verdict"
+              : "auxiliary.tool-approval.outcome"
+            : "auxiliary.compaction";
         const auxiliaryContent =
           toolApprovalReview && !toolApprovalOutcomeRecorded
             ? [
@@ -185,6 +199,7 @@ function requestRecord(request: SparkScriptedProviderRequest) {
 interface ContextRefs {
   artifacts: string[];
   evidence: string[];
+  tasks: string[];
 }
 
 function collectRefs(value: unknown): ContextRefs {
@@ -192,6 +207,7 @@ function collectRefs(value: unknown): ContextRefs {
   return {
     artifacts: uniqueMatches(serialized, /artifact:[a-z0-9-]+/giu),
     evidence: uniqueMatches(serialized, /evidence:[a-z0-9-]+/giu),
+    tasks: uniqueMatches(serialized, /task:[a-z0-9-]+/giu),
   };
 }
 
@@ -218,10 +234,13 @@ function interpolate(value: string, ledger: ScriptedProviderLedger, refs: Contex
     if (configured !== undefined) return configured;
     if (name === "LAST_ARTIFACT_REF") return refs.artifacts.at(-1) ?? missing(name);
     if (name === "LAST_EVIDENCE_REF") return refs.evidence.at(-1) ?? missing(name);
+    if (name === "LAST_TASK_REF") return refs.tasks.at(-1) ?? missing(name);
     const artifactIndex = /^ARTIFACT_REF_(\d+)$/u.exec(name)?.[1];
     if (artifactIndex) return refs.artifacts[Number(artifactIndex) - 1] ?? missing(name);
     const evidenceIndex = /^EVIDENCE_REF_(\d+)$/u.exec(name)?.[1];
     if (evidenceIndex) return refs.evidence[Number(evidenceIndex) - 1] ?? missing(name);
+    const taskIndex = /^TASK_REF_(\d+)$/u.exec(name)?.[1];
+    if (taskIndex) return refs.tasks[Number(taskIndex) - 1] ?? missing(name);
     return missing(name);
   });
 }

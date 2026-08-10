@@ -239,7 +239,7 @@ export function createSparkDaemonTaskExecutor(
           await sessionLease?.release();
         } catch (error) {
           console.error(
-            `[spark-daemon] failed to release Task Session lease for ${sessionTask.sessionId}`,
+            `[spark-daemon] failed to release Session lease for ${sessionTask.sessionId}`,
             error,
           );
         }

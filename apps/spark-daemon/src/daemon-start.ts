@@ -158,7 +158,7 @@ import {
   MAIN_TASK_CLAIM_STARTUP_RECOVERY_WINDOW_MS,
 } from "./task-claims/policy.ts";
 import { reconcileMainTaskClaims } from "./task-claims/reconciler.ts";
-import { acquireManagedTaskSessionLease } from "./task-claims/session-lease.ts";
+import { acquireDaemonSessionLease } from "./task-claims/session-lease.ts";
 
 export async function startSparkDaemon(options: StartSparkDaemonOptions): Promise<void> {
   const runtime = await createPreparedDaemonRuntime(options);
@@ -1001,14 +1001,14 @@ function createDaemonScheduler(input: {
               sessionRegistry,
               sessionLeaseControl: {
                 acquire: async (task, context) =>
-                  await acquireManagedTaskSessionLease({
+                  await acquireDaemonSessionLease({
                     db: options.db,
                     task,
                     context,
                     sessionRegistry,
                     onHeartbeatError: (error) =>
                       console.error(
-                        `[spark-daemon] managed Task Session lease heartbeat failed for ${task.sessionId}`,
+                        `[spark-daemon] Session lease heartbeat failed for ${task.sessionId}`,
                         error,
                       ),
                   }),
