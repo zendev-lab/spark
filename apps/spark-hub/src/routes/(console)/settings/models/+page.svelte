@@ -150,6 +150,7 @@
 
   function connectivityReason(reasonCode: string | undefined) {
     if (reasonCode === "aborted") return copy.connectivityReasons.aborted;
+    if (reasonCode === "timeout") return copy.connectivityReasons.timeout;
     if (reasonCode === "authentication-unavailable") return copy.connectivityReasons.authenticationUnavailable;
     if (reasonCode === "no-model") return copy.connectivityReasons.noModel;
     if (reasonCode === "model-out-of-scope") return copy.connectivityReasons.modelOutOfScope;

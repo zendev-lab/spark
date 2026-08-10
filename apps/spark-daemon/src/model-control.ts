@@ -241,7 +241,11 @@ class DaemonModelControl implements SparkDaemonModelControl {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 15_000);
     try {
       const leaf = await this.#providerControl.runLeaf({
         role: "model-connectivity",
@@ -266,7 +270,11 @@ class DaemonModelControl implements SparkDaemonModelControl {
     } catch {
       return result({
         status: "unreachable",
-        reasonCode: controller.signal.aborted ? "aborted" : "model-call-failed",
+        reasonCode: timedOut
+          ? "timeout"
+          : controller.signal.aborted
+            ? "aborted"
+            : "model-call-failed",
       });
     } finally {
       clearTimeout(timeout);

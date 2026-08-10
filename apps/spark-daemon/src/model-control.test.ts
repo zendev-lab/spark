@@ -17,6 +17,7 @@ const model = { providerName: "baidu-oneapi", modelId: "ernie-4.5" };
 const selectedModel = { providerName: "baidu-oneapi", modelId: "ernie-4.6" };
 
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -272,6 +273,34 @@ describe("daemon model control", () => {
       model: selectedModel,
     });
     expect(JSON.stringify(result)).not.toContain("secret credential detail");
+  });
+
+  it("reports the connectivity deadline separately from cancellation", async () => {
+    vi.useFakeTimers();
+    const root = await mkdtemp(join(tmpdir(), "spark-model-connectivity-timeout-"));
+    roots.push(root);
+    const runLeaf = vi.fn(
+      async ({ signal }: Parameters<NonNullable<SparkProviderControl["runLeaf"]>>[0]) =>
+        await new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+    );
+    const control = createSparkDaemonModelControl({
+      providerControl: fakeProviderControl(undefined, runLeaf),
+      sessionRegistry: createDaemonSessionRegistry(root, {
+        daemonId: "install-model-connectivity-timeout",
+        daemonCwd: root,
+      }),
+    });
+
+    const pending = control.testModel(selectedModel);
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await expect(pending).resolves.toMatchObject({
+      status: "unreachable",
+      reasonCode: "timeout",
+      model: selectedModel,
+    });
   });
 
   it("returns a stable reason when a projected model is no longer in the daemon catalog", async () => {

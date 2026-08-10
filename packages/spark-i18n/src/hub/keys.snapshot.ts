@@ -772,6 +772,7 @@ export const hubMessageKeySnapshot = [
   "modelSettings.connectivityReasons.modelOutOfScope",
   "modelSettings.connectivityReasons.noModel",
   "modelSettings.connectivityReasons.routeUnavailable",
+  "modelSettings.connectivityReasons.timeout",
   "modelSettings.currentModelUnavailable",
   "modelSettings.daemonUnavailable",
   "modelSettings.defaultBody",

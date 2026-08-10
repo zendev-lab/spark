@@ -966,7 +966,8 @@ const messages = {
     flowFailed: "连接失败",
     flowCancelled: "已取消",
     connectivityReasons: {
-      aborted: "模型未在测试时限内响应。",
+      aborted: "连通测试已取消。",
+      timeout: "模型未在测试时限内响应。",
       authenticationUnavailable: "无法准备此服务商的凭据。",
       noModel: "尚未配置模型路由。",
       modelOutOfScope: "所选模型不在此 daemon 允许使用的范围内。",

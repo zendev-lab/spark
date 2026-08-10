@@ -993,7 +993,8 @@ const messages = {
     flowFailed: "Connection failed",
     flowCancelled: "Cancelled",
     connectivityReasons: {
-      aborted: "The model did not respond before the test timed out.",
+      aborted: "The connectivity test was cancelled.",
+      timeout: "The model did not respond before the test timed out.",
       authenticationUnavailable: "The provider credential could not be prepared.",
       noModel: "No model route is configured.",
       modelOutOfScope: "The selected model is outside this daemon's allowed model range.",

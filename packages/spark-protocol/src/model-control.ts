@@ -84,6 +84,7 @@ export const sparkModelConnectivityTestRequestSchema = z.object({
 
 export const sparkModelConnectivityFailureReasonSchema = z.enum([
   "aborted",
+  "timeout",
   "authentication-unavailable",
   "no-model",
   "model-out-of-scope",
