@@ -4363,6 +4363,55 @@ test("task finish review resolves superseded Evidence to its current replacement
   }
 });
 
+test("task finish review fails closed on cyclic superseded Evidence replacements", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-cyclic-evidence-"));
+  try {
+    const store = defaultEvidenceStore(dir);
+    const first = await store.put({
+      kind: "record",
+      title: "First historical receipt",
+      format: "json",
+      body: { generation: 1 },
+      provenance: { producer: "task" },
+    });
+    const second = await store.put({
+      kind: "record",
+      title: "Second historical receipt",
+      format: "json",
+      body: { generation: 2 },
+      provenance: { producer: "task" },
+    });
+    await store.update(first.ref, {
+      curation: {
+        status: "superseded",
+        retention: "task",
+        reason: "replaced by second",
+        supersededBy: [second.ref],
+      },
+    });
+    await store.update(second.ref, {
+      curation: {
+        status: "superseded",
+        retention: "task",
+        reason: "invalid cycle back to first",
+        supersededBy: [first.ref],
+      },
+    });
+
+    const context = await buildTaskReviewEvidenceContext(dir, {
+      outputEvidenceRefs: [first.ref],
+      plan: executionReadyPlan("Reject cyclic Evidence replacement"),
+    });
+
+    assert.deepEqual(context.currentEvidenceRefs, []);
+    assert.deepEqual(new Set(context.supersededEvidenceRefs), new Set([first.ref, second.ref]));
+    assert.equal(context.unreadableEvidence.length, 2);
+    assert.match(context.unreadableEvidence[0]?.error ?? "", /cyclic or has no current leaf/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("impl_finish_task blocks unreadable current Evidence before semantic review", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-unreadable-evidence-"));
   try {
@@ -6635,6 +6684,94 @@ test("spark_goal complete allows an explicitly evidenced narrow goal after revie
     const goal = await loadSessionGoal(dir, ctx);
     assert.equal(goal?.status, "complete");
     assert.ok(goal?.lastReviewEvidenceRef);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("goal reviewer failures stay unavailable across complete, edit, and pause", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-goal-reviewer-unavailable-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const reviewerRunner: ReviewerRunner = {
+      async review(input): Promise<ReviewerRunResult> {
+        assert.equal(input.targetKind, "goal");
+        const timestamp = new Date().toISOString();
+        return {
+          verdict: {
+            targetKind: "goal",
+            goalId: input.targetKind === "goal" ? input.goalId : "unexpected",
+            achieved: false,
+            outcome: "blocked",
+            summary: "reviewer runtime unavailable",
+            remainingWork: "retry reviewer",
+            findings: [],
+            blockers: ["transport unavailable"],
+            confidence: "low",
+          },
+          record: {
+            roleRef: "role:builtin-reviewer",
+            startedAt: timestamp,
+            finishedAt: timestamp,
+          },
+          failure: {
+            kind: "runtime_error",
+            reason: "transport unavailable",
+            retryable: true,
+          },
+        };
+      },
+    };
+    const { tools } = registerSparkToolsForTest({ reviewerRunner });
+    await executeSparkTool(tools, "impl_use_project", ctx, { project: "Tool persistence" });
+    await executeSparkTool(tools, "goal", ctx, {
+      action: "start",
+      objective: "Keep goal review failures out of semantic history",
+    });
+    const evidence = await defaultEvidenceStore(dir).put({
+      kind: "trace",
+      title: "Goal completion candidate",
+      format: "text",
+      body: "Candidate evidence reaches the reviewer boundary.",
+      provenance: { producer: "spark" },
+    });
+
+    const completed = await executeSparkTool(tools, "goal", ctx, {
+      action: "complete",
+      requirements: [
+        {
+          id: "reviewer-boundary",
+          description: "Reviewer boundary remains available",
+          status: "verified",
+          evidenceRefs: [evidence.ref],
+        },
+      ],
+      unresolved: [],
+    });
+    assert.equal(
+      (completed.details as { error?: string }).error,
+      "goal_completion_reviewer_unavailable",
+    );
+
+    const edited = await executeSparkTool(tools, "goal", ctx, {
+      action: "edit",
+      objective: "Keep all goal review failures out of semantic history",
+      reason: "correct wording without lowering scope",
+    });
+    assert.equal((edited.details as { error?: string }).error, "goal_edit_reviewer_unavailable");
+
+    const paused = await executeSparkTool(tools, "goal", ctx, {
+      action: "pause",
+      reason: "exercise unavailable reviewer boundary",
+    });
+    assert.equal((paused.details as { error?: string }).error, "goal_pause_reviewer_unavailable");
+    assert.match(toolText(paused), /not a semantic goal rejection/u);
+
+    const goal = await loadSessionGoal(dir, ctx);
+    assert.equal(goal?.status, "active");
+    assert.equal(goal?.lastReviewEvidenceRef, undefined);
+    assert.equal((await defaultEvidenceStore(dir).list({ kind: "record" })).length, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

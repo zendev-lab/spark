@@ -1025,33 +1025,42 @@ function reviewerVerdictProtocolIssue(
   verdict: ReviewerVerdict,
 ): string | undefined {
   if (input.targetKind !== "task" || verdict.targetKind !== "task") return undefined;
-  const messages = [...verdict.findings, ...verdict.blockers];
-  for (const message of messages) {
-    const asksForEvidenceField = /\bevidenceRefs?\b/i.test(message);
+  const clauses = [...verdict.findings, ...verdict.blockers].flatMap((message) =>
+    message
+      .split(/[\n;.]+/u)
+      .map((clause) => clause.trim())
+      .filter(Boolean),
+  );
+  for (const clause of clauses) {
+    if (reviewerClauseIsNegated(clause)) continue;
+    const explicitRequest =
+      /\b(?:attach|add|include|put|supply|provide|require|request|missing|need(?:s|ed)?)\b/iu.test(
+        clause,
+      );
+    if (!explicitRequest) continue;
     if (
-      asksForEvidenceField &&
-      input.task.artifactRefs.some((artifactRef) => message.includes(artifactRef))
+      /\bevidenceRefs?\b/iu.test(clause) &&
+      input.task.artifactRefs.some((artifactRef) => clause.includes(artifactRef))
     ) {
       return "reviewer protocol violation: task Artifact refs are supplied through artifactRefs and cannot be requested through evidenceRefs";
     }
-    const asksForHistoricalEvidence = /\b(require|provide|attach|missing|need(?:s|ed)?)\b/i.test(
-      message,
-    );
-    if (
-      asksForHistoricalEvidence &&
-      input.supersededEvidenceRefs?.some((evidenceRef) => message.includes(evidenceRef))
-    ) {
+    if (input.supersededEvidenceRefs?.some((evidenceRef) => clause.includes(evidenceRef))) {
       return "reviewer protocol violation: superseded Evidence is historical and cannot be required when its current replacement is in the packet";
     }
-    const asksForReceipt = /\b(require|provide|attach|missing|need(?:s|ed)?)\b/i.test(message);
     const sameFinishReceipt =
-      /\bfinish\b.{0,100}\breceipt\b/i.test(message) ||
-      /\breceipt\b.{0,100}\bfinish\b/i.test(message);
-    if (asksForReceipt && sameFinishReceipt) {
+      /\bfinish\b.{0,100}\breceipt\b/iu.test(clause) ||
+      /\breceipt\b.{0,100}\bfinish\b/iu.test(clause);
+    if (sameFinishReceipt) {
       return "reviewer protocol violation: a receipt for the same finish transition is a post-approval output, not an approval prerequisite";
     }
   }
   return undefined;
+}
+
+function reviewerClauseIsNegated(clause: string): boolean {
+  return /^(?:do not|don't|must not|should not|never|no need to|without requiring)\b/iu.test(
+    clause.trim(),
+  );
 }
 
 function unknownErrorMessage(error: unknown): string {

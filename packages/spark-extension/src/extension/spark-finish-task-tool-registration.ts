@@ -1422,6 +1422,7 @@ export async function buildTaskReviewEvidenceContext(
   const currentEvidenceRefs: EvidenceRef[] = [];
   const currentEvidencePreviews: GoalReviewEvidencePreview[] = [];
   const supersededEvidenceRefs: EvidenceRef[] = [];
+  const supersededReplacements = new Map<EvidenceRef, EvidenceRef[]>();
   const unreadableEvidence: GoalReviewEvidencePreview[] = [];
 
   while (queue.length > 0) {
@@ -1433,6 +1434,7 @@ export async function buildTaskReviewEvidenceContext(
       const replacements = evidence.curation?.supersededBy ?? [];
       if (evidence.curation?.status === "superseded") {
         supersededEvidenceRefs.push(ref);
+        supersededReplacements.set(ref, replacements);
         if (replacements.length === 0) {
           unreadableEvidence.push({
             ref,
@@ -1458,6 +1460,17 @@ export async function buildTaskReviewEvidenceContext(
     }
   }
 
+  const currentSet = new Set(currentEvidenceRefs);
+  for (const ref of supersededEvidenceRefs) {
+    if (supersededChainReachesCurrent(ref, supersededReplacements, currentSet, new Set())) continue;
+    if (unreadableEvidence.some((entry) => entry.ref === ref)) continue;
+    unreadableEvidence.push({
+      ref,
+      curationStatus: "superseded",
+      error: "superseded Evidence replacement chain is cyclic or has no current leaf",
+    });
+  }
+
   return {
     currentEvidenceRefs,
     currentEvidencePreviews: currentEvidencePreviews.slice(0, TASK_REVIEW_EVIDENCE_PREVIEW_LIMIT),
@@ -1468,6 +1481,20 @@ export async function buildTaskReviewEvidenceContext(
     supersededEvidenceRefs,
     unreadableEvidence,
   };
+}
+
+function supersededChainReachesCurrent(
+  ref: EvidenceRef,
+  replacements: ReadonlyMap<EvidenceRef, readonly EvidenceRef[]>,
+  current: ReadonlySet<EvidenceRef>,
+  visiting: Set<EvidenceRef>,
+): boolean {
+  if (current.has(ref)) return true;
+  if (visiting.has(ref)) return false;
+  visiting.add(ref);
+  return (replacements.get(ref) ?? []).some((replacement) =>
+    supersededChainReachesCurrent(replacement, replacements, current, new Set(visiting)),
+  );
 }
 
 function collectTaskReviewEvidenceRefs(

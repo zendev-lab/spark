@@ -230,6 +230,12 @@ export async function requestGoalCompletionReview(
     };
   }
   const review = leasedReview.result;
+  if (review.failure) {
+    return {
+      outcome: "unavailable",
+      reason: `${review.failure.kind}: ${review.failure.reason}`,
+    };
+  }
   const verdict = review.verdict as GoalReviewVerdict;
   const evidence = await recordGoalReviewEvidence(stateCwd, active, review, reviewInput);
   const reviewedAt = review.record.finishedAt || nowIso();
@@ -356,6 +362,7 @@ async function runGoalCompletionReviewer(
         startedAt: timestamp,
         finishedAt: timestamp,
       },
+      failure: { kind: "runtime_error", reason, retryable: true },
     };
   }
 }

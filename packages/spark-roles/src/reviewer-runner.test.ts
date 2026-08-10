@@ -729,6 +729,53 @@ test("SparkRolesReviewerRunner classifies impossible task requests as reviewer p
   }
 });
 
+test("SparkRolesReviewerRunner preserves negated and independent semantic findings", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-reviewer-runner-semantic-findings-"));
+  try {
+    const base = reviewTaskInput();
+    const input: TaskReviewInput = {
+      ...base,
+      cwd: dir,
+      task: { ...base.task, artifactRefs: ["artifact:delivery"] },
+      evidenceRefs: ["evidence:current"],
+      supersededEvidenceRefs: ["evidence:historical"],
+    };
+    const runner = new SparkRolesReviewerRunner({
+      registry: new RoleRegistry(),
+      cwd: dir,
+      timeoutMs: 15_000,
+      maxRetries: 0,
+      env: reviewerRunnerTestEnv,
+      nativeExecutor: async (request) => ({
+        record: { ...request.record, status: "succeeded", finishedAt: new Date().toISOString() },
+        stdout: JSON.stringify({
+          outcome: "needs_changes",
+          summary: "current replacement is invalid",
+          findings: [
+            "Do not provide evidence:historical; the current replacement fails validation.",
+            "artifact:delivery is unreadable; evidenceRefs are otherwise sufficient.",
+          ],
+          blockers: ["Repair evidence:current and the Artifact storage record."],
+          confidence: "high",
+        }),
+        stderr: "",
+        jsonEvents: [],
+      }),
+    });
+
+    const result = await runner.review(input);
+
+    assert.equal(result.verdict.outcome, "needs_changes");
+    assert.equal(result.failure, undefined);
+    assert.deepEqual(result.verdict.findings, [
+      "Do not provide evidence:historical; the current replacement fails validation.",
+      "artifact:delivery is unreadable; evidenceRefs are otherwise sufficient.",
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("SparkRolesReviewerRunner resolves reviewer model from role model settings", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-reviewer-runner-model-settings-"));
   try {
