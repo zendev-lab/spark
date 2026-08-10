@@ -380,6 +380,38 @@ test("role native executor fallback rejects inconsistent succeeded status and fa
   );
 });
 
+test("role native executor reviewer fallback also fences Spark-owned primary resolution", async () => {
+  let resolveCalls = 0;
+  let primaryCalls = 0;
+  let fallbackCalls = 0;
+  const executor = withRoleNativeExecutorCompatibilityFallback(undefined, {
+    resolvePrimary: async () => {
+      resolveCalls += 1;
+      return async () => {
+        primaryCalls += 1;
+        throw new TypeError(
+          "Cannot read properties of undefined (reading 'defaultSparkConfigPath')",
+        );
+      };
+    },
+    runIsolatedFallback: async (request) => {
+      fallbackCalls += 1;
+      return {
+        record: { ...request.record, status: "succeeded" as const },
+        stdout: "fallback",
+        stderr: "",
+        jsonEvents: [],
+      };
+    },
+  });
+
+  assert.equal((await executor(fakeRequest())).stdout, "fallback");
+  assert.equal((await executor(fakeRequest())).stdout, "fallback");
+  assert.equal(resolveCalls, 1);
+  assert.equal(primaryCalls, 2);
+  assert.equal(fallbackCalls, 2);
+});
+
 test("role native executor reviewer fallback runs only for the exact host compatibility failure", async () => {
   let primaryCalls = 0;
   let fallbackLoads = 0;

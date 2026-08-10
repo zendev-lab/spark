@@ -22,6 +22,8 @@ export interface RoleNativeExecutorResolverDeps {
 export interface RoleNativeExecutorCompatibilityFallbackDeps {
   /** Test seam that replaces the complete isolated runner boundary. */
   runIsolatedFallback?: typeof runIsolatedRoleNativeExecutor;
+  /** Test seam for the Spark-owned primary used when the host did not inject runRole. */
+  resolvePrimary?: RoleNativeExecutorResolver;
   moduleSpecifier?: string;
   sparkHome?: string;
   controlSparkHome?: string;
@@ -53,8 +55,8 @@ export const resolveRoleNativeExecutor = createRoleNativeExecutorResolver();
 export function withRoleNativeExecutorCompatibilityFallback(
   primary: ExtensionRoleRunner | undefined,
   deps: RoleNativeExecutorCompatibilityFallbackDeps = {},
-): ExtensionRoleRunner | undefined {
-  if (!primary) return undefined;
+): ExtensionRoleRunner {
+  const primaryExecutor = primary ?? lazySparkOwnedPrimary(deps.resolvePrimary);
   return async (request) => {
     if (request.nativeCompatibilityRecovery === "reviewer" && request.signal?.aborted) {
       return compatibilityFallbackAborted();
@@ -67,7 +69,7 @@ export function withRoleNativeExecutorCompatibilityFallback(
         : request;
     let primaryResult: ExtensionRoleRunResult;
     try {
-      primaryResult = await primary(primaryRequest);
+      primaryResult = await primaryExecutor(primaryRequest);
     } catch (primaryError) {
       if (request.nativeCompatibilityRecovery === "reviewer" && request.signal?.aborted) {
         return compatibilityFallbackAborted();
@@ -110,6 +112,18 @@ export function withRoleNativeExecutorCompatibilityFallback(
           controlSparkHome: deps.controlSparkHome,
         }),
     });
+  };
+}
+
+function lazySparkOwnedPrimary(
+  resolvePrimary: RoleNativeExecutorResolver = resolveRoleNativeExecutor,
+): ExtensionRoleRunner {
+  let primaryPromise: Promise<ExtensionRoleRunner> | undefined;
+  return async (request) => {
+    primaryPromise ??= resolvePrimary({});
+    return await (
+      await primaryPromise
+    )(request);
   };
 }
 
