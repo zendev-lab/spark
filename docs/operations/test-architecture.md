@@ -57,13 +57,13 @@ pull-request verification.
 
 Test ownership is structural instead of ledger-driven:
 
-- package and app tests live under their owning workspace and run through that workspace's `test`/`check` scripts;
+- package and app tests live under their owning workspace and run through that workspace's `test` script;
 - `vitest.root.config.ts` owns cross-workspace tests under `test/` and excludes the separate real-process lane;
 - `vitest.process.config.ts` owns `test/process/`;
 - Dependency Cruiser rejects root/app deep links into workspace `src/` internals and cross-package relative source imports;
-- `pnpm -r --filter './packages/*' --if-present run check` discovers package-local checks directly from manifests, while `check-architecture-ratchets.mjs` fails closed when a package contains tests but does not expose them through its `test` and `check` scripts.
+- `pnpm -r --filter './packages/*' --if-present run test` discovers package-local tests directly from manifests, while `check-architecture-ratchets.mjs` fails closed when a package contains tests but does not expose a `test` script.
 
-Mutation CE selection is also package-owned: every participating package declares a standard `test:mutation` script beside its `stryker.config.json`, and the root command uses pnpm recursive `--if-present` discovery. The architecture ratchet treats either a mutation script or Stryker config as an ownership signal and requires the complete standard command/dependency/config set, so `--if-present` cannot silently omit a partially configured package. Shared Stryker development dependencies alone do not enroll a package in mutation CE. This avoids maintaining historical migration baselines or a second workspace inventory. Review package scripts, Vitest includes, and Dependency Cruiser rules together when changing a test boundary.
+Mutation CE selection is also package-owned: either a `test:mutation` script or `stryker.config.json` requires the complete command, config, and dependency set. Shared Stryker dependencies alone do not enroll a package. This keeps pnpm recursive `--if-present` discovery fail-closed without a second workspace inventory.
 
 ## Tests versus static policy
 
