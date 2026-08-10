@@ -31,7 +31,7 @@ export const catalogFixtures: readonly CatalogFixture[] = [
     id: "message-shell",
     group: "conversation",
     title: "Message shell",
-    description: "Actor identity, status, body, actions, and responsive alignment.",
+    description: "Actor, status, body, actions, and responsive layout.",
     scenarios: [
       { id: "streaming", state: "streaming", title: "Streaming response" },
       { id: "success", state: "success", title: "Completed response" },
