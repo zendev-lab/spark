@@ -71,10 +71,10 @@ export function registerSparkAskTools(registerSparkTool: SparkToolRegistrar): vo
         }),
       ),
     }),
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(toolCallId, params, _signal, _onUpdate, ctx) {
       return runSparkAskTool(params as unknown as SparkAskToolParams, {
         cwd: sparkStateCwd(ctx.cwd, ctx),
-        ui: sparkAskUi(ctx),
+        ui: sparkAskUi(ctx, toolCallId),
       });
     },
   });

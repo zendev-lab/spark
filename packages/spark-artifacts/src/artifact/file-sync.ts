@@ -17,6 +17,7 @@ import type {
 } from "./types.ts";
 
 export const ARTIFACT_SYNC_FILE_MAX_BYTES = 32 * 1024;
+export const ARTIFACT_TRUSTED_SYNC_FILE_MAX_BYTES = 128 * 1024;
 
 export interface SyncDocumentArtifactFileInput {
   cwd: string;
@@ -26,6 +27,8 @@ export interface SyncDocumentArtifactFileInput {
   mediaType: SparkDocumentMediaType;
   progress?: ArtifactProgress;
   store?: ArtifactStore;
+  /** Larger bounded allowance for workspace files produced by trusted Spark code. */
+  maxBytes?: number;
 }
 
 export interface SyncDocumentArtifactFileResult {
@@ -49,7 +52,7 @@ export async function syncDocumentArtifactFile(
   if (!isSparkDocumentMediaType(input.mediaType)) {
     throw new Error(`document media type is not writable: ${String(input.mediaType)}`);
   }
-  const content = await readDocumentSyncFile(input.cwd, input.sourcePath);
+  const content = await readDocumentSyncFile(input.cwd, input.sourcePath, input.maxBytes);
   const store = input.store ?? defaultArtifactStore(input.cwd);
   const format = documentFormat(input.mediaType);
   const existing = await store.tryGet(input.artifactRef);
@@ -104,7 +107,12 @@ export async function syncDocumentArtifactFile(
   return { artifact: updated, changed: true, created: false };
 }
 
-export async function readDocumentSyncFile(cwd: string, sourcePathValue: unknown): Promise<string> {
+export async function readDocumentSyncFile(
+  cwd: string,
+  sourcePathValue: unknown,
+  maxBytesValue: number = ARTIFACT_SYNC_FILE_MAX_BYTES,
+): Promise<string> {
+  const maxBytes = syncFileMaxBytes(maxBytesValue);
   const sourcePath = requiredString(sourcePathValue, "sourcePath");
   const lexicalRoot = resolve(cwd);
   const candidate = resolve(lexicalRoot, sourcePath);
@@ -119,8 +127,8 @@ export async function readDocumentSyncFile(cwd: string, sourcePathValue: unknown
   if (!info.isFile()) {
     throw new Error(`sourcePath must be a regular file: ${sourcePath}`);
   }
-  if (info.size > ARTIFACT_SYNC_FILE_MAX_BYTES) {
-    throw syncFileSizeError(sourcePath, info.size);
+  if (info.size > maxBytes) {
+    throw syncFileSizeError(sourcePath, info.size, maxBytes);
   }
 
   const [canonicalRoot, canonicalSource] = await Promise.all([
@@ -137,19 +145,19 @@ export async function readDocumentSyncFile(cwd: string, sourcePathValue: unknown
     if (!openedInfo.isFile()) {
       throw new Error(`sourcePath must be a regular file: ${sourcePath}`);
     }
-    if (openedInfo.size > ARTIFACT_SYNC_FILE_MAX_BYTES) {
-      throw syncFileSizeError(sourcePath, openedInfo.size);
+    if (openedInfo.size > maxBytes) {
+      throw syncFileSizeError(sourcePath, openedInfo.size, maxBytes);
     }
 
-    const buffer = Buffer.alloc(ARTIFACT_SYNC_FILE_MAX_BYTES + 1);
+    const buffer = Buffer.alloc(maxBytes + 1);
     let bytesRead = 0;
     while (bytesRead < buffer.byteLength) {
       const result = await handle.read(buffer, bytesRead, buffer.byteLength - bytesRead, bytesRead);
       if (result.bytesRead === 0) break;
       bytesRead += result.bytesRead;
     }
-    if (bytesRead > ARTIFACT_SYNC_FILE_MAX_BYTES) {
-      throw syncFileSizeError(sourcePath, bytesRead);
+    if (bytesRead > maxBytes) {
+      throw syncFileSizeError(sourcePath, bytesRead, maxBytes);
     }
     try {
       return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
@@ -168,10 +176,19 @@ function pathIsWithin(root: string, candidate: string): boolean {
   return scoped !== ".." && !scoped.startsWith(`..${sep}`) && !isAbsolute(scoped);
 }
 
-function syncFileSizeError(sourcePath: string, size: number): Error {
+function syncFileSizeError(sourcePath: string, size: number, maxBytes: number): Error {
   return new Error(
-    `sourcePath exceeds the ${ARTIFACT_SYNC_FILE_MAX_BYTES}-byte sync_file limit (${size} bytes): ${sourcePath}`,
+    `sourcePath exceeds the ${maxBytes}-byte sync_file limit (${size} bytes): ${sourcePath}`,
   );
+}
+
+function syncFileMaxBytes(value: number): number {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > ARTIFACT_TRUSTED_SYNC_FILE_MAX_BYTES) {
+    throw new Error(
+      `maxBytes must be a positive integer no greater than ${ARTIFACT_TRUSTED_SYNC_FILE_MAX_BYTES}`,
+    );
+  }
+  return value;
 }
 
 function documentFormat(mediaType: SparkDocumentMediaType): ArtifactFormat {

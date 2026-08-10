@@ -442,6 +442,8 @@ export interface ExtensionEvidenceRequestBinding {
 
 export interface ExtensionAskFlowInteractionRequest extends ExtensionInteractionRequestBase {
   kind: "askFlow";
+  /** Host-generated tool invocation identity used to resume the same durable wait. */
+  toolCallId?: string | undefined;
   delivery?: "blocking" | "async" | undefined;
   timeoutMs?: number | undefined;
   mode?: "clarification" | "decision" | "approval" | "unblock" | undefined;

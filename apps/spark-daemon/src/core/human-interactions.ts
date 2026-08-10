@@ -212,11 +212,20 @@ export class SparkDaemonHumanInteractionBroker {
       );
     }
 
-    const humanRequestId = createId("hreq");
-    const messageId = createId("msg");
     const invocationId = runtimeInvocationId(context.invocationId);
     const callbackOptions = createCallbackOptions(durable.ask);
     const delivery = durable.ask.delivery ?? "blocking";
+    const toolCallId =
+      context.toolCallId ??
+      (request.kind === "toolApproval" || request.kind === "askFlow"
+        ? request.toolCallId
+        : undefined);
+    const reusable =
+      context.sessionId.trim() && toolCallId?.trim()
+        ? this.options.waits.findUniqueInteraction({ toolCallId, sessionId: context.sessionId })
+        : null;
+    const humanRequestId = reusable?.humanRequestId ?? createId("hreq");
+    const messageId = createId("msg");
     const prompt =
       durable.ask.prompt?.trim() ||
       durable.ask.questions.map((question) => question.prompt).join("\n");
@@ -254,8 +263,6 @@ export class SparkDaemonHumanInteractionBroker {
           }
         : {}),
     };
-    const toolCallId =
-      context.toolCallId ?? (request.kind === "toolApproval" ? request.toolCallId : undefined);
     const payload = {
       kind: "ask_user" as const,
       delivery,
@@ -300,27 +307,33 @@ export class SparkDaemonHumanInteractionBroker {
             { messageId },
           )
         : undefined;
-    const registration = this.options.waits.register(
-      {
-        humanRequestId,
-        interactionRequestId: request.requestId,
-        sessionId: context.sessionId,
-        invocationId,
-        workspaceBindingId: route?.workspaceBindingId ?? context.workspaceBindingId,
-        workspaceId: route?.workspaceId ?? context.workspaceId,
-        projectId: context.projectId,
-        toolCallId,
-        delivery,
-        ...(durable.ask.evidenceRequest ? { evidenceRequest: durable.ask.evidenceRequest } : {}),
-        kind: "ask_user",
-        title: durable.ask.title,
-        prompt,
-        questions: payload.questions,
-        context: contextPayload,
-        contextArtifactRefs: [],
-      },
-      envelope ? { messageId, kind: "human.request.created", envelope } : undefined,
-    );
+    const registration = reusable
+      ? reusable.status === "pending" && delivery === "async"
+        ? { wait: reusable, created: false }
+        : this.options.waits.resume(reusable.humanRequestId)
+      : this.options.waits.register(
+          {
+            humanRequestId,
+            interactionRequestId: request.requestId,
+            sessionId: context.sessionId,
+            invocationId,
+            workspaceBindingId: route?.workspaceBindingId ?? context.workspaceBindingId,
+            workspaceId: route?.workspaceId ?? context.workspaceId,
+            projectId: context.projectId,
+            toolCallId,
+            delivery,
+            ...(durable.ask.evidenceRequest
+              ? { evidenceRequest: durable.ask.evidenceRequest }
+              : {}),
+            kind: "ask_user",
+            title: durable.ask.title,
+            prompt,
+            questions: payload.questions,
+            context: contextPayload,
+            contextArtifactRefs: [],
+          },
+          envelope ? { messageId, kind: "human.request.created", envelope } : undefined,
+        );
 
     if (registration.created && envelope) await Promise.resolve(this.options.onOutboxReady?.());
     if (registration.created && this.options.onRequestOpened) {
@@ -339,7 +352,7 @@ export class SparkDaemonHumanInteractionBroker {
       }
     }
 
-    if (delivery === "async") {
+    if (delivery === "async" && registration.wait.status === "pending") {
       return {
         version: SPARK_PROTOCOL_VERSION,
         kind: "askFlow",

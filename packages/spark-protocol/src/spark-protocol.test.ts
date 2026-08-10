@@ -109,6 +109,7 @@ test("spark protocol validates interaction requests and typed responses", () => 
   const ask = parseSparkInteractionRequest({
     requestId: "req-ask",
     kind: "askFlow",
+    toolCallId: "tool-ask-1",
     title: "Choose plan",
     mode: "decision",
     timeoutMs: 60 * 60_000,
@@ -122,6 +123,7 @@ test("spark protocol validates interaction requests and typed responses", () => 
     ],
   });
   assert.equal(ask.kind, "askFlow");
+  assert.equal(ask.toolCallId, "tool-ask-1");
   assert.equal(ask.timeoutMs, 60 * 60_000);
 
   const evidenceBinding = {

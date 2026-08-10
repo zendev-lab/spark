@@ -10,8 +10,9 @@ its normal check and mutation evaluation can exercise it.
 | --- | --- | --- |
 | Package unit / contract | `packages/*/src/**/*.test.ts` | Pure behavior, schemas, state transitions, adapter contracts |
 | App unit / integration | `apps/*/src/**/*.test.ts` | App-owned composition, persistence, process, route, and rendering behavior |
-| Root integration | `pnpm test` (`test/**/*.test.ts`, excluding `test/process/`) | Behavior that genuinely crosses package or app ownership boundaries |
+| Root integration | `pnpm test` (`test/**/*.test.ts`, excluding `test/process/` and `test/journey/`) | Behavior that genuinely crosses package or app ownership boundaries |
 | Source process | `pnpm run test:process:source` (`test/process/**/*.test.ts`) | Exact source-distributed executable lifecycle under isolated local state |
+| Repro Golden Journey | `pnpm run test:journey:repro` (`test/journey/**/*.test.ts`) | Complete trusted product path through real source processes and cue-shell |
 | Browser component | `pnpm run test:browser:hub` | Browser-only interaction and DOM behavior |
 | Product process | `pnpm run smoke` | Packed, clean-installed public product lifecycle and Hub HTTP/client-asset smoke |
 | Capability CE | `pnpm run test:capability:ce` | Repeated zero-token Goal, Loop, and Repro sentinels, inventory stability, flakes, and duration variance |
@@ -34,12 +35,13 @@ contracts. The Direct PTY harness launches `runNativeSparkTui()` in a real pseud
 stdin/stdout bytes, raw mode, resize, redraw, and exit behavior. Do not simulate PTY semantics in
 the component harness or require a terminal multiplexer for either lane.
 
-Real process tests stay out of the root Vitest suite. Source and packed-product checks share the same
+Real process and journey tests stay out of the root Vitest suite. Source and packed-product checks share the same
 daemon lifecycle harness, but invoke different executable targets. This prevents the source launcher
 and generated npm product from drifting while keeping failures attributable to distinct named steps.
 `pnpm run check` remains the serial local gate. Static CI always runs the complete architecture,
 test-quality, documentation, formatting, lint, and type checks. Runtime CI runs the complete source
-and process suites on the Ubuntu/macOS matrix plus the browser suite for pull requests,
+and process suites on the Ubuntu/macOS matrix, the Repro Golden Journey on Ubuntu with a pinned
+compatible cue-shell source build, plus the browser suite for pull requests,
 `merge_group`, and `main` pushes. These jobs are advisory and there is no aggregate required test
 job.
 
@@ -58,8 +60,9 @@ pull-request verification.
 Test ownership is structural instead of ledger-driven:
 
 - package and app tests live under their owning workspace and run through that workspace's `test` script;
-- `vitest.root.config.ts` owns cross-workspace tests under `test/` and excludes the separate real-process lane;
+- `vitest.root.config.ts` owns cross-workspace tests under `test/` and excludes separate real-process and journey lanes;
 - `vitest.process.config.ts` owns `test/process/`;
+- `vitest.journey.config.ts` owns `test/journey/` and may declare native runtime prerequisites in its dedicated CI job;
 - Dependency Cruiser rejects root/app deep links into workspace `src/` internals and cross-package relative source imports;
 - `pnpm -r --filter './packages/*' --if-present run test` discovers package-local tests directly from manifests, while `check-architecture-ratchets.mjs` fails closed when a package contains tests but does not expose a `test` script.
 
