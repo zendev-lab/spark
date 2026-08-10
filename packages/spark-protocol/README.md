@@ -2,6 +2,12 @@
 
 JSON-safe schemas and types shared by native TUI, daemon, runtime WebSocket, and Hub surfaces. This package owns refs/errors, command/event envelopes, invocation lifecycle, registration, projections, interactions, and view models.
 
+`@zendev-lab/spark-protocol/conversation` projects the existing message-part
+wire schema into shared, stateless conversation semantics. It normalizes text
+phases, redacted thinking, images, tool lifecycle/result merging, and legacy
+text-only messages; browser and terminal adapters continue to own their own
+rendering and interaction behavior.
+
 Local RPC turn methods map to `turn.submit.request`, `turn.status.request`, `turn.stream.subscribe`, and `turn.cancel.request`. Bounded invocation list/result/retry/retention payloads are also protocol-owned; retry results identify a new invocation and `retryOfInvocationId`. Runtime commands map to the same transport-neutral `SparkCommand` vocabulary. Facts use `SparkEvent`, including command status/rejection, projections, diagnostics, and errors.
 
 The package must not import terminal, Svelte, Pi SDK, `pi-tui`, or Spark app internals. See [`../../docs/specs/turn.md`](../../docs/specs/turn.md).

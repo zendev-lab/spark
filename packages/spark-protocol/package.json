@@ -20,6 +20,7 @@
     "./command-delivery": "./src/command-delivery.ts",
     "./command-events": "./src/command-events.ts",
     "./command-sources": "./src/command-sources.ts",
+    "./conversation": "./src/conversation.ts",
     "./daemon-rpc-errors": "./src/daemon-rpc-errors.ts",
     "./loop": "./src/loop.ts",
     "./errors": "./src/errors.ts",

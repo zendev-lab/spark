@@ -5,6 +5,7 @@
     SlashActionBar,
     SlashCommandMenu,
   } from "$lib/components/conversation";
+  import { sparkActionFromPresentation } from "$lib/components/conversation/action-adapter";
   import { ModelRuntimeControl } from "$lib/components/model-selector";
   import { Icon } from "@zendev-lab/spark-ui";
   import {
@@ -250,8 +251,10 @@
           {#if host.sessionSlashActionBar}
             <SlashActionBar
               view={host.sessionSlashActionBar}
-              resolveAction={(action) => host.slashActionAvailability(action, "session")}
-              onAction={(action) => host.handleSlashAction(action, "session")}
+              resolveAction={(action) =>
+                host.slashActionAvailability(sparkActionFromPresentation(action), "session")}
+              onAction={(action) =>
+                host.handleSlashAction(sparkActionFromPresentation(action), "session")}
             />
           {/if}
         {/snippet}

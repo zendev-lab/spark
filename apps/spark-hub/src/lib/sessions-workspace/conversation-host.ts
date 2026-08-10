@@ -5,10 +5,7 @@ import type {
   SessionStatusBarLabels,
   SlashActionAvailability,
 } from "$lib/components/conversation";
-import type {
-  ConversationPartLabels,
-  LoadEarlierOutcome,
-} from "$lib/components/conversation/types";
+import type { ConversationPartLabels, LoadEarlierOutcome } from "@zendev-lab/spark-ui/conversation";
 import type { ModelPickerGroup, ModelRuntimeControlLabels } from "$lib/components/model-selector";
 import type { PendingWorkbenchAsk } from "$lib/pending-ask";
 import type { SessionEventConnectionState } from "$lib/session-event-connection";

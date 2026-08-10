@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Icon } from "@zendev-lab/spark-ui";
+  import Icon from "../Icon.svelte";
   import ReasoningPart from "./ReasoningPart.svelte";
   import ToolCallPart from "./ToolCallPart.svelte";
   import {

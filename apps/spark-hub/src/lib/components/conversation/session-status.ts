@@ -1,31 +1,16 @@
 import type { SparkModelRef, SparkSessionView } from "@zendev-lab/spark-protocol";
 
-export interface SessionStatusBarLabels {
-  bar: string;
-  workingDirectory: string;
-  branch: string;
-  inputTokens: string;
-  outputTokens: string;
-  cacheReadTokens: string;
-  cacheWriteTokens: string;
-  cacheHit: string;
-  cost: string;
-  context: string;
-}
-
-export interface SessionStatusSnapshot {
-  cwd: string;
-  gitBranch?: string;
-  inputTokens?: number;
-  outputTokens?: number;
-  cacheReadTokens?: number;
-  cacheWriteTokens?: number;
-  costUsd?: number;
-  latestCacheHitPercent?: number;
-  contextTokens?: number;
-  contextTokenSource?: "reported" | "tokenizer" | "estimated";
-  contextWindow?: number;
-}
+export {
+  describeSessionStatus,
+  formatCompactTokenCount,
+  formatContextUsage,
+  formatSessionCost,
+  formatSessionStatusPercent,
+} from "@zendev-lab/spark-ui/conversation";
+export type {
+  SessionStatusBarLabels,
+  SessionStatusSnapshot,
+} from "@zendev-lab/spark-ui/conversation";
 
 export interface SessionStatusUsage {
   inputTokens?: number;
@@ -58,15 +43,7 @@ export function sessionStatusIdentity(
   };
 }
 
-/**
- * Project the daemon-owned session lifetime snapshot.
- *
- * Run metadata has no durable watermark proving that it starts after the
- * snapshot. It may already be included in `session.usage`, so adding the two
- * would double count after every refreshed snapshot. Run totals are therefore
- * a fallback only when the daemon did not provide cumulative usage; their
- * latest context/cache fields may still refine display-only state.
- */
+/** Project the daemon-owned session lifetime snapshot without double-counting run totals. */
 export function sessionStatusUsage(
   session: SparkSessionView | null,
   contextWindow?: number,
@@ -127,81 +104,4 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
-function nonNegativeFinite(value: number | undefined): number | undefined {
-  return value !== undefined && Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
-function trimDecimal(value: string): string {
-  return value.replace(/\.0+$/u, "").replace(/(\.\d*?)0+$/u, "$1");
-}
-
-export function formatCompactTokenCount(value: number | undefined): string | undefined {
-  const count = nonNegativeFinite(value);
-  if (count === undefined) return undefined;
-
-  const units = [
-    { threshold: 1_000_000_000, suffix: "B" },
-    { threshold: 1_000_000, suffix: "M" },
-    { threshold: 1_000, suffix: "k" },
-  ] as const;
-  const unit = units.find((candidate) => count >= candidate.threshold);
-  if (!unit) return String(Math.round(count));
-
-  const scaled = count / unit.threshold;
-  const fractionDigits = scaled < 10 ? 1 : scaled < 100 && !Number.isInteger(scaled) ? 1 : 0;
-  return `${trimDecimal(scaled.toFixed(fractionDigits))}${unit.suffix}`;
-}
-
-export function formatSessionStatusPercent(value: number | undefined): string | undefined {
-  const percent = nonNegativeFinite(value);
-  if (percent === undefined) return undefined;
-  return `${trimDecimal(Math.min(percent, 100).toFixed(1))}%`;
-}
-
-export function formatSessionCost(value: number | undefined): string | undefined {
-  const cost = nonNegativeFinite(value);
-  if (cost === undefined) return undefined;
-  const fractionDigits = cost >= 1 ? 3 : cost >= 0.01 ? 4 : 5;
-  return `$${trimDecimal(cost.toFixed(fractionDigits))}`;
-}
-
-export function formatContextUsage(
-  contextTokens: number | undefined,
-  contextWindow: number | undefined,
-): string | undefined {
-  const window = nonNegativeFinite(contextWindow);
-  if (window === undefined || window === 0) return undefined;
-
-  const compactWindow = formatCompactTokenCount(window);
-  const used = nonNegativeFinite(contextTokens);
-  if (used === undefined) return `—/${compactWindow}`;
-  return `${formatSessionStatusPercent((used / window) * 100)}/${compactWindow}`;
-}
-
-function detail(label: string, value: string | number | undefined): string | undefined {
-  if (value === undefined || value === "") return undefined;
-  return `${label}: ${value}`;
-}
-
-export function describeSessionStatus(
-  labels: SessionStatusBarLabels,
-  status: SessionStatusSnapshot,
-): string {
-  const context = formatContextUsage(status.contextTokens, status.contextWindow);
-  return [
-    labels.bar,
-    detail(labels.workingDirectory, status.cwd.trim()),
-    detail(labels.branch, status.gitBranch?.trim()),
-    detail(labels.inputTokens, nonNegativeFinite(status.inputTokens)),
-    detail(labels.outputTokens, nonNegativeFinite(status.outputTokens)),
-    detail(labels.cacheReadTokens, nonNegativeFinite(status.cacheReadTokens)),
-    detail(labels.cacheWriteTokens, nonNegativeFinite(status.cacheWriteTokens)),
-    detail(labels.cacheHit, formatSessionStatusPercent(status.latestCacheHitPercent)),
-    detail(labels.cost, formatSessionCost(status.costUsd)),
-    detail(labels.context, context),
-  ]
-    .filter((value): value is string => Boolean(value))
-    .join(" · ");
 }

@@ -4,6 +4,7 @@ import type { CommandMetadata, SparkHostCommandContext } from "@zendev-lab/spark
 import type {
   SparkInteractionRequest,
   SparkInteractionResponse,
+  SparkConversationProjection,
   SparkMessageView,
   SparkTurnCancelResult,
   SparkTurnStatusResult,
@@ -53,6 +54,8 @@ export interface SparkNativeMessage {
   createdAt?: string;
   updatedAt?: string;
   nativeOrder?: number;
+  /** One wire message projected as ordered semantic parts; terminal rendering remains TUI-owned. */
+  conversation?: SparkConversationProjection;
 }
 
 export interface SparkNativeToolMessageInput {

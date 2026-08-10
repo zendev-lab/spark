@@ -1,8 +1,8 @@
 <script lang="ts">
   import type {
-    SlashActionAvailability,
-    SlashActionBarProps,
-  } from "./index";
+    ConversationActionAvailability,
+    ConversationActionBarProps,
+  } from "./types";
 
   let {
     view,
@@ -10,11 +10,11 @@
     disabledReason,
     resolveAction,
     onAction,
-  }: SlashActionBarProps = $props();
+  }: ConversationActionBarProps = $props();
 
   function availabilityFor(
-    action: Parameters<NonNullable<SlashActionBarProps["resolveAction"]>>[0],
-  ): SlashActionAvailability {
+    action: Parameters<NonNullable<ConversationActionBarProps["resolveAction"]>>[0],
+  ): ConversationActionAvailability {
     if (disabled) {
       return { enabled: false, reason: disabledReason };
     }
@@ -22,8 +22,8 @@
   }
 
   function invoke(
-    action: Parameters<NonNullable<SlashActionBarProps["onAction"]>>[0],
-    availability: SlashActionAvailability,
+    action: Parameters<NonNullable<ConversationActionBarProps["onAction"]>>[0],
+    availability: ConversationActionAvailability,
   ) {
     if (!availability.enabled) return;
     void onAction?.(action);

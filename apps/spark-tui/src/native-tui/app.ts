@@ -16,6 +16,7 @@ import {
   type SparkActionBarView,
   type SparkActionView,
   type SparkArtifactView,
+  type SparkConversationProjectionPart,
   type SparkInteractionRequest,
   type SparkInteractionResponse,
   type SparkRunView,
@@ -1447,6 +1448,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   private renderMessage(message: SparkNativeMessage, width: number): string[] {
     if (message.display === false) return [];
+    if (message.conversation) {
+      return message.conversation.parts.flatMap((part) =>
+        this.renderConversationPart(message, part, width),
+      );
+    }
     if (message.role === "tool") return this.renderToolMessage(message, width);
     if (message.role === "thinking") return this.renderThinkingMessage(message, width);
     if (message.role === "custom") return this.renderCustomMessage(message, width);
@@ -1464,6 +1470,51 @@ export class SparkNativeTuiApp implements Component, Focusable {
           )
         : this.renderPrefixedBlock(prefix, `${body}${suffix}`, width);
     return this.styleRoleLines(message.role, [...quoteLines, ...lines]);
+  }
+
+  private renderConversationPart(
+    message: SparkNativeMessage,
+    part: SparkConversationProjectionPart,
+    width: number,
+  ): string[] {
+    const details = { ...message.details, ...part.metadata, partStatus: part.status };
+    if (part.type === "thinking") {
+      return this.renderThinkingMessage(
+        {
+          role: "thinking",
+          text: part.redacted ? "[…]" : part.text,
+          streaming: part.streaming,
+          details,
+        },
+        width,
+      );
+    }
+    if (part.type === "tool") {
+      return this.renderToolMessage(
+        {
+          role: "tool",
+          text: part.summary ?? "",
+          toolName: part.toolName,
+          toolCallId: part.toolCallId,
+          toolStatus: part.status,
+          details,
+        },
+        width,
+      );
+    }
+    const text =
+      part.type === "image" ? (part.name ? `[image: ${part.name}]` : "[image]") : part.text;
+    return this.renderMessage(
+      {
+        role: message.role,
+        text,
+        streaming: part.type === "text" ? part.streaming : false,
+        customType: message.customType,
+        display: message.display,
+        details,
+      },
+      width,
+    );
   }
 
   private renderChannelQuoteLines(message: SparkNativeMessage, width: number): string[] {

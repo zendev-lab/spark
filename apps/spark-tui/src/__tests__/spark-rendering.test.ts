@@ -1,7 +1,23 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "vitest";
 
-import { SPARK_PROTOCOL_VERSION, type SparkTurnSubmitResult } from "@zendev-lab/spark-protocol";
+import {
+  SPARK_PROTOCOL_VERSION,
+  sparkMessageViewSchema,
+  sparkToolCallViewSchema,
+  type SparkTurnSubmitResult,
+} from "@zendev-lab/spark-protocol";
+
+const projectionFixture = JSON.parse(
+  readFileSync(
+    new URL(
+      "../../../../packages/spark-protocol/src/fixtures/conversation-v1/projection.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+) as { message: unknown; tool: unknown };
 
 import type { Component, Focusable, TUI } from "../tui/pi-tui-adapter.ts";
 
@@ -977,7 +993,7 @@ test("SparkNativeSession projects structured tool states without exposing raw in
   assert.doesNotMatch(rendered, /raw output must stay hidden/);
 });
 
-test("SparkNativeSession flattens display-safe conversation parts and merges tool lineage", () => {
+test("SparkNativeSession renders one shared conversation projection and merges tool lineage", () => {
   const session = new SparkNativeSession();
   const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
 
@@ -985,69 +1001,8 @@ test("SparkNativeSession flattens display-safe conversation parts and merges too
     version: SPARK_PROTOCOL_VERSION,
     sessionId: "part-projection",
     status: "streaming",
-    messages: [
-      {
-        version: SPARK_PROTOCOL_VERSION,
-        id: "assistant-parts",
-        role: "assistant",
-        text: "Legacy text must not duplicate.",
-        status: "streaming",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        parts: [
-          {
-            id: "part-thinking",
-            type: "thinking",
-            text: "Checking the repository",
-            status: "streaming",
-            metadata: {},
-          },
-          {
-            id: "part-text",
-            type: "text",
-            text: "Ready.",
-            status: "complete",
-            metadata: {},
-          },
-          {
-            id: "part-tool-call",
-            type: "tool-call",
-            toolCallId: "read-structured",
-            toolName: "read",
-            summary: "Reading README",
-            status: "running",
-            metadata: {},
-          },
-          {
-            id: "part-tool-result",
-            type: "tool-result",
-            toolCallId: "read-structured",
-            toolName: "read",
-            summary: "README loaded",
-            status: "complete",
-            metadata: {},
-          },
-          {
-            id: "part-text-final",
-            type: "text",
-            text: "Done.",
-            status: "complete",
-            metadata: {},
-          },
-        ],
-        metadata: {},
-      },
-    ],
-    tools: [
-      {
-        version: SPARK_PROTOCOL_VERSION,
-        id: "read-structured",
-        name: "read",
-        status: "succeeded",
-        input: { path: "README.md", token: "hidden" },
-        output: "raw README output",
-        metadata: {},
-      },
-    ],
+    messages: [sparkMessageViewSchema.parse(projectionFixture.message)],
+    tools: [sparkToolCallViewSchema.parse(projectionFixture.tool)],
     runs: [],
     tasks: [],
     artifacts: [],
@@ -1063,7 +1018,11 @@ test("SparkNativeSession flattens display-safe conversation parts and merges too
   assert.ok(rendered.indexOf("thinking [streaming]") < rendered.indexOf("Ready."));
   assert.ok(rendered.indexOf("Ready.") < rendered.indexOf("tool:read"));
   assert.ok(rendered.indexOf("tool:read") < rendered.indexOf("Done."));
-  assert.equal(session.messages.filter((message) => message.role === "tool").length, 1);
+  assert.equal(session.messages.length, 1);
+  assert.equal(
+    session.messages[0]?.conversation?.parts.filter((part) => part.type === "tool").length,
+    1,
+  );
   assert.doesNotMatch(rendered, /Legacy text must not duplicate/);
   assert.doesNotMatch(rendered, /raw README output|"token":"hidden"/);
 });

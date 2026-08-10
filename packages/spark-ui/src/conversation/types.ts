@@ -1,3 +1,5 @@
+import type { Snippet } from "svelte";
+
 export type ConversationChainStep =
   | {
       type: "reasoning";
@@ -168,5 +170,93 @@ export type ConversationPartLabels = {
   runtimeResult: string;
 };
 
+export type ConversationActionView = Readonly<{
+  id: string;
+  label: string;
+  intent: string;
+  description?: string;
+  payload?: Readonly<Record<string, unknown>>;
+  tone?: "default" | "primary" | "danger";
+}>;
+
+export type ConversationActionBarView = Readonly<{
+  id: string;
+  title: string;
+  description?: string;
+  actions: readonly ConversationActionView[];
+}>;
+
+export type ConversationActionAvailability = Readonly<{
+  enabled: boolean;
+  reason?: string;
+}>;
+
+export type ConversationActionBarProps = {
+  view: ConversationActionBarView;
+  disabled?: boolean;
+  disabledReason?: string;
+  resolveAction?: (action: ConversationActionView) => ConversationActionAvailability;
+  onAction?: (action: ConversationActionView) => void | Promise<void>;
+};
+
+/** Compatibility names retained while Hub callers move to presentation-neutral terminology. */
+export type SlashActionAvailability = ConversationActionAvailability;
+export type SlashActionBarProps = ConversationActionBarProps;
+
+export type SessionQueueItem = Readonly<{
+  id: string;
+  text: string;
+  description?: string;
+}>;
+
+export type SessionQueueLabels = Readonly<{
+  region: string;
+  queued: string;
+  next: string;
+}>;
+
+export type SessionQueueProps = {
+  items: readonly SessionQueueItem[];
+  labels: SessionQueueLabels;
+  hasRunningTurn: boolean;
+  defaultOpen?: boolean;
+  actions?: Snippet<[SessionQueueItem]>;
+};
+
+export interface SessionStatusBarLabels {
+  bar: string;
+  workingDirectory: string;
+  branch: string;
+  inputTokens: string;
+  outputTokens: string;
+  cacheReadTokens: string;
+  cacheWriteTokens: string;
+  cacheHit: string;
+  cost: string;
+  context: string;
+}
+
+export interface SessionStatusSnapshot {
+  cwd: string;
+  gitBranch?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  costUsd?: number;
+  latestCacheHitPercent?: number;
+  contextTokens?: number;
+  contextTokenSource?: "reported" | "tokenizer" | "estimated";
+  contextWindow?: number;
+}
+
 /** Result of a scroll-driven "load earlier history" request. */
 export type LoadEarlierOutcome = "loaded" | "busy" | "exhausted" | "error";
+
+export type ConversationTurnRailItem = Readonly<{
+  id: string;
+  label: string;
+  summary: string;
+  meta: string;
+  actor: "user" | "session";
+}>;

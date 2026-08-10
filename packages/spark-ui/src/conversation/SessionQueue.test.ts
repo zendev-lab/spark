@@ -3,7 +3,7 @@ import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 
 import SessionQueue from "./SessionQueue.svelte";
-import type { SessionQueueItem } from "./index";
+import type { SessionQueueItem } from "./types";
 
 const labels = {
   region: "QUEUE_REGION",
