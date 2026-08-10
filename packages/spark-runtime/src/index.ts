@@ -75,6 +75,7 @@ export interface SparkRoleRunResult {
     forkFromSession?: string;
     noSession?: boolean;
     sessionPersistence?: "anonymous" | "persistent";
+    sessionLifetime?: "persistent" | "owned";
   };
   outcome?: RoleRunCompletionOutcome;
   stdout: string;
@@ -169,6 +170,7 @@ export interface RoleRunFailureDiagnostic {
   launch?: RoleLaunchMode;
   exitOrTimeout: string;
   sessionPersistence?: "anonymous" | "persistent";
+  sessionLifetime?: "persistent" | "owned";
   nextAction: string;
 }
 
@@ -194,7 +196,10 @@ export function buildRoleRunFailureDiagnostic(input: {
   return {
     failureCategory,
     executorKind:
-      input.executorKind ?? (result.record.sessionPersistence ? "daemon-native" : "process"),
+      input.executorKind ??
+      (result.record.sessionPersistence || result.record.sessionLifetime
+        ? "daemon-native"
+        : "process"),
     ...((input.modelSelector ?? result.record.model)
       ? { modelSelector: redactDiagnosticText(input.modelSelector ?? result.record.model ?? "") }
       : {}),
@@ -203,6 +208,7 @@ export function buildRoleRunFailureDiagnostic(input: {
     ...(result.record.sessionPersistence
       ? { sessionPersistence: result.record.sessionPersistence }
       : {}),
+    ...(result.record.sessionLifetime ? { sessionLifetime: result.record.sessionLifetime } : {}),
     nextAction: diagnosticNextAction(failureCategory),
   };
 }

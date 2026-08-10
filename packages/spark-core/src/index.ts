@@ -749,6 +749,8 @@ export interface ExtensionRoleRunRequest {
     forkFromSession?: string;
     noSession?: boolean;
     sessionPersistence?: "anonymous" | "persistent";
+    /** Canonical daemon lifecycle; owned Sessions are closed with their caller. */
+    sessionLifetime?: "persistent" | "owned";
     outcome?: RoleRunCompletionOutcome;
   };
   cwd: string;

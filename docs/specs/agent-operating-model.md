@@ -177,10 +177,12 @@ and does not recursively delegate routine substeps.
 An owned Role Session is appropriate for one bounded invocation of a stable
 Role without conversation continuity. The daemon closes it when its owner
 settles; `RoleRun` remains a compatibility query projection. The compatibility
-projection is computed before close, then its structured outcome and final
-assistant result become the Session close candidate. The sealed close receipt
-is Session metadata and is never copied into Invocation rows or injected into
-the parent transcript.
+projection reports `sessionLifetime=owned` rather than claiming persistent
+continuity. Workflow-agent calls remain owned by their active parent Invocation;
+a display run name is not lifecycle authority. The projection is computed before
+close, then its structured outcome and final assistant result become the Session
+close candidate. The sealed close receipt is Session metadata and is never copied
+into Invocation rows or injected into the parent transcript.
 
 ## Multi-Skill Agent
 

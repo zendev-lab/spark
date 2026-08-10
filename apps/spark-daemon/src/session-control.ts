@@ -622,7 +622,10 @@ async function assertTaskExecutionOwner(
       "task execution session requires its canonical sessionId",
     );
   }
-  const ownerRef = { kind: "task_run", ref: taskExecution.runRef } as const;
+  const ownerRef =
+    taskExecution.sessionLifetime === "task_revision"
+      ? ({ kind: "task_revision", ref: taskExecution.jobId } as const)
+      : ({ kind: "task_run", ref: taskExecution.runRef } as const);
   const valid = await isTaskSessionOwnerValid(
     {
       owner: ownerRef,

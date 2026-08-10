@@ -47,10 +47,7 @@ async function runSupervisedRole(
     updatedAt: startedAt,
   });
   const model = required(request.model, `model for ${role.modelType}`);
-  const owner =
-    request.usageExecutionKind === "workflow_agent"
-      ? ({ kind: "workflow_run", ref: request.record.runName ?? request.record.ref } as const)
-      : ({ kind: "role_call", ref: options.parentInvocationId } as const);
+  const owner = { kind: "role_call", ref: options.parentInvocationId } as const;
   const purpose =
     request.usageExecutionKind === "workflow_agent"
       ? "workflow_agent"
@@ -165,7 +162,7 @@ function compatibilityRoleRunResult(
       finishedAt: invocation.finishedAt ?? new Date().toISOString(),
       model,
       noSession: false,
-      sessionPersistence: "persistent",
+      sessionLifetime: "owned",
       outcome,
     },
     outcome,

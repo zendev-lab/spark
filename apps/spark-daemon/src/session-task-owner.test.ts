@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { TaskRun } from "@zendev-lab/spark-core";
+import type { Task, TaskRun } from "@zendev-lab/spark-core";
 import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
 
 describe("Task Session owner validity", () => {
@@ -8,7 +8,7 @@ describe("Task Session owner validity", () => {
     const subject = {
       owner: { kind: "task_run", ref: run.ref } as const,
       workspaceId: "ws-test",
-      sessionId: run.execution!.executionSessionId!,
+      sessionId: run.execution!.sessionId!,
       relation: {
         kind: "task_execution" as const,
         ownerSessionId: "session-owner",
@@ -36,9 +36,43 @@ describe("Task Session owner validity", () => {
       }),
     ).resolves.toBe(false);
   });
+
+  it("keeps a revision Session only while its Task remains unfinished", async () => {
+    const run = taskRun({ sessionLifetime: "task_revision", status: "succeeded" });
+    const subject = {
+      owner: { kind: "task_revision", ref: run.execution!.jobId } as const,
+      workspaceId: "ws-test",
+      sessionId: run.execution!.sessionId!,
+      relation: {
+        kind: "task_execution" as const,
+        ownerSessionId: "session-owner",
+        projectRef: run.projectRef,
+        taskRef: run.taskRef,
+        runRef: run.ref,
+        sessionGoalId: run.execution!.sessionGoalId,
+        roleRef: "role:executor",
+        sessionLifetime: "task_revision" as const,
+        jobId: run.execution!.jobId,
+        attempt: 1,
+      },
+    };
+    const options = {
+      resolveWorkspaceCwd: () => "/workspace",
+      loadGraph: async () => graph(run),
+    };
+    await expect(isTaskSessionOwnerValid(subject, options)).resolves.toBe(true);
+    await expect(
+      isTaskSessionOwnerValid(subject, {
+        ...options,
+        loadGraph: async () => graph(run, "done"),
+      }),
+    ).resolves.toBe(false);
+  });
 });
 
-function taskRun(input: { status?: TaskRun["status"] } = {}): TaskRun {
+function taskRun(
+  input: { sessionLifetime?: "task_run" | "task_revision"; status?: TaskRun["status"] } = {},
+): TaskRun {
   return {
     ref: "run:test",
     projectRef: "proj:test",
@@ -47,16 +81,19 @@ function taskRun(input: { status?: TaskRun["status"] } = {}): TaskRun {
     outputEvidenceRefs: [],
     execution: {
       ownerSessionId: "session-owner",
+      sessionId: "session-task",
       executionSessionId: "session-task",
       sessionGoalId: "goal-task",
+      sessionLifetime: input.sessionLifetime ?? "task_run",
       jobId: "job-task",
       attempt: 1,
     },
   };
 }
 
-function graph(run: TaskRun) {
+function graph(run: TaskRun, taskStatus: Task["status"] = "running") {
   return {
     runs: () => [run],
+    getTask: () => ({ status: taskStatus }),
   };
 }
