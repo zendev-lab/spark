@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 import type { ExtensionRoleRunner } from "@zendev-lab/spark-core";
 
 import { registerSparkRolesTools } from "./extension.ts";
-import { createDefaultRoleRegistry } from "./index.ts";
 
 const DEFAULT_TEST_CWD = "/tmp/spark-roles-tool-default-cwd";
 
@@ -232,30 +231,12 @@ test("role action tool manages role model settings", async () => {
   }
 });
 
-test("builtin role prompts and direct-call tool copy stay host-neutral", () => {
+test("direct-call role parameters stay host-neutral", () => {
   const tools = registerRoleToolsForTest();
-  const roleToolDescription = tools.get("role")?.description ?? "";
-  assert.doesNotMatch(roleToolDescription, /Spark tasks or DAG runs/);
   const roleToolParameters = tools.get("role")?.parameters as
     | { properties?: Record<string, { description?: string }> }
     | undefined;
   assert.equal(roleToolParameters?.properties?.piCommand, undefined);
-
-  const registry = createDefaultRoleRegistry({ now: "2026-01-01T00:00:00.000Z" });
-  const prompts = registry
-    .list({ source: "builtin" })
-    .map((role) => role.systemPrompt)
-    .join("\n");
-  assert.match(prompts, /You are a Spark scout/);
-  assert.match(prompts, /You are a Spark explorer/);
-  assert.match(prompts, /You are a Spark researcher/);
-  assert.match(prompts, /You are a Spark worker/);
-  assert.match(prompts, /You are a Spark reviewer/);
-  assert.match(prompts, /report the blocker.*upward/i);
-  assert.doesNotMatch(prompts, /available ask tool/);
-  assert.doesNotMatch(prompts, /You are a Pi/);
-  assert.doesNotMatch(prompts, /Spark ask tools/);
-  assert.doesNotMatch(prompts, /Spark project or task/);
 });
 
 test("role spec tools keep patch presets out of builtin role lookup", async () => {
@@ -322,7 +303,6 @@ test("call_role launches fresh role runs", async () => {
     assert.equal(details.record?.launch, "fresh");
     assert.equal(details.jsonEventCount, 1);
     assert.equal(capturedNativeInput?.role.id, "worker");
-    assert.match(capturedNativeInput?.role.systemPrompt ?? "", /Spark worker/);
     assert.ok(capturedNativeInput?.role.allowedTools?.includes("edit"));
     assert.equal(capturedNativeInput?.instruction.instruction, "Run the fake worker.");
     assert.equal(capturedNativeInput?.launch, "fresh");

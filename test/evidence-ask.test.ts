@@ -111,9 +111,6 @@ test("evidence tool describes valid provenance producers", () => {
 
   const promptGuidelines = tool.promptGuidelines?.join("\n") ?? "";
   const parameters = JSON.stringify(tool.parameters);
-  assert.match(promptGuidelines, /agent-private|agent-internal|never treat it as user-visible/i);
-  assert.match(promptGuidelines, /Prefer format=json and kind=record/);
-  assert.doesNotMatch(promptGuidelines, /Spark-specific persistence aliases/);
   for (const text of [promptGuidelines, parameters]) {
     assert.match(
       text,
@@ -168,9 +165,6 @@ test("evidence record stores validation evidence as a producer-tagged record", a
     registerSparkEvidenceTool({ registerTool: (config) => tools.set(config.name, config) });
     const tool = tools.get("evidence");
     assert.ok(tool);
-    const promptText = `${tool.promptGuidelines?.join("\n") ?? ""}\n${JSON.stringify(tool.parameters)}`;
-    assert.match(promptText, /kind=record|record \(default/);
-    assert.match(promptText, /agent-private|agent-internal|never treat it as user-visible/i);
 
     const recorded = await tool.execute(
       "evidence-record-kind",

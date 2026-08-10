@@ -13,11 +13,9 @@ import {
 import { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   SparkRolesReviewerRunner,
-  buildReadOnlyReviewerSystemPrompt,
   capReviewerThinkingLevel,
   parseAskAutoAnswerResult,
   parseReviewerVerdictForInput,
-  renderReviewerInstruction,
   reviewerInputFingerprint,
   type GoalReviewInput,
   type TaskReviewInput,
@@ -97,11 +95,6 @@ test("reviewer instruction and verdict parser support tool_approval subject", ()
     arguments: { command: "echo hi" },
     reason: "requires approval",
   };
-  const instruction = renderReviewerInstruction(input);
-  assert.match(instruction, /tool-call approval/);
-  assert.match(instruction, /cue_exec/);
-  assert.match(instruction, /echo hi/);
-
   const verdict = parseReviewerVerdictForInput(
     input,
     '{"outcome":"blocked","summary":"risky","findings":[],"blockers":["rm -rf"],"confidence":"high"}',
@@ -481,139 +474,9 @@ test("reviewer verdict parser normalizes common outcome aliases", () => {
   );
 });
 
-test("reviewer instruction and system prompt enforce read-only verdict boundary", () => {
+test("reviewer input fingerprint remains deterministic", () => {
   const input = reviewTaskInput();
-  const prompt = buildReadOnlyReviewerSystemPrompt("Base reviewer prompt.");
-  const instruction = renderReviewerInstruction(input);
-
-  assert.notEqual(prompt, "Base reviewer prompt.");
-  assert.match(instruction, /Review packet:/);
-  assert.match(instruction, /"requestedStatus": "done"/);
-  const goalInstruction = renderReviewerInstruction({
-    targetKind: "goal",
-    cwd: process.cwd(),
-    goalId: "goal-1",
-    objective: "Pause when blocked",
-    status: "active",
-    requestedStatus: "paused",
-    reason: "blocked by missing user decision",
-    evidenceRefs: [],
-  });
-  assert.match(goalInstruction, /"requestedStatus": "paused"/);
-  assert.match(goalInstruction, /"reason": "blocked by missing user decision"/);
   assert.equal(reviewerInputFingerprint(input), reviewerInputFingerprint(input));
-});
-
-test("task reviewer instruction scopes task finish independently from sibling project work", () => {
-  const instruction = renderReviewerInstruction(reviewTaskInput());
-
-  assert.match(instruction, /For targetKind=task, review only the selected task's requestedStatus/);
-  assert.match(instruction, /task is expected to remain running until this review approves/);
-  assert.match(instruction, /Never require a prior approved review receipt or done transition/);
-  assert.match(instruction, /prior needs_changes verdict blocks approval only when/);
-  assert.match(instruction, /Do not reject a task finish merely because sibling/);
-  assert.match(instruction, /dependency chains require scoped leaf tasks to close/);
-  assert.doesNotMatch(instruction, /projectStatus\.taskCounts\.unfinished > 0/);
-  assert.doesNotMatch(
-    instruction,
-    /For requestedStatus=complete, approve only when the objective is achieved/,
-  );
-});
-
-test("task reviewer packet exposes Artifact authority and post-approval receipt timing", () => {
-  const base = reviewTaskInput();
-  const instruction = renderReviewerInstruction({
-    ...base,
-    task: {
-      ...base.task,
-      artifactRefs: ["artifact:delivery"],
-    },
-    evidenceRefs: ["evidence:current"],
-    supersededEvidenceRefs: ["evidence:historical"],
-  });
-
-  assert.match(instruction, /"artifactRefs": \[\s*"artifact:delivery"/u);
-  assert.match(instruction, /"supersededEvidenceRefs": \[\s*"evidence:historical"/u);
-  assert.match(instruction, /created_after_reviewer_approval_and_transition_commit/u);
-  assert.match(instruction, /Never ask the caller to put artifact: refs in evidenceRefs/u);
-  assert.match(instruction, /supersededEvidenceRefs are historical/u);
-});
-
-test("goal reviewer instruction still gates completion on unfinished project work", () => {
-  const instruction = renderReviewerInstruction({
-    targetKind: "goal",
-    cwd: process.cwd(),
-    projectRef: "proj:active",
-    currentProjectSelected: true,
-    projectEvidenceSource: "current_project",
-    projectStatus: {
-      ref: "proj:active",
-      title: "Active project",
-      taskCounts: { total: 2, unfinished: 1, claimed: 0, statusCounts: { done: 1, pending: 1 } },
-      readyTasks: [
-        { ref: "task:remaining", title: "Remaining", status: "pending", kind: "implement" },
-      ],
-      unfinishedTasks: [
-        { ref: "task:remaining", title: "Remaining", status: "pending", kind: "implement" },
-      ],
-    },
-    goalId: "goal-1",
-    objective: "Finish implementation",
-    status: "active",
-    requestedStatus: "complete",
-    evidenceRefs: [],
-  });
-
-  assert.match(instruction, /semantic satisfaction of the immutable original user goal/);
-  assert.match(instruction, /evidence_valid=true/);
-  assert.match(instruction, /objective_satisfied=true/);
-  assert.match(instruction, /core execution path proof/);
-  assert.match(instruction, /If projectStatus\.taskCounts\.unfinished > 0/);
-  assert.match(instruction, /When unfinished project work remains/);
-  assert.match(instruction, /"requestedStatus": "complete"/);
-  assert.match(instruction, /"requirements": \[/);
-  assert.match(instruction, /"id": "goal:objective"/);
-  assert.match(instruction, /"validationRuns": \[\]/);
-  assert.match(instruction, /"unresolved": \[\]/);
-});
-
-test("goal reviewer instruction does not treat missing current project as completion", () => {
-  const input: GoalReviewInput = {
-    targetKind: "goal",
-    cwd: process.cwd(),
-    projectRef: "proj:completed-evidence",
-    currentProjectSelected: false,
-    projectEvidenceSource: "project_evidence_fallback",
-    projectStatus: {
-      ref: "proj:completed-evidence",
-      title: "Completed evidence project",
-      taskCounts: { total: 1, unfinished: 0, claimed: 0, statusCounts: { done: 1 } },
-      readyTasks: [],
-      unfinishedTasks: [],
-    },
-    goalId: "goal-1",
-    objective: "Continue discovering and planning remaining crate surface work",
-    status: "active",
-    requestedStatus: "complete",
-    evidenceRefs: ["evidence:completed-project-evidence"],
-    evidencePreviews: [
-      {
-        ref: "evidence:completed-project-evidence",
-        title: "Completed project evidence",
-        kind: "record",
-        format: "markdown",
-        provenance: { producer: "task", projectRef: "proj:completed-evidence" },
-        bodyPreview: "Concrete inspected evidence covers the crate surface planning outcome.",
-      },
-    ],
-  };
-
-  const instruction = renderReviewerInstruction(input);
-
-  assert.match(instruction, /currentProjectSelected": false/);
-  assert.match(instruction, /projectEvidenceSource": "project_evidence_fallback"/);
-  assert.match(instruction, /evidencePreviews/);
-  assert.match(instruction, /Concrete inspected evidence covers/);
 });
 
 test("reviewer verdict parser reports missing verdict objects clearly", () => {

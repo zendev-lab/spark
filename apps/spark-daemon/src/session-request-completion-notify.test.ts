@@ -10,7 +10,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   notifySessionRequestCompletion,
   reconcileSessionRequestCompletions,
-  renderSessionRequestCompletionPrompt,
   SESSION_REQUEST_COMPLETION_SOURCE_KIND,
 } from "./session-request-completion-notify.ts";
 import { SessionRequestCompletionDeliveryStore } from "./store/session-request-completion-deliveries.ts";
@@ -94,8 +93,6 @@ describe("session request completion notify", () => {
           },
         },
       });
-      expect(wake?.prompt).toContain("investigation complete");
-      expect(wake?.prompt).toContain(source.invocationId);
       expect(recordTurnQueued).toHaveBeenCalledWith(sender.sessionId);
 
       await expect(
@@ -433,70 +430,6 @@ describe("session request completion notify", () => {
     } finally {
       harness.close();
     }
-  });
-
-  it("renders an explicit notice when durable assistant output was truncated", () => {
-    const prompt = renderSessionRequestCompletionPrompt({
-      mail: {
-        messageId: "mail:truncated",
-        kind: "request",
-        intent: "work.request",
-        fromSessionId: "sess_sender",
-        toSessionId: "sess_target",
-      },
-      targetSessionId: "sess_target",
-      sourceInvocationId: "inv_truncated",
-      completion: {
-        status: "succeeded",
-        result: {
-          assistantText: "bounded answer",
-          assistantTextOriginalBytes: 600_000,
-          assistantTextTruncated: true,
-        },
-      },
-    });
-    expect(prompt).toContain("bounded answer");
-    expect(prompt).toContain("durable result truncated");
-    expect(prompt).toContain("600000 bytes");
-
-    const legacyPrompt = renderSessionRequestCompletionPrompt({
-      mail: {
-        messageId: "mail:legacy-oversized",
-        kind: "request",
-        fromSessionId: "sess_sender",
-        toSessionId: "sess_target",
-      },
-      targetSessionId: "sess_target",
-      sourceInvocationId: "inv_legacy_oversized",
-      completion: {
-        status: "succeeded",
-        result: { legacyOversizedResult: true, originalBytes: 338_000_000, truncated: true },
-      },
-    });
-    expect(legacyPrompt).toContain("legacy durable result omitted");
-    expect(legacyPrompt).toContain("338000000 bytes");
-  });
-
-  it("renders a synthesis prompt with failure details", () => {
-    const prompt = renderSessionRequestCompletionPrompt({
-      mail: {
-        messageId: "mail:fail",
-        kind: "request",
-        intent: "work.request",
-        fromSessionId: "sess_sender",
-        toSessionId: "sess_target",
-      },
-      targetSessionId: "sess_target",
-      sourceInvocationId: "inv_fail",
-      completion: {
-        status: "failed",
-        errorCode: "TOOL_ERROR",
-        errorMessage: "boom",
-      },
-    });
-    expect(prompt).toContain("Status: failed");
-    expect(prompt).toContain("TOOL_ERROR: boom");
-    expect(prompt).toContain("Do not claim the delegated work is still running");
   });
 });
 

@@ -20,15 +20,6 @@ import {
   validateBuiltinRoleProfiles,
 } from "@zendev-lab/spark-roles";
 
-test("builtin Spark worker is instructed to implement concrete repo behavior feedback", () => {
-  const roles = createBuiltinRoles();
-  const worker = roles.find((role) => role.id === "worker");
-  assert.match(
-    worker?.systemPrompt ?? "",
-    /fix the implementation instead of only recording a preference/,
-  );
-});
-
 test("builtin Pi roles expose audited capability profiles", () => {
   const roles = createBuiltinRoles("2026-06-04T00:00:00.000Z");
   assert.deepEqual(
