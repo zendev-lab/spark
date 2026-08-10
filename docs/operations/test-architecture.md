@@ -54,9 +54,9 @@ Test ownership is structural instead of ledger-driven:
 - `vitest.root.config.ts` owns cross-workspace tests under `test/` and excludes the separate real-process lane;
 - `vitest.process.config.ts` owns `test/process/`;
 - Dependency Cruiser rejects root/app deep links into workspace `src/` internals and cross-package relative source imports;
-- `pnpm -r --filter './packages/*' --if-present run check` discovers package-local checks directly from manifests.
+- `pnpm -r --filter './packages/*' --if-present run check` discovers package-local checks directly from manifests, while `check-architecture-ratchets.mjs` fails closed when a package contains tests but does not expose them through its `test` and `check` scripts.
 
-Mutation CE selection is also package-owned: every participating package declares a standard `test:mutation` script beside its `stryker.config.json`, and the root command uses pnpm recursive `--if-present` discovery. This avoids maintaining historical migration baselines or a second workspace inventory. Review package scripts, Vitest includes, and Dependency Cruiser rules together when changing a test boundary.
+Mutation CE selection is also package-owned: every participating package declares a standard `test:mutation` script beside its `stryker.config.json`, and the root command uses pnpm recursive `--if-present` discovery. The architecture ratchet treats either a mutation script or Stryker config as an ownership signal and requires the complete standard command/dependency/config set, so `--if-present` cannot silently omit a partially configured package. Shared Stryker development dependencies alone do not enroll a package in mutation CE. This avoids maintaining historical migration baselines or a second workspace inventory. Review package scripts, Vitest includes, and Dependency Cruiser rules together when changing a test boundary.
 
 ## Tests versus static policy
 
@@ -67,8 +67,9 @@ CSS, or documentation to prove that an implementation fragment exists.
 
 Repository policy belongs to dedicated static tools invoked by `pnpm run check:static`:
 
-- `check-architecture-ratchets.mjs` owns only Spark-specific workspace identity, dependency, and
-  compatibility boundaries that generic tools cannot express;
+- `check-architecture-ratchets.mjs` owns Spark-specific workspace identity, dependency and
+  compatibility boundaries, plus fail-closed package test/mutation discovery that generic tools
+  cannot express;
 - `check-github-actions.mjs` owns immutable Action references and benchmark credential policy;
 - `check-pnpm-workspace-policy.mjs` owns hook-time pnpm mutation safety;
 - `check-hub-source-boundaries.mjs` owns Hub source/state-owner boundaries;

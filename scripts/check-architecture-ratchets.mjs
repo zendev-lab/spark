@@ -90,6 +90,15 @@ function runArchitectureRatchets() {
         }
       }
     });
+
+    if (path.startsWith("packages/")) {
+      const policyViolations = workspacePackagePolicyViolations({
+        manifest,
+        hasTests: workspaceContainsTests(join(root, path)),
+        hasStrykerConfig: isFile(join(root, path, "stryker.config.json")),
+      });
+      for (const violation of policyViolations) failures.push(`${path} ${violation}.`);
+    }
   }
 
   for (const [name, declaration] of Object.entries(declaredPackages)) {
@@ -141,7 +150,7 @@ function runArchitectureRatchets() {
     process.exitCode = 1;
   } else {
     console.log(
-      `Architecture ratchet passed (${workspacePackages.length} workspaces classified; declared dependency boundaries, daemon RPC facade, and frozen compatibility surface enforced).`,
+      `Architecture ratchet passed (${workspacePackages.length} workspaces classified; declared dependency boundaries, package test/mutation discovery, daemon RPC facade, and frozen compatibility surface enforced).`,
     );
   }
 }
@@ -323,6 +332,42 @@ export function isLegacyDaemonClientBoundaryExempt(repositoryPath) {
     /(?:^|\/)(?:__fixtures__|__tests__|fixtures|test|tests)(?:\/|$)/u.test(normalized) ||
     /\.(?:fixture|spec|test)\.[^/]+$/u.test(normalized)
   );
+}
+
+export function workspacePackagePolicyViolations({ manifest, hasTests, hasStrykerConfig }) {
+  const violations = [];
+  if (hasTests) {
+    if (!manifest.scripts?.test) violations.push("must expose package-local tests");
+    if (!/\b(?:vp test run|pnpm (?:run )?test)\b/u.test(manifest.scripts?.check ?? "")) {
+      violations.push("check script must run package-local tests");
+    }
+  }
+
+  const hasMutationOwnership =
+    hasStrykerConfig || manifest.scripts?.["test:mutation"] !== undefined;
+  if (!hasMutationOwnership) return violations;
+
+  if (manifest.scripts?.["test:mutation"] === undefined) {
+    violations.push("mutation package must expose test:mutation");
+  } else if (manifest.scripts["test:mutation"] !== "stryker run") {
+    violations.push("mutation command must be stryker run");
+  }
+  if (manifest.devDependencies?.["@stryker-mutator/core"] !== "catalog:") {
+    violations.push("mutation core dependency must use catalog:");
+  }
+  if (manifest.devDependencies?.["@stryker-mutator/vitest-runner"] !== "catalog:") {
+    violations.push("mutation runner dependency must use catalog:");
+  }
+  if (!hasStrykerConfig) violations.push("mutation package must include stryker.config.json");
+  return violations;
+}
+
+function workspaceContainsTests(directory) {
+  let found = false;
+  visit(directory, (path) => {
+    if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) found = true;
+  });
+  return found;
 }
 
 function visit(directory, inspect) {

@@ -20,7 +20,7 @@ Generic monorepo mechanics are delegated to maintained open-source tools:
 | dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` | [Syncpack](https://github.com/JoshuaKGoldberg/syncpack) |
 | imports from dependencies missing in the owning workspace manifest | Knip strict unlisted-dependency analysis | [Knip](https://knip.dev/features/monorepos-and-workspaces) |
 | cycles and dependency direction | Dependency Cruiser | [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser) |
-| Spark package identity, explicit workspace dependency restrictions, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |
+| Spark package identity, explicit workspace dependency restrictions, package test/mutation discovery, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |
 
 `pnpm run check:architecture` validates the schema, runs Syncpack and Knip, and
 then executes the Spark-specific ratchets. `pnpm run check:boundaries` runs
@@ -30,10 +30,12 @@ dependency-version consistency, or generic manifest/import analysis.
 Test and mutation discovery follow the same rule. Vitest configs define the
 root, process, browser, and capability suites; pnpm recursive `--if-present`
 commands discover package-local checks; packages participating in mutation CE
-own a standard `test:mutation` script and Stryker config. The architecture
-checker does not impose package-script spellings or duplicate those tools'
-configuration. Historical ownership, strategy, and mutation-selection ledgers
-are not parallel workspace inventories.
+own a standard `test:mutation` script and Stryker config. Because `--if-present`
+would otherwise silently skip an incomplete package, the architecture checker
+requires packages containing tests to expose package-local `test`/`check`
+scripts and requires every mutation ownership signal to have the complete
+standard command/dependency/config set. Historical ownership, strategy, and
+mutation-selection ledgers are not parallel workspace inventories.
 
 ### Repository script policy
 
