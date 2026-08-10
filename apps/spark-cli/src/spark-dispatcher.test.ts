@@ -186,10 +186,10 @@ test("dispatcher resolves source companion executables without importing app CLI
   assert.match(hub.command, /apps\/spark-hub\/bin\/spark-hub$/u);
   assert.deepEqual(hub.args, []);
   const acp = resolveTargetCommand("acp");
-  assert.match(acp.command, /packages\/spark-acp\/scripts\/stdio\.ts$/u);
+  assert.match(acp.command, /packages\/spark-acp\/bin\/spark-acp\.ts$/u);
   assert.deepEqual(acp.args, []);
   const mcp = resolveTargetCommand("mcp");
-  assert.match(mcp.command, /packages\/spark-mcp\/scripts\/stdio\.ts$/u);
+  assert.match(mcp.command, /packages\/spark-mcp\/bin\/spark-mcp\.ts$/u);
   assert.deepEqual(mcp.args, []);
   const update = resolveTargetCommand("update");
   assert.match(update.command, /packages\/spark-update\/bin\/spark-update$/u);
