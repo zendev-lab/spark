@@ -227,10 +227,11 @@
   }
 
   .state-list {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
     gap: 4px;
+    grid-template-columns: repeat(4, max-content);
     justify-content: end;
+    min-width: 0;
   }
 
   .state-list span {
