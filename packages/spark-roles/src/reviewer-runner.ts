@@ -11,6 +11,7 @@ import {
   type RoleThinkingLevel,
 } from "./role-runtime.ts";
 import {
+  isRef,
   newRef,
   nowIso,
   type EvidenceRef,
@@ -806,6 +807,7 @@ function isAskAutoAnswerRecord(record: Record<string, unknown>): boolean {
 
 export function parseReviewerVerdictForInput(input: ReviewInput, text: string): ReviewerVerdict {
   const value = parseJsonObjectFromText(text, { requireReviewerVerdict: true });
+  validateReviewerTypedRequestFields(input, value);
   const parsed = normalizeReviewerVerdictObject(value);
   switch (input.targetKind) {
     case "task":
@@ -888,6 +890,53 @@ export function parseReviewerVerdictForInput(input: ReviewInput, text: string): 
 
 export function parseReviewerVerdict(text: string): ReviewVerdict {
   return normalizeReviewerVerdictObject(parseJsonObjectFromText(text));
+}
+
+function validateReviewerTypedRequestFields(
+  input: ReviewInput,
+  value: Record<string, unknown>,
+): void {
+  if (input.targetKind !== "task") return;
+  validateOptionalReviewerRefArray(value, "requestedEvidenceRefs", "evidence");
+  validateOptionalReviewerRefArray(value, "requestedArtifactRefs", "artifact");
+  validateOptionalReviewerBoolean(value, "requiresCurrentTransitionReceipt");
+  validateOptionalReviewerBoolean(value, "requires_current_transition_receipt");
+  if (
+    Object.hasOwn(value, "requiresCurrentTransitionReceipt") &&
+    Object.hasOwn(value, "requires_current_transition_receipt") &&
+    value.requiresCurrentTransitionReceipt !== value.requires_current_transition_receipt
+  ) {
+    throw new Error(
+      "reviewer verdict requiresCurrentTransitionReceipt aliases must agree when both are present",
+    );
+  }
+}
+
+function validateOptionalReviewerRefArray(
+  value: Record<string, unknown>,
+  field: "requestedEvidenceRefs" | "requestedArtifactRefs",
+  kind: "evidence" | "artifact",
+): void {
+  if (!Object.hasOwn(value, field)) return;
+  const refs = value[field];
+  if (!Array.isArray(refs)) {
+    throw new Error(`reviewer verdict ${field} must be an array of ${kind}: refs`);
+  }
+  for (const [index, ref] of refs.entries()) {
+    if (typeof ref !== "string" || !isRef(ref, kind)) {
+      throw new Error(`reviewer verdict ${field}[${index}] must be a canonical ${kind}: ref`);
+    }
+  }
+}
+
+function validateOptionalReviewerBoolean(
+  value: Record<string, unknown>,
+  field: "requiresCurrentTransitionReceipt" | "requires_current_transition_receipt",
+): void {
+  if (!Object.hasOwn(value, field)) return;
+  if (typeof value[field] !== "boolean") {
+    throw new Error(`reviewer verdict ${field} must be a boolean`);
+  }
 }
 
 function normalizeReviewerVerdictObject(value: Record<string, unknown>): ReviewVerdict {
@@ -1042,12 +1091,12 @@ function reviewerVerdictProtocolIssue(
 ): string | undefined {
   if (input.targetKind !== "task" || verdict.targetKind !== "task") return undefined;
   const requestedEvidenceRefs = verdict.requestedEvidenceRefs ?? [];
-  const invalidEvidenceRef = requestedEvidenceRefs.find((ref) => !ref.startsWith("evidence:"));
+  const invalidEvidenceRef = requestedEvidenceRefs.find((ref) => !isRef(ref, "evidence"));
   if (invalidEvidenceRef) {
     return `reviewer protocol violation: requestedEvidenceRefs contains a non-Evidence ref: ${invalidEvidenceRef}`;
   }
   const requestedArtifactRefs = verdict.requestedArtifactRefs ?? [];
-  const invalidArtifactRef = requestedArtifactRefs.find((ref) => !ref.startsWith("artifact:"));
+  const invalidArtifactRef = requestedArtifactRefs.find((ref) => !isRef(ref, "artifact"));
   if (invalidArtifactRef) {
     return `reviewer protocol violation: requestedArtifactRefs contains a non-Artifact ref: ${invalidArtifactRef}`;
   }

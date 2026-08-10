@@ -722,7 +722,46 @@ test("SparkRolesReviewerRunner classifies impossible task requests as reviewer p
       requestedEvidenceRefs: ["artifact:delivery"],
     });
     assert.equal(invalidEvidence.failure?.kind, "protocol_error");
-    assert.match(invalidEvidence.failure?.reason ?? "", /requestedEvidenceRefs.*non-Evidence/u);
+    assert.match(
+      invalidEvidence.failure?.reason ?? "",
+      /requestedEvidenceRefs\[0\].*canonical evidence/u,
+    );
+
+    const wrongEvidenceShape = await runVerdict({
+      requestedEvidenceRefs: "evidence:receipt",
+    });
+    assert.equal(wrongEvidenceShape.failure?.kind, "protocol_error");
+    assert.match(
+      wrongEvidenceShape.failure?.reason ?? "",
+      /requestedEvidenceRefs must be an array/u,
+    );
+
+    const wrongArtifactMember = await runVerdict({
+      requestedArtifactRefs: [42],
+    });
+    assert.equal(wrongArtifactMember.failure?.kind, "protocol_error");
+    assert.match(
+      wrongArtifactMember.failure?.reason ?? "",
+      /requestedArtifactRefs\[0\].*canonical artifact/u,
+    );
+
+    const wrongReceiptShape = await runVerdict({
+      requiresCurrentTransitionReceipt: "true",
+    });
+    assert.equal(wrongReceiptShape.failure?.kind, "protocol_error");
+    assert.match(
+      wrongReceiptShape.failure?.reason ?? "",
+      /requiresCurrentTransitionReceipt must be a boolean/u,
+    );
+
+    const emptyEvidenceRef = await runVerdict({
+      requestedEvidenceRefs: ["evidence:"],
+    });
+    assert.equal(emptyEvidenceRef.failure?.kind, "protocol_error");
+    assert.match(
+      emptyEvidenceRef.failure?.reason ?? "",
+      /requestedEvidenceRefs\[0\].*canonical evidence/u,
+    );
 
     const supersededEvidence = await runVerdict({
       requestedEvidenceRefs: ["evidence:historical"],
