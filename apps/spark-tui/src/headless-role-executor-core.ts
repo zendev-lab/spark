@@ -215,12 +215,15 @@ export async function runSparkHeadlessSession(
     stateOwnerSessionId: input.stateOwnerSessionId,
     loop: input.loop,
     sessionQuestionChain: input.sessionQuestionChain,
-    allowedTools: input.allowedTools,
+    allowedTools: input.roleRunRef
+      ? [...new Set([...(input.allowedTools ?? []), "role_report_outcome"])]
+      : input.allowedTools,
     roleRunner: input.roleRunner,
     allowedToolEffects: input.allowedToolEffects,
     hasUI: false,
     ...(input.interaction ? { ui: { interaction: input.interaction } } : {}),
     ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
+    ...(input.roleRunRef ? { sessionMode: "execute" as const } : {}),
     // Daemon scheduler owns wall-clock execution budget. Model streams use idle
     // hang detection instead of a short hard stream deadline so long tool/model
     // turns can finish, and interrupted work can resume after restart.
