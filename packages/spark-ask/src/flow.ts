@@ -5,6 +5,7 @@ import type {
   ExtensionInteractionResponse,
   SparkHostContext,
 } from "@zendev-lab/spark-core";
+import { createId } from "@zendev-lab/spark-protocol";
 import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
 import { Type } from "typebox";
 
@@ -465,7 +466,7 @@ function createSparkAskFlowInteractionRequest(
     version: 1,
     kind: "askFlow",
     ...(toolCallId?.trim() ? { toolCallId: toolCallId.trim() } : {}),
-    requestId: request.interactionRequestId ?? `ask_flow:${Date.now().toString(36)}`,
+    requestId: request.interactionRequestId ?? createId("ask"),
     title: request.title?.trim() || "Ask flow",
     prompt: request.context,
     source: "extension",

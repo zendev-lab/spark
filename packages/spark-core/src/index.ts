@@ -583,9 +583,9 @@ export interface ExtensionUi {
   ) => Promise<{ value?: string; customText?: string } | string | undefined>;
   /**
    * Protocol-shaped interaction bridge for host-rendered UI. Spark hosts pass
-   * Spark interaction protocol payloads here; portable extensions should keep
-   * requests structural and fall back to legacy primitives when a host returns
-   * `blocked` or omits the hook.
+   * Spark interaction protocol payloads here. Callers select a supported
+   * transport from `interactionCapabilities` before dispatch; a dispatched
+   * interaction fails closed instead of falling through to another transport.
    */
   interaction?: (request: ExtensionInteractionRequest) => Promise<ExtensionInteractionResponse>;
   /** Explicit transport contract used before dispatching async or timeout-backed asks. */

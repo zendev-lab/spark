@@ -7229,10 +7229,14 @@ test("active goal remains async-only inside manual implement mode", async () => 
     assert.equal(answerAskCalls, 0);
     assert.equal(interactionCalls, 1);
     assert.equal((asked.details as { result?: { status?: string } }).result?.status, "pending");
-    assert.match(String(capturedRequest?.requestId), /^ask_async:[a-f0-9]{64}$/u);
+    assert.match(String(capturedRequest?.requestId), /^ask_[a-f0-9]{32}$/u);
+    const requestHash = String(
+      (capturedRequest?.evidenceRequest as { requestHash?: string })?.requestHash,
+    );
+    assert.equal(capturedRequest?.requestId, `ask_${requestHash.slice(0, 32)}`);
     assert.deepEqual(capturedRequest?.evidenceRequest, {
       schema: "spark.evidence-request/v1",
-      askRef: `ask:${String(capturedRequest?.requestId).slice("ask_async:".length)}`,
+      askRef: `ask:${requestHash}`,
       ownerSessionId: ctx.sessionId,
       goalOrReproId: ctx.sparkAutonomousAsk?.goalOrReproId,
       modeScope: "goal",
@@ -7242,7 +7246,7 @@ test("active goal remains async-only inside manual implement mode", async () => 
       )?.ownerStepOrUnresolvedId,
       stepDefinitionDigest: (capturedRequest?.evidenceRequest as { stepDefinitionDigest?: string })
         ?.stepDefinitionDigest,
-      requestHash: String(capturedRequest?.requestId).slice("ask_async:".length),
+      requestHash,
       ownerQuestionId: "mode",
       expectedAnswerKind: "single",
     });

@@ -1051,6 +1051,7 @@ test("ask_user uses protocol interaction before legacy select UI", async () => {
   assert.equal(selectInvoked, false);
   assert.equal((sawRequest as { kind?: unknown }).kind, "askFlow");
   assert.equal((sawRequest as { source?: unknown }).source, "extension");
+  assert.match(String((sawRequest as { requestId?: unknown }).requestId), /^ask_[a-f0-9]{32}$/u);
   assert.deepEqual(result.answers.mode, { values: ["safe_mode"], labels: ["Safe path"] });
   assert.equal(result.nextAction, "resume");
 });
@@ -1275,7 +1276,7 @@ test("ask action tool returns the durable async acknowledgement", async () => {
     interactionRequestId: result.details.result.acknowledgement.interactionRequestId,
     humanRequestId: "hreq:canonical-async",
   });
-  assert.match(result.details.result.acknowledgement.interactionRequestId, /^ask_user:/u);
+  assert.match(result.details.result.acknowledgement.interactionRequestId, /^ask_[a-f0-9]{32}$/u);
 });
 
 test("ask action tool can persist receipt-backed user decision evidence", async () => {
@@ -1511,12 +1512,15 @@ test("ask evidence rejection reports partial answers and missing required questi
           {
             cwd: dir,
             ui: {
-              interaction: async (request: Record<string, unknown>) => ({
-                kind: "askFlow",
-                requestId: request.requestId,
-                status: "answered",
-                answers: { strategy: { values: ["reuse"], labels: ["Reuse"] } },
-              }),
+              interaction: async (request: Record<string, unknown>) => {
+                assert.match(String(request.requestId), /^ask_[a-f0-9]{32}$/u);
+                return {
+                  kind: "askFlow",
+                  requestId: request.requestId,
+                  status: "answered",
+                  answers: { strategy: { values: ["reuse"], labels: ["Reuse"] } },
+                };
+              },
             },
           },
         ),

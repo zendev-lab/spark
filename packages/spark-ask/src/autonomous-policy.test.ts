@@ -114,18 +114,24 @@ describe("autonomous canonical Ask", () => {
     expect(forwarded).toHaveLength(2);
     const first = forwarded[0]?.params;
     const second = forwarded[1]?.params;
+    const firstEvidenceRequest = first?.evidenceRequest as
+      | { askRef?: string; requestHash?: string }
+      | undefined;
     expect(forwarded.map((entry) => entry.canonicalDispatch)).toEqual([true, true]);
-    expect(first?.interactionRequestId).toMatch(/^ask_async:[a-f0-9]{64}$/u);
+    expect(first?.interactionRequestId).toMatch(/^ask_[a-f0-9]{32}$/u);
+    expect(first?.interactionRequestId).toBe(
+      `ask_${String(firstEvidenceRequest?.requestHash).slice(0, 32)}`,
+    );
     expect(first?.evidenceRequest).toMatchObject({
       schema: "spark.evidence-request/v1",
-      askRef: expect.stringMatching(/^ask:[a-f0-9]{64}$/u),
+      askRef: `ask:${firstEvidenceRequest?.requestHash}`,
       ownerSessionId: "session:owner",
       goalOrReproId: "goal:active",
       modeScope: "goal",
       planRevision: 1,
       ownerStepOrUnresolvedId: "unresolved:decision",
       stepDefinitionDigest: "definition",
-      requestHash: String(first?.interactionRequestId).slice("ask_async:".length),
+      requestHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
       ownerQuestionId: "choice",
       expectedAnswerKind: "single",
     });

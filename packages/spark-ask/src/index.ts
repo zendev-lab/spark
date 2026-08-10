@@ -8,6 +8,7 @@ import type {
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
 import {
+  createId,
   parseSparkMemoryApprovalBinding,
   type SparkMemoryApprovalBinding,
 } from "@zendev-lab/spark-protocol";
@@ -416,7 +417,7 @@ function createAskUserInteractionRequest(
   return {
     version: 1,
     kind: "askFlow",
-    requestId: request.interactionRequestId ?? `ask_user:${Date.now().toString(36)}`,
+    requestId: request.interactionRequestId ?? createId("ask"),
     title: request.title?.trim() || "Ask user",
     prompt: request.context,
     source: "extension",

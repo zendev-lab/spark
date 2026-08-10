@@ -11,6 +11,7 @@ import type {
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import {
+  createAutonomousAskInteractionRequestId,
   parseSparkMemoryApprovalBinding,
   sparkEvidenceRequestBindingSchema,
 } from "@zendev-lab/spark-protocol";
@@ -359,7 +360,7 @@ async function createAutonomousEvidenceRequest(
     expectedAnswerKind: ownerQuestion.kind,
   }) as ExtensionEvidenceRequestBinding;
   return {
-    interactionRequestId: `ask_async:${requestHash}`,
+    interactionRequestId: createAutonomousAskInteractionRequestId(requestHash),
     evidenceRequest,
   };
 }
