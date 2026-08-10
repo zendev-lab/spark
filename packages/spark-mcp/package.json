@@ -6,23 +6,23 @@
   "license": "MIT",
   "author": "zrr1999",
   "bin": {
-    "spark-mcp": "./scripts/stdio.ts"
+    "spark-mcp": "./bin/spark-mcp.ts"
   },
   "files": [
     "src/**/*.ts",
     "!src/**/*.test.ts",
-    "scripts/**/*.ts",
+    "bin/**/*.ts",
     "README.md"
   ],
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./executable": "./scripts/stdio.ts"
+    "./executable": "./bin/spark-mcp.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
     "test": "vp test run",
-    "stdio": "node --experimental-strip-types ./scripts/stdio.ts"
+    "stdio": "node --experimental-strip-types ./bin/spark-mcp.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "catalog:",

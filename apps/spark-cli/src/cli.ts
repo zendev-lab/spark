@@ -395,8 +395,8 @@ function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | un
     tui: "../spark-tui/bin/spark-tui",
     daemon: "../spark-daemon/bin/spark-daemon",
     hub: "../spark-hub/bin/spark-hub",
-    acp: "../../packages/spark-acp/scripts/stdio.ts",
-    mcp: "../../packages/spark-mcp/scripts/stdio.ts",
+    acp: "../../packages/spark-acp/bin/spark-acp.ts",
+    mcp: "../../packages/spark-mcp/bin/spark-mcp.ts",
     update: "../../packages/spark-update/bin/spark-update",
   };
   return resolve(cliRoot, entryByTarget[target]);

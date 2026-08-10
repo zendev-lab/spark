@@ -7420,6 +7420,7 @@ test("active Repro binds detached Ask to its current step revision", async () =>
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
     let interactionCalls = 0;
+    let answerAskCalls = 0;
     let capturedRequest: ExtensionInteractionRequest | undefined;
     ctx.ui.interaction = async (request) => {
       interactionCalls += 1;
@@ -7432,7 +7433,17 @@ test("active Repro binds detached Ask to its current step revision", async () =>
         answers: {},
       };
     };
-    const run = registerSparkToolsForTest();
+    const run = registerSparkToolsForTest({
+      reviewerRunner: {
+        async review(input: ReviewInput): Promise<ReviewerRunResult> {
+          return createTaskApprovingGoalUnmetReviewerRunner().review(input);
+        },
+        async answerAsk() {
+          answerAskCalls += 1;
+          return { blocked: true, reason: "reviewer fallback must remain disabled" };
+        },
+      },
+    });
     const reproCommand = run.commands.get("repro");
     assert.ok(reproCommand, "missing /repro command");
     await reproCommand.handler("start", ctx);
@@ -7483,6 +7494,26 @@ test("active Repro binds detached Ask to its current step revision", async () =>
     const step = repro.plan.steps.find((candidate) => candidate.id === stepId);
     assert.ok(step);
     const stepBinding = createReproStepAskBinding(repro, step);
+    const bound = {
+      ...base,
+      context: encodeReproStepAskBinding(stepBinding),
+    };
+    const { delivery: _delivery, ...omittedDelivery } = bound;
+    for (const rejected of [
+      omittedDelivery,
+      { ...bound, delivery: "blocking" },
+      { ...bound, autoAnswer: true },
+    ]) {
+      await assert.rejects(
+        () => executeSparkTool(run.tools, "ask", ctx, rejected),
+        /AUTONOMOUS_ASYNC_ONLY/u,
+      );
+    }
+    assert.ok(!run.getActiveToolNames().includes("ask_user"));
+    assert.ok(!run.getActiveToolNames().includes("ask_flow"));
+    assert.equal(answerAskCalls, 0);
+    assert.equal(interactionCalls, 0);
+
     await assert.rejects(
       () =>
         executeSparkTool(run.tools, "ask", ctx, {
@@ -7505,10 +7536,7 @@ test("active Repro binds detached Ask to its current step revision", async () =>
     );
     assert.equal(interactionCalls, 0);
 
-    const asked = await executeSparkTool(run.tools, "ask", ctx, {
-      ...base,
-      context: encodeReproStepAskBinding(stepBinding),
-    });
+    const asked = await executeSparkTool(run.tools, "ask", ctx, bound);
     assert.equal((asked.details as { result?: { status?: string } }).result?.status, "pending");
     assert.equal(interactionCalls, 1);
     const evidenceRequest =

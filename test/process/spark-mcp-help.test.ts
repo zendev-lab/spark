@@ -10,7 +10,7 @@ const helpPattern = /spark-mcp - Spark Model Context Protocol stdio adapter/u;
 
 test("source product exposes direct and dispatcher MCP help commands", async () => {
   const direct = await execFileAsync(
-    resolve(root, "packages/spark-mcp/scripts/stdio.ts"),
+    resolve(root, "packages/spark-mcp/bin/spark-mcp.ts"),
     ["--help"],
     {
       cwd: root,

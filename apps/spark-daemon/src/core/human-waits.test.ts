@@ -402,6 +402,19 @@ describe("SparkDaemonHumanWaitRegistry", () => {
         created: false,
         wait: { humanRequestId: "hreq-evidence", evidenceRequest },
       });
+      const restartedPending = new SparkDaemonHumanWaitRegistry(db);
+      expect(restartedPending.get("hreq-evidence")).toMatchObject({
+        humanRequestId: "hreq-evidence",
+        status: "pending",
+        evidenceRequest,
+      });
+      expect(restartedPending.listPending()).toEqual([
+        expect.objectContaining({
+          humanRequestId: "hreq-evidence",
+          status: "pending",
+          evidenceRequest,
+        }),
+      ]);
       expect(() =>
         waits.register({
           ...waitInput("hreq-evidence-conflict"),
@@ -410,7 +423,7 @@ describe("SparkDaemonHumanWaitRegistry", () => {
         }),
       ).toThrow(/retried with a different binding/u);
 
-      const accepted = waits.deliver({
+      const accepted = restartedPending.deliver({
         humanRequestId: "hreq-evidence",
         humanResponseId: "hres-evidence",
         status: "answered",
