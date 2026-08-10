@@ -1128,6 +1128,45 @@ setInterval(() => {}, 1000);
     }
   });
 
+  it("treats an exact owned process disappearing before SIGTERM as stopped", () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-service-stop-exited-process-"));
+    const stopPaths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: { runtimeDir: join(root, "run") },
+    });
+    mkdirSync(stopPaths.runtimeDir, { recursive: true });
+    writeFileSync(stopPaths.pidFile, `${process.pid}\n`);
+    const ownership = publishSparkDaemonProcessOwnership(stopPaths, {
+      pid: process.pid,
+      instanceId: "owned-instance",
+      generation: "owned-generation",
+    });
+    const missing = Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+    const denied = Object.assign(new Error("kill EPERM"), { code: "EPERM" });
+    try {
+      expect(
+        stopSparkDaemonPidFileProcess(stopPaths, {
+          readProcessStartToken: () => ownership.processStartToken,
+          kill: () => {
+            throw missing;
+          },
+        }),
+      ).toMatchObject({ kind: "detached", alreadyRunning: false });
+
+      expect(() =>
+        stopSparkDaemonPidFileProcess(stopPaths, {
+          readProcessStartToken: () => ownership.processStartToken,
+          kill: () => {
+            throw denied;
+          },
+        }),
+      ).toThrow(denied);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("keeps exact process ownership published through daemon lock release", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-service-ownership-release-"));
     const ownershipPaths = resolveSparkPaths({

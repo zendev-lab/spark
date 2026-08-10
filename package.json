@@ -45,6 +45,7 @@
     "test:unit": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && vp test run --config vitest.root.config.ts && pnpm -r --workspace-concurrency=1 --if-present run test",
     "test:process:source": "pnpm --filter @zendev-lab/spark-hub run build && vp test run --config vitest.process.config.ts",
     "test:journey:repro": "pnpm --filter @zendev-lab/spark-hub run build && vp test run --config vitest.journey.config.ts",
+    "test:browser": "pnpm run test:browser:hub && pnpm run test:browser:ui",
     "test:browser:hub": "pnpm --filter @zendev-lab/spark-hub run test:browser",
     "test:browser:ui": "pnpm --filter @zendev-lab/spark-ui run test:browser",
     "test:capability": "vp test run --config vitest.capability.config.ts",
