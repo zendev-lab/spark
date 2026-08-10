@@ -334,6 +334,8 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["human.interaction.respond", "human_wait_registry_unavailable"],
       ["session.notification.deliver", "channel_delivery_not_sent"],
       ["session.model.set", "model_control_unavailable"],
+      ["session.model.set", "model_out_of_scope"],
+      ["model.default.set", "model_out_of_scope"],
     ] as const;
     for (const [method, code] of declaredCases) {
       expect(isSparkLocalRpcOrpcErrorCodeForMethod(method, code), `${method}: ${code}`).toBe(true);

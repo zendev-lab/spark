@@ -49,6 +49,7 @@ export const sparkInvocationRpcErrorCodeOptions = [
 export const sparkModelRpcErrorCodeOptions = [
   "model_control_unavailable",
   "model_not_found",
+  "model_out_of_scope",
   "model_unavailable",
   "provider_not_found",
   "provider_auth_method_unsupported",

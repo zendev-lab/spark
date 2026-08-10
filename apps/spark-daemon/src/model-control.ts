@@ -268,9 +268,14 @@ function modelControlSnapshot(
   const defaultModel = control.activeModelId
     ? modelRefFromValue(control.activeModelId, control)
     : undefined;
+  const scopedModels = control.scopedModelIds.flatMap((value) => {
+    const model = modelRefFromValue(value, control);
+    return model ? [model] : [];
+  });
   return parseSparkModelControlSnapshot({
     providers,
     ...(defaultModel ? { defaultModel } : {}),
+    scopedModels,
     ...(sessionId
       ? {
           session: {
@@ -354,6 +359,17 @@ function requireAvailableModel(
     throw new SparkDaemonControlError(
       "model_not_found",
       `Unknown Spark model: ${requested.providerName}/${requested.modelId}`,
+    );
+  }
+  if (
+    !snapshot.scopedModels?.some(
+      (model) =>
+        model.providerName === entry.model.providerName && model.modelId === entry.model.modelId,
+    )
+  ) {
+    throw new SparkDaemonControlError(
+      "model_out_of_scope",
+      `Spark model ${modelValue(entry.model)} is outside the user configured scoped models.`,
     );
   }
   if (!entry.available) {
