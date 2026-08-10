@@ -25,16 +25,6 @@ import {
   type SparkWorkflowRoleRunRequest,
 } from "@zendev-lab/spark-runtime";
 
-test("spark-workflows package stays isolated from runtime execution packages", async () => {
-  const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
-    dependencies?: Record<string, string>;
-  };
-
-  assert.equal(pkg.dependencies?.["@zendev-lab/spark-runtime"], undefined);
-  assert.equal(pkg.dependencies?.["@zendev-lab/spark-roles"], undefined);
-  assert.equal(pkg.dependencies?.["spark-goal"], undefined);
-});
-
 test("spark-workflows parses metadata without executing expressions", () => {
   assert.throws(
     () =>

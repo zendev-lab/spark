@@ -7,18 +7,6 @@ import { join, resolve } from "node:path";
 import { test } from "vitest";
 
 const checker = resolve("scripts/check-hub-terminology.mjs");
-const allowlist = resolve("test/fixtures/hub-compatibility-allowlist.json");
-
-test("every remaining Cockpit reference has exactly one compatibility classification", () => {
-  const result = runChecker(resolve("."), allowlist);
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Hub terminology compatibility report/u);
-  assert.match(result.stdout, /archived-0\.2-documentation/u);
-  assert.match(result.stdout, /legacy-layout-migration/u);
-  assert.match(result.stdout, /frozen-wire-value/u);
-  assert.match(result.stdout, /n-minus-one-updater-compatibility/u);
-  assert.match(result.stdout, /classified=\d+ violations=0/u);
-});
 
 test("an injected unallowlisted Cockpit reference fails closed", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-hub-terminology-"));

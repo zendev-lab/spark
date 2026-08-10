@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -9,18 +9,9 @@ import { test } from "vitest";
 const COMPATIBILITY_EXTENSION = resolve("packages/spark-ai/src/baidu-oneapi-compat-extension.ts");
 const NATIVE_PROVIDER_EXTENSION = resolve("packages/spark-ai/src/baidu-oneapi-provider.ts");
 const FILE_COMPATIBILITY_EXTENSION = resolve("packages/spark-files/src/extension-entry.ts");
-const ROOT_MANIFEST = resolve("package.json");
 const PI_NATIVE_FILE_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
 
 test("the production Pi surface keeps Pi-native file tools authoritative", async () => {
-  const manifest = JSON.parse(await readFile(ROOT_MANIFEST, "utf8")) as {
-    pi?: { extensions?: string[] };
-  };
-  assert.equal(
-    manifest.pi?.extensions?.includes("./packages/spark-files/src/extension-entry.ts") ?? false,
-    false,
-  );
-
   const agentDir = await mkdtemp(join(tmpdir(), "spark-pi-files-loader-"));
   try {
     const loaded = await discoverAndLoadExtensions(

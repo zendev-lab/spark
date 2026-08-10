@@ -1207,10 +1207,3 @@ test("callLeafOrDegrade delegates to a present host runLeaf", async () => {
   assert.equal(result.degraded, false);
   assert.equal(result.text, "synthesized");
 });
-
-test("spark-tui package keeps pi-coding-agent out of runtime dependencies", async () => {
-  const pkg = JSON.parse(await readFile("apps/spark-tui/package.json", "utf8")) as {
-    dependencies?: Record<string, string>;
-  };
-  assert.equal(pkg.dependencies?.["@earendil-works/pi-coding-agent"], undefined);
-});

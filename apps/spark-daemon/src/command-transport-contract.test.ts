@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { createId, createServerCommandEnvelope } from "@zendev-lab/spark-protocol";
 import {
@@ -208,87 +205,5 @@ describe("turn command transport contract", () => {
         knownWorkspaceBindingIds,
       }),
     ).toMatchObject({ accepted: false, reasonCode: "UNKNOWN_WORKSPACE_BINDING" });
-  });
-
-  it("keeps runtime WebSocket control schema-only without RPC or HTTP tunneling", () => {
-    const sources = ["daemon.ts", "command-dispatcher.ts"].map((file) =>
-      ts.createSourceFile(
-        file,
-        readFileSync(new URL(`./${file}`, import.meta.url), "utf8"),
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS,
-      ),
-    );
-    const calls = new Set<string>();
-    const calledIdentifiers = new Set<string>();
-    const importedBindings = new Set<string>();
-    const imports = new Set<string>();
-    const reasonCodes = new Set<string>();
-    const commandPayloadProperties = new Set<string>();
-    for (const source of sources) {
-      function visit(node: ts.Node): void {
-        if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-          imports.add(node.moduleSpecifier.text);
-          const clause = node.importClause;
-          if (clause?.name) importedBindings.add(clause.name.text);
-          const bindings = clause?.namedBindings;
-          if (bindings && ts.isNamedImports(bindings)) {
-            for (const element of bindings.elements) importedBindings.add(element.name.text);
-          }
-          if (bindings && ts.isNamespaceImport(bindings)) importedBindings.add(bindings.name.text);
-        }
-        if (ts.isCallExpression(node)) {
-          calls.add(node.expression.getText(source));
-          if (ts.isIdentifier(node.expression)) calledIdentifiers.add(node.expression.text);
-          if (ts.isPropertyAccessExpression(node.expression)) {
-            calledIdentifiers.add(node.expression.name.text);
-          }
-        }
-        if (ts.isPropertyAssignment(node) && ts.isStringLiteral(node.initializer)) {
-          const name = node.name.getText(source);
-          if (name === "reasonCode") reasonCodes.add(node.initializer.text);
-        }
-        if (ts.isPropertyAccessExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-          const chain = `${node.expression.getText(source)}.${node.name.text}`;
-          if (chain.startsWith("command.payload.")) commandPayloadProperties.add(node.name.text);
-        }
-        ts.forEachChild(node, visit);
-      }
-      visit(source);
-    }
-
-    expect(calls).toContain("serverCommandEnvelopeSchema.safeParse");
-    expect(reasonCodes).toContain("WORKSPACE_ROUTE_MISMATCH");
-    expect(imports).not.toContain("node:http");
-    expect(commandPayloadProperties).not.toContain("scope");
-    expect(commandPayloadProperties).not.toContain("method");
-    expect(commandPayloadProperties).not.toContain("params");
-    expect(imports).not.toContain("./local-rpc/client-transport.ts");
-    expect(importedBindings).not.toContain("requestSparkDaemonLocalRpcWire");
-    expect(calledIdentifiers).not.toContain("requestSparkDaemonLocalRpcWire");
-  });
-
-  it("keeps the turn spec aligned with canonical fixture vocabulary", () => {
-    const spec = readFileSync(
-      fileURLToPath(new URL("../../../docs/specs/turn.md", import.meta.url)),
-      "utf8",
-    );
-    const fixture = JSON.parse(
-      readFileSync(
-        fileURLToPath(
-          new URL(
-            "../../../packages/spark-protocol/src/fixtures/command-events-v1/vocabulary-samples.json",
-            import.meta.url,
-          ),
-        ),
-        "utf8",
-      ),
-    ) as { commands: Array<{ kind: string }>; events: Array<{ kind: string }> };
-
-    for (const command of fixture.commands) expect(spec).toContain(command.kind);
-    for (const event of fixture.events) expect(spec).toContain(event.kind);
-    expect(spec).toContain("SparkCommand");
-    expect(spec).toContain("SparkEvent");
   });
 });

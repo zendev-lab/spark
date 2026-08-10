@@ -34,7 +34,7 @@
   "type": "module",
   "scripts": {
     "check": "pnpm run check:static && pnpm run check:docs && pnpm run test:unit && pnpm run test:process:source",
-    "check:static": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/sync-workspace-versions.mjs && pnpm run check:architecture && node scripts/check-npm-product.mjs && node --experimental-strip-types scripts/check-lens-release.mts && pnpm run check:evidence-surface && pnpm run check:boundaries && pnpm run check:test-quality && node scripts/check-doc-terminology.mjs && node scripts/check-hub-terminology.mjs && vp fmt . --check && vp lint --quiet && pnpm run typecheck",
+    "check:static": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/sync-workspace-versions.mjs && pnpm run check:architecture && node scripts/check-github-actions.mjs && node scripts/check-pnpm-workspace-policy.mjs && node scripts/check-hub-source-boundaries.mjs && node scripts/check-npm-product.mjs && node --experimental-strip-types scripts/check-lens-release.mts && pnpm run check:evidence-surface && pnpm run check:boundaries && pnpm run check:test-quality && node scripts/check-doc-terminology.mjs && node scripts/check-hub-terminology.mjs && vp fmt . --check && vp lint --quiet && pnpm run typecheck",
     "check:architecture": "node scripts/validate-architecture-inventory.mjs && syncpack lint --config .syncpackrc.json --no-ansi && node scripts/check-architecture-ratchets.mjs",
     "check:evidence-surface": "node scripts/check-evidence-surface.mjs",
     "check:boundaries": "depcruise --config .dependency-cruiser.cjs apps packages test",

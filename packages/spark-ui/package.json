@@ -46,10 +46,6 @@
     "./tokens.css": "./src/tokens.css",
     "./status-pill.css": "./src/ui/status-pill.css"
   },
-  "scripts": {
-    "check": "vp check --no-fmt --no-lint . && vp test run",
-    "test": "vp test run"
-  },
   "dependencies": {
     "@lucide/svelte": "^1.16.0",
     "@zendev-lab/spark-protocol": "workspace:*",
@@ -58,8 +54,7 @@
   },
   "devDependencies": {
     "svelte": "^5.38.8",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "typescript": "catalog:"
   },
   "engines": {
     "node": ">=26.0.0 <27"

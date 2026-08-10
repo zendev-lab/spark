@@ -187,6 +187,15 @@ function runArchitectureRatchets() {
         `${path} duplicates the root typecheck with a boilerplate check script. Keep workspace scripts only when they add package-local validation.`,
       );
     }
+    const packagePolicyViolations = workspacePackagePolicyViolations({
+      path,
+      manifest,
+      hasTests: path.startsWith("packages/") && workspaceContainsTests(join(root, path)),
+      hasStrykerConfig: isFile(join(root, path, "stryker.config.json")),
+    });
+    for (const violation of packagePolicyViolations) {
+      failures.push(`${path} ${violation}.`);
+    }
   }
 
   if (failures.length > 0) {
@@ -392,6 +401,29 @@ export function presentationDependencyDeclarations(path, manifest) {
     .sort((left, right) => left.localeCompare(right));
 }
 
+export function workspacePackagePolicyViolations({ manifest, hasTests, hasStrykerConfig }) {
+  const violations = [];
+  if (hasTests) {
+    if (!manifest.scripts?.test) violations.push("must expose package-local tests");
+    if (!/\bvp test run\b/u.test(manifest.scripts?.check ?? "")) {
+      violations.push("check script must run package-local tests");
+    }
+  }
+
+  if (manifest.scripts?.["test:mutation"] === undefined) return violations;
+  if (manifest.scripts["test:mutation"] !== "stryker run") {
+    violations.push("mutation command must be stryker run");
+  }
+  if (manifest.devDependencies?.["@stryker-mutator/core"] !== "catalog:") {
+    violations.push("mutation core dependency must use catalog:");
+  }
+  if (manifest.devDependencies?.["@stryker-mutator/vitest-runner"] !== "catalog:") {
+    violations.push("mutation runner dependency must use catalog:");
+  }
+  if (!hasStrykerConfig) violations.push("mutation package must include stryker.config.json");
+  return violations;
+}
+
 export function workspaceImports(source) {
   const imports = new Set();
   const pattern =
@@ -409,6 +441,14 @@ function visit(directory, inspect) {
     if (entry.isDirectory()) visit(path, inspect);
     else if (entry.isFile()) inspect(path);
   }
+}
+
+function workspaceContainsTests(directory) {
+  let found = false;
+  visit(directory, (path) => {
+    if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) found = true;
+  });
+  return found;
 }
 
 function isProductionSource(path) {

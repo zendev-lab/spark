@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -207,17 +207,6 @@ test("dispatcher honors an explicit packaged updater command", () => {
   } finally {
     if (previous === undefined) delete process.env.SPARK_UPDATE_COMMAND;
     else process.env.SPARK_UPDATE_COMMAND = previous;
-  }
-});
-
-test("spark-cli package depends only on shared libraries", () => {
-  const manifest = JSON.parse(
-    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-  ) as {
-    dependencies?: Record<string, string>;
-  };
-  for (const dependency of Object.keys(manifest.dependencies ?? {})) {
-    assert.doesNotMatch(dependency, /^@zendev-lab\/spark-(?:tui-app|daemon|hub|acp|update)$/u);
   }
 });
 
