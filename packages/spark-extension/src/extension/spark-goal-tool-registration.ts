@@ -258,24 +258,31 @@ export function registerSparkGoalTool(
           reason,
           _signal,
         );
-        if (!editResult.approved)
+        if (!editResult.approved) {
+          const reviewerUnavailable = Boolean(editResult.review?.failure);
           return {
             content: [
               {
                 type: "text",
-                text: renderGoalEditRejectedMessage(existingGoal, editResult),
+                text: reviewerUnavailable
+                  ? renderGoalReviewerUnavailableMessage(existingGoal, "edit", editResult.review!)
+                  : renderGoalEditRejectedMessage(existingGoal, editResult),
               },
             ],
             details: {
               found: true,
               action,
-              error: "goal_edit_review_failed",
+              error: reviewerUnavailable
+                ? "goal_edit_reviewer_unavailable"
+                : "goal_edit_review_failed",
               goal: existingGoal,
               proposedObjective: objective,
               review: editResult.review?.verdict,
+              reviewerFailure: editResult.review?.failure,
               reviewEvidence: editResult.reviewEvidenceRef,
             },
           };
+        }
         const relationship = describeGoalProjectRelationship(
           editResult.goal ?? existingGoal,
           graph,
@@ -297,23 +304,34 @@ export function registerSparkGoalTool(
           content: [{ type: "text", text: "No session goal is set." }],
           details: { found: false, action, error: "no_goal" },
         };
-      if (!pauseResult.approved)
+      if (!pauseResult.approved) {
+        const reviewerUnavailable = Boolean(pauseResult.review?.failure);
         return {
           content: [
             {
               type: "text",
-              text: renderGoalPauseRejectedMessage(pauseResult.goal, pauseResult),
+              text: reviewerUnavailable
+                ? renderGoalReviewerUnavailableMessage(
+                    pauseResult.goal,
+                    "pause",
+                    pauseResult.review!,
+                  )
+                : renderGoalPauseRejectedMessage(pauseResult.goal, pauseResult),
             },
           ],
           details: {
             found: true,
             action,
-            error: "goal_pause_review_failed",
+            error: reviewerUnavailable
+              ? "goal_pause_reviewer_unavailable"
+              : "goal_pause_review_failed",
             goal: pauseResult.goal,
             review: pauseResult.review?.verdict,
+            reviewerFailure: pauseResult.review?.failure,
             reviewEvidence: pauseResult.reviewEvidenceRef,
           },
         };
+      }
       const relationship = describeGoalProjectRelationship(pauseResult.goal, graph, project);
       if (ctx.loop) await ctx.loop.stop({ reason: "goal paused after reviewer approval" });
       else
@@ -495,6 +513,7 @@ async function reviewedEditCurrentSessionGoal(
     forkFromSession: ctx.sessionManager?.getSessionFile?.(),
   };
   const review = await runGoalReviewer(cwd, ctx, reviewerRunner, reviewInput, signal);
+  if (review.failure) return { goal: existingGoal, approved: false, review };
   const verdict = review.verdict as GoalReviewVerdict;
   const evidence = await recordGoalTransitionReviewEvidence(
     sparkStateCwd(cwd, ctx),
@@ -539,6 +558,7 @@ export async function reviewedPauseCurrentSessionGoal(
     forkFromSession: ctx.sessionManager?.getSessionFile?.(),
   };
   const review = await runGoalReviewer(cwd, ctx, reviewerRunner, reviewInput, signal);
+  if (review.failure) return { goal: existingGoal, approved: false, review };
   const verdict = review.verdict as GoalReviewVerdict;
   const evidence = await recordGoalTransitionReviewEvidence(
     sparkStateCwd(cwd, ctx),
@@ -600,16 +620,16 @@ async function runGoalReviewer(
       );
     return leasedReview.result;
   } catch (error) {
-    return failedGoalPauseReviewerRunResult(
-      input,
-      error instanceof Error ? error.message : String(error),
-    );
+    const reason = error instanceof Error ? error.message : String(error);
+    return failedGoalPauseReviewerRunResult(input, reason, "runtime_error", true);
   }
 }
 
 function failedGoalPauseReviewerRunResult(
   input: GoalReviewInput,
   reason: string,
+  kind: NonNullable<ReviewerRunResult["failure"]>["kind"] = "lease_busy",
+  retryable = true,
 ): ReviewerRunResult {
   const timestamp = nowIso();
   return {
@@ -630,7 +650,21 @@ function failedGoalPauseReviewerRunResult(
       startedAt: timestamp,
       finishedAt: timestamp,
     },
+    failure: { kind, reason, retryable },
   };
+}
+
+function renderGoalReviewerUnavailableMessage(
+  goal: SparkSessionGoal,
+  action: "edit" | "pause",
+  review: ReviewerRunResult,
+): string {
+  const failure = review.failure!;
+  return [
+    `Goal ${action} reviewer unavailable for session goal: ${oneLine(goal.objective)}`,
+    `Reviewer infrastructure failure: ${failure.kind}: ${failure.reason}`,
+    "This is not a semantic goal rejection. No review Evidence was recorded and the goal was not changed.",
+  ].join("\n");
 }
 
 async function recordGoalTransitionReviewEvidence(

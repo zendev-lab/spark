@@ -20,7 +20,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 RUN pnpm_version="$(node -p "require('./package.json').packageManager.split('@').at(-1)")" \
     && npm install --global "pnpm@${pnpm_version}"
 
-RUN pnpm fetch --frozen-lockfile
+RUN pnpm fetch --frozen-lockfile --ignore-scripts
 
 COPY . .
 
