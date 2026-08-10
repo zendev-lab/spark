@@ -290,6 +290,50 @@ test("SparkProviderAuthResolver resolves env and stored API keys without status 
   });
 });
 
+test("native /scoped-models renders the daemon resolved scope instead of local catalog state", async () => {
+  const snapshot: SparkModelControlSnapshot = {
+    defaultModel: { providerName: "provider-a", modelId: "model-a" },
+    scopedModels: [{ providerName: "provider-a", modelId: "model-b" }],
+    diagnostics: [],
+    providers: [
+      {
+        providerName: "provider-a",
+        label: "Provider A",
+        auth: { providerName: "provider-a", kind: "none", configured: true },
+        models: [
+          {
+            model: { providerName: "provider-a", modelId: "model-a" },
+            reasoning: false,
+            input: ["text"],
+            available: true,
+          },
+          {
+            model: { providerName: "provider-a", modelId: "model-b" },
+            reasoning: true,
+            input: ["text"],
+            available: true,
+          },
+        ],
+      },
+    ],
+  };
+  const services = {
+    modelSelector: {
+      getPickerState: () => assert.fail("daemon-backed /scoped-models must not read local scope"),
+    },
+  } as unknown as SparkCliHostServices;
+  const commands = createSparkPiParitySlashCommands(services, daemonAuthClient(snapshot));
+
+  const rendered = await commands["scoped-models"]!.handler("", {
+    app: {} as never,
+    session: new SparkNativeSession(),
+    exit: () => undefined,
+  });
+
+  assert.match(String(rendered), /provider-a\/model-b/u);
+  assert.doesNotMatch(String(rendered), /provider-a\/model-a/u);
+});
+
 test("native /login and /logout mutate Spark auth store and model availability", async () => {
   await withAuthDir(async (dir, authPath) => {
     registerSparkOAuthProvider(testOAuthProvider());

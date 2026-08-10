@@ -29,6 +29,7 @@
     "@zendev-lab/spark-retry": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
     "@zendev-lab/spark-text": "workspace:^",
+    "minimatch": "^10.2.5",
     "typebox": "catalog:"
   },
   "devDependencies": {

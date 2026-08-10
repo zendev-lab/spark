@@ -43,10 +43,12 @@ describe("Spark model-control protocol", () => {
         },
       ],
       defaultModel: model,
+      scopedModels: [model],
       session: { sessionId: "sess_demo", model },
     });
 
     expect(snapshot.providers[0]?.auth.reference).toBe("openai-codex");
+    expect(snapshot.scopedModels).toEqual([model]);
     expect(snapshot.session?.model).toEqual(model);
     expect(snapshot.diagnostics).toEqual([]);
   });

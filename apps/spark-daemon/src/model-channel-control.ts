@@ -417,13 +417,22 @@ function sessionResult(session: SparkSessionRegistryRecord): SparkDaemonModelCha
 }
 
 function publicObject(value: unknown): Record<string, SparkProtocolJsonValue> {
-  return sparkProtocolJsonObjectSchema.parse(JSON.parse(JSON.stringify(value)));
+  let json: unknown;
+  try {
+    json = JSON.parse(JSON.stringify(value));
+  } catch (error) {
+    throw new Error("Failed to serialize public model-control payload", { cause: error });
+  }
+  const parsed = sparkProtocolJsonObjectSchema.safeParse(json);
+  if (!parsed.success) throw parsed.error;
+  return parsed.data;
 }
 
 function publicModelSnapshot(snapshot: SparkModelControlSnapshot): SparkModelControlSnapshot {
   return {
     providers: snapshot.providers,
     ...(snapshot.defaultModel ? { defaultModel: snapshot.defaultModel } : {}),
+    ...(snapshot.scopedModels ? { scopedModels: snapshot.scopedModels } : {}),
     ...(snapshot.session ? { session: snapshot.session } : {}),
     diagnostics:
       snapshot.diagnostics.length > 0 ? ["Provider diagnostics are available on the daemon."] : [],

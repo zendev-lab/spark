@@ -2,10 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  SparkOAuthFlowSnapshot,
-  SparkProviderControl,
-  SparkProviderControlSnapshot,
+import {
+  createSparkProviderControl,
+  type SparkOAuthFlowSnapshot,
+  type SparkProviderControl,
+  type SparkProviderControlSnapshot,
 } from "@zendev-lab/spark-ai/control";
 import { createSparkDaemonModelControl } from "./model-control.js";
 import { createDaemonSessionRegistry } from "./session-registry.js";
@@ -19,6 +20,33 @@ afterEach(async () => {
 });
 
 describe("daemon model control", () => {
+  it("projects the six default GPT-5.6 scoped models while retaining the full catalog", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-model-default-scope-"));
+    roots.push(root);
+    const control = createSparkDaemonModelControl({
+      providerControl: createSparkProviderControl({ sparkHome: join(root, "spark-home"), env: {} }),
+      sessionRegistry: createDaemonSessionRegistry(root, {
+        daemonId: "install-model-default-scope",
+        daemonCwd: root,
+      }),
+    });
+
+    const snapshot = await control.snapshot();
+    expect(
+      snapshot.scopedModels
+        ?.map((entry) => `${entry.providerName}/${entry.modelId}`)
+        .toSorted((a, b) => a.localeCompare(b)),
+    ).toEqual([
+      "baidu-oneapi/gpt-5.6-luna",
+      "baidu-oneapi/gpt-5.6-sol",
+      "baidu-oneapi/gpt-5.6-terra",
+      "openai-codex/gpt-5.6-luna",
+      "openai-codex/gpt-5.6-sol",
+      "openai-codex/gpt-5.6-terra",
+    ]);
+    expect(snapshot.providers.flatMap((provider) => provider.models).length).toBeGreaterThan(6);
+  });
+
   it("projects one catalog and persists a conversation-scoped model across fresh snapshots", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-model-control-"));
     roots.push(root);
@@ -35,6 +63,7 @@ describe("daemon model control", () => {
 
     const initial = await control.snapshot("sess_demo");
     expect(initial.defaultModel).toMatchObject(model);
+    expect(initial.scopedModels).toMatchObject([model, selectedModel]);
     expect(initial.providers.map((provider) => provider.providerName)).toEqual([
       "baidu-oneapi",
       "openai-codex",
@@ -44,6 +73,9 @@ describe("daemon model control", () => {
       configured: true,
       source: "environment",
       reference: "BAIDU_ONEAPI_API_KEY",
+    });
+    await expect(control.setDefaultModel(selectedModel)).resolves.toMatchObject({
+      defaultModel: selectedModel,
     });
     await expect(
       control.importPiAuth({ sourcePath: "/tmp/pi/auth.json", overwrite: false }),
@@ -141,6 +173,31 @@ describe("daemon model control", () => {
       control.setDefaultModel({ providerName: "missing-provider", modelId: "missing-model" }),
     ).rejects.toMatchObject({ code: "model_not_found" });
 
+    const restrictedControl = createSparkDaemonModelControl({
+      providerControl: fakeProviderControl(undefined, undefined, ["baidu-oneapi/ernie-4.5"]),
+      sessionRegistry,
+    });
+    await expect(restrictedControl.setDefaultModel(selectedModel)).rejects.toMatchObject({
+      code: "model_out_of_scope",
+    });
+    await expect(
+      restrictedControl.setSessionModel("sess_missing", selectedModel),
+    ).rejects.toMatchObject({ code: "model_out_of_scope" });
+
+    const unavailableProviderControl = fakeProviderControl();
+    const unavailableSnapshot = await unavailableProviderControl.snapshot();
+    const unavailableModel = unavailableSnapshot.models[1];
+    expect(unavailableModel).toBeDefined();
+    if (!unavailableModel) throw new Error("Missing unavailable model fixture");
+    unavailableModel.available = false;
+    const unavailableControl = createSparkDaemonModelControl({
+      providerControl: unavailableProviderControl,
+      sessionRegistry,
+    });
+    await expect(unavailableControl.setDefaultModel(selectedModel)).rejects.toMatchObject({
+      code: "model_unavailable",
+    });
+
     const missingFlowControl = createSparkDaemonModelControl({
       providerControl: { ...fakeProviderControl(), oauthStatus: () => undefined },
       sessionRegistry,
@@ -193,6 +250,7 @@ function fakeProviderControl(
     degraded: true,
     text: "",
   }),
+  scopedModelIds: string[] = ["baidu-oneapi/ernie-4.5", "baidu-oneapi/ernie-4.6"],
 ): SparkProviderControl {
   const snapshot: SparkProviderControlSnapshot = {
     activeModelId: "baidu-oneapi/ernie-4.5",
@@ -211,6 +269,7 @@ function fakeProviderControl(
         modelCount: 2,
       },
     ],
+    scopedModelIds,
     models: [
       {
         id: "baidu-oneapi/ernie-4.5",
@@ -256,7 +315,9 @@ function fakeProviderControl(
   };
   return {
     snapshot: async () => snapshot,
-    setDefaultModel: async () => undefined,
+    setDefaultModel: async (modelRef) => {
+      snapshot.activeModelId = modelRef;
+    },
     setApiKey: async () => undefined,
     logout: async () => false,
     startOAuth: async () => flow,
