@@ -19,7 +19,11 @@ import type { SparkToolContext } from "./spark-tool-registration.ts";
 
 const DEFAULT_TASK_FINISH_REVIEW_TIMEOUT_MS = 60_000;
 const TASK_FINISH_REVIEW_MAX_TOKENS = 1_200;
-const REVIEW_PACKET_LIST_LIMIT = 20;
+const REVIEW_PACKET_LIST_LIMIT = 6;
+const REVIEW_PACKET_REF_LIMIT = 8;
+const REVIEW_PACKET_PREVIEW_LIMIT = 5;
+export const TASK_FINISH_REVIEW_PACKET_FORMAT = "spark.task-finish-review-packet/v1";
+export const TASK_FINISH_REVIEW_PACKET_MAX_BYTES = 32 * 1_024;
 
 export type TaskFinishReviewWorkflowMode = "lightweight" | "deep_role" | "compatibility_role";
 
@@ -171,27 +175,46 @@ export async function runTaskFinishReviewWorkflow(
 }
 
 export function renderTaskFinishReviewPacket(input: TaskReviewInput): string {
-  return JSON.stringify(
-    {
-      targetKind: "task",
-      projectRef: input.projectRef,
-      task: compactTaskForFinishReview(input.task),
-      requestedStatus: input.requestedStatus,
-      summary: boundedText(input.summary, 2_000),
-      evidenceRefs: input.evidenceRefs,
-      evidencePreviews: input.evidencePreviews ?? [],
-      evidencePreviewOmittedCount: input.evidencePreviewOmittedCount ?? 0,
-      supersededEvidenceRefs: input.supersededEvidenceRefs ?? [],
-      artifactRefs: input.task.artifactRefs,
-      transitionProtocol: {
-        planItemStatePersisted: true,
-        artifactAuthorityField: "artifactRefs",
-        finishReceiptTiming: "created_after_reviewer_approval_and_transition_commit",
-      },
+  const evidenceRefs = boundedRefs(input.evidenceRefs);
+  const supersededEvidenceRefs = boundedRefs(input.supersededEvidenceRefs ?? []);
+  const artifactRefs = boundedRefs(input.task.artifactRefs);
+  const evidencePreviews = (input.evidencePreviews ?? [])
+    .slice(0, REVIEW_PACKET_PREVIEW_LIMIT)
+    .map(compactEvidencePreview);
+  const packet = {
+    format: TASK_FINISH_REVIEW_PACKET_FORMAT,
+    targetKind: "task",
+    projectRef: boundedText(input.projectRef, 256),
+    task: compactTaskForFinishReview(input.task),
+    requestedStatus: input.requestedStatus,
+    summary: boundedText(input.summary, 2_000),
+    evidenceRefs,
+    evidenceRefOmittedCount: Math.max(0, input.evidenceRefs.length - evidenceRefs.length),
+    evidencePreviews,
+    evidencePreviewOmittedCount:
+      (input.evidencePreviewOmittedCount ?? 0) +
+      Math.max(0, (input.evidencePreviews?.length ?? 0) - evidencePreviews.length),
+    supersededEvidenceRefs,
+    supersededEvidenceRefOmittedCount: Math.max(
+      0,
+      (input.supersededEvidenceRefs?.length ?? 0) - supersededEvidenceRefs.length,
+    ),
+    artifactRefs,
+    artifactRefOmittedCount: Math.max(0, input.task.artifactRefs.length - artifactRefs.length),
+    transitionProtocol: {
+      planItemStatePersisted: true,
+      artifactAuthorityField: "artifactRefs",
+      finishReceiptTiming: "created_after_reviewer_approval_and_transition_commit",
     },
-    null,
-    2,
-  );
+  };
+  const rendered = JSON.stringify(packet, null, 2);
+  const bytes = new TextEncoder().encode(rendered).byteLength;
+  if (bytes > TASK_FINISH_REVIEW_PACKET_MAX_BYTES) {
+    throw new Error(
+      `task finish review packet exceeds ${TASK_FINISH_REVIEW_PACKET_MAX_BYTES} bytes after compaction (${bytes})`,
+    );
+  }
+  return rendered;
 }
 
 function taskFinishReviewBrief(): string {
@@ -210,15 +233,15 @@ function taskFinishReviewBrief(): string {
 
 function compactTaskForFinishReview(task: Task): Record<string, unknown> {
   return {
-    ref: task.ref,
-    name: task.name,
+    ref: boundedText(task.ref, 128),
+    name: boundedText(task.name, 128),
     title: boundedText(task.title, 500),
     description: boundedText(task.description, 3_000),
     status: task.status,
     kind: task.kind,
     plan: compactPlanForFinishReview(task.plan),
-    artifactRefs: task.artifactRefs,
-    outputEvidenceRefs: task.outputEvidenceRefs,
+    artifactRefCount: task.artifactRefs.length,
+    outputEvidenceRefCount: task.outputEvidenceRefs.length,
   };
 }
 
@@ -241,21 +264,59 @@ function compactPlanForFinishReview(
       unfinished: unfinishedItems.length,
     },
     unfinishedItems: unfinishedItems.slice(0, REVIEW_PACKET_LIST_LIMIT).map((item) => ({
-      id: item.id,
-      title: boundedText(item.title, 500),
+      id: boundedText(item.id, 128),
+      title: boundedText(item.title, 300),
       status: item.status,
-      blockedBy: item.blockedBy ?? [],
-      evidenceRefs: item.evidenceRefs ?? [],
+      blockedBy: boundedStrings(item.blockedBy ?? [], 5, 128),
+      evidenceRefs: boundedRefs(item.evidenceRefs ?? [], 5),
     })),
     unfinishedItemOmittedCount: Math.max(0, unfinishedItems.length - REVIEW_PACKET_LIST_LIMIT),
   };
 }
 
 function boundedList(values: readonly string[]): string[] {
+  return boundedStrings(values, REVIEW_PACKET_LIST_LIMIT, 240);
+}
+
+function boundedStrings(values: readonly string[], limit: number, maxChars: number): string[] {
   return values
-    .slice(0, REVIEW_PACKET_LIST_LIMIT)
-    .map((value) => boundedText(value, 500))
+    .slice(0, limit)
+    .map((value) => boundedText(value, maxChars))
     .filter((value): value is string => value !== undefined);
+}
+
+function boundedRefs(values: readonly string[], limit = REVIEW_PACKET_REF_LIMIT): string[] {
+  return boundedStrings(values, limit, 128);
+}
+
+function compactEvidencePreview(
+  preview: NonNullable<TaskReviewInput["evidencePreviews"]>[number],
+): Record<string, unknown> {
+  const supersededBy = boundedRefs(preview.supersededBy ?? [], 5);
+  return {
+    ref: boundedText(preview.ref, 128),
+    ...(preview.title ? { title: boundedText(preview.title, 300) } : {}),
+    ...(preview.kind ? { kind: boundedText(preview.kind, 100) } : {}),
+    ...(preview.format ? { format: boundedText(preview.format, 100) } : {}),
+    ...(preview.provenance
+      ? { provenancePreview: boundedJsonPreview(preview.provenance, 500) }
+      : {}),
+    ...(preview.bodyPreview ? { bodyPreview: boundedText(preview.bodyPreview, 1_600) } : {}),
+    ...(preview.curationStatus ? { curationStatus: boundedText(preview.curationStatus, 100) } : {}),
+    ...(supersededBy.length ? { supersededBy } : {}),
+    ...(preview.supersededBy && preview.supersededBy.length > supersededBy.length
+      ? { supersededByOmittedCount: preview.supersededBy.length - supersededBy.length }
+      : {}),
+    ...(preview.error ? { error: boundedText(preview.error, 600) } : {}),
+  };
+}
+
+function boundedJsonPreview(value: unknown, maxChars: number): string {
+  try {
+    return boundedText(JSON.stringify(value), maxChars) ?? "";
+  } catch {
+    return "[unserializable metadata]";
+  }
 }
 
 function boundedText(value: string | undefined, maxChars: number): string | undefined {

@@ -1614,23 +1614,30 @@ interface TaskReviewEvidenceContext {
 const TASK_REVIEW_EVIDENCE_PREVIEW_LIMIT = 5;
 const TASK_REVIEW_EVIDENCE_PREVIEW_TOTAL_CHARS = 12_000;
 const TASK_REVIEW_EVIDENCE_PREVIEW_ITEM_CHARS = 3_000;
+const TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT = 128;
 
 export async function buildTaskReviewEvidenceContext(
   cwd: string,
   task: Pick<Task, "outputEvidenceRefs" | "plan">,
   loader: TaskReviewEvidenceLoader = createTaskReviewEvidenceLoader(cwd),
 ): Promise<TaskReviewEvidenceContext> {
-  const queue = collectTaskReviewEvidenceRefs(task);
+  const collected = collectTaskReviewEvidenceRefs(task);
+  const queue = collected.refs;
   const visited = new Set<EvidenceRef>();
   const currentEvidenceRefs: EvidenceRef[] = [];
   const currentEvidencePreviews: GoalReviewEvidencePreview[] = [];
   const supersededEvidenceRefs: EvidenceRef[] = [];
   const supersededReplacements = new Map<EvidenceRef, EvidenceRef[]>();
   const unreadableEvidence: GoalReviewEvidencePreview[] = [];
+  let traversalOverflowRef = collected.overflowRef;
 
   while (queue.length > 0) {
     const batch: EvidenceRef[] = [];
-    while (queue.length > 0 && batch.length < TASK_REVIEW_EVIDENCE_LOAD_CONCURRENCY) {
+    while (
+      queue.length > 0 &&
+      batch.length < TASK_REVIEW_EVIDENCE_LOAD_CONCURRENCY &&
+      visited.size < TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT
+    ) {
       const ref = queue.shift()!;
       if (visited.has(ref)) continue;
       visited.add(ref);
@@ -1640,7 +1647,11 @@ export async function buildTaskReviewEvidenceContext(
       const ref = loaded.ref;
       if (loaded.evidence) {
         const evidence = loaded.evidence;
-        const replacements = evidence.curation?.supersededBy ?? [];
+        const allReplacements = evidence.curation?.supersededBy ?? [];
+        const replacements = allReplacements.slice(0, TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT);
+        if (allReplacements.length > replacements.length) {
+          traversalOverflowRef ??= allReplacements[replacements.length];
+        }
         if (evidence.curation?.status === "superseded") {
           supersededEvidenceRefs.push(ref);
           supersededReplacements.set(ref, replacements);
@@ -1652,8 +1663,14 @@ export async function buildTaskReviewEvidenceContext(
             });
             continue;
           }
-          for (const replacement of replacements)
-            if (!visited.has(replacement)) queue.push(replacement);
+          for (const replacement of replacements) {
+            if (visited.has(replacement) || queue.includes(replacement)) continue;
+            if (visited.size + queue.length >= TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT) {
+              traversalOverflowRef ??= replacement;
+              continue;
+            }
+            queue.push(replacement);
+          }
           continue;
         }
         currentEvidenceRefs.push(ref);
@@ -1668,6 +1685,17 @@ export async function buildTaskReviewEvidenceContext(
         unreadableEvidence.push(preview);
       }
     }
+    if (visited.size >= TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT && queue.length > 0) {
+      traversalOverflowRef ??= queue[0];
+      break;
+    }
+  }
+
+  if (traversalOverflowRef) {
+    unreadableEvidence.push({
+      ref: traversalOverflowRef,
+      error: `Evidence traversal exceeded the ${TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT}-ref safety limit`,
+    });
   }
 
   const currentSet = new Set(currentEvidenceRefs);
@@ -1740,19 +1768,30 @@ function analyzeSupersededChain(
   return { reachesCurrent, hasCycle };
 }
 
-function collectTaskReviewEvidenceRefs(
-  task: Pick<Task, "outputEvidenceRefs" | "plan">,
-): EvidenceRef[] {
-  const refs = new Set<EvidenceRef>(task.outputEvidenceRefs);
+function collectTaskReviewEvidenceRefs(task: Pick<Task, "outputEvidenceRefs" | "plan">): {
+  refs: EvidenceRef[];
+  overflowRef?: EvidenceRef;
+} {
+  const refs = new Set<EvidenceRef>();
+  let overflowRef: EvidenceRef | undefined;
+  const add = (ref: EvidenceRef) => {
+    if (refs.has(ref)) return;
+    if (refs.size >= TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT) {
+      overflowRef ??= ref;
+      return;
+    }
+    refs.add(ref);
+  };
+  for (const ref of task.outputEvidenceRefs) add(ref);
   for (const requirement of task.plan?.evidenceRequired ?? []) {
     for (const match of requirement.matchAll(/\bevidence:[A-Za-z0-9][A-Za-z0-9._-]*/g)) {
-      if (isRef(match[0], "evidence")) refs.add(match[0]);
+      if (isRef(match[0], "evidence")) add(match[0]);
     }
   }
   for (const item of task.plan?.items ?? []) {
-    for (const ref of item.evidenceRefs ?? []) refs.add(ref);
+    for (const ref of item.evidenceRefs ?? []) add(ref);
   }
-  return [...refs];
+  return { refs: [...refs], ...(overflowRef ? { overflowRef } : {}) };
 }
 
 function taskEvidencePreview(
@@ -1762,17 +1801,37 @@ function taskEvidencePreview(
     typeof evidence.body === "string" ? evidence.body : JSON.stringify(evidence.body, null, 2);
   return {
     ref: evidence.ref,
-    title: evidence.title,
-    kind: evidence.kind,
-    format: evidence.format,
-    provenance: evidence.provenance as unknown as Record<string, unknown>,
+    title: boundedEvidencePreview(evidence.title, 500),
+    kind: boundedEvidencePreview(evidence.kind, 100),
+    format: boundedEvidencePreview(evidence.format, 100),
+    provenance: compactEvidenceProvenance(
+      evidence.provenance as unknown as Record<string, unknown>,
+    ),
     bodyPreview: boundedEvidencePreview(
       evidence.bodyPreview ?? bodyText,
       TASK_REVIEW_EVIDENCE_PREVIEW_ITEM_CHARS,
     ),
     curationStatus: evidence.curation?.status,
-    supersededBy: evidence.curation?.supersededBy,
+    supersededBy: evidence.curation?.supersededBy?.slice(0, 5),
   };
+}
+
+function compactEvidenceProvenance(value: Record<string, unknown>): Record<string, unknown> {
+  const compact: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value).slice(0, 10)) {
+    const boundedKey = boundedEvidencePreview(key, 100);
+    if (typeof entry === "string") compact[boundedKey] = boundedEvidencePreview(entry, 300);
+    else if (typeof entry === "number" || typeof entry === "boolean" || entry === null)
+      compact[boundedKey] = entry;
+    else {
+      try {
+        compact[boundedKey] = boundedEvidencePreview(JSON.stringify(entry), 500);
+      } catch {
+        compact[boundedKey] = "[unserializable metadata]";
+      }
+    }
+  }
+  return compact;
 }
 
 function boundedEvidencePreview(value: string, maxChars: number): string {

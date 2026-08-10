@@ -4414,6 +4414,33 @@ test("task finish review bounds Evidence previews by item count and total charac
   }
 });
 
+test("task finish review fails closed when Evidence traversal exceeds its total ref bound", async () => {
+  const refs = Array.from(
+    { length: 129 },
+    (_, index) => `evidence:bounded-${index}` as EvidenceRef,
+  );
+  const loaded: EvidenceRef[] = [];
+  const context = await buildTaskReviewEvidenceContext(
+    "/unused",
+    {
+      outputEvidenceRefs: refs,
+      plan: executionReadyPlan("Bound total Evidence traversal"),
+    },
+    {
+      async loadMany(batch) {
+        loaded.push(...batch);
+        return batch.map((ref) => ({ ref, error: new Error("missing test Evidence") }));
+      },
+    },
+  );
+
+  assert.equal(loaded.length, 128);
+  assert.match(
+    context.unreadableEvidence.at(-1)?.error ?? "",
+    /exceeded the 128-ref safety limit/u,
+  );
+});
+
 test("task finish review fails closed on cyclic superseded Evidence replacements", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-cyclic-evidence-"));
   try {

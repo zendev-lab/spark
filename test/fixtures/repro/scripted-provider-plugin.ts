@@ -1,4 +1,4 @@
-import { readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 
 import {
   SPARK_SCRIPTED_PROVIDER_MODEL,
@@ -20,7 +20,7 @@ interface ScriptedRound {
   toolCalls?: ScriptedToolCall[];
 }
 
-interface ScriptedProviderLedger {
+export interface ScriptedProviderLedger {
   schema: "spark.repro.scripted-provider-ledger/v1";
   cursor: number;
   rounds: ScriptedRound[];
@@ -48,121 +48,122 @@ export default function registerScriptedJourneyProvider(api: {
     models: [SPARK_SCRIPTED_PROVIDER_MODEL],
     streamSimple(model: unknown, context: unknown, options?: unknown) {
       const path = requiredLedgerPath();
-      const ledger = readLedger(path);
-      const availableTools = Array.isArray((context as { tools?: unknown[] }).tools)
-        ? (context as { tools: unknown[] }).tools
-        : [];
-      const serializedContext = JSON.stringify(context);
-      const toolApprovalReview = serializedContext.includes(
-        "Review this Spark tool-call approval request before execution.",
-      );
-      const reviewerRequest = availableTools.some(
-        (tool) => (tool as { name?: unknown }).name === "role_report_outcome",
-      );
-      const taskCompletionReview = reviewerRequest && !toolApprovalReview;
-      if (availableTools.length === 0 || toolApprovalReview || taskCompletionReview) {
-        const toolApprovalOutcomeRecorded = serializedContext.includes(
-          "Recorded completed outcome (journey_tool_approval_approved).",
+      return updateScriptedProviderLedger(path, (ledger) => {
+        const availableTools = Array.isArray((context as { tools?: unknown[] }).tools)
+          ? (context as { tools: unknown[] }).tools
+          : [];
+        const serializedContext = JSON.stringify(context);
+        const toolApprovalReview = serializedContext.includes(
+          "Review this Spark tool-call approval request before execution.",
         );
-        const auxiliaryText = taskCompletionReview
-          ? JSON.stringify({
-              outcome: "approved",
-              summary: "The Task plan and cited Golden Journey evidence satisfy this transition.",
-              findings: [],
-              blockers: [],
-              confidence: "high",
-            })
-          : toolApprovalReview
+        const reviewerRequest = availableTools.some(
+          (tool) => (tool as { name?: unknown }).name === "role_report_outcome",
+        );
+        const taskCompletionReview =
+          !toolApprovalReview &&
+          (reviewerRequest || serializedContext.includes("spark.task-finish-review-packet/v1"));
+        if (availableTools.length === 0 || toolApprovalReview || taskCompletionReview) {
+          const toolApprovalOutcomeRecorded = serializedContext.includes(
+            "Recorded completed outcome (journey_tool_approval_approved).",
+          );
+          const auxiliaryText = taskCompletionReview
             ? JSON.stringify({
                 outcome: "approved",
-                summary:
-                  "The deterministic Journey contract authorizes the Draft forge-shim submission.",
+                summary: "The Task plan and cited Golden Journey evidence satisfy this transition.",
                 findings: [],
                 blockers: [],
                 confidence: "high",
               })
-            : "The deterministic Repro Journey is active and its durable owner state remains authoritative.";
-        const auxiliaryLabel = taskCompletionReview
-          ? "auxiliary.task-review"
-          : toolApprovalReview
-            ? toolApprovalOutcomeRecorded
-              ? "auxiliary.tool-approval.verdict"
-              : "auxiliary.tool-approval.outcome"
-            : "auxiliary.compaction";
-        const auxiliaryContent =
-          toolApprovalReview && !toolApprovalOutcomeRecorded
-            ? [
-                sparkScriptedToolCall("journey.reviewer.outcome", "role_report_outcome", {
-                  kind: "completed",
-                  code: "journey_tool_approval_approved",
-                  reason:
-                    "The deterministic Draft forge-shim submission is safe and contract-authorized.",
-                }),
-              ]
-            : [{ type: "text" as const, text: auxiliaryText }];
-        const auxiliary = createSparkScriptedProvider([
+            : toolApprovalReview
+              ? JSON.stringify({
+                  outcome: "approved",
+                  summary:
+                    "The deterministic Journey contract authorizes the Draft forge-shim submission.",
+                  findings: [],
+                  blockers: [],
+                  confidence: "high",
+                })
+              : "The deterministic Repro Journey is active and its durable owner state remains authoritative.";
+          const auxiliaryLabel = taskCompletionReview
+            ? "auxiliary.task-review"
+            : toolApprovalReview
+              ? toolApprovalOutcomeRecorded
+                ? "auxiliary.tool-approval.verdict"
+                : "auxiliary.tool-approval.outcome"
+              : "auxiliary.compaction";
+          const auxiliaryContent =
+            toolApprovalReview && !toolApprovalOutcomeRecorded
+              ? [
+                  sparkScriptedToolCall("journey.reviewer.outcome", "role_report_outcome", {
+                    kind: "completed",
+                    code: "journey_tool_approval_approved",
+                    reason:
+                      "The deterministic Draft forge-shim submission is safe and contract-authorized.",
+                  }),
+                ]
+              : [{ type: "text" as const, text: auxiliaryText }];
+          const auxiliary = createSparkScriptedProvider([
+            {
+              label: auxiliaryLabel,
+              message: sparkScriptedAssistant(auxiliaryContent, {
+                stopReason: auxiliaryContent.some((part) => part.type === "toolCall")
+                  ? "toolUse"
+                  : "stop",
+              }),
+            },
+          ]);
+          const stream = auxiliary.streamFunction(
+            model as Parameters<typeof auxiliary.streamFunction>[0],
+            context as Parameters<typeof auxiliary.streamFunction>[1],
+            options as Parameters<typeof auxiliary.streamFunction>[2],
+          );
+          const request = auxiliary.requests[0];
+          if (request) {
+            (ledger.auxiliaryRequests ??= []).push({
+              label: auxiliaryLabel,
+              messageRoles: request.messages.map((message) => message.role),
+              toolNames: request.tools.map((tool) => tool.name),
+            });
+          }
+          return stream;
+        }
+        const round = ledger.rounds[ledger.cursor];
+        if (!round) {
+          throw new Error(
+            `Spark Repro scripted provider received unexpected request ${ledger.cursor + 1}; configured ${ledger.rounds.length} round(s)`,
+          );
+        }
+        const refs = collectRefs(context);
+        const content = [
+          ...(round.text
+            ? [{ type: "text" as const, text: interpolate(round.text, ledger, refs) }]
+            : []),
+          ...(round.toolCalls ?? []).map((call) =>
+            sparkScriptedToolCall(
+              call.id,
+              call.name,
+              interpolateValue(call.arguments ?? {}, ledger, refs) as Record<string, unknown>,
+            ),
+          ),
+        ];
+        const provider = createSparkScriptedProvider([
           {
-            label: auxiliaryLabel,
-            message: sparkScriptedAssistant(auxiliaryContent, {
-              stopReason: auxiliaryContent.some((part) => part.type === "toolCall")
-                ? "toolUse"
-                : "stop",
+            label: round.label,
+            message: sparkScriptedAssistant(content, {
+              stopReason: content.some((part) => part.type === "toolCall") ? "toolUse" : "stop",
             }),
           },
         ]);
-        const stream = auxiliary.streamFunction(
-          model as Parameters<typeof auxiliary.streamFunction>[0],
-          context as Parameters<typeof auxiliary.streamFunction>[1],
-          options as Parameters<typeof auxiliary.streamFunction>[2],
+        const stream = provider.streamFunction(
+          model as Parameters<typeof provider.streamFunction>[0],
+          context as Parameters<typeof provider.streamFunction>[1],
+          options as Parameters<typeof provider.streamFunction>[2],
         );
-        const request = auxiliary.requests[0];
-        if (request) {
-          (ledger.auxiliaryRequests ??= []).push({
-            label: auxiliaryLabel,
-            messageRoles: request.messages.map((message) => message.role),
-            toolNames: request.tools.map((tool) => tool.name),
-          });
-        }
-        writeLedger(path, ledger);
+        ledger.cursor += 1;
+        const request = provider.requests[0];
+        if (request) ledger.requests.push(requestRecord(request));
         return stream;
-      }
-      const round = ledger.rounds[ledger.cursor];
-      if (!round) {
-        throw new Error(
-          `Spark Repro scripted provider received unexpected request ${ledger.cursor + 1}; configured ${ledger.rounds.length} round(s)`,
-        );
-      }
-      const refs = collectRefs(context);
-      const content = [
-        ...(round.text
-          ? [{ type: "text" as const, text: interpolate(round.text, ledger, refs) }]
-          : []),
-        ...(round.toolCalls ?? []).map((call) =>
-          sparkScriptedToolCall(
-            call.id,
-            call.name,
-            interpolateValue(call.arguments ?? {}, ledger, refs) as Record<string, unknown>,
-          ),
-        ),
-      ];
-      const provider = createSparkScriptedProvider([
-        {
-          label: round.label,
-          message: sparkScriptedAssistant(content, {
-            stopReason: content.some((part) => part.type === "toolCall") ? "toolUse" : "stop",
-          }),
-        },
-      ]);
-      const stream = provider.streamFunction(
-        model as Parameters<typeof provider.streamFunction>[0],
-        context as Parameters<typeof provider.streamFunction>[1],
-        options as Parameters<typeof provider.streamFunction>[2],
-      );
-      ledger.cursor += 1;
-      const request = provider.requests[0];
-      if (request) ledger.requests.push(requestRecord(request));
-      writeLedger(path, ledger);
-      return stream;
+      });
     },
   });
 }
@@ -179,6 +180,55 @@ function readLedger(path: string): ScriptedProviderLedger {
     throw new Error(`Unsupported scripted provider ledger: ${String(value.schema)}`);
   }
   return value;
+}
+
+export function updateScriptedProviderLedger<T>(
+  path: string,
+  update: (ledger: ScriptedProviderLedger) => T,
+): T {
+  const release = acquireLedgerLock(path);
+  try {
+    const ledger = readLedger(path);
+    const result = update(ledger);
+    writeLedger(path, ledger);
+    return result;
+  } finally {
+    release();
+  }
+}
+
+const ledgerLockWaitBuffer = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+
+function acquireLedgerLock(path: string): () => void {
+  const lockPath = `${path}.lock`;
+  const startedAt = Date.now();
+  while (true) {
+    try {
+      const descriptor = openSync(lockPath, "wx", 0o600);
+      try {
+        writeFileSync(
+          descriptor,
+          `${JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() })}\n`,
+        );
+      } catch (error) {
+        closeSync(descriptor);
+        unlinkSync(lockPath);
+        throw error;
+      }
+      return () => {
+        closeSync(descriptor);
+        unlinkSync(lockPath);
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (Date.now() - startedAt >= 10_000) {
+        throw new Error(
+          `timed out waiting for scripted provider ledger lock: ${lockPath}; remove the test fixture to recover`,
+        );
+      }
+      Atomics.wait(ledgerLockWaitBuffer, 0, 0, 10);
+    }
+  }
 }
 
 function writeLedger(path: string, ledger: ScriptedProviderLedger): void {

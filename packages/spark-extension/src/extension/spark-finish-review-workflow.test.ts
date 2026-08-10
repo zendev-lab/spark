@@ -4,7 +4,12 @@ import { test } from "vitest";
 import type { LeafCapabilityRequest, Task, TaskPlan } from "@zendev-lab/spark-core";
 import type { TaskReviewInput } from "@zendev-lab/spark-roles";
 
-import { runTaskFinishReviewWorkflow } from "./spark-finish-review-workflow.ts";
+import {
+  renderTaskFinishReviewPacket,
+  runTaskFinishReviewWorkflow,
+  TASK_FINISH_REVIEW_PACKET_FORMAT,
+  TASK_FINISH_REVIEW_PACKET_MAX_BYTES,
+} from "./spark-finish-review-workflow.ts";
 
 function reviewInput(): TaskReviewInput {
   const plan: TaskPlan = {
@@ -98,11 +103,45 @@ test("task finish workflow uses one tool-free compact leaf review", async () => 
   assert.equal(captured?.reasoning, false);
   assert.equal(captured?.maxTokens, 1_200);
   const packet = JSON.parse(captured?.input ?? "{}") as {
+    format?: string;
     task?: { plan?: Record<string, unknown> };
   };
+  assert.equal(packet.format, TASK_FINISH_REVIEW_PACKET_FORMAT);
   assert.equal(packet.task?.plan?.objective, "Verify the bounded finish reviewer.");
   assert.equal(packet.task?.plan?.steps, undefined);
   assert.deepEqual(packet.task?.plan?.itemCounts, { total: 1, done: 1, unfinished: 0 });
+});
+
+test("task finish workflow enforces one total serialized packet budget", () => {
+  const input = reviewInput();
+  input.summary = "summary".repeat(2_000);
+  input.evidenceRefs = Array.from(
+    { length: 100 },
+    (_, index) => `evidence:${index}-${"r".repeat(1_000)}` as (typeof input.evidenceRefs)[number],
+  );
+  input.supersededEvidenceRefs = [...input.evidenceRefs];
+  input.evidencePreviews = Array.from({ length: 20 }, (_, index) => ({
+    ref: input.evidenceRefs[index]!,
+    title: "title".repeat(1_000),
+    provenance: { note: "metadata".repeat(2_000) },
+    bodyPreview: "body".repeat(4_000),
+    supersededBy: input.evidenceRefs,
+  }));
+  input.task.plan!.constraints = Array.from({ length: 100 }, () => "constraint".repeat(500));
+  input.task.plan!.successCriteria = Array.from({ length: 100 }, () => "criterion".repeat(500));
+
+  const rendered = renderTaskFinishReviewPacket(input);
+  const packet = JSON.parse(rendered) as {
+    evidenceRefs: string[];
+    evidenceRefOmittedCount: number;
+    evidencePreviews: unknown[];
+    evidencePreviewOmittedCount: number;
+  };
+  assert.ok(new TextEncoder().encode(rendered).byteLength <= TASK_FINISH_REVIEW_PACKET_MAX_BYTES);
+  assert.equal(packet.evidenceRefs.length, 8);
+  assert.equal(packet.evidenceRefOmittedCount, 92);
+  assert.equal(packet.evidencePreviews.length, 5);
+  assert.equal(packet.evidencePreviewOmittedCount, 15);
 });
 
 test("task finish workflow escalates only an explicit needs_deep_review decision", async () => {
