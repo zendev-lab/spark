@@ -91,6 +91,15 @@ Task state, Goal/Repro state, and transcript summaries are not interchangeable
 sources of truth. Historical text or hook-projected context must never authorize
 a mutation.
 
+Existing-Task dependency replacement is a dedicated canonical `task_write`
+action. It requires exactly one `task`/`taskRef` selector and a complete
+`dependsOn` replacement array; `[]` is the explicit empty set. The action must
+reject mixed creation, metadata, plan, or status mutation. Unknown or ambiguous
+selectors, cancelled or cross-Project prerequisites, self-edges, and cycles
+fail with stable machine-readable classes. The owner validates the complete
+candidate graph after a lock-scoped reload and persists only after every check
+passes; any failure leaves the graph bytes and revision unchanged.
+
 ## Hook-projected state
 
 The `spark.todos` context provider may project the current durable TODO snapshot

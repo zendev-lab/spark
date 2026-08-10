@@ -30,6 +30,17 @@ worktree 和一个 GitHub 原生 PR stack，由 `git({ action })` 管理生命�
 只是 Document 的视图，不是 Artifact kind。`evidence` 是 agent 内部账本，不会作为
 产品产物展示。`context` 只能列出或预览已注册的受限 provider，不能接收任意 prompt。
 
+### 替换 Task 依赖
+
+`task_write({ action: "replace_dependencies" })` 会原子替换一个既有 Task 的完整依赖
+集合。调用时必须且只能传入 `task` 或 `taskRef` 之一，并且始终传入 `dependsOn`；
+空数组表示清除全部依赖。依赖 selector 可以是精确 Task ref、名称或标题。
+
+该 action 只允许修改依赖，禁止在同一次调用中混入 Task 创建、metadata、plan 或
+status 变更。未知或歧义 selector、已取消或跨 Project 的前置 Task、自依赖和循环依赖
+都会返回稳定的失败分类。系统会在锁内重新加载后完成全部验证，再执行持久化；失败的
+替换不会写入 Task graph 状态。
+
 `skill_agent({ skills, instruction, inputs? })` 按精确名称解析一到八个允许模型调用的
 Skill，并使用当前模型启动一个全新的匿名专属 Agent。Host 会把所有选中 Skill 的完整
 内容各加载一次。Agent 只接收自包含 instruction 和受限 inputs，不继承父会话

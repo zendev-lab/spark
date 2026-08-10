@@ -36,6 +36,19 @@ Artifact kind.
 `context` can only list or preview registered bounded providers; it does not
 accept an arbitrary prompt.
 
+### Replacing Task dependencies
+
+`task_write({ action: "replace_dependencies" })` atomically replaces the complete
+dependency set of one existing Task. Pass exactly one of `task` or `taskRef`,
+and always pass `dependsOn`; an empty array clears every dependency. Dependency
+selectors may be exact Task refs, names, or titles.
+
+This action is dependency-only. It rejects task creation and metadata, plan, or
+status mutations in the same call. Unknown or ambiguous selectors, cancelled or
+cross-project prerequisites, self-edges, and cycles return stable failure
+classes. Validation happens against a lock-scoped reload before persistence, so
+a failed replacement does not write Task graph state.
+
 `skill_agent({ skills, instruction, inputs? })` resolves one to eight exact
 model-invocable Skills and runs one fresh anonymous dedicated Agent with every
 selected Skill body loaded in full exactly once. The Agent receives the
