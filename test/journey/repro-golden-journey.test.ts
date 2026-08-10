@@ -42,6 +42,7 @@ import {
   type SparkReproProfile,
 } from "@zendev-lab/spark-repro/work-summary";
 
+import { goldenJourneyOwnerOutcomeProjection } from "../support/repro-golden-journey-recovery-contract.ts";
 import { runSparkProcess, type SparkProcessTarget } from "../support/spark-process-harness.ts";
 
 const execFileAsync = promisify(execFile);
@@ -49,6 +50,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const fixtureRoot = resolve(root, "test/fixtures/repro/minimal-alignment");
 const providerPlugin = resolve(root, "test/fixtures/repro/scripted-provider-plugin.ts");
 const forgeShim = resolve(root, "test/fixtures/repro/forge-shim.mjs");
+const expectedOwnerOutcome = JSON.parse(
+  readFileSync(
+    resolve(root, "test/fixtures/repro/recovery-ledger/expected-owner-outcome.json"),
+    "utf8",
+  ),
+) as unknown;
 const reproId = "repro:golden-journey-source-process";
 const formalVerifierId = "golden-journey-validator";
 const formalVerifierVersion = "2026.08";
@@ -300,7 +307,7 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       "provider ledger completion",
     );
     const resumeCount = resumedLedger.requests.filter(
-      (request) => request.label === "decision.replayed",
+      (request) => request.label === "decision.evidence.list",
     ).length;
     assert.equal(resumeCount, 1);
     assert.equal(resumedLedger.cursor, resumedLedger.rounds.length);
@@ -404,7 +411,10 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     );
     assert.equal(targetValidationAfterRepair.exitCode, 0);
 
-    const evidenceRefs = uniqueMatches(JSON.stringify(report), /evidence:[a-z0-9-]+/giu);
+    const evidenceRefs = uniqueMatches(
+      JSON.stringify(report),
+      /evidence:[a-z0-9-]+(?::[a-z0-9-]+)*/giu,
+    );
     const artifactRefs = uniqueMatches(JSON.stringify(report), /artifact:[a-z0-9-]+/giu);
     assert.ok(evidenceRefs.length > 0);
     assert.ok(artifactRefs.length > 0);
@@ -512,9 +522,9 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       laneRecoveryDaemonAlive: false,
       hubAlive: false,
     });
-    process.stdout.write(
-      `REPRO_GOLDEN_JOURNEY ${JSON.stringify({ ...processLedger, teardown, livePidCount: 0 })}\n`,
-    );
+    const finalLedger = { ...processLedger, teardown, livePidCount: 0 };
+    assert.deepEqual(goldenJourneyOwnerOutcomeProjection(finalLedger), expectedOwnerOutcome);
+    process.stdout.write(`REPRO_GOLDEN_JOURNEY ${JSON.stringify(finalLedger)}\n`);
     retainedFailureFixture = undefined;
     await rm(fixture.temporary, { recursive: true, force: true });
   } catch (error) {
@@ -770,7 +780,7 @@ function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }
       flow: "repro-golden-journey-repair",
       title: "Approve localized target repair",
       context: askBinding,
-      recordAsEvidence: false,
+      recordAsEvidence: true,
       questions: [
         {
           id: "decision",
@@ -792,33 +802,6 @@ function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }
   });
   text("decision.waiting.complete", "Waiting for the canonical decision.");
 
-  tool(
-    "decision.replayed",
-    "ask",
-    {
-      action: "ask",
-      delivery: "blocking",
-      timeoutMs: 30_000,
-      mode: "decision",
-      flow: "repro-golden-journey-repair",
-      title: "Approve localized target repair",
-      context: askBinding,
-      recordAsEvidence: true,
-      questions: [
-        {
-          id: "decision",
-          type: "single",
-          required: true,
-          prompt: "Apply the localized normalization repair to the target implementation?",
-          options: [
-            { value: "approve", label: "Approve repair" },
-            { value: "stop", label: "Stop" },
-          ],
-        },
-      ],
-    },
-    "journey-decision",
-  );
   tool("decision.evidence.list", "evidence", {
     action: "list",
     kind: "record",

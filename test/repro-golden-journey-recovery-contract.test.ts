@@ -7,6 +7,7 @@ import { test } from "vitest";
 
 import {
   assertReproGoldenJourneyRecoverySemantics,
+  goldenJourneyOwnerOutcomeProjection,
   recoveryOutcomeProjection,
 } from "./support/repro-golden-journey-recovery-contract.ts";
 
@@ -25,15 +26,17 @@ interface NegativeCase {
 }
 
 test("versioned recovery ledger matches the immutable happy outcome", async () => {
-  const [schema, happy, expected] = await Promise.all([
+  const [schema, happy, expected, expectedOwner] = await Promise.all([
     readJson(schemaPath),
     readJson(resolve(fixtureRoot, "happy.json")),
     readJson(resolve(fixtureRoot, "expected-outcome.json")),
+    readJson(resolve(fixtureRoot, "expected-owner-outcome.json")),
   ]);
   const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema as object);
   assert.equal(validate(happy), true, JSON.stringify(validate.errors ?? [], null, 2));
   assertReproGoldenJourneyRecoverySemantics(happy);
   assert.deepEqual(recoveryOutcomeProjection(happy), expected);
+  assert.deepEqual(goldenJourneyOwnerOutcomeProjection(happy), expectedOwner);
 });
 
 test("recovery ledger rejects duplicate, stale, conflicting, and unproven outcomes", async () => {

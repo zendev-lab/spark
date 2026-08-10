@@ -46,6 +46,7 @@ import {
 
 import {
   assertReproGoldenJourneyRecoverySemantics,
+  goldenJourneyOwnerOutcomeProjection,
   recoveryOutcomeProjection,
 } from "../support/repro-golden-journey-recovery-contract.ts";
 import { runSparkProcess, type SparkProcessTarget } from "../support/spark-process-harness.ts";
@@ -63,12 +64,17 @@ const recoveryExpectedOutcomePath = resolve(
   root,
   "test/fixtures/repro/recovery-ledger/expected-outcome.json",
 );
+const expectedOwnerOutcomePath = resolve(
+  root,
+  "test/fixtures/repro/recovery-ledger/expected-owner-outcome.json",
+);
 const validateRecoveryLedger = new Ajv2020({ allErrors: true, strict: true }).compile(
   JSON.parse(readFileSync(recoverySchemaPath, "utf8")) as object,
 );
 const recoveryExpectedOutcome = JSON.parse(
   readFileSync(recoveryExpectedOutcomePath, "utf8"),
 ) as unknown;
+const expectedOwnerOutcome = JSON.parse(readFileSync(expectedOwnerOutcomePath, "utf8")) as unknown;
 const reproId = "repro:golden-journey-source-process";
 const formalVerifierId = "golden-journey-validator";
 const formalVerifierVersion = "2026.08";
@@ -576,6 +582,7 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     );
     assertReproGoldenJourneyRecoverySemantics(finalLedger);
     assert.deepEqual(recoveryOutcomeProjection(finalLedger), recoveryExpectedOutcome);
+    assert.deepEqual(goldenJourneyOwnerOutcomeProjection(finalLedger), expectedOwnerOutcome);
     process.stdout.write(`REPRO_GOLDEN_JOURNEY ${JSON.stringify(finalLedger)}\n`);
     retainedFailureFixture = undefined;
     await rm(fixture.temporary, { recursive: true, force: true });
@@ -680,6 +687,7 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     `${JSON.stringify(
       {
         providers: [providerPlugin],
+        enabledModels: ["spark-scripted/spark-scripted-provider"],
         activeModelId: "spark-scripted/spark-scripted-provider",
         activeThinkingLevel: "off",
         skills: [],

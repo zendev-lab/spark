@@ -1,0 +1,47 @@
+{
+  "milestones": [
+    { "name": "repro.started", "count": 1, "sequence": 1 },
+    { "name": "decision.requested", "count": 1, "sequence": 2 },
+    { "name": "decision.persisted_across_restart", "count": 1, "sequence": 3 },
+    { "name": "decision.answered", "count": 1, "sequence": 4 },
+    { "name": "repro.resumed", "count": 1, "sequence": 5 },
+    { "name": "validation.failed_before_fix", "count": 1, "sequence": 6 },
+    { "name": "validation.passed_after_fix", "count": 1, "sequence": 7 },
+    { "name": "git_change.committed", "count": 1, "sequence": 8 },
+    { "name": "pull_request.submitted", "count": 1, "sequence": 9 },
+    { "name": "report.projected", "count": 1, "sequence": 10 },
+    { "name": "report.synced", "count": 1, "sequence": 11 },
+    { "name": "repro.completed", "count": 1, "sequence": 12 },
+    { "name": "workbench.sealed", "count": 1, "sequence": 13 }
+  ],
+  "interaction": {
+    "stableRequest": true,
+    "answerRecorded": true,
+    "resumeCount": 1
+  },
+  "validation": {
+    "reference": 0,
+    "targetBeforeRepair": 1,
+    "targetAfterRepair": 0
+  },
+  "git": {
+    "commitCount": 1,
+    "changedPaths": ["target/normalize.mjs"],
+    "draftPrCreates": 1,
+    "nonDraftPrCreates": 0
+  },
+  "report": {
+    "projectionMatchesSummary": true,
+    "reportArtifactCount": 1,
+    "formalGateCount": 5,
+    "formalGatesAccepted": true,
+    "workbenchLifecycle": "sealed"
+  },
+  "terminal": {
+    "pendingAskCount": 0,
+    "toolApprovalRequestCount": 0,
+    "activeInvocationCount": 0,
+    "writableWorkbenchCount": 0,
+    "livePidCount": 0
+  }
+}

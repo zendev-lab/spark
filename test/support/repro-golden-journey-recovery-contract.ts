@@ -193,6 +193,81 @@ export function assertReproGoldenJourneyRecoverySemantics(
   assert.equal(ledger.livePidCount, 0);
 }
 
+export function goldenJourneyOwnerOutcomeProjection(value: unknown): unknown {
+  assert.ok(isRecord(value), "Golden Journey ledger must be an object");
+  const ledger = value as unknown as RecoveryLedger;
+  assert.equal(ledger.schema, "spark.repro-golden-journey-process/v1");
+  assert.equal(ledger.providerRoundsAtAnswer, ledger.providerRoundsAtWait);
+  assert.equal(ledger.resumeCount, 1);
+  assert.deepEqual(
+    ledger.milestones.map(({ name, count, sequence }) => ({ name, count, sequence })),
+    milestoneNames.map((name, index) => ({ name, count: 1, sequence: index + 1 })),
+  );
+  assert.equal(
+    ledger.interaction.beforeRestart.interactionRequestId,
+    ledger.interaction.afterRestart.interactionRequestId,
+  );
+  assert.equal(
+    ledger.interaction.beforeRestart.humanRequestId,
+    ledger.interaction.afterRestart.humanRequestId,
+  );
+  assert.equal(ledger.validation.reference.exitCode, 0);
+  assert.equal(ledger.validation.targetBeforeRepair.exitCode, 1);
+  assert.equal(ledger.validation.targetAfterRepair.exitCode, 0);
+  assert.equal(ledger.git.commitCount, 1);
+  assert.deepEqual(ledger.git.changedPaths, ["target/normalize.mjs"]);
+  assert.equal(ledger.git.draftPrCreates, 1);
+  assert.equal(ledger.git.nonDraftPrCreates, 0);
+  assert.equal(ledger.report.summaryDigest, ledger.report.projectedReportDigest);
+  assert.equal(
+    ledger.report.artifactRefs.filter((ref) => ref === ledger.report.reportArtifactRef).length,
+    1,
+  );
+  assert.equal(ledger.report.formalGateCount, 5);
+  assert.equal(ledger.report.formalGatesAccepted, true);
+  assert.equal(ledger.report.workbenchLifecycle, "sealed");
+  assert.equal(ledger.terminalOwner.pendingAskCount, 0);
+  assert.equal(ledger.terminalOwner.toolApprovalRequestCount, 0);
+  assert.equal(ledger.terminalOwner.activeInvocationCount, 0);
+  assert.equal(ledger.terminalOwner.writableWorkbenchCount, 0);
+  assert.equal(ledger.livePidCount, 0);
+  return {
+    milestones: ledger.milestones.map(({ name, count, sequence }) => ({ name, count, sequence })),
+    interaction: {
+      stableRequest: true,
+      answerRecorded: Boolean(ledger.answerReceipt),
+      resumeCount: ledger.resumeCount,
+    },
+    validation: {
+      reference: ledger.validation.reference.exitCode,
+      targetBeforeRepair: ledger.validation.targetBeforeRepair.exitCode,
+      targetAfterRepair: ledger.validation.targetAfterRepair.exitCode,
+    },
+    git: {
+      commitCount: ledger.git.commitCount,
+      changedPaths: ledger.git.changedPaths,
+      draftPrCreates: ledger.git.draftPrCreates,
+      nonDraftPrCreates: ledger.git.nonDraftPrCreates,
+    },
+    report: {
+      projectionMatchesSummary: ledger.report.summaryDigest === ledger.report.projectedReportDigest,
+      reportArtifactCount: ledger.report.artifactRefs.filter(
+        (ref) => ref === ledger.report.reportArtifactRef,
+      ).length,
+      formalGateCount: ledger.report.formalGateCount,
+      formalGatesAccepted: ledger.report.formalGatesAccepted,
+      workbenchLifecycle: ledger.report.workbenchLifecycle,
+    },
+    terminal: {
+      pendingAskCount: ledger.terminalOwner.pendingAskCount,
+      toolApprovalRequestCount: ledger.terminalOwner.toolApprovalRequestCount,
+      activeInvocationCount: ledger.terminalOwner.activeInvocationCount,
+      writableWorkbenchCount: ledger.terminalOwner.writableWorkbenchCount,
+      livePidCount: ledger.livePidCount,
+    },
+  };
+}
+
 export function recoveryOutcomeProjection(value: unknown): unknown {
   assertReproGoldenJourneyRecoverySemantics(value);
   return {
