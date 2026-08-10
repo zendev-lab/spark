@@ -1,6 +1,7 @@
 import type {
+  ExtensionAskFlowInteractionRequest,
   ExtensionAskFlowInteractionResponse,
-  ExtensionInteractionRequest,
+  ExtensionInteractionCapabilities,
   ExtensionInteractionResponse,
   SparkHostContext,
 } from "@zendev-lab/spark-core";
@@ -36,6 +37,7 @@ import {
   type ParsedAskChoice,
   type SelectWithCustomUi,
 } from "./shared-semantics.ts";
+import { askAcknowledgement, dispatchAskFlowInteraction } from "./transport.ts";
 
 interface SparkHostAPI {
   registerTool?(config: {
@@ -75,6 +77,7 @@ interface SparkAskFlowToolContext {
   ui?: {
     custom?: unknown;
     interaction?: unknown;
+    interactionCapabilities?: ExtensionInteractionCapabilities;
   };
 }
 
@@ -420,50 +423,44 @@ async function runSparkAskFlowInteraction(
   toolCallId?: string,
 ): Promise<SparkAskFlowCustomRun | undefined> {
   if (typeof ui?.interaction !== "function") return undefined;
-  try {
-    const response = (await (
-      ui.interaction as (
-        request: ExtensionInteractionRequest,
-      ) => Promise<ExtensionInteractionResponse>
-    )(createSparkAskFlowInteractionRequest(request, toolCallId))) as
-      | ExtensionInteractionResponse
-      | undefined;
-    if (!response || response.kind !== "askFlow") return undefined;
-    if (response.status === "blocked" || response.status === "error") return undefined;
-    if (response.status === "cancelled") {
-      return {
-        result: createCancelledSparkAskFlowResult(request, response.metadata?.timedOut === true),
-      };
-    }
-    if (response.status === "pending") {
-      const humanRequestId = optionalNonEmptyString(response.humanRequestId);
-      if (!humanRequestId) return undefined;
-      return {
-        result: createSparkAskFlowResult({
-          answers: {},
-          flow: request.flow,
-          mode: "submit",
-          cancelled: false,
-          status: "pending",
-          humanRequestId,
-          nextAction: "resume",
-        }),
-      };
-    }
-    if (response.status !== "answered") return undefined;
-    return { result: piAskFlowResultFromInteractionResponse(request, response) };
-  } catch (error) {
+  const interactionRequest = createSparkAskFlowInteractionRequest(request, toolCallId);
+  const response = await dispatchAskFlowInteraction(
+    ui.interaction as (
+      request: ExtensionAskFlowInteractionRequest,
+    ) => Promise<ExtensionInteractionResponse>,
+    interactionRequest,
+  );
+  if (!response) return undefined;
+  if (response.status === "cancelled") {
     return {
-      result: createCancelledSparkAskFlowResult(request),
-      fallbackReason: `interaction failed: ${formatUnknownError(error)}`,
+      result: createCancelledSparkAskFlowResult(request, response.metadata?.timedOut === true),
     };
   }
+  if (response.status === "pending") {
+    const humanRequestId = optionalNonEmptyString(response.humanRequestId);
+    const acknowledgement = askAcknowledgement(interactionRequest, response);
+    if (!humanRequestId || !acknowledgement) return undefined;
+    return {
+      result: createSparkAskFlowResult({
+        answers: {},
+        flow: request.flow,
+        mode: "submit",
+        cancelled: false,
+        status: "pending",
+        humanRequestId,
+        acknowledgement,
+        nextAction: "resume",
+      }),
+    };
+  }
+  if (response.status !== "answered") return undefined;
+  return { result: piAskFlowResultFromInteractionResponse(request, response) };
 }
 
 function createSparkAskFlowInteractionRequest(
   request: SparkAskFlowRequest,
   toolCallId?: string,
-): ExtensionInteractionRequest {
+): ExtensionAskFlowInteractionRequest {
   return {
     version: 1,
     kind: "askFlow",

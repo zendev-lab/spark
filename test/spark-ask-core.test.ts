@@ -7,6 +7,7 @@ import {
   createSparkAskFlowResult,
   isSparkAskFlowGateBlocked,
   runSparkAskFlow,
+  SparkAskTransportError,
 } from "@zendev-lab/spark-ask";
 import { detectCopyLanguage } from "@zendev-lab/spark-core";
 
@@ -238,87 +239,99 @@ test("blocking ask_user keeps the interaction pending until the daemon answers",
   assert.deepEqual(result.answers.route?.values, ["safe"]);
 });
 
-test("ask_user falls back to legacy selectors when protocol interaction is blocked", async () => {
+test("ask_user fails closed when protocol interaction is blocked", async () => {
   let fallbackSelectCalls = 0;
-  const result = await askUser(
-    {
-      mode: "decision",
-      title: "Choose fallback route",
-      questions: [
+  await assert.rejects(
+    () =>
+      askUser(
         {
-          id: "route",
-          prompt: "Which route?",
-          type: "single",
-          required: true,
-          options: [
-            { value: "fast", label: "Fast" },
-            { value: "safe", label: "Safe" },
+          mode: "decision",
+          title: "Choose fallback route",
+          questions: [
+            {
+              id: "route",
+              prompt: "Which route?",
+              type: "single",
+              required: true,
+              options: [
+                { value: "fast", label: "Fast" },
+                { value: "safe", label: "Safe" },
+              ],
+            },
           ],
         },
-      ],
-    },
-    {
-      interaction: async (request) => ({
-        kind: "askFlow",
-        requestId: request.requestId,
-        status: "blocked",
-        message: "no protocol renderer installed",
-      }),
-      select: async () => {
-        fallbackSelectCalls += 1;
-        return "Safe";
-      },
-    },
-  );
-
-  assert.equal(fallbackSelectCalls, 1);
-  assert.equal(result.status, "answered");
-  assert.equal(result.nextAction, "resume");
-  assert.deepEqual(result.answers.route?.values, ["safe"]);
-});
-
-test("ask_user converts protocol interaction failures into cancelled gate results", async () => {
-  let fallbackSelectCalls = 0;
-  const warnings: string[] = [];
-  const result = await askUser(
-    {
-      mode: "approval",
-      title: "Approve failing route?",
-      questions: [
         {
-          id: "approval",
-          prompt: "Approve?",
-          type: "single",
-          required: true,
-          options: [
-            { value: "approve", label: "Approve" },
-            { value: "reject", label: "Reject" },
-          ],
+          interaction: async (request) => ({
+            kind: "askFlow",
+            requestId: request.requestId,
+            status: "blocked",
+            message: "no protocol renderer installed",
+          }),
+          select: async () => {
+            fallbackSelectCalls += 1;
+            return "Safe";
+          },
         },
-      ],
-    },
-    {
-      interaction: async () => {
-        throw new Error("renderer crashed");
-      },
-      select: async () => {
-        fallbackSelectCalls += 1;
-        return "Approve";
-      },
-      notify: (message, level) => {
-        if (level === "warning") warnings.push(message);
-      },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof SparkAskTransportError);
+      assert.equal(error.code, "ASK_TRANSPORT_REJECTED");
+      assert.match(error.message, /no protocol renderer installed/u);
+      return true;
     },
   );
 
   assert.equal(fallbackSelectCalls, 0);
-  assert.equal(result.status, "cancelled");
-  assert.equal(result.cancelled, true);
-  assert.equal(result.nextAction, "block");
-  assert.match(warnings[0] ?? "", /renderer crashed/);
 });
 
-test("ask_flow uses protocol interaction answers and blocked fallback selectors", async () => {
+test("ask_user surfaces protocol interaction failures without legacy fallback", async () => {
+  let fallbackSelectCalls = 0;
+  let warningCalls = 0;
+  await assert.rejects(
+    () =>
+      askUser(
+        {
+          mode: "approval",
+          title: "Approve failing route?",
+          questions: [
+            {
+              id: "approval",
+              prompt: "Approve?",
+              type: "single",
+              required: true,
+              options: [
+                { value: "approve", label: "Approve" },
+                { value: "reject", label: "Reject" },
+              ],
+            },
+          ],
+        },
+        {
+          interaction: async () => {
+            throw new Error("renderer crashed");
+          },
+          select: async () => {
+            fallbackSelectCalls += 1;
+            return "Approve";
+          },
+          notify: () => {
+            warningCalls += 1;
+          },
+        },
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof SparkAskTransportError);
+      assert.equal(error.code, "ASK_TRANSPORT_FAILED");
+      assert.match(error.message, /renderer crashed/u);
+      return true;
+    },
+  );
+
+  assert.equal(fallbackSelectCalls, 0);
+  assert.equal(warningCalls, 0);
+});
+
+test("ask_flow uses protocol answers and fails closed on blocked transport", async () => {
   const request = createSparkAskFlowRequest({
     flow: "protocol-route",
     mode: "decision",
@@ -356,21 +369,28 @@ test("ask_flow uses protocol interaction answers and blocked fallback selectors"
   assert.deepEqual(protocolResult.answers.route?.values, ["safe"]);
 
   let fallbackSelectCalls = 0;
-  const fallbackResult = await runSparkAskFlow(request, {
-    interaction: async (protocolRequest) => ({
-      kind: "askFlow",
-      requestId: protocolRequest.requestId,
-      status: "blocked",
-      message: "no renderer",
-    }),
-    select: async () => {
-      fallbackSelectCalls += 1;
-      return "Fast";
+  await assert.rejects(
+    () =>
+      runSparkAskFlow(request, {
+        interaction: async (protocolRequest) => ({
+          kind: "askFlow",
+          requestId: protocolRequest.requestId,
+          status: "blocked",
+          message: "no renderer",
+        }),
+        select: async () => {
+          fallbackSelectCalls += 1;
+          return "Fast";
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof SparkAskTransportError);
+      assert.equal(error.code, "ASK_TRANSPORT_REJECTED");
+      assert.match(error.message, /no renderer/u);
+      return true;
     },
-  });
-  assert.equal(fallbackSelectCalls, 1);
-  assert.equal(fallbackResult.status, "answered");
-  assert.deepEqual(fallbackResult.answers.route?.values, ["fast"]);
+  );
+  assert.equal(fallbackSelectCalls, 0);
 });
 
 test("async ask_flow returns pending and does not block approval gates", async () => {

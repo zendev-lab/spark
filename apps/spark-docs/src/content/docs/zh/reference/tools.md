@@ -24,6 +24,11 @@ Host 和 Session 向 Agent 提供的 active tool schema，是本次运行的工�
 | Agent 组合 | Role 与 owner-bound Skill Agent | Session/Role registry 与 Skill loader |
 | 外部 adapter | Channel、ACP、MCP、Git 与 provider 能力 | Spark 契约后的对应 adapter |
 
+`ask` 会在异步投递或 reviewer timeout takeover 前验证 host interaction capability。
+异步接受必须返回关联同一 `interactionRequestId` 的持久 ACK（同时包含
+`humanRequestId`）；能力缺失、ACK 畸形、transport 拒绝或 request-id 不匹配都会
+fail closed。阻塞 timeout 由 host policy 持有，工具调用方不能自行指定。
+
 ## Artifact 与 Evidence
 
 面向用户的 Artifact kind 只有 `issue | git_change | document`。一个

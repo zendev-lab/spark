@@ -45,6 +45,22 @@ Stable ids must travel together:
 Replay identity must not be derived from mutable request content such as
 `flow`, prompts, titles, or question text.
 
+An `ExtensionUi.interaction` host declares its `askFlow` capabilities before
+canonical Ask dispatch: supported deliveries, host-owned timeout support,
+`request_id` response correlation, and (for async delivery)
+`pending_with_human_request_id` acknowledgement. An async Ask is accepted only
+after the response matches the exact `interactionRequestId` and returns both
+`status=pending` and a non-empty durable `humanRequestId`; `spark-ask` exposes
+that pair as `spark.ask-ack/v1`. A mismatched response, missing ACK, unsupported
+capability, `blocked`/`error` response, or transport exception fails closed.
+
+Canonical blocking Ask injects the host policy timeout and strips any caller
+`timeoutMs`; reviewer takeover is reachable only after the transport returns a
+correlated cancellation marked `timedOut=true`. Missing transports fail
+immediately and never simulate a human wait with a local timer. Legacy local
+select/input primitives remain blocking-only compatibility and cannot create an
+async request or reviewer-timeout takeover.
+
 ## Answer semantics
 
 Whether an answer “counts” (option selected or non-empty custom text) is defined once by `hasSparkAskAnswerContent` / `parseSparkAskChoice` in `spark-protocol` (`ask-semantics.ts`).

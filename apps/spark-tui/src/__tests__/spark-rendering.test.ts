@@ -505,6 +505,15 @@ test("Spark native UI transport bridges notify, status, widget, and custom", asy
   const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
   const ui = createSparkNativeUiTransport(app, session);
 
+  assert.deepEqual(ui.interactionCapabilities, {
+    version: 1,
+    askFlow: {
+      deliveries: ["blocking"],
+      timeout: true,
+      responseCorrelation: "request_id",
+    },
+  });
+
   ui.notify?.("hello", "success");
   ui.setStatus?.("spark-role-runs", "roles: failed=1");
   ui.setWidget?.("spark-role-runs", "role board\nsecond line", { placement: "aboveEditor" });

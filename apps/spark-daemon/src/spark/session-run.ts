@@ -12,6 +12,7 @@ import {
 } from "@zendev-lab/spark-protocol";
 import type {
   ArtifactRef,
+  ExtensionInteractionCapabilities,
   ProjectRef,
   SparkHostLoopContext,
   SparkSessionLeaseIdentity,
@@ -73,6 +74,16 @@ export const CHANNEL_REPLY_TERMINAL_PRESENTED_ERROR_CODE = "CHANNEL_REPLY_TERMIN
 const SPARK_SIDE_THREAD_EXECUTION_PROMPT = `You are running inside a Spark Side Thread: an isolated, daemon-owned child conversation used to investigate a question without mutating the parent workspace.
 
 This surface is always read-only. Inspect, search, reason, and report findings, but do not modify files, repository state, processes, services, credentials, remote systems, or other sessions. Tool permissions enforce this boundary independently of these instructions.`;
+
+const DAEMON_ASK_INTERACTION_CAPABILITIES = {
+  version: 1,
+  askFlow: {
+    deliveries: ["blocking", "async"],
+    timeout: true,
+    responseCorrelation: "request_id",
+    asyncAcknowledgement: "pending_with_human_request_id",
+  },
+} satisfies ExtensionInteractionCapabilities;
 
 export class ChannelReplyContentError extends Error {
   readonly code = CHANNEL_REPLY_EMPTY_ERROR_CODE;
@@ -1163,7 +1174,9 @@ export async function executeSparkDaemonSessionRunTask(
         }
       : {}),
     ...(options.sessionLease ? { sessionLease: options.sessionLease } : {}),
-    ...(interaction ? { interaction } : {}),
+    ...(interaction
+      ? { interaction, interactionCapabilities: DAEMON_ASK_INTERACTION_CAPABILITIES }
+      : {}),
     onEvent: (event) => emitHeadlessEvent(event, task, context),
   });
 }

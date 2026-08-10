@@ -33,7 +33,33 @@ import {
   type StoredAskPayload,
   verifyCanonicalAskEvidence,
 } from "@zendev-lab/spark-ask";
-import { newRef, type JsonValue } from "@zendev-lab/spark-core";
+import {
+  newRef,
+  type ExtensionInteractionCapabilities,
+  type JsonValue,
+} from "@zendev-lab/spark-core";
+
+const TEST_ASK_INTERACTION_CAPABILITIES = {
+  version: 1,
+  askFlow: {
+    deliveries: ["blocking", "async"],
+    timeout: true,
+    responseCorrelation: "request_id",
+    asyncAcknowledgement: "pending_with_human_request_id",
+  },
+} satisfies ExtensionInteractionCapabilities;
+
+function timedOutAskUi() {
+  return {
+    interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
+    interaction: async (request: Record<string, unknown>) => ({
+      kind: "askFlow" as const,
+      requestId: request.requestId as string,
+      status: "cancelled" as const,
+      metadata: { timedOut: true },
+    }),
+  };
+}
 
 test("evidence store creates canonical evidence refs in the evidence root", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-evidence-store-"));
@@ -1029,35 +1055,37 @@ test("ask_user uses protocol interaction before legacy select UI", async () => {
   assert.equal(result.nextAction, "resume");
 });
 
-test("ask_user falls back to legacy UI when protocol interaction is blocked", async () => {
-  const result = await askUser(
-    createAskUserRequest({
-      title: "Choose mode",
-      mode: "clarification",
-      questions: [
-        {
-          id: "mode",
-          prompt: "Which mode?",
-          type: "single",
-          options: [
-            { value: "fast_mode", label: "Fast path" },
-            { value: "safe_mode", label: "Safe path" },
+test("ask_user fails closed when protocol interaction is blocked", async () => {
+  await assert.rejects(
+    () =>
+      askUser(
+        createAskUserRequest({
+          title: "Choose mode",
+          mode: "clarification",
+          questions: [
+            {
+              id: "mode",
+              prompt: "Which mode?",
+              type: "single",
+              options: [
+                { value: "fast_mode", label: "Fast path" },
+                { value: "safe_mode", label: "Safe path" },
+              ],
+            },
           ],
+        }),
+        {
+          interaction: async (request) => ({
+            kind: "askFlow",
+            requestId: request.requestId,
+            status: "blocked",
+            message: "headless host",
+          }),
+          select: async () => "Safe path",
         },
-      ],
-    }),
-    {
-      interaction: async (request) => ({
-        kind: "askFlow",
-        requestId: request.requestId,
-        status: "blocked",
-        message: "headless host",
-      }),
-      select: async () => "Safe path",
-    },
+      ),
+    /ASK_TRANSPORT_REJECTED: headless host/u,
   );
-
-  assert.deepEqual(result.answers.mode, { values: ["safe_mode"], labels: ["Safe path"] });
 });
 
 test("ask_user preserves protocol cancellation as a blocking result", async () => {
@@ -1092,6 +1120,74 @@ test("ask_user preserves protocol cancellation as a blocking result", async () =
   assert.equal(result.cancelled, true);
   assert.equal(result.nextAction, "block");
   assert.deepEqual(result.answers, {});
+});
+
+test("ask_user returns a request-correlated durable acknowledgement for async delivery", async () => {
+  const result = await askUser(
+    createAskUserRequest({
+      title: "Choose mode later",
+      mode: "decision",
+      delivery: "async",
+      interactionRequestId: "ask:test-ack",
+      questions: [
+        {
+          id: "mode",
+          prompt: "Which mode?",
+          type: "single",
+          options: [
+            { value: "fast_mode", label: "Fast path" },
+            { value: "safe_mode", label: "Safe path" },
+          ],
+        },
+      ],
+    }),
+    {
+      interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
+      interaction: async (request) => ({
+        kind: "askFlow",
+        requestId: request.requestId,
+        humanRequestId: "hreq:test-ack",
+        status: "pending",
+      }),
+    },
+  );
+
+  assert.equal(result.status, "pending");
+  assert.equal(result.humanRequestId, "hreq:test-ack");
+  assert.deepEqual(result.acknowledgement, {
+    schema: "spark.ask-ack/v1",
+    interactionRequestId: "ask:test-ack",
+    humanRequestId: "hreq:test-ack",
+  });
+});
+
+test("ask_user rejects uncorrelated protocol responses", async () => {
+  await assert.rejects(
+    () =>
+      askUser(
+        createAskUserRequest({
+          interactionRequestId: "ask:expected",
+          questions: [
+            {
+              id: "mode",
+              prompt: "Which mode?",
+              options: [
+                { value: "fast_mode", label: "Fast path" },
+                { value: "safe_mode", label: "Safe path" },
+              ],
+            },
+          ],
+        }),
+        {
+          interaction: async () => ({
+            kind: "askFlow",
+            requestId: "ask:wrong",
+            status: "cancelled",
+          }),
+        },
+      ),
+    /ASK_TRANSPORT_PROTOCOL_ERROR: response requestId=ask:wrong/u,
+  );
 });
 
 test("ask action tool dispatches canonical single-question asks", async () => {
@@ -1130,6 +1226,56 @@ test("ask action tool dispatches canonical single-question asks", async () => {
   const text = result.content.map((part: { text: string }) => part.text).join("\n");
   assert.match(text, /mode=Safe path/);
   assert.equal(result.details.request.questions.length, 1);
+});
+
+test("ask action tool returns the durable async acknowledgement", async () => {
+  const tools = new Map<string, { execute: Function }>();
+  const registerTool = (config: { name: string; execute: Function }) =>
+    tools.set(config.name, config);
+  registerSparkAskTools({ registerTool });
+  registerSparkAskActionTool({ registerTool }, { resolveTool: (name) => tools.get(name) as never });
+  const tool = tools.get("ask");
+  assert.ok(tool);
+
+  const result = await tool.execute(
+    "ask-action-async-test",
+    {
+      action: "ask",
+      delivery: "async",
+      title: "Choose later",
+      questions: [
+        {
+          id: "mode",
+          prompt: "Which mode?",
+          options: [
+            { value: "fast_mode", label: "Fast path" },
+            { value: "safe_mode", label: "Safe path" },
+          ],
+        },
+      ],
+    },
+    new AbortController().signal,
+    () => undefined,
+    {
+      ui: {
+        interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
+        interaction: async (request: Record<string, unknown>) => ({
+          kind: "askFlow",
+          requestId: request.requestId,
+          humanRequestId: "hreq:canonical-async",
+          status: "pending",
+        }),
+      },
+    },
+  );
+
+  assert.equal(result.details.result.status, "pending");
+  assert.deepEqual(result.details.result.acknowledgement, {
+    schema: "spark.ask-ack/v1",
+    interactionRequestId: result.details.result.acknowledgement.interactionRequestId,
+    humanRequestId: "hreq:canonical-async",
+  });
+  assert.match(result.details.result.acknowledgement.interactionRequestId, /^ask_user:/u);
 });
 
 test("ask action tool can persist receipt-backed user decision evidence", async () => {
@@ -1469,6 +1615,7 @@ test("ask evidence timeout returns a blocker without minting decision evidence",
         cwd: dir,
         askWaitTimeoutMs: 25,
         ui: {
+          interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
           interaction: async (request: Record<string, unknown>) => ({
             kind: "askFlow",
             requestId: request.requestId,
@@ -1513,6 +1660,7 @@ test("ask action tool returns a human answer before reviewer fallback", async ()
     {
       action: "ask",
       autoAnswer: true,
+      timeoutMs: 1,
       title: "Choose mode",
       mode: "decision",
       questions: [
@@ -1533,6 +1681,7 @@ test("ask action tool returns a human answer before reviewer fallback", async ()
     {
       askWaitTimeoutMs: 25,
       ui: {
+        interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
         interaction: async (request: Record<string, unknown>) => {
           uiInvoked = true;
           assert.equal(request.timeoutMs, 25);
@@ -1604,6 +1753,7 @@ test("ask action tool does not treat an explicit user cancel as reviewer timeout
     {
       askReviewerFallbackAfterMs: 25,
       ui: {
+        interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
         interaction: async (request: Record<string, unknown>) => ({
           kind: "askFlow",
           requestId: request.requestId,
@@ -1660,6 +1810,7 @@ test("ask action tool lets false disable host auto-answer", async () => {
       askAutoAnswer: true,
       askReviewerFallbackAfterMs: 25,
       ui: {
+        interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
         interaction: async (request: Record<string, unknown>) => ({
           kind: "askFlow",
           requestId: request.requestId,
@@ -1719,6 +1870,7 @@ test("ask action tool lets reviewer take over only after the human wait times ou
     {
       askReviewerFallbackAfterMs: 25,
       ui: {
+        interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
         interaction: async (request: Record<string, unknown>) => {
           observedTimeoutMs = request.timeoutMs;
           return {
@@ -1803,6 +1955,7 @@ test("ask action tool persists reviewer provenance for multi-question flows", as
         cwd: dir,
         askReviewerFallbackAfterMs: 5,
         ui: {
+          interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
           interaction: async (request: Record<string, unknown>) => ({
             kind: "askFlow",
             requestId: request.requestId,
@@ -1860,7 +2013,7 @@ test("ask action tool reports missing reviewer resolver as a tool error with gui
     },
     new AbortController().signal,
     () => undefined,
-    { askReviewerFallbackAfterMs: 1 },
+    { askReviewerFallbackAfterMs: 1, ui: timedOutAskUi() },
   );
 
   assert.equal(result.isError, true);
@@ -1871,6 +2024,90 @@ test("ask action tool reports missing reviewer resolver as a tool error with gui
   assert.match(result.details.reason, /active goal turns/);
   assert.match(result.details.reason, /omit autoAnswer/);
   assert.match(result.content.map((part: { text: string }) => part.text).join("\n"), /blocked/i);
+});
+
+test("ask action tool fails fast when reviewer takeover has no human transport", async () => {
+  const tools = new Map<string, { execute: Function }>();
+  const registerTool = (config: { name: string; execute: Function }) =>
+    tools.set(config.name, config);
+  registerSparkAskTools({ registerTool });
+  registerSparkAskActionTool(
+    { registerTool },
+    {
+      resolveTool: (name) => tools.get(name) as never,
+      autoAnswer: async () => ({ answers: { mode: { values: ["safe_mode"] } } }),
+    },
+  );
+  const tool = tools.get("ask");
+  assert.ok(tool);
+
+  await assert.rejects(
+    () =>
+      tool.execute(
+        "ask-no-transport-test",
+        {
+          action: "ask",
+          autoAnswer: true,
+          mode: "decision",
+          questions: [
+            {
+              id: "mode",
+              prompt: "Which mode?",
+              type: "single",
+              required: true,
+              options: [{ value: "safe_mode", label: "Safe path" }],
+            },
+          ],
+        },
+        new AbortController().signal,
+        () => undefined,
+        { askWaitTimeoutMs: 60 * 60_000 },
+      ),
+    /ASK_TRANSPORT_UNAVAILABLE: reviewer takeover requires/u,
+  );
+});
+
+test("ask action tool rejects async delivery without a declared ACK capability", async () => {
+  const execute = async () => {
+    throw new Error("raw Ask adapter must not run");
+  };
+  let tool: { execute: Function } | undefined;
+  registerSparkAskActionTool(
+    { registerTool: (config) => (tool = config) },
+    { resolveTool: () => ({ execute }) as never },
+  );
+  assert.ok(tool);
+
+  await assert.rejects(
+    () =>
+      tool!.execute(
+        "ask-missing-ack-capability-test",
+        {
+          action: "ask",
+          delivery: "async",
+          questions: [
+            {
+              id: "mode",
+              prompt: "Which mode?",
+              options: [{ value: "safe_mode", label: "Safe path" }],
+            },
+          ],
+        },
+        new AbortController().signal,
+        () => undefined,
+        {
+          ui: {
+            interaction: async (request: Record<string, unknown>) => ({
+              kind: "askFlow",
+              requestId: request.requestId,
+              humanRequestId: "hreq:unverified",
+              status: "pending",
+            }),
+          },
+        },
+      ),
+    /ASK_TRANSPORT_CAPABILITY_MISMATCH: host did not declare/u,
+  );
 });
 
 test("ask action tool blocks empty reviewer answers for required questions", async () => {
@@ -1907,7 +2144,7 @@ test("ask action tool blocks empty reviewer answers for required questions", asy
     },
     new AbortController().signal,
     () => undefined,
-    { askReviewerFallbackAfterMs: 1 },
+    { askReviewerFallbackAfterMs: 1, ui: timedOutAskUi() },
   );
 
   assert.equal(result.isError, true);
@@ -1956,6 +2193,7 @@ test("ask action tool can auto-answer through a registered provider", async () =
       {
         askReviewerFallbackAfterMs: 5,
         ui: {
+          interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
           interaction: async (request: Record<string, unknown>) => {
             uiInvoked = true;
             return {
@@ -2015,7 +2253,7 @@ test("ask action tool blocks invalid reviewer auto-answer output", async () => {
     },
     new AbortController().signal,
     () => undefined,
-    { askReviewerFallbackAfterMs: 1 },
+    { askReviewerFallbackAfterMs: 1, ui: timedOutAskUi() },
   );
 
   assert.equal(result.isError, true);

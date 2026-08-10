@@ -14,6 +14,7 @@ import {
   ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON,
   isRoleNativeExecutorCompatibilityError,
   type ExtensionInteractionRequest,
+  type ExtensionInteractionCapabilities,
   type ExtensionInteractionResponse,
   type ExtensionRoleRunner,
   type ExtensionRoleRunInputControl,
@@ -161,6 +162,8 @@ export interface SparkHeadlessSessionRunInput {
   approvalRejectAction?: "ask" | "deny";
   /** Daemon-owned UI bridge; hasUI stays false because no local terminal is attached. */
   interaction?: (request: ExtensionInteractionRequest) => Promise<ExtensionInteractionResponse>;
+  /** Exact capabilities of the daemon-owned interaction bridge. */
+  interactionCapabilities?: ExtensionInteractionCapabilities;
   tokenUsage?: SparkHeadlessTokenUsageContext;
   onEvent?: (event: unknown) => void | Promise<void>;
 }
@@ -228,7 +231,16 @@ export async function runSparkHeadlessSession(
     allowedToolEffects: input.allowedToolEffects,
     sessionMode: input.mode,
     hasUI: false,
-    ...(input.interaction ? { ui: { interaction: input.interaction } } : {}),
+    ...(input.interaction
+      ? {
+          ui: {
+            interaction: input.interaction,
+            ...(input.interactionCapabilities
+              ? { interactionCapabilities: input.interactionCapabilities }
+              : {}),
+          },
+        }
+      : {}),
     ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
     ...(input.roleRunRef ? { sessionMode: "execute" as const } : {}),
     // Daemon scheduler owns wall-clock execution budget. Model streams use idle

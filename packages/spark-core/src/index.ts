@@ -399,6 +399,19 @@ export type ExtensionInteractionResponseStatus =
   | "blocked"
   | "error";
 
+/** JSON-friendly declaration for the exact Ask semantics a host transport owns. */
+export interface ExtensionAskFlowInteractionCapabilities {
+  deliveries: Array<"blocking" | "async">;
+  timeout: boolean;
+  responseCorrelation: "request_id";
+  asyncAcknowledgement?: "pending_with_human_request_id" | undefined;
+}
+
+export interface ExtensionInteractionCapabilities {
+  version: 1;
+  askFlow?: ExtensionAskFlowInteractionCapabilities | undefined;
+}
+
 export interface ExtensionAskOptionView {
   value: string;
   label: string;
@@ -575,6 +588,8 @@ export interface ExtensionUi {
    * `blocked` or omits the hook.
    */
   interaction?: (request: ExtensionInteractionRequest) => Promise<ExtensionInteractionResponse>;
+  /** Explicit transport contract used before dispatching async or timeout-backed asks. */
+  interactionCapabilities?: ExtensionInteractionCapabilities;
   setStatus?: (key: string, text: string | undefined) => void;
   setWidget?: (
     key: string,

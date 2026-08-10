@@ -1,4 +1,6 @@
 import type {
+  ExtensionAskFlowInteractionRequest,
+  ExtensionInteractionCapabilities,
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
   ExtensionEvidenceRequestBinding,
@@ -25,6 +27,11 @@ import {
   selectOptionWithCustom,
   type ParsedAskChoice,
 } from "./shared-semantics.ts";
+import {
+  askAcknowledgement,
+  dispatchAskFlowInteraction,
+  type SparkAskAcknowledgement,
+} from "./transport.ts";
 
 export type SparkAskMode = "clarification" | "decision" | "approval" | "unblock";
 export type SparkAskDelivery = "blocking" | "async";
@@ -77,6 +84,8 @@ export type SparkAskResultStatus = "answered" | "pending" | "cancelled" | "no_se
 export interface SparkAskResult {
   status: SparkAskResultStatus;
   humanRequestId?: string;
+  /** Correlated durable acceptance receipt for an async ask. */
+  acknowledgement?: SparkAskAcknowledgement;
   /** True only when the host closed the human wait because its deadline elapsed. */
   timedOut?: boolean;
   /** Provenance of a submitted answer; omitted for non-answered results. */
@@ -95,6 +104,7 @@ export interface SparkAskUi {
   confirm?: (title: string, message: string) => Promise<boolean>;
   input?: (title: string, defaultValue?: string) => Promise<string | undefined>;
   interaction?: (request: ExtensionInteractionRequest) => Promise<ExtensionInteractionResponse>;
+  interactionCapabilities?: ExtensionInteractionCapabilities;
   notify?: (message: string, level?: "info" | "warning" | "error" | "success") => void;
 }
 
@@ -380,6 +390,8 @@ function ctxUi(ctx: unknown, toolCallId?: string): SparkAskUi | undefined {
                 : request,
             )
         : undefined,
+    interactionCapabilities: (ui as { interactionCapabilities?: ExtensionInteractionCapabilities })
+      .interactionCapabilities,
     notify:
       typeof (ui as { notify?: unknown }).notify === "function"
         ? (ui as { notify: SparkAskUi["notify"] }).notify
@@ -392,16 +404,15 @@ async function askUserViaInteraction(
   ui: SparkAskUi,
 ): Promise<SparkAskResult | undefined> {
   if (!ui.interaction) return undefined;
-  try {
-    const response = await ui.interaction(createAskUserInteractionRequest(request));
-    return askUserResultFromInteractionResponse(request, response);
-  } catch (error) {
-    ui.notify?.(`ask_user interaction failed: ${formatUnknownError(error)}`, "warning");
-    return createAskUserResult({ cancelled: true, answers: {}, status: "cancelled" });
-  }
+  const interactionRequest = createAskUserInteractionRequest(request);
+  const response = await dispatchAskFlowInteraction(ui.interaction, interactionRequest);
+  if (!response) return undefined;
+  return askUserResultFromInteractionResponse(request, interactionRequest, response);
 }
 
-function createAskUserInteractionRequest(request: SparkAskRequest): ExtensionInteractionRequest {
+function createAskUserInteractionRequest(
+  request: SparkAskRequest,
+): ExtensionAskFlowInteractionRequest {
   return {
     version: 1,
     kind: "askFlow",
@@ -428,10 +439,9 @@ function createAskUserInteractionRequest(request: SparkAskRequest): ExtensionInt
 
 function askUserResultFromInteractionResponse(
   request: SparkAskRequest,
-  response: ExtensionInteractionResponse,
+  interactionRequest: ExtensionAskFlowInteractionRequest,
+  response: Extract<ExtensionInteractionResponse, { kind: "askFlow" }>,
 ): SparkAskResult | undefined {
-  if (response.kind !== "askFlow") return undefined;
-  if (response.status === "blocked" || response.status === "error") return undefined;
   if (response.status === "cancelled") {
     return createAskUserResult({
       cancelled: true,
@@ -443,11 +453,14 @@ function askUserResultFromInteractionResponse(
   if (response.status === "pending") {
     const humanRequestId = optionalNonEmptyString(response.humanRequestId);
     if (!humanRequestId) return undefined;
+    const acknowledgement = askAcknowledgement(interactionRequest, response);
+    if (!acknowledgement) return undefined;
     return createAskUserResult({
       cancelled: false,
       answers: {},
       status: "pending",
       humanRequestId,
+      acknowledgement,
       nextAction: "resume",
     });
   }
@@ -516,10 +529,6 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string")
     : [];
-}
-
-function formatUnknownError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 interface ResolvedQuestion {
@@ -712,6 +721,13 @@ function truncateInline(value: string, maxLength: number): string {
 
 export * from "./autonomous-policy.ts";
 export type { SparkAskAnswerSource } from "./answer-source.ts";
+export {
+  SparkAskTransportError,
+  askAcknowledgement,
+  dispatchAskFlowInteraction,
+  requireCanonicalAskTransport,
+} from "./transport.ts";
+export type { SparkAskAcknowledgement, SparkAskTransportErrorCode } from "./transport.ts";
 export * from "./schema.ts";
 export * from "./flow.ts";
 export {

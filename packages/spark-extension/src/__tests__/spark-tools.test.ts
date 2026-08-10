@@ -36,6 +36,7 @@ import {
   type ExtensionRoleRunner,
   type ExtensionInteractionRequest,
   type ExtensionInteractionResponse,
+  type ExtensionInteractionCapabilities,
   type RoleRef,
   type RunRef,
   type SubgoalRef,
@@ -43,6 +44,7 @@ import {
   type TaskRef,
   type ProjectRef,
 } from "@zendev-lab/spark-core";
+
 import {
   defaultArtifactStore,
   defaultEvidenceStore,
@@ -193,6 +195,16 @@ import type {
   ReviewerRunResult,
   ReviewerRunner,
 } from "@zendev-lab/spark-roles/reviewer-runner";
+
+const TEST_ASK_INTERACTION_CAPABILITIES = {
+  version: 1,
+  askFlow: {
+    deliveries: ["blocking", "async"],
+    timeout: true,
+    responseCorrelation: "request_id",
+    asyncAcknowledgement: "pending_with_human_request_id",
+  },
+} satisfies ExtensionInteractionCapabilities;
 
 type SparkHostApiForTest = Parameters<typeof sparkExtension>[0];
 type SparkToolConfig = Parameters<NonNullable<SparkHostApiForTest["registerTool"]>>[0];
@@ -795,6 +807,7 @@ type TestSparkContext = {
     select: (title: string, options: string[]) => Promise<string | undefined>;
     custom?: (...args: unknown[]) => unknown;
     interaction?: (request: ExtensionInteractionRequest) => Promise<ExtensionInteractionResponse>;
+    interactionCapabilities?: ExtensionInteractionCapabilities;
   };
 };
 
@@ -7141,6 +7154,7 @@ test("active goal remains async-only inside manual implement mode", async () => 
     let interactionCalls = 0;
     let answerAskCalls = 0;
     let capturedRequest: Record<string, unknown> | undefined;
+    ctx.ui.interactionCapabilities = TEST_ASK_INTERACTION_CAPABILITIES;
     ctx.ui.interaction = async (request) => {
       interactionCalls += 1;
       capturedRequest = request as unknown as Record<string, unknown>;
@@ -7579,6 +7593,7 @@ test("active Repro binds detached Ask to its current step revision", async () =>
     let interactionCalls = 0;
     let answerAskCalls = 0;
     let capturedRequest: ExtensionInteractionRequest | undefined;
+    ctx.ui.interactionCapabilities = TEST_ASK_INTERACTION_CAPABILITIES;
     ctx.ui.interaction = async (request) => {
       interactionCalls += 1;
       capturedRequest = request;

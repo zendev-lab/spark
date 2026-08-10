@@ -3,6 +3,7 @@ import type { ExtensionEvidenceRequestBinding } from "@zendev-lab/spark-core";
 import type { SparkMemoryApprovalBinding } from "@zendev-lab/spark-protocol";
 
 import type { SparkAskAnswerSource } from "./answer-source.ts";
+import type { SparkAskAcknowledgement } from "./transport.ts";
 
 // ---- Limits ----
 export const MAX_QUESTIONS = 20;
@@ -138,6 +139,8 @@ export interface SparkAskFlowResult {
   status: SparkAskFlowResultStatus;
   /** Durable daemon-owned request handle for an async ask. */
   humanRequestId?: string;
+  /** Correlated durable acceptance receipt for an async ask. */
+  acknowledgement?: SparkAskAcknowledgement;
   /** True only when the host closed the human wait because its deadline elapsed. */
   timedOut?: boolean;
   /** Provenance of a submitted answer; omitted for non-answered results and legacy payloads. */

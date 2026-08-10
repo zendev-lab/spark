@@ -9,6 +9,23 @@ function autonomousContext(): SparkHostContext {
   return {
     cwd: "/workspace",
     sessionId: "session:owner",
+    ui: {
+      interactionCapabilities: {
+        version: 1,
+        askFlow: {
+          deliveries: ["blocking", "async"],
+          timeout: true,
+          responseCorrelation: "request_id",
+          asyncAcknowledgement: "pending_with_human_request_id",
+        },
+      },
+      interaction: async (request) => ({
+        kind: "askFlow",
+        requestId: request.requestId,
+        humanRequestId: "hreq:test",
+        status: "pending",
+      }),
+    },
     sparkAutonomousAsk: {
       modeScope: "goal",
       goalOrReproId: "goal:active",
