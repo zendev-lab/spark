@@ -17,6 +17,8 @@ const darkTextScreenshotOptions = {
 beforeAll(async () => {
   await document.fonts.load('400 16px "Spark Catalog Inter"');
 });
+const conversationFixtures = catalogFixtures.filter((fixture) => fixture.group === "conversation");
+const workbenchFixtures = catalogFixtures.filter((fixture) => fixture.group === "workbench");
 
 describe("Spark UI component catalog", () => {
   it("has no automatically detectable WCAG A or AA violations", async () => {
@@ -45,11 +47,12 @@ describe("Spark UI component catalog", () => {
     await screen.unmount();
   });
 
-  it("keeps the light desktop catalog visually stable", async () => {
+  it("keeps light desktop conversation scenarios visually stable", async () => {
     await page.viewport(1440, 2000);
     const screen = await render(Catalog, {
       theme: "light",
       direction: "ltr",
+      fixtures: conversationFixtures,
     });
 
     await expect(page.getByTestId("catalog-message-shell-success")).toMatchScreenshot(
@@ -57,9 +60,6 @@ describe("Spark UI component catalog", () => {
     );
     await expect(page.getByTestId("catalog-composer-empty")).toMatchScreenshot(
       "catalog-composer-light-desktop",
-    );
-    await expect(page.getByTestId("catalog-tool-call-success")).toMatchScreenshot(
-      "catalog-tool-call-light-desktop",
     );
     await expect(page.getByTestId("catalog-attachments-success")).toMatchScreenshot(
       "catalog-attachments-light-desktop",
@@ -69,6 +69,21 @@ describe("Spark UI component catalog", () => {
     );
     await expect(page.getByTestId("catalog-model-selector-success")).toMatchScreenshot(
       "catalog-model-selector-light-desktop",
+    );
+
+    await screen.unmount();
+  });
+
+  it("keeps light desktop workbench scenarios visually stable", async () => {
+    await page.viewport(1440, 3000);
+    const screen = await render(Catalog, {
+      theme: "light",
+      direction: "ltr",
+      fixtures: workbenchFixtures,
+    });
+
+    await expect(page.getByTestId("catalog-tool-call-success")).toMatchScreenshot(
+      "catalog-tool-call-light-desktop",
     );
     await expect(page.getByTestId("catalog-code-block-success")).toMatchScreenshot(
       "catalog-code-block-light-desktop",
@@ -83,18 +98,32 @@ describe("Spark UI component catalog", () => {
     await screen.unmount();
   });
 
-  it("keeps the dark RTL mobile catalog visually stable", async () => {
+  it("keeps the dark RTL mobile conversation scenario visually stable", async () => {
     await page.viewport(420, 900);
     const screen = await render(Catalog, {
       theme: "dark",
       direction: "rtl",
       compact: true,
+      fixtures: conversationFixtures,
     });
 
     await expect(page.getByTestId("catalog-message-shell-overflow")).toMatchScreenshot(
       "catalog-message-shell-dark-rtl-mobile",
       darkTextScreenshotOptions,
     );
+
+    await screen.unmount();
+  });
+
+  it("keeps the dark RTL mobile workbench scenario visually stable", async () => {
+    await page.viewport(420, 900);
+    const screen = await render(Catalog, {
+      theme: "dark",
+      direction: "rtl",
+      compact: true,
+      fixtures: workbenchFixtures,
+    });
+
     await expect(page.getByTestId("catalog-tool-call-overflow")).toMatchScreenshot(
       "catalog-tool-call-dark-rtl-mobile",
     );
