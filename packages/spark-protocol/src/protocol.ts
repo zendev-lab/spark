@@ -915,6 +915,8 @@ export const sparkAskAcknowledgementSchema = z
 export const sparkInteractionBaseRequestSchema = z.object({
   version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),
   requestId: z.string().min(1),
+  /** Host-generated tool invocation identity used to resume the same durable wait. */
+  toolCallId: z.string().min(1).optional(),
   title: z.string().min(1),
   prompt: z.string().optional(),
   createdAt: sparkIsoDateTimeSchema.optional(),

@@ -225,6 +225,32 @@ repeat migration, stale revision rejection, skip-without-resync rejection, and
 all invalid handoff or resolution directions. The process Journey proves that
 their accepted state survives real daemon process replacement.
 
+## Recovery and idempotency lane
+
+Run the five-boundary crash/restart contract with:
+
+```sh
+pnpm run test:journey:repro:recovery
+```
+
+The script builds the source Hub owner and runs the fixture, composition-reachability, versioned ledger contract, and real source-process recovery tests. It uses isolated `HOME`, `SPARK_HOME`, XDG roots, ports, SQLite, Git repository/worktree, forge ledger, and scripted provider state; no model or forge credential is required.
+
+| Sequence | Checkpoint | Bound operation | Required observation |
+| ---: | --- | --- | --- |
+| 1 | `ask.pending` | `journey-decision` | Same interaction and human request; no provider cursor advance before answer |
+| 2 | `git.post_commit` | `git_change.committed` | One target-only commit; replay creates no second commit |
+| 3 | `git.post_pr` | `pull_request.submitted` | One Draft PR forge write; no non-Draft write |
+| 4 | `report.post_projection` | `report.projected` | Typed summary and Markdown digest remain paired |
+| 5 | `report.post_sync` | `report.synced` | One stable report Document at revision one; repeated sync is a no-op |
+
+Every restart changes daemon PID, generation, and process-start token while provider cursor and high-water remain unchanged. The restarted daemon reconstructs the interrupted invocation before the harness releases the provider checkpoint; the harness does not create a competing wake.
+
+A passing test prints `REPRO_GOLDEN_JOURNEY` followed by a ledger conforming to [`test/process/repro-golden-journey-recovery.schema.json`](../../test/process/repro-golden-journey-recovery.schema.json). The semantic verifier rejects checkpoint/operation mismatch, stale process identity, cursor/high-water replay, missing AnswerEvent Evidence, duplicate Git/PR/report ownership, unsealed Workbench, and live cleanup PIDs. Its normalized outcome must exactly match the immutable [`expected-outcome.json`](../../test/fixtures/repro/recovery-ledger/expected-outcome.json); volatile ids, paths, timestamps, and hashes are excluded rather than copied into expected data.
+
+On failure, inspect the retained fixture in this order: `provider-ledger.json`; daemon SQLite human wait/AnswerEvent/invocation/formal receipt/Workbench rows; Session JSONL; daemon logs; Git and forge ledgers; then typed summary/Markdown digests. Never repair a fixture by mutating an owner store, receipt, terminal state, or expected output.
+
+Public `artifact({ action: "sync_file" })` remains capped at 32 KiB. Only the trusted Spark Repro projector may request the internal 128 KiB bound for its own generated report; invalid, larger, caller-selected, symlink, non-regular, or non-UTF-8 input fails closed.
+
 ## CI position
 
 The final shape is:

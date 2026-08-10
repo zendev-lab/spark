@@ -18,6 +18,7 @@ interface ScriptedRound {
   label: string;
   text?: string;
   toolCalls?: ScriptedToolCall[];
+  checkpoint?: string;
 }
 
 const REPRO_JOURNEY_SCRIPTED_PROVIDER_MODEL = {
@@ -43,7 +44,16 @@ export interface ScriptedProviderLedger {
     messageRoles: string[];
     toolNames: string[];
   }>;
+  releasedCheckpoints?: string[];
+  checkpointWaits?: Array<{
+    checkpoint: string;
+    label: string;
+    daemonPid: number;
+    cursor: number;
+    providerHighWater: number;
+  }>;
   vars?: Record<string, string>;
+  refs?: ContextRefs;
 }
 
 export default function registerScriptedJourneyProvider(api: {
@@ -135,13 +145,45 @@ export default function registerScriptedJourneyProvider(api: {
           }
           return stream;
         }
-        const round = ledger.rounds[ledger.cursor];
+        let round = ledger.rounds[ledger.cursor];
         if (!round) {
           throw new Error(
             `Spark Repro scripted provider received unexpected request ${ledger.cursor + 1}; configured ${ledger.rounds.length} round(s)`,
           );
         }
-        const refs = collectRefs(context);
+        if (round.checkpoint && !(ledger.releasedCheckpoints ?? []).includes(round.checkpoint)) {
+          const waits = (ledger.checkpointWaits ??= []);
+          if (
+            !waits.some(
+              (wait) => wait.checkpoint === round.checkpoint && wait.daemonPid === process.pid,
+            )
+          ) {
+            waits.push({
+              checkpoint: round.checkpoint,
+              label: round.label,
+              daemonPid: process.pid,
+              cursor: ledger.cursor,
+              providerHighWater: ledger.requests.length,
+            });
+          }
+          return createCheckpointStream({
+            path,
+            checkpoint: round.checkpoint,
+            cursor: ledger.cursor,
+            model,
+            context,
+            options,
+          });
+        }
+        if (round.checkpoint) {
+          ledger.cursor += 1;
+          const resumedRound = ledger.rounds[ledger.cursor];
+          if (!resumedRound || resumedRound.checkpoint) {
+            throw new Error(`Checkpoint ${round.checkpoint} has no resumable owner round`);
+          }
+          round = resumedRound;
+        }
+        const refs = collectLedgerRefs(ledger, context);
         const content = [
           ...(round.text
             ? [{ type: "text" as const, text: interpolate(round.text, ledger, refs) }]
@@ -245,6 +287,87 @@ function writeLedger(path: string, ledger: ScriptedProviderLedger): void {
   renameSync(temporary, path);
 }
 
+function createCheckpointStream(input: {
+  path: string;
+  checkpoint: string;
+  cursor: number;
+  model: unknown;
+  context: unknown;
+  options: unknown;
+}) {
+  const delegate = waitForCheckpointRelease(input);
+  return {
+    async *[Symbol.asyncIterator]() {
+      const stream = await delegate;
+      for await (const event of stream) yield event;
+    },
+    result: async () => await (await delegate).result(),
+  };
+}
+
+async function waitForCheckpointRelease(input: {
+  path: string;
+  checkpoint: string;
+  cursor: number;
+  model: unknown;
+  context: unknown;
+  options: unknown;
+}) {
+  for (;;) {
+    const ledger = readLedger(input.path);
+    if ((ledger.releasedCheckpoints ?? []).includes(input.checkpoint)) {
+      if (ledger.cursor !== input.cursor) {
+        throw new Error(
+          `Checkpoint ${input.checkpoint} cursor changed from ${input.cursor} to ${ledger.cursor}`,
+        );
+      }
+      const marker = ledger.rounds[ledger.cursor];
+      if (!marker || marker.checkpoint !== input.checkpoint) {
+        throw new Error(`Checkpoint ${input.checkpoint} no longer owns cursor ${ledger.cursor}`);
+      }
+      ledger.cursor += 1;
+      const round = ledger.rounds[ledger.cursor];
+      if (!round || round.checkpoint) {
+        throw new Error(`Checkpoint ${input.checkpoint} has no resumable owner round`);
+      }
+      const refs = collectLedgerRefs(ledger, input.context);
+      const content = [
+        ...(round.text
+          ? [{ type: "text" as const, text: interpolate(round.text, ledger, refs) }]
+          : []),
+        ...(round.toolCalls ?? []).map((call) =>
+          sparkScriptedToolCall(
+            call.id,
+            call.name,
+            interpolateValue(call.arguments ?? {}, ledger, refs) as Record<string, unknown>,
+          ),
+        ),
+      ];
+      const provider = createSparkScriptedProvider([
+        {
+          label: round.label,
+          message: sparkScriptedAssistant(content, {
+            stopReason: content.some((part) => part.type === "toolCall") ? "toolUse" : "stop",
+          }),
+        },
+      ]);
+      const stream = provider.streamFunction(
+        input.model as Parameters<typeof provider.streamFunction>[0],
+        input.context as Parameters<typeof provider.streamFunction>[1],
+        input.options as Parameters<typeof provider.streamFunction>[2],
+      );
+      ledger.cursor += 1;
+      const request = provider.requests[0];
+      if (request) ledger.requests.push(requestRecord(request));
+      writeLedger(input.path, ledger);
+      return stream;
+    }
+    const aborted = (input.options as { signal?: AbortSignal } | undefined)?.signal?.aborted;
+    if (aborted) throw new Error(`Checkpoint ${input.checkpoint} provider request was aborted`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 function requestRecord(request: SparkScriptedProviderRequest) {
   return {
     round: request.round,
@@ -260,17 +383,32 @@ interface ContextRefs {
   tasks: string[];
 }
 
+function collectLedgerRefs(ledger: ScriptedProviderLedger, value: unknown): ContextRefs {
+  const observed = collectRefs(value);
+  const refs = {
+    artifacts: uniqueStrings([...(ledger.refs?.artifacts ?? []), ...observed.artifacts]),
+    evidence: uniqueStrings([...(ledger.refs?.evidence ?? []), ...observed.evidence]),
+    tasks: uniqueStrings([...(ledger.refs?.tasks ?? []), ...observed.tasks]),
+  };
+  ledger.refs = refs;
+  return refs;
+}
+
 function collectRefs(value: unknown): ContextRefs {
   const serialized = JSON.stringify(value);
   return {
     artifacts: uniqueMatches(serialized, /artifact:[a-z0-9-]+/giu),
-    evidence: uniqueMatches(serialized, /evidence:[a-z0-9-]+/giu),
+    evidence: uniqueMatches(serialized, /evidence:[a-z0-9-]+(?::[a-z0-9-]+)*/giu),
     tasks: uniqueMatches(serialized, /task:[a-z0-9-]+/giu),
   };
 }
 
 function uniqueMatches(value: string, pattern: RegExp): string[] {
-  return [...new Set(value.match(pattern) ?? [])];
+  return uniqueStrings(value.match(pattern) ?? []);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function interpolateValue(

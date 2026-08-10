@@ -39,6 +39,11 @@ Evidence 记录内部 claim 与验证。Artifact 和 Evidence ref 使用不同�
 store、权限和生命周期。工具不能把文件路径、transcript 陈述或未验证结果静默提升为
 任一种对象。
 
+`artifact({ action: "sync_file" })` 只读取当前 cwd 下的普通、非符号链接 UTF-8
+文件，公开输入上限为 32 KiB；更大的输入会 fail closed。Spark 内部 Repro 报告
+projector 可以通过仅绑定该可信 producer 的路径同步自己的 typed report，上限为
+128 KiB。调用方不能选择这个上限，它也不会放宽公开工具边界。
+
 ## 替换 Task 依赖
 
 `task_write({ action: "replace_dependencies", taskRef, dependsOn })` 会原子替换一个

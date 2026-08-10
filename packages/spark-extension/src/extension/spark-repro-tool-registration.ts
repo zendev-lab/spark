@@ -608,7 +608,7 @@ export function registerSparkReproTool(
           action === "record"
             ? normalizeReproProof(params.proof)
             : legacyEvidenceProof(params.evidenceRef);
-        const proof = await validateReproProofEvidence(stateCwd, unverifiedProof);
+        const proof = await validateReproProofEvidence(stateCwd, unverifiedProof, repro);
         const updated = recordReproRequirementProof(repro, requirementId, proof);
         if (!updated) {
           return {
@@ -1581,6 +1581,7 @@ function resolveLegacyRequirementId(repro: SparkSessionRepro, value: unknown): s
 async function validateReproProofEvidence(
   cwd: string,
   proof: SparkReproRequirementProof,
+  repro: SparkSessionRepro,
 ): Promise<SparkReproRequirementProof> {
   const store = defaultEvidenceStore(cwd);
   const refs =
@@ -1593,16 +1594,35 @@ async function validateReproProofEvidence(
   }
   if (proof.kind !== "decision") return proof;
   const entry = evidence[0]!;
-  const verified = await verifyCanonicalAskEvidence(cwd, entry);
-  if (!verified) {
+  const verifiedAsk = await verifyCanonicalAskEvidence(cwd, entry);
+  const answerEvent = verifiedAsk ? undefined : await canonicalProjectedAnswerEvent(cwd, entry);
+  const answerEventValues =
+    answerEvent &&
+    answerEvent.binding.modeScope === "repro" &&
+    answerEvent.binding.goalOrReproId === repro.reproId &&
+    answerEvent.binding.ownerSessionId === repro.sessionKey &&
+    repro.plan.steps.some(
+      (step) =>
+        step.status === "done" &&
+        step.verification?.verdict === "Pass" &&
+        step.evidenceRefs.includes(entry.ref as EvidenceRef),
+    )
+      ? answerEventSelectedValues(
+          answerEvent.answers,
+          answerEvent.binding.ownerQuestionId,
+          answerEvent.binding.expectedAnswerKind,
+        )
+      : [];
+  if (!verifiedAsk && answerEventValues.length === 0) {
     throw new Error(
-      "decision proof must reference canonical ask evidence with a valid receipt created by recordAsEvidence=true",
+      "decision proof must reference canonical ask evidence with a valid receipt created by recordAsEvidence=true or a current direct-user AnswerEvent Evidence receipt",
     );
   }
-  const selectedValue = verified.selectedValues.find((value) => value === proof.selectedValue);
+  const selectedValues = verifiedAsk?.selectedValues ?? answerEventValues;
+  const selectedValue = selectedValues.find((value) => value === proof.selectedValue);
   if (!selectedValue) {
     throw new Error(
-      `decision proof selectedValue does not match the canonical ask answer: ${proof.selectedValue}`,
+      `decision proof selectedValue does not match the canonical user answer: ${proof.selectedValue}`,
     );
   }
   return { ...proof, selectedValue };

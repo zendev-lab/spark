@@ -85,6 +85,14 @@ import type {
   ToolRegistrationListener,
 } from "./types.js";
 
+const MUTABLE_EXTENSION_CONTEXT_KEYS = [
+  "askAutoAnswer",
+  "askAutoAnswerResolver",
+  "askWaitTimeoutMs",
+  "sparkActiveMode",
+  "sparkAutonomousAsk",
+] as const;
+
 export interface SparkHostRuntimeOptions {
   cwd: string;
   workspaceId?: string;
@@ -206,6 +214,7 @@ export class SparkHostRuntime implements SparkHostAPI {
   readonly #memoryDirectIntentAuthority: SparkMemoryDirectIntentTurnAuthority | undefined;
   private sessionLeaseProvider: (() => SparkSessionLeaseIdentity | undefined) | undefined;
   private sessionId: string | undefined;
+  private readonly mutableExtensionContext = new Map<string, unknown>();
   private shutdownPromise: Promise<void> | undefined;
   private idle = true;
   private readonly keybindings: SparkKeybindings;
@@ -489,6 +498,7 @@ export class SparkHostRuntime implements SparkHostAPI {
         results.push({ error });
       }
     }
+    this.captureMutableExtensionContext(ctx);
     return results;
   }
 
@@ -573,8 +583,9 @@ export class SparkHostRuntime implements SparkHostAPI {
 
   /** Keep extension event/tool contexts bound to the active Spark session. */
   setSessionId(sessionId: string | undefined): void {
-    const normalized = sessionId?.trim();
-    this.sessionId = normalized || undefined;
+    const normalized = sessionId?.trim() || undefined;
+    if (normalized !== this.sessionId) this.mutableExtensionContext.clear();
+    this.sessionId = normalized;
   }
 
   /** Atomically bind execution and durable-state roots when the active session changes. */
@@ -649,12 +660,21 @@ export class SparkHostRuntime implements SparkHostAPI {
       ...(this.roleNativeCompatibilityRecovery
         ? { roleNativeCompatibilityRecovery: { ...this.roleNativeCompatibilityRecovery } }
         : {}),
+      ...Object.fromEntries(this.mutableExtensionContext),
       ...extra,
       // A caller may supply the execution/view Session as part of a turn-local
       // context. Durable tools must nevertheless remain bound to the explicit
       // state owner selected when this host was created.
       ...(this.stateBindingSessionId ? { sessionId: this.stateBindingSessionId } : {}),
     };
+  }
+
+  private captureMutableExtensionContext(ctx: SparkHostContext): void {
+    const record = ctx as SparkHostContext & Record<string, unknown>;
+    for (const key of MUTABLE_EXTENSION_CONTEXT_KEYS) {
+      if (Object.hasOwn(record, key)) this.mutableExtensionContext.set(key, record[key]);
+      else this.mutableExtensionContext.delete(key);
+    }
   }
 
   /** Are no tool calls / streamed turns currently in flight? */

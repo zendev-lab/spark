@@ -463,6 +463,8 @@ export interface ExtensionAskQuestionView {
 export interface ExtensionInteractionRequestBase {
   version?: number | undefined;
   requestId: string;
+  /** Host-generated tool invocation identity used to resume the same durable wait. */
+  toolCallId?: string | undefined;
   title: string;
   prompt?: string | undefined;
   createdAt?: string | undefined;

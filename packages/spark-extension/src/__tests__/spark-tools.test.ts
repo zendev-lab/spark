@@ -171,6 +171,7 @@ import {
 import {
   createReproStepAskBinding,
   createSparkSessionRepro,
+  currentPhaseAcceptance,
   encodeReproStepAskBinding,
   reproStepPlanRevision,
   stepDefinitionDigest,
@@ -8353,7 +8354,7 @@ test("repro record accepts only receipt-backed ask decisions with matching value
             selectedValue: "new",
           },
         }),
-      /selectedValue does not match the canonical ask answer/u,
+      /selectedValue does not match the canonical user answer/u,
     );
 
     const recorded = await executeSparkTool(tools, "repro", ctx, {
@@ -8690,11 +8691,26 @@ test("repro approval Step accepts only current direct-user AnswerEvent Evidence"
       stepEvidenceRefs: [direct.ref],
     });
     assert.match(toolText(approved), /updated to done/u);
+    const verifiedRepro = await readSessionRepro(dir, ctx);
     assert.deepEqual(
-      (await readSessionRepro(dir, ctx))?.plan.steps.find((candidate) => candidate.id === stepId)
-        ?.verification?.selectedValues,
+      verifiedRepro?.plan.steps.find((candidate) => candidate.id === stepId)?.verification
+        ?.selectedValues,
       ["approve"],
     );
+    const decisionRequirement = verifiedRepro
+      ? currentPhaseAcceptance(verifiedRepro).find((requirement) => requirement.kind === "decision")
+      : undefined;
+    if (!decisionRequirement) throw new Error("missing decision requirement");
+    const recorded = await executeSparkTool(tools, "repro", ctx, {
+      action: "record",
+      requirementId: decisionRequirement.id,
+      proof: {
+        kind: "decision",
+        decisionRef: direct.ref,
+        selectedValue: "approve",
+      },
+    });
+    assert.match(toolText(recorded), /Recorded decision proof/u);
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
@@ -8725,6 +8741,38 @@ test("reading a v4 done Step without verifier provenance reopens it fail closed"
     assert.equal(restored?.plan.steps[0]?.status, "pending");
     assert.deepEqual(restored?.plan.steps[0]?.evidenceRefs, ["evidence:legacy"]);
     assert.equal(restored?.plan.steps[0]?.verification, undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro start applies requested difficulty before Stage task materialization", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-start-difficulty-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "start",
+      objective: "Reproduce a bounded deterministic fixture",
+      difficulty: 5,
+    });
+
+    const repro = await readSessionRepro(dir, ctx);
+    assert.ok(repro?.projectRef);
+    assert.equal(repro.plan.difficulty, 5);
+    const acceptanceIds = repro.stages[0]?.acceptance.map((entry) => entry.id).sort() ?? [];
+    assert.deepEqual(repro.subgoals.map((subgoal) => subgoal.id).sort(), acceptanceIds);
+    const graph = await defaultTaskGraphStore(dir).load();
+    assert.ok(graph);
+    assert.deepEqual(
+      graph
+        .tasks(repro.projectRef)
+        .map((task) => task.name)
+        .sort(),
+      acceptanceIds,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }

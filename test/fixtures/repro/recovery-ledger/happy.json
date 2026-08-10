@@ -1,0 +1,228 @@
+{
+  "schema": "spark.repro-golden-journey-process/v1",
+  "reproId": "repro:golden-journey-source-process",
+  "milestones": [
+    {
+      "name": "repro.started",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 1
+    },
+    {
+      "name": "decision.requested",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 2
+    },
+    {
+      "name": "decision.persisted_across_restart",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 3
+    },
+    {
+      "name": "decision.answered",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 4
+    },
+    {
+      "name": "repro.resumed",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 5
+    },
+    {
+      "name": "validation.failed_before_fix",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 6
+    },
+    {
+      "name": "validation.passed_after_fix",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 7
+    },
+    {
+      "name": "git_change.committed",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 8
+    },
+    {
+      "name": "pull_request.submitted",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 9
+    },
+    {
+      "name": "report.projected",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 10
+    },
+    {
+      "name": "report.synced",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 11
+    },
+    {
+      "name": "repro.completed",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 12
+    },
+    {
+      "name": "workbench.sealed",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 13
+    }
+  ],
+  "providerRoundsAtWait": 6,
+  "providerRoundsAtAnswer": 6,
+  "resumeCount": 1,
+  "toolApprovalCount": 0,
+  "interaction": {
+    "beforeRestart": {
+      "interactionRequestId": "ask_async:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "humanRequestId": "hreq_a"
+    },
+    "afterRestart": {
+      "interactionRequestId": "ask_async:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "humanRequestId": "hreq_a"
+    },
+    "answerReceipt": "hres_a",
+    "answerOutcome": "accepted"
+  },
+  "interactionRequestId": "ask_async:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "humanRequestId": "hreq_a",
+  "answerReceipt": "hres_a",
+  "daemon": {
+    "checkpoints": [
+      {
+        "id": "ask.pending",
+        "sequence": 1,
+        "operationId": "journey-decision",
+        "before": { "pid": 101, "generation": "generation-1", "processStartToken": "start-1" },
+        "after": { "pid": 102, "generation": "generation-2", "processStartToken": "start-2" },
+        "providerHighWaterBefore": 6,
+        "providerHighWaterAfter": 6,
+        "cursorBefore": 6,
+        "cursorAfter": 6
+      },
+      {
+        "id": "git.post_commit",
+        "sequence": 2,
+        "operationId": "git_change.committed",
+        "before": { "pid": 102, "generation": "generation-2", "processStartToken": "start-2" },
+        "after": { "pid": 103, "generation": "generation-3", "processStartToken": "start-3" },
+        "providerHighWaterBefore": 62,
+        "providerHighWaterAfter": 62,
+        "cursorBefore": 62,
+        "cursorAfter": 62
+      },
+      {
+        "id": "git.post_pr",
+        "sequence": 3,
+        "operationId": "pull_request.submitted",
+        "before": { "pid": 103, "generation": "generation-3", "processStartToken": "start-3" },
+        "after": { "pid": 104, "generation": "generation-4", "processStartToken": "start-4" },
+        "providerHighWaterBefore": 63,
+        "providerHighWaterAfter": 63,
+        "cursorBefore": 64,
+        "cursorAfter": 64
+      },
+      {
+        "id": "report.post_projection",
+        "sequence": 4,
+        "operationId": "report.projected",
+        "before": { "pid": 104, "generation": "generation-4", "processStartToken": "start-4" },
+        "after": { "pid": 105, "generation": "generation-5", "processStartToken": "start-5" },
+        "providerHighWaterBefore": 140,
+        "providerHighWaterAfter": 140,
+        "cursorBefore": 142,
+        "cursorAfter": 142
+      },
+      {
+        "id": "report.post_sync",
+        "sequence": 5,
+        "operationId": "report.synced",
+        "before": { "pid": 105, "generation": "generation-5", "processStartToken": "start-5" },
+        "after": { "pid": 106, "generation": "generation-6", "processStartToken": "start-6" },
+        "providerHighWaterBefore": 141,
+        "providerHighWaterAfter": 141,
+        "cursorBefore": 144,
+        "cursorAfter": 144
+      }
+    ],
+    "sqlitePath": "/tmp/spark/daemon.sqlite"
+  },
+  "validation": {
+    "reference": {
+      "command": "node verify.mjs reference",
+      "exitCode": 0,
+      "stdout": "PASS reference",
+      "stderr": ""
+    },
+    "targetBeforeRepair": {
+      "command": "node verify.mjs target",
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": "FAIL target"
+    },
+    "targetAfterRepair": {
+      "command": "node verify.mjs target",
+      "exitCode": 0,
+      "stdout": "PASS target",
+      "stderr": ""
+    }
+  },
+  "git": {
+    "worktreePath": "/tmp/worktree",
+    "baseCommitSha": "1111111111111111111111111111111111111111",
+    "headCommitSha": "2222222222222222222222222222222222222222",
+    "commitSha": "2222222222222222222222222222222222222222",
+    "revisionRange": "main..HEAD",
+    "commitCount": 1,
+    "revListOutput": "1",
+    "changedPaths": ["target/normalize.mjs"],
+    "diffNameOnlyOutput": "target/normalize.mjs",
+    "statusPorcelainOutput": "",
+    "draftPrCreates": 1,
+    "nonDraftPrCreates": 0,
+    "artifactRef": "artifact:git-change"
+  },
+  "report": {
+    "summaryDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "projectedReportDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "markdownDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "reportArtifactRef": "artifact:report",
+    "artifactRefs": ["artifact:report", "artifact:git-change"],
+    "evidenceRefs": [
+      "evidence:answer-event:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ],
+    "formalGateCount": 5,
+    "formalGatesAccepted": true,
+    "workbenchLifecycle": "sealed",
+    "documentRevision": 1
+  },
+  "terminalOwner": {
+    "pendingAskCount": 0,
+    "canonicalDecisionRequestCount": 1,
+    "toolApprovalRequestCount": 0,
+    "activeInvocationCount": 0,
+    "workbenchLifecycle": "sealed",
+    "writableWorkbenchCount": 0,
+    "formalEvidenceReceiptCount": 5
+  },
+  "teardown": {
+    "daemonPids": [101, 102, 103, 104, 105, 106],
+    "liveDaemonPids": [],
+    "hubPid": 201,
+    "hubAlive": false
+  },
+  "livePidCount": 0
+}

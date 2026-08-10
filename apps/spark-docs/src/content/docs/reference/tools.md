@@ -43,6 +43,12 @@ use separate namespaces, stores, permissions, and lifecycle rules. A tool must
 not silently promote a file path, transcript statement, or unverified result
 into either one.
 
+`artifact({ action: "sync_file" })` reads a cwd-local regular, non-symlink UTF-8
+file and accepts at most 32 KiB. Larger public inputs fail closed. Spark's
+internal Repro report projector may synchronize its own typed report through a
+producer-bound path capped at 128 KiB; that limit is not caller-selectable and
+does not relax the public tool boundary.
+
 ## Replacing Task dependencies
 
 `task_write({ action: "replace_dependencies", taskRef, dependsOn })` atomically
