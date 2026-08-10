@@ -55,6 +55,13 @@ current host policy immediately before execution.
 Compatibility aliases are bounded inputs only. They do not receive new product
 behavior and must not become a second canonical surface.
 
+The native default profile is guarded by
+`architecture/tool-surface-baseline.json`. Its active tool count and each
+tool's model-facing bytes, schema bytes, property/optional/untyped field counts,
+alias pairs, action count, union branches, and effect may shrink without a
+baseline edit. Growth or a new default tool fails `check:tool-surface` and
+requires an explicit architecture review and budget change.
+
 ## Effect and execution policy
 
 Each tool owner declares one canonical policy with:
