@@ -106,7 +106,7 @@ describe("legacy local PR body validation", () => {
         "",
         "Context.",
         "",
-        "## 后续",
+        "## 下一 PR",
         "",
         "Follow-up.",
         "",
@@ -115,6 +115,6 @@ describe("legacy local PR body validation", () => {
       stdout: capture.stdout,
     });
     expect(exitCode).toBe(0);
-    expect(capture.read()).toContain('Required headings: ["动机","解决方案","说明","后续"]');
+    expect(capture.read()).toContain('Required headings: ["动机","解决方案","说明","下一 PR"]');
   });
 });
