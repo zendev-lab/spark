@@ -70,6 +70,15 @@ describe("Spark UI component catalog", () => {
     await expect(page.getByTestId("catalog-model-selector-success")).toMatchScreenshot(
       "catalog-model-selector-light-desktop",
     );
+    await expect(page.getByTestId("catalog-code-block-success")).toMatchScreenshot(
+      "catalog-code-block-light-desktop",
+    );
+    await expect(page.getByTestId("catalog-diff-view-success")).toMatchScreenshot(
+      "catalog-diff-view-light-desktop",
+    );
+    await expect(page.getByTestId("catalog-terminal-success")).toMatchScreenshot(
+      "catalog-terminal-light-desktop",
+    );
 
     await screen.unmount();
   });
@@ -85,6 +94,9 @@ describe("Spark UI component catalog", () => {
     await expect(page.getByTestId("catalog-message-shell-overflow")).toMatchScreenshot(
       "catalog-message-shell-dark-rtl-mobile",
       darkTextScreenshotOptions,
+    );
+    await expect(page.getByTestId("catalog-tool-call-overflow")).toMatchScreenshot(
+      "catalog-tool-call-dark-rtl-mobile",
     );
 
     await screen.unmount();

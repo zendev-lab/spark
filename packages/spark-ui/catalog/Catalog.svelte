@@ -305,5 +305,4 @@
   .catalog.wide {
     width: 1024px;
   }
-
 </style>

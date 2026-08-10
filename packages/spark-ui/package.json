@@ -13,6 +13,7 @@
     "src/markdown/VENDOR.md",
     "src/conversation/UPSTREAM-LICENSE.txt",
     "src/conversation/VENDOR.md",
+    "src/workbench/VENDOR.md",
     "svelte.config.js",
     "!src/**/*.test.ts",
     "README.md"
@@ -50,6 +51,11 @@
       "svelte": "./src/conversation/index.ts",
       "default": "./src/conversation/index.ts"
     },
+    "./workbench": {
+      "types": "./src/workbench/index.ts",
+      "svelte": "./src/workbench/index.ts",
+      "default": "./src/workbench/index.ts"
+    },
     "./tokens.css": "./src/tokens.css",
     "./status-pill.css": "./src/ui/status-pill.css"
   },
@@ -58,7 +64,9 @@
     "catalog:dev": "vp dev catalog",
     "check": "vp check --no-fmt --no-lint . && vp test run --config vitest.config.ts && pnpm run catalog:build",
     "test": "vp test run --config vitest.config.ts",
-    "test:browser": "vp test run --config vitest.browser.config.ts"
+    "test:browser": "pnpm run test:browser:components && pnpm run test:browser:catalog",
+    "test:browser:components": "vp test run src --config vitest.browser.config.ts",
+    "test:browser:catalog": "vp test run catalog --config vitest.browser.config.ts"
   },
   "dependencies": {
     "@lucide/svelte": "^1.16.0",
