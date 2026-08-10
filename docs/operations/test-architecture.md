@@ -38,10 +38,10 @@ Real process tests stay out of the root Vitest suite. Source and packed-product 
 daemon lifecycle harness, but invoke different executable targets. This prevents the source launcher
 and generated npm product from drifting while keeping failures attributable to distinct named steps.
 `pnpm run check` remains the serial local gate. Static CI always runs the complete architecture,
-test-quality, documentation, formatting, lint, and type checks. Pull-request runtime CI uses
-`scripts/changed-ci-scope.mjs` to select workspace checks and the process, macOS, and browser lanes;
-unknown or root-owned changes fail safe to the full matrix. `merge_group` and `main` pushes always
-run the full matrix. These jobs are advisory and there is no aggregate required test job.
+test-quality, documentation, formatting, lint, and type checks. Runtime CI runs the complete source
+and process suites on the Ubuntu/macOS matrix plus the browser suite for pull requests,
+`merge_group`, and `main` pushes. These jobs are advisory and there is no aggregate required test
+job.
 
 `prek` is the local fast-fix boundary: use native pre-commit integrations for file-format and
 workflow checks, plus the repository's `spark-check-fix` hook. Repository-specific read-only checks
