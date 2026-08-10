@@ -400,8 +400,19 @@ export class SparkSessionRegistry {
         "session_not_found",
         `unknown session: ${input.sessionId}`,
       );
-    const current = requireChild(file.sessions[index]!);
-    assertGeneration(current, input.expectedGeneration);
+    const current = file.sessions[index]!;
+    if (current.relation?.kind !== "side_thread") {
+      throw new SparkSessionRegistryError(
+        "side_thread_not_found",
+        `not a side thread: ${current.sessionId}`,
+      );
+    }
+    assertGeneration(
+      current as SparkSessionRegistryRecord & {
+        relation: Extract<SparkSessionRelation, { kind: "side_thread" }>;
+      },
+      input.expectedGeneration,
+    );
     requireParent(file.sessions, current.relation.parentSessionId);
     const path = input.sessionPath.trim();
     if (!path)
@@ -413,6 +424,7 @@ export class SparkSessionRegistry {
       ...current,
       status: "ready",
       lifecycle: "open",
+      incarnation: (current.incarnation ?? 1) + 1,
       sessionPath: path,
       transcriptRef: path,
       relation: {

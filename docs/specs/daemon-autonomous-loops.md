@@ -79,7 +79,12 @@ Session per tick. The child owns the Invocation execution context while
 `stateBinding` points at the public parent Session, so TUI, Hub, ACP, and
 Channel projections show the same parent activity without exposing the child
 prompt. Tick children close after terminal settlement and discard transcript
-and content payloads according to the Supervisor retention contract.
+and content payloads according to the Supervisor retention contract. Before
+that removal, a `driver_tick` child seals a close receipt from its terminal tick
+result. A `driver` child remains open across ticks and seals one receipt from
+the final evaluation result when stop, completion, or replacement closes the
+incarnation. The receipt stays in Session metadata and is never copied into the
+parent transcript or individual Invocation rows.
 
 ## Trusted event preflight
 

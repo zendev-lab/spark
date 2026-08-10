@@ -105,8 +105,7 @@ export class SessionSupervisor {
     this.registry = options.registry;
     this.invocations = options.invocations;
     this.scheduler = options.scheduler;
-    this.deleteTranscript =
-      options.deleteTranscript ?? (async (path) => await rm(path, { force: true }));
+    this.deleteTranscript = options.deleteTranscript ?? deleteTranscriptArtifacts;
     this.ownerExists = options.ownerExists;
     this.resolveWorkspaceBindingId = options.resolveWorkspaceBindingId;
   }
@@ -428,42 +427,18 @@ export class SessionSupervisor {
             session.relation.parentSessionId === current.sessionId)),
     );
     for (const child of children) {
-      if (child.relation?.kind === "side_thread") {
-        await this.registry.markClosing({
-          sessionId: child.sessionId,
-          ...(child.lifecycle === "open" ? { expectedLifecycle: "open" } : {}),
-          ...(input.now ? { now: input.now } : {}),
-        });
-        await this.cancelPending(child.sessionId);
-        await this.waitForIdle(child.sessionId, input.settleTimeoutMs ?? 5_000);
-        if (this.invocations.sessionActivity(child.sessionId).active) {
-          return await this.require(current.sessionId);
-        }
-        const childRedaction = await this.prepareContentDiscard(child, {
+      const closedChild = await this.closeRecursive(
+        {
           sessionId: child.sessionId,
           ...(input.reason ? { reason: input.reason } : {}),
           ...(input.now ? { now: input.now } : {}),
           ...(input.settleTimeoutMs !== undefined
             ? { settleTimeoutMs: input.settleTimeoutMs }
             : {}),
-        });
-        if (childRedaction?.blockedInvocationIds.length) {
-          return await this.require(current.sessionId);
-        }
-      } else {
-        const closedChild = await this.closeRecursive(
-          {
-            sessionId: child.sessionId,
-            ...(input.reason ? { reason: input.reason } : {}),
-            ...(input.now ? { now: input.now } : {}),
-            ...(input.settleTimeoutMs !== undefined
-              ? { settleTimeoutMs: input.settleTimeoutMs }
-              : {}),
-          },
-          visited,
-        );
-        if (closedChild.lifecycle !== "closed") return await this.require(current.sessionId);
-      }
+        },
+        visited,
+      );
+      if (closedChild.lifecycle !== "closed") return await this.require(current.sessionId);
     }
 
     await this.cancelPending(current.sessionId);
@@ -663,6 +638,14 @@ export class SessionSupervisor {
     }
     return session;
   }
+}
+
+async function deleteTranscriptArtifacts(path: string): Promise<void> {
+  await Promise.all(
+    [path, `${path}.side-thread-index.json`, `${path}.snapshot-index.json`].map(
+      async (candidate) => await rm(candidate, { force: true }),
+    ),
+  );
 }
 
 function required(value: string, field: string): string {

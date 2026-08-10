@@ -29,8 +29,9 @@ thinking level, pending work, and recent visible exchanges.
 /btw thinking high
 ```
 
-A reset starts a new Side Thread generation. Model and thinking overrides apply
-only to the child.
+A reset closes the current child incarnation, seals its bounded close receipt,
+then starts a new Side Thread generation and Session incarnation under the
+same stable Session ID. Model and thinking overrides apply only to the child.
 
 ## Read-only boundary
 
@@ -45,4 +46,5 @@ belongs in the main session.
 When the parent closes, the daemon closes the Side Thread first. Its full
 transcript and Invocation content are discarded; bounded summary, usage,
 execution profile, and explicit Evidence remain available to authorized
-diagnostics.
+diagnostics. Reset preserves the prior incarnation's receipt metadata but does
+not restore its transcript or reopen any child Session.

@@ -45,7 +45,9 @@ Loop 用于刻意保持开放的重复工作。只有当前步骤明确调度下
 
 如果每一步都应在新的 owned 子 Session 中运行，同时保留同一个工作区状态，使用
 `/loop fresh <目标>`。子 Session 会在 tick 结束后关闭，通常删除完整 transcript；
-父 Session 仍保留有界活动、用量和显式 Evidence。
+删除前 daemon 会从 tick result 封存一份有界关闭回执。使用 driver 生命周期的 Loop
+则在 driver Session 关闭时封存最终 evaluation result。父 Session 仍保留有界活动、
+用量和显式 Evidence，但这些回执不会作为 transcript 消息注入父 Session。
 
 ## Repro
 

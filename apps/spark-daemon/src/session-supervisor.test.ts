@@ -424,6 +424,55 @@ describe("SessionSupervisor", () => {
     harness.close();
   });
 
+  it("fully closes a Side Thread before its parent", async () => {
+    const harness = await createHarness();
+    const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");
+    const parent = await harness.supervisor.instantiate({
+      workspaceId: "ws-test",
+      role: administratorRole,
+      parentSessionId: root.sessionId,
+      sessionId: "side-parent-owned",
+      purpose: "interactive",
+      visibility: "public",
+      retention: "retain",
+    });
+    const transcript = join(harness.root, "side-thread-owned.jsonl");
+    await writeFile(transcript, '{"content":"private tangent"}\n', "utf8");
+    await writeFile(`${transcript}.side-thread-index.json`, '{"exchanges":["private"]}\n', "utf8");
+    await writeFile(`${transcript}.snapshot-index.json`, '{"messages":["private"]}\n', "utf8");
+    const sideThread = await harness.registry.ensureSideThread({
+      parentSessionId: parent.sessionId,
+      sessionId: "side-child-owned",
+      sessionPath: transcript,
+      mode: "tangent",
+    });
+
+    const closedParent = await harness.supervisor.close({ sessionId: parent.sessionId });
+
+    expect(closedParent).toMatchObject({ lifecycle: "closed", status: "archived" });
+    const closedSideThread = await harness.registry.get(sideThread.sessionId);
+    expect(closedSideThread).toMatchObject({
+      lifecycle: "closed",
+      status: "archived",
+      closeReceipts: [
+        expect.objectContaining({
+          source: "deterministic_fallback",
+          quality: "fallback",
+          incarnation: 1,
+        }),
+      ],
+    });
+    expect(closedSideThread).not.toHaveProperty("transcriptRef");
+    await expect(access(transcript)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(`${transcript}.side-thread-index.json`)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    await expect(access(`${transcript}.snapshot-index.json`)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    harness.close();
+  });
+
   it("idempotently instantiates driver-owned child Sessions with explicit state binding", async () => {
     const harness = await createHarness();
     const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");

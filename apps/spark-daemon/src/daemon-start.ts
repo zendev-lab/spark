@@ -116,6 +116,7 @@ import {
   resolveWorkspaceLocalPath,
 } from "./store/workspaces.js";
 import { runSparkCommandBridge, cancelSparkBridgeInvocation } from "./spark/bridge.js";
+import { loopDriverCloseCandidate, loopTickCloseCandidate } from "./spark/loop-close-completion.ts";
 import { createChannelAwareTaskExecutor, sessionSourceForTask } from "./spark/session-run.js";
 import { reconcileSessionNotificationDeliveries } from "./session-notification-delivery.ts";
 import {
@@ -1165,16 +1166,22 @@ function completeScheduledInvocation(
   if (task.type === "loop.tick") {
     const completed = input.loopStore.completeTick(invocation, task, completion);
     emitLoopUpdate(input, completed.loop, invocation.invocationId);
+    const sessionLifetime =
+      task.sessionLifetime ?? (task.continuity === "fresh" ? "driver_tick" : "driver");
     if (
-      (task.sessionLifetime ?? (task.continuity === "fresh" ? "driver_tick" : "driver")) ===
-        "driver_tick" ||
+      sessionLifetime === "driver_tick" ||
       completed.loop.status === "completed" ||
       completed.loop.status === "stopped"
     ) {
+      const closeCompletion =
+        sessionLifetime === "driver_tick"
+          ? loopTickCloseCandidate(invocation.invocationId, completion)
+          : loopDriverCloseCandidate(completed.loop);
       void input.sessionSupervisor
         ?.close({
           sessionId: task.sessionId,
           reason: `Loop ${completed.loop.status}`,
+          ...(closeCompletion ? { completion: closeCompletion } : {}),
           settleTimeoutMs: 0,
         })
         .catch((error) => {
@@ -1187,10 +1194,12 @@ function completeScheduledInvocation(
     const completed = input.loopStore.completeEvaluation(invocation, task, completion);
     emitLoopUpdate(input, completed.loop, invocation.invocationId);
     if (completed.loop.status === "completed" || completed.loop.status === "stopped") {
+      const closeCompletion = loopDriverCloseCandidate(completed.loop);
       void input.sessionSupervisor
         ?.close({
           sessionId: completed.loop.driverSessionId,
           reason: `Loop ${completed.loop.status}`,
+          ...(closeCompletion ? { completion: closeCompletion } : {}),
           settleTimeoutMs: 0,
         })
         .catch((error) => {
