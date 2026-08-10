@@ -807,7 +807,7 @@ function isAskAutoAnswerRecord(record: Record<string, unknown>): boolean {
 
 export function parseReviewerVerdictForInput(input: ReviewInput, text: string): ReviewerVerdict {
   const value = parseJsonObjectFromText(text, { requireReviewerVerdict: true });
-  validateReviewerTypedRequestFields(input, value);
+  validateReviewerTypedRequestFields(value);
   const parsed = normalizeReviewerVerdictObject(value);
   switch (input.targetKind) {
     case "task":
@@ -889,14 +889,12 @@ export function parseReviewerVerdictForInput(input: ReviewInput, text: string): 
 }
 
 export function parseReviewerVerdict(text: string): ReviewVerdict {
-  return normalizeReviewerVerdictObject(parseJsonObjectFromText(text));
+  const value = parseJsonObjectFromText(text);
+  validateReviewerTypedRequestFields(value);
+  return normalizeReviewerVerdictObject(value);
 }
 
-function validateReviewerTypedRequestFields(
-  input: ReviewInput,
-  value: Record<string, unknown>,
-): void {
-  if (input.targetKind !== "task") return;
+function validateReviewerTypedRequestFields(value: Record<string, unknown>): void {
   validateOptionalReviewerRefArray(value, "requestedEvidenceRefs", "evidence");
   validateOptionalReviewerRefArray(value, "requestedArtifactRefs", "artifact");
   validateOptionalReviewerBoolean(value, "requiresCurrentTransitionReceipt");
@@ -923,10 +921,14 @@ function validateOptionalReviewerRefArray(
     throw new Error(`reviewer verdict ${field} must be an array of ${kind}: refs`);
   }
   for (const [index, ref] of refs.entries()) {
-    if (typeof ref !== "string" || !isRef(ref, kind)) {
+    if (typeof ref !== "string" || !isCanonicalReviewerRef(ref, kind)) {
       throw new Error(`reviewer verdict ${field}[${index}] must be a canonical ${kind}: ref`);
     }
   }
+}
+
+function isCanonicalReviewerRef(value: string, kind: "evidence" | "artifact"): boolean {
+  return isRef(value, kind) && value.indexOf(":") === value.lastIndexOf(":");
 }
 
 function validateOptionalReviewerBoolean(
@@ -1091,12 +1093,16 @@ function reviewerVerdictProtocolIssue(
 ): string | undefined {
   if (input.targetKind !== "task" || verdict.targetKind !== "task") return undefined;
   const requestedEvidenceRefs = verdict.requestedEvidenceRefs ?? [];
-  const invalidEvidenceRef = requestedEvidenceRefs.find((ref) => !isRef(ref, "evidence"));
+  const invalidEvidenceRef = requestedEvidenceRefs.find(
+    (ref) => !isCanonicalReviewerRef(ref, "evidence"),
+  );
   if (invalidEvidenceRef) {
     return `reviewer protocol violation: requestedEvidenceRefs contains a non-Evidence ref: ${invalidEvidenceRef}`;
   }
   const requestedArtifactRefs = verdict.requestedArtifactRefs ?? [];
-  const invalidArtifactRef = requestedArtifactRefs.find((ref) => !isRef(ref, "artifact"));
+  const invalidArtifactRef = requestedArtifactRefs.find(
+    (ref) => !isCanonicalReviewerRef(ref, "artifact"),
+  );
   if (invalidArtifactRef) {
     return `reviewer protocol violation: requestedArtifactRefs contains a non-Artifact ref: ${invalidArtifactRef}`;
   }

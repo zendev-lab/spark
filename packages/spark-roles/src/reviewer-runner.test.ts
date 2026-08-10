@@ -113,6 +113,49 @@ test("reviewer instruction and verdict parser support tool_approval subject", ()
   assert.equal(verdict.summary, "risky");
 });
 
+test("reviewer verdict parser rejects malformed typed requests for every review target", () => {
+  const malformed = JSON.stringify({
+    outcome: "needs_changes",
+    summary: "malformed typed request",
+    findings: [],
+    blockers: [],
+    confidence: "high",
+    requestedEvidenceRefs: "evidence:receipt",
+  });
+  assert.throws(
+    () =>
+      parseReviewerVerdictForInput(
+        {
+          targetKind: "goal",
+          cwd: process.cwd(),
+          projectRef: "proj:demo",
+          goalId: "goal-1",
+          objective: "Finish the slice",
+          status: "active",
+          requestedStatus: "complete",
+          evidenceRefs: [],
+        },
+        malformed,
+      ),
+    /requestedEvidenceRefs must be an array/u,
+  );
+  assert.throws(
+    () =>
+      parseReviewerVerdictForInput(
+        {
+          targetKind: "tool_approval",
+          cwd: process.cwd(),
+          toolName: "cue_exec",
+          toolCallId: "tc-malformed",
+          arguments: { command: "echo hi" },
+          reason: "requires approval",
+        },
+        malformed,
+      ),
+    /requestedEvidenceRefs must be an array/u,
+  );
+});
+
 test("reviewer verdict parser tolerates trailing JSON event wrappers", () => {
   const input = reviewTaskInput();
   const verdict = parseReviewerVerdictForInput(
@@ -761,6 +804,24 @@ test("SparkRolesReviewerRunner classifies impossible task requests as reviewer p
     assert.match(
       emptyEvidenceRef.failure?.reason ?? "",
       /requestedEvidenceRefs\[0\].*canonical evidence/u,
+    );
+
+    const extraColonEvidenceRef = await runVerdict({
+      requestedEvidenceRefs: ["evidence:delivery:extra"],
+    });
+    assert.equal(extraColonEvidenceRef.failure?.kind, "protocol_error");
+    assert.match(
+      extraColonEvidenceRef.failure?.reason ?? "",
+      /requestedEvidenceRefs\[0\].*canonical evidence/u,
+    );
+
+    const extraColonArtifactRef = await runVerdict({
+      requestedArtifactRefs: ["artifact:delivery:extra"],
+    });
+    assert.equal(extraColonArtifactRef.failure?.kind, "protocol_error");
+    assert.match(
+      extraColonArtifactRef.failure?.reason ?? "",
+      /requestedArtifactRefs\[0\].*canonical artifact/u,
     );
 
     const supersededEvidence = await runVerdict({
