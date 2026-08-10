@@ -338,7 +338,7 @@ export function workspacePackagePolicyViolations({ manifest, hasTests, hasStryke
   const violations = [];
   if (hasTests) {
     if (!manifest.scripts?.test) violations.push("must expose package-local tests");
-    if (!/\b(?:vp test run|pnpm (?:run )?test)\b/u.test(manifest.scripts?.check ?? "")) {
+    if (!hasPackageTestInvocation(manifest.scripts?.check ?? "")) {
       violations.push("check script must run package-local tests");
     }
   }
@@ -360,6 +360,67 @@ export function workspacePackagePolicyViolations({ manifest, hasTests, hasStryke
   }
   if (!hasStrykerConfig) violations.push("mutation package must include stryker.config.json");
   return violations;
+}
+
+function hasPackageTestInvocation(command) {
+  return splitShellCommands(command).some(({ words, precedingOperator }) => {
+    if (precedingOperator === "||") return false;
+    if (words[0] === "vp") return words[1] === "test" && words[2] === "run";
+    if (words[0] !== "pnpm") return false;
+    if (words[1] === "test" || (words[1] === "run" && words[2] === "test")) return true;
+    return words[1] === "exec" && words[2] === "vp" && words[3] === "test" && words[4] === "run";
+  });
+}
+
+function splitShellCommands(command) {
+  const commands = [];
+  let words = [];
+  let word = "";
+  let quote;
+  let precedingOperator;
+
+  function flushWord() {
+    if (word.length > 0) words.push(word);
+    word = "";
+  }
+
+  function flushCommand(nextOperator) {
+    flushWord();
+    if (words.length > 0) commands.push({ words, precedingOperator });
+    words = [];
+    precedingOperator = nextOperator;
+  }
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+    if (quote) {
+      if (character === quote) quote = undefined;
+      else if (character === "\\" && quote === '"' && index + 1 < command.length) {
+        word += command[++index];
+      } else word += character;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+    } else if (character === "\\" && index + 1 < command.length) {
+      word += command[++index];
+    } else if (/\s/u.test(character)) {
+      if (character === "\n") flushCommand(";");
+      else flushWord();
+    } else if (character === "#" && word.length === 0) {
+      while (index + 1 < command.length && command[index + 1] !== "\n") index += 1;
+      flushCommand(";");
+    } else if (character === ";" || character === "&" || character === "|") {
+      const nextCharacter = command[index + 1];
+      const operator = nextCharacter === character ? `${character}${character}` : character;
+      flushCommand(operator);
+      if (nextCharacter === character) index += 1;
+    } else {
+      word += character;
+    }
+  }
+  flushCommand(undefined);
+  return commands;
 }
 
 function workspaceContainsTests(directory) {
