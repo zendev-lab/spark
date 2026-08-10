@@ -2,7 +2,7 @@ import type { SparkSessionCloseCandidate } from "@zendev-lab/spark-protocol/sess
 import { loopDriverCloseCandidate } from "../../spark/loop-close-completion.ts";
 import { loopUpdateEvent, SparkLoopStore, type SparkLoopRecord } from "../../store/loops.ts";
 import { SparkDaemonControlError } from "../../control-error.ts";
-import { resolveWorkspaceLocalPath } from "../../store/workspaces.ts";
+import { resolveWorkspaceBindingId, resolveWorkspaceLocalPath } from "../../store/workspaces.ts";
 import { executeTrustedWorkbenchLoopControl } from "../../workbench-loop-control.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
 import type { LocalRpcServiceOutput, LocalRpcServiceRequest } from "../types.ts";
@@ -51,10 +51,19 @@ export async function handleLoopRequest(
           `Loop owner session has no execution cwd: ${request.params.ownerSessionId}`,
         );
       }
+      const workspaceBindingId =
+        session.scope.kind === "workspace"
+          ? resolveWorkspaceBindingId(ctx.db, session.scope.workspaceId)
+          : undefined;
       const started = store.start({
         ...request.params,
         cwd,
-        ...(session.scope.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
+        ...(session.scope.kind === "workspace"
+          ? {
+              workspaceId: session.scope.workspaceId,
+              ...(workspaceBindingId ? { workspaceBindingId } : {}),
+            }
+          : {}),
       });
       await closeReplacedDriverSessions(ctx, priorDriverSessions, started.driverSessionId);
       return mutation(started);

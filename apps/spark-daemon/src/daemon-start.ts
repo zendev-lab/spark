@@ -367,6 +367,8 @@ async function createPreparedDaemonRuntime(
     ? new SessionSupervisor({
         registry: options.sessionRegistry,
         invocations: invocationStore,
+        resolveWorkspaceBindingId: (workspaceId) =>
+          resolveWorkspaceBindingId(options.db, workspaceId),
         ownerExists: async (owner, session) => {
           if (owner.kind === "driver") {
             const loop = loopStore.get(owner.ref);
@@ -1182,7 +1184,7 @@ function completeScheduledInvocation(
           sessionId: task.sessionId,
           reason: `Loop ${completed.loop.status}`,
           ...(closeCompletion ? { completion: closeCompletion } : {}),
-          settleTimeoutMs: 0,
+          settleTimeoutMs: 5_000,
         })
         .catch((error) => {
           console.error(`[spark-daemon] failed to close Loop Session ${task.sessionId}`, error);
@@ -1200,7 +1202,7 @@ function completeScheduledInvocation(
           sessionId: completed.loop.driverSessionId,
           reason: `Loop ${completed.loop.status}`,
           ...(closeCompletion ? { completion: closeCompletion } : {}),
-          settleTimeoutMs: 0,
+          settleTimeoutMs: 5_000,
         })
         .catch((error) => {
           console.error(

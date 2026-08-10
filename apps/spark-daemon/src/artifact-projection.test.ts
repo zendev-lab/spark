@@ -57,7 +57,7 @@ describe("Artifact daemon projection", () => {
           },
         },
         {
-          workspaceId,
+          workspaceId: workspaceBindingId,
           projectId,
           sessionId: "session_demo",
           invocationId,
@@ -116,6 +116,7 @@ describe("Artifact daemon projection", () => {
           : null;
 
         const parsed = artifactProjectionEnvelopeSchema.parse(envelope);
+        expect(parsed).toMatchObject({ workspaceId, workspaceBindingId });
         expect(parsed.payload).toMatchObject({
           kind: "document",
           title: "Document",

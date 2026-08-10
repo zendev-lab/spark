@@ -499,6 +499,36 @@ describe("SessionSupervisor", () => {
     harness.close();
   });
 
+  it("validates a driver owner against the requested child Session identity", async () => {
+    const harness = await createHarness();
+    const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");
+    const owner = { kind: "driver", ref: "loop:validated" } as const;
+    const supervisor = new SessionSupervisor({
+      registry: harness.registry,
+      invocations: harness.invocations,
+      ownerExists: async (candidateOwner, session) =>
+        candidateOwner.kind === owner.kind &&
+        candidateOwner.ref === owner.ref &&
+        session.sessionId === "driver-session-validated" &&
+        session.workspaceId === "ws-test",
+    });
+
+    await expect(
+      supervisor.instantiateOwnedContext({
+        sessionId: "driver-session-validated",
+        parentSessionId: root.sessionId,
+        owner,
+        authority: owner,
+        stateBinding: { kind: "session", ref: root.sessionId },
+        purpose: "driver",
+      }),
+    ).resolves.toMatchObject({
+      sessionId: "driver-session-validated",
+      owner,
+    });
+    harness.close();
+  });
+
   it("restores only retained public persistent records as a new incarnation", async () => {
     const harness = await createHarness();
     const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");

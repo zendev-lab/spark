@@ -159,7 +159,7 @@ export class SessionSupervisor {
         `persistent Role ${input.role.ref} requires a Session owner`,
       );
     }
-    if (owner && !(await this.isOwnerReferenceValid(owner, workspaceId))) {
+    if (owner && !(await this.isOwnerReferenceValid(owner, workspaceId, input.sessionId))) {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
         `owner ${owner.kind}:${owner.ref} is not active in workspace ${workspaceId}`,
@@ -287,7 +287,7 @@ export class SessionSupervisor {
         `owned Session identity ${sessionId} conflicts with its persisted owner`,
       );
     }
-    if (!(await this.isOwnerReferenceValid(input.owner, parent.scope.workspaceId))) {
+    if (!(await this.isOwnerReferenceValid(input.owner, parent.scope.workspaceId, sessionId))) {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
         `owner ${input.owner.kind}:${input.owner.ref} is not active in workspace ${parent.scope.workspaceId}`,
@@ -593,6 +593,7 @@ export class SessionSupervisor {
   private async isOwnerReferenceValid(
     owner: SparkSessionOwner,
     workspaceId: string,
+    sessionId?: string,
   ): Promise<boolean> {
     if (owner.kind === "session") {
       const session = await this.registry.get(owner.ref);
@@ -610,7 +611,7 @@ export class SessionSupervisor {
     }
     if (!this.ownerExists) return false;
     return await this.ownerExists(owner, {
-      sessionId: "session-owner-validation",
+      sessionId: sessionId?.trim() || "session-owner-validation",
       scope: { kind: "workspace", workspaceId },
       workspaceId,
       status: "ready",

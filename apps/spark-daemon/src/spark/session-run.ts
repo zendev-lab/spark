@@ -810,7 +810,13 @@ function interactionForSessionRun(
 ) {
   if (!options.interact) return undefined;
   return (request: unknown) => {
-    const operation = () => options.interact!(parseSparkInteractionRequest(request), task, context);
+    const presentationSessionId = task.presentationSessionId?.trim();
+    const interactionTask =
+      presentationSessionId && presentationSessionId !== task.sessionId
+        ? { ...task, sessionId: presentationSessionId }
+        : task;
+    const operation = () =>
+      options.interact!(parseSparkInteractionRequest(request), interactionTask, context);
     return context.withPausedTimeout ? context.withPausedTimeout(operation) : operation();
   };
 }
@@ -972,7 +978,10 @@ export async function executeSparkDaemonSessionRunTask(
             executionId: context.invocationId,
             kind: usageExecutionKind,
             ...(loop ? { detailKind: "loop_tick" } : {}),
-            persistence: task.hiddenExecution ? "anonymous" : "persistent",
+            persistence:
+              task.hiddenExecution || sessionContext.retention === "discard_on_close"
+                ? "anonymous"
+                : "persistent",
             sessionId: loop?.ownerSessionId ?? task.sessionId,
             ...(context.registerTokenUsageExecution
               ? { register: context.registerTokenUsageExecution }
