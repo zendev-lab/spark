@@ -93,7 +93,14 @@ interface RecoveryLedger {
     writableWorkbenchCount: number;
     formalEvidenceReceiptCount: number;
   };
-  teardown: { daemonPids: number[]; liveDaemonPids: number[]; hubAlive: boolean };
+  teardown: {
+    daemonPids: number[];
+    liveDaemonPids: number[];
+    hubPid: number;
+    hubAlive: boolean;
+    cueDaemon: { pid: number; processStartToken: string };
+    cueDaemonAlive: boolean;
+  };
   livePidCount: number;
 }
 
@@ -190,6 +197,11 @@ export function assertReproGoldenJourneyRecoverySemantics(
   );
   assert.deepEqual(ledger.teardown.liveDaemonPids, []);
   assert.equal(ledger.teardown.hubAlive, false);
+  assert.ok(ledger.teardown.cueDaemon.pid > 0);
+  assert.ok(ledger.teardown.cueDaemon.processStartToken.length > 0);
+  assert.ok(!ledger.teardown.daemonPids.includes(ledger.teardown.cueDaemon.pid));
+  assert.notEqual(ledger.teardown.hubPid, ledger.teardown.cueDaemon.pid);
+  assert.equal(ledger.teardown.cueDaemonAlive, false);
   assert.equal(ledger.livePidCount, 0);
 }
 

@@ -222,7 +222,12 @@
     "daemonPids": [101, 102, 103, 104, 105, 106],
     "liveDaemonPids": [],
     "hubPid": 201,
-    "hubAlive": false
+    "hubAlive": false,
+    "cueDaemon": {
+      "pid": 301,
+      "processStartToken": "linux:123456"
+    },
+    "cueDaemonAlive": false
   },
   "livePidCount": 0
 }

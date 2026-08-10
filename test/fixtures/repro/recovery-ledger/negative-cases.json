@@ -34,5 +34,11 @@
     "path": ["daemon", "checkpoints", 1, "id"],
     "value": "git.post_pr",
     "expected": "Expected values to be strictly deep-equal"
+  },
+  {
+    "id": "cue-daemon-pid-alias",
+    "path": ["teardown", "cueDaemon", "pid"],
+    "copyFrom": ["teardown", "hubPid"],
+    "expected": "strictly unequal"
   }
 ]

@@ -49,7 +49,11 @@ import {
   goldenJourneyOwnerOutcomeProjection,
   recoveryOutcomeProjection,
 } from "../support/repro-golden-journey-recovery-contract.ts";
-import { runSparkProcess, type SparkProcessTarget } from "../support/spark-process-harness.ts";
+import {
+  runSparkProcess,
+  stopIsolatedCueDaemon,
+  type SparkProcessTarget,
+} from "../support/spark-process-harness.ts";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -168,6 +172,7 @@ interface JourneyFixture {
   sparkHome: string;
   daemonDbPath: string;
   daemonSocketPath: string;
+  cueDaemonSocketPath: string;
   providerLedgerPath: string;
   forgeLedgerPath: string;
   target: SparkProcessTarget;
@@ -566,14 +571,22 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       terminalOwner: terminal,
     };
     await stopProcesses(fixture.target, [...daemonPids, hubPid]);
+    const cueDaemonTeardown = await stopIsolatedCueDaemon(
+      fixture.cueDaemonSocketPath,
+      fixture.target.env,
+    );
+    assert.ok(cueDaemonTeardown.identity, "the isolated cue daemon was observed before teardown");
     const teardown = {
       daemonPids,
       liveDaemonPids: daemonPids.filter(isProcessAlive),
       hubPid,
       hubAlive: isProcessAlive(hubPid),
+      cueDaemon: cueDaemonTeardown.identity,
+      cueDaemonAlive: cueDaemonTeardown.alive,
     };
     assert.deepEqual(teardown.liveDaemonPids, []);
     assert.equal(teardown.hubAlive, false);
+    assert.equal(teardown.cueDaemonAlive, false);
     const finalLedger = { ...processLedger, teardown, livePidCount: 0 };
     assert.equal(
       validateRecoveryLedger(finalLedger),
@@ -588,6 +601,9 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     await rm(fixture.temporary, { recursive: true, force: true });
   } catch (error) {
     await stopProcesses(fixture.target, [...daemonPids, hubPid]).catch(() => undefined);
+    await stopIsolatedCueDaemon(fixture.cueDaemonSocketPath, fixture.target.env).catch(
+      () => undefined,
+    );
     throw error;
   }
 }, 300_000);
@@ -737,6 +753,7 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     sparkHome,
     daemonDbPath: resolve(sparkHome, "apps/daemon/data/daemon.sqlite"),
     daemonSocketPath: resolve(sparkHome, "apps/daemon/run/daemon.sock"),
+    cueDaemonSocketPath: resolve(temporary, "xdg/run/cue-shell/cued.sock"),
     providerLedgerPath,
     forgeLedgerPath,
     target: {

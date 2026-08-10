@@ -43,7 +43,11 @@ import {
 } from "@zendev-lab/spark-repro/work-summary";
 
 import { goldenJourneyOwnerOutcomeProjection } from "../support/repro-golden-journey-recovery-contract.ts";
-import { runSparkProcess, type SparkProcessTarget } from "../support/spark-process-harness.ts";
+import {
+  runSparkProcess,
+  stopIsolatedCueDaemon,
+  type SparkProcessTarget,
+} from "../support/spark-process-harness.ts";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -119,6 +123,7 @@ interface JourneyFixture {
   sparkHome: string;
   daemonDbPath: string;
   daemonSocketPath: string;
+  cueDaemonSocketPath: string;
   providerLedgerPath: string;
   forgeLedgerPath: string;
   target: SparkProcessTarget;
@@ -510,18 +515,35 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       laneRecoveryDaemonPid,
       hubPid,
     ]);
+    const cueDaemonTeardown = await stopIsolatedCueDaemon(
+      fixture.cueDaemonSocketPath,
+      fixture.target.env,
+    );
+    assert.ok(cueDaemonTeardown.identity, "the isolated cue daemon was observed before teardown");
     const teardown = {
       daemonBeforeAlive: isProcessAlive(daemonPid),
       daemonAfterAlive: isProcessAlive(restartedDaemonPid),
       laneRecoveryDaemonAlive: isProcessAlive(laneRecoveryDaemonPid),
       hubAlive: isProcessAlive(hubPid),
+      cueDaemon: cueDaemonTeardown.identity,
+      cueDaemonAlive: cueDaemonTeardown.alive,
     };
-    assert.deepEqual(teardown, {
-      daemonBeforeAlive: false,
-      daemonAfterAlive: false,
-      laneRecoveryDaemonAlive: false,
-      hubAlive: false,
-    });
+    assert.deepEqual(
+      {
+        daemonBeforeAlive: teardown.daemonBeforeAlive,
+        daemonAfterAlive: teardown.daemonAfterAlive,
+        laneRecoveryDaemonAlive: teardown.laneRecoveryDaemonAlive,
+        hubAlive: teardown.hubAlive,
+        cueDaemonAlive: teardown.cueDaemonAlive,
+      },
+      {
+        daemonBeforeAlive: false,
+        daemonAfterAlive: false,
+        laneRecoveryDaemonAlive: false,
+        hubAlive: false,
+        cueDaemonAlive: false,
+      },
+    );
     const finalLedger = { ...processLedger, teardown, livePidCount: 0 };
     assert.deepEqual(goldenJourneyOwnerOutcomeProjection(finalLedger), expectedOwnerOutcome);
     process.stdout.write(`REPRO_GOLDEN_JOURNEY ${JSON.stringify(finalLedger)}\n`);
@@ -534,6 +556,9 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       laneRecoveryDaemonPid,
       hubPid,
     ]).catch(() => undefined);
+    await stopIsolatedCueDaemon(fixture.cueDaemonSocketPath, fixture.target.env).catch(
+      () => undefined,
+    );
     throw error;
   }
 }, 300_000);
@@ -684,6 +709,7 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     sparkHome,
     daemonDbPath: resolve(sparkHome, "apps/daemon/data/daemon.sqlite"),
     daemonSocketPath: resolve(sparkHome, "apps/daemon/run/daemon.sock"),
+    cueDaemonSocketPath: resolve(temporary, "xdg/run/cue-shell/cued.sock"),
     providerLedgerPath,
     forgeLedgerPath,
     target: {

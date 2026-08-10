@@ -129,7 +129,9 @@ operations and records exactly one Draft PR. The typed summary is compared with
 the canonical JSON embedded in the Markdown projection, every accepted formal
 gate must carry Evidence, two report synchronizations converge on one stable
 Document Artifact ref, and the terminal assertions require a sealed Workbench,
-no pending interaction, no active invocation, and no live Hub or daemon PID.
+no pending interaction, no active invocation, and no live Hub, Spark daemon, or
+isolated cue daemon PID. Cleanup records the cue daemon PID and process-start
+token before stopping its fixture-local socket, so PID reuse cannot mask a leak.
 
 The source dispatcher must preserve Node IPC while forwarding daemon lifecycle
 commands. Otherwise the daemon-owned restart helper cannot transfer ownership
@@ -245,7 +247,7 @@ The script builds the source Hub owner and runs the fixture, composition-reachab
 
 Every restart changes daemon PID, generation, and process-start token while provider cursor and high-water remain unchanged. The restarted daemon reconstructs the interrupted invocation before the harness releases the provider checkpoint; the harness does not create a competing wake.
 
-A passing test prints `REPRO_GOLDEN_JOURNEY` followed by a ledger conforming to [`test/process/repro-golden-journey-recovery.schema.json`](../../test/process/repro-golden-journey-recovery.schema.json). The semantic verifier rejects checkpoint/operation mismatch, stale process identity, cursor/high-water replay, missing AnswerEvent Evidence, duplicate Git/PR/report ownership, unsealed Workbench, and live cleanup PIDs. Recovery-specific fields must exactly match the immutable [`expected-outcome.json`](../../test/fixtures/repro/recovery-ledger/expected-outcome.json), while both the normal and recovery lanes must match [`expected-owner-outcome.json`](../../test/fixtures/repro/recovery-ledger/expected-owner-outcome.json) with zero diff. Volatile ids, paths, timestamps, and hashes are excluded rather than copied into expected data.
+A passing test prints `REPRO_GOLDEN_JOURNEY` followed by a ledger conforming to [`test/process/repro-golden-journey-recovery.schema.json`](../../test/process/repro-golden-journey-recovery.schema.json). The semantic verifier rejects checkpoint/operation mismatch, stale process identity, cursor/high-water replay, missing AnswerEvent Evidence, duplicate Git/PR/report ownership, unsealed Workbench, and live Spark, Hub, or cue cleanup PIDs. Recovery-specific fields must exactly match the immutable [`expected-outcome.json`](../../test/fixtures/repro/recovery-ledger/expected-outcome.json), while both the normal and recovery lanes must match [`expected-owner-outcome.json`](../../test/fixtures/repro/recovery-ledger/expected-owner-outcome.json) with zero diff. Volatile ids, paths, timestamps, and hashes are excluded rather than copied into expected data.
 
 On failure, inspect the retained fixture in this order: `provider-ledger.json`; daemon SQLite human wait/AnswerEvent/invocation/formal receipt/Workbench rows; Session JSONL; daemon logs; Git and forge ledgers; then typed summary/Markdown digests. Never repair a fixture by mutating an owner store, receipt, terminal state, or expected output.
 

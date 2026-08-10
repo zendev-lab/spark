@@ -141,6 +141,15 @@
         "processStartToken": { "type": "string", "minLength": 1 }
       }
     },
+    "auxiliaryProcessIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pid", "processStartToken"],
+      "properties": {
+        "pid": { "type": "integer", "minimum": 1 },
+        "processStartToken": { "type": "string", "minLength": 1 }
+      }
+    },
     "checkpoint": {
       "type": "object",
       "additionalProperties": false,
@@ -312,7 +321,14 @@
     "teardown": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["daemonPids", "liveDaemonPids", "hubPid", "hubAlive"],
+      "required": [
+        "daemonPids",
+        "liveDaemonPids",
+        "hubPid",
+        "hubAlive",
+        "cueDaemon",
+        "cueDaemonAlive"
+      ],
       "properties": {
         "daemonPids": {
           "type": "array",
@@ -323,7 +339,9 @@
         },
         "liveDaemonPids": { "type": "array", "maxItems": 0 },
         "hubPid": { "type": "integer", "minimum": 1 },
-        "hubAlive": { "const": false }
+        "hubAlive": { "const": false },
+        "cueDaemon": { "$ref": "#/$defs/auxiliaryProcessIdentity" },
+        "cueDaemonAlive": { "const": false }
       }
     }
   }

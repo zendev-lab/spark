@@ -78,6 +78,11 @@ test("recovery ledger schema rejects unknown fields and invalid answer outcomes"
   };
   invalidOutcome.interaction.answerOutcome = "synthetic";
   assert.equal(validate(invalidOutcome), false);
+  const leakedCueDaemon = structuredClone(happy) as {
+    teardown: { cueDaemonAlive: boolean };
+  };
+  leakedCueDaemon.teardown.cueDaemonAlive = true;
+  assert.equal(validate(leakedCueDaemon), false);
 });
 
 async function readJson(path: string): Promise<unknown> {
