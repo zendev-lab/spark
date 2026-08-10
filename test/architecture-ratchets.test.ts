@@ -1,8 +1,7 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, relative } from "node:path";
+import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -15,11 +14,10 @@ const {
   findUnsafePiCompatibilityImportsInGraph,
   isLegacyDaemonClientBoundaryExempt,
   presentationDependencyDeclarations,
+  workspacePackagePolicyViolations,
   workspaceImports,
 } = architectureRatchets;
 
-const architectureGovernanceFixtureSha256 =
-  "8a56812aebea0027ea0114c1306dcc10a9e217f0b04c552365d806af666f0523";
 const requiredInventoryFields = ["layer", "owner", "stability", "stateWriter"] as const;
 const invalidInventoryCases = [
   { field: "layer", value: "invalid" },
@@ -28,48 +26,8 @@ const invalidInventoryCases = [
   { field: "stateWriter", value: "invalid" },
   { field: "distribution", value: "invalid" },
 ] as const;
-const removedCheckerRuleIds = [
-  "layer-enum",
-  "owner-nonempty",
-  "stability-enum",
-  "state-writer-enum",
-  "distribution-enum",
-  "mutation-script-ownership",
-] as const;
-
 interface ArchitectureInventory {
   packages: Record<string, Record<string, unknown>>;
-}
-
-interface GovernanceFixture {
-  governanceTools: Array<{
-    name: string;
-    concerns: string[];
-    primarySource: string;
-  }>;
-  retainedSparkChecks: string[];
-  removedCheckerRules: Array<{
-    id: string;
-    removedSource: string;
-    rule: string;
-    authority: string;
-    independentDefect: string;
-  }>;
-  scriptsInventory: Array<{
-    path: string;
-    lineCount: number;
-    domainOwner: string;
-    callers: string[];
-    replacementAssessment: string;
-  }>;
-  removedScriptSourceLines: number;
-  removedScriptCount: number;
-  removedScripts: string[];
-  changeBase: string;
-  changeHead: string;
-  changedFiles: string[];
-  remainingCandidates: Array<{ path: string; assessment: string; blocker: string }>;
-  blockers: string[];
 }
 
 function parseJson<T>(source: string, label: string): T {
@@ -82,44 +40,6 @@ function parseJson<T>(source: string, label: string): T {
 
 async function readJson<T>(path: string): Promise<T> {
   return parseJson<T>(await readFile(path, "utf8"), path);
-}
-
-async function workspaceManifestPaths(): Promise<string[]> {
-  const manifests: string[] = [];
-  for (const root of ["apps", "packages"]) {
-    const entries = await readdir(root, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      try {
-        await readFile(join(root, entry.name, "package.json"), "utf8");
-        manifests.push(join(root, entry.name, "package.json"));
-      } catch {
-        // Non-workspace directories are outside the active package inventory.
-      }
-    }
-  }
-  return manifests.sort();
-}
-
-function gitCommitExists(sha: string): boolean {
-  return (
-    spawnSync("git", ["cat-file", "-e", `${sha}^{commit}`], {
-      encoding: "utf8",
-      stdio: "ignore",
-    }).status === 0
-  );
-}
-
-function shouldCrossCheckHistoricalGitObjects(
-  base: string,
-  head: string,
-  commitExists: (sha: string) => boolean = gitCommitExists,
-): boolean {
-  return commitExists(base) && commitExists(head);
-}
-
-function lineCount(source: string): number {
-  return source.length === 0 ? 0 : source.split("\n").length - (source.endsWith("\n") ? 1 : 0);
 }
 
 describe("workspace dependency declaration ratchet", () => {
@@ -135,31 +55,6 @@ describe("workspace dependency declaration ratchet", () => {
 });
 
 describe("architecture governance contracts", () => {
-  it("uses the sealed fixture when a shallow checkout omits historical Git objects", () => {
-    const observed: string[] = [];
-    expect(
-      shouldCrossCheckHistoricalGitObjects("base", "head", (sha) => {
-        observed.push(sha);
-        return false;
-      }),
-    ).toBe(false);
-    expect(observed).toEqual(["base"]);
-  });
-
-  it("requires every active workspace declaration to carry every ownership field", async () => {
-    const inventory = await readJson<ArchitectureInventory>("architecture/packages.json");
-    const workspacePaths = await workspaceManifestPaths();
-    expect(workspacePaths).not.toHaveLength(0);
-    for (const workspacePath of workspacePaths) {
-      const manifest = await readJson<{ name: string }>(workspacePath);
-      const declaration = inventory.packages[manifest.name];
-      expect(declaration, manifest.name).toBeDefined();
-      for (const field of requiredInventoryFields) {
-        expect(declaration?.[field], `${manifest.name}.${field}`).toBeTruthy();
-      }
-    }
-  });
-
   it.each(requiredInventoryFields)("rejects an independently missing %s field", async (field) => {
     const root = await mkdtemp(join(tmpdir(), `spark-architecture-${field}-`));
     try {
@@ -232,104 +127,38 @@ describe("architecture governance contracts", () => {
       }
     },
   );
+});
 
-  it("checks the governance documentation against the checked tool contract", async () => {
-    const governance = await readJson<GovernanceFixture>(
-      "test/fixtures/architecture-governance.json",
-    );
-    const docs = await readFile("docs/specs/package-architecture.md", "utf8");
-    for (const tool of governance.governanceTools) {
-      expect(docs).toContain(tool.name);
-      expect(docs).toContain(tool.primarySource);
-      for (const concern of tool.concerns) expect(docs).toContain(concern);
-    }
-    for (const retained of governance.retainedSparkChecks) expect(docs).toContain(retained);
-  });
+describe("workspace package validation policy", () => {
+  it("rejects hidden package tests and malformed mutation ownership", () => {
+    expect(
+      workspacePackagePolicyViolations({
+        path: "packages/example",
+        manifest: {},
+        hasTests: true,
+        hasStrykerConfig: false,
+      }),
+    ).toEqual(["must expose package-local tests", "check script must run package-local tests"]);
 
-  it("checks the removed generic-rule mapping and exact script inventory", async () => {
-    const fixtureSource = await readFile("test/fixtures/architecture-governance.json", "utf8");
-    expect(createHash("sha256").update(fixtureSource).digest("hex")).toBe(
-      architectureGovernanceFixtureSha256,
-    );
-    const governance = parseJson<GovernanceFixture>(
-      fixtureSource,
-      "architecture governance fixture",
-    );
-    expect(governance.removedCheckerRules.map((rule) => rule.id)).toEqual([
-      ...removedCheckerRuleIds,
-    ]);
-    for (const rule of governance.removedCheckerRules) {
-      expect(rule.removedSource).toContain("scripts/check-architecture-ratchets.mjs");
-      expect(rule.rule).toBeTruthy();
-      expect(rule.authority).toBeTruthy();
-      expect(rule.independentDefect).toMatch(/^test\//u);
-      await expect(readFile(rule.independentDefect.split(" ")[0]!, "utf8")).resolves.toBeTruthy();
-    }
-    expect(governance.removedScriptSourceLines).toBe(3150);
-    expect(governance.removedScriptCount).toBe(governance.removedScripts.length);
-    if (shouldCrossCheckHistoricalGitObjects(governance.changeBase, governance.changeHead)) {
-      expect(
-        execFileSync(
-          "git",
-          ["diff", "--name-only", `${governance.changeBase}..${governance.changeHead}`],
-          {
-            encoding: "utf8",
+    expect(
+      workspacePackagePolicyViolations({
+        path: "packages/example",
+        manifest: {
+          scripts: { test: "vp test run", check: "vp test run", "test:mutation": "custom" },
+          devDependencies: {
+            "@stryker-mutator/core": "1.0.0",
+            "@stryker-mutator/vitest-runner": "1.0.0",
           },
-        )
-          .trim()
-          .split("\n")
-          .filter(Boolean),
-      ).toEqual(governance.changedFiles);
-      const removedScriptStatus = execFileSync(
-        "git",
-        [
-          "diff",
-          "--name-status",
-          `${governance.changeBase}..${governance.changeHead}`,
-          "--",
-          "scripts",
-        ],
-        { encoding: "utf8" },
-      )
-        .trim()
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => line.split("\t"))
-        .filter(([status]) => status === "D")
-        .map(([, path]) => path!);
-      expect(removedScriptStatus).toEqual(governance.removedScripts);
-      const removedSourceLines = governance.removedScripts.reduce((total, path) => {
-        const source = execFileSync("git", ["show", `${governance.changeBase}:${path}`], {
-          encoding: "utf8",
-        });
-        return total + lineCount(source);
-      }, 0);
-      expect(removedSourceLines).toBe(governance.removedScriptSourceLines);
-    }
-    const actualScripts = (await readdir("scripts", { withFileTypes: true }))
-      .filter((entry) => entry.isFile())
-      .map((entry) => `scripts/${entry.name}`)
-      .sort();
-    expect(actualScripts).toEqual(governance.scriptsInventory.map((entry) => entry.path).sort());
-    expect(governance.removedScripts).toHaveLength(18);
-    expect(governance.remainingCandidates).toHaveLength(1);
-    expect(governance.blockers).toHaveLength(2);
-    for (const entry of governance.scriptsInventory) {
-      expect(entry.path).toMatch(/^scripts\//u);
-      const source = await readFile(entry.path, "utf8");
-      expect(lineCount(source), `${entry.path} line count`).toBe(entry.lineCount);
-      expect(entry.domainOwner).toBeTruthy();
-      expect(entry.callers.length).toBeGreaterThan(0);
-      expect(entry.replacementAssessment).toBeTruthy();
-      for (const caller of entry.callers) {
-        if (caller === "operator/manual entrypoint") continue;
-        const callerSource = await readFile(caller, "utf8");
-        const callerToken = entry.path.endsWith(".d.mts")
-          ? basename(entry.path, ".d.mts")
-          : basename(entry.path);
-        expect(callerSource, `${caller} must call or type ${entry.path}`).toContain(callerToken);
-      }
-    }
+        },
+        hasTests: true,
+        hasStrykerConfig: false,
+      }),
+    ).toEqual([
+      "mutation command must be stryker run",
+      "mutation core dependency must use catalog:",
+      "mutation runner dependency must use catalog:",
+      "mutation package must include stryker.config.json",
+    ]);
   });
 });
 

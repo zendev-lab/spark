@@ -19,11 +19,13 @@ const ignoredDirectories = new Set([
   "reports",
 ]);
 const testFilePattern = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
-const productionSourcePattern = /\.(?:[cm]?[jt]sx?|svelte)(?:["'`)]|$)/u;
+const repositorySourcePattern =
+  /(?:\.(?:[cm]?[jt]sx?|svelte)(?:["'`)]|$)|(?:package\.json|pnpm-workspace\.yaml|prek\.toml|Dockerfile|\.github\/workflows\/[^"'`]+\.ya?ml|docs\/[^"'`]+\.md))/u;
 const fragmentMatcherNames = new Set(["toContain", "toMatch"]);
 const nodeAssertMatcherNames = new Set(["match", "doesNotMatch"]);
 const fileReadModules = new Set(["node:fs", "fs", "node:fs/promises", "fs/promises"]);
 const nodeAssertModules = new Set(["node:assert/strict", "assert/strict"]);
+const implementationParserModules = new Set(["svelte/compiler", "typescript"]);
 
 function scriptKind(fileName) {
   switch (extname(fileName)) {
@@ -98,11 +100,6 @@ function assertArgument(call, assertBindings) {
   return call.arguments[0];
 }
 
-function declarationText(name, declarations, sourceFile) {
-  const initializer = declarations.get(name);
-  return initializer?.getText(sourceFile) ?? "";
-}
-
 function readCallFrom(initializer) {
   const expression = unwrapExpression(initializer);
   return ts.isCallExpression(expression) ? expression : undefined;
@@ -150,19 +147,73 @@ function collectDeclarations(sourceFile) {
   return declarations;
 }
 
-function collectSourceVariables(declarations, readBindings, sourceFile) {
+function collectReadWrappers(sourceFile, readBindings) {
+  const wrappers = new Map();
+  function containsReadCall(node) {
+    let found = false;
+    function visit(candidate) {
+      if (
+        ts.isCallExpression(candidate) &&
+        ts.isIdentifier(candidate.expression) &&
+        readBindings.has(candidate.expression.text)
+      ) {
+        found = true;
+      }
+      if (!found) ts.forEachChild(candidate, visit);
+    }
+    visit(node);
+    return found;
+  }
+  function visit(node) {
+    if (ts.isFunctionDeclaration(node) && node.name && containsReadCall(node)) {
+      wrappers.set(node.name.text, node);
+    }
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) &&
+      containsReadCall(node.initializer)
+    ) {
+      wrappers.set(node.name.text, node.initializer);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return wrappers;
+}
+
+function expandedText(node, declarations, sourceFile) {
+  const parts = [node.getText(sourceFile)];
+  const seen = new Set();
+  function visit(candidate) {
+    if (ts.isIdentifier(candidate) && !seen.has(candidate.text)) {
+      seen.add(candidate.text);
+      const declaration = declarations.get(candidate.text);
+      if (declaration) parts.push(declaration.getText(sourceFile));
+    }
+    ts.forEachChild(candidate, visit);
+  }
+  visit(node);
+  return parts.join("\n");
+}
+
+function collectSourceVariables(declarations, readBindings, readWrappers, sourceFile) {
   const sourceVariables = new Set();
   for (const [name, initializer] of declarations) {
     const readCall = readCallFrom(initializer);
     if (!readCall || !ts.isIdentifier(readCall.expression)) continue;
-    if (!readBindings.has(readCall.expression.text)) continue;
+    const isDirectRead = readBindings.has(readCall.expression.text);
+    const wrapper = readWrappers.get(readCall.expression.text);
+    if (!isDirectRead && !wrapper) continue;
 
     const pathArgument = readCall.arguments[0];
-    if (!pathArgument) continue;
-    const pathText = ts.isIdentifier(pathArgument)
-      ? declarationText(pathArgument.text, declarations, sourceFile)
-      : pathArgument.getText(sourceFile);
-    if (productionSourcePattern.test(pathText)) sourceVariables.add(name);
+    const pathText = pathArgument
+      ? expandedText(pathArgument, declarations, sourceFile)
+      : wrapper
+        ? expandedText(wrapper, declarations, sourceFile)
+        : "";
+    if (repositorySourcePattern.test(pathText)) sourceVariables.add(name);
   }
   return sourceVariables;
 }
@@ -191,6 +242,26 @@ function collectFindings(sourceFile, sourceVariables, assertBindings, fileName) 
   return findings;
 }
 
+function collectImplementationParserFindings(sourceFile, fileName) {
+  const findings = [];
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
+      continue;
+    }
+    const moduleName = statement.moduleSpecifier.text;
+    if (!implementationParserModules.has(moduleName)) continue;
+    const position = sourceFile.getLineAndCharacterOfPosition(statement.getStart(sourceFile));
+    findings.push({
+      file: fileName,
+      line: position.line + 1,
+      sourceVariable: moduleName,
+      assertion: "implementation parser import",
+      reason: `code test imports ${moduleName} to inspect implementation structure`,
+    });
+  }
+  return findings;
+}
+
 export function findSourceMirrorAssertions(sourceText, fileName = "fixture.test.ts") {
   const sourceFile = ts.createSourceFile(
     fileName,
@@ -201,8 +272,17 @@ export function findSourceMirrorAssertions(sourceText, fileName = "fixture.test.
   );
   const { readBindings, assertBindings } = collectImportedBindings(sourceFile);
   const declarations = collectDeclarations(sourceFile);
-  const sourceVariables = collectSourceVariables(declarations, readBindings, sourceFile);
-  return collectFindings(sourceFile, sourceVariables, assertBindings, fileName);
+  const readWrappers = collectReadWrappers(sourceFile, readBindings);
+  const sourceVariables = collectSourceVariables(
+    declarations,
+    readBindings,
+    readWrappers,
+    sourceFile,
+  );
+  return [
+    ...collectImplementationParserFindings(sourceFile, fileName),
+    ...collectFindings(sourceFile, sourceVariables, assertBindings, fileName),
+  ];
 }
 
 async function collectTestFiles(directory) {
@@ -288,13 +368,16 @@ async function main() {
     if (after > before) {
       for (const finding of findingsByFile[file]?.slice(before) ?? []) {
         console.error(
-          `  ${finding.file}:${finding.line} ${finding.assertion} asserts fragments of production source via ${finding.sourceVariable}.`,
+          `  ${finding.file}:${finding.line} ${
+            finding.reason ??
+            `${finding.assertion} asserts repository source fragments via ${finding.sourceVariable}`
+          }.`,
         );
       }
     }
   }
   console.error(
-    "Replace production-source fragment assertions with observable behavior, a schema/AST boundary, or an explicitly reviewed full golden. If reviewed debt was removed, run `pnpm run check:test-quality:update` and commit the lower baseline.",
+    "Replace repository-source fragment assertions with observable behavior. Put architecture, workflow, package, and documentation policy in a dedicated static checker. If reviewed debt was removed, run `pnpm run check:test-quality:update` and commit the lower baseline.",
   );
   process.exitCode = 1;
 }

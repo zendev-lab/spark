@@ -1,24 +1,9 @@
-import { readFileSync } from "node:fs";
 import { createRawSnippet } from "svelte";
-import { parse } from "svelte/compiler";
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 
 import SessionQueue from "./SessionQueue.svelte";
 import type { SessionQueueItem } from "./index";
-
-type CssAtRule = {
-  type: "Atrule";
-  name: string;
-  prelude: string;
-  block: {
-    children: Array<{
-      type: string;
-      prelude: { children: Array<{ children: Array<unknown> }> };
-      block: { children: unknown[] };
-    }>;
-  };
-};
 
 const labels = {
   region: "QUEUE_REGION",
@@ -81,23 +66,5 @@ describe("SessionQueue component contract", () => {
     expect(body).toContain('data-action-for="inv_follow_up"');
     expect(body).toContain("Remove");
     expect(body).not.toContain("<form");
-  });
-
-  it("keeps caller-owned actions visible for non-hover input via structured CSS AST", () => {
-    const ast = parse(readFileSync(new URL("./SessionQueue.svelte", import.meta.url), "utf8"));
-    const hoverNone = ast.css?.children.find(
-      (node: { type: string; name?: string; prelude?: string }) =>
-        node.type === "Atrule" && node.name === "media" && node.prelude === "(hover: none)",
-    ) as CssAtRule | undefined;
-    expect(hoverNone?.type).toBe("Atrule");
-    if (hoverNone?.type !== "Atrule") throw new Error("Missing hover-none media contract");
-    const rule = hoverNone.block.children[0];
-    expect(rule?.type).toBe("Rule");
-    if (rule?.type !== "Rule") throw new Error("Missing hover-none action rule");
-    const selector = rule.prelude.children[0]?.children[0];
-    expect(selector).toMatchObject({ type: "ClassSelector", name: "queue-item-actions" });
-    expect(rule.block.children).toContainEqual(
-      expect.objectContaining({ type: "Declaration", property: "opacity", value: "1" }),
-    );
   });
 });

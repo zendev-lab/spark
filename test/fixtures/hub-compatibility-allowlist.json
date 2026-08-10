@@ -350,22 +350,10 @@
       "approvedOccurrencesSha256": "3eaa2695be2946028b62157487a24816a7690893c106a28b063c46c73c5cb578"
     },
     {
-      "pattern": "test/fixtures/architecture-governance.json",
-      "category": "historical-change-evidence",
-      "approvedOccurrenceCount": 2,
-      "approvedOccurrencesSha256": "64dd880a6201d1dd088323dcd1d82fee04cda66b404c45e99aed2127b84b9f46"
-    },
-    {
-      "pattern": "test/hub-naming-contract.test.ts",
-      "category": "canonical-name-contract-test",
-      "approvedOccurrenceCount": 10,
-      "approvedOccurrencesSha256": "fe0ae860ad00e2fb34bbf051915d539625adea78c3bea3f6abf8313bd5b32f07"
-    },
-    {
       "pattern": "test/hub-terminology-contract.test.ts",
       "category": "compatibility-allowlist-test",
-      "approvedOccurrenceCount": 6,
-      "approvedOccurrencesSha256": "96bd5a749e27cb33a949a7b288c3e3f4cd28460e57dc72e022a27de305edf6ac"
+      "approvedOccurrenceCount": 5,
+      "approvedOccurrencesSha256": "635aa2171612e6a03b0507a881c737e0232796bd7e3eea914f9a143b3e65e44d"
     },
     {
       "pattern": "test/release-migration-gate.test.ts",

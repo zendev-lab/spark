@@ -19,7 +19,7 @@ Generic monorepo mechanics are delegated to maintained open-source tools:
 | inventory JSON shape, required fields, and enums | JSON Schema 2020-12 in `architecture/packages.schema.json`, validated by pinned Ajv CLI | [Ajv CLI](https://ajv.js.org/packages/ajv-cli.html) |
 | dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` | [Syncpack](https://github.com/JoshuaKGoldberg/syncpack) |
 | cycles and dependency direction | Dependency Cruiser | [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser) |
-| Spark package identity, owner/state ownership, workspace dependency declarations, budget, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus the reduced `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |
+| Spark package identity, owner/state ownership, workspace dependency declarations, package-local test/mutation exposure, budget, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |
 
 `pnpm run check:architecture` validates the schema, runs Syncpack, and then
 executes the Spark-specific ratchets. `pnpm run check:boundaries` runs
@@ -35,8 +35,11 @@ tools do not inspect unused dependency declarations.
 Test and mutation discovery follow the same rule. Vitest configs define the
 root, process, browser, and capability suites; pnpm recursive `--if-present`
 commands discover package-local checks; packages participating in mutation CE
-own a standard `test:mutation` script and Stryker config. Historical ownership,
-strategy, and mutation-selection ledgers are not parallel workspace inventories.
+own a standard `test:mutation` script and Stryker config. The architecture
+checker verifies that packages with tests expose them through their local
+`test`/`check` scripts and validates mutation command/config ownership.
+Historical ownership, strategy, and mutation-selection ledgers are not
+parallel workspace inventories.
 
 ### Repository script policy
 
@@ -46,8 +49,8 @@ categories are:
 
 - public-product assembly, runtime-closure validation, clean-install smoke,
   release identity, rollback, and mixed-version migration checks;
-- Spark-specific AST and compatibility ratchets for Evidence, diagnostics,
-  source-mirror tests, and compatibility loaders;
+- Spark-specific static and compatibility ratchets for Evidence, diagnostics,
+  test quality, workflows, Hub source ownership, and compatibility loaders;
 - daemon RPC facade, public distribution policy, and pull-request metadata
   validation;
 - English/Chinese documentation surface and CLI/help synchronization;

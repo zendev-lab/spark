@@ -3,6 +3,7 @@ export interface SourceMirrorAssertion {
   line: number;
   sourceVariable: string;
   assertion: string;
+  reason?: string;
 }
 
 export function findSourceMirrorAssertions(

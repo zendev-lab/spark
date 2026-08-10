@@ -58,31 +58,51 @@ Test ownership is structural instead of ledger-driven:
 
 Mutation CE selection is also package-owned: every participating package declares a standard `test:mutation` script beside its `stryker.config.json`, and the root command uses pnpm recursive `--if-present` discovery. This avoids maintaining historical migration baselines or a second workspace inventory. Review package scripts, Vitest includes, and Dependency Cruiser rules together when changing a test boundary.
 
-## Source-mirror debt
+## Tests versus static policy
 
-`pnpm run check:test-quality` is a ratchet for implementation-mirror tests. Its committed baseline must remain `legacyFiles=0` and `sourceMirrorAssertions=0`. Tests should assert observable behavior, schemas, AST/dependency rules, or complete reviewed goldens—not that a production source fragment exists. A new source-mirror assertion is a regression even when the total suite still passes.
+Code tests assert observable functionality: return values, state transitions, persisted effects,
+boundary calls, process results, rendered output, DOM interaction, and compatibility behavior.
+They do not inspect the repository's current source, workflow YAML, package scripts, manifests,
+CSS, or documentation to prove that an implementation fragment exists.
 
+Repository policy belongs to dedicated static tools invoked by `pnpm run check:static`:
+
+- `check-architecture-ratchets.mjs` owns workspace/package policy, including package-local test
+  exposure and mutation-runner ownership;
+- `check-github-actions.mjs` owns immutable Action references and benchmark credential policy;
+- `check-pnpm-workspace-policy.mjs` owns hook-time pnpm mutation safety;
+- `check-hub-source-boundaries.mjs` owns Hub source/state-owner boundaries;
+- Dependency Cruiser and the existing terminology, documentation, distribution, and evidence
+  checkers own their declared repository surfaces.
+
+The static tools may have focused tests over synthetic inputs and injected defects. Those tests
+exercise checker behavior; they do not reopen and snapshot the current repository configuration.
+
+`pnpm run check:test-quality` enforces this split. Its committed baseline remains
+`legacyFiles=0` and `sourceMirrorAssertions=0`; the detector follows direct and locally wrapped
+file reads and recognizes both production source and repository configuration. A new
+source-fragment assertion is a regression even when the total suite still passes.
 
 Prefer, in order:
 
 1. externally observable return values, state transitions, persisted data, calls at a real boundary,
    exit status, and side effects;
 2. versioned schemas or reusable contract suites for producer/consumer and adapter compatibility;
-3. AST, type, or dependency rules for architecture constraints;
-4. complete golden files for intentionally stable user-visible rendering or protocol text.
+3. complete golden files when the full serialized or rendered representation is itself public
+   behavior.
 
 Reading production source and asserting that fragments are present is not a behavior test. It is
-usually a brittle implementation mirror. `pnpm run check:test-quality` tracks the existing debt and
-rejects any count change. After replacing such assertions with behavior, schema/AST checks, or a
-reviewed full golden, update and review the lower baseline:
+usually a brittle implementation mirror. Move a real repository constraint into its authoritative
+static checker; otherwise delete the assertion. If an older branch still carries non-zero baseline
+debt, update and review the lower baseline after removing it:
 
 ```bash
 pnpm run check:test-quality:update
 pnpm run check:test-quality
 ```
 
-The baseline is a ratchet, not an exemption catalog: new files start at zero, and reductions must be
-committed so removed debt cannot silently return.
+The baseline is a ratchet, not an exemption catalog: new files start at zero, and the main branch
+must stay at zero.
 
 ## Golden files
 
