@@ -37,6 +37,19 @@ use separate namespaces, stores, permissions, and lifecycle rules. A tool must
 not silently promote a file path, transcript statement, or unverified result
 into either one.
 
+## Replacing Task dependencies
+
+`task_write({ action: "replace_dependencies" })` atomically replaces the complete
+dependency set of one existing Task. Pass exactly one of `task` or `taskRef`,
+and always pass `dependsOn`; an empty array clears every dependency. Dependency
+selectors may be exact Task refs, names, or titles.
+
+This action is dependency-only. It rejects Task creation and metadata, plan, or
+status mutations in the same call. Unknown or ambiguous selectors, cancelled or
+cross-project prerequisites, self-edges, and cycles return stable failure
+classes. Validation happens against a lock-scoped reload before persistence, so
+a failed replacement does not write Task graph state.
+
 ## Roles, Sessions, and Skill Agents
 
 - A Role defines a typed capability and responsibility profile, including its

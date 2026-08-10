@@ -28,6 +28,7 @@ import { registerSparkLoopTool } from "./spark-loop-tool-registration.ts";
 import { ensureActiveReproLoop, registerSparkReproTool } from "./spark-repro-tool-registration.ts";
 import { registerSparkStatusTool } from "./spark-status-tool-registration.ts";
 import { registerSparkPlanTasksTool } from "./spark-plan-tasks-tool-registration.ts";
+import { registerSparkTaskDependencyReplacementTool } from "./spark-task-dependency-replacement.ts";
 import { registerSparkProjectTools } from "./spark-project-tool-registration.ts";
 import { registerSparkCommands, type SparkCommandApi } from "./spark-command-registration.ts";
 import {
@@ -274,6 +275,10 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
 
   registerSparkPlanTasksTool(registerSparkImplementationTool, { refreshSparkWidget });
 
+  registerSparkTaskDependencyReplacementTool(registerSparkImplementationTool, {
+    refreshSparkWidget,
+  });
+
   registerSparkGoalTool(registerSparkTool, {
     loopControl,
     refreshSparkWidget,
@@ -415,6 +420,7 @@ function createSparkTaskHandlers(resolveTool: SparkImplementationResolver): Spar
     project_metadata_update: projectMutation("metadata_update"),
     claim: direct("impl_claim_task"),
     plan: direct("impl_plan_tasks"),
+    replace_dependencies: direct("impl_replace_task_dependencies"),
     finish: direct("impl_finish_task"),
     recover: direct("impl_recover_task_claim"),
     release: direct("impl_release_task_claim"),
