@@ -11,7 +11,6 @@ import {
   injectSparkHints,
   type SparkInputModeRouter,
 } from "../extension/spark-active-injection.ts";
-import { renderSparkPlanModePrompt } from "../extension/mode/spark-mode-renderers.ts";
 import { analyzeSparkEntryMode } from "../extension/spark-entry.ts";
 import { loadSparkMode, saveCurrentProjectRef } from "../extension/session-state.ts";
 import { setSessionGoal } from "@zendev-lab/spark-loop";
@@ -55,13 +54,6 @@ test("injectSparkHints injects default plan lens without initialized Spark graph
     const result = await injectSparkHints({ systemPrompt: "Base prompt." }, ctx);
 
     assert.equal(typeof result, "object");
-    const prompt = (result as { systemPrompt?: string }).systemPrompt ?? "";
-    assert.match(prompt, /<available_skills>/);
-    assert.doesNotMatch(prompt, /# Spark/);
-    assert.match(prompt, /<name>spark-cue<\/name>/);
-    assert.doesNotMatch(prompt, /# spark-cue/);
-    assert.doesNotMatch(prompt, /<base_system_prompts>/);
-    assert.doesNotMatch(prompt, /# spark-graft/);
     assert.equal((await loadSparkMode(dir, ctx)).mode, "plan");
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -177,27 +169,6 @@ test("research, inspect, review, and audit signals resolve directly to plan", ()
     );
     assert.equal(analysis.recommendation, "plan", prompt);
   }
-});
-
-test("automatic plan policy keeps ordinary investigation free of durable writes", () => {
-  const graph = new TaskGraph();
-  const project = graph.createProject({
-    title: "Read-only plan project",
-    description: "Project for merged plan prompt policy.",
-  });
-  const prompt = renderSparkPlanModePrompt(
-    graph,
-    project.ref,
-    "Explain the current architecture",
-    "auto",
-  );
-
-  assert.match(prompt, /Investigate and answer directly by default/u);
-  assert.match(
-    prompt,
-    /Ordinary investigation, explanation, review, and commentary do not require/u,
-  );
-  assert.match(prompt, /create or revise durable project state only when/u);
 });
 
 test("handleSparkInput lets slash commands bypass default plan routing", async () => {

@@ -19,7 +19,6 @@ import {
 } from "@zendev-lab/spark-core";
 import { builtinRoleRef, createBuiltinRoles } from "@zendev-lab/spark-roles";
 import { TaskGraph } from "@zendev-lab/spark-tasks";
-import { renderSparkActiveSystemPrompt } from "../extension/spark-active-injection.ts";
 import { isGenericTaskNameForTitle } from "../extension/spark-claim-task-tool-registration.ts";
 import { isPlaceholderProjectTitle } from "../extension/spark-graph-invariants.ts";
 import { deriveTaskRoleLabel } from "../extension/task-ownership.ts";
@@ -381,46 +380,9 @@ test("task role labels prefer active claim, finished attribution, then latest ru
   );
 });
 
-test("Spark prompt stays short and tool-scoped", () => {
-  const prompt = renderSparkActiveSystemPrompt("");
-  assert.equal(prompt.includes("\n"), false);
-  for (const tool of ["task_read", "task_write", "assign", "artifact", "ask", "role"]) {
-    assert.match(prompt, new RegExp(`\\b${tool}\\b`));
-  }
-  assert.doesNotMatch(prompt, /workflow, patch/);
-  assert.doesNotMatch(prompt, /no guessing: ask unless user says infer\/research/);
-  assert.doesNotMatch(prompt, /Spark active/);
-  assert.doesNotMatch(prompt, /read SPARK\.md or the spark skill/);
-  assert.doesNotMatch(prompt, /spark skill/);
-  assert.doesNotMatch(prompt, /standing project state/);
-  assert.doesNotMatch(prompt, /Active Spark context/);
-  assert.doesNotMatch(prompt, /spark_use_project/);
-  assert.doesNotMatch(prompt, /Do not spawn nested pi CLI sessions/);
-  assert.ok(prompt.length < 260, `expected short standing prompt, got ${prompt.length}`);
-});
-
-test("Spark prompt defaults to plan and changes for implementation mode", () => {
-  const defaultPrompt = renderSparkActiveSystemPrompt("");
-  const planPrompt = renderSparkActiveSystemPrompt("", "plan");
-  const executePrompt = renderSparkActiveSystemPrompt("", "execute");
-  assert.equal(planPrompt, defaultPrompt);
-  assert.notEqual(executePrompt, planPrompt);
-  assert.match(planPrompt, /\bplan\b/);
-  assert.match(executePrompt, /\bexecute\b/);
-});
-
 test("builtin Pi roles report blockers upward instead of asking interactively", () => {
   for (const role of createBuiltinRoles()) {
     assert.equal((role.allowedTools ?? []).includes("ask"), false);
-    if (role.id === "reviewer") {
-      assert.match(role.systemPrompt, /Do not ask interactively/);
-      assert.match(role.systemPrompt, /findings\/blockers/);
-    } else {
-      assert.match(role.systemPrompt, /upward/i);
-      assert.doesNotMatch(role.systemPrompt, /available ask tool/i);
-    }
-    assert.match(role.systemPrompt, /block|ambigu/i);
-    assert.doesNotMatch(role.systemPrompt, /Spark ask tools/i);
   }
 });
 

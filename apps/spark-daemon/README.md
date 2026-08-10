@@ -22,6 +22,12 @@ Use `--token -` to read a one-line registration token from stdin. Browser/device
 
 The daemon owns workspace arbitration, persistent sessions, channels, SQLite invocations/events, per-session execution fencing, cancellation, timeout, restart recovery, and the runtime WebSocket uplink. Hub receives projections; it is not execution truth.
 
+Daemon SQLite startup uses the static registry under `src/store/migrations/`.
+Each step declares a stable diagnostic ID and its state owner; startup executes
+the registry in source order. Migrations remain idempotent and retain any
+historical `daemon_meta` markers they already own, so compatibility cleanup and
+registration backfills can still run on every database open.
+
 `workspace stop` pauses a workspace but deliberately keeps its path reserved.
 Use `workspace unregister` to free an idle path without deleting history,
 `workspace move` to preserve an ID at a new path, or `workspace merge` to fold

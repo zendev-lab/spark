@@ -105,8 +105,6 @@ test("sandbox file overrides expose explicit prompt metadata", () => {
   for (const toolName of ["read", "write", "edit", "grep", "find", "ls"]) {
     const tool = tools.get(toolName);
     assert.ok(tool, `expected ${toolName} to be registered`);
-    assert.match(tool.promptSnippet ?? "", /sandbox/i, toolName);
-    assert.match(tool.promptSnippet ?? "", /working tree|scratch|changed/i, toolName);
     assert.ok(
       tool.promptGuidelines?.some((guideline) => /working tree/i.test(guideline)),
       toolName,

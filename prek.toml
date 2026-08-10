@@ -34,6 +34,18 @@ rev = "v1.7.12"
 hooks = [{ id = "actionlint", stages = ["pre-commit"] }]
 
 [[repos]]
+repo = "https://github.com/zizmorcore/zizmor-pre-commit"
+rev = "v1.29.0"
+hooks = [
+  {
+    id = "zizmor",
+    args = ["--offline", "--strict-collection", "--min-severity=high"],
+    files = "^\\.github/(?:workflows/.*\\.ya?ml|actions/.*/action\\.ya?ml)$",
+    stages = ["pre-commit"]
+  },
+]
+
+[[repos]]
 repo = "https://github.com/crate-ci/typos"
 rev = "v1.48.0"
 hooks = [{ id = "typos", args = ["--force-exclude"], stages = ["pre-commit"] }]

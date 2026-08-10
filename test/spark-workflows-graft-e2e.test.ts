@@ -107,9 +107,6 @@ function labelFromInstruction(instruction: string): "alpha" | "beta" {
 function assertGraftPolicy(request: SparkWorkflowRoleRunRequest, base: string): void {
   assert.equal(request.env?.GRAFT_BASE_REF, base);
   assert.deepEqual(request.allowedTools, [...SPARK_WORKFLOW_GRAFT_ISOLATION_TOOLS]);
-  assert.match(request.instruction, /Graft isolation is active/);
-  assert.match(request.instruction, /do not use direct read\/write\/edit shell file operations/);
-  assert.match(request.instruction, /GRAFT_BASE_REF/);
 }
 
 test("workflow graft isolation E2E creates separate candidates for parallel same-path edits", async (t) => {

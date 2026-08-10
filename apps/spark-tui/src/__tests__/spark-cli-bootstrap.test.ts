@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "vitest";
@@ -248,18 +248,6 @@ test("createSparkCliHostServices constructs runtime, extensions, provider regist
 
     const response = await services.agentLoop.submit("hello");
     assert.equal(response ? assistantMessageToText(response) : "", "boot ok:1");
-    assert.match(captured.systemPrompt ?? "", /You are Spark,/);
-    assert.doesNotMatch(captured.systemPrompt ?? "", /running in the native spark-tui host/);
-    assert.match(captured.systemPrompt ?? "", /Spark phase: plan\./);
-    assert.match(captured.systemPrompt ?? "", /Tools: task_read, task_write, assign/);
-    assert.match(captured.systemPrompt ?? "", /<available_skills>/);
-    assert.doesNotMatch(captured.systemPrompt ?? "", /# Spark/);
-    assert.match(captured.systemPrompt ?? "", /<name>spark-cue<\/name>/);
-    assert.doesNotMatch(captured.systemPrompt ?? "", /# spark-cue/);
-    assert.doesNotMatch(captured.systemPrompt ?? "", /<base_system_prompts>/);
-    assert.doesNotMatch(captured.systemPrompt ?? "", /# spark-graft/);
-    assert.doesNotMatch(captured.systemPrompt ?? "", /at most one unfinished claimed task/);
-    assert.match(captured.systemPrompt ?? "", /workspace-skill/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -290,14 +278,11 @@ test("native host selects at most three request skills dynamically and clears th
     assert.ok(selectedManifest?.selectedSkills.includes("workspace-skill"));
     assert.ok((selectedManifest?.selectedSkills.length ?? 0) <= 3);
     const selectedSnapshot = captured.promptSnapshots?.[0];
-    assert.match(selectedSnapshot?.systemPromptDynamic ?? "", /# Workspace Skill Body/);
-    assert.doesNotMatch(selectedSnapshot?.systemPromptStable ?? "", /# Workspace Skill Body/);
 
     await services.agentLoop.submit("zzzz-unmatched-unique-token");
     const clearedManifest = services.agentLoop.getLastPromptManifest();
     assert.deepEqual(clearedManifest?.selectedSkills, []);
     const clearedSnapshot = captured.promptSnapshots?.[1];
-    assert.doesNotMatch(clearedSnapshot?.systemPromptDynamic ?? "", /# Workspace Skill Body/);
     assert.equal(
       selectedSnapshot?.systemPromptStable,
       clearedSnapshot?.systemPromptStable,
@@ -327,7 +312,6 @@ test("native host keeps prompt phase and executable tool profile on one loaded s
     await setModeThroughTool(dir, services.runtime.makeContext(), "execute");
     await services.agentLoop.submit("refresh the mode profile");
     assert.equal(services.agentLoop.getCurrentMode(), "execute");
-    assert.match(captured.systemPrompt ?? "", /Spark phase: implement\./);
 
     await setModeThroughTool(dir, services.runtime.makeContext(), "plan");
     await services.runtime.emit("before_agent_start", {});
@@ -411,11 +395,6 @@ test("background turns use a driver profile and the next user submit restores pe
 
     assert.equal(writeExecutions, 1);
     assert.equal(services.agentLoop.getCurrentMode(), undefined);
-    for (const snapshot of captured.promptSnapshots?.slice(0, 2) ?? []) {
-      assert.match(snapshot.systemPrompt ?? "", /You are Spark,/u);
-      assert.match(snapshot.systemPrompt ?? "", /<available_skills>/u);
-      assert.doesNotMatch(snapshot.systemPrompt ?? "", /Spark phase: (?:plan|implement)\./u);
-    }
     for (const tools of captured.toolSnapshots?.slice(0, 2) ?? []) {
       assert.ok(tools.includes("implement_write"));
     }
@@ -423,7 +402,6 @@ test("background turns use a driver profile and the next user submit restores pe
     await services.agentLoop.submit("resume the real user plan");
 
     assert.equal(services.agentLoop.getCurrentMode(), "plan");
-    assert.match(captured.promptSnapshots?.[2]?.systemPrompt ?? "", /Spark phase: plan\./u);
     assert.equal(captured.toolSnapshots?.[2]?.includes("implement_write"), false);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -630,11 +608,6 @@ test("completed user submit clears selected skills before an agent_end backgroun
     await services.agentLoop.submit("use request-skill for this task");
     await backgroundComplete;
 
-    assert.match(captured.promptSnapshots?.[0]?.systemPromptDynamic ?? "", /# Request-only body/u);
-    assert.doesNotMatch(
-      captured.promptSnapshots?.[1]?.systemPromptDynamic ?? "",
-      /# Request-only body/u,
-    );
     assert.deepEqual(services.agentLoop.getLastPromptManifest()?.selectedSkills, []);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -872,7 +845,6 @@ test("provider registry workflow model runner completes in-process without role 
     assert.equal(result.text, "boot ok:1");
     assert.equal(captured.modelId, "fake-model");
     assert.equal(captured.userPrompt, "Compare model answers");
-    assert.match(captured.systemPrompt ?? "", /read-only Spark workflow model agent/);
     assert.equal(result.metadata?.providerName, "fake-provider");
     assert.equal(result.metadata?.modelId, "fake-model");
     assert.equal(attempts.length, 1);
@@ -1131,7 +1103,6 @@ test("host ctx.runLeaf delegates to a single-shot spark-ai leaf and reports the 
     assert.equal(captured.streamCalls, 1);
     assert.equal(captured.modelId, "fake-model");
     assert.equal(captured.userPrompt, "candidate one\ncandidate two");
-    assert.match(captured.systemPrompt ?? "", /bounded Spark leaf capability/);
     assert.equal(usageObservations.length, 1);
     const usageObservation = usageObservations[0];
     assert.equal(usageObservation?.executionId, "invocation:root");

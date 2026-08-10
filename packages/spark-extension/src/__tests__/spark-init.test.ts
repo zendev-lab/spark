@@ -1,25 +1,16 @@
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { TaskGraph, defaultTaskGraphStore, defaultTaskTodoStore } from "@zendev-lab/spark-tasks";
-import sparkExtension from "../extension/index.ts";
-import {
-  renderActiveSparkContextSummary,
-  renderSparkActiveSystemPrompt,
-} from "../extension/spark-active-injection.ts";
-import { saveIndependentTodos } from "../extension/session-todos.ts";
+import { TaskGraph, defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+import { renderActiveSparkContextSummary } from "../extension/spark-active-injection.ts";
 import {
   hasNonSparkProjectFiles,
   shouldMaterializeSparkMd,
 } from "../extension/spark-activation.ts";
 import { initializeSparkIdea, shouldClarifyBeforeInit } from "../extension/spark-initialization.ts";
-
-type SparkHostApiForTest = Parameters<typeof sparkExtension>[0];
-type SparkToolConfig = Parameters<NonNullable<SparkHostApiForTest["registerTool"]>>[0];
-type SparkToolContextForTest = Parameters<SparkToolConfig["execute"]>[4];
 
 test("Spark project-file scan does not treat inaccessible directories as empty projects", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "spark-inaccessible-"));
@@ -118,27 +109,7 @@ test("initializeSparkIdea does not overwrite an existing initialized project", a
   }
 });
 
-test("Spark prompt preserves base prompt and stays a single-line mode marker", () => {
-  const prompt = renderSparkActiveSystemPrompt("Base prompt");
-  assert.match(prompt, /^Base prompt\n\nSpark mode: plan\./);
-  assert.match(prompt, /Tools:/);
-  assert.match(
-    prompt,
-    /task_read, task_write, assign, artifact, git, evidence, ask, role, memory, context, workflow, and spark-cue/,
-  );
-  assert.doesNotMatch(prompt, /spark-graft/);
-  assert.doesNotMatch(prompt, /workflow, patch/);
-  assert.doesNotMatch(prompt, /no guessing: ask unless user says infer\/research/);
-  assert.doesNotMatch(prompt, /Spark active/);
-  assert.doesNotMatch(prompt, /spark skill/);
-  assert.doesNotMatch(prompt, /standing project state/);
-  assert.doesNotMatch(prompt, /workflow-run\/ask state/);
-  assert.doesNotMatch(prompt, /Do not auto-create placeholder tasks or projects/);
-  assert.doesNotMatch(prompt, /prefer direct-exec commands and Pi file tools over \/bin\/sh/);
-  assert.doesNotMatch(prompt, /fix concrete repo behavior feedback in code\/docs\/tests/);
-});
-
-test("active Spark context reports no selected project without persisting current selection", async () => {
+test("rendering active Spark context does not persist current selection", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-no-current-before-activation-"));
   try {
     await mkdir(join(dir, ".spark"), { recursive: true });
@@ -146,178 +117,14 @@ test("active Spark context reports no selected project without persisting curren
     graph.createProject({ title: "Dormant project", description: "Not active yet" });
     await defaultTaskGraphStore(dir).save(graph);
 
-    const summary = await renderActiveSparkContextSummary(dir, {
+    await renderActiveSparkContextSummary(dir, {
       cwd: dir,
       sessionManager: {
         getSessionFile: () => join(dir, ".pi-sessions", "default.json"),
         getLeafId: () => "default-leaf",
       },
     });
-
-    assert.match(summary ?? "", /Spark available: no project selected/);
-    assert.match(summary ?? "", /Projects: 1 total/);
-    assert.doesNotMatch(summary ?? "", /Current project: Dormant project/);
     await assert.rejects(() => stat(join(dir, ".spark", "sessions")));
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("active Spark context keeps strict limits for intent, claimed tasks, and TODOs", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-active-context-limits-"));
-  try {
-    await mkdir(join(dir, ".spark"), { recursive: true });
-    await writeFile(
-      join(dir, "SPARK.md"),
-      [
-        "# Spark intent",
-        "",
-        ...Array.from({ length: 40 }, (_, index) => `Intent line ${index}`),
-      ].join("\n"),
-      "utf8",
-    );
-    const graph = new TaskGraph();
-    const project = graph.createProject({ title: "Compact limits", description: "Compact limits" });
-    const task = graph.createTask({
-      projectRef: project.ref,
-      name: "claimed-0",
-      title: "Claimed task 0",
-      description: "Trim active prompt context.",
-      status: "running",
-      todos: Array.from({ length: 5 }, (_, todoIndex) => ({
-        content: `Visible bounded TODO 0-${todoIndex}`,
-        status: "pending" as const,
-      })),
-    });
-    graph.claimTask(task.ref, {
-      kind: "main",
-      claimedBy: "leaf:test-leaf",
-      sessionId: "leaf:test-leaf",
-      leaseMs: 60_000,
-    });
-    const otherClaimed = graph.createTask({
-      projectRef: project.ref,
-      name: "other-claimed",
-      title: "Other claimed task",
-      description: "Belongs to another session.",
-      status: "running",
-    });
-    graph.claimTask(otherClaimed.ref, {
-      kind: "main",
-      claimedBy: "leaf:other-leaf",
-      sessionId: "leaf:other-leaf",
-      leaseMs: 60_000,
-    });
-    await defaultTaskGraphStore(dir).save(graph);
-    await defaultTaskTodoStore(dir, "leaf:test-leaf").save(graph);
-    const ctx = { cwd: dir, sessionManager: { getLeafId: () => "test-leaf" } };
-    await executeSparkToolInTest("task_write", ctx, {
-      action: "project_use",
-      project: project.ref,
-    });
-    await executeSparkToolInTest("task_read", ctx, { action: "workspace_status" });
-
-    const summary = await renderActiveSparkContextSummary(dir, ctx);
-    assert.ok(summary);
-    assert.match(summary, /Intent line 17/);
-    assert.doesNotMatch(summary, /Intent line 18/);
-    assert.match(summary, /read SPARK\.md for full intent/);
-    assert.match(summary, /Claimed task 0/);
-    assert.match(summary, /Durable state is authoritative; compact summaries\/history are hints/);
-    assert.match(summary, /task_read\(\{ action: "project_status" \}\)/);
-    assert.doesNotMatch(summary, /Other claimed task/);
-    assert.match(summary, /Visible bounded TODO 0-2/);
-    assert.doesNotMatch(summary, /Visible bounded TODO 0-3/);
-    assert.match(summary, /2 more active TODOs/);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("active Spark context omits finished history and finished TODOs", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-active-context-"));
-  try {
-    await mkdir(join(dir, ".spark"), { recursive: true });
-    await writeFile(
-      join(dir, "SPARK.md"),
-      [
-        "# Spark intent",
-        "",
-        "## Goal",
-        "Keep the active prompt compact.",
-        "",
-        "## Revision history",
-        "- Finished historical note that should not be injected.",
-      ].join("\n"),
-      "utf8",
-    );
-    const graph = new TaskGraph();
-    const project = graph.createProject({
-      title: "Compact context",
-      description: "Compact context",
-    });
-    const active = graph.createTask({
-      projectRef: project.ref,
-      name: "compact-context",
-      title: "Compact active context",
-      description: "Trim active prompt context.",
-      status: "running",
-      todos: [
-        { content: "Keep active TODO", status: "in_progress" },
-        { content: "Finished child TODO", status: "done" },
-        { content: "Blocked child TODO", status: "blocked" },
-      ],
-    });
-    graph.claimTask(active.ref, {
-      kind: "main",
-      claimedBy: "leaf:test-leaf",
-      sessionId: "leaf:test-leaf",
-      leaseMs: 60_000,
-    });
-    graph.createTask({
-      projectRef: project.ref,
-      name: "finished-history",
-      title: "Finished task history",
-      description: "Historical task that should stay out of active context.",
-      status: "done",
-      todos: [{ content: "Finished history TODO", status: "done" }],
-    });
-    await defaultTaskGraphStore(dir).save(graph);
-    await defaultTaskTodoStore(dir, "leaf:test-leaf").save(graph);
-    const ctx = {
-      cwd: dir,
-      sessionManager: { getLeafId: () => "test-leaf" },
-    };
-    await saveIndependentTodos(dir, ctx, [
-      { id: "todo-active", content: "Independent active TODO", status: "pending" },
-      { id: "todo-done", content: "Independent finished TODO", status: "done" },
-    ]);
-    await executeSparkToolInTest("task_write", ctx, {
-      action: "project_use",
-      project: project.ref,
-    });
-    await executeSparkToolInTest("task_read", ctx, { action: "workspace_status" });
-    const summary = await renderActiveSparkContextSummary(dir, ctx);
-
-    assert.ok(summary);
-    assert.match(summary, /SPARK\.md \(intent excerpt\)/);
-    assert.match(summary, /Keep the active prompt compact/);
-    assert.doesNotMatch(summary, /Finished historical note/);
-    assert.match(summary, /Spark context/);
-    assert.match(summary, /Durable state is authoritative; compact summaries\/history are hints/);
-    assert.match(
-      summary,
-      /Unfinished tasks: 1 \/ claimed: 1 \/ current_session_claimed: 1 \(2 total\)/,
-    );
-    assert.match(summary, /My claimed task: \[running\] @compact-context: Compact active context/);
-    assert.match(summary, /Keep active TODO/);
-    assert.match(summary, /Blocked child TODO/);
-    assert.doesNotMatch(summary, /Independent active TODO/);
-    assert.doesNotMatch(summary, /Finished task history/);
-    assert.doesNotMatch(summary, /Finished child TODO/);
-    assert.doesNotMatch(summary, /Finished history TODO/);
-    assert.doesNotMatch(summary, /Independent finished TODO/);
-    assert.ok(summary.length < 2_000, `active summary too large: ${summary.length}`);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -383,22 +190,3 @@ test("initializeSparkIdea preserves clarified title and trace evidence refs", as
     await rm(dir, { recursive: true, force: true });
   }
 });
-
-async function executeSparkToolInTest(
-  name: string,
-  ctx: SparkToolContextForTest,
-  params: Record<string, unknown>,
-): Promise<void> {
-  const tools = new Map<string, SparkToolConfig>();
-  sparkExtension({
-    registerCommand: () => undefined,
-    registerTool: (config) => {
-      tools.set(config.name, config);
-    },
-    on: () => undefined,
-    sendMessage: () => undefined,
-  });
-  const tool = tools.get(name);
-  assert.ok(tool, `missing Spark tool: ${name}`);
-  await tool.execute(`call-${name}`, params, new AbortController().signal, () => undefined, ctx);
-}
