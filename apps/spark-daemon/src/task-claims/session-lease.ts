@@ -10,49 +10,54 @@ import {
   releaseWorkspaceClient,
 } from "../store/workspaces.ts";
 
-const MANAGED_TASK_SESSION_LEASE_TTL_MS = 120_000;
-const MANAGED_TASK_SESSION_HEARTBEAT_MS = 30_000;
+const DAEMON_SESSION_LEASE_TTL_MS = 120_000;
+const DAEMON_SESSION_HEARTBEAT_MS = 30_000;
 
-export interface ManagedTaskSessionLeaseHandle {
+export interface DaemonSessionLeaseHandle {
   identity: SparkSessionLeaseIdentity;
   release(): void;
 }
 
-export async function acquireManagedTaskSessionLease(input: {
+export async function acquireDaemonSessionLease(input: {
   db: DatabaseSync;
   task: SparkDaemonSessionRunTask;
   context: SparkDaemonTaskExecutionContext;
   sessionRegistry: Pick<DaemonSessionRegistry, "get">;
   onHeartbeatError?: (error: unknown) => void;
-}): Promise<ManagedTaskSessionLeaseHandle | undefined> {
+}): Promise<DaemonSessionLeaseHandle | undefined> {
   const session = await input.sessionRegistry.get(input.task.sessionId);
-  if (session?.relation?.kind !== "task_execution") return undefined;
+  if (!session) return undefined;
 
   const workspaceId = session.workspaceId?.trim();
   if (!workspaceId) {
-    throw new Error(`Managed Task Session ${input.task.sessionId} has no workspace owner.`);
+    if (session.relation?.kind === "task_execution" || input.task.workspaceId) {
+      throw new Error(`Daemon Session ${input.task.sessionId} has no workspace owner.`);
+    }
+    return undefined;
   }
   if (input.task.workspaceId && input.task.workspaceId !== workspaceId) {
     throw new Error(
-      `Managed Task Session ${input.task.sessionId} workspace mismatch: ${input.task.workspaceId} != ${workspaceId}.`,
+      `Daemon Session ${input.task.sessionId} workspace mismatch: ${input.task.workspaceId} != ${workspaceId}.`,
     );
   }
 
+  const managedTaskRelation =
+    session.relation?.kind === "task_execution" ? session.relation : undefined;
   const sessionId = sparkSessionKey({ sessionId: input.task.sessionId });
   const client = attachWorkspaceClient(input.db, {
     workspaceId,
-    kind: "executor",
-    displayName: "Managed Task Session",
+    kind: "interactive",
+    displayName: managedTaskRelation ? "Managed Task Session" : "Daemon Session",
     sessionId,
-    leaseTtlMs: MANAGED_TASK_SESSION_LEASE_TTL_MS,
+    leaseTtlMs: DAEMON_SESSION_LEASE_TTL_MS,
     metadata: {
-      purpose: "managed_task_session",
+      purpose: managedTaskRelation ? "managed_task_session" : "daemon_session",
       invocationId: input.context.invocationId,
-      taskRef: session.relation.taskRef,
+      ...(managedTaskRelation ? { taskRef: managedTaskRelation.taskRef } : {}),
     },
   });
   if (!client.leaseFence) {
-    throw new Error(`Managed Task Session ${input.task.sessionId} received an unfenced lease.`);
+    throw new Error(`Daemon Session ${input.task.sessionId} received an unfenced lease.`);
   }
 
   const identity: SparkSessionLeaseIdentity = {
@@ -67,13 +72,13 @@ export async function acquireManagedTaskSessionLease(input: {
       heartbeatWorkspaceClient(input.db, {
         clientId: identity.clientId,
         leaseFence: identity.leaseFence,
-        leaseTtlMs: MANAGED_TASK_SESSION_LEASE_TTL_MS,
+        leaseTtlMs: DAEMON_SESSION_LEASE_TTL_MS,
       });
     } catch (error) {
       clearInterval(heartbeat);
       input.onHeartbeatError?.(error);
     }
-  }, MANAGED_TASK_SESSION_HEARTBEAT_MS);
+  }, DAEMON_SESSION_HEARTBEAT_MS);
   heartbeat.unref();
 
   return {

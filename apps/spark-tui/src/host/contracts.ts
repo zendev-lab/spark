@@ -58,6 +58,8 @@ export interface SparkCliHostServicesOptions {
   cwd?: string;
   workspaceId?: string;
   sparkHome?: string;
+  /** Control-plane Spark root retained across nested daemon-native role runs. */
+  controlSparkHome?: string;
   sparkStateRoot?: string;
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";

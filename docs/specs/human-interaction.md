@@ -37,7 +37,13 @@ Stable ids must travel together:
 
 - `humanRequestId` — durable daemon wait id
 - `interactionRequestId` — optional host/tool correlation
+- `toolCallId` — host-generated tool invocation identity; together with the
+  owning `sessionId`, it reattaches a replayed tool call to the same durable
+  wait across daemon restarts
 - `humanResponseId` — Hub / channel response id
+
+Replay identity must not be derived from mutable request content such as
+`flow`, prompts, titles, or question text.
 
 ## Answer semantics
 

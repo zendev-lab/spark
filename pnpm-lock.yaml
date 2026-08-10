@@ -170,6 +170,9 @@ importers:
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:*
         version: link:packages/spark-daemon-client
+      '@zendev-lab/spark-hub-db':
+        specifier: workspace:*
+        version: link:packages/spark-hub-db
       '@zendev-lab/spark-lens':
         specifier: workspace:^
         version: link:packages/spark-lens

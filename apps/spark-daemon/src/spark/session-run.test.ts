@@ -1994,6 +1994,43 @@ describe("daemon native session execution", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
+  it("keeps the normal tool catalog active for a daemon-owned Repro tick", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "spark-session-cwd-repro-"));
+    const task: SparkDaemonLoopTickTask = {
+      type: "loop.tick",
+      sessionId: "owner-session",
+      loopId: "repro:active",
+      binding: {
+        goalId: "goal:active",
+        workflowRunId: "workflow-run:repro:active",
+        workflowSelector: "builtin:repro",
+        reproId: "repro:active",
+      },
+      ownerSessionId: "owner-session",
+      stateOwnerSessionId: "owner-session",
+      generation: 2,
+      continuity: "session",
+      prompt: "repro tick",
+      cwd,
+    };
+    const executeSession = vi.fn(async () => ({ assistantText: "advanced" }));
+    const executor = createSparkDaemonTaskExecutor({
+      paths,
+      loopControl: {
+        schedule: vi.fn(),
+        stop: vi.fn(),
+      },
+      createSparkHeadlessSessionExecutor: () => executeSession,
+    });
+
+    await executor(task, context(task));
+
+    expect(executeSession).toHaveBeenCalledWith(
+      expect.not.objectContaining({ allowedTools: expect.anything() }),
+    );
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
   it("allows only workflow for a daemon-owned workflow tick", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "spark-session-cwd-workflow-"));
     const task: SparkDaemonLoopTickTask = {

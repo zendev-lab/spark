@@ -74,6 +74,7 @@ export {
 
 export {
   ARTIFACT_SYNC_FILE_MAX_BYTES,
+  ARTIFACT_TRUSTED_SYNC_FILE_MAX_BYTES,
   readDocumentSyncFile,
   syncDocumentArtifactFile,
   type SyncDocumentArtifactFileInput,

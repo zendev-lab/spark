@@ -322,13 +322,17 @@ export function registerSparkAskFlowTool(pi: SparkHostAPI): void {
       );
     },
 
-    async execute(_toolCallId, rawParams, _signal, _onUpdate, ctx) {
+    async execute(toolCallId, rawParams, _signal, _onUpdate, ctx) {
       rejectAutonomousAskAlias(ctx as SparkHostContext);
       const request = createSparkAskFlowRequest(rawParams as SparkAskFlowRequest);
       const context = decodeSparkAskFlowToolContext(ctx);
       const ui = context.ui;
 
-      const interactionRun = await runSparkAskFlowInteraction(request, ui);
+      const interactionRun = await runSparkAskFlowInteraction(
+        request,
+        ui,
+        typeof toolCallId === "string" ? toolCallId : undefined,
+      );
       if (interactionRun) {
         const normalizedResult = annotateSparkAskFlowAnswerSource(
           normalizeSparkAskFlowResult(interactionRun.result, request),
@@ -413,6 +417,7 @@ interface SparkAskFlowCustomRun {
 async function runSparkAskFlowInteraction(
   request: SparkAskFlowRequest,
   ui: SparkAskFlowToolContext["ui"],
+  toolCallId?: string,
 ): Promise<SparkAskFlowCustomRun | undefined> {
   if (typeof ui?.interaction !== "function") return undefined;
   try {
@@ -420,7 +425,9 @@ async function runSparkAskFlowInteraction(
       ui.interaction as (
         request: ExtensionInteractionRequest,
       ) => Promise<ExtensionInteractionResponse>
-    )(createSparkAskFlowInteractionRequest(request))) as ExtensionInteractionResponse | undefined;
+    )(createSparkAskFlowInteractionRequest(request, toolCallId))) as
+      | ExtensionInteractionResponse
+      | undefined;
     if (!response || response.kind !== "askFlow") return undefined;
     if (response.status === "blocked" || response.status === "error") return undefined;
     if (response.status === "cancelled") {
@@ -455,10 +462,12 @@ async function runSparkAskFlowInteraction(
 
 function createSparkAskFlowInteractionRequest(
   request: SparkAskFlowRequest,
+  toolCallId?: string,
 ): ExtensionInteractionRequest {
   return {
     version: 1,
     kind: "askFlow",
+    ...(toolCallId?.trim() ? { toolCallId: toolCallId.trim() } : {}),
     requestId: request.interactionRequestId ?? `ask_flow:${Date.now().toString(36)}`,
     title: request.title?.trim() || "Ask flow",
     prompt: request.context,

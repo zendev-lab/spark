@@ -2,11 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { Type } from "typebox";
-import {
-  sparkEvidenceAnswerEventSchema,
-  type SparkEvidenceAnswerEvent,
-  type SparkLoopView,
-} from "@zendev-lab/spark-protocol";
+import type { SparkEvidenceAnswerEvent, SparkLoopView } from "@zendev-lab/spark-protocol";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import {
@@ -14,7 +10,7 @@ import {
   verifyCanonicalAskEvidence,
 } from "@zendev-lab/spark-ask";
 import { isRef, type EvidenceRef, type TaskRef } from "@zendev-lab/spark-core";
-import { sparkStateCwd, updateSubgoalStatus } from "@zendev-lab/spark-loop";
+import { sparkStateCwd } from "@zendev-lab/spark-loop";
 import {
   loadSessionGoal,
   restoreSessionGoal,
@@ -61,7 +57,6 @@ import {
   type SparkReproRequirement,
   type SparkReproRequirementProof,
   type SparkReproStageName,
-  type SparkReproSubgoal,
   type SparkReproSubgoalPlanInput,
   type SparkReproStep,
   type SparkReproStepAuthority,
@@ -345,6 +340,8 @@ export function registerSparkReproTool(
         const ownerSessionId = await prepareSparkDaemonLoopOwner(ctx, deps.loopControl);
         const objective = normalizeOptionalReproObjective(params.objective);
         const requestedReproId = normalizeOptionalReproId(params.reproId);
+        const requestedDifficulty =
+          typeof params.difficulty === "number" ? params.difficulty : undefined;
         const stored = await readSessionRepro(cwd, ctx);
         if (
           stored &&
@@ -405,6 +402,7 @@ export function registerSparkReproTool(
         const { repro } = await createProjectBackedSessionRepro(cwd, ctx, {
           objective,
           ...(requestedReproId ? { reproId: requestedReproId } : {}),
+          ...(requestedDifficulty !== undefined ? { difficulty: requestedDifficulty } : {}),
         });
         const loopHealth = await ensureActiveReproLoop(ctx, deps.loopControl, repro, {
           ownerSessionId,
@@ -604,7 +602,6 @@ export function registerSparkReproTool(
           };
         }
         if (settled.decision === "complete") {
-          await ctx.loop.stop({ reason: "repro completed" });
           return {
             content: [{ type: "text" as const, text: "Repro tick settled complete." }],
             details: reproDetails(settled.repro),
@@ -677,12 +674,10 @@ export function registerSparkReproTool(
         if (stageAdvanced) {
           await writeUnifiedSessionRepro(cwd, stageAdvanced, ctx);
           if (stageAdvanced.status === "complete") {
-            if (ctx.loop) await ctx.loop.stop({ reason: "repro completed" });
-            else
-              await deps.loopControl.stop({
-                loopId: stageAdvanced.reproId,
-                reason: "repro completed",
-              });
+            // The daemon's trusted after-tick evaluator is the only authority
+            // that may transition a successful Repro Loop to `completed`.
+            // Stopping here would bypass that review and leave the Workbench
+            // permanently live even though the Repro summary is complete.
             ctx.sparkActiveMode = sparkActiveMode(ctx.sparkActiveMode?.mode ?? "plan");
             await deps.refreshSparkWidget?.(cwd, ctx);
             return {
