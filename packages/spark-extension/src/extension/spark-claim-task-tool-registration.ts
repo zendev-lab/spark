@@ -604,11 +604,11 @@ function renderClaimedTaskText(
   lines.push("");
   if (hasActiveTodos) {
     lines.push(
-      'Task plan items are present for this claim. Next: execute the task plan items, and refine them with task_write({ action: "plan_update", scope: "task", ops: [...] }) if the breakdown is incomplete.',
+      'Task plan items are present for this claim. Next: execute them, then atomically reconcile their complete target state with task_write({ action: "plan_update", items: [...] }).',
     );
   } else {
     lines.push(
-      'Next: set task plan items with task_write({ action: "plan_update", scope: "task", ops: [{ op: "init", items: [...] }] }) before doing implementation work.',
+      'Next: set the complete initial Task plan-item state with task_write({ action: "plan_update", items: [{ title, status: "pending" }] }) before doing implementation work.',
     );
   }
   return lines.join("\n");

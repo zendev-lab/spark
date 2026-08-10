@@ -39,6 +39,26 @@ export interface CreateTaskTodoInput {
   blockedBy?: string[];
 }
 
+/** Complete desired state for one session-bound TODO entry. */
+export interface SessionTodoStateInput {
+  id?: string;
+  content: string;
+  status: TaskTodoStatus;
+  notes?: string[];
+  blockedBy?: string[];
+}
+
+/** Complete desired state for one Task plan item. */
+export interface TaskPlanItemStateInput {
+  id?: string;
+  title: string;
+  description?: string;
+  status: TaskTodoStatus;
+  notes?: string[];
+  blockedBy?: string[];
+  evidenceRefs?: EvidenceRef[];
+}
+
 export interface CreateTaskInput {
   projectRef: ProjectRef;
   /** Simple handle used as @name in Pi TUI and tool references. */

@@ -5197,12 +5197,9 @@ test("split task tools dispatch read, write, and assign actions", async () => {
 
     const todos = await executeSparkTool(tools, "task_write", ctx, {
       action: "plan_update",
-      scope: "task",
-      ops: [
-        { op: "init", items: ["Validate canonical task action routing"] },
-        { op: "append", items: ["Validate canonical task routing"] },
-        { op: "done", item: "Validate canonical task action routing" },
-        { op: "done", item: "Validate canonical task routing" },
+      items: [
+        { title: "Validate canonical task action routing", status: "done" },
+        { title: "Validate canonical task routing", status: "done" },
       ],
     });
     assert.match(toolText(todos), /Updated plan items/);
@@ -12063,18 +12060,23 @@ test("session-bound todo implementation is registered as impl_todo", () => {
   assert.ok(todo, "missing public todo tool");
   assert.doesNotMatch(todo.description ?? "", /action=list/);
   assert.doesNotMatch(JSON.stringify(todo.parameters), /list \| init/);
+  assert.match(JSON.stringify(todo.parameters), /"const":"update"/);
+  assert.doesNotMatch(JSON.stringify(todo.parameters), /upsert_done|"const":"start"/);
 });
 
-test("todo tool tracks session-bound checklist without list read roundtrips", async () => {
+test("todo tool atomically reconciles target state without list read roundtrips", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-session-todo-"));
   try {
     const ctx = testSparkContext(dir, "main");
     const run = registerSparkToolsForTest();
     const init = await executeSparkTool(run.tools, "todo", ctx, {
-      action: "init",
-      items: ["Draft the RFC", "Collect review feedback"],
+      action: "update",
+      items: [
+        { content: "Draft the RFC", status: "in_progress" },
+        { content: "Collect review feedback", status: "pending" },
+      ],
     });
-    assert.match(toolText(init), /Applied todo action=init; 2 active/);
+    assert.match(toolText(init), /Applied todo action=update; 2 active/);
     assert.doesNotMatch(toolText(init), /Draft the RFC/);
 
     const preview = await executeSparkTool(run.tools, "context", ctx, {
@@ -12101,7 +12103,18 @@ test("todo tool tracks session-bound checklist without list read roundtrips", as
       false,
     );
 
-    await executeSparkTool(run.tools, "todo", ctx, { action: "done", item: "Draft the RFC" });
+    const initialized = await loadIndependentTodos(dir, ctx);
+    const draft = initialized.find((todo) => todo.content === "Draft the RFC");
+    const feedback = initialized.find((todo) => todo.content === "Collect review feedback");
+    assert.ok(draft?.id);
+    assert.ok(feedback?.id);
+    await executeSparkTool(run.tools, "todo", ctx, {
+      action: "update",
+      items: [
+        { id: draft.id, content: draft.content, status: "done" },
+        { id: feedback.id, content: feedback.content, status: "in_progress" },
+      ],
+    });
     const reloaded = await loadIndependentTodos(dir, ctx);
     assert.deepEqual(
       reloaded.map((todo) => [todo.content, todo.status]),
@@ -12119,8 +12132,11 @@ test("todo tool tracks session-bound checklist without list read roundtrips", as
     assert.match(changedSnapshot?.content ?? "", /\[in_progress\].*Collect review feedback/);
 
     await executeSparkTool(run.tools, "todo", ctx, {
-      action: "done",
-      item: "Collect review feedback",
+      action: "update",
+      items: [
+        { id: draft.id, content: draft.content, status: "done" },
+        { id: feedback.id, content: feedback.content, status: "done" },
+      ],
     });
     const completed = await loadIndependentTodos(dir, ctx);
     assert.equal(completed.filter(isActiveSessionTodo).length, 0);
@@ -12137,7 +12153,7 @@ test("todo tool tracks session-bound checklist without list read roundtrips", as
   }
 });
 
-test("todo start, block, and cancel mutations stay compact and match durable hook snapshots", async () => {
+test("legacy todo event decoder remains compact and matches durable hook snapshots", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-session-todo-mutation-matrix-"));
   try {
     const ctx = testSparkContext(dir, "main");

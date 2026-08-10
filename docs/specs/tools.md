@@ -103,6 +103,13 @@ optional `taskRefs` allowlist. Concurrency, timeout, and preview policy are
 host-owned. Repro-owned dispatch must use the verified safe frontier and fail
 closed when it cannot prove that frontier.
 
+Session TODOs and Task plan items use target-state reconciliation. Public
+callers provide the complete desired non-deleted item list with explicit
+statuses; omitted existing items become deleted history, metadata is preserved
+when optional fields are absent, and a target with multiple `in_progress`
+items fails before mutation. Event-style checklist verbs are decoder-only
+compatibility and are absent from the model schema.
+
 Task execution policy uses `sessionLifetime=task_run | task_revision` and may
 constrain isolation, comparison side,
 GPU count/memory/topology, exclusivity, concurrency keys, timeout, and bounded

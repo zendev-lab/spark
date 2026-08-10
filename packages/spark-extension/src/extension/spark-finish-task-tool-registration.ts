@@ -1047,7 +1047,7 @@ function renderOpenTaskPlanItemBlockedMessage(
           ...(hidden > 0 ? [`- … ${hidden} more open plan item(s)`] : []),
         ].join("\n")
       : "- (no detail)";
-  return `Task finish blocked by open task plan items: @${task.name}: ${task.title}\nFinish or disposition (cancel/delete/done) the remaining task plan items before marking the task done.\nOpen plan items (${items.length}):\n${list}\nThe task was not marked done. Update task plan items with task_write({ action: "plan_update", scope: "task", ops: [...] }), then call task_write({ action: "finish" }) again.`;
+  return `Task finish blocked by open task plan items: @${task.name}: ${task.title}\nFinish or disposition (cancel/delete/done) the remaining task plan items before marking the task done.\nOpen plan items (${items.length}):\n${list}\nThe task was not marked done. Reconcile the complete target state with task_write({ action: "plan_update", items: [...] }), then call task_write({ action: "finish" }) again.`;
 }
 
 function renderTaskCompletionBlockedMessage(
