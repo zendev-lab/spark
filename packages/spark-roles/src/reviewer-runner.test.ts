@@ -694,36 +694,48 @@ test("SparkRolesReviewerRunner classifies impossible task requests as reviewer p
       evidenceRefs: ["evidence:current"],
       supersededEvidenceRefs: ["evidence:historical"],
     };
-    const runner = new SparkRolesReviewerRunner({
-      registry: new RoleRegistry(),
-      cwd: dir,
-      timeoutMs: 15_000,
-      maxRetries: 0,
-      env: reviewerRunnerTestEnv,
-      nativeExecutor: async (request) => ({
-        record: { ...request.record, status: "succeeded", finishedAt: new Date().toISOString() },
-        stdout: JSON.stringify({
-          outcome: "needs_changes",
-          summary: "attach missing refs",
-          findings: [],
-          blockers: [
-            "Attach artifact:delivery to evidenceRefs.",
-            "Provide a finish receipt before this finish is approved.",
-            "Require evidence:historical again.",
-          ],
-          confidence: "high",
+    const runVerdict = async (extra: Record<string, unknown>) => {
+      const runner = new SparkRolesReviewerRunner({
+        registry: new RoleRegistry(),
+        cwd: dir,
+        timeoutMs: 15_000,
+        maxRetries: 0,
+        env: reviewerRunnerTestEnv,
+        nativeExecutor: async (request) => ({
+          record: { ...request.record, status: "succeeded", finishedAt: new Date().toISOString() },
+          stdout: JSON.stringify({
+            outcome: "needs_changes",
+            summary: "typed reviewer request",
+            findings: [],
+            blockers: [],
+            confidence: "high",
+            ...extra,
+          }),
+          stderr: "",
+          jsonEvents: [],
         }),
-        stderr: "",
-        jsonEvents: [],
-      }),
+      });
+      return await runner.review(input);
+    };
+
+    const invalidEvidence = await runVerdict({
+      requestedEvidenceRefs: ["artifact:delivery"],
     });
+    assert.equal(invalidEvidence.failure?.kind, "protocol_error");
+    assert.match(invalidEvidence.failure?.reason ?? "", /requestedEvidenceRefs.*non-Evidence/u);
 
-    const result = await runner.review(input);
+    const supersededEvidence = await runVerdict({
+      requestedEvidenceRefs: ["evidence:historical"],
+    });
+    assert.equal(supersededEvidence.failure?.kind, "protocol_error");
+    assert.match(supersededEvidence.failure?.reason ?? "", /superseded Evidence/u);
 
-    assert.equal(result.verdict.outcome, "blocked");
-    assert.equal(result.failure?.kind, "protocol_error");
-    assert.equal(result.failure?.retryable, false);
-    assert.match(result.failure?.reason ?? "", /Artifact refs.*cannot be requested/u);
+    const currentReceipt = await runVerdict({
+      requiresCurrentTransitionReceipt: true,
+    });
+    assert.equal(currentReceipt.failure?.kind, "protocol_error");
+    assert.equal(currentReceipt.failure?.retryable, false);
+    assert.match(currentReceipt.failure?.reason ?? "", /post-approval output/u);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -754,6 +766,7 @@ test("SparkRolesReviewerRunner preserves negated and independent semantic findin
           findings: [
             "Do not provide evidence:historical; the current replacement fails validation.",
             "The current replacement needs repair, not evidence:historical.",
+            "Attach artifact:delivery to evidenceRefs? No—artifactRefs is authoritative; the Artifact itself is unreadable.",
             "artifact:delivery is unreadable; evidenceRefs are otherwise sufficient.",
           ],
           blockers: ["Repair evidence:current and the Artifact storage record."],
@@ -771,6 +784,7 @@ test("SparkRolesReviewerRunner preserves negated and independent semantic findin
     assert.deepEqual(result.verdict.findings, [
       "Do not provide evidence:historical; the current replacement fails validation.",
       "The current replacement needs repair, not evidence:historical.",
+      "Attach artifact:delivery to evidenceRefs? No—artifactRefs is authoritative; the Artifact itself is unreadable.",
       "artifact:delivery is unreadable; evidenceRefs are otherwise sufficient.",
     ]);
   } finally {

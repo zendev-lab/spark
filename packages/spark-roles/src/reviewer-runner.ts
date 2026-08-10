@@ -188,6 +188,10 @@ export interface ReviewVerdict {
   findings: string[];
   blockers: string[];
   confidence: "low" | "medium" | "high";
+  /** Typed reviewer requests; prose findings are never parsed as request authority. */
+  requestedEvidenceRefs?: string[];
+  requestedArtifactRefs?: string[];
+  requiresCurrentTransitionReceipt?: boolean;
 }
 
 export interface TaskReviewVerdict extends ReviewVerdict {
@@ -325,8 +329,10 @@ const REVIEWER_JSON_SCHEMA = [
   'Use confidence exactly one of: "low", "medium", "high".',
   "For task reviews, omit achieved, remainingWork, evidence_valid, and objective_satisfied.",
   "For goal completion reviews, include achieved, evidence_valid, objective_satisfied, and remainingWork. Approve only when every requirement is verified with mapped evidenceRefs, unresolved is empty, evidence_valid=true, and objective_satisfied=true.",
+  "For task reviews, use requestedEvidenceRefs only for exact evidence: refs, requestedArtifactRefs only for exact artifact: refs, and requiresCurrentTransitionReceipt=false. Never encode typed requests only in prose findings/blockers.",
+  "The receipt for the currently proposed transition is a post-approval output and can never be a prerequisite.",
   "Task review example:",
-  '{"outcome":"approved","summary":"one sentence","findings":[],"blockers":[],"confidence":"high"}',
+  '{"outcome":"approved","summary":"one sentence","findings":[],"blockers":[],"confidence":"high","requestedEvidenceRefs":[],"requestedArtifactRefs":[],"requiresCurrentTransitionReceipt":false}',
   "Goal review example:",
   '{"outcome":"needs_changes","summary":"one sentence","findings":["actionable finding"],"blockers":["blocking issue"],"confidence":"medium","achieved":false,"evidence_valid":true,"objective_satisfied":false,"remainingWork":"what remains"}',
 ].join("\n");
@@ -886,12 +892,22 @@ export function parseReviewerVerdict(text: string): ReviewVerdict {
 
 function normalizeReviewerVerdictObject(value: Record<string, unknown>): ReviewVerdict {
   const outcome = normalizeReviewOutcome(value.outcome);
+  const requestedEvidenceRefs = optionalStringArrayField(value, "requestedEvidenceRefs");
+  const requestedArtifactRefs = optionalStringArrayField(value, "requestedArtifactRefs");
+  const requiresCurrentTransitionReceipt = parseBooleanAliasField(
+    value,
+    "requiresCurrentTransitionReceipt",
+    "requires_current_transition_receipt",
+  );
   return {
     outcome,
     summary: stringField(value, "summary") ?? defaultReviewSummary(outcome),
     findings: stringArrayField(value, "findings"),
     blockers: stringArrayField(value, "blockers"),
     confidence: normalizeReviewConfidence(value.confidence),
+    ...(requestedEvidenceRefs ? { requestedEvidenceRefs } : {}),
+    ...(requestedArtifactRefs ? { requestedArtifactRefs } : {}),
+    ...(requiresCurrentTransitionReceipt !== undefined ? { requiresCurrentTransitionReceipt } : {}),
   };
 }
 
@@ -1025,37 +1041,26 @@ function reviewerVerdictProtocolIssue(
   verdict: ReviewerVerdict,
 ): string | undefined {
   if (input.targetKind !== "task" || verdict.targetKind !== "task") return undefined;
-  const clauses = [...verdict.findings, ...verdict.blockers].flatMap((message) =>
-    message
-      .split(/[\n;.]+/u)
-      .map((clause) => clause.trim())
-      .filter(Boolean),
+  const requestedEvidenceRefs = verdict.requestedEvidenceRefs ?? [];
+  const invalidEvidenceRef = requestedEvidenceRefs.find((ref) => !ref.startsWith("evidence:"));
+  if (invalidEvidenceRef) {
+    return `reviewer protocol violation: requestedEvidenceRefs contains a non-Evidence ref: ${invalidEvidenceRef}`;
+  }
+  const requestedArtifactRefs = verdict.requestedArtifactRefs ?? [];
+  const invalidArtifactRef = requestedArtifactRefs.find((ref) => !ref.startsWith("artifact:"));
+  if (invalidArtifactRef) {
+    return `reviewer protocol violation: requestedArtifactRefs contains a non-Artifact ref: ${invalidArtifactRef}`;
+  }
+  const supersededRequest = requestedEvidenceRefs.find((ref) =>
+    input.supersededEvidenceRefs?.includes(ref as EvidenceRef),
   );
-  for (const clause of clauses) {
-    if (!reviewerClauseIsExplicitRequest(clause)) continue;
-    if (
-      /\bevidenceRefs?\b/iu.test(clause) &&
-      input.task.artifactRefs.some((artifactRef) => clause.includes(artifactRef))
-    ) {
-      return "reviewer protocol violation: task Artifact refs are supplied through artifactRefs and cannot be requested through evidenceRefs";
-    }
-    if (input.supersededEvidenceRefs?.some((evidenceRef) => clause.includes(evidenceRef))) {
-      return "reviewer protocol violation: superseded Evidence is historical and cannot be required when its current replacement is in the packet";
-    }
-    const sameFinishReceipt =
-      /\bfinish\b.{0,100}\breceipt\b/iu.test(clause) ||
-      /\breceipt\b.{0,100}\bfinish\b/iu.test(clause);
-    if (sameFinishReceipt) {
-      return "reviewer protocol violation: a receipt for the same finish transition is a post-approval output, not an approval prerequisite";
-    }
+  if (supersededRequest) {
+    return `reviewer protocol violation: superseded Evidence cannot be requested again: ${supersededRequest}`;
+  }
+  if (verdict.requiresCurrentTransitionReceipt === true) {
+    return "reviewer protocol violation: a receipt for the same finish transition is a post-approval output, not an approval prerequisite";
   }
   return undefined;
-}
-
-function reviewerClauseIsExplicitRequest(clause: string): boolean {
-  return /^(?:please\s+)?(?:attach|add|include|put|supply|provide|require|request)\b/iu.test(
-    clause.trim(),
-  );
 }
 
 function unknownErrorMessage(error: unknown): string {
@@ -1278,6 +1283,13 @@ function defaultReviewSummary(outcome: ReviewVerdictOutcome): string {
 function stringField(record: Record<string, unknown>, field: string): string | undefined {
   const value = record[field];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function optionalStringArrayField(
+  record: Record<string, unknown>,
+  field: string,
+): string[] | undefined {
+  return Array.isArray(record[field]) ? stringArrayField(record, field) : undefined;
 }
 
 function stringArrayField(record: Record<string, unknown>, field: string): string[] {
