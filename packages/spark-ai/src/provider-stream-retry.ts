@@ -8,6 +8,8 @@ type ProviderStream = AsyncIterable<AssistantMessageEvent> & {
   result(): Promise<AssistantMessage>;
 };
 
+export const TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE = "PROVIDER_STREAM_TERMINAL_LESS";
+
 export interface RetryProviderStreamOptions {
   providerName: string;
   maxRetries: number;
@@ -36,6 +38,8 @@ export function retryProviderStreamBeforeOutput(
       let retries = 0;
       let exposedOutput = false;
       let started = false;
+      let latestPartial: AssistantMessage | undefined;
+      const completedToolCalls: unknown[] = [];
 
       while (true) {
         let retry = false;
@@ -68,6 +72,12 @@ export function retryProviderStreamBeforeOutput(
               yield event;
               return;
             }
+            if ("partial" in event && event.partial) {
+              latestPartial = event.partial;
+            }
+            if (event.type === "toolcall_end" && "toolCall" in event) {
+              completedToolCalls.push(event.toolCall);
+            }
             exposedOutput = true;
             yield event;
           }
@@ -82,9 +92,25 @@ export function retryProviderStreamBeforeOutput(
         }
 
         if (!retry) {
-          throw new Error(
-            `Provider "${options.providerName}" stream ended without a terminal event`,
+          const terminalLessMessage =
+            latestPartial && completedToolCalls.length > 0
+              ? ({
+                  ...latestPartial,
+                  content: completedToolCalls,
+                  stopReason: "toolUse",
+                } as AssistantMessage)
+              : undefined;
+          if (terminalLessMessage && assistantMessageHasToolCall(terminalLessMessage)) {
+            final = terminalLessMessage;
+            delete (final as { errorMessage?: string }).errorMessage;
+            yield { type: "done", reason: "toolUse", message: final } as AssistantMessageEvent;
+            return;
+          }
+          const error = Object.assign(
+            new Error(`Provider "${options.providerName}" stream ended without a terminal event`),
+            { code: TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE },
           );
+          throw error;
         }
         retries += 1;
         await sleepProviderStreamRetry(
@@ -155,6 +181,18 @@ export function isMalformedProviderJsonErrorText(text: string): boolean {
 
 function assistantMessageHasOutput(message: AssistantMessage): boolean {
   return Array.isArray(message.content) && message.content.length > 0;
+}
+
+function assistantMessageHasToolCall(message: AssistantMessage): boolean {
+  return (
+    Array.isArray(message.content) &&
+    message.content.some(
+      (part) =>
+        Boolean(part) &&
+        typeof part === "object" &&
+        (part as { type?: unknown }).type === "toolCall",
+    )
+  );
 }
 
 function normalizeRetryCount(value: number): number {

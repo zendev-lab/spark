@@ -153,6 +153,17 @@ export interface ResolvedToolPolicy {
   readonly approval: ToolApprovalPolicy;
 }
 
+export interface ToolExecutionResult {
+  content: Array<{ type: "text"; text: string }>;
+  details?: Record<string, unknown>;
+  isError?: boolean;
+}
+
+export type ToolExecutionReconciliation =
+  | { outcome: "completed"; result: ToolExecutionResult }
+  | { outcome: "not-sent" }
+  | { outcome: "unknown"; message?: string };
+
 export interface ToolConfig {
   name: string;
   label?: string;
@@ -196,11 +207,20 @@ export interface ToolConfig {
     signal: AbortSignal,
     onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void,
     ctx: SparkHostContext,
-  ): Promise<{
-    content: Array<{ type: "text"; text: string }>;
-    details?: Record<string, unknown>;
-    isError?: boolean;
-  }>;
+  ): Promise<ToolExecutionResult>;
+  /**
+   * Query durable operation state after a post-dispatch failure. Implementations
+   * must not create a new side effect: `completed` returns its receipt/result,
+   * `not-sent` authorizes one bounded execute retry, and `unknown` fails closed.
+   */
+  reconcile?(
+    toolCallId: string,
+    params: Record<string, unknown>,
+    signal: AbortSignal,
+    onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void,
+    ctx: SparkHostContext,
+    failure: unknown,
+  ): Promise<ToolExecutionReconciliation>;
 }
 
 /**

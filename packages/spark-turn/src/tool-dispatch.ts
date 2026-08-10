@@ -248,13 +248,44 @@ export function toToolDefinition(config: ToolConfig): Tool {
   };
 }
 
-export function errorToolResult(toolCall: ToolCall, message: string): ToolResultMessage {
+export function errorToolResult(
+  toolCall: ToolCall,
+  message: string,
+  details?: Record<string, unknown>,
+): ToolResultMessage {
   return {
     role: "toolResult",
     toolCallId: toolCall.id,
     toolName: toolCall.name,
     content: [{ type: "text", text: message }],
+    ...(details ? { details } : {}),
     isError: true,
     timestamp: Date.now(),
   };
+}
+
+export type SparkToolFailureCertainty = "not-sent" | "unknown";
+
+/** Only an explicit cross-process not-sent tag permits replay. */
+export function sparkToolFailureCertainty(error: unknown): SparkToolFailureCertainty {
+  const tagged = errorRecord(error);
+  if (
+    tagged?.certainty === "not-sent" ||
+    tagged?.outcome === "not_sent" ||
+    tagged?.code === "CHANNEL_DELIVERY_NOT_SENT" ||
+    tagged?.code === "channel_delivery_not_sent"
+  ) {
+    return "not-sent";
+  }
+  const payload = errorRecord(tagged?.payload);
+  const data = errorRecord(tagged?.data) ?? errorRecord(payload?.data);
+  return data?.certainty === "not-sent" || payload?.certainty === "not-sent"
+    ? "not-sent"
+    : "unknown";
+}
+
+function errorRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }

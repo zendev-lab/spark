@@ -135,3 +135,11 @@ test("classifyProviderFailure gives auth a cooldown+failover policy but not tran
     failover: true,
   });
 });
+
+test("classifyProviderFailure treats terminal-less provider streams as transient", () => {
+  const result = classifyProviderFailure(
+    new Error('Provider "terminal-less" stream ended without a terminal event'),
+  );
+  assert.equal(result.failureClass, "transient");
+  assert.equal(result.policy.retriable, true);
+});

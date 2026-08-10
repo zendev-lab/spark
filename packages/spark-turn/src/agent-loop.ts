@@ -67,7 +67,11 @@ export type {
 
 import { createHash } from "node:crypto";
 
-import type { SparkHostContext } from "@zendev-lab/spark-core";
+import type {
+  SparkHostContext,
+  ToolExecutionResult,
+  ToolExecutionReconciliation,
+} from "@zendev-lab/spark-core";
 export { compactToolResultContent } from "./tool-result-compaction.ts";
 
 import {
@@ -140,6 +144,7 @@ import {
   rawToolResultRecoveryPath,
   resolvedRegisteredToolPolicy,
   safeSelectedSkills,
+  sparkToolFailureCertainty,
   toToolDefinition,
   toolRequiresApproval,
   type ToolResultRawRecoveryRecord,
@@ -195,6 +200,9 @@ export type SparkAgentMode = "plan" | "execute" | "fleet";
 export type SparkAgentLifecycleSource = "agentLoop" | "triggerTurn" | "restartResume";
 
 export const SPARK_TURN_RESTART_YIELD_ERROR_CODE = "SPARK_TURN_RESTART_YIELD";
+export const SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE = "SPARK_TOOL_OUTCOME_UNKNOWN";
+export const SPARK_TOOL_NOT_SENT_RETRY_EXHAUSTED_ERROR_CODE = "SPARK_TOOL_NOT_SENT_RETRY_EXHAUSTED";
+const MAX_SPARK_TOOL_RECOVERY_ATTEMPTS = 2;
 
 /**
  * Internal control-flow signal used after a daemon has durably requeued a turn
@@ -999,6 +1007,13 @@ export class SparkAgentLoop {
           this.publish({ type: "tool_result", message: result });
           this.publishEntityViewsForToolResult(result);
         }
+        const recoveryBlocker = toolResults.find(isToolRecoveryBlocker);
+        if (recoveryBlocker) {
+          const details = isPlainRecord(recoveryBlocker.details) ? recoveryBlocker.details : {};
+          const code =
+            typeof details.code === "string" ? details.code : SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE;
+          return fail(`${code}: ${toolResultDisplayText(recoveryBlocker)}`);
+        }
 
         this.drainOutboxIntoMessages();
       }
@@ -1210,18 +1225,15 @@ export class SparkAgentLoop {
       const toolAbort = new AbortController();
       const cleanupAbort = relayAbort(signal, toolAbort);
       try {
-        const result = await runWithTimeout(
-          tool.config.execute(
-            normalizedToolCall.id,
-            normalizedToolCall.arguments,
-            toolAbort.signal,
-            onUpdate,
-            ctx,
-          ),
-          this.toolTimeoutMs,
-          `Spark tool "${toolCall.name}" timed out after ${this.toolTimeoutMs}ms`,
-          (error) => toolAbort.abort(error),
-        );
+        const recovered = await this.executeToolWithRecovery({
+          tool,
+          toolCall: normalizedToolCall,
+          signal: toolAbort.signal,
+          onUpdate,
+          ctx,
+        });
+        if ("blocker" in recovered) return recovered.blocker;
+        const result = recovered.result;
         const compacted = compactToolResultContent({
           toolName: toolCall.name,
           args: normalizedToolCall.arguments,
@@ -1258,6 +1270,129 @@ export class SparkAgentLoop {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return errorToolResult(toolCall, message);
+    }
+  }
+
+  private async executeToolWithRecovery(input: {
+    tool: SparkTurnRegisteredTool;
+    toolCall: ToolCall;
+    signal: AbortSignal;
+    onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void;
+    ctx: SparkHostContext;
+  }): Promise<{ result: ToolExecutionResult } | { blocker: ToolResultMessage }> {
+    let executeRetries = 0;
+    while (true) {
+      let failure: unknown;
+      try {
+        const result = await runWithTimeout(
+          input.tool.config.execute(
+            input.toolCall.id,
+            input.toolCall.arguments,
+            input.signal,
+            input.onUpdate,
+            input.ctx,
+          ),
+          this.toolTimeoutMs,
+          `Spark tool "${input.toolCall.name}" timed out after ${this.toolTimeoutMs}ms`,
+        );
+        return { result };
+      } catch (error) {
+        failure = error;
+      }
+
+      if (input.signal.aborted) throw failure;
+
+      if (sparkToolFailureCertainty(failure) === "not-sent") {
+        if (executeRetries >= MAX_SPARK_TOOL_RECOVERY_ATTEMPTS) {
+          return {
+            blocker: toolRecoveryBlocker(
+              input.toolCall,
+              SPARK_TOOL_NOT_SENT_RETRY_EXHAUSTED_ERROR_CODE,
+              "not-sent",
+              executeRetries,
+              failure,
+            ),
+          };
+        }
+        executeRetries += 1;
+        continue;
+      }
+
+      const requiresOutcomeReconciliation =
+        resolvedRegisteredToolPolicy(input.tool, input.toolCall.arguments).effect ===
+        "external_write";
+      if (!requiresOutcomeReconciliation) throw failure;
+
+      const reconcile = input.tool.config.reconcile;
+      if (!reconcile) {
+        return {
+          blocker: toolRecoveryBlocker(
+            input.toolCall,
+            SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
+            "unknown",
+            0,
+            failure,
+          ),
+        };
+      }
+      for (
+        let reconcileAttempt = 1;
+        reconcileAttempt <= MAX_SPARK_TOOL_RECOVERY_ATTEMPTS;
+        reconcileAttempt += 1
+      ) {
+        let reconciliation: ToolExecutionReconciliation;
+        try {
+          reconciliation = await runWithTimeout(
+            reconcile(
+              input.toolCall.id,
+              input.toolCall.arguments,
+              input.signal,
+              input.onUpdate,
+              input.ctx,
+              failure,
+            ),
+            this.toolTimeoutMs,
+            `Spark tool "${input.toolCall.name}" reconciliation timed out after ${this.toolTimeoutMs}ms`,
+          );
+        } catch (error) {
+          failure = error;
+          if (reconcileAttempt < MAX_SPARK_TOOL_RECOVERY_ATTEMPTS) continue;
+          return {
+            blocker: toolRecoveryBlocker(
+              input.toolCall,
+              SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
+              "unknown",
+              reconcileAttempt,
+              failure,
+            ),
+          };
+        }
+        if (reconciliation.outcome === "completed") return { result: reconciliation.result };
+        if (reconciliation.outcome === "not-sent") {
+          if (executeRetries >= MAX_SPARK_TOOL_RECOVERY_ATTEMPTS) {
+            return {
+              blocker: toolRecoveryBlocker(
+                input.toolCall,
+                SPARK_TOOL_NOT_SENT_RETRY_EXHAUSTED_ERROR_CODE,
+                "not-sent",
+                executeRetries,
+                failure,
+              ),
+            };
+          }
+          executeRetries += 1;
+          break;
+        }
+        return {
+          blocker: toolRecoveryBlocker(
+            input.toolCall,
+            SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
+            "unknown",
+            reconcileAttempt,
+            reconciliation.message ?? failure,
+          ),
+        };
+      }
     }
   }
 
@@ -1865,6 +2000,39 @@ export class SparkAgentLoop {
     this.host.publishView(event);
     this.publish({ type: "view_event", event });
   }
+}
+
+function isToolRecoveryBlocker(result: ToolResultMessage): boolean {
+  return isPlainRecord(result.details) && result.details.sparkToolRecovery === "blocked";
+}
+
+function toolResultDisplayText(result: ToolResultMessage): string {
+  return result.content
+    .map((part) => (part.type === "text" && typeof part.text === "string" ? part.text : ""))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function toolRecoveryBlocker(
+  toolCall: ToolCall,
+  code: string,
+  certainty: "not-sent" | "unknown",
+  recoveryAttempts: number,
+  failure: unknown,
+): ToolResultMessage {
+  const detail = failure instanceof Error ? failure.message : String(failure);
+  return errorToolResult(
+    toolCall,
+    certainty === "unknown"
+      ? `Tool "${toolCall.name}" outcome remains unknown after reconciliation; automatic continuation stopped. ${detail}`
+      : `Tool "${toolCall.name}" was confirmed not sent but bounded retries were exhausted. ${detail}`,
+    {
+      sparkToolRecovery: "blocked",
+      code,
+      certainty,
+      recoveryAttempts,
+    },
+  );
 }
 
 function sameMessageProjection(

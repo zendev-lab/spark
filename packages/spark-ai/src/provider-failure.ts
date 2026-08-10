@@ -55,6 +55,13 @@ export function classifyProviderFailure(input: unknown): ProviderFailureClassifi
 function chooseFailureClass(input: NormalizedProviderFailure): FailureClass {
   const text = input.message.toLowerCase();
   if (input.stopReason === "aborted") return "aborted";
+  if (
+    /terminal event|terminal outcome|terminal-less|terminal less|without a final assistant message/u.test(
+      text,
+    )
+  ) {
+    return "transient";
+  }
   if (/mismatched api:/u.test(text)) return "provider_mismatch";
   if (
     /context[_ -]?(window|length|overflow)|maximum context|prompt is too long|too many tokens|context window is full|请精简对话历史|缩小工具\/?文件输出/u.test(

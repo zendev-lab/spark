@@ -525,6 +525,92 @@ test("SparkAgentSession follows the authoritative transcript path across same-id
   }
 });
 
+test("SparkAgentSession continues from a persisted tool receipt after a terminal-less provider failure", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-terminal-less-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    let toolExecutions = 0;
+    const viewEvents: any[] = [];
+    const services = await makeFakeServices(
+      { cwd, sparkHome, ui: { publishView: (event) => viewEvents.push(event) } },
+      {
+        streamSimple: () => {
+          providerCalls += 1;
+          if (providerCalls === 1) {
+            return {
+              ...assistant(""),
+              content: [{ type: "toolCall", id: "once", name: "write_once", arguments: {} }],
+              stopReason: "toolUse",
+            } as unknown as AssistantMessage;
+          }
+          if (providerCalls === 2) {
+            return {
+              ...assistant(""),
+              content: [],
+              stopReason: "error",
+              errorMessage: "Provider stream ended without a terminal event",
+            } as unknown as AssistantMessage;
+          }
+          return assistant("continued from checkpoint");
+        },
+      },
+    );
+    services.runtime.registerTool({
+      name: "write_once",
+      description: "side effect probe",
+      parameters: { type: "object" },
+      async execute() {
+        toolExecutions += 1;
+        return { content: [{ type: "text", text: "receipt:once" }] };
+      },
+    });
+    services.runtime.setActiveTools([
+      ...new Set([...services.runtime.getActiveTools(), "write_once"]),
+    ]);
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "terminal-less-session",
+      prompt: "perform once",
+    });
+    assert.equal(result.outcome?.status, "completed");
+    assert.equal(result.assistantText, "continued from checkpoint");
+    assert.equal(providerCalls, 3);
+    assert.equal(toolExecutions, 1);
+    const record = await services.sessionStore.load(result.sessionPath);
+    assert.deepEqual(
+      record.entries.filter((entry) => entry.type === "message").map((entry) => entry.message.role),
+      ["user", "assistant", "toolResult", "assistant"],
+    );
+    assert.equal(
+      JSON.stringify(record.entries).includes("Provider stream ended without a terminal event"),
+      false,
+    );
+    const assistantViews = viewEvents
+      .filter((event) => event.type === "session.message" && event.message.role === "assistant")
+      .map((event) => event.message);
+    assert.equal(
+      assistantViews.some(
+        (message) =>
+          message.status === "error" &&
+          String(message.text).includes("Provider stream ended without a terminal event"),
+      ),
+      true,
+    );
+    assert.equal(
+      assistantViews.some(
+        (message) =>
+          message.status === "done" && String(message.text).includes("continued from checkpoint"),
+      ),
+      true,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("SparkAgentSession compacts persisted history and retries context overflow with backoff", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-overflow-"));
   try {

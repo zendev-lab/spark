@@ -80,6 +80,7 @@ const MAX_CONTEXT_OVERFLOW_COMPACTIONS = 5;
 const CONTEXT_OVERFLOW_COMPACT_BACKOFF_MS = [0, 500, 1_500, 4_000, 10_000] as const;
 /** Provider concurrency/rate-limit retries after the stream already failed closed. */
 const MAX_RATE_LIMIT_RETRIES = 5;
+const MAX_TRANSIENT_CONTINUATIONS = 3;
 const RATE_LIMIT_BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 20_000] as const;
 const DAEMON_RESUME_NOTICE =
   "[Spark daemon resume] The previous attempt of this turn was interrupted mid-execution. Continue from the current session history. Do not repeat side effects that already completed.";
@@ -211,13 +212,31 @@ export class SparkAgentSession {
       ) {
         await delay(RATE_LIMIT_BACKOFF_MS[rateLimitAttempt] ?? 20_000);
         rateLimitAttempt += 1;
-        // Same as overflow recovery: drop the failed transient turn and resubmit
-        // from the last persisted session snapshot.
         beforeCount = this.loadPromptItems(record);
         outcome = await this.services.agentLoop.submitWithOutcome(
           prompt,
           this.restartHooks(record, beforeCount, options),
         );
+      }
+      let transientAttempt = 0;
+      while (
+        outcome.status === "failed" &&
+        classifyProviderFailure(outcome.errorMessage).failureClass === "transient" &&
+        transientAttempt < MAX_TRANSIENT_CONTINUATIONS
+      ) {
+        await delay(RATE_LIMIT_BACKOFF_MS[transientAttempt] ?? 5_000);
+        transientAttempt += 1;
+        const recovery = await this.prepareTransientContinuation(record, beforeCount);
+        beforeCount = this.loadPromptItems(record);
+        outcome =
+          recovery === "continue"
+            ? await this.services.agentLoop.continueWithOutcome(
+                this.restartHooks(record, beforeCount, options),
+              )
+            : await this.services.agentLoop.submitWithOutcome(
+                prompt,
+                this.restartHooks(record, beforeCount, options),
+              );
       }
       return await this.persistRunOutcome(record, beforeCount, outcome, messageMetadata);
     } finally {
@@ -479,6 +498,27 @@ export class SparkAgentSession {
         agentMessageToSessionMessage(item.content.message as Message),
       );
     }
+  }
+
+  private async prepareTransientContinuation(
+    record: SparkSessionRecord,
+    beforeCount: number,
+  ): Promise<"continue" | "resubmit"> {
+    const transientItems = this.services.agentLoop
+      .getPromptItems()
+      .slice(beforeCount)
+      .filter((item) => !isProviderErrorPromptItem(item));
+    const hasCompletedToolReceipt = transientItems.some((item) => item.authority === "tool");
+    if (!hasCompletedToolReceipt) return "resubmit";
+
+    // Commit the in-flight transcript before continuation. The provider error
+    // itself is intentionally excluded, so the successor has one authoritative
+    // tool receipt and cannot execute the same side effect again.
+    const checkpoint = structuredClone(record) as SparkSessionRecord;
+    this.appendPromptItemsToSessionRecord(checkpoint, transientItems);
+    await this.services.sessionStore.save(checkpoint);
+    record.entries = checkpoint.entries;
+    return "continue";
   }
 
   private async tryCompactAfterOverflow(
