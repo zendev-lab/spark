@@ -38,6 +38,9 @@ spark
 不是独立产品功能。新会话的默认推理强度为 `high`；会话显式设置或已保存的用户设置
 仍然优先。
 
+`/status` 会直接输出 daemon、当前 session、活跃工作、用量和输入队列的完整汇总，
+不会先打开 action picker。
+
 ## 查看当前会话
 
 用 `/inspect` 或 Ctrl+K 打开本地会话检查器：

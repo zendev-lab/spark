@@ -61,7 +61,7 @@ Test ownership is structural instead of ledger-driven:
 - `vitest.root.config.ts` owns cross-workspace tests under `test/` and excludes the separate real-process lane;
 - `vitest.process.config.ts` owns `test/process/`;
 - Dependency Cruiser rejects root/app deep links into workspace `src/` internals and cross-package relative source imports;
-- `pnpm -r --filter './packages/*' --if-present run test` discovers package-local tests directly from manifests, while `check-architecture-ratchets.mjs` fails closed when a package contains tests but does not expose a `test` script.
+- `pnpm -r --workspace-concurrency=1 --if-present run test` discovers every app- and package-local test script directly from manifests, while `check-architecture-ratchets.mjs` fails closed when any workspace contains tests but does not expose a `test` script.
 
 Mutation CE selection is also package-owned: either a `test:mutation` script or `stryker.config.json` requires the complete command, config, and dependency set. Shared Stryker dependencies alone do not enroll a package. This keeps pnpm recursive `--if-present` discovery fail-closed without a second workspace inventory.
 
@@ -75,7 +75,7 @@ CSS, or documentation to prove that an implementation fragment exists.
 Repository policy belongs to dedicated static tools invoked by `pnpm run check:static`:
 
 - `check-architecture-ratchets.mjs` owns Spark-specific workspace identity, dependency and
-  compatibility boundaries, plus fail-closed package test/mutation discovery that generic tools
+  compatibility boundaries, plus fail-closed workspace test and package mutation discovery that generic tools
   cannot express;
 - `check-github-actions.mjs` owns immutable Action references and benchmark credential policy;
 - `check-pnpm-workspace-policy.mjs` owns hook-time pnpm mutation safety;

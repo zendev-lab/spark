@@ -76,6 +76,12 @@ want to change how Spark proceeds:
 registered commands by user intent. `/help all` additionally exposes
 compatibility aliases, extension sources, and diagnostic targets.
 
+`/status` prints one unified daemon-owned status view for the daemon, current
+session, active Goal/Repro work, usage, records, and turn queue. `/sessions`
+opens the session selector; bare `/resume` is its compatibility alias. `/new`
+creates and opens a new session directly. The retired `/session` command is not
+an intermediate menu for these operations.
+
 `/inspect` opens the current TUI session's local projection. It is distinct
 from the Hub Web UI opened by `spark hub`. `/automate` only chooses and
 pre-fills an existing Goal, Loop, Repro, or Workflow command.

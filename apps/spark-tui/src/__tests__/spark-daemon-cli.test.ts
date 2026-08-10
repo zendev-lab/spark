@@ -2791,6 +2791,7 @@ test("Spark TUI and headless print attach and release workspace clients", async 
     assert.equal(Boolean(slashCommands?.model), true, "native /model command is wired");
     assert.equal(Boolean(slashCommands?.sessions), true, "host /sessions command is wired");
     assert.equal(Boolean(slashCommands?.status), true, "daemon /status command is preserved");
+    assert.equal(Boolean(slashCommands?.session), false, "retired /session command stays removed");
     for (const command of [
       "settings",
       "scoped-models",
@@ -2799,7 +2800,6 @@ test("Spark TUI and headless print attach and release workspace clients", async 
       "share",
       "copy",
       "name",
-      "session",
       "changelog",
       "hotkeys",
       "fork",
@@ -3045,7 +3045,7 @@ test("native TUI selects a History Session, restores it, and loads its snapshot"
   }
 });
 
-test("native session commands inspect, create directly, and select without action bars", async () => {
+test("native status is unified while new, resume, and sessions keep their direct flows", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-cli-session-reselect-"));
   try {
     const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
@@ -3173,12 +3173,16 @@ test("native session commands inspect, create directly, and select without actio
           });
           await options.configureApp?.(harness.app, harness.session);
           if (attachedSessionIds.length === 1) {
-            assert.equal(await harness.submit("/session"), "command");
+            assert.equal(await harness.submit("/status"), "command");
             await harness.flush();
             assert.equal(harness.app.actionBarSnapshot(), undefined);
             assert.equal(harness.state.exited, false);
             assert.equal(selectorCalls.length, 1);
             assert.equal(createRequests.length, 0);
+            const status = harness.session.messages.at(-1)?.text ?? "";
+            assert.match(status, /daemon: running/u);
+            assert.match(status, /session:\nid: session-first\nstatus: idle/u);
+            assert.match(status, /turn-queue:\nTurn queue is empty\./u);
           }
           const command =
             attachedSessionIds.length === 1

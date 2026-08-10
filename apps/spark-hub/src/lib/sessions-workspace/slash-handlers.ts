@@ -2,7 +2,7 @@ import { goto, invalidateAll } from "$app/navigation";
 import { tick } from "svelte";
 import {
   hubOpenSearchEvent,
-  hubSessionSelectionShortcutForInput,
+  hubDirectSessionCommandForInput,
   scheduleHubActionAfterCurrentEvent,
   type HubSlashCommandSuggestion,
 } from "$lib/slash-actions";
@@ -115,10 +115,15 @@ export function createSlashHandlers(deps: SlashHandlerDeps) {
   function handleSlashCompletionKeydown(event: KeyboardEvent, surface: ComposerSurface) {
     if (event.isComposing) return;
     const input = surface === "start" ? composer.startMessage : composer.message;
-    if (event.key === "Enter" && !event.shiftKey && hubSessionSelectionShortcutForInput(input)) {
+    const directSessionCommand = hubDirectSessionCommandForInput(input);
+    if (event.key === "Enter" && !event.shiftKey && directSessionCommand) {
       event.preventDefault();
       clearSlashInput(surface);
-      void goto(deps.getSessionsHref());
+      void goto(
+        directSessionCommand === "create"
+          ? `${deps.getSessionsHref()}?new=workspace`
+          : deps.getSessionsHref(),
+      );
       return;
     }
     const suggestions =

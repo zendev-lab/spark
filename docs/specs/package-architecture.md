@@ -20,7 +20,7 @@ Generic monorepo mechanics are delegated to maintained open-source tools:
 | dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` | [Syncpack](https://github.com/JoshuaKGoldberg/syncpack) |
 | imports from dependencies missing in the owning workspace manifest | Knip strict unlisted-dependency analysis | [Knip](https://knip.dev/features/monorepos-and-workspaces) |
 | cycles and dependency direction | Dependency Cruiser | [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser) |
-| Spark package identity, explicit workspace dependency restrictions, package test/mutation discovery, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |
+| Spark package identity, explicit workspace dependency restrictions, workspace test and package mutation discovery, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |
 
 `pnpm run check:architecture` validates the schema, runs Syncpack and Knip, and
 then executes the Spark-specific ratchets. `pnpm run check:boundaries` runs
@@ -28,12 +28,12 @@ Dependency Cruiser. The custom checker does not duplicate schema validation,
 dependency-version consistency, or generic manifest/import analysis.
 
 Test and mutation discovery follow the same rule. Vitest configs define the
-root, process, browser, and capability suites; the root unit lane runs package
-`test` scripts through pnpm recursive `--if-present` discovery. The architecture
-checker requires a `test` script when a package contains tests. Either a
-`test:mutation` script or Stryker config requires the complete standard command,
-dependency, and config set. Historical ledgers are not parallel workspace
-inventories.
+root, process, browser, and capability suites; the root unit lane runs every app
+and package `test` script through pnpm recursive `--if-present` discovery. The
+architecture checker requires a `test` script when any workspace contains tests.
+For package-owned mutation CE, either a `test:mutation` script or Stryker config
+requires the complete standard command, dependency, and config set. Historical
+ledgers are not parallel workspace inventories.
 
 ### Repository script policy
 

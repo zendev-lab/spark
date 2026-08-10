@@ -646,7 +646,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
       case "session.create":
         return "new";
       case "session.inspect":
-        return "session";
+        return "status";
       case "turn.stop":
         return "stop";
       case "turn.retry":
@@ -725,7 +725,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
           await this.invokeRegisteredSlashCommand("new", "", false);
           return;
         case "session.inspect":
-          await this.invokeRegisteredSlashCommand("session", "inspect", true);
+          await this.invokeRegisteredSlashCommand("status", "", true);
           return;
         case "queue.inspect":
           this.session.addSystemMessage(this.renderQueueInspection());
@@ -2094,21 +2094,17 @@ export class SparkNativeTuiApp implements Component, Focusable {
       return;
     }
 
-    // Session commands already map to complete host-owned flows. Keep the
-    // action bar out of the way: inspect the current session, browse/resume
-    // through the startup selector, or create a daemon-managed session.
-    const bareSessionCommand =
+    // These commands already map to complete host-owned flows. Keep the
+    // action bar out of the way: show unified status, browse/resume through
+    // the startup selector, or create a daemon-managed session.
+    const directCommand =
       parsed.name === "resume"
         ? "sessions"
-        : ["session", "sessions", "new"].includes(parsed.name)
+        : ["status", "sessions", "new"].includes(parsed.name)
           ? parsed.name
           : undefined;
-    if (bareSessionCommand && !parsed.args.trim() && this.slashCommands[bareSessionCommand]) {
-      await this.invokeRegisteredSlashCommand(
-        bareSessionCommand,
-        "",
-        bareSessionCommand === "session",
-      );
+    if (directCommand && !parsed.args.trim() && this.slashCommands[directCommand]) {
+      await this.invokeRegisteredSlashCommand(directCommand, "", directCommand === "status");
       return;
     }
 

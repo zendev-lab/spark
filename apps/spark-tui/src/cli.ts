@@ -1676,6 +1676,7 @@ const NATIVE_SLASH_COMMAND_EXCLUSIONS = [
   "reviews",
   "review",
   "graft",
+  "session",
 ] as const;
 
 function registerSparkNativeModelCommand(
@@ -2011,6 +2012,25 @@ function createSparkNativeSlashCommands(
       },
     };
   }
+  const statusCommand = daemonCommands.status;
+  if (statusCommand) {
+    daemonCommands.status = {
+      ...statusCommand,
+      description: "Show unified daemon, current session, work, and turn queue status",
+      handler: async (_args, context) => {
+        await ensureCurrentSession();
+        const [daemonStatus, session] = await Promise.all([
+          statusCommand.handler("", context),
+          clientGetManagedSessionSnapshot(currentSessionId, daemonClient),
+        ]);
+        return formatNativeTuiStatus(
+          typeof daemonStatus === "string" ? daemonStatus : "daemon: unknown",
+          session,
+          context.app.renderQueueInspection(),
+        );
+      },
+    };
+  }
   const newCommand = piParityCommands.new;
   if (newCommand) {
     piParityCommands.new = {
@@ -2040,6 +2060,57 @@ function createSparkNativeSlashCommands(
     ...sideThreadCommands,
     ...promptTemplateCommands,
   };
+}
+
+function formatNativeTuiStatus(
+  daemonStatus: string,
+  session: SparkSessionView,
+  queueStatus: string,
+): string {
+  const model = session.model
+    ? `${session.model.providerName}/${session.model.modelId}`
+    : "inherited";
+  const pendingMailbox = (session.mailbox ?? []).filter((message) => !message.ackedAt).length;
+  const lines = [
+    daemonStatus,
+    "",
+    "session:",
+    `id: ${session.sessionId}`,
+    `status: ${session.status}`,
+    `title: ${session.title ?? "untitled"}`,
+    `cwd: ${session.cwd ?? "unknown"}`,
+    `model: ${model}`,
+    `thinking: ${session.thinkingLevel ?? "inherited"}`,
+    `git-branch: ${session.gitBranch ?? "unknown"}`,
+    `activity: messages=${session.messages.length} tools=${session.tools.length} runs=${session.runs.length} loops=${session.loops?.length ?? 0} tasks=${session.tasks.length}`,
+    `records: artifacts=${session.artifacts.length} evidence=${session.evidence.length} mailbox=${pendingMailbox}/${session.mailbox?.length ?? 0}`,
+    `daemon-pending-turns: ${session.pendingTurns?.length ?? 0}`,
+  ];
+
+  if (session.usage) {
+    lines.push(
+      `usage: input=${session.usage.inputTokens} output=${session.usage.outputTokens} cache-read=${session.usage.cacheReadTokens} cache-write=${session.usage.cacheWriteTokens} cost-usd=${session.usage.costUsd}`,
+    );
+  }
+  if (session.work?.primary) lines.push(`primary-loop: ${session.work.primary.loopId}`);
+  if (session.work?.goal) {
+    lines.push(
+      `goal: ${session.work.goal.status} ${session.work.goal.goalId} — ${session.work.goal.objective}`,
+    );
+  }
+  if (session.work?.repro) {
+    const repro = session.work.repro;
+    lines.push(
+      `repro: ${repro.status} ${repro.reproId} — ${repro.objective}`,
+      `repro-stage: ${repro.stage.index + 1}/${repro.stage.total} ${repro.stage.name} phase=${repro.stage.phase}`,
+      `repro-plan: ${repro.plan.completedSteps}/${repro.plan.totalSteps} stop=${repro.stopGuard.decision}`,
+    );
+  }
+  if (session.activeLeafId) lines.push(`active-leaf: ${session.activeLeafId}`);
+  if (session.createdAt) lines.push(`created-at: ${session.createdAt}`);
+  if (session.updatedAt) lines.push(`updated-at: ${session.updatedAt}`);
+  lines.push("", "turn-queue:", queueStatus);
+  return lines.join("\n");
 }
 
 async function hostServiceOptionsFromRuntime(
