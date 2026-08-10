@@ -80,6 +80,11 @@ Run the authoritative happy path with:
 pnpm run test:journey:repro
 ```
 
+The command requires a cue-shell runtime that advertises IPC protocol v2 and the
+`session-handshake-required` capability. The dedicated Ubuntu CI lane builds the
+runtime from the immutable source revision declared in `ci-tests.yml`; this native
+dependency intentionally stays outside `prek` and the default local `pnpm run check` gate.
+
 The root journey and source-process scripts build the real Hub adapter-node output
 before starting processes, so the same lane works from a clean checkout without
 relying on stale local build artifacts.
@@ -238,4 +243,5 @@ test:mutation           sensitivity of focused owner tests
 
 The journey lane should initially run once on relevant pull requests. Repetition,
 flake classification, and duration variance belong in a separate non-blocking CE
-lane after the deterministic happy path is stable.
+lane after the deterministic happy path is stable. Its external cue-shell runtime is
+provisioned only in this lane; the ordinary source-process matrix remains hermetic.

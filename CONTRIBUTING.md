@@ -105,6 +105,7 @@ the change:
 | One root test file | `pnpm test test/name.test.ts` |
 | Package-local tests or invariants | `pnpm --filter <package> run test` or `run check` |
 | Source dispatcher and daemon lifecycle | `pnpm run test:process:source` |
+| Complete Repro Golden Journey | `pnpm run test:journey:repro` (requires cue-shell IPC v2 with `session-handshake-required`) |
 | Hub browser interactions | `pnpm run test:browser:hub` |
 | User documentation | `pnpm run check:docs && pnpm run build:docs` |
 | Package dependency boundaries | `pnpm run check:boundaries` |
