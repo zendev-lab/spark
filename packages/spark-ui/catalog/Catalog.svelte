@@ -303,20 +303,4 @@
     width: 1024px;
   }
 
-  .catalog.wide .catalog-header {
-    gap: 24px;
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 0.7fr);
-  }
-
-  .catalog.wide .catalog-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .catalog.wide .fixture-header {
-    display: flex;
-  }
-
-  .catalog.wide .state-list {
-    justify-content: end;
-  }
 </style>

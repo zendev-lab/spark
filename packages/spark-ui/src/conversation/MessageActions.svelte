@@ -5,9 +5,37 @@
     text: string;
     copyLabel: string;
     copiedLabel: string;
+    retryLabel?: string;
+    editLabel?: string;
+    downloadLabel?: string;
+    shareLabel?: string;
+    positiveFeedbackLabel?: string;
+    negativeFeedbackLabel?: string;
+    onRetry?: () => void;
+    onEdit?: () => void;
+    onDownload?: () => void;
+    onShare?: () => void;
+    onPositiveFeedback?: () => void;
+    onNegativeFeedback?: () => void;
   };
 
-  let { text, copyLabel, copiedLabel }: Props = $props();
+  let {
+    text,
+    copyLabel,
+    copiedLabel,
+    retryLabel,
+    editLabel,
+    downloadLabel,
+    shareLabel,
+    positiveFeedbackLabel,
+    negativeFeedbackLabel,
+    onRetry,
+    onEdit,
+    onDownload,
+    onShare,
+    onPositiveFeedback,
+    onNegativeFeedback,
+  }: Props = $props();
   let copied = $state(false);
   let resetTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -35,6 +63,51 @@
     <Icon name={copied ? "check" : "copy"} size={14} stroke={2.1} />
     <span class="sr-only">{copied ? copiedLabel : copyLabel}</span>
   </button>
+  {#if onRetry && retryLabel}
+    <button type="button" aria-label={retryLabel} title={retryLabel} onclick={() => onRetry?.()}>
+      <Icon name="retry" size={14} stroke={2.1} />
+    </button>
+  {/if}
+  {#if onEdit && editLabel}
+    <button type="button" aria-label={editLabel} title={editLabel} onclick={() => onEdit?.()}>
+      <span aria-hidden="true">✎</span>
+    </button>
+  {/if}
+  {#if onDownload && downloadLabel}
+    <button
+      type="button"
+      aria-label={downloadLabel}
+      title={downloadLabel}
+      onclick={() => onDownload?.()}
+    >
+      <Icon name="download" size={14} stroke={2.1} />
+    </button>
+  {/if}
+  {#if onPositiveFeedback && positiveFeedbackLabel}
+    <button
+      type="button"
+      aria-label={positiveFeedbackLabel}
+      title={positiveFeedbackLabel}
+      onclick={() => onPositiveFeedback?.()}
+    >
+      <Icon name="thumbs-up" size={14} stroke={2.1} />
+    </button>
+  {/if}
+  {#if onNegativeFeedback && negativeFeedbackLabel}
+    <button
+      type="button"
+      aria-label={negativeFeedbackLabel}
+      title={negativeFeedbackLabel}
+      onclick={() => onNegativeFeedback?.()}
+    >
+      <Icon name="thumbs-down" size={14} stroke={2.1} />
+    </button>
+  {/if}
+  {#if onShare && shareLabel}
+    <button type="button" aria-label={shareLabel} title={shareLabel} onclick={() => onShare?.()}>
+      <Icon name="share" size={14} stroke={2.1} />
+    </button>
+  {/if}
 </div>
 
 <style>

@@ -4,10 +4,10 @@
   import { replaceState } from "$app/navigation";
   import { page } from "$app/state";
   import {
+    ConversationEmptyState,
     ConversationViewport,
     Message as ConversationMessage,
   } from "$lib/components/conversation";
-  import { Icon } from "@zendev-lab/spark-ui";
   import SessionAskPanel from "$lib/SessionAskPanel.svelte";
   import {
     defaultSessionPrimaryView,
@@ -110,10 +110,7 @@
         navigationItems={host.timelineNavigationItems}
       >
       {#if host.timelineItems.length === 0}
-        <div class="conversation-empty">
-          <span class="spark-mark"><Icon name="spark" size={20} /></span>
-          <p>{host.copy.timelineEmpty}</p>
-        </div>
+        <ConversationEmptyState title={host.copy.timelineEmpty} />
       {:else}
         {#each host.renderedTimelineItems as item (item.id)}
           <ConversationMessage
@@ -225,37 +222,6 @@
 
   .transcript-panel {
     display: flex;
-  }
-
-  .spark-mark {
-    align-items: center;
-    background: var(--color-primary-weak);
-    border: 1px solid var(--color-primary-soft);
-    border-radius: 10px;
-    color: var(--color-primary);
-    display: inline-flex;
-    flex: 0 0 auto;
-    height: 40px;
-    justify-content: center;
-    width: 40px;
-  }
-
-  .conversation-empty {
-    align-items: center;
-    color: var(--color-ink-subtle);
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    height: 100%;
-    justify-content: center;
-    min-height: 180px;
-    text-align: center;
-  }
-
-  .conversation-empty p {
-    font-size: 13px;
-    line-height: 1.5;
-    max-width: 380px;
   }
 
   .session-ask-dock {

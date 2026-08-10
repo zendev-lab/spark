@@ -1,5 +1,7 @@
 export {
+  AttachmentList,
   Composer,
+  ConversationEmptyState,
   ConversationViewport,
   SessionQueue,
   SessionStatusBar,
@@ -7,6 +9,7 @@ export {
   SlashCommandMenu,
 } from "@zendev-lab/spark-ui/conversation";
 export type {
+  ConversationAttachmentView,
   ConversationActionAvailability as SlashActionAvailability,
   ConversationActionBarProps as SlashActionBarProps,
   ConversationApprovalState,

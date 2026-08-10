@@ -1,18 +1,7 @@
-export type ModelPickerOption = {
-  value: string;
-  label: string;
-  description?: string;
-  keywords?: string[];
-  reasoning?: boolean;
-  disabled?: boolean;
-};
-
-export type ModelPickerGroup = {
-  id: string;
-  label: string;
-  description?: string;
-  options: ModelPickerOption[];
-};
+export type {
+  ConversationModelGroup as ModelPickerGroup,
+  ConversationModelOption as ModelPickerOption,
+} from "@zendev-lab/spark-ui/conversation";
 
 export type ModelRuntimeControlLabels = {
   aria: string;

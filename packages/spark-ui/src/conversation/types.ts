@@ -79,6 +79,7 @@ export type ConversationPart =
       kind?: string;
       state?: string;
       summary?: string;
+      previewHref?: string;
     }
   | {
       type: "error";

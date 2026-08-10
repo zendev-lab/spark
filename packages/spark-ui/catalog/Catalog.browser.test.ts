@@ -42,7 +42,6 @@ describe("Spark UI component catalog", () => {
     const screen = await render(Catalog, {
       theme: "light",
       direction: "ltr",
-      wide: true,
     });
 
     await expect(page.getByTestId("catalog-message-shell-success")).toMatchScreenshot(
@@ -53,6 +52,15 @@ describe("Spark UI component catalog", () => {
     );
     await expect(page.getByTestId("catalog-tool-call-success")).toMatchScreenshot(
       "catalog-tool-call-light-desktop",
+    );
+    await expect(page.getByTestId("catalog-attachments-success")).toMatchScreenshot(
+      "catalog-attachments-light-desktop",
+    );
+    await expect(page.getByTestId("catalog-message-controls-disabled")).toMatchScreenshot(
+      "catalog-message-controls-disabled-light-desktop",
+    );
+    await expect(page.getByTestId("catalog-model-selector-success")).toMatchScreenshot(
+      "catalog-model-selector-light-desktop",
     );
 
     await screen.unmount();
