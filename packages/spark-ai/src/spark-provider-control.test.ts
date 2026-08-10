@@ -257,7 +257,7 @@ test("OAuth broker exposes only interaction state and prepareModel refreshes dur
   });
 });
 
-test("pi-ai 0.82 OAuth prompts preserve empty input and per-prompt cancellation", async () => {
+test("pi-ai 0.84 OAuth prompts preserve empty input and per-prompt cancellation", async () => {
   await withSparkHome(async (sparkHome) => {
     let completeBrowserCallback!: () => void;
     const browserCallback = new Promise<void>((resolve) => {
@@ -270,6 +270,7 @@ test("pi-ai 0.82 OAuth prompts preserve empty input and per-prompt cancellation"
         oauth: {
           name: "Pi OAuth Fixture",
           async login(interaction) {
+            assert.equal(interaction.signal.aborted, false);
             const enterpriseDomain = await interaction.prompt({
               type: "text",
               message: "Enterprise domain (blank for default)",

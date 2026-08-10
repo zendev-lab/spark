@@ -12,7 +12,7 @@ export {
   ProcessTerminal,
   SelectList,
   Text,
-  TUI,
+  TuiMainScreen as TUI,
 } from "@earendil-works/pi-tui";
 export { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "./text.ts";
 export type {

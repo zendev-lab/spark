@@ -126,6 +126,36 @@ describe("Spark daemon oRPC socket client", () => {
     }
   });
 
+  it("sends session.bind through the path reserved by the oRPC client proxy", async () => {
+    const fixture = await rawOrpcFixture((_line, socket) => socket.end());
+    const handle = await createSparkDaemonOrpcClient({ socketPath: fixture.socketPath });
+
+    try {
+      const result = invokeSparkDaemonOrpcLiveMethod(handle.client, "session.bind", {
+        sessionId: "session-1",
+        externalKey: "qqbot:c2c:session-1",
+      }).catch((error: unknown) => error);
+      const frame = JSON.parse(await within(fixture.requestLine)) as { data: string };
+      const request = JSON.parse(frame.data) as unknown;
+
+      expect(request).toMatchObject({
+        p: {
+          u: "/session/bind",
+          b: {
+            json: {
+              sessionId: "session-1",
+              externalKey: "qqbot:c2c:session-1",
+            },
+          },
+        },
+      });
+      await expect(within(result)).resolves.toBeInstanceOf(Error);
+    } finally {
+      handle.close();
+      await fixture.close();
+    }
+  });
+
   it("settles an invocation when an oversized response frame closes the port", async () => {
     const fixture = await rawOrpcFixture((_line, socket) => {
       socket.write("x".repeat(128));
