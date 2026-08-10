@@ -2,6 +2,7 @@ import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SparkRoleSpec } from "@zendev-lab/spark-protocol/role-session";
 import { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
@@ -20,6 +21,31 @@ afterEach(async () => {
 });
 
 describe("SessionSupervisor", () => {
+  it("binds supervised invocations to the Hub delivery identity", async () => {
+    const harness = await createHarness();
+    const root = await harness.supervisor.ensureWorkspaceAdministrator("rtwb-test");
+    const supervisor = new SessionSupervisor({
+      registry: harness.registry,
+      invocations: harness.invocations,
+      ownerExists: async () => true,
+      resolveWorkspaceBindingId: () => "rtwb_22222222222222222222222222222222",
+    });
+
+    const invocation = await supervisor.invoke({
+      sessionId: root.sessionId,
+      prompt: "route this invocation",
+    });
+
+    expect(invocation).toMatchObject({
+      workspaceBindingId: "rtwb_22222222222222222222222222222222",
+      task: {
+        workspaceId: "rtwb-test",
+        workspaceBindingId: "rtwb_22222222222222222222222222222222",
+      },
+    });
+    harness.close();
+  });
+
   it("keeps one persistent Administrator root and instantiates owner-bound Role Sessions", async () => {
     const harness = await createHarness();
     const first = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");
@@ -506,6 +532,7 @@ describe("SessionSupervisor", () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
     const invocations = new SparkInvocationStore(db);
+    let structuredTask: unknown;
     let releaseParent!: () => void;
     const parentGate = new Promise<void>((resolve) => {
       releaseParent = resolve;
@@ -515,6 +542,9 @@ describe("SessionSupervisor", () => {
       concurrency: 1,
       executeTask: async (task) => {
         if (task.type === "session.run" && task.prompt === "hold parent") await parentGate;
+        if (task.type === "session.run" && task.prompt === "execute child") {
+          structuredTask = task;
+        }
         return { answer: task.type === "session.run" ? task.prompt : task.type };
       },
     });
@@ -551,10 +581,58 @@ describe("SessionSupervisor", () => {
       structured: true,
     });
     expect(result).toMatchObject({ status: "succeeded", claimClass: "structured" });
+    expect(structuredTask).toMatchObject({
+      sessionId: child.sessionId,
+      workspaceId: "ws-test",
+    });
     expect(invocations.require(parent.invocationId).status).toBe("running");
     releaseParent();
     await scheduler.wait({ timeoutMs: 1_000 });
     db.close();
+  });
+
+  it("waits for Invocation delivery before discarding an owned Session", async () => {
+    const harness = await createHarness();
+    const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");
+    const owned = await harness.supervisor.instantiate({
+      workspaceId: "ws-test",
+      role: executorRole,
+      parentSessionId: root.sessionId,
+      owner: { kind: "task_run", ref: "run:delivery" },
+      sessionId: "owned-delivery",
+      purpose: "task_run",
+    });
+    const invocation = harness.invocations.submit({
+      sessionId: owned.sessionId,
+      prompt: "private payload",
+      task: {
+        type: "session.run",
+        sessionId: owned.sessionId,
+        workspaceId: "ws-test",
+        prompt: "private payload",
+      },
+    });
+    harness.invocations.claimNext("delivery-worker");
+    const event = harness.invocations.appendEvent(invocation.invocationId, "result", {
+      text: "private result",
+    });
+    harness.invocations.complete(invocation.invocationId, { status: "succeeded" });
+    expect(harness.invocations.pendingDeliveries("hub:test")).toHaveLength(1);
+    const acknowledge = delay(20).then(() => {
+      harness.invocations.acknowledgeDelivery("hub:test", invocation.invocationId, event.sequence);
+    });
+
+    const closed = await harness.supervisor.close({
+      sessionId: owned.sessionId,
+      settleTimeoutMs: 250,
+    });
+    await acknowledge;
+
+    expect(closed).toMatchObject({ lifecycle: "closed", status: "archived" });
+    expect(harness.invocations.require(invocation.invocationId)).toMatchObject({
+      payloadRedactedAt: expect.any(String),
+    });
+    harness.close();
   });
 });
 

@@ -65,6 +65,7 @@ export interface SessionSupervisorOptions {
   scheduler?: Pick<SparkInvocationScheduler, "cancel" | "executeStructured">;
   deleteTranscript?: (path: string) => Promise<void>;
   ownerExists?: (owner: SparkSessionOwner, session: SparkSessionRegistryRecord) => Promise<boolean>;
+  resolveWorkspaceBindingId?: (workspaceId: string) => string | undefined;
 }
 
 /**
@@ -77,6 +78,7 @@ export class SessionSupervisor {
   private readonly scheduler?: SessionSupervisorOptions["scheduler"];
   private readonly deleteTranscript: NonNullable<SessionSupervisorOptions["deleteTranscript"]>;
   private readonly ownerExists?: SessionSupervisorOptions["ownerExists"];
+  private readonly resolveWorkspaceBindingId?: SessionSupervisorOptions["resolveWorkspaceBindingId"];
 
   constructor(options: SessionSupervisorOptions) {
     this.registry = options.registry;
@@ -85,6 +87,7 @@ export class SessionSupervisor {
     this.deleteTranscript =
       options.deleteTranscript ?? (async (path) => await rm(path, { force: true }));
     this.ownerExists = options.ownerExists;
+    this.resolveWorkspaceBindingId = options.resolveWorkspaceBindingId;
   }
 
   async ensureWorkspaceAdministrator(workspaceId: string): Promise<SparkSessionRegistryRecord> {
@@ -168,16 +171,27 @@ export class SessionSupervisor {
     const session = await this.requireOpen(input.sessionId);
     const prompt = required(input.prompt, "prompt");
     const structured = input.structured === true;
+    const workspaceId = session.scope.kind === "workspace" ? session.scope.workspaceId : undefined;
+    const workspaceBindingId = workspaceId
+      ? this.resolveWorkspaceBindingId?.(workspaceId)
+      : undefined;
     if (structured && !input.parentInvocationId) {
       throw new Error("structured Session invocation requires parentInvocationId");
     }
     const invocation = this.invocations.submit({
       sessionId: session.sessionId,
+      ...(workspaceBindingId ? { workspaceBindingId } : {}),
       prompt,
       task: {
         type: "session.run",
         sessionId: session.sessionId,
         prompt,
+        ...(workspaceId
+          ? {
+              workspaceId,
+              ...(workspaceBindingId ? { workspaceBindingId } : {}),
+            }
+          : {}),
         ...(session.cwd ? { cwd: session.cwd } : {}),
       },
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
@@ -384,9 +398,14 @@ export class SessionSupervisor {
       receipt,
       now,
     });
-    const redaction = this.invocations.redactSessionPayloads(session.sessionId, {
+    let redaction = this.invocations.redactSessionPayloads(session.sessionId, {
       now: now.toISOString(),
     });
+    const deliveryDeadline = Date.now() + Math.max(0, input.settleTimeoutMs ?? 5_000);
+    while (redaction.blockedInvocationIds.length && Date.now() < deliveryDeadline) {
+      await delay(10);
+      redaction = this.invocations.redactSessionPayloads(session.sessionId);
+    }
     const transcript = session.transcriptRef ?? session.sessionPath;
     if (redaction.blockedInvocationIds.length === 0 && transcript) {
       await this.deleteTranscript(transcript);

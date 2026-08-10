@@ -1422,7 +1422,7 @@ export class SparkInvocationStore {
     const redactedAt = input.now ?? new Date().toISOString();
     const rows = this.db
       .prepare(
-        `SELECT id, status, source_kind, error_code, event_cursor
+        `SELECT id, status, source_kind, error_code, event_cursor, claim_class
          FROM invocations
          WHERE session_id = ?
          ORDER BY created_at, rowid`,
@@ -1433,10 +1433,15 @@ export class SparkInvocationStore {
       source_kind: string | null;
       error_code: string | null;
       event_cursor: number;
+      claim_class: string;
     }>;
     const blockedInvocationIds = rows
       .filter((row) => {
         if (row.status === "queued" || row.status === "running") return true;
+        // Structured children are synchronously returned to and projected by
+        // their parent invocation. They have no independent external delivery
+        // destination, so global delivery consumers must not retain them.
+        if (row.claim_class === "structured") return false;
         return Boolean(
           this.db
             .prepare(

@@ -331,15 +331,17 @@ export class SparkInvocationScheduler {
     let streamedEventCount = 0;
     let restartYieldCommitted = false;
     const rootUsagePersistence =
-      task.type === "loop.evaluate"
+      invocation.claimClass === "structured"
         ? "anonymous"
-        : task.type === "loop.tick"
-          ? task.continuity === "fresh"
-            ? "anonymous"
-            : "persistent"
-          : task.hiddenExecution
-            ? "anonymous"
-            : "persistent";
+        : task.type === "loop.evaluate"
+          ? "anonymous"
+          : task.type === "loop.tick"
+            ? task.continuity === "fresh"
+              ? "anonymous"
+              : "persistent"
+            : task.hiddenExecution
+              ? "anonymous"
+              : "persistent";
     let rootUsageExecution: ReturnType<SparkTokenUsageStore["registerExecution"]> | undefined;
     const pendingUsageRegistrations: Array<Omit<SparkDaemonTokenUsageObservation, "event">> = [];
     const pendingUsageObservations: SparkDaemonTokenUsageObservation[] = [];
