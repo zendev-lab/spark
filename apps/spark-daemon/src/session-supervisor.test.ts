@@ -111,13 +111,35 @@ describe("SessionSupervisor", () => {
 
     const closed = await harness.supervisor.close({
       sessionId: owned.sessionId,
-      summary: { outcome: "implemented", evidenceRefs: ["evidence:kept"] },
+      completion: {
+        source: "domain_completion",
+        status: "completed",
+        code: "task_run_completed",
+        summary: "Implemented the requested change.",
+        evidenceRefs: ["evidence:kept"],
+        artifactRefs: ["artifact:git-change"],
+        sourceInvocationIds: [invocation.invocationId],
+      },
     });
     expect(closed).toMatchObject({
       sessionId: owned.sessionId,
       lifecycle: "closed",
       status: "archived",
     });
+    expect(closed.closeReceipts).toEqual([
+      expect.objectContaining({
+        version: 1,
+        source: "domain_completion",
+        quality: "semantic",
+        status: "completed",
+        code: "task_run_completed",
+        summary: "Implemented the requested change.",
+        incarnation: 1,
+        evidenceRefs: ["evidence:kept"],
+        artifactRefs: ["artifact:git-change"],
+        sourceInvocationIds: [invocation.invocationId],
+      }),
+    ]);
     expect(closed.sessionPath).toBeUndefined();
     expect(closed.transcriptRef).toBeUndefined();
     await expect(access(transcript)).rejects.toMatchObject({ code: "ENOENT" });
@@ -127,10 +149,7 @@ describe("SessionSupervisor", () => {
     expect(retained.result).toBeUndefined();
     expect(retained.payloadRedactedAt).toBeTruthy();
     expect(retained.executionProfile).toMatchObject({ status: "succeeded", claimClass: "root" });
-    expect(retained.retentionSummary).toEqual({
-      outcome: "implemented",
-      evidenceRefs: ["evidence:kept"],
-    });
+    expect(retained.retentionSummary).toEqual({ status: "succeeded", sourceKind: "role.call" });
     expect(harness.invocations.getSummary(invocation.invocationId)).toMatchObject({
       status: "succeeded",
       attemptCount: 1,
@@ -141,6 +160,171 @@ describe("SessionSupervisor", () => {
       kind: "role_run",
       persistence: "anonymous",
     });
+    harness.close();
+  });
+
+  it("downgrades an invalid owner completion to a deterministic fallback", async () => {
+    const harness = await createHarness();
+    const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");
+    const owned = await harness.supervisor.instantiate({
+      workspaceId: "ws-test",
+      role: executorRole,
+      parentSessionId: root.sessionId,
+      owner: { kind: "task_run", ref: "run:invalid-completion" },
+      sessionId: "invalid-completion",
+      purpose: "task_run",
+    });
+    const foreign = harness.invocations.submit({
+      sessionId: root.sessionId,
+      prompt: "foreign prompt",
+      task: { type: "session.run", sessionId: root.sessionId, prompt: "foreign prompt" },
+    });
+    harness.invocations.claimNext("foreign-worker");
+    harness.invocations.complete(foreign.invocationId, { status: "succeeded" });
+    const invocation = harness.invocations.submit({
+      sessionId: owned.sessionId,
+      prompt: "owned prompt",
+      task: { type: "session.run", sessionId: owned.sessionId, prompt: "owned prompt" },
+      sourceKind: "task.run",
+    });
+    harness.invocations.claimNext("owned-worker");
+    harness.invocations.complete(invocation.invocationId, {
+      status: "failed",
+      errorCode: "TASK/FAILED WITH DETAIL",
+      errorMessage: "private failure detail",
+    });
+
+    const closed = await harness.supervisor.close({
+      sessionId: owned.sessionId,
+      completion: {
+        source: "domain_completion",
+        status: "completed",
+        code: "task_run_completed",
+        summary: "This candidate points at another Session.",
+        evidenceRefs: [],
+        artifactRefs: [],
+        sourceInvocationIds: [foreign.invocationId],
+      },
+    });
+    expect(closed.closeReceipts).toEqual([
+      expect.objectContaining({
+        source: "deterministic_fallback",
+        quality: "fallback",
+        status: "failed",
+        code: "task_failed_with_detail",
+        sourceInvocationIds: [invocation.invocationId],
+      }),
+    ]);
+    expect(JSON.stringify(closed.closeReceipts)).not.toContain("private failure detail");
+    harness.close();
+  });
+
+  it("does not propagate an owner completion to child Sessions", async () => {
+    const harness = await createHarness();
+    const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");
+    const parent = await harness.supervisor.instantiate({
+      workspaceId: "ws-test",
+      role: executorRole,
+      parentSessionId: root.sessionId,
+      owner: { kind: "task_run", ref: "run:parent" },
+      sessionId: "owned-parent",
+      purpose: "task_run",
+    });
+    const child = await harness.supervisor.instantiate({
+      workspaceId: "ws-test",
+      role: executorRole,
+      parentSessionId: parent.sessionId,
+      sessionId: "owned-child",
+      purpose: "role_call",
+    });
+    const childInvocation = harness.invocations.submit({
+      sessionId: child.sessionId,
+      prompt: "child",
+      task: { type: "session.run", sessionId: child.sessionId, prompt: "child" },
+    });
+    harness.invocations.claimNext("child-worker");
+    harness.invocations.complete(childInvocation.invocationId, { status: "succeeded" });
+    const parentInvocation = harness.invocations.submit({
+      sessionId: parent.sessionId,
+      prompt: "parent",
+      task: { type: "session.run", sessionId: parent.sessionId, prompt: "parent" },
+    });
+    harness.invocations.claimNext("parent-worker");
+    harness.invocations.complete(parentInvocation.invocationId, { status: "succeeded" });
+
+    const closed = await harness.supervisor.close({
+      sessionId: parent.sessionId,
+      completion: {
+        source: "domain_completion",
+        status: "completed",
+        code: "parent_completed",
+        summary: "Parent summary.",
+        evidenceRefs: [],
+        artifactRefs: [],
+        sourceInvocationIds: [parentInvocation.invocationId],
+      },
+    });
+    expect(closed.closeReceipts?.[0]).toMatchObject({
+      code: "parent_completed",
+      sourceInvocationIds: [parentInvocation.invocationId],
+    });
+    expect((await harness.registry.get(child.sessionId))?.closeReceipts?.[0]).toMatchObject({
+      source: "deterministic_fallback",
+      code: "session_invocation_completed",
+      sourceInvocationIds: [childInvocation.invocationId],
+    });
+    harness.close();
+  });
+
+  it("leaves content intact when receipt persistence fails", async () => {
+    const harness = await createHarness();
+    const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");
+    const transcript = join(harness.root, "persist-failure.jsonl");
+    await writeFile(transcript, '{"content":"secret transcript"}\n', "utf8");
+    const owned = await harness.supervisor.instantiate({
+      workspaceId: "ws-test",
+      role: executorRole,
+      parentSessionId: root.sessionId,
+      owner: { kind: "task_run", ref: "run:persist-failure" },
+      sessionId: "persist-failure",
+      purpose: "task_run",
+      transcriptRef: transcript,
+    });
+    const invocation = harness.invocations.submit({
+      sessionId: owned.sessionId,
+      prompt: "secret prompt",
+      task: { type: "session.run", sessionId: owned.sessionId, prompt: "secret prompt" },
+    });
+    harness.invocations.claimNext("persist-worker");
+    harness.invocations.complete(invocation.invocationId, {
+      status: "succeeded",
+      result: { assistantText: "Semantic close summary." },
+    });
+    const supervisor = new SessionSupervisor({
+      registry: {
+        ...harness.registry,
+        sealCloseReceipt: async () => {
+          throw new Error("receipt persistence failed");
+        },
+      },
+      invocations: harness.invocations,
+      ownerExists: async () => true,
+    });
+
+    await expect(supervisor.close({ sessionId: owned.sessionId })).rejects.toThrow(
+      "receipt persistence failed",
+    );
+    await expect(harness.registry.get(owned.sessionId)).resolves.toMatchObject({
+      lifecycle: "closing",
+      closeReceipts: [],
+    });
+    await expect(access(transcript)).resolves.toBeUndefined();
+    const retained = harness.invocations.require(invocation.invocationId);
+    expect(retained).toMatchObject({
+      prompt: "secret prompt",
+      result: { assistantText: "Semantic close summary." },
+    });
+    expect(retained).not.toHaveProperty("payloadRedactedAt");
     harness.close();
   });
 
@@ -205,21 +389,59 @@ describe("SessionSupervisor", () => {
     harness.close();
   });
 
-  it("finishes an interrupted close during startup reconcile", async () => {
+  it("reconciles every close crash window idempotently", async () => {
     const harness = await createHarness();
     const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");
-    const interrupted = await harness.supervisor.instantiate({
-      workspaceId: "ws-test",
-      role: executorRole,
-      parentSessionId: root.sessionId,
-      owner: { kind: "task_run", ref: "run:interrupted" },
-      sessionId: "interrupted-close",
-      purpose: "task_run",
-    });
-    await harness.registry.markClosing({
-      sessionId: interrupted.sessionId,
-      expectedLifecycle: "open",
-    });
+    const interrupted = [];
+    for (const phase of ["before-seal", "after-seal", "after-redaction", "after-transcript"]) {
+      const transcript = join(harness.root, `${phase}.jsonl`);
+      await writeFile(transcript, '{"content":"temporary"}\n', "utf8");
+      const session = await harness.supervisor.instantiate({
+        workspaceId: "ws-test",
+        role: executorRole,
+        parentSessionId: root.sessionId,
+        owner: { kind: "task_run", ref: `run:${phase}` },
+        sessionId: `interrupted-${phase}`,
+        purpose: "task_run",
+        transcriptRef: transcript,
+      });
+      const invocation = harness.invocations.submit({
+        sessionId: session.sessionId,
+        prompt: `secret ${phase}`,
+        task: { type: "session.run", sessionId: session.sessionId, prompt: `secret ${phase}` },
+      });
+      harness.invocations.claimNext(`${phase}-worker`);
+      harness.invocations.complete(invocation.invocationId, { status: "succeeded" });
+      await harness.registry.markClosing({
+        sessionId: session.sessionId,
+        expectedLifecycle: "open",
+      });
+      if (phase !== "before-seal") {
+        await harness.registry.sealCloseReceipt({
+          sessionId: session.sessionId,
+          expectedIncarnation: 1,
+          expectedLifecycle: "closing",
+          receipt: {
+            version: 1,
+            source: "domain_completion",
+            quality: "semantic",
+            status: "completed",
+            code: "task_run_completed",
+            summary: `Completed ${phase}.`,
+            evidenceRefs: [],
+            artifactRefs: [],
+            sourceInvocationIds: [invocation.invocationId],
+            incarnation: 1,
+            createdAt: "2026-08-10T00:00:00.000Z",
+          },
+        });
+      }
+      if (phase === "after-redaction" || phase === "after-transcript") {
+        harness.invocations.redactSessionPayloads(session.sessionId);
+      }
+      if (phase === "after-transcript") await rm(transcript);
+      interrupted.push({ session, invocation, transcript });
+    }
 
     const restarted = new SessionSupervisor({
       registry: harness.registry,
@@ -227,13 +449,29 @@ describe("SessionSupervisor", () => {
       ownerExists: async () => true,
     });
     const first = await restarted.reconcile({ workspaceIds: ["ws-test"] });
-    expect(first.closedSessionIds).toContain(interrupted.sessionId);
-    expect(await harness.registry.get(interrupted.sessionId)).toMatchObject({
-      lifecycle: "closed",
-      status: "archived",
-    });
+    expect(first.closedSessionIds).toEqual(
+      expect.arrayContaining(interrupted.map(({ session }) => session.sessionId)),
+    );
+    for (const { session, invocation, transcript } of interrupted) {
+      expect(await harness.registry.get(session.sessionId)).toMatchObject({
+        lifecycle: "closed",
+        status: "archived",
+        closeReceipts: [expect.objectContaining({ incarnation: 1 })],
+      });
+      const retained = harness.invocations.require(invocation.invocationId);
+      expect(retained).toMatchObject({
+        payloadRedactedAt: expect.any(String),
+      });
+      expect(retained).not.toHaveProperty("prompt");
+      expect(retained).not.toHaveProperty("task");
+      expect(retained).not.toHaveProperty("result");
+      await expect(access(transcript)).rejects.toMatchObject({ code: "ENOENT" });
+    }
     await restarted.reconcile({ workspaceIds: ["ws-test"] });
-    expect((await harness.registry.get(interrupted.sessionId))?.archiveHistory).toHaveLength(1);
+    for (const { session } of interrupted) {
+      expect((await harness.registry.get(session.sessionId))?.archiveHistory).toHaveLength(1);
+      expect((await harness.registry.get(session.sessionId))?.closeReceipts).toHaveLength(1);
+    }
     harness.close();
   });
 

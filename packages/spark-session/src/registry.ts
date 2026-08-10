@@ -4,6 +4,8 @@ import {
   channelAdapterFromExternalKey,
   normalizeChannelExternalKey,
   parseSparkSessionRegistryRecord,
+  sparkSessionCloseReceiptSchema,
+  SPARK_SESSION_CLOSE_RECEIPT_HISTORY_LIMIT,
   type SparkSessionArchiveEvent,
   type SparkSessionArchiveSource,
   type SparkSessionChannelBinding,
@@ -14,6 +16,7 @@ import {
   type SparkSessionAuthority,
   type SparkSessionLifetime,
   type SparkSessionOwner,
+  type SparkSessionCloseReceipt,
   type SparkSessionRetention,
   type SparkSessionStateBinding,
   type SparkSessionVisibility,
@@ -83,6 +86,14 @@ export interface ArchiveSparkSessionInput {
 export interface TransitionSparkSessionLifecycleInput {
   sessionId: string;
   expectedLifecycle?: "open" | "closing";
+  now?: Date;
+}
+
+export interface SealSparkSessionCloseReceiptInput {
+  sessionId: string;
+  expectedIncarnation: number;
+  expectedLifecycle: "closing";
+  receipt: SparkSessionCloseReceipt;
   now?: Date;
 }
 
@@ -214,6 +225,7 @@ export class SparkSessionRegistry {
       bindings: [],
       tags: [],
       archiveHistory: [],
+      closeReceipts: [],
       createdAt: now,
       updatedAt: now,
       // Task execution sessions are internal run records. Keep their RoleRef
@@ -280,6 +292,7 @@ export class SparkSessionRegistry {
       bindings: [],
       tags: [],
       archiveHistory: [],
+      closeReceipts: [],
       createdAt: now,
       updatedAt: now,
       ...(parent.cwd ? { cwd: parent.cwd } : {}),
@@ -362,6 +375,7 @@ export class SparkSessionRegistry {
       bindings: [],
       tags: [],
       archiveHistory: [],
+      closeReceipts: [],
       createdAt: now,
       updatedAt: now,
       ...(input.cwd?.trim() ? { cwd: input.cwd.trim() } : {}),
@@ -751,6 +765,55 @@ export class SparkSessionRegistry {
       ...current,
       lifecycle: "closing",
       updatedAt: (input.now ?? new Date()).toISOString(),
+    };
+    file.sessions[index] = updated;
+    await this.saveFile(file);
+    return updated;
+  }
+
+  /** Persist one immutable close receipt before any content-bearing store is purged. */
+  async sealCloseReceipt(
+    input: SealSparkSessionCloseReceiptInput,
+  ): Promise<SparkSessionRegistryRecord> {
+    const file = await this.loadFile();
+    const index = file.sessions.findIndex((session) => session.sessionId === input.sessionId);
+    if (index < 0) {
+      throw new SparkSessionRegistryError(
+        "session_not_found",
+        `unknown session: ${input.sessionId}`,
+      );
+    }
+    const current = file.sessions[index]!;
+    const incarnation = current.incarnation ?? 1;
+    const existing = current.closeReceipts?.find(
+      (receipt) => receipt.incarnation === input.expectedIncarnation,
+    );
+    if (existing) return current;
+    if (
+      incarnation !== input.expectedIncarnation ||
+      current.lifecycle !== input.expectedLifecycle ||
+      current.status === "archived"
+    ) {
+      throw new SparkSessionRegistryError(
+        "session_registry_conflict",
+        `session ${input.sessionId} close receipt fence no longer matches incarnation ${input.expectedIncarnation}`,
+      );
+    }
+    const receipt = sparkSessionCloseReceiptSchema.parse(input.receipt);
+    if (receipt.incarnation !== incarnation) {
+      throw new SparkSessionRegistryError(
+        "session_registry_conflict",
+        `session ${input.sessionId} receipt incarnation ${receipt.incarnation} does not match ${incarnation}`,
+      );
+    }
+    const closeReceipts = [...(current.closeReceipts ?? []), receipt].slice(
+      -SPARK_SESSION_CLOSE_RECEIPT_HISTORY_LIMIT,
+    );
+    const sealedAt = (input.now ?? new Date(receipt.createdAt)).toISOString();
+    const updated: SparkSessionRegistryRecord = {
+      ...current,
+      closeReceipts,
+      updatedAt: sealedAt > current.updatedAt ? sealedAt : current.updatedAt,
     };
     file.sessions[index] = updated;
     await this.saveFile(file);
@@ -1241,9 +1304,11 @@ export function migrateSparkSessionRecordToV5(
   session: SparkSessionRegistryRecord,
 ): SparkSessionRegistryRecord {
   const lifecycle = session.lifecycle ?? (session.status === "archived" ? "closed" : "open");
+  const closeReceipts = session.closeReceipts ?? [];
   if (session.relation?.kind === "workspace_main") {
     return {
       ...session,
+      closeReceipts,
       status: lifecycle === "closed" ? "archived" : session.status,
       lifecycle,
       incarnation: session.incarnation ?? 1,
@@ -1265,6 +1330,7 @@ export function migrateSparkSessionRecordToV5(
   if (session.relation?.kind === "side_thread") {
     return {
       ...session,
+      closeReceipts,
       status: lifecycle === "closed" ? "archived" : session.status,
       lifecycle,
       incarnation: session.incarnation ?? 1,
@@ -1289,6 +1355,7 @@ export function migrateSparkSessionRecordToV5(
   if (session.relation?.kind === "task_execution") {
     return {
       ...session,
+      closeReceipts,
       status: lifecycle === "closed" ? "archived" : session.status,
       lifecycle,
       incarnation: session.incarnation ?? 1,
@@ -1309,6 +1376,7 @@ export function migrateSparkSessionRecordToV5(
   const channelBinding = session.bindings.find((binding) => binding.kind === "channel");
   return {
     ...session,
+    closeReceipts,
     status: lifecycle === "closed" ? "archived" : session.status,
     lifecycle,
     incarnation: session.incarnation ?? 1,

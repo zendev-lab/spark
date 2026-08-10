@@ -18,6 +18,7 @@ import {
   type EnsureSparkSideThreadInput,
   type ResetSparkSideThreadInput,
   type ResolveBindingInput,
+  type SealSparkSessionCloseReceiptInput,
   type TransitionSparkSessionLifecycleInput,
 } from "@zendev-lab/spark-session";
 
@@ -39,6 +40,7 @@ export interface DaemonSessionRegistry {
   ): Promise<SparkSessionRegistryRecord>;
   archive(input: string | ArchiveSparkSessionInput): Promise<SparkSessionRegistryRecord>;
   markClosing(input: TransitionSparkSessionLifecycleInput): Promise<SparkSessionRegistryRecord>;
+  sealCloseReceipt(input: SealSparkSessionCloseReceiptInput): Promise<SparkSessionRegistryRecord>;
   restore?(
     sessionId: SparkSessionGetRequest["sessionId"],
     now?: Date,
@@ -131,6 +133,7 @@ export function createSerializedDaemonSessionRegistry(
       mutate(() => registry.unbind(sessionId, externalKey, adapterAccountIdentity)),
     archive: (input) => mutate(() => registry.archive(input)),
     markClosing: (input) => mutate(() => registry.markClosing(input)),
+    sealCloseReceipt: (input) => mutate(() => registry.sealCloseReceipt(input)),
     ...(registry.restore
       ? {
           restore: (sessionId: string, now?: Date) =>
@@ -183,6 +186,7 @@ export function createDaemonSessionRegistry(
       await registry.unbind(sessionId, externalKey, adapterAccountIdentity),
     archive: async (input) => await registry.archive(input),
     markClosing: async (input) => await registry.markClosing(input),
+    sealCloseReceipt: async (input) => await registry.sealCloseReceipt(input),
     restore: async (sessionId, now) => await registry.restore(sessionId, now),
     ensureWorkspaceMain: async (workspaceId) => {
       const cwd = options.resolveWorkspaceCwd?.(workspaceId)?.trim();

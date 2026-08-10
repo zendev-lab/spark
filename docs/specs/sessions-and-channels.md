@@ -41,10 +41,18 @@ only for a closed, public, persistent, retained record whose owner remains
 valid. It reopens the same stable Session ID as a new incarnation and does not
 restore children. Closing `retention=discard_on_close` deletes the exact
 transcript and redacts terminal Invocation prompts, task/result payloads,
-events, and content-bearing errors. Bounded summaries, execution profiles,
-usage, and explicit Evidence remain queryable. Active or undelivered
-Invocations block destructive redaction and leave the Session in `closing` for
-reconcile.
+events, and content-bearing errors. Before deletion, the supervisor validates
+an owner-provided completion candidate or derives a semantic terminal-result
+summary; otherwise it creates a deterministic metadata-only fallback. Registry
+v5 seals the resulting receipt before content removal with first-write-wins CAS
+per Session incarnation and retains the latest 16 incarnations. A seal or
+Registry I/O failure leaves all content intact and the Session in `closing` for
+reconcile; summary-generation failure falls back and does not block cleanup.
+The receipt is Session metadata, not Evidence, and is not injected into a
+parent transcript or copied to Invocation rows. Invocation status, source kind,
+error code, execution profile, usage, the receipt, and explicit Evidence remain
+queryable. Active or undelivered Invocations block destructive redaction and
+leave the Session in `closing` for reconcile.
 
 Local role-managed sessions are named by division of labour, not by the task currently in flight. The registry's `role` field is the canonical stable responsibility and `title` is its compatibility display mirror. Agent-created local sessions must provide that role at creation and reuse the matching session for later tasks; the registry rejects a second active owner of the same normalized role in one workspace. A user-created local session may begin unassigned; its first completed user turn classifies one reusable role and compare-and-set persists both fields. Concrete task text belongs only in `session call` or `session send`.
 

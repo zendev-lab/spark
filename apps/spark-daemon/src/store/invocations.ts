@@ -1415,7 +1415,7 @@ export class SparkInvocationStore {
    */
   redactSessionPayloads(
     sessionId: string,
-    input: { summary?: Record<string, unknown>; now?: string } = {},
+    input: { now?: string } = {},
   ): SparkInvocationPayloadRedactionResult {
     const normalizedSessionId = sessionId.trim();
     if (!normalizedSessionId) throw new Error("sessionId is required for payload redaction");
@@ -1463,13 +1463,11 @@ export class SparkInvocationStore {
           this.db.prepare("DELETE FROM invocation_events WHERE invocation_id = ?").run(row.id)
             .changes,
         );
-        const summary =
-          input.summary ??
-          ({
-            status: row.status,
-            ...(row.source_kind ? { sourceKind: row.source_kind } : {}),
-            ...(row.error_code ? { errorCode: row.error_code } : {}),
-          } satisfies Record<string, unknown>);
+        const summary = {
+          status: row.status,
+          ...(row.source_kind ? { sourceKind: row.source_kind } : {}),
+          ...(row.error_code ? { errorCode: row.error_code } : {}),
+        } satisfies Record<string, unknown>;
         const changed = this.db
           .prepare(
             `UPDATE invocations

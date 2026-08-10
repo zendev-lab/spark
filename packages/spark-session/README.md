@@ -14,8 +14,11 @@ registry and the Invocation SQLite store. It instantiates Role-owned sessions,
 closes children before their owner, completes interrupted closes during startup
 reconcile, and enforces restore eligibility. Closing a
 `retention=discard_on_close` session removes its transcript and Invocation
-content payloads while retaining bounded summaries, execution profiles, usage,
-and separately owned Evidence.
+content payloads only after Registry v5 seals one bounded close receipt for the
+current incarnation. The first successful seal wins across retries; up to 16
+incarnations are retained. Invocation rows keep only their own status, source,
+error code, execution profile, and usage. The Session receipt is queryable
+metadata, not Evidence, and is not copied into every Invocation row.
 
 `session list|get` expose the compatibility status plus canonical lifecycle,
 `surface: local | channel`, `activity: idle | running`, adapter bindings, and

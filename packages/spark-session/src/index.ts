@@ -12,6 +12,7 @@ export {
   type RecordSparkSessionRunInput,
   type RelocateSparkSessionTranscriptInput,
   type ResolveBindingInput,
+  type SealSparkSessionCloseReceiptInput,
   type TransitionSparkSessionLifecycleInput,
   type SparkSessionRegistryFile,
   type SparkSessionRegistryOptions,

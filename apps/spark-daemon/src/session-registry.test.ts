@@ -50,6 +50,7 @@ describe("daemon session registry", () => {
       unbind: (sessionId, externalKey) => track(() => backing.unbind(sessionId, externalKey)),
       archive: (sessionId) => track(() => backing.archive(sessionId)),
       markClosing: (input) => track(() => backing.markClosing(input)),
+      sealCloseReceipt: (input) => track(() => backing.sealCloseReceipt(input)),
       setRoleIfMissing: (sessionId, role) => track(() => backing.setRoleIfMissing(sessionId, role)),
       setModel: (sessionId, model) => track(() => backing.setModel(sessionId, model)),
       setThinkingLevel: (sessionId, thinkingLevel) =>

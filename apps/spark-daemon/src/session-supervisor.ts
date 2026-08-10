@@ -1,10 +1,14 @@
 import { rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import type {
-  SparkSessionOwner,
-  SparkSessionRegistryRecord,
-  SparkSessionRetention,
-  SparkSessionVisibility,
+import {
+  sparkSessionCloseCandidateSchema,
+  sparkSessionCloseReceiptSchema,
+  type SparkSessionCloseCandidate,
+  type SparkSessionCloseReceipt,
+  type SparkSessionOwner,
+  type SparkSessionRegistryRecord,
+  type SparkSessionRetention,
+  type SparkSessionVisibility,
 } from "@zendev-lab/spark-protocol/session-assignment";
 import type { SparkRoleSpec } from "@zendev-lab/spark-protocol/role-session";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
@@ -43,7 +47,7 @@ export interface InvokeSupervisedSessionInput {
 export interface CloseSupervisedSessionInput {
   sessionId: string;
   reason?: string;
-  summary?: Record<string, unknown>;
+  completion?: SparkSessionCloseCandidate;
   now?: Date;
   settleTimeoutMs?: number;
 }
@@ -315,13 +319,27 @@ export class SessionSupervisor {
         if (this.invocations.sessionActivity(child.sessionId).active) {
           return await this.require(current.sessionId);
         }
-        const childRedaction = await this.prepareContentDiscard(child, input);
+        const childRedaction = await this.prepareContentDiscard(child, {
+          sessionId: child.sessionId,
+          ...(input.reason ? { reason: input.reason } : {}),
+          ...(input.now ? { now: input.now } : {}),
+          ...(input.settleTimeoutMs !== undefined
+            ? { settleTimeoutMs: input.settleTimeoutMs }
+            : {}),
+        });
         if (childRedaction?.blockedInvocationIds.length) {
           return await this.require(current.sessionId);
         }
       } else {
         const closedChild = await this.closeRecursive(
-          { ...input, sessionId: child.sessionId },
+          {
+            sessionId: child.sessionId,
+            ...(input.reason ? { reason: input.reason } : {}),
+            ...(input.now ? { now: input.now } : {}),
+            ...(input.settleTimeoutMs !== undefined
+              ? { settleTimeoutMs: input.settleTimeoutMs }
+              : {}),
+          },
           visited,
         );
         if (closedChild.lifecycle !== "closed") return await this.require(current.sessionId);
@@ -351,21 +369,94 @@ export class SessionSupervisor {
     input: CloseSupervisedSessionInput,
   ): Promise<SparkInvocationPayloadRedactionResult | undefined> {
     if (session.retention !== "discard_on_close") return undefined;
+    const now = input.now ?? new Date();
+    const receipt = this.createCloseReceipt(session, input.completion, now);
+    await this.registry.sealCloseReceipt({
+      sessionId: session.sessionId,
+      expectedIncarnation: session.incarnation ?? 1,
+      expectedLifecycle: "closing",
+      receipt,
+      now,
+    });
     const redaction = this.invocations.redactSessionPayloads(session.sessionId, {
-      summary:
-        input.summary ??
-        ({
-          purpose: session.purpose ?? "owned_session",
-          roleRef: session.roleRef ?? "unknown",
-          closed: true,
-        } satisfies Record<string, unknown>),
-      ...(input.now ? { now: input.now.toISOString() } : {}),
+      now: now.toISOString(),
     });
     const transcript = session.transcriptRef ?? session.sessionPath;
     if (redaction.blockedInvocationIds.length === 0 && transcript) {
       await this.deleteTranscript(transcript);
     }
     return redaction;
+  }
+
+  private createCloseReceipt(
+    session: SparkSessionRegistryRecord,
+    completion: SparkSessionCloseCandidate | undefined,
+    now: Date,
+  ): SparkSessionCloseReceipt {
+    const terminal = this.invocations
+      .listPage({
+        sessionId: session.sessionId,
+        limit: 100,
+      })
+      .invocations.filter(isTerminalInvocation)
+      .slice(0, 64);
+
+    if (completion) {
+      const candidate = sparkSessionCloseCandidateSchema.safeParse(completion);
+      if (candidate.success && this.candidateInvocationsBelongToSession(candidate.data, session)) {
+        const semantic = sparkSessionCloseReceiptSchema.safeParse({
+          version: 1,
+          ...candidate.data,
+          quality: "semantic",
+          incarnation: session.incarnation ?? 1,
+          createdAt: now.toISOString(),
+        });
+        if (semantic.success) return semantic.data;
+      }
+      console.warn(
+        `[spark-daemon] Session ${session.sessionId} close completion was invalid; using deterministic fallback`,
+      );
+      return fallbackCloseReceipt(session, terminal, now);
+    }
+
+    const latest = terminal[0];
+    const assistantSummary =
+      latest?.status === "succeeded" ? assistantText(latest.result) : undefined;
+    if (latest && assistantSummary) {
+      const semantic = sparkSessionCloseReceiptSchema.safeParse({
+        version: 1,
+        source: "terminal_result",
+        quality: "semantic",
+        status: "completed",
+        code: "session_terminal_result",
+        summary: assistantSummary,
+        evidenceRefs: [],
+        artifactRefs: [],
+        sourceInvocationIds: [latest.invocationId],
+        incarnation: session.incarnation ?? 1,
+        createdAt: now.toISOString(),
+      });
+      if (semantic.success) return semantic.data;
+      console.warn(
+        `[spark-daemon] Session ${session.sessionId} terminal result exceeded close receipt bounds; using deterministic fallback`,
+      );
+    }
+    return fallbackCloseReceipt(session, terminal, now);
+  }
+
+  private candidateInvocationsBelongToSession(
+    candidate: SparkSessionCloseCandidate,
+    session: SparkSessionRegistryRecord,
+  ): boolean {
+    return candidate.sourceInvocationIds.every((invocationId) => {
+      const invocation = this.invocations.getSummary(invocationId);
+      return Boolean(
+        invocation &&
+        invocation.sessionId === session.sessionId &&
+        invocation.status !== "queued" &&
+        invocation.status !== "running",
+      );
+    });
   }
 
   private async cancelPending(sessionId: string): Promise<void> {
@@ -418,4 +509,77 @@ function required(value: string, field: string): string {
   const normalized = value.trim();
   if (!normalized) throw new Error(`${field} is required`);
   return normalized;
+}
+
+function isTerminalInvocation(invocation: SparkInvocationRecord): boolean {
+  return invocation.status !== "queued" && invocation.status !== "running";
+}
+
+function assistantText(result: unknown): string | undefined {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return undefined;
+  const value = (result as Record<string, unknown>).assistantText;
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, 4_096).trim() : undefined;
+}
+
+function fallbackCloseReceipt(
+  session: SparkSessionRegistryRecord,
+  terminal: SparkInvocationRecord[],
+  now: Date,
+): SparkSessionCloseReceipt {
+  const latest = terminal[0];
+  const status =
+    latest?.status === "failed"
+      ? "failed"
+      : latest?.status === "cancelled"
+        ? "cancelled"
+        : latest?.status === "succeeded"
+          ? "completed"
+          : "cancelled";
+  const code = latest?.errorCode
+    ? normalizeCloseCode(latest.errorCode)
+    : latest?.status === "failed"
+      ? "session_invocation_failed"
+      : latest?.status === "cancelled"
+        ? "session_invocation_cancelled"
+        : latest?.status === "succeeded"
+          ? "session_invocation_completed"
+          : "session_closed_without_invocation";
+  const summary = latest
+    ? `Owned Session closed after its latest invocation ${status} (${latest.sourceKind ?? "unknown_source"}).`
+    : `Owned Session closed before starting an invocation (${session.purpose ?? "owned_session"}).`;
+  const sourceInvocationIds = terminal.map((invocation) => invocation.invocationId);
+  while (sourceInvocationIds.length >= 0) {
+    const parsed = sparkSessionCloseReceiptSchema.safeParse({
+      version: 1,
+      source: "deterministic_fallback",
+      quality: "fallback",
+      status,
+      code,
+      summary,
+      evidenceRefs: [],
+      artifactRefs: [],
+      sourceInvocationIds,
+      incarnation: session.incarnation ?? 1,
+      createdAt: now.toISOString(),
+    });
+    if (parsed.success) return parsed.data;
+    if (sourceInvocationIds.length === 0) break;
+    sourceInvocationIds.pop();
+  }
+  throw new Error(`failed to create deterministic close receipt for ${session.sessionId}`);
+}
+
+function normalizeCloseCode(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9._-]+/gu, "_")
+    .replaceAll(/^_+|_+$/gu, "")
+    .slice(0, 128);
+  return (/^[a-z]/u.test(normalized) ? normalized : `session_${normalized || "failed"}`).slice(
+    0,
+    128,
+  );
 }
