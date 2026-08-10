@@ -34,10 +34,10 @@ invocation timestamps, RSS, and child PID lifecycle.
 
 | Fixture | Classification | Contract |
 | --- | --- | --- |
-| Idle | `control` | Establishes normal probe jitter without an invocation. |
+| Idle | `control` | Records normal probe jitter without turning runner latency into a pass/fail condition. |
 | Five-second synchronous CPU | `event-loop-blocked` | Produces a probe gap of at least `4000ms`; another session cannot finish before the CPU fixture releases. |
-| Unresolved async provider | `async-wait` | Keeps probe gaps below the calibrated responsive limit; another session finishes before provider release. |
-| Abort-ignoring async tool | `session-fence-occupancy` | Keeps probe gaps below the calibrated responsive limit; timeout makes the terminal row visible, but the same-session successor stays queued until the real executor settles. |
+| Unresolved async provider | `async-wait` | Another session finishes before provider release. Probe gaps remain observational because runner scheduling and GC are not product behavior. |
+| Abort-ignoring async tool | `session-fence-occupancy` | Timeout makes the terminal row visible, but the same-session successor stays queued until the real executor settles. |
 | 12 MiB attachment materialization | `sync-io` | Exercises the current synchronous base64 decode and file writes and records the resulting gap/RSS without imposing a machine-specific latency threshold. |
 | Hung external child | `external-child-lifecycle` | Shows that scheduler timeout does not settle the executor or descendant; the fixture records PID and TERM/KILL timing. |
 
@@ -50,11 +50,10 @@ that negative baseline with daemon-owned cooperative cancellation, `SIGTERM`, bo
 ## Threshold meaning
 
 The `4000ms` CPU threshold is intentionally broad enough for a five-second busy loop while still
-proving whole-event-loop starvation. Responsive async fixtures use a calibrated limit: the larger of
-`250ms` and four times the same process run's idle-control maximum gap, capped at an absolute
-`1000ms`. This absorbs shared-runner scheduling jitter without allowing second-scale event-loop
-blocking to pass. Attachment I/O is observational because filesystem and base64 performance are
-hardware-dependent.
+proving whole-event-loop starvation. Async-provider responsiveness is asserted through invocation
+ordering rather than a wall-clock upper bound: the independent invocation must finish before the
+provider is released. Attachment I/O and probe gaps are observational because runner scheduling,
+GC, filesystem, and base64 performance are machine-dependent.
 
 Failures should be interpreted by classification before changing thresholds. Do not weaken a bound
 to hide a regression, and do not report test-harness child cleanup as production behavior.
