@@ -15,6 +15,7 @@ import Terminal from "./Terminal.svelte";
 import TestResults from "./TestResults.svelte";
 import Tool from "./Tool.svelte";
 import WebPreview from "./WebPreview.svelte";
+import WebPreviewBody from "./WebPreviewBody.svelte";
 import WorkbenchPanel from "./WorkbenchPanel.svelte";
 
 const statusLabel = (status: string) => `Status: ${status}`;
@@ -167,10 +168,33 @@ describe("workbench component SSR contracts", () => {
         imageAlt: "Preview",
       },
     }).body;
+    const previewBody = render(WebPreviewBody, {
+      props: { title: "Unsafe", src: "javascript:alert(1)" },
+    }).body;
 
     expect(artifact).not.toContain("href=");
     expect(commit).not.toContain("href=");
     expect(preview).not.toContain("href=");
     expect(preview).not.toContain("iframe");
+    expect(previewBody).not.toContain("iframe");
+  });
+
+  it("embeds only explicit preview documents in an inert iframe", () => {
+    const linked = render(WebPreviewBody, {
+      props: { title: "Owner preview", src: "/preview/owner" },
+    }).body;
+    const rendered = render(WebPreviewBody, {
+      props: {
+        title: "Rendered artifact",
+        documentHtml: "<!doctype html><html><body><h1>Artifact</h1></body></html>",
+      },
+    }).body;
+
+    expect(linked).toContain('src="/preview/owner"');
+    expect(linked).toContain('sandbox=""');
+    expect(linked).toContain('referrerpolicy="no-referrer"');
+    expect(rendered).toContain("srcdoc=");
+    expect(rendered).toContain('sandbox=""');
+    expect(rendered).not.toContain("allow-scripts");
   });
 });

@@ -33,6 +33,7 @@
     Terminal,
     TestResults,
     WebPreview,
+    WebPreviewBody,
     type DiffViewModel,
     type FileTreeEntryView,
     type PlanView,
@@ -142,6 +143,8 @@
       ],
     },
   ];
+  const artifactPreviewDocument =
+    "<!doctype html><html lang='en'><head><title>Artifact preview</title><style>body{font:16px system-ui;padding:2rem;color:#1f2937}small{color:#64748b}</style></head><body><small>Spark artifact</small><h1>UI boundary report</h1><p>Canonical server-rendered preview.</p></body></html>";
   const planSteps: PlanView["steps"] = [
     { id: "types", title: "Define neutral view types", status: "completed" },
     { id: "catalog", title: "Cover catalog states", status: "running" },
@@ -344,6 +347,10 @@
     class="catalog-button secondary"
     disabled={scenario.state === "disabled"}>Reject</button
   >
+{/snippet}
+
+{#snippet artifactPreviewBody()}
+  <WebPreviewBody title="Artifact preview" documentHtml={artifactPreviewDocument} />
 {/snippet}
 
 {#if fixtureId === "message-shell"}
@@ -698,6 +705,7 @@
       }}
       openLabel="Open preview"
       imageAlt="Hub preview screenshot"
+      children={scenario.state === "success" ? artifactPreviewBody : undefined}
     />
   </div>
 {/if}

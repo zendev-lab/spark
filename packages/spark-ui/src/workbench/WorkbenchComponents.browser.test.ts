@@ -8,6 +8,7 @@ import Plan from "./Plan.svelte";
 import StackTrace from "./StackTrace.svelte";
 import TestResults from "./TestResults.svelte";
 import Tool from "./Tool.svelte";
+import WebPreviewBody from "./WebPreviewBody.svelte";
 
 const statusLabel = (status: string) => status;
 
@@ -132,5 +133,20 @@ describe("workbench controlled interactions", () => {
     await secondResults.unmount();
     await firstStack.unmount();
     await secondStack.unmount();
+  });
+
+  it("keeps server-rendered artifact previews in an inert iframe", async () => {
+    const preview = await render(WebPreviewBody, {
+      title: "Artifact preview",
+      documentHtml:
+        "<!doctype html><html lang='en'><head><title>Artifact</title></head><body>Preview</body></html>",
+    });
+    const frame = preview.getByTitle("Artifact preview");
+
+    await expect.element(frame).toBeVisible();
+    expect(frame.element().getAttribute("sandbox")).toBe("");
+    expect(frame.element().getAttribute("referrerpolicy")).toBe("no-referrer");
+
+    await preview.unmount();
   });
 });

@@ -12,6 +12,8 @@ export { default as Terminal } from "./Terminal.svelte";
 export { default as TestResults } from "./TestResults.svelte";
 export { default as Tool } from "./Tool.svelte";
 export { default as WebPreview } from "./WebPreview.svelte";
+export { default as WebPreviewBody } from "./WebPreviewBody.svelte";
+export { default as WebPreviewNavigation } from "./WebPreviewNavigation.svelte";
 export { default as WorkbenchPanel } from "./WorkbenchPanel.svelte";
 export * from "./types";
 export * from "./view";

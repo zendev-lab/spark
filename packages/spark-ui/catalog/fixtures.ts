@@ -262,7 +262,7 @@ export const catalogFixtures: readonly CatalogFixture[] = [
     id: "web-preview",
     group: "workbench",
     title: "Web preview",
-    description: "Screenshot and validated link only; no iframe or code execution.",
+    description: "Composable navigation and inert body for owner-rendered artifact documents.",
     scenarios: [
       { id: "empty", state: "empty", title: "Preview placeholder" },
       { id: "success", state: "success", title: "Validated preview link" },
