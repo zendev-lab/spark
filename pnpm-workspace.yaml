@@ -58,6 +58,9 @@ overrides:
 
 peerDependencyRules:
   allowedVersions:
+    # kysely-codegen 0.20 works with the v13 N-API build; remove this exception
+    # once its published peer range includes better-sqlite3 13.
+    "kysely-codegen>better-sqlite3": "13"
     typescript: "*"
     vite: "*"
     vitest: "*"
