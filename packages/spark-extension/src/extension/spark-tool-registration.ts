@@ -2,6 +2,7 @@ import type {
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
   ExtensionRoleRunner,
+  LeafCapabilityRunner,
   SparkHostLoopContext,
   SparkHostContext,
   SparkSessionLeaseIdentity,
@@ -57,6 +58,8 @@ export interface SparkToolContext {
   model?: SparkSessionModelRef;
   /** Daemon-backed model catalog projection supplied by the native host. */
   modelRegistry?: unknown;
+  /** Optional bounded single-shot model runner supplied by Spark-native hosts. */
+  runLeaf?: LeafCapabilityRunner;
   runRole?: ExtensionRoleRunner;
   roleNativeCompatibilityRecovery?: {
     sparkHome?: string;

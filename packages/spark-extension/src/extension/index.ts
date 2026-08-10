@@ -40,7 +40,6 @@ import {
   sparkExtensionContextProviderStrings,
   sparkExtensionToolCopy,
 } from "./spark-model-prompts.ts";
-import { sessionModelName } from "./session-model.ts";
 import { withSparkToolOperationalNotes } from "./spark-tool-operational-notes.ts";
 import { SparkWorkflowRunManagerController } from "./spark-workflow-run-manager.ts";
 import { registerSparkModeTool } from "./mode/index.ts";
@@ -62,6 +61,7 @@ import { createSparkRoleRegistry } from "./spark-role-registry.ts";
 import {
   SparkRolesReviewerRunner,
   capReviewerThinkingLevel,
+  resolveBuiltinReviewerModel,
   type ReviewerRunner,
 } from "./reviewer-runner.ts";
 import { registerSparkReflectionCommands } from "./reflection-in-session-scheduler.ts";
@@ -214,6 +214,23 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     });
   }
 
+  async function createTaskFinishDeepReviewerRunner(
+    cwd: string,
+    ctx: SparkToolContext,
+  ): Promise<ReviewerRunner> {
+    const provided = await pi.createReviewerRunner?.(cwd, ctx);
+    if (provided) return provided;
+    return new SparkRolesReviewerRunner({
+      registry: await createSparkRoleRegistry(sparkStateCwd(cwd, ctx)),
+      cwd,
+      timeoutMs: 120_000,
+      reviewerThinkingLevel: "low",
+      maxRetries: 0,
+      nativeExecutor: ctx.runRole,
+      nativeExecutorFallback: ctx.roleNativeCompatibilityRecovery,
+    });
+  }
+
   async function answerAskWithReviewer(
     request: unknown,
     askCtx: SparkToolContext,
@@ -252,7 +269,8 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
 
   registerSparkFinishTaskTool(registerSparkImplementationTool, {
     refreshSparkWidget,
-    createReviewerRunner,
+    createReviewerRunner: createTaskFinishDeepReviewerRunner,
+    resolveReviewerModel: (cwd) => resolveBuiltinReviewerModel(cwd),
     taskClaimDaemonClient,
   });
 

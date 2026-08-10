@@ -143,6 +143,22 @@ resolution, Lens, follow-up disposition, Evidence, reviewer bootstrap/model,
 optional reviewer escalation, commit, and post-commit work. Timing is
 observability only and must not change, skip, or relax any completion gate.
 
+For `status=done`, deterministic gates build one bounded review packet before
+commit. The normal reviewer is one tool-free structured leaf call using the
+independently configured `verification` Model Type, no reasoning request, a
+60-second deadline, and no whole-review retry. It may instantiate the canonical
+Reviewer Role Session only after the leaf returns typed `needs_deep_review`.
+A host with no leaf seam may use the explicit compatibility Role fallback;
+configured leaf model, route, or protocol failure instead fails closed.
+
+Task finish Evidence loading is cached within the call and bounded to four
+concurrent reads. The reviewer receives at most five current previews, at most
+3,000 characters per preview and 12,000 preview characters total; additional
+current Evidence remains represented by refs and an omitted count. The Task
+plan projection contains objective, constraints, non-goals, success criteria,
+Evidence requirements, open questions, item counts, and bounded unfinished
+items rather than the full persisted plan object.
+
 ## Hook-projected state
 
 The `spark.todos` context provider may project the current durable TODO snapshot

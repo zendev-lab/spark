@@ -227,6 +227,7 @@ export interface ReviewerRunRecord {
   runName?: string;
   startedAt: string;
   finishedAt: string;
+  model?: string;
   thinking?: ReviewerThinkingLevel;
   stdout?: string;
   stderr?: string;
@@ -312,6 +313,19 @@ export function capReviewerThinkingLevel(value: unknown): ReviewerThinkingLevel 
   return REVIEWER_THINKING_RANK[value] <= REVIEWER_THINKING_RANK.medium
     ? value
     : DEFAULT_REVIEWER_THINKING_LEVEL;
+}
+
+/** Resolve the builtin reviewer's semantic verification model without starting a Role Session. */
+export async function resolveBuiltinReviewerModel(cwd: string): Promise<string | undefined> {
+  const resolved = await resolveRoleModelSetting({
+    roleRef: builtinRoleRef("reviewer"),
+    modelType: "verification",
+    roleId: "reviewer",
+    roleName: "reviewer",
+    projectStore: defaultProjectRoleModelSettingsStore(cwd),
+    userStore: defaultUserRoleModelSettingsStore(),
+  });
+  return resolved?.model;
 }
 
 function isReviewerThinkingLevel(value: unknown): value is ReviewerThinkingLevel {
@@ -999,6 +1013,7 @@ function roleRunRecord(
     runName: result.record.runName,
     startedAt: result.record.startedAt ?? fallbackStartedAt,
     finishedAt: result.record.finishedAt ?? fallbackFinishedAt,
+    ...(result.record.model ? { model: result.record.model } : {}),
     thinking: result.record.thinking,
     stdout: result.stdout,
     stderr: result.stderr,
@@ -1100,7 +1115,7 @@ function reviewerFailureResult(input: {
   };
 }
 
-function reviewerVerdictProtocolIssue(
+export function reviewerVerdictProtocolIssue(
   input: ReviewInput,
   verdict: ReviewerVerdict,
 ): string | undefined {
