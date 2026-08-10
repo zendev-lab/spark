@@ -56,7 +56,7 @@ overrides:
   hono: 4.13.1
   '@modelcontextprotocol/sdk>@hono/node-server': 2.1.0
   '@sveltejs/kit>cookie': 0.7.2
-  miniflare>undici: 7.29.0
+  miniflare>undici: 8.10.0
   postcss: 8.5.26
   ajv>fast-uri: 4.1.2
   minimatch>brace-expansion: 5.0.9
@@ -7910,10 +7910,6 @@ packages:
   undici-types@8.3.0:
     resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
-  undici@7.29.0:
-    resolution: {integrity: sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw==}
-    engines: {node: '>=20.18.1'}
-
   undici@8.10.0:
     resolution: {integrity: sha512-HvltHd7avK13QIw/oLe4qoOLyoVSoafqJ2jYOrtMRBkbYT31eiBQ8O0ehRKZiEZCMEyLFQNIADpgCWC5fALvYQ==}
     engines: {node: '>=22.19.0'}
@@ -14369,7 +14365,7 @@ snapshots:
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       sharp: 0.35.2
-      undici: 7.29.0
+      undici: 8.10.0
       workerd: 1.20260801.1
       ws: 8.21.0
       youch: 4.1.0-beta.10
@@ -15728,8 +15724,6 @@ snapshots:
   undici-types@7.18.2: {}
 
   undici-types@8.3.0: {}
-
-  undici@7.29.0: {}
 
   undici@8.10.0: {}
 
