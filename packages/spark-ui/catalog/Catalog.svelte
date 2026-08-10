@@ -49,13 +49,11 @@
 </script>
 
 {#snippet assistantMessage()}
-  <p class="assistant-content">
-    Spark keeps presentation state local while the daemon remains the execution owner.
-  </p>
+  <p class="assistant-content">The daemon owns execution; Spark UI owns presentation.</p>
 {/snippet}
 
 {#snippet messageActions()}
-  <MessageActions text="Spark keeps presentation state local." copyLabel="Copy" copiedLabel="Copied" />
+  <MessageActions text="The daemon owns execution." copyLabel="Copy" copiedLabel="Copied" />
 {/snippet}
 
 <main

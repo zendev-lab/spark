@@ -36,6 +36,7 @@ describe("Spark UI component catalog", () => {
   });
 
   it("keeps the dark RTL mobile catalog visually stable", async () => {
+    await page.viewport(420, 900);
     const screen = await render(Catalog, {
       theme: "dark",
       direction: "rtl",
