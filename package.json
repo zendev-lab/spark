@@ -97,8 +97,8 @@
   },
   "devDependencies": {
     "@codspeed/vitest-plugin": "5.7.1",
-    "@earendil-works/pi-coding-agent": "^0.83.0",
-    "@j178/prek": "0.4.11",
+    "@earendil-works/pi-coding-agent": "^0.84.0",
+    "@j178/prek": "0.4.12",
     "@types/node": "^26.1.1",
     "@zendev-lab/spark-daemon-client": "workspace:*",
     "@zendev-lab/spark-lens": "workspace:^",
@@ -121,7 +121,7 @@
     "node": ">=26.0.0 <27",
     "pnpm": ">=11 <12"
   },
-  "packageManager": "pnpm@11.18.0",
+  "packageManager": "pnpm@11.20.0",
   "pi": {
     "extensions": [
       "./packages/spark-ask/src/extension-entry.ts",
