@@ -4,7 +4,9 @@ Status: proposed
 
 This specification defines the canonical execution trace for Spark Agent runs. The immediate goal is trustworthy recording: every model interaction, Skill routing/load attempt, and Tool call must be attributable, terminal, replayable, privacy-safe, and structurally checkable.
 
-Autonomous improvement is a future consumer of this data. It is deliberately not part of this specification.
+Autonomous improvement is a future consumer of this data. Its downstream
+validation boundary is constrained below, but its schemas and runtime behavior
+are deliberately not part of this specification.
 
 ## Why
 
@@ -394,6 +396,63 @@ No parallel trace database or second write-ahead lifecycle is required for the e
 
 An optional future OTLP exporter may map retained Spark events to OpenTelemetry, but exporter failure must never fail the originating Agent run.
 
+## Downstream validation and improvement boundary
+
+Trace is evidence about execution, not a test verdict. A downstream evaluation
+must combine a frozen Scenario and oracle with the Trace, authoritative domain
+state, Artifacts/Evidence, and any external verifier result needed to prove the
+outcome. It must not infer correctness from transcript text or treat a
+structurally valid Trace as proof that the task succeeded.
+
+Spark separates deterministic correctness from behavioral quality:
+
+| Lane | Responsibility | Initial merge effect |
+| --- | --- | --- |
+| CI | Prove repeatable invariants: Trace schema/completeness/privacy, replay and deduplication, deterministic Golden Journeys with scripted providers, and focused mutation tests | Blocking |
+| CE | Measure behavior: Trace analysis, repeated or real/varied-model Journeys, robustness and variance, latency/token/Tool/Skill efficiency, and broad high-cost mutation campaigns | Non-blocking |
+
+A Golden Journey Scenario and its oracle are shared inputs rather than
+lane-specific copies. The driver selects the lane:
+
+- a deterministic driver uses fixed inputs and controlled substitutes to prove
+  production wiring and invariants in CI;
+- a behavioral driver uses repeated, varied, or real-model execution to measure
+  quality and variance in CE.
+
+Each Journey evaluation keeps four conclusions distinct:
+
+- **Outcome**: whether the task's externally verifiable result is correct;
+- **Safety**: whether ownership, policy, privacy, and exactly-once invariants
+  held;
+- **Recovery**: whether restart, replay, and resume preserved one logical run;
+- **Quality**: whether the successful or failed path was efficient and
+  behaviorally acceptable.
+
+One aggregate `passed` flag must not erase these distinctions. Outcome, safety,
+and recovery may block CI when their deterministic oracles fail. Quality is a
+CE signal until an explicit, reproducible budget is promoted into a CI
+invariant.
+
+Autonomous improvement consumes only evaluated evidence. Its governing rule is:
+
+> Reflection produces a hypothesis; Evaluation produces evidence; Promotion
+> requires evidence.
+
+An improvement candidate must first pass deterministic CI without weakening an
+existing invariant. Behavioral promotion then requires comparative CE over a
+frozen Scenario set, evaluator version, runtime/prompt/Skill/Tool-profile
+identity, and explicit regression budget. A single favorable Trace or model
+reflection is insufficient.
+
+Initial autonomous output is limited to an Issue, Artifact, or Draft PR. Tool
+implementation, permissions/approval policy, destructive or external-write
+behavior, telemetry scope, database migrations, and autonomous control logic
+remain human-approved changes. Trace collection, evaluation, and reporting
+must never modify production behavior directly.
+
+This section constrains future consumers. It does not add feedback, evaluation,
+proposal, canary, or promotion protocol types in the tracing slice.
+
 ## Completed-trace validation
 
 `validateCompletedSparkAgentTrace()` checks structural invariants over a terminal, ordered trace.
@@ -465,7 +524,30 @@ Only after recording is proven complete:
 - latency and completeness diagnostics;
 - operator-facing trace inspection.
 
-Feedback, evaluation, aggregation for self-improvement, and automated proposal generation remain later work.
+### PR 5: deterministic Journey evaluation
+
+Only after runtime emission and replay are proven complete:
+
+- derive Journey milestones from Trace and authoritative owner state rather
+  than constructing test-only success rows;
+- reuse frozen Scenario/oracle definitions with a deterministic driver;
+- report Outcome, Safety, Recovery, and Quality separately;
+- make deterministic correctness failures blocking CI.
+
+### PR 6: behavioral CE and improvement proposals
+
+Only after deterministic Journey evaluation is trustworthy:
+
+- run repeated or real/varied-model Journeys through the same Scenario/oracle
+  definitions;
+- aggregate variance, quality, cost, and failure signatures without averaging
+  away failed samples;
+- generate evidence-linked hypotheses and Draft PR candidates;
+- require deterministic CI plus comparative CE evidence before any canary or
+  promotion.
+
+Feedback, evaluation schemas, aggregation, proposal generation, and promotion
+remain later work rather than tracing protocol surface.
 
 ## Acceptance criteria
 
