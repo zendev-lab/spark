@@ -999,7 +999,7 @@ function renderWorkflowRunLiveUpdateText(
 }
 
 function renderWorkflowRunStartedText(source: string, run: SparkDynamicWorkflowRunRecord): string {
-  const controlHint = `inspect: task_read({ action: "run_status", runAction: "inspect", runRef: "${run.ref}" }) · controls: pause/resume/stop/restart/save via task_read run_status`;
+  const controlHint = `inspect: task_read({ action: "run_status", runAction: "inspect", runRef: "${run.ref}" }) · public controls: workflow({ action: "runs", runRef: "${run.ref}", runAction: ... })`;
   return [
     `Workflow run started: ${source}`,
     `╭─ Workflow ${run.meta.name} [running]`,

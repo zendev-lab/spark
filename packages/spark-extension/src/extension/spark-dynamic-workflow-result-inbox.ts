@@ -72,7 +72,7 @@ function formatSparkDynamicWorkflowDeliveryLine(
     delivery.resultPreview ??
     delivery.errorMessage ??
     (delivery.status === "succeeded" ? "completed" : "failed");
-  return `${label}: ${delivery.runRef} [${delivery.status}] ${delivery.name} · ${payload} · ack with task_read({ action: "run_status", runAction: "ack", runRef: "${delivery.runRef}" })`;
+  return `${label}: ${delivery.runRef} [${delivery.status}] ${delivery.name} · ${payload} · ack with workflow({ action: "runs", runAction: "ack", runRef: "${delivery.runRef}" })`;
 }
 
 function compact(value: string, max: number): string {

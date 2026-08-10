@@ -36,9 +36,9 @@ store、权限和生命周期。工具不能把文件路径、transcript 陈述�
 
 ## 替换 Task 依赖
 
-`task_write({ action: "replace_dependencies" })` 会原子替换一个既有 Task 的完整依赖
-集合。调用时必须且只能传入 `task` 或 `taskRef` 之一，并且始终传入 `dependsOn`；
-空数组表示清除全部依赖。依赖 selector 可以是精确 Task ref、名称或标题。
+`task_write({ action: "replace_dependencies", taskRef, dependsOn })` 会原子替换一个
+既有 Task 的完整依赖集合；空 `dependsOn` 数组表示清除全部依赖。selector 可以是精确
+Task ref、名称或标题；旧 `task` 拼写只保留为受限 decoder 输入，不再作为模型字段。
 
 该 action 只允许修改依赖，禁止在同一次调用中混入 Task 创建、metadata、plan 或
 status 变更。未知或歧义 selector、已取消或跨 Project 的前置 Task、自依赖和循环依赖
@@ -61,6 +61,14 @@ Role 与 Skill Agent 子 Session 通过语义 Model Type 选择模型。缺少�
 是 Session 运维元数据，不是 Evidence。
 
 父 Session 仍负责拆解、持久协调、验证重要结论和面向用户的综合。
+
+## Task 与 Workflow 所有权
+
+`task_read` 严格只读；其 `run_status` 只接受 `status`、`list` 和 `inspect`。
+WorkflowRun 的 reconcile、ack、输入投递和终止统一使用
+`workflow({ action: "runs", runAction: ... })`。`assign` 表示显式派发：模型可以选择
+`taskRefs`，而 concurrency、timeout 与 preview 策略由 host 持有，不再作为每次调用的
+scheduler 参数。
 
 ## Task finish 审查
 

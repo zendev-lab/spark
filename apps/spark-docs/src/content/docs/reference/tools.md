@@ -39,10 +39,11 @@ into either one.
 
 ## Replacing Task dependencies
 
-`task_write({ action: "replace_dependencies" })` atomically replaces the complete
-dependency set of one existing Task. Pass exactly one of `task` or `taskRef`,
-and always pass `dependsOn`; an empty array clears every dependency. Dependency
-selectors may be exact Task refs, names, or titles.
+`task_write({ action: "replace_dependencies", taskRef, dependsOn })` atomically
+replaces the complete dependency set of one existing Task. An empty `dependsOn`
+array clears every dependency. Selectors may be exact Task refs, names, or
+titles; the legacy `task` spelling remains a bounded decoder input rather than a
+model-facing field.
 
 This action is dependency-only. It rejects Task creation and metadata, plan, or
 status mutations in the same call. Unknown or ambiguous selectors, cancelled or
@@ -70,6 +71,15 @@ receipt is operational Session metadata rather than Evidence.
 
 The parent Session remains responsible for decomposition, durable coordination,
 verification of consequential claims, and user-facing synthesis.
+
+## Task and Workflow ownership
+
+`task_read` is read-only. Its `run_status` action accepts only `status`, `list`,
+and `inspect`; WorkflowRun reconciliation, acknowledgement, input delivery, and
+termination use `workflow({ action: "runs", runAction: ... })`. `assign` is an
+explicit dispatch request: model-facing callers may select `taskRefs`, while
+concurrency, timeout, and preview policy remain host-owned rather than becoming
+per-call scheduler knobs.
 
 ## Task finish review
 

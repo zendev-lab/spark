@@ -949,7 +949,7 @@ function describeGoalProjectRelationship(
         ? "Durable goal exists, but no current project is selected; inspect, select, or create a project before claiming project tasks."
         : "No durable goal exists and no current project is selected; use current project/task context only as background hints.",
       recommendedAction: hasGoal
-        ? 'task_write({ action: "project_use", project }) or task_write({ action: "project_use", title, description })'
+        ? 'task_write({ action: "project_use", projectRef: project }) or task_write({ action: "project_use", title, description })'
         : 'Inspect projects with task_read({ action: "project_list" }) or start a goal with goal({ action: "start", objective }).',
     };
   }

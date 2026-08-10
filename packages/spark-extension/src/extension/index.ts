@@ -323,8 +323,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
 
   registerSparkWorkflowTool(
     {
-      registerTool: (config) =>
-        registerSparkImplementationTool(config as SparkRegisteredToolConfig),
+      registerTool: (config) => registerSparkTool(config as SparkRegisteredToolConfig),
     },
     {
       run: async (params, signal, onUpdate, hostContext) => {
@@ -337,6 +336,18 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
           hostContext as SparkToolContext,
         );
       },
+      runs: async (params, signal, onUpdate, hostContext) =>
+        executeSparkImplementationTool(
+          (name) => registeredSparkTools.get(name),
+          "impl_workflow_runs",
+          {
+            toolCallId: "workflow-runs",
+            params,
+            signal,
+            onUpdate,
+            ctx: hostContext,
+          },
+        ),
       tick: async (hostContext) => {
         const ctx = hostContext as SparkToolContext;
         if (!ctx.loop?.binding.workflowRunId)
@@ -466,7 +477,14 @@ function createSparkTaskHandlers(resolveTool: SparkImplementationResolver): Spar
         onUpdate,
         ctx,
       }),
-    assign: direct("impl_run_ready_tasks"),
+    assign: ({ toolCallId, params, signal, onUpdate, ctx }) =>
+      executeSparkImplementationTool(resolveTool, "impl_run_ready_tasks", {
+        toolCallId,
+        params: { taskRefs: params.taskRefs, dryRun: false },
+        signal,
+        onUpdate,
+        ctx,
+      }),
     cache_cleanup: ({ toolCallId, params, signal, onUpdate, ctx }) =>
       executeSparkImplementationTool(resolveTool, "impl_state", {
         toolCallId,
@@ -520,34 +538,11 @@ function normalizeTaskPlanUpdateScope(value: unknown): "task" {
   throw new Error('task.scope must be "task" for plan_update');
 }
 
-function normalizeTaskRunStatusAction(
-  value: unknown,
-):
-  | "status"
-  | "list"
-  | "inspect"
-  | "reconcile"
-  | "kill"
-  | "reply"
-  | "steer"
-  | "ack"
-  | "kill_active" {
+function normalizeTaskRunStatusAction(value: unknown): "status" | "list" | "inspect" {
   if (value === undefined || value === null) return "status";
-  if (
-    value === "status" ||
-    value === "list" ||
-    value === "inspect" ||
-    value === "reconcile" ||
-    value === "kill" ||
-    value === "reply" ||
-    value === "steer" ||
-    value === "ack" ||
-    value === "kill_active"
-  ) {
-    return value;
-  }
+  if (value === "status" || value === "list" || value === "inspect") return value;
   throw new Error(
-    "task.runAction must be status, list, inspect, reconcile, kill, reply, steer, ack, or kill_active for run_status",
+    'task_read run_status is read-only and runAction must be status, list, or inspect; use workflow({ action: "runs", runAction: ... }) for WorkflowRun mutations',
   );
 }
 

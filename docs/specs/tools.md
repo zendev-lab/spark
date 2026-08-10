@@ -33,7 +33,8 @@ over copied prose.
   `skill_agent` instantiates one owned child Session and does not create a
   parallel Agent lifecycle.
 - `mode`, `goal`, `loop`, `workflow`, and `repro` bind capability contracts to
-  daemon-owned continuation. They do not create another executor or timer.
+  daemon-owned continuation. `workflow` also owns public WorkflowRun inspection
+  and control. They do not create another executor or timer.
 - Files, Cue execution, Web reads, Git delivery, Fusion, and Graft retain their
   package/domain owners. Optional capabilities do not become default authority
   merely by being registered.
@@ -93,10 +94,14 @@ post-compaction hooks. Prompt instructions are not an enforcement boundary.
 
 ## Task and assignment invariants
 
-New and claimed Tasks require an objectively verifiable plan. `assign` dispatches
-only an admissible ready frontier and dry-runs by default. Repro-owned dispatch
-must use the verified safe frontier and fail closed when it cannot prove that
-frontier.
+New and claimed Tasks require an objectively verifiable plan. Public
+`task_write` uses action-discriminated payloads and exposes only canonical ref
+selectors; compatibility aliases remain decoder-only. `task_read` is strictly
+read-only, including `run_status`; WorkflowRun mutations use `workflow`
+`action=runs`. `assign` is an explicit dispatch request and exposes only an
+optional `taskRefs` allowlist. Concurrency, timeout, and preview policy are
+host-owned. Repro-owned dispatch must use the verified safe frontier and fail
+closed when it cannot prove that frontier.
 
 Task execution policy uses `sessionLifetime=task_run | task_revision` and may
 constrain isolation, comparison side,

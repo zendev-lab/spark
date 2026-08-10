@@ -439,7 +439,7 @@ function renderDuplicateProjectBlockedMessage(
     "Candidates:",
     candidateLines,
     "Next steps:",
-    '- Select the existing Project with task_write({ action: "project_use", project: <candidate ref or title> }) when it is the same work.',
+    '- Select the existing Project with task_write({ action: "project_use", projectRef: <candidate ref or title> }) when it is the same work.',
     "- Ask the user which Project to use when the match is ambiguous.",
     "- Retry creation only with a clearer differentiated title/description for genuinely new work.",
     "- No destructive merge, task move, or Evidence/Artifact relink is performed; selecting an existing Project is the merge-like action in this slice.",

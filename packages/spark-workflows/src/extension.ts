@@ -9,7 +9,7 @@ import {
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import { listSavedWorkflows, readSavedWorkflow, type WorkflowDescriptor } from "./index.ts";
 
-export type SparkWorkflowAction = "list" | "read" | "run" | "tick";
+export type SparkWorkflowAction = "list" | "read" | "run" | "runs" | "tick";
 
 export interface SparkWorkflowHostApi {
   registerTool(config: ToolConfig): void;
@@ -18,6 +18,17 @@ export interface SparkWorkflowHostApi {
 export interface SparkWorkflowToolDeps {
   /** Product-owned execution adapter. Public callers provide a saved selector, never source. */
   run?: (
+    params: Record<string, unknown>,
+    signal: AbortSignal,
+    onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void,
+    ctx: SparkHostContext,
+  ) => Promise<{
+    content: Array<{ type: "text"; text: string }>;
+    details?: Record<string, unknown>;
+    isError?: boolean;
+  }>;
+  /** Product-owned WorkflowRun inspection and control adapter. */
+  runs?: (
     params: Record<string, unknown>,
     signal: AbortSignal,
     onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void,
@@ -55,11 +66,12 @@ export function registerSparkWorkflowTool(
     name: "workflow",
     label: "Workflow",
     description:
-      "Canonical workflow tool. List, read, or run controlled WORKFLOW.md definitions; a daemon-bound Loop may also advance its active WorkflowRun with tick.",
+      "Canonical workflow and WorkflowRun capability. List, read, or run controlled WORKFLOW.md definitions; inspect/control runs with action=runs; a daemon-bound Loop may advance its active run with tick.",
     promptGuidelines: [
       "Use workflow action=run with a builtin:/workspace:/user: selector; raw JavaScript workflow source is rejected.",
       "Do not pass inline workflow source or arbitrary paths; use builtin:<id>, workspace:<id>, or user:<id> selectors.",
       "Execute workflows through the host's explicit workflow command/runtime, not by evaluating scripts from this tool.",
+      "Use action=runs for WorkflowRun status and lifecycle control. task_read run_status is read-only compatibility inspection.",
       "workflow action=tick is internal to a daemon-owned Workflow Loop and is rejected in ordinary turns.",
     ],
     policy: workflowToolPolicy("read", ["plan", "execute", "fleet"]),
@@ -69,24 +81,50 @@ export function registerSparkWorkflowTool(
         ? workflowToolPolicy("read", ["plan", "execute", "fleet"])
         : workflowToolPolicy("external_write", ["plan", "execute"]);
     },
-    parameters: Type.Object({
-      action: Type.String({ description: "list | read | run | tick" }),
-      selector: Type.Optional(
-        Type.String({ description: "builtin:<id>, workspace:<id>, or user:<id> for read." }),
-      ),
-      includeUser: Type.Optional(
-        Type.Boolean({ description: "Include user workflows. Defaults to true." }),
-      ),
-      maxChars: Type.Optional(Type.Number({ description: "For read: script preview max chars." })),
-      limit: Type.Optional(
-        Type.Number({ description: "For list: maximum workflow rows. Default 20." }),
-      ),
-      args: Type.Optional(Type.Any({ description: "For run: JSON arguments." })),
-      concurrency: Type.Optional(Type.Number({ description: "For run: bounded concurrency." })),
-      maxAgents: Type.Optional(Type.Number({ description: "For run: maximum agent calls." })),
-      tokenBudget: Type.Optional(Type.Number({ description: "For run: token ceiling." })),
-      wait: Type.Optional(Type.Boolean({ description: "For run: wait for terminal result." })),
-    }),
+    parameters: Type.Object(
+      {
+        action: Type.Union([
+          Type.Literal("list"),
+          Type.Literal("read"),
+          Type.Literal("run"),
+          Type.Literal("runs"),
+          Type.Literal("tick"),
+        ]),
+        selector: Type.Optional(
+          Type.String({ description: "Controlled workflow selector for read/run." }),
+        ),
+        includeUser: Type.Optional(Type.Boolean()),
+        maxChars: Type.Optional(Type.Number()),
+        limit: Type.Optional(Type.Number()),
+        args: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+        concurrency: Type.Optional(Type.Number()),
+        maxAgents: Type.Optional(Type.Number()),
+        tokenBudget: Type.Optional(Type.Number()),
+        wait: Type.Optional(Type.Boolean()),
+        runAction: Type.Optional(
+          Type.Union([
+            Type.Literal("status"),
+            Type.Literal("list"),
+            Type.Literal("inspect"),
+            Type.Literal("kill"),
+            Type.Literal("reply"),
+            Type.Literal("steer"),
+            Type.Literal("reconcile"),
+            Type.Literal("ack"),
+            Type.Literal("kill_active"),
+          ]),
+        ),
+        runRef: Type.Optional(Type.String()),
+        taskRef: Type.Optional(Type.String()),
+        projectRef: Type.Optional(Type.String()),
+        includeHistory: Type.Optional(Type.Boolean()),
+        signal: Type.Optional(Type.String()),
+        forceAfterMs: Type.Optional(Type.Number()),
+        all: Type.Optional(Type.Boolean()),
+        message: Type.Optional(Type.String()),
+      },
+      { additionalProperties: false },
+    ),
     renderCall(args, theme) {
       return renderWorkflowCall(args, theme);
     },
@@ -119,6 +157,18 @@ export function registerSparkWorkflowTool(
         }
         const selector = requiredString(params.selector, "selector");
         return await deps.run({ ...params, selector }, signal, onUpdate, ctx);
+      }
+      if (action === "runs") {
+        if (!deps.runs)
+          return {
+            content: [
+              { type: "text" as const, text: "workflow run control is unavailable in this host." },
+            ],
+            details: { error: "workflow_runs_unavailable" },
+            isError: true,
+          };
+        const { action: _action, runAction, ...rest } = params;
+        return await deps.runs({ ...rest, action: runAction ?? "status" }, signal, onUpdate, ctx);
       }
       const includeUser = normalizeBoolean(params.includeUser, true, "includeUser");
       if (action === "list") {
@@ -200,8 +250,15 @@ function workflowToolPolicy(
 }
 
 function normalizeWorkflowAction(value: unknown): SparkWorkflowAction {
-  if (value === "list" || value === "read" || value === "run" || value === "tick") return value;
-  throw new Error("workflow.action must be list, read, run, or tick");
+  if (
+    value === "list" ||
+    value === "read" ||
+    value === "run" ||
+    value === "runs" ||
+    value === "tick"
+  )
+    return value;
+  throw new Error("workflow.action must be list, read, run, runs, or tick");
 }
 
 function normalizeBoolean(value: unknown, fallback: boolean, field: string): boolean {

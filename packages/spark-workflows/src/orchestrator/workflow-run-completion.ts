@@ -102,12 +102,12 @@ function workflowRunNextActions(run: WorkflowRunRecord): string[] {
     );
   } else if (run.status === "stale") {
     nextActions.push(
-      'stale: run task_read({ action: "run_status", runAction: "reconcile" }) and compare background records with task runs/claims; the manager lost track of child process completion.',
+      'stale: run workflow({ action: "runs", runAction: "reconcile" }) and compare background records with task runs/claims; the manager lost track of child process completion.',
       "stale: preserve useful evidence, resolve known stale failures in the task graph, then retry assignment only after the task graph state is consistent.",
     );
   } else if (run.status === "timed_out") {
     nextActions.push(
-      'timed_out: historical foreground timeout record; inspect task_read({ action: "run_status" }) for active child runs or reconcile before retrying.',
+      'timed_out: historical foreground timeout record; inspect task_read({ action: "run_status" }) for active child runs or call workflow({ action: "runs", runAction: "reconcile" }) before retrying.',
       "timed_out: if child work is still active, stop stuck children through explicit host run-management controls only when you intend to cancel them.",
     );
   }

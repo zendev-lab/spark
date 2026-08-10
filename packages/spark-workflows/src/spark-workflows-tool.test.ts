@@ -91,6 +91,31 @@ test("workflow tool rejects inline/freeform selectors", async () => {
   );
 });
 
+test("workflow tool routes WorkflowRun control through the product adapter", async () => {
+  const tools = new Map<string, ToolConfig>();
+  const calls: Record<string, unknown>[] = [];
+  registerSparkWorkflowTool(
+    {
+      registerTool: (config) => tools.set(config.name, config as ToolConfig),
+    },
+    {
+      runs: async (params) => {
+        calls.push(params);
+        return { content: [{ type: "text", text: "run control delegated" }], details: params };
+      },
+    },
+  );
+
+  const result = await executeTool(tools, "workflow", {
+    action: "runs",
+    runAction: "kill",
+    runRef: "run:child",
+    signal: "SIGTERM",
+  });
+  assert.equal(toolText(result), "run control delegated");
+  assert.deepEqual(calls, [{ action: "kill", runRef: "run:child", signal: "SIGTERM" }]);
+});
+
 function executeTool(
   tools: Map<string, ToolConfig>,
   name: string,
