@@ -1264,6 +1264,10 @@ export async function runSparkCli(
         currentSessionOptions = runtimeOptionsForSparkSession(command.options, result.sessionId);
         initialMessage = undefined;
         hasLaunchedTui = true;
+        if (result.newSessionId) {
+          selectionOptions = runtimeOptionsForSparkSession(command.options, result.newSessionId);
+          continue;
+        }
         if (!result.sessionSelectorRequested) return 0;
         selectionOptions = runtimeOptionsWithoutSparkSessionTarget(command.options);
       }
@@ -1273,7 +1277,12 @@ export async function runSparkCli(
 
 type SparkCliTuiSelectionResult =
   | { cancelled: true }
-  | { cancelled?: false; sessionId: string; sessionSelectorRequested: boolean };
+  | {
+      cancelled?: false;
+      sessionId: string;
+      sessionSelectorRequested: boolean;
+      newSessionId?: string;
+    };
 
 async function runSparkCliTuiSelection(input: {
   command: Extract<SparkCliCommand, { kind: "tui" }>;
@@ -1466,6 +1475,7 @@ async function runSparkCliTuiSelection(input: {
       },
     };
     let sessionSelectorRequested = false;
+    let newSessionId: string | undefined;
     const runTui = options.runTui ?? runNativeSparkTui;
     const attachSessionClient = options.attachSessionClient ?? attachSparkWorkspaceSessionClient;
     const sessionHeartbeat = await attachSessionClient(daemonClient, {
@@ -1518,6 +1528,20 @@ async function runSparkCliTuiSelection(input: {
           ensureCurrentSession,
           () => {
             sessionSelectorRequested = true;
+          },
+          async () => {
+            const session = await clientCreateManagedSession(
+              {
+                scope: { kind: "workspace", workspaceId: lease.workspace.id },
+                workspaceId: lease.workspace.id,
+                cwd: sessionCwd,
+                ...(selectedManagedSession.cwdArtifactRef
+                  ? { cwdArtifactRef: selectedManagedSession.cwdArtifactRef }
+                  : {}),
+              },
+              daemonClient,
+            );
+            newSessionId = session.sessionId;
           },
         ),
         autocompleteBasePath: sessionCwd,
@@ -1588,7 +1612,11 @@ async function runSparkCliTuiSelection(input: {
       });
       pendingNativeUiTransport = undefined;
     }
-    return { sessionId: currentSessionId, sessionSelectorRequested };
+    return {
+      sessionId: currentSessionId,
+      sessionSelectorRequested,
+      ...(newSessionId ? { newSessionId } : {}),
+    };
   } finally {
     await lease.release();
   }
@@ -1905,6 +1933,7 @@ function createSparkNativeSlashCommands(
   currentSessionId: string,
   ensureCurrentSession: () => Promise<void>,
   requestSessionSelector: () => void,
+  requestNewSession: () => Promise<void>,
 ): SparkNativeSlashCommandMap {
   const daemonCommands = createSparkDaemonNativeCommands(daemonClient);
   const localControlCommands = createSparkNativeLocalControlSlashCommands();
@@ -1978,6 +2007,17 @@ function createSparkNativeSlashCommands(
           return;
         }
         requestSessionSelector();
+        context.exit();
+      },
+    };
+  }
+  const newCommand = piParityCommands.new;
+  if (newCommand) {
+    piParityCommands.new = {
+      ...newCommand,
+      description: "Create and open a daemon-managed session in the current workspace",
+      handler: async (_args, context) => {
+        await requestNewSession();
         context.exit();
       },
     };

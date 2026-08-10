@@ -3045,7 +3045,7 @@ test("native TUI selects a History Session, restores it, and loads its snapshot"
   }
 });
 
-test("native /resume opens the startup selector and attaches the selected session", async () => {
+test("native session commands inspect, create directly, and select without action bars", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-cli-session-reselect-"));
   try {
     const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
@@ -3057,6 +3057,7 @@ test("native /resume opens the startup selector and attaches the selected sessio
         scope: { kind: "workspace" as const, workspaceId: "workspace-current" },
         workspaceId: "workspace-current",
         cwd: dir,
+        cwdArtifactRef: "artifact:git:current",
         status: "ready" as const,
         bindings: [],
         createdAt: now,
@@ -3074,12 +3075,36 @@ test("native /resume opens the startup selector and attaches the selected sessio
         updatedAt: now,
       },
     ];
+    const createRequests: Array<{
+      workspaceId: string;
+      cwd: string | undefined;
+      cwdArtifactRef: string | undefined;
+    }> = [];
     const daemonClient: SparkDaemonClientOptions = {
       ...base.daemonClient,
       managedSessions: {
         list: async () => sessions,
-        create: async () => {
-          throw new Error("existing selection must not create a session");
+        create: async (input) => {
+          if (input.scope?.kind !== "workspace") throw new Error("expected workspace session");
+          createRequests.push({
+            workspaceId: input.scope.workspaceId,
+            cwd: input.cwd,
+            cwdArtifactRef: input.cwdArtifactRef,
+          });
+          const created = {
+            sessionId: "session-new",
+            title: "New conversation",
+            scope: input.scope,
+            workspaceId: input.scope.workspaceId,
+            cwd: input.cwd ?? dir,
+            ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
+            status: "ready" as const,
+            bindings: [],
+            createdAt: now,
+            updatedAt: now,
+          };
+          sessions.push(created);
+          return created;
         },
         get: async (sessionId) => {
           const selected = sessions.find((session) => session.sessionId === sessionId);
@@ -3128,7 +3153,7 @@ test("native /resume opens the startup selector and attaches the selected sessio
             workspaceIds: options.workspaces.map((workspace) => workspace.canonicalId),
             sessionIds: options.sessions.map((session) => session.sessionId),
           });
-          const selected = selectorCalls.length === 1 ? sessions[0]! : sessions[1]!;
+          const selected = selectorCalls.length === 2 ? sessions[1]! : sessions[0]!;
           return {
             kind: "session",
             sessionId: selected.sessionId,
@@ -3140,14 +3165,30 @@ test("native /resume opens the startup selector and attaches the selected sessio
           assert.notEqual(input, null);
           const options = input as Exclude<typeof input, string | undefined>;
           attachedSessionIds.push(options.workspaceSession?.attachTarget ?? "missing");
-          if (attachedSessionIds.length > 1) return;
+          if (attachedSessionIds.length > 3) return;
 
           const harness = createSparkNativeTuiComponentHarness({
             slashCommands: options.slashCommands,
             workspaceSession: options.workspaceSession,
           });
           await options.configureApp?.(harness.app, harness.session);
-          assert.equal(await harness.submit("/resume"), "command");
+          if (attachedSessionIds.length === 1) {
+            assert.equal(await harness.submit("/session"), "command");
+            await harness.flush();
+            assert.equal(harness.app.actionBarSnapshot(), undefined);
+            assert.equal(harness.state.exited, false);
+            assert.equal(selectorCalls.length, 1);
+            assert.equal(createRequests.length, 0);
+          }
+          const command =
+            attachedSessionIds.length === 1
+              ? "/new"
+              : attachedSessionIds.length === 2
+                ? "/resume"
+                : "/sessions";
+          if (command === "/resume") assert.equal(selectorCalls.length, 1);
+          if (command === "/sessions") assert.equal(selectorCalls.length, 2);
+          assert.equal(await harness.submit(command), "command");
           await harness.flush();
           assert.equal(harness.app.actionBarSnapshot(), undefined);
           assert.equal(harness.state.exited, true);
@@ -3156,9 +3197,25 @@ test("native /resume opens the startup selector and attaches the selected sessio
       0,
     );
 
-    assert.deepEqual(attachedSessionIds, [sessions[0]!.sessionId, sessions[1]!.sessionId]);
-    assert.equal(selectorCalls.length, 2);
-    assert.deepEqual(selectorCalls[1], selectorCalls[0]);
+    assert.deepEqual(attachedSessionIds, [
+      "session-first",
+      "session-new",
+      "session-second",
+      "session-first",
+    ]);
+    assert.deepEqual(createRequests, [
+      {
+        workspaceId: "workspace-current",
+        cwd: dir,
+        cwdArtifactRef: "artifact:git:current",
+      },
+    ]);
+    assert.equal(selectorCalls.length, 3);
+    assert.deepEqual(selectorCalls[1], {
+      ...selectorCalls[0],
+      sessionIds: ["session-first", "session-second", "session-new"],
+    });
+    assert.deepEqual(selectorCalls[2], selectorCalls[1]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

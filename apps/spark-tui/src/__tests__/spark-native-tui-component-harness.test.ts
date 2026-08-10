@@ -1540,7 +1540,7 @@ test("bare catalog slash opens a focused bottom action bar without writing trans
   assert.equal(harness.session.messages.length, messageCount);
 });
 
-test("bare session navigation commands open the unified selector without an action bar", async () => {
+test("bare session commands enter their complete host-owned flow without an action bar", async () => {
   const calls: Array<{ name: string; args: string }> = [];
   const command = (name: string) => ({
     description: name,
@@ -1559,9 +1559,15 @@ test("bare session navigation commands open the unified selector without an acti
   });
   const transcript = harness.session.messages.map(({ role, text }) => ({ role, text }));
 
-  for (const name of ["session", "sessions", "resume", "new"]) {
+  const expectedTargets = {
+    session: "session",
+    sessions: "sessions",
+    resume: "sessions",
+    new: "new",
+  } as const;
+  for (const [name, target] of Object.entries(expectedTargets)) {
     assert.equal(await harness.submit(`/${name}`), "command");
-    assert.deepEqual(calls.at(-1), { name: "sessions", args: "" });
+    assert.deepEqual(calls.at(-1), { name: target, args: "" });
     assert.equal(harness.app.actionBarSnapshot(), undefined);
     assert.deepEqual(
       harness.session.messages.map(({ role, text }) => ({ role, text })),

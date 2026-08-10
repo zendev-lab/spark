@@ -642,8 +642,9 @@ export class SparkNativeTuiApp implements Component, Focusable {
       case "status.inspect":
         return "status";
       case "session.select":
-      case "session.create":
         return "sessions";
+      case "session.create":
+        return "new";
       case "session.inspect":
         return "session";
       case "turn.stop":
@@ -721,7 +722,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
           await this.invokeRegisteredSlashCommand("sessions", "", false);
           return;
         case "session.create":
-          await this.invokeRegisteredSlashCommand("sessions", "", false);
+          await this.invokeRegisteredSlashCommand("new", "", false);
           return;
         case "session.inspect":
           await this.invokeRegisteredSlashCommand("session", "inspect", true);
@@ -2093,15 +2094,21 @@ export class SparkNativeTuiApp implements Component, Focusable {
       return;
     }
 
-    // Bare session navigation commands all open the daemon-backed selector
-    // used at startup. Do not interpose the session action bar before the
-    // unified page; explicit subcommands still reach their registered handler.
-    if (
-      ["session", "sessions", "resume", "new"].includes(parsed.name) &&
-      !parsed.args.trim() &&
-      this.slashCommands.sessions
-    ) {
-      await this.invokeRegisteredSlashCommand("sessions", "", false);
+    // Session commands already map to complete host-owned flows. Keep the
+    // action bar out of the way: inspect the current session, browse/resume
+    // through the startup selector, or create a daemon-managed session.
+    const bareSessionCommand =
+      parsed.name === "resume"
+        ? "sessions"
+        : ["session", "sessions", "new"].includes(parsed.name)
+          ? parsed.name
+          : undefined;
+    if (bareSessionCommand && !parsed.args.trim() && this.slashCommands[bareSessionCommand]) {
+      await this.invokeRegisteredSlashCommand(
+        bareSessionCommand,
+        "",
+        bareSessionCommand === "session",
+      );
       return;
     }
 
