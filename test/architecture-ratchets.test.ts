@@ -1,7 +1,7 @@
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -18,13 +18,27 @@ const {
   workspaceImports,
 } = architectureRatchets;
 
+const architectureInventoryValidatorPath = resolve("scripts/validate-architecture-inventory.mjs");
+const architectureInventoryFailurePrefix = "Invalid architecture/packages.json:";
 const requiredInventoryFields = ["layer", "owner", "stability", "stateWriter"] as const;
 const invalidInventoryCases = [
-  { field: "layer", value: "invalid" },
-  { field: "owner", value: "   " },
-  { field: "stability", value: "invalid" },
-  { field: "stateWriter", value: "invalid" },
-  { field: "distribution", value: "invalid" },
+  { field: "layer", value: "invalid", diagnostic: "must be equal to one of the allowed values" },
+  { field: "owner", value: "   ", diagnostic: 'must match pattern "\\S"' },
+  {
+    field: "stability",
+    value: "invalid",
+    diagnostic: "must be equal to one of the allowed values",
+  },
+  {
+    field: "stateWriter",
+    value: "invalid",
+    diagnostic: "must be equal to one of the allowed values",
+  },
+  {
+    field: "distribution",
+    value: "invalid",
+    diagnostic: "must be equal to one of the allowed values",
+  },
 ] as const;
 interface ArchitectureInventory {
   packages: Record<string, Record<string, unknown>>;
@@ -42,6 +56,29 @@ async function readJson<T>(path: string): Promise<T> {
   return parseJson<T>(await readFile(path, "utf8"), path);
 }
 
+function runArchitectureInventoryValidator(
+  inventoryPath: string,
+  validatorPath = architectureInventoryValidatorPath,
+) {
+  return spawnSync(process.execPath, [validatorPath, inventoryPath], {
+    cwd: ".",
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function expectArchitectureInventoryFailure(
+  result: ReturnType<typeof runArchitectureInventoryValidator>,
+  diagnostics: string[],
+): void {
+  expect(result.error).toBeUndefined();
+  expect(result.status).toBe(1);
+  expect(result.signal).toBeNull();
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toContain(architectureInventoryFailurePrefix);
+  for (const diagnostic of diagnostics) expect(result.stderr).toContain(`- ${diagnostic}`);
+}
+
 describe("workspace dependency declaration ratchet", () => {
   it("extracts root package names from static and dynamic workspace imports", () => {
     expect(
@@ -56,34 +93,20 @@ describe("workspace dependency declaration ratchet", () => {
 
 describe("architecture governance contracts", () => {
   it.each(requiredInventoryFields)("rejects an independently missing %s field", async (field) => {
-    const root = await mkdtemp(join(tmpdir(), `spark-architecture-${field}-`));
+    const root = await mkdtemp(join(tmpdir(), "spark-architecture-missing-field-"));
     try {
       const source = await readJson<ArchitectureInventory>("architecture/packages.json");
       const declaration = { ...source.packages["@zendev-lab/spark-cli"] };
       delete declaration[field];
+      const inventoryPath = join(root, "packages.json");
       await writeFile(
-        join(root, "packages.json"),
+        inventoryPath,
         JSON.stringify({ ...source, packages: { "@zendev-lab/spark-invalid": declaration } }),
       );
-      expect(() =>
-        execFileSync(
-          "pnpm",
-          [
-            "exec",
-            "ajv",
-            "validate",
-            "--spec=draft2020",
-            "--strict=true",
-            "--all-errors",
-            "--errors=text",
-            "-s",
-            "architecture/packages.schema.json",
-            "-d",
-            join(root, "packages.json"),
-          ],
-          { cwd: ".", encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-        ),
-      ).toThrow(new RegExp(field));
+
+      expectArchitectureInventoryFailure(runArchitectureInventoryValidator(inventoryPath), [
+        `/packages/@zendev-lab~1spark-invalid: must have required property '${field}'`,
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -91,42 +114,43 @@ describe("architecture governance contracts", () => {
 
   it.each(invalidInventoryCases)(
     "rejects an independently invalid $field value",
-    async ({ field, value }) => {
-      const root = await mkdtemp(join(tmpdir(), `spark-architecture-invalid-${field}-`));
+    async ({ field, value, diagnostic }) => {
+      const root = await mkdtemp(join(tmpdir(), "spark-architecture-invalid-value-"));
       try {
         const source = await readJson<ArchitectureInventory>("architecture/packages.json");
         const declaration = {
           ...source.packages["@zendev-lab/spark-cli"],
           [field]: value,
         };
+        const inventoryPath = join(root, "packages.json");
         await writeFile(
-          join(root, "packages.json"),
+          inventoryPath,
           JSON.stringify({ ...source, packages: { "@zendev-lab/spark-invalid": declaration } }),
         );
-        expect(() =>
-          execFileSync(
-            "pnpm",
-            [
-              "exec",
-              "ajv",
-              "validate",
-              "--spec=draft2020",
-              "--strict=true",
-              "--all-errors",
-              "--errors=text",
-              "-s",
-              "architecture/packages.schema.json",
-              "-d",
-              join(root, "packages.json"),
-            ],
-            { cwd: ".", encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-          ),
-        ).toThrow(new RegExp(field));
+
+        expectArchitectureInventoryFailure(runArchitectureInventoryValidator(inventoryPath), [
+          `/packages/@zendev-lab~1spark-invalid/${field}: ${diagnostic}`,
+        ]);
       } finally {
         await rm(root, { recursive: true, force: true });
       }
     },
   );
+
+  it("cannot mistake an unrelated subprocess failure for schema rejection", () => {
+    const result = runArchitectureInventoryValidator(
+      resolve("architecture/packages.json"),
+      resolve("scripts/missing-architecture-validator.mjs"),
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.signal).toBeNull();
+    expect(result.stdout).toBe("");
+    expect(result.stderr).not.toContain(architectureInventoryFailurePrefix);
+    expect(() =>
+      expectArchitectureInventoryFailure(result, ["unreachable schema diagnostic"]),
+    ).toThrow();
+  });
 });
 
 describe("workspace package validation policy", () => {
