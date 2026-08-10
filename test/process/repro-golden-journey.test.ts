@@ -577,6 +577,7 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     `${JSON.stringify(
       {
         providers: [providerPlugin],
+        enabledModels: ["spark-scripted/spark-scripted-provider"],
         activeModelId: "spark-scripted/spark-scripted-provider",
         activeThinkingLevel: "off",
         skills: [],
