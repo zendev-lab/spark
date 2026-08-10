@@ -2,6 +2,8 @@ import type { SparkJsonValue } from "@zendev-lab/spark-protocol";
 
 export const EXECUTION_ATTEMPT_PROTOCOL_VERSION = 1 as const;
 export const MAX_EXECUTION_ATTEMPT_ENVELOPE_BYTES = 64 * 1024;
+export const MAX_EXECUTION_ATTEMPT_JSON_DEPTH = 64;
+export const MAX_EXECUTION_ATTEMPT_JSON_NODES = 4_096;
 
 export type ExecutionAttemptMessageType =
   | "accepted"
@@ -402,26 +404,65 @@ function assertIdentity(identity: ExecutionAttemptIdentity): void {
 }
 
 function assertJsonValue(value: unknown, path = "envelope"): asserts value is SparkJsonValue {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    (typeof value === "number" && Number.isFinite(value))
-  ) {
-    return;
-  }
-  if (Array.isArray(value)) {
-    value.forEach((entry, index) => assertJsonValue(entry, `${path}[${index}]`));
-    return;
-  }
-  if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) {
-    invalidPayload(`${path} is not JSON/structured-clone safe`);
-  }
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (isForbiddenExecutionPayloadKey(key)) {
-      invalidPayload(`${path}.${key} is forbidden in execution attempt messages`);
+  type PendingEntry =
+    | { kind: "visit"; value: unknown; path: string; depth: number }
+    | { kind: "leave"; value: object };
+  const pending: PendingEntry[] = [{ kind: "visit", value, path, depth: 0 }];
+  const ancestors = new WeakSet<object>();
+  let nodes = 0;
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    if (current.kind === "leave") {
+      ancestors.delete(current.value);
+      continue;
     }
-    assertJsonValue(entry, `${path}.${key}`);
+    nodes += 1;
+    if (nodes > MAX_EXECUTION_ATTEMPT_JSON_NODES) {
+      invalidPayload(`${path} exceeds the execution attempt JSON node limit`);
+    }
+    if (current.depth > MAX_EXECUTION_ATTEMPT_JSON_DEPTH) {
+      invalidPayload(`${current.path} exceeds the execution attempt JSON depth limit`);
+    }
+    const entry = current.value;
+    if (
+      entry === null ||
+      typeof entry === "string" ||
+      typeof entry === "boolean" ||
+      (typeof entry === "number" && Number.isFinite(entry))
+    ) {
+      continue;
+    }
+    if (!entry || typeof entry !== "object") {
+      invalidPayload(`${current.path} is not JSON/structured-clone safe`);
+    }
+    if (ancestors.has(entry)) invalidPayload(`${current.path} contains a cyclic object reference`);
+    ancestors.add(entry);
+    pending.push({ kind: "leave", value: entry });
+    if (Array.isArray(entry)) {
+      for (let index = entry.length - 1; index >= 0; index -= 1) {
+        pending.push({
+          kind: "visit",
+          value: entry[index],
+          path: `${current.path}[${index}]`,
+          depth: current.depth + 1,
+        });
+      }
+      continue;
+    }
+    if (Object.getPrototypeOf(entry) !== Object.prototype) {
+      invalidPayload(`${current.path} is not JSON/structured-clone safe`);
+    }
+    for (const [key, child] of Object.entries(entry as Record<string, unknown>).toReversed()) {
+      if (isForbiddenExecutionPayloadKey(key)) {
+        invalidPayload(`${current.path}.${key} is forbidden in execution attempt messages`);
+      }
+      pending.push({
+        kind: "visit",
+        value: child,
+        path: `${current.path}.${key}`,
+        depth: current.depth + 1,
+      });
+    }
   }
 }
 

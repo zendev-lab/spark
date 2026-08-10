@@ -5,6 +5,8 @@ import {
   ExecutionAttemptProtocolError,
   ExecutionAttemptProtocolFence,
   MAX_EXECUTION_ATTEMPT_ENVELOPE_BYTES,
+  MAX_EXECUTION_ATTEMPT_JSON_DEPTH,
+  MAX_EXECUTION_ATTEMPT_JSON_NODES,
   parseExecutionAttemptEnvelope,
   type ExecutionAttemptEnvelope,
 } from "./contract.ts";
@@ -137,6 +139,44 @@ describe("execution attempt envelope", () => {
     expect(() => parseExecutionAttemptEnvelope(payload)).toThrowError(
       expect.objectContaining({ code: "execution_attempt_payload_too_large" }),
     );
+  });
+
+  it("bounds JSON depth and node count without recursive traversal", () => {
+    let deep: Record<string, unknown> = { leaf: true };
+    for (let depth = 0; depth <= MAX_EXECUTION_ATTEMPT_JSON_DEPTH; depth += 1) {
+      deep = { child: deep };
+    }
+    expect(() =>
+      parseExecutionAttemptEnvelope(
+        envelope("event", 1, { eventSequence: 1, event: deep as never }),
+      ),
+    ).toThrowError(expect.objectContaining({ code: "execution_attempt_invalid_payload" }));
+
+    expect(() =>
+      parseExecutionAttemptEnvelope(
+        envelope("event", 1, {
+          eventSequence: 1,
+          event: Array.from({ length: MAX_EXECUTION_ATTEMPT_JSON_NODES }, () => null),
+        }),
+      ),
+    ).toThrowError(expect.objectContaining({ code: "execution_attempt_invalid_payload" }));
+  });
+
+  it("allows shared JSON objects but rejects cyclic references", () => {
+    const shared = { message: "reused" };
+    expect(
+      parseExecutionAttemptEnvelope(
+        envelope("event", 1, { eventSequence: 1, event: { first: shared, second: shared } }),
+      ),
+    ).toMatchObject({ type: "event" });
+
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    expect(() =>
+      parseExecutionAttemptEnvelope(
+        envelope("event", 1, { eventSequence: 1, event: cyclic as never }),
+      ),
+    ).toThrowError(expect.objectContaining({ code: "execution_attempt_invalid_payload" }));
   });
 });
 

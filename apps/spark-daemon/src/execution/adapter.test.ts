@@ -165,6 +165,45 @@ describe("production execution attempt orchestration", () => {
     harness.db.close();
   });
 
+  it("cancels a durable retry backoff before starting the replacement attempt", async () => {
+    const harness = createHarness("inv_cancel_backoff");
+    const abort = new AbortController();
+    let calls = 0;
+    const adapter: ExecutionAttemptAdapter = {
+      kind: "process",
+      async execute(_request, parent) {
+        calls += 1;
+        parent.accepted();
+        throw new ExecutionAttemptCrashedError("accepted_crash");
+      },
+    };
+    const wait = vi.fn(
+      async (_delayMs: number, signal: AbortSignal) =>
+        await new Promise<never>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+    );
+    const session = harness.session(adapter, {
+      signal: abort.signal,
+      wait,
+      now: () => "2026-08-07T00:00:00.000Z",
+    });
+
+    const execution = session.execute();
+    await vi.waitFor(() => expect(wait).toHaveBeenCalledWith(1_000, abort.signal));
+    abort.abort(new Error("invocation cancelled during execution-attempt backoff"));
+
+    await expect(execution).rejects.toThrow(
+      "invocation cancelled during execution-attempt backoff",
+    );
+    expect(calls).toBe(1);
+    expect(harness.attempts.current(harness.invocationId)).toMatchObject({
+      attemptEpoch: 2,
+      status: "queued",
+    });
+    harness.db.close();
+  });
+
   it("routes a capability once through the current fenced attempt", async () => {
     const taskClaim = vi.fn(async () => ({ claimed: true }));
     const harness = createHarness("inv_capability_orchestrator", { taskClaim });
@@ -218,10 +257,11 @@ function createHarness(
       timing: {
         daemonGeneration?: number;
         now?: () => string;
-        wait?: (delayMs: number) => Promise<void>;
+        signal?: AbortSignal;
+        wait?: (delayMs: number, signal: AbortSignal) => Promise<void>;
       } = {},
     ) {
-      const { daemonGeneration = 1, ...clock } = timing;
+      const { daemonGeneration = 1, signal = new AbortController().signal, ...clock } = timing;
       return new ExecutionAttemptSession({
         store: attempts,
         registry,
@@ -229,7 +269,7 @@ function createHarness(
         invocationId,
         daemonGeneration,
         task: { type: "session.run", sessionId: `session-${invocationId}`, prompt: "fixture" },
-        signal: new AbortController().signal,
+        signal,
         executeInProcess: async () => ({ ok: true }),
         persistEvent: () => undefined,
         persistUsage: () => undefined,

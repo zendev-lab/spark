@@ -85,7 +85,7 @@ export interface ExecutionAttemptSessionOptions {
   persistEvent(event: unknown): void;
   persistUsage(usage: unknown): void;
   now?: () => string;
-  wait?: (delayMs: number) => Promise<void>;
+  wait?: (delayMs: number, signal: AbortSignal) => Promise<void>;
 }
 
 /** One daemon-owned invocation execution, across one or more replacement epochs. */
@@ -200,7 +200,8 @@ export class ExecutionAttemptSession {
     if (!this.#current.nextAttemptAt) return undefined;
     const delayMs = Math.max(0, Date.parse(this.#current.nextAttemptAt) - Date.parse(this.#now()));
     if (delayMs === 0) return undefined;
-    return (this.#options.wait ?? delay)(delayMs);
+    if (this.#options.wait) return this.#options.wait(delayMs, this.#options.signal);
+    return delay(delayMs, undefined, { signal: this.#options.signal });
   }
 
   #now(): string {
