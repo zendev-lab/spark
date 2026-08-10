@@ -28,7 +28,7 @@
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-daemon-client": "workspace:^",
-    "diff": "^8.0.4",
+    "diff": "^9.0.0",
     "ignore": "^7.0.5",
     "minimatch": "^10.2.5",
     "typebox": "catalog:"
