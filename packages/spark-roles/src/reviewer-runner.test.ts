@@ -113,6 +113,49 @@ test("reviewer instruction and verdict parser support tool_approval subject", ()
   assert.equal(verdict.summary, "risky");
 });
 
+test("reviewer verdict parser rejects malformed typed requests for every review target", () => {
+  const malformed = JSON.stringify({
+    outcome: "needs_changes",
+    summary: "malformed typed request",
+    findings: [],
+    blockers: [],
+    confidence: "high",
+    requestedEvidenceRefs: "evidence:receipt",
+  });
+  assert.throws(
+    () =>
+      parseReviewerVerdictForInput(
+        {
+          targetKind: "goal",
+          cwd: process.cwd(),
+          projectRef: "proj:demo",
+          goalId: "goal-1",
+          objective: "Finish the slice",
+          status: "active",
+          requestedStatus: "complete",
+          evidenceRefs: [],
+        },
+        malformed,
+      ),
+    /requestedEvidenceRefs must be an array/u,
+  );
+  assert.throws(
+    () =>
+      parseReviewerVerdictForInput(
+        {
+          targetKind: "tool_approval",
+          cwd: process.cwd(),
+          toolName: "cue_exec",
+          toolCallId: "tc-malformed",
+          arguments: { command: "echo hi" },
+          reason: "requires approval",
+        },
+        malformed,
+      ),
+    /requestedEvidenceRefs must be an array/u,
+  );
+});
+
 test("reviewer verdict parser tolerates trailing JSON event wrappers", () => {
   const input = reviewTaskInput();
   const verdict = parseReviewerVerdictForInput(
@@ -477,6 +520,25 @@ test("task reviewer instruction scopes task finish independently from sibling pr
   );
 });
 
+test("task reviewer packet exposes Artifact authority and post-approval receipt timing", () => {
+  const base = reviewTaskInput();
+  const instruction = renderReviewerInstruction({
+    ...base,
+    task: {
+      ...base.task,
+      artifactRefs: ["artifact:delivery"],
+    },
+    evidenceRefs: ["evidence:current"],
+    supersededEvidenceRefs: ["evidence:historical"],
+  });
+
+  assert.match(instruction, /"artifactRefs": \[\s*"artifact:delivery"/u);
+  assert.match(instruction, /"supersededEvidenceRefs": \[\s*"evidence:historical"/u);
+  assert.match(instruction, /created_after_reviewer_approval_and_transition_commit/u);
+  assert.match(instruction, /Never ask the caller to put artifact: refs in evidenceRefs/u);
+  assert.match(instruction, /supersededEvidenceRefs are historical/u);
+});
+
 test("goal reviewer instruction still gates completion on unfinished project work", () => {
   const instruction = renderReviewerInstruction({
     targetKind: "goal",
@@ -652,11 +714,179 @@ test("SparkRolesReviewerRunner does not retry a completed compatibility fallback
     const result = await runner.review({ ...reviewTaskInput(), cwd: dir });
 
     assert.equal(result.verdict.outcome, "blocked");
+    assert.equal(result.failure?.kind, "runtime_error");
+    assert.equal(result.failure?.retryable, false);
     assert.equal(
       result.verdict.summary,
       "reviewer role run error: host-provided native role executor was incompatible; Spark headless fallback failed",
     );
     assert.equal(calls, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkRolesReviewerRunner classifies impossible task requests as reviewer protocol failures", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-reviewer-runner-protocol-failure-"));
+  try {
+    const base = reviewTaskInput();
+    const input: TaskReviewInput = {
+      ...base,
+      cwd: dir,
+      task: { ...base.task, artifactRefs: ["artifact:delivery"] },
+      evidenceRefs: ["evidence:current"],
+      supersededEvidenceRefs: ["evidence:historical"],
+    };
+    const runVerdict = async (extra: Record<string, unknown>) => {
+      const runner = new SparkRolesReviewerRunner({
+        registry: new RoleRegistry(),
+        cwd: dir,
+        timeoutMs: 15_000,
+        maxRetries: 0,
+        env: reviewerRunnerTestEnv,
+        nativeExecutor: async (request) => ({
+          record: { ...request.record, status: "succeeded", finishedAt: new Date().toISOString() },
+          stdout: JSON.stringify({
+            outcome: "needs_changes",
+            summary: "typed reviewer request",
+            findings: [],
+            blockers: [],
+            confidence: "high",
+            ...extra,
+          }),
+          stderr: "",
+          jsonEvents: [],
+        }),
+      });
+      return await runner.review(input);
+    };
+
+    const invalidEvidence = await runVerdict({
+      requestedEvidenceRefs: ["artifact:delivery"],
+    });
+    assert.equal(invalidEvidence.failure?.kind, "protocol_error");
+    assert.match(
+      invalidEvidence.failure?.reason ?? "",
+      /requestedEvidenceRefs\[0\].*canonical evidence/u,
+    );
+
+    const wrongEvidenceShape = await runVerdict({
+      requestedEvidenceRefs: "evidence:receipt",
+    });
+    assert.equal(wrongEvidenceShape.failure?.kind, "protocol_error");
+    assert.match(
+      wrongEvidenceShape.failure?.reason ?? "",
+      /requestedEvidenceRefs must be an array/u,
+    );
+
+    const wrongArtifactMember = await runVerdict({
+      requestedArtifactRefs: [42],
+    });
+    assert.equal(wrongArtifactMember.failure?.kind, "protocol_error");
+    assert.match(
+      wrongArtifactMember.failure?.reason ?? "",
+      /requestedArtifactRefs\[0\].*canonical artifact/u,
+    );
+
+    const wrongReceiptShape = await runVerdict({
+      requiresCurrentTransitionReceipt: "true",
+    });
+    assert.equal(wrongReceiptShape.failure?.kind, "protocol_error");
+    assert.match(
+      wrongReceiptShape.failure?.reason ?? "",
+      /requiresCurrentTransitionReceipt must be a boolean/u,
+    );
+
+    const emptyEvidenceRef = await runVerdict({
+      requestedEvidenceRefs: ["evidence:"],
+    });
+    assert.equal(emptyEvidenceRef.failure?.kind, "protocol_error");
+    assert.match(
+      emptyEvidenceRef.failure?.reason ?? "",
+      /requestedEvidenceRefs\[0\].*canonical evidence/u,
+    );
+
+    const extraColonEvidenceRef = await runVerdict({
+      requestedEvidenceRefs: ["evidence:delivery:extra"],
+    });
+    assert.equal(extraColonEvidenceRef.failure?.kind, "protocol_error");
+    assert.match(
+      extraColonEvidenceRef.failure?.reason ?? "",
+      /requestedEvidenceRefs\[0\].*canonical evidence/u,
+    );
+
+    const extraColonArtifactRef = await runVerdict({
+      requestedArtifactRefs: ["artifact:delivery:extra"],
+    });
+    assert.equal(extraColonArtifactRef.failure?.kind, "protocol_error");
+    assert.match(
+      extraColonArtifactRef.failure?.reason ?? "",
+      /requestedArtifactRefs\[0\].*canonical artifact/u,
+    );
+
+    const supersededEvidence = await runVerdict({
+      requestedEvidenceRefs: ["evidence:historical"],
+    });
+    assert.equal(supersededEvidence.failure?.kind, "protocol_error");
+    assert.match(supersededEvidence.failure?.reason ?? "", /superseded Evidence/u);
+
+    const currentReceipt = await runVerdict({
+      requiresCurrentTransitionReceipt: true,
+    });
+    assert.equal(currentReceipt.failure?.kind, "protocol_error");
+    assert.equal(currentReceipt.failure?.retryable, false);
+    assert.match(currentReceipt.failure?.reason ?? "", /post-approval output/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkRolesReviewerRunner preserves negated and independent semantic findings", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-reviewer-runner-semantic-findings-"));
+  try {
+    const base = reviewTaskInput();
+    const input: TaskReviewInput = {
+      ...base,
+      cwd: dir,
+      task: { ...base.task, artifactRefs: ["artifact:delivery"] },
+      evidenceRefs: ["evidence:current"],
+      supersededEvidenceRefs: ["evidence:historical"],
+    };
+    const runner = new SparkRolesReviewerRunner({
+      registry: new RoleRegistry(),
+      cwd: dir,
+      timeoutMs: 15_000,
+      maxRetries: 0,
+      env: reviewerRunnerTestEnv,
+      nativeExecutor: async (request) => ({
+        record: { ...request.record, status: "succeeded", finishedAt: new Date().toISOString() },
+        stdout: JSON.stringify({
+          outcome: "needs_changes",
+          summary: "current replacement is invalid",
+          findings: [
+            "Do not provide evidence:historical; the current replacement fails validation.",
+            "The current replacement needs repair, not evidence:historical.",
+            "Attach artifact:delivery to evidenceRefs? No—artifactRefs is authoritative; the Artifact itself is unreadable.",
+            "artifact:delivery is unreadable; evidenceRefs are otherwise sufficient.",
+          ],
+          blockers: ["Repair evidence:current and the Artifact storage record."],
+          confidence: "high",
+        }),
+        stderr: "",
+        jsonEvents: [],
+      }),
+    });
+
+    const result = await runner.review(input);
+
+    assert.equal(result.verdict.outcome, "needs_changes");
+    assert.equal(result.failure, undefined);
+    assert.deepEqual(result.verdict.findings, [
+      "Do not provide evidence:historical; the current replacement fails validation.",
+      "The current replacement needs repair, not evidence:historical.",
+      "Attach artifact:delivery to evidenceRefs? No—artifactRefs is authoritative; the Artifact itself is unreadable.",
+      "artifact:delivery is unreadable; evidenceRefs are otherwise sufficient.",
+    ]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

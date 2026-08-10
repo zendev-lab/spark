@@ -11,6 +11,7 @@ import {
   type RoleThinkingLevel,
 } from "./role-runtime.ts";
 import {
+  isRef,
   newRef,
   nowIso,
   type EvidenceRef,
@@ -37,8 +38,12 @@ export interface TaskReviewInput {
   task: Task;
   requestedStatus: "done" | "failed" | "cancelled";
   summary?: string;
+  /** Current Evidence candidates after following canonical supersededBy links. Unreadable candidates carry preview errors and remain fail-closed. */
   evidenceRefs: EvidenceRef[];
   evidencePreviews?: GoalReviewEvidencePreview[];
+  evidencePreviewOmittedCount?: number;
+  /** Historical Evidence excluded from current authority by supersededBy links. */
+  supersededEvidenceRefs?: EvidenceRef[];
   sessionKey?: string;
   forkFromSession?: string;
 }
@@ -50,6 +55,8 @@ export interface GoalReviewEvidencePreview {
   format?: string;
   provenance?: Record<string, unknown>;
   bodyPreview?: string;
+  curationStatus?: string;
+  supersededBy?: EvidenceRef[];
   error?: string;
 }
 
@@ -182,6 +189,10 @@ export interface ReviewVerdict {
   findings: string[];
   blockers: string[];
   confidence: "low" | "medium" | "high";
+  /** Typed reviewer requests; prose findings are never parsed as request authority. */
+  requestedEvidenceRefs?: string[];
+  requestedArtifactRefs?: string[];
+  requiresCurrentTransitionReceipt?: boolean;
 }
 
 export interface TaskReviewVerdict extends ReviewVerdict {
@@ -224,6 +235,12 @@ export interface ReviewerRunRecord {
 export interface ReviewerRunResult {
   verdict: ReviewerVerdict;
   record: ReviewerRunRecord;
+  /** Infrastructure/protocol failure of the reviewer itself, never a semantic product verdict. */
+  failure?: {
+    kind: "aborted" | "lease_busy" | "protocol_error" | "runtime_error";
+    reason: string;
+    retryable: boolean;
+  };
 }
 
 const REVIEWER_LOW_COST_READ_TOOLS = new Set([
@@ -313,8 +330,10 @@ const REVIEWER_JSON_SCHEMA = [
   'Use confidence exactly one of: "low", "medium", "high".',
   "For task reviews, omit achieved, remainingWork, evidence_valid, and objective_satisfied.",
   "For goal completion reviews, include achieved, evidence_valid, objective_satisfied, and remainingWork. Approve only when every requirement is verified with mapped evidenceRefs, unresolved is empty, evidence_valid=true, and objective_satisfied=true.",
+  "For task reviews, use requestedEvidenceRefs only for exact evidence: refs, requestedArtifactRefs only for exact artifact: refs, and requiresCurrentTransitionReceipt=false. Never encode typed requests only in prose findings/blockers.",
+  "The receipt for the currently proposed transition is a post-approval output and can never be a prerequisite.",
   "Task review example:",
-  '{"outcome":"approved","summary":"one sentence","findings":[],"blockers":[],"confidence":"high"}',
+  '{"outcome":"approved","summary":"one sentence","findings":[],"blockers":[],"confidence":"high","requestedEvidenceRefs":[],"requestedArtifactRefs":[],"requiresCurrentTransitionReceipt":false}',
   "Goal review example:",
   '{"outcome":"needs_changes","summary":"one sentence","findings":["actionable finding"],"blockers":["blocking issue"],"confidence":"medium","achieved":false,"evidence_valid":true,"objective_satisfied":false,"remainingWork":"what remains"}',
 ].join("\n");
@@ -383,10 +402,16 @@ export class SparkRolesReviewerRunner implements ReviewerRunner {
       return result;
     }
     return (
-      lastResult ?? {
-        verdict: failedReviewerRunVerdict(input, "reviewer aborted before any attempt completed"),
-        record: { roleRef: this.#reviewerRoleRef, startedAt: this.#now(), finishedAt: this.#now() },
-      }
+      lastResult ??
+      reviewerFailureResult({
+        input,
+        roleRef: this.#reviewerRoleRef,
+        reason: "reviewer aborted before any attempt completed",
+        kind: "aborted",
+        retryable: false,
+        startedAt: this.#now(),
+        finishedAt: this.#now(),
+      })
     );
   }
 
@@ -427,34 +452,60 @@ export class SparkRolesReviewerRunner implements ReviewerRunner {
       });
     } catch (error) {
       const finishedAt = this.#now();
-      return {
-        verdict: failedReviewerRunVerdict(
-          input,
-          `reviewer role run error: ${unknownErrorMessage(error)}`,
-        ),
-        record: { runRef, roleRef: role.ref as RoleRef, startedAt, finishedAt },
-      };
+      return reviewerFailureResult({
+        input,
+        runRef,
+        roleRef: role.ref as RoleRef,
+        reason: `reviewer role run error: ${unknownErrorMessage(error)}`,
+        kind: "runtime_error",
+        retryable: reviewerRuntimeFailureRetryable(unknownErrorMessage(error)),
+        startedAt,
+        finishedAt,
+      });
     }
     const finishedAt = result.record.finishedAt ?? this.#now();
     if (result.record.status !== "succeeded")
-      return {
-        verdict: failedReviewerRunVerdict(input, `reviewer role run ${result.record.status}`),
+      return reviewerFailureResult({
+        input,
+        runRef,
+        roleRef: role.ref as RoleRef,
+        reason: `reviewer role run ${result.record.status}`,
+        kind: result.record.status === "cancelled" ? "aborted" : "runtime_error",
+        retryable: result.record.status !== "cancelled",
+        startedAt,
+        finishedAt,
         record: roleRunRecord(result, startedAt, finishedAt),
-      };
+      });
     const record = roleRunRecord(result, startedAt, finishedAt);
     try {
-      return {
-        verdict: parseReviewerVerdictForInput(input, result.stdout),
-        record,
-      };
-    } catch (error) {
-      return {
-        verdict: failedReviewerRunVerdict(
+      const verdict = parseReviewerVerdictForInput(input, result.stdout);
+      const protocolIssue = reviewerVerdictProtocolIssue(input, verdict);
+      if (protocolIssue) {
+        return reviewerFailureResult({
           input,
-          `reviewer verdict parse failed: ${unknownErrorMessage(error)}`,
-        ),
+          runRef,
+          roleRef: role.ref as RoleRef,
+          reason: protocolIssue,
+          kind: "protocol_error",
+          retryable: false,
+          startedAt,
+          finishedAt,
+          record,
+        });
+      }
+      return { verdict, record };
+    } catch (error) {
+      return reviewerFailureResult({
+        input,
+        runRef,
+        roleRef: role.ref as RoleRef,
+        reason: `reviewer verdict parse failed: ${unknownErrorMessage(error)}`,
+        kind: "protocol_error",
+        retryable: false,
+        startedAt,
+        finishedAt,
         record,
-      };
+      });
     }
   }
 
@@ -586,6 +637,14 @@ function renderTaskOrGoalReviewerInstruction(input: TaskReviewInput | GoalReview
           summary: input.summary,
           evidenceRefs: input.evidenceRefs,
           ...(input.evidencePreviews?.length ? { evidencePreviews: input.evidencePreviews } : {}),
+          evidencePreviewOmittedCount: input.evidencePreviewOmittedCount ?? 0,
+          supersededEvidenceRefs: input.supersededEvidenceRefs ?? [],
+          artifactRefs: input.task.artifactRefs,
+          transitionProtocol: {
+            planItemStatePersisted: true,
+            artifactAuthorityField: "artifactRefs",
+            finishReceiptTiming: "created_after_reviewer_approval_and_transition_commit",
+          },
           sessionKey: input.sessionKey,
         }
       : {
@@ -611,7 +670,9 @@ function renderTaskOrGoalReviewerInstruction(input: TaskReviewInput | GoalReview
       ? [
           "For targetKind=task, review only the selected task's requestedStatus, task plan/scope, summary, and evidenceRefs.",
           "The packet describes a proposed atomic transition. For requestedStatus=done, the task is expected to remain running until this review approves and the caller commits the transition; do not reject merely because it is not already done.",
-          "Never require a prior approved review receipt or done transition for this same request; those are outputs of approval. Evaluate whether the current plan and evidence justify approval. A prior needs_changes verdict blocks approval only when its concrete findings remain unresolved.",
+          "Never require a prior approved review receipt or done transition for this same request; those are outputs of approval. The transitionProtocol explicitly records that the finish receipt is created only after reviewer approval and transition commit. Evaluate whether the current plan and evidence justify approval. A prior needs_changes verdict blocks approval only when its concrete findings remain unresolved.",
+          "Treat task.artifactRefs and packet.artifactRefs as the canonical Artifact inputs. Never ask the caller to put artifact: refs in evidenceRefs, which is an Evidence-only field.",
+          "Use packet.evidenceRefs as current Evidence authority. supersededEvidenceRefs are historical and must not be required again unless the current replacement Evidence is itself invalid.",
           "Do not reject a task finish merely because sibling, downstream, or final-integration tasks in the same project are unfinished; dependency chains require scoped leaf tasks to close before downstream work can run.",
           "Reject a task finish when the selected task's own plan items, scope, or evidence remain incomplete, or when the evidence defers work that belongs to the selected task rather than to an explicitly separate downstream task.",
         ]
@@ -746,6 +807,7 @@ function isAskAutoAnswerRecord(record: Record<string, unknown>): boolean {
 
 export function parseReviewerVerdictForInput(input: ReviewInput, text: string): ReviewerVerdict {
   const value = parseJsonObjectFromText(text, { requireReviewerVerdict: true });
+  validateReviewerTypedRequestFields(value);
   const parsed = normalizeReviewerVerdictObject(value);
   switch (input.targetKind) {
     case "task":
@@ -827,17 +889,76 @@ export function parseReviewerVerdictForInput(input: ReviewInput, text: string): 
 }
 
 export function parseReviewerVerdict(text: string): ReviewVerdict {
-  return normalizeReviewerVerdictObject(parseJsonObjectFromText(text));
+  const value = parseJsonObjectFromText(text);
+  validateReviewerTypedRequestFields(value);
+  return normalizeReviewerVerdictObject(value);
+}
+
+function validateReviewerTypedRequestFields(value: Record<string, unknown>): void {
+  validateOptionalReviewerRefArray(value, "requestedEvidenceRefs", "evidence");
+  validateOptionalReviewerRefArray(value, "requestedArtifactRefs", "artifact");
+  validateOptionalReviewerBoolean(value, "requiresCurrentTransitionReceipt");
+  validateOptionalReviewerBoolean(value, "requires_current_transition_receipt");
+  if (
+    Object.hasOwn(value, "requiresCurrentTransitionReceipt") &&
+    Object.hasOwn(value, "requires_current_transition_receipt") &&
+    value.requiresCurrentTransitionReceipt !== value.requires_current_transition_receipt
+  ) {
+    throw new Error(
+      "reviewer verdict requiresCurrentTransitionReceipt aliases must agree when both are present",
+    );
+  }
+}
+
+function validateOptionalReviewerRefArray(
+  value: Record<string, unknown>,
+  field: "requestedEvidenceRefs" | "requestedArtifactRefs",
+  kind: "evidence" | "artifact",
+): void {
+  if (!Object.hasOwn(value, field)) return;
+  const refs = value[field];
+  if (!Array.isArray(refs)) {
+    throw new Error(`reviewer verdict ${field} must be an array of ${kind}: refs`);
+  }
+  for (const [index, ref] of refs.entries()) {
+    if (typeof ref !== "string" || !isCanonicalReviewerRef(ref, kind)) {
+      throw new Error(`reviewer verdict ${field}[${index}] must be a canonical ${kind}: ref`);
+    }
+  }
+}
+
+function isCanonicalReviewerRef(value: string, kind: "evidence" | "artifact"): boolean {
+  return isRef(value, kind) && value.indexOf(":") === value.lastIndexOf(":");
+}
+
+function validateOptionalReviewerBoolean(
+  value: Record<string, unknown>,
+  field: "requiresCurrentTransitionReceipt" | "requires_current_transition_receipt",
+): void {
+  if (!Object.hasOwn(value, field)) return;
+  if (typeof value[field] !== "boolean") {
+    throw new Error(`reviewer verdict ${field} must be a boolean`);
+  }
 }
 
 function normalizeReviewerVerdictObject(value: Record<string, unknown>): ReviewVerdict {
   const outcome = normalizeReviewOutcome(value.outcome);
+  const requestedEvidenceRefs = optionalStringArrayField(value, "requestedEvidenceRefs");
+  const requestedArtifactRefs = optionalStringArrayField(value, "requestedArtifactRefs");
+  const requiresCurrentTransitionReceipt = parseBooleanAliasField(
+    value,
+    "requiresCurrentTransitionReceipt",
+    "requires_current_transition_receipt",
+  );
   return {
     outcome,
     summary: stringField(value, "summary") ?? defaultReviewSummary(outcome),
     findings: stringArrayField(value, "findings"),
     blockers: stringArrayField(value, "blockers"),
     confidence: normalizeReviewConfidence(value.confidence),
+    ...(requestedEvidenceRefs ? { requestedEvidenceRefs } : {}),
+    ...(requestedArtifactRefs ? { requestedArtifactRefs } : {}),
+    ...(requiresCurrentTransitionReceipt !== undefined ? { requiresCurrentTransitionReceipt } : {}),
   };
 }
 
@@ -886,8 +1007,12 @@ const RETRIABLE_FAILURE_PATTERNS = [
 ];
 
 function isRetriableReviewerFailure(result: ReviewerRunResult): boolean {
+  if (result.failure) return result.failure.retryable;
   if (result.verdict.outcome !== "blocked") return false;
-  const reason = result.verdict.summary;
+  return reviewerRuntimeFailureRetryable(result.verdict.summary);
+}
+
+function reviewerRuntimeFailureRetryable(reason: string): boolean {
   if (reason.includes("Spark headless fallback failed")) return false;
   return RETRIABLE_FAILURE_PATTERNS.some((pattern) => pattern.test(reason));
 }
@@ -935,6 +1060,64 @@ function failedReviewerRunVerdict(input: ReviewInput, reason: string): ReviewerV
   }
 }
 
+function reviewerFailureResult(input: {
+  input: ReviewInput;
+  roleRef: RoleRef;
+  reason: string;
+  kind: NonNullable<ReviewerRunResult["failure"]>["kind"];
+  retryable: boolean;
+  startedAt: string;
+  finishedAt: string;
+  runRef?: RunRef;
+  record?: ReviewerRunRecord;
+}): ReviewerRunResult {
+  return {
+    verdict: failedReviewerRunVerdict(input.input, input.reason),
+    record: input.record ?? {
+      ...(input.runRef ? { runRef: input.runRef } : {}),
+      roleRef: input.roleRef,
+      startedAt: input.startedAt,
+      finishedAt: input.finishedAt,
+    },
+    failure: {
+      kind: input.kind,
+      reason: input.reason,
+      retryable: input.retryable,
+    },
+  };
+}
+
+function reviewerVerdictProtocolIssue(
+  input: ReviewInput,
+  verdict: ReviewerVerdict,
+): string | undefined {
+  if (input.targetKind !== "task" || verdict.targetKind !== "task") return undefined;
+  const requestedEvidenceRefs = verdict.requestedEvidenceRefs ?? [];
+  const invalidEvidenceRef = requestedEvidenceRefs.find(
+    (ref) => !isCanonicalReviewerRef(ref, "evidence"),
+  );
+  if (invalidEvidenceRef) {
+    return `reviewer protocol violation: requestedEvidenceRefs contains a non-Evidence ref: ${invalidEvidenceRef}`;
+  }
+  const requestedArtifactRefs = verdict.requestedArtifactRefs ?? [];
+  const invalidArtifactRef = requestedArtifactRefs.find(
+    (ref) => !isCanonicalReviewerRef(ref, "artifact"),
+  );
+  if (invalidArtifactRef) {
+    return `reviewer protocol violation: requestedArtifactRefs contains a non-Artifact ref: ${invalidArtifactRef}`;
+  }
+  const supersededRequest = requestedEvidenceRefs.find((ref) =>
+    input.supersededEvidenceRefs?.includes(ref as EvidenceRef),
+  );
+  if (supersededRequest) {
+    return `reviewer protocol violation: superseded Evidence cannot be requested again: ${supersededRequest}`;
+  }
+  if (verdict.requiresCurrentTransitionReceipt === true) {
+    return "reviewer protocol violation: a receipt for the same finish transition is a post-approval output, not an approval prerequisite";
+  }
+  return undefined;
+}
+
 function unknownErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -948,6 +1131,7 @@ function compactTaskForReview(task: Task): Record<string, unknown> {
     status: task.status,
     kind: task.kind,
     plan: task.plan,
+    artifactRefs: task.artifactRefs,
     outputEvidenceRefs: task.outputEvidenceRefs,
   };
 }
@@ -1154,6 +1338,13 @@ function defaultReviewSummary(outcome: ReviewVerdictOutcome): string {
 function stringField(record: Record<string, unknown>, field: string): string | undefined {
   const value = record[field];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function optionalStringArrayField(
+  record: Record<string, unknown>,
+  field: string,
+): string[] | undefined {
+  return Array.isArray(record[field]) ? stringArrayField(record, field) : undefined;
 }
 
 function stringArrayField(record: Record<string, unknown>, field: string): string[] {
