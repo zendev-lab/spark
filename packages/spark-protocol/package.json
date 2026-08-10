@@ -14,6 +14,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./a2ui": "./src/a2ui.ts",
+    "./agent-tracing": "./src/agent-tracing.ts",
     "./artifact-document": "./src/artifact-document.ts",
     "./channel-control": "./src/channel-control.ts",
     "./command-delivery": "./src/command-delivery.ts",
