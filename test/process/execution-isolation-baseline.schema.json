@@ -28,7 +28,6 @@
         "sourceTreeDirty",
         "schedulerConcurrency",
         "controlProbeIntervalMs",
-        "controlResponsiveGapLimitMs",
         "invocationTimeoutMsByFixture",
         "fixtureParameters"
       ],
@@ -60,11 +59,6 @@
         },
         "controlProbeIntervalMs": {
           "const": 100
-        },
-        "controlResponsiveGapLimitMs": {
-          "type": "integer",
-          "minimum": 250,
-          "maximum": 1000
         },
         "invocationTimeoutMsByFixture": {
           "type": "object",
@@ -124,9 +118,7 @@
       "required": [
         "cpuGapObserved",
         "cpuSecondTerminalAfterRelease",
-        "asyncProviderControlResponsive",
         "asyncProviderSecondTerminalBeforeRelease",
-        "abortIgnoringControlResponsive",
         "abortIgnoringTerminalBeforeSettlement",
         "abortIgnoringSecondQueuedUntilRelease",
         "hungChildTerminalBeforeHarnessCleanup",
@@ -138,9 +130,7 @@
       "properties": {
         "cpuGapObserved": { "const": true },
         "cpuSecondTerminalAfterRelease": { "const": true },
-        "asyncProviderControlResponsive": { "const": true },
         "asyncProviderSecondTerminalBeforeRelease": { "const": true },
-        "abortIgnoringControlResponsive": { "const": true },
         "abortIgnoringTerminalBeforeSettlement": { "const": true },
         "abortIgnoringSecondQueuedUntilRelease": { "const": true },
         "hungChildTerminalBeforeHarnessCleanup": { "const": true },

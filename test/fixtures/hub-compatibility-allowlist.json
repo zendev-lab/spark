@@ -350,12 +350,6 @@
       "approvedOccurrencesSha256": "3eaa2695be2946028b62157487a24816a7690893c106a28b063c46c73c5cb578"
     },
     {
-      "pattern": "test/hub-terminology-contract.test.ts",
-      "category": "compatibility-allowlist-test",
-      "approvedOccurrenceCount": 5,
-      "approvedOccurrencesSha256": "635aa2171612e6a03b0507a881c737e0232796bd7e3eea914f9a143b3e65e44d"
-    },
-    {
       "pattern": "test/release-migration-gate.test.ts",
       "category": "n-minus-one-release-migration-test",
       "approvedOccurrenceCount": 2,

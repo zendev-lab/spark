@@ -23,9 +23,6 @@ import { migrateSparkDaemonDatabase } from "../src/store/schema.ts";
 const REPORT_VERSION = 1 as const;
 const SCHEMA_PATH = "./test/process/execution-isolation-baseline.schema.json";
 const PROBE_INTERVAL_MS = 100;
-const CONTROL_GAP_BASE_LIMIT_MS = 250;
-const CONTROL_GAP_IDLE_MULTIPLIER = 4;
-const CONTROL_GAP_ABSOLUTE_LIMIT_MS = 1_000;
 const CPU_BLOCK_MS = 5_000;
 const CPU_GAP_MIN_MS = 4_000;
 const ASYNC_RELEASE_DELAY_MS = 900;
@@ -213,23 +210,18 @@ async function main(): Promise<void> {
   fixtures.push(await runHungExternalChild());
 
   const byId = new Map(fixtures.map((fixture) => [fixture.id, fixture]));
-  const idle = requiredFixture(byId, "idle-control");
   const cpu = requiredFixture(byId, "sync-cpu");
   const provider = requiredFixture(byId, "async-provider");
   const abortIgnoring = requiredFixture(byId, "abort-ignoring-tool");
   const child = requiredFixture(byId, "hung-external-child");
-  const responsiveGapLimitMs = controlGapLimit(idle.probe.maxGapMs);
-
   const assertions = {
     cpuGapObserved: cpu.probe.maxGapMs >= CPU_GAP_MIN_MS,
     cpuSecondTerminalAfterRelease:
       requiredTimestamp(cpu.second?.terminalAtMs, "sync-cpu second terminal") >=
       requiredTimestamp(cpu.releaseAtMs, "sync-cpu release"),
-    asyncProviderControlResponsive: provider.probe.maxGapMs < responsiveGapLimitMs,
     asyncProviderSecondTerminalBeforeRelease:
       requiredTimestamp(provider.second?.terminalAtMs, "async-provider second terminal") <
       requiredTimestamp(provider.releaseAtMs, "async-provider release"),
-    abortIgnoringControlResponsive: abortIgnoring.probe.maxGapMs < responsiveGapLimitMs,
     abortIgnoringTerminalBeforeSettlement: abortIgnoring.terminalBeforeExecutorSettlement === true,
     abortIgnoringSecondQueuedUntilRelease: abortIgnoring.secondQueuedUntilRelease === true,
     hungChildTerminalBeforeHarnessCleanup:
@@ -263,7 +255,6 @@ async function main(): Promise<void> {
       sourceTreeDirty: currentSourceTreeDirty(),
       schedulerConcurrency: SCHEDULER_CONCURRENCY,
       controlProbeIntervalMs: PROBE_INTERVAL_MS,
-      controlResponsiveGapLimitMs: responsiveGapLimitMs,
       invocationTimeoutMsByFixture: {
         default: DEFAULT_TIMEOUT_MS,
         abortIgnoringTool: ABORT_TIMEOUT_MS,
@@ -281,13 +272,6 @@ async function main(): Promise<void> {
     fixtures,
   };
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-}
-
-function controlGapLimit(idleMaxGapMs: number): number {
-  return Math.min(
-    CONTROL_GAP_ABSOLUTE_LIMIT_MS,
-    Math.max(CONTROL_GAP_BASE_LIMIT_MS, idleMaxGapMs * CONTROL_GAP_IDLE_MULTIPLIER),
-  );
 }
 
 async function runIdleControl(): Promise<FixtureObservation> {

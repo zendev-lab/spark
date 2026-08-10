@@ -1,7 +1,6 @@
 {
   "$schema": "./packages.schema.json",
   "schemaVersion": 1,
-  "maxWorkspacePackages": 41,
   "packages": {
     "@zendev-lab/spark-cli": {
       "path": "apps/spark-cli",

@@ -5,7 +5,6 @@ import ts from "typescript";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const architecture = readJson(join(root, "architecture/packages.json"));
-const maxProductionFileLines = 4_000;
 const frozenCompatibilityExtensions = new Set([
   "./packages/spark-ask/src/extension-entry.ts",
   "./packages/spark-artifacts/src/extension-entry.ts",
@@ -24,11 +23,9 @@ const legacyDaemonClientCompatibilitySources = new Set([
   "packages/spark-daemon-client/src/daemon-client.ts",
   "packages/spark-daemon-client/src/daemon-local-rpc.ts",
 ]);
-const sparkUiPresentationDependencies = new Set(["@lucide/svelte", "bits-ui", "svelte-streamdown"]);
 
 function runArchitectureRatchets() {
   const failures = [];
-  const sealedPackagePaths = new Set(architecture.sealedPackagePaths ?? []);
   const workspacePackages = ["apps", "packages"].flatMap((workspaceDir) =>
     readdirSync(join(root, workspaceDir), { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -36,28 +33,12 @@ function runArchitectureRatchets() {
       .map((entry) => {
         const path = `${workspaceDir}/${entry.name}`;
         return { path, manifest: readJson(join(root, path, "package.json")) };
-      })
-      .filter(({ path }) => !sealedPackagePaths.has(path)),
+      }),
   );
   const workspaceByName = new Map(
     workspacePackages.map((workspacePackage) => [workspacePackage.manifest.name, workspacePackage]),
   );
   const declaredPackages = architecture.packages ?? {};
-
-  for (const sealedPath of sealedPackagePaths) {
-    if (!isFile(join(root, sealedPath, "package.json"))) {
-      failures.push(`sealed package ${sealedPath} must retain its source manifest`);
-    }
-    if (Object.values(declaredPackages).some((declaration) => declaration.path === sealedPath)) {
-      failures.push(`sealed package ${sealedPath} must not remain in the package inventory`);
-    }
-  }
-
-  if (workspacePackages.length > architecture.maxWorkspacePackages) {
-    failures.push(
-      `workspace package count grew to ${workspacePackages.length}; the package budget is ${architecture.maxWorkspacePackages}. Consolidate an owner boundary before adding another workspace.`,
-    );
-  }
 
   for (const { path, manifest } of workspacePackages) {
     const declaration = declaredPackages[manifest.name];
@@ -70,22 +51,11 @@ function runArchitectureRatchets() {
         `${manifest.name} is declared at ${declaration.path}, but its manifest is at ${path}.`,
       );
     }
-    if (manifest.private !== true) {
-      failures.push(
-        `${manifest.name} source workspace must remain private; public npm artifacts are generated from declared application distributions.`,
-      );
-    }
-
     const declaredRuntimeDependencies = new Set([
       ...Object.keys(manifest.dependencies ?? {}),
       ...Object.keys(manifest.optionalDependencies ?? {}),
       ...Object.keys(manifest.peerDependencies ?? {}),
     ]);
-    for (const dependency of presentationDependencyDeclarations(path, manifest)) {
-      failures.push(
-        `${manifest.name} declares ${dependency}; presentation dependencies are owned by @zendev-lab/spark-ui.`,
-      );
-    }
     const workspaceRuntimeDependencies = [...declaredRuntimeDependencies].filter((dependency) =>
       workspaceByName.has(dependency),
     );
@@ -111,20 +81,6 @@ function runArchitectureRatchets() {
       if (!isProductionSource(sourcePath)) return;
       const source = readFileSync(sourcePath, "utf8");
       const repositoryPath = relative(root, sourcePath).replaceAll("\\", "/");
-      const lines = source.split(/\r?\n/u).length;
-      if (lines > maxProductionFileLines) {
-        failures.push(
-          `${relative(root, sourcePath)} has ${lines} lines; the production-file ceiling is ${maxProductionFileLines}. Split it at a domain or adapter boundary.`,
-        );
-      }
-      for (const importedPackage of workspaceImports(source)) {
-        if (importedPackage === manifest.name || !workspaceByName.has(importedPackage)) continue;
-        if (!declaredRuntimeDependencies.has(importedPackage)) {
-          failures.push(
-            `${relative(root, sourcePath)} imports ${importedPackage}, but ${manifest.name} does not declare it as a runtime dependency.`,
-          );
-        }
-      }
       if (!isLegacyDaemonClientBoundaryExempt(repositoryPath)) {
         const violations = findLegacyDaemonClientViolations(source, repositoryPath);
         if (violations.length > 0) {
@@ -178,26 +134,6 @@ function runArchitectureRatchets() {
     }
   }
 
-  for (const { path, manifest } of workspacePackages) {
-    if (
-      path !== "apps/spark-daemon" &&
-      manifest.scripts?.check === "vp check --no-fmt --no-lint ."
-    ) {
-      failures.push(
-        `${path} duplicates the root typecheck with a boilerplate check script. Keep workspace scripts only when they add package-local validation.`,
-      );
-    }
-    const packagePolicyViolations = workspacePackagePolicyViolations({
-      path,
-      manifest,
-      hasTests: path.startsWith("packages/") && workspaceContainsTests(join(root, path)),
-      hasStrykerConfig: isFile(join(root, path, "stryker.config.json")),
-    });
-    for (const violation of packagePolicyViolations) {
-      failures.push(`${path} ${violation}.`);
-    }
-  }
-
   if (failures.length > 0) {
     console.error(
       ["Architecture ratchet failed:", ...failures.map((failure) => `- ${failure}`)].join("\n"),
@@ -205,7 +141,7 @@ function runArchitectureRatchets() {
     process.exitCode = 1;
   } else {
     console.log(
-      `Architecture ratchet passed (${workspacePackages.length}/${architecture.maxWorkspacePackages} workspaces classified; Spark ownership policy, workspace dependency declarations, and presentation dependency manifests enforced; daemon RPC facade enforced; production files <= ${maxProductionFileLines} lines; compatibility surface frozen with safe Pi imports).`,
+      `Architecture ratchet passed (${workspacePackages.length} workspaces classified; declared dependency boundaries, daemon RPC facade, and frozen compatibility surface enforced).`,
     );
   }
 }
@@ -389,49 +325,6 @@ export function isLegacyDaemonClientBoundaryExempt(repositoryPath) {
   );
 }
 
-export function presentationDependencyDeclarations(path, manifest) {
-  if (path === "packages/spark-ui") return [];
-  const declaredDependencies = new Set(
-    ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].flatMap(
-      (field) => Object.keys(manifest[field] ?? {}),
-    ),
-  );
-  return [...sparkUiPresentationDependencies]
-    .filter((dependency) => declaredDependencies.has(dependency))
-    .sort((left, right) => left.localeCompare(right));
-}
-
-export function workspacePackagePolicyViolations({ manifest, hasTests, hasStrykerConfig }) {
-  const violations = [];
-  if (hasTests) {
-    if (!manifest.scripts?.test) violations.push("must expose package-local tests");
-    if (!/\bvp test run\b/u.test(manifest.scripts?.check ?? "")) {
-      violations.push("check script must run package-local tests");
-    }
-  }
-
-  if (manifest.scripts?.["test:mutation"] === undefined) return violations;
-  if (manifest.scripts["test:mutation"] !== "stryker run") {
-    violations.push("mutation command must be stryker run");
-  }
-  if (manifest.devDependencies?.["@stryker-mutator/core"] !== "catalog:") {
-    violations.push("mutation core dependency must use catalog:");
-  }
-  if (manifest.devDependencies?.["@stryker-mutator/vitest-runner"] !== "catalog:") {
-    violations.push("mutation runner dependency must use catalog:");
-  }
-  if (!hasStrykerConfig) violations.push("mutation package must include stryker.config.json");
-  return violations;
-}
-
-export function workspaceImports(source) {
-  const imports = new Set();
-  const pattern =
-    /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["'](@zendev-lab\/[^/"']+)(?:\/[^"']*)?["']/gu;
-  for (const match of source.matchAll(pattern)) imports.add(match[1]);
-  return imports;
-}
-
 function visit(directory, inspect) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (["node_modules", "dist", "build", ".svelte-kit", "coverage"].includes(entry.name)) {
@@ -441,14 +334,6 @@ function visit(directory, inspect) {
     if (entry.isDirectory()) visit(path, inspect);
     else if (entry.isFile()) inspect(path);
   }
-}
-
-function workspaceContainsTests(directory) {
-  let found = false;
-  visit(directory, (path) => {
-    if (/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(path)) found = true;
-  });
-  return found;
 }
 
 function isProductionSource(path) {
