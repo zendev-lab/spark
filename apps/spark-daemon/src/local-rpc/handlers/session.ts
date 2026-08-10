@@ -162,7 +162,11 @@ export async function handleSessionRequest(
       if (options.sessionSupervisor) {
         return parseLocalRpcServiceOutput(
           request.method,
-          await options.sessionSupervisor.close({ sessionId: request.params.sessionId }),
+          await options.sessionSupervisor.close({
+            sessionId: request.params.sessionId,
+            ...(request.params.completion ? { completion: request.params.completion } : {}),
+            ...(request.params.reason ? { reason: request.params.reason } : {}),
+          }),
         );
       }
       const executed = await executeSparkDaemonSessionControl(

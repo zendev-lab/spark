@@ -94,6 +94,12 @@ Daemon execution attaches a fenced Session lease to every workspace-owned
 persistent Session turn, including the owning root Loop and managed Task
 Sessions. Task claim mutation must present that exact current Session lease;
 unowned or mismatched Sessions receive no claim authority.
+When a managed Task Session closes, its existing `TaskRunCompletionSummary`
+becomes the semantic close candidate. `task_run` includes that attempt;
+`task_revision` uses the final run summary and merges terminal Invocation IDs,
+Evidence refs, and Artifact refs from the current Session incarnation. A
+`succeeded` TaskRun maps to receipt status `completed`; `blocked`, `failed`, and
+`cancelled` retain their status.
 
 Task state, Goal/Repro state, and transcript summaries are not interchangeable
 sources of truth. Historical text or hook-projected context must never authorize

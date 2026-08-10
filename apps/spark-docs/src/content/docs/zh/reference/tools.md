@@ -39,7 +39,9 @@ Session，不能修改协调状态，也不能发布 Git、Artifact 或 Evidence
 
 Role 与 Skill Agent 子 Session 通过语义 Model Type 选择模型。缺少绑定时返回
 `role_model_type_unconfigured`，不会回退到父 Session 模型。Owned 子 Session 关闭时
-删除完整 transcript 和 Invocation 内容载荷，但保留有界运维元数据。
+会先从结构化 outcome、领域 completion 或最终 assistant result 封存一份有界
+receipt，再删除完整 transcript 和 Invocation 内容载荷。该 receipt 是 Session 运维
+元数据，不是 Evidence。
 
 ## Shell 与脚本工具
 

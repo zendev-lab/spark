@@ -9,6 +9,7 @@ import {
   type RoleRef,
   type RunRef,
   type SubgoalRef,
+  type Task,
   type TaskRef,
   type TaskExecutionPolicy,
   type TaskResourceAllocation,
@@ -22,6 +23,7 @@ import {
   subgoalDefinitionDigest,
   type SparkSessionContext,
 } from "@zendev-lab/spark-loop";
+import type { SparkSessionCloseCandidate } from "@zendev-lab/spark-protocol/session-assignment";
 import type { RoleRegistry, RoleSpec } from "@zendev-lab/spark-roles";
 import { sparkTaskExecutorRoleRef } from "@zendev-lab/spark-runtime";
 import { defaultTaskGraphStore, type TaskGraph } from "@zendev-lab/spark-tasks";
@@ -354,23 +356,100 @@ export async function reconcileManagedTaskSessions(input: {
   );
   const graph = reconciled.graph;
   if (graph) {
-    const closeSessionIds = active.flatMap((previous) => {
+    const closeRequests = active.flatMap((previous) => {
       const run = graph.runs(input.projectRef).find((candidate) => candidate.ref === previous.ref);
       if (!run?.execution || run.status === "queued" || run.status === "running") return [];
       const task = graph.getTask(run.taskRef);
       const revisionEnded =
         task.status === "done" || task.status === "failed" || task.status === "cancelled";
-      return run.execution.sessionLifetime === "task_run" || revisionEnded
-        ? [taskExecutionSessionId(run.execution)]
-        : [];
+      if (run.execution.sessionLifetime !== "task_run" && !revisionEnded) return [];
+      const sessionId = taskExecutionSessionId(run.execution);
+      return [
+        {
+          sessionId,
+          completion: taskSessionCloseCandidate(graph, input.projectRef, task, run, sessionId),
+        },
+      ];
     });
     await Promise.all(
-      [...new Set(closeSessionIds)].map(
-        async (sessionId) => await daemonRequest("session.archive", { sessionId }),
+      [...new Map(closeRequests.map((request) => [request.sessionId, request])).values()].map(
+        async ({ sessionId, completion }) =>
+          await daemonRequest("session.archive", {
+            sessionId,
+            ...(completion ? { completion } : {}),
+          }),
       ),
     );
   }
   return reconciled.result;
+}
+
+function taskSessionCloseCandidate(
+  graph: TaskGraph,
+  projectRef: ProjectRef,
+  task: Task,
+  finalRun: TaskRun,
+  sessionId: string,
+): SparkSessionCloseCandidate | undefined {
+  const runs =
+    finalRun.execution?.sessionLifetime === "task_revision"
+      ? graph.runs(projectRef).filter((run) => {
+          if (!run.execution || run.status === "queued" || run.status === "running") return false;
+          return taskExecutionSessionId(run.execution) === sessionId;
+        })
+      : [finalRun];
+  const sourceInvocationIds = unique(
+    runs.flatMap((run) => (run.execution?.invocationId ? [run.execution.invocationId] : [])),
+  ).slice(0, 64);
+  if (sourceInvocationIds.length === 0) return undefined;
+  const summary = finalRun.completionSummary;
+  const outcome = summary?.outcome ?? finalRun.outcome;
+  const status = finalRun.status === "succeeded" ? "completed" : finalRun.status;
+  if (
+    status !== "completed" &&
+    status !== "blocked" &&
+    status !== "failed" &&
+    status !== "cancelled"
+  ) {
+    return undefined;
+  }
+  const evidenceRefs = unique(
+    runs.flatMap((run) => [
+      ...run.outputEvidenceRefs,
+      ...(run.completionSummary?.evidenceRefs ?? []),
+    ]),
+  ).slice(0, 64);
+  const nextAction = boundCloseText(outcome?.nextAction, 2_048);
+  return {
+    source: "domain_completion",
+    status,
+    code: normalizeTaskCloseCode(outcome?.code ?? `task_session_${status}`),
+    summary:
+      boundCloseText(summary?.summary) ??
+      `Task ${task.ref} ${status === "completed" ? "completed" : status}.`,
+    ...(nextAction ? { nextAction } : {}),
+    evidenceRefs,
+    artifactRefs: unique(task.artifactRefs).slice(0, 32),
+    sourceInvocationIds,
+  };
+}
+
+function unique<T extends string>(values: readonly T[]): T[] {
+  return [...new Set(values)];
+}
+
+function boundCloseText(value: string | undefined, maxLength = 4_096): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized.slice(0, maxLength).trim() : undefined;
+}
+
+function normalizeTaskCloseCode(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9._-]+/gu, "_")
+    .replaceAll(/^_+|_+$/gu, "");
+  return (/^[a-z]/u.test(normalized) ? normalized : `task_${normalized || "failed"}`).slice(0, 128);
 }
 
 function reserveTaskSessionRuns(

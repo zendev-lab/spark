@@ -4,6 +4,7 @@ import type {
   ExtensionRoleRunResult,
   RoleRunCompletionOutcome,
 } from "@zendev-lab/spark-core";
+import type { SparkSessionCloseCandidate } from "@zendev-lab/spark-protocol/session-assignment";
 import { parseSparkRoleSpec } from "@zendev-lab/spark-protocol/role-session";
 import type { SessionSupervisor } from "./session-supervisor.ts";
 
@@ -68,6 +69,7 @@ async function runSupervisedRole(
   });
 
   let invocation: Awaited<ReturnType<SessionSupervisor["invoke"]>> | undefined;
+  let result: ExtensionRoleRunResult | undefined;
   try {
     invocation = await options.supervisor.invoke({
       sessionId: session.sessionId,
@@ -83,24 +85,47 @@ async function runSupervisedRole(
       sourceRef: request.record.ref,
       signal: request.signal,
     });
-    return compatibilityRoleRunResult(request, invocation, startedAt, model);
+    result = compatibilityRoleRunResult(request, invocation, startedAt, model);
+    return result;
   } finally {
     const closed = await options.supervisor.close({
       sessionId: session.sessionId,
       reason: `supervised ${purpose} settled`,
-      summary: {
-        roleRef: role.ref,
-        roleRevision: role.revision,
-        modelType: role.modelType,
-        runRef: request.record.ref,
-        status: invocation?.status ?? "failed",
-      },
+      ...(invocation && result
+        ? { completion: roleCloseCompletion(invocation.invocationId, invocation.result, result) }
+        : {}),
       settleTimeoutMs: 5_000,
     });
     if (closed.lifecycle !== "closed") {
       throw new Error(`supervised Role Session ${session.sessionId} did not close`);
     }
   }
+}
+
+function roleCloseCompletion(
+  invocationId: string,
+  invocationResult: unknown,
+  result: ExtensionRoleRunResult,
+): SparkSessionCloseCandidate {
+  const reported = roleOutcome(recordValue(invocationResult)?.roleOutcome);
+  const outcome = result.outcome ?? {
+    kind: result.record.status === "cancelled" ? "cancelled" : "failed",
+    code: "role_run_failed",
+    reason: result.stderr || "Supervised Role failed without a terminal outcome",
+  };
+  const summary =
+    boundText(result.stdout) ?? boundText(outcome.reason) ?? "Supervised Role settled.";
+  const nextAction = boundText(outcome.nextAction, 2_048);
+  return {
+    source: reported ? "structured_outcome" : "terminal_result",
+    status: outcome.kind,
+    code: normalizeCloseCode(outcome.code),
+    summary,
+    ...(nextAction ? { nextAction } : {}),
+    evidenceRefs: [],
+    artifactRefs: [],
+    sourceInvocationIds: [invocationId],
+  };
 }
 
 function compatibilityRoleRunResult(
@@ -216,4 +241,18 @@ function required(value: string | undefined, field: string): string {
   const normalized = value?.trim();
   if (!normalized) throw new Error(`${field} is required`);
   return normalized;
+}
+
+function boundText(value: string | undefined, maxLength = 4_096): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized.slice(0, maxLength).trim() : undefined;
+}
+
+function normalizeCloseCode(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9._-]+/gu, "_")
+    .replaceAll(/^_+|_+$/gu, "");
+  return (/^[a-z]/u.test(normalized) ? normalized : `role_${normalized || "failed"}`).slice(0, 128);
 }

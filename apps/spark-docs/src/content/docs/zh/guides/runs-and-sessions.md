@@ -57,6 +57,13 @@ Workflow 工作运行在 owner-bound 子 Session 中；活跃状态由 queued/ru
 Invocation 推导，不依赖 UI 计时器。临时 owned 子 Session 会随 owner 关闭并默认删除
 完整 transcript；只有保留公开记录的 Session 才能用同一稳定 ID 创建新 incarnation。
 
+owned 临时 Session 删除内容前，Spark 会先封存一份有界关闭摘要。Role 与 Skill 子
+Session 复用其结构化 outcome 和最终 assistant result；Task 与 Repro 子 Session
+复用 Task completion summary，`task_revision` 还会聚合当前 incarnation 的
+Invocation、Evidence 与 Artifact 引用。没有有效语义结果时，Spark 会保存仅含元数据
+的确定性 fallback，并继续清理内容。该 receipt 是可查询的 Session 元数据，不是
+Evidence 或 Memory。
+
 ## 应该使用哪一种？
 
 - 只要一个前台结果时使用 `spark run`。

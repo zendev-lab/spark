@@ -50,9 +50,11 @@ Each accepted call creates one fresh owned Role Session:
 - completion returns bounded Agent output and run metadata to the parent.
 
 A Skill Agent is an owned, non-restorable Spark Session. Closing it removes the
-full transcript and Invocation payload while retaining bounded summaries,
-usage, execution profile, and explicit Evidence. It does not claim a Task or
-create Task attribution.
+full transcript and Invocation payload after sealing a bounded receipt from
+`role_report_outcome` and the final assistant result. If that semantic candidate
+is absent or invalid, the daemon seals a deterministic fallback. Usage,
+execution profile, the receipt, and explicit Evidence remain queryable. It does
+not claim a Task or create Task attribution.
 
 ## Prompt contract
 

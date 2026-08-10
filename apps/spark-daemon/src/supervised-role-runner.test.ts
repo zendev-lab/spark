@@ -102,6 +102,17 @@ describe("supervised Role runner", () => {
       modelType: "implementation",
       retention: "discard_on_close",
     });
+    expect(child?.closeReceipts).toEqual([
+      expect.objectContaining({
+        version: 1,
+        source: "structured_outcome",
+        quality: "semantic",
+        status: "completed",
+        code: "implementation_complete",
+        summary: "implemented by child",
+        incarnation: 1,
+      }),
+    ]);
     const childInvocation = invocations
       .listPage({ sessionId: child!.sessionId })
       .invocations.at(0)!;
@@ -110,13 +121,11 @@ describe("supervised Role runner", () => {
       claimClass: "structured",
       payloadRedactedAt: expect.any(String),
       retentionSummary: {
-        roleRef: "role:builtin-executor",
-        roleRevision: 3,
-        modelType: "implementation",
-        runRef: "run:supervised-role",
         status: "succeeded",
+        sourceKind: "role_call",
       },
     });
+    expect(child?.closeReceipts?.[0]?.sourceInvocationIds).toEqual([childInvocation.invocationId]);
     expect(childInvocation.prompt).toBeUndefined();
     expect(childInvocation.result).toBeUndefined();
     db.close();

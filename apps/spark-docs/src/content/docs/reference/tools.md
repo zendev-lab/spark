@@ -48,7 +48,9 @@ itself must inspect and follow `SKILL.md`.
 Role and Skill Agent children select models through semantic Model Types. A
 missing binding fails with `role_model_type_unconfigured`; Spark does not fall
 back to the parent Session model. Owned children discard their full transcript
-and Invocation payload on close while retaining bounded operational metadata.
+and Invocation payload on close only after sealing a bounded receipt from the
+structured outcome, domain completion, or final assistant result. The receipt
+is operational Session metadata rather than Evidence.
 
 ## Shell and script tools
 
