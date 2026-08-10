@@ -502,6 +502,7 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     mkdir(resolve(sparkHome, "apps/daemon"), { recursive: true }),
     mkdir(binDir, { recursive: true }),
     mkdir(resolve(temporary, "home"), { recursive: true }),
+    mkdir(resolve(temporary, "xdg/run/cue-shell"), { recursive: true, mode: 0o700 }),
   ]);
   await writeFile(
     resolve(sparkHome, "role-model-settings.json"),
@@ -607,6 +608,7 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     XDG_CONFIG_HOME: resolve(temporary, "xdg/config"),
     XDG_STATE_HOME: resolve(temporary, "xdg/state"),
     XDG_DATA_HOME: resolve(temporary, "xdg/data"),
+    XDG_RUNTIME_DIR: resolve(temporary, "xdg/run"),
     SPARK_DAEMON_SERVICE_MODE: "detached",
     SPARK_HEADLESS_EXECUTOR_MODULE: resolve(root, "apps/spark-tui/src/headless-role-executor.ts"),
     SPARK_REPRO_SCRIPTED_PROVIDER_LEDGER: providerLedgerPath,
