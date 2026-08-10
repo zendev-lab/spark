@@ -1,9 +1,6 @@
 name: "CI - Smoke"
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
   merge_group:
     types:

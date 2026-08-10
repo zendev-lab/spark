@@ -8,6 +8,37 @@ const repositoryRoot = resolve(import.meta.dirname, "..");
 const workflowRoot = join(repositoryRoot, ".github", "workflows");
 const remoteActionPattern = /^[^@\s]+@[a-f0-9]{40}$/u;
 
+function workflowTriggerDeclaration(source) {
+  const lines = source.split(/\r?\n/u);
+  const start = lines.findIndex((line) => /^(?:["']?on["']?):/u.test(line));
+  if (start < 0) return "";
+
+  const declaration = [lines[start]];
+  if (!/^(?:["']?on["']?):\s*$/u.test(lines[start])) return declaration.join("\n");
+
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim() === "") {
+      declaration.push(line);
+      continue;
+    }
+    if (!/^\s/u.test(line)) break;
+    declaration.push(line);
+  }
+  return declaration.join("\n");
+}
+
+function workflowHasTrigger(source, trigger) {
+  const declaration = workflowTriggerDeclaration(source);
+  const escapedTrigger = trigger.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  return (
+    new RegExp(`^ {2}${escapedTrigger}:`, "mu").test(declaration) ||
+    new RegExp(`^(?:["']?on["']?):\\s*${escapedTrigger}\\s*$`, "mu").test(declaration) ||
+    new RegExp(`^(?:["']?on["']?):\\s*\\[[^\\]]*\\b${escapedTrigger}\\b`, "mu").test(declaration) ||
+    new RegExp(`^(?:["']?on["']?):\\s*\\{[^}]*\\b${escapedTrigger}\\s*:`, "mu").test(declaration)
+  );
+}
+
 export function workflowActionReferences(source) {
   return [...source.matchAll(/^\s*(?:-\s+)?uses:\s*["']?([^"'\s#]+)["']?/gmu)].map(
     (match) => match[1],
@@ -20,6 +51,16 @@ export function validateGitHubWorkflow(source, file = "workflow.yml") {
     if (action.startsWith("./") || action.startsWith("docker://")) continue;
     if (!remoteActionPattern.test(action)) {
       violations.push(`${file}: remote action ${action} must use a complete commit SHA`);
+    }
+  }
+
+  const workflowName = file.split("/").at(-1) ?? file;
+  if (/^ci-.*\.ya?ml$/u.test(workflowName)) {
+    if (!workflowHasTrigger(source, "pull_request")) {
+      violations.push(`${file}: CI workflows must retain the pull_request trigger`);
+    }
+    if (workflowHasTrigger(source, "push")) {
+      violations.push(`${file}: CI workflows must not run on push`);
     }
   }
 
