@@ -3045,7 +3045,7 @@ test("native TUI selects a History Session, restores it, and loads its snapshot"
   }
 });
 
-test("native /sessions reopens the startup selector and attaches the selected session", async () => {
+test("native /resume opens the startup selector and attaches the selected session", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-cli-session-reselect-"));
   try {
     const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
@@ -3147,7 +3147,7 @@ test("native /sessions reopens the startup selector and attaches the selected se
             workspaceSession: options.workspaceSession,
           });
           await options.configureApp?.(harness.app, harness.session);
-          assert.equal(await harness.submit("/sessions"), "command");
+          assert.equal(await harness.submit("/resume"), "command");
           await harness.flush();
           assert.equal(harness.app.actionBarSnapshot(), undefined);
           assert.equal(harness.state.exited, true);

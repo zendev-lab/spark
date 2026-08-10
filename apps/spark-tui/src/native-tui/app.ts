@@ -2093,11 +2093,15 @@ export class SparkNativeTuiApp implements Component, Focusable {
       return;
     }
 
-    // `/sessions` is an explicit navigation command, not a palette request.
-    // Execute it directly so the host can exit this TUI and reopen the same
-    // selector used at startup. `/session` keeps the richer action bar.
-    if (parsed.name === "sessions" && !parsed.args.trim()) {
-      await this.invokeRegisteredSlashCommand(parsed.name, parsed.args, true);
+    // Bare session navigation commands all open the daemon-backed selector
+    // used at startup. Do not interpose the session action bar before the
+    // unified page; explicit subcommands still reach their registered handler.
+    if (
+      ["session", "sessions", "resume", "new"].includes(parsed.name) &&
+      !parsed.args.trim() &&
+      this.slashCommands.sessions
+    ) {
+      await this.invokeRegisteredSlashCommand("sessions", "", false);
       return;
     }
 

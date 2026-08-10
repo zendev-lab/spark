@@ -1540,6 +1540,42 @@ test("bare catalog slash opens a focused bottom action bar without writing trans
   assert.equal(harness.session.messages.length, messageCount);
 });
 
+test("bare session navigation commands open the unified selector without an action bar", async () => {
+  const calls: Array<{ name: string; args: string }> = [];
+  const command = (name: string) => ({
+    description: name,
+    handler: (args: string) => {
+      calls.push({ name, args });
+    },
+  });
+  const harness = createSparkNativeTuiComponentHarness({
+    withOverlay: true,
+    slashCommands: {
+      session: command("session"),
+      sessions: command("sessions"),
+      resume: command("resume"),
+      new: command("new"),
+    },
+  });
+  const transcript = harness.session.messages.map(({ role, text }) => ({ role, text }));
+
+  for (const name of ["session", "sessions", "resume", "new"]) {
+    assert.equal(await harness.submit(`/${name}`), "command");
+    assert.deepEqual(calls.at(-1), { name: "sessions", args: "" });
+    assert.equal(harness.app.actionBarSnapshot(), undefined);
+    assert.deepEqual(
+      harness.session.messages.map(({ role, text }) => ({ role, text })),
+      transcript,
+    );
+  }
+
+  assert.equal(await harness.submit("/resume session:target"), "command");
+  assert.deepEqual(calls.at(-1), { name: "resume", args: "session:target" });
+  assert.equal(await harness.submit("/session inspect"), "command");
+  assert.deepEqual(calls.at(-1), { name: "session", args: "inspect" });
+  assert.equal(calls.length, 6);
+});
+
 test("TUI host disables unavailable action-bar operations and enables them from live state", async () => {
   const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
@@ -1686,23 +1722,6 @@ test("action bar executes semantic actions and only explicit inspection emits le
   assert.deepEqual(calls.at(-1), { name: "goal", args: "status" });
   assert.equal(harness.session.messages.length, messageCount + 1);
   assert.match(harness.session.messages.at(-1)?.text ?? "", /legacy:goal:status/);
-
-  const transcriptBeforeNewSession = harness.session.messages.map(({ role, text }) => ({
-    role,
-    text,
-  }));
-  await harness.submit("/session");
-  await pressFocused("\x1b[C");
-  await pressFocused("\r");
-  assert.deepEqual(calls.at(-1), { name: "sessions", args: "" });
-  assert.equal(
-    calls.some(({ name }) => name === "new"),
-    false,
-  );
-  assert.deepEqual(
-    harness.session.messages.map(({ role, text }) => ({ role, text })),
-    transcriptBeforeNewSession,
-  );
 
   messageCount = harness.session.messages.length;
   await harness.submit("/workflow-runs");
