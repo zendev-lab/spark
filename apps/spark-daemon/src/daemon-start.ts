@@ -62,6 +62,7 @@ import {
 } from "./core/human-answer-evidence.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import { SessionSupervisor } from "./session-supervisor.ts";
+import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
 import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
 import { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
 import { recoverInterruptedRuntimeCommandReceipts } from "./runtime-command-receipts.ts";
@@ -383,6 +384,27 @@ async function createPreparedDaemonRuntime(
         registry: options.sessionRegistry,
         invocations: invocationStore,
         ...(scheduler ? { scheduler } : {}),
+        ownerExists: async (owner, session) => {
+          if (
+            (owner.kind !== "task_run" && owner.kind !== "task_revision") ||
+            session.relation?.kind !== "task_execution" ||
+            session.scope.kind !== "workspace"
+          ) {
+            return false;
+          }
+          return await isTaskSessionOwnerValid(
+            {
+              owner,
+              workspaceId: session.scope.workspaceId,
+              sessionId: session.sessionId,
+              relation: session.relation,
+            },
+            {
+              resolveWorkspaceCwd: (workspaceId) =>
+                resolveWorkspaceLocalPath(options.db, workspaceId),
+            },
+          );
+        },
       })
     : null;
   const closeRestartAdmission = () => {

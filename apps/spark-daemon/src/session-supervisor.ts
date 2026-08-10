@@ -129,6 +129,12 @@ export class SessionSupervisor {
         `persistent Role ${input.role.ref} requires a Session owner`,
       );
     }
+    if (owner && !(await this.isOwnerReferenceValid(owner, workspaceId))) {
+      throw new SparkSessionRegistryError(
+        "session_owner_invalid",
+        `owner ${owner.kind}:${owner.ref} is not valid in workspace ${workspaceId}`,
+      );
+    }
     return await this.registry.createSupervised({
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       scope: { kind: "workspace", workspaceId },
@@ -485,7 +491,40 @@ export class SessionSupervisor {
       const invocation = this.invocations.getSummary(owner.ref);
       return invocation?.status === "queued" || invocation?.status === "running";
     }
-    return (await this.ownerExists?.(owner, session)) ?? true;
+    return (await this.ownerExists?.(owner, session)) ?? false;
+  }
+
+  private async isOwnerReferenceValid(
+    owner: SparkSessionOwner,
+    workspaceId: string,
+  ): Promise<boolean> {
+    if (owner.kind === "session") {
+      const session = await this.registry.get(owner.ref);
+      return Boolean(
+        session &&
+        session.lifecycle === "open" &&
+        session.status !== "archived" &&
+        session.scope.kind === "workspace" &&
+        session.scope.workspaceId === workspaceId,
+      );
+    }
+    if (owner.kind === "role_call") {
+      const invocation = this.invocations.getSummary(owner.ref);
+      return invocation?.status === "queued" || invocation?.status === "running";
+    }
+    if (!this.ownerExists) return false;
+    return await this.ownerExists(owner, {
+      sessionId: "session-owner-validation",
+      scope: { kind: "workspace", workspaceId },
+      workspaceId,
+      status: "ready",
+      lifecycle: "open",
+      lifetime: "owned",
+      owner,
+      bindings: [],
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    });
   }
 
   private async requireOpen(sessionId: string): Promise<SparkSessionRegistryRecord> {

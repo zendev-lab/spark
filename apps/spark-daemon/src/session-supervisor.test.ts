@@ -33,6 +33,12 @@ describe("SessionSupervisor", () => {
       modelType: "coordination",
       purpose: "workspace_administrator",
     });
+    harness.invocations.submit({
+      invocationId: "inv-role",
+      sessionId: first.sessionId,
+      prompt: "own child",
+      task: { type: "session.run", sessionId: first.sessionId, prompt: "own child" },
+    });
 
     const owners = [
       { kind: "session", ref: first.sessionId },
@@ -160,6 +166,25 @@ describe("SessionSupervisor", () => {
       kind: "role_run",
       persistence: "anonymous",
     });
+    harness.close();
+  });
+
+  it("rejects external owners when no authoritative validator is installed", async () => {
+    const harness = await createHarness();
+    const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");
+    const failClosed = new SessionSupervisor({
+      registry: harness.registry,
+      invocations: harness.invocations,
+    });
+    await expect(
+      failClosed.instantiate({
+        workspaceId: "ws-test",
+        role: executorRole,
+        parentSessionId: root.sessionId,
+        owner: { kind: "task_run", ref: "run:missing" },
+        purpose: "task_run",
+      }),
+    ).rejects.toMatchObject({ code: "session_owner_invalid" });
     harness.close();
   });
 
@@ -498,14 +523,6 @@ describe("SessionSupervisor", () => {
     });
     const supervisor = new SessionSupervisor({ registry, invocations, scheduler });
     const administrator = await supervisor.ensureWorkspaceAdministrator("ws-test");
-    const child = await supervisor.instantiate({
-      workspaceId: "ws-test",
-      role: executorRole,
-      parentSessionId: administrator.sessionId,
-      owner: { kind: "role_call", ref: "inv-parent" },
-      sessionId: "structured-child",
-      purpose: "role_call",
-    });
     const parent = invocations.submit({
       invocationId: "inv-parent",
       sessionId: administrator.sessionId,
@@ -516,6 +533,14 @@ describe("SessionSupervisor", () => {
         prompt: "hold parent",
         cwd: root,
       },
+    });
+    const child = await supervisor.instantiate({
+      workspaceId: "ws-test",
+      role: executorRole,
+      parentSessionId: administrator.sessionId,
+      owner: { kind: "role_call", ref: parent.invocationId },
+      sessionId: "structured-child",
+      purpose: "role_call",
     });
     expect(scheduler.processBatch()).toBe(true);
     await eventually(() => invocations.require(parent.invocationId).status === "running");
