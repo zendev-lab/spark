@@ -251,6 +251,7 @@
     background: var(--color-canvas);
     border: 1px dashed var(--color-border-strong);
     border-radius: var(--rounded-lg);
+    box-sizing: border-box;
     line-height: 1.4;
     min-width: 0;
     overflow: hidden;
