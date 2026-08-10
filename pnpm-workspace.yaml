@@ -46,7 +46,7 @@ overrides:
   "hono": "4.13.1"
   "@modelcontextprotocol/sdk>@hono/node-server": "2.1.0"
   "@sveltejs/kit>cookie": "0.7.2"
-  "miniflare>undici": "7.29.0"
+  "miniflare>undici": "8.10.0"
   "postcss": "8.5.26"
   "ajv>fast-uri": "3.1.5"
   "minimatch>brace-expansion": "5.0.9"
