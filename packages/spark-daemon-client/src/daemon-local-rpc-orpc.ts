@@ -727,7 +727,7 @@ export async function createSparkDaemonOrpcClient(
         : { maxMessageBytes: options.maxResponseBytes }),
     });
     const link = new RPCLink<EmptyClientContext>({ port });
-    const client = createORPCClient<SparkLocalRpcOrpcClient>(link);
+    const client = createSparkDaemonOrpcTypedClient(link);
     let closed = false;
 
     const close = () => {
@@ -753,6 +753,30 @@ export async function createSparkDaemonOrpcClient(
     socket.destroy();
     throw error;
   }
+}
+
+function createSparkDaemonOrpcTypedClient(
+  link: RPCLink<EmptyClientContext>,
+): SparkDaemonOrpcClient {
+  const client = createORPCClient<SparkLocalRpcOrpcClient>(link);
+  // oRPC 1.15 reserves Function.prototype.bind on recursive client proxies.
+  // Keep Spark's existing /session/bind transport path reachable through an
+  // explicitly rooted procedure client instead of changing the wire contract.
+  const sessionBind = createORPCClient<SparkLocalRpcOrpcClient["session"]["bind"]>(link, {
+    path: ["session", "bind"],
+  });
+  const session = new Proxy(client.session, {
+    get(target, key, receiver) {
+      if (key === "bind") return sessionBind;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  return new Proxy(client, {
+    get(target, key, receiver) {
+      if (key === "session") return session;
+      return Reflect.get(target, key, receiver);
+    },
+  });
 }
 
 async function invokeSparkDaemonOrpcProcedure<M extends SparkLocalRpcMethod>(

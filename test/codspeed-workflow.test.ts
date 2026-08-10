@@ -38,7 +38,7 @@ describe("CodSpeed workflow contract", () => {
     for (const action of actions) {
       expect(action).toMatch(/@[a-f0-9]{40}$/u);
     }
-    expect(actions).toContain("CodSpeedHQ/action@0ca9cbbf4623b599a6c3ed4fc8a922942705d9f1");
+    expect(actions).toContain("CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8");
   });
 
   it("runs only the deterministic local Lens benchmark command", async () => {

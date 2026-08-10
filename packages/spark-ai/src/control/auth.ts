@@ -3,10 +3,10 @@ import { dirname, resolve } from "node:path";
 
 import type {
   AuthEvent,
-  AuthInteraction,
   AuthPrompt,
   OAuthCredential,
   Provider,
+  ProviderAuthInteraction,
 } from "@earendil-works/pi-ai";
 import type {
   OAuthAuthInfo,
@@ -108,13 +108,14 @@ export interface SparkOAuthProviderInterface {
   readonly id: string;
   readonly name: string;
   login(callbacks: SparkOAuthLoginCallbacks): Promise<OAuthCredentials>;
-  refreshToken(credentials: OAuthCredentials): Promise<OAuthCredentials>;
+  refreshToken(credentials: OAuthCredentials, signal?: AbortSignal): Promise<OAuthCredentials>;
   getApiKey(credentials: OAuthCredentials): string | Promise<string>;
 }
 
 // Keep Spark's supported OAuth surface explicit even though pi-ai exposes more providers.
 const BUILT_IN_SPARK_OAUTH_PROVIDER_IDS = ["anthropic", "github-copilot", "openai-codex"] as const;
 const BUILT_IN_SPARK_OAUTH_PROVIDERS = selectBuiltInSparkOAuthProviders();
+const NON_ABORTING_AUTH_SIGNAL = new AbortController().signal;
 
 function selectBuiltInSparkOAuthProviders(): SparkOAuthProviderInterface[] {
   const providersById = new Map(builtinProviders().map((provider) => [provider.id, provider]));
@@ -143,7 +144,9 @@ function getSparkOAuthProvider(providerId: string): SparkOAuthProviderInterface 
   return sparkOAuthProviders.get(providerId);
 }
 
-export function adaptPiOAuthProvider(provider: Provider): SparkOAuthProviderInterface {
+export function adaptPiOAuthProvider(
+  provider: Pick<Provider, "id" | "name" | "auth">,
+): SparkOAuthProviderInterface {
   const oauth = provider.auth.oauth;
   if (!oauth) throw new Error(`pi-ai provider "${provider.id}" does not define OAuth`);
   return {
@@ -152,8 +155,10 @@ export function adaptPiOAuthProvider(provider: Provider): SparkOAuthProviderInte
     async login(callbacks) {
       return fromPiOAuthCredential(await oauth.login(toPiAuthInteraction(callbacks)));
     },
-    async refreshToken(credentials) {
-      return fromPiOAuthCredential(await oauth.refresh(toPiOAuthCredential(credentials)));
+    async refreshToken(credentials, signal) {
+      return fromPiOAuthCredential(
+        await oauth.refresh(toPiOAuthCredential(credentials), signal ?? NON_ABORTING_AUTH_SIGNAL),
+      );
     },
     async getApiKey(credentials) {
       return (await oauth.toAuth(toPiOAuthCredential(credentials))).apiKey ?? credentials.access;
@@ -161,9 +166,9 @@ export function adaptPiOAuthProvider(provider: Provider): SparkOAuthProviderInte
   };
 }
 
-function toPiAuthInteraction(callbacks: SparkOAuthLoginCallbacks): AuthInteraction {
+function toPiAuthInteraction(callbacks: SparkOAuthLoginCallbacks): ProviderAuthInteraction {
   return {
-    ...(callbacks.signal !== undefined ? { signal: callbacks.signal } : {}),
+    signal: callbacks.signal ?? NON_ABORTING_AUTH_SIGNAL,
     prompt: (prompt) => resolvePiAuthPrompt(callbacks, prompt),
     notify: (event) => notifyLegacyOAuthCallbacks(callbacks, event),
   };
