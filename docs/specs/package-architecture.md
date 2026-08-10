@@ -16,7 +16,7 @@ Generic monorepo mechanics are delegated to maintained open-source tools:
 
 | Concern | Authority | Primary source |
 | --- | --- | --- |
-| inventory JSON shape, required fields, and enums | JSON Schema 2020-12 in `architecture/packages.schema.json`, validated by the pinned Ajv JSON Schema 2020 library (`ajv@8.20.0`) through `scripts/validate-architecture-inventory.mjs` | [Ajv JSON Schema 2020](https://ajv.js.org/json-schema.html) |
+| inventory JSON shape, required fields, and enums | JSON Schema 2020-12 in `architecture/packages.schema.json`, validated by the pinned `check-jsonschema` prek hooks | [check-jsonschema](https://github.com/python-jsonschema/check-jsonschema) |
 | dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` | [Syncpack](https://github.com/JoshuaKGoldberg/syncpack) |
 | cycles and dependency direction | Dependency Cruiser | [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser) |
 | Spark package identity, owner/state ownership, workspace dependency declarations, package-local test/mutation exposure, budget, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |

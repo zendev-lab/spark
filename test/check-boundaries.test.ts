@@ -5,43 +5,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
 
-const architectureInventoryValidatorPath = resolve("scripts/validate-architecture-inventory.mjs");
 const configPath = resolve(".dependency-cruiser.cjs");
 const docTerminologyScriptPath = resolve("scripts/check-doc-terminology.mjs");
 const hubI18nBoundaryFixturePath = resolve(
   "test/fixtures/boundaries/spark-i18n-hub-surface-private.ts.fixture",
 );
-
-test("architecture inventory schema rejects missing and invalid policy fields", async () => {
-  const root = await mkdtemp(join(tmpdir(), "spark-architecture-schema-"));
-  try {
-    const invalid = join(root, "packages.json");
-    await writeFile(
-      invalid,
-      JSON.stringify({
-        $schema: "./packages.schema.json",
-        schemaVersion: 1,
-        maxWorkspacePackages: 1,
-        packages: {
-          "@zendev-lab/invalid": {
-            path: "packages/invalid",
-            layer: "unknown",
-            owner: "",
-            stability: "supported",
-          },
-        },
-      }),
-    );
-    const result = spawnSync(process.execPath, [architectureInventoryValidatorPath, invalid], {
-      cwd: resolve("."),
-      encoding: "utf8",
-    });
-    assert.notEqual(result.status, 0);
-    assert.match(`${result.stdout}\n${result.stderr}`, /stateWriter|layer|owner/u);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
 
 test("production circular rule rejects a real TypeScript cycle", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-depcruise-cycle-"));

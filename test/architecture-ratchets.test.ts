@@ -1,7 +1,6 @@
-import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -18,93 +17,6 @@ const {
   workspaceImports,
 } = architectureRatchets;
 
-const architectureInventoryValidatorPath = resolve("scripts/validate-architecture-inventory.mjs");
-const architectureInventoryFailurePrefix = "Invalid architecture/packages.json:";
-const requiredInventoryFields = ["layer", "owner", "stability", "stateWriter"] as const;
-const invalidInventoryCases = [
-  { field: "layer", value: "invalid", diagnostic: "must be equal to one of the allowed values" },
-  { field: "owner", value: "   ", diagnostic: 'must match pattern "\\S"' },
-  {
-    field: "stability",
-    value: "invalid",
-    diagnostic: "must be equal to one of the allowed values",
-  },
-  {
-    field: "stateWriter",
-    value: "invalid",
-    diagnostic: "must be equal to one of the allowed values",
-  },
-  {
-    field: "distribution",
-    value: "invalid",
-    diagnostic: "must be equal to one of the allowed values",
-  },
-] as const;
-const governanceDocumentationExpectations = [
-  "inventory JSON shape, required fields, and enums",
-  "https://ajv.js.org/json-schema.html",
-  "dependency-version/specifier consistency across manifests",
-  "https://github.com/JoshuaKGoldberg/syncpack",
-  "cycles and dependency direction",
-  "https://github.com/sverweij/dependency-cruiser",
-  "Spark package identity, owner/state ownership, workspace dependency declarations",
-] as const;
-interface ArchitectureInventory {
-  packages: Record<string, Record<string, unknown>>;
-}
-
-function parseJson<T>(source: string, label: string): T {
-  try {
-    return JSON.parse(source) as T;
-  } catch (error) {
-    throw new Error(`Unable to parse ${label}`, { cause: error });
-  }
-}
-
-async function readJson<T>(path: string): Promise<T> {
-  return parseJson<T>(await readFile(path, "utf8"), path);
-}
-
-async function workspaceManifestPaths(): Promise<string[]> {
-  const manifests: string[] = [];
-  for (const root of ["apps", "packages"]) {
-    const entries = await readdir(root, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      try {
-        await readFile(join(root, entry.name, "package.json"), "utf8");
-        manifests.push(join(root, entry.name, "package.json"));
-      } catch {
-        // Non-workspace directories are outside the active package inventory.
-      }
-    }
-  }
-  return manifests.sort();
-}
-
-function runArchitectureInventoryValidator(
-  inventoryPath: string,
-  validatorPath = architectureInventoryValidatorPath,
-) {
-  return spawnSync(process.execPath, [validatorPath, inventoryPath], {
-    cwd: ".",
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-}
-
-function expectArchitectureInventoryFailure(
-  result: ReturnType<typeof runArchitectureInventoryValidator>,
-  diagnostics: string[],
-): void {
-  expect(result.error).toBeUndefined();
-  expect(result.status).toBe(1);
-  expect(result.signal).toBeNull();
-  expect(result.stdout).toBe("");
-  expect(result.stderr).toContain(architectureInventoryFailurePrefix);
-  for (const diagnostic of diagnostics) expect(result.stderr).toContain(`- ${diagnostic}`);
-}
-
 describe("workspace dependency declaration ratchet", () => {
   it("extracts root package names from static and dynamic workspace imports", () => {
     expect(
@@ -114,89 +26,6 @@ describe("workspace dependency declaration ratchet", () => {
         export { helper } from "@zendev-lab/spark-memory/helpers";
       `),
     ).toEqual(new Set(["@zendev-lab/spark-memory", "@zendev-lab/spark-protocol"]));
-  });
-});
-
-describe("architecture governance contracts", () => {
-  it("requires every active workspace declaration to carry every ownership field", async () => {
-    const inventory = await readJson<ArchitectureInventory>("architecture/packages.json");
-    const workspacePaths = await workspaceManifestPaths();
-    expect(workspacePaths).not.toHaveLength(0);
-    for (const workspacePath of workspacePaths) {
-      const manifest = await readJson<{ name: string }>(workspacePath);
-      const declaration = inventory.packages[manifest.name];
-      expect(declaration, manifest.name).toBeDefined();
-      for (const field of requiredInventoryFields) {
-        expect(declaration?.[field], `${manifest.name}.${field}`).toBeTruthy();
-      }
-    }
-  });
-
-  it("checks the architecture documentation contract", async () => {
-    const docs = await readFile("docs/specs/package-architecture.md", "utf8");
-    for (const expectation of governanceDocumentationExpectations) {
-      expect(docs).toContain(expectation);
-    }
-  });
-
-  it.each(requiredInventoryFields)("rejects an independently missing %s field", async (field) => {
-    const root = await mkdtemp(join(tmpdir(), "spark-architecture-missing-field-"));
-    try {
-      const source = await readJson<ArchitectureInventory>("architecture/packages.json");
-      const declaration = { ...source.packages["@zendev-lab/spark-cli"] };
-      delete declaration[field];
-      const inventoryPath = join(root, "packages.json");
-      await writeFile(
-        inventoryPath,
-        JSON.stringify({ ...source, packages: { "@zendev-lab/spark-invalid": declaration } }),
-      );
-
-      expectArchitectureInventoryFailure(runArchitectureInventoryValidator(inventoryPath), [
-        `/packages/@zendev-lab~1spark-invalid: must have required property '${field}'`,
-      ]);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it.each(invalidInventoryCases)(
-    "rejects an independently invalid $field value",
-    async ({ field, value, diagnostic }) => {
-      const root = await mkdtemp(join(tmpdir(), "spark-architecture-invalid-value-"));
-      try {
-        const source = await readJson<ArchitectureInventory>("architecture/packages.json");
-        const declaration = {
-          ...source.packages["@zendev-lab/spark-cli"],
-          [field]: value,
-        };
-        const inventoryPath = join(root, "packages.json");
-        await writeFile(
-          inventoryPath,
-          JSON.stringify({ ...source, packages: { "@zendev-lab/spark-invalid": declaration } }),
-        );
-
-        expectArchitectureInventoryFailure(runArchitectureInventoryValidator(inventoryPath), [
-          `/packages/@zendev-lab~1spark-invalid/${field}: ${diagnostic}`,
-        ]);
-      } finally {
-        await rm(root, { recursive: true, force: true });
-      }
-    },
-  );
-
-  it("cannot mistake an unrelated subprocess failure for schema rejection", () => {
-    const result = runArchitectureInventoryValidator(
-      resolve("architecture/packages.json"),
-      resolve("scripts/missing-architecture-validator.mjs"),
-    );
-
-    expect(result.status).toBe(1);
-    expect(result.signal).toBeNull();
-    expect(result.stdout).toBe("");
-    expect(result.stderr).not.toContain(architectureInventoryFailurePrefix);
-    expect(() =>
-      expectArchitectureInventoryFailure(result, ["unreachable schema diagnostic"]),
-    ).toThrow();
   });
 });
 

@@ -39,6 +39,30 @@ rev = "v1.48.0"
 hooks = [{ id = "typos", args = ["--force-exclude"], stages = ["pre-commit"] }]
 
 [[repos]]
+repo = "https://github.com/python-jsonschema/check-jsonschema"
+rev = "c4654a7e007c9619a5eb63c39a456572a0fa1851"  # 0.38.0
+hooks = [
+  {
+    id = "check-jsonschema",
+    name = "Validate architecture inventory",
+    args = [
+      "--schemafile",
+      "architecture/packages.schema.json",
+      "architecture/packages.json"
+    ],
+    files = "^architecture/packages(?:\\.schema)?\\.json$",
+    pass_filenames = false,
+    stages = ["pre-commit"]
+  },
+  {
+    id = "check-metaschema",
+    name = "Validate architecture schema",
+    files = "^architecture/packages\\.schema\\.json$",
+    stages = ["pre-commit"]
+  },
+]
+
+[[repos]]
 repo = "https://github.com/zrr1999/zendev"
 rev = "v0.1.0"
 hooks = [{ id = "zendev-commit-msg", stages = ["commit-msg"] }]
