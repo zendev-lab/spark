@@ -1032,12 +1032,7 @@ function reviewerVerdictProtocolIssue(
       .filter(Boolean),
   );
   for (const clause of clauses) {
-    if (reviewerClauseIsNegated(clause)) continue;
-    const explicitRequest =
-      /\b(?:attach|add|include|put|supply|provide|require|request|missing|need(?:s|ed)?)\b/iu.test(
-        clause,
-      );
-    if (!explicitRequest) continue;
+    if (!reviewerClauseIsExplicitRequest(clause)) continue;
     if (
       /\bevidenceRefs?\b/iu.test(clause) &&
       input.task.artifactRefs.some((artifactRef) => clause.includes(artifactRef))
@@ -1057,8 +1052,8 @@ function reviewerVerdictProtocolIssue(
   return undefined;
 }
 
-function reviewerClauseIsNegated(clause: string): boolean {
-  return /^(?:do not|don't|must not|should not|never|no need to|without requiring)\b/iu.test(
+function reviewerClauseIsExplicitRequest(clause: string): boolean {
+  return /^(?:please\s+)?(?:attach|add|include|put|supply|provide|require|request)\b/iu.test(
     clause.trim(),
   );
 }

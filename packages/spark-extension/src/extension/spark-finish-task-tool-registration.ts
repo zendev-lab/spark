@@ -1462,12 +1462,15 @@ export async function buildTaskReviewEvidenceContext(
 
   const currentSet = new Set(currentEvidenceRefs);
   for (const ref of supersededEvidenceRefs) {
-    if (supersededChainReachesCurrent(ref, supersededReplacements, currentSet, new Set())) continue;
+    const analysis = analyzeSupersededChain(ref, supersededReplacements, currentSet, new Set());
+    if (analysis.reachesCurrent && !analysis.hasCycle) continue;
     if (unreadableEvidence.some((entry) => entry.ref === ref)) continue;
     unreadableEvidence.push({
       ref,
       curationStatus: "superseded",
-      error: "superseded Evidence replacement chain is cyclic or has no current leaf",
+      error: analysis.hasCycle
+        ? "superseded Evidence replacement chain contains a cycle"
+        : "superseded Evidence replacement chain has no current leaf",
     });
   }
 
@@ -1483,18 +1486,28 @@ export async function buildTaskReviewEvidenceContext(
   };
 }
 
-function supersededChainReachesCurrent(
+interface SupersededChainAnalysis {
+  reachesCurrent: boolean;
+  hasCycle: boolean;
+}
+
+function analyzeSupersededChain(
   ref: EvidenceRef,
   replacements: ReadonlyMap<EvidenceRef, readonly EvidenceRef[]>,
   current: ReadonlySet<EvidenceRef>,
   visiting: Set<EvidenceRef>,
-): boolean {
-  if (current.has(ref)) return true;
-  if (visiting.has(ref)) return false;
+): SupersededChainAnalysis {
+  if (current.has(ref)) return { reachesCurrent: true, hasCycle: false };
+  if (visiting.has(ref)) return { reachesCurrent: false, hasCycle: true };
   visiting.add(ref);
-  return (replacements.get(ref) ?? []).some((replacement) =>
-    supersededChainReachesCurrent(replacement, replacements, current, new Set(visiting)),
-  );
+  let reachesCurrent = false;
+  let hasCycle = false;
+  for (const replacement of replacements.get(ref) ?? []) {
+    const child = analyzeSupersededChain(replacement, replacements, current, new Set(visiting));
+    reachesCurrent ||= child.reachesCurrent;
+    hasCycle ||= child.hasCycle;
+  }
+  return { reachesCurrent, hasCycle };
 }
 
 function collectTaskReviewEvidenceRefs(

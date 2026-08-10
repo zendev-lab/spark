@@ -4406,7 +4406,48 @@ test("task finish review fails closed on cyclic superseded Evidence replacements
     assert.deepEqual(context.currentEvidenceRefs, []);
     assert.deepEqual(new Set(context.supersededEvidenceRefs), new Set([first.ref, second.ref]));
     assert.equal(context.unreadableEvidence.length, 2);
-    assert.match(context.unreadableEvidence[0]?.error ?? "", /cyclic or has no current leaf/u);
+    assert.match(context.unreadableEvidence[0]?.error ?? "", /contains a cycle/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("task finish review rejects cycles even when another replacement is current", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-cyclic-current-evidence-"));
+  try {
+    const store = defaultEvidenceStore(dir);
+    const historical = await store.put({
+      kind: "record",
+      title: "Historical self-linked receipt",
+      format: "json",
+      body: { generation: 1 },
+      provenance: { producer: "task" },
+    });
+    const current = await store.put({
+      kind: "record",
+      title: "Current valid receipt",
+      format: "json",
+      body: { generation: 2 },
+      provenance: { producer: "task" },
+    });
+    await store.update(historical.ref, {
+      curation: {
+        status: "superseded",
+        retention: "task",
+        reason: "invalid self-edge plus current leaf",
+        supersededBy: [historical.ref, current.ref],
+      },
+    });
+
+    const context = await buildTaskReviewEvidenceContext(dir, {
+      outputEvidenceRefs: [historical.ref],
+      plan: executionReadyPlan("Reject any reachable Evidence cycle"),
+    });
+
+    assert.deepEqual(context.currentEvidenceRefs, [current.ref]);
+    assert.deepEqual(context.supersededEvidenceRefs, [historical.ref]);
+    assert.equal(context.unreadableEvidence.length, 1);
+    assert.match(context.unreadableEvidence[0]?.error ?? "", /contains a cycle/u);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

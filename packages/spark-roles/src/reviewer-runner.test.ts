@@ -753,6 +753,7 @@ test("SparkRolesReviewerRunner preserves negated and independent semantic findin
           summary: "current replacement is invalid",
           findings: [
             "Do not provide evidence:historical; the current replacement fails validation.",
+            "The current replacement needs repair, not evidence:historical.",
             "artifact:delivery is unreadable; evidenceRefs are otherwise sufficient.",
           ],
           blockers: ["Repair evidence:current and the Artifact storage record."],
@@ -769,6 +770,7 @@ test("SparkRolesReviewerRunner preserves negated and independent semantic findin
     assert.equal(result.failure, undefined);
     assert.deepEqual(result.verdict.findings, [
       "Do not provide evidence:historical; the current replacement fails validation.",
+      "The current replacement needs repair, not evidence:historical.",
       "artifact:delivery is unreadable; evidenceRefs are otherwise sufficient.",
     ]);
   } finally {
