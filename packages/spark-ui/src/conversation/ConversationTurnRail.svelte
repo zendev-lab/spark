@@ -57,7 +57,7 @@
 <style>
   .turn-rail {
     bottom: 12px;
-    left: 0;
+    inset-inline-start: 0;
     pointer-events: none;
     position: absolute;
     top: 12px;
@@ -74,7 +74,7 @@
     display: flex;
     height: 12px;
     justify-content: flex-start;
-    left: 0;
+    inset-inline-start: 0;
     overflow: visible;
     padding: 0;
     pointer-events: auto;
@@ -89,7 +89,7 @@
     border-radius: 999px;
     display: block;
     height: 1px;
-    margin-left: 6px;
+    margin-inline-start: 6px;
     transition:
       background 120ms ease,
       height 120ms ease,
@@ -101,14 +101,14 @@
   .turn-marker:hover .turn-tick,
   .turn-marker:focus-visible .turn-tick {
     background: var(--color-primary);
-    margin-left: 3px;
+    margin-inline-start: 3px;
     width: 11px;
   }
 
   .turn-marker.active .turn-tick {
     background: var(--color-ink);
     height: 2px;
-    margin-left: 0;
+    margin-inline-start: 0;
     width: 22px;
   }
 
@@ -125,11 +125,11 @@
     box-shadow: var(--shadow-card, 0 6px 20px rgb(15 23 42 / 14%));
     display: none;
     gap: 4px;
-    left: 27px;
+    inset-inline-start: 27px;
     max-width: min(300px, calc(100vw - 88px));
     padding: 8px 10px;
     position: absolute;
-    text-align: left;
+    text-align: start;
     top: 50%;
     transform: translateY(-50%);
     width: max-content;

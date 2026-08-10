@@ -88,7 +88,7 @@
 
   .ui-page-badge,
   .ui-page-actions {
-    margin-left: auto;
+    margin-inline-start: auto;
   }
 
   .ui-page-actions {

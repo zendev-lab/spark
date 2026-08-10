@@ -136,7 +136,7 @@
     min-height: 34px;
     min-width: 72px;
     padding: 5px 9px;
-    text-align: left;
+    text-align: start;
   }
 
   button small {

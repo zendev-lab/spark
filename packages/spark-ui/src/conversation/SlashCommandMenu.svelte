@@ -119,7 +119,7 @@
     grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr);
     min-height: 44px;
     padding: 7px 9px;
-    text-align: left;
+    text-align: start;
     width: 100%;
   }
 

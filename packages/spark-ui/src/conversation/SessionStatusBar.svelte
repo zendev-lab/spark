@@ -205,10 +205,10 @@
   }
 
   .usage-context {
-    border-left: 1px solid var(--color-border-soft);
+    border-inline-start: 1px solid var(--color-border-soft);
     flex: 0 0 auto;
-    margin-left: 9px;
-    padding-left: 9px;
+    margin-inline-start: 9px;
+    padding-inline-start: 9px;
   }
 
   .metric {

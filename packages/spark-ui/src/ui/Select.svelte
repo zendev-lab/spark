@@ -100,7 +100,7 @@
     min-height: 40px;
     min-width: 180px;
     padding: 7px 11px;
-    text-align: left;
+    text-align: start;
     width: 100%;
   }
 

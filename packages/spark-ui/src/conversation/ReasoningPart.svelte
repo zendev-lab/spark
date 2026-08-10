@@ -40,9 +40,9 @@
 
 <style>
   .reasoning-part {
-    border-left: 2px solid var(--color-border);
+    border-inline-start: 2px solid var(--color-border);
     color: var(--color-ink-subtle);
-    padding-left: 10px;
+    padding-inline-start: 10px;
   }
 
   summary {

@@ -79,7 +79,7 @@
 
   .conversation-message.runtime-only {
     display: block;
-    margin-left: 41px;
+    margin-inline-start: 41px;
   }
 
   .conversation-message.runtime-only .message-column {
@@ -186,7 +186,7 @@
   }
 
   .message-content :global(.user-quote) {
-    border-left: 3px solid var(--color-border);
+    border-inline-start: 3px solid var(--color-border);
     color: var(--color-ink-subtle);
     display: grid;
     gap: 4px;
@@ -261,7 +261,7 @@
     }
 
     .conversation-message.runtime-only {
-      margin-left: 34px;
+      margin-inline-start: 34px;
     }
 
     .conversation-message.user .message-column {

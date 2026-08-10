@@ -146,10 +146,10 @@
   .summary-facts { flex-wrap: wrap; justify-content: flex-end; gap: var(--spacing-md); }
   .summary-facts > span { display: grid; gap: .15rem; }
   .stack-list { display: grid; gap: var(--spacing-md); margin: 0; padding: 0; list-style: none; }
-  .stack-list > li { position: relative; padding-left: 1.5rem; }
-  .stack-list > li::before { position: absolute; top: 1.1rem; bottom: calc(-1 * var(--spacing-md)); left: .35rem; width: 1px; background: var(--color-border-strong); content: ""; }
+  .stack-list > li { position: relative; padding-inline-start: 1.5rem; }
+  .stack-list > li::before { position: absolute; top: 1.1rem; bottom: calc(-1 * var(--spacing-md)); inset-inline-start: .35rem; width: 1px; background: var(--color-border-strong); content: ""; }
   .stack-list > li:last-child::before { display: none; }
-  .node { position: absolute; left: -.05rem; width: .8rem; height: .8rem; background: var(--color-surface); border: 2px solid var(--color-border-strong); border-radius: 50%; }
+  .node { position: absolute; inset-inline-start: -.05rem; width: .8rem; height: .8rem; background: var(--color-surface); border: 2px solid var(--color-border-strong); border-radius: 50%; }
   li.current .node { background: var(--color-primary); border-color: var(--color-primary); box-shadow: 0 0 0 4px var(--color-primary-soft); }
   .branch-line { position: relative; justify-content: space-between; gap: var(--spacing-md); min-height: 2.25rem; }
   .branch-copy { display: grid; gap: .15rem; min-width: 0; }

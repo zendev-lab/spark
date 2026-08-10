@@ -343,7 +343,7 @@
   }
 
   .conversation-scroll.with-navigation {
-    padding-left: max(calc(var(--spacing-sm) + 30px), calc((100% - 800px) / 2 + 30px));
+    padding-inline-start: max(calc(var(--spacing-sm) + 30px), calc((100% - 800px) / 2 + 30px));
   }
 
   .conversation-content {
