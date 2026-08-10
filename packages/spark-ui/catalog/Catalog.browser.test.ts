@@ -19,6 +19,9 @@ beforeAll(async () => {
 });
 const conversationFixtures = catalogFixtures.filter((fixture) => fixture.group === "conversation");
 const workbenchFixtures = catalogFixtures.filter((fixture) => fixture.group === "workbench");
+// Keep these below the Vitest runner frame so screenshots remain at a 1:1 scale.
+const desktopViewport = { width: 1024, height: 560 } as const;
+const mobileViewport = { width: 420, height: 560 } as const;
 
 describe("Spark UI component catalog", () => {
   it("has no automatically detectable WCAG A or AA violations", async () => {
@@ -47,8 +50,8 @@ describe("Spark UI component catalog", () => {
     await screen.unmount();
   });
 
-  it("keeps light desktop conversation scenarios visually stable", async () => {
-    await page.viewport(1440, 2000);
+  it("keeps the light desktop conversation catalog visually stable", async () => {
+    await page.viewport(desktopViewport.width, desktopViewport.height);
     const screen = await render(Catalog, {
       theme: "light",
       direction: "ltr",
@@ -74,8 +77,8 @@ describe("Spark UI component catalog", () => {
     await screen.unmount();
   });
 
-  it("keeps light desktop workbench scenarios visually stable", async () => {
-    await page.viewport(1440, 3000);
+  it("keeps the light desktop workbench catalog visually stable", async () => {
+    await page.viewport(desktopViewport.width, desktopViewport.height);
     const screen = await render(Catalog, {
       theme: "light",
       direction: "ltr",
@@ -98,8 +101,8 @@ describe("Spark UI component catalog", () => {
     await screen.unmount();
   });
 
-  it("keeps the dark RTL mobile conversation scenario visually stable", async () => {
-    await page.viewport(420, 900);
+  it("keeps the dark RTL mobile conversation catalog visually stable", async () => {
+    await page.viewport(mobileViewport.width, mobileViewport.height);
     const screen = await render(Catalog, {
       theme: "dark",
       direction: "rtl",
@@ -115,8 +118,8 @@ describe("Spark UI component catalog", () => {
     await screen.unmount();
   });
 
-  it("keeps the dark RTL mobile workbench scenario visually stable", async () => {
-    await page.viewport(420, 900);
+  it("keeps the dark RTL mobile workbench catalog visually stable", async () => {
+    await page.viewport(mobileViewport.width, mobileViewport.height);
     const screen = await render(Catalog, {
       theme: "dark",
       direction: "rtl",
