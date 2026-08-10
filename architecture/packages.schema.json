@@ -4,16 +4,10 @@
   "title": "Spark workspace architecture inventory",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema", "schemaVersion", "maxWorkspacePackages", "packages"],
+  "required": ["$schema", "schemaVersion", "packages"],
   "properties": {
     "$schema": { "const": "./packages.schema.json" },
     "schemaVersion": { "const": 1 },
-    "maxWorkspacePackages": { "type": "integer", "minimum": 1 },
-    "sealedPackagePaths": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": { "type": "string", "pattern": "^packages/[a-z0-9-]+$" }
-    },
     "packages": {
       "type": "object",
       "minProperties": 1,

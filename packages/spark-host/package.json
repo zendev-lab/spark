@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-cue": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-repro": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",

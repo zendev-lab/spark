@@ -67,16 +67,16 @@ CSS, or documentation to prove that an implementation fragment exists.
 
 Repository policy belongs to dedicated static tools invoked by `pnpm run check:static`:
 
-- `check-architecture-ratchets.mjs` owns workspace/package policy, including package-local test
-  exposure and mutation-runner ownership;
+- `check-architecture-ratchets.mjs` owns only Spark-specific workspace identity, dependency, and
+  compatibility boundaries that generic tools cannot express;
 - `check-github-actions.mjs` owns immutable Action references and benchmark credential policy;
 - `check-pnpm-workspace-policy.mjs` owns hook-time pnpm mutation safety;
 - `check-hub-source-boundaries.mjs` owns Hub source/state-owner boundaries;
 - Dependency Cruiser and the existing terminology, documentation, distribution, and evidence
   checkers own their declared repository surfaces.
 
-The static tools may have focused tests over synthetic inputs and injected defects. Those tests
-exercise checker behavior; they do not reopen and snapshot the current repository configuration.
+Static checker self-tests do not belong in the root code-test suite. Validate repository policy by
+running its dedicated tool against the repository and keep code tests focused on product behavior.
 
 `pnpm run check:test-quality` enforces this split. Its committed baseline remains
 `legacyFiles=0` and `sourceMirrorAssertions=0`; the detector follows direct and locally wrapped

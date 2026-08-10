@@ -7,8 +7,8 @@ The machine-readable source of truth is
 [`../../architecture/packages.json`](../../architecture/packages.json). Every
 workspace declares a `layer`, `owner`, `stability`, and authoritative
 `stateWriter`. `pnpm run check:architecture` rejects an unclassified workspace,
-an undeclared production dependency, a stale export, a public source workspace,
-or growth beyond the current 41-workspace budget.
+an undeclared production dependency, a stale export, or a violation of an
+explicit Spark-specific dependency or compatibility boundary.
 
 ## Governance tooling
 
@@ -18,28 +18,22 @@ Generic monorepo mechanics are delegated to maintained open-source tools:
 | --- | --- | --- |
 | inventory JSON shape, required fields, and enums | JSON Schema 2020-12 in `architecture/packages.schema.json`, validated by the pinned `check-jsonschema` prek hooks | [check-jsonschema](https://github.com/python-jsonschema/check-jsonschema) |
 | dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` | [Syncpack](https://github.com/JoshuaKGoldberg/syncpack) |
+| imports from dependencies missing in the owning workspace manifest | Knip strict unlisted-dependency analysis | [Knip](https://knip.dev/features/monorepos-and-workspaces) |
 | cycles and dependency direction | Dependency Cruiser | [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser) |
-| Spark package identity, owner/state ownership, workspace dependency declarations, package-local test/mutation exposure, budget, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |
+| Spark package identity, explicit workspace dependency restrictions, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |
 
-`pnpm run check:architecture` validates the schema, runs Syncpack, and then
-executes the Spark-specific ratchets. `pnpm run check:boundaries` runs
-Dependency Cruiser. The custom checker no longer duplicates required/enum
-validation or dependency-version consistency. Its workspace-import declaration
-check remains because Dependency Cruiser's generic `npm-no-pkg` classification
-uses the monorepo root manifest under the current pnpm resolution mode and does
-not fail for a dependency missing only from an individual workspace manifest.
-Presentation imports are enforced by Dependency Cruiser; the reduced custom
-checker covers only the corresponding manifest ownership because import graph
-tools do not inspect unused dependency declarations.
+`pnpm run check:architecture` validates the schema, runs Syncpack and Knip, and
+then executes the Spark-specific ratchets. `pnpm run check:boundaries` runs
+Dependency Cruiser. The custom checker does not duplicate schema validation,
+dependency-version consistency, or generic manifest/import analysis.
 
 Test and mutation discovery follow the same rule. Vitest configs define the
 root, process, browser, and capability suites; pnpm recursive `--if-present`
 commands discover package-local checks; packages participating in mutation CE
 own a standard `test:mutation` script and Stryker config. The architecture
-checker verifies that packages with tests expose them through their local
-`test`/`check` scripts and validates mutation command/config ownership.
-Historical ownership, strategy, and mutation-selection ledgers are not
-parallel workspace inventories.
+checker does not impose package-script spellings or duplicate those tools'
+configuration. Historical ownership, strategy, and mutation-selection ledgers
+are not parallel workspace inventories.
 
 ### Repository script policy
 
