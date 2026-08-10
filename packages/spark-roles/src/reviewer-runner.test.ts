@@ -477,6 +477,25 @@ test("task reviewer instruction scopes task finish independently from sibling pr
   );
 });
 
+test("task reviewer packet exposes Artifact authority and post-approval receipt timing", () => {
+  const base = reviewTaskInput();
+  const instruction = renderReviewerInstruction({
+    ...base,
+    task: {
+      ...base.task,
+      artifactRefs: ["artifact:delivery"],
+    },
+    evidenceRefs: ["evidence:current"],
+    supersededEvidenceRefs: ["evidence:historical"],
+  });
+
+  assert.match(instruction, /"artifactRefs": \[\s*"artifact:delivery"/u);
+  assert.match(instruction, /"supersededEvidenceRefs": \[\s*"evidence:historical"/u);
+  assert.match(instruction, /created_after_reviewer_approval_and_transition_commit/u);
+  assert.match(instruction, /Never ask the caller to put artifact: refs in evidenceRefs/u);
+  assert.match(instruction, /supersededEvidenceRefs are historical/u);
+});
+
 test("goal reviewer instruction still gates completion on unfinished project work", () => {
   const instruction = renderReviewerInstruction({
     targetKind: "goal",
@@ -652,11 +671,59 @@ test("SparkRolesReviewerRunner does not retry a completed compatibility fallback
     const result = await runner.review({ ...reviewTaskInput(), cwd: dir });
 
     assert.equal(result.verdict.outcome, "blocked");
+    assert.equal(result.failure?.kind, "runtime_error");
+    assert.equal(result.failure?.retryable, false);
     assert.equal(
       result.verdict.summary,
       "reviewer role run error: host-provided native role executor was incompatible; Spark headless fallback failed",
     );
     assert.equal(calls, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkRolesReviewerRunner classifies impossible task requests as reviewer protocol failures", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-reviewer-runner-protocol-failure-"));
+  try {
+    const base = reviewTaskInput();
+    const input: TaskReviewInput = {
+      ...base,
+      cwd: dir,
+      task: { ...base.task, artifactRefs: ["artifact:delivery"] },
+      evidenceRefs: ["evidence:current"],
+      supersededEvidenceRefs: ["evidence:historical"],
+    };
+    const runner = new SparkRolesReviewerRunner({
+      registry: new RoleRegistry(),
+      cwd: dir,
+      timeoutMs: 15_000,
+      maxRetries: 0,
+      env: reviewerRunnerTestEnv,
+      nativeExecutor: async (request) => ({
+        record: { ...request.record, status: "succeeded", finishedAt: new Date().toISOString() },
+        stdout: JSON.stringify({
+          outcome: "needs_changes",
+          summary: "attach missing refs",
+          findings: [],
+          blockers: [
+            "Attach artifact:delivery to evidenceRefs.",
+            "Provide a finish receipt before this finish is approved.",
+            "Require evidence:historical again.",
+          ],
+          confidence: "high",
+        }),
+        stderr: "",
+        jsonEvents: [],
+      }),
+    });
+
+    const result = await runner.review(input);
+
+    assert.equal(result.verdict.outcome, "blocked");
+    assert.equal(result.failure?.kind, "protocol_error");
+    assert.equal(result.failure?.retryable, false);
+    assert.match(result.failure?.reason ?? "", /Artifact refs.*cannot be requested/u);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

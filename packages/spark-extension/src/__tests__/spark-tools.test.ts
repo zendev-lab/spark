@@ -117,7 +117,10 @@ import {
 import { normalizeSparkPlanTaskInputs } from "../extension/spark-plan-tasks-tool-registration.ts";
 import { collectReproExperimentIssues } from "../extension/spark-repro-experiment-lint.ts";
 import { normalizeSparkClaimTaskInput } from "../extension/spark-claim-task-tool-registration.ts";
-import { normalizeSparkFinishTaskInput } from "../extension/spark-finish-task-tool-registration.ts";
+import {
+  buildTaskReviewEvidenceContext,
+  normalizeSparkFinishTaskInput,
+} from "../extension/spark-finish-task-tool-registration.ts";
 import {
   quarantineLegacyArtifactSubjectReviews,
   rebuildSubjectReviewIndex,
@@ -4304,6 +4307,113 @@ test("impl_finish_task does not persist evidenceRefs when follow-up gate blocks"
   }
 });
 
+test("task finish review resolves superseded Evidence to its current replacement", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-current-evidence-"));
+  try {
+    const store = defaultEvidenceStore(dir);
+    const historical = await store.put({
+      kind: "record",
+      title: "Historical failed smoke",
+      format: "json",
+      body: { passed: false },
+      provenance: { producer: "task" },
+    });
+    const current = await store.put({
+      kind: "record",
+      title: "Current smoke pass",
+      format: "json",
+      body: { passed: true },
+      provenance: { producer: "task" },
+    });
+    await store.update(historical.ref, {
+      curation: {
+        status: "superseded",
+        retention: "task",
+        reason: "current-main rerun passed",
+        supersededBy: [current.ref],
+      },
+    });
+    const plan = executionReadyPlan("Resolve current completion Evidence");
+    plan.evidenceRequired = [
+      `Current smoke replaces ${historical.ref}`,
+      "artifact:delivery is the linked delivery product",
+    ];
+    plan.items = [
+      {
+        id: "verify-current",
+        title: "Verify current Evidence",
+        status: "done",
+        evidenceRefs: [historical.ref],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+
+    const context = await buildTaskReviewEvidenceContext(dir, {
+      outputEvidenceRefs: [historical.ref],
+      plan,
+    });
+
+    assert.deepEqual(context.currentEvidenceRefs, [current.ref]);
+    assert.deepEqual(context.supersededEvidenceRefs, [historical.ref]);
+    assert.equal(context.currentEvidencePreviews[0]?.ref, current.ref);
+    assert.deepEqual(context.currentEvidencePreviews[0]?.bodyPreview, '{\n  "passed": true\n}');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("impl_finish_task blocks unreadable current Evidence before semantic review", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-unreadable-evidence-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    let reviewerCalls = 0;
+    const { tools } = registerSparkToolsForTest({
+      reviewerRunner: {
+        async review(input: ReviewInput): Promise<ReviewerRunResult> {
+          reviewerCalls += 1;
+          return createApprovingReviewerRunner().review(input);
+        },
+      },
+    });
+    await useOnlySparkProjectInExplicitPlanMode(tools, ctx);
+    const plan = executionReadyPlan("Reject unreadable Evidence deterministically");
+    plan.evidenceRequired = ["Required receipt evidence:missing-current"];
+    const claim = await planAndClaimTask(tools, ctx, {
+      name: "finish-unreadable-evidence",
+      title: "Finish unreadable Evidence",
+      description: "Unreadable current Evidence must fail before semantic review.",
+      plan,
+      todos: ["Verify unreadable Evidence preflight"],
+    });
+    const taskRef = (claim.details?.task as { ref?: TaskRef } | undefined)?.ref;
+    assert.ok(taskRef);
+    await executeSparkTool(tools, "impl_update_task_plan_items", ctx, {
+      ops: [
+        { op: "init", items: ["Verify unreadable Evidence preflight"] },
+        { op: "done", item: "Verify unreadable Evidence preflight" },
+      ],
+    });
+
+    const blocked = await executeSparkTool(tools, "impl_finish_task", ctx, {
+      summary: "Completion packet contains an unreadable required receipt.",
+      evidence: successfulFinishEvidence("Unreadable Evidence preflight fixture"),
+    });
+
+    assert.match(toolText(blocked), /Task finish blocked by unreadable current Evidence/u);
+    assert.match(toolText(blocked), /evidence:missing-current/u);
+    assert.match(toolText(blocked), /semantic reviewer was not started/u);
+    assert.equal((blocked.details as { error?: string }).error, "unreadable_completion_evidence");
+    assert.equal(reviewerCalls, 0);
+    const loaded = await defaultTaskGraphStore(dir).load();
+    assert.ok(loaded);
+    assert.equal(loaded.getTask(taskRef).status, "running");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("impl_finish_task keeps task unfinished when reviewer rejects done transition", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-review-reject-"));
   try {
@@ -4402,7 +4512,7 @@ test("impl_finish_task keeps task unfinished when reviewer rejects done transiti
   }
 });
 
-test("impl_finish_task treats malformed reviewer verdict as blocking feedback", async () => {
+test("impl_finish_task classifies malformed reviewer output as reviewer unavailable", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-review-malformed-"));
   try {
     await writeEmptySparkProject(dir);
@@ -4438,25 +4548,24 @@ test("impl_finish_task treats malformed reviewer verdict as blocking feedback", 
       evidence: successfulFinishEvidence("Malformed reviewer fixture validation"),
     });
 
-    assert.match(toolText(blocked), /Task finish blocked by reviewer/);
-    assert.match(toolText(blocked), /reviewer failed: reviewer verdict must be a JSON object/);
-    assert.equal((blocked.details as { error?: string }).error, "task_review_failed");
+    assert.match(toolText(blocked), /Task finish could not run the reviewer/);
+    assert.match(toolText(blocked), /reviewer verdict must be a JSON object/);
+    assert.match(toolText(blocked), /not a semantic task rejection/);
+    assert.equal((blocked.details as { error?: string }).error, "reviewer_unavailable");
     assert.equal(
-      (blocked.details?.review as { outcome?: string; approved?: boolean } | undefined)?.outcome,
-      "blocked",
+      (blocked.details as { transition?: { blocker?: string } }).transition?.blocker,
+      "reviewer_unavailable",
     );
     assert.equal(
-      (blocked.details?.review as { outcome?: string; approved?: boolean } | undefined)?.approved,
-      false,
+      (blocked.details as { reviewer?: { failure?: { kind?: string } } }).reviewer?.failure?.kind,
+      "runtime_error",
     );
     const loaded = await defaultTaskGraphStore(dir).load();
     assert.ok(loaded);
     assert.equal(loaded.getTask(taskRef).status, "running");
     assert.ok(loaded.getTask(taskRef).claim);
     const reviewEvidences = await defaultEvidenceStore(dir).list({ kind: "record" });
-    assert.equal(reviewEvidences.length, 1);
-    assert.equal(reviewEvidences[0]?.provenance.producer, "review");
-    assert.equal(reviewEvidences[0]?.provenance.taskRef, taskRef);
+    assert.equal(reviewEvidences.length, 0);
     assert.equal((await defaultLearningStore(dir).list({ includeCandidates: true })).length, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
