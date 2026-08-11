@@ -15,7 +15,10 @@ const darkTextScreenshotOptions = {
 };
 
 beforeAll(async () => {
-  await document.fonts.load('400 16px "Spark Catalog Inter"');
+  await Promise.all([
+    document.fonts.load('400 16px "Spark Catalog Inter"'),
+    document.fonts.load('400 16px "Spark Catalog Geist Mono"'),
+  ]);
 });
 const conversationFixtures = catalogFixtures.filter((fixture) => fixture.group === "conversation");
 const workbenchFixtures = catalogFixtures.filter((fixture) => fixture.group === "workbench");
