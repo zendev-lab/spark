@@ -26,11 +26,12 @@ export type SparkTaskAssignAction = "assign";
 export type SparkTaskAction = SparkTaskReadAction | SparkTaskWriteAction | SparkTaskAssignAction;
 
 /**
- * Session-bound TODO checklist ops. The `todo` tool is a lightweight, action-style
- * checklist that survives reload for the current session and is not tied to a claimed
- * task. Task plan items live on task_write({ action: "plan_update" }) instead.
+ * Session-bound TODO checklist actions. The public `update` action reconciles target
+ * state atomically; event-style actions remain decoder-only compatibility inputs. Task
+ * plan items live on task_write({ action: "plan_update" }) instead.
  */
 export type SparkTodoAction =
+  | "update"
   | "list"
   | "init"
   | "append"
@@ -114,6 +115,7 @@ const TASK_WRITE_ACTIONS: readonly SparkTaskWriteAction[] = [
 ];
 
 const TODO_ACTIONS: readonly SparkTodoAction[] = [
+  "update",
   "list",
   "init",
   "append",
@@ -135,6 +137,38 @@ const taskStatusSchema = Type.Union([
   Type.Literal("blocked"),
   Type.Literal("cancelled"),
 ]);
+
+const todoStatusSchema = Type.Union([
+  Type.Literal("pending"),
+  Type.Literal("in_progress"),
+  Type.Literal("done"),
+  Type.Literal("blocked"),
+  Type.Literal("cancelled"),
+]);
+
+const taskPlanItemStateSchema = Type.Object(
+  {
+    id: Type.Optional(Type.String({ description: "Existing plan-item id; omit for a new item." })),
+    title: Type.String({ description: "Concrete plan-item outcome." }),
+    description: Type.Optional(Type.String()),
+    status: todoStatusSchema,
+    notes: Type.Optional(Type.Array(Type.String())),
+    blockedBy: Type.Optional(Type.Array(Type.String())),
+    evidenceRefs: Type.Optional(Type.Array(Type.String())),
+  },
+  { additionalProperties: false },
+);
+
+const sessionTodoStateSchema = Type.Object(
+  {
+    id: Type.Optional(Type.String({ description: "Existing TODO id; omit for a new item." })),
+    content: Type.String({ description: "Standalone next-step text." }),
+    status: todoStatusSchema,
+    notes: Type.Optional(Type.Array(Type.String())),
+    blockedBy: Type.Optional(Type.Array(Type.String())),
+  },
+  { additionalProperties: false },
+);
 
 const taskMutationSchema = Type.Object(
   {
@@ -160,11 +194,6 @@ const taskMutationSchema = Type.Object(
   },
   { additionalProperties: false },
 );
-
-const taskPlanOpSchema = Type.Record(Type.String(), Type.Unknown(), {
-  description:
-    "Plan-item op: init/append/start/done/upsert_done/block/cancel/delete/restore/remove/note.",
-});
 
 const finishEvidenceSchema = Type.Object(
   {
@@ -264,7 +293,7 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
       "Use task_write for project/task graph mutations.",
       "Creating or claiming a task is plan-locked: every task must have a bound high-bar task.plan before claim/creation completes; objectives, success criteria, evidence, and plan items must be concrete and objectively verifiable.",
       "Use action=replace_dependencies only to atomically replace one existing task's complete dependency set; it rejects mixed task creation, metadata, plan, and status mutations.",
-      "Use action=release to give up this session's unfinished task claim without finishing or cancelling the task; use action=plan_update to refine claimed task plan items.",
+      "Use action=release to give up this session's unfinished task claim without finishing or cancelling the task; action=plan_update atomically reconciles the complete desired plan-item state for the claimed task.",
       "Use artifact_link/artifact_unlink to maintain the task's durable product Artifact references.",
       "Use the session-bound todo tool for standalone session checklists.",
       "Use assign for explicit role-run spawning; task_write does not expose run_ready or run_control.",
@@ -374,7 +403,10 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
         {
           action: Type.Literal("plan_update"),
           taskRef: Type.Optional(Type.String()),
-          ops: Type.Array(taskPlanOpSchema),
+          items: Type.Array(taskPlanItemStateSchema, {
+            description:
+              "Complete desired non-deleted plan-item state; omitted existing items become deleted history.",
+          }),
         },
         { additionalProperties: false },
       ),
@@ -477,33 +509,28 @@ export function registerSparkTodoTool(pi: SparkTaskHostApi, options: SparkTodoTo
     name: "todo",
     label: "Todo",
     description:
-      "Mutate the session-bound TODO checklist of lightweight standalone next-steps that survive reload and are not tied to a claimed task. Current TODO state is injected automatically; use the registered context provider only for explicit diagnostics.",
+      "Atomically reconcile the session-bound TODO checklist of lightweight standalone next-steps that survive reload and are not tied to a claimed task. Current TODO state is injected automatically; use the registered context provider only for explicit diagnostics.",
     promptGuidelines: [
       "Use todo for standalone session next-steps that are not tied to a claimed durable task.",
       "Use task_write({ action: 'plan_update' }) for plan items of the currently claimed task, and task_write({ action: 'plan' }) to create durable project tasks.",
-      "When an injected session TODO snapshot is active, mark an item in_progress before doing its work and prefer one in_progress item at a time.",
-      "As soon as completion evidence or an exact blocker is known, update that item with done, block, cancel, or note before starting unrelated work; do not batch status transitions at the final response.",
-      "Before finalizing, reconcile every active item from the injected snapshot directly. Normal agent flow must not call the deprecated list compatibility action.",
+      "Call action=update with the complete desired non-deleted checklist; retain existing ids, set explicit target statuses, and keep at most one in_progress item.",
+      "As soon as completion evidence or an exact blocker is known, send the updated target state before starting unrelated work; do not batch status changes at the final response.",
+      "Items omitted from update become deleted history. Normal agent flow must not call legacy event-style compatibility actions or list.",
     ],
-    parameters: Type.Object({
-      action: Type.String({
-        description:
-          "init | append | start | done | upsert_done | block | cancel | delete | restore | remove | note",
-      }),
-      id: Type.Optional(Type.String({ description: "Target TODO id for id-addressed ops." })),
-      item: Type.Optional(Type.String({ description: "TODO item text for single-item ops." })),
-      items: Type.Optional(
-        Type.Array(Type.String({ description: "TODO item text list for init/append." })),
-      ),
-      text: Type.Optional(Type.String({ description: "Note text for the note op." })),
-      blockedBy: Type.Optional(
-        Type.Array(Type.String({ description: "Blocking references for the block op." })),
-      ),
-    }),
+    parameters: Type.Object(
+      {
+        action: Type.Literal("update"),
+        items: Type.Array(sessionTodoStateSchema, {
+          description:
+            "Complete desired non-deleted checklist. Existing rows omitted here become deleted history.",
+        }),
+      },
+      { additionalProperties: false },
+    ),
     renderCall(args, theme) {
       const action = typeof args.action === "string" ? args.action : undefined;
-      const item = typeof args.item === "string" ? args.item : undefined;
-      const text = ["todo", action && `action=${action}`, item].filter(Boolean).join(" ");
+      const count = Array.isArray(args.items) ? `items=${args.items.length}` : undefined;
+      const text = ["todo", action && `action=${action}`, count].filter(Boolean).join(" ");
       return new ToolCallText(theme.bold ? theme.bold(text) : text);
     },
     async execute(toolCallId, params, signal, onUpdate, ctx) {

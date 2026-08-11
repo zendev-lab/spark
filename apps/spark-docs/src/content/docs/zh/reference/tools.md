@@ -70,6 +70,10 @@ WorkflowRun 的 reconcile、ack、输入投递和终止统一使用
 `taskRefs`，而 concurrency、timeout 与 preview 策略由 host 持有，不再作为每次调用的
 scheduler 参数。
 
+`todo({ action: "update", items })` 与 `task_write({ action: "plan_update",
+items })` 都会原子 reconcile 一份完整目标 checklist。每项必须给出显式 status，且最多一个
+`in_progress`；遗漏的旧项会成为 deleted history。旧的 transition 动词不再面向模型。
+
 ## Task finish 审查
 
 把 Task 完成到 `done` 时，Lens、plan、Evidence 与 follow-up 的确定性 gate

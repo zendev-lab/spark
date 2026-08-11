@@ -81,6 +81,11 @@ explicit dispatch request: model-facing callers may select `taskRefs`, while
 concurrency, timeout, and preview policy remain host-owned rather than becoming
 per-call scheduler knobs.
 
+`todo({ action: "update", items })` and `task_write({ action: "plan_update",
+items })` each reconcile one complete target checklist atomically. Give every
+item an explicit status and keep at most one `in_progress`; omitted existing
+items become deleted history. Legacy transition verbs are not model-facing.
+
 ## Task finish review
 
 Finishing a Task as `done` keeps the same deterministic Lens, plan, Evidence,

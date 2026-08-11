@@ -14,6 +14,8 @@ export {
   isUnfinishedTaskStatus,
   normalizeTaskPlan,
   normalizeTaskExecutionPolicy,
+  reconcileIndependentTodoState,
+  reconcileTaskPlanItemState,
   renderNonConcreteTaskIssues,
   renderTaskPlanReadinessRules,
   taskCompletionReadiness,

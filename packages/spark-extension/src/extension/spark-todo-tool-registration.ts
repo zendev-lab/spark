@@ -5,7 +5,11 @@ import {
   defaultTaskGraphStore,
   isActiveSessionTodo,
   isDeletedSessionTodo,
+  reconcileIndependentTodoState,
+  reconcileTaskPlanItemState,
   type SessionTodoEntry,
+  type SessionTodoStateInput,
+  type TaskPlanItemStateInput,
   type TaskTodoOp,
 } from "@zendev-lab/spark-tasks";
 import { currentSparkProject, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
@@ -74,11 +78,24 @@ export function registerSparkTodoTools(
     parameters: Type.Object({
       action: Type.String({
         description:
-          "list | init | append | start | done | upsert_done | block | cancel | delete | restore | remove | note",
+          "update | list | init | append | start | done | upsert_done | block | cancel | delete | restore | remove | note",
       }),
       id: Type.Optional(Type.String()),
       item: Type.Optional(Type.String()),
-      items: Type.Optional(Type.Array(Type.String())),
+      items: Type.Optional(
+        Type.Array(
+          Type.Union([
+            Type.String(),
+            Type.Object({
+              id: Type.Optional(Type.String()),
+              content: Type.String(),
+              status: Type.String(),
+              notes: Type.Optional(Type.Array(Type.String())),
+              blockedBy: Type.Optional(Type.Array(Type.String())),
+            }),
+          ]),
+        ),
+      ),
       text: Type.Optional(Type.String()),
       blockedBy: Type.Optional(Type.Array(Type.String())),
     }),
@@ -88,6 +105,14 @@ export function registerSparkTodoTools(
       if (action === "list") {
         const todos = await loadIndependentTodos(cwd, ctx);
         return renderDeprecatedTodoList(todos);
+      }
+      if (action === "update") {
+        const items = normalizeSessionTodoStateItems(params.items);
+        const mutation = await updateIndependentTodos(cwd, ctx, (todos) =>
+          reconcileIndependentTodoState(todos, items),
+        );
+        await deps.refreshSparkWidget(cwd, ctx);
+        return renderTodoMutation(action, mutation.before, mutation.todos);
       }
       const op = sparkTodoOpFromAction(action, params);
       if (!op)
@@ -107,7 +132,7 @@ export function registerSparkTodoTools(
     name: "impl_update_task_plan_items",
     label: "Spark Update Task Plan Items",
     description:
-      "Implementation for task_write({ action: 'plan_update', scope: 'task' }): update plan items attached to this session's one currently claimed unfinished task. Only claimed unfinished tasks can have task plan items modified.",
+      "Implementation for task_write({ action: 'plan_update', items: [...] }): reconcile plan items attached to this session's one currently claimed unfinished task. Only claimed unfinished tasks can have task plan items modified.",
     parameters: Type.Object({
       task: Type.Optional(
         Type.String({
@@ -118,21 +143,38 @@ export function registerSparkTodoTools(
       taskRef: Type.Optional(
         Type.String({ description: "Claimed task ref/name/title selector; alias for task." }),
       ),
-      ops: Type.Array(
-        Type.Object({
-          op: Type.String({
-            description:
-              "init | append | start | done | upsert_done | block | cancel | delete | restore | remove | note",
+      ops: Type.Optional(
+        Type.Array(
+          Type.Object({
+            op: Type.String({
+              description:
+                "init | append | start | done | upsert_done | block | cancel | delete | restore | remove | note",
+            }),
+            id: Type.Optional(Type.String()),
+            item: Type.Optional(Type.String()),
+            items: Type.Optional(Type.Array(Type.String())),
+            text: Type.Optional(Type.String()),
+            blockedBy: Type.Optional(Type.Array(Type.String())),
+            evidenceRefs: Type.Optional(
+              Type.Array(
+                Type.String({ description: "EvidenceRecord refs proving this plan item." }),
+              ),
+            ),
           }),
-          id: Type.Optional(Type.String()),
-          item: Type.Optional(Type.String()),
-          items: Type.Optional(Type.Array(Type.String())),
-          text: Type.Optional(Type.String()),
-          blockedBy: Type.Optional(Type.Array(Type.String())),
-          evidenceRefs: Type.Optional(
-            Type.Array(Type.String({ description: "EvidenceRecord refs proving this plan item." })),
-          ),
-        }),
+        ),
+      ),
+      items: Type.Optional(
+        Type.Array(
+          Type.Object({
+            id: Type.Optional(Type.String()),
+            title: Type.String(),
+            description: Type.Optional(Type.String()),
+            status: Type.String(),
+            notes: Type.Optional(Type.Array(Type.String())),
+            blockedBy: Type.Optional(Type.Array(Type.String())),
+            evidenceRefs: Type.Optional(Type.Array(Type.String())),
+          }),
+        ),
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -143,8 +185,10 @@ export function registerSparkTodoTools(
         "taskRef",
         "task",
       );
-      const ops = normalizeSparkTodoOps(params.ops);
-      if (!ops)
+      const targetItems =
+        params.items === undefined ? undefined : normalizeTaskPlanItemStateItems(params.items);
+      const ops = targetItems ? undefined : normalizeSparkTodoOps(params.ops);
+      if (!targetItems && !ops)
         return {
           content: [{ type: "text", text: "plan item ops are required." }],
           details: { found: true, error: "missing_ops" },
@@ -162,6 +206,19 @@ export function registerSparkTodoTools(
           );
           if (!task) return { error: "no_matching_claimed_task" as const };
           const beforeItems = task.plan?.items ?? [];
+          if (targetItems) {
+            if (!task.plan) throw new Error(`Task ${task.ref} has no plan to update.`);
+            const items = reconcileTaskPlanItemState(beforeItems, targetItems);
+            const reconciled = graph.updateTask(task.ref, {
+              plan: {
+                ...task.plan,
+                items,
+                steps: items.filter((item) => item.status !== "deleted").map((item) => item.title),
+              },
+            });
+            return { task: reconciled };
+          }
+          if (!ops) throw new Error("plan item ops are required");
           const mutated = graph.applyTodoOps(task.ref, ops);
           if (ops.some((op) => op.op === "init")) return { task: mutated };
           if (!mutated.plan)
@@ -292,6 +349,75 @@ function renderSessionTodos(todos: SessionTodoEntry[], header: string) {
     content: [{ type: "text" as const, text: lines.join("\n") }],
     details: { todos: todos as unknown as Record<string, unknown>[] },
   };
+}
+
+function normalizeSessionTodoStateItems(value: unknown): SessionTodoStateInput[] {
+  if (!Array.isArray(value)) throw new Error("todo.items must be an array");
+  return value.map((entry, index) => {
+    const path = `todo.items[${index}]`;
+    if (!isRecord(entry)) throw new Error(`${path} must be an object`);
+    const content = normalizeOptionalToolString(entry.content, `${path}.content`);
+    if (!content) throw new Error(`${path}.content is required`);
+    const item: SessionTodoStateInput = {
+      content,
+      status: normalizeTodoTargetStatus(entry.status, `${path}.status`),
+    };
+    const id = normalizeOptionalToolString(entry.id, `${path}.id`);
+    if (id) item.id = id;
+    if (entry.notes !== undefined)
+      item.notes = normalizeTargetStringArray(entry.notes, `${path}.notes`);
+    if (entry.blockedBy !== undefined)
+      item.blockedBy = normalizeTargetStringArray(entry.blockedBy, `${path}.blockedBy`);
+    return item;
+  });
+}
+
+function normalizeTaskPlanItemStateItems(value: unknown): TaskPlanItemStateInput[] {
+  if (!Array.isArray(value)) throw new Error("task plan items must be an array");
+  return value.map((entry, index) => {
+    const path = `items[${index}]`;
+    if (!isRecord(entry)) throw new Error(`${path} must be an object`);
+    const title = normalizeOptionalToolString(entry.title, `${path}.title`);
+    if (!title) throw new Error(`${path}.title is required`);
+    const item: TaskPlanItemStateInput = {
+      title,
+      status: normalizeTodoTargetStatus(entry.status, `${path}.status`),
+    };
+    const id = normalizeOptionalToolString(entry.id, `${path}.id`);
+    const description = normalizeOptionalToolString(entry.description, `${path}.description`);
+    if (id) item.id = id;
+    if (description) item.description = description;
+    if (entry.notes !== undefined)
+      item.notes = normalizeTargetStringArray(entry.notes, `${path}.notes`);
+    if (entry.blockedBy !== undefined)
+      item.blockedBy = normalizeTargetStringArray(entry.blockedBy, `${path}.blockedBy`);
+    if (entry.evidenceRefs !== undefined)
+      item.evidenceRefs =
+        normalizeTaskPlanItemEvidenceRefs(entry.evidenceRefs, `${path}.evidenceRefs`) ?? [];
+    return item;
+  });
+}
+
+function normalizeTodoTargetStatus(value: unknown, path: string): SessionTodoStateInput["status"] {
+  if (
+    value === "pending" ||
+    value === "in_progress" ||
+    value === "done" ||
+    value === "blocked" ||
+    value === "cancelled" ||
+    value === "deleted"
+  )
+    return value;
+  throw new Error(`${path} must be pending, in_progress, done, blocked, cancelled, or deleted`);
+}
+
+function normalizeTargetStringArray(value: unknown, path: string): string[] {
+  if (!Array.isArray(value)) throw new Error(`${path} must be an array`);
+  return value.map((entry, index) => {
+    const normalized = normalizeOptionalToolString(entry, `${path}[${index}]`);
+    if (!normalized) throw new Error(`${path}[${index}] must be non-empty`);
+    return normalized;
+  });
 }
 
 function normalizeSparkTodoOp(value: unknown, path: string): SparkTaskPlanItemOp {
