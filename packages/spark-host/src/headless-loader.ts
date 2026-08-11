@@ -96,6 +96,7 @@ export interface SparkHeadlessSessionRunInput {
   invocationId?: string;
   stateBindingSessionId?: string;
   /** @deprecated Compatibility input; normalized before host construction. */
+  taskExecutionScope?: import("@zendev-lab/spark-core").SparkTaskExecutionScope;
   stateOwnerSessionId?: string;
   loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
@@ -106,6 +107,7 @@ export interface SparkHeadlessSessionRunInput {
   requireStructuredOutcome?: boolean;
   /** Host-enforced effect allowlist; unknown tool effects are denied. */
   allowedToolEffects?: readonly ToolEffect[];
+  mode?: "plan" | "execute" | "fleet";
   /** Optional base identity/surface prompt; defaults to Spark host identity. */
   systemPrompt?: string;
   /** Display-safe metadata persisted on the submitted user message only. */

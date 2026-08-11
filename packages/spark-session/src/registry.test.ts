@@ -371,6 +371,43 @@ describe("SparkSessionRegistry", () => {
     expect(created).not.toHaveProperty("title");
   });
 
+  it("persists Fleet worker lane identity without a user-facing title", async () => {
+    const registry = await tempRegistry();
+    const created = await registry.create({
+      sessionId: "sess_fleet_worker",
+      workspaceId: "ws_demo",
+      role: "role:executor",
+      relation: {
+        kind: "fleet_worker",
+        ownerSessionId: "sess_owner",
+        projectRef: "proj:demo",
+        roleRef: "role:executor",
+        laneKey: "fleet:lane",
+        primaryArtifactRef: "artifact:repo",
+        writableArtifactRefs: ["artifact:repo"],
+      },
+    });
+
+    expect(created).toMatchObject({
+      role: "role:executor",
+      relation: { kind: "fleet_worker", laneKey: "fleet:lane" },
+    });
+    expect(created).not.toHaveProperty("title");
+
+    const persisted = await registry.get("sess_fleet_worker");
+    expect(persisted).toMatchObject({
+      role: "role:executor",
+      lifetime: "persistent",
+      owner: { kind: "session", ref: "sess_owner" },
+      authority: { kind: "role", ref: "role:executor" },
+      stateBinding: { kind: "session", ref: "sess_fleet_worker" },
+      visibility: "internal",
+      retention: "retain",
+      purpose: "fleet_worker",
+      relation: { kind: "fleet_worker", laneKey: "fleet:lane" },
+    });
+  });
+
   it("persists searchable archive tags and preserves them after restore", async () => {
     const registry = await tempRegistry();
     const created = await registry.create({

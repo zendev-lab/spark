@@ -2,6 +2,7 @@
 
 import type { SparkHostAPI } from "@zendev-lab/spark-core";
 import { execFileSync } from "node:child_process";
+import { realpath } from "node:fs/promises";
 import * as nodePath from "node:path";
 import { Type } from "typebox";
 import {
@@ -533,15 +534,28 @@ export function resolveCueWorkingDirectory(
   return nodePath.isAbsolute(requestedCwd) ? requestedCwd : nodePath.resolve(baseCwd, requestedCwd);
 }
 
-async function resolveCueExecTarget(
+export async function resolveCueExecTarget(
   requestedCwd: string | undefined,
   ctx: SparkCueToolContext,
 ): Promise<{ cwd: string; ctx: SparkCueToolContext }> {
+  if (
+    ctx.taskExecutionScope &&
+    (ctx.cueRemoteCwd || ctx.cueResolvedTransport?.transport === "ssh")
+  ) {
+    throw new Error("Task execution scope forbids remote Cue execution");
+  }
   if (ctx.cueClient) {
-    return { cwd: resolveCueWorkingDirectory(requestedCwd, ctx.cwd), ctx };
+    const cwd = await authorizeTaskCueTarget(
+      resolveCueWorkingDirectory(requestedCwd, ctx.cwd),
+      ctx,
+    );
+    return { cwd, ctx };
   }
   const transport = await resolveCueTransport();
   if (transport.transport === "ssh") {
+    if (ctx.taskExecutionScope) {
+      throw new Error("Task execution scope forbids remote Cue execution");
+    }
     const remoteCwd =
       requestedCwd ??
       ctx.cueRemoteCwd?.trim() ??
@@ -565,10 +579,37 @@ async function resolveCueExecTarget(
       },
     };
   }
+  const cwd = await authorizeTaskCueTarget(resolveCueWorkingDirectory(requestedCwd, ctx.cwd), ctx);
   return {
-    cwd: resolveCueWorkingDirectory(requestedCwd, ctx.cwd),
+    cwd,
     ctx: { ...ctx, cueResolvedTransport: transport },
   };
+}
+
+async function authorizeTaskCueTarget(
+  requestedCwd: string,
+  ctx: SparkCueToolContext,
+): Promise<string> {
+  const scope = ctx.taskExecutionScope;
+  if (!scope) return requestedCwd;
+  if (scope.isolation === "readonly") {
+    throw new Error("Task execution scope is readonly");
+  }
+  const cwd = await realpath(requestedCwd);
+  const roots =
+    scope.isolation === "isolated_results"
+      ? scope.resultsRoot
+        ? [scope.resultsRoot]
+        : []
+      : scope.writableRoots;
+  for (const root of roots) {
+    const canonicalRoot = await realpath(root);
+    const relative = nodePath.relative(canonicalRoot, cwd);
+    if (relative === "" || (relative !== ".." && !relative.startsWith(`..${nodePath.sep}`))) {
+      return cwd;
+    }
+  }
+  throw new Error(`Cue cwd escapes the daemon-authorized Task scope: ${cwd}`);
 }
 
 export function cueShellCommandSyntaxIssue(command: string): string | undefined {

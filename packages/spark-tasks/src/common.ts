@@ -148,6 +148,8 @@ export interface TaskPlanInput {
   status?: Task["status"];
   roleRef?: RoleRef;
   executionPolicy?: TaskExecutionPolicy;
+  /** Existing Artifacts explicitly associated with this Task, including Fleet targets. */
+  artifactRefs?: ArtifactRef[];
   supersededBy?: TaskRef[];
   dependsOn?: Array<TaskRef | string>;
   rationale?: string;

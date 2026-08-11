@@ -64,6 +64,13 @@ export function registerArtifactTool(pi: PiArtifactsExtensionApi): void {
     name: "artifact",
     label: "Artifact",
     description: "Create, update, list, read, sync, sync files, or preview atomic Spark artifacts.",
+    policy: artifactPolicy("local_write", ["plan", "execute", "fleet"]),
+    resolvePolicy(args) {
+      const action = typeof args.action === "string" ? args.action : "";
+      return action === "list" || action === "read"
+        ? artifactPolicy("read", ["plan", "execute", "fleet"])
+        : artifactPolicy(action === "sync" ? "external_write" : "local_write", ["plan", "execute"]);
+    },
     promptGuidelines: ARTIFACT_PROMPT_GUIDELINES,
     parameters: Type.Object({
       action: Type.String({
@@ -177,6 +184,16 @@ export function registerArtifactTool(pi: PiArtifactsExtensionApi): void {
       });
     },
   });
+}
+
+function artifactPolicy(effect: "read" | "local_write" | "external_write", modes: string[]) {
+  return {
+    effect,
+    executionMode: effect === "read" ? ("parallel" as const) : ("sequential" as const),
+    domains: ["artifact"],
+    modes,
+    approval: "none" as const,
+  };
 }
 
 export function registerSparkArtifactTools(pi: SparkHostAPI): void {

@@ -103,6 +103,7 @@ export async function createSparkCliHostServices(
     sessionSource: options.sessionSource,
     channelBinding: options.channelBinding,
     invocationId: options.invocationId,
+    taskExecutionScope: options.taskExecutionScope,
     memoryDirectIntentAuthority,
     stateBindingSessionId: options.stateBindingSessionId ?? options.stateOwnerSessionId,
     loop: options.loop,
@@ -467,7 +468,7 @@ async function resolveSparkCliAgentPromptState(
   baseSystemPrompt: string,
   skillsCatalogPrompt: string,
   selectedSkillsPrompt: string,
-): Promise<{ systemPrompt: string; mode: "plan" | "execute" }> {
+): Promise<{ systemPrompt: string; mode: "plan" | "execute" | "fleet" }> {
   const mode = (await loadSparkMode(cwd, ctx)).mode;
   return {
     mode,
@@ -486,7 +487,7 @@ function composeSparkCliAgentSystemPrompt(
   baseSystemPrompt: string,
   skillsCatalogPrompt: string,
   selectedSkillsPrompt: string,
-  phase: "plan" | "execute",
+  phase: "plan" | "execute" | "fleet",
 ): string {
   return composeAgentSystemPrompt([
     renderSparkActiveSystemPrompt(baseSystemPrompt, phase),

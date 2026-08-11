@@ -10,7 +10,7 @@ export interface SparkCommandProjectState {
   unfinishedTaskCount: number;
 }
 
-export type SparkEntryMode = "plan" | "execute";
+export type SparkEntryMode = "plan" | "execute" | "fleet";
 export type SparkEntryModeChoice = SparkEntryMode | "new_project";
 export type SparkEntryConfidence = "high" | "ambiguous" | "conflicting";
 

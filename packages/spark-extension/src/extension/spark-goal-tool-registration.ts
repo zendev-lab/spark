@@ -65,6 +65,23 @@ export function registerSparkGoalTool(
     label: "Spark Goal",
     description:
       "Manage the current Pi session's durable goal state. Actions: status, set, start, pause, resume, clear, edit, complete. Active goals are autonomous foreground loops that prefer the main session for scheduling. Asks wait for the user first and reviewer fallback may resolve material decisions only after timeout; when blocked by a problem the user can unblock, call ask instead of guessing or spawning subagents. Final goal completion remains reviewer-gated (main session requests, reviewer audits, Spark applies approved transition). Autonomous pause is rejected; blockers must be asked about or resolved instead of pausing.",
+    policy: {
+      effect: "local_write",
+      executionMode: "sequential",
+      domains: ["goals"],
+      modes: ["plan", "execute", "fleet"],
+      approval: "none",
+    },
+    resolvePolicy(args) {
+      const status = args.action === undefined || args.action === "status";
+      return {
+        effect: status ? "read" : "local_write",
+        executionMode: status ? "parallel" : "sequential",
+        domains: ["goals"],
+        modes: status ? ["plan", "execute", "fleet"] : ["plan", "execute"],
+        approval: "none",
+      };
+    },
     parameters: Type.Object({
       action: Type.Optional(
         Type.String({

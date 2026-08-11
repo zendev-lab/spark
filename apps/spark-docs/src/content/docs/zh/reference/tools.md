@@ -19,7 +19,7 @@ Host 和 Session 向 Agent 提供的 active tool schema，是本次运行的工�
 | --- | --- | --- |
 | 人机交互 | 结构化问题、审批与关联回答 | 共享交互协议与 daemon 生命周期 |
 | 文件与执行 | 读取、搜索、编辑和获准的本地执行 | 在所选工作区运行的 Host adapter |
-| 工作协调 | Task、Session、Goal、Loop、Repro 与 Workflow | 各领域 owner；持久调度仍由 daemon 拥有 |
+| 工作协调 | Task、Session `plan`/`execute`/`fleet` mode、Goal、Loop、Repro 与 Workflow | 各领域 owner；持久调度仍由 daemon 拥有 |
 | 成果归属 | 产品 Artifact 与内部 Evidence | Artifact store 与 Evidence store 保持分离 |
 | Agent 组合 | Role 与 owner-bound Skill Agent | Session/Role registry 与 Skill loader |
 | 外部 adapter | Channel、ACP、MCP、Git 与 provider 能力 | Spark 契约后的对应 adapter |

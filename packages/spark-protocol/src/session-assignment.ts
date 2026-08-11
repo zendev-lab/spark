@@ -238,17 +238,31 @@ export const sparkTaskExecutionSessionRelationSchema = z.object({
   attempt: z.number().int().positive(),
 });
 
+/** Stable daemon-authored identity for a reusable Fleet execution lane. */
+export const sparkFleetWorkerSessionRelationSchema = z.object({
+  kind: z.literal("fleet_worker"),
+  ownerSessionId: z.string().min(1),
+  projectRef: z.string().regex(/^proj:.+/u),
+  roleRef: z.string().regex(/^role:.+/u),
+  laneKey: z.string().min(1),
+  primaryArtifactRef: z.string().regex(/^artifact:.+/u),
+  writableArtifactRefs: z.array(z.string().regex(/^artifact:.+/u)).min(1),
+});
+
 /** Daemon-authored binding for the unique cross-workspace coordinator session. */
 export const sparkWorkspaceMainSessionRelationSchema = z.object({
   kind: z.literal("workspace_main"),
   generation: z.number().int().positive(),
 });
 
-export const sparkSessionRelationSchema = z.discriminatedUnion("kind", [
-  sparkSideThreadSessionRelationSchema,
-  sparkTaskExecutionSessionRelationSchema,
-  sparkWorkspaceMainSessionRelationSchema,
-]);
+export const sparkSessionRelationSchema = z
+  .discriminatedUnion("kind", [
+    sparkSideThreadSessionRelationSchema,
+    sparkTaskExecutionSessionRelationSchema,
+    sparkFleetWorkerSessionRelationSchema,
+    sparkWorkspaceMainSessionRelationSchema,
+  ])
+  .superRefine(validateFleetWorkerRelation);
 
 const sparkSessionRegistryRecordBaseSchema = z.object({
   sessionId: z.string().min(1),
@@ -356,6 +370,8 @@ const sparkSessionCreateRequestBaseSchema = z.object({
   status: sparkSessionStatusSchema.optional(),
   /** Internal Task scheduler binding; the daemon authors relation.kind=task_execution. */
   taskExecution: sparkTaskExecutionSessionRelationSchema.omit({ kind: true }).optional(),
+  /** Internal Fleet scheduler binding; the daemon authors relation.kind=fleet_worker. */
+  fleetWorker: sparkFleetWorkerSessionRelationSchema.omit({ kind: true }).optional(),
 });
 
 const sparkWorkspaceSessionCreateRequestSchema = sparkSessionCreateRequestBaseSchema
@@ -372,14 +388,17 @@ const sparkWorkspaceSessionCreateRequestSchema = sparkSessionCreateRequestBaseSc
         path: ["workspaceId"],
       });
     }
+    validateManagedSessionCreateBinding(request, context);
   })
   .transform((request) => ({ ...request, workspaceId: request.scope.workspaceId }));
 
-const sparkDaemonSessionCreateRequestSchema = sparkSessionCreateRequestBaseSchema.extend({
-  // daemonId is deliberately absent: the receiving daemon injects installationId.
-  scope: z.object({ kind: z.literal("daemon") }).strict(),
-  workspaceId: z.never().optional(),
-});
+const sparkDaemonSessionCreateRequestSchema = sparkSessionCreateRequestBaseSchema
+  .extend({
+    // daemonId is deliberately absent: the receiving daemon injects installationId.
+    scope: z.object({ kind: z.literal("daemon") }).strict(),
+    workspaceId: z.never().optional(),
+  })
+  .superRefine(validateManagedSessionCreateBinding);
 
 export const sparkSessionCreateRequestSchema = z.preprocess(
   normalizeLegacyWorkspaceScope,
@@ -584,6 +603,7 @@ export type SparkSideThreadSessionRelation = z.infer<typeof sparkSideThreadSessi
 export type SparkTaskExecutionSessionRelation = z.infer<
   typeof sparkTaskExecutionSessionRelationSchema
 >;
+export type SparkFleetWorkerSessionRelation = z.infer<typeof sparkFleetWorkerSessionRelationSchema>;
 export type SparkSessionRelation = z.infer<typeof sparkSessionRelationSchema>;
 export type SparkSessionRegistryRecord = z.infer<typeof sparkSessionRegistryRecordSchema>;
 /** Public input keeps the v1 workspaceId-only shape during migration. */
@@ -672,6 +692,48 @@ function validateSparkSessionCloseRefs(
 
 function jsonByteLength(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+function validateManagedSessionCreateBinding(
+  request: { taskExecution?: unknown; fleetWorker?: unknown },
+  context: z.RefinementCtx,
+): void {
+  if (request.taskExecution !== undefined && request.fleetWorker !== undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "taskExecution and fleetWorker are mutually exclusive",
+      path: ["fleetWorker"],
+    });
+  }
+  if (request.fleetWorker && typeof request.fleetWorker === "object") {
+    validateFleetWorkerRelation(
+      { kind: "fleet_worker", ...request.fleetWorker } as z.infer<
+        typeof sparkFleetWorkerSessionRelationSchema
+      >,
+      context,
+    );
+  }
+}
+
+function validateFleetWorkerRelation(
+  relation: z.infer<typeof sparkFleetWorkerSessionRelationSchema> | SparkSessionRelation,
+  context: z.RefinementCtx,
+): void {
+  if (relation.kind !== "fleet_worker") return;
+  if (!relation.writableArtifactRefs.includes(relation.primaryArtifactRef)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "primaryArtifactRef must appear in writableArtifactRefs",
+      path: ["writableArtifactRefs"],
+    });
+  }
+  if (new Set(relation.writableArtifactRefs).size !== relation.writableArtifactRefs.length) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "writableArtifactRefs must not contain duplicates",
+      path: ["writableArtifactRefs"],
+    });
+  }
 }
 
 function isSparkChannelAdapterName(value: string): value is SparkChannelAdapter {

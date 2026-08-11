@@ -5,6 +5,7 @@ import type {
   SparkHostLoopContext,
   SparkHostContext,
   SparkSessionLeaseIdentity,
+  ToolPolicy,
 } from "@zendev-lab/spark-core";
 import type { ToolCallComponent, ToolCallRenderTheme } from "./tool-rendering.ts";
 
@@ -13,6 +14,8 @@ export interface SparkRegisteredToolConfig {
   label?: string;
   description: string;
   promptGuidelines?: string[];
+  policy?: ToolPolicy;
+  resolvePolicy?: (args: Readonly<Record<string, unknown>>) => ToolPolicy;
   parameters: unknown;
   renderCall?: (
     args: Record<string, unknown>,
@@ -60,7 +63,7 @@ export interface SparkToolContext {
     controlSparkHome?: string;
   };
   sparkActiveMode?: {
-    mode: "plan" | "execute";
+    mode: "plan" | "execute" | "fleet";
   };
   isIdle?: () => boolean;
   sessionManager?: {

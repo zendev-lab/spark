@@ -21,7 +21,7 @@ they share one owner, state, permission, rendering, and result contract.
 | --- | --- | --- |
 | Human interaction | Structured questions, approvals, and correlated answers | Shared interaction protocol and daemon lifecycle |
 | Files and execution | Read, search, edit, and approved local execution | Host adapters operating in the selected workspace |
-| Work coordination | Tasks, sessions, Goals, Loops, Repros, and Workflows | Their domain owner; durable scheduling remains daemon-owned |
+| Work coordination | Tasks, Session `plan`/`execute`/`fleet` modes, Goals, Loops, Repros, and Workflows | Their domain owner; durable scheduling remains daemon-owned |
 | Result ownership | User-facing outcomes and internal Evidence | Artifact and Evidence stores remain separate |
 | Agent composition | Roles and owner-bound Skill Agents | Session/Role registry and Skill loader |
 | External adapters | Channels, ACP, MCP, Git, and provider-specific capabilities | The owning adapter behind Spark contracts |

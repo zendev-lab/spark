@@ -148,6 +148,26 @@ const taskExecutionSession: SparkSessionRegistryRecord = {
   updatedAt: "2026-07-13T04:00:00.000Z",
 };
 
+const fleetWorkerSession: SparkSessionRegistryRecord = {
+  sessionId: "session-fleet-worker",
+  role: "role:executor",
+  scope: { kind: "workspace", workspaceId: "workspace-1" },
+  workspaceId: "workspace-1",
+  status: "ready",
+  bindings: [],
+  relation: {
+    kind: "fleet_worker",
+    ownerSessionId: "session-recent",
+    projectRef: "proj:demo",
+    roleRef: "role:executor",
+    laneKey: "fleet:lane",
+    primaryArtifactRef: "artifact:repo",
+    writableArtifactRefs: ["artifact:repo"],
+  },
+  createdAt: "2026-07-13T00:00:00.000Z",
+  updatedAt: "2026-07-13T04:00:00.000Z",
+};
+
 const daemonSession: SparkSessionRegistryRecord = {
   sessionId: "session-daemon",
   title: "Daemon conversation",
@@ -257,6 +277,7 @@ test("Spark session selector hides internal task execution sessions and leaked b
   assert.match(rendered, /New conversation/u);
   assert.equal(isSelectableSparkSession(legacyRoleSession), false);
   assert.equal(isSelectableSparkSession(taskExecutionSession), false);
+  assert.equal(isSelectableSparkSession(fleetWorkerSession), false);
 });
 
 test("Spark session selector keeps 10,000 internal task transcripts out of the interactive list", () => {

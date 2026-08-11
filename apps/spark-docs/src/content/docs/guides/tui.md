@@ -19,7 +19,8 @@ evidence before calling it complete.
 ```
 
 You do not need to select tools, a Loop, or a command plane first. Use
-`/plan` for a multi-step change and `/execute` after the plan is ready.
+`/plan` for a multi-step change, `/execute` after the plan is ready, and
+`/fleet` when confirmed ready Tasks have independent existing worktree targets.
 
 ## Everyday controls
 
@@ -29,6 +30,7 @@ The short help keeps the common path bounded:
 /help
 /plan <goal>
 /execute [focus]
+/fleet [focus]
 /status
 /stop [reason]
 /retry

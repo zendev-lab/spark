@@ -63,6 +63,51 @@ Spark works through ready tasks until the plan completes, validation fails, or
 it needs your input. When a material choice cannot be made safely, answer the
 question in the current session or open `/inbox`.
 
+## Run an independent frontier with Fleet
+
+Use Fleet when the approved plan has at least two ready tasks that can safely
+run against non-overlapping GitChange targets:
+
+```text
+/fleet Dispatch the safe ready frontier and stop for any failed isolation
+preflight or material decision.
+```
+
+The Fleet owner coordinates; it does not edit source, mutate Git, run Cue, or
+start Role, Skill, or Workflow workers directly. `assign` is the only dispatch
+path. Each Task must already link an attached `git_change` Artifact. If a Task
+links one GitChange, Spark can infer it. If it links more than one, its execution
+policy must identify a primary target and the exact writable target set. Fleet
+does not create or guess worktrees.
+
+Tasks with any common writable target run serially. Disjoint target sets may run
+in parallel. A reusable worker stream is the same owner Session, Project, Role,
+primary target, and complete writable target set. Consecutive Tasks in one
+stream reuse the same worker Session and context; `continuity: "fresh"` opts out.
+For a multi-repository Task, the primary worktree is the default cwd while all
+listed targets are locked and write-authorized for that run.
+
+The Fleet projection reports:
+
+- `recommended`: at least two safe, disjoint target sets are dispatchable now,
+- `running` and `workers`: active TaskRuns and reusable worker Sessions,
+- `ready`: dependency-ready Tasks before target/resource admission,
+- `attention`: blocked or failed Tasks requiring owner action,
+- `done`: completed Tasks.
+
+When a worker finishes, its completion mail wakes the owner. Spark reconciles
+the TaskRun and resource reservation first; it does not treat mail text as completion
+truth. The owner then explicitly recovers and retries (within `maxAttempts`),
+continues unrelated ready work, asks you, or waits. Leaving Fleet stops new
+dispatch but does not cancel admitted workers; re-entering resumes from durable
+TaskGraph, TaskRun, resource reservation, and Session Registry state.
+
+Every run freezes its execution scope. Worktree writes, Git targets, and
+local Cue execution must remain in the authorized target set; readonly Tasks
+cannot write, and isolated-result Tasks can write only below their own
+`.spark/task-results/<jobId>`. Missing, moved, stale, cross-Workspace, traversing,
+symlink-escaping, unlisted secondary, and remote Cue targets fail closed.
+
 ## Inspect the result
 
 The current session shows the implementation summary and validation results.

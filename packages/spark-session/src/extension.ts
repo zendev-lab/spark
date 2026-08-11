@@ -35,6 +35,13 @@ export function registerSparkSessionTool(
       "Message-platform sessions may use only list/get/send/inbox/read/ack. Their list/get/send targets are restricted to the current workspace, and sends require local targets.",
       "inbox/read/ack are current-session-only; inbox supports offset/limit pagination.",
     ],
+    policy: sessionToolPolicy("external_write", ["plan", "execute", "fleet"]),
+    resolvePolicy(args) {
+      const action = typeof args.action === "string" ? args.action : "";
+      return action === "list" || action === "get" || action === "inbox"
+        ? sessionToolPolicy("read", ["plan", "execute", "fleet"])
+        : sessionToolPolicy("external_write", ["plan", "execute"]);
+    },
     parameters: Type.Object({
       action: Type.String({
         description:
@@ -168,6 +175,19 @@ export function registerSparkSessionTool(
       );
     },
   });
+}
+
+function sessionToolPolicy(
+  effect: "read" | "external_write",
+  modes: readonly string[],
+): NonNullable<ToolConfig["policy"]> {
+  return {
+    effect,
+    executionMode: effect === "read" ? "parallel" : "sequential",
+    domains: ["sessions"],
+    modes,
+    approval: "none",
+  };
 }
 
 export default function sparkSessionExtension(api: SparkSessionHostApi): void {

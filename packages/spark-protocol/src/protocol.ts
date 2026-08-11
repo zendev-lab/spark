@@ -40,6 +40,7 @@ export * from "./runtime-v1/registration.ts";
 export * from "./session-assignment.ts";
 export * from "./session-errors.ts";
 export * from "./session-mail.ts";
+export * from "./session-mode.ts";
 export * from "./side-thread.ts";
 export * from "./state-ownership.ts";
 export * from "./token-usage.ts";

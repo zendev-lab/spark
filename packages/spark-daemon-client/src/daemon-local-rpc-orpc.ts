@@ -483,6 +483,11 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.model.set"].output,
       client.session.model.set(input, options),
     ),
+  "session.mode.set": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.mode.set"].output,
+      client.session.mode.set(input, options),
+    ),
   "session.thinking.set": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.thinking.set"].output,
@@ -504,6 +509,7 @@ const sessionInvokers = {
   | "session.mail.ack"
   | "session.notification.deliver"
   | "session.model.set"
+  | "session.mode.set"
   | "session.thinking.set"
 >;
 

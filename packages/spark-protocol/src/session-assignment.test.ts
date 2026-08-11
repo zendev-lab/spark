@@ -383,6 +383,57 @@ describe("session ownership protocol", () => {
     ).not.toHaveProperty("relation");
   });
 
+  it("validates the stable Fleet worker lane relation and internal create binding", () => {
+    const fleetWorker = {
+      ownerSessionId: "sess_owner",
+      projectRef: "proj:fleet",
+      roleRef: "role:builtin-worker",
+      laneKey: "lane:owner:project:worker:primary:targets",
+      primaryArtifactRef: "artifact:primary",
+      writableArtifactRefs: ["artifact:primary", "artifact:secondary"],
+    };
+    expect(
+      sparkSessionCreateRequestSchema.parse({
+        scope: { kind: "workspace", workspaceId: "ws_fleet" },
+        fleetWorker,
+      }),
+    ).toMatchObject({ fleetWorker });
+    expect(
+      parseSparkSessionRegistryRecord({
+        sessionId: "sess_fleet_worker",
+        scope: { kind: "workspace", workspaceId: "ws_fleet" },
+        relation: { kind: "fleet_worker", ...fleetWorker },
+        ...timestamps,
+      }),
+    ).toMatchObject({ relation: { kind: "fleet_worker", ...fleetWorker } });
+
+    expect(() =>
+      sparkSessionCreateRequestSchema.parse({
+        scope: { kind: "workspace", workspaceId: "ws_fleet" },
+        fleetWorker: {
+          ...fleetWorker,
+          writableArtifactRefs: ["artifact:secondary"],
+        },
+      }),
+    ).toThrow(/primaryArtifactRef must appear/u);
+    expect(() =>
+      sparkSessionCreateRequestSchema.parse({
+        scope: { kind: "workspace", workspaceId: "ws_fleet" },
+        taskExecution: {
+          ownerSessionId: "sess_owner",
+          projectRef: "proj:fleet",
+          taskRef: "task:one",
+          runRef: "run:one",
+          sessionGoalId: "goal-one",
+          roleRef: "role:builtin-worker",
+          jobId: "job-one",
+          attempt: 1,
+        },
+        fleetWorker,
+      }),
+    ).toThrow(/mutually exclusive/u);
+  });
+
   it("rejects mismatched workspace ids and normalizes list legacy workspaceId", () => {
     expect(() =>
       parseSparkSessionRegistryRecord({

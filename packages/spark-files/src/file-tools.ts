@@ -30,6 +30,7 @@ import {
 } from "./file-version.ts";
 import { pathExists, resolveReadPath, resolveToCwd } from "./path-utils.ts";
 import { resolveArtifactFileRoot } from "./artifact-root.ts";
+import { resolveTaskScopedWriteTarget } from "./execution-scope.ts";
 import {
   errorMessage,
   resolveToolCwd,
@@ -51,7 +52,7 @@ const FILE_READ_POLICY = {
   effect: "read",
   executionMode: "parallel",
   domains: ["files"],
-  modes: ["plan", "execute"],
+  modes: ["plan", "execute", "fleet"],
   approval: "none",
 } as const satisfies ToolPolicy;
 
@@ -123,7 +124,7 @@ export function createReadToolConfig(): ToolConfig {
       "Read always returns a model-visible file version and LINE#HASH:text anchors. Copy the file version into write.expectedVersion; remove LINE#HASH: prefixes when composing literal write.content or edit.oldText.",
     ],
     parameters: readSchema,
-    policy: FILE_WRITE_POLICY,
+    policy: FILE_READ_POLICY,
     resolvePolicy(params) {
       return params.repair === undefined || params.repair === "none"
         ? FILE_READ_POLICY
@@ -133,13 +134,13 @@ export function createReadToolConfig(): ToolConfig {
     executionMode: FILE_READ_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
+      const rawPath = stringParam(params.path);
       const root = await resolveArtifactFileRoot(
         resolveToolCwd(ctx),
         params.artifactRef,
         resolveToolStateCwd(ctx),
       );
       const cwd = root.cwd;
-      const rawPath = stringParam(params.path);
       const offset = positiveIntegerParam(params.offset);
       if (params.offset !== undefined && offset === undefined) {
         return errorResult("Could not read file: offset must be a positive integer.", {
@@ -360,13 +361,16 @@ export function createWriteToolConfig(): ToolConfig {
     executionMode: FILE_WRITE_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const root = await resolveArtifactFileRoot(
-        resolveToolCwd(ctx),
-        params.artifactRef,
-        resolveToolStateCwd(ctx),
-      );
-      const cwd = root.cwd;
       const rawPath = stringParam(params.path);
+      const scopedTarget = await resolveTaskScopedWriteTarget(ctx, rawPath, params.artifactRef);
+      const root =
+        scopedTarget ??
+        (await resolveArtifactFileRoot(
+          resolveToolCwd(ctx),
+          params.artifactRef,
+          resolveToolStateCwd(ctx),
+        ));
+      const cwd = root.cwd;
       if (typeof params.content !== "string") {
         return errorResult(`Could not write file: ${rawPath}. content must be a string.`, {
           code: "INVALID_WRITE_CONTENT",
@@ -384,7 +388,7 @@ export function createWriteToolConfig(): ToolConfig {
         );
       }
       const expectedVersion = rawExpectedVersion as FileVersionState;
-      const absolutePath = resolveToCwd(rawPath, cwd);
+      const absolutePath = scopedTarget?.absolutePath ?? resolveToCwd(rawPath, cwd);
       let result: Awaited<ReturnType<typeof atomicReplaceTextFile>>;
       try {
         result = await atomicReplaceTextFile(absolutePath, content, {
@@ -472,20 +476,23 @@ export function createEditToolConfig(): ToolConfig {
     executionMode: FILE_WRITE_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const root = await resolveArtifactFileRoot(
-        resolveToolCwd(ctx),
-        params.artifactRef,
-        resolveToolStateCwd(ctx),
-      );
-      const cwd = root.cwd;
       const rawPath = stringParam(params.path);
+      const scopedTarget = await resolveTaskScopedWriteTarget(ctx, rawPath, params.artifactRef);
+      const root =
+        scopedTarget ??
+        (await resolveArtifactFileRoot(
+          resolveToolCwd(ctx),
+          params.artifactRef,
+          resolveToolStateCwd(ctx),
+        ));
+      const cwd = root.cwd;
       const edits = normalizeEdits(params.edits);
       if (edits.length === 0) {
         return errorResult(
           "Edit tool input is invalid. edits must contain at least one replacement.",
         );
       }
-      const absolutePath = resolveToCwd(rawPath, cwd);
+      const absolutePath = scopedTarget?.absolutePath ?? resolveToCwd(rawPath, cwd);
 
       let snapshot: Awaited<ReturnType<typeof readRegularFileSnapshot>>;
       try {

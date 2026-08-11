@@ -234,9 +234,11 @@ export class SparkSessionRegistry {
       closeReceipts: [],
       createdAt: now,
       updatedAt: now,
-      // Task execution sessions are internal run records. Keep their RoleRef
-      // for attribution, but never mirror it into a user-facing title.
-      ...(role && input.relation?.kind !== "task_execution"
+      // Managed Task/Fleet sessions are internal execution records. Keep their
+      // RoleRef for attribution, but never mirror it into a user-facing title.
+      ...(role &&
+      input.relation?.kind !== "task_execution" &&
+      input.relation?.kind !== "fleet_worker"
         ? { title: role, role }
         : role
           ? { role }
@@ -1408,6 +1410,26 @@ export function migrateSparkSessionRecordToV5(
       visibility: session.visibility ?? "internal",
       retention: session.retention ?? "discard_on_close",
       purpose: session.purpose ?? "side_thread",
+      ...(session.sessionPath && !session.transcriptRef
+        ? { transcriptRef: session.sessionPath }
+        : {}),
+    };
+  }
+  if (session.relation?.kind === "fleet_worker") {
+    return {
+      ...session,
+      closeReceipts,
+      status: lifecycle === "closed" ? "archived" : session.status,
+      lifecycle,
+      incarnation: session.incarnation ?? 1,
+      lifetime: "persistent",
+      owner: { kind: "session", ref: session.relation.ownerSessionId },
+      roleRef: session.relation.roleRef,
+      authority: { kind: "role", ref: session.relation.roleRef },
+      stateBinding: { kind: "session", ref: session.sessionId },
+      visibility: "internal",
+      retention: "retain",
+      purpose: "fleet_worker",
       ...(session.sessionPath && !session.transcriptRef
         ? { transcriptRef: session.sessionPath }
         : {}),

@@ -101,6 +101,30 @@ Evidence refs, and Artifact refs from the current Session incarnation. A
 `succeeded` TaskRun maps to receipt status `completed`; `blocked`, `failed`, and
 `cancelled` retain their status.
 
+Fleet extends that policy with an optional exact worktree authorization:
+
+```ts
+worktreeTarget?: {
+  primaryArtifactRef: ArtifactRef;
+  writableArtifactRefs: ArtifactRef[];
+}
+```
+
+The primary ref must be writable and every ref must be linked by the Task and
+resolve, in the owning Workspace, to an attached `git_change` worktree. A Task
+with exactly one linked GitChange may infer it; multiple GitChanges require the
+explicit target. Target Artifact refs become scheduler concurrency keys, so
+partially overlapping target sets serialize while disjoint sets may run in
+parallel. Fleet never creates, selects, repairs, or substitutes a worktree.
+
+Before every worker Invocation the daemon freezes the current target paths and
+execution isolation. `isolated_worktree` file, Git, and local Cue writes must
+remain within one authorized canonical worktree; traversal, symlink escape,
+unlisted secondary repositories, remote Cue targets, missing/moved worktrees,
+and cross-Workspace refs fail closed. `readonly` admits only read effects.
+`isolated_results` writes only below `.spark/task-results/<jobId>` in the owning
+Workspace. Model arguments cannot widen this scope.
+
 Task state, Goal/Repro state, and transcript summaries are not interchangeable
 sources of truth. Historical text or hook-projected context must never authorize
 a mutation.

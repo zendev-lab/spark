@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
-import type { ExtensionRoleRunner } from "@zendev-lab/spark-core";
+import type { ExtensionRoleRunner, ToolPolicy } from "@zendev-lab/spark-core";
 import { Type } from "typebox";
 import {
   createDefaultRoleRegistry,
@@ -38,6 +38,8 @@ interface SparkRolesToolConfig {
   label?: string;
   description: string;
   promptGuidelines?: string[];
+  policy?: ToolPolicy;
+  resolvePolicy?: (args: Readonly<Record<string, unknown>>) => ToolPolicy;
   parameters: unknown;
   renderCall?: (
     args: Record<string, unknown>,
@@ -536,6 +538,16 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       "Use the canonical session tool for persistent session lifecycle, calls, classification, and durable mail.",
       "Use assign instead of direct role calls when work belongs to a Spark task and needs claims, run records, or evidence attribution.",
     ],
+    policy: roleToolPolicy("read", ["plan", "execute", "fleet"]),
+    resolvePolicy(args) {
+      const action = typeof args.action === "string" ? args.action : "";
+      return action === "list" ||
+        action === "get" ||
+        action === "model_list" ||
+        action === "model_get"
+        ? roleToolPolicy("read", ["plan", "execute", "fleet"])
+        : roleToolPolicy("external_write", ["plan", "execute"]);
+    },
     parameters: Type.Object({
       action: Type.String({
         description:
@@ -578,6 +590,16 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       return tool.execute(toolCallId, stripRoleAction(params), signal, onUpdate, ctx);
     },
   });
+}
+
+function roleToolPolicy(effect: "read" | "external_write", modes: readonly string[]): ToolPolicy {
+  return {
+    effect,
+    executionMode: effect === "read" ? "parallel" : "sequential",
+    domains: ["roles"],
+    modes,
+    approval: "none",
+  };
 }
 
 type RoleAction =

@@ -778,6 +778,7 @@ function isRuntimeSessionControlKind(
     kind === "session.unbind.request" ||
     kind === "session.archive.request" ||
     kind === "session.restore.request" ||
+    kind === "session.mode.set.request" ||
     kind === "turn.submit.request" ||
     kind === "turn.cancel.request" ||
     kind === "turn.status.request" ||

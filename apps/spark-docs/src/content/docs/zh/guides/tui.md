@@ -18,7 +18,8 @@ spark
 ```
 
 不需要先选择工具、Loop 或 command plane。多步骤修改先用 `/plan`，计划确认后
-再用 `/execute`。
+用 `/execute`；当确认后的 ready Task 具有互不冲突的现有 worktree 目标时，使用
+`/fleet`。
 
 ## 日常控制
 
@@ -28,6 +29,7 @@ spark
 /help
 /plan <目标>
 /execute [范围]
+/fleet [范围]
 /status
 /stop [原因]
 /retry

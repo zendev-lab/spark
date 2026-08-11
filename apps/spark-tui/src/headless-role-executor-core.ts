@@ -75,7 +75,7 @@ export interface SparkHeadlessRoleInstructionInput {
   };
   cwd: string;
   timeoutMs: number;
-  mode?: "plan" | "execute";
+  mode?: "plan" | "execute" | "fleet";
   requireStructuredOutcome?: boolean;
   signal?: AbortSignal;
   sessionDir?: string;
@@ -137,6 +137,7 @@ export interface SparkHeadlessSessionRunInput {
   invocationId?: string;
   stateBindingSessionId?: string;
   /** @deprecated Compatibility input. */
+  taskExecutionScope?: import("@zendev-lab/spark-core").SparkTaskExecutionScope;
   stateOwnerSessionId?: string;
   loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
@@ -146,6 +147,8 @@ export interface SparkHeadlessSessionRunInput {
   requireStructuredOutcome?: boolean;
   /** Host-enforced effect allowlist; unknown tool effects are denied. */
   allowedToolEffects?: readonly ToolEffect[];
+  /** Daemon-forced Session mode; managed workers always execute. */
+  mode?: "plan" | "execute" | "fleet";
   /** Optional base identity/surface prompt; defaults to Spark host identity. */
   systemPrompt?: string;
   /** Display-safe metadata persisted on the submitted user message only. */
@@ -213,6 +216,7 @@ export async function runSparkHeadlessSession(
     sessionLease: input.sessionLease,
     channelBinding: input.channelBinding,
     invocationId: input.invocationId,
+    taskExecutionScope: input.taskExecutionScope,
     tokenUsage: input.tokenUsage,
     stateBindingSessionId: input.stateBindingSessionId ?? input.stateOwnerSessionId,
     loop: input.loop,
@@ -222,6 +226,7 @@ export async function runSparkHeadlessSession(
       : input.allowedTools,
     roleRunner: input.roleRunner,
     allowedToolEffects: input.allowedToolEffects,
+    sessionMode: input.mode,
     hasUI: false,
     ...(input.interaction ? { ui: { interaction: input.interaction } } : {}),
     ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),

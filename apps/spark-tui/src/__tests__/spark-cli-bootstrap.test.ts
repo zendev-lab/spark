@@ -22,7 +22,7 @@ import {
 async function setModeThroughTool(
   cwd: string,
   context: ReturnType<SparkHostRuntime["makeContext"]>,
-  mode: "plan" | "execute",
+  mode: "plan" | "execute" | "fleet",
 ): Promise<void> {
   const runtime = new SparkHostRuntime({ cwd });
   sparkExtension(runtime as Parameters<typeof sparkExtension>[0]);

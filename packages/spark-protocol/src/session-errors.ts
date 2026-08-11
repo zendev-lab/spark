@@ -17,6 +17,7 @@ export const sparkSessionRegistryDomainErrorCodeOptions = [
   "invalid_registry",
   "invalid_scope",
   "invalid_session_path",
+  "invalid_session_relation",
   "invalid_session_role",
   "invalid_session_tag",
   "invalid_session_snapshot",

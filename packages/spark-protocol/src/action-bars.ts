@@ -21,6 +21,7 @@ export const sparkActionIntentOptions = [
   "queue.inspect",
   "turn.stop",
   "turn.retry",
+  "mode.select",
   "goal.status",
   "goal.start",
   "goal.restart",
@@ -216,6 +217,19 @@ const scopedModelsActionBar = actionBar({
   ],
 });
 
+function modeActionBar(mode: "plan" | "execute" | "fleet", title: string): SparkActionBarView {
+  return actionBar({
+    id: `mode-${mode}`,
+    title,
+    description: `Enter Spark ${mode} mode for this Session.`,
+    actions: [action(`enter-${mode}`, `Enter ${title}`, "mode.select", "primary", { mode })],
+  });
+}
+
+const planModeActionBar = modeActionBar("plan", "Plan");
+const executeModeActionBar = modeActionBar("execute", "Execute");
+const fleetModeActionBar = modeActionBar("fleet", "Fleet");
+
 const goalActionBar = lifecycleActionBar("goal", "Goal controls", {
   status: "Inspect goal",
   start: "Start goal",
@@ -278,6 +292,9 @@ export const sparkSlashCommandDescriptors: readonly SparkSlashCommandDescriptor[
   slashCommand("status", statusActionBar),
   slashCommand("queue", queueActionBar),
   slashCommand("scoped-models", scopedModelsActionBar),
+  slashCommand("plan", planModeActionBar),
+  slashCommand("execute", executeModeActionBar),
+  slashCommand("fleet", fleetModeActionBar),
   slashCommand("goal", goalActionBar),
   slashCommand("loop", loopActionBar),
   slashCommand("repro", reproActionBar),

@@ -97,6 +97,14 @@ Every new top-level session belongs to a registered workspace. A session has two
 
 TUI, Hub, and ACP all use this contract. Starting TUI/ACP below a workspace or in a registered worktree keeps one owning workspace instead of registering the worktree as another workspace. Side threads, Task execution sessions, and Loop ticks inherit the owner cwd; switching TUI sessions rebinds session ID, cwd, workspace ID, and workspace `.spark` root as one host context. Daemon-global scope remains a read-only legacy shape so old transcripts can be recovered; startup migration maps records whose `cwd` identifies one workspace and archives unmatched records without deleting their transcript pointers. The migration keeps an exact hash-manifested backup, uses a compare-and-set v5 revision plus atomic replacement and write-back validation, and is idempotent after registry v5.
 
+Fleet workers use the stable `fleet_worker` relation. It records the owner
+Session, Project, Role, lane key, primary GitChange ref, and exact writable ref
+set. Task, TaskRun, attempt, job, and Invocation remain per-request mail and run
+metadata; they are never copied into the stable worker identity. The daemon
+validates both layers before each invocation, so a stale relation, moved
+worktree, changed Task authorization, wrong owner, or reordered/duplicated
+completion cannot widen authority.
+
 Registry records and bindings are authoritative. Adapter liveness comes from daemon `channel.status`.
 
 ## Repro Workbench interaction
@@ -180,6 +188,12 @@ second message or invocation. This does not imply blind platform resend:
 outbound effects follow the fail-closed policy below. Completion-notify
 admission reuses the normal invocation store (it may wait behind work already
 active for the sender).
+
+Fleet uses this same request/completion path. The completion mail is only a wake
+signal: the owner first reconciles TaskRun and resource state idempotently, then
+chooses an explicit recovery, unrelated `assign`, Ask, or wait action. The
+runtime does not blindly retry failed workers, and `maxAttempts` plus isolation
+failures remain hard admission blocks.
 
 ## Channel policy
 

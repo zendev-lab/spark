@@ -93,7 +93,7 @@ export interface SparkProjectKindWidgetEntry {
 }
 
 export interface SparkWidgetActiveLens {
-  mode: "plan" | "execute";
+  mode: "plan" | "execute" | "fleet";
 }
 
 export interface SparkWidgetState {
@@ -458,8 +458,12 @@ function formatProjectHeaderLine(
   return `${theme.fg("accent", "◆")} ${theme.bold(state.projectTitle)}${suffix ? ` ${suffix}` : ""}`;
 }
 
-function sparkWidgetActiveLensMode(lens: SparkWidgetActiveLens | undefined): "plan" | "execute" {
-  if (lens?.mode === "plan" || lens?.mode === "execute") return lens.mode;
+function sparkWidgetActiveLensMode(
+  lens: SparkWidgetActiveLens | undefined,
+): "plan" | "execute" | "fleet" {
+  if (lens?.mode === "plan" || lens?.mode === "execute" || lens?.mode === "fleet") {
+    return lens.mode;
+  }
   return "plan";
 }
 

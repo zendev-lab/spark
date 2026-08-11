@@ -130,6 +130,23 @@ export function registerSparkReproTool(
     label: "Spark Repro",
     description:
       "Manage the evidence-backed reproduction workflow. Goal contracts and typed step plans are revised explicitly; settle is the only normal path that schedules another tick. satisfy/gate remain fail-closed compatibility aliases.",
+    policy: {
+      effect: "local_write",
+      executionMode: "sequential",
+      domains: ["repro"],
+      modes: ["plan", "execute", "fleet"],
+      approval: "none",
+    },
+    resolvePolicy(args) {
+      const status = args.action === undefined || args.action === "status";
+      return {
+        effect: status ? "read" : "local_write",
+        executionMode: status ? "parallel" : "sequential",
+        domains: ["repro"],
+        modes: status ? ["plan", "execute", "fleet"] : ["plan", "execute"],
+        approval: "none",
+      };
+    },
     promptGuidelines: [
       "Use repro action=status to inspect the goal contract, current plan revision, typed steps, stable requirement ids, and blockers.",
       "Use repro action=start to begin the Repro (clears goal/loop); pass objective for user-supplied reproduction focus.",

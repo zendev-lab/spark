@@ -5,6 +5,8 @@ import type {
   SparkSessionMediaReadRequest,
   SparkSessionMediaReadResult,
   SparkSessionRegistryRecord,
+  SparkSessionMode,
+  SparkSessionModeResult,
   SparkSideThreadSnapshot,
 } from "@zendev-lab/spark-protocol";
 import {
@@ -78,6 +80,7 @@ export interface HubManagedSessionsClient {
   bind(input: SparkSessionBindRequest): Promise<SparkSessionRegistryRecord>;
   unbind(input: SparkSessionBindRequest): Promise<SparkSessionRegistryRecord>;
   archive(sessionId: string): Promise<SparkSessionRegistryRecord>;
+  setMode?(input: { sessionId: string; mode: SparkSessionMode }): Promise<SparkSessionModeResult>;
 }
 
 const runtimeManagedSessionsClient = createHubRuntimeSessionClient();
@@ -393,6 +396,16 @@ export async function archiveManagedSessionForHub(
   client: HubManagedSessionsClient = runtimeManagedSessionsClient,
 ): Promise<SparkSessionRegistryRecord> {
   return await client.archive(sessionId);
+}
+
+export async function setManagedSessionModeForHub(
+  input: { sessionId: string; mode: SparkSessionMode },
+  client: HubManagedSessionsClient = runtimeManagedSessionsClient,
+): Promise<SparkSessionModeResult> {
+  if (!client.setMode) {
+    throw new HubRuntimeSessionUnavailableError("Session mode control is unavailable.");
+  }
+  return await client.setMode(input);
 }
 
 function isHubWorkspaceSession(

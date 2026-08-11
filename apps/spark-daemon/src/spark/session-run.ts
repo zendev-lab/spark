@@ -1,4 +1,4 @@
-import { mkdirSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   SPARK_PROTOCOL_VERSION,
@@ -10,7 +10,14 @@ import {
   type SparkInteractionRequest,
   type SparkInteractionResponse,
 } from "@zendev-lab/spark-protocol";
-import type { SparkHostLoopContext, SparkSessionLeaseIdentity } from "@zendev-lab/spark-core";
+import type {
+  ArtifactRef,
+  ProjectRef,
+  SparkHostLoopContext,
+  SparkSessionLeaseIdentity,
+  SparkTaskExecutionScope,
+} from "@zendev-lab/spark-core";
+import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import {
   loadSparkHeadlessSessionModule,
@@ -95,6 +102,7 @@ export interface SparkDaemonTaskExecutorOptions {
     workspaceId: string;
     cwd?: string;
     cwdArtifactRef?: string;
+    requireAttached?: boolean;
   }) => Promise<{ cwd: string; cwdArtifactRef?: string }>;
   /** Global provider/auth control root; daemon session files remain isolated. */
   controlSparkHome?: string;
@@ -833,6 +841,7 @@ async function sessionExecutionIdentity(
       workspaceId,
       cwd,
       ...(sessionContext.cwdArtifactRef ? { cwdArtifactRef: sessionContext.cwdArtifactRef } : {}),
+      ...(sessionContext.fleetWorker ? { requireAttached: true } : {}),
     });
     cwd = resolved.cwd;
   }
@@ -841,10 +850,22 @@ async function sessionExecutionIdentity(
   if (workspaceId && options.resolveWorkspaceCwd && !workspaceRoot) {
     throw new Error(`Workspace ${workspaceId} has no daemon-local state root.`);
   }
+  const taskExecutionScope =
+    workspaceId && workspaceRoot && options.resolveSessionCwd && sessionContext.fleetWorker
+      ? await resolveFleetExecutionScope({
+          task,
+          workspaceId,
+          workspaceRoot,
+          executionSessionId: task.executionSessionId ?? task.sessionId,
+          relation: sessionContext.fleetWorker,
+          resolveSessionCwd: options.resolveSessionCwd,
+        })
+      : undefined;
   return {
     cwd,
     ...(workspaceId ? { workspaceId } : {}),
     ...(workspaceRoot ? { sparkStateRoot: join(workspaceRoot, ".spark") } : {}),
+    ...(taskExecutionScope ? { taskExecutionScope } : {}),
     sparkHome: options.paths.piAgentDir,
     sessionId: task.sessionId,
     ...(!task.hiddenExecution && sessionContext.sessionPath
@@ -863,6 +884,143 @@ async function sessionExecutionIdentity(
   };
 }
 
+async function resolveFleetExecutionScope(input: {
+  task: SparkDaemonSessionRunTask;
+  workspaceId: string;
+  workspaceRoot: string;
+  executionSessionId: string;
+  relation: {
+    ownerSessionId: string;
+    projectRef: string;
+    laneKey: string;
+    primaryArtifactRef: string;
+    writableArtifactRefs: string[];
+  };
+  resolveSessionCwd: NonNullable<SparkDaemonTaskExecutorOptions["resolveSessionCwd"]>;
+}): Promise<SparkTaskExecutionScope> {
+  const request = fleetTaskRequestMetadata(input.task);
+  if (!request) throw new Error("Fleet invocation is missing exact TaskRun request metadata");
+  if (request.projectRef !== input.relation.projectRef) {
+    throw new Error("Fleet invocation Project does not match its worker lane");
+  }
+  const mail = recordValue(input.task.messageMetadata?.sessionMail);
+  if (mail?.fromSessionId !== input.relation.ownerSessionId) {
+    throw new Error("Fleet invocation owner does not match its worker lane");
+  }
+  const graph = await defaultTaskGraphStore(input.workspaceRoot).load();
+  if (!graph) throw new Error("Fleet TaskGraph is unavailable in the owning Workspace");
+  const run = graph
+    .runs(request.projectRef as ProjectRef)
+    .find((candidate) => candidate.ref === request.runRef);
+  if (
+    !run?.execution ||
+    run.taskRef !== request.taskRef ||
+    (run.execution.sessionId ?? run.execution.executionSessionId) !== input.executionSessionId ||
+    run.execution.jobId !== request.jobId ||
+    run.execution.attempt !== request.attempt ||
+    run.execution.workerLaneKey !== input.relation.laneKey
+  ) {
+    throw new Error("Fleet invocation no longer matches its authoritative TaskRun binding");
+  }
+  const task = graph.getTask(run.taskRef);
+  const policy = task.executionPolicy;
+  if (!policy) throw new Error(`Fleet Task ${task.ref} has no executionPolicy`);
+  const writableArtifactRefs = [...new Set(input.relation.writableArtifactRefs)].sort();
+  if (
+    !writableArtifactRefs.includes(input.relation.primaryArtifactRef) ||
+    writableArtifactRefs.some((ref) => !task.artifactRefs.includes(ref as ArtifactRef))
+  ) {
+    throw new Error("Fleet worker lane targets are no longer authorized by the Task");
+  }
+  if (policy.worktreeTarget) {
+    if (
+      policy.worktreeTarget.primaryArtifactRef !== input.relation.primaryArtifactRef ||
+      !sameStringSet(policy.worktreeTarget.writableArtifactRefs, writableArtifactRefs)
+    ) {
+      throw new Error("Fleet worker lane targets diverge from Task executionPolicy");
+    }
+  } else if (writableArtifactRefs.length !== 1) {
+    throw new Error("Fleet multi-worktree invocation requires an explicit worktreeTarget");
+  }
+
+  const writableRoots: string[] = [];
+  for (const ref of writableArtifactRefs) {
+    const resolved = await input.resolveSessionCwd({
+      workspaceId: input.workspaceId,
+      cwdArtifactRef: ref,
+      requireAttached: true,
+    });
+    if (resolved.cwdArtifactRef !== ref) {
+      throw new Error(`Fleet worktree target resolved to a different Artifact: ${ref}`);
+    }
+    writableRoots.push(resolved.cwd);
+  }
+  const primaryIndex = writableArtifactRefs.indexOf(input.relation.primaryArtifactRef);
+  if (primaryIndex < 0) throw new Error("Fleet worker lane has no primary worktree");
+  let resultsRoot: string | undefined;
+  if (policy.isolation === "isolated_results") {
+    if (!safeFleetJobId(request.jobId)) throw new Error("Fleet isolated_results jobId is unsafe");
+    const requestedRoot = join(input.workspaceRoot, ".spark", "task-results", request.jobId);
+    mkdirSync(requestedRoot, { recursive: true });
+    resultsRoot = realpathSync(requestedRoot);
+  }
+  return Object.freeze({
+    isolation: policy.isolation,
+    primaryArtifactRef: input.relation.primaryArtifactRef as ArtifactRef,
+    writableArtifactRefs: writableArtifactRefs as ArtifactRef[],
+    writableRoots,
+    ...(resultsRoot ? { resultsRoot } : {}),
+  });
+}
+
+function fleetTaskRequestMetadata(task: SparkDaemonSessionRunTask):
+  | {
+      projectRef: string;
+      taskRef: string;
+      runRef: string;
+      jobId: string;
+      attempt: number;
+    }
+  | undefined {
+  const mail = recordValue(task.messageMetadata?.sessionMail);
+  const payload = recordValue(mail?.requestPayload);
+  if (
+    payload?.kind !== "task_execution" ||
+    typeof payload.projectRef !== "string" ||
+    typeof payload.taskRef !== "string" ||
+    typeof payload.runRef !== "string" ||
+    typeof payload.jobId !== "string" ||
+    typeof payload.attempt !== "number" ||
+    !Number.isInteger(payload.attempt) ||
+    payload.attempt < 1
+  ) {
+    return undefined;
+  }
+  return {
+    projectRef: payload.projectRef,
+    taskRef: payload.taskRef,
+    runRef: payload.runRef,
+    jobId: payload.jobId,
+    attempt: payload.attempt,
+  };
+}
+
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  const a = [...new Set(left)].sort();
+  const b = [...new Set(right)].sort();
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function safeFleetJobId(value: string): boolean {
+  return (
+    Boolean(value.trim()) &&
+    !value.includes("/") &&
+    !value.includes("\\") &&
+    value !== "." &&
+    value !== ".."
+  );
+}
+
 function assertSessionExecutionCwd(cwd: string): void {
   let info;
   try {
@@ -878,6 +1036,7 @@ function sessionExecutionPolicy(
   sessionContext: Awaited<ReturnType<typeof sessionContextForTask>>,
   binding: ReturnType<typeof completeChannelBinding>,
   loop: SparkHostLoopContext | undefined,
+  taskExecutionScope?: SparkTaskExecutionScope,
 ) {
   return {
     ...(sessionContext.surface ? { sessionSurface: sessionContext.surface } : {}),
@@ -899,6 +1058,10 @@ function sessionExecutionPolicy(
         }
       : {}),
     ...(sessionContext.sideThread ? { allowedToolEffects: ["read"] as const } : {}),
+    ...(sessionContext.taskSession ? { mode: "execute" as const } : {}),
+    ...(taskExecutionScope?.isolation === "readonly"
+      ? { allowedToolEffects: ["read"] as const }
+      : {}),
     ...(loop?.binding.workflowRunId && !loop.binding.reproId ? { allowedTools: ["workflow"] } : {}),
     ...(task.roleAllowedTools ? { allowedTools: task.roleAllowedTools } : {}),
   };
@@ -964,7 +1127,13 @@ export async function executeSparkDaemonSessionRunTask(
     ...(canCheckpointRestart && checkpointRestart
       ? { yieldForRestartIfRequested: checkpointRestart }
       : {}),
-    ...sessionExecutionPolicy(task, sessionContext, binding, loop),
+    ...sessionExecutionPolicy(
+      task,
+      sessionContext,
+      binding,
+      loop,
+      executionIdentity.taskExecutionScope,
+    ),
     ...(roleRunner ? { roleRunner } : {}),
     ...(task.roleRunRef ? { roleRunRef: task.roleRunRef } : {}),
     ...(task.requireStructuredOutcome !== undefined
@@ -1190,6 +1359,14 @@ async function sessionContextForTask(
   cwd?: string;
   workspaceId?: string;
   cwdArtifactRef?: string;
+  fleetWorker?: {
+    ownerSessionId: string;
+    projectRef: string;
+    roleRef: string;
+    laneKey: string;
+    primaryArtifactRef: string;
+    writableArtifactRefs: string[];
+  };
 }> {
   const session = await registry?.get?.(task.sessionId);
   const role = session?.role?.trim();
@@ -1219,7 +1396,10 @@ async function sessionContextForTask(
     ...(session.cwdArtifactRef ? { cwdArtifactRef: session.cwdArtifactRef } : {}),
     ...(role ? { role } : {}),
     ...(session.relation?.kind === "side_thread" ? { sideThread: true } : {}),
-    ...(session.relation?.kind === "task_execution" ? { taskSession: true } : {}),
+    ...(session.relation?.kind === "task_execution" || session.relation?.kind === "fleet_worker"
+      ? { taskSession: true }
+      : {}),
+    ...(session.relation?.kind === "fleet_worker" ? { fleetWorker: session.relation } : {}),
     ...(session.stateBinding?.kind === "session"
       ? { stateBindingSessionId: session.stateBinding.ref }
       : {}),
@@ -1642,4 +1822,8 @@ function errorMessage(error: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
 }

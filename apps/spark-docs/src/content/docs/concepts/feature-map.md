@@ -80,7 +80,9 @@ Project → Task plan → claim or assign → Run → Artifact → Review
 
 `/plan` creates verifiable work without implementing it. `/execute` continues
 through ready tasks until complete, blocked, validation fails, or a decision is
-needed. Goal, Loop, Repro, and Workflow add daemon-owned continuation for work
+needed. `/fleet` coordinates a safe, target-disjoint ready frontier through
+reusable daemon worker Sessions without letting the owner edit code directly.
+Goal, Loop, Repro, and Workflow add daemon-owned continuation for work
 that must persist or repeat. `/automate` is only a picker for those existing
 modes.
 
