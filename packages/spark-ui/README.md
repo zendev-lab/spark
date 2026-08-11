@@ -20,3 +20,16 @@ and Loop-generation bound and use the closed protocol action vocabulary.
 Only this package may import Bits UI, Lucide, or `svelte-streamdown`; product
 features consume its stable exports instead. Shared locale helpers and Hub
 product copy stay in `@zendev-lab/spark-i18n` and its `/hub` subpath.
+
+## Internal component catalog
+
+Run `pnpm --filter @zendev-lab/spark-ui run catalog:dev` for the package-local
+component catalog, or `catalog:build` for its CI build. The catalog is a test and
+review surface only: it is not exported, packed, or mounted by Spark Hub.
+
+Components inherit light tokens by default. A consumer or catalog fixture may
+set `data-spark-theme="dark"` on any ancestor for the complete dark token set.
+Theme selection remains a product concern; `spark-ui` does not persist or infer
+the user's preference. Components use logical layout properties so controlled
+`dir="rtl"` fixtures can verify directionality without adding product locale
+policy to the package.

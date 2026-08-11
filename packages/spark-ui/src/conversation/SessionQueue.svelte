@@ -115,7 +115,7 @@
 
   .disclosure {
     border-bottom: 1.5px solid currentColor;
-    border-right: 1.5px solid currentColor;
+    border-inline-end: 1.5px solid currentColor;
     display: inline-block;
     height: 7px;
     transform: rotate(45deg) translateY(-1px);
@@ -163,7 +163,7 @@
   }
 
   .single-queue-item .queue-item-description {
-    margin-left: 0;
+    margin-inline-start: 0;
   }
 
   .single-queue-item .queue-item-actions {

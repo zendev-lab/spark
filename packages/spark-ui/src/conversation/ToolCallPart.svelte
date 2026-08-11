@@ -111,7 +111,7 @@
   }
 
   .tool-preview {
-    color: var(--color-ink-subtle);
+    color: var(--color-ink-muted);
     font-family: var(--font-mono, monospace);
     font-size: 11px;
     min-width: 0;
@@ -121,7 +121,7 @@
   }
 
   .tool-state {
-    color: var(--color-ink-subtle);
+    color: var(--color-ink-muted);
     font-size: 10px;
     font-weight: 650;
   }
