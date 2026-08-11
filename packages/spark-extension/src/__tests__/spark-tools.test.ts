@@ -2654,7 +2654,7 @@ test("impl_status surfaces foreign-claim recovery guidance for blocked ready fro
     );
     assert.match(
       toolText(status),
-      /reclaim with task_write\(\{ action: "claim", task: "@name" \}\)/,
+      /reclaim with task_write\(\{ action: "claim", taskRef: "@name" \}\)/,
     );
     const renderedProject = (
       status.details as {
@@ -5062,22 +5062,30 @@ test("split task tools dispatch read, write, and assign actions", async () => {
     assert.ok(tools.has("task_write"), "missing task_write tool");
     assert.ok(tools.has("assign"), "missing assign tool");
     const taskParameters = JSON.stringify(tools.get("task_write")?.parameters);
-    assert.match(taskParameters, /Executor role ref/);
-    assert.match(taskParameters, /omit for normal task planning/);
-    assert.doesNotMatch(taskParameters, /Preferred role ref/);
+    assert.match(taskParameters, /Preferred executor Role ref/);
+    assert.match(taskParameters, /additionalProperties/);
+    assert.doesNotMatch(taskParameters, /kindState/);
     assert.doesNotMatch(taskParameters, /run_ready/);
     assert.doesNotMatch(taskParameters, /run_control/);
-    assert.match(
-      taskParameters,
-      /recover \| release \| artifact_link \| artifact_unlink \| plan_update/,
-    );
+    assert.match(taskParameters, /plan_update/);
+    assert.match(taskParameters, /artifact_unlink/);
     const taskReadParameters = JSON.stringify(tools.get("task_read")?.parameters);
     assert.match(taskReadParameters, /task_status/);
     assert.match(taskReadParameters, /project_status/);
     assert.match(taskReadParameters, /workspace_status/);
     assert.match(taskReadParameters, /run_status/);
-    assert.match(taskReadParameters, /kill_active/);
-    assert.match(taskReadParameters, /forceAfterMs/);
+    assert.doesNotMatch(taskReadParameters, /kill_active/);
+    assert.doesNotMatch(taskReadParameters, /forceAfterMs/);
+    assert.doesNotMatch(taskReadParameters, /"project"/);
+    assert.doesNotMatch(taskReadParameters, /"task"/);
+    const assignParameters = JSON.stringify(tools.get("assign")?.parameters);
+    assert.match(assignParameters, /taskRefs/);
+    assert.doesNotMatch(assignParameters, /dryRun/);
+    assert.doesNotMatch(assignParameters, /maxConcurrency/);
+    assert.doesNotMatch(assignParameters, /timeoutMs/);
+    const workflowParameters = JSON.stringify(tools.get("workflow")?.parameters);
+    assert.match(workflowParameters, /kill_active/);
+    assert.match(workflowParameters, /forceAfterMs/);
     await assert.rejects(
       () => executeSparkTool(tools, "task_read", ctx, { action: "status" }),
       /task_read\.action must be one of: task_status, project_status, workspace_status, project_list, run_status/,
@@ -5092,10 +5100,18 @@ test("split task tools dispatch read, write, and assign actions", async () => {
     );
     await assert.rejects(
       () => executeSparkTool(tools, "task_read", ctx, { action: "run_status", runAction: "stop" }),
-      /task\.runAction must be status, list, inspect, reconcile, kill, reply, steer, ack, or kill_active/,
+      /task_read run_status is read-only/,
     );
-    const guardedKill = await executeSparkTool(tools, "task_read", ctx, {
-      action: "run_status",
+    await assert.rejects(
+      () =>
+        executeSparkTool(tools, "task_read", ctx, {
+          action: "run_status",
+          runAction: "kill",
+        }),
+      /use workflow/,
+    );
+    const guardedKill = await executeSparkTool(tools, "workflow", ctx, {
+      action: "runs",
       runAction: "kill",
     });
     assert.match(toolText(guardedKill), /kill_requires_target/);
@@ -5164,7 +5180,7 @@ test("split task tools dispatch read, write, and assign actions", async () => {
     });
     assert.match(toolText(status), /Canonical task tool project/);
 
-    const assigned = await executeSparkTool(tools, "assign", ctx, {
+    const assigned = await executeSparkTool(tools, "impl_run_ready_tasks", ctx, {
       dryRun: true,
       maxConcurrency: 1,
     });
@@ -5280,8 +5296,9 @@ test("canonical assign rejects a mixed frontier before creating any identities",
     const { tools } = registerSparkToolsForTest();
 
     const assigned = await executeSparkTool(tools, "assign", ctx, {
-      dryRun: false,
-      maxConcurrency: 1,
+      dryRun: true,
+      maxConcurrency: 0,
+      timeoutMs: 0,
       taskRefs: [runnable.ref, task.ref],
     });
 
@@ -9161,7 +9178,7 @@ test("impl_status includes persisted Spark orchestrator status", async () => {
       ),
     );
     assert.match(text, /Next steps \(stale\):/);
-    assert.match(text, /stale: run task_read\(\{ action: "run_status"/);
+    assert.match(text, /stale: run workflow\(\{ action: "runs"/);
     const workflowRunDetails = status.details as {
       workflowRunStatus?: {
         stale?: number;

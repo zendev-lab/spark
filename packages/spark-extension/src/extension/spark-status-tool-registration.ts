@@ -248,7 +248,7 @@ function resolveSparkStatusScope(
       ok: false,
       error: "task_selector_required",
       message:
-        'task_status requires task or taskRef. Use task_read({ action: "project_status" }) for a project view or pass taskRef="task:...".',
+        'task_status requires taskRef. Use task_read({ action: "project_status" }) for a project view or pass taskRef="task:...".',
     };
   const project = projectSelector
     ? resolveSparkStatusProject(graph, projectSelector)
