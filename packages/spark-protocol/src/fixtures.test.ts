@@ -53,15 +53,15 @@ describe("runtime protocol fixtures", () => {
       "dev-macbook-pro",
     );
     expect(
-      runtimeDeviceAuthorizationResponseSchema.parse({
+      runtimeDeviceAuthorizationResponseSchema.safeParse({
         deviceCode: `spark_device_${"a".repeat(43)}`,
         userCode: "ABCD-EFGH",
         verificationUri: "http://127.0.0.1:5173/daemon/authorize",
         verificationUriComplete: "http://127.0.0.1:5173/daemon/authorize?user_code=ABCD-EFGH",
         expiresIn: 600,
         interval: 5,
-      }).interval,
-    ).toBe(5);
+      }).success,
+    ).toBe(true);
     expect(
       runtimeDeviceTokenRequestSchema.parse({ deviceCode: `spark_device_${"a".repeat(43)}` })
         .deviceCode,

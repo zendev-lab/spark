@@ -4,10 +4,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
+import type {
+  AssistantMessage,
+  AssistantMessageEvent,
+  Context,
+  Model,
+  ToolCall,
+} from "@zendev-lab/spark-ai";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { registerSparkEvidenceTool } from "@zendev-lab/spark-artifacts/extension";
 import { TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE } from "@zendev-lab/spark-ai";
+import { assertRef } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
+import type { SparkDaemonEvent, SparkViewModelEvent } from "@zendev-lab/spark-protocol";
 
 import {
   SparkAgentLoop,
@@ -27,13 +36,7 @@ import {
 } from "./prompt-items.ts";
 import { compactToolResultContent } from "./tool-result-compaction.ts";
 
-type AssistantMessage = any;
-type AssistantMessageEvent = any;
-type Context = any;
-type Model = any;
-type ToolCall = any;
-
-const TEST_MODEL: Model = {
+const TEST_MODEL: Model<string> = {
   id: "test-model",
   name: "Test Model",
   api: "openai-completions",
@@ -65,6 +68,22 @@ function toolResultText(message: ToolResultMessage | undefined): string {
 
 function asAssistant(message: Message | undefined): { stopReason?: unknown } | undefined {
   return message?.role === "assistant" ? message : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+type SessionMessageViewEvent = Extract<SparkViewModelEvent, { type: "session.message" }>;
+
+function isSessionMessageViewEvent(event: SparkViewModelEvent): event is SessionMessageViewEvent {
+  return event.type === "session.message";
+}
+
+function stringProperty(value: unknown, key: string): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const property = value[key];
+  return typeof property === "string" ? property : undefined;
 }
 
 test("Spark prompt IR retains runtime authority until provider lowering", () => {
@@ -122,7 +141,7 @@ function buildAssistant(
 
 function makeFakeStream(plan: FakeStreamPlan): SparkAgentStreamFunction {
   let round = 0;
-  const fake: SparkAgentStreamFunction = (_model: Model, _context: Context) => {
+  const fake: SparkAgentStreamFunction = (_model: Model<string>, _context: Context) => {
     const events = plan.rounds[round] ?? [];
     round += 1;
     let resolveResult: (value: AssistantMessage) => void = () => undefined;
@@ -303,7 +322,7 @@ test("Spark prompt cache hashes long session ids without losing the stable finge
 });
 
 test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries", async () => {
-  const viewEvents: unknown[] = [];
+  const viewEvents: SparkViewModelEvent[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-cache-key-test",
     ui: { publishView: (event) => viewEvents.push(event) },
@@ -315,7 +334,12 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
   finalAssistant.usage.cacheWrite = 32;
   finalAssistant.usage.totalTokens = 208;
   finalAssistant.usage.cost.total = 0.125;
-  const calls: Array<{ context: Context; options: any }> = [];
+  const calls: Array<{
+    contextPromptCacheKey?: string;
+    contextSystemPromptStable?: string;
+    optionPromptCacheKey?: string;
+    optionPromptCacheKeyCompat?: string;
+  }> = [];
   const loopEvents: SparkAgentLoopEvent[] = [];
   host.registerTool({
     name: "read_manifest_probe",
@@ -343,7 +367,12 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
   });
   host.setActiveTools(["read_manifest_probe"]);
   const streamFunction: SparkAgentStreamFunction = (_model, context, options) => {
-    calls.push({ context, options });
+    calls.push({
+      contextPromptCacheKey: stringProperty(context, "promptCacheKey"),
+      contextSystemPromptStable: stringProperty(context, "systemPromptStable"),
+      optionPromptCacheKey: stringProperty(options, "promptCacheKey"),
+      optionPromptCacheKeyCompat: stringProperty(options, "prompt_cache_key"),
+    });
     return makeFakeStream({
       rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
     })(_model, context, options);
@@ -367,11 +396,11 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
 
   const outcome = await loop.submitWithOutcome("use cache");
 
-  assert.match(calls[0]?.context.promptCacheKey ?? "", /^spark:[0-9a-f]{16}:[0-9a-f]{16}:/);
-  assert.ok((calls[0]?.context.promptCacheKey?.length ?? Infinity) <= 64);
-  assert.equal(calls[0]?.context.systemPromptStable, "Stable Spark operating rules.");
-  assert.equal(calls[0]?.options?.prompt_cache_key, calls[0]?.context.promptCacheKey);
-  assert.equal(calls[0]?.options?.promptCacheKey, calls[0]?.context.promptCacheKey);
+  assert.match(calls[0]?.contextPromptCacheKey ?? "", /^spark:[0-9a-f]{16}:[0-9a-f]{16}:/);
+  assert.ok((calls[0]?.contextPromptCacheKey?.length ?? Infinity) <= 64);
+  assert.equal(calls[0]?.contextSystemPromptStable, "Stable Spark operating rules.");
+  assert.equal(calls[0]?.optionPromptCacheKeyCompat, calls[0]?.contextPromptCacheKey);
+  assert.equal(calls[0]?.optionPromptCacheKey, calls[0]?.contextPromptCacheKey);
   assert.equal(
     viewEvents.some(
       (event) =>
@@ -383,8 +412,9 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
     true,
   );
   const completedRun = viewEvents.find(
-    (event: any) => event.type === "run.update" && event.run.status === "succeeded",
-  ) as any;
+    (event) => event.type === "run.update" && event.run.status === "succeeded",
+  );
+  assert.ok(completedRun?.type === "run.update");
   assert.deepEqual(completedRun.run.metadata.usageTotals, {
     inputTokens: 40,
     outputTokens: 8,
@@ -503,9 +533,11 @@ test("SparkAgentLoop applies one phase profile to schemas, manifests, and dispat
         : call === 2
           ? buildAssistant([allowedImplementCall], "toolUse")
           : buildAssistant([{ type: "text", text: `phase complete ${call}` }]);
-    return makeFakeStream({
-      rounds: [[{ type: "done", reason: message.stopReason, message }]],
-    })(model, context, options);
+    const event: AssistantMessageEvent =
+      message.stopReason === "toolUse"
+        ? { type: "done", reason: "toolUse", message }
+        : { type: "done", reason: "stop", message };
+    return makeFakeStream({ rounds: [[event]] })(model, context, options);
   };
   const loop = new SparkAgentLoop({ host, streamFunction, getModel: () => TEST_MODEL });
   loop.onEvent((event) => {
@@ -683,9 +715,9 @@ test("SparkAgentLoop enforces action-resolved Fleet policy at dispatch", async (
 
 test("SparkAgentLoop forwards getReasoning into stream options.reasoning", async () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-reasoning-test" });
-  const calls: Array<{ options: any }> = [];
+  const reasoningValues: unknown[] = [];
   const streamFunction: SparkAgentStreamFunction = (_model, _context, options) => {
-    calls.push({ options });
+    reasoningValues.push(isRecord(options) ? options.reasoning : undefined);
     return makeFakeStream({
       rounds: [
         [
@@ -707,7 +739,7 @@ test("SparkAgentLoop forwards getReasoning into stream options.reasoning", async
 
   await loop.submit("think carefully");
 
-  assert.equal(calls[0]?.options?.reasoning, "high");
+  assert.equal(reasoningValues[0], "high");
 });
 
 test("SparkAgentLoop runs a single-turn stop with one streamed text chunk", async () => {
@@ -765,7 +797,7 @@ test("SparkAgentLoop times out a never-resolving model stream", async () => {
 });
 
 test("SparkAgentLoop projects user, streaming, final, and run updates to view-model events", async () => {
-  const viewEvents: unknown[] = [];
+  const viewEvents: SparkViewModelEvent[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-view-test",
     ui: { publishView: (event) => viewEvents.push(event) },
@@ -790,18 +822,16 @@ test("SparkAgentLoop projects user, streaming, final, and run updates to view-mo
   const protocolEvents = events.filter((event) => event.type === "view_event");
   assert.equal(protocolEvents.length, viewEvents.length);
   assert.equal(
-    viewEvents.some((event: any) => event.type === "run.update" && event.run.status === "running"),
+    viewEvents.some((event) => event.type === "run.update" && event.run.status === "running"),
+    true,
+  );
+  assert.equal(
+    viewEvents.some((event) => event.type === "run.update" && event.run.status === "succeeded"),
     true,
   );
   assert.equal(
     viewEvents.some(
-      (event: any) => event.type === "run.update" && event.run.status === "succeeded",
-    ),
-    true,
-  );
-  assert.equal(
-    viewEvents.some(
-      (event: any) =>
+      (event) =>
         event.type === "session.message" &&
         event.sessionId === "session-view-loop" &&
         event.message.role === "assistant" &&
@@ -813,7 +843,7 @@ test("SparkAgentLoop projects user, streaming, final, and run updates to view-mo
 });
 
 test("SparkAgentLoop suppresses identical cumulative assistant stream projections", async () => {
-  const viewEvents: any[] = [];
+  const viewEvents: SparkViewModelEvent[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-cumulative-dedup-test",
     ui: { publishView: (event) => viewEvents.push(event) },
@@ -847,9 +877,9 @@ test("SparkAgentLoop suppresses identical cumulative assistant stream projection
 
   await loop.submit("deduplicate the projection");
 
-  const assistantMessages = viewEvents.filter(
-    (event) => event.type === "session.message" && event.message.role === "assistant",
-  );
+  const assistantMessages = viewEvents
+    .filter(isSessionMessageViewEvent)
+    .filter((event) => event.message.role === "assistant");
   assert.deepEqual(
     assistantMessages
       .filter((event) => event.message.status === "streaming")
@@ -860,7 +890,7 @@ test("SparkAgentLoop suppresses identical cumulative assistant stream projection
 });
 
 test("SparkAgentLoop projects an empty provider error as a visible terminal message", async () => {
-  const viewEvents: any[] = [];
+  const viewEvents: SparkViewModelEvent[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-visible-error-test",
     ui: { publishView: (event) => viewEvents.push(event) },
@@ -872,7 +902,7 @@ test("SparkAgentLoop projects an empty provider error as a visible terminal mess
   const loop = new SparkAgentLoop({
     host,
     streamFunction: makeFakeStream({
-      rounds: [[{ type: "done", reason: "error", message: errorAssistant }]],
+      rounds: [[{ type: "error", reason: "error", error: errorAssistant }]],
     }),
     getModel: () => TEST_MODEL,
   });
@@ -894,7 +924,7 @@ test("SparkAgentLoop projects an empty provider error as a visible terminal mess
 });
 
 test("SparkAgentLoop appends multi-roundtrip assistant messages in order without overwriting", async () => {
-  const viewEvents: any[] = [];
+  const viewEvents: SparkViewModelEvent[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-order-test",
     ui: { publishView: (event) => viewEvents.push(event) },
@@ -935,9 +965,9 @@ test("SparkAgentLoop appends multi-roundtrip assistant messages in order without
 
   await loop.submit("do it");
 
-  const assistantMessages = viewEvents.filter(
-    (event) => event.type === "session.message" && event.message.role === "assistant",
-  );
+  const assistantMessages = viewEvents
+    .filter(isSessionMessageViewEvent)
+    .filter((event) => event.message.role === "assistant");
   const distinctIds = new Set(assistantMessages.map((event) => event.message.id));
   assert.equal(distinctIds.size, 2, "each roundtrip's assistant message gets its own view id");
   const doneTexts = assistantMessages
@@ -947,7 +977,7 @@ test("SparkAgentLoop appends multi-roundtrip assistant messages in order without
 });
 
 test("SparkAgentLoop projects thinking deltas on the stable assistant message", async () => {
-  const viewEvents: any[] = [];
+  const viewEvents: SparkViewModelEvent[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-thinking-stream-test",
     ui: { publishView: (event) => viewEvents.push(event) },
@@ -986,9 +1016,9 @@ test("SparkAgentLoop projects thinking deltas on the stable assistant message", 
 
   await loop.submit("think first");
 
-  const assistantMessages = viewEvents.filter(
-    (event) => event.type === "session.message" && event.message.role === "assistant",
-  );
+  const assistantMessages = viewEvents
+    .filter(isSessionMessageViewEvent)
+    .filter((event) => event.message.role === "assistant");
   const thinkingUpdate = assistantMessages.find(
     (event) =>
       event.message.status === "streaming" &&
@@ -1003,7 +1033,7 @@ test("SparkAgentLoop projects thinking deltas on the stable assistant message", 
 });
 
 test("SparkAgentLoop terminalizes a partial assistant bubble when the stream throws", async () => {
-  const viewEvents: any[] = [];
+  const viewEvents: SparkViewModelEvent[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-partial-error-test",
     ui: { publishView: (event) => viewEvents.push(event) },
@@ -1030,9 +1060,9 @@ test("SparkAgentLoop terminalizes a partial assistant bubble when the stream thr
 
   await loop.submit("stream then fail");
 
-  const assistantMessages = viewEvents.filter(
-    (event) => event.type === "session.message" && event.message.role === "assistant",
-  );
+  const assistantMessages = viewEvents
+    .filter(isSessionMessageViewEvent)
+    .filter((event) => event.message.role === "assistant");
   assert.equal(new Set(assistantMessages.map((event) => event.message.id)).size, 1);
   assert.equal(assistantMessages.at(-1)?.message.status, "error");
   assert.equal(assistantMessages.at(-1)?.message.text, "partial answer");
@@ -1094,9 +1124,9 @@ test("SparkAgentLoop emits exactly one agent_end for terminal outcomes", async (
         rounds: [
           [
             {
-              type: "done",
+              type: "error",
               reason: "aborted",
-              message: buildAssistant([], "aborted"),
+              error: buildAssistant([], "aborted"),
             },
           ],
         ],
@@ -1127,10 +1157,13 @@ test("SparkAgentLoop emits exactly one agent_end for terminal outcomes", async (
         ({
           [Symbol.asyncIterator]() {
             return {
-              next: async () => ({ done: true, value: undefined as AssistantMessageEvent }),
+              next: async () => ({
+                done: true,
+                value: undefined as unknown as AssistantMessageEvent,
+              }),
             };
           },
-          result: async () => undefined as AssistantMessage,
+          result: async () => undefined as unknown as AssistantMessage,
         }) as ReturnType<SparkAgentStreamFunction>,
       expectedError: /stream produced no assistant message/,
       expectedStopReason: "error",
@@ -1253,7 +1286,7 @@ test("SparkAgentLoop continues through more than sixteen tool rounds by default"
 });
 
 test("SparkAgentLoop dispatches tool calls and feeds tool results back into the next turn", async () => {
-  const viewEvents: unknown[] = [];
+  const viewEvents: SparkViewModelEvent[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-test",
     ui: { publishView: (event) => viewEvents.push(event) },
@@ -1334,7 +1367,7 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
   assert.equal(toolResultEvent !== undefined, true);
   assert.equal(
     viewEvents.some(
-      (event: any) =>
+      (event) =>
         event.type === "session.message" &&
         event.message.role === "tool" &&
         event.message.status === "pending" &&
@@ -1342,19 +1375,16 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
     ),
     true,
   );
-  const echoToolMessages = viewEvents.filter(
-    (event: any) =>
-      event.type === "session.message" &&
-      event.message.role === "tool" &&
-      event.message.toolCallId === "tc-1",
-  );
+  const echoToolMessages = viewEvents
+    .filter(isSessionMessageViewEvent)
+    .filter((event) => event.message.role === "tool" && event.message.toolCallId === "tc-1");
   assert.deepEqual(
-    [...new Set(echoToolMessages.map((event: any) => event.message.id))],
+    [...new Set(echoToolMessages.map((event) => event.message.id))],
     ["tool-call:tc-1"],
   );
   assert.equal(
     viewEvents.some(
-      (event: any) =>
+      (event) =>
         event.type === "session.message" &&
         event.message.role === "tool" &&
         event.message.status === "streaming" &&
@@ -1365,7 +1395,7 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
   );
   assert.equal(
     viewEvents.some(
-      (event: any) =>
+      (event) =>
         event.type === "session.message" &&
         event.message.role === "tool" &&
         event.message.status === "done" &&
@@ -1375,7 +1405,7 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
   );
   assert.equal(
     viewEvents.some(
-      (event: any) =>
+      (event) =>
         event.type === "task.update" &&
         event.task.ref === "task:echo-1" &&
         event.task.status === "running" &&
@@ -1386,7 +1416,7 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
   );
   assert.equal(
     viewEvents.some(
-      (event: any) =>
+      (event) =>
         event.type === "evidence.update" &&
         event.evidence.ref === "evidence:echo-1" &&
         event.evidence.kind === "record" &&
@@ -1502,7 +1532,12 @@ test("SparkAgentLoop retries a confirmed not-sent tool call and completes it onc
       return { content: [{ type: "text", text: "receipt:sent" }] };
     },
   });
-  const toolCall = { type: "toolCall", id: "not-sent-1", name: "send_once", arguments: {} };
+  const toolCall: ToolCall = {
+    type: "toolCall",
+    id: "not-sent-1",
+    name: "send_once",
+    arguments: {},
+  };
   const finalAssistant = buildAssistant([{ type: "text", text: "sent after safe retry" }]);
   const loop = new SparkAgentLoop({
     host,
@@ -1542,7 +1577,7 @@ test("SparkAgentLoop reconciles an unknown tool outcome before continuing withou
       };
     },
   });
-  const toolCall = {
+  const toolCall: ToolCall = {
     type: "toolCall",
     id: "unknown-1",
     name: "uncertain_send",
@@ -1591,7 +1626,7 @@ test("SparkAgentLoop returns an unresolved external write to the Agent without r
       return { outcome: "unknown", message: "provider has no query endpoint" };
     },
   });
-  const toolCall = {
+  const toolCall: ToolCall = {
     type: "toolCall",
     id: "unknown-blocked",
     name: "uncertain_send",
@@ -1652,7 +1687,7 @@ test("SparkAgentLoop does not retry a permanent not-sent failure", async () => {
       });
     },
   });
-  const toolCall = {
+  const toolCall: ToolCall = {
     type: "toolCall",
     id: "not-sent-permanent",
     name: "invalid_send",
@@ -1721,7 +1756,7 @@ test("SparkAgentLoop aborts a timed-out tool attempt before reconciling its exte
       return { outcome: "unknown", message: "remote status is not queryable" };
     },
   });
-  const toolCall = {
+  const toolCall: ToolCall = {
     type: "toolCall",
     id: "timeout-external-write",
     name: "slow_external_write",
@@ -1784,7 +1819,7 @@ test("SparkAgentLoop waits for a timed-out tool attempt to settle before reconci
       return { outcome: "unknown", message: "remote status is not queryable" };
     },
   });
-  const toolCall = {
+  const toolCall: ToolCall = {
     type: "toolCall",
     id: "timeout-settlement",
     name: "abort_ignoring_external_write",
@@ -1820,7 +1855,7 @@ test("SparkAgentLoop waits for a timed-out tool attempt to settle before reconci
 });
 
 test("SparkAgentLoop keeps a thrown tool error inside the execution chain and completes the turn", async () => {
-  const viewEvents: any[] = [];
+  const viewEvents: SparkViewModelEvent[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-tool-error-projection-test",
     ui: { publishView: (event) => viewEvents.push(event) },
@@ -1866,12 +1901,12 @@ test("SparkAgentLoop keeps a thrown tool error inside the execution chain and co
   assert.equal(transcript.at(-1)?.role, "assistant");
   assert.equal(
     (transcript.at(-1)?.content[0] as { text?: string } | undefined)?.text,
-    finalAssistant.content[0].text,
+    "I recovered and finished normally.",
   );
 
-  const toolView = viewEvents.find(
-    (event) => event.type === "session.message" && event.message.id === `tool-call:${toolCall.id}`,
-  );
+  const toolView = viewEvents
+    .filter(isSessionMessageViewEvent)
+    .find((event) => event.message.id === `tool-call:${toolCall.id}`);
   assert.equal(toolView?.message.role, "tool");
   assert.equal(toolView?.message.status, "done");
   assert.equal(toolView?.message.parts?.[0]?.type, "tool-result");
@@ -2202,7 +2237,7 @@ test("SparkAgentLoop isolates failures inside a parallel read batch", async () =
 });
 
 test("SparkAgentLoop publishes ordered display-safe conversation parts without tool payloads", async () => {
-  const viewEvents: any[] = [];
+  const viewEvents: SparkViewModelEvent[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-display-safe-view-test",
     ui: { publishView: (event) => viewEvents.push(event) },
@@ -2261,19 +2296,22 @@ test("SparkAgentLoop publishes ordered display-safe conversation parts without t
 
   await loop.submit("inspect safely");
 
-  const assistantMessage = viewEvents.find(
-    (event) =>
-      event.type === "session.message" &&
-      event.message.role === "assistant" &&
-      event.message.status === "done" &&
-      event.message.text === "Inspecting now.",
-  )?.message;
+  const assistantMessage = viewEvents
+    .filter(isSessionMessageViewEvent)
+    .find(
+      (event) =>
+        event.message.role === "assistant" &&
+        event.message.status === "done" &&
+        event.message.text === "Inspecting now.",
+    )?.message;
   assert.ok(assistantMessage);
+  const assistantParts = assistantMessage.parts;
+  assert.ok(assistantParts);
   assert.deepEqual(
-    assistantMessage.parts.map((part: { type: string }) => part.type),
+    assistantParts.map((part) => part.type),
     ["thinking", "thinking", "text", "tool-call"],
   );
-  assert.deepEqual(assistantMessage.parts[1], {
+  assert.deepEqual(assistantParts[1], {
     id: `${assistantMessage.id}:part:1`,
     type: "thinking",
     text: "",
@@ -2281,14 +2319,14 @@ test("SparkAgentLoop publishes ordered display-safe conversation parts without t
     redacted: true,
     metadata: {},
   });
-  assert.deepEqual(assistantMessage.parts[2], {
+  assert.deepEqual(assistantParts[2], {
     id: `${assistantMessage.id}:part:2`,
     type: "text",
     text: "Inspecting now.",
     status: "complete",
     metadata: {},
   });
-  assert.deepEqual(assistantMessage.parts[3], {
+  assert.deepEqual(assistantParts[3], {
     id: `${assistantMessage.id}:part:3`,
     type: "tool-call",
     toolCallId: "tc-display-safe",
@@ -2297,9 +2335,10 @@ test("SparkAgentLoop publishes ordered display-safe conversation parts without t
     metadata: {},
   });
 
-  const toolCallMessage = viewEvents.find(
-    (event) => event.type === "session.message" && event.message.id === "tool-call:tc-display-safe",
-  )?.message;
+  const toolCallMessage = viewEvents
+    .filter(isSessionMessageViewEvent)
+    .find((event) => event.message.id === "tool-call:tc-display-safe")?.message;
+  assert.ok(toolCallMessage);
   assert.deepEqual(toolCallMessage.parts, [
     {
       id: "tool-call:tc-display-safe:part:0",
@@ -2312,12 +2351,13 @@ test("SparkAgentLoop publishes ordered display-safe conversation parts without t
   ]);
   assert.deepEqual(toolCallMessage.metadata, { kind: "tool_call" });
 
-  const toolResultMessage = viewEvents.find(
-    (event) =>
-      event.type === "session.message" &&
-      event.message.id === "tool-call:tc-display-safe" &&
-      event.message.status === "done",
-  )?.message;
+  const toolResultMessage = viewEvents
+    .filter(isSessionMessageViewEvent)
+    .find(
+      (event) =>
+        event.message.id === "tool-call:tc-display-safe" && event.message.status === "done",
+    )?.message;
+  assert.ok(toolResultMessage);
   assert.equal(toolResultMessage.text, "public-tool-output");
   assert.deepEqual(toolResultMessage.parts, [
     {
@@ -2339,7 +2379,7 @@ test("SparkAgentLoop publishes ordered display-safe conversation parts without t
 });
 
 test("SparkAgentLoop keeps text phases without projecting commentary as assistant prose", async () => {
-  const viewEvents: any[] = [];
+  const viewEvents: SparkViewModelEvent[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-text-phase-test",
     ui: { publishView: (event) => viewEvents.push(event) },
@@ -2385,19 +2425,20 @@ test("SparkAgentLoop keeps text phases without projecting commentary as assistan
 
   await loop.submit("check phases");
 
-  const message = viewEvents.find(
-    (event) =>
-      event.type === "session.message" &&
-      event.message.role === "assistant" &&
-      event.message.status === "done",
-  )?.message;
+  const message = viewEvents
+    .filter(isSessionMessageViewEvent)
+    .find(
+      (event) => event.message.role === "assistant" && event.message.status === "done",
+    )?.message;
   assert.ok(message);
+  const messageParts = message.parts;
+  assert.ok(messageParts);
   assert.equal(
     message.text,
     "The check passed.\nLegacy detail.\nUnknown phase stays visible.\nMalformed signature stays visible.",
   );
   assert.deepEqual(
-    message.parts.map((part: { phase?: string }) => part.phase),
+    messageParts.map((part) => ("phase" in part ? part.phase : undefined)),
     ["commentary", "final_answer", undefined, undefined, undefined],
   );
   assert.doesNotMatch(
@@ -2436,13 +2477,13 @@ test("SparkAgentLoop compacts blank runs for log-like tool results", async () =>
 
   await loop.submit("call compacting tool");
 
-  const toolResult = loop.getMessages().find((message) => message.role === "toolResult");
-  assert.equal(
-    (toolResult as { content: Array<{ text?: string }> }).content[0]?.text,
-    "alpha\n\n[58 blank lines collapsed]\n\nomega",
+  const toolResult = asToolResult(
+    loop.getMessages().find((message) => message.role === "toolResult"),
   );
-  const compaction = (toolResult as { details?: { toolResultCompaction?: any } }).details
-    ?.toolResultCompaction;
+  assert.equal(toolResultText(toolResult), "alpha\n\n[58 blank lines collapsed]\n\nomega");
+  assert.ok(isRecord(toolResult?.details));
+  const compaction = toolResult.details.toolResultCompaction;
+  assert.ok(isRecord(compaction));
   assert.equal(compaction.profile, "log");
   assert.equal(compaction.level, "full");
   assert.equal(compaction.trimmedLeadingBlankLines, 0);
@@ -2451,7 +2492,12 @@ test("SparkAgentLoop compacts blank runs for log-like tool results", async () =>
   assert.equal(compaction.collapsedBlankRuns, 1);
   assert.equal(compaction.collapsedRepeatedLines, 0);
   assert.equal(compaction.collapsedRepeatedRuns, 0);
-  assert.equal(compaction.originalChars > compaction.compactedChars, true);
+  assert.equal(
+    typeof compaction.originalChars === "number" &&
+      typeof compaction.compactedChars === "number" &&
+      compaction.originalChars > compaction.compactedChars,
+    true,
+  );
 });
 
 test("SparkAgentLoop records raw trace artifact for large lossy compacted tool output", async () => {
@@ -2490,31 +2536,37 @@ test("SparkAgentLoop records raw trace artifact for large lossy compacted tool o
 
     await loop.submit("call compacting tool");
 
-    const toolResult = loop.getMessages().find((message) => message.role === "toolResult");
-    const text = (toolResult as { content: Array<{ text?: string }> }).content[0]?.text ?? "";
+    const toolResult = asToolResult(
+      loop.getMessages().find((message) => message.role === "toolResult"),
+    );
+    const text = toolResultText(toolResult);
     assert.match(text, /\[4497 blank lines collapsed\]/);
     assert.match(text, /\[recovery\] Full raw tool output saved as evidence:/);
     assert.match(
       text,
       /evidence\(\{ action: "read", evidenceRef: "evidence:[^"]+", maxChars: 20000 \}\)/,
     );
-    assert.equal((toolResult as { toolCallId?: string }).toolCallId, toolCallEnvelope.id);
-    assert.equal((toolResult as { toolName?: string }).toolName, toolCallEnvelope.name);
-    assert.equal((toolResult as { isError?: boolean }).isError, false);
-    const recovery = (toolResult as { details?: { toolResultRawRecovery?: any } }).details
-      ?.toolResultRawRecovery;
-    assert.match(recovery.evidenceRef, /^evidence:/);
+    assert.equal(toolResult?.toolCallId, toolCallEnvelope.id);
+    assert.equal(toolResult?.toolName, toolCallEnvelope.name);
+    assert.equal(toolResult?.isError, false);
+    assert.ok(isRecord(toolResult?.details));
+    const recovery = toolResult.details.toolResultRawRecovery;
+    assert.ok(isRecord(recovery));
+    const evidenceRefValue = recovery.evidenceRef;
+    assert.ok(typeof evidenceRefValue === "string");
+    const evidenceRef = assertRef(evidenceRefValue, "evidence");
+    assert.match(evidenceRef, /^evidence:/);
     assert.equal(recovery.reason, "lossy_compaction");
     assert.equal(recovery.bodyChars, noisyOutput.length);
     assert.deepEqual(recovery.recoveryPath, {
       kind: "evidence",
-      evidenceRef: recovery.evidenceRef,
+      evidenceRef,
       readTool: "evidence",
-      readArgs: { action: "read", evidenceRef: recovery.evidenceRef, maxChars: 20_000 },
+      readArgs: { action: "read", evidenceRef, maxChars: 20_000 },
     });
 
     const store = defaultEvidenceStore(dir);
-    const artifact = await store.get(recovery.evidenceRef);
+    const artifact = await store.get(evidenceRef);
     assert.equal(artifact.kind, "trace");
     assert.equal(artifact.format, "text");
     assert.equal(artifact.curation?.status, "raw");
@@ -2524,13 +2576,13 @@ test("SparkAgentLoop records raw trace artifact for large lossy compacted tool o
       artifact.provenance.note,
       "Raw recoverable tool result for cue_exec (lossy_compaction)",
     );
-    assert.equal(await store.getBody(recovery.evidenceRef), noisyOutput);
+    assert.equal(await store.getBody(evidenceRef), noisyOutput);
 
     const artifactTool = host.getTool("evidence");
     assert.ok(artifactTool);
     const readResult = await artifactTool.config.execute(
       "read-raw-output",
-      { action: "read", evidenceRef: recovery.evidenceRef, maxChars: noisyOutput.length + 200 },
+      { action: "read", evidenceRef, maxChars: noisyOutput.length + 200 },
       new AbortController().signal,
       () => undefined,
       host.makeContext(),
@@ -2538,10 +2590,7 @@ test("SparkAgentLoop records raw trace artifact for large lossy compacted tool o
     const readText = readResult.content
       .map((part: { text?: string }) => part.text ?? "")
       .join("\n");
-    assert.match(
-      readText,
-      new RegExp(`${recovery.evidenceRef} \\[trace\\] Raw tool output for cue_exec`),
-    );
+    assert.match(readText, new RegExp(`${evidenceRef} \\[trace\\] Raw tool output for cue_exec`));
     assert.match(readText, /alpha/);
     assert.match(readText, /omega/);
 
@@ -2555,7 +2604,7 @@ test("SparkAgentLoop records raw trace artifact for large lossy compacted tool o
     const defaultListText = defaultList.content
       .map((part: { text?: string }) => part.text ?? "")
       .join("\n");
-    assert.doesNotMatch(defaultListText, new RegExp(recovery.evidenceRef));
+    assert.doesNotMatch(defaultListText, new RegExp(evidenceRef));
 
     const explicitRawList = await artifactTool.config.execute(
       "list-explicit-raw",
@@ -2567,7 +2616,7 @@ test("SparkAgentLoop records raw trace artifact for large lossy compacted tool o
     const explicitRawListText = explicitRawList.content
       .map((part: { text?: string }) => part.text ?? "")
       .join("\n");
-    assert.match(explicitRawListText, new RegExp(recovery.evidenceRef));
+    assert.match(explicitRawListText, new RegExp(evidenceRef));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -2617,17 +2666,25 @@ test("SparkAgentLoop offloads failed long output while preserving diagnostics an
       getModel: () => TEST_MODEL,
     });
     await loop.submit("produce failed output");
-    const result = loop.getMessages().find((message) => message.role === "toolResult") as any;
-    const text = result?.content?.[0]?.text ?? "";
-    assert.equal(result.toolCallId, toolCall.id);
-    assert.equal(result.toolName, toolCall.name);
-    assert.equal(result.isError, true);
+    const result = asToolResult(
+      loop.getMessages().find((message) => message.role === "toolResult"),
+    );
+    const text = toolResultText(result);
+    assert.equal(result?.toolCallId, toolCall.id);
+    assert.equal(result?.toolName, toolCall.name);
+    assert.equal(result?.isError, true);
     assert.match(text, /fatal: command failed/u);
     assert.match(text, /exit code: 7/u);
     assert.match(text, /evidence\(\{ action: "read"/u);
-    assert.equal(result.details.toolResultRawRecovery.reason, "error_compaction");
+    assert.ok(isRecord(result?.details));
+    const recovery = result.details.toolResultRawRecovery;
+    assert.ok(isRecord(recovery));
+    assert.equal(recovery.reason, "error_compaction");
+    const evidenceRefValue = recovery.evidenceRef;
+    assert.ok(typeof evidenceRefValue === "string");
+    const evidenceRef = assertRef(evidenceRefValue, "evidence");
     const store = defaultEvidenceStore(dir);
-    const artifact = await store.get(result.details.toolResultRawRecovery.evidenceRef);
+    const artifact = await store.get(evidenceRef);
     assert.equal(await store.getBody(artifact.ref), diagnostic);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -2847,7 +2904,7 @@ test("SparkAgentLoop times out a never-resolving tool approval interaction", asy
 
 test("SparkAgentLoop blocks approval-required tools without explicit approval", async () => {
   const interactionRequests: unknown[] = [];
-  const daemonEvents: unknown[] = [];
+  const daemonEvents: SparkDaemonEvent[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-approval-test",
     ui: {
@@ -2900,7 +2957,7 @@ test("SparkAgentLoop blocks approval-required tools without explicit approval", 
   assert.equal((interactionRequests[0] as { kind?: string }).kind, "toolApproval");
   assert.equal(
     daemonEvents.some(
-      (event: any) =>
+      (event) =>
         event.type === "daemon.interaction.request" &&
         event.request.kind === "toolApproval" &&
         event.request.toolName === "dangerous",
@@ -2909,7 +2966,7 @@ test("SparkAgentLoop blocks approval-required tools without explicit approval", 
   );
   assert.equal(
     daemonEvents.some(
-      (event: any) =>
+      (event) =>
         event.type === "daemon.interaction.response" &&
         event.response.kind === "toolApproval" &&
         event.response.status === "blocked",
@@ -3920,7 +3977,7 @@ test("SparkAgentLoop strips provider-filled blank optional arguments before disp
       return { content: [{ type: "text", text: "normalized" }] };
     },
   } as never);
-  const call = {
+  const call: ToolCall = {
     type: "toolCall",
     id: "optional-args-call",
     name: "optional_args_probe",

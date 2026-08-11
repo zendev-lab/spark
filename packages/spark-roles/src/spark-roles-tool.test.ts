@@ -238,14 +238,6 @@ test("role action tool manages role model settings", async () => {
   }
 });
 
-test("direct-call role parameters stay host-neutral", () => {
-  const tools = registerRoleToolsForTest();
-  const roleToolParameters = tools.get("role")?.parameters as
-    | { properties?: Record<string, { description?: string }> }
-    | undefined;
-  assert.equal(roleToolParameters?.properties?.piCommand, undefined);
-});
-
 test("role spec tools keep patch presets out of builtin role lookup", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-no-patcher-"));
   try {

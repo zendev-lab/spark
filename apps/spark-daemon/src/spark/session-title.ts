@@ -4,15 +4,20 @@ import type { DaemonSessionRegistry } from "../session-registry.ts";
 
 const SESSION_ROLE_MAX_LENGTH = 32;
 
-// eslint-disable-next-line no-control-regex
-const ANSI_OSC_SEQUENCE_PATTERN = /\u001B\][^\u0007]*(?:\u0007|\u001B\\)/gu;
-// eslint-disable-next-line no-control-regex
-const ANSI_CONTROL_SEQUENCE_PATTERN = /\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/gu;
+const ANSI_OSC_SEQUENCE_PATTERN = new RegExp(
+  String.raw`\u001B\][^\u0007]*(?:\u0007|\u001B\\)`,
+  "gu",
+);
+const ANSI_CONTROL_SEQUENCE_PATTERN = new RegExp(
+  String.raw`\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])`,
+  "gu",
+);
 // C0/C1 controls and bidi embedding/override/isolate controls must never reach
 // a terminal label. Newlines/tabs are normalized before this sanitizer.
-const UNSAFE_TITLE_CONTROL_PATTERN =
-  // eslint-disable-next-line no-control-regex
-  /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]/gu;
+const UNSAFE_TITLE_CONTROL_PATTERN = new RegExp(
+  String.raw`[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u202A-\u202E\u2066-\u2069]`,
+  "gu",
+);
 
 export interface AssignCompletedSessionRoleInput {
   sessionId: string;

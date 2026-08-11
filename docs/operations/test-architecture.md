@@ -38,16 +38,16 @@ the component harness or require a terminal multiplexer for either lane.
 Real process and journey tests stay out of the root Vitest suite. Source and packed-product checks share the same
 daemon lifecycle harness, but invoke different executable targets. This prevents the source launcher
 and generated npm product from drifting while keeping failures attributable to distinct named steps.
-`pnpm run check` remains the serial local gate. Static CI always runs the complete architecture,
-test-quality, documentation, formatting, lint, and type checks. Runtime CI runs the complete source
-and process suites on the Ubuntu/macOS matrix, the Repro Golden Journey on Ubuntu with a pinned
-compatible cue-shell source build, plus the browser suite for pull requests,
-`merge_group`, and `main` pushes. These jobs are advisory and there is no aggregate required test
-job.
+`pnpm run check` remains the serial local gate. Static CI runs maintained workflow validators,
+architecture, dependency, documentation, formatting, lint, and type checks. Runtime CI runs the
+complete source and process suites on the Ubuntu/macOS matrix, the Repro Golden Journey on Ubuntu
+with a pinned compatible cue-shell source build, plus the browser suite for pull requests and
+`merge_group`. CI workflows do not run on branch pushes. These jobs are advisory and there is no
+aggregate required test job.
 
 `prek` is the local fast-fix boundary: use native pre-commit integrations for file-format and
-workflow checks, plus the repository's `spark-check-fix` hook. Repository-specific read-only checks
-such as architecture and test quality stay in static CI instead of being wrapped as system hooks.
+workflow checks, plus the repository's `spark-check-fix` hook. Actionlint parses workflow syntax
+and expressions; Zizmor owns GitHub Actions security policy, including immutable action references.
 
 Continuous-evaluation lanes remain separate from merge gates. Capability CE repeats the exact
 owner tests selected by the deterministic sentinel runner and preserves missing runs, inventory
@@ -77,22 +77,18 @@ CSS, or documentation to prove that an implementation fragment exists.
 
 Repository policy belongs to dedicated static tools invoked by `pnpm run check:static`:
 
-- `check-architecture-ratchets.mjs` owns Spark-specific workspace identity, dependency and
-  compatibility boundaries, plus fail-closed workspace test and package mutation discovery that generic tools
-  cannot express;
-- `check-github-actions.mjs` owns immutable Action references and benchmark credential policy;
-- `check-pnpm-workspace-policy.mjs` owns hook-time pnpm mutation safety;
-- `check-hub-source-boundaries.mjs` owns Hub source/state-owner boundaries;
-- Dependency Cruiser and the existing terminology, documentation, distribution, and evidence
-  checkers own their declared repository surfaces.
+- Actionlint and Zizmor own GitHub Actions parsing and security analysis;
+- JSON Schema, Syncpack, and Knip own generic inventory and manifest consistency;
+- Dependency Cruiser owns import direction, cycles, deep-link bans, and transport boundaries;
+- `check-architecture-ratchets.mjs` compares the authoritative package inventory with workspace
+  manifests and keeps test and mutation discovery fail-closed;
+- Astro/Starlight own documentation parsing and compilation; focused tests exercise locale
+  selection and path mapping as behavior.
 
-Static checker self-tests do not belong in the root code-test suite. Validate repository policy by
-running its dedicated tool against the repository and keep code tests focused on product behavior.
-
-`pnpm run check:test-quality` enforces this split with no compatibility baseline. The detector
-follows direct and locally wrapped file reads, recognizes both production source and repository
-configuration, and rejects prompt or instruction fragment matching, including equivalent snapshot
-assertions. Any finding fails the gate even when the total suite still passes.
+Do not add a repository-wide source, YAML, schema-string, prompt, or prose keyword scanner. If a
+maintained parser or analyzer owns the format, configure it. If the concern is product behavior,
+test the consuming boundary. A project-specific static check is acceptable only when it compares
+structured sources of truth that generic tooling cannot relate.
 
 Prefer, in order:
 
@@ -103,10 +99,11 @@ Prefer, in order:
    behavior.
 
 Reading production source and asserting that fragments are present is not a behavior test. It is
-usually a brittle implementation mirror. Move a real repository constraint into its authoritative
-static checker; otherwise delete the assertion. The same rule applies to prompt and instruction
+usually a brittle implementation mirror. Express an import rule in Dependency Cruiser, validate a
+machine-readable contract, or delete the assertion. The same rule applies to prompt and instruction
 wording: verify structured behavior at the consuming boundary instead of matching text fragments.
-The gate scans current tests directly and has no exemption catalog or historical count to refresh.
+For schemas and transforms, test acceptance, rejection, normalization, or downstream behavior
+instead of proving that a word or field name appears in a serialized schema.
 
 ## Golden files
 

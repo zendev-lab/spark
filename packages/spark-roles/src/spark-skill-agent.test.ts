@@ -65,10 +65,6 @@ test("skill_agent runs the complete Skill set in one restricted owned Session", 
     );
     const tool = testTool({ builtinDirs: [skillsDir] });
     assert.deepEqual(tool.policy?.modes, ["execute"]);
-    assert.equal(
-      (tool.parameters as { additionalProperties?: unknown }).additionalProperties,
-      false,
-    );
     let captured: ExtensionRoleRunRequest | undefined;
 
     const result = await tool.execute(

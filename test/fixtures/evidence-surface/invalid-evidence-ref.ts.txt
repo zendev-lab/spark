@@ -1,3 +1,0 @@
-import type { EvidenceRef } from "@zendev-lab/spark-core";
-
-export const invalidEvidenceRef: EvidenceRef = "artifact:not-evidence";

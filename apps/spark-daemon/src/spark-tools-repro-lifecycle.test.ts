@@ -4,7 +4,12 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
-import { stableId, type SparkHostLoopContext } from "@zendev-lab/spark-core";
+import {
+  stableId,
+  type SparkHostContext,
+  type SparkHostLoopContext,
+  type ToolConfig,
+} from "@zendev-lab/spark-core";
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import piAskExtension from "@zendev-lab/spark-ask/extension";
 import sparkExtension from "@zendev-lab/spark-extension/extension";
@@ -14,8 +19,14 @@ import { SparkInvocationStore } from "./store/invocations.ts";
 import type { SparkDaemonLoopTickTask } from "./core/types.ts";
 
 type HostApi = Parameters<typeof sparkExtension>[0];
+type TestHostApi = HostApi &
+  Pick<
+    import("@zendev-lab/spark-core").SparkHostAPI,
+    "getActiveTools" | "getAllTools" | "setActiveTools"
+  >;
 type Tool = Parameters<NonNullable<HostApi["registerTool"]>>[0];
 type ToolResult = Awaited<ReturnType<Tool["execute"]>>;
+type ToolContext = Parameters<Tool["execute"]>[4] & SparkHostContext;
 function text(result: ToolResult): string {
   return result.content.map((part) => part.text).join(String.fromCharCode(10));
 }
@@ -34,13 +45,11 @@ test("daemon-owned repro lifecycle fails closed without settle and recovers afte
   try {
     await writeProject(dir);
     const sessionFile = join(dir, ".pi-sessions", "main.json");
-    const ctx: any = {
+    const ctx: ToolContext = {
       cwd: dir,
       sessionId: `session:${stableId(sessionFile)}`,
       sessionManager: { getSessionFile: () => sessionFile, getLeafId: () => "main-leaf" },
       hasUI: true,
-      notifications: [],
-      selected: "Reuse",
       ui: {
         notify() {},
         setWidget() {},
@@ -51,7 +60,8 @@ test("daemon-owned repro lifecycle fails closed without settle and recovers afte
       },
     };
     const tools = new Map<string, Tool>();
-    const host: any = {
+    const askTools = new Map<string, ToolConfig>();
+    const host: TestHostApi = {
       loopControl: {
         async start(input: Parameters<SparkLoopStore["start"]>[0]) {
           return loops.mutationResult(loops.start(input));
@@ -74,8 +84,12 @@ test("daemon-owned repro lifecycle fails closed without settle and recovers afte
           return loops.mutationResult(loops.schedule(input));
         },
       },
-      registerTool: (tool: Tool) => tools.set(tool.name, tool),
-      registerInternalTool: (tool: Tool) => tools.set(tool.name, tool),
+      registerTool: (tool: Tool) => {
+        tools.set(tool.name, tool);
+      },
+      registerInternalTool: (tool: Tool) => {
+        tools.set(tool.name, tool);
+      },
       registerCommand() {},
       registerShortcut() {},
       on() {},
@@ -89,10 +103,14 @@ test("daemon-owned repro lifecycle fails closed without settle and recovers afte
         },
       }),
     };
-    piAskExtension(host);
+    piAskExtension({
+      registerTool(tool) {
+        askTools.set(tool.name, tool);
+      },
+    });
     sparkExtension(host);
     const execute = async (name: string, params: Record<string, unknown>) => {
-      const tool = tools.get(name);
+      const tool = tools.get(name) ?? askTools.get(name);
       assert.ok(tool, `missing tool `);
       return tool.execute(`call-`, params, new AbortController().signal, () => undefined, ctx);
     };
@@ -143,6 +161,7 @@ test("daemon-owned repro lifecycle fails closed without settle and recovers afte
     const loopId = status.details?.reproId as string;
     assert.equal(typeof loopId, "string");
     const ownerSessionId = ctx.sessionId;
+    assert.ok(ownerSessionId);
     loops.start({
       loopId,
       binding: { reproId: loopId },

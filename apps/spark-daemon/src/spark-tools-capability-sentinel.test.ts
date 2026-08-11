@@ -25,9 +25,15 @@ import { SparkLoopStore } from "./store/loops.ts";
 import { migrateSparkDaemonDatabase } from "./store/schema.ts";
 
 type HostApi = Parameters<typeof sparkExtension>[0];
+type TestHostApi = HostApi &
+  Pick<
+    import("@zendev-lab/spark-core").SparkHostAPI,
+    "getActiveTools" | "getAllTools" | "setActiveTools"
+  >;
 type Tool = Parameters<NonNullable<HostApi["registerTool"]>>[0];
 type Command = Parameters<HostApi["registerCommand"]>[1];
 type ToolResult = Awaited<ReturnType<Tool["execute"]>>;
+type ToolContext = Parameters<Tool["execute"]>[4];
 
 interface SentinelMetrics {
   surfaceCalls: number;
@@ -42,7 +48,7 @@ interface SentinelHarness {
   db: DatabaseSync;
   invocations: SparkInvocationStore;
   loops: SparkLoopStore;
-  ctx: any;
+  ctx: ToolContext;
   metrics: SentinelMetrics;
   execute(name: string, params: Record<string, unknown>): Promise<ToolResult>;
   executeCommand(name: string, args: string): Promise<void>;
@@ -267,7 +273,7 @@ async function createHarness(): Promise<SentinelHarness> {
     loopStops: 0,
   };
   const sessionFile = join(dir, ".pi-sessions", "main.json");
-  const ctx: any = {
+  const ctx: ToolContext = {
     cwd: dir,
     sessionId: `session:${stableId(sessionFile)}`,
     sessionManager: {
@@ -288,7 +294,7 @@ async function createHarness(): Promise<SentinelHarness> {
       throw new Error("capability sentinels must not invoke a model role");
     },
   };
-  const host: any = {
+  const host: TestHostApi = {
     loopControl: {
       async start(input: Parameters<SparkLoopStore["start"]>[0]) {
         return loops.mutationResult(loops.start(input));
@@ -311,9 +317,15 @@ async function createHarness(): Promise<SentinelHarness> {
         return loops.mutationResult(loops.schedule(input));
       },
     },
-    registerTool: (tool: Tool) => tools.set(tool.name, tool),
-    registerInternalTool: (tool: Tool) => tools.set(tool.name, tool),
-    registerCommand: (name: string, command: Command) => commands.set(name, command),
+    registerTool: (tool: Tool) => {
+      tools.set(tool.name, tool);
+    },
+    registerInternalTool: (tool: Tool) => {
+      tools.set(tool.name, tool);
+    },
+    registerCommand: (name: string, command: Command) => {
+      commands.set(name, command);
+    },
     registerShortcut() {},
     on() {},
     sendMessage() {},

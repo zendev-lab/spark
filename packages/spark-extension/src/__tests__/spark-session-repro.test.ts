@@ -33,6 +33,19 @@ import {
 
 const evidenceRef = (id: string) => `evidence:${id}` as EvidenceRef;
 
+interface LegacyReproStageFixture {
+  name: string;
+  title: string;
+  phases: string[];
+  acceptance: Array<{
+    description: string;
+    phase: string;
+    satisfied: boolean;
+    evidenceRef?: string;
+  }>;
+  gate?: { id: string; description: string; passed: boolean };
+}
+
 describe("SparkSessionRepro evidence-backed state machine", () => {
   function makeRepro(): SparkSessionRepro {
     return createSparkSessionRepro("test-session");
@@ -231,29 +244,31 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-repro-phase-migration-"));
     try {
       const current = toV3(makeRepro());
-      const legacy: any = {
+      const legacy = {
         ...current,
         version: 1,
         currentPhase: "research",
-        stages: current.stages.map((stage) => ({
-          name: stage.name,
-          title: stage.title,
-          phases: stage.name === "contract" ? ["research", "plan"] : stage.phases,
-          acceptance: stage.acceptance.map((requirement) => ({
-            description: requirement.description,
-            phase: requirement.phase,
-            satisfied: false,
-          })),
-          ...(stage.gate
-            ? {
-                gate: {
-                  id: stage.gate.id,
-                  description: stage.gate.description,
-                  passed: true,
-                },
-              }
-            : {}),
-        })),
+        stages: current.stages.map(
+          (stage): LegacyReproStageFixture => ({
+            name: stage.name,
+            title: stage.title,
+            phases: stage.name === "contract" ? ["research", "plan"] : stage.phases,
+            acceptance: stage.acceptance.map((requirement) => ({
+              description: requirement.description,
+              phase: requirement.phase,
+              satisfied: false,
+            })),
+            ...(stage.gate
+              ? {
+                  gate: {
+                    id: stage.gate.id,
+                    description: stage.gate.description,
+                    passed: true,
+                  },
+                }
+              : {}),
+          }),
+        ),
       };
       const negativeValues = JSON.parse(
         await readFile(
@@ -403,7 +418,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       try {
         const current = toV3(makeRepro());
         const completedAt = "2026-01-02T03:04:05.000Z";
-        const legacy: any = {
+        const legacy = {
           ...current,
           version,
           status: "complete",

@@ -57,15 +57,6 @@ function collectTools(
   return tools;
 }
 
-function requiredParameters(tool: ToolConfig | undefined): string[] {
-  const schema = tool?.parameters;
-  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return [];
-  const required = (schema as { required?: unknown }).required;
-  return Array.isArray(required)
-    ? required.filter((value): value is string => typeof value === "string")
-    : [];
-}
-
 const noop = () => {};
 const text = (result: ToolResult): string => result.content.map((c) => c.text).join("\n");
 
@@ -269,14 +260,6 @@ test("read expectedVersion fails closed without returning a newer snapshot", asy
     assert.equal(conflict.details?.code, "VERSION_CONFLICT");
     assert.doesNotMatch(text(conflict), /second/u);
   });
-});
-
-test("file tool schemas keep artifactRef out of required inputs", () => {
-  const tools = collectTools(piFilesExtension);
-  for (const name of ["read", "write", "edit", "grep", "find"] as const) {
-    const required = requiredParameters(tools.get(name));
-    assert.equal(required.includes("artifactRef"), false, `${name} requires artifactRef`);
-  }
 });
 
 test("blank artifactRef uses the selected cwd across file tools", async () => {

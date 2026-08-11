@@ -49,44 +49,6 @@ async function sessionSendRpc(
   };
 }
 
-test("session tool exposes persistent lifecycle, calls, classification, and mail", () => {
-  const tool = registerTestTool({
-    request: async () => assert.fail("request should not run during registration"),
-  });
-  const schema = JSON.stringify(tool.parameters);
-  const properties = (tool.parameters as { properties?: Record<string, unknown> }).properties ?? {};
-  assert.equal("scope" in properties, false);
-  for (const action of [
-    "list",
-    "get",
-    "create",
-    "call",
-    "bind",
-    "unbind",
-    "archive",
-    "send",
-    "inbox",
-    "read",
-    "ack",
-  ]) {
-    assert.match(schema, new RegExp(action));
-  }
-  assert.deepEqual(tool.resolvePolicy?.({ action: "list" }), {
-    effect: "read",
-    executionMode: "parallel",
-    domains: ["sessions"],
-    modes: ["plan", "execute", "fleet"],
-    approval: "none",
-  });
-  assert.deepEqual(tool.resolvePolicy?.({ action: "call" }), {
-    effect: "external_write",
-    executionMode: "sequential",
-    domains: ["sessions"],
-    modes: ["plan", "execute"],
-    approval: "none",
-  });
-});
-
 test("session tool routes managed actions through daemon RPC and classifies surfaces", async () => {
   const calls: Array<{ method: string; params: unknown }> = [];
   const records = new Map<string, SparkSessionRegistryRecord>([

@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- preserves the 56-block CLI manifest as one owner-local suite. */
 import assert from "node:assert/strict";
 import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -13,7 +12,11 @@ import {
   SparkDaemonLocalRpcUnavailableError,
 } from "@zendev-lab/spark-daemon-client/local-rpc";
 import { SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
-import { parseSparkDaemonEvent, parseSparkInteractionRequest } from "@zendev-lab/spark-protocol";
+import {
+  parseSparkDaemonEvent,
+  parseSparkInteractionRequest,
+  type SparkViewModelEvent,
+} from "@zendev-lab/spark-protocol";
 
 import { handleSparkRpcLine, parseSparkCliCommand, runSparkCli } from "../cli.ts";
 import { SparkKeybindings } from "../host/keybindings.ts";
@@ -2481,7 +2484,6 @@ test("native TUI creation binds a GitChange subdirectory while keeping workspace
   }
 });
 
-// eslint-disable-next-line complexity -- end-to-end CLI ownership coverage intentionally composes all client modes.
 test("Spark TUI and headless print attach and release workspace clients", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-cli-workspace-client-"));
   try {
@@ -4670,7 +4672,7 @@ test("production TUI Shift+Tab overrides extension shortcut and updates session 
 
 test("Spark native responder streams daemon view events as assistant chunks", async () => {
   const chunks: string[] = [];
-  const viewEvents: unknown[] = [];
+  const viewEvents: SparkViewModelEvent[] = [];
   const responder = createSparkDaemonNativeResponder(
     {
       startService: () => ({ kind: "detached" as const, alreadyRunning: false, detail: "started" }),
@@ -4732,7 +4734,7 @@ test("Spark native responder streams daemon view events as assistant chunks", as
   assert.equal(output, "");
   assert.deepEqual(chunks, ["hel", "lo"]);
   assert.deepEqual(
-    viewEvents.map((event: any) => event.message.text),
+    viewEvents.map((event) => (event.type === "session.message" ? event.message.text : undefined)),
     ["hel", "hello"],
   );
 });

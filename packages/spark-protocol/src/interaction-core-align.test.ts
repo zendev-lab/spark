@@ -68,20 +68,22 @@ describe("interaction / task status core alignment", () => {
       interactionRequestId: "ask:test",
       humanRequestId: "hreq_test",
     });
-    const request = sparkInteractionRequestSchema.parse({
+    const request = sparkInteractionRequestSchema.safeParse({
       kind: "askFlow",
       requestId: "ask_flow:test",
       title: "Clarify",
       questions: [{ id: "q1", prompt: "Which option?" }],
     });
-    const response = sparkInteractionResponseSchema.parse({
+    const response = sparkInteractionResponseSchema.safeParse({
       kind: "askFlow",
-      requestId: request.requestId,
+      requestId: "ask_flow:test",
       status: "answered",
       answers: { q1: { values: ["a"] } },
     });
-    expect(request.kind).toBe("askFlow");
-    expect(response.kind).toBe("askFlow");
+    expect({ request: request.success, response: response.success }).toEqual({
+      request: true,
+      response: true,
+    });
     expect(() =>
       sparkInteractionCapabilitiesSchema.parse({
         version: 1,

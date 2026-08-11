@@ -243,10 +243,14 @@ function renderCueScriptItemId(item: ScriptResult["items"][number]): string {
   }
 }
 
-// eslint-disable-next-line no-control-regex
-const ANSI_OSC_SEQUENCE_PATTERN = /\u001B\][^\u0007]*(?:\u0007|\u001B\\)/g;
-// eslint-disable-next-line no-control-regex
-const ANSI_CONTROL_SEQUENCE_PATTERN = /\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+const ANSI_OSC_SEQUENCE_PATTERN = new RegExp(
+  String.raw`\u001B\][^\u0007]*(?:\u0007|\u001B\\)`,
+  "g",
+);
+const ANSI_CONTROL_SEQUENCE_PATTERN = new RegExp(
+  String.raw`\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])`,
+  "g",
+);
 
 function stripAnsiSequences(value: string): string {
   return value

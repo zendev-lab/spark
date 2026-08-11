@@ -5,9 +5,9 @@ interface WorkspaceRouteEvent {
   params: { workspaceId: string };
 }
 
-export async function loadCanonicalWorkspaceRoute<T>(
-  event: WorkspaceRouteEvent,
-  loader: (event: any, workspaceId: string) => Promise<T>,
+export async function loadCanonicalWorkspaceRoute<Event extends WorkspaceRouteEvent, T>(
+  event: Event,
+  loader: (event: Event, workspaceId: string) => Promise<T>,
 ): Promise<T> {
   const workspace = requireWorkspaceByRouteId(getDatabase(), event.params.workspaceId);
   return await loader(event, workspace.id);

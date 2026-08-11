@@ -30,6 +30,7 @@ import {
   type SparkCompactionSettings,
   type SparkCliHostServices,
   type SparkSessionRecord,
+  type SparkSmartCompactionSummary,
 } from "../host/index.ts";
 import { createSparkPiParitySlashCommands } from "../cli/pi-parity-commands.ts";
 import { SparkNativeSession } from "../native-tui.ts";
@@ -95,8 +96,20 @@ test("Spark Compact V2 defaults and outcome metadata are stable", () => {
   );
 });
 
+interface SmartCompactionFixture {
+  valid: SparkSmartCompactionSummary;
+  invalid: unknown;
+  expectedFallbackReasons: {
+    unavailable: "model_unavailable";
+    providerFailure: "model_error";
+    invalidStructure: "invalid_summary";
+  };
+  expectedCurrentModel: string;
+  configuredModel: string;
+}
+
 test("Smart fixed summary validates, renders, selects current model, and falls back", async () => {
-  const fixture = await readJsonFixture<any>(
+  const fixture = await readJsonFixture<SmartCompactionFixture>(
     new URL("../../../../test/fixtures/smart-compaction-summary.json", import.meta.url),
   );
   const dir = await mkdtemp(join(tmpdir(), "spark-smart-summary-"));

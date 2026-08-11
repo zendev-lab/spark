@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -936,48 +935,6 @@ test("restore retries approval commit without replaying completed effects", asyn
   assert.equal(resumed.restored, plan.items.length);
   assert.equal(executions, plan.items.length);
 });
-
-const productionAuditManifest =
-  "/Users/zhanrongrui/workspace/zrr1999/spark/.spark/memory/quarantine/20260729T121135Z-approved-memory-audit/manifest.json";
-
-test.skipIf(!existsSync(productionAuditManifest))(
-  "validates the isolated copy of the approved 134-file quarantine without mutating it",
-  async () => {
-    const productionRaw = await readFile(productionAuditManifest, "utf8");
-    const isolatedMemoryRoot = join(await temporaryRoot(), ".spark", "memory");
-    const isolatedQuarantineDir = join(
-      isolatedMemoryRoot,
-      "quarantine",
-      "20260729T121135Z-approved-memory-audit",
-    );
-    await mkdir(dirname(isolatedQuarantineDir), { recursive: true });
-    await cp(dirname(productionAuditManifest), isolatedQuarantineDir, { recursive: true });
-    const isolatedManifest = join(isolatedQuarantineDir, "manifest.json");
-    const raw = await readFile(isolatedManifest, "utf8");
-    const manifest = parseMemoryQuarantineManifest(JSON.parse(raw));
-    assert.equal(
-      manifest.planDigest,
-      "c537fd58421d5345618ddb63cc2b89de007e80b4b39f4793e411e1924854f04b",
-    );
-    assert.equal(manifest.items.length, 134);
-    assert.equal(manifest.expiresAt, "2026-08-28T12:11:35.000Z");
-    const result = await verifyMemoryQuarantineManifest(manifest, isolatedMemoryRoot, {
-      useDestination: true,
-    });
-    assert.deepEqual(result.mismatches, []);
-    assert.equal(result.verified, 134);
-    assert.equal(result.bytes, 941_121);
-    const restorePlan = createMemoryRestorePlan({
-      manifest,
-      proposalId: "proposal:legacy-restore-rehearsal",
-      workspaceId: "workspace:isolated",
-      now: "2026-08-15T00:00:00.000Z",
-    });
-    assert.equal(restorePlan.items.length, 134);
-    assert.equal(sha256(await readFile(isolatedManifest, "utf8")), sha256(productionRaw));
-    assert.equal(sha256(await readFile(productionAuditManifest, "utf8")), sha256(productionRaw));
-  },
-);
 
 function sha256(value: Uint8Array | string): string {
   return createHash("sha256").update(value).digest("hex");

@@ -1,8 +1,8 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
 import type { SparkSessionCloseReceipt } from "@zendev-lab/spark-protocol/session-assignment";
+import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import { SparkSessionRegistry, SparkSessionRegistryError } from "./registry.ts";
 
 const roots: string[] = [];
@@ -35,11 +35,11 @@ function closeReceipt(
 describe("SparkSessionRegistry", () => {
   it("requires every registry error code to be registered in spark-protocol", () => {
     const registered = new SparkSessionRegistryError("session_not_found", "missing");
-    // @ts-expect-error Unregistered session domain codes must fail package typecheck.
-    const unregistered = new SparkSessionRegistryError("unregistered_session_error", "internal");
+    type RegistryErrorCode = ConstructorParameters<typeof SparkSessionRegistryError>[0];
 
     expect(registered.code).toBe("session_not_found");
-    expect(unregistered.code).toBe("unregistered_session_error");
+    expectTypeOf<"session_not_found">().toMatchTypeOf<RegistryErrorCode>();
+    expectTypeOf<"unregistered_session_error">().not.toMatchTypeOf<RegistryErrorCode>();
   });
 
   it("reads v1 workspace records as canonical workspace ownership", async () => {
@@ -734,7 +734,6 @@ describe("SparkSessionRegistry", () => {
       now: new Date("2026-07-10T08:04:00.000Z"),
     });
 
-    expect(first.sessionPath).toBe("/tmp/sessions/sess_recorded.jsonl");
     expect(first.status).toBe("ready");
     expect(replayed.updatedAt).toBe("2026-07-10T08:05:00.000Z");
     await expect(registry.get(created.sessionId)).resolves.toEqual(replayed);

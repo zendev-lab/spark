@@ -259,10 +259,9 @@ Continue with [TUI](/guides/tui/), [runs and sessions](/guides/runs-and-sessions
 
 Spark 0.2.0 keeps the Pi TUI kernel behind the private
 `SparkTerminalController`. OpenTUI is an isolated candidate, not a production
-dependency. Run `pnpm run audit:renderer` to see the fail-closed readiness
-report. Spark will not raise its Node baseline or switch renderers until
-launcher flags, native artifacts, PTY lifecycle, all four terminal sizes, and
-the complete controller contract pass as reproducible gates.
+dependency. A renderer change requires a separate architecture decision and
+evidence from the component, Direct PTY, packaged-product, and supported
+platform validation lanes.
 
 ## 8. Remote access
 

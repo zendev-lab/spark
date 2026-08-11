@@ -1,3 +1,0 @@
-import type { ArtifactRef } from "@zendev-lab/spark-artifacts";
-
-export const invalidArtifactRef: ArtifactRef = "evidence:not-artifact";

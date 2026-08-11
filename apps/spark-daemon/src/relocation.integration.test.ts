@@ -9,6 +9,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { getCACertificates, setDefaultCACertificates } from "node:tls";
 import { WebSocketServer, type RawData } from "ws";
 import { expect, test } from "vitest";
 
@@ -60,8 +61,7 @@ interface HubHarness {
 
 test("live daemon relocates between snapshot-restored HTTPS/WSS Hubs without restarting", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-live-relocation-"));
-  const previousTlsSetting = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+  const previousDefaultCAs = getCACertificates("default");
   const sourceDb = openMemoryDatabase();
   let targetDb: DatabaseSync | undefined;
   let daemonDb: DatabaseSync | undefined;
@@ -117,6 +117,7 @@ test("live daemon relocates between snapshot-restored HTTPS/WSS Hubs without res
     const targetBackupInspection = inspectHubSnapshot(restoreResult.rollbackSnapshotPath);
     targetDb = openDatabase({ path: targetDatabasePath });
     const tls = createTestCertificate(root);
+    setDefaultCACertificates([...previousDefaultCAs, tls.cert]);
     source = await startHub(sourceDb, tls, false);
     target = await startHub(targetDb, tls, true);
     expect(sourceInspection).toMatchObject({ integrityCheck: "ok", foreignKeyViolations: 0 });
@@ -492,8 +493,7 @@ test("live daemon relocates between snapshot-restored HTTPS/WSS Hubs without res
     daemonDb?.close();
     targetDb?.close();
     sourceDb.close();
-    if (previousTlsSetting === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
-    else process.env.NODE_TLS_REJECT_UNAUTHORIZED = previousTlsSetting;
+    setDefaultCACertificates(previousDefaultCAs);
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -923,6 +923,8 @@ function createTestCertificate(root: string): { key: Buffer; cert: Buffer } {
       certPath,
       "-subj",
       "/CN=127.0.0.1",
+      "-addext",
+      "subjectAltName=IP:127.0.0.1",
       "-days",
       "1",
     ],
