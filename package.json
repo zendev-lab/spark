@@ -36,7 +36,7 @@
     "check": "pnpm run check:static && pnpm run check:docs && pnpm run test:unit && pnpm run test:process:source",
     "check:static": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/sync-workspace-versions.mjs && pnpm exec prek run actionlint --all-files && pnpm exec prek run zizmor --all-files && pnpm run check:pi-extensions && pnpm run check:architecture && pnpm run check:tool-surface && pnpm run check:boundaries && vp fmt . --check && vp lint --quiet --report-unused-disable-directives-severity error && pnpm run typecheck",
     "check:pi-extensions": "node scripts/check-pi-extensions.mjs",
-    "check:architecture": "prek run check-jsonschema check-metaschema --files architecture/packages.json architecture/packages.schema.json && syncpack lint --config .syncpackrc.json --no-ansi && knip --strict --include unlisted --no-progress --no-config-hints && node scripts/check-architecture-ratchets.mjs",
+    "check:architecture": "prek run check-jsonschema check-metaschema --files architecture/packages.json architecture/packages.schema.json architecture/health.schema.json && syncpack lint --config .syncpackrc.json --no-ansi && knip --strict --include unlisted --no-progress --no-config-hints && node scripts/check-architecture-ratchets.mjs && node scripts/check-architecture-governance.mjs --check",
     "check:tool-surface": "node --experimental-strip-types scripts/check-tool-surface.mts",
     "check:boundaries": "depcruise --config .dependency-cruiser.cjs apps packages test",
     "fix": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && vp fmt . --write && vp lint --fix --quiet && pnpm run typecheck",
@@ -64,6 +64,7 @@
     "preview:docs": "pnpm --filter @zendev-lab/spark-docs run preview",
     "smoke": "node scripts/smoke-npm-product.mjs",
     "audit": "pnpm audit --registry=https://registry.npmjs.org/ --audit-level high",
+    "report:architecture": "node scripts/check-architecture-governance.mjs --write",
     "report:hygiene": "node scripts/report-hygiene.mjs",
     "prepare": "prek install --hook-type commit-msg --hook-type pre-commit"
   },

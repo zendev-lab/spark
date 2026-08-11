@@ -5,10 +5,11 @@ adapter/runtime placement. They do not follow file count alone.
 
 The machine-readable source of truth is
 [`../../architecture/packages.json`](../../architecture/packages.json). Every
-workspace declares a `layer`, `owner`, `stability`, and authoritative
-`stateWriter`. `pnpm run check:architecture` rejects an unclassified workspace,
-an undeclared production dependency, a stale export, or a violation of an
-explicit Spark-specific dependency or compatibility boundary.
+workspace declares a `layer`, `owner`, `stability`, `stateAuthority`, and
+`stateRole`. The same inventory owns the layer matrix, exact temporary
+exceptions, Pi manifest ownership, package budget, and expected composition
+roots. `pnpm run check:architecture` rejects an unclassified workspace, an
+undeclared production dependency, a stale export, or a governance violation.
 
 ## Governance tooling
 
@@ -20,12 +21,16 @@ Generic monorepo mechanics are delegated to maintained open-source tools:
 | dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` | [Syncpack](https://github.com/JoshuaKGoldberg/syncpack) |
 | imports from dependencies missing in the owning workspace manifest | Knip strict unlisted-dependency analysis | [Knip](https://knip.dev/features/monorepos-and-workspaces) |
 | cycles and dependency direction | Dependency Cruiser | [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser) |
-| Spark package identity, explicit workspace dependency restrictions, export targets, and workspace test and package mutation discovery | `architecture/packages.json` plus `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |
+| Spark package identity, explicit workspace dependency restrictions, generated layer direction, state authority/role, exact exceptions, Pi ownership, package budget, export targets, and workspace test and package mutation discovery | `architecture/packages.json`, `architecture/dependency-governance.cjs`, and the Spark-owned architecture checks | Spark-owned contract |
+| point-in-time direct dependencies, fan-in/out, cross-owner and cross-state-authority edges, SCCs, public exports, violations, and composition roots | `architecture/health.schema.json` plus `pnpm run report:architecture` | gitignored local or CI report |
 
-`pnpm run check:architecture` validates the schema, runs Syncpack and Knip, and
-then executes the Spark-specific ratchets. `pnpm run check:boundaries` runs
-Dependency Cruiser. The custom checker does not duplicate schema validation,
-dependency-version consistency, or generic manifest/import analysis.
+`pnpm run check:architecture` validates the schemas, runs Syncpack and Knip,
+executes the Spark-specific ratchets, and validates a freshly derived health
+projection. `pnpm run check:boundaries` runs Dependency Cruiser with its layer
+rules generated from the inventory. `pnpm run report:architecture` writes the
+same validated projection to `reports/architecture/health.json`; the report is
+run evidence, not another source of truth. The custom checker does not duplicate
+dependency-version consistency or generic manifest/import analysis.
 
 Test and mutation discovery follow the same rule. Vitest configs define the
 root, process, browser, and capability suites; the root unit lane runs every app
@@ -72,20 +77,30 @@ than reduce the governance surface.
 ## Dependency direction
 
 ```text
-apps (CLI / TUI / daemon / Hub)
+application
   ↓
-composition + clients (spark-extension / spark-daemon-client)
+composition
   ↓
-capabilities + runtimes (tasks / sessions / workflows / host / turn / ...)
+adapter / client / runtime
   ↓
-contracts + foundations (spark-protocol / spark-core / spark-system / ...)
+capability
+  ↓
+contract / foundation / compatibility
 ```
 
-Adapters point inward. Foundations never point at apps or product-private
-adapters. Hub-private packages may be used by Hub, but not by the daemon or
-shared Spark packages. The daemon is the authoritative writer for invocation,
-session registry, session mail, channel delivery, and execution state; Hub owns
-its coordination database and rebuildable projections.
+Dependencies point inward. Same-tier peer groups are explicit: adapters,
+clients, and runtimes may collaborate through their declared boundaries, while
+contracts, foundations, and compatibility decoders may share dependency-light
+primitives. Application-to-application dependencies are denied. A
+`private-adapter` is reachable only from inventory-declared private peers or
+exact product consumers, and an `experiment` is isolated from production.
+
+A temporary reverse edge is not a layer-wide allowance. It must name one exact
+`from` package, `to` package and target layer, plus a reason, owner, existing
+exit task, and `nonGrowth: true`. The checker rejects duplicate, unnecessary,
+or stale exceptions, and generated Dependency Cruiser rules forbid every other
+reverse edge. The current exception ledger is read directly from the inventory
+rather than copied into this specification.
 
 ## Naming rules
 
@@ -195,6 +210,39 @@ changes extension specifiers and user configuration compatibility.
 | `compatibility` | legacy read or wire compatibility inside a current owner | a second implementation package |
 | `experiment` | isolated, non-default spike with an explicit graduation decision | production startup |
 
+## State authority and participation
+
+`stateAuthority` names where canonical writes are accepted: `workspace`,
+`user`, `host`, `daemon`, `hub`, or `external`; `none` means the package is
+stateless. `stateRole` describes how the package participates:
+
+- `authority` is the executable process that serializes an authority's writes;
+- `owner` defines one domain's state vocabulary and write policy;
+- `client` delegates writes to another authority;
+- `projection` is rebuildable from canonical state;
+- `stateless` owns no persistent state.
+
+`stateAuthority: none` is valid exactly with `stateRole: stateless`. The retired
+`stateWriter` field is rejected so a package cannot claim a competing second
+model. Authority and role are separate: for example, a daemon client names the
+daemon authority but participates only as a client.
+
+## Pi ownership and package budget
+
+The inventory assigns `package.json#pi` to the dedicated `pi-spark` product
+manifest owner. It also assigns each Pi SDK dependency (`pi-ai`, `pi-tui`, and
+`pi-coding-agent`) to one workspace manifest owner. The root compatibility
+manifest remains one frozen, exact product-manifest exception until the Pi
+manifest cutover task. Existing migration debt may appear only as an exact
+non-growing exception with an exit task; a new direct Pi manifest dependency
+anywhere else fails architecture validation.
+
+The current package budget is 41. The only pre-approved forty-second workspace
+is `@zendev-lab/pi-spark` at `packages/pi-spark`, bound to its inventory exit
+task. Another package at 42 or any package at 43 fails closed. Raising or
+replacing this budget requires an explicit architecture decision in the
+inventory rather than a new constant in a checker.
+
 ## Deliberate boundaries
 
 - `spark-protocol` is a pure wire-contract package. It has no production
@@ -261,8 +309,8 @@ The design borrows three useful patterns without adopting their toolchains:
   daemon-owned execution truth.
 - [Backstage package roles](https://backstage.io/docs/tutorials/package-role-migration/)
   make package purpose machine-readable so repository tooling can select the
-  right treatment. Spark records role-like layer, owner, stability, and writer
-  metadata in one inventory.
+  right treatment. Spark records layer, owner, stability, state authority,
+  state role, and exception metadata in one inventory.
 - [Nx module boundaries](https://nx.dev/docs/features/enforce-module-boundaries)
   enforce dependency constraints from project tags, including multiple
   dimensions. Spark uses the same principle through the inventory,

@@ -471,9 +471,6 @@ importers:
 
   apps/spark-tui:
     dependencies:
-      '@earendil-works/pi-ai':
-        specifier: ^0.84.0
-        version: 0.84.1(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.4.3))(supports-color@10.2.2)(ws@8.21.3)(zod@4.4.3)
       '@zendev-lab/spark-ai':
         specifier: workspace:^
         version: link:../../packages/spark-ai
@@ -559,9 +556,6 @@ importers:
       '@stryker-mutator/vitest-runner':
         specifier: 'catalog:'
         version: 9.6.1(@stryker-mutator/core@9.6.1(@types/node@26.2.0)(supports-color@10.2.2))(vitest@4.1.10)
-      jiti:
-        specifier: 2.7.0
-        version: 2.7.0
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

@@ -1,29 +1,34 @@
+const {
+  generateLayerRules,
+  loadArchitectureInventory,
+  resolvedPackagePattern,
+} = require("./architecture/dependency-governance.cjs");
+
+const architectureInventory = loadArchitectureInventory(__dirname);
+
 /** @type {import("dependency-cruiser").IConfiguration} */
 module.exports = {
   forbidden: [
-    // --- pi-ai boundary (audit gap): only spark-ai may import pi-ai directly ---
+    ...generateLayerRules(architectureInventory),
+    // --- Pi SDK boundaries are owned by architecture/packages.json ---
     {
       name: "no-direct-pi-ai",
-      comment: "Direct @earendil-works/pi-ai imports must go through @zendev-lab/spark-ai.",
+      comment: "Direct pi-ai imports are limited to the inventory-declared owner.",
       severity: "error",
       from: {
-        pathNot: "^packages/spark-ai/",
+        pathNot: piSdkAllowedSourcePattern("@earendil-works/pi-ai"),
       },
       to: {
         path: "node_modules/.*/@earendil-works/pi-ai|/node_modules/@earendil-works/pi-ai|^@earendil-works/pi-ai",
       },
     },
-
-    // --- pi-tui boundary: only spark-tui / spark-text ---
     {
       name: "no-direct-pi-tui",
       comment:
-        "Direct @earendil-works/pi-tui imports must stay behind @zendev-lab/spark-tui-adapter / spark-text. " +
-        "direct pi-tui dependency must stay behind @zendev-lab/spark-tui-adapter; " +
-        "direct pi-tui imports must go through @zendev-lab/spark-tui-adapter.",
+        "Direct pi-tui imports are limited to the inventory-declared owner and temporary exact exceptions.",
       severity: "error",
       from: {
-        pathNot: "^(packages/spark-tui/|packages/spark-text/)",
+        pathNot: piSdkAllowedSourcePattern("@earendil-works/pi-tui"),
       },
       to: {
         path: "node_modules/.*/@earendil-works/pi-tui|/node_modules/@earendil-works/pi-tui|^@earendil-works/pi-tui",
@@ -122,31 +127,6 @@ module.exports = {
       },
     },
 
-    // --- retained pi-* kernel adapter packages ---
-    {
-      name: "pi-no-product-adapters",
-      comment: "pi-* packages must not depend on Spark product adapter packages.",
-      severity: "error",
-      from: {
-        path: "^packages/pi-",
-      },
-      to: {
-        path: productAdapterResolvedPathPattern(),
-      },
-    },
-    {
-      name: "pi-only-foundation-spark",
-      comment:
-        "pi-* packages may depend only on renamed Spark foundation packages, not Spark product packages.",
-      severity: "error",
-      from: {
-        path: "^packages/pi-",
-      },
-      to: {
-        path: sparkOutsidePiFoundationResolvedPathPattern(),
-      },
-    },
-
     // --- Spark product extension composition root ---
     {
       name: "spark-extension-no-spark-tui",
@@ -161,19 +141,6 @@ module.exports = {
       },
     },
 
-    // --- spark foundation packages (exclude Hub-private spark-hub-* packages) ---
-    {
-      name: "spark-foundation-no-spark-extension",
-      comment:
-        "Spark foundation packages must not import the spark-extension product composition root.",
-      severity: "error",
-      from: {
-        path: "^packages/spark-(?!hub-|extension(?:/|$))",
-      },
-      to: {
-        path: "node_modules/.*/@zendev-lab/spark-extension|/node_modules/@zendev-lab/spark-extension|^packages/spark-extension/",
-      },
-    },
     {
       name: "spark-fusion-foundation-only",
       comment:
@@ -362,57 +329,17 @@ module.exports = {
   },
 };
 
-/** Resolved paths / module names for product adapter packages. */
-function productAdapterResolvedPathPattern() {
-  return [
-    "node_modules/.*/@zendev-lab/spark-hub(?:/|$)",
-    "/node_modules/@zendev-lab/spark-hub(?:/|$)",
-    "^apps/spark-hub/",
-    "node_modules/.*/@zendev-lab/spark-daemon(?:/|$)",
-    "/node_modules/@zendev-lab/spark-daemon(?:/|$)",
-    "^apps/spark-daemon/",
-    "node_modules/.*/@zendev-lab/spark-hub-coordination(?:/|$)",
-    "/node_modules/@zendev-lab/spark-hub-coordination(?:/|$)",
-    "^packages/spark-hub-coordination/",
-    "node_modules/.*/@zendev-lab/spark-hub-[^/]+",
-    "/node_modules/@zendev-lab/spark-hub-[^/]+",
-    "^packages/spark-hub-",
-  ].join("|");
-}
-
-function piAllowedSparkFoundationDirs() {
-  return [
-    "spark-artifacts",
-    "spark-core",
-    "spark-host",
-    "spark-loop",
-    "spark-phases",
-    "spark-tasks",
-    "spark-turn",
-    "spark-workflows",
-    // Old script treated spark-tui as non-spark for the foundation allowlist check
-    // (isSparkSpecifier returned false for spark-tui). Keep spark-text similarly allowed.
-    "spark-tui",
-    "spark-text",
-  ];
-}
-
-function sparkOutsidePiFoundationResolvedPathPattern() {
-  const allowed = piAllowedSparkFoundationDirs().join("|");
-  return [
-    `node_modules/.*/@zendev-lab/spark-(?!${allowed})(?:$|/)`,
-    `/node_modules/@zendev-lab/spark-(?!${allowed})(?:$|/)`,
-    `^packages/spark-(?!${allowed})(?:/|$)`,
-  ].join("|");
-}
-
-function sparkAppInternalResolvedPathPattern() {
-  return [
-    "node_modules/.*/@zendev-lab/spark-cli(?:/|$)",
-    "/node_modules/@zendev-lab/spark-cli(?:/|$)",
-    "node_modules/.*/@zendev-lab/spark-tui(?:/|$)",
-    "/node_modules/@zendev-lab/spark-tui(?:/|$)",
-    "^apps/spark-tui/",
-    "^apps/spark-cli/",
-  ].join("|");
+function piSdkAllowedSourcePattern(dependency) {
+  const piOwnership = architectureInventory.governance.piOwnership;
+  const declaredOwner = piOwnership.sdkDependencies.find(
+    (entry) => entry.dependency === dependency,
+  );
+  if (!declaredOwner) throw new Error(`No Pi SDK owner declared for ${dependency}`);
+  const allowedPackages = [
+    declaredOwner.owner,
+    ...piOwnership.temporaryDependencyExceptions
+      .filter((exception) => exception.dependency === dependency)
+      .map((exception) => exception.package),
+  ].filter((packageName) => architectureInventory.packages[packageName]);
+  return resolvedPackagePattern(architectureInventory, allowedPackages);
 }

@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.zendev-lab.dev/schemas/architecture-health.schema.json",
+  "title": "Spark Architecture Health Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "inventorySchemaVersion",
+    "inventory",
+    "layerMatrix",
+    "dependencies",
+    "compositionRoots",
+    "piOwnership",
+    "packageBudget",
+    "workspaces"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "inventorySchemaVersion": { "const": 2 },
+    "inventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceCount", "byLayer", "stateWriterFieldCount"],
+      "properties": {
+        "workspaceCount": { "type": "integer", "minimum": 1 },
+        "byLayer": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        },
+        "stateWriterFieldCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "layerMatrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layerCount", "decisionCount", "missingDecisionCount"],
+      "properties": {
+        "layerCount": { "type": "integer", "minimum": 1 },
+        "decisionCount": { "type": "integer", "minimum": 1 },
+        "missingDecisionCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edgeCount",
+        "crossOwnerEdges",
+        "registeredExceptions",
+        "unregisteredViolations",
+        "stronglyConnectedComponents"
+      ],
+      "properties": {
+        "edgeCount": { "type": "integer", "minimum": 0 },
+        "crossOwnerEdges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/edge" }
+        },
+        "registeredExceptions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/edge" }
+        },
+        "unregisteredViolations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/violationEdge" }
+        },
+        "stronglyConnectedComponents": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "items": { "$ref": "#/$defs/packageName" }
+          }
+        }
+      }
+    },
+    "compositionRoots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected", "actual", "unexpected", "missing"],
+      "properties": {
+        "expected": { "$ref": "#/$defs/packageNames" },
+        "actual": { "$ref": "#/$defs/packageNames" },
+        "unexpected": { "$ref": "#/$defs/packageNames" },
+        "missing": { "$ref": "#/$defs/packageNames" }
+      }
+    },
+    "piOwnership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["productManifestOwner", "registeredExceptions", "violations"],
+      "properties": {
+        "productManifestOwner": { "$ref": "#/$defs/packageName" },
+        "registeredExceptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["package", "dependency"],
+            "properties": {
+              "package": { "$ref": "#/$defs/packageIdentity" },
+              "dependency": {
+                "type": "string",
+                "pattern": "^(?:@earendil-works/pi-|package\\.json#pi$)"
+              }
+            }
+          }
+        },
+        "violations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["package", "kind", "dependency", "expectedOwner"],
+            "properties": {
+              "package": { "$ref": "#/$defs/packageIdentity" },
+              "kind": { "enum": ["product-manifest-owner", "sdk-manifest-owner"] },
+              "dependency": { "type": "string" },
+              "expectedOwner": { "$ref": "#/$defs/packageName" }
+            }
+          }
+        }
+      }
+    },
+    "packageBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current",
+        "approvedNext",
+        "approvedPackage",
+        "approvedPath",
+        "reason",
+        "exitTask"
+      ],
+      "properties": {
+        "current": { "type": "integer", "minimum": 1 },
+        "approvedNext": { "type": "integer", "minimum": 2 },
+        "approvedPackage": { "$ref": "#/$defs/packageName" },
+        "approvedPath": { "type": "string" },
+        "reason": { "type": "string" },
+        "exitTask": { "type": "string", "pattern": "^task:" }
+      }
+    },
+    "workspaces": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/packageName" },
+      "additionalProperties": { "$ref": "#/$defs/workspace" }
+    }
+  },
+  "$defs": {
+    "packageName": {
+      "type": "string",
+      "pattern": "^@zendev-lab/(?:spark|pi)-[a-z0-9-]+$"
+    },
+    "packageIdentity": {
+      "oneOf": [{ "$ref": "#/$defs/packageName" }, { "const": "root" }]
+    },
+    "packageNames": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/packageName" }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "$ref": "#/$defs/packageName" },
+        "to": { "$ref": "#/$defs/packageName" }
+      }
+    },
+    "violationEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "reason"],
+      "properties": {
+        "from": { "$ref": "#/$defs/packageName" },
+        "to": { "$ref": "#/$defs/packageName" },
+        "reason": { "type": "string" }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "layer",
+        "owner",
+        "stateAuthority",
+        "stateRole",
+        "directDependencies",
+        "directDependencyCount",
+        "fanIn",
+        "fanOut",
+        "crossOwnerEdgeCount",
+        "layerViolations",
+        "publicExportCount"
+      ],
+      "properties": {
+        "path": { "type": "string" },
+        "layer": { "type": "string" },
+        "owner": { "type": "string" },
+        "stateAuthority": { "type": "string" },
+        "stateRole": { "type": "string" },
+        "directDependencies": { "$ref": "#/$defs/packageNames" },
+        "directDependencyCount": { "type": "integer", "minimum": 0 },
+        "fanIn": { "type": "integer", "minimum": 0 },
+        "fanOut": { "type": "integer", "minimum": 0 },
+        "crossOwnerEdgeCount": { "type": "integer", "minimum": 0 },
+        "layerViolations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from", "to", "status"],
+            "properties": {
+              "from": { "$ref": "#/$defs/packageName" },
+              "to": { "$ref": "#/$defs/packageName" },
+              "status": {
+                "enum": ["registered-exception", "unregistered-violation"]
+              }
+            }
+          }
+        },
+        "publicExportCount": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

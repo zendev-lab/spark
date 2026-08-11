@@ -35,10 +35,5 @@
   "devDependencies": {
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "pi": {
-    "extensions": [
-      "./src/extension-entry.ts"
-    ]
   }
 }

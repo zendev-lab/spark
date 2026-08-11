@@ -1,56 +1,388 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/zendev-lab/spark/architecture/packages.schema.json",
-  "title": "Spark workspace architecture inventory",
+  "$id": "https://spark.zendev-lab.dev/schemas/architecture-packages.schema.json",
+  "title": "Spark Package Architecture Inventory",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema", "schemaVersion", "packages"],
+  "required": ["$schema", "schemaVersion", "governance", "packages"],
   "properties": {
-    "$schema": { "const": "./packages.schema.json" },
-    "schemaVersion": { "const": 1 },
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 2
+    },
+    "governance": {
+      "$ref": "#/$defs/governance"
+    },
     "packages": {
       "type": "object",
       "minProperties": 1,
-      "propertyNames": { "pattern": "^@zendev-lab/[a-z0-9-]+$" },
-      "additionalProperties": { "$ref": "#/$defs/package" }
+      "propertyNames": {
+        "pattern": "^@zendev-lab/(?:spark|pi)-[a-z0-9-]+$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/package"
+      }
     }
   },
   "$defs": {
+    "layer": {
+      "enum": [
+        "application",
+        "composition",
+        "adapter",
+        "client",
+        "runtime",
+        "private-adapter",
+        "capability",
+        "contract",
+        "foundation",
+        "compatibility",
+        "experiment"
+      ]
+    },
+    "packageName": {
+      "type": "string",
+      "pattern": "^@zendev-lab/(?:spark|pi)-[a-z0-9-]+$"
+    },
+    "taskRef": {
+      "type": "string",
+      "pattern": "^task:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "exitMetadata": {
+      "type": "object",
+      "required": ["reason", "owner", "exitTask", "nonGrowth"],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 24
+        },
+        "owner": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "exitTask": {
+          "$ref": "#/$defs/taskRef"
+        },
+        "nonGrowth": {
+          "const": true
+        }
+      }
+    },
+    "dependencyException": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/exitMetadata"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "to", "toLayer", "reason", "owner", "exitTask", "nonGrowth"],
+          "properties": {
+            "from": {
+              "$ref": "#/$defs/packageName"
+            },
+            "to": {
+              "$ref": "#/$defs/packageName"
+            },
+            "toLayer": {
+              "$ref": "#/$defs/layer"
+            },
+            "reason": true,
+            "owner": true,
+            "exitTask": true,
+            "nonGrowth": true
+          }
+        }
+      ]
+    },
+    "piProductManifestException": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/exitMetadata"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["manifest", "reason", "owner", "exitTask", "nonGrowth"],
+          "properties": {
+            "manifest": {
+              "const": "package.json"
+            },
+            "reason": true,
+            "owner": true,
+            "exitTask": true,
+            "nonGrowth": true
+          }
+        }
+      ]
+    },
+    "piDependencyException": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/exitMetadata"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["package", "dependency", "reason", "owner", "exitTask", "nonGrowth"],
+          "properties": {
+            "package": {
+              "$ref": "#/$defs/packageName"
+            },
+            "dependency": {
+              "enum": [
+                "@earendil-works/pi-ai",
+                "@earendil-works/pi-tui",
+                "@earendil-works/pi-coding-agent"
+              ]
+            },
+            "reason": true,
+            "owner": true,
+            "exitTask": true,
+            "nonGrowth": true
+          }
+        }
+      ]
+    },
+    "layerPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tiers", "peerLayerGroups", "denySameLayerDependencies", "targetRestrictions"],
+      "properties": {
+        "tiers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "application",
+            "composition",
+            "adapter",
+            "client",
+            "runtime",
+            "private-adapter",
+            "capability",
+            "contract",
+            "foundation",
+            "compatibility",
+            "experiment"
+          ],
+          "properties": {
+            "application": { "type": "integer", "minimum": 0 },
+            "composition": { "type": "integer", "minimum": 0 },
+            "adapter": { "type": "integer", "minimum": 0 },
+            "client": { "type": "integer", "minimum": 0 },
+            "runtime": { "type": "integer", "minimum": 0 },
+            "private-adapter": { "type": "integer", "minimum": 0 },
+            "capability": { "type": "integer", "minimum": 0 },
+            "contract": { "type": "integer", "minimum": 0 },
+            "foundation": { "type": "integer", "minimum": 0 },
+            "compatibility": { "type": "integer", "minimum": 0 },
+            "experiment": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "peerLayerGroups": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/layer"
+            }
+          }
+        },
+        "denySameLayerDependencies": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/layer"
+          }
+        },
+        "targetRestrictions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["targetLayer", "allowedFromLayers", "allowedFromPackages"],
+            "properties": {
+              "targetLayer": {
+                "$ref": "#/$defs/layer"
+              },
+              "allowedFromLayers": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/layer"
+                }
+              },
+              "allowedFromPackages": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "#/$defs/packageName"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "piOwnership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "productManifestOwner",
+        "temporaryProductManifestExceptions",
+        "sdkDependencies",
+        "temporaryDependencyExceptions"
+      ],
+      "properties": {
+        "productManifestOwner": {
+          "$ref": "#/$defs/packageName"
+        },
+        "temporaryProductManifestExceptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/piProductManifestException"
+          }
+        },
+        "sdkDependencies": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["dependency", "owner"],
+            "properties": {
+              "dependency": {
+                "enum": [
+                  "@earendil-works/pi-ai",
+                  "@earendil-works/pi-tui",
+                  "@earendil-works/pi-coding-agent"
+                ]
+              },
+              "owner": {
+                "$ref": "#/$defs/packageName"
+              }
+            }
+          }
+        },
+        "temporaryDependencyExceptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/piDependencyException"
+          }
+        }
+      }
+    },
+    "packageBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current",
+        "approvedNext",
+        "approvedPackage",
+        "approvedPath",
+        "reason",
+        "exitTask"
+      ],
+      "properties": {
+        "current": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "approvedNext": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "approvedPackage": {
+          "$ref": "#/$defs/packageName"
+        },
+        "approvedPath": {
+          "type": "string",
+          "pattern": "^(?:apps|packages)/[a-z0-9-]+$"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 24
+        },
+        "exitTask": {
+          "$ref": "#/$defs/taskRef"
+        }
+      }
+    },
+    "governance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "layerPolicy",
+        "temporaryDependencyExceptions",
+        "piOwnership",
+        "packageBudget",
+        "compositionRoots"
+      ],
+      "properties": {
+        "layerPolicy": {
+          "$ref": "#/$defs/layerPolicy"
+        },
+        "temporaryDependencyExceptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dependencyException"
+          }
+        },
+        "piOwnership": {
+          "$ref": "#/$defs/piOwnership"
+        },
+        "packageBudget": {
+          "$ref": "#/$defs/packageBudget"
+        },
+        "compositionRoots": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/packageName"
+          }
+        }
+      }
+    },
     "package": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "layer", "owner", "stability", "stateWriter"],
+      "required": ["path", "layer", "owner", "stability", "stateAuthority", "stateRole"],
       "properties": {
-        "path": { "type": "string", "pattern": "^(apps|packages)/[a-z0-9-]+$" },
+        "path": {
+          "type": "string",
+          "pattern": "^(?:apps|packages)/[a-z0-9-]+$"
+        },
         "layer": {
-          "enum": [
-            "adapter",
-            "application",
-            "capability",
-            "client",
-            "compatibility",
-            "composition",
-            "contract",
-            "experiment",
-            "foundation",
-            "private-adapter",
-            "runtime"
-          ]
+          "$ref": "#/$defs/layer"
         },
-        "owner": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "owner": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
         "stability": {
-          "enum": ["experimental", "frozen", "internal", "private", "supported"]
+          "enum": ["supported", "internal", "experimental", "private", "retired"]
         },
-        "stateWriter": {
-          "enum": ["hub", "daemon", "external", "host", "none", "user", "workspace"]
+        "stateAuthority": {
+          "enum": ["none", "workspace", "user", "host", "daemon", "hub", "external"]
         },
-        "distribution": {
-          "enum": ["bundled-only", "private", "public-npm", "public-npm-compatibility"]
+        "stateRole": {
+          "enum": ["authority", "owner", "client", "projection", "stateless"]
         },
         "allowedWorkspaceDependencies": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^@zendev-lab/[a-z0-9-]+$" }
+          "items": {
+            "$ref": "#/$defs/packageName"
+          }
+        },
+        "distribution": {
+          "enum": ["public-npm", "private"]
         }
       }
     }

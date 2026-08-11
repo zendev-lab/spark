@@ -41,7 +41,7 @@ supported packages.
 | `apps/spark-hub` | Browser presentation and control |
 | `apps/spark-docs` | Public bilingual user documentation |
 | `packages/spark-*` | Shared contracts, capabilities, runtimes, clients, and adapters |
-| `architecture/packages.json` | Machine-readable package layer, owner, stability, and state-writer inventory |
+| `architecture/packages.json` | Machine-readable layer, state authority/role, exception, Pi ownership, composition-root, and package-budget inventory |
 | `docs/specs` | Normative architecture and behavior contracts for implementers |
 | `docs/operations` | Maintainer-only procedures and validation runbooks |
 | `test` | Root integration and cross-package behavior tests |
@@ -108,7 +108,9 @@ the change:
 | Complete Repro Golden Journey | `pnpm run test:journey:repro` (requires cue-shell IPC v2 with `session-handshake-required`) |
 | Hub and shared Svelte UI browser interactions | `pnpm run test:browser` |
 | User documentation | `pnpm run check:docs && pnpm run build:docs` |
+| Architecture inventory, package ratchets, and health projection | `pnpm run check:architecture` |
 | Package dependency boundaries | `pnpm run check:boundaries` |
+| Write the gitignored architecture health JSON | `pnpm run report:architecture` |
 | Packed public product and clean installation | `pnpm run smoke` |
 | Release tarball and manifest | `pnpm run release:pack` |
 | High and critical dependency advisories | `pnpm run audit` |
@@ -142,19 +144,24 @@ More detailed test ownership and golden-file policy live in
 
 ## Architecture changes
 
-Adapters point inward:
+Dependencies point inward:
 
 ```text
-apps
+application
   ↓
-composition and clients
+composition
   ↓
-capabilities and runtimes
+adapter / client / runtime
   ↓
-contracts and foundations
+capability
+  ↓
+contract / foundation / compatibility
 ```
 
-Foundations must not depend on applications or product-private adapters.
+The inventory generates the layer rules used by Dependency Cruiser. Do not copy
+package-name layer policy into `.dependency-cruiser.cjs`. A temporary reverse
+edge must be an exact, non-growing inventory exception with a reason, owner, and
+existing exit task; never widen a complete layer pair for migration debt.
 Hub-private packages must not become dependencies of the daemon or shared Spark
 packages.
 
@@ -162,8 +169,9 @@ Create a workspace only for a hard runtime, state, permission, protocol,
 adapter, or experimental-lifecycle boundary. Otherwise add a module to the
 existing owner. Adding, removing, renaming, or reclassifying a workspace
 requires updating `architecture/packages.json` and passing the architecture and
-boundary checks. Raising a repository growth ceiling requires an architecture
-rationale in the same change.
+boundary checks. The budget permits 41 current workspaces and only
+`@zendev-lab/pi-spark` as the pre-approved forty-second package. Raising or
+replacing that budget requires an architecture rationale and inventory change.
 
 ## Documentation ownership
 
