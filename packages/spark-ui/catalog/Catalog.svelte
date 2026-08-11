@@ -1,4 +1,5 @@
 <script lang="ts">
+  import "./fonts.css";
   import "../src/tokens.css";
 
   import CatalogScenario from "./CatalogScenario.svelte";
@@ -100,8 +101,11 @@
   }
 
   .catalog {
+    --font-sans: "Spark Catalog Inter", sans-serif;
+
     background: var(--color-canvas);
     color: var(--color-ink);
+    font-family: var(--font-sans);
     min-height: 100vh;
     padding: clamp(18px, 4vw, 48px);
   }
