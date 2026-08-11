@@ -1,8 +1,11 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
-  import Composer from "$lib/components/conversation/Composer.svelte";
-  import SlashActionBar from "$lib/components/conversation/SlashActionBar.svelte";
-  import SlashCommandMenu from "$lib/components/conversation/SlashCommandMenu.svelte";
+  import {
+    Composer,
+    SlashActionBar,
+    SlashCommandMenu,
+  } from "@zendev-lab/spark-ui/conversation";
+  import { sparkActionFromPresentation } from "$lib/components/conversation/action-adapter";
   import type { SlashActionAvailability } from "$lib/components/conversation";
   import {
     ModelRuntimeControl,
@@ -189,8 +192,9 @@
           {#if startSlashActionBar}
             <SlashActionBar
               view={startSlashActionBar}
-              resolveAction={(action) => slashActionAvailability(action, "start")}
-              onAction={onSlashAction}
+              resolveAction={(action) =>
+                slashActionAvailability(sparkActionFromPresentation(action), "start")}
+              onAction={(action) => onSlashAction(sparkActionFromPresentation(action))}
             />
           {/if}
         {/snippet}

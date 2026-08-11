@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { SessionQueueProps } from "./index";
+  import type { SessionQueueProps } from "./types";
 
   let {
     items,

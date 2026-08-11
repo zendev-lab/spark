@@ -1,14 +1,12 @@
 <script lang="ts">
-  import { Icon } from "@zendev-lab/spark-ui";
+  import Icon from "../Icon.svelte";
   import { tick, type Snippet } from "svelte";
-  import ConversationTurnRail, {
-    type ConversationTurnRailItem,
-  } from "./ConversationTurnRail.svelte";
+  import ConversationTurnRail from "./ConversationTurnRail.svelte";
   import {
     captureConversationPrependAnchor,
     restoreConversationPrependAnchor,
   } from "./conversation-scroll-anchor";
-  import type { LoadEarlierOutcome } from "./types";
+  import type { ConversationTurnRailItem, LoadEarlierOutcome } from "./types";
 
   const LOAD_EARLIER_THRESHOLD = 96;
   const MIN_TURN_RAIL_ITEMS = 6;

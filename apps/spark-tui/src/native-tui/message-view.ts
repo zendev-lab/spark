@@ -2,7 +2,10 @@
 
 import {
   SPARK_PROTOCOL_VERSION,
+  projectSparkConversationMessage,
+  sparkConversationVisibleText,
   type SparkConversationPartStatus,
+  type SparkConversationProjectionPart,
   type SparkJsonObject,
   type SparkMessageView,
   type SparkToolCallView,
@@ -15,12 +18,14 @@ export function nativeMessageToView(message: SparkNativeMessage, index: number):
     message.role === "tool" ? canonicalToolStatus(message.toolStatus ?? "succeeded") : undefined;
   const metadata = nativeDetailsToMetadata(message.details);
   if (toolStatus) metadata.toolStatus = toolStatus;
+  const projection = message.conversation;
   return {
     version: SPARK_PROTOCOL_VERSION,
-    id: message.viewId ?? `native-message-${index}`,
-    role: message.role,
-    text: message.text,
+    id: projection?.messageId ?? message.viewId ?? `native-message-${index}`,
+    role: projection?.role ?? message.role,
+    text: projection?.text ?? message.text,
     status:
+      projection?.status ??
       message.viewStatus ??
       (message.streaming
         ? "streaming"
@@ -36,75 +41,91 @@ export function nativeMessageToView(message: SparkNativeMessage, index: number):
     createdAt: message.createdAt,
     updatedAt: message.updatedAt,
     metadata,
+    ...(projection && !projection.legacyFallback
+      ? { parts: projection.parts.map(projectionPartToWirePart) }
+      : {}),
   };
 }
 
 export function messageViewToNativeMessages(message: SparkMessageView): SparkNativeMessage[] {
-  const parts = message.parts;
-  if (!parts || parts.length === 0) return [legacyMessageViewToNativeMessage(message)];
-
-  const messages: SparkNativeMessage[] = [];
-  for (const part of parts) {
-    if (part.type === "text") {
-      messages.push({
-        role: message.role,
-        text: part.text,
-        viewId: part.id,
-        streaming: part.status === "running" || part.status === "streaming",
-        viewStatus: partStatusToMessageStatus(part.status),
-        customType: message.customType,
-        display: message.display,
-        createdAt: message.createdAt,
-        updatedAt: message.updatedAt,
-        details: { ...message.metadata, partStatus: part.status, partType: part.type },
-      });
-      continue;
-    }
-    if (part.type === "thinking") {
-      messages.push({
-        role: "thinking",
-        text: part.redacted ? "[…]" : part.text,
-        viewId: part.id,
-        streaming: part.status === "running" || part.status === "streaming",
-        createdAt: message.createdAt,
-        updatedAt: message.updatedAt,
-        details: { partStatus: part.status, redacted: part.redacted ?? false },
-      });
-      continue;
-    }
-    if (part.type === "image") {
-      messages.push({
-        role: message.role,
-        text: part.name ? `[image: ${part.name}]` : "[image]",
-        viewId: part.id,
-        streaming: false,
-        viewStatus: partStatusToMessageStatus(part.status),
-        customType: message.customType,
-        display: message.display,
-        createdAt: message.createdAt,
-        updatedAt: message.updatedAt,
-        details: { ...message.metadata, partStatus: part.status, partType: part.type },
-      });
-      continue;
-    }
-    messages.push({
-      role: "tool",
-      text: part.summary?.trim() ?? "",
-      viewId: part.id,
-      toolName: part.toolName,
-      toolCallId: part.toolCallId,
-      toolStatus: partStatusToToolStatus(part.status),
+  const projection = projectSparkConversationMessage(message);
+  return [
+    {
+      role: message.role,
+      text:
+        sparkConversationVisibleText(projection, { includeThinking: true, includeTools: true }) ||
+        message.text,
+      viewId: message.id,
+      streaming: message.status === "streaming",
+      viewStatus: message.status,
+      customType: message.customType,
+      display: message.display,
+      toolName: message.toolName,
+      toolCallId: message.toolCallId,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
-      details: {
-        ...message.metadata,
-        ...part.metadata,
-        partStatus: part.status,
-        partType: part.type,
-      },
-    });
+      details: message.metadata,
+      conversation: projection,
+    },
+  ];
+}
+
+function projectionPartToWirePart(part: SparkConversationProjectionPart) {
+  if (part.type === "text") {
+    return {
+      id: part.id,
+      type: "text" as const,
+      text: part.text,
+      phase: part.phase,
+      status: part.status,
+      metadata: part.metadata,
+    };
   }
-  return messages;
+  if (part.type === "thinking") {
+    return {
+      id: part.id,
+      type: "thinking" as const,
+      text: part.text,
+      ...(part.redacted ? { redacted: true } : {}),
+      status: part.status,
+      metadata: part.metadata,
+    };
+  }
+  if (part.type === "image") {
+    return {
+      id: part.id,
+      type: "image" as const,
+      contentIndex: part.contentIndex,
+      mediaType: part.mediaType,
+      ...(part.name ? { name: part.name } : {}),
+      status: part.status,
+      metadata: part.metadata,
+    };
+  }
+  return {
+    id: part.id,
+    type: part.lifecycle === "call" ? ("tool-call" as const) : ("tool-result" as const),
+    toolCallId: part.toolCallId,
+    toolName: part.toolName,
+    ...(part.summary ? { summary: part.summary } : {}),
+    status: toolStatusToPartStatus(part.status),
+    metadata: part.metadata,
+  };
+}
+
+function toolStatusToPartStatus(status: SparkNativeToolStatus): SparkConversationPartStatus {
+  switch (status) {
+    case "pending":
+      return "pending";
+    case "running":
+      return "running";
+    case "succeeded":
+      return "complete";
+    case "failed":
+      return "failed";
+    case "cancelled":
+      return "cancelled";
+  }
 }
 
 export function partStatusToMessageStatus(
@@ -153,22 +174,6 @@ export function legacyMessageViewToNativeMessage(message: SparkMessageView): Spa
     updatedAt: message.updatedAt,
     details: message.metadata,
   };
-}
-
-export function partStatusToToolStatus(status: SparkConversationPartStatus): SparkNativeToolStatus {
-  switch (status) {
-    case "pending":
-      return "pending";
-    case "running":
-    case "streaming":
-      return "running";
-    case "failed":
-      return "failed";
-    case "cancelled":
-      return "cancelled";
-    case "complete":
-      return "succeeded";
-  }
 }
 
 export function toolViewToNativeMessage(tool: SparkToolCallView): SparkNativeMessage {

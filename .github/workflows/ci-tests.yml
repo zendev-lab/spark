@@ -107,4 +107,4 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @zendev-lab/spark-hub run setup:browser
-      - run: pnpm run test:browser:hub
+      - run: pnpm run test:browser

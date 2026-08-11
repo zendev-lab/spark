@@ -2,7 +2,7 @@ import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 
 import SessionStatusBar from "./SessionStatusBar.svelte";
-import type { SessionStatusBarLabels } from "./session-status";
+import type { SessionStatusBarLabels } from "./types";
 
 const labels: SessionStatusBarLabels = {
   bar: "Session runtime status",

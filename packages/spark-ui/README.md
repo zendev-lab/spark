@@ -3,6 +3,12 @@
 Spark-owned Svelte presentation boundary. It owns reusable UI primitives and
 patterns, icons, design tokens, and the streaming Safe Markdown surface.
 
+`@zendev-lab/spark-ui/conversation` owns protocol-neutral conversation
+presentation types, pure formatting/visibility/scroll helpers, and reusable
+Svelte shells for messages, parts, queues, status, composers, and slash-action
+surfaces. Product adapters resolve wire schemas, media URLs, runtime actions,
+copy, and localized product wording before passing structured props into it.
+
 `spark-ui` is a component library name only. It is not an Artifact media type,
 wire format, or executable MDX runtime.
 

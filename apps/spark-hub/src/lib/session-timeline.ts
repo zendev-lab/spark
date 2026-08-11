@@ -15,7 +15,7 @@ import type {
   ConversationPart,
   ConversationTaskState,
   ConversationToolState,
-} from "./components/conversation/types";
+} from "@zendev-lab/spark-ui/conversation";
 
 export type SessionTimelineCommand = {
   id: string;
@@ -700,13 +700,21 @@ function hasProcessParts(parts: readonly ConversationPart[]): boolean {
 
 function mergeTimelineThinkingChains(items: SessionTimelineItem[]) {
   return items.map((item) => {
-    const parts = groupThinkingChainParts(item.parts);
+    const parts = groupThinkingChainParts(item.parts.map(stripInternalExecutionDetail));
     return {
       ...item,
       parts,
       body: conversationPartText(parts) || item.body,
     };
   });
+}
+
+function stripInternalExecutionDetail(part: ConversationPart): ConversationPart {
+  if (part.type === "tool" && isInternalExecutionTransportFailure(part.summary, part.name)) {
+    const { summary: _summary, ...visible } = part;
+    return visible;
+  }
+  return part;
 }
 
 function mergeToolsInParts(parts: ConversationPart[]): ConversationPart[] {

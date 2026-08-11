@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 
-import type { SparkActionBarView, SparkActionView } from "@zendev-lab/spark-protocol";
+import type { ConversationActionBarView, ConversationActionView } from "./types";
 import { mount, tick, unmount, type ComponentProps } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import SlashActionBar from "./SlashActionBar.svelte";
 
-const view: SparkActionBarView = {
+const view: ConversationActionBarView = {
   id: "model",
   title: "Model controls",
   description: "Choose the active model.",
@@ -78,7 +78,7 @@ describe("SlashActionBar", () => {
   it("shows the live disabled reason and refuses the unavailable action", async () => {
     const onAction = vi.fn();
     await renderActionBar({
-      resolveAction: (action: SparkActionView) =>
+      resolveAction: (action: ConversationActionView) =>
         action.id === "select-model"
           ? { enabled: false, reason: "No models are configured" }
           : { enabled: true },

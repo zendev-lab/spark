@@ -1,11 +1,5 @@
 <script lang="ts">
-  export type ConversationTurnRailItem = Readonly<{
-    id: string;
-    label: string;
-    summary: string;
-    meta: string;
-    actor: "user" | "session";
-  }>;
+  import type { ConversationTurnRailItem } from "./types";
 
   type Props = {
     label: string;

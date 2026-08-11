@@ -1653,7 +1653,13 @@ export function stopSparkDaemonPidFileProcess(
     return null;
   }
 
-  (options.kill ?? ((pid, signal) => process.kill(pid, signal)))(runningPid, "SIGTERM");
+  try {
+    (options.kill ?? ((pid, signal) => process.kill(pid, signal)))(runningPid, "SIGTERM");
+  } catch (error) {
+    // The exact owned process can exit after the ownership check but before
+    // signal delivery. That race already satisfies the stop request.
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+  }
   return {
     kind: "detached",
     alreadyRunning: false,

@@ -4,7 +4,7 @@ import type {
   ConversationPart,
   ConversationTaskState,
   ConversationToolState,
-} from "./types";
+} from "@zendev-lab/spark-ui/conversation";
 
 type UnknownRecord = Record<string, unknown>;
 type PartContext = { message: SparkMessageView; index: number; partType: string };

@@ -6,7 +6,7 @@ import {
   visibleConversationParts,
   visibleConversationPartText,
 } from "./conversation-view";
-import { visibleThinkingChainSteps } from "./thinking-chain-view";
+import { visibleThinkingChainSteps } from "@zendev-lab/spark-ui/conversation";
 
 describe("Hub conversation view adapter", () => {
   it("keeps the legacy text field as a compatible presentation fallback", () => {
@@ -174,9 +174,11 @@ describe("Hub conversation view adapter", () => {
     ]);
     const chain = visible[0];
     expect(chain?.type).toBe("chain");
+    // Protocol-neutral UI helpers retain the supplied summary. The Hub timeline
+    // adapter strips this product-private transport diagnostic before render.
     expect(
       JSON.stringify(chain?.type === "chain" ? visibleThinkingChainSteps(chain.steps) : []),
-    ).not.toContain("TRANSPORT_RESOLVE_FAILED");
+    ).toContain("TRANSPORT_RESOLVE_FAILED");
   });
 
   it("presents a roundtrip budget stop as incomplete work without exposing the guard text", () => {

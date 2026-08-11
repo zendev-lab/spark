@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Icon } from "@zendev-lab/spark-ui";
+  import Icon from "../Icon.svelte";
 
   type Props = {
     artifactRef: string;
@@ -7,14 +7,12 @@
     kind?: string;
     state?: string;
     summary?: string;
+    previewHref?: string;
     previewLabel: string;
     statusLabel: (status: string) => string;
   };
 
-  let { artifactRef, title, kind, state, summary, previewLabel, statusLabel }: Props = $props();
-  let previewUrl = $derived(
-    summary?.trim().match(/^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/preview\/[A-Za-z0-9_-]+$/u)?.[0] ?? null,
-  );
+  let { artifactRef, title, kind, state, summary, previewHref, previewLabel, statusLabel }: Props = $props();
 </script>
 
 <article class="artifact-part">
@@ -27,8 +25,8 @@
     {#if kind}<span class="artifact-kind">{kind}</span>{/if}
     {#if state}<span class="artifact-state {state}">{statusLabel(state)}</span>{/if}
   </header>
-  {#if previewUrl}
-    <a class="preview-link" href={previewUrl} target="_blank" rel="noreferrer">{previewLabel}</a>
+  {#if previewHref}
+    <a class="preview-link" href={previewHref} target="_blank" rel="noreferrer">{previewLabel}</a>
   {:else if summary?.trim()}
     <p>{summary}</p>
   {/if}
