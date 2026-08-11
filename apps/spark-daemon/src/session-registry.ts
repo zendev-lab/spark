@@ -18,6 +18,8 @@ import {
   type EnsureSparkSideThreadInput,
   type ResetSparkSideThreadInput,
   type ResolveBindingInput,
+  type SealSparkSessionCloseReceiptInput,
+  type TransitionSparkSessionLifecycleInput,
 } from "@zendev-lab/spark-session";
 
 /**
@@ -27,6 +29,7 @@ import {
  */
 export interface DaemonSessionRegistry {
   create(input: SparkSessionCreateRequest): Promise<SparkSessionRegistryRecord>;
+  createSupervised(input: CreateSparkSessionInput): Promise<SparkSessionRegistryRecord>;
   list(options?: DaemonSessionListRequest): Promise<SparkSessionRegistryRecord[]>;
   get(sessionId: string): Promise<SparkSessionRegistryRecord | undefined>;
   bind(input: SparkSessionBindRequest): Promise<SparkSessionRegistryRecord>;
@@ -36,7 +39,12 @@ export interface DaemonSessionRegistry {
     adapterAccountIdentity?: string,
   ): Promise<SparkSessionRegistryRecord>;
   archive(input: string | ArchiveSparkSessionInput): Promise<SparkSessionRegistryRecord>;
-  restore?(sessionId: SparkSessionGetRequest["sessionId"]): Promise<SparkSessionRegistryRecord>;
+  markClosing(input: TransitionSparkSessionLifecycleInput): Promise<SparkSessionRegistryRecord>;
+  sealCloseReceipt(input: SealSparkSessionCloseReceiptInput): Promise<SparkSessionRegistryRecord>;
+  restore?(
+    sessionId: SparkSessionGetRequest["sessionId"],
+    now?: Date,
+  ): Promise<SparkSessionRegistryRecord>;
   ensureWorkspaceMain(workspaceId: string): Promise<SparkSessionRegistryRecord>;
   setRoleIfMissing?(sessionId: string, role: string): Promise<SparkSessionRegistryRecord>;
   /** @deprecated Compatibility alias for older daemon collaborators. */
@@ -117,14 +125,20 @@ export function createSerializedDaemonSessionRegistry(
   };
   return {
     create: (input) => mutate(() => registry.create(input)),
+    createSupervised: (input) => mutate(() => registry.createSupervised(input)),
     list: (options) => readAfterMutations(() => registry.list(options)),
     get: (sessionId) => readAfterMutations(() => registry.get(sessionId)),
     bind: (input) => mutate(() => registry.bind(input)),
     unbind: (sessionId, externalKey, adapterAccountIdentity) =>
       mutate(() => registry.unbind(sessionId, externalKey, adapterAccountIdentity)),
     archive: (input) => mutate(() => registry.archive(input)),
+    markClosing: (input) => mutate(() => registry.markClosing(input)),
+    sealCloseReceipt: (input) => mutate(() => registry.sealCloseReceipt(input)),
     ...(registry.restore
-      ? { restore: (sessionId: string) => mutate(() => registry.restore!(sessionId)) }
+      ? {
+          restore: (sessionId: string, now?: Date) =>
+            mutate(() => registry.restore!(sessionId, now)),
+        }
       : {}),
     ensureWorkspaceMain: (workspaceId) => mutate(() => registry.ensureWorkspaceMain(workspaceId)),
     ...(registry.setRoleIfMissing
@@ -163,13 +177,17 @@ export function createDaemonSessionRegistry(
   });
   const ownedRegistry: DaemonSessionRegistry = {
     create: async (input) => await registry.create(await resolveCreateRequest(input, options)),
+    createSupervised: async (input) =>
+      await registry.create(await resolveRegistryCreateInput(input, options)),
     list: async (request = {}) => await registry.list(resolveListRequest(request, options)),
     get: async (sessionId) => await registry.get(sessionId),
     bind: async (input) => await registry.bind(input),
     unbind: async (sessionId, externalKey, adapterAccountIdentity) =>
       await registry.unbind(sessionId, externalKey, adapterAccountIdentity),
     archive: async (input) => await registry.archive(input),
-    restore: async (sessionId) => await registry.restore(sessionId),
+    markClosing: async (input) => await registry.markClosing(input),
+    sealCloseReceipt: async (input) => await registry.sealCloseReceipt(input),
+    restore: async (sessionId, now) => await registry.restore(sessionId, now),
     ensureWorkspaceMain: async (workspaceId) => {
       const cwd = options.resolveWorkspaceCwd?.(workspaceId)?.trim();
       if (options.resolveWorkspaceCwd && !cwd) {

@@ -91,6 +91,7 @@ export class SparkInvocationScheduler {
   private readonly tokenUsageStore?: SparkTokenUsageStore;
   private readonly resolveReproUsageScope?: SparkInvocationSchedulerOptions["resolveReproUsageScope"];
   private readonly active = new Map<string, ActiveInvocation>();
+  private readonly structuredActive = new Map<string, ActiveInvocation>();
   private readonly activeSessions = new Set<string>();
   private accepting: boolean;
 
@@ -182,19 +183,21 @@ export class SparkInvocationScheduler {
 
   cancel(invocationId: string, reason = "cancel requested"): boolean {
     const outcome = this.store.requestCancellation(invocationId, reason);
-    const active = this.active.get(invocationId);
+    const active = this.active.get(invocationId) ?? this.structuredActive.get(invocationId);
     if (active) active.controller.abort(new InvocationCancelledError(reason));
     return outcome === "cancelled" || outcome === "requested";
   }
 
   snapshot(): SparkInvocationRecord[] {
-    return [...this.active.values()].map((entry) => entry.invocation);
+    return [...this.active.values(), ...this.structuredActive.values()].map(
+      (entry) => entry.invocation,
+    );
   }
 
   /** Stop claiming durable queued work while allowing active invocations to settle normally. */
   beginDrain(): number {
     this.accepting = false;
-    return this.active.size;
+    return this.active.size + this.structuredActive.size;
   }
 
   /** Open durable claims only after the daemon generation owns its serving fence. */
@@ -207,7 +210,7 @@ export class SparkInvocationScheduler {
   }
 
   stop(reason = "Spark daemon scheduler stopped"): void {
-    for (const active of this.active.values()) {
+    for (const active of [...this.active.values(), ...this.structuredActive.values()]) {
       active.controller.abort(new InvocationCancelledError(reason));
     }
   }
@@ -217,10 +220,41 @@ export class SparkInvocationScheduler {
     // observing may opt into a deadline, but daemon shutdown/drain is unbounded
     // and remains externally cancellable through the invocation signal.
     const deadline = Date.now() + (options.timeoutMs ?? Number.POSITIVE_INFINITY);
-    while (this.active.size > 0) {
+    while (this.active.size > 0 || this.structuredActive.size > 0) {
       if (Date.now() > deadline) throw new Error("timed out waiting for Spark daemon invocations");
       await delay(options.pollIntervalMs ?? 5);
     }
+  }
+
+  /**
+   * Execute one parent-bound child through the same durable scheduler lifecycle
+   * without consuming a root concurrency claim. The caller awaits this method
+   * from inside the already-running parent invocation.
+   */
+  async executeStructured(invocationId: string): Promise<SparkInvocationRecord> {
+    if (!this.accepting) throw new Error("Spark daemon scheduler is draining");
+    if (this.active.has(invocationId) || this.structuredActive.has(invocationId)) {
+      throw new Error(`Spark structured invocation already active: ${invocationId}`);
+    }
+    const invocation = this.store.claimStructured(invocationId, `${this.workerId}:structured`);
+    let task: SparkDaemonTask;
+    try {
+      task = validateSparkDaemonTask(invocation.task);
+    } catch (error) {
+      this.failInvalidTask(invocation, error);
+      return this.store.require(invocationId);
+    }
+    const controller = new AbortController();
+    let executorSettled: Promise<unknown> | undefined;
+    const settled = this.run(invocation, task, controller, (promise) => {
+      executorSettled = promise;
+    }).finally(() => {
+      this.structuredActive.delete(invocationId);
+      if (executorSettled) void executorSettled.catch(() => undefined);
+    });
+    this.structuredActive.set(invocationId, { invocation, controller, settled });
+    await settled;
+    return this.store.require(invocationId);
   }
 
   private activeQuestionCount(): number {
@@ -230,7 +264,7 @@ export class SparkInvocationScheduler {
   }
 
   private applyCancellationRequests(): void {
-    for (const active of this.active.values()) {
+    for (const active of [...this.active.values(), ...this.structuredActive.values()]) {
       const persisted = this.store.getSummary(active.invocation.invocationId);
       if (persisted?.status === "running" && persisted.cancelReason) {
         active.controller.abort(new InvocationCancelledError(persisted.cancelReason));
@@ -297,15 +331,17 @@ export class SparkInvocationScheduler {
     let streamedEventCount = 0;
     let restartYieldCommitted = false;
     const rootUsagePersistence =
-      task.type === "loop.evaluate"
+      invocation.claimClass === "structured"
         ? "anonymous"
-        : task.type === "loop.tick"
-          ? task.continuity === "fresh"
-            ? "anonymous"
-            : "persistent"
-          : task.hiddenExecution
-            ? "anonymous"
-            : "persistent";
+        : task.type === "loop.evaluate"
+          ? "anonymous"
+          : task.type === "loop.tick"
+            ? task.continuity === "fresh"
+              ? "anonymous"
+              : "persistent"
+            : task.hiddenExecution
+              ? "anonymous"
+              : "persistent";
     let rootUsageExecution: ReturnType<SparkTokenUsageStore["registerExecution"]> | undefined;
     const pendingUsageRegistrations: Array<Omit<SparkDaemonTokenUsageObservation, "event">> = [];
     const pendingUsageObservations: SparkDaemonTokenUsageObservation[] = [];

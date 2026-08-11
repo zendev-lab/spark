@@ -70,6 +70,52 @@ describe("daemon migration registry", () => {
     }
   });
 
+  it("upgrades legacy invocations for supervised session lifecycle retention", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`
+        CREATE TABLE invocations (
+          id TEXT PRIMARY KEY,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO invocations (id, status, created_at, updated_at)
+        VALUES ('inv_legacy', 'queued', '2026-08-10T00:00:00.000Z', '2026-08-10T00:00:00.000Z');
+      `);
+
+      runDaemonMigrations(db);
+      runDaemonMigrations(db);
+
+      const columns = db
+        .prepare("PRAGMA table_info(invocations)")
+        .all()
+        .map((row) => (row as { name: string }).name);
+      expect(columns).toEqual(
+        expect.arrayContaining([
+          "claim_class",
+          "execution_profile_json",
+          "retention_summary_json",
+          "payload_redacted_at",
+        ]),
+      );
+      expect(
+        db
+          .prepare("SELECT claim_class AS claimClass FROM invocations WHERE id = ?")
+          .get("inv_legacy"),
+      ).toEqual({ claimClass: "root" });
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'invocations_claim_class_status_idx'",
+          )
+          .get(),
+      ).toEqual({ name: "invocations_claim_class_status_idx" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("runs migrations sequentially and rejects duplicate ids before any write", () => {
     const db = new DatabaseSync(":memory:");
     const calls: string[] = [];

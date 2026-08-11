@@ -24,6 +24,10 @@ export function prepareCurrentDaemonSchema(db: DatabaseSync): void {
       source_ref TEXT,
       parent_invocation_id TEXT REFERENCES invocations(id),
       retry_of_invocation_id TEXT REFERENCES invocations(id),
+      claim_class TEXT NOT NULL DEFAULT 'root' CHECK (claim_class IN ('root', 'structured')),
+      execution_profile_json TEXT,
+      retention_summary_json TEXT,
+      payload_redacted_at TEXT,
       worker_id TEXT,
       attempt_count INTEGER NOT NULL DEFAULT 0,
       cancel_reason TEXT,
@@ -952,6 +956,10 @@ export function addMissingInvocationColumns(db: DatabaseSync): void {
     ["source_ref", "TEXT"],
     ["parent_invocation_id", "TEXT REFERENCES invocations(id)"],
     ["retry_of_invocation_id", "TEXT REFERENCES invocations(id)"],
+    ["claim_class", "TEXT NOT NULL DEFAULT 'root' CHECK (claim_class IN ('root', 'structured'))"],
+    ["execution_profile_json", "TEXT"],
+    ["retention_summary_json", "TEXT"],
+    ["payload_redacted_at", "TEXT"],
     ["worker_id", "TEXT"],
     ["attempt_count", "INTEGER NOT NULL DEFAULT 0"],
     ["cancel_reason", "TEXT"],
@@ -987,6 +995,8 @@ export function addMissingInvocationColumns(db: DatabaseSync): void {
       PRIMARY KEY (invocation_id, sequence)
     );
     CREATE INDEX IF NOT EXISTS invocations_session_status_idx ON invocations(session_id, status);
+    CREATE INDEX IF NOT EXISTS invocations_claim_class_status_idx
+      ON invocations(claim_class, status, created_at);
     CREATE INDEX IF NOT EXISTS invocations_session_updated_idx
       ON invocations(session_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS invocations_created_at_idx

@@ -1259,6 +1259,63 @@ describe("SparkInvocationStore", () => {
     }
   });
 
+  it("redacts terminal structured children without waiting for external delivery", () => {
+    const { db, store } = createStore();
+    try {
+      const parent = store.submit({
+        sessionId: "session-parent",
+        prompt: "parent",
+      });
+      expect(store.claimNext("worker-parent")?.invocationId).toBe(parent.invocationId);
+
+      const child = store.submit({
+        sessionId: "session-structured-child",
+        prompt: "child secret",
+        task: {
+          type: "session.run",
+          sessionId: "session-structured-child",
+          prompt: "child secret",
+        },
+        parentInvocationId: parent.invocationId,
+        claimClass: "structured",
+      });
+      store.claimStructured(child.invocationId, "worker-parent");
+      store.appendEvent(child.invocationId, "daemon.task.lifecycle", {
+        status: "succeeded",
+      });
+      store.complete(child.invocationId, {
+        status: "succeeded",
+        result: { assistantText: "semantic child result" },
+      });
+
+      // Register a global consumer without acknowledging the child. Structured
+      // results are delivered through their parent rather than this consumer.
+      expect(store.pendingDeliveries("hub:structured-child", 10)).not.toEqual([]);
+      expect(
+        store.redactSessionPayloads("session-structured-child", {
+          now: "2026-08-11T00:00:00.000Z",
+        }),
+      ).toEqual({
+        sessionId: "session-structured-child",
+        redactedInvocationIds: [child.invocationId],
+        deletedEventCount: 1,
+        blockedInvocationIds: [],
+        redactedAt: "2026-08-11T00:00:00.000Z",
+      });
+      const redacted = store.require(child.invocationId);
+      expect(redacted).toMatchObject({
+        invocationId: child.invocationId,
+        payloadRedactedAt: "2026-08-11T00:00:00.000Z",
+      });
+      expect(redacted).not.toHaveProperty("prompt");
+      expect(redacted).not.toHaveProperty("task");
+      expect(redacted).not.toHaveProperty("result");
+      expect(store.eventPage(child.invocationId).events).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("loads only queued and running invocations for one session", () => {
     const { db, store } = createStore();
     try {

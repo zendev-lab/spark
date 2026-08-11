@@ -45,6 +45,7 @@ import type { DaemonSessionRegistry } from "./session-registry.ts";
 import { validateSparkDaemonTask, type SparkDaemonSessionRunTask } from "./core/index.ts";
 import { SparkInvocationStore, type SparkInvocationRecord } from "./store/invocations.ts";
 import { getWorkspaceById, listWorkspaces, resolveWorkspaceLocalPath } from "./store/workspaces.ts";
+import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
 
 // Result and projection carry the same public page, so each copy must leave
 // room for the other copy and terminal envelope metadata under the 64 KiB wire cap.
@@ -609,6 +610,36 @@ async function assertTaskExecutionOwner(
   if (!taskExecution) return;
   const owner = await requireSession(options, taskExecution.ownerSessionId, request);
   assertCreateScopeMatchesOwner(owner, create);
+  if (create.scope.kind !== "workspace") {
+    throw new SparkSessionRegistryError(
+      "session_owner_invalid",
+      "task execution session requires a workspace owner",
+    );
+  }
+  if (!create.sessionId) {
+    throw new SparkSessionRegistryError(
+      "session_owner_invalid",
+      "task execution session requires its canonical sessionId",
+    );
+  }
+  const ownerRef = { kind: "task_run", ref: taskExecution.runRef } as const;
+  const valid = await isTaskSessionOwnerValid(
+    {
+      owner: ownerRef,
+      workspaceId: create.scope.workspaceId,
+      sessionId: create.sessionId,
+      relation: { kind: "task_execution", ...taskExecution },
+    },
+    {
+      resolveWorkspaceCwd: (workspaceId) => resolveWorkspaceLocalPath(options.db, workspaceId),
+    },
+  );
+  if (!valid) {
+    throw new SparkSessionRegistryError(
+      "session_owner_invalid",
+      `task execution owner ${ownerRef.ref} is not active`,
+    );
+  }
 }
 
 function projectSessionForRequest(

@@ -4,6 +4,8 @@ import {
   channelAdapterFromExternalKey,
   normalizeChannelExternalKey,
   parseSparkSessionRegistryRecord,
+  sparkSessionCloseReceiptSchema,
+  SPARK_SESSION_CLOSE_RECEIPT_HISTORY_LIMIT,
   type SparkSessionArchiveEvent,
   type SparkSessionArchiveSource,
   type SparkSessionChannelBinding,
@@ -11,18 +13,27 @@ import {
   type SparkSessionRelation,
   type SparkSessionScope,
   type SparkSessionStatus,
+  type SparkSessionAuthority,
+  type SparkSessionLifetime,
+  type SparkSessionOwner,
+  type SparkSessionCloseReceipt,
+  type SparkSessionRetention,
+  type SparkSessionStateBinding,
+  type SparkSessionVisibility,
   type SparkSideThreadMode,
 } from "@zendev-lab/spark-protocol/session-assignment";
+import type { SparkRoleModelType } from "@zendev-lab/spark-protocol/role-session";
 import type { SparkSessionRegistryErrorCode } from "@zendev-lab/spark-protocol/session-errors";
 import type { SparkModelRef, SparkThinkingLevel } from "@zendev-lab/spark-protocol/model-control";
 
-const LEGACY_REGISTRY_VERSIONS = new Set([1, 2, 3]);
-export const SPARK_SESSION_REGISTRY_VERSION = 4 as const;
+const LEGACY_REGISTRY_VERSIONS = new Set([1, 2, 3, 4]);
+export const SPARK_SESSION_REGISTRY_VERSION = 5 as const;
 
 export type SparkSessionUnboundPolicy = "reject" | "create";
 
 export interface SparkSessionRegistryFile {
   version: typeof SPARK_SESSION_REGISTRY_VERSION;
+  revision: number;
   sessions: SparkSessionRegistryRecord[];
 }
 
@@ -43,6 +54,17 @@ export interface CreateSparkSessionInput {
   cwdArtifactRef?: string;
   sessionPath?: string;
   status?: SparkSessionStatus;
+  lifetime?: SparkSessionLifetime;
+  owner?: SparkSessionOwner;
+  roleRef?: string;
+  roleRevision?: number;
+  modelType?: SparkRoleModelType;
+  authority?: SparkSessionAuthority;
+  stateBinding?: SparkSessionStateBinding;
+  visibility?: SparkSessionVisibility;
+  retention?: SparkSessionRetention;
+  purpose?: string;
+  transcriptRef?: string;
   /** Daemon-authored managed relation; never accepted as a raw public relation field. */
   relation?: SparkSessionRelation;
   now?: Date;
@@ -56,6 +78,22 @@ export interface ArchiveSparkSessionInput {
   expectedUpdatedAt?: string;
   /** Internal retention guard; only a ready, unassigned, unbound primary Session may archive. */
   requireUnassigned?: boolean;
+  /** Daemon supervisor already removed the transcript content. */
+  discardTranscript?: boolean;
+  now?: Date;
+}
+
+export interface TransitionSparkSessionLifecycleInput {
+  sessionId: string;
+  expectedLifecycle?: "open" | "closing";
+  now?: Date;
+}
+
+export interface SealSparkSessionCloseReceiptInput {
+  sessionId: string;
+  expectedIncarnation: number;
+  expectedLifecycle: "closing";
+  receipt: SparkSessionCloseReceipt;
   now?: Date;
 }
 
@@ -150,7 +188,7 @@ export class SparkSessionRegistry {
     const scope = createScope(input);
     const role = normalizeSessionRole(input.role);
     const legacyTitle = normalizeSessionRole(input.title);
-    if (role && input.status !== "archived" && !input.relation) {
+    if (role && input.status !== "archived" && !input.relation && input.lifetime !== "owned") {
       const existingRoleOwner = file.sessions.find(
         (session) =>
           session.status !== "archived" &&
@@ -171,9 +209,23 @@ export class SparkSessionRegistry {
       sessionId,
       ...ownership,
       status: input.status ?? "ready",
+      lifecycle: input.status === "archived" ? "closed" : "open",
+      incarnation: 1,
+      lifetime: input.lifetime ?? "persistent",
+      owner: input.owner ?? { kind: "session", ref: sessionId },
+      authority:
+        input.authority ??
+        (input.roleRef
+          ? { kind: "role", ref: input.roleRef }
+          : { kind: "administrator", ref: "role:builtin-administrator" }),
+      stateBinding: input.stateBinding ?? { kind: "session", ref: sessionId },
+      visibility: input.visibility ?? "public",
+      retention: input.retention ?? "retain",
+      purpose: input.purpose?.trim() || "interactive",
       bindings: [],
       tags: [],
       archiveHistory: [],
+      closeReceipts: [],
       createdAt: now,
       updatedAt: now,
       // Task execution sessions are internal run records. Keep their RoleRef
@@ -188,6 +240,14 @@ export class SparkSessionRegistry {
       ...(input.cwd ? { cwd: input.cwd } : {}),
       ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
       ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
+      ...(input.roleRef ? { roleRef: input.roleRef } : {}),
+      ...(input.roleRevision ? { roleRevision: input.roleRevision } : {}),
+      ...(input.modelType ? { modelType: input.modelType } : {}),
+      ...(input.transcriptRef?.trim()
+        ? { transcriptRef: input.transcriptRef.trim() }
+        : input.sessionPath
+          ? { transcriptRef: input.sessionPath }
+          : {}),
       ...(input.relation ? { relation: input.relation } : {}),
     };
     file.sessions.push(record);
@@ -220,14 +280,25 @@ export class SparkSessionRegistry {
       sessionId,
       ...ownership,
       status: "ready",
+      lifecycle: "open",
+      incarnation: 1,
+      lifetime: "owned",
+      owner: { kind: "session", ref: parent.sessionId },
+      authority: { kind: "system", ref: "side_thread" },
+      stateBinding: { kind: "session", ref: parent.sessionId },
+      visibility: "internal",
+      retention: "discard_on_close",
+      purpose: "side_thread",
       bindings: [],
       tags: [],
       archiveHistory: [],
+      closeReceipts: [],
       createdAt: now,
       updatedAt: now,
       ...(parent.cwd ? { cwd: parent.cwd } : {}),
       ...(parent.cwdArtifactRef ? { cwdArtifactRef: parent.cwdArtifactRef } : {}),
       ...(path ? { sessionPath: path } : {}),
+      ...(path ? { transcriptRef: path } : {}),
       relation: {
         kind: "side_thread",
         parentSessionId: parent.sessionId,
@@ -287,9 +358,24 @@ export class SparkSessionRegistry {
       scope: { kind: "workspace", workspaceId },
       workspaceId,
       status: "ready",
-      role: "Workspace Coordinator",
-      title: "Workspace Coordinator",
+      lifecycle: "open",
+      incarnation: 1,
+      lifetime: "persistent",
+      owner: { kind: "session", ref: sessionId },
+      roleRef: "role:builtin-administrator",
+      roleRevision: 1,
+      modelType: "coordination",
+      authority: { kind: "administrator", ref: "role:builtin-administrator" },
+      stateBinding: { kind: "session", ref: sessionId },
+      visibility: "internal",
+      retention: "audit",
+      purpose: "workspace_administrator",
+      role: "Administrator",
+      title: "Administrator",
       bindings: [],
+      tags: [],
+      archiveHistory: [],
+      closeReceipts: [],
       createdAt: now,
       updatedAt: now,
       ...(input.cwd?.trim() ? { cwd: input.cwd.trim() } : {}),
@@ -320,7 +406,9 @@ export class SparkSessionRegistry {
     const updated: SparkSessionRegistryRecord = {
       ...current,
       status: "ready",
+      lifecycle: "open",
       sessionPath: path,
+      transcriptRef: path,
       relation: {
         ...current.relation,
         generation: current.relation.generation + 1,
@@ -607,10 +695,15 @@ export class SparkSessionRegistry {
     const updated: SparkSessionRegistryRecord = {
       ...current,
       status: "archived",
+      lifecycle: "closed",
       tags: mergeSessionTags(current.tags ?? [], archiveEvent.tags),
       archiveHistory: [...(current.archiveHistory ?? []), archiveEvent],
       updatedAt: now.toISOString(),
     };
+    if (archiveInput.discardTranscript) {
+      delete updated.sessionPath;
+      delete updated.transcriptRef;
+    }
     file.sessions[index] = updated;
     if (!current.relation) {
       for (let childIndex = 0; childIndex < file.sessions.length; childIndex += 1) {
@@ -619,10 +712,11 @@ export class SparkSessionRegistry {
           child.relation?.kind === "side_thread" &&
           child.relation.parentSessionId === current.sessionId &&
           child.status !== "archived"
-        )
+        ) {
           file.sessions[childIndex] = {
             ...child,
             status: "archived",
+            lifecycle: "closed",
             tags: mergeSessionTags(child.tags ?? [], [
               ...archiveEvent.tags,
               `parent:${encodeSessionTagValue(current.sessionId)}`,
@@ -642,8 +736,86 @@ export class SparkSessionRegistry {
             ],
             updatedAt: now.toISOString(),
           };
+          if (file.sessions[childIndex]?.retention === "discard_on_close") {
+            delete file.sessions[childIndex]!.sessionPath;
+            delete file.sessions[childIndex]!.transcriptRef;
+          }
+        }
       }
     }
+    await this.saveFile(file);
+    return updated;
+  }
+
+  async markClosing(
+    input: TransitionSparkSessionLifecycleInput,
+  ): Promise<SparkSessionRegistryRecord> {
+    const file = await this.loadFile();
+    const index = file.sessions.findIndex((session) => session.sessionId === input.sessionId);
+    if (index < 0) {
+      throw new SparkSessionRegistryError(
+        "session_not_found",
+        `unknown session: ${input.sessionId}`,
+      );
+    }
+    const current = file.sessions[index]!;
+    if (current.lifecycle === "closed" || current.status === "archived") return current;
+    if (input.expectedLifecycle && current.lifecycle !== input.expectedLifecycle) return current;
+    const updated: SparkSessionRegistryRecord = {
+      ...current,
+      lifecycle: "closing",
+      updatedAt: (input.now ?? new Date()).toISOString(),
+    };
+    file.sessions[index] = updated;
+    await this.saveFile(file);
+    return updated;
+  }
+
+  /** Persist one immutable close receipt before any content-bearing store is purged. */
+  async sealCloseReceipt(
+    input: SealSparkSessionCloseReceiptInput,
+  ): Promise<SparkSessionRegistryRecord> {
+    const file = await this.loadFile();
+    const index = file.sessions.findIndex((session) => session.sessionId === input.sessionId);
+    if (index < 0) {
+      throw new SparkSessionRegistryError(
+        "session_not_found",
+        `unknown session: ${input.sessionId}`,
+      );
+    }
+    const current = file.sessions[index]!;
+    const incarnation = current.incarnation ?? 1;
+    const existing = current.closeReceipts?.find(
+      (receipt) => receipt.incarnation === input.expectedIncarnation,
+    );
+    if (existing) return current;
+    if (
+      incarnation !== input.expectedIncarnation ||
+      current.lifecycle !== input.expectedLifecycle ||
+      current.status === "archived"
+    ) {
+      throw new SparkSessionRegistryError(
+        "session_registry_conflict",
+        `session ${input.sessionId} close receipt fence no longer matches incarnation ${input.expectedIncarnation}`,
+      );
+    }
+    const receipt = sparkSessionCloseReceiptSchema.parse(input.receipt);
+    if (receipt.incarnation !== incarnation) {
+      throw new SparkSessionRegistryError(
+        "session_registry_conflict",
+        `session ${input.sessionId} receipt incarnation ${receipt.incarnation} does not match ${incarnation}`,
+      );
+    }
+    const closeReceipts = [...(current.closeReceipts ?? []), receipt].slice(
+      -SPARK_SESSION_CLOSE_RECEIPT_HISTORY_LIMIT,
+    );
+    const sealedAt = (input.now ?? new Date(receipt.createdAt)).toISOString();
+    const updated: SparkSessionRegistryRecord = {
+      ...current,
+      closeReceipts,
+      updatedAt: sealedAt > current.updatedAt ? sealedAt : current.updatedAt,
+    };
+    file.sessions[index] = updated;
     await this.saveFile(file);
     return updated;
   }
@@ -682,9 +854,13 @@ export class SparkSessionRegistry {
     const updated: SparkSessionRegistryRecord = {
       ...current,
       status: "ready",
+      lifecycle: "open",
+      incarnation: (current.incarnation ?? 1) + 1,
       tags: mergeSessionTags(current.tags ?? [], ["lifecycle:restored"]),
       updatedAt: now.toISOString(),
     };
+    delete updated.sessionPath;
+    delete updated.transcriptRef;
     file.sessions[index] = updated;
     await this.saveFile(file);
     return updated;
@@ -1009,7 +1185,7 @@ export class SparkSessionRegistry {
       return parseRegistryFile(raw);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return { version: SPARK_SESSION_REGISTRY_VERSION, sessions: [] };
+        return { version: SPARK_SESSION_REGISTRY_VERSION, revision: 0, sessions: [] };
       }
       throw error;
     }
@@ -1045,9 +1221,40 @@ export class SparkSessionRegistry {
 
   private async saveFile(file: SparkSessionRegistryFile): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
+    let currentRevision = 0;
+    try {
+      const current = parseRegistryFile(
+        JSON.parse(await readFile(this.filePath, "utf8")) as unknown,
+      );
+      currentRevision = current.revision;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (currentRevision !== file.revision) {
+      throw new SparkSessionRegistryError(
+        "session_registry_conflict",
+        `session registry revision changed: expected ${file.revision}, found ${currentRevision}`,
+      );
+    }
+    const next: SparkSessionRegistryFile = {
+      version: SPARK_SESSION_REGISTRY_VERSION,
+      revision: file.revision + 1,
+      sessions: file.sessions,
+    };
     const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
-    await writeFile(tempPath, `${JSON.stringify(file, null, 2)}\n`, "utf8");
+    await writeFile(tempPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
     await rename(tempPath, this.filePath);
+    const readback = parseRegistryFile(
+      JSON.parse(await readFile(this.filePath, "utf8")) as unknown,
+    );
+    const expected = parseRegistryFile(next);
+    if (JSON.stringify(readback) !== JSON.stringify(expected)) {
+      throw new SparkSessionRegistryError(
+        "invalid_registry",
+        `session registry write readback mismatch: ${this.filePath}`,
+      );
+    }
+    file.revision = next.revision;
   }
 }
 
@@ -1074,9 +1281,123 @@ function parseRegistryFile(value: unknown): SparkSessionRegistryFile {
   if (!Array.isArray(record.sessions)) {
     throw new SparkSessionRegistryError("invalid_registry", "sessions must be an array");
   }
+  if (
+    record.version === SPARK_SESSION_REGISTRY_VERSION &&
+    (!Number.isInteger(record.revision) || Number(record.revision) < 0)
+  ) {
+    throw new SparkSessionRegistryError(
+      "invalid_registry",
+      "registry v5 revision must be a non-negative integer",
+    );
+  }
   return {
     version: SPARK_SESSION_REGISTRY_VERSION,
-    sessions: record.sessions.map((session) => parseSparkSessionRegistryRecord(session)),
+    revision: record.version === SPARK_SESSION_REGISTRY_VERSION ? Number(record.revision) : 0,
+    sessions: record.sessions.map((session) =>
+      migrateSparkSessionRecordToV5(parseSparkSessionRegistryRecord(session)),
+    ),
+  };
+}
+
+/** Normalize one v1-v4 record into the canonical v5 ownership contract. */
+export function migrateSparkSessionRecordToV5(
+  session: SparkSessionRegistryRecord,
+): SparkSessionRegistryRecord {
+  const lifecycle = session.lifecycle ?? (session.status === "archived" ? "closed" : "open");
+  const closeReceipts = session.closeReceipts ?? [];
+  if (session.relation?.kind === "workspace_main") {
+    return {
+      ...session,
+      closeReceipts,
+      status: lifecycle === "closed" ? "archived" : session.status,
+      lifecycle,
+      incarnation: session.incarnation ?? 1,
+      lifetime: "persistent",
+      owner: session.owner ?? { kind: "session", ref: session.sessionId },
+      roleRef: session.roleRef ?? "role:builtin-administrator",
+      roleRevision: session.roleRevision ?? 1,
+      modelType: session.modelType ?? "coordination",
+      authority: session.authority ?? { kind: "administrator", ref: "role:builtin-administrator" },
+      stateBinding: session.stateBinding ?? { kind: "session", ref: session.sessionId },
+      visibility: session.visibility ?? "internal",
+      retention: session.retention ?? "audit",
+      purpose: session.purpose ?? "workspace_administrator",
+      ...(session.sessionPath && !session.transcriptRef
+        ? { transcriptRef: session.sessionPath }
+        : {}),
+    };
+  }
+  if (session.relation?.kind === "side_thread") {
+    return {
+      ...session,
+      closeReceipts,
+      status: lifecycle === "closed" ? "archived" : session.status,
+      lifecycle,
+      incarnation: session.incarnation ?? 1,
+      lifetime: "owned",
+      owner: session.owner ?? {
+        kind: "session",
+        ref: session.relation.parentSessionId,
+      },
+      authority: session.authority ?? { kind: "system", ref: "side_thread" },
+      stateBinding: session.stateBinding ?? {
+        kind: "session",
+        ref: session.relation.parentSessionId,
+      },
+      visibility: session.visibility ?? "internal",
+      retention: session.retention ?? "discard_on_close",
+      purpose: session.purpose ?? "side_thread",
+      ...(session.sessionPath && !session.transcriptRef
+        ? { transcriptRef: session.sessionPath }
+        : {}),
+    };
+  }
+  if (session.relation?.kind === "task_execution") {
+    return {
+      ...session,
+      closeReceipts,
+      status: lifecycle === "closed" ? "archived" : session.status,
+      lifecycle,
+      incarnation: session.incarnation ?? 1,
+      lifetime: "owned",
+      owner: session.owner ?? { kind: "task_run", ref: session.relation.runRef },
+      roleRef: session.roleRef ?? session.relation.roleRef,
+      roleRevision: session.roleRevision ?? 1,
+      authority: session.authority ?? { kind: "task", ref: session.relation.taskRef },
+      stateBinding: session.stateBinding ?? { kind: "task", ref: session.relation.taskRef },
+      visibility: session.visibility ?? "internal",
+      retention: session.retention ?? "discard_on_close",
+      purpose: session.purpose ?? "task_run",
+      ...(session.sessionPath && !session.transcriptRef
+        ? { transcriptRef: session.sessionPath }
+        : {}),
+    };
+  }
+  const channelBinding = session.bindings.find((binding) => binding.kind === "channel");
+  return {
+    ...session,
+    closeReceipts,
+    status: lifecycle === "closed" ? "archived" : session.status,
+    lifecycle,
+    incarnation: session.incarnation ?? 1,
+    lifetime: session.lifetime ?? "persistent",
+    owner: session.owner ?? { kind: "session", ref: session.sessionId },
+    authority:
+      session.authority ??
+      (channelBinding
+        ? { kind: "channel", ref: channelBinding.externalKey }
+        : { kind: "administrator", ref: "role:builtin-administrator" }),
+    stateBinding:
+      session.stateBinding ??
+      (channelBinding
+        ? { kind: "channel", ref: channelBinding.externalKey }
+        : { kind: "session", ref: session.sessionId }),
+    visibility: session.visibility ?? "public",
+    retention: session.retention ?? "retain",
+    purpose: session.purpose ?? (channelBinding ? "channel" : "interactive"),
+    ...(session.sessionPath && !session.transcriptRef
+      ? { transcriptRef: session.sessionPath }
+      : {}),
   };
 }
 

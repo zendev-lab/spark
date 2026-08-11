@@ -43,11 +43,14 @@ describe("daemon session registry", () => {
     };
     const tracked: DaemonSessionRegistry = {
       create: (input) => track(() => backing.create(toBackingCreateInput(input))),
+      createSupervised: (input) => track(() => backing.create(input)),
       list: (options) => backing.list(toBackingListOptions(options)),
       get: (sessionId) => backing.get(sessionId),
       bind: (input) => track(() => backing.bind(input)),
       unbind: (sessionId, externalKey) => track(() => backing.unbind(sessionId, externalKey)),
       archive: (sessionId) => track(() => backing.archive(sessionId)),
+      markClosing: (input) => track(() => backing.markClosing(input)),
+      sealCloseReceipt: (input) => track(() => backing.sealCloseReceipt(input)),
       setRoleIfMissing: (sessionId, role) => track(() => backing.setRoleIfMissing(sessionId, role)),
       setModel: (sessionId, model) => track(() => backing.setModel(sessionId, model)),
       setThinkingLevel: (sessionId, thinkingLevel) =>

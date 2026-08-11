@@ -17,6 +17,43 @@ A workspace identity is created only by the explicit `spark daemon workspace reg
 
 Both use the same headless host and `SparkAgentSession`. `role` must not accept lifecycle, mail, `resource=session`, or `sessionId` inputs.
 
+## Canonical lifecycle ownership
+
+The daemon runtime chain is `RoleSpec -> Session -> Invocation`.
+`SessionSupervisor` composes the existing Session Registry and Invocation
+SQLite store; it is not another store or scheduler. Every workspace has one
+protected persistent Administrator root Session. Other runtime owners create
+children with `lifetime=owned` and an explicit owner kind:
+`session | role_call | task_run | task_revision | workflow_run | driver |
+driver_tick`.
+
+The canonical lifecycle is `open | closing | closed`. Compatibility
+`ready | running | archived` fields may still be decoded and projected, but
+activity is derived from queued/running Invocations and never written as a
+second lifecycle truth. A Session also carries independent `authority`,
+`stateBinding`, `visibility`, `retention`, `purpose`, and `transcriptRef`
+fields. Owner validity is checked at instantiation and startup reconcile;
+children close before owners, and an interrupted `closing` record is reconciled
+idempotently after restart.
+
+Internal close replaces archive as the lifecycle operation. Restore is allowed
+only for a closed, public, persistent, retained record whose owner remains
+valid. It reopens the same stable Session ID as a new incarnation and does not
+restore children. Closing `retention=discard_on_close` deletes the exact
+transcript and redacts terminal Invocation prompts, task/result payloads,
+events, and content-bearing errors. Before deletion, the supervisor validates
+an owner-provided completion candidate or derives a semantic terminal-result
+summary; otherwise it creates a deterministic metadata-only fallback. Registry
+v5 seals the resulting receipt before content removal with first-write-wins CAS
+per Session incarnation and retains the latest 16 incarnations. A seal or
+Registry I/O failure leaves all content intact and the Session in `closing` for
+reconcile; summary-generation failure falls back and does not block cleanup.
+The receipt is Session metadata, not Evidence, and is not injected into a
+parent transcript or copied to Invocation rows. Invocation status, source kind,
+error code, execution profile, usage, the receipt, and explicit Evidence remain
+queryable. Active or undelivered Invocations block destructive redaction and
+leave the Session in `closing` for reconcile.
+
 Local role-managed sessions are named by division of labour, not by the task currently in flight. The registry's `role` field is the canonical stable responsibility and `title` is its compatibility display mirror. Agent-created local sessions must provide that role at creation and reuse the matching session for later tasks; the registry rejects a second active owner of the same normalized role in one workspace. A user-created local session may begin unassigned; its first completed user turn classifies one reusable role and compare-and-set persists both fields. Concrete task text belongs only in `session call` or `session send`.
 
 Selecting `+ New session` in the TUI allocates a provisional ID only. The daemon persists the Session on the first operation that needs durable state, so opening and immediately closing a blank conversation cannot grow the registry.
@@ -29,7 +66,9 @@ Message-platform channel sessions are outside generic role management. Message-p
 
 ## Registry projection
 
-Lifecycle status is `ready | running | archived`. `session list|get` also expose:
+Canonical lifecycle is `open | closing | closed`; the current compatibility
+projection remains `ready | running | archived`. `session list|get` also
+expose:
 
 - `surface: local | channel`, derived from authoritative channel bindings;
 - `activity: idle | running`, projected without changing lifecycle status;
@@ -39,7 +78,7 @@ Every new top-level session belongs to a registered workspace. A session has two
 
 `session.create` accepts a workspace-relative cwd, an absolute workspace descendant, or a path inside one of that workspace's attached GitChange worktrees. `cwdArtifactRef` selects a GitChange root explicitly, with relative cwd resolved below it. The daemon canonicalizes with `realpath`, rejects missing/non-directory/root/escaping paths, and persists the normalized absolute cwd plus the matched ref. Clients may call `workspace.resolve-session-cwd` to map an invocation directory to its existing workspace, but `session.create` repeats admission independently. A disappeared cwd fails execution and never falls back to the workspace root. Old records without cwd retain the workspace-root default.
 
-TUI, Hub, and ACP all use this contract. Starting TUI/ACP below a workspace or in a registered worktree keeps one owning workspace instead of registering the worktree as another workspace. Side threads, Task execution sessions, and Loop ticks inherit the owner cwd; switching TUI sessions rebinds session ID, cwd, workspace ID, and workspace `.spark` root as one host context. Daemon-global scope remains a read-only legacy shape so old transcripts can be recovered; startup migration maps records whose `cwd` identifies one workspace and archives unmatched records without deleting their transcript pointers. The migration keeps an exact hash-manifested backup, replaces the registry atomically, and is idempotent after registry v4.
+TUI, Hub, and ACP all use this contract. Starting TUI/ACP below a workspace or in a registered worktree keeps one owning workspace instead of registering the worktree as another workspace. Side threads, Task execution sessions, and Loop ticks inherit the owner cwd; switching TUI sessions rebinds session ID, cwd, workspace ID, and workspace `.spark` root as one host context. Daemon-global scope remains a read-only legacy shape so old transcripts can be recovered; startup migration maps records whose `cwd` identifies one workspace and archives unmatched records without deleting their transcript pointers. The migration keeps an exact hash-manifested backup, uses a compare-and-set v5 revision plus atomic replacement and write-back validation, and is idempotent after registry v5.
 
 Registry records and bindings are authoritative. Adapter liveness comes from daemon `channel.status`.
 

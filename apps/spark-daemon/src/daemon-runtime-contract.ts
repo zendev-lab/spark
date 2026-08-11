@@ -15,6 +15,7 @@ import type { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
 import type { SparkDaemonConfig } from "./config.ts";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
+import type { SessionSupervisor } from "./session-supervisor.ts";
 import type { CancelSparkInvocationFn, RunSparkCommandFn } from "./spark/bridge.ts";
 
 export interface ServerSocket {
@@ -79,6 +80,7 @@ export interface StartSparkDaemonOptions {
     respondHumanInteraction: SparkDaemonHumanInteractionResponder;
     flushHumanRequestOutbox: () => void;
     processInvocationQueue: () => boolean;
+    sessionSupervisor: SessionSupervisor | null;
   }) => void | Promise<void>;
   onDrainProgress?: (progress: SparkDaemonDrainProgress) => void;
   onServing?: () => void;

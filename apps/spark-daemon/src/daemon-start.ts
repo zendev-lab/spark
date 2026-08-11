@@ -61,6 +61,8 @@ import {
   wakeHumanAnswerEvidenceOwner,
 } from "./core/human-answer-evidence.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
+import { SessionSupervisor } from "./session-supervisor.ts";
+import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
 import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
 import { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
 import { recoverInterruptedRuntimeCommandReceipts } from "./runtime-command-receipts.ts";
@@ -225,6 +227,7 @@ interface PreparedDaemonRuntime {
   nextStorageMaintenanceAtMs: number;
   channelReplyDeliveryStore: ChannelReplyDeliveryStore;
   scheduler: SparkInvocationScheduler | null;
+  sessionSupervisor: SessionSupervisor | null;
   mailStore: SparkSessionMailStore;
   sessionCompletionDeliveryStore: SessionRequestCompletionDeliveryStore;
   servingGate: ServingLoopGate;
@@ -376,6 +379,34 @@ async function createPreparedDaemonRuntime(
     mailStore,
     sessionCompletionDeliveryStore,
   });
+  const sessionSupervisor = options.sessionRegistry
+    ? new SessionSupervisor({
+        registry: options.sessionRegistry,
+        invocations: invocationStore,
+        ...(scheduler ? { scheduler } : {}),
+        ownerExists: async (owner, session) => {
+          if (
+            (owner.kind !== "task_run" && owner.kind !== "task_revision") ||
+            session.relation?.kind !== "task_execution" ||
+            session.scope.kind !== "workspace"
+          ) {
+            return false;
+          }
+          return await isTaskSessionOwnerValid(
+            {
+              owner,
+              workspaceId: session.scope.workspaceId,
+              sessionId: session.sessionId,
+              relation: session.relation,
+            },
+            {
+              resolveWorkspaceCwd: (workspaceId) =>
+                resolveWorkspaceLocalPath(options.db, workspaceId),
+            },
+          );
+        },
+      })
+    : null;
   const closeRestartAdmission = () => {
     admission.open = false;
     scheduler?.beginDrain();
@@ -427,6 +458,7 @@ async function createPreparedDaemonRuntime(
     nextStorageMaintenanceAtMs: Date.now(),
     channelReplyDeliveryStore,
     scheduler,
+    sessionSupervisor,
     mailStore,
     sessionCompletionDeliveryStore,
     servingGate,
@@ -569,6 +601,7 @@ async function prepareDaemonServing(runtime: PreparedDaemonRuntime): Promise<voi
       flushHumanRequestOutbox: runtime.flushHumanRequestOutbox,
       processInvocationQueue: () =>
         runtime.admission.open ? (runtime.scheduler?.processBatch() ?? false) : false,
+      sessionSupervisor: runtime.sessionSupervisor,
     });
   }
   if (channelIngress && canOpenDaemonAdmission(runtime)) {
@@ -652,6 +685,11 @@ function canOpenDaemonAdmission(runtime: PreparedDaemonRuntime): boolean {
 
 async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<void> {
   runtime.scheduler?.recover();
+  await runtime.sessionSupervisor?.reconcile({
+    workspaceIds: listWorkspaces(runtime.options.db)
+      .filter((workspace) => workspace.status !== "archived")
+      .map((workspace) => workspace.id),
+  });
   runtime.loopStore.reconcileTerminalTicks();
   await reconcileLoopGoalSettlements(runtime.loopStore, { retryErrors: true });
   await reconcileReproWorkbenches(runtime);
