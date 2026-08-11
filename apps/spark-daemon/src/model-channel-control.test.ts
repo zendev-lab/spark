@@ -9,6 +9,7 @@ import { executeSparkDaemonModelChannelPublicControl } from "./model-channel-con
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
+import { createDaemonWorkspaceSession } from "../../../test/support/session-fixtures.ts";
 
 const model: SparkModelRef = {
   providerName: "fixture",
@@ -24,16 +25,14 @@ test("runtime model control rejects sessions outside the explicit route scope", 
       resolveWorkspaceCwd: (workspaceId) =>
         workspaceId === "workspace-a" || workspaceId === "workspace-b" ? root : undefined,
     });
-    const sessionA = await registry.create({
+    const sessionA = await createDaemonWorkspaceSession(registry, {
       sessionId: "session-a",
-      title: "Workspace A",
-      scope: { kind: "workspace", workspaceId: "workspace-a" },
+      name: "Workspace A",
       workspaceId: "workspace-a",
     });
-    const otherWorkspaceSession = await registry.create({
+    const otherWorkspaceSession = await createDaemonWorkspaceSession(registry, {
       sessionId: "session-b",
-      title: "Workspace B",
-      scope: { kind: "workspace", workspaceId: "workspace-b" },
+      name: "Workspace B",
       workspaceId: "workspace-b",
     });
 
@@ -114,6 +113,36 @@ test("runtime model catalog and default-set responses preserve resolved scoped m
   assert.deepEqual((selected.result.snapshot as { scopedModels: SparkModelRef[] }).scopedModels, [
     model,
   ]);
+});
+
+test("session model mutation projects activity from Invocation truth", async () => {
+  const root = await mkdtemp(join(tmpdir(), "spark-model-session-activity-"));
+  try {
+    const registry = createDaemonSessionRegistry(root, {
+      resolveWorkspaceCwd: () => root,
+    });
+    const session = await createDaemonWorkspaceSession(registry, {
+      sessionId: "session-running",
+      workspaceId: "workspace-running",
+    });
+    const modelControl = {
+      setSessionModel: vi.fn(async () => session),
+    } as unknown as SparkDaemonModelControl;
+
+    const result = await executeSparkDaemonModelChannelPublicControl(
+      { modelControl, sessionRegistry: registry, sessionActivity: () => "running" },
+      {
+        kind: "session.model.set.request",
+        scope: "workspace",
+        workspaceId: "workspace-running",
+        payload: { sessionId: session.sessionId, model },
+      },
+    );
+
+    assert.equal((result.result.session as { activity: string }).activity, "running");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("runtime channel control routes QQ QR auth within one workspace", async () => {

@@ -224,7 +224,6 @@ export function createSparkSkillAgentTool(options: SparkSkillAgentToolOptions = 
         roleSource: "extension",
         roleCapabilities: ["read", "write", "exec", "net"],
         roleModelType: modelType,
-        roleInstantiation: "owned",
         runName,
         systemPrompt: renderSkillAgentSystemPrompt(loadedSkills),
         instruction: agentInstruction,
@@ -383,12 +382,11 @@ function skillAgentIdentity(skillNames: readonly string[]): string {
   return `skill-agent-${digest}`;
 }
 
-function skillAgentRevision(skills: readonly SparkLoadedSkill[]): number {
+function skillAgentRevision(skills: readonly SparkLoadedSkill[]): string {
   const digest = createHash("sha256")
     .update(skills.map((skill) => `${skill.skill.name}\0${skill.content}`).join("\0"))
-    .digest("hex")
-    .slice(0, 8);
-  return Math.max(1, Number.parseInt(digest, 16));
+    .digest("hex");
+  return `sha256:${digest}`;
 }
 
 function requiredCwd(ctx: SparkHostContext): string {

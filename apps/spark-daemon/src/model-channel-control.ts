@@ -10,6 +10,7 @@ import {
   parseSparkDefaultModelSetRequest,
   parseSparkSessionSetModelRequest,
   parseSparkSessionSetThinkingRequest,
+  projectSparkSessionState,
   sparkProtocolJsonObjectSchema,
   type RuntimeCommandProjectionKind,
   type RuntimeEphemeralSecretRequestPayload,
@@ -19,7 +20,7 @@ import {
   type SparkChannelControlSnapshot,
   type SparkModelControlSnapshot,
   type SparkProtocolJsonValue,
-  type SparkSessionRegistryRecord,
+  type SparkSessionState,
 } from "@zendev-lab/spark-protocol";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import { loadDaemonChannelsConfig } from "./channels/ingress.ts";
@@ -61,6 +62,7 @@ export interface SparkDaemonModelChannelControlOptions {
     | "cancelQqbotQrAuth"
   >;
   sessionRegistry?: DaemonSessionRegistry;
+  sessionActivity?: (sessionId: string) => "idle" | "queued" | "running";
   sparkHome?: string;
 }
 
@@ -101,7 +103,7 @@ export async function executeSparkDaemonModelChannelPublicControl(
         request.sessionId,
         request.model,
       );
-      return sessionResult(session);
+      return sessionResult(session, options.sessionActivity?.(session.sessionId));
     }
     case "session.thinking.set.request": {
       const request = parseSparkSessionSetThinkingRequest(input.payload);
@@ -110,7 +112,7 @@ export async function executeSparkDaemonModelChannelPublicControl(
         request.sessionId,
         request.thinkingLevel,
       );
-      return sessionResult(session);
+      return sessionResult(session, options.sessionActivity?.(session.sessionId));
     }
     case "model.catalog.request": {
       const sessionId = optionalString(input.payload.sessionId);
@@ -408,8 +410,11 @@ async function mergePrivateChannelConfig(
   return parseChannelsConfig({ ...incoming, adapters });
 }
 
-function sessionResult(session: SparkSessionRegistryRecord): SparkDaemonModelChannelPublicResult {
-  const projected = publicObject(session);
+function sessionResult(
+  session: SparkSessionState,
+  activity: "idle" | "queued" | "running" = "idle",
+): SparkDaemonModelChannelPublicResult {
+  const projected = publicObject(projectSparkSessionState(session, activity));
   return {
     result: { session: projected },
     projection: { kind: "session.detail", data: { session: projected } },

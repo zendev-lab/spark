@@ -43,6 +43,10 @@ import type {
   DaemonChannelIngressRuntime,
   DaemonChannelIngressStatus,
 } from "./channels/ingress.ts";
+import {
+  createDaemonWorkspaceSession,
+  workspaceSessionRecord,
+} from "../../../test/support/session-fixtures.ts";
 
 async function countSqliteAuthorizations<T>(
   db: DatabaseSync,
@@ -80,9 +84,8 @@ describe("Spark daemon local RPC", () => {
       daemonId: "driver-rpc-test",
       daemonCwd: root,
     });
-    await sessionRegistry.create({
+    await createDaemonWorkspaceSession(sessionRegistry, {
       sessionId: "session:driver-owner",
-      scope: { kind: "workspace", workspaceId: "workspace-driver" },
       workspaceId: "workspace-driver",
       cwd: root,
     });
@@ -1234,9 +1237,8 @@ describe("Spark daemon local RPC", () => {
       daemonId: "cancel-test",
       daemonCwd: root,
     });
-    await sessionRegistry.create({
+    await createDaemonWorkspaceSession(sessionRegistry, {
       sessionId: "session-a",
-      scope: { kind: "workspace", workspaceId: "workspace-cancel" },
       workspaceId: "workspace-cancel",
       cwd: root,
     });
@@ -1258,7 +1260,10 @@ describe("Spark daemon local RPC", () => {
         { sessionRegistry },
       );
       const invocation = (submitted as { result: { invocationId: string } }).result;
-      expect(await sessionRegistry.get("session-a")).toMatchObject({ status: "running" });
+      expect(await sessionRegistry.get("session-a")).toMatchObject({
+        lifecycle: "open",
+        placement: "active",
+      });
 
       const cancelled = await handleLocalRpcLine(
         JSON.stringify({
@@ -1283,7 +1288,10 @@ describe("Spark daemon local RPC", () => {
           cancelRequested: true,
         },
       });
-      expect(await sessionRegistry.get("session-a")).toMatchObject({ status: "ready" });
+      expect(await sessionRegistry.get("session-a")).toMatchObject({
+        lifecycle: "open",
+        placement: "active",
+      });
 
       const duplicate = await handleLocalRpcLine(
         JSON.stringify({
@@ -1304,7 +1312,10 @@ describe("Spark daemon local RPC", () => {
         ok: true,
         result: { invocationId: invocation.invocationId, status: "queued" },
       });
-      expect(await sessionRegistry.get("session-a")).toMatchObject({ status: "ready" });
+      expect(await sessionRegistry.get("session-a")).toMatchObject({
+        lifecycle: "open",
+        placement: "active",
+      });
       const duplicateStatus = await handleLocalRpcLine(
         JSON.stringify({
           id: "turn_status_duplicate",
@@ -1495,9 +1506,8 @@ describe("Spark daemon local RPC", () => {
       daemonId: "socket-test",
       daemonCwd: root,
     });
-    await sessionRegistry.create({
+    await createDaemonWorkspaceSession(sessionRegistry, {
       sessionId: "event-session",
-      scope: { kind: "workspace", workspaceId: "workspace-events" },
       workspaceId: "workspace-events",
       cwd: root,
     });
@@ -1632,15 +1642,13 @@ describe("Spark daemon local RPC", () => {
       daemonId: "invocation-list-test",
       daemonCwd: root,
     });
-    await sessionRegistry.create({
+    await createDaemonWorkspaceSession(sessionRegistry, {
       sessionId: "session:selected",
-      scope: { kind: "workspace", workspaceId: "workspace-diagnostics" },
       workspaceId: "workspace-diagnostics",
       cwd: root,
     });
-    await sessionRegistry.create({
+    await createDaemonWorkspaceSession(sessionRegistry, {
       sessionId: "session:other",
-      scope: { kind: "workspace", workspaceId: "workspace-diagnostics" },
       workspaceId: "workspace-diagnostics",
       cwd: root,
     });
@@ -2182,29 +2190,42 @@ describe("Spark daemon local RPC", () => {
       );
 
     try {
+      const administratorA = await sessionRegistry.ensureWorkspaceAdministrator("ws_a");
+      const administratorB = await sessionRegistry.ensureWorkspaceAdministrator("ws_b");
       const [first, second] = await Promise.all([
         request("session_create_a", "session.create", {
           sessionId: "sess_a",
-          workspaceId: "ws_a",
-          title: "First",
+          scope: { kind: "workspace", workspaceId: "ws_a" },
+          supervisorSessionId: administratorA.sessionId,
+          placement: "child",
+          roleBinding: { kind: "none" },
+          name: "First",
         }),
         request("session_create_b", "session.create", {
           sessionId: "sess_b",
-          workspaceId: "ws_b",
+          scope: { kind: "workspace", workspaceId: "ws_b" },
+          supervisorSessionId: administratorB.sessionId,
+          placement: "child",
+          roleBinding: { kind: "none" },
         }),
       ]);
       expect(first).toMatchObject({ ok: true, result: { sessionId: "sess_a" } });
       expect(second).toMatchObject({ ok: true, result: { sessionId: "sess_b" } });
 
       const listed = await request("session_list", "session.list", {
-        workspaceId: "ws_a",
+        scope: { kind: "workspace", workspaceId: "ws_a" },
       });
       expect(listed).toMatchObject({
         ok: true,
-        result: [{ sessionId: "sess_a", workspaceId: "ws_a" }],
+        result: expect.arrayContaining([
+          expect.objectContaining({
+            sessionId: "sess_a",
+            scope: { kind: "workspace", workspaceId: "ws_a" },
+          }),
+        ]),
       });
       const fetched = await request("session_get", "session.get", { sessionId: "sess_a" });
-      expect(fetched).toMatchObject({ ok: true, result: { title: "First" } });
+      expect(fetched).toMatchObject({ ok: true, result: { name: "First" } });
 
       await sessionRegistry.recordTurnQueued("sess_a");
       const staleRegistry = await request("session_get_stale", "session.get", {
@@ -2212,7 +2233,7 @@ describe("Spark daemon local RPC", () => {
       });
       expect(staleRegistry).toMatchObject({
         ok: true,
-        result: { sessionId: "sess_a", status: "ready" },
+        result: { sessionId: "sess_a", lifecycle: "open", activity: "idle" },
       });
       const queuedRegistryUpdatedAt = (staleRegistry as { result: { updatedAt: string } }).result
         .updatedAt;
@@ -2230,13 +2251,20 @@ describe("Spark daemon local RPC", () => {
         ok: true,
         result: {
           sessionId: "sess_a",
-          status: "running",
+          activity: "queued",
           updatedAt: queuedRegistryUpdatedAt,
         },
       });
       expect(
-        await request("session_list_active", "session.list", { workspaceId: "ws_a" }),
-      ).toMatchObject({ ok: true, result: [{ sessionId: "sess_a", status: "running" }] });
+        await request("session_list_active", "session.list", {
+          scope: { kind: "workspace", workspaceId: "ws_a" },
+        }),
+      ).toMatchObject({
+        ok: true,
+        result: expect.arrayContaining([
+          expect.objectContaining({ sessionId: "sess_a", activity: "queued" }),
+        ]),
+      });
       invocationStore.claimNext("test-worker", "2099-07-15T00:00:01.000Z");
       invocationStore.complete(activeInvocation.invocationId, {
         status: "succeeded",
@@ -2249,13 +2277,21 @@ describe("Spark daemon local RPC", () => {
         ok: true,
         result: {
           sessionId: "sess_a",
-          status: "ready",
+          lifecycle: "open",
+          activity: "idle",
           updatedAt: queuedRegistryUpdatedAt,
         },
       });
       expect(
-        await request("session_list_settled", "session.list", { workspaceId: "ws_a" }),
-      ).toMatchObject({ ok: true, result: [{ sessionId: "sess_a", status: "ready" }] });
+        await request("session_list_settled", "session.list", {
+          scope: { kind: "workspace", workspaceId: "ws_a" },
+        }),
+      ).toMatchObject({
+        ok: true,
+        result: expect.arrayContaining([
+          expect.objectContaining({ sessionId: "sess_a", activity: "idle" }),
+        ]),
+      });
 
       const bound = await request("session_bind", "session.bind", {
         sessionId: "sess_a",
@@ -2278,7 +2314,7 @@ describe("Spark daemon local RPC", () => {
       expect(archived).toMatchObject({
         ok: true,
         result: {
-          status: "archived",
+          placement: "archived",
           tags: expect.arrayContaining(["archive-source:manual", "topic:managed-session-rpc"]),
           archiveHistory: [
             expect.objectContaining({
@@ -2290,21 +2326,28 @@ describe("Spark daemon local RPC", () => {
       });
       expect(
         await request("session_search_archived", "session.list", {
+          scope: { kind: "workspace", workspaceId: "ws_a" },
           includeArchived: true,
           query: "managed-session-rpc cleanup",
           tags: ["topic:managed-session-rpc"],
         }),
-      ).toMatchObject({ ok: true, result: [{ sessionId: "sess_a", status: "archived" }] });
+      ).toMatchObject({
+        ok: true,
+        result: [expect.objectContaining({ sessionId: "sess_a", placement: "archived" })],
+      });
       expect(
         await request("session_get_archived", "session.get", { sessionId: "sess_a" }),
-      ).toMatchObject({ ok: true, result: { sessionId: "sess_a", status: "archived" } });
+      ).toMatchObject({
+        ok: true,
+        result: { sessionId: "sess_a", placement: "archived" },
+      });
       expect(
         await request("session_restore", "session.restore", { sessionId: "sess_a" }),
       ).toMatchObject({
         ok: true,
         result: {
           sessionId: "sess_a",
-          status: "ready",
+          placement: "active",
           tags: expect.arrayContaining(["topic:managed-session-rpc", "lifecycle:restored"]),
         },
       });
@@ -2359,6 +2402,7 @@ describe("Spark daemon local RPC", () => {
       );
 
     try {
+      const administrator = await sessionRegistry.ensureWorkspaceAdministrator(workspace.id);
       const retiredDaemonScope = await request("create_global", "session.create", {
         sessionId: "sess_global",
         scope: { kind: "daemon" },
@@ -2367,26 +2411,31 @@ describe("Spark daemon local RPC", () => {
         ok: false,
         error: {
           code: "invalid_scope",
-          message: "New top-level sessions must belong to a workspace.",
+          message: "New Sessions must belong to a workspace.",
         },
       });
 
       const workspaceSession = await request("create_workspace", "session.create", {
         sessionId: "sess_workspace",
-        workspaceId: workspace.id,
+        scope: { kind: "workspace", workspaceId: workspace.id },
+        supervisorSessionId: administrator.sessionId,
+        placement: "child",
+        roleBinding: { kind: "none" },
       });
       expect(workspaceSession).toMatchObject({
         ok: true,
         result: {
           scope: { kind: "workspace", workspaceId: workspace.id },
-          workspaceId: workspace.id,
           cwd: workspace.localPath,
         },
       });
 
       const unresolvedWorkspace = await request("create_unresolved", "session.create", {
         sessionId: "sess_unresolved",
-        workspaceId: "ws_missing",
+        scope: { kind: "workspace", workspaceId: "ws_missing" },
+        supervisorSessionId: administrator.sessionId,
+        placement: "child",
+        roleBinding: { kind: "none" },
       });
       expect(unresolvedWorkspace).toMatchObject({
         ok: false,
@@ -2395,7 +2444,10 @@ describe("Spark daemon local RPC", () => {
 
       await request("create_question", "session.create", {
         sessionId: "sess_question",
-        workspaceId: workspace.id,
+        scope: { kind: "workspace", workspaceId: workspace.id },
+        supervisorSessionId: administrator.sessionId,
+        placement: "child",
+        roleBinding: { kind: "none" },
       });
       const questionInput = {
         sessionId: "sess_question",
@@ -2438,7 +2490,7 @@ describe("Spark daemon local RPC", () => {
         await request("get_question_running", "session.get", { sessionId: "sess_question" }),
       ).toMatchObject({
         ok: true,
-        result: { status: "running" },
+        result: { activity: "queued" },
       });
 
       const workspaceTurn = await request("turn_workspace", "turn.submit", {
@@ -2503,9 +2555,8 @@ describe("Spark daemon local RPC", () => {
     const mailStore = new SparkSessionMailStore({ sparkHome });
     try {
       for (const sessionId of ["sess_origin", "sess_worker"]) {
-        await sessionRegistry.create({
+        await createDaemonWorkspaceSession(sessionRegistry, {
           sessionId,
-          scope: { kind: "workspace", workspaceId: "ws_session_send" },
           workspaceId: "ws_session_send",
         });
       }
@@ -2644,9 +2695,8 @@ describe("Spark daemon local RPC", () => {
     } satisfies Pick<DaemonChannelIngressRuntime, "status" | "configure" | "reload" | "notify">;
 
     try {
-      await sessionRegistry.create({
+      await createDaemonWorkspaceSession(sessionRegistry, {
         sessionId: "sess_delivery",
-        scope: { kind: "workspace", workspaceId: "ws_delivery" },
         workspaceId: "ws_delivery",
       });
       await sessionRegistry.bind({
@@ -2796,9 +2846,8 @@ describe("Spark daemon local RPC", () => {
     } satisfies Pick<DaemonChannelIngressRuntime, "status" | "configure" | "reload" | "notify">;
 
     try {
-      await sessionRegistry.create({
+      await createDaemonWorkspaceSession(sessionRegistry, {
         sessionId: "sess_retry",
-        scope: { kind: "workspace", workspaceId: "ws_retry" },
         workspaceId: "ws_retry",
       });
       await sessionRegistry.bind({
@@ -2989,10 +3038,10 @@ describe("Spark daemon local RPC", () => {
       );
 
     try {
-      await sessionRegistry.create({
+      await createDaemonWorkspaceSession(sessionRegistry, {
         sessionId: "sess_view",
         workspaceId: "ws_view",
-        title: "Unified conversation",
+        name: "Unified conversation",
       });
 
       const empty = await request("snapshot_empty");
@@ -3002,7 +3051,7 @@ describe("Spark daemon local RPC", () => {
           sessionId: "sess_view",
           title: "Unified conversation",
           messages: [],
-          metadata: { workspaceId: "ws_view", registryStatus: "ready" },
+          metadata: { workspaceId: "ws_view" },
         },
       });
       expect(JSON.stringify(empty)).not.toContain("sessionPath");
@@ -3069,9 +3118,11 @@ describe("Spark daemon local RPC", () => {
         result: {
           status: "idle",
           messages: [],
-          // Raw registry metadata may remain stale after direct store settlement;
-          // the daemon-owned pending projection above is the activity authority.
-          metadata: { registryStatus: "running" },
+          metadata: {
+            sessionLifecycle: "open",
+            sessionPlacement: "active",
+            sessionActivity: "idle",
+          },
         },
       });
 
@@ -3259,27 +3310,25 @@ describe("Spark daemon local RPC", () => {
     const modelControl = {
       snapshot: vi.fn(async () => snapshot),
       setDefaultModel: vi.fn(async () => snapshot),
-      setSessionModel: vi.fn(async () => ({
-        sessionId: "sess_model",
-        scope: { kind: "workspace" as const, workspaceId: "ws_model" },
-        workspaceId: "ws_model",
-        model,
-        bindings: [],
-        status: "ready" as const,
-        createdAt: "2026-07-10T00:00:00.000Z",
-        updatedAt: "2026-07-10T00:01:00.000Z",
-      })),
-      setSessionThinkingLevel: vi.fn(async () => ({
-        sessionId: "sess_model",
-        scope: { kind: "workspace" as const, workspaceId: "ws_model" },
-        workspaceId: "ws_model",
-        model,
-        thinkingLevel: "high" as const,
-        bindings: [],
-        status: "ready" as const,
-        createdAt: "2026-07-10T00:00:00.000Z",
-        updatedAt: "2026-07-10T00:01:00.000Z",
-      })),
+      setSessionModel: vi.fn(async () =>
+        workspaceSessionRecord({
+          sessionId: "sess_model",
+          workspaceId: "ws_model",
+          model,
+          createdAt: "2026-07-10T00:00:00.000Z",
+          updatedAt: "2026-07-10T00:01:00.000Z",
+        }),
+      ),
+      setSessionThinkingLevel: vi.fn(async () =>
+        workspaceSessionRecord({
+          sessionId: "sess_model",
+          workspaceId: "ws_model",
+          model,
+          thinkingLevel: "high" as const,
+          createdAt: "2026-07-10T00:00:00.000Z",
+          updatedAt: "2026-07-10T00:01:00.000Z",
+        }),
+      ),
       setApiKey,
       importPiAuth,
       logout: vi.fn(async () => ({ removed: true, snapshot })),

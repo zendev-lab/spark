@@ -143,7 +143,14 @@ const NOT_IMPLEMENTED = (name: string): Error =>
       "If you hit this in extension code, file a follow-up against the active CLI rework project.",
   );
 
-const TOOL_EFFECTS = new Set<ToolEffect>(["read", "local_write", "external_write", "destructive"]);
+const TOOL_EFFECTS = new Set<ToolEffect>([
+  "read",
+  "network_read",
+  "control",
+  "local_write",
+  "external_write",
+  "destructive",
+]);
 
 function outboxDeliveryKey(sessionId: string | undefined, deliveryId: string): string {
   return `${sessionId ?? "spark-agent"}\u0000${deliveryId}`;

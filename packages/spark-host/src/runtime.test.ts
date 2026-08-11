@@ -4,7 +4,7 @@ import { SparkHostRuntime } from "./runtime.ts";
 function registerTool(
   host: SparkHostRuntime,
   name: string,
-  effect?: "read" | "local_write" | "external_write" | "destructive",
+  effect?: "read" | "network_read" | "control" | "local_write" | "external_write" | "destructive",
   execute?: () => void,
 ): void {
   host.registerTool({
@@ -117,11 +117,12 @@ describe("SparkHostRuntime effect contract", () => {
   it("HOST-EFFECT-001 admits read and denies write, destructive, and unknown effects", () => {
     const host = new SparkHostRuntime({
       cwd: "/tmp/spark-host-runtime-read-only-test",
-      allowedTools: ["read", "local", "external", "destructive", "unknown"],
+      allowedTools: ["read", "network", "local", "external", "destructive", "unknown"],
       allowedToolEffects: ["read"],
     });
     const executions: string[] = [];
     registerTool(host, "read", "read", () => executions.push("read"));
+    registerTool(host, "network", "network_read", () => executions.push("network"));
     registerTool(host, "local", "local_write", () => executions.push("local"));
     registerTool(host, "external", "external_write", () => executions.push("external"));
     registerTool(host, "destructive", "destructive", () => executions.push("destructive"));
@@ -132,7 +133,7 @@ describe("SparkHostRuntime effect contract", () => {
     expect(executions).toEqual([]);
 
     // A stale or mutated active bit cannot bypass final dispatch admission.
-    for (const name of ["local", "external", "destructive", "unknown"]) {
+    for (const name of ["network", "local", "external", "destructive", "unknown"]) {
       const tool = host.getTool(name)!;
       tool.active = true;
       expect(host.isToolDispatchAllowed(name, tool), name).toBe(false);

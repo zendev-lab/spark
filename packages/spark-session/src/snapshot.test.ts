@@ -2,7 +2,7 @@ import { appendFile, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/prom
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { parseSparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
+import { parseSparkSessionProjection } from "@zendev-lab/spark-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   loadSparkSessionMediaChunk,
@@ -13,6 +13,18 @@ import {
 } from "./snapshot.ts";
 
 const roots: string[] = [];
+
+function sessionControlFields(supervisorSessionId: string) {
+  return {
+    incarnation: 1,
+    activity: "idle" as const,
+    lifetime: "scoped" as const,
+    stateBinding: { kind: "session" as const, ref: supervisorSessionId },
+    visibility: "public" as const,
+    retention: "retain" as const,
+    purpose: "interactive",
+  };
+}
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -46,10 +58,14 @@ async function createLinearTranscript(entryCount: number, sessionId: string) {
     parentId = id;
   }
   await writeFile(transcriptPath, `${lines.join("\n")}\n`, "utf8");
-  const session = parseSparkSessionRegistryRecord({
+  const session = parseSparkSessionProjection({
     sessionId,
     scope: { kind: "workspace", workspaceId: "ws_large" },
-    status: "ready",
+    lifecycle: "open",
+    placement: "active",
+    roleBinding: { kind: "none" },
+    owner: { kind: "session", supervisorSessionId: "sess_admin_ws_large" },
+    ...sessionControlFields("sess_admin_ws_large"),
     sessionPath: transcriptPath,
     bindings: [],
     createdAt: "2026-08-03T00:00:00.000Z",
@@ -91,10 +107,14 @@ describe("loadSparkSessionSnapshot", () => {
       `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
       "utf8",
     );
-    const session = parseSparkSessionRegistryRecord({
+    const session = parseSparkSessionProjection({
       sessionId: "sess_image",
       scope: { kind: "workspace", workspaceId: "ws_demo" },
-      status: "ready",
+      lifecycle: "open",
+      placement: "active",
+      roleBinding: { kind: "none" },
+      owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+      ...sessionControlFields("sess_admin_ws_demo"),
       sessionPath: transcriptPath,
       bindings: [],
       createdAt: "2026-07-23T10:00:00.000Z",
@@ -217,10 +237,14 @@ describe("loadSparkSessionSnapshot", () => {
       `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
       "utf8",
     );
-    const session = parseSparkSessionRegistryRecord({
+    const session = parseSparkSessionProjection({
       sessionId: "sess_usage",
       scope: { kind: "workspace", workspaceId: "ws_demo" },
-      status: "ready",
+      lifecycle: "open",
+      placement: "active",
+      roleBinding: { kind: "none" },
+      owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+      ...sessionControlFields("sess_admin_ws_demo"),
       sessionPath: transcriptPath,
       model: { providerName: "baidu-oneapi", modelId: "gpt-5.6-sol" },
       thinkingLevel: "xhigh",
@@ -418,10 +442,15 @@ describe("loadSparkSessionSnapshot", () => {
       `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
       "utf8",
     );
-    const session = parseSparkSessionRegistryRecord({
+    const session = parseSparkSessionProjection({
       sessionId: "sess_parts",
       scope: { kind: "workspace", workspaceId: "ws_demo" },
-      status: "running",
+      lifecycle: "open",
+      placement: "active",
+      roleBinding: { kind: "none" },
+      owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+      ...sessionControlFields("sess_admin_ws_demo"),
+      activity: "running",
       sessionPath: transcriptPath,
       bindings: [],
       createdAt: "2026-07-13T01:00:00.000Z",
@@ -616,10 +645,14 @@ describe("loadSparkSessionSnapshot", () => {
       `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
       "utf8",
     );
-    const session = parseSparkSessionRegistryRecord({
+    const session = parseSparkSessionProjection({
       sessionId: "sess_text_phase",
       scope: { kind: "workspace", workspaceId: "ws_demo" },
-      status: "ready",
+      lifecycle: "open",
+      placement: "active",
+      roleBinding: { kind: "none" },
+      owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+      ...sessionControlFields("sess_admin_ws_demo"),
       sessionPath: transcriptPath,
       bindings: [],
       createdAt: "2026-07-13T02:00:00.000Z",
@@ -695,10 +728,14 @@ describe("loadSparkSessionSnapshot", () => {
         .join("\n")}\n`,
       "utf8",
     );
-    const session = parseSparkSessionRegistryRecord({
+    const session = parseSparkSessionProjection({
       sessionId: "sess_provider_error",
       scope: { kind: "workspace", workspaceId: "ws_demo" },
-      status: "ready",
+      lifecycle: "open",
+      placement: "active",
+      roleBinding: { kind: "none" },
+      owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+      ...sessionControlFields("sess_admin_ws_demo"),
       sessionPath: transcriptPath,
       bindings: [],
       createdAt: "2026-07-13T03:00:00.000Z",
@@ -935,11 +972,16 @@ describe("loadSparkSessionSnapshot", () => {
         .join("\n")}\n`,
       "utf8",
     );
-    const record = (status: "ready" | "running") =>
-      parseSparkSessionRegistryRecord({
+    const record = (activity: "idle" | "running") =>
+      parseSparkSessionProjection({
         sessionId: "sess_missing_final",
         scope: { kind: "workspace", workspaceId: "ws_demo" },
-        status,
+        lifecycle: "open",
+        placement: "active",
+        ...(activity === "running" ? { activity } : {}),
+        roleBinding: { kind: "none" },
+        owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+        ...sessionControlFields("sess_admin_ws_demo"),
         sessionPath: transcriptPath,
         bindings: [],
         createdAt: "2026-07-13T04:00:00.000Z",
@@ -948,11 +990,13 @@ describe("loadSparkSessionSnapshot", () => {
 
     const settled = await loadSparkSessionSnapshot({
       sessionsRoot: root,
-      session: record("ready"),
+      session: record("idle"),
+      activity: "idle",
     });
     const running = await loadSparkSessionSnapshot({
       sessionsRoot: root,
       session: record("running"),
+      activity: "running",
     });
     await refreshSparkSessionSnapshotIndex({
       sessionPath: transcriptPath,
@@ -960,7 +1004,8 @@ describe("loadSparkSessionSnapshot", () => {
     });
     const settledTail = await loadSparkSessionSnapshotTail({
       sessionsRoot: root,
-      session: record("ready"),
+      session: record("idle"),
+      activity: "idle",
       messageLimit: 2,
     });
 

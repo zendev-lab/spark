@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
 import {
   createId,
+  parseSparkSessionProjection,
   runtimeProtocolVersion,
   sparkProtocolJsonObjectSchema,
   type RuntimeCommandResultPayload,
-  type SparkSessionRegistryRecord,
+  type SparkSessionProjection,
 } from "@zendev-lab/spark-protocol";
 import { createWorkspaceWithLease, recordInvocationUpdate } from "./projection-services.ts";
 import {
@@ -61,29 +62,56 @@ function setup() {
   return { db, runtimeId, bindingId, workspaceId: workspace.id };
 }
 
-function workspaceSession(workspaceId: string): SparkSessionRegistryRecord {
-  return {
+function workspaceSession(workspaceId: string): SparkSessionProjection {
+  return parseSparkSessionProjection({
     sessionId: createId("sess"),
     scope: { kind: "workspace", workspaceId },
-    workspaceId,
-    title: "Workspace session",
-    status: "ready",
+    name: "Workspace session",
+    lifecycle: "open",
+    placement: "active",
+    activity: "idle",
+    lifetime: "scoped",
+    roleBinding: { kind: "none" },
+    owner: { kind: "session", supervisorSessionId: `sess_admin_${workspaceId}` },
+    incarnation: 1,
+    stateBinding: { kind: "session", ref: `sess_admin_${workspaceId}` },
+    visibility: "public",
+    retention: "retain",
+    purpose: "interactive",
     bindings: [],
+    tags: [],
+    archiveHistory: [],
     createdAt: now,
     updatedAt: now,
-  };
+  });
 }
 
-function daemonSession(): SparkSessionRegistryRecord {
-  return {
+function daemonSession(): SparkSessionProjection {
+  return parseSparkSessionProjection({
     sessionId: createId("sess"),
     scope: { kind: "daemon", daemonId: "install-session-control" },
-    title: "Daemon session",
-    status: "ready",
+    name: "Daemon session",
+    lifecycle: "closed",
+    placement: "archived",
+    activity: "idle",
+    lifetime: "ephemeral",
+    roleBinding: { kind: "none" },
+    owner: {
+      kind: "invocation",
+      invocationId: "migration:daemon-session",
+      supervisorSessionId: "migration:closed-daemon-audit",
+    },
+    incarnation: 1,
+    stateBinding: { kind: "session", ref: "migration:closed-daemon-audit" },
+    visibility: "internal",
+    retention: "audit",
+    purpose: "migration_closed_daemon_audit",
     bindings: [],
+    tags: [],
+    archiveHistory: [],
     createdAt: now,
     updatedAt: now,
-  };
+  });
 }
 
 describe("runtime session projections", () => {
@@ -140,15 +168,17 @@ describe("runtime session projections", () => {
   it("atomically replaces a Side Thread projection on its parent workspace route", () => {
     const h = setup();
     const parent = workspaceSession(h.workspaceId);
-    const child: SparkSessionRegistryRecord = {
+    const child = parseSparkSessionProjection({
       ...workspaceSession(h.workspaceId),
-      relation: {
+      roleBinding: { kind: "inherit" },
+      owner: {
         kind: "side_thread",
         parentSessionId: parent.sessionId,
         generation: 1,
-        mode: "contextual",
       },
-    };
+      retention: "discard_on_close",
+      sideThreadMode: "contextual",
+    });
     const route = {
       runtimeId: h.runtimeId,
       scope: "workspace" as const,
@@ -162,11 +192,10 @@ describe("runtime session projections", () => {
       replaceRuntimeSideThreadProjection(h.db, route, "wrong-parent", child, now),
     ).toThrowError(/does not belong to the requested parent/u);
 
-    const crossWorkspaceChild: SparkSessionRegistryRecord = {
+    const crossWorkspaceChild = parseSparkSessionProjection({
       ...child,
       scope: { kind: "workspace", workspaceId: "ws_other" },
-      workspaceId: "ws_other",
-    };
+    });
     expect(() =>
       replaceRuntimeSideThreadProjection(h.db, route, parent.sessionId, crossWorkspaceChild, now),
     ).toThrowError(/outside its lease route/u);
@@ -180,11 +209,11 @@ describe("runtime session projections", () => {
   it("removes active workspace projections disproved by a complete daemon list", () => {
     const h = setup();
     const current = workspaceSession(h.workspaceId);
-    const stale = { ...workspaceSession(h.workspaceId), title: "Stale route" };
+    const stale = { ...workspaceSession(h.workspaceId), name: "Stale route" };
     const archived = {
       ...workspaceSession(h.workspaceId),
-      title: "Archived route",
-      status: "archived" as const,
+      name: "Archived route",
+      placement: "archived" as const,
     };
     const daemon = daemonSession();
     projectSession(h, current, "workspace");
@@ -379,7 +408,7 @@ describe("runtime session projections", () => {
   it("keeps the session rail available when one cached snapshot uses a newer part schema", () => {
     const h = setup();
     const compatible = workspaceSession(h.workspaceId);
-    const newer = { ...workspaceSession(h.workspaceId), title: "Newer snapshot" };
+    const newer = { ...workspaceSession(h.workspaceId), name: "Newer snapshot" };
     projectSession(h, compatible, "workspace");
     projectSession(h, newer, "workspace");
 
@@ -449,7 +478,7 @@ describe("runtime session projections", () => {
       .run(JSON.stringify(incompatibleSnapshot), h.runtimeId, newer.sessionId);
 
     expect(getRuntimeSessionProjection(h.db, newer.sessionId)).toMatchObject({
-      session: { sessionId: newer.sessionId, title: "Newer snapshot" },
+      session: { sessionId: newer.sessionId, name: "Newer snapshot" },
       snapshotStatus: "incompatible",
     });
     expect(getRuntimeSessionProjection(h.db, newer.sessionId)?.snapshot).toBeUndefined();
@@ -786,7 +815,7 @@ describe("runtime session projections", () => {
 
 function projectSession(
   h: ReturnType<typeof setup>,
-  session: SparkSessionRegistryRecord,
+  session: SparkSessionProjection,
   scope: "daemon" | "workspace",
 ): void {
   const command = submitRuntimeControlCommand(h.db, {

@@ -23,7 +23,7 @@ they share one owner, state, permission, rendering, and result contract.
 | Files and execution | Read, search, edit, and approved local execution | Host adapters operating in the selected workspace |
 | Work coordination | Tasks, Session `plan`/`execute`/`fleet` modes, Goals, Loops, Repros, and Workflows | Their domain owner; durable scheduling remains daemon-owned |
 | Result ownership | User-facing outcomes and internal Evidence | Artifact and Evidence stores remain separate |
-| Agent composition | Roles and owner-bound Skill Agents | Session/Role registry and Skill loader |
+| Agent composition | Role definitions, ephemeral Role calls, owner-derived scoped Sessions, and Skill Agents | Session/Role registry and Skill loader |
 | External adapters | Channels, ACP, MCP, Git, and provider-specific capabilities | The owning adapter behind Spark contracts |
 
 `ask` validates the host interaction capability before async delivery or
@@ -59,15 +59,14 @@ a failed replacement does not write Task graph state.
 
 ## Roles, Sessions, and Skill Agents
 
-- A Role defines a typed capability and responsibility profile, including its
-  semantic Model Type and `persistent` or `owned` instantiation policy.
+- A Role defines a typed capability and responsibility overlay, including its
+  semantic Model Type. It does not choose Session lifetime.
 - A Session is the runtime instance that owns continuity, bindings, calls, and
-  mail. Owner-bound child Sessions are non-restorable and close with their
-  parent operation.
+  mail. Its single Owner derives `persistent | scoped | ephemeral` lifetime.
 - `skill_agent({ skills, instruction, inputs? })` resolves one to eight exact
   Skills and runs one fresh owned child Session with every selected Skill body
   loaded once. It receives the explicit packet, not the parent transcript, and
-  cannot recurse into Roles, Skill Agents, or persistent Sessions.
+  cannot recurse into Roles or Skill Agents or manage other Sessions.
 
 Role and Skill Agent children select models through semantic Model Types. A
 missing binding fails with `role_model_type_unconfigured`; Spark does not fall

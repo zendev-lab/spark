@@ -21,6 +21,7 @@ const messages = {
   channelLabels: sessionMessages.channelLabels,
   sessionTypes: sessionMessages.sessionTypes,
   archiveSubmit: sessionMessages.archiveSubmit,
+  closeSubmit: sessionMessages.closeSubmit,
   showArchived: sessionMessages.showArchived,
   hideArchived: sessionMessages.hideArchived,
   archivedLabel: sessionMessages.archivedLabel,
@@ -33,8 +34,11 @@ const sessions = [
     sessionId: "regular-session",
     workspaceId: "workspace-1",
     scope: { kind: "workspace" as const, workspaceId: "workspace-1" },
-    title: "Regular conversation",
-    status: "idle",
+    name: "Regular conversation",
+    lifecycle: "open" as const,
+    placement: "active" as const,
+    activity: "idle" as const,
+    owner: { kind: "session" as const, supervisorSessionId: "workspace-1-administrator" },
     createdAt: now,
     updatedAt: now,
   },
@@ -42,19 +46,29 @@ const sessions = [
     sessionId: "channel-session",
     workspaceId: "workspace-1",
     scope: { kind: "workspace" as const, workspaceId: "workspace-1" },
-    title: "channel qqbot:group:reviewers",
-    status: "idle",
+    name: "channel qqbot:group:reviewers",
+    lifecycle: "open" as const,
+    placement: "active" as const,
+    activity: "idle" as const,
+    owner: { kind: "session" as const, supervisorSessionId: "workspace-1-administrator" },
     bindings: [{ kind: "channel", adapter: "qqbot", externalKey: "qqbot:group:reviewers" }],
     createdAt: now,
     updatedAt: now,
   },
 ];
 
+const administrator = {
+  ...sessions[0]!,
+  sessionId: "workspace-1-administrator",
+  name: "Administrator",
+  owner: { kind: "workspace" as const, workspaceId: "workspace-1" },
+};
+
 const hierarchySessions = [
-  { ...sessions[0]!, sessionId: "parent-alpha", title: "Parent Alpha", status: "ready" },
+  { ...sessions[0]!, sessionId: "parent-alpha", name: "Parent Alpha" },
   sideThread("alpha-context", "parent-alpha", 1, "contextual"),
   sideThread("alpha-tangent", "parent-alpha", 2, "tangent"),
-  { ...sessions[0]!, sessionId: "parent-beta", title: "Parent Beta", status: "ready" },
+  { ...sessions[0]!, sessionId: "parent-beta", name: "Parent Beta" },
   sideThread("beta-context", "parent-beta", 1, "contextual"),
   sideThread("alpha-archived", "parent-alpha", 3, "contextual", "archived"),
 ];
@@ -64,14 +78,14 @@ function sideThread(
   parentSessionId: string,
   generation: number,
   mode: "contextual" | "tangent",
-  status = "ready",
+  placement: "active" | "archived" = "active",
 ) {
   return {
     ...sessions[0]!,
     sessionId,
-    title: `${mode} ${generation}`,
-    status,
-    relation: { kind: "side_thread" as const, parentSessionId, generation, mode },
+    name: `${mode} ${generation}`,
+    placement,
+    owner: { kind: "side_thread" as const, parentSessionId, generation },
   };
 }
 
@@ -128,6 +142,25 @@ describe("WorkbenchSessionRail browser contract", () => {
     await screen.unmount();
   });
 
+  it("pins the selected Administrator first without archive or close controls", async () => {
+    const screen = await render(
+      WorkbenchSessionRail,
+      props({
+        sessions: [sessions[0], administrator],
+        selectedSessionId: administrator.sessionId,
+      }),
+    );
+    const groups = [
+      ...screen.container.querySelectorAll<HTMLDetailsElement>("details.session-group"),
+    ];
+    expect(groups[0]?.textContent).toContain(messages.sessionTypes.administrator);
+    expect(
+      groups[0]?.querySelector('[data-session-id="workspace-1-administrator"]'),
+    ).not.toBeNull();
+    expect(groups[0]?.querySelector("form, button")).toBeNull();
+    await screen.unmount();
+  });
+
   it("keeps an orphan Side Thread diagnostic out of the link and control surfaces", async () => {
     const screen = await render(
       WorkbenchSessionRail,
@@ -177,7 +210,7 @@ describe("WorkbenchSessionRail browser contract", () => {
       const childLink = childRow?.querySelector<HTMLAnchorElement>("a.session-item");
       expect(childRow?.getAttribute("aria-level")).toBe("2");
       expect(childLink?.getAttribute("aria-label")).toContain(
-        "mode=contextual • generation=1 • status=ready",
+        "parent=parent-alpha • generation=1 • lifecycle=open • activity=idle",
       );
       expect(childLink?.getAttribute("href")).toBe("/spark/sessions/parent-alpha");
 

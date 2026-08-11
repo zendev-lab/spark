@@ -57,7 +57,7 @@ type TestSparkContext = {
 
 const projectRef = "proj:role-tui" as ProjectRef;
 const taskRef = "task:role-tui" as TaskRef;
-const roleRef = "role:builtin-worker" as RoleRef;
+const roleRef = "role:builtin-executor" as RoleRef;
 
 const theme: SparkWidgetTheme = {
   fg: (_color, text) => text,
@@ -166,7 +166,7 @@ test("Spark role-run TUI renderer produces bounded board and status summaries", 
 
   assert.equal(lines.length, 3);
   assert.match(lines.join("\n"), /Role runs \(failed=1/);
-  assert.match(lines.join("\n"), /worker @role-tui-task/);
+  assert.match(lines.join("\n"), /executor @role-tui-task/);
   assert.match(lines.join("\n"), /(tool edit|non-terminal)/);
 });
 
@@ -181,7 +181,7 @@ test("Spark role-run completion message renderer supports compact and expanded d
   const entry = snapshot.entries[0] as SparkRoleRunRegistryEntry;
 
   const compact = renderSparkRoleRunCompletionMessageLines(entry, { width: 120 }, theme).join("\n");
-  assert.match(compact, /worker completed run:cccccccc/);
+  assert.match(compact, /executor completed run:cccccccc/);
   assert.match(compact, /artifacts: evidence:trace/);
 
   const expanded = renderSparkRoleRunCompletionMessageLines(
@@ -193,7 +193,7 @@ test("Spark role-run completion message renderer supports compact and expanded d
   assert.match(expanded, /completed/);
 });
 
-test("Spark role-run TUI treats blocked workers as visible terminal results", () => {
+test("Spark role-run TUI treats blocked executors as visible terminal results", () => {
   const blocked = taskRun({
     ref: "run:dddddddd44444444" as RunRef,
     status: "blocked",
@@ -219,7 +219,7 @@ test("Spark role-run TUI treats blocked workers as visible terminal results", ()
   const completion = renderSparkRoleRunCompletionMessageLines(entry, { width: 120 }, theme).join(
     "\n",
   );
-  assert.match(completion, /worker blocked/u);
+  assert.match(completion, /executor blocked/u);
   assert.match(completion, /Authorization is required/u);
 });
 
@@ -379,7 +379,7 @@ test("Spark extension publishes role-run footer status, below-editor widget, and
 
     assert.equal(messages.length, 1);
     assert.equal(messages[0]?.customType, "spark-role-run-completion");
-    assert.match(messages[0]?.content ?? "", /worker completed: run:dddddddd/);
+    assert.match(messages[0]?.content ?? "", /executor completed: run:dddddddd/);
     assert.deepEqual(sendOptions[0], { deliverAs: "followUp", triggerTurn: true });
     const renderer = messageRenderers.get("spark-role-run-completion");
     assert.ok(renderer);

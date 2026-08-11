@@ -4,7 +4,7 @@ export interface ReproBuiltinWorkflowSpec {
   description: string;
   itemField: string;
   itemLabel: string;
-  workerRoleRef: string;
+  executorRoleRef: string;
   stages: string[];
   instructions: string[];
   mode?: "parallel" | "change-loop" | "delivery-sync";
@@ -23,7 +23,7 @@ export const reproBuiltinWorkflowSpecs: readonly ReproBuiltinWorkflowSpec[] = [
       "Execute a bounded stage-local safe work wave and independently review its evidence join; durable Project Task dispatch remains assign-owned",
     itemField: "tasks",
     itemLabel: "stage task",
-    workerRoleRef: RUNNER,
+    executorRoleRef: RUNNER,
     stages: ["Validate", "Execute wave", "Evidence join"],
     instructions: [
       "Treat every item as an already authorized safe-local unit inside one Project Task.",
@@ -38,7 +38,7 @@ export const reproBuiltinWorkflowSpecs: readonly ReproBuiltinWorkflowSpec[] = [
       "Run an isolated module experiment matrix concurrently and summarize exact, failed, and inconclusive cells",
     itemField: "experiments",
     itemLabel: "module experiment",
-    workerRoleRef: RUNNER,
+    executorRoleRef: RUNNER,
     stages: ["Validate", "Run matrix", "Summarize"],
     instructions: [
       "Use the real module code, declared shapes/layouts/dtypes, and immutable inputs.",
@@ -53,7 +53,7 @@ export const reproBuiltinWorkflowSpecs: readonly ReproBuiltinWorkflowSpec[] = [
       "Fan out bounded localization hypotheses, identify the last exact and first bad boundary, and require independent review",
     itemField: "hypotheses",
     itemLabel: "localization hypothesis",
-    workerRoleRef: LOCALIZER,
+    executorRoleRef: LOCALIZER,
     stages: ["Validate", "Localize", "Mechanism review"],
     instructions: [
       "Start from the same immutable failing run and accepted parent evidence.",
@@ -68,7 +68,7 @@ export const reproBuiltinWorkflowSpecs: readonly ReproBuiltinWorkflowSpec[] = [
       "Run one confirmed precision fix through implementation, build, formal regression, and independent review",
     itemField: "changes",
     itemLabel: "confirmed mechanism",
-    workerRoleRef: FIXER,
+    executorRoleRef: FIXER,
     stages: ["Validate", "Fix", "Build and regress", "Review"],
     instructions: [
       "Accept only mechanisms already confirmed by immutable evidence.",
@@ -84,7 +84,7 @@ export const reproBuiltinWorkflowSpecs: readonly ReproBuiltinWorkflowSpec[] = [
       "Run a bounded trajectory, locate first_bad_step, and expand detailed traces only around the failing step",
     itemField: "profiles",
     itemLabel: "trajectory profile",
-    workerRoleRef: RUNNER,
+    executorRoleRef: RUNNER,
     stages: ["Validate", "Run trajectory", "Localize first bad step"],
     instructions: [
       "Record loss, parameter, optimizer, RNG/data cursor, scheduler, and scaler hashes every step.",
@@ -99,7 +99,7 @@ export const reproBuiltinWorkflowSpecs: readonly ReproBuiltinWorkflowSpec[] = [
       "Qualify one TP, EP, PP, SP, CP, DP, or optimizer-sharding delta against a certified parent profile",
     itemField: "profiles",
     itemLabel: "axis candidate",
-    workerRoleRef: RUNNER,
+    executorRoleRef: RUNNER,
     stages: ["Validate parent", "Run sides", "Audit boundary"],
     instructions: [
       "Each candidate must cite a certified parent and change exactly one topology axis.",
@@ -114,7 +114,7 @@ export const reproBuiltinWorkflowSpecs: readonly ReproBuiltinWorkflowSpec[] = [
       "Compose independently qualified topology axes and validate H1 then Hshort before longer trajectories",
     itemField: "profiles",
     itemLabel: "composed topology",
-    workerRoleRef: RUNNER,
+    executorRoleRef: RUNNER,
     stages: ["Validate parents", "Compose", "Audit H1 and Hshort"],
     instructions: [
       "Require accepted evidence for every parent axis.",
@@ -129,7 +129,7 @@ export const reproBuiltinWorkflowSpecs: readonly ReproBuiltinWorkflowSpec[] = [
       "Independently review numerical, entrypoint, topology, provenance, resource, and report evidence lenses",
     itemField: "evidence",
     itemLabel: "evidence lens",
-    workerRoleRef: AUDITOR,
+    executorRoleRef: AUDITOR,
     stages: ["Validate", "Audit lenses", "Verdict"],
     instructions: [
       "Treat narration and generated reports as untrusted indexes.",
@@ -144,7 +144,7 @@ export const reproBuiltinWorkflowSpecs: readonly ReproBuiltinWorkflowSpec[] = [
       "Render deterministic managed report and Draft PR sections from accepted evidence without owning git or forge mutation",
     itemField: "updates",
     itemLabel: "delivery update",
-    workerRoleRef: AUDITOR,
+    executorRoleRef: AUDITOR,
     stages: ["Validate", "Render managed sections", "Record receipt"],
     instructions: [
       "Use only accepted canonical Project, TaskRun, evidence, commit, config, and PR refs.",
@@ -208,7 +208,7 @@ function reproWorkflowScript(spec: ReproBuiltinWorkflowSpec): string {
     stages: spec.stages,
     itemField: spec.itemField,
     itemLabel: spec.itemLabel,
-    workerRoleRef: spec.workerRoleRef,
+    executorRoleRef: spec.executorRoleRef,
     auditorRoleRef: AUDITOR,
     instructions: spec.instructions,
     mode: spec.mode ?? "parallel",
@@ -261,7 +261,7 @@ if (config.mode === 'change-loop') {
     compact({ contract, mechanism }, 12000),
   ].join('\\n'), {
     label: 'precision fix',
-    roleRef: config.workerRoleRef,
+    roleRef: config.executorRoleRef,
     isolation: input.graftBase ? 'graft' : undefined,
     timeoutMs: input.timeoutMs,
   })
@@ -305,7 +305,7 @@ const outputs = await parallel(items.map((item, index) => async () => {
       compact(item, 6000),
     ].join('\\n'), {
       label,
-      roleRef: config.workerRoleRef,
+      roleRef: config.executorRoleRef,
       timeoutMs: item && typeof item === 'object' ? item.timeoutMs : input.timeoutMs,
       env: item && typeof item === 'object' ? item.env : undefined,
     }),

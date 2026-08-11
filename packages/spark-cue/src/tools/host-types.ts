@@ -40,6 +40,7 @@ export interface SparkCueToolConfig {
   label?: string;
   description: string;
   policy?: ToolPolicy;
+  resolvePolicy?: (args: Readonly<Record<string, unknown>>) => ToolPolicy;
   /** Legacy mirrors populated from policy for Pi/current Spark turn hosts. */
   effect?: ToolEffect;
   executionMode?: ToolExecutionMode;

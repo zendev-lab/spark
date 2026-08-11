@@ -11,6 +11,7 @@ import { test } from "vitest";
 import { TaskGraph } from "@zendev-lab/spark-tasks";
 
 import type { HubCoordinationDaemonClientOptions } from "./coordination-daemon.ts";
+import { workspaceSessionRecord } from "../../../../test/support/session-fixtures.ts";
 import {
   handleSparkHubCliCommand,
   parseSparkHubCliArgs,
@@ -457,16 +458,14 @@ test("spark hub assign submits through the daemon RPC without a side assignment 
   const runtimeDir = join(root, "runtime");
   const submissions: unknown[] = [];
   const now = "2026-07-09T00:00:00.000Z";
-  const session = {
+  const session = workspaceSessionRecord({
     sessionId: "sess_cli_assign",
-    scope: { kind: "workspace" as const, workspaceId: "ws_cli" },
     workspaceId: "ws_cli",
-    title: "CLI assign",
-    status: "ready" as const,
-    bindings: [],
+    supervisorSessionId: "sess_administrator",
+    name: "CLI assign",
     createdAt: now,
     updatedAt: now,
-  };
+  });
   const daemonClient: HubCoordinationDaemonClientOptions = {
     runtimeDir,
     request: async (method, params) => {
@@ -487,7 +486,7 @@ test("spark hub assign submits through the daemon RPC without a side assignment 
       sessionId: session.sessionId,
       goal: "ship the assign path",
       title: "Ship assign",
-      role: "role:reviewer",
+      role: "role:builtin-reviewer",
       workspaceId: "ws_override",
     },
     { graph: new TaskGraph(), daemonClient },
@@ -503,7 +502,7 @@ test("spark hub assign submits through the daemon RPC without a side assignment 
         goal: "ship the assign path",
         target: {
           sessionId: "sess_cli_assign",
-          role: "role:reviewer",
+          role: "role:builtin-reviewer",
           workspaceId: "ws_override",
         },
         constraints: [],

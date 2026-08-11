@@ -89,7 +89,7 @@ describe("migrations", () => {
       "events_created_id_idx",
       "workspace_leases_one_active",
       "workspace_leases_one_active_per_runtime_binding",
-      "runtime_session_projections_scope_status_idx",
+      "runtime_session_projections_scope_lifecycle_idx",
       "runtime_invocation_projections_session_status_idx",
       "runtime_invocation_event_projections_cursor_idx",
       "runtime_channel_control_projections_workspace_idx",
@@ -106,6 +106,24 @@ describe("migrations", () => {
     ]) {
       expect(indexExists(db, index)?.name).toBe(index);
     }
+
+    const runtimeSessionSchema = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get("runtime_session_projections") as { sql: string };
+    for (const ownerKind of [
+      "workspace",
+      "session",
+      "side_thread",
+      "task_run",
+      "task_revision",
+      "workflow_run",
+      "driver",
+      "driver_tick",
+      "invocation",
+    ]) {
+      expect(runtimeSessionSchema.sql).toContain(`'${ownerKind}'`);
+    }
+    expect(runtimeSessionSchema.sql).not.toContain("'driver_generation'");
 
     const versions = db
       .prepare("SELECT version FROM schema_migrations ORDER BY version")
@@ -134,6 +152,7 @@ describe("migrations", () => {
       "0020",
       "0021",
       "0022",
+      "0023",
     ]);
 
     const bindingColumns = db
@@ -142,7 +161,8 @@ describe("migrations", () => {
       name: string;
     }>;
     expect(bindingColumns.map((column) => column.name)).toContain("local_path");
-    expect(bindingColumns.map((column) => column.name)).toContain("main_session_id");
+    expect(bindingColumns.map((column) => column.name)).toContain("administrator_session_id");
+    expect(bindingColumns.map((column) => column.name)).not.toContain("main_session_id");
     db.close();
   });
 
@@ -156,7 +176,7 @@ describe("migrations", () => {
       count: number;
     };
 
-    expect(migrationCount.count).toBe(22);
+    expect(migrationCount.count).toBe(23);
     db.close();
   });
 
@@ -510,6 +530,47 @@ describe("migrations", () => {
       .get("invocation_log_chunks") as { sql: string };
     expect(logSchema.sql).toContain("'assistant'");
     expect(logSchema.sql).toContain("'tool'");
+    db.close();
+  });
+
+  it("hard-cuts legacy builtin Role selectors in persisted Hub delegations", () => {
+    const db = openMemoryDatabase();
+    const migrations = loadMigrations();
+    migrate(
+      db,
+      migrations.filter((migration) => migration.version <= "0021"),
+    );
+    const now = "2026-08-04T00:00:00.000Z";
+    const insertWorkspace = db.prepare(
+      `INSERT INTO workspaces
+        (id, slug, name, status, settings_json, created_at, updated_at)
+       VALUES (?, ?, ?, 'active', '{}', ?, ?)`,
+    );
+    insertWorkspace.run("ws_source", "source", "Source", now, now);
+    insertWorkspace.run("ws_target", "target", "Target", now, now);
+    db.prepare(
+      `INSERT INTO workspace_delegations
+        (id, source_workspace_id, target_workspace_id, goal, requested_role,
+         actor_kind, actor_id, idempotency_key, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'hub_owner', 'hub', ?, 'queued', ?, ?)`,
+    ).run(
+      "deleg_legacy",
+      "ws_source",
+      "ws_target",
+      "Implement the approved change",
+      "role:builtin-worker",
+      "idem-legacy-role",
+      now,
+      now,
+    );
+
+    migrate(db, migrations);
+
+    expect(
+      db
+        .prepare("SELECT requested_role AS requestedRole FROM workspace_delegations WHERE id = ?")
+        .get("deleg_legacy"),
+    ).toEqual({ requestedRole: "role:builtin-executor" });
     db.close();
   });
 

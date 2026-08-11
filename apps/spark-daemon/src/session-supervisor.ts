@@ -3,11 +3,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import {
   sparkSessionCloseCandidateSchema,
   sparkSessionCloseReceiptSchema,
+  sparkSessionLifetimeForOwner,
   type SparkSessionCloseCandidate,
   type SparkSessionCloseReceipt,
-  type SparkSessionAuthority,
   type SparkSessionOwner,
-  type SparkSessionRegistryRecord,
+  type SparkSessionState,
   type SparkSessionRetention,
   type SparkSessionStateBinding,
   type SparkSessionVisibility,
@@ -18,6 +18,7 @@ import type { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import {
   SparkInvocationStore,
+  type SparkInvocationReceiptContext,
   type SparkInvocationRecord,
   type SparkInvocationPayloadRedactionResult,
 } from "./store/invocations.ts";
@@ -36,7 +37,16 @@ export interface InstantiateSupervisedSessionInput {
   transcriptRef?: string;
 }
 
+export interface InstantiateInvocationSessionInput extends Omit<
+  InstantiateSupervisedSessionInput,
+  "owner"
+> {
+  invocationId: string;
+  parentSessionId: string;
+}
+
 export interface InvokeSupervisedSessionInput {
+  invocationId?: string;
   sessionId: string;
   prompt: string;
   idempotencyKey?: string;
@@ -45,19 +55,22 @@ export interface InvokeSupervisedSessionInput {
   parentInvocationId?: string;
   structured?: boolean;
   model?: string;
-  roleSystemPrompt?: string;
-  roleAllowedTools?: string[];
   roleRunRef?: string;
   requireStructuredOutcome?: boolean;
   signal?: AbortSignal;
   now?: string;
+  receiptProfile?: Omit<
+    SparkInvocationReceiptContext,
+    "lifetime" | "ownerKind" | "authorizationSource"
+  > & {
+    authorizationSource: SparkInvocationReceiptContext["authorizationSource"];
+  };
 }
 
 export interface InstantiateOwnedContextInput {
   sessionId: string;
   parentSessionId: string;
   owner: SparkSessionOwner;
-  authority: SparkSessionAuthority;
   stateBinding: SparkSessionStateBinding;
   purpose: string;
   cwd?: string;
@@ -85,7 +98,7 @@ export interface SessionSupervisorOptions {
   invocations: SparkInvocationStore;
   scheduler?: Pick<SparkInvocationScheduler, "cancel" | "executeStructured">;
   deleteTranscript?: (path: string) => Promise<void>;
-  ownerExists?: (owner: SparkSessionOwner, session: SparkSessionRegistryRecord) => Promise<boolean>;
+  ownerExists?: (owner: SparkSessionOwner, session: SparkSessionState) => Promise<boolean>;
   resolveWorkspaceBindingId?: (workspaceId: string) => string | undefined;
 }
 
@@ -100,6 +113,7 @@ export class SessionSupervisor {
   private readonly deleteTranscript: NonNullable<SessionSupervisorOptions["deleteTranscript"]>;
   private readonly ownerExists?: SessionSupervisorOptions["ownerExists"];
   private readonly resolveWorkspaceBindingId?: SessionSupervisorOptions["resolveWorkspaceBindingId"];
+  private readonly reservedInvocationOwners = new Set<string>();
 
   constructor(options: SessionSupervisorOptions) {
     this.registry = options.registry;
@@ -117,21 +131,54 @@ export class SessionSupervisor {
     this.scheduler = scheduler;
   }
 
-  async ensureWorkspaceAdministrator(workspaceId: string): Promise<SparkSessionRegistryRecord> {
-    return await this.registry.ensureWorkspaceMain(workspaceId);
+  async ensureWorkspaceAdministrator(workspaceId: string): Promise<SparkSessionState> {
+    return await this.registry.ensureWorkspaceAdministrator(workspaceId);
   }
 
-  async instantiate(input: InstantiateSupervisedSessionInput): Promise<SparkSessionRegistryRecord> {
+  async instantiateInvocationSession(
+    input: InstantiateInvocationSessionInput,
+  ): Promise<SparkSessionState> {
+    const invocationId = required(input.invocationId, "invocationId");
+    if (
+      this.reservedInvocationOwners.has(invocationId) ||
+      this.invocations.getSummary(invocationId)
+    ) {
+      throw new SparkSessionRegistryError(
+        "session_owner_invalid",
+        `invocation owner ${invocationId} is already reserved`,
+      );
+    }
+    this.reservedInvocationOwners.add(invocationId);
+    try {
+      return await this.instantiate({
+        ...input,
+        owner: {
+          kind: "invocation",
+          invocationId,
+          supervisorSessionId: input.parentSessionId,
+        },
+      });
+    } finally {
+      this.reservedInvocationOwners.delete(invocationId);
+    }
+  }
+
+  async instantiate(input: InstantiateSupervisedSessionInput): Promise<SparkSessionState> {
     const workspaceId = required(input.workspaceId, "workspaceId");
     const purpose = required(input.purpose, "purpose");
     if (
       input.role.ref === "role:builtin-administrator" &&
-      input.role.instantiation === "persistent" &&
       !input.parentSessionId &&
       !input.owner &&
       !input.sessionId
     ) {
       return await this.ensureWorkspaceAdministrator(workspaceId);
+    }
+    if (input.role.ref === "role:builtin-administrator") {
+      throw new SparkSessionRegistryError(
+        "session_owner_invalid",
+        "Administrator Role can only instantiate the unique workspace-owned Administrator Session",
+      );
     }
 
     const parent = input.parentSessionId
@@ -146,50 +193,33 @@ export class SessionSupervisor {
       }
     }
     const owner =
-      input.owner ?? (parent ? ({ kind: "session", ref: parent.sessionId } as const) : undefined);
-    if (input.role.instantiation === "owned" && !owner) {
+      input.owner ??
+      (parent ? ({ kind: "session", supervisorSessionId: parent.sessionId } as const) : undefined);
+    if (!owner) {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
-        `owned Role ${input.role.ref} requires an owner`,
+        `Role ${input.role.ref} requires a typed Session owner`,
       );
     }
-    if (input.role.instantiation === "persistent" && owner && owner.kind !== "session") {
+    if (!(await this.isOwnerReferenceValid(owner, workspaceId, input.sessionId))) {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
-        `persistent Role ${input.role.ref} requires a Session owner`,
-      );
-    }
-    if (owner && !(await this.isOwnerReferenceValid(owner, workspaceId, input.sessionId))) {
-      throw new SparkSessionRegistryError(
-        "session_owner_invalid",
-        `owner ${owner.kind}:${owner.ref} is not active in workspace ${workspaceId}`,
+        `owner ${ownerIdentity(owner)} is not active in workspace ${workspaceId}`,
       );
     }
     return await this.registry.createSupervised({
       ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       scope: { kind: "workspace", workspaceId },
-      workspaceId,
       ...(input.cwd ? { cwd: input.cwd } : {}),
-      ...(input.title ? { title: input.title } : {}),
-      ...(input.role.ref === "role:builtin-administrator" ? {} : { role: input.role.id }),
-      roleRef: input.role.ref,
-      roleRevision: input.role.revision,
-      modelType: input.role.modelType,
-      lifetime: input.role.instantiation,
-      ...(owner ? { owner } : {}),
-      authority:
-        input.role.ref === "role:builtin-administrator"
-          ? { kind: "administrator", ref: input.role.ref }
-          : { kind: "role", ref: input.role.ref },
-      ...(parent
-        ? { stateBinding: { kind: "session" as const, ref: parent.sessionId } }
-        : input.sessionId
-          ? { stateBinding: { kind: "session" as const, ref: input.sessionId } }
-          : {}),
-      visibility:
-        input.visibility ?? (input.role.instantiation === "owned" ? "internal" : "public"),
-      retention:
-        input.retention ?? (input.role.instantiation === "owned" ? "discard_on_close" : "retain"),
+      ...(input.title ? { name: input.title } : {}),
+      roleBinding: { kind: "explicit", roleRef: input.role.ref },
+      owner,
+      stateBinding: {
+        kind: "session",
+        ref: parent?.sessionId ?? ownerSupervisorSessionId(owner) ?? input.sessionId ?? purpose,
+      },
+      visibility: input.visibility ?? "internal",
+      retention: input.retention ?? "discard_on_close",
       purpose,
       ...(input.transcriptRef ? { transcriptRef: input.transcriptRef } : {}),
     });
@@ -207,6 +237,7 @@ export class SessionSupervisor {
       throw new Error("structured Session invocation requires parentInvocationId");
     }
     const invocation = this.invocations.submit({
+      ...(input.invocationId ? { invocationId: input.invocationId } : {}),
       sessionId: session.sessionId,
       ...(workspaceBindingId ? { workspaceBindingId } : {}),
       prompt,
@@ -222,8 +253,6 @@ export class SessionSupervisor {
           : {}),
         ...(session.cwd ? { cwd: session.cwd } : {}),
         ...(input.model ? { model: input.model } : {}),
-        ...(input.roleSystemPrompt ? { roleSystemPrompt: input.roleSystemPrompt } : {}),
-        ...(input.roleAllowedTools ? { roleAllowedTools: input.roleAllowedTools } : {}),
         ...(input.roleRunRef ? { roleRunRef: input.roleRunRef } : {}),
         ...(input.requireStructuredOutcome !== undefined
           ? { requireStructuredOutcome: input.requireStructuredOutcome }
@@ -232,11 +261,26 @@ export class SessionSupervisor {
       },
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       sourceKind: input.sourceKind ?? "session.supervised",
-      sourceRef: input.sourceRef ?? session.roleRef ?? session.owner?.ref,
+      sourceRef:
+        input.sourceRef ??
+        (session.roleBinding.kind === "explicit"
+          ? session.roleBinding.roleRef
+          : ownerIdentity(session.owner)),
       ...(input.parentInvocationId ? { parentInvocationId: input.parentInvocationId } : {}),
       claimClass: structured ? "structured" : "root",
       ...(input.now ? { now: input.now } : {}),
     });
+    if (input.receiptProfile) {
+      this.invocations.recordReceiptContext(
+        invocation.invocationId,
+        {
+          lifetime: sparkSessionLifetimeForOwner(session.owner),
+          ownerKind: session.owner.kind,
+          ...input.receiptProfile,
+        },
+        input.now,
+      );
+    }
     if (!structured) return invocation;
     if (!this.scheduler) throw new Error("structured Session scheduler is unavailable");
     const cancelFromSignal = () =>
@@ -258,9 +302,7 @@ export class SessionSupervisor {
   }
 
   /** Instantiate a daemon-owned non-Role context under an open parent Session. */
-  async instantiateOwnedContext(
-    input: InstantiateOwnedContextInput,
-  ): Promise<SparkSessionRegistryRecord> {
+  async instantiateOwnedContext(input: InstantiateOwnedContextInput): Promise<SparkSessionState> {
     const sessionId = required(input.sessionId, "sessionId");
     const parent = await this.requireOpen(required(input.parentSessionId, "parentSessionId"));
     if (parent.scope.kind !== "workspace") {
@@ -275,9 +317,8 @@ export class SessionSupervisor {
         existing.lifecycle === "open" &&
         existing.scope.kind === "workspace" &&
         existing.scope.workspaceId === parent.scope.workspaceId &&
-        existing.owner?.kind === input.owner.kind &&
-        existing.owner.ref === input.owner.ref &&
-        existing.stateBinding?.kind === input.stateBinding.kind &&
+        ownerIdentity(existing.owner) === ownerIdentity(input.owner) &&
+        existing.stateBinding.kind === input.stateBinding.kind &&
         existing.stateBinding.ref === input.stateBinding.ref
       ) {
         return existing;
@@ -290,17 +331,14 @@ export class SessionSupervisor {
     if (!(await this.isOwnerReferenceValid(input.owner, parent.scope.workspaceId, sessionId))) {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
-        `owner ${input.owner.kind}:${input.owner.ref} is not active in workspace ${parent.scope.workspaceId}`,
+        `owner ${ownerIdentity(input.owner)} is not active in workspace ${parent.scope.workspaceId}`,
       );
     }
     return await this.registry.createSupervised({
       sessionId,
       scope: parent.scope,
-      workspaceId: parent.scope.workspaceId,
       ...((input.cwd ?? parent.cwd) ? { cwd: input.cwd ?? parent.cwd } : {}),
-      lifetime: "owned",
       owner: input.owner,
-      authority: input.authority,
       stateBinding: input.stateBinding,
       visibility: input.visibility ?? "internal",
       retention: input.retention ?? "discard_on_close",
@@ -308,35 +346,26 @@ export class SessionSupervisor {
     });
   }
 
-  async close(input: CloseSupervisedSessionInput): Promise<SparkSessionRegistryRecord> {
+  async close(input: CloseSupervisedSessionInput): Promise<SparkSessionState> {
     return await this.closeRecursive(input, new Set<string>());
   }
 
-  async restore(sessionId: string, now = new Date()): Promise<SparkSessionRegistryRecord> {
+  async restore(sessionId: string, now = new Date()): Promise<SparkSessionState> {
     const session = await this.require(sessionId);
     if (
-      session.lifecycle !== "closed" ||
-      session.status !== "archived" ||
-      session.lifetime !== "persistent" ||
-      session.visibility !== "public" ||
-      session.retention === "discard_on_close" ||
-      session.relation
+      session.lifecycle !== "open" ||
+      session.placement !== "archived" ||
+      session.owner.kind === "workspace"
     ) {
       throw new SparkSessionRegistryError(
         "session_restore_forbidden",
-        `session ${sessionId} does not retain a restorable public record`,
+        `session ${sessionId} is not an open archived scoped Session`,
       );
     }
     if (!(await this.isOwnerValid(session))) {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
         `session ${sessionId} owner is no longer valid`,
-      );
-    }
-    if (!this.registry.restore) {
-      throw new SparkSessionRegistryError(
-        "session_restore_forbidden",
-        "session restore is unavailable",
       );
     }
     return await this.registry.restore(sessionId, now);
@@ -361,7 +390,7 @@ export class SessionSupervisor {
     const closingSessionIds: string[] = [];
     const openSessionIds: string[] = [];
     for (const session of sessions) {
-      if (session.lifecycle === "closed" || session.status === "archived") {
+      if (session.lifecycle === "closed") {
         closedSessionIds.push(session.sessionId);
         continue;
       }
@@ -377,7 +406,10 @@ export class SessionSupervisor {
         );
         continue;
       }
-      if (session.lifetime === "owned" && !(await this.isOwnerValid(session))) {
+      if (
+        sparkSessionLifetimeForOwner(session.owner) !== "persistent" &&
+        !(await this.isOwnerValid(session))
+      ) {
         const closed = await this.close({
           sessionId: session.sessionId,
           reason: "orphaned owner",
@@ -397,7 +429,7 @@ export class SessionSupervisor {
   private async closeRecursive(
     input: CloseSupervisedSessionInput,
     visited: Set<string>,
-  ): Promise<SparkSessionRegistryRecord> {
+  ): Promise<SparkSessionState> {
     if (visited.has(input.sessionId)) {
       throw new SparkSessionRegistryError(
         "session_owner_invalid",
@@ -406,10 +438,10 @@ export class SessionSupervisor {
     }
     visited.add(input.sessionId);
     const current = await this.require(input.sessionId);
-    if (current.lifecycle === "closed" || current.status === "archived") return current;
-    if (current.relation?.kind === "workspace_main") {
+    if (current.lifecycle === "closed") return current;
+    if (current.owner.kind === "workspace") {
       throw new SparkSessionRegistryError(
-        "workspace_main_session_mutation_forbidden",
+        "workspace_administrator_session_mutation_forbidden",
         `workspace Administrator ${current.sessionId} cannot be closed`,
       );
     }
@@ -422,9 +454,7 @@ export class SessionSupervisor {
     const children = all.filter(
       (session) =>
         session.sessionId !== current.sessionId &&
-        ((session.owner?.kind === "session" && session.owner.ref === current.sessionId) ||
-          (session.relation?.kind === "side_thread" &&
-            session.relation.parentSessionId === current.sessionId)),
+        ownerSupervisorSessionId(session.owner) === current.sessionId,
     );
     for (const child of children) {
       const closedChild = await this.closeRecursive(
@@ -456,16 +486,13 @@ export class SessionSupervisor {
       discardTranscript: current.retention === "discard_on_close",
       ...(input.now ? { now: input.now } : {}),
     };
-    return current.relation?.kind === "side_thread"
-      ? await this.registry.archiveOwned(archiveInput)
-      : await this.registry.archive(archiveInput);
+    return await this.registry.archiveOwned(archiveInput);
   }
 
   private async prepareContentDiscard(
-    session: SparkSessionRegistryRecord,
+    session: SparkSessionState,
     input: CloseSupervisedSessionInput,
   ): Promise<SparkInvocationPayloadRedactionResult | undefined> {
-    if (session.retention !== "discard_on_close") return undefined;
     const now = input.now ?? new Date();
     const receipt = this.createCloseReceipt(session, input.completion, now);
     await this.registry.sealCloseReceipt({
@@ -475,6 +502,7 @@ export class SessionSupervisor {
       receipt,
       now,
     });
+    if (session.retention !== "discard_on_close") return undefined;
     let redaction = this.invocations.redactSessionPayloads(session.sessionId, {
       now: now.toISOString(),
     });
@@ -491,7 +519,7 @@ export class SessionSupervisor {
   }
 
   private createCloseReceipt(
-    session: SparkSessionRegistryRecord,
+    session: SparkSessionState,
     completion: SparkSessionCloseCandidate | undefined,
     now: Date,
   ): SparkSessionCloseReceipt {
@@ -548,7 +576,7 @@ export class SessionSupervisor {
 
   private candidateInvocationsBelongToSession(
     candidate: SparkSessionCloseCandidate,
-    session: SparkSessionRegistryRecord,
+    session: SparkSessionState,
   ): boolean {
     return candidate.sourceInvocationIds.every((invocationId) => {
       const invocation = this.invocations.getSummary(invocationId);
@@ -575,16 +603,18 @@ export class SessionSupervisor {
     }
   }
 
-  private async isOwnerValid(session: SparkSessionRegistryRecord): Promise<boolean> {
+  private async isOwnerValid(session: SparkSessionState): Promise<boolean> {
     const owner = session.owner;
-    if (!owner) return false;
-    if (owner.kind === "session") {
-      if (owner.ref === session.sessionId) return session.lifetime === "persistent";
-      const parent = await this.registry.get(owner.ref);
-      return Boolean(parent && parent.lifecycle === "open" && parent.status !== "archived");
+    if (owner.kind === "workspace") {
+      return sparkSessionLifetimeForOwner(session.owner) === "persistent";
     }
-    if (owner.kind === "role_call") {
-      const invocation = this.invocations.getSummary(owner.ref);
+    const supervisorId = ownerSupervisorSessionId(owner);
+    if (owner.kind === "session" || owner.kind === "side_thread") {
+      const parent = supervisorId ? await this.registry.get(supervisorId) : undefined;
+      return Boolean(parent && parent.lifecycle === "open" && parent.placement === "active");
+    }
+    if (owner.kind === "invocation") {
+      const invocation = this.invocations.getSummary(owner.invocationId);
       return invocation?.status === "queued" || invocation?.status === "running";
     }
     return (await this.ownerExists?.(owner, session)) ?? false;
@@ -595,44 +625,53 @@ export class SessionSupervisor {
     workspaceId: string,
     sessionId?: string,
   ): Promise<boolean> {
-    if (owner.kind === "session") {
-      const session = await this.registry.get(owner.ref);
+    if (owner.kind === "workspace") return owner.workspaceId === workspaceId;
+    const supervisorId = ownerSupervisorSessionId(owner);
+    if (owner.kind === "session" || owner.kind === "side_thread") {
+      const session = supervisorId ? await this.registry.get(supervisorId) : undefined;
       return Boolean(
         session &&
         session.lifecycle === "open" &&
-        session.status !== "archived" &&
+        session.placement === "active" &&
         session.scope.kind === "workspace" &&
         session.scope.workspaceId === workspaceId,
       );
     }
-    if (owner.kind === "role_call") {
-      const invocation = this.invocations.getSummary(owner.ref);
-      return invocation?.status === "queued" || invocation?.status === "running";
+    if (owner.kind === "invocation") {
+      const invocation = this.invocations.getSummary(owner.invocationId);
+      if (invocation) {
+        return invocation.status === "queued" || invocation.status === "running";
+      }
+      return this.reservedInvocationOwners.has(owner.invocationId);
     }
     if (!this.ownerExists) return false;
     return await this.ownerExists(owner, {
       sessionId: sessionId?.trim() || "session-owner-validation",
       scope: { kind: "workspace", workspaceId },
-      workspaceId,
-      status: "ready",
       lifecycle: "open",
-      lifetime: "owned",
+      placement: "active",
+      roleBinding: { kind: "none" },
+      incarnation: 1,
       owner,
+      stateBinding: { kind: "session", ref: supervisorId ?? "owner-validation" },
+      visibility: "internal",
+      retention: "discard_on_close",
+      purpose: "owner_validation",
       bindings: [],
       createdAt: new Date(0).toISOString(),
       updatedAt: new Date(0).toISOString(),
     });
   }
 
-  private async requireOpen(sessionId: string): Promise<SparkSessionRegistryRecord> {
+  private async requireOpen(sessionId: string): Promise<SparkSessionState> {
     const session = await this.require(sessionId);
-    if (session.lifecycle !== "open" || session.status === "archived") {
+    if (session.lifecycle !== "open" || session.placement === "archived") {
       throw new SparkSessionRegistryError("session_archived", `session ${sessionId} is not open`);
     }
     return session;
   }
 
-  private async require(sessionId: string): Promise<SparkSessionRegistryRecord> {
+  private async require(sessionId: string): Promise<SparkSessionState> {
     const session = await this.registry.get(sessionId);
     if (!session) {
       throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
@@ -655,6 +694,35 @@ function required(value: string, field: string): string {
   return normalized;
 }
 
+function ownerSupervisorSessionId(owner: SparkSessionOwner): string | undefined {
+  if (owner.kind === "workspace") return undefined;
+  if (owner.kind === "side_thread") return owner.parentSessionId;
+  return owner.supervisorSessionId;
+}
+
+function ownerIdentity(owner: SparkSessionOwner): string {
+  switch (owner.kind) {
+    case "workspace":
+      return `workspace:${owner.workspaceId}`;
+    case "session":
+      return `session:${owner.supervisorSessionId}`;
+    case "side_thread":
+      return `side_thread:${owner.parentSessionId}:${owner.generation}`;
+    case "invocation":
+      return `invocation:${owner.invocationId}`;
+    case "task_run":
+      return `task_run:${owner.runRef}`;
+    case "task_revision":
+      return `task_revision:${owner.revisionRef}`;
+    case "workflow_run":
+      return `workflow_run:${owner.workflowRef}:${owner.runRef}:${owner.generation}`;
+    case "driver":
+      return `driver:${owner.driverId}:${owner.generation}`;
+    case "driver_tick":
+      return `driver_tick:${owner.driverId}:${owner.generation}:${owner.tickInvocationId}`;
+  }
+}
+
 function isTerminalInvocation(invocation: SparkInvocationRecord): boolean {
   return invocation.status !== "queued" && invocation.status !== "running";
 }
@@ -668,7 +736,7 @@ function assistantText(result: unknown): string | undefined {
 }
 
 function fallbackCloseReceipt(
-  session: SparkSessionRegistryRecord,
+  session: SparkSessionState,
   terminal: SparkInvocationRecord[],
   now: Date,
 ): SparkSessionCloseReceipt {

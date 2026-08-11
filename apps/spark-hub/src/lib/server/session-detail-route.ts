@@ -63,7 +63,10 @@ export async function loadSessionPage(
         ? `${eventCursor.sequence}|${eventCursor.createdAt}|${eventCursor.id}`
         : `${eventCursor.createdAt}|${eventCursor.id}`
       : null,
-    canAssign: parentData.sessionControlAvailable && selected.status !== "archived",
+    canAssign:
+      parentData.sessionControlAvailable &&
+      selected.lifecycle === "open" &&
+      selected.placement === "active",
     modelControl,
     submissionId: createHubSubmissionId(),
     sessionActivity: loadSessionActivity(db, {

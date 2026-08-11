@@ -61,10 +61,15 @@ describe("Side Thread local-rpc oRPC integration", () => {
           { localPath: root },
         );
         expect(resolvedWorkspace.id).toBe(workspace.id);
+        const administrator = await sessionRegistry.ensureWorkspaceAdministrator(
+          resolvedWorkspace.id,
+        );
         await invokeSparkDaemonOrpcLiveMethod(handle.client, "session.create", {
           sessionId: "parent-session",
           scope: { kind: "workspace", workspaceId: resolvedWorkspace.id },
-          workspaceId: resolvedWorkspace.id,
+          supervisorSessionId: administrator.sessionId,
+          placement: "child",
+          roleBinding: { kind: "none" },
           cwd: root,
         });
 
@@ -101,7 +106,13 @@ describe("Side Thread local-rpc oRPC integration", () => {
         expect(await sessionRegistry.list()).toEqual(
           expect.arrayContaining([
             expect.objectContaining({ sessionId: "parent-session" }),
-            expect.objectContaining({ relation: { kind: "workspace_main", generation: 1 } }),
+            expect.objectContaining({
+              owner: { kind: "workspace", workspaceId: resolvedWorkspace.id },
+              roleBinding: {
+                kind: "explicit",
+                roleRef: "role:builtin-administrator",
+              },
+            }),
           ]),
         );
 
@@ -147,7 +158,7 @@ describe("Side Thread local-rpc oRPC integration", () => {
         expect(resetSideThread).toHaveBeenCalledTimes(1);
         await expect(sessionRegistry.get(ensured.sessionId)).resolves.toMatchObject({
           lifecycle: "closed",
-          status: "archived",
+          placement: "archived",
           closeReceipts: [expect.objectContaining({ incarnation: 1 })],
         });
 

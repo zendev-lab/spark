@@ -53,6 +53,7 @@ import type {
 
 export interface SparkAgentSessionRunOptions {
   sessionId: string;
+  lifetime?: "persistent";
   /** Daemon-authoritative transcript path; avoids guessing between generations. */
   sessionPath?: string;
   prompt: UserMessage["content"];
@@ -112,7 +113,7 @@ export interface SparkAgentSessionRunResult {
   assistantText: string;
   assistant?: AssistantMessage;
   outcome?: SparkRunOutcome;
-  sessionPersistence?: "persistent" | "anonymous";
+  sessionLifetime: "persistent";
 }
 
 export class SparkAgentSession {
@@ -346,7 +347,7 @@ export class SparkAgentSession {
       assistantText: assistantMessageToFinalAnswerText(assistant),
       assistant,
       outcome,
-      sessionPersistence: "persistent",
+      sessionLifetime: "persistent",
     };
   }
 

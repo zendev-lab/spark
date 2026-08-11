@@ -8,6 +8,7 @@ import {
   startProviderOAuthForHub,
   type HubModelControlClient,
 } from "./model-control";
+import { workspaceSessionRecord } from "../../../../../test/support/session-fixtures.ts";
 
 const model = { providerName: "baidu-oneapi", modelId: "ernie-4.5" };
 
@@ -18,13 +19,14 @@ describe("Hub model control adapter", () => {
       async request(method, params) {
         calls.push({ method, params });
         if (method === "session.model.set") {
-          return {
+          return workspaceSessionRecord({
             sessionId: "sess_demo",
             workspaceId: "ws_demo",
+            supervisorSessionId: "sess_administrator",
             model,
             createdAt: "2026-07-10T00:00:00.000Z",
             updatedAt: "2026-07-10T00:01:00.000Z",
-          };
+          });
         }
         return {
           providers: [],

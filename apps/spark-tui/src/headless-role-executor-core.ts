@@ -2,7 +2,6 @@ import type {
   SparkHeadlessTokenUsageContext,
   SparkHeadlessUserContent,
 } from "@zendev-lab/spark-host/headless-loader";
-import { rm } from "node:fs/promises";
 import {
   assistantMessageToText,
   classifyProviderFailure,
@@ -50,8 +49,10 @@ export interface SparkHeadlessRoleInstructionInput {
   role: {
     ref: RoleRef;
     id: string;
+    revision: string;
     systemPrompt: string;
     allowedTools?: string[];
+    allowedToolEffects?: ToolEffect[];
   };
   instruction: {
     roleRef: RoleRef;
@@ -61,17 +62,13 @@ export interface SparkHeadlessRoleInstructionInput {
   record: {
     ref: RunRef;
     roleRef: RoleRef;
+    roleRevision: string;
     runName?: string;
     instruction: string;
     status: SparkHeadlessRoleRunStatus;
     startedAt?: string;
     finishedAt?: string;
-    launch?: "fresh" | "forked";
     model?: string;
-    sessionDir?: string;
-    forkFromSession?: string;
-    noSession?: boolean;
-    sessionPersistence?: "anonymous" | "persistent";
     outcome?: RoleRunCompletionOutcome;
   };
   cwd: string;
@@ -84,8 +81,6 @@ export interface SparkHeadlessRoleInstructionInput {
   launch?: "fresh" | "forked";
   forkFromSession?: string;
   model?: string;
-  noSession?: boolean;
-  sessionPersistence?: "anonymous" | "persistent";
   nativeCompatibilityRecovery?: "reviewer";
   onEvent?: (event: unknown) => void | Promise<void>;
   inputControl?: ExtensionRoleRunInputControl;
@@ -228,7 +223,9 @@ export async function runSparkHeadlessSession(
       ? [...new Set([...(input.allowedTools ?? []), "role_report_outcome"])]
       : input.allowedTools,
     roleRunner: input.roleRunner,
-    allowedToolEffects: input.allowedToolEffects,
+    allowedToolEffects: input.roleRunRef
+      ? [...new Set([...(input.allowedToolEffects ?? []), "control" as const])]
+      : input.allowedToolEffects,
     sessionMode: input.mode,
     hasUI: false,
     ...(input.interaction
@@ -345,16 +342,10 @@ export async function runSparkHeadlessRoleInstruction(
   options: SparkHeadlessRoleExecutorOptions,
 ): Promise<SparkHeadlessRoleInstructionResult> {
   throwIfHeadlessAborted(input.signal);
-  const launch = input.launch ?? input.record.launch ?? "fresh";
-  const forkFromSession = input.forkFromSession ?? input.record.forkFromSession;
-  const noSession = input.noSession === true || input.record.noSession === true;
+  const launch = input.launch ?? "fresh";
+  const forkFromSession = input.forkFromSession;
   if (launch === "forked" && !forkFromSession?.trim()) {
     throw new Error("Spark daemon-native forked role execution requires forkFromSession");
-  }
-  if (noSession && launch === "forked") {
-    throw new Error(
-      "Spark daemon-native anonymous role execution does not support forked sessions",
-    );
   }
   const startedAt = input.record.startedAt ?? new Date().toISOString();
   const jsonEvents: unknown[] = [];
@@ -372,6 +363,7 @@ export async function runSparkHeadlessRoleInstruction(
       approvalMethod: "auto",
       sessionMode: input.mode ?? "execute",
       tokenUsage: options.tokenUsage,
+      allowedToolEffects: input.role.allowedToolEffects,
       roleNativeCompatibilityRecovery: {
         sparkHome: options.sparkHome,
         controlSparkHome: options.controlSparkHome,
@@ -385,12 +377,7 @@ export async function runSparkHeadlessRoleInstruction(
     ) {
       throw error;
     }
-    return incompatibleNativeRoleExecutorResult(input, {
-      startedAt,
-      launch,
-      noSession,
-      forkFromSession,
-    });
+    return incompatibleNativeRoleExecutorResult(input, { startedAt });
   }
   let primaryError: unknown;
   try {
@@ -421,11 +408,7 @@ export async function runSparkHeadlessRoleInstruction(
             outcome,
             startedAt,
             finishedAt: new Date().toISOString(),
-            launch,
             model: input.model.trim(),
-            ...(noSession
-              ? { noSession: true, sessionPersistence: "anonymous" as const }
-              : { sessionPersistence: "persistent" as const }),
           },
           outcome,
           stdout: "",
@@ -464,6 +447,7 @@ export async function runSparkHeadlessRoleInstruction(
       const session = new SparkAgentSession(services);
       const sessionRunInput = {
         sessionId: headlessSessionId(input),
+        lifetime: "persistent" as const,
         prompt: input.instruction.instruction,
         reset: true,
         ...(launch === "forked" && forkFromSession ? { forkFromSession } : {}),
@@ -474,10 +458,6 @@ export async function runSparkHeadlessRoleInstruction(
         input.timeoutMs,
         abort,
       );
-      // `noSession` is a decode-only compatibility marker. Compatibility
-      // executors still use the normal Session path, then enforce discard
-      // retention before returning the legacy RoleRun projection.
-      if (noSession && result.sessionPath) await rm(result.sessionPath, { force: true });
       const outcome = completionOutcomeForRun(
         result.outcome,
         result.assistant,
@@ -493,13 +473,7 @@ export async function runSparkHeadlessRoleInstruction(
           outcome,
           startedAt,
           finishedAt: new Date().toISOString(),
-          launch,
           model: input.model,
-          ...(noSession ? {} : { sessionDir: services.sessionStore.sessionDir }),
-          ...(launch === "forked" && forkFromSession ? { forkFromSession } : {}),
-          ...(noSession
-            ? { noSession: true, sessionPersistence: "anonymous" as const }
-            : { sessionPersistence: "persistent" as const }),
         },
         outcome,
         stdout: result.assistantText,
@@ -514,12 +488,7 @@ export async function runSparkHeadlessRoleInstruction(
         input.nativeCompatibilityRecovery === "reviewer" &&
         isRoleNativeExecutorCompatibilityError(error)
       ) {
-        return incompatibleNativeRoleExecutorResult(input, {
-          startedAt,
-          launch,
-          noSession,
-          forkFromSession,
-        });
+        return incompatibleNativeRoleExecutorResult(input, { startedAt });
       }
       const outcome = aborted
         ? cancelledRoleRunOutcome(abortReason(input.signal))
@@ -531,12 +500,7 @@ export async function runSparkHeadlessRoleInstruction(
           outcome,
           startedAt,
           finishedAt: new Date().toISOString(),
-          launch,
           model: input.model,
-          ...(launch === "forked" && forkFromSession ? { forkFromSession } : {}),
-          ...(noSession
-            ? { noSession: true, sessionPersistence: "anonymous" as const }
-            : { sessionPersistence: "persistent" as const }),
         },
         outcome,
         stdout: "",
@@ -679,9 +643,6 @@ function incompatibleNativeRoleExecutorResult(
   input: SparkHeadlessRoleInstructionInput,
   state: {
     startedAt: string;
-    launch: "fresh" | "forked";
-    noSession: boolean;
-    forkFromSession?: string;
   },
 ): SparkHeadlessRoleInstructionResult {
   const outcome = failedRoleRunOutcome(
@@ -695,14 +656,7 @@ function incompatibleNativeRoleExecutorResult(
       outcome,
       startedAt: state.startedAt,
       finishedAt: new Date().toISOString(),
-      launch: state.launch,
       model: input.model,
-      ...(state.launch === "forked" && state.forkFromSession
-        ? { forkFromSession: state.forkFromSession }
-        : {}),
-      ...(state.noSession
-        ? { noSession: true, sessionPersistence: "anonymous" as const }
-        : { sessionPersistence: "persistent" as const }),
     },
     outcome,
     stdout: "",
@@ -802,7 +756,7 @@ function registerRoleOutcomeTool(
       additionalProperties: false,
     },
     policy: {
-      effect: "local_write",
+      effect: "control",
       executionMode: "sequential",
       modes: ["execute"],
       approval: "none",

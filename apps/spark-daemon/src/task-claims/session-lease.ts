@@ -26,39 +26,62 @@ export async function acquireDaemonSessionLease(input: {
   onHeartbeatError?: (error: unknown) => void;
 }): Promise<DaemonSessionLeaseHandle | undefined> {
   const session = await input.sessionRegistry.get(input.task.sessionId);
-  if (!session) return undefined;
+  if (!session || !isManagedExecutionOwner(session.owner.kind)) return undefined;
 
-  const workspaceId = session.workspaceId?.trim();
-  if (!workspaceId) {
-    if (session.relation?.kind === "task_execution" || input.task.workspaceId) {
-      throw new Error(`Daemon Session ${input.task.sessionId} has no workspace owner.`);
-    }
-    return undefined;
+  if (session.scope.kind !== "workspace") {
+    throw new Error(`Managed Task Session ${input.task.sessionId} has no workspace owner.`);
   }
+  const workspaceId = session.scope.workspaceId;
   if (input.task.workspaceId && input.task.workspaceId !== workspaceId) {
     throw new Error(
       `Daemon Session ${input.task.sessionId} workspace mismatch: ${input.task.workspaceId} != ${workspaceId}.`,
     );
   }
 
-  const managedTaskRelation =
-    session.relation?.kind === "task_execution" ? session.relation : undefined;
-  // Owned execution Sessions mutate durable Task/Repro state through their
-  // explicit state binding. Fence that persistent owner rather than the
-  // disposable execution Session so host context and daemon authority agree.
-  const stateBindingSessionId =
-    session.stateBinding?.kind === "session" ? session.stateBinding.ref : input.task.sessionId;
+  // Daemon-owned execution Sessions mutate durable Task/Repro state through
+  // their explicit persistent Administrator owner. Fence that state owner,
+  // never the disposable execution Session, so host context and daemon
+  // authority agree and a malformed binding cannot mint a lease.
+  if (session.stateBinding?.kind !== "session") {
+    throw new Error(`Managed Session ${input.task.sessionId} has no Session state binding.`);
+  }
+  const stateBindingSessionId = session.stateBinding.ref;
+  const stateOwner = await input.sessionRegistry.get(stateBindingSessionId);
+  if (
+    !stateOwner ||
+    stateOwner.owner.kind !== "workspace" ||
+    stateOwner.owner.workspaceId !== workspaceId ||
+    stateOwner.scope.kind !== "workspace" ||
+    stateOwner.scope.workspaceId !== workspaceId ||
+    stateOwner.lifecycle !== "open" ||
+    stateOwner.placement !== "active" ||
+    stateOwner.roleBinding.kind !== "explicit" ||
+    stateOwner.roleBinding.roleRef !== "role:builtin-administrator"
+  ) {
+    throw new Error(
+      `Managed Session ${input.task.sessionId} state binding is not the open Workspace Administrator.`,
+    );
+  }
   const sessionId = sparkSessionKey({ sessionId: stateBindingSessionId });
   const client = attachWorkspaceClient(input.db, {
     workspaceId,
     kind: "interactive",
-    displayName: managedTaskRelation ? "Managed Task Session" : "Daemon Session",
+    displayName: "Managed execution Session",
     sessionId,
     leaseTtlMs: DAEMON_SESSION_LEASE_TTL_MS,
     metadata: {
-      purpose: managedTaskRelation ? "managed_task_session" : "daemon_session",
+      purpose: "managed_execution_session",
+      ownerKind: session.owner.kind,
       invocationId: input.context.invocationId,
-      ...(managedTaskRelation ? { taskRef: managedTaskRelation.taskRef } : {}),
+      ...(session.owner.kind === "task_run" || session.owner.kind === "task_revision"
+        ? { taskRef: session.owner.taskRef }
+        : {}),
+      ...(session.owner.kind === "driver" || session.owner.kind === "driver_tick"
+        ? { driverId: session.owner.driverId, generation: session.owner.generation }
+        : {}),
+      ...(session.owner.kind === "workflow_run"
+        ? { workflowRef: session.owner.workflowRef, runRef: session.owner.runRef }
+        : {}),
     },
   });
   if (!client.leaseFence) {
@@ -98,4 +121,16 @@ export async function acquireDaemonSessionLease(input: {
       });
     },
   };
+}
+
+function isManagedExecutionOwner(
+  kind: string,
+): kind is "task_run" | "task_revision" | "workflow_run" | "driver" | "driver_tick" {
+  return (
+    kind === "task_run" ||
+    kind === "task_revision" ||
+    kind === "workflow_run" ||
+    kind === "driver" ||
+    kind === "driver_tick"
+  );
 }

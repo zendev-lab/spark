@@ -20,7 +20,7 @@ import {
   type SparkAuthImportReport,
   type SparkModelControlSnapshot,
   type SparkModelRef,
-  type SparkSessionRegistryRecord,
+  type SparkSessionState,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
 import { resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
@@ -135,6 +135,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
       daemonCwd: root,
       resolveWorkspaceCwd: (workspaceId) => (workspaceId === hubWorkspace.id ? root : undefined),
     });
+    const administrator = await registry.ensureWorkspaceAdministrator(hubWorkspace.id);
     const credentialTargets = {
       provider: join(daemonHome, "credentials", "provider.key"),
       oauth: join(daemonHome, "credentials", "oauth.response"),
@@ -244,8 +245,8 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
     await createHubRuntimeSessionClient(hubDb).create({
       sessionId: workspaceSessionId,
       scope: { kind: "workspace", workspaceId: hubWorkspace.id },
-      workspaceId: hubWorkspace.id,
-      title: "Remote model session",
+      supervisorSessionId: administrator.sessionId,
+      name: "Remote model session",
     });
     const action = async (payload: Record<string, unknown>) =>
       await httpsJson(`${origin}/control`, payload, {
@@ -476,17 +477,14 @@ class FixtureModelControl implements SparkDaemonModelControl {
     return await this.snapshot();
   }
 
-  async setSessionModel(
-    sessionId: string,
-    selected: SparkModelRef,
-  ): Promise<SparkSessionRegistryRecord> {
+  async setSessionModel(sessionId: string, selected: SparkModelRef): Promise<SparkSessionState> {
     return await this.registry.setModel(sessionId, selected);
   }
 
   async setSessionThinkingLevel(
     sessionId: string,
     thinkingLevel: SparkThinkingLevel,
-  ): Promise<SparkSessionRegistryRecord> {
+  ): Promise<SparkSessionState> {
     return await this.registry.setThinkingLevel(sessionId, thinkingLevel);
   }
 

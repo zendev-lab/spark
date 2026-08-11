@@ -32,12 +32,14 @@ describe("SparkInvocationStore", () => {
       });
       expect(store.sessionActivity("session-active")).toEqual({
         active: true,
+        activity: "queued",
         updatedAt: "2026-07-15T00:00:00.000Z",
       });
 
       store.claimNext("worker", "2026-07-15T00:00:01.000Z");
       expect(store.sessionActivity("session-active")).toEqual({
         active: true,
+        activity: "running",
         updatedAt: "2026-07-15T00:00:01.000Z",
       });
 
@@ -47,9 +49,13 @@ describe("SparkInvocationStore", () => {
       });
       expect(store.sessionActivity("session-active")).toEqual({
         active: false,
+        activity: "idle",
         updatedAt: "2026-07-15T00:00:02.000Z",
       });
-      expect(store.sessionActivity("session-missing")).toEqual({ active: false });
+      expect(store.sessionActivity("session-missing")).toEqual({
+        active: false,
+        activity: "idle",
+      });
       expect(
         Object.fromEntries(
           store.sessionActivities(["session-active", "session-missing", "session-active"]),
@@ -57,9 +63,10 @@ describe("SparkInvocationStore", () => {
       ).toEqual({
         "session-active": {
           active: false,
+          activity: "idle",
           updatedAt: "2026-07-15T00:00:02.000Z",
         },
-        "session-missing": { active: false },
+        "session-missing": { active: false, activity: "idle" },
       });
       expect(store.sessionActivities([])).toEqual(new Map());
     } finally {

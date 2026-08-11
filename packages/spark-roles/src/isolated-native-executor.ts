@@ -26,8 +26,6 @@ interface IsolatedExecutorRequest {
   launch?: ExtensionRoleRunRequest["launch"];
   forkFromSession?: string;
   model?: string;
-  noSession?: boolean;
-  sessionPersistence?: ExtensionRoleRunRequest["sessionPersistence"];
   nativeCompatibilityRecovery?: "reviewer";
 }
 
@@ -180,8 +178,12 @@ export function serializeIsolatedExecutorRequest(
     role: {
       ref: request.role.ref,
       id: request.role.id,
+      revision: request.role.revision,
       systemPrompt: request.role.systemPrompt,
       allowedTools: request.role.allowedTools ? [...request.role.allowedTools] : undefined,
+      allowedToolEffects: request.role.allowedToolEffects
+        ? [...request.role.allowedToolEffects]
+        : undefined,
     },
     instruction: {
       roleRef: request.instruction.roleRef,
@@ -198,8 +200,6 @@ export function serializeIsolatedExecutorRequest(
     launch: request.launch,
     forkFromSession: request.forkFromSession,
     model: request.model,
-    noSession: request.noSession,
-    sessionPersistence: request.sessionPersistence,
     nativeCompatibilityRecovery: request.nativeCompatibilityRecovery,
   };
 }
@@ -258,6 +258,7 @@ function isRoleRunRecord(value: unknown): value is ExtensionRoleRunResult["recor
     !hasOnlyKeys(value, [
       "ref",
       "roleRef",
+      "roleRevision",
       "runName",
       "instruction",
       "status",
@@ -267,14 +268,13 @@ function isRoleRunRecord(value: unknown): value is ExtensionRoleRunResult["recor
       "model",
       "sessionDir",
       "forkFromSession",
-      "noSession",
-      "sessionPersistence",
       "outcome",
     ])
   )
     return false;
   if (typeof value.ref !== "string" || !value.ref.startsWith("run:")) return false;
   if (typeof value.roleRef !== "string" || !value.roleRef.startsWith("role:")) return false;
+  if (typeof value.roleRevision !== "string" || !value.roleRevision.trim()) return false;
   if (typeof value.instruction !== "string" || !isRoleRunStatus(value.status)) return false;
   for (const field of [
     "runName",
@@ -289,13 +289,6 @@ function isRoleRunRecord(value: unknown): value is ExtensionRoleRunResult["recor
   if (value.launch !== undefined && value.launch !== "fresh" && value.launch !== "forked") {
     return false;
   }
-  if (value.noSession !== undefined && typeof value.noSession !== "boolean") return false;
-  if (
-    value.sessionPersistence !== undefined &&
-    value.sessionPersistence !== "anonymous" &&
-    value.sessionPersistence !== "persistent"
-  )
-    return false;
   return value.outcome === undefined || isRoleRunOutcome(value.outcome);
 }
 

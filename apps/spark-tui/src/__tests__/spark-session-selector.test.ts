@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 
-import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
+import type { SparkSessionProjection } from "@zendev-lab/spark-protocol";
 import { visibleWidth } from "@zendev-lab/spark-tui-adapter/text";
 import type { Component } from "../tui/pi-tui-adapter.ts";
 import {
@@ -43,137 +43,101 @@ const workspaces: SparkSessionSelectorWorkspace[] = [
   },
 ];
 
-const sessions: SparkSessionRegistryRecord[] = [
+const sessions: SparkSessionProjection[] = [
   {
-    sessionId: "session-recent",
-    title: "Recent conversation",
-    scope: { kind: "workspace", workspaceId: "workspace-1" },
-    workspaceId: "workspace-1",
-    status: "ready",
+    ...sessionRecord("session-recent", "Recent conversation", "2026-07-13T01:00:00.000Z"),
     model: { providerName: "openai", modelId: "gpt-5" },
     thinkingLevel: "high",
-    bindings: [],
-    createdAt: "2026-07-13T00:00:00.000Z",
-    updatedAt: "2026-07-13T01:00:00.000Z",
   },
 ];
 
-const untitledSession: SparkSessionRegistryRecord = {
-  sessionId: "session-untitled",
-  scope: { kind: "workspace", workspaceId: "workspace-1" },
-  workspaceId: "workspace-1",
-  status: "ready",
-  bindings: [],
-  createdAt: "2026-07-13T00:00:00.000Z",
-  updatedAt: "2026-07-13T02:00:00.000Z",
+const untitledSession = sessionRecord("session-untitled", undefined, "2026-07-13T02:00:00.000Z");
+
+const archivedSession = {
+  ...sessionRecord("session-archived", "Archived conversation", "2026-07-12T01:00:00.000Z"),
+  placement: "archived" as const,
 };
 
-const archivedSession: SparkSessionRegistryRecord = {
-  sessionId: "session-archived",
-  title: "Archived conversation",
-  scope: { kind: "workspace", workspaceId: "workspace-1" },
-  workspaceId: "workspace-1",
-  status: "archived",
-  bindings: [],
-  createdAt: "2026-07-12T00:00:00.000Z",
-  updatedAt: "2026-07-12T01:00:00.000Z",
-};
-
-const channelBindingSession: SparkSessionRegistryRecord = {
-  sessionId: "session-channel-bound",
-  title: "Ops room",
-  scope: { kind: "workspace", workspaceId: "workspace-1" },
-  workspaceId: "workspace-1",
-  status: "ready",
+const channelBindingSession: SparkSessionProjection = {
+  ...sessionRecord("session-channel-bound", "Ops room", "2026-07-13T02:00:00.000Z"),
   bindings: [{ kind: "channel", adapter: "feishu", externalKey: "feishu:chat:oc_ops" }],
-  createdAt: "2026-07-13T00:00:00.000Z",
-  updatedAt: "2026-07-13T02:00:00.000Z",
 };
 
-const channelTitleSession: SparkSessionRegistryRecord = {
-  sessionId: "session-channel-title",
-  title: "channel qqbot:c2c:398418FB5E7F1C597DFFD117597D6500",
-  scope: { kind: "workspace", workspaceId: "workspace-1" },
-  workspaceId: "workspace-1",
-  status: "ready",
-  bindings: [],
-  createdAt: "2026-07-13T00:00:00.000Z",
-  updatedAt: "2026-07-13T02:00:00.000Z",
-};
+const channelTitleSession = sessionRecord(
+  "session-channel-title",
+  "channel qqbot:c2c:398418FB5E7F1C597DFFD117597D6500",
+  "2026-07-13T02:00:00.000Z",
+);
 
-const otherWorkspaceSession: SparkSessionRegistryRecord = {
-  sessionId: "session-other-workspace",
-  title: "Other workspace",
+const otherWorkspaceSession: SparkSessionProjection = {
+  ...sessionRecord("session-other-workspace", "Other workspace", "2026-07-13T03:00:00.000Z"),
   scope: { kind: "workspace", workspaceId: "workspace-2" },
-  workspaceId: "workspace-2",
+  owner: { kind: "session", supervisorSessionId: "administrator:workspace-2" },
   cwd: "/workspace/other",
-  status: "running",
-  bindings: [],
-  createdAt: "2026-07-13T00:00:00.000Z",
-  updatedAt: "2026-07-13T03:00:00.000Z",
+  activity: "running",
 };
 
-const legacyWorkspaceSession: SparkSessionRegistryRecord = {
-  sessionId: "session-legacy-workspace",
-  title: "Legacy workspace",
+const legacyWorkspaceSession: SparkSessionProjection = {
+  ...sessionRecord("session-legacy-workspace", "Legacy workspace", "2026-07-13T03:30:00.000Z"),
   scope: { kind: "workspace", workspaceId: "spark" },
-  workspaceId: "spark",
+  owner: { kind: "session", supervisorSessionId: "administrator:spark" },
   cwd: "/workspace/spark",
-  status: "ready",
-  bindings: [],
-  createdAt: "2026-07-13T00:00:00.000Z",
-  updatedAt: "2026-07-13T03:30:00.000Z",
 };
 
-const taskExecutionSession: SparkSessionRegistryRecord = {
-  sessionId: "session-task-worker",
-  title: "role:builtin-worker",
-  role: "role:builtin-worker",
-  scope: { kind: "workspace", workspaceId: "workspace-1" },
-  workspaceId: "workspace-1",
-  status: "ready",
-  bindings: [],
-  relation: {
-    kind: "task_execution",
-    ownerSessionId: "session-recent",
+const taskExecutionSession: SparkSessionProjection = {
+  ...sessionRecord("session-task-worker", undefined, "2026-07-13T04:00:00.000Z"),
+  roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+  owner: {
+    kind: "task_run",
+    supervisorSessionId: "session-recent",
     projectRef: "proj:demo",
     taskRef: "task:demo",
     runRef: "run:demo",
     sessionGoalId: "goal-demo",
-    roleRef: "role:builtin-worker",
+    roleRef: "role:builtin-executor",
     jobId: "job-demo",
     attempt: 1,
   },
-  createdAt: "2026-07-13T00:00:00.000Z",
-  updatedAt: "2026-07-13T04:00:00.000Z",
 };
 
-const fleetWorkerSession: SparkSessionRegistryRecord = {
-  sessionId: "session-fleet-worker",
-  role: "role:executor",
-  scope: { kind: "workspace", workspaceId: "workspace-1" },
-  workspaceId: "workspace-1",
-  status: "ready",
-  bindings: [],
-  relation: {
-    kind: "fleet_worker",
+const fleetWorkerSession: SparkSessionProjection = {
+  ...sessionRecord("session-fleet-worker", undefined, "2026-07-13T04:00:00.000Z"),
+  roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+  owner: { kind: "session", supervisorSessionId: "session-recent" },
+  stateBinding: { kind: "session", ref: "session-recent" },
+  visibility: "internal",
+  retention: "retain",
+  purpose: "fleet_worker",
+  fleetWorker: {
     ownerSessionId: "session-recent",
     projectRef: "proj:demo",
-    roleRef: "role:executor",
+    roleRef: "role:builtin-executor",
     laneKey: "fleet:lane",
     primaryArtifactRef: "artifact:repo",
     writableArtifactRefs: ["artifact:repo"],
   },
-  createdAt: "2026-07-13T00:00:00.000Z",
-  updatedAt: "2026-07-13T04:00:00.000Z",
 };
 
-const daemonSession: SparkSessionRegistryRecord = {
+const daemonSession: SparkSessionProjection = {
   sessionId: "session-daemon",
-  title: "Daemon conversation",
+  name: "Daemon conversation",
   scope: { kind: "daemon", daemonId: "daemon-1" },
   cwd: "/daemon",
-  status: "ready",
+  lifecycle: "closed",
+  placement: "active",
+  activity: "idle",
+  roleBinding: { kind: "none" },
+  incarnation: 1,
+  owner: {
+    kind: "invocation",
+    invocationId: "migration:session-daemon",
+    supervisorSessionId: "migration:closed-daemon-audit",
+  },
+  stateBinding: { kind: "session", ref: "migration:closed-daemon-audit" },
+  visibility: "internal",
+  retention: "audit",
+  purpose: "migration_audit",
+  lifetime: "ephemeral",
   bindings: [],
   createdAt: "2026-07-13T00:00:00.000Z",
   updatedAt: "2026-07-13T04:00:00.000Z",
@@ -261,8 +225,8 @@ test("Spark session selector uses the Hub fallback for untitled sessions", () =>
 
 test("Spark session selector hides internal task execution sessions and leaked builtin RoleRefs", () => {
   const legacyRoleSession = {
-    ...sessionRecord("technical-role", "role:builtin-worker", "2026-07-20T06:00:00.000Z"),
-    role: "role:builtin-worker",
+    ...sessionRecord("technical-role", "role:builtin-executor", "2026-07-20T06:00:00.000Z"),
+    role: "role:builtin-executor",
   };
   const component = createSparkSessionSelectorComponent({
     sessions: [legacyRoleSession, taskExecutionSession, untitledSession],
@@ -273,7 +237,7 @@ test("Spark session selector hides internal task execution sessions and leaked b
   });
 
   const rendered = component.render(160).join("\n");
-  assert.doesNotMatch(rendered, /technical-role|session-task-worker|role:builtin-worker/u);
+  assert.doesNotMatch(rendered, /technical-role|session-task-worker|role:builtin-executor/u);
   assert.match(rendered, /New conversation/u);
   assert.equal(isSelectableSparkSession(legacyRoleSession), false);
   assert.equal(isSelectableSparkSession(taskExecutionSession), false);
@@ -293,7 +257,7 @@ test("Spark session selector keeps 10,000 internal task transcripts out of the i
   });
 
   const rendered = component.render(96).join("\n");
-  assert.doesNotMatch(rendered, /session-task-worker|role:builtin-worker/u);
+  assert.doesNotMatch(rendered, /session-task-worker|role:builtin-executor/u);
   assert.match(rendered, /\+ New session/u);
 });
 
@@ -405,7 +369,7 @@ test("Spark session list text uses the same workspace groups as the selector", (
   assert.match(text, /^spore \(1\)$/mu);
   assert.doesNotMatch(text, /\/workspace\/(?:spark|other)/u);
   assert.doesNotMatch(text, /Daemon conversation/u);
-  assert.match(text, /Ops room • status=ready • session-channel-bound • feishu/u);
+  assert.match(text, /Ops room • session-channel-bound • feishu • lifecycle=open • activity=idle/u);
 });
 
 test("Spark session selector custom UI returns an existing workspace session", async () => {
@@ -451,7 +415,7 @@ test("Spark session selector custom UI returns an existing workspace session", a
   assert.deepEqual(selection, selected);
 });
 
-const hierarchySessions: SparkSessionRegistryRecord[] = [
+const hierarchySessions: SparkSessionProjection[] = [
   sessionRecord("parent-alpha", "Parent Alpha", "2026-07-20T05:00:00.000Z"),
   sideThreadRecord("alpha-context", "Context research", "parent-alpha", 1, "contextual"),
   sideThreadRecord("alpha-tangent", "Tangent spike", "parent-alpha", 2, "tangent"),
@@ -459,7 +423,7 @@ const hierarchySessions: SparkSessionRegistryRecord[] = [
   sideThreadRecord("beta-context", "Verification thread", "parent-beta", 1, "contextual"),
   {
     ...sideThreadRecord("alpha-archived", "Archived thread", "parent-alpha", 3, "tangent"),
-    status: "archived",
+    placement: "archived",
   },
 ];
 
@@ -478,7 +442,7 @@ test("Spark session selector renders parent and Side Thread hierarchy snapshot",
   assert.match(rendered, /\[spark \(5\)\]/u);
   assert.match(
     rendered,
-    /└─ Context research.*parent=parent-alpha.*mode=contextual.*generation=1.*status=ready/u,
+    /└─ Context research.*parent=parent-alpha.*mode=contextual.*generation=1.*lifecycle=open.*activity=idle/u,
   );
   assert.ok(rendered.indexOf("Parent Alpha") < rendered.indexOf("Context research"));
   assert.ok(rendered.indexOf("Context research") < rendered.indexOf("Tangent spike"));
@@ -503,7 +467,7 @@ test("Spark session selector Show archived toggles 5 to 6 to 5 without breaking 
   rendered = component.render(180).join("\n");
   assert.match(rendered, /\[spark \(6\)\]/u);
   assert.match(rendered, /Archived thread \[archived\]/u);
-  assert.match(rendered, /status=archived/u);
+  assert.match(rendered, /lifecycle=open.*activity=idle/u);
   assert.ok(rendered.indexOf("Tangent spike") < rendered.indexOf("Archived thread"));
   assert.ok(rendered.indexOf("Archived thread") < rendered.indexOf("Parent Beta"));
 
@@ -538,15 +502,24 @@ test("Spark session selector isolates orphan Side Threads in a diagnostic group"
 
 function sessionRecord(
   sessionId: string,
-  title: string,
+  name: string | undefined,
   updatedAt: string,
-): SparkSessionRegistryRecord {
+): SparkSessionProjection {
   return {
     sessionId,
-    title,
+    ...(name ? { name } : {}),
     scope: { kind: "workspace", workspaceId: "workspace-1" },
-    workspaceId: "workspace-1",
-    status: "ready",
+    lifecycle: "open",
+    placement: "active",
+    activity: "idle",
+    roleBinding: { kind: "none" },
+    incarnation: 1,
+    owner: { kind: "session", supervisorSessionId: "administrator:workspace-1" },
+    stateBinding: { kind: "session", ref: "administrator:workspace-1" },
+    visibility: "public",
+    retention: "retain",
+    purpose: "interactive",
+    lifetime: "scoped",
     bindings: [],
     createdAt: "2026-07-20T00:00:00.000Z",
     updatedAt,
@@ -559,9 +532,11 @@ function sideThreadRecord(
   parentSessionId: string,
   generation: number,
   mode: "contextual" | "tangent",
-): SparkSessionRegistryRecord {
+): SparkSessionProjection {
   return {
     ...sessionRecord(sessionId, title, `2026-07-20T0${generation}:00:00.000Z`),
-    relation: { kind: "side_thread", parentSessionId, generation, mode },
+    roleBinding: { kind: "inherit" },
+    owner: { kind: "side_thread", parentSessionId, generation },
+    sideThreadMode: mode,
   };
 }

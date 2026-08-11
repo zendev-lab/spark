@@ -17,14 +17,14 @@ import {
   parseSparkChannelControlSnapshot,
   parseSparkModelControlSnapshot,
   parseSparkQqbotQrAuthFlow,
-  parseSparkSessionRegistryRecord,
+  parseSparkSessionProjection,
   type ServerCommandPayload,
   type SparkAuthFlow,
   type SparkChannelControlSnapshot,
   type SparkModelControlSnapshot,
   type SparkModelRef,
   type SparkQqbotQrAuthFlow,
-  type SparkSessionRegistryRecord,
+  type SparkSessionProjection,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
 import type { ChannelsConfig } from "@zendev-lab/spark-channels";
@@ -42,12 +42,12 @@ export interface HubRuntimeModelChannelClient {
     sessionId: string;
     model: SparkModelRef;
     requestedByUserId?: string;
-  }): Promise<SparkSessionRegistryRecord>;
+  }): Promise<SparkSessionProjection>;
   setSessionThinking(input: {
     sessionId: string;
     thinkingLevel: SparkThinkingLevel;
     requestedByUserId?: string;
-  }): Promise<SparkSessionRegistryRecord>;
+  }): Promise<SparkSessionProjection>;
   logoutProvider(input: {
     runtimeId?: string;
     providerName: string;
@@ -185,7 +185,7 @@ async function setDefault(
 async function setSessionModel(
   db: DatabaseSync,
   input: { sessionId: string; model: SparkModelRef; requestedByUserId?: string },
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionProjection> {
   const route = runtimeModelRouteForSession(db, input.sessionId);
   const result = await runRuntimeModelChannelControlCommand(db, {
     route,
@@ -196,7 +196,7 @@ async function setSessionModel(
       payload: publicRuntimeObject({ sessionId: input.sessionId, model: input.model }),
     },
   });
-  return parseSparkSessionRegistryRecord(result.session);
+  return parseSparkSessionProjection(result.session);
 }
 
 async function setSessionThinking(
@@ -206,7 +206,7 @@ async function setSessionThinking(
     thinkingLevel: SparkThinkingLevel;
     requestedByUserId?: string;
   },
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionProjection> {
   const route = runtimeModelRouteForSession(db, input.sessionId);
   const result = await runRuntimeModelChannelControlCommand(db, {
     route,
@@ -220,7 +220,7 @@ async function setSessionThinking(
       }),
     },
   });
-  return parseSparkSessionRegistryRecord(result.session);
+  return parseSparkSessionProjection(result.session);
 }
 
 async function logoutProvider(

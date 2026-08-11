@@ -29,7 +29,10 @@ import {
   parseReproFormalEvidencePublicKeys,
 } from "./repro-formal-evidence-verifier.ts";
 import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
-import { migrateDaemonGlobalSessions } from "./session-scope-migration.ts";
+import { reconcileClosingSessionLifecycles } from "./session-control.ts";
+import { migrateSessionRegistryOwnership } from "./session-registry-migration.ts";
+import { migrateRoleSessionStructuredData } from "./role-session-data-migration.ts";
+import { migrateRoleSessionSqliteData } from "./role-session-sqlite-migration.ts";
 import { unifyDaemonSessionTranscripts } from "./session-transcript-unification.ts";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
@@ -64,7 +67,7 @@ import { SparkLoopStore } from "./store/loops.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
 import { getWorkspaceById, listWorkspaces, resolveWorkspaceLocalPath } from "./store/workspaces.js";
-import { ensureWorkspaceMainSession } from "./workspace-main-session.ts";
+import { ensureWorkspaceAdministratorSession } from "./workspace-administrator-session.ts";
 import {
   cancelSparkDaemonRestartSuccessor,
   clearSparkDaemonRestartFenceForExplicitStart,
@@ -162,7 +165,20 @@ export async function start(
   try {
     // The daemon process lock is held and the registry owner does not exist yet,
     // so the migration has exclusive mutation authority over registry.json.
-    await migrateDaemonGlobalSessions({ sparkHome, workspaces: listWorkspaces(db) });
+    await migrateSessionRegistryOwnership({ sparkHome });
+    await migrateRoleSessionSqliteData({
+      db,
+      databasePath: paths.databasePath,
+      backupRoot: join(sparkHome, "migrations"),
+    });
+    await migrateRoleSessionStructuredData({
+      sparkHome,
+      userRoleModelSettingsFile: userPaths.roleModelSettingsFile,
+      workspaces: listWorkspaces(db).map((workspace) => ({
+        workspaceId: workspace.id,
+        rootDir: workspace.localPath,
+      })),
+    });
     await prepareDaemonLensBroker(db);
   } catch (error) {
     await closeDaemonLensBroker(db);
@@ -212,11 +228,10 @@ export async function start(
       roleLoopStore.list({ ownerSessionId: sessionId }).length > 0,
     resolveSessionCwd: (input) => resolveSessionCwdForWorkspaceId(db, input),
   });
-  for (const workspace of listWorkspaces(db)) {
-    if (workspace.status !== "archived") {
-      await ensureWorkspaceMainSession(db, sessionRegistry, workspace.id);
-    }
+  for (const workspace of listWorkspaces(db, { includeInactive: true })) {
+    await ensureWorkspaceAdministratorSession(db, sessionRegistry, workspace.id);
   }
+  await reconcileClosingSessionLifecycles({ db, sessionRegistry });
   const modelControl = createSparkDaemonModelControl({
     providerControl: createSparkProviderControl({
       authPath: userPaths.authFile,

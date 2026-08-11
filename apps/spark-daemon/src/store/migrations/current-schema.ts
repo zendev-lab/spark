@@ -217,11 +217,18 @@ export function prepareCurrentDaemonSchema(db: DatabaseSync): void {
       updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS workspace_main_sessions (
+    CREATE TABLE IF NOT EXISTS workspace_administrator_sessions (
       workspace_id TEXT PRIMARY KEY,
       session_id TEXT NOT NULL UNIQUE,
-      generation INTEGER NOT NULL CHECK (generation > 0),
       created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_administrator_provisioning (
+      workspace_id TEXT PRIMARY KEY,
+      state TEXT NOT NULL CHECK (state IN ('provisioning', 'active', 'failed')),
+      error TEXT,
+      retry_count INTEGER NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
       updated_at TEXT NOT NULL
     );
 
@@ -511,6 +518,18 @@ export function prepareCurrentDaemonSchema(db: DatabaseSync): void {
       ON lens_code_edges(workspace_root, revision_digest, from_path);
     CREATE INDEX IF NOT EXISTS lens_code_edges_to_idx
       ON lens_code_edges(workspace_root, revision_digest, to_path);
+  `);
+  migrateWorkspaceAdministratorSessionsTable(db);
+}
+
+function migrateWorkspaceAdministratorSessionsTable(db: DatabaseSync): void {
+  if (!tableExists(db, "workspace_main_sessions")) return;
+  db.exec(`
+    INSERT OR IGNORE INTO workspace_administrator_sessions
+      (workspace_id, session_id, created_at, updated_at)
+    SELECT workspace_id, session_id, created_at, updated_at
+    FROM workspace_main_sessions;
+    DROP TABLE workspace_main_sessions;
   `);
 }
 

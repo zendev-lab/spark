@@ -95,7 +95,6 @@ class ToolCallText implements ToolCallComponent {
 export interface CallRoleToolParams {
   role: string;
   instruction: string;
-  launch?: "fresh";
   cwd?: string;
   timeoutMs?: number;
   includeUser?: boolean;
@@ -174,8 +173,7 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
     description: "Inspect one builtin, extension, project, or user Pi role spec.",
     parameters: Type.Object({
       role: Type.String({
-        description:
-          "Role id or full role ref, e.g. executor or role:builtin-executor. worker remains a compatibility alias.",
+        description: "Role id or full role ref, e.g. executor or role:builtin-executor.",
       }),
       includeUser: Type.Optional(
         Type.Boolean({
@@ -203,7 +201,7 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       const promptPreview = truncateInline(role.systemPrompt, 240);
       const effectiveModel = await resolveRoleModelForRole(cwd, role);
       const effectiveModelText = effectiveModel
-        ? `${effectiveModel.model} (${effectiveModel.source}${effectiveModel.selector ? ` selector=${effectiveModel.selector}` : ""})`
+        ? `${effectiveModel.model} (${effectiveModel.source}${effectiveModel.modelType ? ` modelType=${effectiveModel.modelType}` : ""})`
         : `not set; save one with role({ action: "model_set" }) before non-interactive runs`;
       const lines = [
         `${role.id} (${role.ref})`,
@@ -281,24 +279,18 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
     name: "call_role",
     label: "Call Role",
     description:
-      "Call one reusable Spark role in a fresh anonymous session. Persistent conversation continuity is owned by the canonical session tool.",
+      "Call one reusable Spark Role through a fresh ephemeral Session. Scoped conversation continuity is owned by the canonical session tool.",
     parameters: Type.Object({
       role: Type.String({
-        description:
-          "Role id or full role ref, e.g. executor or role:builtin-executor. worker remains a compatibility alias.",
+        description: "Role id or full role ref, e.g. executor or role:builtin-executor.",
       }),
       instruction: Type.String({ description: "Concrete instruction for this one role call." }),
-      launch: Type.Optional(
-        Type.Literal("fresh", {
-          description: "Anonymous role calls use fresh. Use the session tool for continuity.",
-        }),
-      ),
       cwd: Type.Optional(Type.String({ description: "Working directory for the child run." })),
       timeoutMs: Type.Optional(Type.Number({ description: "Child run timeout in milliseconds." })),
       model: Type.Optional(
         Type.String({
           description:
-            "Concrete Pi model override for this run. Defaults to a saved role model, then the current session model.",
+            "Concrete Pi model override for this Invocation. Defaults to the saved Role Model Type setting.",
         }),
       ),
       includeUser: Type.Optional(
@@ -312,7 +304,6 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
         "call_role",
         [
           formatStringArg(args.role),
-          formatStringArg(args.launch, { fallback: "fresh" }),
           formatNumberArg(args.timeoutMs, { prefix: "timeout=" }),
           formatStringArg(args.cwd, { prefix: "cwd=" }),
           formatStringArg(args.model, { prefix: "model=" }),
@@ -326,17 +317,17 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       const registry = createDefaultRoleRegistry();
       await hydrateDefaultRoleRegistry(registry, cwd, { includeUser: p.includeUser });
       const role = registry.select(p.role);
-      const launch = p.launch ?? "fresh";
       const runRef = `run:${randomUUID()}` as RoleRunRef;
       const model = await resolveRoleModelForCall({
         role,
         explicitModel: p.model,
         cwd,
+        actualRun: true,
       });
       const commandInput = {
         runRef,
         roleRef: role.ref,
-        launch,
+        roleRevision: role.revision,
         systemPrompt: role.systemPrompt,
         model,
         instruction: p.instruction,
@@ -345,12 +336,11 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
         signal,
         stdinMode: "ignore" as const,
         roleId: role.id,
-        roleRevision: role.revision,
         roleSource: role.source,
         roleCapabilities: role.capabilities,
         roleModelType: role.modelType,
-        roleInstantiation: "owned" as const,
         allowedTools: role.allowedTools,
+        allowedToolEffects: role.allowedToolEffects,
         nativeExecutor: ctx.runRole,
       };
 
@@ -368,7 +358,6 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
         `Role call ${result.record.status}: ${role.id} (${role.ref})`,
         formatRoleRunIdentity({
           runRef: result.record.ref,
-          launch: result.record.launch,
           model: result.record.model,
         }),
         result.record.errorMessage ? `error: ${result.record.errorMessage}` : undefined,
@@ -384,7 +373,6 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
         content: [{ type: "text", text: summary }],
         details: {
           role: compactRole(role),
-          launch,
           runRef,
           cwd,
           model,
@@ -532,10 +520,10 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
     name: "role",
     label: "Role",
     description:
-      "Canonical reusable role capability. Manage role definitions and model settings, or call one role in a fresh anonymous session. Persistent continuity is owned by the session tool.",
+      "Canonical reusable Role capability. Manage Role definitions and model settings, or call one Role through a fresh ephemeral Session. Scoped continuity is owned by the session tool.",
     promptGuidelines: [
-      "Use role call for a fresh anonymous role invocation without persistent conversation continuity.",
-      "Use the canonical session tool for persistent session lifecycle, calls, classification, and durable mail.",
+      "Use role call for a one-Invocation ephemeral Session that leaves only its receipt.",
+      "Use the canonical session tool for scoped Session lifecycle, calls, and durable mail.",
       "Use assign instead of direct role calls when work belongs to a Spark task and needs claims, run records, or evidence attribution.",
     ],
     policy: roleToolPolicy("read", ["plan", "execute", "fleet"]),
@@ -731,9 +719,15 @@ async function resolveRoleModelForCall(input: {
   role: RoleSpec;
   explicitModel?: string;
   cwd: string;
-}): Promise<string> {
+  actualRun: boolean;
+  ui?: {
+    notify?: (message: string, level?: string) => void;
+    input?: (title: string, defaultValue?: string) => Promise<string | undefined>;
+  };
+}): Promise<string | undefined> {
+  const explicitModel = input.explicitModel?.trim();
+  if (explicitModel) return explicitModel;
   const resolved = await resolveRoleModelSetting({
-    explicitModel: input.explicitModel,
     roleRef: input.role.ref,
     modelType: input.role.modelType,
     roleId: input.role.id,
@@ -742,6 +736,8 @@ async function resolveRoleModelForCall(input: {
     userStore: defaultUserRoleModelSettingsStore(),
   });
   if (resolved) return resolved.model;
+  if (!input.actualRun) return undefined;
+
   throw new RoleModelTypeUnconfiguredError(input.role.ref, input.role.modelType);
 }
 
@@ -749,10 +745,9 @@ function normalizeCallRoleToolParams(params: Record<string, unknown>): CallRoleT
   const role = normalizeRequiredString(params.role, "call_role role");
   const instruction = normalizeRequiredString(params.instruction, "call_role instruction");
   if (Object.hasOwn(params, "mode"))
-    throw new Error("call_role mode was removed; direct role calls are anonymous fresh sessions");
-  const launch = normalizeRoleLaunchMode(params.launch);
-  if (launch !== "fresh")
-    throw new Error("call_role forked launch is not public; use the session tool for continuity");
+    throw new Error("call_role mode was removed; direct Role calls use fresh ephemeral Sessions");
+  if (Object.hasOwn(params, "launch"))
+    throw new Error("call_role launch was removed; Role calls use ephemeral Sessions");
   if (Object.hasOwn(params, "dryRun"))
     throw new Error(
       "call_role dryRun is no longer supported; call_role always launches a daemon-native run",
@@ -762,15 +757,14 @@ function normalizeCallRoleToolParams(params: Record<string, unknown>): CallRoleT
   if (Object.hasOwn(params, "forkFromSession"))
     throw new Error("call_role forkFromSession is not public; use the session tool for continuity");
   if (Object.hasOwn(params, "sessionDir"))
-    throw new Error("call_role sessionDir is not supported for anonymous role calls");
+    throw new Error("call_role sessionDir is not supported for ephemeral Role calls");
   if (Object.hasOwn(params, "reset"))
     throw new Error("call_role reset is not supported; use session action=call");
   if (Object.hasOwn(params, "sessionId") || Object.hasOwn(params, "resource"))
-    throw new Error("role does not manage persistent sessions; use the canonical session tool");
+    throw new Error("Role calls are ephemeral; use the canonical session tool for continuity");
   return {
     role,
     instruction,
-    launch,
     cwd: normalizeOptionalString(params.cwd, "call_role cwd"),
     timeoutMs: normalizeOptionalPositiveInteger(params.timeoutMs, "call_role timeoutMs"),
     includeUser: normalizeOptionalBoolean(params.includeUser, false, "call_role includeUser"),
@@ -858,7 +852,6 @@ function compactRole(role: RoleSpec) {
     description: role.description,
     capabilities: role.capabilities,
     modelType: role.modelType,
-    instantiation: role.instantiation,
     systemPromptChars: role.systemPrompt.length,
     allowedTools: role.allowedTools,
   };
@@ -908,19 +901,10 @@ function truncateInline(value: string, maxLength: number): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
-function formatRoleRunIdentity(input: {
-  runRef: string;
-  launch: RoleLaunchMode;
-  model?: string;
-  sessionDir?: string;
-  forkFromSession?: string;
-}): string {
+function formatRoleRunIdentity(input: { runRef: string; model?: string }): string {
   return compactKeyValues([
     ["runRef", input.runRef],
-    ["launch", input.launch],
     ["model", input.model],
-    ["sessionDir", input.sessionDir],
-    ["forkFromSession", input.forkFromSession],
   ]);
 }
 

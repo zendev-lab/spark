@@ -4,7 +4,6 @@ export type WorkbenchSessionScope =
   | { kind: "unknown" };
 
 export interface WorkbenchSessionScopeLike {
-  workspaceId?: string;
   scope?:
     | { kind: "workspace"; workspaceId: string }
     | { kind: "daemon"; daemonId?: string; daemonLabel?: string }
@@ -13,8 +12,8 @@ export interface WorkbenchSessionScopeLike {
 
 export interface WorkbenchSessionRailLike extends WorkbenchSessionScopeLike {
   sessionId: string;
-  status?: string;
-  relation?: {
+  placement?: string;
+  owner?: {
     kind: string;
     parentSessionId?: string;
     generation?: number;
@@ -30,10 +29,7 @@ export interface WorkbenchSessionRailRow<T extends WorkbenchSessionRailLike> {
 }
 
 /**
- * Read the canonical scope when present and fall back to the legacy
- * workspaceId field. A legacy record is never guessed to be daemon-global:
- * only an explicit daemon scope is classified as daemon-owned so Hub can
- * reject it at the workspace boundary.
+ * Read the canonical daemon-owned scope. Legacy unscoped records are rejected.
  */
 export function workbenchSessionScope(session: WorkbenchSessionScopeLike): WorkbenchSessionScope {
   if (session.scope?.kind === "workspace" && session.scope.workspaceId.trim()) {
@@ -49,8 +45,7 @@ export function workbenchSessionScope(session: WorkbenchSessionScopeLike): Workb
     };
   }
 
-  const workspaceId = session.workspaceId?.trim();
-  return workspaceId ? { kind: "workspace", workspaceId } : { kind: "unknown" };
+  return { kind: "unknown" };
 }
 
 export function isSessionVisibleInWorkbenchRail(
@@ -72,10 +67,7 @@ export function workspaceIdForWorkbenchSession(session: WorkbenchSessionScopeLik
 /**
  * Project daemon registry records onto the Hub workbench boundary.
  *
- * The daemon registry also contains daemon-global sessions used by the TUI and
- * session tools. Keeping the projection here prevents those records from
- * leaking back into a Web surface when a caller forwards an unscoped
- * `session.list` response.
+ * Closed daemon-global audit records remain outside the interactive Hub.
  */
 export function workspaceSessionsForWorkbench<T extends WorkbenchSessionScopeLike>(
   sessions: readonly T[],
@@ -96,16 +88,16 @@ export function buildSessionRailTree<T extends WorkbenchSessionRailLike>(
   options: { includeArchived?: boolean } = {},
 ): WorkbenchSessionRailRow<T>[] {
   const visible = sessions.filter(
-    (session) => options.includeArchived || session.status !== "archived",
+    (session) => options.includeArchived || session.placement !== "archived",
   );
-  const parents = visible.filter((session) => session.relation?.kind !== "side_thread");
+  const parents = visible.filter((session) => session.owner?.kind !== "side_thread");
   const parentIds = new Set(parents.map((session) => session.sessionId));
   const childrenByParent = new Map<string, T[]>();
   const orphans: T[] = [];
 
   for (const session of visible) {
-    if (session.relation?.kind !== "side_thread") continue;
-    const parentSessionId = session.relation.parentSessionId?.trim();
+    if (session.owner?.kind !== "side_thread") continue;
+    const parentSessionId = session.owner.parentSessionId?.trim();
     if (!parentSessionId || !parentIds.has(parentSessionId)) {
       orphans.push(session);
       continue;
@@ -131,7 +123,7 @@ export function buildSessionRailTree<T extends WorkbenchSessionRailLike>(
     rows.push({
       session: orphan,
       ariaLevel: 2,
-      parentSessionId: orphan.relation?.parentSessionId,
+      parentSessionId: orphan.owner?.parentSessionId,
       orphaned: true,
     });
   }

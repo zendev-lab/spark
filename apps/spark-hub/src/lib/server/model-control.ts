@@ -7,7 +7,7 @@ import {
   type SparkAuthFlow,
   type SparkModelControlSnapshot,
   type SparkModelRef,
-  type SparkSessionRegistryRecord,
+  type SparkSessionProjection,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
 import type { RuntimeEphemeralSecretRequestContext } from "@zendev-lab/spark-hub-coordination/runtime-model-channel-control";
@@ -157,7 +157,7 @@ export async function setSessionModelForHub(
   sessionId: string,
   model: SparkModelRef,
   client: HubModelControlClient = daemonModelControlClient,
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionProjection> {
   return createSparkModelControlClient((method, params) => client.request(method, params), {
     sessionId,
   }).setSessionModel(model);
@@ -167,7 +167,7 @@ export async function setSessionThinkingLevelForHub(
   sessionId: string,
   thinkingLevel: SparkThinkingLevel,
   client: HubModelControlClient = daemonModelControlClient,
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionProjection> {
   return createSparkModelControlClient((method, params) => client.request(method, params), {
     sessionId,
   }).setSessionThinkingLevel(thinkingLevel);

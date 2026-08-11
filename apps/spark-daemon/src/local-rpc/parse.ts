@@ -5,6 +5,7 @@ import {
   type SparkLocalRpcParsedInput,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
 import { parseChannelsConfig } from "@zendev-lab/spark-channels";
+import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 import { isRecord } from "./is-record.ts";
 import type {
   LocalRpcRequest,
@@ -51,6 +52,17 @@ export function parseLocalRpcRequest(line: string): LocalRpcRequest {
 function legacyInputCompatibility(method: SparkLocalRpcMethod, value: unknown): unknown {
   if (method === "channel.configure" && isRecord(value) && value.config !== undefined) {
     return { ...value, config: parseChannelsConfig(value.config) };
+  }
+  if (
+    method === "session.create" &&
+    isRecord(value) &&
+    isRecord(value.scope) &&
+    value.scope.kind !== "workspace"
+  ) {
+    throw new SparkSessionRegistryError(
+      "invalid_scope",
+      "New Sessions must belong to a workspace.",
+    );
   }
   return value;
 }

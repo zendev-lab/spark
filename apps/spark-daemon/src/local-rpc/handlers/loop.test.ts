@@ -31,7 +31,8 @@ describe("trusted Workbench Loop control", () => {
         sessionRegistry: {
           get: async () => ({
             sessionId: "session-loop-owner",
-            status: "active",
+            lifecycle: "open",
+            placement: "active",
             cwd: workspaceCwd,
             scope: { kind: "workspace", workspaceId: workspace.id },
           }),

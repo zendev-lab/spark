@@ -215,10 +215,16 @@ export const workspaceSnapshotPayloadSchema = z.object({
   borrowed: workspaceBorrowedStateSchema.optional(),
   workspaceClients: z.array(workspaceClientProjectionSchema).optional(),
   executor: executorClientProjectionSchema.optional(),
-  mainSession: z
+  administratorSession: z
     .object({
       sessionId: z.string().min(1),
-      generation: z.number().int().positive(),
+    })
+    .optional(),
+  administratorProvisioning: z
+    .object({
+      state: z.enum(["provisioning", "active", "failed"]),
+      error: z.string().min(1).optional(),
+      retryCount: z.number().int().nonnegative(),
     })
     .optional(),
   control: z

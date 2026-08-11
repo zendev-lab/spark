@@ -74,9 +74,10 @@ import {
   sparkSessionArchiveRequestSchema,
   sparkSessionBindRequestSchema,
   sparkSessionCreateRequestSchema,
+  sparkSessionCloseRequestSchema,
   sparkSessionGetRequestSchema,
   sparkSessionListRequestSchema,
-  sparkSessionRegistryRecordSchema,
+  sparkSessionProjectionSchema,
   sparkSessionSetModelRequestSchema,
   sparkSessionSetThinkingRequestSchema,
   sparkSessionSnapshotRequestSchema,
@@ -157,7 +158,7 @@ export const sparkLocalRpcReadinessOrpcErrors = {
 
 export const sparkLocalRpcDelegationOrpcErrors = {
   ...sparkLocalRpcReadinessOrpcErrors,
-  workspace_main_session_required: { status: 403 },
+  workspace_administrator_session_required: { status: 403 },
   delegation_action_invalid: { status: 422 },
   delegation_not_found: { status: 404 },
   delegation_state_conflict: { status: 409 },
@@ -180,7 +181,6 @@ export const sparkLocalRpcSessionOrpcErrors = {
   invalid_registry: { status: 500 },
   invalid_scope: { status: 422 },
   invalid_session_path: { status: 422 },
-  invalid_session_relation: { status: 422 },
   invalid_session_role: { status: 422 },
   invalid_session_tag: { status: 422 },
   invalid_session_snapshot: { status: 500 },
@@ -203,8 +203,13 @@ export const sparkLocalRpcSessionOrpcErrors = {
   session_mail_workspace_scope_mismatch: { status: 403 },
   session_media_invalid: { status: 422 },
   session_media_not_found: { status: 404 },
+  invalid_session_name: { status: 422 },
+  session_closed: { status: 409 },
+  session_closing: { status: 409 },
   session_not_found: { status: 404 },
   session_owner_invalid: { status: 409 },
+  session_owner_not_found: { status: 404 },
+  session_owner_scope_mismatch: { status: 409 },
   session_registry_conflict: { status: 409 },
   session_registry_unavailable: { status: 503 },
   session_restore_forbidden: { status: 403 },
@@ -216,7 +221,7 @@ export const sparkLocalRpcSessionOrpcErrors = {
   session_transcript_conflict: { status: 409 },
   side_thread_config_empty: { status: 422 },
   workspace_cwd_unavailable: { status: 422 },
-  workspace_main_session_mutation_forbidden: { status: 403 },
+  workspace_administrator_session_mutation_forbidden: { status: 403 },
   ...sparkLocalRpcSideThreadOrpcErrors,
 } as const satisfies Record<SparkSessionRegistryErrorCode, { status: number }>;
 
@@ -1548,30 +1553,34 @@ export const sparkLocalRpcProcedureSchemas = {
   },
   "session.list": {
     input: sparkSessionListRequestSchema,
-    output: z.array(sparkSessionRegistryRecordSchema),
+    output: z.array(sparkSessionProjectionSchema),
   },
-  "session.get": { input: sessionIdInputSchema, output: sparkSessionRegistryRecordSchema },
+  "session.get": { input: sessionIdInputSchema, output: sparkSessionProjectionSchema },
   "session.snapshot": {
     input: sparkSessionSnapshotRequestSchema,
     output: z.lazy(() => sparkSessionViewSchema),
   },
   "session.create": {
     input: sparkSessionCreateRequestSchema,
-    output: sparkSessionRegistryRecordSchema,
+    output: sparkSessionProjectionSchema,
   },
   "session.bind": {
     input: sparkSessionBindRequestSchema,
-    output: sparkSessionRegistryRecordSchema,
+    output: sparkSessionProjectionSchema,
   },
   "session.unbind": {
     input: sparkSessionUnbindRequestSchema,
-    output: sparkSessionRegistryRecordSchema,
+    output: sparkSessionProjectionSchema,
   },
   "session.archive": {
     input: sparkSessionArchiveRequestSchema,
-    output: sparkSessionRegistryRecordSchema,
+    output: sparkSessionProjectionSchema,
   },
-  "session.restore": { input: sessionIdInputSchema, output: sparkSessionRegistryRecordSchema },
+  "session.restore": { input: sessionIdInputSchema, output: sparkSessionProjectionSchema },
+  "session.close": {
+    input: sparkSessionCloseRequestSchema,
+    output: sparkSessionProjectionSchema,
+  },
   "session.send": { input: sparkSessionSendRequestSchema, output: sparkSessionSendResultSchema },
   "session.inbox": { input: sparkSessionInboxRequestSchema, output: sparkSessionInboxResultSchema },
   "session.mail.read": {
@@ -1591,7 +1600,7 @@ export const sparkLocalRpcProcedureSchemas = {
   },
   "session.model.set": {
     input: sparkSessionSetModelRequestSchema,
-    output: sparkSessionRegistryRecordSchema,
+    output: sparkSessionProjectionSchema,
   },
   "session.mode.set": {
     input: sparkSessionSetModeRequestSchema,
@@ -1599,7 +1608,7 @@ export const sparkLocalRpcProcedureSchemas = {
   },
   "session.thinking.set": {
     input: sparkSessionSetThinkingRequestSchema,
-    output: sparkSessionRegistryRecordSchema,
+    output: sparkSessionProjectionSchema,
   },
   "side-thread.ensure": {
     input: sparkSideThreadEnsureRequestSchema,
@@ -2038,6 +2047,12 @@ export const sparkLocalRpcOrpcContract = {
       "POST",
       "/session/restore",
       p["session.restore"],
+      sparkLocalRpcSessionArchiveOrpcErrors,
+    ),
+    close: procedure(
+      "POST",
+      "/session/close",
+      p["session.close"],
       sparkLocalRpcSessionArchiveOrpcErrors,
     ),
     send: procedure("POST", "/session/send", p["session.send"], sparkLocalRpcSessionSendOrpcErrors),

@@ -7,13 +7,15 @@ description: Distinguish roles, sessions, Side Threads, and message-platform cha
 
 | Object | Use it for | Lifetime and authority |
 | --- | --- | --- |
-| Role | Reusable responsibility, model, and instructions | Definition, not an execution identity |
-| Session | Continuing conversation, execution identity, and mailbox | Durable and daemon-owned |
-| Side Thread | Read-only tangent attached to one parent session | Child session with explicit handoff |
-| Channel | Feishu, Infoflow, or QQ Bot conversation | Adapter bound to a daemon session |
+| Role | Optional reusable behavior and capability overlay | Definition resolved and frozen per Invocation |
+| Session | Execution context, history, queue, and mailbox | Owner-derived persistent, scoped, or ephemeral lifetime |
+| Side Thread | Read-only tangent attached to one parent Session | Scoped child with explicit handoff |
+| Channel | Feishu, Infoflow, or QQ Bot conversation | Routing alias bound to a scoped Session |
 
-Choose a Role when the responsibility should be reusable. Choose a Session
-when work needs an independent history, queue, or durable identity. Use a
+Choose a Role when behavior and capability policy should be reusable. The
+default Session binding is `none`, with no extra Role prompt. Every Workspace
+has one protected persistent Administrator; other continuing conversations are
+scoped Sessions. A Role call uses a one-Invocation ephemeral Session. Use a
 [Side Thread](/guides/side-threads/) for a bounded read-only tangent.
 
 ## Session requests and notifications

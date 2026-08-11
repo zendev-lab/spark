@@ -38,12 +38,11 @@ size-bounded as one aggregate and is never silently truncated.
 
 ## Agent construction
 
-Each accepted call creates one fresh owned Role Session:
+Each accepted call creates one Invocation-owned ephemeral Role Session:
 
 - the dynamic Role ref is derived from the ordered Skill set;
-- the Role uses semantic Model Type `implementation`; missing configuration
-  fails with `role_model_type_unconfigured` and never inherits the parent model;
-- `SessionSupervisor` owns the child lifecycle and discard-on-close retention;
+- the run inherits the active parent model;
+- the Session starts without parent transcript continuity;
 - the system prompt names every selected Skill and contains every resolved Skill
   body, source path, and absolute base directory;
 - all Skill bodies are loaded exactly once by the host before the child starts;

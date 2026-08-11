@@ -65,6 +65,9 @@ export interface WorkspacesTable {
   name: string;
   description: string | null;
   status: "active" | "archived";
+  provisioning_state: "provisioning" | "active" | "failed";
+  provisioning_error: string | null;
+  provisioning_retry_count: number;
   settings_json: string;
   created_at: string;
   updated_at: string;
@@ -199,8 +202,10 @@ export interface RuntimeWorkspaceBindingsTable {
   last_snapshot_at: string | null;
   created_at: string;
   updated_at: string;
-  main_session_id: string | null;
-  main_session_generation: number | null;
+  administrator_session_id: string | null;
+  administrator_provisioning_state: "provisioning" | "active" | "failed";
+  administrator_provisioning_error: string | null;
+  administrator_provisioning_retry_count: number;
 }
 
 export interface WorkspaceDelegationsTable {
@@ -210,7 +215,7 @@ export interface WorkspaceDelegationsTable {
   goal: string;
   constraints_json: string;
   requested_role: string | null;
-  actor_kind: "hub_owner" | "workspace_main_session";
+  actor_kind: "hub_owner" | "workspace_administrator_session";
   actor_id: string;
   actor_session_id: string | null;
   lineage_json: string;
@@ -230,7 +235,6 @@ export interface WorkspaceDelegationsTable {
   version: number;
   next_message_sequence: number;
   target_session_id: string | null;
-  target_session_generation: number | null;
   target_invocation_id: string | null;
   receipt_json: string | null;
   failure_code: string | null;

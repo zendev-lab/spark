@@ -185,7 +185,7 @@ describe("SessionWorkPanel", () => {
           breakdown: copy.tokenBreakdown,
           executionKinds: copy.executionKinds,
           models: copy.models,
-          persistence: copy.sessionPersistence,
+          persistence: copy.executionPersistence,
           anonymousSessions: copy.anonymousSessions,
           persistentSessions: copy.persistentSessions,
           responses: copy.responses,
