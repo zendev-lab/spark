@@ -39,8 +39,8 @@ export interface SparkWidgetControllerDeps {
   loadSessionLoop: (cwd: string, ctx?: any) => Promise<any>;
   clearSessionLoop: (cwd: string, ctx?: any) => Promise<void>;
   readSessionRepro: (cwd: string, ctx?: any) => Promise<any>;
-  loadSparkMode: (cwd: string, ctx?: any) => Promise<{ mode: "plan" | "execute" }>;
-  sparkActiveMode: (mode: "plan" | "execute") => SparkWidgetActiveLens;
+  loadSparkMode: (cwd: string, ctx?: any) => Promise<{ mode: "plan" | "execute" | "fleet" }>;
+  sparkActiveMode: (mode: "plan" | "execute" | "fleet") => SparkWidgetActiveLens;
   renderSparkProjectKindDisplay: (project: any) => SparkWidgetState["projectKind"];
   isPlaceholderProjectTitle: (title: string) => boolean;
   latestRunsByTaskRef: (runs: any) => Map<string, any>;

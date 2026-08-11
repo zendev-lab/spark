@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { RoleRegistry } from "@zendev-lab/spark-roles";
-import { DependencyError } from "@zendev-lab/spark-core";
+import { DependencyError, type ArtifactRef } from "@zendev-lab/spark-core";
 import {
   collectNonConcreteTaskIssues,
   decideTaskPlanBeforeCreate,
@@ -121,6 +121,14 @@ export function registerSparkPlanTasksTool(
             }),
           ),
           executionPolicy: Type.Optional(taskExecutionPolicySchema()),
+          artifactRefs: Type.Optional(
+            Type.Array(
+              Type.String({
+                description:
+                  "Existing Artifact refs explicitly linked to this Task; Fleet writable targets must all appear here.",
+              }),
+            ),
+          ),
           plan: Type.Optional(taskPlanSchema()),
           dependsOn: Type.Optional(
             Type.Array(
@@ -373,6 +381,10 @@ function normalizeSparkPlanTaskInput(
       `tasks[${position - 1}].executionPolicy`,
       kind,
     ),
+    artifactRefs: normalizeToolStringArray(
+      value.artifactRefs,
+      `tasks[${position - 1}].artifactRefs`,
+    ) as ArtifactRef[] | undefined,
     plan: normalizeTaskPlan(
       normalizeTaskPlanPatch(value.plan, `tasks[${position - 1}].plan`),
       description,

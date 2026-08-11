@@ -70,6 +70,7 @@ export interface SparkCliHostServicesOptions {
   sessionLease?: SparkSessionLeaseIdentity;
   channelBinding?: SparkHostRuntimeOptions["channelBinding"];
   invocationId?: string;
+  taskExecutionScope?: SparkHostRuntimeOptions["taskExecutionScope"];
   /** Host-private test/bootstrap seam; never exposed to extensions or model tools. */
   memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
   tokenUsage?: SparkHeadlessTokenUsageContext;
@@ -98,7 +99,7 @@ export interface SparkCliHostServicesOptions {
   modelPicker?: SparkModelPicker;
   systemPrompt?: string;
   noPromptTemplates?: boolean;
-  sessionMode?: "plan" | "execute";
+  sessionMode?: "plan" | "execute" | "fleet";
   streamTimeoutMs?: number;
   streamIdleTimeoutMs?: number;
   toolTimeoutMs?: number;

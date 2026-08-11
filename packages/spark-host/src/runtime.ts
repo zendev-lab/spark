@@ -102,6 +102,7 @@ export interface SparkHostRuntimeOptions {
     adapterAccountIdentity?: string;
   };
   invocationId?: string;
+  taskExecutionScope?: SparkHostContext["taskExecutionScope"];
   /** Private current-turn authority supplied by the executable host. */
   memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
   stateBindingSessionId?: string;
@@ -175,6 +176,7 @@ export class SparkHostRuntime implements SparkHostAPI {
     | undefined;
   readonly invocationId: string | undefined;
   readonly stateBindingSessionId: string | undefined;
+  readonly taskExecutionScope: SparkHostContext["taskExecutionScope"];
   readonly loop: SparkHostLoopContext | undefined;
   readonly sessionQuestionChain: readonly string[] | undefined;
   readonly hasUI: boolean;
@@ -210,6 +212,7 @@ export class SparkHostRuntime implements SparkHostAPI {
     this.roleNativeCompatibilityRecovery = options.roleNativeCompatibilityRecovery;
     this.channelBinding = options.channelBinding;
     this.invocationId = options.invocationId?.trim() || undefined;
+    this.taskExecutionScope = options.taskExecutionScope;
     this.#memoryDirectIntentAuthority = options.memoryDirectIntentAuthority;
     this.stateBindingSessionId =
       options.stateBindingSessionId?.trim() || options.stateOwnerSessionId?.trim() || undefined;
@@ -601,6 +604,7 @@ export class SparkHostRuntime implements SparkHostAPI {
       ...(this.sessionLeaseProvider ? { sessionLease: this.sessionLeaseProvider } : {}),
       ...(this.channelBinding ? { channelBinding: this.channelBinding } : {}),
       ...(this.invocationId ? { invocationId: this.invocationId } : {}),
+      ...(this.taskExecutionScope ? { taskExecutionScope: this.taskExecutionScope } : {}),
       ...(directIntentReceipt && directIntentAuthority
         ? {
             memoryDirectIntent: directIntentReceipt,

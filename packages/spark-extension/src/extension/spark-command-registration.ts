@@ -102,6 +102,17 @@ export function registerSparkCommands(
     },
   });
 
+  pi.registerCommand("fleet", {
+    description: "Coordinate ready tasks through isolated persistent workers.",
+    async handler(args, ctx) {
+      await handleSparkEntryCommand(pi, ctx, {
+        kind: "direct",
+        mode: "fleet",
+        prompt: args.trim(),
+      });
+    },
+  });
+
   pi.registerCommand("automate", {
     description: "Choose an existing long-running mode without starting it yet.",
     metadata: {

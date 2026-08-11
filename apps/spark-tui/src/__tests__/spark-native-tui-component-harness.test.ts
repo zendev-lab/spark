@@ -1059,6 +1059,8 @@ test("working native TUI executes local slash commands instead of queueing them"
     slashCommands: {
       model: command("model"),
       plan: command("plan"),
+      execute: command("execute"),
+      fleet: command("fleet"),
     },
     responder: () =>
       new Promise<string>((resolve) => {
@@ -1089,6 +1091,13 @@ test("working native TUI executes local slash commands instead of queueing them"
   assert.deepEqual(invoked.at(-1), { name: "plan", args: "keep control local" });
   assert.equal(harness.session.isProcessing, true);
   assert.equal(harness.session.queuedCount, 0);
+
+  for (const name of ["plan", "execute", "fleet"]) {
+    await submitEditorText(harness, `/${name}`);
+    assert.deepEqual(invoked.at(-1), { name, args: "" });
+    assert.equal(harness.app.actionBarSnapshot(), undefined);
+    assert.equal(harness.session.queuedCount, 0);
+  }
 
   finishTurn?.("turn complete");
   await harness.flush();

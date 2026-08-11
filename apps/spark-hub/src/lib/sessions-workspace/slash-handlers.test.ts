@@ -33,6 +33,7 @@ function createDeps(openActivityPane: () => void): SlashHandlerDeps {
     getLatestRetryPrompt: () => null,
     retryConversationTurn: vi.fn(),
     submitThinkingSelection: vi.fn(async () => undefined),
+    submitModeSelection: vi.fn(async () => undefined),
     openActivityPane,
   };
 }
@@ -56,6 +57,24 @@ beforeEach(() => {
 });
 
 describe("session slash activity routing", () => {
+  it("routes Fleet through typed Session mode control", async () => {
+    const deps = createDeps(() => undefined);
+    const handlers = createSlashHandlers(deps);
+
+    await handlers.handleSlashAction(
+      {
+        id: "enter-fleet",
+        intent: "mode.select",
+        label: "Enter Fleet",
+        payload: { mode: "fleet" },
+      },
+      "session",
+    );
+
+    expect(deps.composer.message).toBe("");
+    expect(deps.submitModeSelection).toHaveBeenCalledWith("fleet");
+  });
+
   it.each([
     ["status.inspect", "[data-session-status-bar]"],
     ["session.inspect", "[data-session-inspector-surface]"],

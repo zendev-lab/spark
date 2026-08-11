@@ -1,9 +1,9 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import type { EvidenceRef } from "@zendev-lab/spark-artifacts";
+import { defaultArtifactStore, type EvidenceRef } from "@zendev-lab/spark-artifacts";
 import { requestSparkDaemon, SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
 import type {
   ArtifactRef,
@@ -13,7 +13,10 @@ import type {
   TaskRun,
 } from "@zendev-lab/spark-core";
 import { loadSessionGoal } from "@zendev-lab/spark-loop";
-import type { SparkTaskExecutionSessionRelation } from "@zendev-lab/spark-protocol";
+import type {
+  SparkFleetWorkerSessionRelation,
+  SparkTaskExecutionSessionRelation,
+} from "@zendev-lab/spark-protocol";
 import { createSparkSessionRepro } from "@zendev-lab/spark-repro";
 import { RoleRegistry } from "@zendev-lab/spark-roles";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";
@@ -29,6 +32,209 @@ afterEach(async () => {
 });
 
 describe("managed Task Session dispatch", () => {
+  it("serializes one Fleet lane, reuses its Session, and honors fresh continuity", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-fleet-"));
+    roots.push(cwd);
+    const worktree = join(cwd, "worktree");
+    await mkdir(worktree);
+    const artifactRef = "artifact:fleet-worktree" as ArtifactRef;
+    await defaultArtifactStore(cwd).put({
+      ref: artifactRef,
+      kind: "git_change",
+      title: "Fleet worktree",
+      format: "json",
+      body: {
+        schemaVersion: 2,
+        kind: "git_change",
+        repository: { forge: "github", repo: "acme/fleet" },
+        trunk: "main",
+        worktree: {
+          path: worktree,
+          branch: "fleet/work",
+          ownership: "spark",
+          status: "attached",
+        },
+        stack: { authority: "gh-stack", entries: [] },
+        lifecycle: "local",
+      },
+    });
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Fleet", description: "Fleet" });
+    const makeTask = (title: string, continuity: "reuse_within_revision" | "fresh") =>
+      graph.createTask({
+        projectRef: project.ref,
+        title,
+        description: title,
+        kind: "implement",
+        roleRef: "role:builtin-worker",
+        artifactRefs: [artifactRef],
+        executionPolicy: {
+          sessionLifetime: continuity === "fresh" ? "task_run" : "task_revision",
+          continuity,
+          isolation: "isolated_worktree",
+          comparison: "single_side",
+          resources: { gpuCount: 0 },
+          worktreeTarget: {
+            primaryArtifactRef: artifactRef,
+            writableArtifactRefs: [artifactRef],
+          },
+          concurrencyKeys: [],
+          maxAttempts: 2,
+        },
+        plan: normalizeTaskPlan(
+          {
+            objective: `Implement and verify the bounded change for ${title}.`,
+            successCriteria: [
+              `The ${title} change is complete and a focused test demonstrates its behavior.`,
+            ],
+            evidenceRequired: [`An inspectable test result and diff summary for ${title}.`],
+            steps: [
+              `Inspect the current implementation for ${title}.`,
+              `Implement ${title} and run its focused verification.`,
+            ],
+          },
+          title,
+          title,
+        ),
+      });
+    const firstTask = makeTask("First lane task", "reuse_within_revision");
+    const secondTask = makeTask("Second lane task", "reuse_within_revision");
+    const freshTask = makeTask("Fresh lane task", "fresh");
+    for (const item of [firstTask, secondTask, freshTask]) graph.setTaskStatus(item.ref, "ready");
+    await defaultTaskGraphStore(cwd).save(graph);
+
+    const sessions = new Map<string, SparkFleetWorkerSessionRelation>();
+    const sends: Array<Record<string, unknown>> = [];
+    let invocation = 0;
+    const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
+      if (method === "session.get") {
+        const sessionId = String(input.sessionId);
+        return {
+          sessionId,
+          scope: { kind: "workspace", workspaceId: "ws_fleet" },
+          workspaceId: "ws_fleet",
+          status: "ready",
+          cwd: sessionId === "sess_owner" ? cwd : worktree,
+          relation: sessions.get(sessionId),
+          bindings: [],
+          createdAt: "2026-08-11T00:00:00.000Z",
+          updatedAt: "2026-08-11T00:00:00.000Z",
+        };
+      }
+      if (method === "session.create") {
+        const sessionId = String(input.sessionId);
+        if (sessions.has(sessionId)) {
+          throw new SparkDaemonRemoteError("session exists", { code: "session_exists" });
+        }
+        const relation = {
+          kind: "fleet_worker" as const,
+          ...(input.fleetWorker as Omit<SparkFleetWorkerSessionRelation, "kind">),
+        };
+        sessions.set(sessionId, relation);
+        return {
+          sessionId,
+          scope: { kind: "workspace", workspaceId: "ws_fleet" },
+          workspaceId: "ws_fleet",
+          status: "ready",
+          cwd: worktree,
+          cwdArtifactRef: artifactRef,
+          relation,
+          bindings: [],
+          createdAt: "2026-08-11T00:00:00.000Z",
+          updatedAt: "2026-08-11T00:00:00.000Z",
+        };
+      }
+      if (method === "session.send") {
+        sends.push(input);
+        invocation += 1;
+        return {
+          mail: { mailId: `mail_${invocation}` },
+          submitted: {
+            invocationId: `inv_fleet_${invocation}`,
+            status: "queued",
+            acceptedAt: "2026-08-11T00:00:00.000Z",
+          },
+        };
+      }
+      throw new Error(`unexpected daemon method: ${method}`);
+    }) as typeof requestSparkDaemon;
+    const dispatch = (taskRefs: TaskRef[]) =>
+      dispatchManagedTaskSessions({
+        cwd,
+        ctx: { sessionId: "sess_owner" },
+        ownerSessionId: "sess_owner",
+        parentInvocationId: "inv_owner",
+        projectRef: project.ref,
+        taskRefs,
+        registry: new RoleRegistry(),
+        fleet: true,
+        daemonRequest,
+      });
+
+    const [first] = await dispatch([firstTask.ref]);
+    await expect(dispatch([secondTask.ref])).rejects.toThrow(/already has an active TaskRun/u);
+    expect((await defaultTaskGraphStore(cwd).load())?.runs(project.ref)).toHaveLength(1);
+    await defaultTaskGraphStore(cwd).update(
+      (next) => {
+        const run = next.runs(project.ref).find((candidate) => candidate.ref === first!.runRef)!;
+        next.recordRun({
+          ...run,
+          status: "succeeded",
+          finishedAt: "2026-08-11T00:01:00.000Z",
+        });
+        next.releaseTaskClaim(firstTask.ref);
+        next.setTaskStatus(firstTask.ref, "done");
+      },
+      { createIfMissing: false },
+    );
+    const [second] = await dispatch([secondTask.ref]);
+    expect(second?.sessionId).toBe(first?.sessionId);
+    expect(second?.jobId).not.toBe(first?.jobId);
+    expect(second?.runRef).not.toBe(first?.runRef);
+    await expect(loadSessionGoal(cwd, { sessionId: first!.sessionId })).resolves.toBeUndefined();
+    await defaultTaskGraphStore(cwd).update(
+      (next) => {
+        const run = next.runs(project.ref).find((candidate) => candidate.ref === second!.runRef)!;
+        next.recordRun({
+          ...run,
+          status: "succeeded",
+          finishedAt: "2026-08-11T00:02:00.000Z",
+        });
+        next.releaseTaskClaim(secondTask.ref);
+        next.setTaskStatus(secondTask.ref, "done");
+      },
+      { createIfMissing: false },
+    );
+    const [fresh] = await dispatch([freshTask.ref]);
+    expect(fresh?.sessionId).not.toBe(first?.sessionId);
+    expect(new Set(sends.map((send) => send.toSessionId)).size).toBe(2);
+    for (const send of sends) {
+      expect(send).toMatchObject({
+        fromSessionId: "sess_owner",
+        kind: "request",
+        intent: "fleet.task.execute",
+        notifyOnCompletion: true,
+        parentInvocationId: "inv_owner",
+        payload: {
+          kind: "task_execution",
+          projectRef: project.ref,
+          attempt: 1,
+        },
+      });
+    }
+    expect(
+      (await defaultTaskGraphStore(cwd).load())?.runs(project.ref).map((run) => ({
+        taskRef: run.taskRef,
+        lane: run.execution?.workerLaneKey,
+        attempt: run.execution?.attempt,
+      })),
+    ).toEqual([
+      { taskRef: firstTask.ref, lane: expect.stringMatching(/^fleet:/u), attempt: 1 },
+      { taskRef: secondTask.ref, lane: expect.stringMatching(/^fleet:/u), attempt: 1 },
+      { taskRef: freshTask.ref, lane: expect.stringMatching(/^fleet:/u), attempt: 1 },
+    ]);
+  });
+
   it("creates one daemon Session Goal and execution binding per allowlisted Task", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-dispatch-"));
     roots.push(cwd);
@@ -230,6 +436,24 @@ describe("managed Task Session dispatch", () => {
     });
     expect(archiveCalls.some((call) => call.input.sessionId === records[1]!.sessionId)).toBe(false);
     expect(safeSubgoals.every((subgoal) => subgoal.status !== "done")).toBe(true);
+    await expect(
+      reconcileManagedTaskSessions({
+        cwd,
+        ctx: { sessionId: "sess_owner" },
+        projectRef: project.ref,
+        ownerSessionId: "sess_owner",
+        subgoals: safeSubgoals,
+        daemonRequest,
+      }),
+    ).resolves.toEqual({
+      inspected: 0,
+      terminal: 0,
+      succeeded: 0,
+      blocked: 0,
+      failed: 0,
+      cancelled: 0,
+      superseded: 0,
+    });
   });
 
   it.each([

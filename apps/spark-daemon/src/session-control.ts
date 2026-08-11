@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
+import { setSparkSessionMode } from "@zendev-lab/spark-loop";
 import {
   parseSparkAssignment,
   parseSparkSessionRegistryRecord,
@@ -13,6 +14,7 @@ import {
   sparkSessionGetRequestSchema,
   sparkSessionListRequestSchema,
   sparkSessionMediaReadRequestSchema,
+  sparkSessionSetModeRequestSchema,
   sparkSessionSnapshotPageSchema,
   sparkSessionSnapshotRequestSchema,
   sparkSessionUnbindRequestSchema,
@@ -80,6 +82,7 @@ export interface SparkDaemonSessionControlRequest {
     | "session.unbind.request"
     | "session.archive.request"
     | "session.restore.request"
+    | "session.mode.set.request"
     | "turn.submit.request"
     | "turn.cancel.request"
     | "turn.status.request"
@@ -342,6 +345,35 @@ export async function executeSparkDaemonSessionControl(
       );
       const data = publicObject({ session });
       return { result: data, projection: { kind: "session.detail", data } };
+    }
+    case "session.mode.set.request": {
+      const parsed = sparkSessionSetModeRequestSchema.parse({
+        ...request.payload,
+        sessionId: request.sessionId ?? request.payload.sessionId,
+      });
+      const session = await requireSession(options, parsed.sessionId, request);
+      assertOrdinarySessionVisible(session, true);
+      if (session.status === "archived") {
+        throw new SparkSessionRegistryError(
+          "session_archived",
+          `cannot change mode for archived session: ${parsed.sessionId}`,
+        );
+      }
+      if (session.scope.kind !== "workspace") {
+        throw new SparkSessionRegistryError(
+          "invalid_scope",
+          "Session mode belongs to a workspace session.",
+        );
+      }
+      const cwd = resolveWorkspaceLocalPath(options.db, session.scope.workspaceId);
+      if (!cwd) {
+        throw new SparkSessionRegistryError(
+          "workspace_cwd_unavailable",
+          `Workspace ${session.scope.workspaceId} is unavailable for Session mode persistence.`,
+        );
+      }
+      const snapshot = await setSparkSessionMode(cwd, { sessionId: parsed.sessionId }, parsed.mode);
+      return { result: publicObject({ sessionId: parsed.sessionId, mode: snapshot.mode }) };
     }
     case "turn.submit.request": {
       const parsed = parseTurnSubmitPayload(request.payload, request.sessionId);

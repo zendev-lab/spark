@@ -2108,10 +2108,17 @@ export class SparkNativeTuiApp implements Component, Focusable {
       return;
     }
 
-    // The canonical bare `/workflow` command owns the native workflow picker.
-    // Hub uses the shared semantic action bar, but the TUI must not let
-    // that presentation layer intercept its registered picker command.
-    if (parsed.name === "workflow" && !parsed.args.trim() && this.slashCommands.workflow) {
+    // Canonical mode commands and `/workflow` already own complete native
+    // flows. Hub uses the shared semantic action bars, but the TUI must not let
+    // that presentation layer intercept its registered command handlers.
+    const directRegisteredCommand = ["plan", "execute", "fleet", "workflow"].includes(parsed.name)
+      ? parsed.name
+      : undefined;
+    if (
+      directRegisteredCommand &&
+      !parsed.args.trim() &&
+      this.slashCommands[directRegisteredCommand]
+    ) {
       await this.invokeRegisteredSlashCommand(parsed.name, parsed.args, true);
       return;
     }

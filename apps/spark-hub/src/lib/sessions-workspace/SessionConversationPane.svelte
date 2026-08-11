@@ -168,6 +168,14 @@
       name="sessionId"
       value={host.selected.sessionId}
     />
+    <form
+      id="session-mode-form"
+      bind:this={() => host.sessionModeForm, (v) => (host.sessionModeForm = v)}
+      method="POST"
+      action="?/selectMode"
+    ></form>
+    <input form="session-mode-form" type="hidden" name="sessionId" value={host.selected.sessionId} />
+    <input form="session-mode-form" type="hidden" name="mode" value={host.sessionMode} />
 
     {#each host.queueItems as item (item.id)}
       <form

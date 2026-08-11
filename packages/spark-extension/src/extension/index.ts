@@ -162,10 +162,10 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkAskAutoAnswerProvider("spark-goal-reviewer", async (request, rawCtx) => {
     const askCtx = rawCtx as SparkToolContext;
     if (!askCtx.cwd) return undefined;
-    if (sparkActiveModeValue(askCtx.sparkActiveMode) === "execute")
+    if (sparkActiveModeValue(askCtx.sparkActiveMode) !== "plan")
       return {
         blocked: true,
-        reason: "reviewer ask auto-answer is disabled in /implement mode",
+        reason: "reviewer ask auto-answer is disabled outside Plan mode",
       };
     const goal = await loadSessionGoal(askCtx.cwd, askCtx);
     if (goal?.status !== "active") return undefined;

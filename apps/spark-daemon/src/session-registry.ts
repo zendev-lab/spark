@@ -313,13 +313,22 @@ async function resolveCreateRequest(
   options: CreateDaemonSessionRegistryOptions,
 ): Promise<CreateSparkSessionInput> {
   const taskExecution = "taskExecution" in input ? input.taskExecution : undefined;
+  const fleetWorker = "fleetWorker" in input ? input.fleetWorker : undefined;
   const {
     taskExecution: _taskExecution,
+    fleetWorker: _fleetWorker,
     scope,
     ...ordinaryInput
   } = input as SparkSessionCreateRequest & {
     taskExecution?: NonNullable<SparkSessionCreateRequest["taskExecution"]>;
+    fleetWorker?: NonNullable<SparkSessionCreateRequest["fleetWorker"]>;
   };
+  if (taskExecution && fleetWorker) {
+    throw new SparkSessionRegistryError(
+      "invalid_session_relation",
+      "taskExecution and fleetWorker are mutually exclusive",
+    );
+  }
   const createInput: Omit<CreateSparkSessionInput, "scope"> = {
     ...ordinaryInput,
     ...(taskExecution
@@ -339,7 +348,18 @@ async function resolveCreateRequest(
           ...(taskExecution.roleRevision ? { roleRevision: taskExecution.roleRevision } : {}),
           ...(taskExecution.modelType ? { modelType: taskExecution.modelType } : {}),
         }
-      : {}),
+      : fleetWorker
+        ? {
+            relation: { kind: "fleet_worker", ...fleetWorker },
+            lifetime: "persistent" as const,
+            owner: { kind: "session", ref: fleetWorker.ownerSessionId } as const,
+            authority: { kind: "role", ref: fleetWorker.roleRef } as const,
+            visibility: "internal" as const,
+            retention: "retain" as const,
+            purpose: "fleet_worker",
+            roleRef: fleetWorker.roleRef,
+          }
+        : {}),
   };
   if (!scope) return await resolveRegistryCreateInput(createInput, options);
   if (scope.kind === "daemon") {

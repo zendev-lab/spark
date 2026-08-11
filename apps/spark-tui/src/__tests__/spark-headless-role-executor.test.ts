@@ -60,6 +60,7 @@ test("runSparkHeadlessSession retains the control root for nested daemon-native 
     sessionLease: undefined,
     channelBinding: undefined,
     invocationId: undefined,
+    taskExecutionScope: undefined,
     tokenUsage: undefined,
     stateBindingSessionId: undefined,
     loop: undefined,
@@ -67,6 +68,7 @@ test("runSparkHeadlessSession retains the control root for nested daemon-native 
     allowedTools: undefined,
     roleRunner: undefined,
     allowedToolEffects: undefined,
+    sessionMode: undefined,
     hasUI: false,
     streamTimeoutMs: 0,
     approvalMethod: "auto",
@@ -767,7 +769,7 @@ test("runSparkHeadlessRoleInstruction records completed and blocked structured o
       expectedStatus: "failed" as const,
     },
   ]) {
-    let sessionMode: "plan" | "execute" | undefined;
+    let sessionMode: "plan" | "execute" | "fleet" | undefined;
     const services = headlessRoleServices(async (tools) => {
       await executeRoleOutcomeTool(tools, expected);
       return successfulOutcome("structured outcome recorded");
@@ -792,7 +794,7 @@ test("runSparkHeadlessRoleInstruction records completed and blocked structured o
 });
 
 test("runSparkHeadlessSession keeps supervised Role outcome tools in execute mode", async () => {
-  let sessionMode: "plan" | "execute" | undefined;
+  let sessionMode: "plan" | "execute" | "fleet" | undefined;
   let allowedTools: readonly string[] | undefined;
   const services = headlessRoleServices(async (tools) => {
     await executeRoleOutcomeTool(tools, {

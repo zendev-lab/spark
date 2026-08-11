@@ -191,7 +191,7 @@ export type SparkAgentStreamFunction = (
 };
 
 export type SparkAgentLoopState = "idle" | "streaming" | "tooling" | "aborting";
-export type SparkAgentMode = "plan" | "execute";
+export type SparkAgentMode = "plan" | "execute" | "fleet";
 export type SparkAgentLifecycleSource = "agentLoop" | "triggerTurn" | "restartResume";
 
 export const SPARK_TURN_RESTART_YIELD_ERROR_CODE = "SPARK_TURN_RESTART_YIELD";
@@ -1068,8 +1068,11 @@ export class SparkAgentLoop {
       // bounded batch are still running. Re-check immediately before launch
       // so a queued call cannot inherit stale read-only eligibility.
       const tool = this.host.getTool(toolCall.name);
-      if (tool && !this.isToolAvailable(tool)) {
-        return errorToolResult(toolCall, this.toolUnavailableMessage(toolCall.name, tool));
+      if (tool && !this.isToolAvailable(tool, toolCall.arguments)) {
+        return errorToolResult(
+          toolCall,
+          this.toolUnavailableMessage(toolCall.name, tool, toolCall.arguments),
+        );
       }
       if (!this.isParallelReadToolCall(toolCall)) {
         return errorToolResult(
@@ -1083,7 +1086,7 @@ export class SparkAgentLoop {
 
   private isParallelReadToolCall(toolCall: ToolCall): boolean {
     const tool = this.host.getTool(toolCall.name);
-    if (!tool || !this.isToolAvailable(tool)) return false;
+    if (!tool || !this.isToolAvailable(tool, toolCall.arguments)) return false;
     const policy = resolvedRegisteredToolPolicy(tool, toolCall.arguments);
     return (
       policy.effect === "read" &&
@@ -1160,8 +1163,11 @@ export class SparkAgentLoop {
       if (!tool) {
         return errorToolResult(toolCall, `unknown tool: ${toolCall.name}`);
       }
-      if (!this.isToolAvailable(tool)) {
-        return errorToolResult(toolCall, this.toolUnavailableMessage(toolCall.name, tool));
+      if (!this.isToolAvailable(tool, toolCall.arguments)) {
+        return errorToolResult(
+          toolCall,
+          this.toolUnavailableMessage(toolCall.name, tool, toolCall.arguments),
+        );
       }
       if (!this.isToolDispatchAllowed(toolCall.name, tool)) {
         return errorToolResult(toolCall, `tool execution denied by host policy: ${toolCall.name}`);
@@ -1183,8 +1189,11 @@ export class SparkAgentLoop {
           `tool execution policy changed before dispatch: ${toolCall.name}`,
         );
       }
-      if (!this.isToolAvailable(tool)) {
-        return errorToolResult(toolCall, this.toolUnavailableMessage(toolCall.name, tool));
+      if (!this.isToolAvailable(tool, normalizedToolCall.arguments)) {
+        return errorToolResult(
+          toolCall,
+          this.toolUnavailableMessage(toolCall.name, tool, normalizedToolCall.arguments),
+        );
       }
       if (!this.isToolDispatchAllowed(toolCall.name, tool)) {
         return errorToolResult(toolCall, `tool execution denied by host policy: ${toolCall.name}`);
@@ -1432,9 +1441,12 @@ export class SparkAgentLoop {
   }
 
   /** The single availability boundary shared by schemas, manifests, and dispatch. */
-  private isToolAvailable(tool: SparkTurnRegisteredTool): boolean {
+  private isToolAvailable(
+    tool: SparkTurnRegisteredTool,
+    args?: Readonly<Record<string, unknown>>,
+  ): boolean {
     if (!tool.active) return false;
-    const modes = resolvedRegisteredToolPolicy(tool).modes;
+    const modes = resolvedRegisteredToolPolicy(tool, args).modes;
     return this.currentMode === undefined || modes.length === 0 || modes.includes(this.currentMode);
   }
 
@@ -1442,9 +1454,13 @@ export class SparkAgentLoop {
     return this.host.isToolDispatchAllowed?.(toolName, tool) ?? true;
   }
 
-  private toolUnavailableMessage(toolName: string, tool: SparkTurnRegisteredTool): string {
+  private toolUnavailableMessage(
+    toolName: string,
+    tool: SparkTurnRegisteredTool,
+    args?: Readonly<Record<string, unknown>>,
+  ): string {
     if (!tool.active) return `inactive tool: ${toolName}`;
-    const modes = resolvedRegisteredToolPolicy(tool).modes;
+    const modes = resolvedRegisteredToolPolicy(tool, args).modes;
     return `mode-inactive tool: ${toolName} (current mode=${this.currentMode ?? "none"}; allowed modes=${modes.join(",") || "all"})`;
   }
 

@@ -781,7 +781,7 @@ type TestSparkContext = {
   askWaitTimeoutMs?: number;
   askReviewerFallbackAfterMs?: number;
   sparkActiveMode?: {
-    mode: "plan" | "execute";
+    mode: "plan" | "execute" | "fleet";
   };
   sparkAutonomousAsk?: SparkToolContext["sparkAutonomousAsk"];
   ui: {
@@ -866,7 +866,7 @@ test("/ultracode enters opt-in high-effort workflow generation mode", async () =
   }
 });
 
-test("/plan, /implement, /goal, and /workflow selector commands enter Spark modes directly", async () => {
+test("/plan, /execute, /fleet, /goal, and /workflow selector commands enter Spark modes directly", async () => {
   const existingDir = await mkdtemp(join(tmpdir(), "spark-plan-direct-existing-"));
   const initializedDir = await mkdtemp(join(tmpdir(), "spark-execute-direct-initialized-"));
   const emptyDir = await mkdtemp(join(tmpdir(), "spark-execute-direct-empty-"));
@@ -918,6 +918,13 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     assert.deepEqual(initializedCtx.sparkActiveMode, {
       mode: "execute",
     });
+
+    const fleetCommand = initializedRun.commands.get("fleet");
+    assert.ok(fleetCommand, "missing /fleet command");
+    await fleetCommand.handler("Coordinate the safe ready frontier", initializedCtx);
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.match(initializedRun.customMessages.at(-1)?.content ?? "", /Fleet mode requirements/u);
+    assert.deepEqual(initializedCtx.sparkActiveMode, { mode: "fleet" });
 
     initializedCtx.ui.select = async () =>
       assert.fail("/implement should not open a canned implement-strategy ask");
@@ -7410,7 +7417,7 @@ test("mode tool returns requirements and persists session mode", async () => {
 
     await assert.rejects(
       () => executeSparkTool(tools, "mode", ctx, { action: "research" }),
-      /mode action must be one of: plan, execute, status/u,
+      /mode action must be one of: plan, execute, fleet, status/u,
     );
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
@@ -8872,7 +8879,7 @@ test("current project store ignores legacy mode and run control blocks", async (
 
     await writeFile(stateFile, `${JSON.stringify({ projectRef: "proj:legacy" })}\n`, "utf8");
     assert.deepEqual(await loadCurrentProjectState(dir, ctx), {
-      version: 2,
+      version: 3,
       projectRef: "proj:legacy",
     });
 
@@ -8882,14 +8889,14 @@ test("current project store ignores legacy mode and run control blocks", async (
       "utf8",
     );
     assert.deepEqual(await loadCurrentProjectState(dir, ctx), {
-      version: 2,
+      version: 3,
       projectRef: "proj:demo",
       mode: "plan",
     });
 
     await writeFile(
       stateFile,
-      `${JSON.stringify({ version: 3, projectRef: "proj:demo" })}\n`,
+      `${JSON.stringify({ version: 4, projectRef: "proj:demo" })}\n`,
       "utf8",
     );
     await assert.rejects(
@@ -8897,7 +8904,7 @@ test("current project store ignores legacy mode and run control blocks", async (
       (error) =>
         error instanceof JsonStoreFormatError &&
         error.filePath === stateFile &&
-        /version must be 2/.test(error.message),
+        /version must be 1, 2, or 3/.test(error.message),
     );
 
     await writeFile(stateFile, `${JSON.stringify({ version: 1, projectRef: 42 })}\n`, "utf8");
@@ -8925,7 +8932,7 @@ test("current project store ignores legacy mode and run control blocks", async (
       "utf8",
     );
     assert.deepEqual(await loadCurrentProjectState(dir, ctx), {
-      version: 2,
+      version: 3,
       projectRef: "proj:demo",
     });
 
@@ -8945,7 +8952,7 @@ test("current project store ignores legacy mode and run control blocks", async (
       "utf8",
     );
     const runControlState = await loadCurrentProjectState(dir, ctx);
-    assert.deepEqual(runControlState, { version: 2, projectRef: "proj:demo" });
+    assert.deepEqual(runControlState, { version: 3, projectRef: "proj:demo" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

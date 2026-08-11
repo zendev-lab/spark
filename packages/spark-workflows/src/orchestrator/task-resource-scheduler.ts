@@ -13,6 +13,7 @@ import {
 
 export type TaskResourceDeferralReason =
   | "attempt_limit"
+  | "isolation_unavailable"
   | "concurrency_limit"
   | "concurrency_key"
   | "exclusive_node"

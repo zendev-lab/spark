@@ -12,6 +12,7 @@ import {
 } from "./session-state.ts";
 import {
   enterSparkExecuteMode,
+  enterSparkFleetMode,
   enterSparkPlanMode,
   type SparkModeEntryDeps,
   type SparkModeMessageApi,
@@ -56,7 +57,9 @@ export async function applySparkEntryResolution(
           resolution.focus,
           resolution.planningSource,
         );
-      else await enterSparkExecuteMode(piApi, deps, ctx, graph, resolution.focus);
+      else if (resolution.mode === "execute")
+        await enterSparkExecuteMode(piApi, deps, ctx, graph, resolution.focus);
+      else await enterSparkFleetMode(piApi, deps, ctx, graph, resolution.focus);
       return;
     }
     case "blocked":

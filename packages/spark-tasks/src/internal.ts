@@ -244,7 +244,7 @@ export function normalizeTask(task: Task): Task {
   rejectLegacyRoleFields(task, "task");
   rejectLegacyClaimFields(task, "task");
   const claim = isUnfinishedTaskStatus(task.status) ? normalizeTaskClaim(task.claim) : undefined;
-  return {
+  const normalized = {
     ref: task.ref,
     projectRef: task.projectRef,
     name: task.name ?? taskNameFromTitle(task.title),
@@ -270,6 +270,8 @@ export function normalizeTask(task: Task): Task {
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };
+  assertTaskWorktreeTargetArtifacts(normalized.executionPolicy, normalized.artifactRefs);
+  return normalized;
 }
 
 export function normalizeTaskPlan(
@@ -393,6 +395,7 @@ export function normalizeTaskExecutionPolicy(
     policy?.sessionLifetime ?? (policy?.continuity === "fresh" ? "task_run" : "task_revision");
   const continuity =
     policy?.continuity ?? (sessionLifetime === "task_run" ? "fresh" : "reuse_within_revision");
+  const worktreeTarget = normalizeTaskWorktreeTarget(policy?.worktreeTarget);
   const isolation =
     policy?.isolation === "isolated_worktree" ||
     policy?.isolation === "isolated_results" ||
@@ -431,12 +434,58 @@ export function normalizeTaskExecutionPolicy(
     isolation,
     comparison,
     ...(resources ? { resources } : {}),
+    ...(worktreeTarget ? { worktreeTarget } : {}),
     concurrencyKeys: [...new Set(normalizeStringList(policy?.concurrencyKeys))],
     ...(normalizeOptionalPositiveInteger(policy?.timeoutMs) !== undefined
       ? { timeoutMs: normalizeOptionalPositiveInteger(policy?.timeoutMs) }
       : {}),
     maxAttempts: policy?.maxAttempts ?? 2,
   };
+}
+
+function normalizeTaskWorktreeTarget(
+  value: TaskExecutionPolicy["worktreeTarget"] | undefined,
+): TaskExecutionPolicy["worktreeTarget"] | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("task executionPolicy.worktreeTarget must be an object");
+  }
+  const primaryArtifactRef = value.primaryArtifactRef;
+  if (typeof primaryArtifactRef !== "string" || !primaryArtifactRef.startsWith("artifact:")) {
+    throw new Error(
+      "task executionPolicy.worktreeTarget.primaryArtifactRef must be an ArtifactRef",
+    );
+  }
+  if (
+    !Array.isArray(value.writableArtifactRefs) ||
+    value.writableArtifactRefs.length === 0 ||
+    value.writableArtifactRefs.some(
+      (ref) => typeof ref !== "string" || !ref.startsWith("artifact:"),
+    )
+  ) {
+    throw new Error(
+      "task executionPolicy.worktreeTarget.writableArtifactRefs must be a non-empty ArtifactRef array",
+    );
+  }
+  const writableArtifactRefs = [...new Set(value.writableArtifactRefs)];
+  if (!writableArtifactRefs.includes(primaryArtifactRef)) {
+    throw new Error("task executionPolicy.worktreeTarget.primaryArtifactRef must be writable");
+  }
+  return { primaryArtifactRef, writableArtifactRefs };
+}
+
+export function assertTaskWorktreeTargetArtifacts(
+  policy: TaskExecutionPolicy | undefined,
+  artifactRefs: readonly ArtifactRef[],
+): void {
+  const target = policy?.worktreeTarget;
+  if (!target) return;
+  const linked = new Set(artifactRefs);
+  for (const ref of target.writableArtifactRefs) {
+    if (!linked.has(ref)) {
+      throw new Error(`task executionPolicy.worktreeTarget ${ref} must be linked in artifactRefs`);
+    }
+  }
 }
 
 function normalizeOptionalPositiveInteger(value: unknown): number | undefined {
@@ -1357,6 +1406,12 @@ export function cloneTask(task: Task): Task {
           ...task.executionPolicy,
           resources: task.executionPolicy.resources
             ? { ...task.executionPolicy.resources }
+            : undefined,
+          worktreeTarget: task.executionPolicy.worktreeTarget
+            ? {
+                primaryArtifactRef: task.executionPolicy.worktreeTarget.primaryArtifactRef,
+                writableArtifactRefs: [...task.executionPolicy.worktreeTarget.writableArtifactRefs],
+              }
             : undefined,
           concurrencyKeys: [...task.executionPolicy.concurrencyKeys],
         }

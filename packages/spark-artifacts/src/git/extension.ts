@@ -64,6 +64,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       effect: "destructive",
       executionMode: "sequential",
       domains: ["git", "artifact"],
+      modes: ["plan", "execute", "fleet"],
       approval: "required",
     },
     resolvePolicy(args) {
@@ -73,6 +74,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
           effect: "read",
           executionMode: "parallel",
           domains: ["git", "artifact"],
+          modes: ["plan", "execute", "fleet"],
           approval: "none",
         };
       }
@@ -81,6 +83,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
           effect: "external_write",
           executionMode: "sequential",
           domains: ["git", "artifact"],
+          modes: ["plan", "execute"],
           approval: "required",
         };
       }
@@ -89,6 +92,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
           effect: "destructive",
           executionMode: "sequential",
           domains: ["git", "artifact"],
+          modes: ["plan", "execute"],
           approval: "required",
         };
       }
@@ -96,6 +100,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
         effect: "local_write",
         executionMode: "sequential",
         domains: ["git", "artifact"],
+        modes: ["plan", "execute"],
         approval: "none",
       };
     },
@@ -164,6 +169,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       const store = defaultArtifactStore(workspaceRoot);
       const service = new GitLifecycleService({ cwd, workspaceRoot, store });
       const action = normalizeGitAction(params.action);
+      params = authorizeTaskGitAction(ctx, action, params);
 
       if (action === "inspect") {
         const requestedArtifactRef = stringOrUndefined(params.artifactRef);
@@ -241,6 +247,26 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       return changedResult(action, await service.cleanup(artifactRef));
     },
   });
+}
+
+function authorizeTaskGitAction(
+  ctx: SparkHostContext,
+  action: GitLifecycleAction,
+  params: Record<string, unknown>,
+): Record<string, unknown> {
+  const scope = ctx.taskExecutionScope;
+  if (!scope || action === "inspect") return params;
+  if (scope.isolation !== "isolated_worktree") {
+    throw new Error(`Task ${scope.isolation} scope cannot mutate Git state`);
+  }
+  if (action === "init" || action === "checkout" || action === "adopt" || action === "cleanup") {
+    throw new Error(`Task execution scope forbids git action=${action}`);
+  }
+  const requested = stringOrUndefined(params.artifactRef) ?? scope.primaryArtifactRef;
+  if (!requested || !scope.writableArtifactRefs.includes(requested as ArtifactRef)) {
+    throw new Error(`Task is not authorized to mutate git_change ${requested ?? "<missing>"}`);
+  }
+  return { ...params, artifactRef: requested };
 }
 
 export function registerSparkGitLifecycleTool(pi: SparkHostAPI): void {

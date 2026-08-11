@@ -59,6 +59,7 @@ import {
   sparkPiAuthImportRequestSchema,
 } from "./model-control.ts";
 import { isoDateTimeSchema, prefixedIdSchema } from "./refs.ts";
+import { sparkSessionModeResultSchema, sparkSessionSetModeRequestSchema } from "./session-mode.ts";
 import {
   executorClientProjectionSchema,
   runtimeWorkspaceBindingStatusSchema,
@@ -179,6 +180,7 @@ export const sparkLocalRpcSessionOrpcErrors = {
   invalid_registry: { status: 500 },
   invalid_scope: { status: 422 },
   invalid_session_path: { status: 422 },
+  invalid_session_relation: { status: 422 },
   invalid_session_role: { status: 422 },
   invalid_session_tag: { status: 422 },
   invalid_session_snapshot: { status: 500 },
@@ -1591,6 +1593,10 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkSessionSetModelRequestSchema,
     output: sparkSessionRegistryRecordSchema,
   },
+  "session.mode.set": {
+    input: sparkSessionSetModeRequestSchema,
+    output: sparkSessionModeResultSchema,
+  },
   "session.thinking.set": {
     input: sparkSessionSetThinkingRequestSchema,
     output: sparkSessionRegistryRecordSchema,
@@ -2068,6 +2074,14 @@ export const sparkLocalRpcOrpcContract = {
         "POST",
         "/session/model/set",
         p["session.model.set"],
+        sparkLocalRpcReadinessSessionModelOrpcErrors,
+      ),
+    },
+    mode: {
+      set: procedure(
+        "POST",
+        "/session/mode/set",
+        p["session.mode.set"],
         sparkLocalRpcReadinessSessionModelOrpcErrors,
       ),
     },

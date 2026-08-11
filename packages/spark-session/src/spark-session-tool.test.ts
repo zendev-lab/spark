@@ -71,6 +71,20 @@ test("session tool exposes persistent lifecycle, calls, classification, and mail
   ]) {
     assert.match(schema, new RegExp(action));
   }
+  assert.deepEqual(tool.resolvePolicy?.({ action: "list" }), {
+    effect: "read",
+    executionMode: "parallel",
+    domains: ["sessions"],
+    modes: ["plan", "execute", "fleet"],
+    approval: "none",
+  });
+  assert.deepEqual(tool.resolvePolicy?.({ action: "call" }), {
+    effect: "external_write",
+    executionMode: "sequential",
+    domains: ["sessions"],
+    modes: ["plan", "execute"],
+    approval: "none",
+  });
 });
 
 test("session tool routes managed actions through daemon RPC and classifies surfaces", async () => {

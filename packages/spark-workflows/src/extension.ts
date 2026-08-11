@@ -62,6 +62,13 @@ export function registerSparkWorkflowTool(
       "Execute workflows through the host's explicit workflow command/runtime, not by evaluating scripts from this tool.",
       "workflow action=tick is internal to a daemon-owned Workflow Loop and is rejected in ordinary turns.",
     ],
+    policy: workflowToolPolicy("read", ["plan", "execute", "fleet"]),
+    resolvePolicy(args) {
+      const action = typeof args.action === "string" ? args.action : "";
+      return action === "list" || action === "read"
+        ? workflowToolPolicy("read", ["plan", "execute", "fleet"])
+        : workflowToolPolicy("external_write", ["plan", "execute"]);
+    },
     parameters: Type.Object({
       action: Type.String({ description: "list | read | run | tick" }),
       selector: Type.Optional(
@@ -177,6 +184,19 @@ function renderWorkflowList(workflows: WorkflowDescriptor[], total: number): str
       `- … ${total - workflows.length} more workflow(s); increase limit for a larger bounded sample.`,
     );
   return lines.join("\n");
+}
+
+function workflowToolPolicy(
+  effect: "read" | "external_write",
+  modes: readonly string[],
+): NonNullable<ToolConfig["policy"]> {
+  return {
+    effect,
+    executionMode: effect === "read" ? "parallel" : "sequential",
+    domains: ["workflows"],
+    modes,
+    approval: "none",
+  };
 }
 
 function normalizeWorkflowAction(value: unknown): SparkWorkflowAction {

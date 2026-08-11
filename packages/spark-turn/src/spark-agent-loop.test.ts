@@ -606,6 +606,80 @@ test("SparkAgentLoop rechecks phase availability after async approval", async ()
   assert.match(toolResultText(result), /mode-inactive tool: approved_implement_action/u);
 });
 
+test("SparkAgentLoop enforces action-resolved Fleet policy at dispatch", async () => {
+  const run = async (action: "read" | "write") => {
+    const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-fleet-policy-test" });
+    let executions = 0;
+    host.registerTool({
+      name: "action_tool",
+      description: "action-aware tool",
+      parameters: { type: "object" },
+      policy: {
+        effect: "local_write",
+        executionMode: "sequential",
+        modes: ["plan", "execute", "fleet"],
+        approval: "none",
+      },
+      resolvePolicy(args) {
+        return args.action === "read"
+          ? {
+              effect: "read",
+              executionMode: "parallel",
+              modes: ["plan", "execute", "fleet"],
+              approval: "none",
+            }
+          : {
+              effect: "local_write",
+              executionMode: "sequential",
+              modes: ["execute"],
+              approval: "none",
+            };
+      },
+      async execute() {
+        executions += 1;
+        return { content: [{ type: "text", text: action }] };
+      },
+    });
+    const call: ToolCall = {
+      type: "toolCall",
+      id: `tc-fleet-${action}`,
+      name: "action_tool",
+      arguments: { action },
+    };
+    const loop = new SparkAgentLoop({
+      host,
+      streamFunction: makeFakeStream({
+        rounds: [
+          [{ type: "done", reason: "toolUse", message: buildAssistant([call], "toolUse") }],
+          [
+            {
+              type: "done",
+              reason: "stop",
+              message: buildAssistant([{ type: "text", text: "done" }]),
+            },
+          ],
+        ],
+      }),
+      getModel: () => TEST_MODEL,
+    });
+    loop.setCurrentMode("fleet");
+    await loop.submit(action);
+    const result = asToolResult(
+      loop.getMessages().find((message) => message.role === "toolResult"),
+    );
+    return { executions, result };
+  };
+
+  const denied = await run("write");
+  assert.equal(denied.executions, 0);
+  assert.equal(denied.result?.isError, true);
+  assert.match(toolResultText(denied.result), /mode-inactive tool: action_tool/u);
+
+  const allowed = await run("read");
+  assert.equal(allowed.executions, 1);
+  assert.equal(allowed.result?.isError, false);
+});
+
 test("SparkAgentLoop forwards getReasoning into stream options.reasoning", async () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-reasoning-test" });
   const calls: Array<{ options: any }> = [];

@@ -23,7 +23,7 @@ lower layer.
 
 | Term | Meaning | Examples |
 | --- | --- | --- |
-| **Mode** | How the current Session is allowed to work | `plan`, `execute` |
+| **Mode** | How the current Session is allowed to work | `plan`, `execute`, `fleet` |
 | **Continuation driver** | Who owns whether and when the Session receives another turn | `manual`, `goal`, `loop`, `repro` |
 | **Stage** | An ordered step inside a domain protocol or Workflow | Repro contract/baseline/alignment; Workflow stages |
 | **Status** | Lifecycle state of a durable object or run | `running`, `paused`, `complete`, `failed` |
@@ -44,7 +44,7 @@ A Session has an operating mode and may have a continuation driver. The two
 axes are independent:
 
 ```ts
-export type SparkSessionMode = "plan" | "execute";
+export type SparkSessionMode = "plan" | "execute" | "fleet";
 
 export type SparkContinuationDriver =
   | { kind: "manual" }
@@ -71,6 +71,32 @@ The mode answers **how this turn may work**:
 - continue until the assigned outcome is complete, a material user decision is
   required, or a real blocker prevents progress;
 - keep durable Task, Artifact, Evidence, and PR state synchronized.
+
+### Fleet mode
+
+- the owner Session coordinates existing Project Tasks but does not modify
+  source, Git, or Cue targets itself;
+- `assign` is the only Task dispatch primitive. With no `taskRefs`, it selects
+  the maximum currently safe ready frontier; explicit refs are an allowlist,
+  not a dependency or resource override;
+- the owner may inspect authoritative state, reconcile TaskRuns, recover an
+  explicit failed/blocked Task, continue unrelated work, control the mode, or
+  ask the user. Direct Role, Skill Agent, Workflow, Goal, Loop, Repro, and
+  workspace-delegation dispatch is unavailable;
+- workers run in daemon-owned persistent Sessions keyed by owner Session,
+  Project, Role, primary GitChange, and the exact sorted writable GitChange
+  set. One lane runs one Task at a time and reuses its Session after a terminal
+  TaskRun. `continuity: "fresh"` creates a new worker Session;
+- leaving Fleet stops new admission but does not cancel admitted work. Later
+  completion notifications reconcile idempotently without dispatching more
+  work; re-entering Fleet recovers from TaskGraph, TaskRun, resource, and
+  Session Registry state.
+
+Fleet status is a derived projection only:
+`recommended | running | ready | attention | done | workers`. There is no Fleet
+store or scheduler. Plan context recommends Fleet only when preflight can pack
+at least two ready, target-disjoint lanes, and the user still chooses Fleet or
+ordinary Execute. Explicit `/fleet` and `/execute` are already decisions.
 
 The continuation driver answers **who owns another turn**:
 
@@ -134,7 +160,7 @@ Prompt layers have these owners:
    - engineering policy;
    - Artifact, Evidence, and PR delivery policy.
 2. **Session mode**
-   - only `plan`-specific or `execute`-specific behavior.
+   - only `plan`-, `execute`-, or `fleet`-specific behavior.
 3. **Continuation driver**
    - only Goal, Loop, or Repro continuation and completion semantics.
 4. **Agent identity**

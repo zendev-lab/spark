@@ -253,7 +253,7 @@ test("spark-web extension registers tools, retrieves cache, and skips conflicts"
       effect: "read",
       executionMode: "parallel",
       domains: ["web", "search-cache"],
-      modes: ["plan", "execute"],
+      modes: ["plan", "execute", "fleet"],
       approval: "none",
     });
     // These apparently read-oriented tools also persist recoverable cache

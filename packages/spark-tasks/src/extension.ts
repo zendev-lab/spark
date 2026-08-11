@@ -132,6 +132,13 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
     label: "Task Read",
     description:
       "Read-only project/task/TODO/run graph capability. Use action=task_status for one task, project_status for one project, workspace_status for the broad workspace summary, project_list for project lists, or run_status for task-run status.",
+    policy: {
+      effect: "read",
+      executionMode: "parallel",
+      domains: ["tasks"],
+      modes: ["plan", "execute", "fleet"],
+      approval: "none",
+    },
     promptGuidelines: [
       "Use task_read for project/task/TODO/run graph inspection; run_status also exposes explicit background-run controls such as inspect/reconcile/kill when runAction selects them.",
       "Use task_write for project/task/TODO graph mutations.",
@@ -209,6 +216,23 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
     label: "Task Write",
     description:
       "Project/task graph mutation capability. Use intent-specific actions to select/finish/rename/update projects, claim/plan/finish/release tasks, update task plan items, or clean task-owned caches.",
+    policy: taskWritePolicy(["plan", "execute", "fleet"]),
+    resolvePolicy(args) {
+      const action = typeof args.action === "string" ? args.action : "";
+      if (action === "project_use") return taskWritePolicy(["plan", "execute", "fleet"]);
+      if (action === "recover" || action === "release" || action === "finish") {
+        return taskWritePolicy(["execute", "fleet"]);
+      }
+      if (
+        action === "claim" ||
+        action === "artifact_link" ||
+        action === "artifact_unlink" ||
+        action === "plan_update"
+      ) {
+        return taskWritePolicy(["execute"]);
+      }
+      return taskWritePolicy(["plan"]);
+    },
     promptGuidelines: [
       "Use task_write for project/task graph mutations.",
       "Creating or claiming a task is plan-locked: every task must have a bound high-bar task.plan before claim/creation completes; objectives, success criteria, evidence, and plan items must be concrete and objectively verifiable.",
@@ -334,6 +358,13 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
     label: "Assign",
     description:
       "Explicit Spark assignment/spawn capability. Schedule an allowlisted ready-task frontier through daemon-managed Task Sessions; dry-run by default.",
+    policy: {
+      effect: "external_write",
+      executionMode: "sequential",
+      domains: ["tasks", "sessions"],
+      modes: ["execute", "fleet"],
+      approval: "none",
+    },
     promptGuidelines: [
       "Use assign only when ready Spark work should be dispatched to role runs.",
       "Prefer workflow runtime for parallel/scripted execution; assign is the explicit spawn surface for Spark ready-task frontiers.",
@@ -373,6 +404,16 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
       });
     },
   });
+}
+
+function taskWritePolicy(modes: string[]) {
+  return {
+    effect: "local_write" as const,
+    executionMode: "sequential" as const,
+    domains: ["tasks"],
+    modes,
+    approval: "none" as const,
+  };
 }
 
 function executeSparkTaskAction(

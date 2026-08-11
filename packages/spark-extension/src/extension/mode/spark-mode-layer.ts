@@ -31,6 +31,12 @@ export function createSparkModeRegistry(): ModeRegistry {
         "Execute",
         "claim and finish one concrete task at a time, continuing until blocked",
       ),
+      sparkModeDefinition(
+        "fleet",
+        "Fleet",
+        "coordinate isolated task workers, reconcile results, and request decisions",
+        false,
+      ),
     ],
   });
 }
@@ -71,8 +77,8 @@ export function registerSparkModeTool(registerSparkTool: SparkToolRegistrar): vo
     ...descriptor,
     description: [
       "Switch the current session operating mode.",
-      "action=status reports the current mode without changing it; plan or execute sets the persisted session mode and returns its requirements.",
-      "Registered modes: plan, execute.",
+      "action=status reports the current mode without changing it; plan, execute, or fleet sets the persisted session mode and returns its requirements.",
+      "Registered modes: plan, execute, fleet.",
     ].join(" "),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       let action: ReturnType<typeof normalizeModeToolAction>;
@@ -92,7 +98,7 @@ export function registerSparkModeTool(registerSparkTool: SparkToolRegistrar): vo
         context: { focus: normalizeFocus(params.focus) },
       });
       if (!result.statusOnly) {
-        const mode = result.mode as "plan" | "execute";
+        const mode = result.mode as "plan" | "execute" | "fleet";
         await saveSparkMode(ctx.cwd, ctx, { mode });
         ctx.sparkActiveMode = sparkActiveMode(mode);
       }
@@ -108,13 +114,22 @@ export function registerSparkModeTool(registerSparkTool: SparkToolRegistrar): vo
   });
 }
 
-function sparkModeDefinition(id: Mode, title: string, summary: string) {
+function sparkModeDefinition(id: Mode, title: string, summary: string, builtin = true) {
   return {
     id,
     title,
     summary,
-    builtin: true,
-    renderRequirements: () => `Spark mode: ${id}. ${SPARK_MODE_TOOLS_HINT}`,
+    builtin,
+    renderRequirements: () =>
+      id === "fleet"
+        ? [
+            "Spark mode: fleet.",
+            "The owner Agent coordinates existing TaskGraph work only: inspect authoritative state, dispatch through assign, reconcile terminal TaskRuns, recover explicit failures, and ask for decisions.",
+            "Do not edit or write files, mutate Git, execute Cue, run workflows, create Goals or Loops, delegate through Role/Skill/workspace calls, or create/guess worktrees from this owner Session.",
+            "A Fleet worker may start only from a Task-authorized existing git_change worktree. Completion mail is a wake signal; TaskRun and registry state remain authoritative.",
+            SPARK_MODE_TOOLS_HINT,
+          ].join("\n")
+        : `Spark mode: ${id}. ${SPARK_MODE_TOOLS_HINT}`,
   };
 }
 

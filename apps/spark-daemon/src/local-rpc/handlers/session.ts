@@ -45,6 +45,7 @@ type SessionRequest = Extract<
       | "session.mail.read"
       | "session.mail.ack"
       | "session.model.set"
+      | "session.mode.set"
       | "session.thinking.set";
   }
 >;
@@ -258,6 +259,18 @@ export async function handleSessionRequest(
       );
       return session;
     }
+    case "session.mode.set": {
+      const executed = await executeSparkDaemonSessionControl(
+        sessionControlOptions(paths, db, options),
+        {
+          kind: "session.mode.set.request",
+          scope: "any",
+          sessionId: request.params.sessionId,
+          payload: { ...request.params },
+        },
+      );
+      return parseLocalRpcServiceOutput(request.method, executed.result);
+    }
     case "session.thinking.set": {
       const session = await requireModelControl(options).setSessionThinkingLevel(
         request.params.sessionId,
@@ -378,6 +391,9 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
                 fromSessionId: sent.message.fromSessionId,
                 toSessionId: sent.message.toSessionId,
                 notifyOnCompletion: params.notifyOnCompletion,
+                ...(Object.keys(params.payload).length > 0
+                  ? { requestPayload: params.payload }
+                  : {}),
                 ...(params.parentInvocationId
                   ? { parentInvocationId: params.parentInvocationId }
                   : {}),

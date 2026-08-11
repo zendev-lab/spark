@@ -39,6 +39,7 @@ import {
   applyTaskTodoOps,
   assertAcyclic,
   assertTaskName,
+  assertTaskWorktreeTargetArtifacts,
   assertUniqueTaskName,
   attributionFromTask,
   claimExpiresAt,
@@ -157,6 +158,7 @@ export class TaskGraph {
       createdAt: now,
       updatedAt: now,
     };
+    assertTaskWorktreeTargetArtifacts(task.executionPolicy, task.artifactRefs);
     this.#tasks.set(task.ref, task);
     return task;
   }
@@ -201,6 +203,7 @@ export class TaskGraph {
               input.executionPolicy ?? existing.executionPolicy,
               input.kind ?? existing.kind,
             ),
+            artifactRefs: input.artifactRefs ?? existing.artifactRefs,
             supersededBy: input.supersededBy ?? existing.supersededBy,
             plan: normalizeTaskPlan(input.plan ?? existing.plan, description, title),
           })
@@ -213,6 +216,7 @@ export class TaskGraph {
             status: input.status,
             roleRef: normalizeRoleRef(input.roleRef),
             executionPolicy: normalizeTaskExecutionPolicy(input.executionPolicy, input.kind),
+            artifactRefs: input.artifactRefs,
             supersededBy: input.supersededBy,
             plan: normalizeTaskPlan(input.plan, description, title),
           });
@@ -499,6 +503,7 @@ export class TaskGraph {
       ),
       updatedAt: now,
     };
+    assertTaskWorktreeTargetArtifacts(updated.executionPolicy, updated.artifactRefs);
     assertTaskName(updated.name);
     assertUniqueTaskName(this.tasks(task.projectRef), updated.name, taskRef);
     if (!updated.title.trim()) throw new Error("task title is required");

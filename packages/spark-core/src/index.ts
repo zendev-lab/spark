@@ -755,7 +755,7 @@ export interface ExtensionRoleRunRequest {
   };
   cwd: string;
   timeoutMs: number;
-  mode?: "plan" | "execute";
+  mode?: "plan" | "execute" | "fleet";
   requireStructuredOutcome?: boolean;
   signal?: AbortSignal;
   sessionDir?: string;
@@ -817,6 +817,15 @@ export interface SparkSessionLeaseIdentity {
   sessionId: string;
 }
 
+/** Host-private immutable write boundary for one daemon-owned Task Invocation. */
+export interface SparkTaskExecutionScope {
+  isolation: TaskExecutionIsolation;
+  primaryArtifactRef?: ArtifactRef;
+  writableArtifactRefs: ArtifactRef[];
+  writableRoots: string[];
+  resultsRoot?: string;
+}
+
 export interface SparkHostContext {
   cwd?: string;
   /** Durable workspace owner for state and daemon routing. */
@@ -833,6 +842,8 @@ export interface SparkHostContext {
   sessionLease?: () => SparkSessionLeaseIdentity | undefined;
   /** Current daemon invocation, available only in daemon-owned headless turns. */
   invocationId?: string;
+  /** Daemon-resolved invocation scope; model/tool arguments cannot widen it. */
+  taskExecutionScope?: SparkTaskExecutionScope;
   /**
    * Host-signed, current-turn direct-memory intent receipt. Hosts keep the
    * signer private and expose only this verification input to capability code.
@@ -1363,6 +1374,14 @@ export interface TaskResourceRequest {
   exclusiveNode?: boolean;
 }
 
+/** Explicit existing git_change worktrees that one Task invocation may mutate. */
+export interface TaskWorktreeTarget {
+  /** Default invocation cwd. Must also appear in writableArtifactRefs. */
+  primaryArtifactRef: ArtifactRef;
+  /** Exact write-authorized git_change Artifact refs for this Task. */
+  writableArtifactRefs: ArtifactRef[];
+}
+
 export interface TaskExecutionPolicy {
   /** Canonical owner-bounded Session lifetime for Task attempts. */
   sessionLifetime: "task_run" | "task_revision";
@@ -1371,6 +1390,7 @@ export interface TaskExecutionPolicy {
   isolation: TaskExecutionIsolation;
   comparison: TaskExecutionComparison;
   resources?: TaskResourceRequest;
+  worktreeTarget?: TaskWorktreeTarget;
   concurrencyKeys: string[];
   timeoutMs?: number;
   maxAttempts: number;
@@ -1519,6 +1539,8 @@ export interface TaskRunExecutionBinding {
   definitionDigest?: string;
   jobId: string;
   attempt: number;
+  /** Stable Fleet worker lane used to serialize and reuse one execution Session. */
+  workerLaneKey?: string;
   /** Daemon invocation accepted for this attempt; used for restart-safe reconciliation. */
   invocationId?: string;
 }

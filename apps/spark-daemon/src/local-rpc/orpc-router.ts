@@ -273,6 +273,11 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
           invoke("session.model.set", params),
         ),
       },
+      mode: {
+        set: os.session.mode.set.handler(async ({ input: params }) =>
+          invoke("session.mode.set", params),
+        ),
+      },
       thinking: {
         set: os.session.thinking.set.handler(async ({ input: params }) =>
           invoke("session.thinking.set", params),

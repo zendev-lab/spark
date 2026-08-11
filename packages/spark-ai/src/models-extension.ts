@@ -72,7 +72,7 @@ export function registerSparkModelsTool(pi: SparkModelsExtensionApi): void {
       effect: "read",
       executionMode: "parallel",
       domains: ["models"],
-      modes: ["plan", "execute"],
+      modes: ["plan", "execute", "fleet"],
       approval: "none",
     },
     parameters: Type.Object({

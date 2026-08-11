@@ -1,6 +1,11 @@
 /** Host/tool registration types and policies for spark-cue. */
 
-import type { ToolEffect, ToolExecutionMode, ToolPolicy } from "@zendev-lab/spark-core";
+import type {
+  SparkTaskExecutionScope,
+  ToolEffect,
+  ToolExecutionMode,
+  ToolPolicy,
+} from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
 import type { CueClient, CueResolvedTransport } from "../client/cue-client.ts";
 
@@ -26,6 +31,7 @@ export interface SparkCueToolContext {
   cueResolvedTransport?: CueResolvedTransport;
   /** Explicit remote cwd; local session paths are never mapped onto SSH hosts. */
   cueRemoteCwd?: string;
+  taskExecutionScope?: SparkTaskExecutionScope;
   ui?: { notify?: (msg: string, level: SparkCueNotifyLevel) => void };
 }
 
@@ -79,7 +85,7 @@ export const CUE_RESOURCES_TOOL_POLICY = {
   effect: "read",
   executionMode: "parallel",
   domains: ["cue", "resources"],
-  modes: ["plan", "execute"],
+  modes: ["plan", "execute", "fleet"],
   approval: "none",
 } as const satisfies ToolPolicy;
 
@@ -106,7 +112,7 @@ export const CUE_HISTORY_TOOL_POLICY = {
   effect: "read",
   executionMode: "parallel",
   domains: ["cue", "history"],
-  modes: ["plan", "execute"],
+  modes: ["plan", "execute", "fleet"],
   approval: "none",
 } as const satisfies ToolPolicy;
 

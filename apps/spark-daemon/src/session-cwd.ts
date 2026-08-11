@@ -37,11 +37,17 @@ export async function resolveSessionCwdForWorkspace(input: {
   workspace: SparkDaemonWorkspace;
   cwd?: string;
   cwdArtifactRef?: string;
+  /** Fleet invocations reject cleanup_blocked compatibility worktrees. */
+  requireAttached?: boolean;
 }): Promise<ResolvedSessionCwd> {
   const workspaceRoot = await canonicalDirectory(input.workspace.localPath, "workspace");
   const requestedArtifactRef = input.cwdArtifactRef?.trim();
   if (requestedArtifactRef) {
-    const worktree = await requireWorkspaceWorktree(input.workspace, requestedArtifactRef);
+    const worktree = await requireWorkspaceWorktree(
+      input.workspace,
+      requestedArtifactRef,
+      input.requireAttached,
+    );
     const cwd = await resolveWithinRoot(input.cwd, worktree.path, "GitChange worktree");
     return { workspace: input.workspace, cwd, cwdArtifactRef: worktree.artifactRef };
   }
@@ -75,7 +81,12 @@ export async function resolveSessionCwdForWorkspace(input: {
 
 export async function resolveSessionCwdForWorkspaceId(
   db: DatabaseSync,
-  input: { workspaceId: string; cwd?: string; cwdArtifactRef?: string },
+  input: {
+    workspaceId: string;
+    cwd?: string;
+    cwdArtifactRef?: string;
+    requireAttached?: boolean;
+  },
 ): Promise<Omit<ResolvedSessionCwd, "workspace">> {
   const workspace = getWorkspaceById(db, input.workspaceId);
   if (!workspace) {
@@ -85,6 +96,7 @@ export async function resolveSessionCwdForWorkspaceId(
     workspace,
     ...(input.cwd ? { cwd: input.cwd } : {}),
     ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
+    ...(input.requireAttached ? { requireAttached: true } : {}),
   });
   return {
     cwd: resolved.cwd,
@@ -133,6 +145,7 @@ export async function resolveSessionCwdOwner(
 async function requireWorkspaceWorktree(
   workspace: SparkDaemonWorkspace,
   artifactRef: string,
+  requireAttached = false,
 ): Promise<WorktreeRoot> {
   const artifact = await defaultArtifactStore(workspace.localPath).tryGet<GitChangeArtifactBody>(
     artifactRef as ArtifactRef,
@@ -146,7 +159,7 @@ async function requireWorkspaceWorktree(
   if (
     !path ||
     (artifact.body.worktree.status !== "attached" &&
-      artifact.body.worktree.status !== "cleanup_blocked")
+      (requireAttached || artifact.body.worktree.status !== "cleanup_blocked"))
   ) {
     throw new SessionCwdResolutionError(`GitChange ${artifactRef} has no attached worktree.`);
   }
