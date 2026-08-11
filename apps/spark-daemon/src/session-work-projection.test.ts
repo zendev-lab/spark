@@ -232,7 +232,7 @@ describe("session work projection", () => {
 
     expect(work?.repro?.reproId).toBe(repro.reproId);
     expect(work?.repro?.tokenUsage).toBeUndefined();
-    expect(diagnostics).toContain("token_usage_unavailable");
+    expect(diagnostics).toEqual(["token_usage_unavailable"]);
   });
 
   it("keeps a valid Goal projection when Repro state is corrupt", async () => {
@@ -274,11 +274,13 @@ describe("session work projection", () => {
       },
     });
     expect(work).not.toHaveProperty("repro");
-    expect(diagnostics).toContainEqual({
-      code: "repro_state_unavailable",
-      domain: "repro",
-      sessionId,
-    });
+    expect(diagnostics).toEqual([
+      {
+        code: "repro_state_unavailable",
+        domain: "repro",
+        sessionId,
+      },
+    ]);
   });
 });
 

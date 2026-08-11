@@ -336,15 +336,6 @@ async function emitCueEvent(
   for (const handler of eventHandlers.get(event) ?? []) await handler({}, ctx);
 }
 
-function toolParameterProperties(
-  tool: RegisteredSparkCueTool | undefined,
-): Record<string, unknown> {
-  assert.ok(tool, "expected tool to be registered");
-  const parameters = tool.parameters as { properties?: Record<string, unknown> };
-  assert.ok(parameters.properties, "expected object parameter schema");
-  return parameters.properties;
-}
-
 test("cue exec family tools currently skip requiresApproval (temporary local override)", () => {
   const tools = registerCueToolsForProtocolTest();
   for (const name of [
@@ -2503,14 +2494,6 @@ test("cue RunScript propagates job status store failures", async () => {
       );
     },
   );
-});
-
-test("spark-cue script tool schemas do not expose RunScript scope", () => {
-  const tools = registerCueToolsForProtocolTest();
-  for (const name of ["cue_run", "cue_script", "script_run", "script_eval"]) {
-    const properties = toolParameterProperties(tools.get(name));
-    assert.equal("scope" in properties, false, `${name} must not expose scope`);
-  }
 });
 
 test("cue_scope mutates session env, PATH, and cwd", async () => {

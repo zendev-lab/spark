@@ -1,8 +1,23 @@
-/* eslint-disable */
-// @ts-nocheck
 
-/** @type {any} */
-const URLPattern = {};
+/** @typedef {{ groups: Record<string, string | undefined> }} ParaglideUrlPatternComponentResult */
+/**
+ * @typedef {{
+ *   hash: ParaglideUrlPatternComponentResult,
+ *   hostname: ParaglideUrlPatternComponentResult,
+ *   password: ParaglideUrlPatternComponentResult,
+ *   pathname: ParaglideUrlPatternComponentResult,
+ *   port: ParaglideUrlPatternComponentResult,
+ *   protocol: ParaglideUrlPatternComponentResult,
+ *   search: ParaglideUrlPatternComponentResult,
+ *   username: ParaglideUrlPatternComponentResult,
+ * }} ParaglideUrlPatternResult
+ */
+/**
+ * @typedef {new (input: string, baseUrl?: string) => {
+ *   exec(input: string): ParaglideUrlPatternResult | null
+ * }} ParaglideUrlPatternConstructor
+ */
+const URLPattern = /** @type {ParaglideUrlPatternConstructor} */ (/** @type {unknown} */ ({}))
 
 /**
  * The project's base locale.
@@ -21,7 +36,7 @@ export const baseLocale = "en";
  *     throw new Error('Locale is not available');
  *   }
  */
-export const locales = /** @type {const} */ (["en", "zh-CN"]);
+export const locales = /** @type {const} */ (["en","zh-CN"]);
 /** @type {string} */
 export const cookieName = "PARAGLIDE_LOCALE";
 /** @type {number} */
@@ -33,7 +48,9 @@ export const localStorageKey = "PARAGLIDE_LOCALE";
 /**
  * @type {Array<"cookie" | "baseLocale" | "globalVariable" | "url" | "preferredLanguage" | "localStorage" | `custom-${string}`>}
  */
-export const strategy = ["baseLocale"];
+export const strategy = [
+  "baseLocale"
+];
 /**
  * Route-level strategy overrides.
  *
@@ -53,67 +70,19 @@ export const routeStrategies = [];
  */
 export const urlPatterns = [
   {
-    pattern: ":protocol://:domain(.*)::port?/:path(.*)?",
-    localized: [
-      ["zh-CN", ":protocol://:domain(.*)::port?/zh-CN/:path(.*)?"],
-      ["en", ":protocol://:domain(.*)::port?/:path(.*)?"],
-    ],
-  },
+    "pattern": ":protocol://:domain(.*)::port?/:path(.*)?",
+    "localized": [
+      [
+        "zh-CN",
+        ":protocol://:domain(.*)::port?/zh-CN/:path(.*)?"
+      ],
+      [
+        "en",
+        ":protocol://:domain(.*)::port?/:path(.*)?"
+      ]
+    ]
+  }
 ];
-/** @type {string | undefined} */
-let cachedRouteStrategyUrl;
-/** @type {{ match: string; strategy?: typeof strategy; exclude?: boolean } | undefined} */
-let cachedRouteStrategy;
-/**
- * @param {string | URL} url
- * @returns {{ match: string; strategy?: typeof strategy; exclude?: boolean } | undefined}
- */
-function findMatchingRouteStrategy(url) {
-  if (routeStrategies.length === 0) {
-    return undefined;
-  }
-  const urlString = typeof url === "string" ? url : url.href;
-  if (cachedRouteStrategyUrl === urlString) {
-    return cachedRouteStrategy;
-  }
-  const urlObject = new URL(urlString, "http://dummy.com");
-  let match;
-  for (const routeStrategy of routeStrategies) {
-    const pattern = new URLPattern(routeStrategy.match, urlObject.href);
-    if (pattern.exec(urlObject.href)) {
-      match = routeStrategy;
-      break;
-    }
-  }
-  cachedRouteStrategyUrl = urlString;
-  cachedRouteStrategy = match;
-  return match;
-}
-/**
- * Returns the strategy to use for a specific URL.
- *
- * If no route strategy matches (or the matching rule is `exclude: true`),
- * the global strategy is returned.
- *
- * @param {string | URL} url
- * @returns {typeof strategy}
- */
-export function getStrategyForUrl(url) {
-  const routeStrategy = findMatchingRouteStrategy(url);
-  if (routeStrategy && routeStrategy.exclude !== true && Array.isArray(routeStrategy.strategy)) {
-    return routeStrategy.strategy;
-  }
-  return strategy;
-}
-/**
- * Returns whether the given URL is excluded from middleware i18n processing.
- *
- * @param {string | URL} url
- * @returns {boolean}
- */
-export function isExcludedByRouteStrategy(url) {
-  return findMatchingRouteStrategy(url)?.exclude === true;
-}
 /**
  * @typedef {{
  * 		getStore(): {
@@ -121,8 +90,8 @@ export function isExcludedByRouteStrategy(url) {
  * 			origin?: string,
  * 			messageCalls?: Set<string>
  *   	} | undefined,
- * 		run: (store: { locale?: Locale, origin?: string, messageCalls?: Set<string>},
- *    cb: any) => any
+ * 		run: <Result>(store: { locale?: Locale, origin?: string, messageCalls?: Set<string>},
+ *    cb: () => Result) => Result | Promise<Result>
  * }} ParaglideAsyncLocalStorage
  */
 /**
@@ -134,9 +103,20 @@ export function isExcludedByRouteStrategy(url) {
  * @type {ParaglideAsyncLocalStorage | undefined}
  */
 export let serverAsyncLocalStorage = undefined;
+/**
+ * Returns the current server-side async local storage instance.
+ *
+ * Accessing the mutable value through a function keeps it observable when
+ * module interceptors wrap exported bindings and snapshot their initial value.
+ *
+ * @returns {ParaglideAsyncLocalStorage | undefined}
+ */
+export function getServerAsyncLocalStorage() {
+    return serverAsyncLocalStorage;
+}
 export const disableAsyncLocalStorage = false;
 export const experimentalMiddlewareLocaleSplitting = false;
-export const isServer = typeof window === "undefined";
+export const isServer = typeof window === 'undefined';
 /** @type {Locale | undefined} */
 export const experimentalStaticLocale = undefined;
 /**
@@ -150,7 +130,7 @@ export const experimentalStaticLocale = undefined;
  * @param {ParaglideAsyncLocalStorage | undefined} value
  */
 export function overwriteServerAsyncLocalStorage(value) {
-  serverAsyncLocalStorage = value;
+    serverAsyncLocalStorage = value;
 }
 const TREE_SHAKE_COOKIE_STRATEGY_USED = false;
 const TREE_SHAKE_URL_STRATEGY_USED = false;
@@ -159,9 +139,11 @@ const TREE_SHAKE_PREFERRED_LANGUAGE_STRATEGY_USED = false;
 const TREE_SHAKE_DEFAULT_URL_PATTERN_USED = true;
 const TREE_SHAKE_LOCAL_STORAGE_STRATEGY_USED = false;
 
-/** @type {any} */ (globalThis).__paraglide = /** @type {any} */ (globalThis).__paraglide ?? {};
-/** @type {any} */ (globalThis).__paraglide.ssr =
-  /** @type {any} */ (globalThis).__paraglide.ssr ?? {};
+const paraglideGlobal = /** @type {typeof globalThis & {
+ *   __paraglide?: { ssr?: Record<string, unknown> }
+ * }} */ (globalThis);
+paraglideGlobal.__paraglide ??= {};
+paraglideGlobal.__paraglide.ssr ??= {};
 
 /**
  * This is a fallback to get started with a custom
@@ -193,35 +175,32 @@ let localeInitiallySet = false;
  * @returns {Locale} The current locale.
  */
 export let getLocale = () => {
-  if (experimentalStaticLocale !== undefined) {
-    return experimentalStaticLocale;
-  }
-  // if running in a server-side rendering context
-  // retrieve the locale from the async local storage
-  if (serverAsyncLocalStorage) {
-    const locale = serverAsyncLocalStorage?.getStore()?.locale;
-    if (locale) {
-      return locale;
+    if (experimentalStaticLocale !== undefined) {
+        return experimentalStaticLocale;
     }
-  }
-  let strategyToUse = strategy;
-  if (!isServer && typeof window !== "undefined" && window.location?.href) {
-    strategyToUse = getStrategyForUrl(window.location.href);
-  }
-  const resolved = resolveLocaleWithStrategies(
-    strategyToUse,
-    typeof window !== "undefined" ? window.location?.href : undefined,
-  );
-  if (resolved) {
-    if (!localeInitiallySet) {
-      _locale = resolved;
-      // https://github.com/opral/inlang-paraglide-js/issues/455
-      localeInitiallySet = true;
-      setLocale(resolved, { reload: false });
+    // if running in a server-side rendering context
+    // retrieve the locale from the async local storage
+    if (serverAsyncLocalStorage) {
+        const locale = serverAsyncLocalStorage?.getStore()?.locale;
+        if (locale) {
+            return locale;
+        }
     }
-    return resolved;
-  }
-  throw new Error("No locale found. Read the docs https://paraglidejs.com/errors#no-locale-found");
+    let strategyToUse = strategy;
+    if (!isServer && typeof window !== "undefined" && window.location?.href) {
+        strategyToUse = getStrategyForUrl(window.location.href);
+    }
+    const resolved = resolveLocaleWithStrategies(strategyToUse, typeof window !== "undefined" ? window.location?.href : undefined);
+    if (resolved) {
+        if (!localeInitiallySet) {
+            _locale = resolved;
+            // https://github.com/opral/inlang-paraglide-js/issues/455
+            localeInitiallySet = true;
+            void setLocale(resolved, { reload: false });
+        }
+        return resolved;
+    }
+    throw new Error("No locale found. Read the docs https://paraglidejs.com/errors#no-locale-found");
 };
 /**
  * Resolve locale for a given URL using route-aware strategies.
@@ -230,18 +209,15 @@ export let getLocale = () => {
  * @returns {Locale}
  */
 export function getLocaleForUrl(url) {
-  if (experimentalStaticLocale !== undefined) {
-    return experimentalStaticLocale;
-  }
-  const strategyToUse = getStrategyForUrl(url);
-  const resolved = resolveLocaleWithStrategies(
-    strategyToUse,
-    typeof url === "string" ? url : url.href,
-  );
-  if (resolved) {
-    return resolved;
-  }
-  throw new Error("No locale found. Read the docs https://paraglidejs.com/errors#no-locale-found");
+    if (experimentalStaticLocale !== undefined) {
+        return experimentalStaticLocale;
+    }
+    const strategyToUse = getStrategyForUrl(url);
+    const resolved = resolveLocaleWithStrategies(strategyToUse, typeof url === "string" ? url : url.href);
+    if (resolved) {
+        return resolved;
+    }
+    throw new Error("No locale found. Read the docs https://paraglidejs.com/errors#no-locale-found");
 }
 /**
  * @param {typeof strategy} strategyToUse
@@ -249,54 +225,56 @@ export function getLocaleForUrl(url) {
  * @returns {Locale | undefined}
  */
 function resolveLocaleWithStrategies(strategyToUse, urlForUrlStrategy) {
-  /** @type {string | undefined} */
-  let locale;
-  for (const strat of strategyToUse) {
-    if (TREE_SHAKE_COOKIE_STRATEGY_USED && strat === "cookie") {
-      locale = extractLocaleFromCookie();
-    } else if (strat === "baseLocale") {
-      locale = baseLocale;
-    } else if (
-      TREE_SHAKE_URL_STRATEGY_USED &&
-      strat === "url" &&
-      !isServer &&
-      typeof urlForUrlStrategy === "string"
-    ) {
-      locale = extractLocaleFromUrl(urlForUrlStrategy);
-    } else if (
-      TREE_SHAKE_GLOBAL_VARIABLE_STRATEGY_USED &&
-      strat === "globalVariable" &&
-      _locale !== undefined
-    ) {
-      locale = _locale;
-    } else if (
-      TREE_SHAKE_PREFERRED_LANGUAGE_STRATEGY_USED &&
-      strat === "preferredLanguage" &&
-      !isServer
-    ) {
-      locale = extractLocaleFromNavigator();
-    } else if (TREE_SHAKE_LOCAL_STORAGE_STRATEGY_USED && strat === "localStorage" && !isServer) {
-      locale = localStorage.getItem(localStorageKey) ?? undefined;
-    } else if (isCustomStrategy(strat) && customClientStrategies.has(strat)) {
-      const handler = customClientStrategies.get(strat);
-      if (handler) {
-        const result = handler.getLocale();
-        // Handle both sync and async results - skip async in sync getLocale
-        if (result instanceof Promise) {
-          // Can't await in sync function, skip async strategies
-          continue;
+    /** @type {string | undefined} */
+    let locale;
+    for (const strat of strategyToUse) {
+        if (TREE_SHAKE_COOKIE_STRATEGY_USED && strat === "cookie") {
+            locale = extractLocaleFromCookie();
         }
-        if (result !== undefined) {
-          return assertIsLocale(result);
+        else if (strat === "baseLocale") {
+            locale = baseLocale;
         }
-      }
+        else if (TREE_SHAKE_URL_STRATEGY_USED &&
+            strat === "url" &&
+            !isServer &&
+            typeof urlForUrlStrategy === "string") {
+            locale = extractLocaleFromUrl(urlForUrlStrategy);
+        }
+        else if (TREE_SHAKE_GLOBAL_VARIABLE_STRATEGY_USED &&
+            strat === "globalVariable" &&
+            _locale !== undefined) {
+            locale = _locale;
+        }
+        else if (TREE_SHAKE_PREFERRED_LANGUAGE_STRATEGY_USED &&
+            strat === "preferredLanguage" &&
+            !isServer) {
+            locale = extractLocaleFromNavigator();
+        }
+        else if (TREE_SHAKE_LOCAL_STORAGE_STRATEGY_USED &&
+            strat === "localStorage" &&
+            !isServer) {
+            locale = localStorage.getItem(localStorageKey) ?? undefined;
+        }
+        else if (isCustomStrategy(strat) && customClientStrategies.has(strat)) {
+            const handler = customClientStrategies.get(strat);
+            if (handler) {
+                const result = handler.getLocale();
+                // Handle both sync and async results - skip async in sync getLocale
+                if (result instanceof Promise) {
+                    // Can't await in sync function, skip async strategies
+                    continue;
+                }
+                if (result !== undefined) {
+                    return assertIsLocale(result);
+                }
+            }
+        }
+        const matchedLocale = toLocale(locale);
+        if (matchedLocale) {
+            return matchedLocale;
+        }
     }
-    const matchedLocale = toLocale(locale);
-    if (matchedLocale) {
-      return matchedLocale;
-    }
-  }
-  return undefined;
+    return undefined;
 }
 /**
  * Overwrite the `getLocale()` function.
@@ -314,10 +292,22 @@ function resolveLocaleWithStrategies(strategyToUse, urlForUrlStrategy) {
  * @param {() => Locale} fn - The new implementation for `getLocale()`.
  */
 export const overwriteGetLocale = (fn) => {
-  getLocale = fn;
+    getLocale = fn;
 };
 
-const rtlLanguages = new Set(["ar", "dv", "fa", "he", "ks", "ku", "ps", "sd", "ug", "ur", "yi"]);
+const rtlLanguages = new Set([
+    "ar",
+    "dv",
+    "fa",
+    "he",
+    "ks",
+    "ku",
+    "ps",
+    "sd",
+    "ug",
+    "ur",
+    "yi",
+]);
 /**
  * Get writing direction for a locale.
  *
@@ -333,20 +323,21 @@ const rtlLanguages = new Set(["ar", "dv", "fa", "he", "ks", "ku", "ps", "sd", "u
  * @returns {"ltr" | "rtl"}
  */
 export function getTextDirection(locale = getLocale()) {
-  try {
-    const intlLocale = /** @type {Intl.Locale & {
+    try {
+        const intlLocale = /** @type {Intl.Locale & {
             getTextInfo?: () => { direction?: string };
             textInfo?: { direction?: string };
         }} */ (new Intl.Locale(locale));
-    const direction = intlLocale.getTextInfo?.().direction ?? intlLocale.textInfo?.direction;
-    if (direction === "ltr" || direction === "rtl") {
-      return direction;
+        const direction = intlLocale.getTextInfo?.().direction ?? intlLocale.textInfo?.direction;
+        if (direction === "ltr" || direction === "rtl") {
+            return direction;
+        }
     }
-  } catch {
-    // Ignore Intl.Locale parsing/runtime errors and use fallback below.
-  }
-  const language = locale.split("-")[0]?.toLowerCase();
-  return rtlLanguages.has(language ?? "") ? "rtl" : "ltr";
+    catch {
+        // Ignore Intl.Locale parsing/runtime errors and use fallback below.
+    }
+    const language = locale.split("-")[0]?.toLowerCase();
+    return rtlLanguages.has(language ?? "") ? "rtl" : "ltr";
 }
 
 /**
@@ -355,13 +346,14 @@ export function getTextDirection(locale = getLocale()) {
  * @param {string} [newLocation] The new location
  */
 const navigateOrReload = (newLocation) => {
-  if (newLocation) {
-    // reload the page by navigating to the new url
-    window.location.href = newLocation;
-  } else {
-    // reload the page to reflect the new locale
-    window.location.reload();
-  }
+    if (newLocation) {
+        // reload the page by navigating to the new url
+        window.location.href = newLocation;
+    }
+    else {
+        // reload the page to reflect the new locale
+        window.location.reload();
+    }
 };
 /**
  * @typedef {(newLocale: Locale, options?: { reload?: boolean }) => void | Promise<void>} SetLocaleFn
@@ -370,9 +362,12 @@ const navigateOrReload = (newLocation) => {
  * Set the locale.
  *
  * Updates the locale using your configured strategies (cookie, localStorage, URL, etc.).
- * By default, this reloads the page on the client to reflect the new locale. Reloading
- * can be disabled by passing `reload: false` as an option, but you'll need to ensure
- * the UI updates to reflect the new locale.
+ * By default, this navigates the client to the localized URL or reloads the current
+ * document to reflect the new locale. `reload: false` is a narrow browser-only escape
+ * hatch for a fully client-rendered, non-URL-routed surface that owns its reactive
+ * updates and document state. It does not re-render the UI or update the document.
+ * Do not use it for normal locale pickers, URL-routed pages, or switching an SSR,
+ * SSG, or hydrated document. It is incompatible with per-locale builds.
  *
  * If any custom strategy's `setLocale` function is async, then this function
  * will become async as well.
@@ -388,90 +383,110 @@ const navigateOrReload = (newLocation) => {
  * @type {SetLocaleFn}
  */
 export let setLocale = (newLocale, options) => {
-  const optionsWithDefaults = {
-    reload: true,
-    ...options,
-  };
-  // locale is already set
-  // https://github.com/opral/inlang-paraglide-js/issues/430
-  /** @type {Locale | undefined} */
-  let currentLocale;
-  try {
-    currentLocale = getLocale();
-  } catch {
-    // do nothing, no locale has been set yet.
-  }
-  /** @type {Array<Promise<void>>} */
-  const customSetLocalePromises = [];
-  /** @type {string | undefined} */
-  let newLocation = undefined;
-  let strategyToUse = strategy;
-  if (!isServer && typeof window !== "undefined" && window.location?.href) {
-    strategyToUse = getStrategyForUrl(window.location.href);
-  }
-  for (const strat of strategyToUse) {
-    if (TREE_SHAKE_GLOBAL_VARIABLE_STRATEGY_USED && strat === "globalVariable") {
-      // a default for a custom strategy to get started quickly
-      // is likely overwritten by `defineSetLocale()`
-      _locale = newLocale;
-    } else if (TREE_SHAKE_COOKIE_STRATEGY_USED && strat === "cookie") {
-      if (isServer || typeof document === "undefined" || typeof window === "undefined") {
-        continue;
-      }
-      // set the cookie
-      const cookieString = `${cookieName}=${newLocale}; path=/; max-age=${cookieMaxAge}`;
-      document.cookie = cookieDomain ? `${cookieString}; domain=${cookieDomain}` : cookieString;
-      clearLocaleCookieCache();
-    } else if (strat === "baseLocale") {
-      // nothing to be set here. baseLocale is only a fallback
-      continue;
-    } else if (TREE_SHAKE_URL_STRATEGY_USED && strat === "url" && typeof window !== "undefined") {
-      // route to the new url
-      //
-      // this triggers a page reload but a user rarely
-      // switches locales, so this should be fine.
-      //
-      // if the behavior is not desired, the implementation
-      // can be overwritten by `defineSetLocale()` to avoid
-      // a full page reload.
-      newLocation = localizeUrl(window.location.href, {
-        locale: newLocale,
-      }).href;
-    } else if (
-      TREE_SHAKE_LOCAL_STORAGE_STRATEGY_USED &&
-      strat === "localStorage" &&
-      typeof window !== "undefined"
-    ) {
-      // set the localStorage
-      localStorage.setItem(localStorageKey, newLocale);
-    } else if (isCustomStrategy(strat) && customClientStrategies.has(strat)) {
-      const handler = customClientStrategies.get(strat);
-      if (handler) {
-        let result = handler.setLocale(newLocale);
-        // Handle async setLocale
-        if (result instanceof Promise) {
-          result = result.catch((error) => {
-            throw new Error(`Custom strategy "${strat}" setLocale failed.`, {
-              cause: error,
-            });
-          });
-          customSetLocalePromises.push(result);
+    const optionsWithDefaults = {
+        reload: true,
+        ...options,
+    };
+    if (experimentalStaticLocale !== undefined &&
+        newLocale !== experimentalStaticLocale &&
+        optionsWithDefaults.reload === false) {
+        console.warn(`Paraglide: setLocale(${JSON.stringify(newLocale)}, { reload: false }) cannot switch away from the statically built locale ${JSON.stringify(experimentalStaticLocale)}. A document navigation is required; reload has been forced to true.`);
+        optionsWithDefaults.reload = true;
+    }
+    // locale is already set
+    // https://github.com/opral/inlang-paraglide-js/issues/430
+    /** @type {Locale | undefined} */
+    let currentLocale;
+    try {
+        currentLocale = getLocale();
+    }
+    catch {
+        // do nothing, no locale has been set yet.
+    }
+    /** @type {Array<Promise<void>>} */
+    const customSetLocalePromises = [];
+    /** @type {string | undefined} */
+    let newLocation = undefined;
+    let strategyToUse = strategy;
+    if (!isServer && typeof window !== "undefined" && window.location?.href) {
+        strategyToUse = getStrategyForUrl(window.location.href);
+    }
+    for (const strat of strategyToUse) {
+        if (TREE_SHAKE_GLOBAL_VARIABLE_STRATEGY_USED &&
+            strat === "globalVariable") {
+            // a default for a custom strategy to get started quickly
+            // is likely overwritten by `defineSetLocale()`
+            _locale = newLocale;
         }
-      }
+        else if (TREE_SHAKE_COOKIE_STRATEGY_USED && strat === "cookie") {
+            if (isServer ||
+                typeof document === "undefined" ||
+                typeof window === "undefined") {
+                continue;
+            }
+            // set the cookie
+            const cookieString = `${cookieName}=${newLocale}; path=/; max-age=${cookieMaxAge}`;
+            document.cookie = cookieDomain
+                ? `${cookieString}; domain=${cookieDomain}`
+                : cookieString;
+            clearLocaleCookieCache();
+        }
+        else if (strat === "baseLocale") {
+            // nothing to be set here. baseLocale is only a fallback
+            continue;
+        }
+        else if (TREE_SHAKE_URL_STRATEGY_USED &&
+            strat === "url" &&
+            typeof window !== "undefined") {
+            // route to the new url
+            //
+            // this triggers a page reload but a user rarely
+            // switches locales, so this should be fine.
+            //
+            // if the behavior is not desired, the implementation
+            // can be overwritten by `defineSetLocale()` to avoid
+            // a full page reload.
+            newLocation = localizeUrl(window.location.href, {
+                locale: newLocale,
+            }).href;
+        }
+        else if (TREE_SHAKE_LOCAL_STORAGE_STRATEGY_USED &&
+            strat === "localStorage" &&
+            typeof window !== "undefined") {
+            // set the localStorage
+            localStorage.setItem(localStorageKey, newLocale);
+        }
+        else if (isCustomStrategy(strat) && customClientStrategies.has(strat)) {
+            const handler = customClientStrategies.get(strat);
+            if (handler) {
+                let result = handler.setLocale(newLocale);
+                // Handle async setLocale
+                if (result instanceof Promise) {
+                    result = result.catch((error) => {
+                        throw new Error(`Custom strategy "${strat}" setLocale failed.`, {
+                            cause: error,
+                        });
+                    });
+                    customSetLocalePromises.push(result);
+                }
+            }
+        }
     }
-  }
-  const runReload = () => {
-    if (!isServer && optionsWithDefaults.reload && window.location && newLocale !== currentLocale) {
-      navigateOrReload(newLocation);
+    const runReload = () => {
+        if (!isServer &&
+            optionsWithDefaults.reload &&
+            window.location &&
+            newLocale !== currentLocale) {
+            navigateOrReload(newLocation);
+        }
+    };
+    if (customSetLocalePromises.length) {
+        return Promise.all(customSetLocalePromises).then(() => {
+            runReload();
+        });
     }
-  };
-  if (customSetLocalePromises.length) {
-    return Promise.all(customSetLocalePromises).then(() => {
-      runReload();
-    });
-  }
-  runReload();
-  return;
+    runReload();
+    return;
 };
 /**
  * Overwrite the `setLocale()` function.
@@ -488,25 +503,26 @@ export let setLocale = (newLocale, options) => {
  * @param {SetLocaleFn} fn
  */
 export const overwriteSetLocale = (fn) => {
-  setLocale = fn;
+    setLocale = fn;
 };
 
 /**
  * The origin of the current URL.
  *
- * Defaults to "http://y.com" in non-browser environments. If this
+ * Defaults to "http://example.com" in non-browser environments. If this
  * behavior is not desired, the implementation can be overwritten
  * by `overwriteGetUrlOrigin()`.
  *
  * @type {() => string}
  */
 export let getUrlOrigin = () => {
-  if (serverAsyncLocalStorage) {
-    return serverAsyncLocalStorage.getStore()?.origin ?? "http://fallback.com";
-  } else if (typeof window !== "undefined") {
-    return window.location.origin;
-  }
-  return "http://fallback.com";
+    if (serverAsyncLocalStorage) {
+        return serverAsyncLocalStorage.getStore()?.origin ?? "http://fallback.com";
+    }
+    else if (typeof window !== "undefined") {
+        return window.location.origin;
+    }
+    return "http://fallback.com";
 };
 /**
  * Overwrite the getUrlOrigin function.
@@ -517,7 +533,7 @@ export let getUrlOrigin = () => {
  * @param {() => string} fn - The new implementation for `getUrlOrigin()`.
  */
 export let overwriteGetUrlOrigin = (fn) => {
-  getUrlOrigin = fn;
+    getUrlOrigin = fn;
 };
 
 /**
@@ -527,16 +543,16 @@ export let overwriteGetUrlOrigin = (fn) => {
  * @returns {Locale | undefined}
  */
 export function toLocale(value) {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const lowerValue = value.toLowerCase();
-  for (const locale of locales) {
-    if (locale.toLowerCase() === lowerValue) {
-      return locale;
+    if (typeof value !== "string") {
+        return undefined;
     }
-  }
-  return undefined;
+    const lowerValue = value.toLowerCase();
+    for (const locale of locales) {
+        if (locale.toLowerCase() === lowerValue) {
+            return locale;
+        }
+    }
+    return undefined;
 }
 /**
  * Check if something is an available locale with the canonical project casing.
@@ -554,7 +570,7 @@ export function toLocale(value) {
  * @returns {locale is Locale}
  */
 export function isLocale(locale) {
-  return !!locale && locales.some((item) => item === locale);
+    return !!locale && locales.some((item) => item === locale);
 }
 /**
  * Asserts that the input can be normalized to a locale.
@@ -564,9 +580,10 @@ export function isLocale(locale) {
  * @throws {Error} If the input is not a locale.
  */
 export function assertIsLocale(input) {
-  const locale = toLocale(input);
-  if (locale) return locale;
-  throw new Error(`Invalid locale: ${input}. Expected one of: ${locales.join(", ")}`);
+    const locale = toLocale(input);
+    if (locale)
+        return locale;
+    throw new Error(`Invalid locale: ${String(input)}. Expected one of: ${locales.join(", ")}`);
 }
 
 /**
@@ -594,12 +611,8 @@ export function assertIsLocale(input) {
  * @returns {Locale}
  */
 export const extractLocaleFromRequest = (request, options = {}) => {
-  const effectiveRequestUrl = resolveEffectiveRequestUrl(request, options.effectiveRequestUrl);
-  return extractLocaleFromRequestWithStrategies(
-    request,
-    getStrategyForUrl(effectiveRequestUrl),
-    effectiveRequestUrl,
-  );
+    const effectiveRequestUrl = resolveEffectiveRequestUrl(request, options.effectiveRequestUrl);
+    return extractLocaleFromRequestWithStrategies(request, getStrategyForUrl(effectiveRequestUrl), effectiveRequestUrl);
 };
 /**
  * Extracts a locale from a request using the provided strategy order.
@@ -610,41 +623,46 @@ export const extractLocaleFromRequest = (request, options = {}) => {
  * @returns {Locale}
  */
 export const extractLocaleFromRequestWithStrategies = (request, strategies, url = request.url) => {
-  const effectiveRequestUrl = resolveEffectiveRequestUrl(request, url);
-  /** @type {string|undefined} */
-  let locale;
-  for (const strat of strategies) {
-    if (TREE_SHAKE_COOKIE_STRATEGY_USED && strat === "cookie") {
-      const cookiePrefix = cookieName + "=";
-      locale = request.headers
-        .get("cookie")
-        ?.split(";")
-        .map((c) => c.trim())
-        .find((c) => c.startsWith(cookiePrefix))
-        ?.slice(cookiePrefix.length);
-    } else if (TREE_SHAKE_URL_STRATEGY_USED && strat === "url") {
-      locale = extractLocaleFromUrl(effectiveRequestUrl);
-    } else if (TREE_SHAKE_PREFERRED_LANGUAGE_STRATEGY_USED && strat === "preferredLanguage") {
-      locale = extractLocaleFromHeader(request);
-    } else if (strat === "globalVariable") {
-      locale = _locale;
-    } else if (strat === "baseLocale") {
-      return baseLocale;
-    } else if (strat === "localStorage") {
-      continue;
-    } else if (isCustomStrategy(strat)) {
-      // Custom strategies are not supported in sync version
-      // Use extractLocaleFromRequestAsync for custom server strategies
-      continue;
+    const effectiveRequestUrl = resolveEffectiveRequestUrl(request, url);
+    /** @type {string|undefined} */
+    let locale;
+    for (const strat of strategies) {
+        if (TREE_SHAKE_COOKIE_STRATEGY_USED && strat === "cookie") {
+            const cookiePrefix = cookieName + "=";
+            locale = request.headers
+                .get("cookie")
+                ?.split(";")
+                .map((c) => c.trim())
+                .find((c) => c.startsWith(cookiePrefix))
+                ?.slice(cookiePrefix.length);
+        }
+        else if (TREE_SHAKE_URL_STRATEGY_USED && strat === "url") {
+            locale = extractLocaleFromUrl(effectiveRequestUrl);
+        }
+        else if (TREE_SHAKE_PREFERRED_LANGUAGE_STRATEGY_USED &&
+            strat === "preferredLanguage") {
+            locale = extractLocaleFromHeader(request);
+        }
+        else if (strat === "globalVariable") {
+            locale = _locale;
+        }
+        else if (strat === "baseLocale") {
+            return baseLocale;
+        }
+        else if (strat === "localStorage") {
+            continue;
+        }
+        else if (isCustomStrategy(strat)) {
+            // Custom strategies are not supported in sync version
+            // Use extractLocaleFromRequestAsync for custom server strategies
+            continue;
+        }
+        const matchedLocale = toLocale(locale);
+        if (matchedLocale) {
+            return matchedLocale;
+        }
     }
-    const matchedLocale = toLocale(locale);
-    if (matchedLocale) {
-      return matchedLocale;
-    }
-  }
-  throw new Error(
-    "No locale found. There is an error in your strategy. Try adding 'baseLocale' as the very last strategy. Read more here https://paraglidejs.com/errors#no-locale-found",
-  );
+    throw new Error("No locale found. There is an error in your strategy. Try adding 'baseLocale' as the very last strategy. Read more here https://paraglidejs.com/errors#no-locale-found");
 };
 /**
  * @param {Request} request
@@ -652,10 +670,10 @@ export const extractLocaleFromRequestWithStrategies = (request, strategies, url 
  * @returns {URL}
  */
 function resolveEffectiveRequestUrl(request, effectiveRequestUrl = request.url) {
-  if (effectiveRequestUrl instanceof URL) {
-    return new URL(effectiveRequestUrl.href);
-  }
-  return new URL(effectiveRequestUrl, request.url);
+    if (effectiveRequestUrl instanceof URL) {
+        return new URL(effectiveRequestUrl.href);
+    }
+    return new URL(effectiveRequestUrl, request.url);
 }
 
 /**
@@ -690,30 +708,27 @@ function resolveEffectiveRequestUrl(request, effectiveRequestUrl = request.url) 
  * @returns {Promise<Locale>} The extracted locale.
  */
 export const extractLocaleFromRequestAsync = async (request, options = {}) => {
-  /** @type {string|undefined} */
-  let locale;
-  const effectiveRequestUrl = resolveEffectiveRequestUrlFromRequestAsync(
-    request,
-    options.effectiveRequestUrl,
-  );
-  const strategy = getStrategyForUrl(effectiveRequestUrl);
-  // Process custom strategies first, in order
-  for (const strat of strategy) {
-    if (isCustomStrategy(strat) && customServerStrategies.has(strat)) {
-      const handler = customServerStrategies.get(strat);
-      if (handler) {
-        /** @type {string|undefined} */
-        locale = await handler.getLocale(request);
-      }
-      // If we got a valid locale from this custom strategy, use it
-      const matchedLocale = toLocale(locale);
-      if (matchedLocale) {
-        return matchedLocale;
-      }
+    /** @type {string|undefined} */
+    let locale;
+    const effectiveRequestUrl = resolveEffectiveRequestUrlFromRequestAsync(request, options.effectiveRequestUrl);
+    const strategy = getStrategyForUrl(effectiveRequestUrl);
+    // Process custom strategies first, in order
+    for (const strat of strategy) {
+        if (isCustomStrategy(strat) && customServerStrategies.has(strat)) {
+            const handler = customServerStrategies.get(strat);
+            if (handler) {
+                /** @type {string|undefined} */
+                locale = await handler.getLocale(request);
+            }
+            // If we got a valid locale from this custom strategy, use it
+            const matchedLocale = toLocale(locale);
+            if (matchedLocale) {
+                return matchedLocale;
+            }
+        }
     }
-  }
-  // If no custom strategy provided a valid locale, fall back to sync version
-  return extractLocaleFromRequestWithStrategies(request, strategy, effectiveRequestUrl);
+    // If no custom strategy provided a valid locale, fall back to sync version
+    return extractLocaleFromRequestWithStrategies(request, strategy, effectiveRequestUrl);
 };
 /**
  * @param {Request} request
@@ -721,10 +736,10 @@ export const extractLocaleFromRequestAsync = async (request, options = {}) => {
  * @returns {URL}
  */
 function resolveEffectiveRequestUrlFromRequestAsync(request, effectiveRequestUrl = request.url) {
-  if (effectiveRequestUrl instanceof URL) {
-    return new URL(effectiveRequestUrl.href);
-  }
-  return new URL(effectiveRequestUrl, request.url);
+    if (effectiveRequestUrl instanceof URL) {
+        return new URL(effectiveRequestUrl.href);
+    }
+    return new URL(effectiveRequestUrl, request.url);
 }
 
 const cookieNamePattern = cookieName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -736,14 +751,15 @@ let cachedLocaleFromCookie = noCachedLocale;
  * Clears the cached locale from `document.cookie`.
  */
 function clearLocaleCookieCache() {
-  cachedLocaleFromCookie = noCachedLocale;
+    cachedLocaleFromCookie = noCachedLocale;
 }
 function scheduleLocaleCookieCacheClear() {
-  if (typeof queueMicrotask === "function") {
-    queueMicrotask(clearLocaleCookieCache);
-  } else {
-    Promise.resolve().then(clearLocaleCookieCache);
-  }
+    if (typeof queueMicrotask === "function") {
+        queueMicrotask(clearLocaleCookieCache);
+    }
+    else {
+        void Promise.resolve().then(clearLocaleCookieCache);
+    }
 }
 /**
  * Extracts a cookie from the document.
@@ -754,17 +770,17 @@ function scheduleLocaleCookieCacheClear() {
  * @returns {Locale | undefined}
  */
 export function extractLocaleFromCookie() {
-  if (typeof document === "undefined") {
-    return;
-  }
-  if (cachedLocaleFromCookie !== noCachedLocale) {
+    if (typeof document === "undefined") {
+        return;
+    }
+    if (cachedLocaleFromCookie !== noCachedLocale) {
+        return cachedLocaleFromCookie;
+    }
+    const match = document.cookie.match(localeCookiePattern);
+    const locale = match?.[1];
+    cachedLocaleFromCookie = toLocale(locale);
+    scheduleLocaleCookieCacheClear();
     return cachedLocaleFromCookie;
-  }
-  const match = document.cookie.match(localeCookiePattern);
-  const locale = match?.[1];
-  cachedLocaleFromCookie = toLocale(locale);
-  scheduleLocaleCookieCacheClear();
-  return cachedLocaleFromCookie;
 }
 
 /**
@@ -780,35 +796,35 @@ export function extractLocaleFromCookie() {
  * @returns {Locale | undefined} The negotiated preferred language.
  */
 export function extractLocaleFromHeader(request) {
-  const acceptLanguageHeader = request.headers.get("accept-language");
-  if (acceptLanguageHeader) {
-    // Parse language preferences with their q-values and base language codes
-    const languages = acceptLanguageHeader
-      .split(",")
-      .map((lang) => {
-        const [tag, q = "1"] = lang.trim().split(";q=");
-        // Get both the full tag and base language code
-        const baseTag = tag?.split("-")[0];
-        return {
-          fullTag: tag,
-          baseTag,
-          q: Number(q),
-        };
-      })
-      .sort((a, b) => b.q - a.q);
-    for (const lang of languages) {
-      const fullLocale = toLocale(lang.fullTag);
-      if (fullLocale) {
-        return fullLocale;
-      }
-      const baseLocale = toLocale(lang.baseTag);
-      if (baseLocale) {
-        return baseLocale;
-      }
+    const acceptLanguageHeader = request.headers.get("accept-language");
+    if (acceptLanguageHeader) {
+        // Parse language preferences with their q-values and base language codes
+        const languages = acceptLanguageHeader
+            .split(",")
+            .map((lang) => {
+            const [tag, q = "1"] = lang.trim().split(";q=");
+            // Get both the full tag and base language code
+            const baseTag = tag?.split("-")[0];
+            return {
+                fullTag: tag,
+                baseTag,
+                q: Number(q),
+            };
+        })
+            .sort((a, b) => b.q - a.q);
+        for (const lang of languages) {
+            const fullLocale = toLocale(lang.fullTag);
+            if (fullLocale) {
+                return fullLocale;
+            }
+            const baseLocale = toLocale(lang.baseTag);
+            if (baseLocale) {
+                return baseLocale;
+            }
+        }
+        return undefined;
     }
     return undefined;
-  }
-  return undefined;
 }
 
 /**
@@ -823,24 +839,24 @@ export function extractLocaleFromHeader(request) {
  * @returns {Locale | undefined}
  */
 export function extractLocaleFromNavigator() {
-  if (!navigator?.languages?.length) {
+    if (!navigator?.languages?.length) {
+        return undefined;
+    }
+    const languages = navigator.languages.map((lang) => ({
+        fullTag: lang,
+        baseTag: lang.split("-")[0],
+    }));
+    for (const lang of languages) {
+        const fullLocale = toLocale(lang.fullTag);
+        if (fullLocale) {
+            return fullLocale;
+        }
+        const baseLocale = toLocale(lang.baseTag);
+        if (baseLocale) {
+            return baseLocale;
+        }
+    }
     return undefined;
-  }
-  const languages = navigator.languages.map((lang) => ({
-    fullTag: lang,
-    baseTag: lang.split("-")[0],
-  }));
-  for (const lang of languages) {
-    const fullLocale = toLocale(lang.fullTag);
-    if (fullLocale) {
-      return fullLocale;
-    }
-    const baseLocale = toLocale(lang.baseTag);
-    if (baseLocale) {
-      return baseLocale;
-    }
-  }
-  return undefined;
 }
 
 /**
@@ -864,31 +880,33 @@ let cachedLocale;
  * @returns {Locale|undefined} The extracted locale, or undefined if no locale is found.
  */
 export function extractLocaleFromUrl(url) {
-  const urlString = typeof url === "string" ? url : url.href;
-  if (cachedUrl === urlString) {
-    return cachedLocale;
-  }
-  /** @type {Locale | undefined} */
-  let result;
-  if (TREE_SHAKE_DEFAULT_URL_PATTERN_USED) {
-    result = defaultUrlPatternExtractLocale(url);
-  } else {
-    const urlObj = typeof url === "string" ? new URL(url) : url;
-    // Iterate over URL patterns
-    for (const element of urlPatterns) {
-      for (const [locale, localizedPattern] of element.localized) {
-        const match = new URLPattern(localizedPattern, urlObj.href).exec(urlObj.href);
-        if (match) {
-          result = locale;
-          break;
-        }
-      }
-      if (result) break;
+    const urlString = typeof url === "string" ? url : url.href;
+    if (cachedUrl === urlString) {
+        return cachedLocale;
     }
-  }
-  cachedUrl = urlString;
-  cachedLocale = result;
-  return result;
+    /** @type {Locale | undefined} */
+    let result;
+    if (TREE_SHAKE_DEFAULT_URL_PATTERN_USED) {
+        result = defaultUrlPatternExtractLocale(url);
+    }
+    else {
+        const urlObj = typeof url === "string" ? new URL(url) : url;
+        // Iterate over URL patterns
+        for (const element of urlPatterns) {
+            for (const [locale, localizedPattern] of element.localized) {
+                const match = new URLPattern(localizedPattern, urlObj.href).exec(urlObj.href);
+                if (match) {
+                    result = locale;
+                    break;
+                }
+            }
+            if (result)
+                break;
+        }
+    }
+    cachedUrl = urlString;
+    cachedLocale = result;
+    return result;
 }
 /**
  * https://github.com/opral/inlang-paraglide-js/issues/381
@@ -897,9 +915,9 @@ export function extractLocaleFromUrl(url) {
  * @returns {Locale | undefined} The extracted locale, or undefined if no locale is found.
  */
 function defaultUrlPatternExtractLocale(url) {
-  const urlObj = new URL(url, "http://dummy.com");
-  const pathSegments = urlObj.pathname.split("/").filter(Boolean);
-  return toLocale(pathSegments[0]) || baseLocale;
+    const urlObj = new URL(url, "http://example.com");
+    const pathSegments = urlObj.pathname.split("/").filter(Boolean);
+    return toLocale(pathSegments[0]) || baseLocale;
 }
 
 /**
@@ -947,41 +965,39 @@ function defaultUrlPatternExtractLocale(url) {
  * @returns {URL} The localized URL, always absolute
  */
 export function localizeUrl(url, options) {
-  const targetLocale = options?.locale ? assertIsLocale(options?.locale) : getLocale();
-  if (TREE_SHAKE_DEFAULT_URL_PATTERN_USED) {
-    return localizeUrlDefaultPattern(url, targetLocale);
-  }
-  const urlObj = typeof url === "string" ? new URL(url) : url;
-  // Iterate over URL patterns
-  for (const element of urlPatterns) {
-    // match localized patterns
-    for (const [, localizedPattern] of element.localized) {
-      const match = new URLPattern(localizedPattern, urlObj.href).exec(urlObj.href);
-      if (!match) {
-        continue;
-      }
-      const targetPattern = element.localized.find(([locale]) => locale === targetLocale)?.[1];
-      if (!targetPattern) {
-        continue;
-      }
-      const localizedUrl = fillPattern(targetPattern, aggregateGroups(match), urlObj.origin);
-      return fillMissingUrlParts(localizedUrl, match);
+    const targetLocale = options?.locale
+        ? assertIsLocale(options?.locale)
+        : getLocale();
+    if (TREE_SHAKE_DEFAULT_URL_PATTERN_USED) {
+        return localizeUrlDefaultPattern(url, targetLocale);
     }
-    const unlocalizedMatch = new URLPattern(element.pattern, urlObj.href).exec(urlObj.href);
-    if (unlocalizedMatch) {
-      const targetPattern = element.localized.find(([locale]) => locale === targetLocale)?.[1];
-      if (targetPattern) {
-        const localizedUrl = fillPattern(
-          targetPattern,
-          aggregateGroups(unlocalizedMatch),
-          urlObj.origin,
-        );
-        return fillMissingUrlParts(localizedUrl, unlocalizedMatch);
-      }
+    const urlObj = typeof url === "string" ? new URL(url) : url;
+    // Iterate over URL patterns
+    for (const element of urlPatterns) {
+        // match localized patterns
+        for (const [, localizedPattern] of element.localized) {
+            const match = new URLPattern(localizedPattern, urlObj.href).exec(urlObj.href);
+            if (!match) {
+                continue;
+            }
+            const targetPattern = element.localized.find(([locale]) => locale === targetLocale)?.[1];
+            if (!targetPattern) {
+                continue;
+            }
+            const localizedUrl = fillPattern(targetPattern, aggregateGroups(match), urlObj.origin);
+            return fillMissingUrlParts(localizedUrl, match);
+        }
+        const unlocalizedMatch = new URLPattern(element.pattern, urlObj.href).exec(urlObj.href);
+        if (unlocalizedMatch) {
+            const targetPattern = element.localized.find(([locale]) => locale === targetLocale)?.[1];
+            if (targetPattern) {
+                const localizedUrl = fillPattern(targetPattern, aggregateGroups(unlocalizedMatch), urlObj.origin);
+                return fillMissingUrlParts(localizedUrl, unlocalizedMatch);
+            }
+        }
     }
-  }
-  // If no match found, return the original URL
-  return urlObj;
+    // If no match found, return the original URL
+    return urlObj;
 }
 /**
  * https://github.com/opral/inlang-paraglide-js/issues/381
@@ -991,25 +1007,26 @@ export function localizeUrl(url, options) {
  * @returns {URL}
  */
 function localizeUrlDefaultPattern(url, locale) {
-  const urlObj = typeof url === "string" ? new URL(url, getUrlOrigin()) : new URL(url);
-  const currentLocale = extractLocaleFromUrl(urlObj);
-  // If current locale matches target locale, no change needed
-  if (currentLocale === locale) {
+    const urlObj = typeof url === "string" ? new URL(url, getUrlOrigin()) : new URL(url);
+    const currentLocale = extractLocaleFromUrl(urlObj);
+    // If current locale matches target locale, no change needed
+    if (currentLocale === locale) {
+        return urlObj;
+    }
+    const pathSegments = urlObj.pathname.split("/").filter(Boolean);
+    // If current path starts with a locale, remove it
+    if (pathSegments.length > 0 && toLocale(pathSegments[0])) {
+        pathSegments.shift();
+    }
+    // For base locale, don't add prefix
+    if (locale === baseLocale) {
+        urlObj.pathname = "/" + pathSegments.join("/");
+    }
+    else {
+        // For other locales, add prefix
+        urlObj.pathname = "/" + locale + "/" + pathSegments.join("/");
+    }
     return urlObj;
-  }
-  const pathSegments = urlObj.pathname.split("/").filter(Boolean);
-  // If current path starts with a locale, remove it
-  if (pathSegments.length > 0 && toLocale(pathSegments[0])) {
-    pathSegments.shift();
-  }
-  // For base locale, don't add prefix
-  if (locale === baseLocale) {
-    urlObj.pathname = "/" + pathSegments.join("/");
-  } else {
-    // For other locales, add prefix
-    urlObj.pathname = "/" + locale + "/" + pathSegments.join("/");
-  }
-  return urlObj;
 }
 /**
  * Low-level URL de-localization function, primarily used in server contexts.
@@ -1051,35 +1068,31 @@ function localizeUrlDefaultPattern(url, locale) {
  * @returns {URL} The de-localized URL, always absolute
  */
 export function deLocalizeUrl(url) {
-  if (TREE_SHAKE_DEFAULT_URL_PATTERN_USED) {
-    return deLocalizeUrlDefaultPattern(url);
-  }
-  const urlObj = typeof url === "string" ? new URL(url) : url;
-  // Iterate over URL patterns
-  for (const element of urlPatterns) {
-    // Iterate over localized versions
-    for (const [, localizedPattern] of element.localized) {
-      const match = new URLPattern(localizedPattern, urlObj.href).exec(urlObj.href);
-      if (match) {
-        // Convert localized URL back to the base pattern
-        const groups = aggregateGroups(match);
-        const baseUrl = fillPattern(element.pattern, groups, urlObj.origin);
-        return fillMissingUrlParts(baseUrl, match);
-      }
+    if (TREE_SHAKE_DEFAULT_URL_PATTERN_USED) {
+        return deLocalizeUrlDefaultPattern(url);
     }
-    // match unlocalized pattern
-    const unlocalizedMatch = new URLPattern(element.pattern, urlObj.href).exec(urlObj.href);
-    if (unlocalizedMatch) {
-      const baseUrl = fillPattern(
-        element.pattern,
-        aggregateGroups(unlocalizedMatch),
-        urlObj.origin,
-      );
-      return fillMissingUrlParts(baseUrl, unlocalizedMatch);
+    const urlObj = typeof url === "string" ? new URL(url) : url;
+    // Iterate over URL patterns
+    for (const element of urlPatterns) {
+        // Iterate over localized versions
+        for (const [, localizedPattern] of element.localized) {
+            const match = new URLPattern(localizedPattern, urlObj.href).exec(urlObj.href);
+            if (match) {
+                // Convert localized URL back to the base pattern
+                const groups = aggregateGroups(match);
+                const baseUrl = fillPattern(element.pattern, groups, urlObj.origin);
+                return fillMissingUrlParts(baseUrl, match);
+            }
+        }
+        // match unlocalized pattern
+        const unlocalizedMatch = new URLPattern(element.pattern, urlObj.href).exec(urlObj.href);
+        if (unlocalizedMatch) {
+            const baseUrl = fillPattern(element.pattern, aggregateGroups(unlocalizedMatch), urlObj.origin);
+            return fillMissingUrlParts(baseUrl, unlocalizedMatch);
+        }
     }
-  }
-  // no match found return the original url
-  return urlObj;
+    // no match found return the original url
+    return urlObj;
 }
 /**
  * De-localizes a URL using the default pattern (/:locale/*)
@@ -1087,13 +1100,13 @@ export function deLocalizeUrl(url) {
  * @returns {URL}
  */
 function deLocalizeUrlDefaultPattern(url) {
-  const urlObj = typeof url === "string" ? new URL(url, getUrlOrigin()) : new URL(url);
-  const pathSegments = urlObj.pathname.split("/").filter(Boolean);
-  // If first segment is a locale, remove it
-  if (pathSegments.length > 0 && toLocale(pathSegments[0])) {
-    urlObj.pathname = "/" + pathSegments.slice(1).join("/");
-  }
-  return urlObj;
+    const urlObj = typeof url === "string" ? new URL(url, getUrlOrigin()) : new URL(url);
+    const pathSegments = urlObj.pathname.split("/").filter(Boolean);
+    // If first segment is a locale, remove it
+    if (pathSegments.length > 0 && toLocale(pathSegments[0])) {
+        urlObj.pathname = "/" + pathSegments.slice(1).join("/");
+    }
+    return urlObj;
 }
 /**
  * Takes matches of implicit wildcards in the UrlPattern (when a part is missing
@@ -1102,35 +1115,35 @@ function deLocalizeUrlDefaultPattern(url) {
  * At least protocol and hostname are required to create a valid URL inside fillPattern.
  *
  * @param {URL} url
- * @param {any} match
+ * @param {ParaglideUrlPatternResult} match
  * @returns {URL}
  */
 function fillMissingUrlParts(url, match) {
-  if (match.protocol.groups["0"]) {
-    url.protocol = match.protocol.groups["0"] ?? "";
-  }
-  if (match.hostname.groups["0"]) {
-    url.hostname = match.hostname.groups["0"] ?? "";
-  }
-  if (match.username.groups["0"]) {
-    url.username = match.username.groups["0"] ?? "";
-  }
-  if (match.password.groups["0"]) {
-    url.password = match.password.groups["0"] ?? "";
-  }
-  if (match.port.groups["0"]) {
-    url.port = match.port.groups["0"] ?? "";
-  }
-  if (match.pathname.groups["0"]) {
-    url.pathname = match.pathname.groups["0"] ?? "";
-  }
-  if (match.search.groups["0"]) {
-    url.search = match.search.groups["0"] ?? "";
-  }
-  if (match.hash.groups["0"]) {
-    url.hash = match.hash.groups["0"] ?? "";
-  }
-  return url;
+    if (match.protocol.groups["0"]) {
+        url.protocol = match.protocol.groups["0"] ?? "";
+    }
+    if (match.hostname.groups["0"]) {
+        url.hostname = match.hostname.groups["0"] ?? "";
+    }
+    if (match.username.groups["0"]) {
+        url.username = match.username.groups["0"] ?? "";
+    }
+    if (match.password.groups["0"]) {
+        url.password = match.password.groups["0"] ?? "";
+    }
+    if (match.port.groups["0"]) {
+        url.port = match.port.groups["0"] ?? "";
+    }
+    if (match.pathname.groups["0"]) {
+        url.pathname = match.pathname.groups["0"] ?? "";
+    }
+    if (match.search.groups["0"]) {
+        url.search = match.search.groups["0"] ?? "";
+    }
+    if (match.hash.groups["0"]) {
+        url.hash = match.hash.groups["0"] ?? "";
+    }
+    return url;
 }
 /**
  * Fills a URL pattern with values for named groups, supporting all URLPattern-style modifiers.
@@ -1154,78 +1167,139 @@ function fillMissingUrlParts(url, match) {
  * @returns {URL} - The constructed URL with named groups filled.
  */
 function fillPattern(pattern, values, origin) {
-  // Pre-process the pattern to handle explicit port numbers
-  // This detects patterns like "http://localhost:5173" and protects the port number
-  // from being interpreted as a parameter
-  let processedPattern = pattern.replace(
-    /(https?:\/\/[^:/]+):(\d+)(\/|$)/g,
-    (_, protocol, port, slash) => {
-      // Replace ":5173" with "#PORT-5173#" to protect it from parameter replacement
-      return `${protocol}#PORT-${port}#${slash}`;
-    },
-  );
-  // First, handle group delimiters with curly braces
-  let processedGroupDelimiters = processedPattern.replace(
-    /\{([^{}]*)\}([?+*]?)/g,
-    (_, content, modifier) => {
-      // For optional group delimiters
-      if (modifier === "?") {
-        // For optional groups, we'll include the content
-        return content;
-      }
-      // For non-optional group delimiters, always include the content
-      return content;
-    },
-  );
-  // Then handle named groups
-  let filled = processedGroupDelimiters.replace(
-    /(\/?):([a-zA-Z0-9_]+)(\([^)]*\))?([?+*]?)/g,
-    (_, slash, name, __, modifier) => {
-      const value = values[name];
-      if (value === null) {
-        // If value is null, remove the entire segment including the preceding slash
-        return "";
-      }
-      if (modifier === "?") {
-        // Optional segment
-        return value !== undefined ? `${slash}${value}` : "";
-      }
-      if (modifier === "+" || modifier === "*") {
-        // Repeatable segments
-        if (value === undefined && modifier === "+") {
-          throw new Error(`Missing value for "${name}" (one or more required)`);
+    // Pre-process the pattern to handle explicit port numbers
+    // This detects patterns like "http://localhost:5173" and protects the port number
+    // from being interpreted as a parameter
+    let processedPattern = pattern.replace(/(https?:\/\/[^:/]+):(\d+)(\/|$)/g, (_, protocol, port, slash) => {
+        // Replace ":5173" with "#PORT-5173#" to protect it from parameter replacement
+        return `${protocol}#PORT-${port}#${slash}`;
+    });
+    // First, handle group delimiters with curly braces
+    let processedGroupDelimiters = processedPattern.replace(/\{([^{}]*)\}([?+*]?)/g, (_, content, modifier) => {
+        // For optional group delimiters
+        if (modifier === "?") {
+            // For optional groups, we'll include the content
+            return content;
         }
-        return value ? `${slash}${value}` : "";
-      }
-      // Simple named group (no modifier)
-      if (value === undefined) {
-        throw new Error(`Missing value for "${name}"`);
-      }
-      return `${slash}${value}`;
-    },
-  );
-  // Restore port numbers
-  filled = filled.replace(/#PORT-(\d+)#/g, ":$1");
-  return new URL(filled, origin);
+        // For non-optional group delimiters, always include the content
+        return content;
+    });
+    // Then handle named groups
+    let filled = processedGroupDelimiters.replace(/(\/?):([a-zA-Z0-9_]+)(\([^)]*\))?([?+*]?)/g, (_, slash, name, __, modifier) => {
+        const value = values[name];
+        if (value === null) {
+            // If value is null, remove the entire segment including the preceding slash
+            return "";
+        }
+        if (modifier === "?") {
+            // Optional segment
+            return value !== undefined ? `${slash}${value}` : "";
+        }
+        if (modifier === "+" || modifier === "*") {
+            // Repeatable segments
+            if (value === undefined && modifier === "+") {
+                throw new Error(`Missing value for "${name}" (one or more required)`);
+            }
+            return value ? `${slash}${value}` : "";
+        }
+        // Simple named group (no modifier)
+        if (value === undefined) {
+            throw new Error(`Missing value for "${name}"`);
+        }
+        return `${slash}${value}`;
+    });
+    // Restore port numbers
+    filled = filled.replace(/#PORT-(\d+)#/g, ":$1");
+    return new URL(filled, origin);
 }
 /**
  * Aggregates named groups from various parts of the URLPattern match result.
  *
  *
- * @param {any} match - The URLPattern match result object.
+ * @param {ParaglideUrlPatternResult} match - The URLPattern match result object.
  * @returns {Record<string, string | null | undefined>} An object containing all named groups from the match.
  */
 export function aggregateGroups(match) {
-  return {
-    ...match.hash.groups,
-    ...match.hostname.groups,
-    ...match.password.groups,
-    ...match.pathname.groups,
-    ...match.port.groups,
-    ...match.protocol.groups,
-    ...match.search.groups,
-    ...match.username.groups,
-  };
+    return {
+        ...match.hash.groups,
+        ...match.hostname.groups,
+        ...match.password.groups,
+        ...match.pathname.groups,
+        ...match.port.groups,
+        ...match.protocol.groups,
+        ...match.search.groups,
+        ...match.username.groups,
+    };
+}
+
+/** @type {string | undefined} */
+let cachedRouteStrategyUrl;
+/** @type {{ match: string; strategy?: typeof strategy; exclude?: boolean } | undefined} */
+let cachedRouteStrategy;
+/**
+ * Match route policy against both the public URL and its canonical URL.
+ *
+ * The function is deliberately separate from variables.js: configuration is
+ * inert data, while canonicalization and route selection form a routing layer.
+ *
+ * @param {string | URL} url
+ * @returns {{ match: string; strategy?: typeof strategy; exclude?: boolean } | undefined}
+ */
+export function findMatchingRouteStrategy(url) {
+    if (routeStrategies.length === 0) {
+        return undefined;
+    }
+    const urlString = typeof url === "string" ? url : url.href;
+    if (cachedRouteStrategyUrl === urlString) {
+        return cachedRouteStrategy;
+    }
+    const publicUrl = new URL(urlString, "http://example.com");
+    const canonicalUrl = deLocalizeUrl(publicUrl);
+    const candidateUrls = canonicalUrl.href === publicUrl.href
+        ? [publicUrl]
+        : [publicUrl, canonicalUrl];
+    let match;
+    for (const candidateUrl of candidateUrls) {
+        for (const routeStrategy of routeStrategies) {
+            const pattern = new URLPattern(routeStrategy.match, candidateUrl.href);
+            if (pattern.exec(candidateUrl.href)) {
+                match = routeStrategy;
+                break;
+            }
+        }
+        if (match)
+            break;
+    }
+    cachedRouteStrategyUrl = urlString;
+    cachedRouteStrategy = match;
+    return match;
+}
+/**
+ * Returns the strategy to use for a specific URL.
+ *
+ * If no route strategy matches (or the matching rule is `exclude: true`),
+ * the global strategy is returned.
+ *
+ * @param {string | URL} url
+ * @returns {typeof strategy}
+ */
+export function getStrategyForUrl(url) {
+    const routeStrategy = findMatchingRouteStrategy(url);
+    if (routeStrategy &&
+        routeStrategy.exclude !== true &&
+        Array.isArray(routeStrategy.strategy)) {
+        return routeStrategy.strategy;
+    }
+    return strategy;
+}
+/**
+ * Returns whether the given URL is excluded from middleware i18n processing.
+ *
+ * @param {string | URL} url
+ * @returns {boolean}
+ */
+export function isExcludedByRouteStrategy(url) {
+    return findMatchingRouteStrategy(url)?.exclude === true;
 }
 
 /**
@@ -1300,20 +1374,19 @@ export function aggregateGroups(match) {
  * @returns {Promise<ShouldRedirectResult>}
  */
 export async function shouldRedirect(input = {}) {
-  const currentUrl = resolveUrl(input);
-  const locale = await resolveLocale(input, currentUrl);
-  const strategy = getStrategyForUrl(currentUrl.href);
-  if (isExcludedByRouteStrategy(currentUrl.href) || !strategy.includes("url")) {
-    return { shouldRedirect: false, locale, redirectUrl: undefined };
-  }
-  const localizedUrl = localizeUrl(currentUrl.href, { locale });
-  const shouldRedirectToLocalizedUrl =
-    normalizeUrl(localizedUrl.href) !== normalizeUrl(currentUrl.href);
-  return {
-    shouldRedirect: shouldRedirectToLocalizedUrl,
-    locale,
-    redirectUrl: shouldRedirectToLocalizedUrl ? localizedUrl : undefined,
-  };
+    const currentUrl = resolveUrl(input);
+    const locale = await resolveLocale(input, currentUrl);
+    const strategy = getStrategyForUrl(currentUrl.href);
+    if (isExcludedByRouteStrategy(currentUrl.href) || !strategy.includes("url")) {
+        return { shouldRedirect: false, locale, redirectUrl: undefined };
+    }
+    const localizedUrl = localizeUrl(currentUrl.href, { locale });
+    const shouldRedirectToLocalizedUrl = normalizeUrl(localizedUrl.href) !== normalizeUrl(currentUrl.href);
+    return {
+        shouldRedirect: shouldRedirectToLocalizedUrl,
+        locale,
+        redirectUrl: shouldRedirectToLocalizedUrl ? localizedUrl : undefined,
+    };
 }
 /**
  * Resolves the locale either from the provided input or by using the configured strategies.
@@ -1323,19 +1396,19 @@ export async function shouldRedirect(input = {}) {
  * @returns {Promise<Locale>}
  */
 async function resolveLocale(input, currentUrl) {
-  const locale = toLocale(input.locale);
-  if (locale) {
-    return locale;
-  }
-  if (input.request) {
-    return extractLocaleFromRequestAsync(input.request, {
-      effectiveRequestUrl: currentUrl,
-    });
-  }
-  if ("url" in input && typeof input.url !== "undefined") {
-    return getLocaleForUrl(currentUrl.href);
-  }
-  return getLocale();
+    const locale = toLocale(input.locale);
+    if (locale) {
+        return locale;
+    }
+    if (input.request) {
+        return extractLocaleFromRequestAsync(input.request, {
+            effectiveRequestUrl: currentUrl,
+        });
+    }
+    if ("url" in input && typeof input.url !== "undefined") {
+        return getLocaleForUrl(currentUrl.href);
+    }
+    return getLocale();
 }
 /**
  * Resolves the current URL from the provided input or runtime context.
@@ -1344,27 +1417,27 @@ async function resolveLocale(input, currentUrl) {
  * @returns {URL}
  */
 function resolveUrl(input) {
-  if ("effectiveRequestUrl" in input && input.effectiveRequestUrl instanceof URL) {
-    return new URL(input.effectiveRequestUrl.href);
-  }
-  if ("effectiveRequestUrl" in input && typeof input.effectiveRequestUrl === "string") {
-    return new URL(input.effectiveRequestUrl, input.request ? input.request.url : getUrlOrigin());
-  }
-  if (input.request) {
-    return new URL(input.request.url);
-  }
-  if ("url" in input && input.url instanceof URL) {
-    return new URL(input.url.href);
-  }
-  if ("url" in input && typeof input.url === "string") {
-    return new URL(input.url, getUrlOrigin());
-  }
-  if (typeof window !== "undefined" && window?.location?.href) {
-    return new URL(window.location.href);
-  }
-  throw new Error(
-    "shouldRedirect() requires either a request, an absolute URL, or must run in a browser environment.",
-  );
+    if ("effectiveRequestUrl" in input &&
+        input.effectiveRequestUrl instanceof URL) {
+        return new URL(input.effectiveRequestUrl.href);
+    }
+    if ("effectiveRequestUrl" in input &&
+        typeof input.effectiveRequestUrl === "string") {
+        return new URL(input.effectiveRequestUrl, input.request ? input.request.url : getUrlOrigin());
+    }
+    if (input.request) {
+        return new URL(input.request.url);
+    }
+    if ("url" in input && input.url instanceof URL) {
+        return new URL(input.url.href);
+    }
+    if ("url" in input && typeof input.url === "string") {
+        return new URL(input.url, getUrlOrigin());
+    }
+    if (typeof window !== "undefined" && window?.location?.href) {
+        return new URL(window.location.href);
+    }
+    throw new Error("shouldRedirect() requires either a request, an absolute URL, or must run in a browser environment.");
 }
 /**
  * Normalize url for comparison by stripping the trailing slash.
@@ -1373,9 +1446,9 @@ function resolveUrl(input) {
  * @returns {string}
  */
 function normalizeUrl(url) {
-  const urlObj = new URL(url);
-  urlObj.pathname = urlObj.pathname.replace(/\/$/, "");
-  return urlObj.href;
+    const urlObj = new URL(url);
+    urlObj.pathname = urlObj.pathname.replace(/\/$/, "");
+    return urlObj.href;
 }
 
 /**
@@ -1419,25 +1492,25 @@ function normalizeUrl(url) {
  * @returns {string} The localized href, relative if input was relative
  */
 export function localizeHref(href, options) {
-  const currentLocale = getLocale();
-  const locale = options?.locale ?? currentLocale;
-  const url = new URL(href, getUrlOrigin());
-  const localized = localizeUrl(url, { locale });
-  // if the origin is identical and the href is relative,
-  // return the relative path
-  if (href.startsWith("/") && url.origin === localized.origin) {
-    // check for cross origin localization in which case an absolute URL must be returned.
-    if (locale !== currentLocale) {
-      const localizedCurrentLocale = localizeUrl(url, {
-        locale: currentLocale,
-      });
-      if (localizedCurrentLocale.origin !== localized.origin) {
-        return localized.href;
-      }
+    const currentLocale = getLocale();
+    const locale = options?.locale ?? currentLocale;
+    const url = new URL(href, getUrlOrigin());
+    const localized = localizeUrl(url, { locale });
+    // if the origin is identical and the href is relative,
+    // return the relative path
+    if (href.startsWith("/") && url.origin === localized.origin) {
+        // check for cross origin localization in which case an absolute URL must be returned.
+        if (locale !== currentLocale) {
+            const localizedCurrentLocale = localizeUrl(url, {
+                locale: currentLocale,
+            });
+            if (localizedCurrentLocale.origin !== localized.origin) {
+                return localized.href;
+            }
+        }
+        return localized.pathname + localized.search + localized.hash;
     }
-    return localized.pathname + localized.search + localized.hash;
-  }
-  return localized.href;
+    return localized.href;
 }
 /**
  * High-level URL de-localization function optimized for client-side UI usage.
@@ -1480,14 +1553,14 @@ export function localizeHref(href, options) {
  * @returns {string} The de-localized href, relative if input was relative
  */
 export function deLocalizeHref(href) {
-  const url = new URL(href, getUrlOrigin());
-  const deLocalized = deLocalizeUrl(url);
-  // If the origin is identical and the href is relative,
-  // return the relative path instead of the full URL.
-  if (href.startsWith("/") && url.origin === deLocalized.origin) {
-    return deLocalized.pathname + deLocalized.search + deLocalized.hash;
-  }
-  return deLocalized.href;
+    const url = new URL(href, getUrlOrigin());
+    const deLocalized = deLocalizeUrl(url);
+    // If the origin is identical and the href is relative,
+    // return the relative path instead of the full URL.
+    if (href.startsWith("/") && url.origin === deLocalized.origin) {
+        return deLocalized.pathname + deLocalized.search + deLocalized.hash;
+    }
+    return deLocalized.href;
 }
 
 /**
@@ -1495,11 +1568,12 @@ export function deLocalizeHref(href) {
  * @param {Locale} locale
  */
 export function trackMessageCall(safeModuleId, locale) {
-  if (isServer === false) return;
-  const store = serverAsyncLocalStorage?.getStore();
-  if (store) {
-    store.messageCalls?.add(`${safeModuleId}:${locale}`);
-  }
+    if (isServer === false)
+        return;
+    const store = serverAsyncLocalStorage?.getStore();
+    if (store) {
+        store.messageCalls?.add(`${safeModuleId}:${locale}`);
+    }
 }
 
 /**
@@ -1546,65 +1620,72 @@ export function trackMessageCall(safeModuleId, locale) {
  *   The order follows each input URL with all its locale variants before moving to the next URL.
  */
 export function generateStaticLocalizedUrls(urls) {
-  /** @type {Set<URL>} */
-  const localizedUrls = new Set();
-  // For default URL pattern, we can optimize the generation
-  if (TREE_SHAKE_DEFAULT_URL_PATTERN_USED) {
-    for (const urlInput of urls) {
-      const url = urlInput instanceof URL ? urlInput : new URL(urlInput, "http://localhost");
-      // Base locale doesn't get a prefix
-      localizedUrls.add(url);
-      // Other locales get their code as prefix
-      for (const locale of locales) {
-        if (locale !== baseLocale) {
-          const localizedPath = `/${locale}${url.pathname}${url.search}${url.hash}`;
-          const localizedUrl = new URL(localizedPath, url.origin);
-          localizedUrls.add(localizedUrl);
+    /** @type {Set<URL>} */
+    const localizedUrls = new Set();
+    // For default URL pattern, we can optimize the generation
+    if (TREE_SHAKE_DEFAULT_URL_PATTERN_USED) {
+        for (const urlInput of urls) {
+            const url = urlInput instanceof URL
+                ? urlInput
+                : new URL(urlInput, "http://localhost");
+            // Base locale doesn't get a prefix
+            localizedUrls.add(url);
+            // Other locales get their code as prefix
+            for (const locale of locales) {
+                if (locale !== baseLocale) {
+                    const localizedPath = `/${locale}${url.pathname}${url.search}${url.hash}`;
+                    const localizedUrl = new URL(localizedPath, url.origin);
+                    localizedUrls.add(localizedUrl);
+                }
+            }
         }
-      }
+        return Array.from(localizedUrls);
+    }
+    // For custom URL patterns, we need to use localizeUrl for each URL and locale
+    for (const urlInput of urls) {
+        const url = urlInput instanceof URL
+            ? urlInput
+            : new URL(urlInput, "http://localhost");
+        // Try each URL pattern to find one that matches
+        let patternFound = false;
+        for (const pattern of urlPatterns) {
+            try {
+                // Try to match the unlocalized pattern
+                const unlocalizedMatch = new URLPattern(pattern.pattern, url.href).exec(url.href);
+                if (!unlocalizedMatch)
+                    continue;
+                patternFound = true;
+                // Track unique localized URLs to avoid duplicates when patterns are the same
+                const seenUrls = new Set();
+                // Generate localized URL for each locale
+                for (const [locale] of pattern.localized) {
+                    try {
+                        const localizedUrl = localizeUrl(url, { locale });
+                        const urlString = localizedUrl.href;
+                        // Only add if we haven't seen this exact URL before
+                        if (!seenUrls.has(urlString)) {
+                            seenUrls.add(urlString);
+                            localizedUrls.add(localizedUrl);
+                        }
+                    }
+                    catch {
+                        // Skip if localization fails for this locale
+                        continue;
+                    }
+                }
+                break;
+            }
+            catch {
+                // Skip if pattern matching fails
+                continue;
+            }
+        }
+        // If no pattern matched, use the URL as is
+        if (!patternFound) {
+            localizedUrls.add(url);
+        }
     }
     return Array.from(localizedUrls);
-  }
-  // For custom URL patterns, we need to use localizeUrl for each URL and locale
-  for (const urlInput of urls) {
-    const url = urlInput instanceof URL ? urlInput : new URL(urlInput, "http://localhost");
-    // Try each URL pattern to find one that matches
-    let patternFound = false;
-    for (const pattern of urlPatterns) {
-      try {
-        // Try to match the unlocalized pattern
-        const unlocalizedMatch = new URLPattern(pattern.pattern, url.href).exec(url.href);
-        if (!unlocalizedMatch) continue;
-        patternFound = true;
-        // Track unique localized URLs to avoid duplicates when patterns are the same
-        const seenUrls = new Set();
-        // Generate localized URL for each locale
-        for (const [locale] of pattern.localized) {
-          try {
-            const localizedUrl = localizeUrl(url, { locale });
-            const urlString = localizedUrl.href;
-            // Only add if we haven't seen this exact URL before
-            if (!seenUrls.has(urlString)) {
-              seenUrls.add(urlString);
-              localizedUrls.add(localizedUrl);
-            }
-          } catch {
-            // Skip if localization fails for this locale
-            continue;
-          }
-        }
-        break;
-      } catch {
-        // Skip if pattern matching fails
-        continue;
-      }
-    }
-    // If no pattern matched, use the URL as is
-    if (!patternFound) {
-      localizedUrls.add(url);
-    }
-  }
-  return Array.from(localizedUrls);
 }
 
 /**
@@ -1637,7 +1718,7 @@ export const customClientStrategies = new Map();
  * @returns {boolean} Returns true if it is a custom strategy, false otherwise.
  */
 export function isCustomStrategy(strategy) {
-  return typeof strategy === "string" && /^custom-[A-Za-z0-9_-]+$/.test(strategy);
+    return (typeof strategy === "string" && /^custom-[A-Za-z0-9_-]+$/.test(strategy));
 }
 /**
  * Defines a custom strategy that is executed on the server.
@@ -1650,12 +1731,10 @@ export function isCustomStrategy(strategy) {
  * @returns {void}
  */
 export function defineCustomServerStrategy(strategy, handler) {
-  if (!isCustomStrategy(strategy)) {
-    throw new Error(
-      `Invalid custom strategy: "${strategy}". Must be a custom strategy following the pattern custom-name.`,
-    );
-  }
-  customServerStrategies.set(strategy, handler);
+    if (!isCustomStrategy(strategy)) {
+        throw new Error(`Invalid custom strategy: "${strategy}". Must be a custom strategy following the pattern custom-name.`);
+    }
+    customServerStrategies.set(strategy, handler);
 }
 /**
  * Defines a custom strategy that is executed on the client.
@@ -1668,16 +1747,14 @@ export function defineCustomServerStrategy(strategy, handler) {
  * @returns {void}
  */
 export function defineCustomClientStrategy(strategy, handler) {
-  if (!isCustomStrategy(strategy)) {
-    throw new Error(
-      `Invalid custom strategy: "${strategy}". Must be a custom strategy following the pattern custom-name.`,
-    );
-  }
-  customClientStrategies.set(strategy, handler);
+    if (!isCustomStrategy(strategy)) {
+        throw new Error(`Invalid custom strategy: "${strategy}". Must be a custom strategy following the pattern custom-name.`);
+    }
+    customClientStrategies.set(strategy, handler);
 }
 
 // ------ TYPES ------
-export {};
+
 /**
  * A locale that is available in the project.
  *

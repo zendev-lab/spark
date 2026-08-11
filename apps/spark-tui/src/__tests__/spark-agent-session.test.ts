@@ -14,6 +14,7 @@ import {
   type SparkConfig,
 } from "../host/index.ts";
 import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
+import type { SparkViewModelEvent } from "@zendev-lab/spark-protocol";
 import {
   SPARK_PROMPT_ITEM_METADATA_KEY,
   SparkTurnRestartYieldError,
@@ -68,6 +69,21 @@ function stripAnsi(text: string): string {
 
 function testContentText(content: unknown): string {
   return typeof content === "string" ? content : JSON.stringify(content);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isDoneStreamEvent(value: unknown): boolean {
+  if (!isRecord(value) || value.type !== "stream_event") return false;
+  return isRecord(value.event) && value.event.type === "done";
+}
+
+type SessionMessageViewEvent = Extract<SparkViewModelEvent, { type: "session.message" }>;
+
+function isSessionMessageViewEvent(event: SparkViewModelEvent): event is SessionMessageViewEvent {
+  return event.type === "session.message";
 }
 
 function fakeTui(): TUI {
@@ -180,7 +196,7 @@ test("SparkAgentSession persists and resumes JSONL sessions", async () => {
     const cwd = join(dir, "repo");
     const sparkHome = join(dir, ".spark");
     await mkdir(cwd, { recursive: true });
-    const viewEvents: unknown[] = [];
+    const viewEvents: SparkViewModelEvent[] = [];
     const services = await makeFakeServices({
       cwd,
       sparkHome,
@@ -219,7 +235,7 @@ test("SparkAgentSession persists and resumes JSONL sessions", async () => {
     assert.equal(messages[3]?.message.metadata, undefined);
     assert.equal(
       viewEvents.some(
-        (event: any) =>
+        (event) =>
           event.type === "session.message" &&
           event.sessionId === "session-a" &&
           event.message.role === "assistant",
@@ -227,9 +243,7 @@ test("SparkAgentSession persists and resumes JSONL sessions", async () => {
       true,
     );
     assert.equal(
-      viewEvents.some(
-        (event: any) => event.type === "run.update" && event.run.status === "succeeded",
-      ),
+      viewEvents.some((event) => event.type === "run.update" && event.run.status === "succeeded"),
       true,
     );
   } finally {
@@ -478,18 +492,6 @@ test("SparkAgentSession follows the authoritative transcript path across same-id
       },
     );
     const sessionId = "same-id-side-thread";
-    const stale = services.sessionStore.createSession({
-      id: sessionId,
-      timestamp: "2026-07-22T01:00:00.000Z",
-    });
-    services.sessionStore.appendMessage(stale, {
-      role: "user",
-      content: "stale generation exchange",
-      timestamp: Date.parse("2026-07-22T03:00:00.000Z"),
-    });
-    stale.entries.at(-1)!.timestamp = "2026-07-22T03:00:00.000Z";
-    await services.sessionStore.save(stale);
-
     const reset = services.sessionStore.createSession({
       id: sessionId,
       timestamp: "2026-07-22T04:00:00.000Z",
@@ -501,6 +503,18 @@ test("SparkAgentSession follows the authoritative transcript path across same-id
     });
     reset.entries.at(-1)!.timestamp = "2026-07-22T00:00:00.000Z";
     await services.sessionStore.save(reset);
+
+    const stale = services.sessionStore.createSession({
+      id: sessionId,
+      timestamp: "2026-07-22T01:00:00.000Z",
+    });
+    services.sessionStore.appendMessage(stale, {
+      role: "user",
+      content: "stale generation exchange",
+      timestamp: Date.parse("2026-07-22T03:00:00.000Z"),
+    });
+    stale.entries.at(-1)!.timestamp = "2026-07-22T03:00:00.000Z";
+    await services.sessionStore.save(stale);
 
     assert.equal((await services.sessionStore.findById(sessionId))?.path, reset.path);
     const result = await new SparkAgentSession(services).run({
@@ -533,7 +547,7 @@ test("SparkAgentSession continues from a persisted tool receipt after a terminal
     await mkdir(cwd, { recursive: true });
     let providerCalls = 0;
     let toolExecutions = 0;
-    const viewEvents: any[] = [];
+    const viewEvents: SparkViewModelEvent[] = [];
     const services = await makeFakeServices(
       { cwd, sparkHome, ui: { publishView: (event) => viewEvents.push(event) } },
       {
@@ -602,7 +616,8 @@ test("SparkAgentSession continues from a persisted tool receipt after a terminal
       true,
     );
     const assistantViews = viewEvents
-      .filter((event) => event.type === "session.message" && event.message.role === "assistant")
+      .filter(isSessionMessageViewEvent)
+      .filter((event) => event.message.role === "assistant")
       .map((event) => event.message);
     assert.equal(
       assistantViews.some(
@@ -1350,10 +1365,7 @@ test("Spark headless role executor forwards live events through onEvent", async 
 
     assert.equal(result.record.status, "succeeded");
     assert.equal(streamed.length, result.jsonEvents.length);
-    assert.equal(
-      streamed.some((event: any) => event.type === "stream_event" && event.event?.type === "done"),
-      true,
-    );
+    assert.equal(streamed.some(isDoneStreamEvent), true);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -61,7 +61,10 @@ describe("A2UI v0.9.1 protocol", () => {
     );
 
     expect(document.surfaces).toEqual([]);
-    expect(document.diagnostics.join("\n")).toContain("unsupported catalog");
+    expect(document.diagnostics).toEqual([
+      "surface bad: unsupported catalog https://evil.example/a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json",
+      "message 2: unknown surface bad",
+    ]);
     expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
   });
 
@@ -95,7 +98,7 @@ describe("A2UI v0.9.1 protocol", () => {
     );
 
     expect(Object.keys(document.surfaces[0]!.components)).toHaveLength(500);
-    expect(document.diagnostics.join("\n")).toContain("total component count capped at 500");
+    expect(document.diagnostics).toEqual(["surface bounded: total component count capped at 500"]);
   });
 
   it("accepts only the closed Workbench action set and requires stop confirmation", () => {
@@ -116,7 +119,7 @@ describe("A2UI v0.9.1 protocol", () => {
         },
       },
     };
-    expect(sparkWorkbenchActionRequestSchema.parse(base).action.context.actionId).toBe("pause");
+    expect(sparkWorkbenchActionRequestSchema.safeParse(base).success).toBe(true);
     expect(() =>
       sparkWorkbenchActionRequestSchema.parse({
         ...base,

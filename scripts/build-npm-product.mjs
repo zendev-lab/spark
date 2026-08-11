@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 
 import { npmDistributions, productsDirectory, releaseVersion } from "./npm-distributions.mjs";
 import { resolveProductRuntimeDependencies } from "./product-runtime-closure.mjs";
+import { SPARK_PROTOCOL_VERSION } from "../packages/spark-protocol/src/version.ts";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -328,21 +329,12 @@ await removeSourceMaps(resolve(hub.directory, "build"));
 const gitSha =
   process.env.SPARK_BUILD_GIT_SHA?.trim() ||
   (await run("git", ["rev-parse", "HEAD"])).stdout.trim();
-const protocolSource = await readFile(
-  resolve(root, "packages/spark-protocol/src/version.ts"),
-  "utf8",
-);
-const protocolVersion = Number(/SPARK_PROTOCOL_VERSION\s*=\s*(\d+)/u.exec(protocolSource)?.[1]);
-if (!Number.isSafeInteger(protocolVersion)) {
-  throw new TypeError("Unable to resolve SPARK_PROTOCOL_VERSION for build-info.json");
-}
-
 for (const distribution of npmDistributions) {
   await writeLaunchers(distribution);
   const dependencies = await runtimeDependencies(distribution);
   await Promise.all([
     writeProductManifest(distribution, dependencies),
-    writeBuildInfo(distribution, gitSha, protocolVersion),
+    writeBuildInfo(distribution, gitSha, SPARK_PROTOCOL_VERSION),
   ]);
 }
 

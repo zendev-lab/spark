@@ -1618,7 +1618,7 @@ test("task graph store rejects malformed persisted snapshots", async () => {
       (error) =>
         error instanceof TaskGraphStoreFormatError &&
         error.filePath === file &&
-        /not valid task graph snapshot/.test(error.message),
+        /does not match the persisted schema: \.projects is required/.test(error.message),
     );
   } finally {
     await rm(dir, { recursive: true, force: true });

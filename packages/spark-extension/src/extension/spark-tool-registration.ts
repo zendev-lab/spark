@@ -77,7 +77,7 @@ export interface SparkToolContext {
   };
   hasUI?: boolean;
   askAutoAnswer?: boolean;
-  askAutoAnswerResolver?: (request: unknown, ctx: any) => Promise<unknown>;
+  askAutoAnswerResolver?: (request: unknown, ctx: SparkToolContext) => Promise<unknown>;
   /** Internal host policy; models cannot set the human-wait deadline. */
   askWaitTimeoutMs?: number;
   /** @deprecated Compatibility alias for askWaitTimeoutMs. */

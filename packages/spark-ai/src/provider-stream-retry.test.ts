@@ -1,25 +1,42 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
+import type { AssistantMessage, AssistantMessageEvent, ToolCall } from "@earendil-works/pi-ai";
 import {
   TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
   retryProviderStreamBeforeOutput,
 } from "./provider-stream-retry.ts";
 
-function assistant(content: unknown[], stopReason: string = "stop"): any {
+type ProviderStream = Parameters<typeof retryProviderStreamBeforeOutput>[0];
+
+function assistant(
+  content: AssistantMessage["content"],
+  stopReason: AssistantMessage["stopReason"] = "stop",
+): AssistantMessage {
   return {
     role: "assistant",
     content,
     api: "openai-completions",
     provider: "fake",
     model: "fake",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
     stopReason,
     timestamp: Date.now(),
   };
 }
 
-function stream(events: any[], result?: Promise<any>): any {
-  const finalResult = result ?? new Promise<any>(() => undefined);
+function stream(
+  events: AssistantMessageEvent[],
+  result?: Promise<AssistantMessage>,
+): ProviderStream {
+  const finalResult = result ?? new Promise<AssistantMessage>(() => undefined);
   return {
     async *[Symbol.asyncIterator]() {
       for (const event of events) yield event;
@@ -28,9 +45,13 @@ function stream(events: any[], result?: Promise<any>): any {
   };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 test("terminal-less provider stream promotes a complete tool call to autonomous continuation", async () => {
   let providerCalls = 0;
-  const toolCall = {
+  const toolCall: ToolCall = {
     type: "toolCall",
     id: "call-1",
     name: "write_once",
@@ -39,7 +60,12 @@ test("terminal-less provider stream promotes a complete tool call to autonomous 
   const wrapped = retryProviderStreamBeforeOutput(
     stream([
       { type: "start", partial: assistant([]) },
-      { type: "toolcall_end", toolCall, partial: assistant([toolCall], "toolUse") },
+      {
+        type: "toolcall_end",
+        contentIndex: 0,
+        toolCall,
+        partial: assistant([toolCall], "toolUse"),
+      },
     ]),
     () => {
       providerCalls += 1;
@@ -47,12 +73,12 @@ test("terminal-less provider stream promotes a complete tool call to autonomous 
     },
     { providerName: "fake", maxRetries: 2, shouldRetry: () => true },
   );
-  const events: any[] = [];
+  const events: AssistantMessageEvent[] = [];
   for await (const event of wrapped) events.push(event);
   const done = events.at(-1);
-  assert.equal(done?.type, "done");
-  assert.equal(done?.message.stopReason, "toolUse");
-  assert.deepEqual(done?.message.content, [toolCall]);
+  assert.ok(done?.type === "done");
+  assert.equal(done.message.stopReason, "toolUse");
+  assert.deepEqual(done.message.content, [toolCall]);
   assert.equal(providerCalls, 0);
 });
 
@@ -68,6 +94,6 @@ test("terminal-less provider stream without a complete tool call remains a class
         /* consume */
       }
     },
-    (error: any) => error?.code === TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
+    (error: unknown) => isRecord(error) && error.code === TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
   );
 });

@@ -41,24 +41,22 @@ describe("Spark daemon oRPC socket client", () => {
     expectTypeOf<ReturnType<RetentionApplyInvocation>>().toEqualTypeOf<
       Promise<SparkLocalRpcOutput<"invocation.retention.apply">>
     >();
+    expectTypeOf<{}>().not.toMatchTypeOf<SparkLocalRpcInput<"session.get">>();
+    expectTypeOf<{
+      before: string;
+      invocationLimit: number;
+      eventLimit: number;
+    }>().not.toMatchTypeOf<SparkLocalRpcInput<"invocation.retention.apply">>();
 
     const compileContractCalls = (client: SparkLocalRpcOrpcClient) => {
       void invokeSparkDaemonOrpcLiveMethod(client, "session.get", {
         sessionId: "session-1",
       });
-      // @ts-expect-error session.get requires its contract-specific sessionId input.
-      void invokeSparkDaemonOrpcLiveMethod(client, "session.get", {});
       void invokeSparkDaemonOrpcLiveMethod(client, "invocation.retention.apply", {
         before: "2026-07-14T00:00:00.000Z",
         invocationLimit: 10,
         eventLimit: 100,
         confirm: true,
-      });
-      // @ts-expect-error retention apply requires explicit literal confirmation.
-      void invokeSparkDaemonOrpcLiveMethod(client, "invocation.retention.apply", {
-        before: "2026-07-14T00:00:00.000Z",
-        invocationLimit: 10,
-        eventLimit: 100,
       });
     };
     expectTypeOf(compileContractCalls).toBeFunction();

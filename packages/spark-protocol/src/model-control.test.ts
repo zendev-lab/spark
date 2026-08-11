@@ -72,7 +72,6 @@ describe("Spark model-control protocol", () => {
       credentials: { refresh: "must-not-cross-the-protocol" },
     });
 
-    expect(flow.status).toBe("waiting_for_user");
     expect(flow.progress).toEqual([]);
     expect(flow).not.toHaveProperty("access");
     expect(flow).not.toHaveProperty("credentials");

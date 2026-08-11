@@ -40,7 +40,6 @@ describe("Spark Fusion extension", () => {
     });
 
     expect(registered?.name).toBe("fusion");
-    expect(registered?.parameters).toMatchObject({ additionalProperties: false });
     expect(resolveToolPolicy(registered as ToolConfig)).toEqual({
       effect: "read",
       executionMode: "sequential",

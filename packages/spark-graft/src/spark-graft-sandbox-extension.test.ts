@@ -98,24 +98,6 @@ test("sandbox stateful tools request sequential execution to avoid scratch races
   }
 });
 
-test("sandbox file overrides expose explicit prompt metadata", () => {
-  const { pi, tools } = createFakePi();
-  registerSparkGraftSandboxExtension(pi);
-
-  for (const toolName of ["read", "write", "edit", "grep", "find", "ls"]) {
-    const tool = tools.get(toolName);
-    assert.ok(tool, `expected ${toolName} to be registered`);
-    assert.ok(
-      tool.promptGuidelines?.some((guideline) => /working tree/i.test(guideline)),
-      toolName,
-    );
-    assert.ok(
-      tool.promptGuidelines?.some((guideline) => /graft_sandbox_enter/i.test(guideline)),
-      toolName,
-    );
-  }
-});
-
 test("sandbox entrypoint layers sandbox state tools over normal spark-graft", async () => {
   const restoredState = {
     active: true,

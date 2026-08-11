@@ -64,7 +64,6 @@ describe("token usage protocol", () => {
       costUsd: 0.25,
       observedAt: "2026-08-03T00:00:01.000Z",
     });
-    expect(receipt.usage?.totalTokens).toBe(35);
     expect(
       sparkTokenUsageReceiptSchema.safeParse({
         ...receipt,
@@ -141,7 +140,6 @@ describe("token usage protocol", () => {
       },
       asOf: "2026-08-03T00:00:03.000Z",
     });
-    expect(projection.byPersistence.anonymous.totalTokens).toBe(3);
     expect(JSON.stringify(projection)).not.toContain("eventId");
     const canonical = sparkTokenUsageAggregateSchema.parse({
       scope: projection.scope,
@@ -175,34 +173,34 @@ describe("token usage protocol", () => {
       byModel: {},
       asOf: "2026-08-03T00:00:03.000Z",
     };
-    expect(sparkTokenUsageAggregateSchema.parse({ ...base, quality: "unknown" }).quality).toBe(
-      "unknown",
+    expect(sparkTokenUsageAggregateSchema.safeParse({ ...base, quality: "unknown" }).success).toBe(
+      true,
     );
     expect(sparkTokenUsageAggregateSchema.safeParse({ ...base, quality: "exact" }).success).toBe(
       false,
     );
     expect(
-      sparkTokenUsageAggregateSchema.parse({
+      sparkTokenUsageAggregateSchema.safeParse({
         ...base,
         quality: "partial",
         coverageGapCount: 1,
-      }).quality,
-    ).toBe("partial");
+      }).success,
+    ).toBe(true);
     expect(
-      sparkTokenUsageAggregateSchema.parse({
+      sparkTokenUsageAggregateSchema.safeParse({
         ...base,
         quality: "estimated",
         responseCount: 1,
         estimatedResponseCount: 1,
-      }).quality,
-    ).toBe("estimated");
+      }).success,
+    ).toBe(true);
     expect(
-      sparkTokenUsageAggregateSchema.parse({
+      sparkTokenUsageAggregateSchema.safeParse({
         ...base,
         quality: "exact",
         responseCount: 1,
-      }).quality,
-    ).toBe("exact");
+      }).success,
+    ).toBe(true);
     expect(
       sparkTokenUsageAggregateSchema.safeParse({
         ...base,

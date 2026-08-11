@@ -124,9 +124,7 @@ export function registerSparkStatusTool(
       const runStore = defaultSparkWorkflowRunStore(stateCwd);
       await reconcileSparkWorkflowRunsWithActiveProcesses(runStore, graph, cwd);
       const workflowRunStatus = await runStore.status();
-      const dynamicWorkflowRuns = await defaultSparkDynamicWorkflowEventStore(stateCwd)
-        .listRuns()
-        .catch(() => []);
+      const dynamicWorkflowRuns = await defaultSparkDynamicWorkflowEventStore(stateCwd).listRuns();
       const runControl = await runStore.loadControl();
       const sessionKey = sparkSessionKey(ctx);
       const currentProject = await currentSparkProject(cwd, ctx, graph);

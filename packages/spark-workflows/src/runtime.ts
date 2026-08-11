@@ -900,9 +900,14 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * Execute trusted local workflow code. The VM context limits the exposed API
+ * and bounds synchronous CPU time; it is not a security sandbox for untrusted
+ * source.
+ */
 function runTrustedWorkflowScriptInVm<T>(body: string, context: vm.Context): Promise<T> {
   const wrapped = DETERMINISM_PRELUDE + "\n(async () => {\n" + body + "\n})()";
-  return new vm.Script(wrapped).runInContext(context, { timeout: 1000 }) as Promise<T>; // NOSONAR saved workflows are local workspace/user scripts run in a capability-limited VM context.
+  return new vm.Script(wrapped).runInContext(context, { timeout: 1000 }) as Promise<T>;
 }
 
 export function normalizeWorkflowAgentOptions(options: WorkflowAgentOptions): WorkflowAgentOptions {

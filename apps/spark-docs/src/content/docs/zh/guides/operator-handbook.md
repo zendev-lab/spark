@@ -233,10 +233,8 @@ no-op。`/status`、action bar 和 palette 的普通动作一次 Enter 即执行
 ### Renderer 状态
 
 Spark 0.2.0 继续在私有 `SparkTerminalController` 后使用 Pi TUI kernel。
-OpenTUI 只是隔离候选，不是生产依赖。运行 `pnpm run audit:renderer` 可查看
-fail-closed readiness 报告。在 launcher flag、native artifact、PTY 生命周期、
-四种终端尺寸和完整 controller contract 都提供可复现证据前，Spark 不会提高 Node
-基线，也不会切换 renderer。
+OpenTUI 只是隔离候选，不是生产依赖。切换 renderer 需要独立的架构决策，并提供
+component、Direct PTY、打包产物和受支持平台验证的实际证据。
 
 ## 8. 远程访问
 

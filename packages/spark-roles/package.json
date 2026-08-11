@@ -30,8 +30,6 @@
     "typebox": "catalog:"
   },
   "devDependencies": {
-    "@zendev-lab/spark-graft": "workspace:^",
-    "@zendev-lab/spark-runtime": "workspace:^",
     "@zendev-lab/spark-tasks": "workspace:^",
     "typescript": "catalog:",
     "vitest": "catalog:"

@@ -41,9 +41,17 @@ import { hubSlashSubmissionError } from "$lib/slash-actions";
 import { workbenchSessionsPathFromPathname, workspaceSessionsPath } from "$lib/workspace-routes";
 import type { Actions } from "@sveltejs/kit";
 import type { Cookies } from "@sveltejs/kit";
+import type { HubConversationSummary } from "$lib/server/conversation-summaries";
+
+interface SessionsPageParentData {
+  activeWorkspace?: { id: string; slug: string } | null;
+  sessions: HubConversationSummary[];
+  sessionsAvailable: boolean;
+  sessionControlAvailable: boolean;
+}
 
 export interface SessionsPageLoadEvent {
-  parent: () => Promise<any>;
+  parent: () => Promise<SessionsPageParentData>;
   url: URL;
 }
 

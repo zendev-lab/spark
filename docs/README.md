@@ -55,8 +55,7 @@ than copying another long list into Markdown.
 
 - [`operations/hub-relocation.md`](./operations/hub-relocation.md): feature-only Hub snapshot relocation, HTTPS/WSS cutover, validation, and rollback.
 - [`operations/native-tui-validation.md`](./operations/native-tui-validation.md): component and Direct PTY validation for native TUI behavior.
-- [`operations/renderer-readiness.md`](./operations/renderer-readiness.md): renderer-neutral controller and fail-closed OpenTUI release/PTY gates.
-- [`operations/test-architecture.md`](./operations/test-architecture.md): test ownership, assertion hierarchy, source-mirror ratchet, and golden-file policy.
+- [`operations/test-architecture.md`](./operations/test-architecture.md): test ownership, assertion hierarchy, static-tool boundaries, and golden-file policy.
 - [`operations/execution-isolation-baseline.md`](./operations/execution-isolation-baseline.md): reproducible single-daemon event-loop, session-fence, synchronous I/O, and descendant-process baseline.
 - [`operations/capability-sentinels.md`](./operations/capability-sentinels.md): deterministic Goal, Loop, and Repro release sentinels, budgets, and failure triage.
 - [`operations/repro-golden-journey.md`](./operations/repro-golden-journey.md): deterministic end-to-end Repro acceptance, recovery, delivery, and CI ownership.
