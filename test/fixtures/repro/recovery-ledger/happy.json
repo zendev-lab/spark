@@ -87,17 +87,17 @@
   "toolApprovalCount": 0,
   "interaction": {
     "beforeRestart": {
-      "interactionRequestId": "ask_async:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "interactionRequestId": "ask_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "humanRequestId": "hreq_a"
     },
     "afterRestart": {
-      "interactionRequestId": "ask_async:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "interactionRequestId": "ask_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "humanRequestId": "hreq_a"
     },
     "answerReceipt": "hres_a",
     "answerOutcome": "accepted"
   },
-  "interactionRequestId": "ask_async:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "interactionRequestId": "ask_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "humanRequestId": "hreq_a",
   "answerReceipt": "hres_a",
   "daemon": {

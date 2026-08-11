@@ -1,4 +1,4 @@
-import { closeSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 
 import {
   SPARK_SCRIPTED_PROVIDER_MODEL,
@@ -7,6 +7,8 @@ import {
   sparkScriptedToolCall,
   type SparkScriptedProviderRequest,
 } from "@zendev-lab/spark-turn/testing/scripted-provider";
+
+import { withScriptedProviderLedgerLock } from "./scripted-provider-ledger-lock.ts";
 
 interface ScriptedToolCall {
   id: string;
@@ -236,49 +238,12 @@ export function updateScriptedProviderLedger<T>(
   path: string,
   update: (ledger: ScriptedProviderLedger) => T,
 ): T {
-  const release = acquireLedgerLock(path);
-  try {
+  return withScriptedProviderLedgerLock(path, () => {
     const ledger = readLedger(path);
     const result = update(ledger);
     writeLedger(path, ledger);
     return result;
-  } finally {
-    release();
-  }
-}
-
-const ledgerLockWaitBuffer = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
-
-function acquireLedgerLock(path: string): () => void {
-  const lockPath = `${path}.lock`;
-  const startedAt = Date.now();
-  while (true) {
-    try {
-      const descriptor = openSync(lockPath, "wx", 0o600);
-      try {
-        writeFileSync(
-          descriptor,
-          `${JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() })}\n`,
-        );
-      } catch (error) {
-        closeSync(descriptor);
-        unlinkSync(lockPath);
-        throw error;
-      }
-      return () => {
-        closeSync(descriptor);
-        unlinkSync(lockPath);
-      };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if (Date.now() - startedAt >= 10_000) {
-        throw new Error(
-          `timed out waiting for scripted provider ledger lock: ${lockPath}; remove the test fixture to recover`,
-        );
-      }
-      Atomics.wait(ledgerLockWaitBuffer, 0, 0, 10);
-    }
-  }
+  });
 }
 
 function writeLedger(path: string, ledger: ScriptedProviderLedger): void {
@@ -295,13 +260,14 @@ function createCheckpointStream(input: {
   context: unknown;
   options: unknown;
 }) {
-  const delegate = waitForCheckpointRelease(input);
+  let delegate: ReturnType<typeof waitForCheckpointRelease> | undefined;
+  const getDelegate = () => (delegate ??= waitForCheckpointRelease(input));
   return {
     async *[Symbol.asyncIterator]() {
-      const stream = await delegate;
+      const stream = await getDelegate();
       for await (const event of stream) yield event;
     },
-    result: async () => await (await delegate).result(),
+    result: async () => await (await getDelegate()).result(),
   };
 }
 
@@ -314,8 +280,9 @@ async function waitForCheckpointRelease(input: {
   options: unknown;
 }) {
   for (;;) {
-    const ledger = readLedger(input.path);
-    if ((ledger.releasedCheckpoints ?? []).includes(input.checkpoint)) {
+    const stream = withScriptedProviderLedgerLock(input.path, () => {
+      const ledger = readLedger(input.path);
+      if (!(ledger.releasedCheckpoints ?? []).includes(input.checkpoint)) return undefined;
       if (ledger.cursor !== input.cursor) {
         throw new Error(
           `Checkpoint ${input.checkpoint} cursor changed from ${input.cursor} to ${ledger.cursor}`,
@@ -351,7 +318,7 @@ async function waitForCheckpointRelease(input: {
           }),
         },
       ]);
-      const stream = provider.streamFunction(
+      const resumedStream = provider.streamFunction(
         input.model as Parameters<typeof provider.streamFunction>[0],
         input.context as Parameters<typeof provider.streamFunction>[1],
         input.options as Parameters<typeof provider.streamFunction>[2],
@@ -360,8 +327,9 @@ async function waitForCheckpointRelease(input: {
       const request = provider.requests[0];
       if (request) ledger.requests.push(requestRecord(request));
       writeLedger(input.path, ledger);
-      return stream;
-    }
+      return resumedStream;
+    });
+    if (stream) return stream;
     const aborted = (input.options as { signal?: AbortSignal } | undefined)?.signal?.aborted;
     if (aborted) throw new Error(`Checkpoint ${input.checkpoint} provider request was aborted`);
     await new Promise((resolve) => setTimeout(resolve, 25));

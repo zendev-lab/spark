@@ -16,6 +16,7 @@ const schemaPath = resolve(
   "process/repro-golden-journey-recovery.schema.json",
 );
 const fixtureRoot = resolve(import.meta.dirname, "fixtures/repro/recovery-ledger");
+const repositoryRoot = resolve(import.meta.dirname, "..");
 
 interface NegativeCase {
   id: string;
@@ -83,6 +84,34 @@ test("recovery ledger schema rejects unknown fields and invalid answer outcomes"
   };
   leakedCueDaemon.teardown.cueDaemonAlive = true;
   assert.equal(validate(leakedCueDaemon), false);
+});
+
+test("routes cue-dependent recovery through the dedicated CI journey job", async () => {
+  const [manifestValue, processConfig, workflow] = await Promise.all([
+    readJson(resolve(repositoryRoot, "package.json")),
+    readFile(resolve(repositoryRoot, "vitest.process.config.ts"), "utf8"),
+    readFile(resolve(repositoryRoot, ".github/workflows/ci-tests.yml"), "utf8"),
+  ]);
+  const scripts = (manifestValue as { scripts: Record<string, string> }).scripts;
+  assert.match(
+    scripts["test:journey:repro:recovery"] ?? "",
+    /SPARK_INCLUDE_REPRO_RECOVERY=1 vp test run --config vitest\.process\.config\.ts/u,
+  );
+  assert.match(processConfig, /SPARK_INCLUDE_REPRO_RECOVERY/u);
+  assert.match(processConfig, /\["test\/process\/repro-golden-journey-recovery\.test\.ts"\]/u);
+
+  const processJob = workflow.slice(
+    workflow.indexOf("\n  process:"),
+    workflow.indexOf("\n  repro-journey:"),
+  );
+  const journeyJob = workflow.slice(
+    workflow.indexOf("\n  repro-journey:"),
+    workflow.indexOf("\n  browser:"),
+  );
+  assert.doesNotMatch(processJob, /test:journey:repro:recovery/u);
+  assert.match(journeyJob, /Install pinned cue-shell runtime/u);
+  assert.match(journeyJob, /- run: pnpm run test:journey:repro\n/u);
+  assert.match(journeyJob, /- run: pnpm run test:journey:repro:recovery\n/u);
 });
 
 async function readJson(path: string): Promise<unknown> {

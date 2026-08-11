@@ -559,6 +559,7 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     await stopIsolatedCueDaemon(fixture.cueDaemonSocketPath, fixture.target.env).catch(
       () => undefined,
     );
+    await emitJourneyFailureDiagnostics(fixture);
     throw error;
   }
 }, 300_000);
@@ -1803,6 +1804,61 @@ async function stopProcesses(target: SparkProcessTarget, pids: number[] = []): P
 
 async function readProviderLedger(path: string): Promise<ScriptedLedger> {
   return jsonObject(await readFile(path, "utf8")) as unknown as ScriptedLedger;
+}
+
+async function emitJourneyFailureDiagnostics(fixture: JourneyFixture): Promise<void> {
+  const ledger = await readOptionalJson(fixture.providerLedgerPath);
+  const lockOwner = await readOptionalJson(
+    resolve(`${fixture.providerLedgerPath}.lock`, "owner.json"),
+  );
+  process.stderr.write(
+    `REPRO_GOLDEN_JOURNEY_FAILURE ${JSON.stringify({
+      fixture: fixture.temporary,
+      providerLedger: summarizeProviderLedger(ledger),
+      providerLedgerLockOwner: lockOwner,
+    })}\n`,
+  );
+}
+
+async function readOptionalJson(path: string): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(path, "utf8")) as unknown;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    return { readError: String(error) };
+  }
+}
+
+function summarizeProviderLedger(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { invalid: true, value };
+  }
+  const ledger = value as Record<string, unknown>;
+  const rounds = Array.isArray(ledger.rounds) ? ledger.rounds : [];
+  const cursor = typeof ledger.cursor === "number" ? ledger.cursor : null;
+  const requests = Array.isArray(ledger.requests) ? ledger.requests : [];
+  const auxiliaryRequests = Array.isArray(ledger.auxiliaryRequests) ? ledger.auxiliaryRequests : [];
+  return {
+    schema: ledger.schema,
+    cursor,
+    roundCount: rounds.length,
+    nextRoundLabel:
+      typeof cursor === "number" && cursor >= 0
+        ? (rounds[cursor] as { label?: unknown } | undefined)?.label
+        : undefined,
+    requestCount: requests.length,
+    recentRequestLabels: requests
+      .slice(-20)
+      .map((request) => (request as { label?: unknown }).label ?? null),
+    auxiliaryRequestCount: auxiliaryRequests.length,
+    recentAuxiliaryRequestLabels: auxiliaryRequests
+      .slice(-20)
+      .map((request) => (request as { label?: unknown }).label ?? null),
+    releasedCheckpoints: ledger.releasedCheckpoints,
+    recentCheckpointWaits: Array.isArray(ledger.checkpointWaits)
+      ? ledger.checkpointWaits.slice(-10)
+      : [],
+  };
 }
 
 async function waitForJsonFile(path: string): Promise<Record<string, unknown>> {

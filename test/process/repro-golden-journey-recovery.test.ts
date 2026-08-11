@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import {
   chmod,
   cp,
@@ -54,6 +54,7 @@ import {
   stopIsolatedCueDaemon,
   type SparkProcessTarget,
 } from "../support/spark-process-harness.ts";
+import { withScriptedProviderLedgerLock } from "../fixtures/repro/scripted-provider-ledger-lock.ts";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -632,8 +633,11 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     resolve(sparkHome, "role-model-settings.json"),
     `${JSON.stringify(
       {
-        version: 1,
-        roleModels: { "role:builtin-reviewer": "spark-scripted/spark-scripted-provider" },
+        version: 2,
+        modelTypes: {
+          coordination: "spark-scripted/spark-scripted-provider",
+          verification: "spark-scripted/spark-scripted-provider",
+        },
       },
       null,
       2,
@@ -1749,11 +1753,14 @@ async function releaseProviderCheckpoint(
   path: string,
   checkpointId: Exclude<RecoveryCheckpointId, "ask.pending">,
 ): Promise<void> {
-  const ledger = await readProviderLedger(path);
-  if (!ledger.releasedCheckpoints.includes(checkpointId)) {
+  withScriptedProviderLedgerLock(path, () => {
+    const ledger = JSON.parse(readFileSync(path, "utf8")) as ScriptedLedger;
+    if (ledger.releasedCheckpoints.includes(checkpointId)) return;
     ledger.releasedCheckpoints.push(checkpointId);
-    await writeFile(path, `${JSON.stringify(ledger, null, 2)}\n`, { mode: 0o600 });
-  }
+    const temporary = `${path}.${process.pid}.release.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(ledger, null, 2)}\n`, { mode: 0o600 });
+    renameSync(temporary, path);
+  });
   await waitFor(
     async () =>
       (await readProviderLedger(path)).releasedCheckpoints.includes(checkpointId)

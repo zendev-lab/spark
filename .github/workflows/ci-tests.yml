@@ -89,6 +89,7 @@ jobs:
           echo "${RUNNER_TEMP}/cue-shell/bin" >> "${GITHUB_PATH}"
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test:journey:repro
+      - run: pnpm run test:journey:repro:recovery
 
   browser:
     name: Browser Tests
