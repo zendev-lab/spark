@@ -77,6 +77,33 @@ native default concurrency bound is four.
 Restricted hosts also apply the same effect admission to lifecycle listeners and
 post-compaction hooks. Prompt instructions are not an enforcement boundary.
 
+## Tool failure and recovery
+
+Tool delivery certainty and retryability are independent facts:
+
+- `certainty=not-sent | unknown` states whether an external effect may have happened;
+- `retryability=transient | permanent | agent-decides` states who may choose another attempt.
+
+The runtime may transparently retry only `not-sent + transient`, and only within
+its bounded attempt budget. `not-sent + permanent` and `not-sent + agent-decides`
+become model-visible error ToolResults. An untagged failure is never interpreted
+as permission to replay.
+
+An `external_write` failure with an unknown outcome must use the tool owner's
+read-only `reconcile` capability when present. `completed` replays the durable
+receipt, while `not-sent` still requires a separate retryability classification.
+An absent, failed, timed-out, or inconclusive reconciliation produces an error
+ToolResult with a stable operation ID and `replayAllowed=false`; it does not turn
+the whole AgentLoop into a failed outcome. The Agent can inspect state, use other
+read tools, choose a different approach, or Ask the user, but the runtime does
+not automatically execute that uncertain operation again.
+
+A tool or reconciliation timeout aborts that individual attempt's signal before
+recovery begins. The runtime waits for that attempt to settle even when its
+implementation ignores the signal, so reconciliation or replay cannot overlap
+the original side effect. User/session abort remains the parent signal and stops
+recovery without releasing the execution fence before the active attempt settles.
+
 ## Task and assignment invariants
 
 New and claimed Tasks require an objectively verifiable plan. `assign` dispatches

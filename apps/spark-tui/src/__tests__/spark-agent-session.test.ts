@@ -525,6 +525,147 @@ test("SparkAgentSession follows the authoritative transcript path across same-id
   }
 });
 
+test("SparkAgentSession continues from a persisted tool receipt after a terminal-less provider failure", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-terminal-less-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    let toolExecutions = 0;
+    const viewEvents: any[] = [];
+    const services = await makeFakeServices(
+      { cwd, sparkHome, ui: { publishView: (event) => viewEvents.push(event) } },
+      {
+        streamSimple: () => {
+          providerCalls += 1;
+          if (providerCalls === 1) {
+            return {
+              ...assistant(""),
+              content: [{ type: "toolCall", id: "once", name: "write_once", arguments: {} }],
+              stopReason: "toolUse",
+            } as unknown as AssistantMessage;
+          }
+          if (providerCalls === 2 || providerCalls === 3) {
+            return {
+              ...assistant(""),
+              content: [],
+              stopReason: "error",
+              errorMessage: "opaque provider stream failure",
+              code: "PROVIDER_STREAM_TERMINAL_LESS",
+            } as unknown as AssistantMessage;
+          }
+          return assistant("continued from checkpoint");
+        },
+      },
+    );
+    services.runtime.registerTool({
+      name: "write_once",
+      description: "side effect probe",
+      parameters: { type: "object" },
+      async execute() {
+        toolExecutions += 1;
+        return { content: [{ type: "text", text: "receipt:once" }] };
+      },
+    });
+    services.runtime.setActiveTools([
+      ...new Set([...services.runtime.getActiveTools(), "write_once"]),
+    ]);
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "terminal-less-session",
+      prompt: "perform once",
+    });
+    assert.equal(result.outcome?.status, "completed");
+    assert.equal(result.assistantText, "continued from checkpoint");
+    assert.equal(providerCalls, 4);
+    assert.equal(toolExecutions, 1);
+    const record = await services.sessionStore.load(result.sessionPath);
+    assert.deepEqual(
+      record.entries.filter((entry) => entry.type === "message").map((entry) => entry.message.role),
+      ["user", "assistant", "toolResult", "assistant"],
+    );
+    assert.equal(
+      record.entries.filter(
+        (entry) => entry.type === "custom_message" && entry.customType === "spark-runtime-failure",
+      ).length,
+      2,
+    );
+    assert.equal(
+      record.entries.some(
+        (entry) =>
+          entry.type === "custom_message" &&
+          entry.customType === "spark-runtime-failure" &&
+          (entry.details as { code?: unknown } | undefined)?.code ===
+            "PROVIDER_STREAM_TERMINAL_LESS",
+      ),
+      true,
+    );
+    const assistantViews = viewEvents
+      .filter((event) => event.type === "session.message" && event.message.role === "assistant")
+      .map((event) => event.message);
+    assert.equal(
+      assistantViews.some(
+        (message) =>
+          message.status === "error" &&
+          String(message.text).includes("opaque provider stream failure"),
+      ),
+      true,
+    );
+    assert.equal(
+      assistantViews.some(
+        (message) =>
+          message.status === "done" && String(message.text).includes("continued from checkpoint"),
+      ),
+      true,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentSession retries an overloaded provider error instead of surfacing it immediately", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-overload-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    const overloaded =
+      "server_error: Our servers are currently overloaded. Please try again later.";
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {
+        streamSimple: () => {
+          providerCalls += 1;
+          if (providerCalls === 1) {
+            return {
+              ...assistant("partial response"),
+              content: [{ type: "text", text: "partial response" }],
+              stopReason: "error",
+              errorMessage: overloaded,
+            } as unknown as AssistantMessage;
+          }
+          return assistant("recovered after overload");
+        },
+      },
+    );
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "overload-session",
+      prompt: "continue despite overload",
+    });
+
+    assert.equal(result.outcome?.status, "completed");
+    assert.equal(result.assistantText, "recovered after overload");
+    assert.equal(providerCalls, 2);
+    const saved = await services.sessionStore.load(result.sessionPath);
+    assert.equal(JSON.stringify(saved.entries).includes(overloaded), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("SparkAgentSession compacts persisted history and retries context overflow with backoff", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-overflow-"));
   try {

@@ -6,6 +6,7 @@ import { test } from "vitest";
 
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { registerSparkEvidenceTool } from "@zendev-lab/spark-artifacts/extension";
+import { TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE } from "@zendev-lab/spark-ai";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
 
 import {
@@ -1041,6 +1042,36 @@ test("SparkAgentLoop terminalizes a partial assistant bubble when the stream thr
   );
 });
 
+test("SparkAgentLoop preserves a stable provider error code on a thrown stream failure", async () => {
+  const failure = Object.assign(new Error("opaque provider failure"), {
+    code: TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
+  });
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-provider-code" });
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: () =>
+      ({
+        [Symbol.asyncIterator]() {
+          return {
+            next: async () => {
+              throw failure;
+            },
+          };
+        },
+        result: async () => {
+          throw failure;
+        },
+      }) as ReturnType<SparkAgentStreamFunction>,
+    getModel: () => TEST_MODEL,
+  });
+
+  const outcome = await loop.submitWithOutcome("classify by code");
+  assert.equal(outcome.status, "failed");
+  if (outcome.status !== "failed") assert.fail("expected failed outcome");
+  assert.equal(outcome.errorCode, TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE);
+  assert.equal(outcome.errorMessage, "opaque provider failure");
+});
+
 test("SparkAgentLoop emits exactly one agent_end for terminal outcomes", async () => {
   const stopAssistant = buildAssistant([{ type: "text", text: "done" }]);
   const cases: Array<{
@@ -1450,6 +1481,342 @@ test("SparkAgentLoop yields before tool dispatch and resumes the exact calls onc
     ["user", "assistant", "toolResult", "assistant"],
   );
   assert.match(toolResultText(asToolResult(successor.getMessages()[2])), /resumed:resume-me/u);
+});
+
+test("SparkAgentLoop retries a confirmed not-sent tool call and completes it once", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-not-sent-retry" });
+  let toolCalls = 0;
+  host.registerTool({
+    name: "send_once",
+    description: "not-sent retry probe",
+    parameters: { type: "object" },
+    async execute() {
+      toolCalls += 1;
+      if (toolCalls === 1) {
+        throw Object.assign(new Error("dispatch rejected"), {
+          code: "CHANNEL_DELIVERY_NOT_SENT",
+          certainty: "not-sent",
+          retryability: "transient",
+        });
+      }
+      return { content: [{ type: "text", text: "receipt:sent" }] };
+    },
+  });
+  const toolCall = { type: "toolCall", id: "not-sent-1", name: "send_once", arguments: {} };
+  const finalAssistant = buildAssistant([{ type: "text", text: "sent after safe retry" }]);
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [
+        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+        [{ type: "done", reason: "stop", message: finalAssistant }],
+      ],
+    }),
+    getModel: () => TEST_MODEL,
+  });
+
+  const outcome = await loop.submitWithOutcome("send safely");
+  assert.equal(outcome.status, "completed");
+  assert.equal(toolCalls, 2);
+  assert.match(toolResultText(asToolResult(loop.getMessages()[2])), /receipt:sent/u);
+});
+
+test("SparkAgentLoop reconciles an unknown tool outcome before continuing without replay", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-unknown-reconcile" });
+  let toolCalls = 0;
+  let reconcileCalls = 0;
+  host.registerTool({
+    name: "uncertain_send",
+    description: "unknown outcome reconcile probe",
+    parameters: { type: "object" },
+    policy: { effect: "external_write", executionMode: "sequential" },
+    async execute() {
+      toolCalls += 1;
+      throw new Error("response lost after dispatch");
+    },
+    async reconcile() {
+      reconcileCalls += 1;
+      return {
+        outcome: "completed",
+        result: { content: [{ type: "text", text: "receipt:reconciled" }] },
+      };
+    },
+  });
+  const toolCall = {
+    type: "toolCall",
+    id: "unknown-1",
+    name: "uncertain_send",
+    arguments: {},
+  };
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [
+        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+        [
+          {
+            type: "done",
+            reason: "stop",
+            message: buildAssistant([{ type: "text", text: "continued after reconciliation" }]),
+          },
+        ],
+      ],
+    }),
+    getModel: () => TEST_MODEL,
+  });
+
+  const outcome = await loop.submitWithOutcome("reconcile first");
+  assert.equal(outcome.status, "completed");
+  assert.equal(toolCalls, 1);
+  assert.equal(reconcileCalls, 1);
+  assert.match(toolResultText(asToolResult(loop.getMessages()[2])), /receipt:reconciled/u);
+});
+
+test("SparkAgentLoop returns an unresolved external write to the Agent without replay", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-unknown-blocker" });
+  let providerCalls = 0;
+  let toolCalls = 0;
+  let reconcileCalls = 0;
+  host.registerTool({
+    name: "uncertain_send",
+    description: "unknown outcome blocker probe",
+    parameters: { type: "object" },
+    policy: { effect: "external_write", executionMode: "sequential" },
+    async execute() {
+      toolCalls += 1;
+      throw new Error("response lost after dispatch");
+    },
+    async reconcile() {
+      reconcileCalls += 1;
+      return { outcome: "unknown", message: "provider has no query endpoint" };
+    },
+  });
+  const toolCall = {
+    type: "toolCall",
+    id: "unknown-blocked",
+    name: "uncertain_send",
+    arguments: {},
+  };
+  const streamFunction: SparkAgentStreamFunction = (_model, _context) => {
+    providerCalls += 1;
+    return makeFakeStream({
+      rounds: [
+        [
+          {
+            type: "done",
+            reason: providerCalls === 1 ? "toolUse" : "stop",
+            message:
+              providerCalls === 1
+                ? buildAssistant([toolCall], "toolUse")
+                : buildAssistant([{ type: "text", text: "inspected state and chose a safe path" }]),
+          },
+        ],
+      ],
+    })(_model, _context);
+  };
+  const loop = new SparkAgentLoop({ host, streamFunction, getModel: () => TEST_MODEL });
+
+  const outcome = await loop.submitWithOutcome("recover from unknown");
+  assert.equal(outcome.status, "completed");
+  assert.equal(providerCalls, 2);
+  assert.equal(toolCalls, 1);
+  assert.equal(reconcileCalls, 1);
+  const recoveryError = asToolResult(loop.getMessages()[2]);
+  assert.equal(recoveryError?.isError, true);
+  assert.match(toolResultText(recoveryError), /Do not replay this operation/u);
+  assert.deepEqual(recoveryError?.details, {
+    sparkToolRecovery: "agent_action_required",
+    code: "SPARK_TOOL_OUTCOME_UNKNOWN",
+    operationId: "spark-agent:unknown-blocked",
+    certainty: "unknown",
+    retryability: "agent-decides",
+    replayAllowed: false,
+    automaticRetryAllowed: false,
+    executeRetries: 0,
+    reconciliationAttempts: 1,
+  });
+});
+
+test("SparkAgentLoop does not retry a permanent not-sent failure", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-not-sent-permanent" });
+  let toolCalls = 0;
+  host.registerTool({
+    name: "invalid_send",
+    description: "permanent not-sent probe",
+    parameters: { type: "object" },
+    async execute() {
+      toolCalls += 1;
+      throw Object.assign(new Error("invalid recipient"), {
+        certainty: "not-sent",
+        retryability: "permanent",
+      });
+    },
+  });
+  const toolCall = {
+    type: "toolCall",
+    id: "not-sent-permanent",
+    name: "invalid_send",
+    arguments: {},
+  };
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [
+        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+        [
+          {
+            type: "done",
+            reason: "stop",
+            message: buildAssistant([{ type: "text", text: "corrected the target instead" }]),
+          },
+        ],
+      ],
+    }),
+    getModel: () => TEST_MODEL,
+  });
+
+  const outcome = await loop.submitWithOutcome("send once");
+  assert.equal(outcome.status, "completed");
+  assert.equal(toolCalls, 1);
+  const recoveryError = asToolResult(loop.getMessages()[2]);
+  assert.equal(recoveryError?.isError, true);
+  assert.match(toolResultText(recoveryError), /failure is permanent/u);
+  assert.deepEqual(recoveryError?.details, {
+    sparkToolRecovery: "agent_action_required",
+    code: "SPARK_TOOL_RETRY_NOT_AUTHORIZED",
+    operationId: "spark-agent:not-sent-permanent",
+    certainty: "not-sent",
+    retryability: "permanent",
+    replayAllowed: true,
+    automaticRetryAllowed: false,
+    executeRetries: 0,
+    reconciliationAttempts: 0,
+  });
+});
+
+test("SparkAgentLoop aborts a timed-out tool attempt before reconciling its external outcome", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-timeout-abort" });
+  let toolCalls = 0;
+  let reconcileCalls = 0;
+  let timedOutSignalAborted = false;
+  host.registerTool({
+    name: "slow_external_write",
+    description: "tool timeout abort probe",
+    parameters: { type: "object" },
+    policy: { effect: "external_write", executionMode: "sequential" },
+    async execute(_id, _parameters, signal) {
+      toolCalls += 1;
+      return await new Promise((resolve, reject) => {
+        const onAbort = () => {
+          timedOutSignalAborted = signal.aborted;
+          reject(signal.reason);
+        };
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      });
+    },
+    async reconcile(_id, _parameters, signal) {
+      reconcileCalls += 1;
+      assert.equal(signal.aborted, false);
+      return { outcome: "unknown", message: "remote status is not queryable" };
+    },
+  });
+  const toolCall = {
+    type: "toolCall",
+    id: "timeout-external-write",
+    name: "slow_external_write",
+    arguments: {},
+  };
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [
+        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+        [
+          {
+            type: "done",
+            reason: "stop",
+            message: buildAssistant([{ type: "text", text: "did not replay the timed-out write" }]),
+          },
+        ],
+      ],
+    }),
+    getModel: () => TEST_MODEL,
+    toolTimeoutMs: 20,
+  });
+
+  const outcome = await loop.submitWithOutcome("write once");
+  assert.equal(outcome.status, "completed");
+  assert.equal(timedOutSignalAborted, true);
+  assert.equal(toolCalls, 1);
+  assert.equal(reconcileCalls, 1);
+  const recoveryError = asToolResult(loop.getMessages()[2]);
+  assert.equal(recoveryError?.isError, true);
+  assert.equal(
+    (recoveryError?.details as { replayAllowed?: unknown } | undefined)?.replayAllowed,
+    false,
+  );
+});
+
+test("SparkAgentLoop waits for a timed-out tool attempt to settle before reconciliation", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-timeout-settlement" });
+  let releaseTool: (() => void) | undefined;
+  const toolGate = new Promise<void>((resolve) => {
+    releaseTool = resolve;
+  });
+  let observeAbort: (() => void) | undefined;
+  const abortObserved = new Promise<void>((resolve) => {
+    observeAbort = resolve;
+  });
+  let reconcileCalls = 0;
+  host.registerTool({
+    name: "abort_ignoring_external_write",
+    description: "tool timeout settlement probe",
+    parameters: { type: "object" },
+    policy: { effect: "external_write", executionMode: "sequential" },
+    async execute(_id, _parameters, signal) {
+      signal.addEventListener("abort", () => observeAbort?.(), { once: true });
+      await toolGate;
+      return { content: [{ type: "text", text: "original attempt settled" }] };
+    },
+    async reconcile() {
+      reconcileCalls += 1;
+      return { outcome: "unknown", message: "remote status is not queryable" };
+    },
+  });
+  const toolCall = {
+    type: "toolCall",
+    id: "timeout-settlement",
+    name: "abort_ignoring_external_write",
+    arguments: {},
+  };
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [
+        [{ type: "done", reason: "toolUse", message: buildAssistant([toolCall], "toolUse") }],
+        [
+          {
+            type: "done",
+            reason: "stop",
+            message: buildAssistant([{ type: "text", text: "handled uncertain outcome" }]),
+          },
+        ],
+      ],
+    }),
+    getModel: () => TEST_MODEL,
+    toolTimeoutMs: 20,
+  });
+
+  const pendingOutcome = loop.submitWithOutcome("write once");
+  await abortObserved;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(reconcileCalls, 0);
+  releaseTool?.();
+
+  const outcome = await pendingOutcome;
+  assert.equal(outcome.status, "completed");
+  assert.equal(reconcileCalls, 1);
 });
 
 test("SparkAgentLoop keeps a thrown tool error inside the execution chain and completes the turn", async () => {
@@ -2379,14 +2746,18 @@ test("SparkAgentLoop preserves exact-content tool results", async () => {
   );
 });
 
-test("SparkAgentLoop times out a never-resolving tool execution", async () => {
+test("SparkAgentLoop times out and aborts a signal-aware tool execution", async () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-tool-timeout-test" });
   host.registerTool({
     name: "hang_tool",
     description: "never returns",
     parameters: { type: "object" },
-    async execute() {
-      return await new Promise<never>(() => undefined);
+    async execute(_id, _parameters, signal) {
+      return await new Promise<never>((_resolve, reject) => {
+        const onAbort = () => reject(signal.reason);
+        if (signal.aborted) onAbort();
+        else signal.addEventListener("abort", onAbort, { once: true });
+      });
     },
   });
   const toolCallEnvelope: ToolCall = {

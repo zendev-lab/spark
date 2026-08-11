@@ -248,13 +248,75 @@ export function toToolDefinition(config: ToolConfig): Tool {
   };
 }
 
-export function errorToolResult(toolCall: ToolCall, message: string): ToolResultMessage {
+export function errorToolResult(
+  toolCall: ToolCall,
+  message: string,
+  details?: Record<string, unknown>,
+): ToolResultMessage {
   return {
     role: "toolResult",
     toolCallId: toolCall.id,
     toolName: toolCall.name,
     content: [{ type: "text", text: message }],
+    ...(details ? { details } : {}),
     isError: true,
     timestamp: Date.now(),
   };
+}
+
+export type SparkToolFailureCertainty = "not-sent" | "unknown";
+export type SparkToolFailureRetryability = "transient" | "permanent" | "agent-decides";
+
+export interface SparkToolFailureDisposition {
+  certainty: SparkToolFailureCertainty;
+  retryability: SparkToolFailureRetryability;
+}
+
+/** Delivery certainty and retryability are independent failure facts. */
+export function sparkToolFailureDisposition(error: unknown): SparkToolFailureDisposition {
+  return {
+    certainty: sparkToolFailureCertainty(error),
+    retryability: sparkToolFailureRetryability(error),
+  };
+}
+
+/** Only an explicit cross-process not-sent tag permits replay. */
+export function sparkToolFailureCertainty(error: unknown): SparkToolFailureCertainty {
+  const tagged = errorRecord(error);
+  if (
+    tagged?.certainty === "not-sent" ||
+    tagged?.outcome === "not_sent" ||
+    tagged?.code === "CHANNEL_DELIVERY_NOT_SENT" ||
+    tagged?.code === "channel_delivery_not_sent"
+  ) {
+    return "not-sent";
+  }
+  const payload = errorRecord(tagged?.payload);
+  const data = errorRecord(tagged?.data) ?? errorRecord(payload?.data);
+  return data?.certainty === "not-sent" || payload?.certainty === "not-sent"
+    ? "not-sent"
+    : "unknown";
+}
+
+/** Missing retry metadata is always delegated to the Agent rather than retried implicitly. */
+export function sparkToolFailureRetryability(error: unknown): SparkToolFailureRetryability {
+  const tagged = errorRecord(error);
+  const payload = errorRecord(tagged?.payload);
+  const data = errorRecord(tagged?.data) ?? errorRecord(payload?.data);
+  for (const candidate of [tagged?.retryability, data?.retryability, payload?.retryability]) {
+    if (candidate === "transient" || candidate === "permanent" || candidate === "agent-decides") {
+      return candidate;
+    }
+  }
+  for (const candidate of [tagged?.retriable, data?.retriable, payload?.retriable]) {
+    if (candidate === true) return "transient";
+    if (candidate === false) return "permanent";
+  }
+  return "agent-decides";
+}
+
+function errorRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
