@@ -196,6 +196,7 @@ const allow = new Map([
       /^packages\/spark-extension\/src\/extension\/spark-task-artifact\.ts$/u,
       /^packages\/spark-extension\/src\/extension\/(?:spark-fleet-target|spark-plan-tasks-tool-registration|spark-task-session-dispatch|task-plan-tool)(?:\.test)?\.ts$/u,
       /^packages\/spark-extension\/src\/__tests__\/spark-fleet-target\.test\.ts$/u,
+      /^packages\/spark-extension\/src\/extension\/spark-finish-review-workflow(?:\.test)?\.ts$/u,
       /^packages\/spark-extension\/src\/extension\/spark-repro-report(?:\.test)?\.ts$/u,
       /^packages\/spark-extension\/src\/extension\/spark-lens-(?:completion-gate|tool)\.ts$/u,
       /^packages\/spark-extension\/src\/extension\/subject-review-store\.ts$/u,

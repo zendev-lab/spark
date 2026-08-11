@@ -17,6 +17,8 @@ import {
   capReviewerThinkingLevel,
   parseAskAutoAnswerResult,
   parseReviewerVerdictForInput,
+  renderReviewerInstruction,
+  resolveBuiltinReviewerModel,
   reviewerInputFingerprint,
   type GoalReviewInput,
   type TaskReviewInput,
@@ -813,6 +815,16 @@ test("SparkRolesReviewerRunner resolves reviewer model from role model settings"
     assert.equal(tools.includes("workflow"), false);
     assert.equal(tools.includes("graft_patch"), false);
     assert.equal(tools.includes("ask"), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("builtin reviewer model resolution does not instantiate a Role Session", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-reviewer-model-resolution-"));
+  try {
+    await defaultProjectRoleModelSettingsStore(dir).save("verification", "test/fast-reviewer");
+    assert.equal(await resolveBuiltinReviewerModel(dir), "test/fast-reviewer");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

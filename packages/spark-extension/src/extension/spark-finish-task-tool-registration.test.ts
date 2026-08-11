@@ -8,6 +8,7 @@ import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
   nowIso,
   type EvidenceRef,
+  type LeafCapabilityRequest,
   type RoleRef,
   type TaskPlan,
   type TaskRef,
@@ -96,6 +97,7 @@ function captureFinishTool(input: {
   daemon: SparkTaskClaimDaemonClient;
   reviewer: ReviewerRunner;
   nowMs?: () => number;
+  resolveReviewerModel?: () => Promise<string | undefined>;
 }): SparkRegisteredToolConfig {
   let tool: SparkRegisteredToolConfig | undefined;
   registerSparkFinishTaskTool(
@@ -107,6 +109,7 @@ function captureFinishTool(input: {
       taskClaimDaemonClient: input.daemon,
       createReviewerRunner: async () => input.reviewer,
       ...(input.nowMs ? { nowMs: input.nowMs } : {}),
+      ...(input.resolveReviewerModel ? { resolveReviewerModel: input.resolveReviewerModel } : {}),
     },
   );
   assert.ok(tool);
@@ -203,13 +206,33 @@ test("finish honors taskRef and text instead of finishing the current claimed ta
         } as Awaited<ReturnType<SparkTaskClaimDaemonClient["release"]>>;
       },
     };
-    let reviewed: TaskReviewInput | undefined;
+    let leafRequest: LeafCapabilityRequest | undefined;
+    ctx.runLeaf = async (request) => {
+      leafRequest = request;
+      return {
+        degraded: false,
+        model: "test/verification",
+        text: JSON.stringify({
+          outcome: "approved",
+          summary: "Completion evidence is sufficient.",
+          findings: [],
+          blockers: [],
+          confidence: "high",
+          requestedEvidenceRefs: [],
+          requestedArtifactRefs: [],
+          requiresCurrentTransitionReceipt: false,
+        }),
+      };
+    };
     let clockMs = 0;
     const tool = captureFinishTool({
       daemon,
-      reviewer: approvedReviewer((input) => {
-        reviewed = input;
-      }),
+      reviewer: {
+        async review() {
+          throw new Error("lightweight approval must not start the deep Reviewer Role");
+        },
+      },
+      resolveReviewerModel: async () => "test/verification",
       nowMs: () => {
         clockMs += 10;
         return clockMs;
@@ -223,8 +246,12 @@ test("finish honors taskRef and text instead of finishing the current claimed ta
     });
 
     assert.deepEqual(daemonCalls, [target.ref]);
-    assert.equal(reviewed?.task.ref, target.ref);
-    assert.equal(reviewed?.summary, "Target validation completed.");
+    const packet = JSON.parse(leafRequest?.input ?? "{}") as {
+      task?: { ref?: TaskRef };
+      summary?: string;
+    };
+    assert.equal(packet.task?.ref, target.ref);
+    assert.equal(packet.summary, "Target validation completed.");
     assert.equal(
       result.details?.transition &&
         (result.details.transition as { committed?: boolean }).committed,

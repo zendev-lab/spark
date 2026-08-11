@@ -71,6 +71,15 @@ receipt is operational Session metadata rather than Evidence.
 The parent Session remains responsible for decomposition, durable coordination,
 verification of consequential claims, and user-facing synthesis.
 
+## Task finish review
+
+Finishing a Task as `done` keeps the same deterministic Lens, plan, Evidence,
+and follow-up gates. Spark normally evaluates the prepared bounded packet with
+one tool-free structured review using the independently configured
+`verification` Model Type. The reviewer may request a deeper Reviewer Session
+only through an explicit `needs_deep_review` result; a leaf model, route, or
+protocol failure blocks the transition instead of silently approving it.
+
 ## Effects, approval, and parallelism
 
 Every active tool carries an effect and permission policy enforced by the Host.

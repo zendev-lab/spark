@@ -56,11 +56,16 @@ import {
 } from "./spark-task-claim-daemon-client.ts";
 import { recordTaskSubjectReview } from "./subject-review-store.ts";
 import { requireTaskLensPasses } from "./spark-lens-completion-gate.ts";
+import {
+  runTaskFinishReviewWorkflow,
+  type TaskFinishReviewWorkflowMode,
+} from "./spark-finish-review-workflow.ts";
 
 interface SparkFinishTaskToolDependencies {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
   taskClaimDaemonClient: SparkTaskClaimDaemonClient;
   nowMs?: () => number;
+  resolveReviewerModel?: (cwd: string, ctx: SparkToolContext) => Promise<string | undefined>;
   createReviewerRunner?: (
     cwd: string,
     ctx: SparkToolContext,
@@ -409,6 +414,8 @@ export function registerSparkFinishTaskTool(
       const store = defaultTaskGraphStore(stateCwd);
       let reviewEvidence: EvidenceRecord<JsonValue> | undefined;
       let reviewResult: ReviewerRunResult | undefined;
+      let reviewerMode: TaskFinishReviewWorkflowMode | undefined;
+      let reviewerModel: string | undefined;
       let finishEvidenceRefs = input.evidenceRefs;
       let generatedEvidence: (EvidenceRecord<JsonValue> & { ref: EvidenceRef }) | undefined;
 
@@ -419,10 +426,11 @@ export function registerSparkFinishTaskTool(
         if (!isFinishReviewCandidate(resolvedCandidate))
           return withFinishTiming(timing, renderFinishLookupError(resolvedCandidate));
         let candidate = resolvedCandidate;
+        const evidenceLoader = createTaskReviewEvidenceLoader(stateCwd);
 
         await timing.measure("lens", () => requireTaskLensPasses(stateCwd, candidate.task));
         const followUpDisposition = await timing.measure("followup", () =>
-          checkResearchFollowUpDisposition(stateCwd, candidate.task, input.summary),
+          checkResearchFollowUpDisposition(stateCwd, candidate.task, input.summary, evidenceLoader),
         );
         if (!followUpDisposition.ready) {
           await deps.refreshSparkWidget(cwd, ctx);
@@ -502,7 +510,7 @@ export function registerSparkFinishTaskTool(
         }
 
         const taskEvidenceContext = await timing.measure("evidence", () =>
-          buildTaskReviewEvidenceContext(stateCwd, candidate.task),
+          buildTaskReviewEvidenceContext(stateCwd, candidate.task, evidenceLoader),
         );
         const reviewInput: TaskReviewInput = {
           targetKind: "task",
@@ -540,15 +548,50 @@ export function registerSparkFinishTaskTool(
             },
           });
         }
-        const reviewerRunner = await timing.measure("reviewer_bootstrap", () =>
-          deps.createReviewerRunner?.(cwd, ctx),
-        );
-        if (!reviewerRunner)
-          throw new Error("task_write finish requires a reviewer runner for done transitions");
         try {
-          const leasedReview = await timing.measure("reviewer_model", () =>
-            withSparkReviewerLease(cwd, ctx, () => reviewerRunner.review(reviewInput, _signal)),
+          const configuredReviewerModel = await timing.measure("reviewer_bootstrap", () =>
+            deps.resolveReviewerModel?.(stateCwd, ctx),
           );
+          const leasedReview = await withSparkReviewerLease(cwd, ctx, async () => {
+            const workflow = await timing.measure("reviewer_model", () =>
+              runTaskFinishReviewWorkflow(ctx, reviewInput, _signal, {
+                ...(configuredReviewerModel ? { model: configuredReviewerModel } : {}),
+              }),
+            );
+            if (workflow.kind === "reviewed") {
+              return {
+                review: workflow.review,
+                mode: workflow.mode,
+                model: workflow.model ?? configuredReviewerModel,
+              };
+            }
+            if (workflow.kind === "unavailable") {
+              return {
+                review: workflow.review,
+                mode: "lightweight" as const,
+                model: workflow.model ?? configuredReviewerModel,
+              };
+            }
+            const mode =
+              workflow.kind === "needs_deep_review"
+                ? ("deep_role" as const)
+                : ("compatibility_role" as const);
+            return await timing.measure("reviewer_escalation", async () => {
+              const reviewerRunner = await deps.createReviewerRunner?.(cwd, ctx);
+              if (!reviewerRunner)
+                throw new Error(
+                  "task_write finish requires a reviewer runner for deep review transitions",
+                );
+              const review = await reviewerRunner.review(reviewInput, _signal);
+              return {
+                review,
+                mode,
+                model:
+                  review.record.model ??
+                  (workflow.kind === "needs_deep_review" ? workflow.model : undefined),
+              };
+            });
+          });
           if (!leasedReview.acquired) {
             reviewResult = failedTaskReviewerRunResult(
               reviewInput,
@@ -558,7 +601,9 @@ export function registerSparkFinishTaskTool(
             );
           } else {
             if (!leasedReview.result) throw new Error("reviewer did not return a verdict");
-            reviewResult = leasedReview.result;
+            reviewResult = leasedReview.result.review;
+            reviewerMode = leasedReview.result.mode;
+            reviewerModel = leasedReview.result.model;
           }
         } catch (error) {
           reviewResult = failedTaskReviewerRunResult(
@@ -593,6 +638,8 @@ export function registerSparkFinishTaskTool(
               reviewRequired: true,
               review: reviewResult.verdict as TaskReviewVerdict,
               reviewerFailure: reviewResult.failure,
+              reviewerMode,
+              reviewerModel,
               generatedEvidenceRef: generatedEvidence?.ref,
               remainingReadyTasks: progress.remainingReadyTasks,
               projectCompletionCandidate: progress.projectCompletionCandidate,
@@ -627,6 +674,8 @@ export function registerSparkFinishTaskTool(
               reviewEvidenceRefs: taskEvidenceContext.currentEvidenceRefs,
               reviewRequired: true,
               review: verdict,
+              reviewerMode,
+              reviewerModel,
               reviewEvidenceRef: reviewEvidence.ref,
               generatedEvidenceRef: generatedEvidence?.ref,
               remainingReadyTasks: progress.remainingReadyTasks,
@@ -753,6 +802,8 @@ export function registerSparkFinishTaskTool(
           reviewEvidenceRefs: finishedResult.task.outputEvidenceRefs,
           reviewRequired: input.status === "done",
           review: reviewResult?.verdict as TaskReviewVerdict | undefined,
+          reviewerMode,
+          reviewerModel,
           reviewEvidenceRef: reviewEvidence?.ref,
           generatedEvidenceRef: generatedEvidence?.ref,
           remainingReadyTasks: finishedResult.remainingReadyTasks,
@@ -779,10 +830,57 @@ function renderFinishLookupError(result: FinishTaskErrorResult) {
   };
 }
 
+type LoadedTaskReviewEvidence = Awaited<ReturnType<ReturnType<typeof defaultEvidenceStore>["get"]>>;
+
+interface TaskReviewEvidenceLoadResult {
+  ref: EvidenceRef;
+  evidence?: LoadedTaskReviewEvidence;
+  error?: unknown;
+}
+
+interface TaskReviewEvidenceLoader {
+  loadMany(refs: readonly EvidenceRef[]): Promise<TaskReviewEvidenceLoadResult[]>;
+}
+
+const TASK_REVIEW_EVIDENCE_LOAD_CONCURRENCY = 4;
+
+function createTaskReviewEvidenceLoader(cwd: string): TaskReviewEvidenceLoader {
+  const store = defaultEvidenceStore(cwd);
+  const cache = new Map<EvidenceRef, Promise<LoadedTaskReviewEvidence>>();
+  const load = (ref: EvidenceRef): Promise<LoadedTaskReviewEvidence> => {
+    const existing = cache.get(ref);
+    if (existing) return existing;
+    const pending = store.get(ref);
+    cache.set(ref, pending);
+    return pending;
+  };
+  return {
+    async loadMany(refs) {
+      const results: TaskReviewEvidenceLoadResult[] = [];
+      for (let offset = 0; offset < refs.length; offset += TASK_REVIEW_EVIDENCE_LOAD_CONCURRENCY) {
+        const batch = refs.slice(offset, offset + TASK_REVIEW_EVIDENCE_LOAD_CONCURRENCY);
+        results.push(
+          ...(await Promise.all(
+            batch.map(async (ref): Promise<TaskReviewEvidenceLoadResult> => {
+              try {
+                return { ref, evidence: await load(ref) };
+              } catch (error) {
+                return { ref, error };
+              }
+            }),
+          )),
+        );
+      }
+      return results;
+    },
+  };
+}
+
 async function checkResearchFollowUpDisposition(
   cwd: string,
   task: Task,
   summary: string | undefined,
+  loader: TaskReviewEvidenceLoader = createTaskReviewEvidenceLoader(cwd),
 ): Promise<FollowUpDispositionCheck> {
   if (!FOLLOW_UP_RESEARCH_KINDS.has(task.kind)) {
     return {
@@ -795,13 +893,13 @@ async function checkResearchFollowUpDisposition(
 
   const sources: Array<{ source: string; text: string }> = [];
   if (summary) sources.push({ source: "finish summary", text: summary });
-  const evidenceStore = defaultEvidenceStore(cwd);
-  for (const evidenceRef of task.outputEvidenceRefs) {
-    try {
-      sources.push({ source: evidenceRef, text: await evidenceStore.getBody(evidenceRef) });
-    } catch {
-      // Completion readiness and the reviewer own missing/unreadable Evidence handling.
-    }
+  for (const loaded of await loader.loadMany(task.outputEvidenceRefs)) {
+    if (!loaded.evidence) continue;
+    const text =
+      typeof loaded.evidence.body === "string"
+        ? loaded.evidence.body
+        : JSON.stringify(loaded.evidence.body, null, 2);
+    sources.push({ source: loaded.ref, text });
   }
 
   const summaryText = summary ?? "";
@@ -1193,6 +1291,8 @@ interface FinishTransitionDetailsInput {
   reviewRequired: boolean;
   review?: TaskReviewVerdict;
   reviewerFailure?: ReviewerRunResult["failure"];
+  reviewerMode?: TaskFinishReviewWorkflowMode;
+  reviewerModel?: string;
   reviewEvidenceRef?: EvidenceRef;
   generatedEvidenceRef?: EvidenceRef;
   remainingReadyTasks: Task[];
@@ -1245,6 +1345,8 @@ function renderFinishTransitionDetails(
       blockers: input.review?.blockers,
       confidence: input.review?.confidence,
       failure: input.reviewerFailure,
+      mode: input.reviewerMode,
+      model: input.reviewerModel,
       evidenceRef: input.reviewEvidenceRef,
       generatedEvidenceEvidenceRef: input.generatedEvidenceRef,
     },
@@ -1366,6 +1468,7 @@ async function recordTaskReviewEvidence(
     ...(review.record.runName ? { runName: review.record.runName } : {}),
     startedAt: review.record.startedAt,
     finishedAt: review.record.finishedAt,
+    ...(review.record.model ? { model: review.record.model } : {}),
     ...(review.record.thinking ? { thinking: review.record.thinking } : {}),
     ...(review.record.stdout
       ? { stdoutPreview: truncateReviewRunOutput(review.record.stdout, 4_000) }
@@ -1508,54 +1611,91 @@ interface TaskReviewEvidenceContext {
   unreadableEvidence: GoalReviewEvidencePreview[];
 }
 
-const TASK_REVIEW_EVIDENCE_PREVIEW_LIMIT = 20;
+const TASK_REVIEW_EVIDENCE_PREVIEW_LIMIT = 5;
+const TASK_REVIEW_EVIDENCE_PREVIEW_TOTAL_CHARS = 12_000;
+const TASK_REVIEW_EVIDENCE_PREVIEW_ITEM_CHARS = 3_000;
+const TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT = 128;
 
 export async function buildTaskReviewEvidenceContext(
   cwd: string,
   task: Pick<Task, "outputEvidenceRefs" | "plan">,
+  loader: TaskReviewEvidenceLoader = createTaskReviewEvidenceLoader(cwd),
 ): Promise<TaskReviewEvidenceContext> {
-  const store = defaultEvidenceStore(cwd);
-  const queue = collectTaskReviewEvidenceRefs(task);
+  const collected = collectTaskReviewEvidenceRefs(task);
+  const queue = collected.refs;
   const visited = new Set<EvidenceRef>();
   const currentEvidenceRefs: EvidenceRef[] = [];
   const currentEvidencePreviews: GoalReviewEvidencePreview[] = [];
   const supersededEvidenceRefs: EvidenceRef[] = [];
   const supersededReplacements = new Map<EvidenceRef, EvidenceRef[]>();
   const unreadableEvidence: GoalReviewEvidencePreview[] = [];
+  let traversalOverflowRef = collected.overflowRef;
 
   while (queue.length > 0) {
-    const ref = queue.shift()!;
-    if (visited.has(ref)) continue;
-    visited.add(ref);
-    try {
-      const evidence = await store.get(ref);
-      const replacements = evidence.curation?.supersededBy ?? [];
-      if (evidence.curation?.status === "superseded") {
-        supersededEvidenceRefs.push(ref);
-        supersededReplacements.set(ref, replacements);
-        if (replacements.length === 0) {
-          unreadableEvidence.push({
-            ref,
-            curationStatus: "superseded",
-            error: "superseded Evidence has no current replacement",
-          });
+    const batch: EvidenceRef[] = [];
+    while (
+      queue.length > 0 &&
+      batch.length < TASK_REVIEW_EVIDENCE_LOAD_CONCURRENCY &&
+      visited.size < TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT
+    ) {
+      const ref = queue.shift()!;
+      if (visited.has(ref)) continue;
+      visited.add(ref);
+      batch.push(ref);
+    }
+    for (const loaded of await loader.loadMany(batch)) {
+      const ref = loaded.ref;
+      if (loaded.evidence) {
+        const evidence = loaded.evidence;
+        const allReplacements = evidence.curation?.supersededBy ?? [];
+        const replacements = allReplacements.slice(0, TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT);
+        if (allReplacements.length > replacements.length) {
+          traversalOverflowRef ??= allReplacements[replacements.length];
+        }
+        if (evidence.curation?.status === "superseded") {
+          supersededEvidenceRefs.push(ref);
+          supersededReplacements.set(ref, replacements);
+          if (replacements.length === 0) {
+            unreadableEvidence.push({
+              ref,
+              curationStatus: "superseded",
+              error: "superseded Evidence has no current replacement",
+            });
+            continue;
+          }
+          for (const replacement of replacements) {
+            if (visited.has(replacement) || queue.includes(replacement)) continue;
+            if (visited.size + queue.length >= TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT) {
+              traversalOverflowRef ??= replacement;
+              continue;
+            }
+            queue.push(replacement);
+          }
           continue;
         }
-        for (const replacement of replacements)
-          if (!visited.has(replacement)) queue.push(replacement);
-        continue;
+        currentEvidenceRefs.push(ref);
+        currentEvidencePreviews.push(taskEvidencePreview(evidence));
+      } else {
+        currentEvidenceRefs.push(ref);
+        const preview = {
+          ref,
+          error: loaded.error instanceof Error ? loaded.error.message : String(loaded.error),
+        };
+        currentEvidencePreviews.push(preview);
+        unreadableEvidence.push(preview);
       }
-      currentEvidenceRefs.push(ref);
-      currentEvidencePreviews.push(taskEvidencePreview(evidence));
-    } catch (error) {
-      currentEvidenceRefs.push(ref);
-      const preview = {
-        ref,
-        error: error instanceof Error ? error.message : String(error),
-      };
-      currentEvidencePreviews.push(preview);
-      unreadableEvidence.push(preview);
     }
+    if (visited.size >= TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT && queue.length > 0) {
+      traversalOverflowRef ??= queue[0];
+      break;
+    }
+  }
+
+  if (traversalOverflowRef) {
+    unreadableEvidence.push({
+      ref: traversalOverflowRef,
+      error: `Evidence traversal exceeded the ${TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT}-ref safety limit`,
+    });
   }
 
   const currentSet = new Set(currentEvidenceRefs);
@@ -1572,16 +1712,36 @@ export async function buildTaskReviewEvidenceContext(
     });
   }
 
+  const selectedEvidencePreviews = selectTaskReviewEvidencePreviews(currentEvidencePreviews);
   return {
     currentEvidenceRefs,
-    currentEvidencePreviews: currentEvidencePreviews.slice(0, TASK_REVIEW_EVIDENCE_PREVIEW_LIMIT),
+    currentEvidencePreviews: selectedEvidencePreviews,
     evidencePreviewOmittedCount: Math.max(
       0,
-      currentEvidencePreviews.length - TASK_REVIEW_EVIDENCE_PREVIEW_LIMIT,
+      currentEvidencePreviews.length - selectedEvidencePreviews.length,
     ),
     supersededEvidenceRefs,
     unreadableEvidence,
   };
+}
+
+function selectTaskReviewEvidencePreviews(
+  previews: readonly GoalReviewEvidencePreview[],
+): GoalReviewEvidencePreview[] {
+  const selected: GoalReviewEvidencePreview[] = [];
+  let remainingChars = TASK_REVIEW_EVIDENCE_PREVIEW_TOTAL_CHARS;
+  for (const preview of previews.slice(0, TASK_REVIEW_EVIDENCE_PREVIEW_LIMIT)) {
+    if (remainingChars <= 0) break;
+    const bodyPreview = preview.bodyPreview
+      ? boundedEvidencePreview(
+          preview.bodyPreview,
+          Math.min(TASK_REVIEW_EVIDENCE_PREVIEW_ITEM_CHARS, remainingChars),
+        )
+      : undefined;
+    selected.push({ ...preview, ...(bodyPreview !== undefined ? { bodyPreview } : {}) });
+    remainingChars -= bodyPreview?.length ?? 0;
+  }
+  return selected;
 }
 
 interface SupersededChainAnalysis {
@@ -1608,19 +1768,30 @@ function analyzeSupersededChain(
   return { reachesCurrent, hasCycle };
 }
 
-function collectTaskReviewEvidenceRefs(
-  task: Pick<Task, "outputEvidenceRefs" | "plan">,
-): EvidenceRef[] {
-  const refs = new Set<EvidenceRef>(task.outputEvidenceRefs);
+function collectTaskReviewEvidenceRefs(task: Pick<Task, "outputEvidenceRefs" | "plan">): {
+  refs: EvidenceRef[];
+  overflowRef?: EvidenceRef;
+} {
+  const refs = new Set<EvidenceRef>();
+  let overflowRef: EvidenceRef | undefined;
+  const add = (ref: EvidenceRef) => {
+    if (refs.has(ref)) return;
+    if (refs.size >= TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT) {
+      overflowRef ??= ref;
+      return;
+    }
+    refs.add(ref);
+  };
+  for (const ref of task.outputEvidenceRefs) add(ref);
   for (const requirement of task.plan?.evidenceRequired ?? []) {
     for (const match of requirement.matchAll(/\bevidence:[A-Za-z0-9][A-Za-z0-9._-]*/g)) {
-      if (isRef(match[0], "evidence")) refs.add(match[0]);
+      if (isRef(match[0], "evidence")) add(match[0]);
     }
   }
   for (const item of task.plan?.items ?? []) {
-    for (const ref of item.evidenceRefs ?? []) refs.add(ref);
+    for (const ref of item.evidenceRefs ?? []) add(ref);
   }
-  return [...refs];
+  return { refs: [...refs], ...(overflowRef ? { overflowRef } : {}) };
 }
 
 function taskEvidencePreview(
@@ -1630,13 +1801,40 @@ function taskEvidencePreview(
     typeof evidence.body === "string" ? evidence.body : JSON.stringify(evidence.body, null, 2);
   return {
     ref: evidence.ref,
-    title: evidence.title,
-    kind: evidence.kind,
-    format: evidence.format,
-    provenance: evidence.provenance as unknown as Record<string, unknown>,
-    bodyPreview:
-      evidence.bodyPreview ?? (bodyText.length > 2000 ? bodyText.slice(0, 2000) + "…" : bodyText),
+    title: boundedEvidencePreview(evidence.title, 500),
+    kind: boundedEvidencePreview(evidence.kind, 100),
+    format: boundedEvidencePreview(evidence.format, 100),
+    provenance: compactEvidenceProvenance(
+      evidence.provenance as unknown as Record<string, unknown>,
+    ),
+    bodyPreview: boundedEvidencePreview(
+      evidence.bodyPreview ?? bodyText,
+      TASK_REVIEW_EVIDENCE_PREVIEW_ITEM_CHARS,
+    ),
     curationStatus: evidence.curation?.status,
-    supersededBy: evidence.curation?.supersededBy,
+    supersededBy: evidence.curation?.supersededBy?.slice(0, 5),
   };
+}
+
+function compactEvidenceProvenance(value: Record<string, unknown>): Record<string, unknown> {
+  const compact: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value).slice(0, 10)) {
+    const boundedKey = boundedEvidencePreview(key, 100);
+    if (typeof entry === "string") compact[boundedKey] = boundedEvidencePreview(entry, 300);
+    else if (typeof entry === "number" || typeof entry === "boolean" || entry === null)
+      compact[boundedKey] = entry;
+    else {
+      try {
+        compact[boundedKey] = boundedEvidencePreview(JSON.stringify(entry), 500);
+      } catch {
+        compact[boundedKey] = "[unserializable metadata]";
+      }
+    }
+  }
+  return compact;
+}
+
+function boundedEvidencePreview(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, Math.max(0, maxChars - 1))}…`;
 }

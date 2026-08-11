@@ -770,6 +770,7 @@ type TestSparkContext = {
   waitForIdle?: () => Promise<void>;
   hasUI: boolean;
   notifications: TestNotification[];
+  runLeaf?: SparkToolContext["runLeaf"];
   runRole?: ExtensionRoleRunner;
   model?: { provider: string; id: string };
   modelRegistry?: unknown;
@@ -4369,6 +4370,77 @@ test("task finish review resolves superseded Evidence to its current replacement
   }
 });
 
+test("task finish review bounds Evidence previews by item count and total characters", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-evidence-budget-"));
+  try {
+    const store = defaultEvidenceStore(dir);
+    const refs: EvidenceRef[] = [];
+    for (let index = 0; index < 6; index += 1) {
+      const evidence = await store.put({
+        kind: "record",
+        title: `Large receipt ${index}`,
+        format: "text",
+        body: `${index}:${"x".repeat(4_000)}`,
+        provenance: { producer: "task" },
+      });
+      refs.push(evidence.ref);
+    }
+
+    const context = await buildTaskReviewEvidenceContext(dir, {
+      outputEvidenceRefs: refs,
+      plan: executionReadyPlan("Bound finish Evidence previews"),
+    });
+
+    assert.equal(context.currentEvidenceRefs.length, 6);
+    assert.equal(context.currentEvidencePreviews.length, 4);
+    assert.equal(context.evidencePreviewOmittedCount, 2);
+    assert.deepEqual(
+      context.currentEvidencePreviews.map((preview) => preview.ref),
+      refs.slice(0, 4),
+    );
+    assert.ok(
+      context.currentEvidencePreviews.reduce(
+        (total, preview) => total + (preview.bodyPreview?.length ?? 0),
+        0,
+      ) <= 12_000,
+    );
+    assert.ok(
+      context.currentEvidencePreviews.every(
+        (preview) => (preview.bodyPreview?.length ?? 0) <= 3_000,
+      ),
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("task finish review fails closed when Evidence traversal exceeds its total ref bound", async () => {
+  const refs = Array.from(
+    { length: 129 },
+    (_, index) => `evidence:bounded-${index}` as EvidenceRef,
+  );
+  const loaded: EvidenceRef[] = [];
+  const context = await buildTaskReviewEvidenceContext(
+    "/unused",
+    {
+      outputEvidenceRefs: refs,
+      plan: executionReadyPlan("Bound total Evidence traversal"),
+    },
+    {
+      async loadMany(batch) {
+        loaded.push(...batch);
+        return batch.map((ref) => ({ ref, error: new Error("missing test Evidence") }));
+      },
+    },
+  );
+
+  assert.equal(loaded.length, 128);
+  assert.match(
+    context.unreadableEvidence.at(-1)?.error ?? "",
+    /exceeded the 128-ref safety limit/u,
+  );
+});
+
 test("task finish review fails closed on cyclic superseded Evidence replacements", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-cyclic-evidence-"));
   try {
@@ -4825,6 +4897,67 @@ test("impl_finish_task completes research when follow-ups are dispositioned", as
     assert.equal(loaded.getTask(taskRef).claim, undefined);
     assert.equal((await defaultEvidenceStore(dir).list({ kind: "record" })).length, 1);
     assert.equal((await defaultLearningStore(dir).list({ includeCandidates: true })).length, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("impl_finish_task escalates an explicit deep-review request through the Reviewer Role", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-deep-review-"));
+  try {
+    await writeEmptySparkProject(dir);
+    await defaultProjectRoleModelSettingsStore(dir).save("verification", "test/verification");
+    const ctx = testSparkContext(dir, "main");
+    let leafCalls = 0;
+    ctx.runLeaf = async () => {
+      leafCalls += 1;
+      return {
+        degraded: false,
+        model: "test/verification",
+        text: JSON.stringify({
+          outcome: "needs_deep_review",
+          summary: "Generated bindings require repository inspection.",
+        }),
+      };
+    };
+    let deepReviewCalls = 0;
+    const { tools } = registerSparkToolsForTest({
+      reviewerRunner: {
+        async review(input: ReviewInput): Promise<ReviewerRunResult> {
+          deepReviewCalls += 1;
+          return createApprovingReviewerRunner().review(input);
+        },
+      },
+    });
+    await useOnlySparkProjectInExplicitPlanMode(tools, ctx);
+    await planAndClaimTask(tools, ctx, {
+      name: "finish-deep-review",
+      title: "Finish with deep review",
+      description: "Escalate only the typed deep-review decision.",
+      kind: "implement",
+      plan: executionReadyPlan("Escalate the finish review"),
+      todos: ["Escalate the finish review"],
+    });
+    await executeSparkTool(tools, "impl_update_task_plan_items", ctx, {
+      ops: [
+        { op: "init", items: ["Escalate the finish review"] },
+        { op: "done", item: "Escalate the finish review" },
+      ],
+    });
+
+    const finished = await executeSparkTool(tools, "impl_finish_task", ctx, {
+      summary: "Deep review approved the generated bindings.",
+      evidence: successfulFinishEvidence("Deep review validation"),
+    });
+
+    assert.match(toolText(finished), /Finished Spark task: \[done\]/u);
+    assert.equal(leafCalls, 1);
+    assert.equal(deepReviewCalls, 1);
+    assert.equal((finished.details?.reviewer as { mode?: string } | undefined)?.mode, "deep_role");
+    assert.ok(
+      ((finished.details?.timing as { phasesMs?: Record<string, number> } | undefined)?.phasesMs
+        ?.reviewer_escalation ?? 0) > 0,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

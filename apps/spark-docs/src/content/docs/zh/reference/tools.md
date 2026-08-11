@@ -62,6 +62,13 @@ Role 与 Skill Agent 子 Session 通过语义 Model Type 选择模型。缺少�
 
 父 Session 仍负责拆解、持久协调、验证重要结论和面向用户的综合。
 
+## Task finish 审查
+
+把 Task 完成到 `done` 时，Lens、plan、Evidence 与 follow-up 的确定性 gate
+保持不变。Spark 通常使用独立配置的 `verification` Model Type，对准备好的有界 packet
+执行一次无工具的结构化审查。只有显式返回 `needs_deep_review`，才会升级到完整 Reviewer
+Session；leaf 的模型、路由或协议失败会阻止状态迁移，不会静默放行。
+
 ## Effect、审批与并行
 
 每个 active tool 都携带由 Host 执行的 effect 与权限策略。未知或冲突策略会
