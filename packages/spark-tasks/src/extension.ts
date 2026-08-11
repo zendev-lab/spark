@@ -14,6 +14,7 @@ export type SparkTaskWriteAction =
   | "project_metadata_update"
   | "claim"
   | "plan"
+  | "replace_dependencies"
   | "finish"
   | "recover"
   | "release"
@@ -102,6 +103,7 @@ const TASK_WRITE_ACTIONS: readonly SparkTaskWriteAction[] = [
   "project_metadata_update",
   "claim",
   "plan",
+  "replace_dependencies",
   "finish",
   "recover",
   "release",
@@ -215,7 +217,7 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
     name: "task_write",
     label: "Task Write",
     description:
-      "Project/task graph mutation capability. Use intent-specific actions to select/finish/rename/update projects, claim/plan/finish/release tasks, update task plan items, or clean task-owned caches.",
+      "Project/task graph mutation capability. Use intent-specific actions to select/finish/rename/update projects, claim/plan/replace dependencies/finish/release tasks, update task plan items, or clean task-owned caches.",
     policy: taskWritePolicy(["plan", "execute", "fleet"]),
     resolvePolicy(args) {
       const action = typeof args.action === "string" ? args.action : "";
@@ -236,6 +238,7 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
     promptGuidelines: [
       "Use task_write for project/task graph mutations.",
       "Creating or claiming a task is plan-locked: every task must have a bound high-bar task.plan before claim/creation completes; objectives, success criteria, evidence, and plan items must be concrete and objectively verifiable.",
+      "Use action=replace_dependencies only to atomically replace one existing task's complete dependency set; it rejects mixed task creation, metadata, plan, and status mutations.",
       "Use action=release to give up this session's unfinished task claim without finishing or cancelling the task; use action=plan_update to refine claimed task plan items.",
       "Use artifact_link/artifact_unlink to maintain the task's durable product Artifact references.",
       "Use the session-bound todo tool for standalone session checklists.",
@@ -244,7 +247,7 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
     parameters: Type.Object({
       action: Type.String({
         description:
-          "project_use | project_rename | project_metadata_update | claim | plan | finish | recover | release | artifact_link | artifact_unlink | plan_update | cache_cleanup",
+          "project_use | project_rename | project_metadata_update | claim | plan | replace_dependencies | finish | recover | release | artifact_link | artifact_unlink | plan_update | cache_cleanup",
       }),
       scope: Type.Optional(Type.String({ description: "For plan_update: task plan items only." })),
       project: Type.Optional(Type.String({ description: "Project selector/ref/title." })),
@@ -294,7 +297,12 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
         ),
       ),
       dependsOn: Type.Optional(
-        Type.Array(Type.String({ description: "Task dependency selectors." })),
+        Type.Array(
+          Type.String({
+            description:
+              "For plan: dependency task refs, bare names, or exact titles in the current plan/project. For replace_dependencies: the complete replacement prerequisite selector list; [] clears all dependencies.",
+          }),
+        ),
       ),
       todos: Type.Optional(
         Type.Array(

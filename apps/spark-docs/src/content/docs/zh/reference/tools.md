@@ -34,6 +34,17 @@ Evidence 记录内部 claim 与验证。Artifact 和 Evidence ref 使用不同�
 store、权限和生命周期。工具不能把文件路径、transcript 陈述或未验证结果静默提升为
 任一种对象。
 
+## 替换 Task 依赖
+
+`task_write({ action: "replace_dependencies" })` 会原子替换一个既有 Task 的完整依赖
+集合。调用时必须且只能传入 `task` 或 `taskRef` 之一，并且始终传入 `dependsOn`；
+空数组表示清除全部依赖。依赖 selector 可以是精确 Task ref、名称或标题。
+
+该 action 只允许修改依赖，禁止在同一次调用中混入 Task 创建、metadata、plan 或
+status 变更。未知或歧义 selector、已取消或跨 Project 的前置 Task、自依赖和循环依赖
+都会返回稳定的失败分类。系统会在锁内重新加载后完成全部验证，再执行持久化；失败的
+替换不会写入 Task graph 状态。
+
 ## Role、Session 与 Skill Agent
 
 - Role 定义类型化能力与责任 profile，包括语义 Model Type，以及 `persistent` 或
