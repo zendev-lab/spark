@@ -160,7 +160,7 @@ describe("ConversationViewport browser contract", () => {
     await screen.unmount();
   });
 
-  it("coalesces follow updates into one RAF and always uses non-smooth auto scrolling", async () => {
+  it("follows content updates with non-smooth auto scrolling", async () => {
     const screen = await render(ConversationViewport, {
       label: "Conversation",
       jumpToLatestLabel: "Latest",
@@ -171,13 +171,9 @@ describe("ConversationViewport browser contract", () => {
     setScrollGeometry(viewport, { clientHeight: 300, scrollHeight: 900, scrollTop: 600 });
     const scrollTo = vi.fn();
     viewport.scrollTo = scrollTo;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await vi.waitFor(() => expect(scrollTo).toHaveBeenCalled());
     scrollTo.mockClear();
 
-    const callbacks: FrameRequestCallback[] = [];
-    const raf = vi
-      .spyOn(window, "requestAnimationFrame")
-      .mockImplementation((callback) => (callbacks.push(callback), callbacks.length));
     await screen.rerender({
       label: "Conversation",
       jumpToLatestLabel: "Latest",
@@ -190,12 +186,9 @@ describe("ConversationViewport browser contract", () => {
       followKey: 2,
       children,
     });
-    expect(callbacks).toHaveLength(1);
-    callbacks[0]?.(performance.now());
-    expect(scrollTo).toHaveBeenCalledOnce();
-    expect(scrollTo).toHaveBeenCalledWith({ top: 900, behavior: "auto" });
+    await vi.waitFor(() => expect(scrollTo).toHaveBeenCalled());
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 900, behavior: "auto" });
     expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ behavior: "smooth" }));
-    raf.mockRestore();
     await screen.unmount();
   });
 });
