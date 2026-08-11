@@ -37,6 +37,12 @@ Do not turn a spec into an implementation diary. Move unresolved alternatives,
 recent progress, and temporary sequencing to `SPARK.md` or the relevant PR.
 Do not put normative policy only in comments, tests, or an operation runbook.
 
+PR stacks, numbered delivery slices, dated evaluations, completed-work recaps,
+and active backlogs are transient coordination state and must not be maintained
+under `docs/`. Local timing, score, and readiness results belong in CI artifacts
+or gitignored reports; operations own only the reproducible procedure and the
+interpretation of its output.
+
 ## Coupled changes
 
 When behavior changes:

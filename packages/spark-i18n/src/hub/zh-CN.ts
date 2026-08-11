@@ -291,7 +291,7 @@ const messages = {
       inboxTitle: "处理请求",
       inboxBody: "回答需要你确认或审批的问题。",
       artifactsTitle: "查看产物",
-      artifactsBody: "打开 Issue、PR 与预览进度。",
+      artifactsBody: "打开 Issue、Git Change 与 Document。",
       resourcesTitle: "管理资源",
       resourcesBody: "添加仓库、文档、链接和工具。",
     },
@@ -755,7 +755,7 @@ const messages = {
       noTasksTitle: "尚无任务",
       noTasksBody: "Spark 为当前会话创建的任务会显示在这里。",
       noArtifactsTitle: "尚无产物",
-      noArtifactsBody: "绑定到当前会话的 ISSUE / PR / 预览产物会显示在这里。",
+      noArtifactsBody: "绑定到当前会话的 Issue、Git Change 与 Document 会显示在这里。",
       noChangesTitle: "尚无结构化变更",
       noChangesBody: "Spark 发布的变更会显示在这里；仅有对话文字不算代码变更。",
       noSessionTodoTitle: "尚无会话 TODO",
@@ -1328,7 +1328,7 @@ const messages = {
     hero: {
       eyebrow: "工作空间",
       title: "产物",
-      lede: "仅产品交付物：远端 Issue、PR，以及 Markdown、安全 MDX、HTML 或 A2UI 实时预览。",
+      lede: "仅产品交付物：Issue、Git Change 与 Document，以及对应的安全预览视图。",
     },
     metrics: {
       aria: "产物状态",
@@ -1339,12 +1339,12 @@ const messages = {
     },
     emptyWorkspace: {
       title: "先创建工作空间",
-      body: "先创建工作空间，再查看 ISSUE、PR 与预览产物。",
+      body: "先创建工作空间，再查看 Issue、Git Change 与 Document。",
       action: "打开概览",
     },
     empty: {
       title: "还没有产物",
-      body: "Issue、Pull Request 与预览进度会出现在这里。",
+      body: "Issue、Git Change 与 Document 会出现在这里。",
     },
     list: {
       title: "工作空间产物",

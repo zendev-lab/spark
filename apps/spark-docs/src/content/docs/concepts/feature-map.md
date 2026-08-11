@@ -68,7 +68,7 @@ questions, memory and context, models, roles, sessions, workflows, and durable
 loops. Users normally describe the desired outcome; the agent selects tools
 and asks for approval when policy requires it.
 
-See the complete, profile-aware [agent tool catalog](/reference/tools/).
+See the [tool activation and permission model](/reference/tools/).
 
 ## 4. Tasks and autonomous progress
 

@@ -189,46 +189,6 @@ The completed Golden Journey must prove all of the following:
 - trusted evaluation, not model narration, completes the Repro;
 - no invocation, pending decision, or writable Workbench remains after completion.
 
-## Delivery plan
-
-### Slice 1 — fixture and contract
-
-- land this acceptance contract;
-- land the executable minimal-alignment fixture;
-- prove the fixture starts failing and becomes passing after one explicit repair.
-
-This slice does not claim that the product journey is complete.
-
-### Slice 2 — source process happy path
-
-- register the scripted provider through the production provider registry;
-- add a deterministic forge shim and invocation ledger;
-- extend the source process harness to start a clean daemon and submit a Repro;
-- cross the real Ask boundary, restart, resume, commit, submit, report, and complete;
-- add `pnpm run test:journey:repro` as the authoritative happy-path lane.
-
-### Slice 3 — recovery and idempotency
-
-Add focused fault cases at these boundaries:
-
-- waiting Ask -> daemon restart;
-- answered Ask -> duplicate delivery;
-- commit -> process failure before PR submission;
-- PR creation -> process failure before Artifact refresh;
-- report projection -> process failure before synchronization.
-
-### Slice 4 — module and test consolidation
-
-- move Repro application orchestration out of the extension registration module
-  into daemon-owned services;
-- retain package-local domain and adapter contracts that protect independent
-  invariants;
-- delete duplicate wiring tests, prompt fragments, and implementation-mirror
-  assertions made redundant by stronger contracts;
-- add composition reachability checks so registered Repro roles, workflows,
-  tools, report projectors, and Workbench actions remain reachable from a
-  supported product root.
-
 ## CI position
 
 The final shape is:

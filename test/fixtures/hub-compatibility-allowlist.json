@@ -326,12 +326,6 @@
       "approvedOccurrencesSha256": "c27df30ac3948700387497109f83eef9193132e98761fed1da1dc3393c5ee767"
     },
     {
-      "pattern": "scripts/check-user-docs.mjs",
-      "category": "retired-command-rejection",
-      "approvedOccurrenceCount": 4,
-      "approvedOccurrencesSha256": "4db93894f19fe13a63ebd45dfb6030088571cb5057ce5776f5a3d6609927f544"
-    },
-    {
       "pattern": "scripts/container-healthcheck.mjs",
       "category": "legacy-health-response-read",
       "approvedOccurrenceCount": 3,

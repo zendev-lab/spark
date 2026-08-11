@@ -62,7 +62,7 @@ Spark 提供文件、搜索、shell/script、任务、产物、询问、记忆�
 角色、会话、workflow 和持久驱动工具。用户通常只需描述目标；agent 会选择工具，
 并在策略要求时请求确认。
 
-完整且区分 profile 的清单见 [Agent 工具参考](/zh/reference/tools/)。
+参见 [Agent 工具激活与权限模型](/zh/reference/tools/)。
 
 ## 4. 任务与自主推进
 

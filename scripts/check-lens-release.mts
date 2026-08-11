@@ -8,16 +8,21 @@ import { fileURLToPath } from "node:url";
 import {
   evaluateLensScorecard,
   type LensReleaseScorecard,
+  type LensScorecardMeasurements,
 } from "../packages/spark-lens/src/scorecard.ts";
 import { jsonFile, lensFixtureDigest } from "./lens-scorecard-io.mts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const scorecardPath = resolve(
-  root,
-  process.env.SPARK_LENS_SCORECARD ?? "benchmarks/lens/scorecard.json",
-);
-const scorecard = await jsonFile<LensReleaseScorecard>(scorecardPath);
 const fixtureDigest = await lensFixtureDigest(root);
+const configuredScorecard = process.env.SPARK_LENS_SCORECARD?.trim();
+const scorecard = configuredScorecard
+  ? await jsonFile<LensReleaseScorecard>(resolve(root, configuredScorecard))
+  : evaluateLensScorecard(
+      await jsonFile<LensScorecardMeasurements>(
+        resolve(root, "benchmarks/lens/pending-measurements.fixture.json"),
+      ),
+      fixtureDigest,
+    );
 const evaluated = evaluateLensScorecard(scorecard.measurements, fixtureDigest);
 const violations: string[] = [];
 
