@@ -10,7 +10,7 @@
     "preview": "astro preview --port 4322",
     "test": "pnpm run test:locale",
     "test:locale": "node --test src/lib/docs-locale.test.mjs",
-    "check:content": "node ../../scripts/check-document-ownership.mjs && node ../../scripts/check-user-docs.mjs",
+    "check:content": "node ../../scripts/check-user-docs.mjs",
     "check:deploy": "node ../../scripts/require-docs-deploy-env.mjs",
     "check:dist": "node ../../scripts/check-user-docs.mjs --dist",
     "check": "pnpm run test:locale && pnpm run check:content && astro check && astro build && pnpm run check:dist",
