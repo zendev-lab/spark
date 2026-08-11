@@ -294,7 +294,7 @@ const messages = {
       inboxTitle: "Review requests",
       inboxBody: "Answer questions and approvals that need your attention.",
       artifactsTitle: "Browse artifacts",
-      artifactsBody: "Open Issues, PRs, and live preview progress.",
+      artifactsBody: "Open Issues, Git changes, and Documents.",
       resourcesTitle: "Manage resources",
       resourcesBody: "Add repositories, documents, links, and tools.",
     },
@@ -1365,7 +1365,7 @@ const messages = {
     hero: {
       eyebrow: "Workspace",
       title: "Artifacts",
-      lede: "Product deliverables only: forge Issues, PRs, and live Markdown, safe MDX, HTML, or A2UI previews.",
+      lede: "Product deliverables only: Issues, Git changes, and Documents with safe preview views.",
     },
     metrics: {
       aria: "Artifact status",

@@ -1,73 +1,58 @@
 ---
-title: Agent 工具
-description: Spark canonical 工具、默认 profile、副作用和受限表面的完整目录。
+title: Agent 工具与权限
+description: 理解 Spark 如何激活工具、确定状态 owner，并执行 effect 与权限策略。
 ---
 
-Agent 工具面向模型，不是用户必须背诵的命令。请先描述目标；审计权限、构建 host
-profile 或排查能力为何不可用时，再查看本页。
+Host 和 Session 向 Agent 提供的 active tool schema，是本次运行的工具表面事实来源。
+已注册不代表已激活：surface、mode、permission、extension 配置和兼容策略都可以
+缩小可用集合。
 
-## 原生默认 profile
+本页描述稳定领域与策略，不穷举所有工具名。需要某次运行的精确名称、action 和参数时，
+应检查 Host 展示的 active schema。
 
-| 意图 | Canonical 工具 | 效果 |
+## 稳定工具领域
+
+当一组 action 共享同一个 owner、状态、权限、渲染和结果契约时，Spark 使用规范化
+`tool({ action })` 表面。
+
+| 领域 | 用途 | 权威 owner |
 | --- | --- | --- |
-| 请求决策 | `ask` | 暂停并等待结构化用户输入 |
-| 读取和修改文件 | `read`, `write`, `edit`, `grep`, `find` | 读取或 workspace 写入 |
-| 管理代码交付 | `git` | worktree、原生 PR stack、commit、submit、sync 与 cleanup 生命周期 |
-| 搜索和获取网页 | `web_search`, `code_search`, `fetch_content`, `get_search_content` | 外部读取；获取的文本不可信 |
-| 查看和修改工作 | `task_read`, `task_write`, `assign`, `todo` | Task/session 状态；assign 可能执行工作 |
-| 保存结果 | `artifact`, `evidence`, `memory`, `context` | 产品产物、内部账本、记忆和受限上下文 |
-| 协调 agent | `role`, `skill_agent`, `session` | 定义、匿名调用、专属多 Skill Agent、持久 session 与 mail |
-| 选择模型 | `models` | 模型目录与选择 |
-| 选择 Session 行为或自主续跑 | `mode`, `goal`, `loop`, `repro` | Session `plan`/`execute` mode 与 daemon-owned continuation 状态 |
-| 发现和运行流程 | `workflow` | 列出、读取或运行已选 `WORKFLOW.md` 定义 |
+| 人机交互 | 结构化问题、审批与关联回答 | 共享交互协议与 daemon 生命周期 |
+| 文件与执行 | 读取、搜索、编辑和获准的本地执行 | 在所选工作区运行的 Host adapter |
+| 工作协调 | Task、Session、Goal、Loop、Repro 与 Workflow | 各领域 owner；持久调度仍由 daemon 拥有 |
+| 成果归属 | 产品 Artifact 与内部 Evidence | Artifact store 与 Evidence store 保持分离 |
+| Agent 组合 | Role 与匿名 Skill Agent | Session/Role registry 与 Skill loader |
+| 外部 adapter | Channel、ACP、MCP、Git 与 provider 能力 | Spark 契约后的对应 adapter |
 
-表中的文件工具属于 Spark 原生表面。外部 Pi 产品继续使用自己的文件与搜索工具；
-Spark 不再替换 Pi 的 `read`、`write`、`edit`、`grep`、`find` 或 `ls` 实现。
-Pi 产品兼容只提供增量能力，不承诺与 Spark 原生表面保持完整功能对等。
+## Artifact 与 Evidence
 
-`artifact` 面向用户，只包含 Issue、GitChange 和 Document。一个 GitChange 拥有一个
-worktree 和一个 GitHub 原生 PR stack，由 `git({ action })` 管理生命周期；preview
-只是 Document 的视图，不是 Artifact kind。`evidence` 是 agent 内部账本，不会作为
-产品产物展示。`context` 只能列出或预览已注册的受限 provider，不能接收任意 prompt。
+面向用户的 Artifact kind 只有 `issue | git_change | document`。一个
+`git_change` 拥有一个 worktree 和一个原生 PR stack；Preview 是 Document
+的视图，不是新的 Artifact kind。
 
-`skill_agent({ skills, instruction, inputs? })` 按精确名称解析一到八个允许模型调用的
-Skill，并使用当前模型启动一个全新的匿名专属 Agent。Host 会把所有选中 Skill 的完整
-内容各加载一次。Agent 只接收自包含 instruction 和受限 inputs，不继承父会话
-transcript。它可以使用受限的直接工作工具，但不能递归调用 Role、Skill Agent 或持久
-Session，不能修改协调状态，也不能发布 Git、Artifact 或 Evidence 状态。只有父 Session
-本身需要查看并遵循 `SKILL.md` 时，才改用 `read`。
+Evidence 记录内部 claim 与验证。Artifact 和 Evidence ref 使用不同的命名空间、
+store、权限和生命周期。工具不能把文件路径、transcript 陈述或未验证结果静默提升为
+任一种对象。
 
-## Shell 与脚本工具
+## Role、Session 与 Skill Agent
 
-原生 profile 包含十个 cue-shell 工具：
+- Role 定义类型化能力与责任 profile。
+- Session 是拥有 continuity、binding、call 和 mail 的持久或临时运行实例。
+- `skill_agent({ skills, instruction, inputs? })` 为一次自包含的多 Skill 调用创建
+  全新的匿名 Agent。它接收所选 Skill 内容和显式 packet，不继承父 transcript，
+  也不能创建第二套持久生命周期。
 
-| 工具 | 用途 |
-| --- | --- |
-| `cue_exec`, `cue_run` | 直接命令和托管 job |
-| `cue_script`, `script_run`, `script_eval` | 已保存或受控 inline script |
-| `cue_jobs` | 查看和控制 job |
-| `cue_resources` | 查看 resource provider 与 snapshot |
-| `cue_schedule` | 管理 schedule |
-| `cue_scope` | 查看或管理执行 scope |
-| `cue_history` | 读取执行历史 |
+父 Session 仍负责拆解、持久协调、验证重要结论和面向用户的综合。
 
-这些工具可能执行代码或产生本地/外部副作用。Host 在执行前解析 approval、effect
-和串并行策略；未知或冲突的策略会 fail closed。
+## Effect、审批与并行
 
-## 受限与可选 profile
+每个 active tool 都携带由 Host 执行的 effect 与权限策略。未知或冲突策略会
+fail closed。
 
-- 消息平台 Channel 只开放 `session`、`ask`、`context` 和 `todo`。
-- `fusion` 是显式启用的受限多模型 deliberation，不负责写最终答案，也不能证明运行结果。
-- `graft` 是已封存、显式启用的 scratch/candidate/patch 能力，不属于当前 Git 工作流。
-- `ls` 只保留给显式配置的 Spark 原生兼容 profile，原生默认 profile 不注册它；
-  文件发现使用 `find`，内容搜索使用 `grep`。
-- 外部 Pi 兼容可以只开放更小的增量能力子集；当兼容成本高于保留的产品收益时，
-  该能力会从 Pi 兼容表面移除。
+- 只有明确允许并行的纯读取调用可以并发。
+- 写入、策略变更、混合 batch 和外部副作用保持串行，除非所属契约证明了安全替代。
+- 必需审批属于执行权限，不是展示文本。
+- 兼容与 Channel profile 可以比原生 TUI 或 Hub Session 暴露更小的集合。
 
-私有实现与编排 helper 不会出现在公开目录中。
-
-## 执行策略
-
-已注册不代表已激活。Host 可以按表面、mode、permission 或 extension 配置缩小
-active tool 集合。只有明确标记为 parallel、无需 approval 的纯读取调用可以并行；
-混合、未知、写入、策略修改和外部副作用 batch 都保持串行。
+私有实现 helper 不是公开工具。要查看当前安装版本的命令，请阅读
+[命令发现](/zh/reference/cli/)。

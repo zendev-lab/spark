@@ -30,7 +30,6 @@ All gates require reproducible evidence in one isolated decision change:
 6. production installation needs neither Bun nor Zig, and license, audit, and
    package-size release gates pass.
 
-As currently observed, the repository supports Node `>=26.0.0 <27`, while a
-Node OpenTUI native renderer requires Node 26.4.0 and experimental FFI. The
-readiness audit therefore reports the exact unmet gates rather than importing
-OpenTUI or changing the engine constraint.
+The readiness audit reports the current engine compatibility and exact unmet
+gates. Do not copy its point-in-time result into this runbook or change the
+engine constraint until the reproducible gates above pass.

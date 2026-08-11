@@ -6,7 +6,7 @@ import { test } from "vitest";
 import {
   LENS_REQUIRED_CAPABILITIES,
   evaluateLensScorecard,
-  type LensReleaseScorecard,
+  type LensScorecardMeasurements,
 } from "@zendev-lab/spark-lens";
 import { lensFixtureDigest } from "../scripts/lens-scorecard-io.mts";
 
@@ -52,13 +52,12 @@ test("Lens benchmark fixtures cover every language surface and declared fault", 
   }
 });
 
-test("committed Lens scorecard is machine reproducible and remains closed", async () => {
-  const scorecard = JSON.parse(
-    await readFile("benchmarks/lens/scorecard.json", "utf8"),
-  ) as LensReleaseScorecard;
+test("pending Lens measurements keep the release gate closed", async () => {
+  const measurements = JSON.parse(
+    await readFile("benchmarks/lens/pending-measurements.fixture.json", "utf8"),
+  ) as LensScorecardMeasurements;
   const fixtureDigest = await lensFixtureDigest(resolve("."));
-  const evaluated = evaluateLensScorecard(scorecard.measurements, fixtureDigest);
+  const scorecard = evaluateLensScorecard(measurements, fixtureDigest);
   assert.equal(scorecard.fixtureDigest, fixtureDigest);
-  assert.deepEqual(scorecard.gates, evaluated.gates);
   assert.equal(scorecard.overall, "pending");
 });

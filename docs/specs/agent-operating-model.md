@@ -308,36 +308,6 @@ Intermediate Tasks may finish while a stack is still draft. Ready is required
 at the final PR-delivery, integration, Project-completion, or Goal-completion
 boundary when the confirmed success criteria include a reviewable PR.
 
-## Migration plan
-
-The refactor is delivered as reviewable slices:
-
-1. **Operating contract and Skill Agent**
-   - add this specification;
-   - replace singular `skill_delegate` with plural `skill_agent`;
-   - update Skill catalog prompts and behavior tests;
-   - clarify draft-to-ready PR delivery in the system and Git tool prompts.
-2. **Session mode**
-   - rename `phase` to `mode` and `implement` to `execute`;
-   - migrate persisted current-project state from v1 `phase` to v2 `mode`;
-   - do not retain private API aliases after migration;
-   - keep `/plan` and replace `/execute` with `/execute` when the published
-     command contract permits the breaking change.
-3. **Prompt ownership**
-   - remove model-facing behavior from i18n;
-   - keep only user-visible localized copy;
-   - move Goal and active-context instructions to their domain owners;
-   - inject one output-language directive.
-4. **Native tool guidance**
-   - render guidelines for active tools into the native system prompt;
-   - remove duplicated global policy from tool guidance;
-   - record a guidance fingerprint in the prompt manifest.
-5. **Continuation ownership**
-   - expose explicit Session mode and continuation-driver state;
-   - keep WorkflowRun outside continuation-driver state;
-   - remove remaining `phase` aliases from Workflow metadata when compatibility
-     analysis permits.
-
 ## Acceptance criteria
 
 The completed refactor must prove:

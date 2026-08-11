@@ -10,7 +10,9 @@ description: 端到端运行 Spark、连接 Hub、创建会话、检查 invocati
 - **daemon** 拥有执行、会话、invocation、工作区绑定和恢复状态。
 - **TUI** 是交互式终端宿主；它展示 daemon 状态，并把用户意图提交给 daemon。
 - **Hub Web** 是浏览器协调与投影界面，不能根据浏览器计时器或 transcript 文本推断执行状态。
-- 产品 Artifact 只有 Issue、PR 和 Preview；内部验证 Evidence 使用独立命名空间，不是产品 Artifact。
+- 产品 Artifact 只有 Issue、Git Change 和 Document；一个 Git Change 拥有一个
+  worktree 及其 PR stack，Preview 是 Document 的视图。内部验证 Evidence 使用独立
+  命名空间，不是产品 Artifact。
 
 多个界面的状态不一致时，先检查 daemon。
 
@@ -220,7 +222,7 @@ no-op。`/status`、action bar 和 palette 的普通动作一次 Enter 即执行
 
 - **Conversations** 与 TUI 展示 daemon 拥有的会话和 turn。
 - **Inbox** 展示内联问题与审批；Ask 不应变成全局 modal。
-- **Artifacts** 只包含 Issue、PR 和 Preview。
+- **Artifacts** 只包含 Issue、Git Change 和 Document。
 - **Resources** 包含工作区仓库、文档、URL、文件、工具和 secret reference。
 - Goal、Repro、Workflow 与后台 Loop 保持不同语义；不能合并 scheduled、running、
   retry-waiting、dormant、blocked 和 stopped 状态。

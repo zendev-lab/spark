@@ -19,7 +19,7 @@ add only audience-specific context. In particular:
 
 - public command syntax and examples belong in
   [`apps/spark-docs/src/content/docs/reference/cli.md`](../apps/spark-docs/src/content/docs/reference/cli.md);
-- the public agent-tool catalog belongs in
+- public tool activation and permission guidance belongs in
   [`apps/spark-docs/src/content/docs/reference/tools.md`](../apps/spark-docs/src/content/docs/reference/tools.md);
 - user-visible configuration and path guidance belongs in
   [`apps/spark-docs/src/content/docs/reference/configuration-and-paths.md`](../apps/spark-docs/src/content/docs/reference/configuration-and-paths.md);
@@ -59,11 +59,13 @@ than copying another long list into Markdown.
 - [`operations/test-architecture.md`](./operations/test-architecture.md): test ownership, assertion hierarchy, source-mirror ratchet, and golden-file policy.
 - [`operations/execution-isolation-baseline.md`](./operations/execution-isolation-baseline.md): reproducible single-daemon event-loop, session-fence, synchronous I/O, and descendant-process baseline.
 - [`operations/capability-sentinels.md`](./operations/capability-sentinels.md): deterministic Goal, Loop, and Repro release sentinels, budgets, and failure triage.
+- [`operations/repro-golden-journey.md`](./operations/repro-golden-journey.md): deterministic end-to-end Repro acceptance, recovery, delivery, and CI ownership.
 - [`operations/nightly-capability-ce.md`](./operations/nightly-capability-ce.md): repeated zero-token capability evaluation, variance reporting, budgets, artifacts, and triage.
-- [`operations/mutation-ce.md`](./operations/mutation-ce.md): leaf-package Stryker continuous evaluation, timing table, and hygiene.
+- [`operations/scripted-provider-ce.md`](./operations/scripted-provider-ce.md): repeated provider-stream and tool-dispatch continuous evaluation.
+- [`operations/mutation-ce.md`](./operations/mutation-ce.md): leaf-package Stryker continuous evaluation, CI artifacts, interpretation, and hygiene.
 - [`operations/acp.md`](./operations/acp.md): ACP adapter ownership, protocol contract, and maintainer validation.
 - [`operations/mcp.md`](./operations/mcp.md): MCP adapter ownership, read-only boundary, and maintainer validation.
-- [`operations/durable-execution-notes.md`](./operations/durable-execution-notes.md): Inngest/Restate step-checkpoint notes mapped to workflows/loop/invocations.
+- [`operations/container.md`](./operations/container.md): containerized Hub build, release, health, persistence, and rollback.
 - [`operations/releases.md`](./operations/releases.md): release artifacts, publication, updater compatibility gates, rollback invariants, and rollout policy.
 
 ## Terminology: three “runtime” meanings

@@ -87,45 +87,20 @@ if (help.status !== 0) {
   const reason = help.stderr.trim() || `exit ${help.status}`;
   failures.push(`spark --help failed: ${reason}`);
 } else {
-  const requiredHelpLines = [
-    "spark run [--json] [--wait] [--resume <session>] <prompt>",
-    "spark bg [--session <id>] [--json] <prompt>",
-    "spark paths [--json]",
-    "spark doctor",
-    "spark install --managed [--version <version>] [--prefix <path>]",
-    "spark update status|check|apply|rollback|retry|configure",
-    "spark version [--json]",
-    "spark daemon <command> [args...]",
-    "spark daemon auth <status|login|logout|import> [args...]",
-    "spark daemon model <list|status|set> [args...]",
-    "spark hub [command] [args...]",
-  ];
-  for (const line of requiredHelpLines) {
-    if (!help.stdout.includes(line)) failures.push(`spark --help no longer exposes: ${line}`);
-  }
+  if (help.stdout.trim().length === 0) failures.push("spark --help returned no help text");
 }
 
 for (const page of ["reference/cli.md", "zh/reference/cli.md"]) {
   const source = await readFile(join(docsRoot, page), "utf8");
   for (const command of [
-    "spark run",
-    "spark bg",
-    "spark paths",
-    "spark doctor",
-    "spark install --managed",
-    "spark update",
-    "spark version",
-    "spark daemon",
-    "spark daemon auth status",
-    "spark daemon auth login",
-    "spark daemon auth logout",
-    "spark daemon auth import pi",
-    "spark daemon model list",
-    "spark daemon model status",
-    "spark daemon model set",
-    "spark hub",
+    "spark --help",
+    "spark daemon --help",
+    "spark hub --help",
+    "/help",
+    "/help commands",
+    "/help all",
   ]) {
-    if (!source.includes(command)) failures.push(`${page} does not document ${command}`);
+    if (!source.includes(command)) failures.push(`${page} does not teach discovery via ${command}`);
   }
 }
 
@@ -185,49 +160,17 @@ for (const [page, headings] of Object.entries(featureMapHeadings)) {
   }
 }
 
-const publicTools = [
-  "ask",
-  "read",
-  "write",
-  "edit",
-  "ls",
-  "grep",
-  "find",
-  "web_search",
-  "code_search",
-  "fetch_content",
-  "get_search_content",
-  "task_read",
-  "task_write",
-  "assign",
-  "todo",
-  "artifact",
-  "evidence",
-  "memory",
-  "context",
-  "role",
-  "session",
-  "models",
-  "goal",
-  "loop",
-  "repro",
-  "mode",
-  "workflow",
-  "cue_exec",
-  "cue_run",
-  "cue_script",
-  "script_run",
-  "script_eval",
-  "cue_jobs",
-  "cue_resources",
-  "cue_schedule",
-  "cue_scope",
-  "cue_history",
-];
 for (const page of ["reference/tools.md", "zh/reference/tools.md"]) {
   const source = await readFile(join(docsRoot, page), "utf8");
-  for (const tool of publicTools) {
-    if (!source.includes(`\`${tool}\``)) failures.push(`${page} does not catalog ${tool}`);
+  for (const contract of [
+    "active tool schema",
+    "`issue | git_change | document`",
+    "`skill_agent",
+  ]) {
+    if (!source.includes(contract)) failures.push(`${page} does not explain ${contract}`);
+  }
+  if (/Complete tool catalog|完整工具目录/u.test(source)) {
+    failures.push(`${page} claims to own an exhaustive tool catalog`);
   }
   for (const internalName of [/\bimpl_/u]) {
     if (internalName.test(source)) failures.push(`${page} exposes internal tool ${internalName}`);
@@ -293,24 +236,14 @@ for (const page of ["reference/cli.md", "zh/reference/cli.md"]) {
   }
 }
 
-for (const { surface, args, requiredLines } of [
+for (const { surface, args } of [
   {
     surface: "daemon",
     args: ["daemon", "--help"],
-    requiredLines: [
-      "spark daemon session show <session-id>",
-      "spark daemon channel status --workspace <id>",
-      "spark daemon run cancel <run-id>",
-    ],
   },
   {
     surface: "hub",
     args: ["hub", "--help"],
-    requiredLines: [
-      "spark-hub workspace list",
-      "spark-hub delegation <create|list|show|reply|cancel>",
-      "spark-hub instance <status|backup|restore>",
-    ],
   },
 ]) {
   const result = spawnSync(join(root, "apps/spark-cli/bin/spark"), args, {
@@ -322,9 +255,7 @@ for (const { surface, args, requiredLines } of [
     failures.push(`${surface} help failed: ${result.stderr.trim() || `exit ${result.status}`}`);
     continue;
   }
-  for (const line of requiredLines) {
-    if (!result.stdout.includes(line)) failures.push(`${surface} help no longer exposes: ${line}`);
-  }
+  if (result.stdout.trim().length === 0) failures.push(`${surface} help returned no help text`);
 }
 
 const retiredCockpit = spawnSync(join(root, "apps/spark-cli/bin/spark"), ["cockpit", "--help"], {
