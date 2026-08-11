@@ -29,6 +29,22 @@ available in the product.
 Media components receive explicit URLs, MIME types, names, and sizes. They do
 not derive routes from artifact summaries or inspect protocol metadata.
 
+## Workbench API
+
+Import agent-work presentation from `@zendev-lab/spark-ui/workbench`. The
+subpath provides compound Tool, Confirmation, Plan, Task, and Artifact surfaces
+plus display-only CodeBlock, DiffView, FileTree, Terminal, TestResults,
+StackTrace, SchemaView, Commit, and WebPreview components.
+
+Workbench values are protocol-neutral, JSON-safe presentation facts. Consumer
+adapters decide which owner data is safe to expose and supply localized status
+labels and callbacks. Code, terminal, diff, and schema components never execute
+agent-authored content. WebPreview provides composable navigation and body
+surfaces; `WebPreviewBody` accepts an explicit validated URL or a canonical,
+server-rendered document, and always embeds it with an empty iframe sandbox.
+Consumers must not pass raw agent-authored HTML or infer a preview URL from
+artifact summaries.
+
 `A2uiRenderer` is the native, schema-normalized A2UI v0.9/v0.9.1 basic-catalog
 surface. It is read-only by default. Interaction requires an explicit
 daemon-authenticated Repro Workbench binding; emitted actions remain revision

@@ -38,7 +38,7 @@ describe("ToolCallPart component contract", () => {
       const body = renderTool(state, { summary: "First result line\nMore details" });
 
       const details = openingDetailsTag(body);
-      expect(details).toContain("tool-part");
+      expect(details).toContain("workbench-panel");
       expect(details).toContain(state);
       expect(details).not.toContain(" open");
       expect(body).toContain("<summary");
@@ -54,7 +54,7 @@ describe("ToolCallPart component contract", () => {
     const empty = renderTool("completed");
 
     const details = openingDetailsTag(nested);
-    expect(details).toContain("tool-part");
+    expect(details).toContain("workbench-panel");
     expect(details).toContain("running");
     expect(details).toContain("nested");
     expect(details).not.toContain(" open");

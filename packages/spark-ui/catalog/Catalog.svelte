@@ -102,6 +102,7 @@
 
   .catalog {
     --font-sans: "Spark Catalog Inter", sans-serif;
+    --font-mono: "Spark Catalog Geist Mono", monospace;
 
     background: var(--color-canvas);
     color: var(--color-ink);
@@ -305,5 +306,4 @@
   .catalog.wide {
     width: 1024px;
   }
-
 </style>

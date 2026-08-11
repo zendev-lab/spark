@@ -15,8 +15,16 @@ const darkTextScreenshotOptions = {
 };
 
 beforeAll(async () => {
-  await document.fonts.load('400 16px "Spark Catalog Inter"');
+  await Promise.all([
+    document.fonts.load('400 16px "Spark Catalog Inter"'),
+    document.fonts.load('400 16px "Spark Catalog Geist Mono"'),
+  ]);
 });
+const conversationFixtures = catalogFixtures.filter((fixture) => fixture.group === "conversation");
+const workbenchFixtures = catalogFixtures.filter((fixture) => fixture.group === "workbench");
+// Keep these below the Vitest runner frame so locator screenshots stay at a 1:1 scale.
+const desktopViewport = { width: 1024, height: 560 } as const;
+const mobileViewport = { width: 420, height: 560 } as const;
 
 describe("Spark UI component catalog", () => {
   it("has no automatically detectable WCAG A or AA violations", async () => {
@@ -45,11 +53,12 @@ describe("Spark UI component catalog", () => {
     await screen.unmount();
   });
 
-  it("keeps the light desktop catalog visually stable", async () => {
-    await page.viewport(1440, 2000);
+  it("keeps the light desktop conversation catalog visually stable", async () => {
+    await page.viewport(desktopViewport.width, desktopViewport.height);
     const screen = await render(Catalog, {
       theme: "light",
       direction: "ltr",
+      fixtures: conversationFixtures,
     });
 
     await expect(page.getByTestId("catalog-message-shell-success")).toMatchScreenshot(
@@ -57,9 +66,6 @@ describe("Spark UI component catalog", () => {
     );
     await expect(page.getByTestId("catalog-composer-empty")).toMatchScreenshot(
       "catalog-composer-light-desktop",
-    );
-    await expect(page.getByTestId("catalog-tool-call-success")).toMatchScreenshot(
-      "catalog-tool-call-light-desktop",
     );
     await expect(page.getByTestId("catalog-attachments-success")).toMatchScreenshot(
       "catalog-attachments-light-desktop",
@@ -74,17 +80,58 @@ describe("Spark UI component catalog", () => {
     await screen.unmount();
   });
 
-  it("keeps the dark RTL mobile catalog visually stable", async () => {
-    await page.viewport(420, 900);
+  it("keeps the light desktop workbench catalog visually stable", async () => {
+    await page.viewport(desktopViewport.width, desktopViewport.height);
+    const screen = await render(Catalog, {
+      theme: "light",
+      direction: "ltr",
+      fixtures: workbenchFixtures,
+    });
+
+    await expect(page.getByTestId("catalog-tool-call-success")).toMatchScreenshot(
+      "catalog-tool-call-light-desktop",
+    );
+    await expect(
+      page.getByTestId("catalog-code-block-success").getByRole("figure", { name: "owner.ts" }),
+    ).toMatchScreenshot("catalog-code-block-light-desktop");
+    await expect(page.getByTestId("catalog-diff-view-success")).toMatchScreenshot(
+      "catalog-diff-view-light-desktop",
+    );
+    await expect(page.getByTestId("catalog-terminal-success")).toMatchScreenshot(
+      "catalog-terminal-light-desktop",
+    );
+
+    await screen.unmount();
+  });
+
+  it("keeps the dark RTL mobile conversation catalog visually stable", async () => {
+    await page.viewport(mobileViewport.width, mobileViewport.height);
     const screen = await render(Catalog, {
       theme: "dark",
       direction: "rtl",
       compact: true,
+      fixtures: conversationFixtures,
     });
 
     await expect(page.getByTestId("catalog-message-shell-overflow")).toMatchScreenshot(
       "catalog-message-shell-dark-rtl-mobile",
       darkTextScreenshotOptions,
+    );
+
+    await screen.unmount();
+  });
+
+  it("keeps the dark RTL mobile workbench catalog visually stable", async () => {
+    await page.viewport(mobileViewport.width, mobileViewport.height);
+    const screen = await render(Catalog, {
+      theme: "dark",
+      direction: "rtl",
+      compact: true,
+      fixtures: workbenchFixtures,
+    });
+
+    await expect(page.getByTestId("catalog-tool-call-overflow")).toMatchScreenshot(
+      "catalog-tool-call-dark-rtl-mobile",
     );
 
     await screen.unmount();
