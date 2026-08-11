@@ -18,6 +18,8 @@ import {
   type EnsureSparkSideThreadInput,
   type ResetSparkSideThreadInput,
   type ResolveBindingInput,
+  type SealSparkSessionCloseReceiptInput,
+  type TransitionSparkSessionLifecycleInput,
 } from "@zendev-lab/spark-session";
 
 /**
@@ -27,6 +29,7 @@ import {
  */
 export interface DaemonSessionRegistry {
   create(input: SparkSessionCreateRequest): Promise<SparkSessionRegistryRecord>;
+  createSupervised(input: CreateSparkSessionInput): Promise<SparkSessionRegistryRecord>;
   list(options?: DaemonSessionListRequest): Promise<SparkSessionRegistryRecord[]>;
   get(sessionId: string): Promise<SparkSessionRegistryRecord | undefined>;
   bind(input: SparkSessionBindRequest): Promise<SparkSessionRegistryRecord>;
@@ -36,7 +39,14 @@ export interface DaemonSessionRegistry {
     adapterAccountIdentity?: string,
   ): Promise<SparkSessionRegistryRecord>;
   archive(input: string | ArchiveSparkSessionInput): Promise<SparkSessionRegistryRecord>;
-  restore?(sessionId: SparkSessionGetRequest["sessionId"]): Promise<SparkSessionRegistryRecord>;
+  /** Supervisor-only close for owned relation Sessions such as Side Threads. */
+  archiveOwned(input: ArchiveSparkSessionInput): Promise<SparkSessionRegistryRecord>;
+  markClosing(input: TransitionSparkSessionLifecycleInput): Promise<SparkSessionRegistryRecord>;
+  sealCloseReceipt(input: SealSparkSessionCloseReceiptInput): Promise<SparkSessionRegistryRecord>;
+  restore?(
+    sessionId: SparkSessionGetRequest["sessionId"],
+    now?: Date,
+  ): Promise<SparkSessionRegistryRecord>;
   ensureWorkspaceMain(workspaceId: string): Promise<SparkSessionRegistryRecord>;
   setRoleIfMissing?(sessionId: string, role: string): Promise<SparkSessionRegistryRecord>;
   /** @deprecated Compatibility alias for older daemon collaborators. */
@@ -117,14 +127,21 @@ export function createSerializedDaemonSessionRegistry(
   };
   return {
     create: (input) => mutate(() => registry.create(input)),
+    createSupervised: (input) => mutate(() => registry.createSupervised(input)),
     list: (options) => readAfterMutations(() => registry.list(options)),
     get: (sessionId) => readAfterMutations(() => registry.get(sessionId)),
     bind: (input) => mutate(() => registry.bind(input)),
     unbind: (sessionId, externalKey, adapterAccountIdentity) =>
       mutate(() => registry.unbind(sessionId, externalKey, adapterAccountIdentity)),
     archive: (input) => mutate(() => registry.archive(input)),
+    archiveOwned: (input) => mutate(() => registry.archiveOwned(input)),
+    markClosing: (input) => mutate(() => registry.markClosing(input)),
+    sealCloseReceipt: (input) => mutate(() => registry.sealCloseReceipt(input)),
     ...(registry.restore
-      ? { restore: (sessionId: string) => mutate(() => registry.restore!(sessionId)) }
+      ? {
+          restore: (sessionId: string, now?: Date) =>
+            mutate(() => registry.restore!(sessionId, now)),
+        }
       : {}),
     ensureWorkspaceMain: (workspaceId) => mutate(() => registry.ensureWorkspaceMain(workspaceId)),
     ...(registry.setRoleIfMissing
@@ -163,13 +180,18 @@ export function createDaemonSessionRegistry(
   });
   const ownedRegistry: DaemonSessionRegistry = {
     create: async (input) => await registry.create(await resolveCreateRequest(input, options)),
+    createSupervised: async (input) =>
+      await registry.create(await resolveRegistryCreateInput(input, options)),
     list: async (request = {}) => await registry.list(resolveListRequest(request, options)),
     get: async (sessionId) => await registry.get(sessionId),
     bind: async (input) => await registry.bind(input),
     unbind: async (sessionId, externalKey, adapterAccountIdentity) =>
       await registry.unbind(sessionId, externalKey, adapterAccountIdentity),
     archive: async (input) => await registry.archive(input),
-    restore: async (sessionId) => await registry.restore(sessionId),
+    archiveOwned: async (input) => await registry.archiveOwned(input),
+    markClosing: async (input) => await registry.markClosing(input),
+    sealCloseReceipt: async (input) => await registry.sealCloseReceipt(input),
+    restore: async (sessionId, now) => await registry.restore(sessionId, now),
     ensureWorkspaceMain: async (workspaceId) => {
       const cwd = options.resolveWorkspaceCwd?.(workspaceId)?.trim();
       if (options.resolveWorkspaceCwd && !cwd) {
@@ -196,9 +218,30 @@ export function createDaemonSessionRegistry(
     resetSideThread: async (input) => await registry.resetSideThread(input),
     configureSideThread: async (input) => await registry.configureSideThread(input),
     resolveBinding: async (input) => {
-      const create = input.create
+      let create = input.create
         ? await resolveRegistryCreateInput(input.create, options)
         : undefined;
+      if (create?.scope?.kind === "workspace") {
+        const root = await registry.ensureWorkspaceMain({
+          workspaceId: create.scope.workspaceId,
+          ...(options.resolveWorkspaceCwd?.(create.scope.workspaceId)
+            ? { cwd: options.resolveWorkspaceCwd(create.scope.workspaceId) }
+            : {}),
+        });
+        create = {
+          ...create,
+          lifetime: "persistent",
+          owner: { kind: "session", ref: root.sessionId },
+          roleRef: "role:builtin-administrator",
+          roleRevision: 1,
+          modelType: "coordination",
+          authority: { kind: "channel", ref: input.externalKey },
+          stateBinding: { kind: "channel", ref: input.externalKey },
+          visibility: "public",
+          retention: "retain",
+          purpose: "channel",
+        };
+      }
       return await registry.resolveBinding({
         ...input,
         ...(create ? { create } : {}),
@@ -279,7 +322,24 @@ async function resolveCreateRequest(
   };
   const createInput: Omit<CreateSparkSessionInput, "scope"> = {
     ...ordinaryInput,
-    ...(taskExecution ? { relation: { kind: "task_execution", ...taskExecution } } : {}),
+    ...(taskExecution
+      ? {
+          relation: { kind: "task_execution", ...taskExecution },
+          lifetime: "owned" as const,
+          owner:
+            taskExecution.sessionLifetime === "task_revision"
+              ? ({ kind: "task_revision", ref: taskExecution.jobId } as const)
+              : ({ kind: "task_run", ref: taskExecution.runRef } as const),
+          authority: { kind: "task", ref: taskExecution.taskRef } as const,
+          stateBinding: { kind: "task", ref: taskExecution.taskRef } as const,
+          visibility: "internal" as const,
+          retention: "discard_on_close" as const,
+          purpose: taskExecution.sessionLifetime ?? "task_run",
+          roleRef: taskExecution.roleRef,
+          ...(taskExecution.roleRevision ? { roleRevision: taskExecution.roleRevision } : {}),
+          ...(taskExecution.modelType ? { modelType: taskExecution.modelType } : {}),
+        }
+      : {}),
   };
   if (!scope) return await resolveRegistryCreateInput(createInput, options);
   if (scope.kind === "daemon") {

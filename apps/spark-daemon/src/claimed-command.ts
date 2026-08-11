@@ -442,6 +442,7 @@ function daemonSessionControlDependencies(context: MessageContext) {
     paths: context.paths,
     db: context.db,
     sessionRegistry: context.sessionRegistry,
+    sessionSupervisor: context.sessionSupervisor,
     modelControl: context.modelControl,
     actor: "spark-daemon-runtime-ws" as const,
   };

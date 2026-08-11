@@ -17,7 +17,7 @@ export interface SparkRuntimeReadyTaskRunner {
 
 export interface SparkRuntimeReadyTaskRunnerOptions {
   registry: RoleRegistry;
-  /** Role assigned when a ready task has no task-level role hint. Defaults by task kind, then worker. */
+  /** Role assigned when a ready task has no task-level role hint. Defaults by task kind, then executor. */
   defaultRoleRef?: RoleRef;
   evidenceStore?: EvidenceStore;
   cwd?: string;

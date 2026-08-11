@@ -65,7 +65,7 @@ type TaskGraphLike = {
 
 type SparkRuntimeModules = {
   defaultEvidenceStore(cwd: string): EvidenceStoreLike;
-  builtinRoleRef(id: "worker"): RoleRef;
+  builtinRoleRef(id: "executor"): RoleRef;
   createDefaultRoleRegistry(): unknown;
   hydrateDefaultRoleRegistry(
     registry: unknown,
@@ -271,7 +271,7 @@ export async function runSparkCommandBridge(
       graph: binding.graph,
       taskRef: binding.taskRef,
       registry,
-      defaultRoleRef: spark ? spark.builtinRoleRef("worker") : "role:builtin-worker",
+      defaultRoleRef: spark ? spark.builtinRoleRef("executor") : "role:builtin-executor",
       evidenceStore,
       cwd: input.workspace.localPath,
       dryRun: false,
@@ -464,7 +464,7 @@ async function ensureSparkTaskBinding(input: {
         description: input.prompt,
         kind: "implement",
         status: "ready",
-        roleRef: "role:builtin-worker",
+        roleRef: "role:builtin-executor",
         plan: {
           objective: input.prompt,
           contextRefs: [],

@@ -70,6 +70,8 @@ test("role spec tools list, get, and create project roles", async () => {
         systemPrompt: "You inspect repositories and report concise findings.",
         rationale: "Reusable inspection role for project work.",
         expectedUses: ["repo inspection"],
+        capabilities: ["read"],
+        modelType: "exploration",
       },
       dir,
     );
@@ -104,6 +106,8 @@ test("role action tool dispatches canonical list, get, and create actions", asyn
         systemPrompt: "You inspect repositories and report concise findings.",
         rationale: "Reusable inspection role for project work.",
         expectedUses: ["repo inspection"],
+        capabilities: ["read"],
+        modelType: "exploration",
       },
       dir,
     );
@@ -162,13 +166,16 @@ test("role action tool manages role model settings", async () => {
       },
       dir,
     );
-    assert.match(saved.content[0]?.text ?? "", /Saved project role model setting for worker/);
+    assert.match(
+      saved.content[0]?.text ?? "",
+      /Saved project model setting for type implementation/,
+    );
 
     const got = await executeRoleTool(tools, "role", { action: "model_get", role: "worker" }, dir);
     assert.match(got.content[0]?.text ?? "", /test\/model source=project/);
     assert.equal(
       (got.details?.model as { selector?: string } | undefined)?.selector,
-      "role:builtin-worker",
+      "implementation",
     );
 
     const listed = await executeRoleTool(
@@ -177,7 +184,7 @@ test("role action tool manages role model settings", async () => {
       { action: "model_list", source: "project" },
       dir,
     );
-    assert.match(listed.content[0]?.text ?? "", /role:builtin-worker -> test\/model/);
+    assert.match(listed.content[0]?.text ?? "", /implementation -> test\/model/);
 
     const called = await executeRoleTool(
       tools,
@@ -191,7 +198,7 @@ test("role action tool manages role model settings", async () => {
       dir,
       { model: { provider: "ignored", id: "session", api: "openai-responses" } },
     );
-    assert.match(called.content[0]?.text ?? "", /Role call succeeded: worker/);
+    assert.match(called.content[0]?.text ?? "", /Role call succeeded: executor/);
     assert.match(called.content[0]?.text ?? "", /model=test\/model/);
 
     const deleted = await executeRoleTool(
@@ -200,7 +207,7 @@ test("role action tool manages role model settings", async () => {
       { action: "model_delete", role: "worker", source: "project" },
       dir,
     );
-    assert.match(deleted.content[0]?.text ?? "", /Deleted project role model setting/);
+    assert.match(deleted.content[0]?.text ?? "", /Deleted project model setting/);
 
     const afterDelete = await executeRoleTool(
       tools,
@@ -208,7 +215,7 @@ test("role action tool manages role model settings", async () => {
       { action: "model_get", role: "worker" },
       dir,
     );
-    assert.match(afterDelete.content[0]?.text ?? "", /No role model setting/);
+    assert.match(afterDelete.content[0]?.text ?? "", /No model setting for type implementation/);
 
     await assert.rejects(
       executeRoleTool(
@@ -246,7 +253,7 @@ test("role spec tools keep patch presets out of builtin role lookup", async () =
     const listed = await executeRoleTool(tools, "list_roles", { source: "builtin" }, dir);
     const roleIds = ((listed.details?.roles ?? []) as Array<{ id: string }>).map((role) => role.id);
 
-    assert.deepEqual(roleIds, ["explorer", "researcher", "reviewer", "scout", "worker"]);
+    assert.deepEqual(roleIds, ["administrator", "executor", "explorer", "researcher", "reviewer"]);
     assert.doesNotMatch(listed.content[0]?.text ?? "", /\bpatcher?\b/);
     await assert.rejects(
       executeRoleTool(tools, "get_role", { role: "patch" }, dir),
@@ -261,7 +268,7 @@ test("role spec tools keep patch presets out of builtin role lookup", async () =
   }
 });
 
-test("call_role launches fresh role runs", async () => {
+test("call_role launches fresh owned Role Sessions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-tool-"));
   const previousBindingHome = process.env.SPARK_HOME;
   process.env.SPARK_HOME = dir;
@@ -286,7 +293,7 @@ test("call_role launches fresh role runs", async () => {
       },
     );
 
-    assert.match(result.content[0]?.text ?? "", /Role call succeeded: worker/);
+    assert.match(result.content[0]?.text ?? "", /Role call succeeded: executor/);
     assert.match(
       result.content[0]?.text ?? "",
       /runRef=run:[^\n]+ · launch=fresh · model=test\/model/,
@@ -302,14 +309,14 @@ test("call_role launches fresh role runs", async () => {
     assert.equal(details.record?.status, "succeeded");
     assert.equal(details.record?.launch, "fresh");
     assert.equal(details.jsonEventCount, 1);
-    assert.equal(capturedNativeInput?.role.id, "worker");
+    assert.equal(capturedNativeInput?.role.id, "executor");
     assert.ok(capturedNativeInput?.role.allowedTools?.includes("edit"));
     assert.equal(capturedNativeInput?.instruction.instruction, "Run the fake worker.");
     assert.equal(capturedNativeInput?.launch, "fresh");
-    assert.equal(capturedNativeInput?.noSession, true);
-    assert.equal(capturedNativeInput?.sessionPersistence, "anonymous");
-    assert.equal(capturedNativeInput?.record.noSession, true);
-    assert.equal(capturedNativeInput?.record.sessionPersistence, "anonymous");
+    assert.equal(capturedNativeInput?.noSession, undefined);
+    assert.equal(capturedNativeInput?.record.noSession, undefined);
+    assert.equal(capturedNativeInput?.role.modelType, "implementation");
+    assert.equal(capturedNativeInput?.role.instantiation, "owned");
     assert.equal(capturedNativeInput?.model, "test/model");
     assert.equal(capturedNativeInput?.timeoutMs, 5_000);
     assert.equal(capturedNativeInput?.cwd, dir);
@@ -329,7 +336,7 @@ test("call_role launches fresh role runs", async () => {
       },
       dir,
     );
-    assert.match(canonical.content[0]?.text ?? "", /Role call succeeded: worker/);
+    assert.match(canonical.content[0]?.text ?? "", /Role call succeeded: executor/);
   } finally {
     if (previousBindingHome === undefined) delete process.env.SPARK_HOME;
     else process.env.SPARK_HOME = previousBindingHome;
@@ -337,28 +344,31 @@ test("call_role launches fresh role runs", async () => {
   }
 });
 
-test("call_role inherits the active session model when no role model is saved", async () => {
+test("call_role rejects an unconfigured Model Type instead of inheriting the session model", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-session-model-"));
   const previousBindingHome = process.env.SPARK_HOME;
   process.env.SPARK_HOME = dir;
   try {
     const tools = registerRoleToolsForTest();
 
-    const result = await executeRoleTool(
-      tools,
-      "role",
-      {
-        action: "call",
-        role: "worker",
-        instruction: "Run with the inherited session model.",
-        timeoutMs: 5_000,
-      },
-      dir,
-      { model: { provider: "test", id: "model", api: "openai-responses" } },
+    await assert.rejects(
+      executeRoleTool(
+        tools,
+        "role",
+        {
+          action: "call",
+          role: "worker",
+          instruction: "Do not inherit the active session model.",
+          timeoutMs: 5_000,
+        },
+        dir,
+        { model: { provider: "test", id: "model", api: "openai-responses" } },
+      ),
+      (error: unknown) =>
+        error instanceof Error &&
+        error.name === "RoleModelTypeUnconfiguredError" &&
+        (error as Error & { code?: string }).code === "role_model_type_unconfigured",
     );
-
-    assert.match(result.content[0]?.text ?? "", /Role call succeeded: worker/);
-    assert.match(result.content[0]?.text ?? "", /model=test\/model/);
   } finally {
     if (previousBindingHome === undefined) delete process.env.SPARK_HOME;
     else process.env.SPARK_HOME = previousBindingHome;
@@ -382,7 +392,7 @@ test("call_role does not expose raw JSON protocol fragments as output", async ()
       dir,
     );
 
-    assert.match(result.content[0]?.text ?? "", /Role call succeeded: worker/);
+    assert.match(result.content[0]?.text ?? "", /Role call succeeded: executor/);
     assert.match(result.content[0]?.text ?? "", /delivery: empty/);
     assert.doesNotMatch(result.content[0]?.text ?? "", /assistantMessageEvent/);
     assert.doesNotMatch(result.content[0]?.text ?? "", /toolcall_delta/);
@@ -410,7 +420,7 @@ test("call_role exposes empty delivery when JSON events have no final assistant 
       dir,
     );
 
-    assert.match(result.content[0]?.text ?? "", /Role call succeeded: worker/);
+    assert.match(result.content[0]?.text ?? "", /Role call succeeded: executor/);
     assert.match(
       result.content[0]?.text ?? "",
       /delivery: empty .*no final assistant message found \(2 JSON events captured\)/,
@@ -500,7 +510,7 @@ test("spark-roles tools require ctx cwd unless call_role cwd is explicit", async
       },
       { runRole: defaultNativeRoleRunner },
     );
-    assert.match(explicit.content[0]?.text ?? "", /Role call succeeded: worker/);
+    assert.match(explicit.content[0]?.text ?? "", /Role call succeeded: executor/);
   } finally {
     if (previousBindingHome === undefined) delete process.env.SPARK_HOME;
     else process.env.SPARK_HOME = previousBindingHome;
@@ -582,6 +592,8 @@ test("spark-roles tools reject invalid explicit parameters instead of using defa
       systemPrompt: "Do not write this role.",
       rationale: "Parameter validation should be explicit.",
       expectedUses: ["validation"],
+      capabilities: ["read"],
+      modelType: "implementation",
       allowedTools: ["read", 42],
     }),
     /create_role allowedTools must be an array of strings/,

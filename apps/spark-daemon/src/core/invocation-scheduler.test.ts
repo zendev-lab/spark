@@ -27,6 +27,81 @@ function harness(
 }
 
 describe("SparkInvocationScheduler", () => {
+  it("records structured child usage as anonymous without conflicting with its observer", async () => {
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    const store = new SparkInvocationStore(db);
+    const tokenUsageStore = new SparkTokenUsageStore(db);
+    const scheduler = new SparkInvocationScheduler({
+      store,
+      tokenUsageStore,
+      executeTask: async (_task, context) => {
+        context.recordTokenUsage?.({
+          executionId: context.invocationId,
+          kind: "role_run",
+          persistence: "anonymous",
+          event: {
+            type: "turn_complete",
+            message: {
+              provider: "openai",
+              model: "test-model",
+              responseId: "response-structured",
+              content: [],
+              usage: {
+                input: 1,
+                output: 1,
+                cacheRead: 0,
+                cacheWrite: 0,
+                totalTokens: 2,
+              },
+              timestamp: Date.parse("2026-08-10T00:00:00.000Z"),
+            },
+          },
+        });
+        return { ok: true };
+      },
+    });
+    try {
+      const parent = store.submit({
+        invocationId: "inv-parent-usage",
+        sessionId: "session-parent",
+        prompt: "parent",
+        task: { type: "session.run", sessionId: "session-parent", prompt: "parent" },
+      });
+      expect(store.claimNext("parent-worker")?.invocationId).toBe(parent.invocationId);
+      tokenUsageStore.registerExecution({
+        invocationId: parent.invocationId,
+        scope: { kind: "repro", reproId: "repro-structured" },
+        kind: "root_session",
+        persistence: "persistent",
+        sessionId: parent.sessionId,
+      });
+      const child = store.submit({
+        invocationId: "inv-child-usage",
+        sessionId: "session-role-child",
+        prompt: "review",
+        task: {
+          type: "session.run",
+          sessionId: "session-role-child",
+          prompt: "review",
+          roleRunRef: "run:review",
+        },
+        claimClass: "structured",
+        parentInvocationId: parent.invocationId,
+      });
+
+      await scheduler.executeStructured(child.invocationId);
+
+      expect(tokenUsageStore.execution(child.invocationId)).toMatchObject({
+        kind: "role_run",
+        persistence: "anonymous",
+        status: "complete",
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   it("persists explicit repro loop scope and records provider responses through the daemon sink", async () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
@@ -72,17 +147,16 @@ describe("SparkInvocationScheduler", () => {
     });
     try {
       const invocation = store.submit({
-        sessionId: "session-repro-driver",
+        sessionId: "driver-session-repro",
         prompt: "continue repro",
         task: {
           type: "loop.tick",
-          sessionId: "session-repro-driver",
+          sessionId: "driver-session-repro",
           loopId: "repro-driver-1",
           binding: { reproId: "repro-driver-1" },
           ownerSessionId: "session-repro-driver",
-          stateOwnerSessionId: "session-repro-driver",
           generation: 1,
-          continuity: "session",
+          sessionLifetime: "driver",
           cwd: process.cwd(),
           prompt: "continue repro",
         },
@@ -95,7 +169,7 @@ describe("SparkInvocationScheduler", () => {
         invocationId: invocation.invocationId,
         scope: { kind: "repro", reproId: "repro-driver-1" },
         kind: "root_session",
-        persistence: "persistent",
+        persistence: "anonymous",
         status: "complete",
       });
       expect(

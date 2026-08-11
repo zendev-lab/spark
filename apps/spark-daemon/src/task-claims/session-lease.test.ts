@@ -130,6 +130,62 @@ describe("daemon Session lease", () => {
     }
   });
 
+  it("fences the persistent state binding for an owned execution Session", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-owned-session-lease-"));
+    roots.push(root);
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    try {
+      const workspace = registerWorkspace(db, { localPath: root });
+      const lease = await acquireDaemonSessionLease({
+        db,
+        task: {
+          ...sessionTask(workspace.id),
+          sessionId: "driver_tick_owned",
+        },
+        context: executionContext(),
+        sessionRegistry: {
+          get: async () =>
+            ({
+              sessionId: "driver_tick_owned",
+              workspaceId: workspace.id,
+              lifetime: "owned",
+              stateBinding: { kind: "session", ref: "sess_workspace_administrator" },
+            }) as never,
+        },
+      });
+
+      expect(lease?.identity).toMatchObject({
+        workspaceId: workspace.id,
+        sessionId: "session:sess_workspace_administrator",
+        leaseFence: expect.stringMatching(/^wclf_/u),
+      });
+      expect(listWorkspaceClients(db, workspace.id)).toContainEqual(
+        expect.objectContaining({
+          id: lease?.identity.clientId,
+          sessionId: "session:sess_workspace_administrator",
+          metadata: expect.objectContaining({
+            purpose: "daemon_session",
+            invocationId: "inv_managed",
+          }),
+        }),
+      );
+
+      lease?.release();
+    } finally {
+      db.close();
+    }
+  });
+
   it("does not invent a lease for an unowned daemon Session", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-unowned-session-lease-"));
     roots.push(root);

@@ -6,6 +6,10 @@ import type { ExtensionRoleRunRequest, SparkHostAPI, ToolConfig } from "@zendev-
 import { test } from "vitest";
 import sparkRolesExtension from "./extension-entry.ts";
 import { SKILL_AGENT_ALLOWED_TOOLS, createSparkSkillAgentTool } from "./skill-extension.ts";
+import {
+  RoleModelTypeUnconfiguredError,
+  defaultProjectRoleModelSettingsStore,
+} from "./role-runtime.ts";
 
 async function writeSkill(
   root: string,
@@ -45,7 +49,7 @@ function testTool(options: { builtinDirs: string[]; maxCombinedSkillChars?: numb
   });
 }
 
-test("skill_agent runs the complete Skill set in one restricted anonymous Agent", async () => {
+test("skill_agent runs the complete Skill set in one restricted owned Session", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-skill-agent-"));
   try {
     const skillsDir = join(dir, "skills");
@@ -55,6 +59,10 @@ test("skill_agent runs the complete Skill set in one restricted anonymous Agent"
       "# GitHub publish\n\nPublish only after PUBLISH_READY_SENTINEL verification passes.\n";
     const auditPath = await writeSkill(skillsDir, "release-audit", auditBody);
     const publishPath = await writeSkill(skillsDir, "github-publish", publishBody);
+    await defaultProjectRoleModelSettingsStore(dir).save(
+      "implementation",
+      "fake-provider/fake-model",
+    );
     const tool = testTool({ builtinDirs: [skillsDir] });
     assert.deepEqual(tool.policy?.modes, ["execute"]);
     assert.equal(
@@ -101,9 +109,13 @@ test("skill_agent runs the complete Skill set in one restricted anonymous Agent"
     assert.ok(captured);
     assert.match(captured.role.ref, /^role:skill-agent-[0-9a-f]{12}$/u);
     assert.match(captured.role.id, /^skill-agent-[0-9a-f]{12}$/u);
+    assert.equal(captured.role.source, "extension");
+    assert.equal(captured.role.modelType, "implementation");
+    assert.equal(captured.role.instantiation, "owned");
+    assert.deepEqual(captured.role.capabilities, ["read", "write", "exec", "net"]);
+    assert.ok((captured.role.revision ?? 0) > 0);
     assert.equal(captured.record.launch, "fresh");
-    assert.equal(captured.record.noSession, true);
-    assert.equal(captured.record.sessionPersistence, "anonymous");
+    assert.equal(captured.record.noSession, undefined);
     assert.equal(captured.model, "fake-provider/fake-model");
     assert.equal(captured.timeoutMs, 30_000);
     assert.equal(countOccurrences(captured.role.systemPrompt, auditBody.trim()), 1);
@@ -148,6 +160,34 @@ test("skill_agent runs the complete Skill set in one restricted anonymous Agent"
     assert.deepEqual(
       (result.details?.skills as Array<{ name: string }>).map((skill) => skill.name),
       ["release-audit", "github-publish"],
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("skill_agent refuses parent-model fallback when implementation is unconfigured", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-skill-agent-model-type-"));
+  try {
+    const skillsDir = join(dir, "skills");
+    await writeSkill(skillsDir, "visible-skill", "# Visible\n");
+    const tool = testTool({ builtinDirs: [skillsDir] });
+    await assert.rejects(
+      tool.execute(
+        "skill-call-model",
+        { skills: ["visible-skill"], instruction: "Run it" },
+        new AbortController().signal,
+        () => undefined,
+        {
+          cwd: dir,
+          model: { provider: "parent-provider", id: "parent-model" },
+          runRole: async () => assert.fail("unconfigured Skill Agent must not launch"),
+        },
+      ),
+      (error) =>
+        error instanceof RoleModelTypeUnconfiguredError &&
+        error.code === "role_model_type_unconfigured" &&
+        error.modelType === "implementation",
     );
   } finally {
     await rm(dir, { recursive: true, force: true });

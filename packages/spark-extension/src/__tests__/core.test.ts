@@ -354,7 +354,7 @@ test("task role labels prefer active claim, finished attribution, then latest ru
   );
   assert.equal(
     deriveTaskRoleLabel({ task: graph.getTask(roleRun.ref), currentSessionKey: current }),
-    "me/worker-1234(spec:worker)",
+    "me/worker-1234(spec:executor)",
   );
   assert.equal(
     deriveTaskRoleLabel({
@@ -382,6 +382,7 @@ test("task role labels prefer active claim, finished attribution, then latest ru
 
 test("builtin Pi roles report blockers upward instead of asking interactively", () => {
   for (const role of createBuiltinRoles()) {
+    if (role.id === "administrator") continue;
     assert.equal((role.allowedTools ?? []).includes("ask"), false);
   }
 });

@@ -16,6 +16,51 @@ import { registerWorkspace } from "../../store/workspaces.ts";
 import { handleLoopRequest } from "./loop.ts";
 
 describe("trusted Workbench Loop control", () => {
+  it("binds owner-derived Loop invocations to the runtime workspace delivery route", async () => {
+    const workspaceCwd = await mkdtemp(join(tmpdir(), "spark-loop-route-"));
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    const workspace = registerWorkspace(db, {
+      localPath: workspaceCwd,
+      serverWorkspaceId: "ws_11111111111111111111111111111111",
+      serverBindingId: "rtwb_22222222222222222222222222222222",
+    });
+    const context = {
+      db,
+      options: {
+        sessionRegistry: {
+          get: async () => ({
+            sessionId: "session-loop-owner",
+            status: "active",
+            cwd: workspaceCwd,
+            scope: { kind: "workspace", workspaceId: workspace.id },
+          }),
+        },
+      },
+    } as unknown as LocalRpcDispatchContext;
+
+    const started = await handleLoopRequest(context, {
+      method: "loop.start",
+      params: {
+        loopId: "loop-route",
+        ownerSessionId: "session-loop-owner",
+        sessionLifetime: "driver",
+        continuity: "session",
+        cwd: workspaceCwd,
+        prompt: "continue",
+      },
+    });
+    const loops = new SparkLoopStore(db, new SparkInvocationStore(db));
+
+    expect(started).toBeDefined();
+    expect(loops.require("loop-route").route).toMatchObject({
+      workspaceId: workspace.id,
+      workspaceBindingId: "rtwb_22222222222222222222222222222222",
+      cwd: workspaceCwd,
+    });
+    db.close();
+  });
+
   it("applies an idempotent action and rejects stale, unbound, or tampered Artifacts", async () => {
     const workspaceCwd = await mkdtemp(join(tmpdir(), "spark-workbench-action-"));
     const cwd = join(workspaceCwd, "packages", "demo");

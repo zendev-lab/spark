@@ -94,10 +94,16 @@ export interface SparkHeadlessSessionRunInput {
     adapterAccountIdentity?: string;
   };
   invocationId?: string;
+  stateBindingSessionId?: string;
+  /** @deprecated Compatibility input; normalized before host construction. */
   stateOwnerSessionId?: string;
   loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
   allowedTools?: readonly string[];
+  /** Daemon Supervisor-backed nested Role execution port. */
+  roleRunner?: ExtensionRoleRunner;
+  roleRunRef?: string;
+  requireStructuredOutcome?: boolean;
   /** Host-enforced effect allowlist; unknown tool effects are denied. */
   allowedToolEffects?: readonly ToolEffect[];
   /** Optional base identity/surface prompt; defaults to Spark host identity. */

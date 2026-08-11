@@ -315,9 +315,8 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       ).length,
       DEFAULT_REPRO_STAGES.flatMap((stage) => stage.acceptance).length,
     );
-    assert.deepEqual(await sessionToolErrorIds(fixture.sparkHome, sessionId), [
-      "validation.failed_before_fix",
-    ]);
+    assert.deepEqual(await sessionToolErrorIds(fixture.sparkHome, sessionId), []);
+    await assertClosedDriverRetention(fixture.sparkHome, fixture.daemonDbPath);
 
     const report = await waitForJsonFile(resolve(fixture.workspace, "outputs/spark-summary.json"));
     const reportMarkdown = await readFile(resolve(fixture.workspace, "outputs/report.md"), "utf8");
@@ -1297,6 +1296,61 @@ async function sessionToolErrorIds(sparkHome: string, sessionId: string): Promis
     }
   }
   return toolErrorIds;
+}
+
+async function assertClosedDriverRetention(sparkHome: string, daemonDbPath: string): Promise<void> {
+  const registryPath = resolve(sparkHome, "session-registry/v1/registry.json");
+  const drivers = await waitFor(
+    async () => {
+      const registry = jsonObject(await readFile(registryPath, "utf8"));
+      const sessions = arrayField(registry, "sessions");
+      const candidates = sessions.filter((session) => {
+        const owner = objectField(session, "owner");
+        return owner.kind === "driver" && session.retention === "discard_on_close";
+      });
+      if (candidates.length === 0 || candidates.some((session) => session.lifecycle !== "closed")) {
+        return undefined;
+      }
+      return candidates;
+    },
+    60_000,
+    "closed driver Session retention",
+  );
+
+  const sessionIds = drivers.map((session) => stringField(session, "sessionId"));
+  for (const session of drivers) {
+    assert.equal(session.transcriptRef, undefined);
+    assert.ok(arrayField(session, "closeReceipts").length > 0);
+  }
+
+  const db = new DatabaseSync(daemonDbPath, { readOnly: true });
+  try {
+    const placeholders = sessionIds.map(() => "?").join(", ");
+    const rows = db
+      .prepare(
+        `SELECT i.session_id AS sessionId,
+                i.prompt,
+                i.task_json AS taskJson,
+                i.result_json AS resultJson,
+                i.error_message AS errorMessage,
+                i.payload_redacted_at AS payloadRedactedAt,
+                (SELECT COUNT(*) FROM invocation_events e WHERE e.invocation_id = i.id) AS eventCount
+         FROM invocations i
+         WHERE i.session_id IN (${placeholders})`,
+      )
+      .all(...sessionIds) as unknown as Array<Record<string, unknown>>;
+    assert.ok(rows.length > 0);
+    for (const row of rows) {
+      assert.equal(row.prompt, null);
+      assert.equal(row.taskJson, null);
+      assert.equal(row.resultJson, null);
+      assert.equal(row.errorMessage, null);
+      assert.equal(typeof row.payloadRedactedAt, "string");
+      assert.equal(row.eventCount, 0);
+    }
+  } finally {
+    db.close();
+  }
 }
 
 function seedHubEnrollment(sparkHome: string): string {

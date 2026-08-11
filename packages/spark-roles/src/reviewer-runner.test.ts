@@ -8,6 +8,7 @@ import {
   createRoleSpec,
   defaultProjectRoleModelSettingsStore,
   ROLE_RUN_DEPTH_ENV,
+  RoleModelTypeUnconfiguredError,
   RoleRegistry,
 } from "@zendev-lab/spark-roles";
 import { TaskGraph } from "@zendev-lab/spark-tasks";
@@ -561,6 +562,7 @@ test("SparkRolesReviewerRunner does not retry a completed compatibility fallback
     const runner = new SparkRolesReviewerRunner({
       registry: new RoleRegistry(),
       cwd: dir,
+      model: "test/reviewer",
       timeoutMs: 15_000,
       maxRetries: 2,
       retryBaseDelayMs: 1,
@@ -604,6 +606,7 @@ test("SparkRolesReviewerRunner classifies impossible task requests as reviewer p
       const runner = new SparkRolesReviewerRunner({
         registry: new RoleRegistry(),
         cwd: dir,
+        model: "test/reviewer",
         timeoutMs: 15_000,
         maxRetries: 0,
         env: reviewerRunnerTestEnv,
@@ -718,6 +721,7 @@ test("SparkRolesReviewerRunner preserves negated and independent semantic findin
     const runner = new SparkRolesReviewerRunner({
       registry: new RoleRegistry(),
       cwd: dir,
+      model: "test/reviewer",
       timeoutMs: 15_000,
       maxRetries: 0,
       env: reviewerRunnerTestEnv,
@@ -758,7 +762,7 @@ test("SparkRolesReviewerRunner preserves negated and independent semantic findin
 test("SparkRolesReviewerRunner resolves reviewer model from role model settings", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-reviewer-runner-model-settings-"));
   try {
-    await defaultProjectRoleModelSettingsStore(dir).save("role:builtin-reviewer", "test/reviewer");
+    await defaultProjectRoleModelSettingsStore(dir).save("verification", "test/reviewer");
     let captured:
       | Awaited<
           Parameters<
@@ -786,6 +790,10 @@ test("SparkRolesReviewerRunner resolves reviewer model from role model settings"
     assert.equal(captured?.record.launch, "fresh");
     assert.equal(captured?.record.model, "test/reviewer");
     assert.equal(captured?.nativeCompatibilityRecovery, "reviewer");
+    assert.equal(captured?.role.modelType, "verification");
+    assert.equal(captured?.role.instantiation, "owned");
+    assert.equal(captured?.role.source, "builtin");
+    assert.ok((captured?.role.revision ?? 0) > 0);
     assert.equal(result.record.thinking, "medium");
     const tools = captured?.role.allowedTools ?? [];
     assert.ok(tools.includes("read"));
@@ -810,6 +818,33 @@ test("SparkRolesReviewerRunner resolves reviewer model from role model settings"
   }
 });
 
+test("SparkRolesReviewerRunner refuses session-model fallback", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-reviewer-runner-unconfigured-"));
+  try {
+    let launches = 0;
+    const runner = new SparkRolesReviewerRunner({
+      registry: new RoleRegistry(),
+      cwd: dir,
+      sessionModel: "parent/session-model",
+      nativeExecutor: async () => {
+        launches += 1;
+        return approvedReviewerNativeExecutor()({} as never);
+      },
+    });
+
+    await assert.rejects(
+      runner.review({ ...reviewTaskInput(), cwd: dir }),
+      (error) =>
+        error instanceof RoleModelTypeUnconfiguredError &&
+        error.code === "role_model_type_unconfigured" &&
+        error.modelType === "verification",
+    );
+    assert.equal(launches, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("SparkRolesReviewerRunner strips reviewer role orchestration and interaction tools", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-reviewer-runner-tool-gate-"));
   try {
@@ -826,6 +861,8 @@ test("SparkRolesReviewerRunner strips reviewer role orchestration and interactio
       systemPrompt: "Review only.",
       rationale: "Verify reviewer gate filtering.",
       expectedUses: ["review"],
+      capabilities: ["read", "net"],
+      modelType: "verification",
       allowedTools: [
         "read",
         "web_search",
@@ -855,6 +892,7 @@ test("SparkRolesReviewerRunner strips reviewer role orchestration and interactio
     const runner = new SparkRolesReviewerRunner({
       registry,
       cwd: dir,
+      model: "test/reviewer",
       reviewerRoleRef: projectReviewer.ref,
       timeoutMs: 15_000,
       env: reviewerRunnerTestEnv,
@@ -884,6 +922,7 @@ test("SparkRolesReviewerRunner auto-answer decrements role depth for reviewer ch
     const runner = new SparkRolesReviewerRunner({
       registry: new RoleRegistry(),
       cwd: dir,
+      model: "test/reviewer",
       timeoutMs: 15_000,
       env: { ...process.env, [ROLE_RUN_DEPTH_ENV]: "2" },
       nativeExecutor: askAnswerNativeExecutor((request) => {
@@ -935,6 +974,7 @@ test("SparkRolesReviewerRunner auto-answer reports exhausted role depth before s
     const runner = new SparkRolesReviewerRunner({
       registry: new RoleRegistry(),
       cwd: dir,
+      model: "test/reviewer",
       timeoutMs: 15_000,
       env: { ...process.env, [ROLE_RUN_DEPTH_ENV]: "0" },
       nativeExecutor: async () => {
@@ -981,6 +1021,7 @@ test("SparkRolesReviewerRunner runs reviewer gates in fresh mode even with paren
     const runner = new SparkRolesReviewerRunner({
       registry: new RoleRegistry(),
       cwd: dir,
+      model: "test/reviewer",
       timeoutMs: 15_000,
       env: reviewerRunnerTestEnv,
       nativeExecutor: approvedReviewerNativeExecutor((request) => {

@@ -312,40 +312,6 @@ export class SparkAgentSession {
     };
   }
 
-  async runAnonymous(options: SparkAgentSessionRunOptions): Promise<SparkAgentSessionRunResult> {
-    this.services.runtime.setSessionId(options.sessionId);
-    this.services.agentLoop.setViewSessionId(options.sessionId);
-    this.services.agentLoop.replacePromptItems([]);
-    let beforeCount = this.services.agentLoop.getPromptItems().length;
-    let outcome = await this.services.agentLoop.submitWithOutcome(options.prompt);
-    let rateLimitAttempt = 0;
-    while (
-      outcome.status === "failed" &&
-      classifyProviderFailure(outcome.errorMessage).failureClass === "rate_limit" &&
-      rateLimitAttempt < MAX_RATE_LIMIT_RETRIES
-    ) {
-      await delay(RATE_LIMIT_BACKOFF_MS[rateLimitAttempt] ?? 20_000);
-      rateLimitAttempt += 1;
-      this.services.agentLoop.replacePromptItems([]);
-      beforeCount = this.services.agentLoop.getPromptItems().length;
-      outcome = await this.services.agentLoop.submitWithOutcome(options.prompt);
-    }
-    const assistant = outcome.assistant;
-
-    return {
-      sessionId: options.sessionId,
-      sessionPath: "",
-      newMessageCount: this.services.agentLoop
-        .getPromptItems()
-        .slice(beforeCount)
-        .filter((item) => item.persistence === "session").length,
-      assistantText: assistantMessageToFinalAnswerText(assistant),
-      assistant,
-      outcome,
-      sessionPersistence: "anonymous",
-    };
-  }
-
   private async loadOrCreateRecord(
     options: SparkAgentSessionRunOptions,
     restartResume = false,

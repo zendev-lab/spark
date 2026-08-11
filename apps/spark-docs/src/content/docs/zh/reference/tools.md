@@ -21,7 +21,7 @@ Host 和 Session 向 Agent 提供的 active tool schema，是本次运行的工�
 | 文件与执行 | 读取、搜索、编辑和获准的本地执行 | 在所选工作区运行的 Host adapter |
 | 工作协调 | Task、Session、Goal、Loop、Repro 与 Workflow | 各领域 owner；持久调度仍由 daemon 拥有 |
 | 成果归属 | 产品 Artifact 与内部 Evidence | Artifact store 与 Evidence store 保持分离 |
-| Agent 组合 | Role 与匿名 Skill Agent | Session/Role registry 与 Skill loader |
+| Agent 组合 | Role 与 owner-bound Skill Agent | Session/Role registry 与 Skill loader |
 | 外部 adapter | Channel、ACP、MCP、Git 与 provider 能力 | Spark 契约后的对应 adapter |
 
 ## Artifact 与 Evidence
@@ -36,11 +36,18 @@ store、权限和生命周期。工具不能把文件路径、transcript 陈述�
 
 ## Role、Session 与 Skill Agent
 
-- Role 定义类型化能力与责任 profile。
-- Session 是拥有 continuity、binding、call 和 mail 的持久或临时运行实例。
-- `skill_agent({ skills, instruction, inputs? })` 为一次自包含的多 Skill 调用创建
-  全新的匿名 Agent。它接收所选 Skill 内容和显式 packet，不继承父 transcript，
-  也不能创建第二套持久生命周期。
+- Role 定义类型化能力与责任 profile，包括语义 Model Type，以及 `persistent` 或
+  `owned` 实例化策略。
+- Session 是拥有 continuity、binding、call 和 mail 的运行实例。Owner-bound 子
+  Session 不可恢复，并随所属父操作关闭。
+- `skill_agent({ skills, instruction, inputs? })` 按精确名称解析一到八个 Skill，
+  在一个全新的 owned 子 Session 中各加载一次。它只接收显式 packet，不继承父
+  transcript，也不能递归调用 Role、Skill Agent 或持久 Session。
+
+Role 与 Skill Agent 子 Session 通过语义 Model Type 选择模型。缺少绑定时返回
+`role_model_type_unconfigured`，不会回退到父 Session 模型。Owned 子 Session 关闭时
+会先封存一份有界 receipt，再删除完整 transcript 和 Invocation 内容载荷。该 receipt
+是 Session 运维元数据，不是 Evidence。
 
 父 Session 仍负责拆解、持久协调、验证重要结论和面向用户的综合。
 

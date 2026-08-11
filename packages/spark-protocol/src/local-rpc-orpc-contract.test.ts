@@ -269,6 +269,9 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     ).toBe(true);
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("session.get", "session_not_found")).toBe(true);
     expect(
+      isSparkLocalRpcOrpcErrorCodeForMethod("session.restore", "session_restore_forbidden"),
+    ).toBe(true);
+    expect(
       isSparkLocalRpcOrpcErrorCodeForMethod("session.get", "relocation_source_not_found"),
     ).toBe(false);
   });

@@ -202,7 +202,10 @@ export const sparkLocalRpcSessionOrpcErrors = {
   session_media_invalid: { status: 422 },
   session_media_not_found: { status: 404 },
   session_not_found: { status: 404 },
+  session_owner_invalid: { status: 409 },
+  session_registry_conflict: { status: 409 },
   session_registry_unavailable: { status: 503 },
+  session_restore_forbidden: { status: 403 },
   session_scope_mismatch: { status: 409 },
   session_snapshot_cursor_not_found: { status: 404 },
   session_snapshot_mismatch: { status: 409 },
@@ -273,6 +276,7 @@ export const sparkLocalRpcInvocationOrpcErrors = {
 
 export const sparkLocalRpcModelOrpcErrors = {
   model_control_unavailable: { status: 503 },
+  role_model_type_unconfigured: { status: 422 },
   model_not_found: { status: 404 },
   model_out_of_scope: { status: 422 },
   model_unavailable: { status: 422 },
@@ -426,6 +430,9 @@ const sparkLocalRpcSessionArchiveOrpcErrors = {
   ...sparkLocalRpcSessionRegistryBaseOrpcErrors,
   session_channel_bound: sparkLocalRpcSessionOrpcErrors.session_channel_bound,
   session_not_found: sparkLocalRpcSessionOrpcErrors.session_not_found,
+  session_owner_invalid: sparkLocalRpcSessionOrpcErrors.session_owner_invalid,
+  session_registry_conflict: sparkLocalRpcSessionOrpcErrors.session_registry_conflict,
+  session_restore_forbidden: sparkLocalRpcSessionOrpcErrors.session_restore_forbidden,
   session_scope_mismatch: sparkLocalRpcSessionOrpcErrors.session_scope_mismatch,
   side_thread_mutation_forbidden: sparkLocalRpcSessionOrpcErrors.side_thread_mutation_forbidden,
 } as const;

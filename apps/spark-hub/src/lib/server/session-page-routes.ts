@@ -191,6 +191,8 @@ export const actions = {
         workspaceId,
         ...(cwd ? { cwd } : {}),
         ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
+        roleRef: "role:builtin-administrator",
+        purpose: "hub_interactive",
         ...(deterministicSessionId ? { sessionId: deterministicSessionId } : {}),
         idempotencyKey: hubSubmissionIdempotencyKey(submissionId, "session.create", cwdContext),
       });

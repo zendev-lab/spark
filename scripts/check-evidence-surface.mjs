@@ -194,6 +194,7 @@ const allow = new Map([
       /^packages\/spark-tasks\/src\/(?:common|extension|graph|internal)\.ts$/u,
       /^packages\/spark-tasks\/src\/graph-store\.ts$/u,
       /^packages\/spark-extension\/src\/extension\/spark-task-artifact\.ts$/u,
+      /^packages\/spark-extension\/src\/extension\/spark-task-session-dispatch(?:\.test)?\.ts$/u,
       /^packages\/spark-extension\/src\/extension\/spark-repro-report(?:\.test)?\.ts$/u,
       /^packages\/spark-extension\/src\/extension\/spark-lens-(?:completion-gate|tool)\.ts$/u,
       /^packages\/spark-extension\/src\/extension\/subject-review-store\.ts$/u,

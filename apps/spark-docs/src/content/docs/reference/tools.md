@@ -23,7 +23,7 @@ they share one owner, state, permission, rendering, and result contract.
 | Files and execution | Read, search, edit, and approved local execution | Host adapters operating in the selected workspace |
 | Work coordination | Tasks, sessions, Goals, Loops, Repros, and Workflows | Their domain owner; durable scheduling remains daemon-owned |
 | Result ownership | User-facing outcomes and internal Evidence | Artifact and Evidence stores remain separate |
-| Agent composition | Roles and anonymous Skill Agents | Session/Role registry and Skill loader |
+| Agent composition | Roles and owner-bound Skill Agents | Session/Role registry and Skill loader |
 | External adapters | Channels, ACP, MCP, Git, and provider-specific capabilities | The owning adapter behind Spark contracts |
 
 ## Artifacts and Evidence
@@ -39,13 +39,21 @@ into either one.
 
 ## Roles, Sessions, and Skill Agents
 
-- A Role defines a typed capability and responsibility profile.
-- A Session is the persistent or ephemeral runtime instance that owns
-  continuity, bindings, calls, and mail.
-- `skill_agent({ skills, instruction, inputs? })` creates a fresh anonymous
-  Agent for one self-contained multi-Skill call. It receives the selected Skill
-  bodies and explicit packet, not the parent transcript, and cannot create a
-  second persistent lifecycle.
+- A Role defines a typed capability and responsibility profile, including its
+  semantic Model Type and `persistent` or `owned` instantiation policy.
+- A Session is the runtime instance that owns continuity, bindings, calls, and
+  mail. Owner-bound child Sessions are non-restorable and close with their
+  parent operation.
+- `skill_agent({ skills, instruction, inputs? })` resolves one to eight exact
+  Skills and runs one fresh owned child Session with every selected Skill body
+  loaded once. It receives the explicit packet, not the parent transcript, and
+  cannot recurse into Roles, Skill Agents, or persistent Sessions.
+
+Role and Skill Agent children select models through semantic Model Types. A
+missing binding fails with `role_model_type_unconfigured`; Spark does not fall
+back to the parent Session model. On close, an owned child seals a bounded
+receipt before discarding its full transcript and Invocation payload. The
+receipt is operational Session metadata rather than Evidence.
 
 The parent Session remains responsible for decomposition, durable coordination,
 verification of consequential claims, and user-facing synthesis.

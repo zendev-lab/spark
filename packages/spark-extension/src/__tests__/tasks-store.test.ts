@@ -8,6 +8,7 @@ import {
   RoleRegistry,
   builtinRoleRef,
   cancelRoleRun,
+  defaultProjectRoleModelSettingsStore,
   listActiveRoleRuns,
 } from "@zendev-lab/spark-roles";
 import { EvidenceStore } from "@zendev-lab/spark-artifacts";
@@ -25,7 +26,7 @@ import {
 import {
   WorkflowRunStoreFormatError,
   defaultWorkflowRunStore,
-  runReadyTasks,
+  runReadyTasks as runReadyTasksRuntime,
   type WorkflowRunRecord,
 } from "@zendev-lab/spark-workflows";
 import {
@@ -36,7 +37,7 @@ import {
   findResumableBackgroundRoleRunTasks,
   killActiveSparkRoleRunProcesses,
   listActiveSparkRoleRunProcesses,
-  runSparkTask,
+  runSparkTask as runSparkTaskRuntime,
   sparkTaskExecutorRoleRef,
   sweepExpiredTaskClaims,
   type SparkRoleInstructionExecutorInput,
@@ -69,7 +70,10 @@ import {
   resumeOwnedBackgroundSubroles,
 } from "../extension/spark-background-subrole-lifecycle.ts";
 import { SparkWorkflowRunManagerController } from "../extension/spark-workflow-run-manager.ts";
-import { createSparkRuntimeReadyTaskRunner } from "../extension/spark-ready-task-runtime.ts";
+import {
+  createSparkRuntimeReadyTaskRunner as createSparkRuntimeReadyTaskRunnerBase,
+  type SparkRuntimeReadyTaskRunnerOptions,
+} from "../extension/spark-ready-task-runtime.ts";
 import { saveCurrentProjectRef, sparkSessionOwnerKey } from "../extension/session-state.ts";
 
 after(async () => {
@@ -143,6 +147,33 @@ function testDagRunRecord(
 type WorkflowRunStore = ReturnType<typeof defaultWorkflowRunStore>;
 
 type RunSparkTaskResult = Awaited<ReturnType<typeof runSparkTask>>;
+
+const runSparkTask: typeof runSparkTaskRuntime = async (input) => {
+  await defaultProjectRoleModelSettingsStore(input.cwd ?? process.cwd()).save(
+    "implementation",
+    "test/model",
+  );
+  await defaultProjectRoleModelSettingsStore(input.cwd ?? process.cwd()).save(
+    "verification",
+    "test/model",
+  );
+  return await runSparkTaskRuntime(input);
+};
+
+const runReadyTasks = runReadyTasksRuntime;
+
+function createSparkRuntimeReadyTaskRunner(options: SparkRuntimeReadyTaskRunnerOptions) {
+  const runner = createSparkRuntimeReadyTaskRunnerBase(options);
+  return {
+    ...runner,
+    runTask: async (input: Parameters<typeof runner.runTask>[0]) => {
+      const cwd = options.cwd ?? process.cwd();
+      await defaultProjectRoleModelSettingsStore(cwd).save("implementation", "test/model");
+      await defaultProjectRoleModelSettingsStore(cwd).save("verification", "test/model");
+      return await runner.runTask(input);
+    },
+  };
+}
 
 type ChildOutputSuccessCase = {
   name: string;
@@ -2417,11 +2448,11 @@ test("role-run claim sweeper never expires daemon-owned main claims", async () =
 test("role run names and role-run claim ids are stable and attributable", () => {
   assert.equal(
     createRoleRunName(builtinRoleRef("worker"), newRef("run", "abcdef123456")),
-    "worker-abcdef12",
+    "executor-abcdef12",
   );
   assert.equal(
-    createRoleRunClaimId("session:parent", "worker-abcdef12"),
-    "session:parent+worker-abcdef12",
+    createRoleRunClaimId("session:parent", "executor-abcdef12"),
+    "session:parent+executor-abcdef12",
   );
 });
 
@@ -2580,8 +2611,8 @@ test("runSparkTask marks native role timeout failed and clears the task claim", 
     assert.equal(run.completionSummary?.runRef, run.ref);
     assert.equal(graph.getTask(task.ref).status, "failed");
     assert.equal(graph.getTask(task.ref).claim, undefined);
-    assert.match(graph.getTask(task.ref).finishedBy?.runName ?? "", /^worker-/);
-    assert.match(run.runName ?? "", /^worker-/);
+    assert.match(graph.getTask(task.ref).finishedBy?.runName ?? "", /^executor-/);
+    assert.match(run.runName ?? "", /^executor-/);
     assert.equal(run.ownerSessionId, "session:parent");
     assert.equal(
       listActiveSparkRoleRunProcesses().some((entry) => entry.runName === run.runName),
@@ -2818,6 +2849,7 @@ test("Spark DAG manager reports widget refresh failures without failing complete
   const dir = await mkdtemp(join(tmpdir(), "spark-dag-refresh-failure-"));
   try {
     await mkdir(join(dir, ".spark"), { recursive: true });
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Demo", description: "demo" });
     const task = graph.createTask({
@@ -4605,7 +4637,7 @@ test("runSparkTask dry-run records validation without completing the task", asyn
       dryRun: true,
     });
     assert.equal(run.status, "succeeded");
-    assert.match(run.runName ?? "", /^worker-/);
+    assert.match(run.runName ?? "", /^executor-/);
     assert.equal(graph.getTask(task.ref).status, "ready");
     assert.equal(graph.getTask(task.ref).roleRef, undefined);
     assert.equal(graph.getTask(task.ref).claim, undefined);
@@ -4614,14 +4646,14 @@ test("runSparkTask dry-run records validation without completing the task", asyn
     const [artifact] = await evidenceStore.list({ kind: "trace" });
     assert.ok(artifact);
     assert.equal(artifact.ref, run.outputEvidenceRefs[0]);
-    assert.match(artifact.title, /^Role run worker-/);
+    assert.match(artifact.title, /^Role run executor-/);
     assert.equal(artifact.provenance.producer, "task");
     assert.equal(artifact.provenance.projectRef, project.ref);
     assert.equal(artifact.provenance.taskRef, task.ref);
     assert.equal(graph.getTask(task.ref).roleRef, undefined);
     assert.equal(artifact.provenance.roleRef, builtinRoleRef("worker"));
     assert.equal(artifact.provenance.runRef, run.ref);
-    assert.match(artifact.provenance.note ?? "", /^runName=worker-/);
+    assert.match(artifact.provenance.note ?? "", /^runName=executor-/);
     const body = artifact.body as {
       schemaVersion?: number;
       runRef?: string;
@@ -4722,8 +4754,12 @@ test("runSparkTask attributes real project role spec run claims and completion",
       ref: roleRef,
       id: "test-worker",
       source: "project",
+      revision: 1,
       description: "Project test worker",
       systemPrompt: "You are a project test worker.",
+      capabilities: ["read", "write", "exec"],
+      modelType: "implementation",
+      instantiation: "owned",
       createdAt: "2026-05-20T00:00:00.000Z",
       updatedAt: "2026-05-20T00:00:00.000Z",
     });

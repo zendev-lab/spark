@@ -21,6 +21,7 @@ function loopView(status: SparkLoopView["status"]): SparkLoopView {
     binding: { reproId: "repro-loop" },
     ownerSessionId: "session-test",
     status,
+    sessionLifetime: "driver",
     continuity: "session",
     generation: 1,
     policy: sparkLoopPolicySchema.parse({}),
@@ -86,7 +87,7 @@ test("active repro recreates a missing daemon loop", async () => {
         reproId: "repro-loop",
       },
       ownerSessionId: "session-test",
-      continuity: "session",
+      sessionLifetime: "driver",
       cwd: expect.stringContaining("spark-repro-loop-recovery-"),
     }),
   );

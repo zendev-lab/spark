@@ -1,7 +1,7 @@
 /** Spark TUI native host service construction. */
 
 import { basename, join, resolve } from "node:path";
-import { stableId, type ExtensionRoleRunRequest, type SparkHostAPI } from "@zendev-lab/spark-core";
+import { stableId, type SparkHostAPI } from "@zendev-lab/spark-core";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import {
   createProviderRegistryLeafRunner,
@@ -104,7 +104,7 @@ export async function createSparkCliHostServices(
     channelBinding: options.channelBinding,
     invocationId: options.invocationId,
     memoryDirectIntentAuthority,
-    stateOwnerSessionId: options.stateOwnerSessionId,
+    stateBindingSessionId: options.stateBindingSessionId ?? options.stateOwnerSessionId,
     loop: options.loop,
     sessionQuestionChain: options.sessionQuestionChain,
     roleNativeCompatibilityRecovery: options.roleNativeCompatibilityRecovery,
@@ -239,31 +239,9 @@ export async function createSparkCliHostServices(
   });
   for (const diagnostic of themeCatalog.diagnostics) diagnostics.push(diagnostic);
 
-  runtime.setRoleRunner(async (input) => {
-    const { createSparkHeadlessRoleExecutor } = await import("../headless-role-executor-core.ts");
-    const tokenUsage = roleTokenUsageContext(options.tokenUsage, input);
-    tokenUsage?.register?.(tokenUsage);
-    const executeRole = createSparkHeadlessRoleExecutor({
-      sparkHome: options.sparkHome,
-      ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
-      createServices: createSparkCliHostServices,
-      ...(tokenUsage ? { tokenUsage } : {}),
-    });
-    try {
-      const result = await executeRole(input);
-      tokenUsage?.settle?.({
-        executionId: tokenUsage.executionId,
-        status: tokenUsageSettlementStatus(result.record.status),
-      });
-      return result;
-    } catch (error) {
-      tokenUsage?.settle?.({
-        executionId: tokenUsage.executionId,
-        status: input.signal?.aborted ? "cancelled" : "failed",
-      });
-      throw error;
-    }
-  });
+  // Role execution is daemon-owned. Headless hosts receive the supervised
+  // adapter explicitly; an embedded host must not create a second lifecycle.
+  runtime.setRoleRunner(options.roleRunner);
   const skillResolver = new SparkSkillResolver({
     cwd,
     sparkHome: options.sparkHome,
@@ -441,30 +419,6 @@ export async function createSparkCliHostServices(
   };
 }
 
-function roleTokenUsageContext(
-  parent: SparkHeadlessTokenUsageContext | undefined,
-  input: ExtensionRoleRunRequest,
-): SparkHeadlessTokenUsageContext | undefined {
-  if (!parent) return undefined;
-  const anonymous =
-    input.noSession === true ||
-    input.record.noSession === true ||
-    input.sessionPersistence === "anonymous" ||
-    input.record.sessionPersistence === "anonymous";
-  return {
-    executionId: input.record.ref,
-    parentExecutionId: parent.executionId,
-    ...(parent.scope ? { scope: parent.scope } : {}),
-    kind: input.usageExecutionKind ?? "role_run",
-    detailKind: anonymous ? "anonymous" : "persistent",
-    persistence: anonymous ? "anonymous" : "persistent",
-    runRef: input.record.ref,
-    ...(parent.register ? { register: (execution) => parent.register?.(execution) } : {}),
-    ...(parent.settle ? { settle: (settlement) => parent.settle?.(settlement) } : {}),
-    record: (observation) => parent.record(observation),
-  };
-}
-
 function recordProviderTokenUsage(
   context: SparkHeadlessTokenUsageContext | undefined,
   observation: SparkProviderAttemptObservation,
@@ -505,14 +459,6 @@ function withProviderAttemptIdentity(
     (value) => typeof value === "string" && value.trim().length > 0,
   );
   return hasProviderIdentity ? record : { ...record, responseId: syntheticResponseId };
-}
-
-function tokenUsageSettlementStatus(
-  status: ExtensionRoleRunRequest["record"]["status"],
-): "complete" | "failed" | "cancelled" {
-  if (status === "succeeded") return "complete";
-  if (status === "cancelled") return "cancelled";
-  return "failed";
 }
 
 async function resolveSparkCliAgentPromptState(

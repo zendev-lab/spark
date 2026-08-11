@@ -723,6 +723,11 @@ export interface ExtensionRoleRunRequest {
     ref: RoleRef;
     id: string;
     systemPrompt: string;
+    revision?: number;
+    source?: "builtin" | "extension" | "project" | "user";
+    capabilities?: Array<"read" | "write" | "exec" | "net" | "interact" | "spawn">;
+    modelType?: string;
+    instantiation?: "persistent" | "owned";
     allowedTools?: string[];
   };
   instruction: {
@@ -744,6 +749,8 @@ export interface ExtensionRoleRunRequest {
     forkFromSession?: string;
     noSession?: boolean;
     sessionPersistence?: "anonymous" | "persistent";
+    /** Canonical daemon lifecycle; owned Sessions are closed with their caller. */
+    sessionLifetime?: "persistent" | "owned";
     outcome?: RoleRunCompletionOutcome;
   };
   cwd: string;
@@ -792,7 +799,8 @@ export interface SparkHostLoopContext {
   };
   generation: number;
   ownerSessionId: string;
-  stateOwnerSessionId: string;
+  /** @deprecated Compatibility projection; host execution uses Session stateBinding. */
+  stateOwnerSessionId?: string;
   schedule(input: {
     delayMs?: number;
     dueAt?: string;
@@ -1356,7 +1364,10 @@ export interface TaskResourceRequest {
 }
 
 export interface TaskExecutionPolicy {
-  continuity: TaskExecutionContinuity;
+  /** Canonical owner-bounded Session lifetime for Task attempts. */
+  sessionLifetime: "task_run" | "task_revision";
+  /** Legacy compatibility projection; runtime dispatch uses sessionLifetime. */
+  continuity?: TaskExecutionContinuity;
   isolation: TaskExecutionIsolation;
   comparison: TaskExecutionComparison;
   resources?: TaskResourceRequest;
@@ -1497,8 +1508,12 @@ export interface TaskRunCompletionSummary {
 
 export interface TaskRunExecutionBinding {
   ownerSessionId: string;
-  executionSessionId: string;
+  /** Canonical daemon Session identity for this Task attempt. */
+  sessionId?: string;
+  /** Legacy decode/projection mirror of sessionId. */
+  executionSessionId?: string;
   sessionGoalId: string;
+  sessionLifetime?: "task_run" | "task_revision";
   subgoalRef?: SubgoalRef;
   planRevision?: number;
   definitionDigest?: string;

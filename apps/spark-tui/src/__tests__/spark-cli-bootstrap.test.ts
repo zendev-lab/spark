@@ -211,6 +211,9 @@ test("createSparkCliHostServices constructs runtime, extensions, provider regist
       config,
       extensions: config.extensions,
       providers: config.providers,
+      roleRunner: async () => {
+        throw new Error("test supervised Role runner was not expected to execute");
+      },
       providerImporter: async () => fakeProviderModule(captured),
     });
 

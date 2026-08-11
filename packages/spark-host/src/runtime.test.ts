@@ -42,6 +42,17 @@ describe("SparkHostRuntime effect contract", () => {
     });
   });
 
+  it("keeps an explicit state binding authoritative over a turn-local view Session", () => {
+    const host = new SparkHostRuntime({
+      cwd: "/workspace",
+      stateBindingSessionId: "session:state-owner",
+    });
+
+    host.setSessionId("session:driver");
+
+    expect(host.makeContext({ sessionId: "session:view" }).sessionId).toBe("session:state-owner");
+  });
+
   it("keeps internal tools inactive unless an explicit allowlist selects them", () => {
     const ordinary = new SparkHostRuntime({
       cwd: "/tmp/spark-host-runtime-internal-ordinary",

@@ -22,7 +22,9 @@ import {
   ROLE_RUN_DEPTH_ENV,
   RoleRegistry,
   resolveRoleModelSetting,
+  RoleModelSettingsMigrationConflictError,
   RoleModelSettingsStoreFormatError,
+  RoleModelTypeUnconfiguredError,
   RoleRunCancelledError,
   RoleRunTimeoutError,
   runRole,
@@ -163,6 +165,8 @@ test("spark-roles default registry ignores legacy agent-shaped role stores", asy
       systemPrompt: "You are the current worker.",
       rationale: "Exercise default role registry boundaries.",
       expectedUses: ["registry boundary test"],
+      capabilities: ["read", "write"],
+      modelType: "implementation",
     });
     await defaultProjectRoleStore(dir).save(currentRole);
 
@@ -222,9 +226,9 @@ test("spark-roles resolves role model settings with project and user precedence"
     const projectStore = defaultProjectRoleModelSettingsStore(dir);
     const userStore = defaultUserRoleModelSettingsStore(userHome);
 
-    await userStore.save("role:builtin-worker", "user-model");
-    await userStore.save("reviewer", "user-reviewer-model");
-    await projectStore.save("builtin-worker", "project-model");
+    await userStore.save("implementation", "user-model");
+    await userStore.save("verification", "user-reviewer-model");
+    await projectStore.save("implementation", "project-model");
 
     assert.deepEqual(
       await resolveRoleModelSetting({
@@ -232,7 +236,12 @@ test("spark-roles resolves role model settings with project and user precedence"
         projectStore,
         userStore,
       }),
-      { model: "project-model", source: "project", selector: "builtin-worker" },
+      {
+        model: "project-model",
+        source: "project",
+        modelType: "implementation",
+        selector: "implementation",
+      },
     );
     assert.deepEqual(
       await resolveRoleModelSetting({
@@ -241,7 +250,12 @@ test("spark-roles resolves role model settings with project and user precedence"
         projectStore,
         userStore,
       }),
-      { model: "user-reviewer-model", source: "user", selector: "reviewer" },
+      {
+        model: "user-reviewer-model",
+        source: "user",
+        modelType: "verification",
+        selector: "verification",
+      },
     );
     assert.equal(
       await resolveRoleModelSetting({
@@ -271,12 +285,12 @@ test("spark-roles persists user model settings under SPARK_HOME", async () => {
   process.env.SPARK_HOME = dir;
   try {
     const store = defaultUserRoleModelSettingsStore();
-    await store.save("role:builtin-reviewer", "provider/reviewer-model");
+    await store.save("verification", "provider/reviewer-model");
 
     assert.equal(store.filePath, join(dir, "role-model-settings.json"));
     assert.deepEqual(await store.loadAll(), [
       {
-        selector: "role:builtin-reviewer",
+        modelType: "verification",
         model: "provider/reviewer-model",
         source: "user",
       },
@@ -288,34 +302,32 @@ test("spark-roles persists user model settings under SPARK_HOME", async () => {
   }
 });
 
-test("spark runtime role dispatch can run native roles without model settings", async () => {
+test("spark runtime role dispatch rejects missing Model Type configuration", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-runtime-missing-model-"));
   const previousHome = process.env.SPARK_HOME;
   process.env.SPARK_HOME = join(dir, "home");
   try {
     const registry = new RoleRegistry();
-    let capturedModel: string | undefined;
-    const result = await runRoleInstructionOnly(
-      registry,
-      { roleRef: "role:builtin-worker", instruction: "Run without a model setting." },
-      {
-        dryRun: false,
-        cwd: dir,
-        timeoutMs: 5_000,
-        roleExecutor: async (input) => {
-          capturedModel = input.model;
-          return {
-            record: { ...input.record, status: "succeeded" as const },
-            stdout: "native role ok",
-            stderr: "",
-            jsonEvents: [],
-          };
+    let launches = 0;
+    await assert.rejects(
+      runRoleInstructionOnly(
+        registry,
+        { roleRef: "role:builtin-worker", instruction: "Run without a model setting." },
+        {
+          dryRun: false,
+          cwd: dir,
+          timeoutMs: 5_000,
+          roleExecutor: async () => {
+            launches += 1;
+            throw new Error("must not launch");
+          },
         },
-      },
+      ),
+      (error) =>
+        error instanceof RoleModelTypeUnconfiguredError &&
+        error.code === "role_model_type_unconfigured",
     );
-
-    assert.equal(result.record.status, "succeeded");
-    assert.equal(capturedModel, undefined);
+    assert.equal(launches, 0);
   } finally {
     if (previousHome === undefined) delete process.env.SPARK_HOME;
     else process.env.SPARK_HOME = previousHome;
@@ -327,6 +339,7 @@ test("spark runtime role dispatch times out hanging native executors", async () 
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-runtime-timeout-cleanup-"));
   const runName = "timeout-cleanup-test";
   try {
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     await assert.rejects(
       () =>
         runRoleInstructionOnly(
@@ -358,6 +371,7 @@ test("runSparkTask records native timeout failure and leaves no active role-run"
   const dir = await mkdtemp(join(tmpdir(), "spark-task-runtime-timeout-cleanup-"));
   const runName = "task-timeout-cleanup-test";
   try {
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Timeout cleanup", description: "timeout" });
     const task = graph.createTask({
@@ -409,39 +423,32 @@ test("runSparkTask records native timeout failure and leaves no active role-run"
   }
 });
 
-test("spark runtime role dispatch inherits session model when no role model is saved", async () => {
+test("spark runtime role dispatch does not inherit the parent Session model", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-runtime-session-model-"));
   const previousHome = process.env.SPARK_HOME;
   process.env.SPARK_HOME = join(dir, "home");
   try {
     const registry = new RoleRegistry();
-    const result = await runRoleInstructionOnly(
-      registry,
-      { roleRef: "role:builtin-worker", instruction: "Run with the session model." },
-      {
-        dryRun: false,
-        cwd: dir,
-        timeoutMs: 15_000,
-        sessionModel: "test/model",
-        roleExecutor: async (input) => ({
-          record: { ...input.record, status: "succeeded", finishedAt: "2026-06-22T00:00:00.000Z" },
-          stdout: "Runtime session model result.",
-          stderr: "",
-          jsonEvents: [
-            {
-              type: "message_end",
-              message: {
-                role: "assistant",
-                content: [{ type: "text", text: "Runtime session model result." }],
-              },
-            },
-          ],
-        }),
-      },
+    let launches = 0;
+    await assert.rejects(
+      runRoleInstructionOnly(
+        registry,
+        { roleRef: "role:builtin-worker", instruction: "Run with the session model." },
+        {
+          dryRun: false,
+          cwd: dir,
+          timeoutMs: 15_000,
+          sessionModel: "test/model",
+          roleExecutor: async () => {
+            launches += 1;
+            throw new Error("must not launch");
+          },
+        },
+      ),
+      (error) =>
+        error instanceof RoleModelTypeUnconfiguredError && error.modelType === "implementation",
     );
-
-    assert.equal(result.record.status, "succeeded");
-    assert.equal(result.record.model, "test/model");
+    assert.equal(launches, 0);
   } finally {
     if (previousHome === undefined) delete process.env.SPARK_HOME;
     else process.env.SPARK_HOME = previousHome;
@@ -454,6 +461,7 @@ test("spark runtime role dispatch passes per-run env and tool policy to injected
   const previousHome = process.env.SPARK_HOME;
   process.env.SPARK_HOME = join(dir, "home");
   try {
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     let seenEnv: NodeJS.ProcessEnv | undefined;
     let seenAllowedTools: string[] | undefined;
     const result = await runRoleInstructionOnly(
@@ -503,6 +511,7 @@ test("spark runtime role dispatch passes per-run env and tool policy to injected
   const previousHome = process.env.SPARK_HOME;
   process.env.SPARK_HOME = join(dir, "home");
   try {
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     let seenEnv: NodeJS.ProcessEnv | undefined;
     let seenAllowedTools: string[] | undefined;
     const result = await runRoleInstructionOnly(
@@ -583,6 +592,50 @@ test("spark-roles rejects malformed role model settings stores", async () => {
         error instanceof RoleModelSettingsStoreFormatError &&
         error.filePath === store.filePath &&
         /roleModels\.worker must be a non-empty string/.test(error.message),
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("spark-roles migrates v1 roleModels to semantic Model Types and blocks conflicts", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-roles-model-settings-migration-"));
+  try {
+    const store = defaultProjectRoleModelSettingsStore(dir);
+    await mkdir(join(dir, ".spark"), { recursive: true });
+    await writeFile(
+      store.filePath,
+      `${JSON.stringify({
+        version: 1,
+        roleModels: {
+          "role:builtin-worker": "provider/implementation",
+          reviewer: "provider/verification",
+        },
+      })}\n`,
+      "utf8",
+    );
+    assert.deepEqual(await store.loadAll(), [
+      { modelType: "implementation", model: "provider/implementation", source: "project" },
+      { modelType: "verification", model: "provider/verification", source: "project" },
+    ]);
+
+    await writeFile(
+      store.filePath,
+      `${JSON.stringify({
+        version: 1,
+        roleModels: {
+          worker: "provider/one",
+          executor: "provider/two",
+        },
+      })}\n`,
+      "utf8",
+    );
+    await assert.rejects(
+      () => store.loadAll(),
+      (error) =>
+        error instanceof RoleModelSettingsMigrationConflictError &&
+        error.code === "role_model_type_migration_conflict" &&
+        error.modelType === "implementation",
     );
   } finally {
     await rm(dir, { recursive: true, force: true });

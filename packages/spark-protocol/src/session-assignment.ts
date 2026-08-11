@@ -1,9 +1,155 @@
 import { z } from "zod";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
 import { isoDateTimeSchema } from "./refs.ts";
+import { sparkRoleModelTypeSchema } from "./role-session.ts";
 
 export const sparkSessionStatusOptions = ["ready", "running", "archived"] as const;
 export const sparkSessionStatusSchema = z.enum(sparkSessionStatusOptions);
+
+export const sparkSessionLifecycleOptions = ["open", "closing", "closed"] as const;
+export const sparkSessionLifecycleSchema = z.enum(sparkSessionLifecycleOptions);
+
+export const sparkSessionLifetimeOptions = ["persistent", "owned"] as const;
+export const sparkSessionLifetimeSchema = z.enum(sparkSessionLifetimeOptions);
+
+export const sparkSessionOwnerKindOptions = [
+  "session",
+  "role_call",
+  "task_run",
+  "task_revision",
+  "workflow_run",
+  "driver",
+  "driver_tick",
+] as const;
+export const sparkSessionOwnerKindSchema = z.enum(sparkSessionOwnerKindOptions);
+export const sparkSessionOwnerSchema = z.object({
+  kind: sparkSessionOwnerKindSchema,
+  ref: z.string().trim().min(1),
+});
+
+export const sparkSessionAuthorityKindOptions = [
+  "administrator",
+  "role",
+  "task",
+  "workflow",
+  "driver",
+  "channel",
+  "system",
+] as const;
+export const sparkSessionAuthoritySchema = z.object({
+  kind: z.enum(sparkSessionAuthorityKindOptions),
+  ref: z.string().trim().min(1),
+});
+
+export const sparkSessionStateBindingSchema = z.object({
+  kind: z.enum(["session", "task", "workflow", "driver", "channel"]),
+  ref: z.string().trim().min(1),
+});
+
+export const sparkSessionVisibilityOptions = ["public", "owner", "internal"] as const;
+export const sparkSessionVisibilitySchema = z.enum(sparkSessionVisibilityOptions);
+
+export const sparkSessionRetentionOptions = ["retain", "discard_on_close", "audit"] as const;
+export const sparkSessionRetentionSchema = z.enum(sparkSessionRetentionOptions);
+
+export const SPARK_SESSION_CLOSE_RECEIPT_MAX_BYTES = 16 * 1024;
+export const SPARK_SESSION_CLOSE_RECEIPT_HISTORY_LIMIT = 16;
+
+export const sparkSessionCloseCandidateSourceOptions = [
+  "structured_outcome",
+  "domain_completion",
+  "terminal_result",
+] as const;
+export const sparkSessionCloseCandidateSourceSchema = z.enum(
+  sparkSessionCloseCandidateSourceOptions,
+);
+export const sparkSessionCloseReceiptSourceOptions = [
+  ...sparkSessionCloseCandidateSourceOptions,
+  "deterministic_fallback",
+] as const;
+export const sparkSessionCloseReceiptSourceSchema = z.enum(sparkSessionCloseReceiptSourceOptions);
+export const sparkSessionCloseStatusOptions = [
+  "completed",
+  "blocked",
+  "failed",
+  "cancelled",
+] as const;
+export const sparkSessionCloseStatusSchema = z.enum(sparkSessionCloseStatusOptions);
+
+const sparkSessionCloseCodeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .regex(/^[a-z][a-z0-9._-]*$/u, "close code must be a lowercase semantic key");
+const sparkSessionCloseSummarySchema = z.string().trim().min(1).max(4_096);
+const sparkSessionCloseNextActionSchema = z.string().trim().min(1).max(2_048);
+const sparkSessionCloseEvidenceRefSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(512)
+  .regex(/^evidence:.+/u, "must be an evidence: ref");
+const sparkSessionCloseArtifactRefSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(512)
+  .regex(/^artifact:.+/u, "must be an artifact: ref");
+const sparkSessionCloseInvocationIdSchema = z.string().trim().min(1).max(512);
+
+const sparkSessionCloseSemanticShape = {
+  status: sparkSessionCloseStatusSchema,
+  code: sparkSessionCloseCodeSchema,
+  summary: sparkSessionCloseSummarySchema,
+  nextAction: sparkSessionCloseNextActionSchema.optional(),
+  evidenceRefs: z.array(sparkSessionCloseEvidenceRefSchema).max(64).default([]),
+  artifactRefs: z.array(sparkSessionCloseArtifactRefSchema).max(32).default([]),
+  sourceInvocationIds: z.array(sparkSessionCloseInvocationIdSchema).max(64),
+} satisfies z.ZodRawShape;
+
+export const sparkSessionCloseCandidateSchema = z
+  .object({
+    source: sparkSessionCloseCandidateSourceSchema,
+    ...sparkSessionCloseSemanticShape,
+    sourceInvocationIds: sparkSessionCloseSemanticShape.sourceInvocationIds.min(1),
+  })
+  .strict()
+  .superRefine(validateSparkSessionCloseRefs);
+
+export const sparkSessionCloseReceiptSchema = z
+  .object({
+    version: z.literal(1),
+    source: sparkSessionCloseReceiptSourceSchema,
+    quality: z.enum(["semantic", "fallback"]),
+    incarnation: z.number().int().positive(),
+    ...sparkSessionCloseSemanticShape,
+    createdAt: isoDateTimeSchema,
+  })
+  .strict()
+  .superRefine((receipt, context) => {
+    validateSparkSessionCloseRefs(receipt, context);
+    if ((receipt.source === "deterministic_fallback") !== (receipt.quality === "fallback")) {
+      context.addIssue({
+        code: "custom",
+        path: ["quality"],
+        message: "fallback quality must match deterministic fallback source",
+      });
+    }
+    if (receipt.quality === "semantic" && receipt.sourceInvocationIds.length === 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["sourceInvocationIds"],
+        message: "semantic close receipts require a source invocation",
+      });
+    }
+    if (jsonByteLength(receipt) > SPARK_SESSION_CLOSE_RECEIPT_MAX_BYTES) {
+      context.addIssue({
+        code: "custom",
+        message: `close receipt must not exceed ${SPARK_SESSION_CLOSE_RECEIPT_MAX_BYTES} bytes`,
+      });
+    }
+  });
 
 export const sparkSessionArchiveSourceOptions = [
   "manual",
@@ -83,6 +229,9 @@ export const sparkTaskExecutionSessionRelationSchema = z.object({
     .regex(/^subgoal:.+/u)
     .optional(),
   roleRef: z.string().regex(/^role:.+/u),
+  roleRevision: z.number().int().positive().optional(),
+  modelType: sparkRoleModelTypeSchema.optional(),
+  sessionLifetime: z.enum(["task_run", "task_revision"]).optional(),
   planRevision: z.number().int().positive().optional(),
   definitionDigest: z.string().min(1).optional(),
   jobId: z.string().min(1),
@@ -106,6 +255,23 @@ const sparkSessionRegistryRecordBaseSchema = z.object({
   /** Compatibility display mirror of role for role-named sessions. */
   title: z.string().min(1).optional(),
   status: sparkSessionStatusSchema.default("ready"),
+  /** Canonical lifecycle; status remains a compatibility activity projection. */
+  lifecycle: sparkSessionLifecycleSchema.optional(),
+  incarnation: z.number().int().positive().optional(),
+  lifetime: sparkSessionLifetimeSchema.optional(),
+  owner: sparkSessionOwnerSchema.optional(),
+  roleRef: z
+    .string()
+    .regex(/^role:.+/u)
+    .optional(),
+  roleRevision: z.number().int().positive().optional(),
+  modelType: sparkRoleModelTypeSchema.optional(),
+  authority: sparkSessionAuthoritySchema.optional(),
+  stateBinding: sparkSessionStateBindingSchema.optional(),
+  visibility: sparkSessionVisibilitySchema.optional(),
+  retention: sparkSessionRetentionSchema.optional(),
+  purpose: z.string().trim().min(1).max(512).optional(),
+  transcriptRef: z.string().trim().min(1).optional(),
   /** Canonical long-lived division of labour; concrete tasks do not belong here. */
   role: z.string().min(1).optional(),
   cwd: z.string().min(1).optional(),
@@ -122,6 +288,11 @@ const sparkSessionRegistryRecordBaseSchema = z.object({
   /** Searchable lifecycle labels. Archive tags remain after restore. */
   tags: z.array(sparkSessionTagSchema).max(64).optional(),
   archiveHistory: z.array(sparkSessionArchiveEventSchema).optional(),
+  /** Bounded metadata retained after one discard-on-close incarnation is purged. */
+  closeReceipts: z
+    .array(sparkSessionCloseReceiptSchema)
+    .max(SPARK_SESSION_CLOSE_RECEIPT_HISTORY_LIMIT)
+    .optional(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
 });
@@ -161,6 +332,15 @@ export const sparkSessionRegistryRecordSchema = z.preprocess(
  * engine; clients only exchange these transport-neutral values. */
 const sparkSessionCreateRequestBaseSchema = z.object({
   sessionId: z.string().trim().min(1).optional(),
+  /** Reusable definition instantiated by this Session. */
+  roleRef: z
+    .string()
+    .trim()
+    .regex(/^role:.+/u)
+    .optional(),
+  /** Owning Session for an explicitly created child. The daemon authors owner metadata. */
+  parentSessionId: z.string().trim().min(1).optional(),
+  purpose: z.string().trim().min(1).max(512).optional(),
   /** Legacy display input; new role-aware creators should send role. */
   title: z.string().trim().min(1).optional(),
   /** Stable division of labour chosen at creation for non-user sessions. */
@@ -250,6 +430,8 @@ export const sparkSessionArchiveRequestSchema = sparkSessionGetRequestSchema.ext
   source: sparkSessionArchiveSourceSchema.optional(),
   reason: z.string().trim().min(1).max(256).optional(),
   tags: z.array(sparkSessionTagSchema).max(32).optional(),
+  /** Owner-reported semantic completion; the daemon validates and seals the receipt. */
+  completion: sparkSessionCloseCandidateSchema.optional(),
 });
 
 export const sparkSessionRestoreRequestSchema = sparkSessionGetRequestSchema;
@@ -377,6 +559,21 @@ export const sparkAssignmentSchema = z.object({
 });
 
 export type SparkSessionStatus = z.infer<typeof sparkSessionStatusSchema>;
+export type SparkSessionLifecycle = z.infer<typeof sparkSessionLifecycleSchema>;
+export type SparkSessionLifetime = z.infer<typeof sparkSessionLifetimeSchema>;
+export type SparkSessionOwnerKind = z.infer<typeof sparkSessionOwnerKindSchema>;
+export type SparkSessionOwner = z.infer<typeof sparkSessionOwnerSchema>;
+export type SparkSessionAuthority = z.infer<typeof sparkSessionAuthoritySchema>;
+export type SparkSessionStateBinding = z.infer<typeof sparkSessionStateBindingSchema>;
+export type SparkSessionVisibility = z.infer<typeof sparkSessionVisibilitySchema>;
+export type SparkSessionRetention = z.infer<typeof sparkSessionRetentionSchema>;
+export type SparkSessionCloseCandidateSource = z.infer<
+  typeof sparkSessionCloseCandidateSourceSchema
+>;
+export type SparkSessionCloseReceiptSource = z.infer<typeof sparkSessionCloseReceiptSourceSchema>;
+export type SparkSessionCloseStatus = z.infer<typeof sparkSessionCloseStatusSchema>;
+export type SparkSessionCloseCandidate = z.infer<typeof sparkSessionCloseCandidateSchema>;
+export type SparkSessionCloseReceipt = z.infer<typeof sparkSessionCloseReceiptSchema>;
 export type SparkSessionArchiveSource = z.infer<typeof sparkSessionArchiveSourceSchema>;
 export type SparkSessionArchiveEvent = z.infer<typeof sparkSessionArchiveEventSchema>;
 export type SparkChannelAdapter = z.infer<typeof sparkChannelAdapterSchema>;
@@ -452,6 +649,29 @@ function normalizeLegacyWorkspaceScope(value: unknown): unknown {
     ...record,
     scope: { kind: "workspace", workspaceId: record.workspaceId },
   };
+}
+
+function validateSparkSessionCloseRefs(
+  value: {
+    evidenceRefs: string[];
+    artifactRefs: string[];
+    sourceInvocationIds: string[];
+  },
+  context: z.RefinementCtx,
+): void {
+  for (const field of ["evidenceRefs", "artifactRefs", "sourceInvocationIds"] as const) {
+    if (new Set(value[field]).size !== value[field].length) {
+      context.addIssue({
+        code: "custom",
+        path: [field],
+        message: `${field} must contain unique refs`,
+      });
+    }
+  }
+}
+
+function jsonByteLength(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
 }
 
 function isSparkChannelAdapterName(value: string): value is SparkChannelAdapter {

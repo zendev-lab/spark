@@ -5,7 +5,7 @@ import {
 } from "@zendev-lab/spark-loop";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import { sparkStateCwd, type ProjectRef } from "@zendev-lab/spark-core";
-import type { SparkLoopContinuity, SparkLoopView } from "@zendev-lab/spark-protocol";
+import type { SparkLoopSessionLifetime, SparkLoopView } from "@zendev-lab/spark-protocol";
 import type { SparkEntryIntent } from "./spark-entry.ts";
 
 type LoopDomain = "goal" | "loop" | "repro" | "workflow";
@@ -350,7 +350,7 @@ export function registerSparkCommands(
     await startLoop(ctx, {
       loopId: loop.loopId,
       domain: "loop",
-      continuity: parsedFresh.continuity,
+      sessionLifetime: parsedFresh.sessionLifetime,
       prompt: renderSparkLoopInstruction(loop.objective, graph, project, tick),
       reason: "loop started",
     });
@@ -847,7 +847,7 @@ export function registerSparkCommands(
     input: {
       loopId: string;
       domain: LoopDomain;
-      continuity?: SparkLoopContinuity;
+      sessionLifetime?: SparkLoopSessionLifetime;
       prompt: string;
       reason?: string;
     },
@@ -860,7 +860,7 @@ export function registerSparkCommands(
       ...request,
       binding: loopBindingForDomain(domain, input.loopId),
       ownerSessionId,
-      continuity: input.continuity ?? "session",
+      sessionLifetime: input.sessionLifetime ?? "driver",
       cwd: ctx.cwd,
     });
     return result.loop;
@@ -903,12 +903,12 @@ export function registerSparkCommands(
 
   function parseFreshLoopArgs(rawArgs: string): {
     args: string;
-    continuity: SparkLoopContinuity;
+    sessionLifetime: SparkLoopSessionLifetime;
   } {
     const tokens = rawArgs.trim().split(/\s+/u).filter(Boolean);
     const freshIndex = tokens.findIndex((token) => token === "fresh" || token === "--fresh");
-    if (freshIndex < 0) return { args: rawArgs, continuity: "session" };
+    if (freshIndex < 0) return { args: rawArgs, sessionLifetime: "driver" };
     tokens.splice(freshIndex, 1);
-    return { args: tokens.join(" "), continuity: "fresh" };
+    return { args: tokens.join(" "), sessionLifetime: "driver_tick" };
   }
 }

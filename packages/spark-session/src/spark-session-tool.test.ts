@@ -192,15 +192,21 @@ test("session tool routes managed actions through daemon RPC and classifies surf
     "session:a",
   );
 
-  await assert.rejects(
-    execute(tool, ctx, { action: "create" }),
-    /requires role as a stable division of labour/u,
-  );
+  await execute(tool, ctx, { action: "create", sessionId: "session:default" });
+  assert.deepEqual(calls.find((call) => call.method === "session.create")?.params, {
+    sessionId: "session:default",
+    roleRef: "role:builtin-administrator",
+    purpose: "interactive",
+    cwd: "/workspace/test",
+    scope: { kind: "workspace", workspaceId: "workspace:test" },
+    workspaceId: "workspace:test",
+  });
+  calls.length = 0;
 
   const created = await execute(tool, ctx, {
     action: "create",
     sessionId: "session:new",
-    role: "Verifier",
+    roleRef: "role:builtin-reviewer",
   });
   assert.equal(
     (created.details as { session: { sessionId: string } }).session.sessionId,
@@ -208,8 +214,8 @@ test("session tool routes managed actions through daemon RPC and classifies surf
   );
   assert.deepEqual(calls.find((call) => call.method === "session.create")?.params, {
     sessionId: "session:new",
-    title: "Verifier",
-    role: "Verifier",
+    roleRef: "role:builtin-reviewer",
+    purpose: "interactive",
     cwd: "/workspace/test",
     scope: { kind: "workspace", workspaceId: "workspace:test" },
     workspaceId: "workspace:test",
@@ -233,15 +239,6 @@ test("session tool routes managed actions through daemon RPC and classifies surf
   assert.deepEqual(
     calls.map((call) => call.method),
     [
-      "workspace.ensure-local",
-      "session.list",
-      "workspace.ensure-local",
-      "session.list",
-      "workspace.ensure-local",
-      "session.list",
-      "workspace.ensure-local",
-      "session.list",
-      "session.get",
       "workspace.ensure-local",
       "session.create",
       "session.bind",

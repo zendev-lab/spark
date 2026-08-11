@@ -21,7 +21,7 @@ import {
   sparkLoopPolicySchema,
 } from "@zendev-lab/spark-protocol";
 
-import { RoleRegistry } from "@zendev-lab/spark-roles";
+import { defaultProjectRoleModelSettingsStore, RoleRegistry } from "@zendev-lab/spark-roles";
 import { registerSparkRolesTools } from "@zendev-lab/spark-roles/extension";
 import { registerSparkSessionTool } from "@zendev-lab/spark-session/extension";
 import {
@@ -4993,6 +4993,7 @@ test("split task tools dispatch read, write, and assign actions", async () => {
     assert.deepEqual(
       plannedGraph?.tasks().find((task) => task.name === "canonical-task-tool")?.executionPolicy,
       {
+        sessionLifetime: "task_run",
         continuity: "fresh",
         isolation: "isolated_results",
         comparison: "paired",
@@ -5074,6 +5075,7 @@ test("canonical assign rejects a mixed frontier before creating any identities",
   const dir = await mkdtemp(join(tmpdir(), "task-tool-attempt-limit-refusal-"));
   try {
     await writeEmptySparkProject(dir);
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     const ctx = testSparkContext(dir, "main");
     ctx.model = { provider: "test-provider", id: "test-model" };
     const store = defaultTaskGraphStore(dir);
@@ -5090,6 +5092,7 @@ test("canonical assign rejects a mixed frontier before creating any identities",
       status: "ready",
       roleRef: "role:builtin-worker" as RoleRef,
       executionPolicy: {
+        sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
         isolation: "isolated_worktree",
         comparison: "single_side",
@@ -5108,6 +5111,7 @@ test("canonical assign rejects a mixed frontier before creating any identities",
       status: "ready",
       roleRef: "role:builtin-worker" as RoleRef,
       executionPolicy: {
+        sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
         isolation: "isolated_worktree",
         comparison: "single_side",
@@ -9052,6 +9056,7 @@ test("impl_status reconciles DAG runs with current workspace active children onl
   let otherRunPromise: Promise<unknown> | undefined;
   try {
     await writeEmptySparkProject(dir);
+    await defaultProjectRoleModelSettingsStore(otherDir).save("implementation", "test/model");
     const ctx = testSparkContext(dir, "main");
     const otherGraph = new TaskGraph();
     const otherProject = otherGraph.createProject({
@@ -9133,6 +9138,7 @@ test("impl_workflow_runs kill_active only targets current workspace role-runs", 
   let otherRunPromise: Promise<unknown> | undefined;
   try {
     await writeEmptySparkProject(dir);
+    await defaultProjectRoleModelSettingsStore(otherDir).save("implementation", "test/model");
     const ctx = testSparkContext(dir, "main");
     const otherGraph = new TaskGraph();
     const otherProject = otherGraph.createProject({
@@ -9805,6 +9811,7 @@ test("impl_workflow_runs reply records failed delivery without successful activi
   try {
     process.env.SPARK_HOME = dir;
     await writeEmptySparkProject(dir);
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     const ctx = testSparkContext(dir, "main");
     ctx.runRole = createTestRoleRunner({ waitForCancel: true, inputControl: false });
     const store = defaultTaskGraphStore(dir);
@@ -9927,6 +9934,7 @@ test("impl_workflow_runs reply delivers through native role-run input control", 
   try {
     process.env.SPARK_HOME = dir;
     await writeEmptySparkProject(dir);
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     const ctx = testSparkContext(dir, "main");
     ctx.runRole = createTestRoleRunner({ waitForCancel: true });
     const store = defaultTaskGraphStore(dir);
@@ -10045,6 +10053,7 @@ test("impl_workflow_runs reports failed workflow run with stuck child as attenti
   let runPromise: Promise<unknown> | undefined;
   try {
     await writeEmptySparkProject(dir);
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     const ctx = testSparkContext(dir, "main");
     const store = defaultTaskGraphStore(dir);
     const graph = await store.load();
@@ -10583,8 +10592,9 @@ test("workflow-run manager preflights role models through the host catalog witho
     assert.equal(result.continuePolling, false);
     const settingsFile = JSON.parse(
       await readFile(join(dir, "role-model-settings.json"), "utf8"),
-    ) as { roleModels: Record<string, string> };
-    assert.deepEqual(settingsFile.roleModels, { "role:builtin-worker": "test/model" });
+    ) as { version: number; modelTypes: Record<string, string> };
+    assert.equal(settingsFile.version, 2);
+    assert.deepEqual(settingsFile.modelTypes, { implementation: "test/model" });
     const dagStatus = await defaultWorkflowRunStore(dir).status();
     assert.equal(dagStatus.succeeded, 1);
     assert.equal(dagStatus.lastRun?.projectRef, project.ref);
@@ -13085,7 +13095,10 @@ function createTestDriverControl(): TestSparkDaemonLoopControl {
         binding: input.binding ?? {},
         ownerSessionId: input.ownerSessionId,
         status: "scheduled" as const,
-        continuity: input.continuity ?? ("session" as const),
+        sessionLifetime:
+          input.sessionLifetime ?? (input.continuity === "fresh" ? "driver_tick" : "driver"),
+        continuity:
+          input.continuity ?? (input.sessionLifetime === "driver_tick" ? "fresh" : "session"),
         generation: 1,
         policy: sparkLoopPolicySchema.parse(input.policy ?? {}),
         counters: sparkLoopCountersSchema.parse({}),
