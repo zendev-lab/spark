@@ -204,19 +204,50 @@ describe("architecture inventory governance", () => {
     );
     expect(failures.some((failure: string) => failure.includes("ceiling=7"))).toBe(true);
 
+    const packageSchema = JSON.parse(
+      readFileSync(path.join(rootDir, "architecture/packages.schema.json"), "utf8"),
+    );
+    const validatePackageInventory = new Ajv2020({ allErrors: true, strict: true }).compile(
+      packageSchema,
+    );
+
     const budgetTamper = structuredClone(inventory);
     budgetTamper.governance.temporaryDependencyExceptionBudget.current = 5;
     expect(
       governance.validateArchitectureGovernance(budgetTamper, manifests, rootManifest),
     ).toContain(
-      "temporaryDependencyExceptionBudget.current=5 does not match exception ledger length 6",
+      "temporaryDependencyExceptionBudget must keep current=5, ceiling=6, and exception ledger length=6 equal",
     );
+    expect(validatePackageInventory(budgetTamper)).toBe(false);
 
     const ceilingTamper = structuredClone(inventory);
     ceilingTamper.governance.temporaryDependencyExceptionBudget.ceiling = 7;
     expect(
       governance.validateArchitectureGovernance(ceilingTamper, manifests, rootManifest),
-    ).toContain("temporaryDependencyExceptionBudget.ceiling=7 exceeds non-growth maximum 6");
+    ).toContain(
+      "temporaryDependencyExceptionBudget current=6 ceiling=7 exceeds non-growth maximum 6",
+    );
+    expect(validatePackageInventory(ceilingTamper)).toBe(false);
+
+    const currentOnlyReduction = structuredClone(inventory);
+    currentOnlyReduction.governance.temporaryDependencyExceptions.pop();
+    currentOnlyReduction.governance.temporaryDependencyExceptionBudget.current = 5;
+    expect(
+      governance.validateArchitectureGovernance(currentOnlyReduction, manifests, rootManifest),
+    ).toContain(
+      "temporaryDependencyExceptionBudget must keep current=5, ceiling=6, and exception ledger length=5 equal",
+    );
+    expect(validatePackageInventory(currentOnlyReduction)).toBe(false);
+
+    const ceilingOnlyReduction = structuredClone(inventory);
+    ceilingOnlyReduction.governance.temporaryDependencyExceptions.pop();
+    ceilingOnlyReduction.governance.temporaryDependencyExceptionBudget.ceiling = 5;
+    expect(
+      governance.validateArchitectureGovernance(ceilingOnlyReduction, manifests, rootManifest),
+    ).toContain(
+      "temporaryDependencyExceptionBudget must keep current=6, ceiling=5, and exception ledger length=5 equal",
+    );
+    expect(validatePackageInventory(ceilingOnlyReduction)).toBe(false);
 
     const reduced = structuredClone(inventory);
     const removed = reduced.governance.temporaryDependencyExceptions.pop();
@@ -231,6 +262,22 @@ describe("architecture inventory governance", () => {
     expect(
       governance.validateArchitectureGovernance(reduced, reducedManifests, rootManifest),
     ).toEqual([]);
+    expect(validatePackageInventory(reduced)).toBe(true);
+
+    const regrowth = structuredClone(reduced);
+    const regrowthManifests = structuredClone(reducedManifests);
+    if (removed) {
+      regrowth.governance.temporaryDependencyExceptions.push(removed);
+      regrowthManifests[removed.from].dependencies = {
+        ...(regrowthManifests[removed.from].dependencies ?? {}),
+        [removed.to]: "workspace:^",
+      };
+    }
+    expect(
+      governance.validateArchitectureGovernance(regrowth, regrowthManifests, rootManifest),
+    ).toContain(
+      "temporaryDependencyExceptionBudget must keep current=5, ceiling=5, and exception ledger length=6 equal",
+    );
   });
 
   test("allows only the approved forty-second package", () => {

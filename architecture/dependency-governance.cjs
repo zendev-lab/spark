@@ -406,19 +406,18 @@ function validateArchitectureGovernance(inventory, manifests, rootManifest) {
     if (exceptionBudget.nonGrowth !== true) {
       failures.push("temporaryDependencyExceptionBudget.nonGrowth must be true");
     }
-    if (exceptionBudget.ceiling > 6) {
+    if (exceptionBudget.current > 6 || exceptionBudget.ceiling > 6) {
       failures.push(
-        `temporaryDependencyExceptionBudget.ceiling=${exceptionBudget.ceiling} exceeds non-growth maximum 6`,
+        `temporaryDependencyExceptionBudget current=${exceptionBudget.current} ceiling=${exceptionBudget.ceiling} exceeds non-growth maximum 6`,
       );
     }
-    if (exceptionBudget.current > exceptionBudget.ceiling) {
+    const exceptionCount = inventory.governance.temporaryDependencyExceptions.length;
+    if (
+      exceptionBudget.current !== exceptionBudget.ceiling ||
+      exceptionBudget.current !== exceptionCount
+    ) {
       failures.push(
-        `temporaryDependencyExceptionBudget.current=${exceptionBudget.current} exceeds ceiling=${exceptionBudget.ceiling}`,
-      );
-    }
-    if (exceptionBudget.current !== inventory.governance.temporaryDependencyExceptions.length) {
-      failures.push(
-        `temporaryDependencyExceptionBudget.current=${exceptionBudget.current} does not match exception ledger length ${inventory.governance.temporaryDependencyExceptions.length}`,
+        `temporaryDependencyExceptionBudget must keep current=${exceptionBudget.current}, ceiling=${exceptionBudget.ceiling}, and exception ledger length=${exceptionCount} equal`,
       );
     }
   }

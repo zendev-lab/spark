@@ -97,12 +97,14 @@ exact product consumers, and an `experiment` is isolated from production.
 
 A temporary reverse edge is not a layer-wide allowance. It must name one exact
 `from` package, `to` package and target layer, plus a reason, owner, existing
-exit task, and `nonGrowth: true`. The inventory also freezes
-`temporaryDependencyExceptionBudget` with `current`, `ceiling`, and
-`nonGrowth: true`; both the count and the ceiling are fail-closed at a maximum
-of 6. The checker rejects duplicate, unnecessary, stale, or budget-exceeding
-exceptions, and generated Dependency Cruiser rules forbid every other reverse
-edge. The current exception ledger is read directly from the inventory rather
+exit task, and `nonGrowth: true`. `temporaryDependencyExceptionBudget` is a monotonic shrink contract. Its
+`current`, `ceiling`, and the exact `temporaryDependencyExceptions` ledger length
+must always be equal and must not exceed 6. The initial state is `6/6`; removing
+an exception is allowed only when the ledger, `current`, and `ceiling` are all
+changed together to the smaller value (for example, `5/5`). A later attempt to
+restore the removed exception fails both schema and semantic validation. The
+`nonGrowth: true` marker therefore freezes every accepted reduced ledger against
+regrowth. The current exception ledger is read directly from the inventory rather
 than copied into this specification.
 
 ## Naming rules

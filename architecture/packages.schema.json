@@ -331,7 +331,16 @@
         "nonGrowth": {
           "const": true
         }
-      }
+      },
+      "oneOf": [
+        { "properties": { "current": { "const": 0 }, "ceiling": { "const": 0 } } },
+        { "properties": { "current": { "const": 1 }, "ceiling": { "const": 1 } } },
+        { "properties": { "current": { "const": 2 }, "ceiling": { "const": 2 } } },
+        { "properties": { "current": { "const": 3 }, "ceiling": { "const": 3 } } },
+        { "properties": { "current": { "const": 4 }, "ceiling": { "const": 4 } } },
+        { "properties": { "current": { "const": 5 }, "ceiling": { "const": 5 } } },
+        { "properties": { "current": { "const": 6 }, "ceiling": { "const": 6 } } }
+      ]
     },
     "governance": {
       "type": "object",
