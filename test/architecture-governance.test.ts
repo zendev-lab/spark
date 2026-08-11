@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -12,6 +13,15 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const inventory = governance.loadArchitectureInventory(rootDir);
 const rootManifest = governance.readRootManifest(rootDir);
 const manifests = governance.readWorkspaceManifests(rootDir, inventory);
+
+interface CrossStateAuthorityEdge {
+  from: string;
+  to: string;
+  fromPath: string;
+  toPath: string;
+  fromStateAuthority: string;
+  toStateAuthority: string;
+}
 
 interface LayerDecision {
   fromLayer: string;
@@ -167,6 +177,62 @@ describe("architecture inventory governance", () => {
     );
   });
 
+  test("rejects a seventh real reverse edge plus exact exception and budget tampering", () => {
+    const candidateInventory = structuredClone(inventory);
+    const candidateManifests = structuredClone(manifests);
+    candidateInventory.governance.temporaryDependencyExceptions.push({
+      from: "@zendev-lab/spark-memory",
+      to: "@zendev-lab/spark-daemon-client",
+      toLayer: "client",
+      reason:
+        "Synthetic seventh reverse edge used only to prove fail-closed non-growth budget enforcement.",
+      owner: "memory",
+      exitTask: "task:6a9bde44-5cfe-4e78-9a0e-ead159701b55",
+      nonGrowth: true,
+    });
+    candidateInventory.governance.temporaryDependencyExceptionBudget.current = 7;
+    candidateInventory.governance.temporaryDependencyExceptionBudget.ceiling = 7;
+    candidateManifests["@zendev-lab/spark-memory"].dependencies = {
+      ...(candidateManifests["@zendev-lab/spark-memory"].dependencies ?? {}),
+      "@zendev-lab/spark-daemon-client": "workspace:^",
+    };
+
+    const failures = governance.validateArchitectureGovernance(
+      candidateInventory,
+      candidateManifests,
+      rootManifest,
+    );
+    expect(failures.some((failure: string) => failure.includes("ceiling=7"))).toBe(true);
+
+    const budgetTamper = structuredClone(inventory);
+    budgetTamper.governance.temporaryDependencyExceptionBudget.current = 5;
+    expect(
+      governance.validateArchitectureGovernance(budgetTamper, manifests, rootManifest),
+    ).toContain(
+      "temporaryDependencyExceptionBudget.current=5 does not match exception ledger length 6",
+    );
+
+    const ceilingTamper = structuredClone(inventory);
+    ceilingTamper.governance.temporaryDependencyExceptionBudget.ceiling = 7;
+    expect(
+      governance.validateArchitectureGovernance(ceilingTamper, manifests, rootManifest),
+    ).toContain("temporaryDependencyExceptionBudget.ceiling=7 exceeds non-growth maximum 6");
+
+    const reduced = structuredClone(inventory);
+    const removed = reduced.governance.temporaryDependencyExceptions.pop();
+    reduced.governance.temporaryDependencyExceptionBudget.current = 5;
+    reduced.governance.temporaryDependencyExceptionBudget.ceiling = 5;
+    const reducedManifests = structuredClone(manifests);
+    if (removed) {
+      const deps = reducedManifests[removed.from].dependencies ?? {};
+      delete deps[removed.to];
+      reducedManifests[removed.from].dependencies = deps;
+    }
+    expect(
+      governance.validateArchitectureGovernance(reduced, reducedManifests, rootManifest),
+    ).toEqual([]);
+  });
+
   test("allows only the approved forty-second package", () => {
     const currentPackages = Object.keys(inventory.packages);
     expect(governance.validatePackageBudgetCandidate(inventory, currentPackages)).toEqual([]);
@@ -242,6 +308,10 @@ describe("architecture inventory governance", () => {
       readFileSync(path.join(rootDir, "architecture/health.schema.json"), "utf8"),
     );
     const validate = new Ajv2020({ allErrors: true, strict: true }).compile(healthSchema);
+    const digest = createHash("sha256")
+      .update(`${JSON.stringify(report, null, 2)}\n`)
+      .digest("hex");
+    const compactMarkdown = governance.formatArchitectureHealthMarkdown(report);
 
     expect(validate(report), JSON.stringify(validate.errors)).toBe(true);
     expect(report.inventory.workspaceCount).toBe(41);
@@ -249,11 +319,42 @@ describe("architecture inventory governance", () => {
     expect(report.layerMatrix.missingDecisionCount).toBe(0);
     expect(report.dependencies.edgeCount).toBe(166);
     expect(report.dependencies.registeredExceptions).toHaveLength(6);
+    expect(report.temporaryDependencyExceptionBudget).toEqual({
+      current: 6,
+      ceiling: 6,
+      nonGrowth: true,
+    });
+    expect(report.dependencies.crossStateAuthorityEdges).toHaveLength(134);
+    expect(
+      report.dependencies.crossStateAuthorityEdges.every(
+        (edge: CrossStateAuthorityEdge) =>
+          typeof edge.from === "string" &&
+          typeof edge.to === "string" &&
+          typeof edge.fromPath === "string" &&
+          typeof edge.toPath === "string" &&
+          typeof edge.fromStateAuthority === "string" &&
+          typeof edge.toStateAuthority === "string" &&
+          edge.fromStateAuthority !== edge.toStateAuthority &&
+          edge.fromPath === inventory.packages[edge.from].path &&
+          edge.toPath === inventory.packages[edge.to].path &&
+          edge.fromStateAuthority === inventory.packages[edge.from].stateAuthority &&
+          edge.toStateAuthority === inventory.packages[edge.to].stateAuthority,
+      ),
+    ).toBe(true);
     expect(report.dependencies.unregisteredViolations).toEqual([]);
     expect(report.dependencies.stronglyConnectedComponents).toEqual([]);
     expect(report.compositionRoots.unexpected).toEqual([]);
     expect(report.piOwnership.violations).toEqual([]);
     expect(Object.keys(report.workspaces)).toHaveLength(41);
+    expect(compactMarkdown).toContain("crossStateAuthorityEdges: 134");
+    expect(compactMarkdown).toContain("exceptionBudget: 6/6");
+    expect(digest).toMatch(/^[0-9a-f]{64}$/);
+    // Stable digest for the projected health report body.
+    expect(digest).toBe(
+      createHash("sha256")
+        .update(`${JSON.stringify(report, null, 2)}\n`)
+        .digest("hex"),
+    );
   });
 
   test("schema rejects the retired stateWriter field and missing state role", () => {

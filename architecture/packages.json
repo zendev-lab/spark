@@ -90,6 +90,11 @@
         "nonGrowth": true
       }
     ],
+    "temporaryDependencyExceptionBudget": {
+      "current": 6,
+      "ceiling": 6,
+      "nonGrowth": true
+    },
     "piOwnership": {
       "productManifestOwner": "@zendev-lab/pi-spark",
       "temporaryProductManifestExceptions": [

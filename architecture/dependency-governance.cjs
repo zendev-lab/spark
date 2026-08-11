@@ -399,6 +399,30 @@ function validateArchitectureGovernance(inventory, manifests, rootManifest) {
     }
   }
 
+  const exceptionBudget = inventory.governance.temporaryDependencyExceptionBudget;
+  if (!exceptionBudget) {
+    failures.push("Missing temporaryDependencyExceptionBudget governance contract");
+  } else {
+    if (exceptionBudget.nonGrowth !== true) {
+      failures.push("temporaryDependencyExceptionBudget.nonGrowth must be true");
+    }
+    if (exceptionBudget.ceiling > 6) {
+      failures.push(
+        `temporaryDependencyExceptionBudget.ceiling=${exceptionBudget.ceiling} exceeds non-growth maximum 6`,
+      );
+    }
+    if (exceptionBudget.current > exceptionBudget.ceiling) {
+      failures.push(
+        `temporaryDependencyExceptionBudget.current=${exceptionBudget.current} exceeds ceiling=${exceptionBudget.ceiling}`,
+      );
+    }
+    if (exceptionBudget.current !== inventory.governance.temporaryDependencyExceptions.length) {
+      failures.push(
+        `temporaryDependencyExceptionBudget.current=${exceptionBudget.current} does not match exception ledger length ${inventory.governance.temporaryDependencyExceptions.length}`,
+      );
+    }
+  }
+
   const budget = inventory.governance.packageBudget;
   if (packageNames.length !== budget.current) {
     failures.push(
@@ -485,6 +509,7 @@ function generateArchitectureHealthReport(rootDir, inventory, manifests) {
   const registeredExceptions = [];
   const unregisteredViolations = [];
   const crossOwnerEdges = [];
+  const crossStateAuthorityEdges = [];
   const edgeClassifications = {};
 
   for (const [fromPackage, dependencies] of Object.entries(graph)) {
@@ -492,14 +517,26 @@ function generateArchitectureHealthReport(rootDir, inventory, manifests) {
     for (const toPackage of dependencies) {
       fanIn[toPackage] += 1;
       const classification = classifyWorkspaceDependency(inventory, fromPackage, toPackage);
+      const fromInfo = inventory.packages[fromPackage];
+      const toInfo = inventory.packages[toPackage];
       const edge = { from: fromPackage, to: toPackage };
       edgeClassifications[fromPackage].push({ ...edge, status: classification.status });
       if (classification.status === "registered-exception") registeredExceptions.push(edge);
       if (classification.status === "unregistered-violation") {
         unregisteredViolations.push({ ...edge, reason: classification.reason });
       }
-      if (inventory.packages[fromPackage].owner !== inventory.packages[toPackage].owner) {
+      if (fromInfo.owner !== toInfo.owner) {
         crossOwnerEdges.push(edge);
+      }
+      if (fromInfo.stateAuthority !== toInfo.stateAuthority) {
+        crossStateAuthorityEdges.push({
+          from: fromPackage,
+          to: toPackage,
+          fromPath: fromInfo.path,
+          toPath: toInfo.path,
+          fromStateAuthority: fromInfo.stateAuthority,
+          toStateAuthority: toInfo.stateAuthority,
+        });
       }
     }
   }
@@ -564,6 +601,9 @@ function generateArchitectureHealthReport(rootDir, inventory, manifests) {
       crossOwnerEdges: crossOwnerEdges.sort((left, right) =>
         `${left.from}:${left.to}`.localeCompare(`${right.from}:${right.to}`),
       ),
+      crossStateAuthorityEdges: crossStateAuthorityEdges.sort((left, right) =>
+        `${left.from}:${left.to}`.localeCompare(`${right.from}:${right.to}`),
+      ),
       registeredExceptions: registeredExceptions.sort((left, right) =>
         `${left.from}:${left.to}`.localeCompare(`${right.from}:${right.to}`),
       ),
@@ -571,6 +611,9 @@ function generateArchitectureHealthReport(rootDir, inventory, manifests) {
         `${left.from}:${left.to}`.localeCompare(`${right.from}:${right.to}`),
       ),
       stronglyConnectedComponents: stronglyConnectedComponents(graph),
+    },
+    temporaryDependencyExceptionBudget: {
+      ...inventory.governance.temporaryDependencyExceptionBudget,
     },
     compositionRoots: {
       expected: expectedCompositionRoots,
@@ -592,6 +635,25 @@ function generateArchitectureHealthReport(rootDir, inventory, manifests) {
   };
 }
 
+function formatArchitectureHealthMarkdown(report) {
+  const lines = [
+    "# Architecture health",
+    "",
+    `- workspaces: ${report.inventory.workspaceCount}`,
+    `- edges: ${report.dependencies.edgeCount}`,
+    `- registeredExceptions: ${report.dependencies.registeredExceptions.length}`,
+    `- exceptionBudget: ${report.temporaryDependencyExceptionBudget.current}/${report.temporaryDependencyExceptionBudget.ceiling} (nonGrowth=${report.temporaryDependencyExceptionBudget.nonGrowth})`,
+    `- crossOwnerEdges: ${report.dependencies.crossOwnerEdges.length}`,
+    `- crossStateAuthorityEdges: ${report.dependencies.crossStateAuthorityEdges.length}`,
+    `- unregisteredViolations: ${report.dependencies.unregisteredViolations.length}`,
+    `- stronglyConnectedComponents: ${report.dependencies.stronglyConnectedComponents.length}`,
+    `- piViolations: ${report.piOwnership.violations.length}`,
+    `- unexpectedCompositionRoots: ${report.compositionRoots.unexpected.length}`,
+    `- stateWriterFieldCount: ${report.inventory.stateWriterFieldCount}`,
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
 module.exports = {
   ALL_DEPENDENCY_SECTIONS,
   RUNTIME_DEPENDENCY_SECTIONS,
@@ -600,6 +662,7 @@ module.exports = {
   buildWorkspaceGraph,
   classifyWorkspaceDependency,
   decideLayerDependency,
+  formatArchitectureHealthMarkdown,
   generateArchitectureHealthReport,
   generateLayerRules,
   loadArchitectureInventory,

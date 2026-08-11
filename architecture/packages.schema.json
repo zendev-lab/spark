@@ -313,12 +313,33 @@
         }
       }
     },
+    "temporaryDependencyExceptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current", "ceiling", "nonGrowth"],
+      "properties": {
+        "current": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "ceiling": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "nonGrowth": {
+          "const": true
+        }
+      }
+    },
     "governance": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "layerPolicy",
         "temporaryDependencyExceptions",
+        "temporaryDependencyExceptionBudget",
         "piOwnership",
         "packageBudget",
         "compositionRoots"
@@ -329,9 +350,13 @@
         },
         "temporaryDependencyExceptions": {
           "type": "array",
+          "maxItems": 6,
           "items": {
             "$ref": "#/$defs/dependencyException"
           }
+        },
+        "temporaryDependencyExceptionBudget": {
+          "$ref": "#/$defs/temporaryDependencyExceptionBudget"
         },
         "piOwnership": {
           "$ref": "#/$defs/piOwnership"

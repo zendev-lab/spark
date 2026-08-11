@@ -10,6 +10,7 @@
     "inventory",
     "layerMatrix",
     "dependencies",
+    "temporaryDependencyExceptionBudget",
     "compositionRoots",
     "piOwnership",
     "packageBudget",
@@ -47,6 +48,7 @@
       "required": [
         "edgeCount",
         "crossOwnerEdges",
+        "crossStateAuthorityEdges",
         "registeredExceptions",
         "unregisteredViolations",
         "stronglyConnectedComponents"
@@ -56,6 +58,10 @@
         "crossOwnerEdges": {
           "type": "array",
           "items": { "$ref": "#/$defs/edge" }
+        },
+        "crossStateAuthorityEdges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/crossStateAuthorityEdge" }
         },
         "registeredExceptions": {
           "type": "array",
@@ -73,6 +79,16 @@
             "items": { "$ref": "#/$defs/packageName" }
           }
         }
+      }
+    },
+    "temporaryDependencyExceptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current", "ceiling", "nonGrowth"],
+      "properties": {
+        "current": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "ceiling": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "nonGrowth": { "const": true }
       }
     },
     "compositionRoots": {
@@ -170,6 +186,19 @@
       "properties": {
         "from": { "$ref": "#/$defs/packageName" },
         "to": { "$ref": "#/$defs/packageName" }
+      }
+    },
+    "crossStateAuthorityEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "fromPath", "toPath", "fromStateAuthority", "toStateAuthority"],
+      "properties": {
+        "from": { "$ref": "#/$defs/packageName" },
+        "to": { "$ref": "#/$defs/packageName" },
+        "fromPath": { "type": "string" },
+        "toPath": { "type": "string" },
+        "fromStateAuthority": { "type": "string" },
+        "toStateAuthority": { "type": "string" }
       }
     },
     "violationEdge": {

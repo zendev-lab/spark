@@ -8,6 +8,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 
 const require = createRequire(import.meta.url);
 const {
+  formatArchitectureHealthMarkdown,
   generateArchitectureHealthReport,
   loadArchitectureInventory,
   readRootManifest,
@@ -67,11 +68,16 @@ if (report.piOwnership.violations.length !== 0) {
 
 const serializedReport = `${JSON.stringify(report, null, 2)}\n`;
 const digest = createHash("sha256").update(serializedReport).digest("hex");
+const compactMarkdown = formatArchitectureHealthMarkdown(report);
 if (args.has("--write")) {
-  const outputPath = path.join(rootDir, "reports/architecture/health.json");
-  await mkdir(path.dirname(outputPath), { recursive: true });
+  const outputDir = path.join(rootDir, "reports/architecture");
+  const outputPath = path.join(outputDir, "health.json");
+  const markdownPath = path.join(outputDir, "health.md");
+  await mkdir(outputDir, { recursive: true });
   await writeFile(outputPath, serializedReport, "utf8");
+  await writeFile(markdownPath, compactMarkdown, "utf8");
   console.log(`Architecture health report: ${path.relative(rootDir, outputPath)}`);
+  console.log(`Architecture health markdown: ${path.relative(rootDir, markdownPath)}`);
 }
 
 console.log(
@@ -80,12 +86,17 @@ console.log(
     workspaceCount: report.inventory.workspaceCount,
     edgeCount: report.dependencies.edgeCount,
     registeredExceptions: report.dependencies.registeredExceptions.length,
+    exceptionBudgetCurrent: report.temporaryDependencyExceptionBudget.current,
+    exceptionBudgetCeiling: report.temporaryDependencyExceptionBudget.ceiling,
+    crossOwnerEdges: report.dependencies.crossOwnerEdges.length,
+    crossStateAuthorityEdges: report.dependencies.crossStateAuthorityEdges.length,
     unregisteredViolations: report.dependencies.unregisteredViolations.length,
     stronglyConnectedComponents: report.dependencies.stronglyConnectedComponents.length,
     piViolations: report.piOwnership.violations.length,
     unexpectedCompositionRoots: report.compositionRoots.unexpected.length,
   })}`,
 );
+console.log(compactMarkdown.trimEnd());
 
 if (failures.length > 0) {
   console.error("Architecture governance check failed:");

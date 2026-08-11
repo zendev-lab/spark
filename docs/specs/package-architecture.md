@@ -21,8 +21,8 @@ Generic monorepo mechanics are delegated to maintained open-source tools:
 | dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` | [Syncpack](https://github.com/JoshuaKGoldberg/syncpack) |
 | imports from dependencies missing in the owning workspace manifest | Knip strict unlisted-dependency analysis | [Knip](https://knip.dev/features/monorepos-and-workspaces) |
 | cycles and dependency direction | Dependency Cruiser | [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser) |
-| Spark package identity, explicit workspace dependency restrictions, generated layer direction, state authority/role, exact exceptions, Pi ownership, package budget, export targets, and workspace test and package mutation discovery | `architecture/packages.json`, `architecture/dependency-governance.cjs`, and the Spark-owned architecture checks | Spark-owned contract |
-| point-in-time direct dependencies, fan-in/out, cross-owner and cross-state-authority edges, SCCs, public exports, violations, and composition roots | `architecture/health.schema.json` plus `pnpm run report:architecture` | gitignored local or CI report |
+| Spark package identity, explicit workspace dependency restrictions, generated layer direction, state authority/role, exact exceptions, Pi ownership, package budget, export targets, frozen compatibility, and workspace test and package mutation discovery | `architecture/packages.json`, `architecture/dependency-governance.cjs`, and the Spark-owned architecture checks | Spark-owned contract |
+| point-in-time direct dependencies, fan-in/out, cross-owner and cross-state-authority edges, exception budget, SCCs, public exports, violations, and composition roots | `architecture/health.schema.json` plus `pnpm run report:architecture` | gitignored local or CI report |
 
 `pnpm run check:architecture` validates the schemas, runs Syncpack and Knip,
 executes the Spark-specific ratchets, and validates a freshly derived health
@@ -97,10 +97,13 @@ exact product consumers, and an `experiment` is isolated from production.
 
 A temporary reverse edge is not a layer-wide allowance. It must name one exact
 `from` package, `to` package and target layer, plus a reason, owner, existing
-exit task, and `nonGrowth: true`. The checker rejects duplicate, unnecessary,
-or stale exceptions, and generated Dependency Cruiser rules forbid every other
-reverse edge. The current exception ledger is read directly from the inventory
-rather than copied into this specification.
+exit task, and `nonGrowth: true`. The inventory also freezes
+`temporaryDependencyExceptionBudget` with `current`, `ceiling`, and
+`nonGrowth: true`; both the count and the ceiling are fail-closed at a maximum
+of 6. The checker rejects duplicate, unnecessary, stale, or budget-exceeding
+exceptions, and generated Dependency Cruiser rules forbid every other reverse
+edge. The current exception ledger is read directly from the inventory rather
+than copied into this specification.
 
 ## Naming rules
 
