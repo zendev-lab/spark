@@ -109,6 +109,7 @@ the change:
 | Hub and shared Svelte UI browser interactions | `pnpm run test:browser` |
 | User documentation | `pnpm run check:docs && pnpm run build:docs` |
 | Architecture inventory, package ratchets, and health projection | `pnpm run check:architecture` |
+| Architecture exception non-growth against a Git revision | `pnpm run check:architecture-transition -- --base-ref <git-ref>` |
 | Package dependency boundaries | `pnpm run check:boundaries` |
 | Write the gitignored architecture health JSON | `pnpm run report:architecture` |
 | Packed public product and clean installation | `pnpm run smoke` |

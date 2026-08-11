@@ -97,14 +97,16 @@ exact product consumers, and an `experiment` is isolated from production.
 
 A temporary reverse edge is not a layer-wide allowance. It must name one exact
 `from` package, `to` package and target layer, plus a reason, owner, existing
-exit task, and `nonGrowth: true`. `temporaryDependencyExceptionBudget` is a monotonic shrink contract. Its
-`current`, `ceiling`, and the exact `temporaryDependencyExceptions` ledger length
-must always be equal and must not exceed 6. The initial state is `6/6`; removing
-an exception is allowed only when the ledger, `current`, and `ceiling` are all
-changed together to the smaller value (for example, `5/5`). A later attempt to
-restore the removed exception fails both schema and semantic validation. The
-`nonGrowth: true` marker therefore freezes every accepted reduced ledger against
-regrowth. The current exception ledger is read directly from the inventory rather
+exit task, and `nonGrowth: true`. Snapshot schema and semantic validation require `current`, `ceiling`, and the
+exact `temporaryDependencyExceptions` ledger length to be equal and no greater
+than 6. Cross-revision monotonicity is enforced separately by
+`pnpm run check:architecture-transition -- --base-ref <git-ref>`: every current
+exact `from->to` exception key must exist in the base inventory, and neither
+budget number may increase. A `6/6` to `5/5` reduction is valid only when the
+ledger shrinks with it; later restoration, replacement, or revival of an edge
+fails the transition gate even when the new snapshot is internally valid. CI
+compares pull requests and merge-queue commits with `origin/main`, and compares
+main pushes with `HEAD^`. The current exception ledger is read directly from the inventory rather
 than copied into this specification.
 
 ## Naming rules

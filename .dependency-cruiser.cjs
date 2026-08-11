@@ -127,6 +127,31 @@ module.exports = {
       },
     },
 
+    // --- retained pi-* kernel adapter packages ---
+    {
+      name: "pi-no-product-adapters",
+      comment: "pi-* packages must not depend on Spark product adapter packages.",
+      severity: "error",
+      from: {
+        path: "^packages/pi-",
+      },
+      to: {
+        path: productAdapterResolvedPathPattern(),
+      },
+    },
+    {
+      name: "pi-only-foundation-spark",
+      comment:
+        "pi-* packages may depend only on renamed Spark foundation packages, not Spark product packages.",
+      severity: "error",
+      from: {
+        path: "^packages/pi-",
+      },
+      to: {
+        path: sparkOutsidePiFoundationResolvedPathPattern(),
+      },
+    },
+
     // --- Spark product extension composition root ---
     {
       name: "spark-extension-no-spark-tui",
@@ -141,6 +166,19 @@ module.exports = {
       },
     },
 
+    // --- spark foundation packages (exclude Hub-private spark-hub-* packages) ---
+    {
+      name: "spark-foundation-no-spark-extension",
+      comment:
+        "Spark foundation packages must not import the spark-extension product composition root.",
+      severity: "error",
+      from: {
+        path: "^packages/spark-(?!hub-|extension(?:/|$))",
+      },
+      to: {
+        path: "node_modules/.*/@zendev-lab/spark-extension|/node_modules/@zendev-lab/spark-extension|^packages/spark-extension/",
+      },
+    },
     {
       name: "spark-fusion-foundation-only",
       comment:
@@ -328,6 +366,61 @@ module.exports = {
     },
   },
 };
+
+/** Resolved paths / module names for product adapter packages. */
+function productAdapterResolvedPathPattern() {
+  return [
+    "node_modules/.*/@zendev-lab/spark-hub(?:/|$)",
+    "/node_modules/@zendev-lab/spark-hub(?:/|$)",
+    "^apps/spark-hub/",
+    "node_modules/.*/@zendev-lab/spark-daemon(?:/|$)",
+    "/node_modules/@zendev-lab/spark-daemon(?:/|$)",
+    "^apps/spark-daemon/",
+    "node_modules/.*/@zendev-lab/spark-hub-coordination(?:/|$)",
+    "/node_modules/@zendev-lab/spark-hub-coordination(?:/|$)",
+    "^packages/spark-hub-coordination/",
+    "node_modules/.*/@zendev-lab/spark-hub-[^/]+",
+    "/node_modules/@zendev-lab/spark-hub-[^/]+",
+    "^packages/spark-hub-",
+  ].join("|");
+}
+
+function piAllowedSparkFoundationDirs() {
+  return [
+    "spark-artifacts",
+    "spark-core",
+    "spark-host",
+    "spark-loop",
+    "spark-phases",
+    "spark-tasks",
+    "spark-turn",
+    "spark-workflows",
+    // Old script treated spark-tui as non-spark for the foundation allowlist check
+    // (isSparkSpecifier returned false for spark-tui). Keep spark-text similarly allowed.
+    "spark-tui",
+    "spark-text",
+  ];
+}
+
+function sparkOutsidePiFoundationResolvedPathPattern() {
+  const allowed = piAllowedSparkFoundationDirs().join("|");
+  return [
+    `node_modules/.*/@zendev-lab/spark-(?!${allowed})(?:$|/)`,
+    `/node_modules/@zendev-lab/spark-(?!${allowed})(?:$|/)`,
+    `^packages/spark-(?!${allowed})(?:/|$)`,
+  ].join("|");
+}
+
+function sparkAppInternalResolvedPathPattern() {
+  return [
+    "node_modules/.*/@zendev-lab/spark-cli(?:/|$)",
+    "/node_modules/@zendev-lab/spark-cli(?:/|$)",
+    "node_modules/.*/@zendev-lab/spark-tui(?:/|$)",
+    "/node_modules/@zendev-lab/spark-tui(?:/|$)",
+    "^apps/spark-tui/",
+    "^apps/spark-cli/",
+  ].join("|");
+}
 
 function piSdkAllowedSourcePattern(dependency) {
   const piOwnership = architectureInventory.governance.piOwnership;

@@ -97,6 +97,87 @@ function dependencyExceptionFor(inventory, fromPackage, toPackage) {
   );
 }
 
+function temporaryDependencyExceptionKey(exception) {
+  return `${exception.from}->${exception.to}`;
+}
+
+function validateTemporaryDependencyExceptionSnapshot(inventory, label) {
+  const failures = [];
+  const exceptions = inventory?.governance?.temporaryDependencyExceptions;
+  const budget = inventory?.governance?.temporaryDependencyExceptionBudget;
+  if (!Array.isArray(exceptions) || !budget) {
+    failures.push(`${label} inventory is missing temporary dependency exception governance`);
+    return failures;
+  }
+  if (budget.nonGrowth !== true) {
+    failures.push(`${label} temporaryDependencyExceptionBudget.nonGrowth must be true`);
+  }
+  if (!Number.isInteger(budget.current) || !Number.isInteger(budget.ceiling)) {
+    failures.push(`${label} temporaryDependencyExceptionBudget counts must be integers`);
+  } else {
+    if (budget.current < 0 || budget.ceiling < 0 || budget.current > 6 || budget.ceiling > 6) {
+      failures.push(
+        `${label} temporaryDependencyExceptionBudget current=${budget.current} ceiling=${budget.ceiling} must remain within 0..6`,
+      );
+    }
+    if (budget.current !== budget.ceiling || budget.current !== exceptions.length) {
+      failures.push(
+        `${label} temporaryDependencyExceptionBudget must keep current=${budget.current}, ceiling=${budget.ceiling}, and exception ledger length=${exceptions.length} equal`,
+      );
+    }
+  }
+  const keys = exceptions.map(temporaryDependencyExceptionKey);
+  if (new Set(keys).size !== keys.length) {
+    failures.push(`${label} temporary dependency exception ledger contains duplicate keys`);
+  }
+  return failures;
+}
+
+function validateArchitectureGovernanceTransition(previousInventory, currentInventory) {
+  const failures = [];
+  const previousExceptions = previousInventory?.governance?.temporaryDependencyExceptions;
+  const previousBudget = previousInventory?.governance?.temporaryDependencyExceptionBudget;
+
+  // The inventory-v2 rollout is the only bootstrap transition. Once v2 exists,
+  // every later revision must compare against its exact accepted ledger.
+  if (
+    previousInventory?.schemaVersion === 1 &&
+    previousExceptions === undefined &&
+    previousBudget === undefined &&
+    currentInventory?.schemaVersion === 2
+  ) {
+    failures.push(...validateTemporaryDependencyExceptionSnapshot(currentInventory, "current"));
+    return failures;
+  }
+
+  failures.push(...validateTemporaryDependencyExceptionSnapshot(previousInventory, "previous"));
+  failures.push(...validateTemporaryDependencyExceptionSnapshot(currentInventory, "current"));
+  if (failures.length > 0) return failures;
+
+  const currentExceptions = currentInventory.governance.temporaryDependencyExceptions;
+  const currentBudget = currentInventory.governance.temporaryDependencyExceptionBudget;
+  const previousKeys = new Set(previousExceptions.map(temporaryDependencyExceptionKey));
+  for (const exception of currentExceptions) {
+    const key = temporaryDependencyExceptionKey(exception);
+    if (!previousKeys.has(key)) {
+      failures.push(
+        `Architecture transition adds or revives temporary dependency exception ${key}`,
+      );
+    }
+  }
+  if (currentBudget.current > previousBudget.current) {
+    failures.push(
+      `Architecture transition grows temporaryDependencyExceptionBudget.current from ${previousBudget.current} to ${currentBudget.current}`,
+    );
+  }
+  if (currentBudget.ceiling > previousBudget.ceiling) {
+    failures.push(
+      `Architecture transition grows temporaryDependencyExceptionBudget.ceiling from ${previousBudget.ceiling} to ${currentBudget.ceiling}`,
+    );
+  }
+  return failures;
+}
+
 function classifyWorkspaceDependency(inventory, fromPackage, toPackage) {
   const fromInfo = inventory.packages[fromPackage];
   const toInfo = inventory.packages[toPackage];
@@ -669,6 +750,7 @@ module.exports = {
   readWorkspaceManifests,
   resolvedPackagePattern,
   validateArchitectureGovernance,
+  validateArchitectureGovernanceTransition,
   validatePackageBudgetCandidate,
   validatePiOwnership,
 };
