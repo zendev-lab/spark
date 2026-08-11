@@ -40,6 +40,9 @@ needed. They are controls for the current interaction, not separate product
 features. New sessions use `high` thinking by default; an explicit session or
 saved user setting continues to take precedence.
 
+`/status` prints the complete daemon, current session, active work, usage, and
+turn-queue summary directly. It does not open an action picker.
+
 ## Inspect the current session
 
 Use `/inspect` or Ctrl+K to open the local session inspector:

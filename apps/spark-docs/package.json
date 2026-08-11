@@ -8,6 +8,7 @@
     "build": "astro build",
     "build:cloudflare": "pnpm run check:deploy && pnpm run check",
     "preview": "astro preview --port 4322",
+    "test": "pnpm run test:locale",
     "test:locale": "node --test src/lib/docs-locale.test.mjs",
     "check:content": "node ../../scripts/check-user-docs.mjs",
     "check:deploy": "node ../../scripts/require-docs-deploy-env.mjs",

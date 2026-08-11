@@ -253,15 +253,14 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
       workflowRunsAliasCalls += 1;
     },
   });
-  host.registerCommand("session", {
-    description: "Session command",
-    argumentHint: "[list]",
+  host.registerCommand("sessions", {
+    description: "Sessions command",
     metadata: {
       source: "extension",
       extensionId: "spark-pi-parity",
       plane: "daemon",
       resource: "session",
-      verbs: ["show", "list"],
+      verbs: ["list"],
       canonicalCliTarget: "spark daemon session list",
     },
     handler: () => undefined,
@@ -286,7 +285,7 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   );
 
   const slashFixture = {
-    "/session list": runtime.session,
+    "/sessions": runtime.sessions,
     "/task list": local.task,
     "/goal status": runtime.goal,
     "/workflow list": runtime.workflow,
@@ -296,7 +295,7 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
     "/run list": local.run,
   } as const;
   const expectedTargets = {
-    "/session list": "spark daemon session list",
+    "/sessions": "spark daemon session list",
     "/task list": "spark hub task list",
     "/goal status": undefined,
     "/workflow list": undefined,
@@ -332,7 +331,7 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   assert.match(rendered, /Common\s+- \/help/);
   assert.match(rendered, /Automation\s+- \/goal — Goal command/);
   assert.match(rendered, /Workflows\s+- \/workflow — Workflow command/);
-  assert.match(rendered, /Sessions & context[\s\S]*?- \/session \[list\] — Session command/);
+  assert.match(rendered, /Sessions & context[\s\S]*?- \/sessions — Sessions command/);
   assert.match(rendered, /\/reload — reload extension-owned slash command state/);
   assert.doesNotMatch(rendered, /\/workflow-pause/);
   assert.doesNotMatch(rendered, /\/tasks —/);
@@ -345,10 +344,7 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   assert.match(rendered, /Spark command registry \(diagnostic\)/);
   assert.match(rendered, /\/goal — Goal command \[extension\]/);
   assert.doesNotMatch(rendered, /\/goal — Goal command \[extension\] →/);
-  assert.match(
-    rendered,
-    /\/session \[list\] — Session command \[extension\] → spark daemon session list/,
-  );
+  assert.match(rendered, /\/sessions — Sessions command \[extension\] → spark daemon session list/);
   assert.match(
     rendered,
     /\/tasks — open the tasks local session panel \[extension\] → spark hub task list[\s\S]*?compatibility\s+alias for \/task list/,
@@ -1245,9 +1241,9 @@ test("Spark native Pi parity slash commands are discoverable and route represent
     "share",
     "copy",
     "name",
-    "session",
     "changelog",
     "hotkeys",
+    "fork",
     "clone",
     "tree",
     "trust",
@@ -1265,13 +1261,13 @@ test("Spark native Pi parity slash commands are discoverable and route represent
     /\/reload — reload extension-owned slash command state/,
   );
   assert.match(stripAnsi(harness.render()), /\/resume \[session-id\|path\] —/u);
-  assert.doesNotMatch(stripAnsi(harness.render()), /\/fork —/u);
+  assert.match(stripAnsi(harness.render()), /\/fork —/u);
 
   await submitEditorText(harness, "/clear");
   await submitEditorText(harness, "/help all");
   assert.match(
     stripAnsi(harness.render()),
-    /\/fork — [\s\S]*?compatibility\s+alias for \/session fork --current/u,
+    /\/fork — [\s\S]*?→\s*spark daemon session fork --current/u,
   );
   harness.session.appendAssistantChunk("assistant reply to copy");
   harness.session.finishAssistantMessage();
@@ -1540,6 +1536,48 @@ test("bare catalog slash opens a focused bottom action bar without writing trans
   assert.equal(harness.session.messages.length, messageCount);
 });
 
+test("bare status and session lifecycle commands enter their host-owned flow without an action bar", async () => {
+  const calls: Array<{ name: string; args: string }> = [];
+  const command = (name: string) => ({
+    description: name,
+    handler: (args: string) => {
+      calls.push({ name, args });
+    },
+  });
+  const harness = createSparkNativeTuiComponentHarness({
+    withOverlay: true,
+    slashCommands: {
+      status: command("status"),
+      sessions: command("sessions"),
+      resume: command("resume"),
+      new: command("new"),
+    },
+  });
+  const transcript = harness.session.messages.map(({ role, text }) => ({ role, text }));
+
+  const expectedTargets = {
+    status: "status",
+    sessions: "sessions",
+    resume: "sessions",
+    new: "new",
+  } as const;
+  for (const [name, target] of Object.entries(expectedTargets)) {
+    assert.equal(await harness.submit(`/${name}`), "command");
+    assert.deepEqual(calls.at(-1), { name: target, args: "" });
+    assert.equal(harness.app.actionBarSnapshot(), undefined);
+    assert.deepEqual(
+      harness.session.messages.map(({ role, text }) => ({ role, text })),
+      transcript,
+    );
+  }
+
+  assert.equal(await harness.submit("/resume session:target"), "command");
+  assert.deepEqual(calls.at(-1), { name: "resume", args: "session:target" });
+  assert.equal(await harness.submit("/session"), "command");
+  assert.match(harness.session.messages.at(-1)?.text ?? "", /Unknown command: \/session/u);
+  assert.equal(calls.length, 5);
+});
+
 test("TUI host disables unavailable action-bar operations and enables them from live state", async () => {
   const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
@@ -1686,23 +1724,6 @@ test("action bar executes semantic actions and only explicit inspection emits le
   assert.deepEqual(calls.at(-1), { name: "goal", args: "status" });
   assert.equal(harness.session.messages.length, messageCount + 1);
   assert.match(harness.session.messages.at(-1)?.text ?? "", /legacy:goal:status/);
-
-  const transcriptBeforeNewSession = harness.session.messages.map(({ role, text }) => ({
-    role,
-    text,
-  }));
-  await harness.submit("/session");
-  await pressFocused("\x1b[C");
-  await pressFocused("\r");
-  assert.deepEqual(calls.at(-1), { name: "sessions", args: "" });
-  assert.equal(
-    calls.some(({ name }) => name === "new"),
-    false,
-  );
-  assert.deepEqual(
-    harness.session.messages.map(({ role, text }) => ({ role, text })),
-    transcriptBeforeNewSession,
-  );
 
   messageCount = harness.session.messages.length;
   await harness.submit("/workflow-runs");

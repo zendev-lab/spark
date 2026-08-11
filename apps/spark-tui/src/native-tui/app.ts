@@ -642,10 +642,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
       case "status.inspect":
         return "status";
       case "session.select":
-      case "session.create":
         return "sessions";
+      case "session.create":
+        return "new";
       case "session.inspect":
-        return "session";
+        return "status";
       case "turn.stop":
         return "stop";
       case "turn.retry":
@@ -721,10 +722,10 @@ export class SparkNativeTuiApp implements Component, Focusable {
           await this.invokeRegisteredSlashCommand("sessions", "", false);
           return;
         case "session.create":
-          await this.invokeRegisteredSlashCommand("sessions", "", false);
+          await this.invokeRegisteredSlashCommand("new", "", false);
           return;
         case "session.inspect":
-          await this.invokeRegisteredSlashCommand("session", "inspect", true);
+          await this.invokeRegisteredSlashCommand("status", "", true);
           return;
         case "queue.inspect":
           this.session.addSystemMessage(this.renderQueueInspection());
@@ -2093,11 +2094,17 @@ export class SparkNativeTuiApp implements Component, Focusable {
       return;
     }
 
-    // `/sessions` is an explicit navigation command, not a palette request.
-    // Execute it directly so the host can exit this TUI and reopen the same
-    // selector used at startup. `/session` keeps the richer action bar.
-    if (parsed.name === "sessions" && !parsed.args.trim()) {
-      await this.invokeRegisteredSlashCommand(parsed.name, parsed.args, true);
+    // These commands already map to complete host-owned flows. Keep the
+    // action bar out of the way: show unified status, browse/resume through
+    // the startup selector, or create a daemon-managed session.
+    const directCommand =
+      parsed.name === "resume"
+        ? "sessions"
+        : ["status", "sessions", "new"].includes(parsed.name)
+          ? parsed.name
+          : undefined;
+    if (directCommand && !parsed.args.trim() && this.slashCommands[directCommand]) {
+      await this.invokeRegisteredSlashCommand(directCommand, "", directCommand === "status");
       return;
     }
 

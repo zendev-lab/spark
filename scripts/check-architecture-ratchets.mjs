@@ -91,10 +91,12 @@ function runArchitectureRatchets() {
       }
     });
 
+    if (workspaceContainsTests(join(root, path)) && !manifest.scripts?.test) {
+      failures.push(`${path} must expose workspace-local tests.`);
+    }
     if (path.startsWith("packages/")) {
-      const policyViolations = workspacePackagePolicyViolations({
+      const policyViolations = workspacePackageMutationPolicyViolations({
         manifest,
-        hasTests: workspaceContainsTests(join(root, path)),
         hasStrykerConfig: isFile(join(root, path, "stryker.config.json")),
       });
       for (const violation of policyViolations) failures.push(`${path} ${violation}.`);
@@ -150,7 +152,7 @@ function runArchitectureRatchets() {
     process.exitCode = 1;
   } else {
     console.log(
-      `Architecture ratchet passed (${workspacePackages.length} workspaces classified; declared dependency boundaries, package test/mutation discovery, daemon RPC facade, and frozen compatibility surface enforced).`,
+      `Architecture ratchet passed (${workspacePackages.length} workspaces classified; declared dependency boundaries, workspace test and package mutation discovery, daemon RPC facade, and frozen compatibility surface enforced).`,
     );
   }
 }
@@ -334,10 +336,8 @@ export function isLegacyDaemonClientBoundaryExempt(repositoryPath) {
   );
 }
 
-function workspacePackagePolicyViolations({ manifest, hasTests, hasStrykerConfig }) {
+function workspacePackageMutationPolicyViolations({ manifest, hasStrykerConfig }) {
   const violations = [];
-  if (hasTests && !manifest.scripts?.test) violations.push("must expose package-local tests");
-
   const hasMutationOwnership =
     hasStrykerConfig || manifest.scripts?.["test:mutation"] !== undefined;
   if (!hasMutationOwnership) return violations;

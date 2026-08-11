@@ -193,18 +193,6 @@ const statusActionBar = actionBar({
   actions: [
     action("inspect-status", "Refresh status", "status.inspect", "primary"),
     action("inspect-queue", "Queue", "queue.inspect"),
-    action("inspect-session", "Session", "session.inspect"),
-  ],
-});
-
-const sessionActionBar = actionBar({
-  id: "session",
-  title: "Session controls",
-  description: "Switch, create, or inspect a Spark session.",
-  actions: [
-    action("select-session", "Choose session", "session.select", "primary"),
-    action("create-session", "New session", "session.create"),
-    action("inspect-session", "Current session", "session.inspect"),
   ],
 });
 
@@ -288,7 +276,6 @@ export const sparkSlashCommandDescriptors: readonly SparkSlashCommandDescriptor[
   slashCommand("thinking", thinkingActionBar),
   slashCommand("settings", settingsActionBar),
   slashCommand("status", statusActionBar),
-  slashCommand("session", sessionActionBar, ["sessions", "resume", "new"]),
   slashCommand("queue", queueActionBar),
   slashCommand("scoped-models", scopedModelsActionBar),
   slashCommand("goal", goalActionBar),

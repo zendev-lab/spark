@@ -74,6 +74,11 @@ Spark 0.2.0 会直接拒绝旧的根级 `session`/`sessions`、`--print`/`-p`、
 `/help` 只显示日常使用的最短路径。`/help commands` 按用户意图分组显示当前已注册命令。
 `/help all` 还会显示兼容别名、Extension 来源和诊断目标。
 
+`/status` 直接输出 daemon、当前 session、活跃 Goal/Repro 工作、用量、记录和输入
+队列的统一 daemon 权威状态。`/sessions` 打开 session selector；无参数 `/resume`
+是它的兼容别名。`/new` 直接创建并打开新 session。已移除的 `/session` 不再作为
+这些操作之前的中间菜单。
+
 `/inspect` 打开当前 TUI session 的本地投影，与 `spark hub` 打开的 Hub Web
 界面不同。`/automate` 只选择并预填已有 Goal、Loop、Repro 或 Workflow 命令。
 

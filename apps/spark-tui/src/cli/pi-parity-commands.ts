@@ -59,7 +59,6 @@ const PI_COMMANDS = [
   "share",
   "copy",
   "name",
-  "session",
   "inbox",
   "changelog",
   "hotkeys",
@@ -117,14 +116,6 @@ export function createSparkPiParitySlashCommands(
       description: STRINGS.descriptions.name,
       argumentHint: "[name]",
       handler: (args, ctx) => handleNameCommand(ctx.session.messages, args),
-    },
-    session: {
-      description: STRINGS.descriptions.session,
-      argumentHint: "[list]",
-      handler: async (args, ctx) => {
-        if (args.trim().toLowerCase() === "list") return await handleResumeCommand(services, "");
-        return renderNativeSessionInfo(ctx.session.messages);
-      },
     },
     inbox: {
       description: "List, read, or acknowledge durable Spark session mail",
@@ -221,16 +212,13 @@ function piParityCommandMetadata(
         : providerAuthCommand
           ? "auth"
           : name,
-    verbs: name === "session" ? ["show", "list"] : [name],
+    verbs: [name],
     canonicalCliTarget: canonical,
-    ...(name === "fork" ? { deprecatedAliasFor: "/session fork --current" } : {}),
   };
 }
 
 function piParityCanonicalCliTarget(name: string): string {
   switch (name) {
-    case "session":
-      return "spark daemon session list";
     case "inbox":
       return "spark daemon session inbox --session <session>";
     case "fork":
@@ -521,18 +509,6 @@ function handleNameCommand(messages: SparkNativeMessage[], args: string): string
   if (!name) return existing ? `Session name: ${existing.text}` : "No Spark session name set.";
   messages.push({ role: "custom", customType: "session_name", text: name, display: false });
   return `Session name set: ${name}`;
-}
-
-function renderNativeSessionInfo(messages: readonly SparkNativeMessage[]): string {
-  const counts = new Map<string, number>();
-  for (const message of messages) counts.set(message.role, (counts.get(message.role) ?? 0) + 1);
-  const lines = [`${STRINGS.nativeSessionHeader}:`, `messages: ${messages.length}`];
-  for (const [role, count] of [...counts.entries()].sort(([left], [right]) =>
-    left.localeCompare(right),
-  )) {
-    lines.push(`${role}: ${count}`);
-  }
-  return lines.join("\n");
 }
 
 function renderHotkeys(services: SparkCliHostServices): string {

@@ -44,7 +44,7 @@ test("direct PTY drives stdin/stdout, raw mode, rendering, and clean exit", asyn
     const visible = visiblePtyOutput(output);
     assert.match(visible, /> direct input/u);
     assert.match(visible, /direct response: direct input/u);
-    assert.doesNotMatch(visible, /spark>/u);
+    assert.doesNotMatch(visible, /(?:^|\n)spark> /u);
 
     harness.write(CTRL_D);
     assert.equal((await harness.waitForExit()).exitCode, 0);

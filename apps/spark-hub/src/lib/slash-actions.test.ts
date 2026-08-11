@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   hubComposerFeedbackAfterInput,
   hubOpenSearchEvent,
-  hubSessionSelectionShortcutForInput,
+  hubDirectSessionCommandForInput,
   hubSlashCatalogActionBarForInput,
   hubSlashSuggestionsForInput,
   hubSlashSubmissionError,
@@ -81,9 +81,10 @@ describe("Hub slash action presentation", () => {
     const messages = getHubDictionary("zh-CN").sessions.workbench.slashActions;
     const initial = hubSlashSuggestionsForInput("/", messages);
 
-    expect(initial.map((suggestion) => suggestion.command)).toContain("session");
+    expect(initial.map((suggestion) => suggestion.command)).toContain("sessions");
+    expect(initial.map((suggestion) => suggestion.command)).toContain("new");
     expect(initial.map((suggestion) => suggestion.command)).toContain("workflow");
-    expect(initial.map((suggestion) => suggestion.command)).not.toContain("sessions");
+    expect(initial.map((suggestion) => suggestion.command)).not.toContain("session");
     expect(initial.map((suggestion) => suggestion.command)).not.toContain("workflow-runs");
     expect(initial.find((suggestion) => suggestion.command === "model")).toMatchObject({
       canonicalCommand: "model",
@@ -94,7 +95,7 @@ describe("Hub slash action presentation", () => {
     expect(hubSlashSuggestionsForInput("/res", messages)).toEqual([
       expect.objectContaining({
         command: "resume",
-        canonicalCommand: "session",
+        canonicalCommand: "sessions",
         title: "会话控制",
       }),
     ]);
@@ -104,20 +105,22 @@ describe("Hub slash action presentation", () => {
     expect(sparkSlashActionBarForInput("/workflow-runs")?.id).toBe("workflow");
   });
 
-  it("routes only the explicit session picker commands directly on Enter", () => {
-    for (const input of ["/session", "/sessions", " /SESSION ", " /SESSIONS "]) {
-      expect(hubSessionSelectionShortcutForInput(input)).toBe(true);
+  it("routes session selection and creation directly on Enter", () => {
+    for (const input of ["/sessions", "/resume", " /SESSIONS ", " /RESUME "]) {
+      expect(hubDirectSessionCommandForInput(input)).toBe("select");
     }
+    expect(hubDirectSessionCommandForInput("/new")).toBe("create");
 
     for (const input of [
+      "/session",
       "/session inspect",
       "/sessions current",
-      "/resume",
-      "/new",
+      "/resume current",
+      "/new current",
       "//sessions",
       "open /sessions",
     ]) {
-      expect(hubSessionSelectionShortcutForInput(input)).toBe(false);
+      expect(hubDirectSessionCommandForInput(input)).toBeUndefined();
     }
   });
 

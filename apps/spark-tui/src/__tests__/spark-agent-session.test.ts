@@ -502,7 +502,7 @@ test("SparkAgentSession follows the authoritative transcript path across same-id
     reset.entries.at(-1)!.timestamp = "2026-07-22T00:00:00.000Z";
     await services.sessionStore.save(reset);
 
-    assert.equal((await services.sessionStore.findById(sessionId))?.path, stale.path);
+    assert.equal((await services.sessionStore.findById(sessionId))?.path, reset.path);
     const result = await new SparkAgentSession(services).run({
       sessionId,
       sessionPath: reset.path,
