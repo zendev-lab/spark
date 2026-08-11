@@ -19,8 +19,9 @@ beforeAll(async () => {
 });
 const conversationFixtures = catalogFixtures.filter((fixture) => fixture.group === "conversation");
 const workbenchFixtures = catalogFixtures.filter((fixture) => fixture.group === "workbench");
-const desktopViewport = { width: 1440, height: 2000 } as const;
-const mobileViewport = { width: 420, height: 900 } as const;
+// Keep these below the Vitest runner frame so locator screenshots stay at a 1:1 scale.
+const desktopViewport = { width: 1024, height: 560 } as const;
+const mobileViewport = { width: 420, height: 560 } as const;
 
 describe("Spark UI component catalog", () => {
   it("has no automatically detectable WCAG A or AA violations", async () => {
