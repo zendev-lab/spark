@@ -71,6 +71,7 @@ import type {
   SparkHostContext,
   ToolExecutionResult,
   ToolExecutionReconciliation,
+  ToolExecutionRetryability,
 } from "@zendev-lab/spark-core";
 export { compactToolResultContent } from "./tool-result-compaction.ts";
 
@@ -144,7 +145,7 @@ import {
   rawToolResultRecoveryPath,
   resolvedRegisteredToolPolicy,
   safeSelectedSkills,
-  sparkToolFailureCertainty,
+  sparkToolFailureDisposition,
   toToolDefinition,
   toolRequiresApproval,
   type ToolResultRawRecoveryRecord,
@@ -202,6 +203,7 @@ export type SparkAgentLifecycleSource = "agentLoop" | "triggerTurn" | "restartRe
 export const SPARK_TURN_RESTART_YIELD_ERROR_CODE = "SPARK_TURN_RESTART_YIELD";
 export const SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE = "SPARK_TOOL_OUTCOME_UNKNOWN";
 export const SPARK_TOOL_NOT_SENT_RETRY_EXHAUSTED_ERROR_CODE = "SPARK_TOOL_NOT_SENT_RETRY_EXHAUSTED";
+export const SPARK_TOOL_RETRY_NOT_AUTHORIZED_ERROR_CODE = "SPARK_TOOL_RETRY_NOT_AUTHORIZED";
 const MAX_SPARK_TOOL_RECOVERY_ATTEMPTS = 2;
 
 /**
@@ -348,6 +350,7 @@ export type SparkRunOutcome =
       assistant: AssistantMessage;
       roundtrips: number;
       errorMessage: string;
+      errorCode?: string;
     };
 
 export interface SparkToolApprovalReviewRequest {
@@ -789,7 +792,9 @@ export class SparkAgentLoop {
       };
       return outcome;
     };
-    const fail = (message: string): SparkRunOutcome => {
+    const fail = (failure: unknown): SparkRunOutcome => {
+      const message = failure instanceof Error ? failure.message : String(failure);
+      const errorCode = failureCode(failure);
       const terminalAssistant = loopTerminalAssistant(
         lastAssistant,
         safeGetModel(this.getModel),
@@ -802,6 +807,7 @@ export class SparkAgentLoop {
         assistant: terminalAssistant,
         roundtrips,
         errorMessage: message,
+        ...(errorCode ? { errorCode } : {}),
       });
     };
     const abort = (message: string): SparkRunOutcome => {
@@ -939,7 +945,7 @@ export class SparkAgentLoop {
             return abort(this.currentAbortReason ?? message);
           }
           this.publish({ type: "error", message });
-          return fail(message);
+          return fail(error);
         }
 
         if (!assistant) {
@@ -974,11 +980,13 @@ export class SparkAgentLoop {
           });
         }
         if (assistant.stopReason === "error") {
+          const errorCode = failureCode(assistant);
           return finishAgentTurn({
             status: "failed",
             assistant,
             roundtrips,
             errorMessage: assistant.errorMessage?.trim() || "provider stream failed",
+            ...(errorCode ? { errorCode } : {}),
           });
         }
 
@@ -1007,14 +1015,6 @@ export class SparkAgentLoop {
           this.publish({ type: "tool_result", message: result });
           this.publishEntityViewsForToolResult(result);
         }
-        const recoveryBlocker = toolResults.find(isToolRecoveryBlocker);
-        if (recoveryBlocker) {
-          const details = isPlainRecord(recoveryBlocker.details) ? recoveryBlocker.details : {};
-          const code =
-            typeof details.code === "string" ? details.code : SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE;
-          return fail(`${code}: ${toolResultDisplayText(recoveryBlocker)}`);
-        }
-
         this.drainOutboxIntoMessages();
       }
 
@@ -1035,7 +1035,7 @@ export class SparkAgentLoop {
         return abort(this.currentAbortReason ?? message);
       }
       this.publish({ type: "error", message });
-      return fail(message);
+      return fail(error);
     } finally {
       this.currentAbort = undefined;
       this.currentAbortReason = undefined;
@@ -1225,15 +1225,13 @@ export class SparkAgentLoop {
       const toolAbort = new AbortController();
       const cleanupAbort = relayAbort(signal, toolAbort);
       try {
-        const recovered = await this.executeToolWithRecovery({
+        const result = await this.executeToolWithRecovery({
           tool,
           toolCall: normalizedToolCall,
           signal: toolAbort.signal,
           onUpdate,
           ctx,
         });
-        if ("blocker" in recovered) return recovered.blocker;
-        const result = recovered.result;
         const compacted = compactToolResultContent({
           toolName: toolCall.name,
           args: normalizedToolCall.arguments,
@@ -1279,43 +1277,53 @@ export class SparkAgentLoop {
     signal: AbortSignal;
     onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void;
     ctx: SparkHostContext;
-  }): Promise<{ result: ToolExecutionResult } | { blocker: ToolResultMessage }> {
+  }): Promise<ToolExecutionResult> {
+    const operationId = toolOperationId(input.ctx, input.toolCall);
     let executeRetries = 0;
-    while (true) {
+    execution: while (true) {
       let failure: unknown;
       try {
-        const result = await runWithTimeout(
-          input.tool.config.execute(
-            input.toolCall.id,
-            input.toolCall.arguments,
-            input.signal,
-            input.onUpdate,
-            input.ctx,
-          ),
+        return await runAbortableToolPhase(
+          (attemptSignal) =>
+            input.tool.config.execute(
+              input.toolCall.id,
+              input.toolCall.arguments,
+              attemptSignal,
+              input.onUpdate,
+              input.ctx,
+            ),
+          input.signal,
           this.toolTimeoutMs,
           `Spark tool "${input.toolCall.name}" timed out after ${this.toolTimeoutMs}ms`,
         );
-        return { result };
       } catch (error) {
         failure = error;
       }
 
       if (input.signal.aborted) throw failure;
 
-      if (sparkToolFailureCertainty(failure) === "not-sent") {
-        if (executeRetries >= MAX_SPARK_TOOL_RECOVERY_ATTEMPTS) {
-          return {
-            blocker: toolRecoveryBlocker(
-              input.toolCall,
-              SPARK_TOOL_NOT_SENT_RETRY_EXHAUSTED_ERROR_CODE,
-              "not-sent",
-              executeRetries,
-              failure,
-            ),
-          };
+      const disposition = sparkToolFailureDisposition(failure);
+      if (disposition.certainty === "not-sent") {
+        if (
+          disposition.retryability === "transient" &&
+          executeRetries < MAX_SPARK_TOOL_RECOVERY_ATTEMPTS
+        ) {
+          executeRetries += 1;
+          continue;
         }
-        executeRetries += 1;
-        continue;
+        return toolRecoveryErrorResult({
+          toolCall: input.toolCall,
+          operationId,
+          code:
+            disposition.retryability === "transient"
+              ? SPARK_TOOL_NOT_SENT_RETRY_EXHAUSTED_ERROR_CODE
+              : SPARK_TOOL_RETRY_NOT_AUTHORIZED_ERROR_CODE,
+          certainty: disposition.certainty,
+          retryability: disposition.retryability,
+          executeRetries,
+          reconciliationAttempts: 0,
+          failure,
+        });
       }
 
       const requiresOutcomeReconciliation =
@@ -1323,17 +1331,17 @@ export class SparkAgentLoop {
         "external_write";
       if (!requiresOutcomeReconciliation) throw failure;
 
-      const reconcile = input.tool.config.reconcile;
-      if (!reconcile) {
-        return {
-          blocker: toolRecoveryBlocker(
-            input.toolCall,
-            SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
-            "unknown",
-            0,
-            failure,
-          ),
-        };
+      if (!input.tool.config.reconcile) {
+        return toolRecoveryErrorResult({
+          toolCall: input.toolCall,
+          operationId,
+          code: SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
+          certainty: "unknown",
+          retryability: "agent-decides",
+          executeRetries,
+          reconciliationAttempts: 0,
+          failure,
+        });
       }
       for (
         let reconcileAttempt = 1;
@@ -1342,56 +1350,74 @@ export class SparkAgentLoop {
       ) {
         let reconciliation: ToolExecutionReconciliation;
         try {
-          reconciliation = await runWithTimeout(
-            reconcile(
-              input.toolCall.id,
-              input.toolCall.arguments,
-              input.signal,
-              input.onUpdate,
-              input.ctx,
-              failure,
-            ),
+          reconciliation = await runAbortableToolPhase(
+            (attemptSignal) =>
+              input.tool.config.reconcile!(
+                input.toolCall.id,
+                input.toolCall.arguments,
+                attemptSignal,
+                input.onUpdate,
+                input.ctx,
+                failure,
+              ),
+            input.signal,
             this.toolTimeoutMs,
             `Spark tool "${input.toolCall.name}" reconciliation timed out after ${this.toolTimeoutMs}ms`,
           );
         } catch (error) {
+          if (input.signal.aborted) throw error;
           failure = error;
-          if (reconcileAttempt < MAX_SPARK_TOOL_RECOVERY_ATTEMPTS) continue;
-          return {
-            blocker: toolRecoveryBlocker(
-              input.toolCall,
-              SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
-              "unknown",
-              reconcileAttempt,
-              failure,
-            ),
-          };
-        }
-        if (reconciliation.outcome === "completed") return { result: reconciliation.result };
-        if (reconciliation.outcome === "not-sent") {
-          if (executeRetries >= MAX_SPARK_TOOL_RECOVERY_ATTEMPTS) {
-            return {
-              blocker: toolRecoveryBlocker(
-                input.toolCall,
-                SPARK_TOOL_NOT_SENT_RETRY_EXHAUSTED_ERROR_CODE,
-                "not-sent",
-                executeRetries,
-                failure,
-              ),
-            };
+          const reconciliationFailure = sparkToolFailureDisposition(error);
+          if (
+            reconciliationFailure.retryability === "transient" &&
+            reconcileAttempt < MAX_SPARK_TOOL_RECOVERY_ATTEMPTS
+          ) {
+            continue;
           }
-          executeRetries += 1;
-          break;
+          return toolRecoveryErrorResult({
+            toolCall: input.toolCall,
+            operationId,
+            code: SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
+            certainty: "unknown",
+            retryability: reconciliationFailure.retryability,
+            executeRetries,
+            reconciliationAttempts: reconcileAttempt,
+            failure,
+          });
         }
-        return {
-          blocker: toolRecoveryBlocker(
-            input.toolCall,
-            SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
-            "unknown",
-            reconcileAttempt,
-            reconciliation.message ?? failure,
-          ),
-        };
+        if (reconciliation.outcome === "completed") return reconciliation.result;
+        if (reconciliation.outcome === "not-sent") {
+          if (
+            reconciliation.retryability === "transient" &&
+            executeRetries < MAX_SPARK_TOOL_RECOVERY_ATTEMPTS
+          ) {
+            executeRetries += 1;
+            continue execution;
+          }
+          return toolRecoveryErrorResult({
+            toolCall: input.toolCall,
+            operationId,
+            code:
+              reconciliation.retryability === "transient"
+                ? SPARK_TOOL_NOT_SENT_RETRY_EXHAUSTED_ERROR_CODE
+                : SPARK_TOOL_RETRY_NOT_AUTHORIZED_ERROR_CODE,
+            certainty: "not-sent",
+            retryability: reconciliation.retryability,
+            executeRetries,
+            reconciliationAttempts: reconcileAttempt,
+            failure,
+          });
+        }
+        return toolRecoveryErrorResult({
+          toolCall: input.toolCall,
+          operationId,
+          code: SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
+          certainty: "unknown",
+          retryability: "agent-decides",
+          executeRetries,
+          reconciliationAttempts: reconcileAttempt,
+          failure: reconciliation.message ?? failure,
+        });
       }
     }
   }
@@ -2002,37 +2028,86 @@ export class SparkAgentLoop {
   }
 }
 
-function isToolRecoveryBlocker(result: ToolResultMessage): boolean {
-  return isPlainRecord(result.details) && result.details.sparkToolRecovery === "blocked";
+async function runAbortableToolPhase<T>(
+  start: (signal: AbortSignal) => Promise<T>,
+  parentSignal: AbortSignal,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  const phaseAbort = new AbortController();
+  const cleanupAbort = relayAbort(parentSignal, phaseAbort);
+  try {
+    throwIfSignalAborted(phaseAbort.signal);
+    const execution = Promise.resolve().then(async () => await start(phaseAbort.signal));
+    try {
+      const result = await runWithTimeout(execution, timeoutMs, timeoutMessage, (error) =>
+        phaseAbort.abort(error),
+      );
+      throwIfSignalAborted(phaseAbort.signal);
+      return result;
+    } catch (error) {
+      // Aborting a tool is advisory: an implementation may ignore its signal.
+      // Keep the phase occupied until that implementation actually settles so
+      // reconciliation or replay can never overlap the original side effect.
+      if (phaseAbort.signal.aborted) await execution.catch(() => undefined);
+      throw error;
+    }
+  } finally {
+    cleanupAbort();
+  }
 }
 
-function toolResultDisplayText(result: ToolResultMessage): string {
-  return result.content
-    .map((part) => (part.type === "text" && typeof part.text === "string" ? part.text : ""))
-    .filter(Boolean)
-    .join("\n");
+function toolOperationId(ctx: SparkHostContext, toolCall: ToolCall): string {
+  return `${ctx.invocationId ?? ctx.sessionId ?? "anonymous"}:${toolCall.id}`;
 }
 
-function toolRecoveryBlocker(
-  toolCall: ToolCall,
-  code: string,
-  certainty: "not-sent" | "unknown",
-  recoveryAttempts: number,
-  failure: unknown,
-): ToolResultMessage {
-  const detail = failure instanceof Error ? failure.message : String(failure);
-  return errorToolResult(
-    toolCall,
-    certainty === "unknown"
-      ? `Tool "${toolCall.name}" outcome remains unknown after reconciliation; automatic continuation stopped. ${detail}`
-      : `Tool "${toolCall.name}" was confirmed not sent but bounded retries were exhausted. ${detail}`,
-    {
-      sparkToolRecovery: "blocked",
-      code,
-      certainty,
-      recoveryAttempts,
+function toolRecoveryErrorResult(input: {
+  toolCall: ToolCall;
+  operationId: string;
+  code: string;
+  certainty: "not-sent" | "unknown";
+  retryability: ToolExecutionRetryability;
+  executeRetries: number;
+  reconciliationAttempts: number;
+  failure: unknown;
+}): ToolExecutionResult {
+  const detail = input.failure instanceof Error ? input.failure.message : String(input.failure);
+  let message: string;
+  if (input.certainty === "unknown") {
+    message = `Tool "${input.toolCall.name}" operation ${input.operationId} has an unknown external outcome. Do not replay this operation; inspect external state, reconcile with a read tool, choose another approach, or ask the user. ${detail}`;
+  } else if (input.retryability === "permanent") {
+    message = `Tool "${input.toolCall.name}" operation ${input.operationId} was confirmed not sent, but the failure is permanent. Correct the request, permissions, or target before choosing a new action. ${detail}`;
+  } else if (input.retryability === "agent-decides") {
+    message = `Tool "${input.toolCall.name}" operation ${input.operationId} was confirmed not sent. The runtime will not retry without an explicit transient classification; decide the next action. ${detail}`;
+  } else {
+    message = `Tool "${input.toolCall.name}" operation ${input.operationId} was confirmed not sent, but its bounded transient retry budget was exhausted. Decide whether to retry later or choose another action. ${detail}`;
+  }
+  return {
+    content: [{ type: "text", text: message }],
+    details: {
+      sparkToolRecovery: "agent_action_required",
+      code: input.code,
+      operationId: input.operationId,
+      certainty: input.certainty,
+      retryability: input.retryability,
+      replayAllowed: input.certainty === "not-sent",
+      automaticRetryAllowed: false,
+      executeRetries: input.executeRetries,
+      reconciliationAttempts: input.reconciliationAttempts,
     },
-  );
+    isError: true,
+  };
+}
+
+function failureCode(value: unknown, seen = new Set<object>()): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  if (seen.has(value)) return undefined;
+  seen.add(value);
+  const record = value as { code?: unknown; errorCode?: unknown; error?: unknown };
+  for (const candidate of [record.code, record.errorCode]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return failureCode(record.error, seen);
 }
 
 function sameMessageProjection(

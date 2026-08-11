@@ -546,12 +546,13 @@ test("SparkAgentSession continues from a persisted tool receipt after a terminal
               stopReason: "toolUse",
             } as unknown as AssistantMessage;
           }
-          if (providerCalls === 2) {
+          if (providerCalls === 2 || providerCalls === 3) {
             return {
               ...assistant(""),
               content: [],
               stopReason: "error",
-              errorMessage: "Provider stream ended without a terminal event",
+              errorMessage: "opaque provider stream failure",
+              code: "PROVIDER_STREAM_TERMINAL_LESS",
             } as unknown as AssistantMessage;
           }
           return assistant("continued from checkpoint");
@@ -577,7 +578,7 @@ test("SparkAgentSession continues from a persisted tool receipt after a terminal
     });
     assert.equal(result.outcome?.status, "completed");
     assert.equal(result.assistantText, "continued from checkpoint");
-    assert.equal(providerCalls, 3);
+    assert.equal(providerCalls, 4);
     assert.equal(toolExecutions, 1);
     const record = await services.sessionStore.load(result.sessionPath);
     assert.deepEqual(
@@ -585,8 +586,20 @@ test("SparkAgentSession continues from a persisted tool receipt after a terminal
       ["user", "assistant", "toolResult", "assistant"],
     );
     assert.equal(
-      JSON.stringify(record.entries).includes("Provider stream ended without a terminal event"),
-      false,
+      record.entries.filter(
+        (entry) => entry.type === "custom_message" && entry.customType === "spark-runtime-failure",
+      ).length,
+      2,
+    );
+    assert.equal(
+      record.entries.some(
+        (entry) =>
+          entry.type === "custom_message" &&
+          entry.customType === "spark-runtime-failure" &&
+          (entry.details as { code?: unknown } | undefined)?.code ===
+            "PROVIDER_STREAM_TERMINAL_LESS",
+      ),
+      true,
     );
     const assistantViews = viewEvents
       .filter((event) => event.type === "session.message" && event.message.role === "assistant")
@@ -595,7 +608,7 @@ test("SparkAgentSession continues from a persisted tool receipt after a terminal
       assistantViews.some(
         (message) =>
           message.status === "error" &&
-          String(message.text).includes("Provider stream ended without a terminal event"),
+          String(message.text).includes("opaque provider stream failure"),
       ),
       true,
     );

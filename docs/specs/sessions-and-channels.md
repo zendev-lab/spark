@@ -10,6 +10,21 @@ A workspace identity is created only by the explicit `spark daemon workspace reg
 - **TUI `queuedFollowUps`** is an optimistic local layer for steer coalesce, follow-up turns, and editor restore before / until `turn.submit` is acknowledged. It must not invent a second durable admission list.
 - When both are present, UI may show local unacked items plus daemon `pendingTurns`; after ack, drop the matching optimistic row and trust the daemon projection.
 
+## Provider failure continuation
+
+Provider stream failures are execution observations, not ToolResults and not
+user cancellation. Stable provider error codes are classified before legacy
+message heuristics. When a failed model round follows a completed tool receipt,
+`SparkAgentSession` first persists the current user/assistant/tool transcript and
+a hidden, untrusted `runtime_data` failure observation, then continues from that
+durable history. It never re-submits the original user prompt after entering this
+continuation path, including when a later provider attempt also fails.
+
+Before any completed receipt exists, a bounded transient provider attempt may
+re-submit the prompt from the last persisted Session snapshot. This recovery is
+an in-process continuation boundary; arbitrary kill recovery still requires the
+daemon-owned durable turn journal and must not be inferred from prompt text.
+
 ## Role and session boundary
 
 - `role` owns reusable definitions and Model Type settings. Calls instantiate

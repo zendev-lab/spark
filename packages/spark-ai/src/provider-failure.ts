@@ -1,4 +1,7 @@
-import { isMalformedProviderJsonErrorText } from "./provider-stream-retry.ts";
+import {
+  isMalformedProviderJsonErrorText,
+  TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
+} from "./provider-stream-retry.ts";
 
 export type FailureClass =
   | "auth"
@@ -19,6 +22,7 @@ export interface ProviderFailureInput {
   error?: unknown;
   message?: unknown;
   assistantMessage?: unknown;
+  code?: string;
   status?: number;
   stopReason?: string;
   errorMessage?: string;
@@ -28,6 +32,7 @@ export interface ProviderFailureClassification {
   failureClass: FailureClass;
   policy: FailurePolicyHint;
   message: string;
+  code?: string;
   status?: number;
 }
 
@@ -48,6 +53,7 @@ export function classifyProviderFailure(input: unknown): ProviderFailureClassifi
     failureClass,
     policy: FAILURE_CLASS_POLICIES[failureClass],
     message: normalized.message,
+    ...(normalized.code !== undefined ? { code: normalized.code } : {}),
     ...(normalized.status !== undefined ? { status: normalized.status } : {}),
   };
 }
@@ -55,6 +61,8 @@ export function classifyProviderFailure(input: unknown): ProviderFailureClassifi
 function chooseFailureClass(input: NormalizedProviderFailure): FailureClass {
   const text = input.message.toLowerCase();
   if (input.stopReason === "aborted") return "aborted";
+  if (input.code === TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE) return "transient";
+  // Compatibility fallback for adapters that have not preserved the stable code yet.
   if (
     /terminal event|terminal outcome|terminal-less|terminal less|without a final assistant message/u.test(
       text,
@@ -104,6 +112,7 @@ function chooseFailureClass(input: NormalizedProviderFailure): FailureClass {
 
 interface NormalizedProviderFailure {
   message: string;
+  code?: string;
   status?: number;
   stopReason?: string;
 }
@@ -114,6 +123,7 @@ function normalizeProviderFailure(input: unknown): NormalizedProviderFailure {
     candidates.messages.find((candidate) => candidate.trim())?.trim() || "unknown provider failure";
   return {
     message,
+    ...(candidates.code !== undefined ? { code: candidates.code } : {}),
     ...(candidates.status !== undefined ? { status: candidates.status } : {}),
     ...(candidates.stopReason !== undefined ? { stopReason: candidates.stopReason } : {}),
   };
@@ -121,10 +131,12 @@ function normalizeProviderFailure(input: unknown): NormalizedProviderFailure {
 
 function collectFailureCandidates(input: unknown): {
   messages: string[];
+  code?: string;
   status?: number;
   stopReason?: string;
 } {
   const messages: string[] = [];
+  let code: string | undefined;
   let status: number | undefined;
   let stopReason: string | undefined;
 
@@ -136,6 +148,7 @@ function collectFailureCandidates(input: unknown): {
     }
     if (value instanceof Error) {
       messages.push(value.message);
+      code ??= extractCode(value);
       status ??= extractStatus(value);
       if (value.cause) visit(value.cause);
       return;
@@ -145,6 +158,7 @@ function collectFailureCandidates(input: unknown): {
       return;
     }
 
+    code ??= extractCode(value);
     status ??= extractStatus(value);
     const maybeStopReason = value.stopReason;
     if (typeof maybeStopReason === "string") stopReason ??= maybeStopReason;
@@ -162,9 +176,21 @@ function collectFailureCandidates(input: unknown): {
   visit(input);
   return {
     messages,
+    ...(code !== undefined ? { code } : {}),
     ...(status !== undefined ? { status } : {}),
     ...(stopReason !== undefined ? { stopReason } : {}),
   };
+}
+
+function extractCode(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+  for (const key of ["code", "errorCode"]) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate.trim() && !/^\d{3}$/u.test(candidate)) {
+      return candidate.trim();
+    }
+  }
+  return undefined;
 }
 
 function primitiveFailureMessage(value: unknown): string {

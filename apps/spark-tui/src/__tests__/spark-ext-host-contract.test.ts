@@ -26,6 +26,7 @@ interface ContractObservation {
   duplicateCommandReturn: unknown;
   toolUpdates: string[];
   toolResult: unknown;
+  toolReconciliation: unknown;
   outbox: NormalizedOutboxEnvelope[];
   notifications: Array<{ message: string; level?: ExtensionUiNotifyLevel }>;
   statuses: Array<{ key: string; text: string | undefined }>;
@@ -308,6 +309,21 @@ function contractFixtureExtension(pi: SparkHostAPI): void {
         details: { cwd: ctx.cwd, toolCallId },
       };
     },
+    async reconcile(toolCallId, params, _signal, onUpdate, ctx, failure) {
+      const text = typeof params.text === "string" ? params.text : "";
+      onUpdate({
+        content: [
+          {
+            type: "text",
+            text: `reconcile:${text}:${toolCallId}:${ctx.cwd}:${String(failure)}`,
+          },
+        ],
+      });
+      return {
+        outcome: "not-sent",
+        retryability: "permanent",
+      } as const;
+    },
   });
 
   pi.registerTool?.({
@@ -408,6 +424,14 @@ async function exercise(driver: ContractDriver): Promise<ContractObservation> {
       (update) => toolUpdates.push(update.content.map((part) => part.text).join("")),
       driver.makeToolContext(),
     );
+  const toolReconciliation = await driver.getTool("contract_echo")!.config.reconcile!(
+    "tool-call-1",
+    { text: "hello" },
+    new AbortController().signal,
+    (update) => toolUpdates.push(update.content.map((part) => part.text).join("")),
+    driver.makeToolContext(),
+    new Error("lost response"),
+  );
 
   return {
     registeredTools,
@@ -419,6 +443,7 @@ async function exercise(driver: ContractDriver): Promise<ContractObservation> {
     duplicateCommandReturn,
     toolUpdates,
     toolResult,
+    toolReconciliation,
     outbox: driver.drainOutbox().map(normalizeOutbox),
     notifications: driver.notifications,
     statuses: driver.statuses,
@@ -452,5 +477,12 @@ test("SparkHostAPI contract fixture behaves the same on SparkHostRuntime and PiE
   });
   assert.deepEqual(spark.commandNames, ["contract", "contract:1"]);
   assert.deepEqual(spark.eventResults, ["session-started", "turn-started"]);
-  assert.deepEqual(spark.toolUpdates, ["update:hello"]);
+  assert.deepEqual(spark.toolUpdates, [
+    "update:hello",
+    "reconcile:hello:tool-call-1:/tmp/spark-ext-contract:Error: lost response",
+  ]);
+  assert.deepEqual(spark.toolReconciliation, {
+    outcome: "not-sent",
+    retryability: "permanent",
+  });
 });

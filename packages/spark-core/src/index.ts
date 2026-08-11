@@ -159,9 +159,11 @@ export interface ToolExecutionResult {
   isError?: boolean;
 }
 
+export type ToolExecutionRetryability = "transient" | "permanent" | "agent-decides";
+
 export type ToolExecutionReconciliation =
   | { outcome: "completed"; result: ToolExecutionResult }
-  | { outcome: "not-sent" }
+  | { outcome: "not-sent"; retryability: ToolExecutionRetryability }
   | { outcome: "unknown"; message?: string };
 
 export interface ToolConfig {
@@ -210,8 +212,9 @@ export interface ToolConfig {
   ): Promise<ToolExecutionResult>;
   /**
    * Query durable operation state after a post-dispatch failure. Implementations
-   * must not create a new side effect: `completed` returns its receipt/result,
-   * `not-sent` authorizes one bounded execute retry, and `unknown` fails closed.
+   * must not create a new side effect: `completed` returns its receipt/result;
+   * `not-sent` separately declares retryability; and `unknown` prevents replay
+   * while returning an error result to the Agent for recovery.
    */
   reconcile?(
     toolCallId: string,
