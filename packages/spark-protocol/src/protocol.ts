@@ -748,6 +748,52 @@ export const sparkAskQuestionViewSchema = z.object({
   options: z.array(sparkAskOptionViewSchema).default([]),
 });
 
+export const sparkAskFlowInteractionCapabilitiesSchema = z
+  .object({
+    deliveries: z
+      .array(z.enum(["blocking", "async"]))
+      .min(1)
+      .max(2),
+    timeout: z.boolean(),
+    responseCorrelation: z.literal("request_id"),
+    asyncAcknowledgement: z.literal("pending_with_human_request_id").optional(),
+  })
+  .strict()
+  .superRefine((capabilities, context) => {
+    if (new Set(capabilities.deliveries).size !== capabilities.deliveries.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["deliveries"],
+        message: "askFlow capability deliveries must be unique",
+      });
+    }
+    if (
+      capabilities.deliveries.includes("async") &&
+      capabilities.asyncAcknowledgement !== "pending_with_human_request_id"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["asyncAcknowledgement"],
+        message: "async askFlow capability requires a correlated durable acknowledgement",
+      });
+    }
+  });
+
+export const sparkInteractionCapabilitiesSchema = z
+  .object({
+    version: z.literal(1),
+    askFlow: sparkAskFlowInteractionCapabilitiesSchema.optional(),
+  })
+  .strict();
+
+export const sparkAskAcknowledgementSchema = z
+  .object({
+    schema: z.literal("spark.ask-ack/v1"),
+    interactionRequestId: z.string().min(1),
+    humanRequestId: z.string().min(1),
+  })
+  .strict();
+
 export const sparkInteractionBaseRequestSchema = z.object({
   version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),
   requestId: z.string().min(1),
@@ -1110,6 +1156,8 @@ export type SparkSessionView = z.infer<typeof sparkSessionViewSchema>;
 export type SparkSessionSnapshotHistory = z.infer<typeof sparkSessionSnapshotHistorySchema>;
 export type SparkSessionSnapshotPage = z.infer<typeof sparkSessionSnapshotPageSchema>;
 export type SparkAskQuestionView = z.infer<typeof sparkAskQuestionViewSchema>;
+export type SparkAskAcknowledgement = z.infer<typeof sparkAskAcknowledgementSchema>;
+export type SparkInteractionCapabilities = z.infer<typeof sparkInteractionCapabilitiesSchema>;
 export type SparkInteractionRequest = z.infer<typeof sparkInteractionRequestSchema>;
 export type SparkInteractionResponse = z.infer<typeof sparkInteractionResponseSchema>;
 export type SparkViewModelEvent = z.infer<typeof sparkViewModelEventSchema>;
@@ -1135,6 +1183,14 @@ export type SparkDaemonEvent = z.infer<typeof sparkDaemonEventSchema>;
 
 export function parseSparkInteractionRequest(value: unknown): SparkInteractionRequest {
   return sparkInteractionRequestSchema.parse(value);
+}
+
+export function parseSparkInteractionCapabilities(value: unknown): SparkInteractionCapabilities {
+  return sparkInteractionCapabilitiesSchema.parse(value);
+}
+
+export function parseSparkAskAcknowledgement(value: unknown): SparkAskAcknowledgement {
+  return sparkAskAcknowledgementSchema.parse(value);
 }
 
 export function parseSparkInteractionResponse(value: unknown): SparkInteractionResponse {

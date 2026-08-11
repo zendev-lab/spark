@@ -15,7 +15,11 @@ import type {
 } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import type { SparkHeadlessSessionRunInput } from "@zendev-lab/spark-host/headless-loader";
-import { SPARK_PROTOCOL_VERSION, type SparkDaemonEvent } from "@zendev-lab/spark-protocol";
+import {
+  SPARK_PROTOCOL_VERSION,
+  createBlockedInteractionResponse,
+  type SparkDaemonEvent,
+} from "@zendev-lab/spark-protocol";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";
 import { SparkTurnRestartYieldError, type SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
@@ -342,6 +346,38 @@ describe("daemon native session execution", () => {
       }),
     );
     expect(executeSession.mock.calls[0]?.[0].tokenUsage).not.toHaveProperty("scope");
+  });
+
+  it("declares daemon Ask timeout and correlated async ACK capabilities", async () => {
+    const executeSession = vi.fn(async (_input: SparkHeadlessSessionRunInput) => ({
+      assistantText: "done",
+    }));
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_ask_capabilities",
+      prompt: "ask later",
+    };
+
+    await executeSparkDaemonSessionRunTask(task, context(task), {
+      paths,
+      executeSession,
+      interact: async (request) => createBlockedInteractionResponse(request, "test only"),
+    });
+
+    expect(executeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        interaction: expect.any(Function),
+        interactionCapabilities: {
+          version: 1,
+          askFlow: {
+            deliveries: ["blocking", "async"],
+            timeout: true,
+            responseCorrelation: "request_id",
+            asyncAcknowledgement: "pending_with_human_request_id",
+          },
+        },
+      }),
+    );
   });
 
   it("releases the managed Task Session lease when headless execution fails", async () => {

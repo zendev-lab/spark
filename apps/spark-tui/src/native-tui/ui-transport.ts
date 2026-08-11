@@ -10,6 +10,14 @@ export function createSparkNativeUiTransport(
   session: SparkNativeSession,
 ): SparkHostUiTransport {
   return {
+    interactionCapabilities: {
+      version: 1,
+      askFlow: {
+        deliveries: ["blocking"],
+        timeout: true,
+        responseCorrelation: "request_id",
+      },
+    },
     notify: (message: string, level?: "info" | "warning" | "error" | "success") =>
       session.addCustomMessage({
         customType: "notification",

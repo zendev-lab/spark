@@ -8,6 +8,7 @@ import {
   type EvidenceRef,
 } from "@zendev-lab/spark-core";
 import {
+  matchesAutonomousAskInteractionRequestId,
   sparkEvidenceAnswerEventSchema,
   type SparkEvidenceAnswerEvent,
 } from "@zendev-lab/spark-protocol";
@@ -34,7 +35,10 @@ export async function recordCanonicalAnswerEventEvidenceReceipt(
   const evidenceRef = answerEventEvidenceRef(parsed);
   if (
     parsed.binding.askRef !== `ask:${parsed.binding.requestHash}` ||
-    parsed.interactionRequestId !== `ask_async:${parsed.binding.requestHash}`
+    !matchesAutonomousAskInteractionRequestId(
+      parsed.interactionRequestId,
+      parsed.binding.requestHash,
+    )
   ) {
     throw new Error("canonical AnswerEvent request identity does not match its binding hash");
   }
@@ -65,7 +69,7 @@ export async function verifyCanonicalAnswerEventEvidence(
   const evidenceRef = answerEventEvidenceRef(event);
   if (
     event.binding.askRef !== `ask:${event.binding.requestHash}` ||
-    event.interactionRequestId !== `ask_async:${event.binding.requestHash}`
+    !matchesAutonomousAskInteractionRequestId(event.interactionRequestId, event.binding.requestHash)
   ) {
     return undefined;
   }

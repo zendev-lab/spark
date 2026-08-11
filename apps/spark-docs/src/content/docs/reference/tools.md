@@ -26,6 +26,12 @@ they share one owner, state, permission, rendering, and result contract.
 | Agent composition | Roles and owner-bound Skill Agents | Session/Role registry and Skill loader |
 | External adapters | Channels, ACP, MCP, Git, and provider-specific capabilities | The owning adapter behind Spark contracts |
 
+`ask` validates the host interaction capability before async delivery or
+reviewer-timeout takeover. Async acceptance returns a correlated durable ACK
+(`interactionRequestId` plus `humanRequestId`); missing capabilities, malformed
+ACKs, transport rejection, and request-id mismatches fail closed. Blocking
+timeouts are host policy and cannot be selected per tool call.
+
 ## Artifacts and Evidence
 
 User-facing Artifact kinds are exactly `issue | git_change | document`.

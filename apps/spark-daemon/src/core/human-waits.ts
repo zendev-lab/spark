@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
+  createAutonomousAskInteractionRequestId,
   createId,
   hasNonEmptySparkHumanAnswer,
+  matchesAutonomousAskInteractionRequestId,
   sparkEvidenceAnswerEventSchema,
   type HumanRequestCreatedPayload,
   type SparkDirectAnswerProvenance,
@@ -176,14 +178,27 @@ export class SparkDaemonHumanWaitRegistry {
     }
     if (input.evidenceRequest && input.interactionRequestId) {
       const expectedAskRef = `ask:${input.evidenceRequest.requestHash}`;
-      const expectedInteractionRequestId = `ask_async:${input.evidenceRequest.requestHash}`;
       if (
         input.evidenceRequest.askRef !== expectedAskRef ||
-        input.interactionRequestId !== expectedInteractionRequestId
+        !matchesAutonomousAskInteractionRequestId(
+          input.interactionRequestId,
+          input.evidenceRequest.requestHash,
+        )
       ) {
         throw new Error("async evidence request identity does not match its canonical requestHash");
       }
-      const existing = this.readByEvidenceInteraction(input.interactionRequestId);
+      const canonicalInteractionRequestId = createAutonomousAskInteractionRequestId(
+        input.evidenceRequest.requestHash,
+      );
+      const legacyInteractionRequestId = `ask_async:${input.evidenceRequest.requestHash}`;
+      const existing = [
+        input.interactionRequestId,
+        canonicalInteractionRequestId,
+        legacyInteractionRequestId,
+      ]
+        .filter((candidate, index, candidates) => candidates.indexOf(candidate) === index)
+        .map((candidate) => this.readByEvidenceInteraction(candidate))
+        .find((candidate) => candidate !== null);
       if (existing) {
         if (JSON.stringify(existing.evidenceRequest) !== JSON.stringify(input.evidenceRequest)) {
           throw new Error(

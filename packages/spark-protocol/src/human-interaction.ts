@@ -68,6 +68,37 @@ export const sparkEvidenceRequestBindingSchema = z.object({
 
 export type SparkEvidenceRequestBinding = z.infer<typeof sparkEvidenceRequestBindingSchema>;
 
+const sparkEvidenceRequestHashPattern = /^[a-f0-9]{64}$/u;
+
+/**
+ * Derive the stable wire correlation id for one autonomous evidence request.
+ * The binding keeps the full digest while the interaction envelope uses the
+ * protocol-owned 128-bit wire id shape.
+ */
+export function createAutonomousAskInteractionRequestId(requestHash: string): string {
+  const normalized = requestHash.trim();
+  if (!sparkEvidenceRequestHashPattern.test(normalized)) {
+    throw new Error("autonomous Ask requestHash must be a lowercase SHA-256 digest");
+  }
+  return `ask_${normalized.slice(0, 32)}`;
+}
+
+/**
+ * Accept the retired `ask_async:<sha256>` form only when reading durable or
+ * in-flight interactions created before wire-id normalization.
+ */
+export function matchesAutonomousAskInteractionRequestId(
+  interactionRequestId: string,
+  requestHash: string,
+): boolean {
+  const normalized = requestHash.trim();
+  if (!sparkEvidenceRequestHashPattern.test(normalized)) return false;
+  return (
+    interactionRequestId === createAutonomousAskInteractionRequestId(normalized) ||
+    interactionRequestId === `ask_async:${normalized}`
+  );
+}
+
 export const sparkDirectAnswerProvenanceSchema = z.enum(["direct_user", "system"]);
 
 export type SparkDirectAnswerProvenance = z.infer<typeof sparkDirectAnswerProvenanceSchema>;

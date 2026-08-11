@@ -1,6 +1,7 @@
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import type {
+  ExtensionInteractionCapabilities,
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
   ExtensionRoleRunner,
@@ -117,6 +118,8 @@ export interface SparkHeadlessSessionRunInput {
   approvalRejectAction?: "ask" | "deny";
   /** Daemon-owned UI bridge used by blocking and async structured asks. */
   interaction?: (request: ExtensionInteractionRequest) => Promise<ExtensionInteractionResponse>;
+  /** Exact capabilities of the daemon-owned interaction bridge. */
+  interactionCapabilities?: ExtensionInteractionCapabilities;
   /** Internal daemon accounting context; never serialized onto the session transcript. */
   tokenUsage?: SparkHeadlessTokenUsageContext;
   onEvent?: (event: unknown) => void | Promise<void>;
