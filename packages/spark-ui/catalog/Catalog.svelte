@@ -1,20 +1,20 @@
 <script lang="ts">
   import "../src/tokens.css";
 
+  import CatalogScenario from "./CatalogScenario.svelte";
   import {
-    Composer,
-    MessageActions,
-    MessageShell,
-    ToolCallPart,
-    type ConversationPartLabels,
-  } from "../src/conversation";
-  import { catalogFixtures } from "./fixtures";
+    catalogFixtureStates,
+    catalogFixtures,
+    catalogScenarioKey,
+    type CatalogFixture,
+  } from "./fixtures";
 
   type Props = {
     theme?: "light" | "dark";
     direction?: "ltr" | "rtl";
     compact?: boolean;
     wide?: boolean;
+    fixtures?: readonly CatalogFixture[];
   };
 
   let {
@@ -22,39 +22,9 @@
     direction = "ltr",
     compact = false,
     wide = false,
+    fixtures = catalogFixtures,
   }: Props = $props();
-
-  const partLabels: ConversationPartLabels = {
-    reasoning: "Reasoning",
-    reasoningStreaming: "Reasoning",
-    chain: "Process",
-    chainStreaming: "Working",
-    chainEmpty: "No process details",
-    chainFailed: "Process failed",
-    tool: "Tool",
-    task: "Task",
-    approval: "Approval",
-    unknown: "Unknown part",
-    collapse: "Collapse",
-    expand: "Expand",
-    budgetExhausted: "Budget exhausted",
-    budgetExhaustedHint: "Increase the budget to continue.",
-    runtimeControl: "Runtime control",
-    runtimeTick: "Runtime tick",
-    runtimeRequest: "Request",
-    runtimeResult: "Result",
-  };
-
-  const statusLabel = (status: string) => status.replaceAll("-", " ");
 </script>
-
-{#snippet assistantMessage()}
-  <p class="assistant-content">The daemon owns execution; Spark UI owns presentation.</p>
-{/snippet}
-
-{#snippet messageActions()}
-  <MessageActions text="The daemon owns execution." copyLabel="Copy" copiedLabel="Copied" />
-{/snippet}
 
 <main
   class="catalog"
@@ -75,13 +45,13 @@
   </header>
 
   <nav aria-label="Catalog components">
-    {#each catalogFixtures as fixture (fixture.id)}
+    {#each fixtures as fixture (fixture.id)}
       <a href={`#${fixture.id}`}>{fixture.title}</a>
     {/each}
   </nav>
 
   <section class="catalog-grid" aria-label="Component previews">
-    {#each catalogFixtures as fixture (fixture.id)}
+    {#each fixtures as fixture (fixture.id)}
       <article
         class="catalog-card"
         id={fixture.id}
@@ -94,47 +64,30 @@
             <h2>{fixture.title}</h2>
           </div>
           <div class="state-list" aria-label={`${fixture.title} fixture states`}>
-            {#each fixture.states as state}
+            {#each catalogFixtureStates(fixture) as state}
               <span>{state}</span>
             {/each}
           </div>
         </header>
         <p class="fixture-description">{fixture.description}</p>
 
-        <div class="preview" data-preview={fixture.id}>
-          {#if fixture.id === "message-shell"}
-            <MessageShell
-              id="catalog-message"
-              actor="spark"
-              actorLabel="Spark"
-              timestamp="2026-08-10T08:00:00.000Z"
-              relativeTime="now"
-              status="streaming"
-              statusLabel="streaming"
-              children={assistantMessage}
-              actions={messageActions}
-            />
-          {:else if fixture.id === "composer"}
-            <form onsubmit={(event) => event.preventDefault()}>
-              <Composer
-                id="catalog-composer"
-                placeholder="Ask Spark"
-                submitLabel="Send"
-                submittingLabel="Sending"
-                ariaLabel="Message"
-                multilineHint="Command or Control Enter to send"
-              />
-            </form>
-          {:else if fixture.id === "tool-call"}
-            <ToolCallPart
-              callId="catalog-tool"
-              name="workspace.read"
-              state="completed"
-              summary="Read 4 files and returned a display-safe summary."
-              labels={partLabels}
-              {statusLabel}
-            />
-          {/if}
+        <div class="scenario-grid">
+          {#each fixture.scenarios as scenario (scenario.id)}
+            <section
+              class="scenario"
+              data-catalog-scenario={catalogScenarioKey(fixture, scenario)}
+              data-testid={`catalog-${fixture.id}-${scenario.id}`}
+              aria-label={`${fixture.title}: ${scenario.title}`}
+            >
+              <header class="scenario-header">
+                <h3>{scenario.title}</h3>
+                <span>{scenario.state}</span>
+              </header>
+              <div class="preview" data-preview={catalogScenarioKey(fixture, scenario)}>
+                <CatalogScenario fixtureId={fixture.id} {scenario} />
+              </div>
+            </section>
+          {/each}
         </div>
       </article>
     {/each}
@@ -189,10 +142,37 @@
     margin-bottom: 0;
   }
 
+  h3 {
+    font-size: 12px;
+    margin: 0;
+  }
+
   .catalog-summary,
   .fixture-description {
     color: var(--color-ink-muted);
     line-height: 1.6;
+  }
+
+  .scenario-grid {
+    display: grid;
+    gap: 12px;
+  }
+
+  .scenario {
+    min-width: 0;
+  }
+
+  .scenario-header {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+
+  .scenario-header span {
+    color: var(--color-ink-subtle);
+    font-size: 10px;
   }
 
   nav {
