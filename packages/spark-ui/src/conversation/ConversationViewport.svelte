@@ -72,16 +72,23 @@
     if (!viewport) return;
     const element = viewport;
     const contentElement = content;
+    let resizeAnimationFrame: number | undefined;
     viewportWidth = element.clientWidth;
     const observer = new ResizeObserver(() => {
-      viewportWidth = element.clientWidth;
-      if (atBottom && !suspendFollow) scheduleScrollToLatest();
-      scheduleNavigationUpdate();
+      if (resizeAnimationFrame !== undefined) return;
+      resizeAnimationFrame = requestAnimationFrame(() => {
+        resizeAnimationFrame = undefined;
+        if (viewport !== element) return;
+        viewportWidth = element.clientWidth;
+        if (atBottom && !suspendFollow) scheduleScrollToLatest();
+        scheduleNavigationUpdate();
+      });
     });
     observer.observe(element);
     if (contentElement) observer.observe(contentElement);
     return () => {
       observer.disconnect();
+      if (resizeAnimationFrame !== undefined) cancelAnimationFrame(resizeAnimationFrame);
       cancelScheduledFollow();
       cancelScheduledNavigationUpdate();
     };
