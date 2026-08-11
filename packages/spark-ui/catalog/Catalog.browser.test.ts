@@ -6,6 +6,14 @@ import { beforeAll, describe, expect, it } from "vitest";
 import Catalog from "./Catalog.svelte";
 import { catalogFixtures, catalogScenarioKey } from "./fixtures";
 
+const darkTextScreenshotOptions = {
+  comparatorName: "pixelmatch" as const,
+  comparatorOptions: {
+    // Chromium uses platform text rasterizers; dark antialiasing differs slightly by OS.
+    allowedMismatchedPixelRatio: 0.06,
+  },
+};
+
 beforeAll(async () => {
   await document.fonts.load('400 16px "Spark Catalog Inter"');
 });
@@ -42,7 +50,6 @@ describe("Spark UI component catalog", () => {
     const screen = await render(Catalog, {
       theme: "light",
       direction: "ltr",
-      wide: true,
     });
 
     await expect(page.getByTestId("catalog-message-shell-success")).toMatchScreenshot(
@@ -53,6 +60,15 @@ describe("Spark UI component catalog", () => {
     );
     await expect(page.getByTestId("catalog-tool-call-success")).toMatchScreenshot(
       "catalog-tool-call-light-desktop",
+    );
+    await expect(page.getByTestId("catalog-attachments-success")).toMatchScreenshot(
+      "catalog-attachments-light-desktop",
+    );
+    await expect(page.getByTestId("catalog-message-controls-disabled")).toMatchScreenshot(
+      "catalog-message-controls-disabled-light-desktop",
+    );
+    await expect(page.getByTestId("catalog-model-selector-success")).toMatchScreenshot(
+      "catalog-model-selector-light-desktop",
     );
 
     await screen.unmount();
@@ -68,6 +84,7 @@ describe("Spark UI component catalog", () => {
 
     await expect(page.getByTestId("catalog-message-shell-overflow")).toMatchScreenshot(
       "catalog-message-shell-dark-rtl-mobile",
+      darkTextScreenshotOptions,
     );
 
     await screen.unmount();

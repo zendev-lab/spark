@@ -71,11 +71,6 @@
   let copyableText = $derived(visibleConversationPartText(item.parts));
   let hasCopyableText = $derived(copyableText.length > 0);
 
-  function artifactPreviewHref(summary: string | undefined): string | undefined {
-    return summary
-      ?.trim()
-      .match(/^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/preview\/[A-Za-z0-9_-]+$/u)?.[0];
-  }
 </script>
 
 {#snippet messageContent()}
@@ -156,7 +151,7 @@
         kind={part.kind}
         state={part.state}
         summary={part.summary}
-        previewHref={artifactPreviewHref(part.summary)}
+        previewHref={part.previewHref}
         previewLabel={partLabels.expand}
         {statusLabel}
       />

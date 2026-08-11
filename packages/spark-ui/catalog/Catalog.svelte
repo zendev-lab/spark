@@ -227,10 +227,11 @@
   }
 
   .state-list {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
     gap: 4px;
+    grid-template-columns: repeat(4, max-content);
     justify-content: end;
+    min-width: 0;
   }
 
   .state-list span {
@@ -250,6 +251,8 @@
     background: var(--color-canvas);
     border: 1px dashed var(--color-border-strong);
     border-radius: var(--rounded-lg);
+    box-sizing: border-box;
+    line-height: 1.4;
     min-width: 0;
     overflow: hidden;
     padding: 16px;
@@ -303,20 +306,4 @@
     width: 1024px;
   }
 
-  .catalog.wide .catalog-header {
-    gap: 24px;
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 0.7fr);
-  }
-
-  .catalog.wide .catalog-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .catalog.wide .fixture-header {
-    display: flex;
-  }
-
-  .catalog.wide .state-list {
-    justify-content: end;
-  }
 </style>

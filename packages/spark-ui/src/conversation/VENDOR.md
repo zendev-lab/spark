@@ -32,6 +32,9 @@
 - `src/lib/components/ai-elements/prompt-input/layout/toolbar.svelte`
 - `src/lib/components/ai-elements/prompt-input/controls/textarea.svelte`
 - `src/lib/components/ai-elements/prompt-input/controls/submit.svelte`
+- `src/lib/components/ai-elements/model-selector/model-selector.svelte`
+- `src/lib/components/ai-elements/model-selector/model-selector-trigger.svelte`
+- `src/lib/components/ai-elements/model-selector/model-selector-content.svelte`
 - `src/lib/components/ai-elements/queue/queue.svelte`
 - `src/lib/components/ai-elements/queue/queue-section.svelte`
 - `src/lib/components/ai-elements/queue/queue-section-trigger.svelte`
@@ -79,6 +82,12 @@ ideas above were translated to Svelte 5 components that use Spark design tokens.
 - Ported Queue's collapsible count, bounded list, long-message treatment, and hover/focus action
   affordance into `SessionQueue`. The component receives daemon-projected items and an optional
   action snippet; it owns disclosure only and never creates, mutates, or submits a browser-local queue.
+- Moved the searchable model selector into this protocol-neutral boundary. It receives display-only
+  groups and explicit commit callbacks; provider catalog truth, authentication, reasoning policy, and
+  SvelteKit form submission remain in Hub.
+- Added controlled attachment, branch, edit, source, citation, suggestion, context, and speech
+  presentation. These components never create a transcript branch, persist feedback, start media
+  capture, or infer a source from rendered Markdown.
 
 ## Update procedure
 

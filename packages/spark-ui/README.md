@@ -12,6 +12,23 @@ copy, and localized product wording before passing structured props into it.
 `spark-ui` is a component library name only. It is not an Artifact media type,
 wire format, or executable MDX runtime.
 
+## Conversation API
+
+Import reusable chat presentation from `@zendev-lab/spark-ui/conversation`.
+The subpath exposes compound conversation, message, prompt, attachment, source,
+model, and context-usage components alongside protocol-neutral view types and
+pure presentation helpers.
+
+Actions are explicit callback props such as `onRetry`, `onSelect`, `onCommit`,
+and `onSave`. Components may own transient focus, disclosure, and menu state,
+but the consumer owns transcript revisions, submission, feedback, sharing,
+recording, URLs, and cleanup. Hub only renders actions backed by an owner
+contract; catalog fixtures document controlled surfaces that are not yet
+available in the product.
+
+Media components receive explicit URLs, MIME types, names, and sizes. They do
+not derive routes from artifact summaries or inspect protocol metadata.
+
 `A2uiRenderer` is the native, schema-normalized A2UI v0.9/v0.9.1 basic-catalog
 surface. It is read-only by default. Interaction requires an explicit
 daemon-authenticated Repro Workbench binding; emitted actions remain revision

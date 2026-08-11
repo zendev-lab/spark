@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { Dialog as DialogShell, Icon } from "@zendev-lab/spark-ui";
+  import Icon from "../Icon.svelte";
+  import DialogShell from "../ui/Dialog.svelte";
   import {
     CommandEmpty,
     CommandGroup,
@@ -13,8 +14,9 @@
     DialogDescription,
     DialogTitle,
     DialogTrigger,
-  } from "@zendev-lab/spark-ui/headless";
-  import type { ModelPickerGroup } from "./types";
+  } from "../ui/headless";
+  import { safeConversationHref } from "./chat-view";
+  import type { ConversationModelGroup } from "./chat-types";
 
   let {
     id,
@@ -45,7 +47,7 @@
     form?: string;
     value?: string;
     open?: boolean;
-    groups: ModelPickerGroup[];
+    groups: readonly ConversationModelGroup[];
     disabled?: boolean;
     required?: boolean;
     label: string;
@@ -73,6 +75,7 @@
     groups.find((group) => group.options.some((option) => option.value === value)),
   );
   let triggerLabel = $derived(selectedOption?.label ?? selectedLabel ?? placeholder);
+  let settingsLink = $derived(safeConversationHref(settingsHref));
 
   function select(nextValue: string) {
     const option = groups
@@ -138,8 +141,8 @@
       <DialogDescription id={`${id}-description`} class="model-picker-description">
         {description}
       </DialogDescription>
-      {#if settingsHref && settingsLabel}
-        <a class="model-picker-settings" href={settingsHref}>
+      {#if settingsLink && settingsLabel}
+        <a class="model-picker-settings" href={settingsLink}>
           <Icon name="settings" size={14} />
           {settingsLabel}
         </a>
@@ -225,7 +228,7 @@
     min-height: 40px;
     min-width: 220px;
     padding: 5px 10px;
-    text-align: left;
+    text-align: start;
     transition:
       background 120ms ease,
       border-color 120ms ease,
@@ -532,8 +535,7 @@
 
     .dialog-heading,
     .command-search {
-      padding-left: var(--spacing-md);
-      padding-right: var(--spacing-md);
+      padding-inline: var(--spacing-md);
     }
 
     :global(.model-picker-list) {
