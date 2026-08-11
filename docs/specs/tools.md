@@ -55,6 +55,20 @@ current host policy immediately before execution.
 Compatibility aliases are bounded inputs only. They do not receive new product
 behavior and must not become a second canonical surface.
 
+The native default profile is described by
+`architecture/tool-surface-contract.json`. Every active tool declares its
+authoritative owner, surface kind (`action | capability | compatibility`), and
+conservative effect. Owners must exist in `architecture/packages.json`. Adding
+or removing a default tool, changing its effect, or
+changing whether it is an action surface requires an explicit contract update.
+An `action` surface must expose an action discriminant.
+
+`check:tool-surface` reports tool count, model-facing and schema size, field
+shape, alias, action, and union-branch diagnostics. These observations support
+architecture review but are not quantity limits. An `unclassified` effect is
+explicit design debt and remains fail-closed at runtime; the architecture
+contract must never infer or grant an effect merely to make the check pass.
+
 ## Effect and execution policy
 
 Each tool owner declares one canonical policy with:
