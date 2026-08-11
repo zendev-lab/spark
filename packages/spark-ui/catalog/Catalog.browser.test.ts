@@ -6,6 +6,14 @@ import { beforeAll, describe, expect, it } from "vitest";
 import Catalog from "./Catalog.svelte";
 import { catalogFixtures, catalogScenarioKey } from "./fixtures";
 
+const darkTextScreenshotOptions = {
+  comparatorName: "pixelmatch" as const,
+  comparatorOptions: {
+    // Chromium uses platform text rasterizers; dark antialiasing differs slightly by OS.
+    allowedMismatchedPixelRatio: 0.06,
+  },
+};
+
 beforeAll(async () => {
   await document.fonts.load('400 16px "Spark Catalog Inter"');
 });
@@ -76,6 +84,7 @@ describe("Spark UI component catalog", () => {
 
     await expect(page.getByTestId("catalog-message-shell-overflow")).toMatchScreenshot(
       "catalog-message-shell-dark-rtl-mobile",
+      darkTextScreenshotOptions,
     );
 
     await screen.unmount();
