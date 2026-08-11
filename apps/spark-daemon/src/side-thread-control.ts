@@ -156,7 +156,13 @@ export async function executeSparkDaemonSideThreadControl(
       const parsed = sparkSideThreadResetRequestSchema.parse(request.payload);
       return await serializeSideThreadMutation(parsed.parentSessionId, async () => {
         const parent = await requireParent(options, request, parsed.parentSessionId);
-        const child = await requireSideThread(options.sessionRegistry, parent.sessionId);
+        const child = await findSideThread(options.sessionRegistry, parent.sessionId);
+        if (!child) {
+          throw sideThreadError(
+            "side_thread_not_found",
+            `no side thread exists for parent ${parent.sessionId}`,
+          );
+        }
         const reset = await resetSideThreadGeneration(
           options,
           parent,
@@ -190,7 +196,13 @@ export async function executeSparkDaemonSideThreadControl(
       const parsed = sparkSideThreadHandoffRequestSchema.parse(request.payload);
       return await serializeSideThreadMutation(parsed.parentSessionId, async () => {
         const parent = await requireParent(options, request, parsed.parentSessionId);
-        let child = await requireSideThread(options.sessionRegistry, parent.sessionId);
+        let child = await findSideThread(options.sessionRegistry, parent.sessionId);
+        if (!child) {
+          throw sideThreadError(
+            "side_thread_not_found",
+            `no side thread exists for parent ${parent.sessionId}`,
+          );
+        }
         const store = new SparkInvocationStore(options.db);
         // A handoff is pinned by generation + head + rendering inputs. Derive
         // its durable key from that tuple so a client that loses the response
@@ -223,6 +235,13 @@ export async function executeSparkDaemonSideThreadControl(
               snapshot: await projectSparkDaemonSideThreadSnapshot(options, parent, child, {}),
             }),
             replay.invocationId,
+          );
+        }
+
+        if (child.status === "archived" || child.lifecycle === "closed") {
+          throw sideThreadError(
+            "side_thread_not_found",
+            `no active side thread exists for parent ${parent.sessionId}`,
           );
         }
 
@@ -401,6 +420,25 @@ async function resetSideThreadGeneration(
   );
   let reset: SparkSessionRegistryRecord;
   try {
+    if (!options.sessionSupervisor) {
+      throw sideThreadError(
+        "side_thread_busy",
+        "the Session Supervisor is unavailable; retry after daemon recovery",
+      );
+    }
+    if (child.lifecycle !== "closed") {
+      const closed = await options.sessionSupervisor.close({
+        sessionId: child.sessionId,
+        reason: "Side Thread reset",
+        settleTimeoutMs: 0,
+      });
+      if (closed.lifecycle !== "closed") {
+        throw sideThreadError(
+          "side_thread_busy",
+          "the side-thread incarnation is still closing; retry reset after it settles",
+        );
+      }
+    }
     reset = await requireRegistry(options).resetSideThread({
       sessionId: child.sessionId,
       expectedGeneration,

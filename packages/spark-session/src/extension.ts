@@ -85,10 +85,19 @@ export function registerSparkSessionTool(
       role: Type.Optional(
         Type.String({
           description:
-            "Required for create only after list finds no semantic role match: one concise stable responsibility label in the user's language and existing naming style, never a task slug.",
+            "Deprecated create alias for roleRef. Builtin names resolve to role:builtin-<name>.",
+        }),
+      ),
+      roleRef: Type.Optional(
+        Type.String({
+          description:
+            "RoleSpec ref for create. Defaults to role:builtin-administrator for an ordinary conversation.",
         }),
       ),
       cwd: Type.Optional(Type.String({ description: "Optional working directory for create." })),
+      purpose: Type.Optional(
+        Type.String({ description: "Optional bounded purpose for the created Session." }),
+      ),
       cwdArtifactRef: Type.Optional(
         Type.String({ description: "Optional GitChange root for create cwd." }),
       ),

@@ -905,10 +905,11 @@ describe("SparkInvocationStore", () => {
       const retry = store.retry(invocation.invocationId, "2026-07-12T00:00:04.000Z");
       db.prepare(
         `INSERT INTO loop_wakeups
-          (loop_id, owner_session_id, binding_json, continuity, status, generation,
-           last_invocation_id, prompt, route_json, created_at, updated_at)
+          (loop_id, owner_session_id, binding_json, continuity, session_lifetime,
+           driver_session_id, status, generation, last_invocation_id, prompt, route_json,
+           created_at, updated_at)
          VALUES ('retention-driver', 'owner-session', '{"goalId":"retention-driver"}', 'session',
-                 'stopped', 1, ?, 'retain', '{}', ?, ?)`,
+                 'driver', 'driver-retention', 'stopped', 1, ?, 'retain', '{}', ?, ?)`,
       ).run(invocation.invocationId, "2026-07-12T00:00:05.000Z", "2026-07-12T00:00:05.000Z");
       db.prepare(
         `INSERT INTO loop_hidden_sessions

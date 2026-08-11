@@ -799,7 +799,8 @@ export interface SparkHostLoopContext {
   };
   generation: number;
   ownerSessionId: string;
-  stateOwnerSessionId: string;
+  /** @deprecated Compatibility projection; host execution uses Session stateBinding. */
+  stateOwnerSessionId?: string;
   schedule(input: {
     delayMs?: number;
     dueAt?: string;

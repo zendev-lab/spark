@@ -188,7 +188,13 @@ export class SparkSessionRegistry {
     const scope = createScope(input);
     const role = normalizeSessionRole(input.role);
     const legacyTitle = normalizeSessionRole(input.title);
-    if (role && input.status !== "archived" && !input.relation && input.lifetime !== "owned") {
+    if (
+      role &&
+      input.status !== "archived" &&
+      !input.relation &&
+      input.lifetime !== "owned" &&
+      (!input.owner || (input.owner.kind === "session" && input.owner.ref === sessionId))
+    ) {
       const existingRoleOwner = file.sessions.find(
         (session) =>
           session.status !== "archived" &&
@@ -394,8 +400,19 @@ export class SparkSessionRegistry {
         "session_not_found",
         `unknown session: ${input.sessionId}`,
       );
-    const current = requireChild(file.sessions[index]!);
-    assertGeneration(current, input.expectedGeneration);
+    const current = file.sessions[index]!;
+    if (current.relation?.kind !== "side_thread") {
+      throw new SparkSessionRegistryError(
+        "side_thread_not_found",
+        `not a side thread: ${current.sessionId}`,
+      );
+    }
+    assertGeneration(
+      current as SparkSessionRegistryRecord & {
+        relation: Extract<SparkSessionRelation, { kind: "side_thread" }>;
+      },
+      input.expectedGeneration,
+    );
     requireParent(file.sessions, current.relation.parentSessionId);
     const path = input.sessionPath.trim();
     if (!path)
@@ -407,6 +424,7 @@ export class SparkSessionRegistry {
       ...current,
       status: "ready",
       lifecycle: "open",
+      incarnation: (current.incarnation ?? 1) + 1,
       sessionPath: path,
       transcriptRef: path,
       relation: {
@@ -747,6 +765,47 @@ export class SparkSessionRegistry {
     return updated;
   }
 
+  /**
+   * Daemon-Supervisor-only close transition for an owned relation. Public
+   * archive deliberately keeps rejecting Side Threads so they cannot bypass
+   * their dedicated surface.
+   */
+  async archiveOwned(input: ArchiveSparkSessionInput): Promise<SparkSessionRegistryRecord> {
+    const file = await this.loadFile();
+    const index = file.sessions.findIndex((session) => session.sessionId === input.sessionId);
+    if (index < 0) {
+      throw new SparkSessionRegistryError(
+        "session_not_found",
+        `unknown session: ${input.sessionId}`,
+      );
+    }
+    const current = file.sessions[index]!;
+    if (current.lifetime !== "owned") {
+      throw new SparkSessionRegistryError(
+        "session_owner_invalid",
+        `managed close requires an owned Session: ${input.sessionId}`,
+      );
+    }
+    if (current.status === "archived" || current.lifecycle === "closed") return current;
+    const now = input.now ?? new Date();
+    const archiveEvent = createArchiveEvent(current, input, now);
+    const updated: SparkSessionRegistryRecord = {
+      ...current,
+      status: "archived",
+      lifecycle: "closed",
+      tags: mergeSessionTags(current.tags ?? [], archiveEvent.tags),
+      archiveHistory: [...(current.archiveHistory ?? []), archiveEvent],
+      updatedAt: now.toISOString(),
+    };
+    if (input.discardTranscript || current.retention === "discard_on_close") {
+      delete updated.sessionPath;
+      delete updated.transcriptRef;
+    }
+    file.sessions[index] = updated;
+    await this.saveFile(file);
+    return updated;
+  }
+
   async markClosing(
     input: TransitionSparkSessionLifecycleInput,
   ): Promise<SparkSessionRegistryRecord> {
@@ -841,6 +900,8 @@ export class SparkSessionRegistry {
             session.sessionId !== sessionId &&
             session.status !== "archived" &&
             !session.relation &&
+            session.owner?.kind === "session" &&
+            session.owner.ref === session.sessionId &&
             sameSessionScope(session.scope, current.scope) &&
             normalizeSessionRole(session.role) === role,
         )

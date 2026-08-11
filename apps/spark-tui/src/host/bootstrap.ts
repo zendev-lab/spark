@@ -104,7 +104,7 @@ export async function createSparkCliHostServices(
     channelBinding: options.channelBinding,
     invocationId: options.invocationId,
     memoryDirectIntentAuthority,
-    stateOwnerSessionId: options.stateOwnerSessionId,
+    stateBindingSessionId: options.stateBindingSessionId ?? options.stateOwnerSessionId,
     loop: options.loop,
     sessionQuestionChain: options.sessionQuestionChain,
     roleNativeCompatibilityRecovery: options.roleNativeCompatibilityRecovery,

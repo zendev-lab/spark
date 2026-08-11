@@ -336,9 +336,7 @@ export class SparkInvocationScheduler {
         : task.type === "loop.evaluate"
           ? "anonymous"
           : task.type === "loop.tick"
-            ? task.continuity === "fresh"
-              ? "anonymous"
-              : "persistent"
+            ? "anonymous"
             : task.hiddenExecution
               ? "anonymous"
               : "persistent";

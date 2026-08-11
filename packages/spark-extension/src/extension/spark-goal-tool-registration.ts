@@ -363,7 +363,7 @@ async function startGoalLoop(
       ...(goal.workflowSelector ? { workflowSelector: goal.workflowSelector } : {}),
     },
     ownerSessionId,
-    continuity: "session",
+    sessionLifetime: "driver",
     cwd: ctx.cwd,
     policy: {
       cadenceMs: 30_000,

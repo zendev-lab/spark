@@ -104,6 +104,8 @@ export function prepareCurrentDaemonSchema(db: DatabaseSync): void {
       owner_session_id TEXT NOT NULL,
       binding_json TEXT NOT NULL DEFAULT '{}',
       continuity TEXT NOT NULL CHECK (continuity IN ('session', 'fresh')),
+      session_lifetime TEXT NOT NULL DEFAULT 'driver' CHECK (session_lifetime IN ('driver', 'driver_tick')),
+      driver_session_id TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('scheduled', 'running', 'retry_wait', 'dormant', 'paused', 'blocked', 'completed', 'stopped')),
       generation INTEGER NOT NULL CHECK (generation > 0),
       cycle_step TEXT CHECK (cycle_step IS NULL OR cycle_step IN ('before_tick', 'invoke', 'after_tick', 'settle')),
@@ -617,6 +619,20 @@ export function migrateSessionRequestCompletionDeliverySchema(db: DatabaseSync):
 
 export function addMissingLoopColumns(db: DatabaseSync): void {
   const columns = workspaceColumns(db, "loop_wakeups");
+  if (!columns.has("session_lifetime")) {
+    db.exec(
+      "ALTER TABLE loop_wakeups ADD COLUMN session_lifetime TEXT NOT NULL DEFAULT 'driver' CHECK (session_lifetime IN ('driver', 'driver_tick'))",
+    );
+    db.exec(
+      "UPDATE loop_wakeups SET session_lifetime = CASE continuity WHEN 'fresh' THEN 'driver_tick' ELSE 'driver' END",
+    );
+  }
+  if (!columns.has("driver_session_id")) {
+    db.exec("ALTER TABLE loop_wakeups ADD COLUMN driver_session_id TEXT");
+    db.exec(
+      "UPDATE loop_wakeups SET driver_session_id = 'driver_' || hex(loop_id) || '_' || generation WHERE driver_session_id IS NULL",
+    );
+  }
   if (!columns.has("wake_prompt")) {
     db.exec("ALTER TABLE loop_wakeups ADD COLUMN wake_prompt TEXT");
   }
@@ -818,7 +834,8 @@ export function migrateLegacyDriverTables(db: DatabaseSync): void {
     ).run(now, now);
     db.exec(`
       INSERT OR IGNORE INTO loop_wakeups (
-        loop_id, owner_session_id, binding_json, continuity, status, generation, cycle_step,
+        loop_id, owner_session_id, binding_json, continuity, session_lifetime,
+        driver_session_id, status, generation, cycle_step,
         due_at, attempt, last_invocation_id, reason, error, prompt, wake_prompt, route_json,
         domain_state_digest, created_at, updated_at
       )
@@ -829,7 +846,10 @@ export function migrateLegacyDriverTables(db: DatabaseSync): void {
           WHEN 'workflow' THEN json_object('workflowRunId', driver_id)
           ELSE '{}'
         END,
-        continuity, status, generation,
+        continuity,
+        CASE continuity WHEN 'fresh' THEN 'driver_tick' ELSE 'driver' END,
+        'driver_' || hex(driver_id) || '_' || generation,
+        status, generation,
         CASE WHEN status = 'running' THEN 'invoke' ELSE NULL END,
         due_at, attempt, last_invocation_id, reason, error, prompt, wake_prompt, route_json,
         domain_state_digest, created_at, updated_at

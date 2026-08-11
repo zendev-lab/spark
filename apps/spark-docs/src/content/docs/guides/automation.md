@@ -48,8 +48,13 @@ schedules another one.
 /loop restart [objective]
 ```
 
-Use `/loop fresh <objective>` when each step should start with a fresh hidden
-execution context while keeping the same Workspace state.
+Use `/loop fresh <objective>` when each step should run in a fresh owned child
+Session while keeping the same Workspace state. The child closes after the
+tick and normally discards its full transcript. Before removal, the daemon
+seals a bounded close receipt from the tick result. A driver-lifetime Loop
+instead seals its final evaluation result when that driver Session closes.
+The parent retains bounded activity, usage, and explicit Evidence without
+receiving either receipt as a transcript message.
 
 ## Repro
 

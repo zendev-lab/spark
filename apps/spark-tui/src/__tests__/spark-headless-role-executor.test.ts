@@ -61,7 +61,7 @@ test("runSparkHeadlessSession retains the control root for nested daemon-native 
     channelBinding: undefined,
     invocationId: undefined,
     tokenUsage: undefined,
-    stateOwnerSessionId: undefined,
+    stateBindingSessionId: undefined,
     loop: undefined,
     sessionQuestionChain: undefined,
     allowedTools: undefined,

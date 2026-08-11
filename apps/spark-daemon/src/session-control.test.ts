@@ -14,11 +14,78 @@ import type { SparkDaemonModelControl } from "./model-control.ts";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { channelReplyDeliveryForCompletion } from "./spark/session-run.ts";
 import { executeSparkDaemonSessionControl } from "./session-control.ts";
+import { SessionSupervisor } from "./session-supervisor.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { migrateSparkDaemonDatabase } from "./store/schema.ts";
 import { registerWorkspace } from "./store/workspaces.ts";
 
 describe("daemon session control admission", () => {
+  it("creates ordinary UI conversations as Administrator children of one workspace root", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-session-admin-root-"));
+    const db = openMemoryDatabase();
+    migrateSparkDaemonDatabase(db);
+    const paths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const workspace = registerWorkspace(db, {
+      serverUrl: "https://hub.example",
+      serverBindingId: "workspace-admin-root",
+      workspaceName: "admin-root",
+      localPath: root,
+    });
+    const sessionRegistry = createDaemonSessionRegistry(join(root, ".spark"), {
+      resolveWorkspaceCwd: () => root,
+    });
+    const supervisor = new SessionSupervisor({
+      registry: sessionRegistry,
+      invocations: new SparkInvocationStore(db),
+    });
+    try {
+      const create = async (sessionId: string, title: string) =>
+        await executeSparkDaemonSessionControl(
+          {
+            paths,
+            db,
+            sessionRegistry,
+            sessionSupervisor: supervisor,
+            actor: "spark-daemon-runtime-ws",
+          },
+          {
+            kind: "session.create.request",
+            scope: "workspace",
+            workspaceId: workspace.id,
+            payload: {
+              sessionId,
+              title,
+              scope: { kind: "workspace", workspaceId: workspace.id },
+              purpose: "interactive",
+            },
+          },
+        );
+      const first = await create("ui-admin-one", "Release planning");
+      await create("ui-admin-two", "Architecture review");
+      const sessions = await sessionRegistry.list({ includeArchived: true });
+      const workspaceRoot = sessions.find((session) => session.relation?.kind === "workspace_main");
+
+      expect(workspaceRoot).toBeTruthy();
+      expect(
+        sessions.filter((session) => session.relation?.kind === "workspace_main"),
+      ).toHaveLength(1);
+      expect(first.result.session).toMatchObject({
+        sessionId: "ui-admin-one",
+        title: "Release planning",
+        roleRef: "role:builtin-administrator",
+        modelType: "coordination",
+        lifetime: "persistent",
+        owner: { kind: "session", ref: workspaceRoot?.sessionId },
+        authority: { kind: "administrator", ref: "role:builtin-administrator" },
+        stateBinding: { kind: "session", ref: workspaceRoot?.sessionId },
+        lifecycle: "open",
+      });
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects new daemon-global top-level sessions", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-workspace-only-"));
     const db = openMemoryDatabase();
@@ -371,7 +438,7 @@ describe("daemon session control admission", () => {
           payload: { sessionId },
         },
       );
-      expect(queuedOnlySession.result.session).toMatchObject({ status: "ready" });
+      expect(queuedOnlySession.result.session).toMatchObject({ status: "running" });
       const queuedOnlyResponse = await executeSparkDaemonSessionControl(
         { paths, db, sessionRegistry, actor: "spark-daemon-runtime-ws" },
         {
@@ -440,7 +507,7 @@ describe("daemon session control admission", () => {
           payload: { sessionId },
         },
       );
-      expect(queuedFollowerSession.result.session).toMatchObject({ status: "ready" });
+      expect(queuedFollowerSession.result.session).toMatchObject({ status: "running" });
 
       const queuedFollowerSnapshot = await executeSparkDaemonSessionControl(
         { paths, db, sessionRegistry, actor: "spark-daemon-runtime-ws" },
@@ -457,6 +524,76 @@ describe("daemon session control admission", () => {
         status: "queued",
         pendingTurns: [{ invocationId: queued.invocationId, status: "queued" }],
       });
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rolls owned child Invocation activity into the parent Session without exposing its prompt", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-session-owned-activity-"));
+    const db = openMemoryDatabase();
+    migrateSparkDaemonDatabase(db);
+    const paths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const sessionRegistry = createDaemonSessionRegistry(join(root, ".spark"));
+    try {
+      const parent = await sessionRegistry.create({
+        sessionId: "activity-parent",
+        scope: { kind: "workspace", workspaceId: "workspace-activity" },
+        workspaceId: "workspace-activity",
+        cwd: root,
+      });
+      const child = await sessionRegistry.createSupervised({
+        sessionId: "activity-child",
+        scope: parent.scope,
+        lifetime: "owned",
+        owner: { kind: "driver", ref: "loop:activity" },
+        authority: { kind: "driver", ref: "loop:activity" },
+        stateBinding: { kind: "session", ref: parent.sessionId },
+        visibility: "internal",
+        retention: "discard_on_close",
+        purpose: "driver",
+      });
+      const invocation = new SparkInvocationStore(db).submit({
+        sessionId: child.sessionId,
+        prompt: "private managed prompt",
+        task: {
+          type: "session.run",
+          sessionId: child.sessionId,
+          prompt: "private managed prompt",
+        },
+        sourceKind: "loop.tick",
+      });
+
+      const detail = await executeSparkDaemonSessionControl(
+        { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
+        {
+          kind: "session.get.request",
+          scope: "any",
+          sessionId: parent.sessionId,
+          payload: { sessionId: parent.sessionId },
+        },
+      );
+      expect(detail.result.session).toMatchObject({ status: "running" });
+
+      const response = await executeSparkDaemonSessionControl(
+        { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
+        {
+          kind: "session.snapshot.request",
+          scope: "any",
+          sessionId: parent.sessionId,
+          payload: { sessionId: parent.sessionId },
+        },
+      );
+      const snapshot = sparkSessionSnapshotPageSchema.parse(response.result).snapshot;
+      expect(snapshot.pendingTurns).toMatchObject([
+        {
+          invocationId: invocation.invocationId,
+          status: "queued",
+          prompt: "Owned Session activity (loop.tick)",
+        },
+      ]);
+      expect(JSON.stringify(snapshot.messages)).not.toContain("private managed prompt");
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });

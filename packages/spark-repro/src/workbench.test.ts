@@ -65,6 +65,7 @@ describe("Repro A2UI Workbench projection", () => {
         loopId: "loop-1",
         ownerSessionId: "session-1",
         status: "scheduled" as const,
+        sessionLifetime: "driver" as const,
         continuity: "session" as const,
         generation: 4,
         binding: {

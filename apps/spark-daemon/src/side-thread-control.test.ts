@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
 import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { executeSparkDaemonSessionControl } from "./session-control.ts";
+import { SessionSupervisor } from "./session-supervisor.ts";
 import { executeSparkDaemonSideThreadControl } from "./side-thread-control.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { migrateSparkDaemonDatabase } from "./store/schema.ts";
@@ -321,6 +322,63 @@ describe("daemon Side Thread control", () => {
     }
   });
 
+  it("replays one admitted handoff to recover a reset persistence failure", async () => {
+    const fixture = await createFixture();
+    try {
+      const ensured = await ensure(fixture);
+      const child = await fixture.sessionRegistry.get(ensured.sessionId);
+      const childRecord = await fixture.store.load(child!.sessionPath!);
+      fixture.store.appendMessage(childRecord, { role: "user", content: "bounded tangent" });
+      const headExchangeId = fixture.store.appendMessage(childRecord, {
+        role: "assistant",
+        content: "bounded conclusion",
+        stopReason: "stop",
+      });
+      await fixture.store.save(childRecord);
+      vi.spyOn(fixture.sessionRegistry, "resetSideThread").mockRejectedValueOnce(
+        new Error("injected reset persistence failure"),
+      );
+      const request = {
+        kind: "side-thread.handoff.request" as const,
+        payload: {
+          parentSessionId: fixture.parentSessionId,
+          expectedGeneration: 1,
+          expectedHeadExchangeId: headExchangeId,
+          kind: "summary" as const,
+          instructions: "Carry the bounded conclusion.",
+          idempotencyKey: "handoff-reset-failure",
+        },
+      };
+
+      await expect(executeSparkDaemonSideThreadControl(fixture.options, request)).rejects.toThrow(
+        "injected reset persistence failure",
+      );
+      await expect(fixture.sessionRegistry.get(ensured.sessionId)).resolves.toMatchObject({
+        lifecycle: "closed",
+        relation: { generation: 1 },
+        closeReceipts: [expect.objectContaining({ incarnation: 1 })],
+      });
+
+      const replay = sparkSideThreadHandoffResultSchema.parse(
+        (
+          await executeSparkDaemonSideThreadControl(fixture.options, {
+            ...request,
+            payload: { ...request.payload, idempotencyKey: "handoff-reset-retry" },
+          })
+        ).result,
+      );
+      expect(replay.snapshot).toMatchObject({ generation: 2, exchanges: [] });
+      expect(
+        new SparkInvocationStore(fixture.db).listPage({
+          sessionId: fixture.parentSessionId,
+          limit: 100,
+        }).invocations,
+      ).toHaveLength(1);
+    } finally {
+      fixture.close();
+    }
+  });
+
   it("bounds oversized exchanges and pending prompts below the runtime result limit", async () => {
     const fixture = await createFixture();
     try {
@@ -474,7 +532,7 @@ describe("daemon Side Thread control", () => {
     }
   });
 
-  it("retains the current generation plus two verified retired transcript generations", async () => {
+  it("discards every retired transcript generation after sealing its receipt", async () => {
     const fixture = await createFixture();
     try {
       const ensured = await ensure(fixture);
@@ -486,14 +544,100 @@ describe("daemon Side Thread control", () => {
         const reset = await resetSideThread(fixture, generation);
         paths.push((await fixture.sessionRegistry.get(reset.sessionId))!.sessionPath!);
       }
-      expect(paths.map(existsSync)).toEqual([false, false, true, true, true]);
-      expect(paths.slice(0, 2).map((path) => existsSync(`${path}.side-thread-index.json`))).toEqual(
-        [false, false],
+      expect(paths.map(existsSync)).toEqual([false, false, false, false, true]);
+      expect(paths.slice(0, 4).map((path) => existsSync(`${path}.side-thread-index.json`))).toEqual(
+        [false, false, false, false],
       );
-      expect(paths.slice(0, 2).map((path) => existsSync(`${path}.snapshot-index.json`))).toEqual([
+      expect(paths.slice(0, 4).map((path) => existsSync(`${path}.snapshot-index.json`))).toEqual([
+        false,
+        false,
         false,
         false,
       ]);
+      expect((await fixture.sessionRegistry.get(ensured.sessionId))?.closeReceipts).toHaveLength(4);
+    } finally {
+      fixture.close();
+    }
+  });
+
+  it("seals the old incarnation before a supervised reset", async () => {
+    const fixture = await createFixture();
+    try {
+      const ensured = await ensure(fixture);
+      const child = (await fixture.sessionRegistry.get(ensured.sessionId))!;
+      const oldPath = child.sessionPath!;
+      const invocations = new SparkInvocationStore(fixture.db);
+      const invocation = invocations.submit({
+        sessionId: child.sessionId,
+        prompt: "private tangent",
+        task: { type: "session.run", sessionId: child.sessionId, prompt: "private tangent" },
+        sourceKind: "side_thread",
+      });
+      invocations.claimNext("side-thread-worker");
+      invocations.complete(invocation.invocationId, {
+        status: "succeeded",
+        result: { assistantText: "Tangent resolved with a bounded result." },
+      });
+      const reset = sparkSideThreadSnapshotSchema.parse(
+        (
+          await executeSparkDaemonSideThreadControl(fixture.options, {
+            kind: "side-thread.reset.request",
+            payload: {
+              parentSessionId: fixture.parentSessionId,
+              expectedGeneration: 1,
+              mode: "tangent",
+            },
+          })
+        ).result,
+      );
+
+      expect(reset.generation).toBe(2);
+      const persisted = await fixture.sessionRegistry.get(child.sessionId);
+      expect(persisted).toMatchObject({
+        lifecycle: "open",
+        incarnation: 2,
+        relation: { kind: "side_thread", generation: 2 },
+        closeReceipts: [
+          expect.objectContaining({
+            source: "terminal_result",
+            quality: "semantic",
+            summary: "Tangent resolved with a bounded result.",
+            incarnation: 1,
+            sourceInvocationIds: [invocation.invocationId],
+          }),
+        ],
+      });
+      expect(existsSync(oldPath)).toBe(false);
+      expect(existsSync(persisted?.sessionPath ?? "")).toBe(true);
+    } finally {
+      fixture.close();
+    }
+  });
+
+  it("fails reset closed when the Session Supervisor is unavailable", async () => {
+    const fixture = await createFixture();
+    try {
+      const ensured = await ensure(fixture);
+      const child = (await fixture.sessionRegistry.get(ensured.sessionId))!;
+      const { sessionSupervisor: _sessionSupervisor, ...options } = fixture.options;
+
+      await expect(
+        executeSparkDaemonSideThreadControl(options, {
+          kind: "side-thread.reset.request",
+          payload: {
+            parentSessionId: fixture.parentSessionId,
+            expectedGeneration: 1,
+            mode: "tangent",
+          },
+        }),
+      ).rejects.toMatchObject({ code: "side_thread_busy" });
+      await expect(fixture.sessionRegistry.get(child.sessionId)).resolves.toMatchObject({
+        lifecycle: "open",
+        incarnation: 1,
+        relation: { generation: 1 },
+        closeReceipts: [],
+      });
+      expect(existsSync(child.sessionPath ?? "")).toBe(true);
     } finally {
       fixture.close();
     }
@@ -515,8 +659,13 @@ describe("daemon Side Thread control", () => {
       const transcriptNames = readdirSync(dirname(oldPath))
         .filter((name) => name.endsWith(`_${ensured.sessionId}.jsonl`))
         .sort();
-      expect(transcriptNames).toEqual([basename(oldPath)]);
-      expect(existsSync(oldPath)).toBe(true);
+      expect(transcriptNames).toEqual([]);
+      expect(existsSync(oldPath)).toBe(false);
+      await expect(fixture.sessionRegistry.get(ensured.sessionId)).resolves.toMatchObject({
+        lifecycle: "closed",
+        status: "archived",
+        closeReceipts: [expect.objectContaining({ incarnation: 1 })],
+      });
     } finally {
       fixture.close();
     }
@@ -660,6 +809,10 @@ async function createFixture() {
     paths,
     db,
     sessionRegistry,
+    sessionSupervisor: new SessionSupervisor({
+      registry: sessionRegistry,
+      invocations: new SparkInvocationStore(db),
+    }),
     actor: "spark-daemon-local-rpc" as const,
   };
   return {

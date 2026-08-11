@@ -1955,7 +1955,7 @@ describe("daemon native session execution", () => {
     expect(executeSession).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: "loop_fresh-loop_4",
-        stateOwnerSessionId: "owner-session",
+        stateBindingSessionId: "owner-session",
         reset: true,
         sessionVisibility: "internal",
         sessionPurpose: "loop_tick",
@@ -2029,6 +2029,104 @@ describe("daemon native session execution", () => {
       expect.not.objectContaining({ allowedTools: expect.anything() }),
     );
     rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("reports driver Session token usage with discard-on-close persistence", async () => {
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "driver_repro_1",
+      stateBindingSessionId: "owner-session",
+      prompt: "repro tick",
+    };
+    const executeSession = vi.fn(async () => ({ assistantText: "advanced" }));
+    const executionContext = context(task);
+    executionContext.recordTokenUsage = vi.fn();
+
+    await executeSparkDaemonSessionRunTask(
+      task,
+      executionContext,
+      {
+        paths,
+        executeSession,
+        sessionRegistry: {
+          get: vi.fn(async () => ({
+            sessionId: "driver_repro_1",
+            scope: { kind: "workspace" as const, workspaceId: "workspace-repro" },
+            workspaceId: "workspace-repro",
+            status: "ready" as const,
+            bindings: [],
+            retention: "discard_on_close" as const,
+            createdAt: "2026-08-10T00:00:00.000Z",
+            updatedAt: "2026-08-10T00:00:00.000Z",
+          })),
+          recordRun: vi.fn(async () => ({}) as never),
+          recordTurnQueued: vi.fn(async () => ({}) as never),
+          recordTurnSettled: vi.fn(async () => ({}) as never),
+        },
+      },
+      loopContext("repro", 1, "repro:active"),
+    );
+
+    expect(executeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stateBindingSessionId: "owner-session",
+        tokenUsage: expect.objectContaining({
+          executionId: "invocation-1",
+          detailKind: "loop_tick",
+          persistence: "anonymous",
+        }),
+      }),
+    );
+  });
+
+  it("attributes driver Session interactions to the owner presentation Session", async () => {
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "driver_repro_1",
+      stateBindingSessionId: "owner-session",
+      presentationSessionId: "owner-session",
+      prompt: "request a decision",
+    };
+    const interact = vi.fn(async (request) => ({
+      version: SPARK_PROTOCOL_VERSION,
+      requestId: request.requestId,
+      kind: "askFlow" as const,
+      status: "pending" as const,
+      humanRequestId: "human-request-1",
+      answers: {},
+      metadata: {},
+    }));
+    const executeSession = vi.fn(async (input: SparkHeadlessSessionRunInput) => {
+      await input.interaction?.({
+        requestId: "ask-driver-owner",
+        kind: "askFlow",
+        title: "Choose",
+        questions: [
+          {
+            id: "decision",
+            prompt: "Continue?",
+            type: "single",
+            options: [{ value: "yes", label: "Yes" }],
+          },
+        ],
+      });
+      return { assistantText: "waiting" };
+    });
+
+    await executeSparkDaemonSessionRunTask(task, context(task), {
+      paths,
+      executeSession,
+      interact,
+    });
+
+    expect(interact).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: "ask-driver-owner" }),
+      expect.objectContaining({
+        sessionId: "owner-session",
+        presentationSessionId: "owner-session",
+      }),
+      expect.objectContaining({ invocationId: "invocation-1" }),
+    );
   });
 
   it("allows only workflow for a daemon-owned workflow tick", async () => {

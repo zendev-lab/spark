@@ -300,6 +300,7 @@ function driver(
     binding,
     ownerSessionId: sessionId,
     status,
+    sessionLifetime: "driver",
     continuity: "session",
     generation: 1,
     policy: sparkLoopPolicySchema.parse({}),

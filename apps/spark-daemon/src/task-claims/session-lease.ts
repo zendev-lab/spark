@@ -43,7 +43,12 @@ export async function acquireDaemonSessionLease(input: {
 
   const managedTaskRelation =
     session.relation?.kind === "task_execution" ? session.relation : undefined;
-  const sessionId = sparkSessionKey({ sessionId: input.task.sessionId });
+  // Owned execution Sessions mutate durable Task/Repro state through their
+  // explicit state binding. Fence that persistent owner rather than the
+  // disposable execution Session so host context and daemon authority agree.
+  const stateBindingSessionId =
+    session.stateBinding?.kind === "session" ? session.stateBinding.ref : input.task.sessionId;
+  const sessionId = sparkSessionKey({ sessionId: stateBindingSessionId });
   const client = attachWorkspaceClient(input.db, {
     workspaceId,
     kind: "interactive",

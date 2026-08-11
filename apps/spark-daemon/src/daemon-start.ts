@@ -116,6 +116,7 @@ import {
   resolveWorkspaceLocalPath,
 } from "./store/workspaces.js";
 import { runSparkCommandBridge, cancelSparkBridgeInvocation } from "./spark/bridge.js";
+import { loopDriverCloseCandidate, loopTickCloseCandidate } from "./spark/loop-close-completion.ts";
 import { createChannelAwareTaskExecutor, sessionSourceForTask } from "./spark/session-run.js";
 import { reconcileSessionNotificationDeliveries } from "./session-notification-delivery.ts";
 import {
@@ -366,26 +367,45 @@ async function createPreparedDaemonRuntime(
     ? new SessionSupervisor({
         registry: options.sessionRegistry,
         invocations: invocationStore,
+        resolveWorkspaceBindingId: (workspaceId) =>
+          resolveWorkspaceBindingId(options.db, workspaceId),
         ownerExists: async (owner, session) => {
-          if (
-            (owner.kind !== "task_run" && owner.kind !== "task_revision") ||
-            session.relation?.kind !== "task_execution" ||
-            session.scope.kind !== "workspace"
-          ) {
-            return false;
+          if (owner.kind === "driver") {
+            const loop = loopStore.get(owner.ref);
+            return Boolean(
+              loop &&
+              loop.driverSessionId === session.sessionId &&
+              loop.status !== "completed" &&
+              loop.status !== "stopped",
+            );
           }
-          return await isTaskSessionOwnerValid(
-            {
-              owner,
-              workspaceId: session.scope.workspaceId,
-              sessionId: session.sessionId,
-              relation: session.relation,
-            },
-            {
-              resolveWorkspaceCwd: (workspaceId) =>
-                resolveWorkspaceLocalPath(options.db, workspaceId),
-            },
-          );
+          if (owner.kind === "driver_tick") {
+            const invocation = invocationStore.getSummary(owner.ref);
+            return Boolean(
+              invocation &&
+              invocation.sessionId === session.sessionId &&
+              (invocation.status === "queued" || invocation.status === "running"),
+            );
+          }
+          if (
+            (owner.kind === "task_run" || owner.kind === "task_revision") &&
+            session.relation?.kind === "task_execution" &&
+            session.scope.kind === "workspace"
+          ) {
+            return await isTaskSessionOwnerValid(
+              {
+                owner,
+                workspaceId: session.scope.workspaceId,
+                sessionId: session.sessionId,
+                relation: session.relation,
+              },
+              {
+                resolveWorkspaceCwd: (workspaceId) =>
+                  resolveWorkspaceLocalPath(options.db, workspaceId),
+              },
+            );
+          }
+          return false;
         },
       })
     : null;
@@ -964,6 +984,7 @@ function daemonServerConnectionOptions(
     humanWaits: runtime.humanWaits,
     respondHumanInteraction: (wait, input) => runtime.humanInteractions.respond(wait, input),
     channelIngress: runtime.channelIngress ?? undefined,
+    sessionSupervisor: runtime.sessionSupervisor ?? undefined,
     registerInvocationEventTarget: (sink) => runtime.eventHub.register(sink),
     registerHumanRequestOutboxTarget: runtime.registerHumanRequestOutboxTarget,
   };
@@ -1147,11 +1168,49 @@ function completeScheduledInvocation(
   if (task.type === "loop.tick") {
     const completed = input.loopStore.completeTick(invocation, task, completion);
     emitLoopUpdate(input, completed.loop, invocation.invocationId);
+    const sessionLifetime =
+      task.sessionLifetime ?? (task.continuity === "fresh" ? "driver_tick" : "driver");
+    if (
+      sessionLifetime === "driver_tick" ||
+      completed.loop.status === "completed" ||
+      completed.loop.status === "stopped"
+    ) {
+      const closeCompletion =
+        sessionLifetime === "driver_tick"
+          ? loopTickCloseCandidate(invocation.invocationId, completion)
+          : loopDriverCloseCandidate(completed.loop);
+      void input.sessionSupervisor
+        ?.close({
+          sessionId: task.sessionId,
+          reason: `Loop ${completed.loop.status}`,
+          ...(closeCompletion ? { completion: closeCompletion } : {}),
+          settleTimeoutMs: 5_000,
+        })
+        .catch((error) => {
+          console.error(`[spark-daemon] failed to close Loop Session ${task.sessionId}`, error);
+        });
+    }
     return completed.invocation;
   }
   if (task.type === "loop.evaluate") {
     const completed = input.loopStore.completeEvaluation(invocation, task, completion);
     emitLoopUpdate(input, completed.loop, invocation.invocationId);
+    if (completed.loop.status === "completed" || completed.loop.status === "stopped") {
+      const closeCompletion = loopDriverCloseCandidate(completed.loop);
+      void input.sessionSupervisor
+        ?.close({
+          sessionId: completed.loop.driverSessionId,
+          reason: `Loop ${completed.loop.status}`,
+          ...(closeCompletion ? { completion: closeCompletion } : {}),
+          settleTimeoutMs: 5_000,
+        })
+        .catch((error) => {
+          console.error(
+            `[spark-daemon] failed to close Loop Session ${completed.loop.driverSessionId}`,
+            error,
+          );
+        });
+    }
     return completed.invocation;
   }
   const completed = completeInvocationWithChannelDelivery(
@@ -1589,6 +1648,7 @@ interface SparkDaemonServerConnectionOptions extends StartSparkDaemonOptions {
   humanWaits: SparkDaemonHumanWaitRegistry;
   respondHumanInteraction: SparkDaemonHumanInteractionResponder;
   channelIngress?: DaemonChannelIngressRuntime;
+  sessionSupervisor?: SessionSupervisor;
   registerInvocationEventTarget?: (
     sink: (event: SparkInvocationEvent) => void | Promise<void>,
   ) => () => void;
@@ -2040,6 +2100,7 @@ async function runSparkDaemonServerConnection(
         ...(options.modelControl ? { modelControl: options.modelControl } : {}),
         ...(options.channelIngress ? { channelIngress: options.channelIngress } : {}),
         ...(options.sessionRegistry ? { sessionRegistry: options.sessionRegistry } : {}),
+        ...(options.sessionSupervisor ? { sessionSupervisor: options.sessionSupervisor } : {}),
         invocationRegistry: options.invocationRegistry,
         humanWaits: options.humanWaits,
         respondHumanInteraction: options.respondHumanInteraction,

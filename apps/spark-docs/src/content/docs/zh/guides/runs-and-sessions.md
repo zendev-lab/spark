@@ -56,6 +56,9 @@ spark tui --session-id <session-id>
 Workflow 工作运行在 owner-bound 子 Session 中；活跃状态由 queued/running
 Invocation 推导，不依赖 UI 计时器。临时 owned 子 Session 会随 owner 关闭并默认删除
 完整 transcript；只有保留公开记录的 Session 才能用同一稳定 ID 创建新 incarnation。
+新的 TUI、Hub 和 ACP 对话是该根 Session 下的持久 Administrator 子 Session。
+Channel 对话使用同一父级，但保留 Channel authority 与 state binding。Loop 的活动从
+`driver` 或 `driver_tick` 子 Session 上卷，且不会暴露子 Session 的私有 prompt。
 
 owned 临时 Session 删除内容前，Spark 会先封存一份有界关闭摘要。Role 与 Skill 子
 Session 复用其结构化 outcome 和最终 assistant result；Task 与 Repro 子 Session

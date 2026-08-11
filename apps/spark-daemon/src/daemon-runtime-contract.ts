@@ -106,6 +106,7 @@ export interface MessageContext {
   modelControl?: SparkDaemonModelControl;
   channelIngress?: DaemonChannelIngressRuntime;
   sessionRegistry?: DaemonSessionRegistry;
+  sessionSupervisor?: SessionSupervisor;
   onRuntimeReady?(): void;
   onIngestAck?(ackOf: string): void;
 }

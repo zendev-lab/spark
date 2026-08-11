@@ -13095,7 +13095,10 @@ function createTestDriverControl(): TestSparkDaemonLoopControl {
         binding: input.binding ?? {},
         ownerSessionId: input.ownerSessionId,
         status: "scheduled" as const,
-        continuity: input.continuity ?? ("session" as const),
+        sessionLifetime:
+          input.sessionLifetime ?? (input.continuity === "fresh" ? "driver_tick" : "driver"),
+        continuity:
+          input.continuity ?? (input.sessionLifetime === "driver_tick" ? "fresh" : "session"),
         generation: 1,
         policy: sparkLoopPolicySchema.parse(input.policy ?? {}),
         counters: sparkLoopCountersSchema.parse({}),

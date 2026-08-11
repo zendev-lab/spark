@@ -810,6 +810,7 @@ describe("SparkSessionRegistry", () => {
       sessionPath: "/tmp/child-2.jsonl",
     });
     expect(reset.relation).toMatchObject({ generation: 2 });
+    expect(reset.incarnation).toBe(2);
     await registry.archive(parent.sessionId);
     await expect(registry.get(child.sessionId)).resolves.toMatchObject({ status: "archived" });
   });

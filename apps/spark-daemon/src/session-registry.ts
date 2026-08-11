@@ -39,6 +39,8 @@ export interface DaemonSessionRegistry {
     adapterAccountIdentity?: string,
   ): Promise<SparkSessionRegistryRecord>;
   archive(input: string | ArchiveSparkSessionInput): Promise<SparkSessionRegistryRecord>;
+  /** Supervisor-only close for owned relation Sessions such as Side Threads. */
+  archiveOwned(input: ArchiveSparkSessionInput): Promise<SparkSessionRegistryRecord>;
   markClosing(input: TransitionSparkSessionLifecycleInput): Promise<SparkSessionRegistryRecord>;
   sealCloseReceipt(input: SealSparkSessionCloseReceiptInput): Promise<SparkSessionRegistryRecord>;
   restore?(
@@ -132,6 +134,7 @@ export function createSerializedDaemonSessionRegistry(
     unbind: (sessionId, externalKey, adapterAccountIdentity) =>
       mutate(() => registry.unbind(sessionId, externalKey, adapterAccountIdentity)),
     archive: (input) => mutate(() => registry.archive(input)),
+    archiveOwned: (input) => mutate(() => registry.archiveOwned(input)),
     markClosing: (input) => mutate(() => registry.markClosing(input)),
     sealCloseReceipt: (input) => mutate(() => registry.sealCloseReceipt(input)),
     ...(registry.restore
@@ -185,6 +188,7 @@ export function createDaemonSessionRegistry(
     unbind: async (sessionId, externalKey, adapterAccountIdentity) =>
       await registry.unbind(sessionId, externalKey, adapterAccountIdentity),
     archive: async (input) => await registry.archive(input),
+    archiveOwned: async (input) => await registry.archiveOwned(input),
     markClosing: async (input) => await registry.markClosing(input),
     sealCloseReceipt: async (input) => await registry.sealCloseReceipt(input),
     restore: async (sessionId, now) => await registry.restore(sessionId, now),
@@ -214,9 +218,30 @@ export function createDaemonSessionRegistry(
     resetSideThread: async (input) => await registry.resetSideThread(input),
     configureSideThread: async (input) => await registry.configureSideThread(input),
     resolveBinding: async (input) => {
-      const create = input.create
+      let create = input.create
         ? await resolveRegistryCreateInput(input.create, options)
         : undefined;
+      if (create?.scope?.kind === "workspace") {
+        const root = await registry.ensureWorkspaceMain({
+          workspaceId: create.scope.workspaceId,
+          ...(options.resolveWorkspaceCwd?.(create.scope.workspaceId)
+            ? { cwd: options.resolveWorkspaceCwd(create.scope.workspaceId) }
+            : {}),
+        });
+        create = {
+          ...create,
+          lifetime: "persistent",
+          owner: { kind: "session", ref: root.sessionId },
+          roleRef: "role:builtin-administrator",
+          roleRevision: 1,
+          modelType: "coordination",
+          authority: { kind: "channel", ref: input.externalKey },
+          stateBinding: { kind: "channel", ref: input.externalKey },
+          visibility: "public",
+          retention: "retain",
+          purpose: "channel",
+        };
+      }
       return await registry.resolveBinding({
         ...input,
         ...(create ? { create } : {}),
