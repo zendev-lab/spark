@@ -17,6 +17,7 @@ import type { SparkDaemonModelControl } from "../model-control.ts";
 import type { SparkReproFormalEvidenceVerifier } from "../repro-formal-evidence-verifier.ts";
 import type { SessionNotificationDeliveryQueue } from "../session-notification-delivery.ts";
 import { createDaemonSessionRegistry, type DaemonSessionRegistry } from "../session-registry.ts";
+import type { SessionSupervisor } from "../session-supervisor.ts";
 import { resolveSessionCwdForWorkspaceId } from "../session-cwd.ts";
 import { SparkChannelDeliveryStore } from "../store/channel-deliveries.ts";
 import { resolveWorkspaceLocalPath } from "../store/workspaces.js";
@@ -50,6 +51,7 @@ export async function startLocalRpcServer(options: {
   eventBus?: SparkDaemonLocalEventBus;
   channelIngress?: DaemonChannelIngressRuntime;
   sessionRegistry?: DaemonSessionRegistry;
+  sessionSupervisor?: SessionSupervisor;
   modelControl?: SparkDaemonModelControl;
   humanWaits?: SparkDaemonHumanWaitRegistry;
   reproFormalEvidenceVerifier?: SparkReproFormalEvidenceVerifier;
@@ -98,6 +100,7 @@ export async function startLocalRpcServer(options: {
   } satisfies SessionNotificationDeliveryQueue;
   const handlerOptions: LocalRpcHandlerOptions = {
     sessionRegistry,
+    ...(options.sessionSupervisor ? { sessionSupervisor: options.sessionSupervisor } : {}),
     mailStore,
     notificationDeliveryQueue,
     ...(options.eventBus ? { eventBus: options.eventBus } : {}),

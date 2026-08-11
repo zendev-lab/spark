@@ -315,11 +315,25 @@ export function normalizeTaskExecutionPolicy(
     throw new Error("task executionPolicy must be an object");
   }
   if (
+    policy?.sessionLifetime !== undefined &&
+    policy.sessionLifetime !== "task_run" &&
+    policy.sessionLifetime !== "task_revision"
+  ) {
+    throw new Error("task executionPolicy.sessionLifetime is invalid");
+  }
+  if (
     policy?.continuity !== undefined &&
     policy.continuity !== "fresh" &&
     policy.continuity !== "reuse_within_revision"
   ) {
     throw new Error("task executionPolicy.continuity is invalid");
+  }
+  if (
+    policy?.sessionLifetime !== undefined &&
+    policy?.continuity !== undefined &&
+    (policy.sessionLifetime === "task_run") !== (policy.continuity === "fresh")
+  ) {
+    throw new Error("task executionPolicy sessionLifetime conflicts with legacy continuity");
   }
   if (
     policy?.isolation !== undefined &&
@@ -375,7 +389,10 @@ export function normalizeTaskExecutionPolicy(
   ) {
     throw new Error("task executionPolicy.resources.minGpuMemoryGiB must be positive");
   }
-  const continuity = policy?.continuity ?? "reuse_within_revision";
+  const sessionLifetime =
+    policy?.sessionLifetime ?? (policy?.continuity === "fresh" ? "task_run" : "task_revision");
+  const continuity =
+    policy?.continuity ?? (sessionLifetime === "task_run" ? "fresh" : "reuse_within_revision");
   const isolation =
     policy?.isolation === "isolated_worktree" ||
     policy?.isolation === "isolated_results" ||
@@ -409,6 +426,7 @@ export function normalizeTaskExecutionPolicy(
         }
       : undefined;
   return {
+    sessionLifetime,
     continuity,
     isolation,
     comparison,
@@ -1353,11 +1371,22 @@ export function cloneTask(task: Task): Task {
 
 export function normalizeTaskRun(run: TaskRun): TaskRun {
   rejectLegacyRoleFields(run, "task run");
+  const execution = run.execution
+    ? {
+        ...run.execution,
+        sessionId: run.execution.sessionId ?? run.execution.executionSessionId,
+        executionSessionId: run.execution.executionSessionId ?? run.execution.sessionId,
+        sessionLifetime: run.execution.sessionLifetime ?? "task_revision",
+      }
+    : undefined;
+  if (execution && !execution.sessionId) {
+    throw new Error(`task run ${run.ref} execution sessionId is required`);
+  }
   return {
     ...run,
     roleRef: normalizeRoleRef(run.roleRef),
     runName: run.runName?.trim() || undefined,
-    execution: run.execution ? { ...run.execution } : undefined,
+    execution,
     resourceAllocation: run.resourceAllocation
       ? {
           ...run.resourceAllocation,

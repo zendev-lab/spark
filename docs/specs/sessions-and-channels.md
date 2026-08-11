@@ -12,10 +12,15 @@ A workspace identity is created only by the explicit `spark daemon workspace reg
 
 ## Role and session boundary
 
-- `role` owns reusable definitions, model settings, and fresh anonymous calls.
-- `session` owns persistent identity, lifecycle, continuity, bindings, calls, and mail.
+- `role` owns reusable definitions and Model Type settings. Calls instantiate
+  owned child Sessions; `RoleRun` is a compatibility projection.
+- `session` owns identity, lifecycle, continuity, bindings, calls, and mail.
 
-Both use the same headless host and `SparkAgentSession`. `role` must not accept lifecycle, mail, `resource=session`, or `sessionId` inputs.
+Both use the daemon `SessionSupervisor` over the same headless host and
+`SparkAgentSession`. `role` must not accept lifecycle, mail,
+`resource=session`, or `sessionId` inputs. Missing child Model Type bindings
+fail with `role_model_type_unconfigured`; the parent Session model is never a
+fallback.
 
 ## Canonical lifecycle ownership
 

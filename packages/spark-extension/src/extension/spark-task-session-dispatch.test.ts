@@ -5,7 +5,13 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { EvidenceRef } from "@zendev-lab/spark-artifacts";
 import { requestSparkDaemon, SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
-import type { ProjectRef, TaskRef, TaskResourceAllocation, TaskRun } from "@zendev-lab/spark-core";
+import type {
+  ArtifactRef,
+  ProjectRef,
+  TaskRef,
+  TaskResourceAllocation,
+  TaskRun,
+} from "@zendev-lab/spark-core";
 import { loadSessionGoal } from "@zendev-lab/spark-loop";
 import type { SparkTaskExecutionSessionRelation } from "@zendev-lab/spark-protocol";
 import { createSparkSessionRepro } from "@zendev-lab/spark-repro";
@@ -108,6 +114,13 @@ describe("managed Task Session dispatch", () => {
           completedAt: "2026-07-29T00:01:00.000Z",
         };
       }
+      if (method === "session.archive") {
+        return {
+          sessionId: String(input.sessionId),
+          lifecycle: "closed",
+          archived: true,
+        };
+      }
       throw new Error(`unexpected daemon method: ${method}`);
     }) as typeof requestSparkDaemon;
 
@@ -202,6 +215,20 @@ describe("managed Task Session dispatch", () => {
     expect(succeededRun?.completionSummary?.summary).toContain(
       "Subgoal still requires verifier promotion",
     );
+    const archiveCalls = calls.filter((call) => call.method === "session.archive");
+    expect(archiveCalls).toHaveLength(1);
+    expect(
+      archiveCalls.find((call) => call.input.sessionId === records[0]!.sessionId)?.input.completion,
+    ).toMatchObject({
+      source: "domain_completion",
+      status: "completed",
+      code: "task_session_completed",
+      summary: expect.stringContaining("Subgoal still requires verifier promotion"),
+      evidenceRefs: [rawTaskEvidenceRef],
+      artifactRefs: [],
+      sourceInvocationIds: [records[0]!.invocationId],
+    });
+    expect(archiveCalls.some((call) => call.input.sessionId === records[1]!.sessionId)).toBe(false);
     expect(safeSubgoals.every((subgoal) => subgoal.status !== "done")).toBe(true);
   });
 
@@ -222,6 +249,7 @@ describe("managed Task Session dispatch", () => {
         kind: "research",
         roleRef: "role:builtin-explorer",
         executionPolicy: {
+          sessionLifetime: reusesSession ? "task_revision" : "task_run",
           continuity,
           isolation: "isolated_results",
           comparison: "single_side",
@@ -251,6 +279,7 @@ describe("managed Task Session dispatch", () => {
         allocatedAt: "2026-07-29T00:00:00.000Z",
       };
       const sessions = new Map<string, SparkTaskExecutionSessionRelation>();
+      const archiveInputs: Record<string, unknown>[] = [];
       let invocation = 0;
       const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
         if (method === "session.get") {
@@ -296,6 +325,22 @@ describe("managed Task Session dispatch", () => {
             acceptedAt: "2026-07-29T00:00:00.000Z",
           };
         }
+        if (method === "turn.status") {
+          return {
+            invocationId: String(input.invocationId),
+            status: "succeeded",
+            acceptedAt: "2026-07-29T00:00:00.000Z",
+            completedAt: "2026-07-29T00:01:00.000Z",
+          };
+        }
+        if (method === "session.archive") {
+          archiveInputs.push(input);
+          return {
+            sessionId: String(input.sessionId),
+            lifecycle: "closed",
+            archived: true,
+          };
+        }
         throw new Error(`unexpected daemon method: ${method}`);
       }) as typeof requestSparkDaemon;
 
@@ -339,6 +384,30 @@ describe("managed Task Session dispatch", () => {
       expect(second[0]?.goalId === first[0]?.goalId).toBe(reusesSession);
       const persisted = await defaultTaskGraphStore(cwd).load();
       expect(persisted?.runs(project.ref).at(-1)?.resourceAllocation).toEqual(resourceAllocation);
+
+      const completionEvidence = "evidence:retry-complete" as EvidenceRef;
+      await defaultTaskGraphStore(cwd).update(
+        (next) => {
+          next.attachOutputEvidence(task.ref, completionEvidence);
+          next.linkTaskArtifact(task.ref, "artifact:retry-change" as ArtifactRef);
+          next.setTaskStatus(task.ref, "done");
+        },
+        { createIfMissing: false },
+      );
+      await reconcileManagedTaskSessions({
+        cwd,
+        ctx: { sessionId: "sess_owner" },
+        projectRef: project.ref,
+        daemonRequest,
+      });
+      expect(archiveInputs).toHaveLength(1);
+      expect(archiveInputs[0]?.completion).toMatchObject({
+        source: "domain_completion",
+        status: "completed",
+        evidenceRefs: [completionEvidence],
+        artifactRefs: ["artifact:retry-change"],
+        sourceInvocationIds: reusesSession ? ["inv_1", "inv_2"] : ["inv_2"],
+      });
     },
   );
 
@@ -354,6 +423,7 @@ describe("managed Task Session dispatch", () => {
       kind: "implement",
       roleRef: "role:builtin-worker",
       executionPolicy: {
+        sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
         isolation: "isolated_worktree",
         comparison: "single_side",
@@ -506,6 +576,7 @@ describe("managed Task Session dispatch", () => {
       kind: "implement",
       roleRef: "role:builtin-worker",
       executionPolicy: {
+        sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
         isolation: "isolated_worktree",
         comparison: "single_side",
@@ -531,6 +602,7 @@ describe("managed Task Session dispatch", () => {
       kind: "implement",
       roleRef: "role:builtin-worker",
       executionPolicy: {
+        sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
         isolation: "isolated_worktree",
         comparison: "single_side",
@@ -640,6 +712,7 @@ describe("managed Task Session dispatch", () => {
       kind: "research",
       roleRef: "role:builtin-explorer",
       executionPolicy: {
+        sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
         isolation: "isolated_results",
         comparison: "single_side",
@@ -712,6 +785,13 @@ describe("managed Task Session dispatch", () => {
           invocationId: "inv_timeout",
           status: invocationStatus,
           cancelRequested: true,
+        };
+      }
+      if (method === "session.archive") {
+        return {
+          sessionId: String(input.sessionId),
+          lifecycle: "closed",
+          archived: true,
         };
       }
       throw new Error(`unexpected daemon method: ${method}`);

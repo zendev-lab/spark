@@ -2,7 +2,7 @@
 
 `skill_agent` is the canonical intelligent execution surface for one or more
 model-invocable Skills. It lets the parent Agent hand off a self-contained unit
-of work to one dedicated anonymous Agent without interpreting those Skills as
+of work to one dedicated owner-bound Agent Session without interpreting those Skills as
 its own operating procedure.
 
 ## Invocation
@@ -38,19 +38,23 @@ size-bounded as one aggregate and is never silently truncated.
 
 ## Agent construction
 
-Each accepted call creates one fresh anonymous Role run:
+Each accepted call creates one fresh owned Role Session:
 
 - the dynamic Role ref is derived from the ordered Skill set;
-- the run inherits the active parent model;
-- the run is `fresh`, `noSession`, and has anonymous persistence;
+- the Role uses semantic Model Type `implementation`; missing configuration
+  fails with `role_model_type_unconfigured` and never inherits the parent model;
+- `SessionSupervisor` owns the child lifecycle and discard-on-close retention;
 - the system prompt names every selected Skill and contains every resolved Skill
   body, source path, and absolute base directory;
 - all Skill bodies are loaded exactly once by the host before the child starts;
 - completion returns bounded Agent output and run metadata to the parent.
 
-A Skill Agent is not a persistent Spark Session and cannot be resumed through
-`session`. Direct Skill Agent execution does not claim a Task or create Task
-attribution.
+A Skill Agent is an owned, non-restorable Spark Session. Closing it removes the
+full transcript and Invocation payload after sealing a bounded receipt from
+`role_report_outcome` and the final assistant result. If that semantic candidate
+is absent or invalid, the daemon seals a deterministic fallback. Usage,
+execution profile, the receipt, and explicit Evidence remain queryable. It does
+not claim a Task or create Task attribution.
 
 ## Prompt contract
 

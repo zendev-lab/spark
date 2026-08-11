@@ -12,6 +12,7 @@ import {
   hydrateDefaultRoleRegistry,
   normalizeRoleLaunchMode,
   resolveRoleModelSetting,
+  RoleModelTypeUnconfiguredError,
   runRole,
   validateRoleModel,
   modelCatalogPortFromHostRegistry,
@@ -328,10 +329,7 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       const model = await resolveRoleModelForCall({
         role,
         explicitModel: p.model,
-        sessionModel: sessionModelName(ctx.model),
         cwd,
-        actualRun: true,
-        ui: ctx.ui,
       });
       const commandInput = {
         runRef,
@@ -344,8 +342,12 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
         timeoutMs: p.timeoutMs,
         signal,
         stdinMode: "ignore" as const,
-        noSession: true,
         roleId: role.id,
+        roleRevision: role.revision,
+        roleSource: role.source,
+        roleCapabilities: role.capabilities,
+        roleModelType: role.modelType,
+        roleInstantiation: "owned" as const,
         allowedTools: role.allowedTools,
         nativeExecutor: ctx.runRole,
       };
@@ -703,23 +705,11 @@ function requiredSparkRolesCwd(ctx: { cwd?: string }, toolName: string): string 
   throw new Error(`${toolName} requires ctx.cwd or an explicit cwd parameter.`);
 }
 
-function sessionModelName(model: SparkRolesSessionModel | undefined): string | undefined {
-  const provider = typeof model?.provider === "string" ? model.provider.trim() : "";
-  const id = typeof model?.id === "string" ? model.id.trim() : "";
-  return provider && id ? `${provider}/${id}` : undefined;
-}
-
 async function resolveRoleModelForCall(input: {
   role: RoleSpec;
   explicitModel?: string;
-  sessionModel?: string;
   cwd: string;
-  actualRun: boolean;
-  ui?: {
-    notify?: (message: string, level?: string) => void;
-    input?: (title: string, defaultValue?: string) => Promise<string | undefined>;
-  };
-}): Promise<string | undefined> {
+}): Promise<string> {
   const resolved = await resolveRoleModelSetting({
     explicitModel: input.explicitModel,
     roleRef: input.role.ref,
@@ -730,12 +720,7 @@ async function resolveRoleModelForCall(input: {
     userStore: defaultUserRoleModelSettingsStore(),
   });
   if (resolved) return resolved.model;
-  if (input.sessionModel) return input.sessionModel;
-  if (!input.actualRun) return undefined;
-
-  throw new Error(
-    `role model unavailable for ${input.role.id} (${input.role.ref}); provide model, save one with role({ action: "model_set" }), or run with an active session model`,
-  );
+  throw new RoleModelTypeUnconfiguredError(input.role.ref, input.role.modelType);
 }
 
 function normalizeCallRoleToolParams(params: Record<string, unknown>): CallRoleToolParams {

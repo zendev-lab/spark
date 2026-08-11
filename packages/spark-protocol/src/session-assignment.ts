@@ -229,6 +229,9 @@ export const sparkTaskExecutionSessionRelationSchema = z.object({
     .regex(/^subgoal:.+/u)
     .optional(),
   roleRef: z.string().regex(/^role:.+/u),
+  roleRevision: z.number().int().positive().optional(),
+  modelType: sparkRoleModelTypeSchema.optional(),
+  sessionLifetime: z.enum(["task_run", "task_revision"]).optional(),
   planRevision: z.number().int().positive().optional(),
   definitionDigest: z.string().min(1).optional(),
   jobId: z.string().min(1),

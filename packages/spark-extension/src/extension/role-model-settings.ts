@@ -12,7 +12,6 @@ import {
 import type { RoleRef, ProjectRef } from "@zendev-lab/spark-core";
 import { sparkTaskExecutorRoleRef } from "@zendev-lab/spark-runtime";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
-import { sessionModelName } from "./session-model.ts";
 
 export interface RoleModelSettingsPreflightResult {
   ready: boolean;
@@ -51,7 +50,6 @@ export async function ensureRoleModelSettingsForProject(input: {
   const boundRoleRefs: RoleRef[] = [];
   const missingRoleRefs: RoleRef[] = [];
   const inheritedRoleRefs: RoleRef[] = [];
-  const sessionModel = sessionModelName(input.ctx.model);
   const resolvedModels: Array<{ roleRef: RoleRef; model: ResolvedRoleModelSetting }> = [];
   for (const roleRef of roleRefs) {
     const role = input.registry.get(roleRef) as RoleSpec;
@@ -66,10 +64,6 @@ export async function ensureRoleModelSettingsForProject(input: {
     if (existing) {
       boundRoleRefs.push(roleRef);
       resolvedModels.push({ roleRef, model: existing });
-      continue;
-    }
-    if (sessionModel) {
-      inheritedRoleRefs.push(roleRef);
       continue;
     }
     const selected = await input.ctx.ui?.input?.(`Choose Pi model for Spark role ${role.id}`);
@@ -111,22 +105,17 @@ export async function ensureRoleModelSettingsForProject(input: {
     const hiddenMissingRoleRefs = missingRoleRefs.length - visibleMissingRoleRefs.length;
     return {
       ready: false,
-      message: `Spark role model unavailable before dispatch: ${visibleMissingRoleRefs.join(", ")}${hiddenMissingRoleRefs > 0 ? `, … ${hiddenMissingRoleRefs} more` : ""}. Rerun with an active session model or save a concrete model with role({ action: "model_set" }) for each role.`,
+      message: `Spark Role Model Type is unconfigured before dispatch: ${visibleMissingRoleRefs.join(", ")}${hiddenMissingRoleRefs > 0 ? `, … ${hiddenMissingRoleRefs} more` : ""}. Save a concrete model with role({ action: "model_set" }) for each required Model Type.`,
       checkedRoleRefs: roleRefs,
       boundRoleRefs,
       missingRoleRefs,
       inheritedRoleRefs,
-      error: "missing_role_model_setting",
+      error: "role_model_type_unconfigured",
     };
   }
   return {
     ready: true,
-    message: renderRoleModelSettingsReadyMessage(
-      boundRoleRefs,
-      inheritedRoleRefs,
-      resolvedModels,
-      sessionModel,
-    ),
+    message: renderRoleModelSettingsReadyMessage(boundRoleRefs, inheritedRoleRefs, resolvedModels),
     checkedRoleRefs: roleRefs,
     boundRoleRefs,
     missingRoleRefs: [],
@@ -138,16 +127,12 @@ function renderRoleModelSettingsReadyMessage(
   boundRoleRefs: RoleRef[],
   inheritedRoleRefs: RoleRef[],
   resolvedModels: Array<{ roleRef: RoleRef; model: ResolvedRoleModelSetting }>,
-  sessionModel: string | undefined,
 ): string {
   const saved = resolvedModels.map(
     ({ roleRef, model }) => `${roleRef}=${model.model} (${model.source})`,
   );
-  const inherited = sessionModel
-    ? inheritedRoleRefs.map((roleRef) => `${roleRef}=${sessionModel} (session)`)
-    : [];
   const total = boundRoleRefs.length + inheritedRoleRefs.length;
-  const labels = [...saved, ...inherited];
+  const labels = [...saved];
   const visibleLabels = labels.slice(0, 8);
   const hiddenLabels = labels.length - visibleLabels.length;
   return `Spark role models ready for ${total} role(s): ${visibleLabels.join(", ")}${hiddenLabels > 0 ? `, … ${hiddenLabels} more` : ""}.`;

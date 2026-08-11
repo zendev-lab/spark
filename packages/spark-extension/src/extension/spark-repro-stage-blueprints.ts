@@ -139,11 +139,13 @@ function defaultReproExecutionPolicy(
     : isExperiment
       ? "isolated_results"
       : "readonly";
+  const sessionLifetime =
+    kind === "research" || kind === "review" || kind === "plan" || isAsk
+      ? "task_run"
+      : "task_revision";
   return {
-    continuity:
-      kind === "research" || kind === "review" || kind === "plan" || isAsk
-        ? "fresh"
-        : "reuse_within_revision",
+    sessionLifetime,
+    continuity: sessionLifetime === "task_run" ? "fresh" : "reuse_within_revision",
     isolation,
     comparison: paired ? "paired" : "single_side",
     ...(axisGpuCount > 0 || exclusiveNode

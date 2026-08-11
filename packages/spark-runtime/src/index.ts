@@ -8,6 +8,7 @@ import {
   listActiveRoleRuns,
   parsePiJsonlEvents,
   resolveRoleModelSetting,
+  RoleModelTypeUnconfiguredError,
   RoleRunCancelledError as PiRoleRunCancelledError,
   RoleRunTimeoutError as PiRoleRunTimeoutError,
   runRole,
@@ -74,6 +75,7 @@ export interface SparkRoleRunResult {
     forkFromSession?: string;
     noSession?: boolean;
     sessionPersistence?: "anonymous" | "persistent";
+    sessionLifetime?: "persistent" | "owned";
   };
   outcome?: RoleRunCompletionOutcome;
   stdout: string;
@@ -168,6 +170,7 @@ export interface RoleRunFailureDiagnostic {
   launch?: RoleLaunchMode;
   exitOrTimeout: string;
   sessionPersistence?: "anonymous" | "persistent";
+  sessionLifetime?: "persistent" | "owned";
   nextAction: string;
 }
 
@@ -193,7 +196,10 @@ export function buildRoleRunFailureDiagnostic(input: {
   return {
     failureCategory,
     executorKind:
-      input.executorKind ?? (result.record.sessionPersistence ? "daemon-native" : "process"),
+      input.executorKind ??
+      (result.record.sessionPersistence || result.record.sessionLifetime
+        ? "daemon-native"
+        : "process"),
     ...((input.modelSelector ?? result.record.model)
       ? { modelSelector: redactDiagnosticText(input.modelSelector ?? result.record.model ?? "") }
       : {}),
@@ -202,6 +208,7 @@ export function buildRoleRunFailureDiagnostic(input: {
     ...(result.record.sessionPersistence
       ? { sessionPersistence: result.record.sessionPersistence }
       : {}),
+    ...(result.record.sessionLifetime ? { sessionLifetime: result.record.sessionLifetime } : {}),
     nextAction: diagnosticNextAction(failureCategory),
   };
 }
@@ -1266,7 +1273,8 @@ async function runNativeSparkRole(
     projectStore: defaultProjectRoleModelSettingsStore(options.cwd),
     userStore: defaultUserRoleModelSettingsStore(),
   });
-  const model = roleModel?.model ?? (options.sessionModel?.trim() || undefined);
+  if (!roleModel) throw new RoleModelTypeUnconfiguredError(role.ref, role.modelType);
+  const model = roleModel.model;
   let streamedEventCount = 0;
   const onEvent = options.onRoleEvent
     ? async (event: unknown) => {
@@ -1278,6 +1286,11 @@ async function runNativeSparkRole(
     runRef: baseRecord.ref,
     roleRef: role.ref,
     roleId: role.id,
+    roleRevision: role.revision,
+    roleSource: role.source,
+    roleCapabilities: role.capabilities,
+    roleModelType: role.modelType,
+    roleInstantiation: "owned",
     systemPrompt: role.systemPrompt,
     instruction: instruction.instruction,
     model,
@@ -1294,7 +1307,6 @@ async function runNativeSparkRole(
     env: options.env,
     nativeExecutor: options.roleExecutor,
     onEvent,
-    noSession: options.launch !== "forked",
     onTimeout: () => undefined,
   });
   if (streamedEventCount === 0) {

@@ -2,6 +2,7 @@ import type {
   SparkHeadlessTokenUsageContext,
   SparkHeadlessUserContent,
 } from "@zendev-lab/spark-host/headless-loader";
+import { rm } from "node:fs/promises";
 import {
   assistantMessageToText,
   classifyProviderFailure,
@@ -14,6 +15,7 @@ import {
   isRoleNativeExecutorCompatibilityError,
   type ExtensionInteractionRequest,
   type ExtensionInteractionResponse,
+  type ExtensionRoleRunner,
   type ExtensionRoleRunInputControl,
   type RoleRunCompletionOutcome,
   type RoleRef,
@@ -137,6 +139,9 @@ export interface SparkHeadlessSessionRunInput {
   loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
   allowedTools?: readonly string[];
+  roleRunner?: ExtensionRoleRunner;
+  roleRunRef?: string;
+  requireStructuredOutcome?: boolean;
   /** Host-enforced effect allowlist; unknown tool effects are denied. */
   allowedToolEffects?: readonly ToolEffect[];
   /** Optional base identity/surface prompt; defaults to Spark host identity. */
@@ -163,6 +168,7 @@ export interface SparkHeadlessSessionRunResult {
   stderr: string;
   jsonEvents: unknown[];
   eventsStreamed?: boolean;
+  roleOutcome?: RoleRunCompletionOutcome;
 }
 
 export interface SparkHeadlessRoleExecutorOptions {
@@ -209,11 +215,15 @@ export async function runSparkHeadlessSession(
     stateOwnerSessionId: input.stateOwnerSessionId,
     loop: input.loop,
     sessionQuestionChain: input.sessionQuestionChain,
-    allowedTools: input.allowedTools,
+    allowedTools: input.roleRunRef
+      ? [...new Set([...(input.allowedTools ?? []), "role_report_outcome"])]
+      : input.allowedTools,
+    roleRunner: input.roleRunner,
     allowedToolEffects: input.allowedToolEffects,
     hasUI: false,
     ...(input.interaction ? { ui: { interaction: input.interaction } } : {}),
     ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
+    ...(input.roleRunRef ? { sessionMode: "execute" as const } : {}),
     // Daemon scheduler owns wall-clock execution budget. Model streams use idle
     // hang detection instead of a short hard stream deadline so long tool/model
     // turns can finish, and interrupted work can resume after restart.
@@ -226,6 +236,7 @@ export async function runSparkHeadlessSession(
     ...(input.approvalRejectAction ? { approvalRejectAction: input.approvalRejectAction } : {}),
   } satisfies SparkCliHostServicesOptions);
   let primaryError: unknown;
+  let reportedRoleOutcome: RoleRunCompletionOutcome | undefined;
   let abortFromSignal: (() => void) | undefined;
   let unsubscribe: () => void = () => undefined;
   let unsubscribeDaemon: () => void = () => undefined;
@@ -235,6 +246,14 @@ export async function runSparkHeadlessSession(
     // must never fall through to agentLoop.submit: abort() is intentionally a
     // no-op while the loop is idle and therefore cannot serve as this fence.
     throwIfHeadlessAborted(input.signal);
+    if (input.roleRunRef) {
+      registerRoleOutcomeTool(services, (outcome) => {
+        if (reportedRoleOutcome) {
+          throw new Error("role_report_outcome may only be called once per supervised Role");
+        }
+        reportedRoleOutcome = outcome;
+      });
+    }
     if (input.model?.trim()) selectHeadlessModel(services, input.model.trim());
     if (input.thinkingLevel?.trim()) {
       const level = input.thinkingLevel.trim();
@@ -289,6 +308,7 @@ export async function runSparkHeadlessSession(
       stderr: renderDiagnostics(services.diagnostics),
       jsonEvents,
       ...(input.onEvent ? { eventsStreamed: true } : {}),
+      ...(reportedRoleOutcome ? { roleOutcome: reportedRoleOutcome } : {}),
     };
   } catch (error) {
     primaryError = error;
@@ -431,10 +451,14 @@ export async function runSparkHeadlessRoleInstruction(
       };
       throwIfHeadlessAborted(input.signal);
       const result = await runWithHeadlessTimeout(
-        noSession ? session.runAnonymous(sessionRunInput) : session.run(sessionRunInput),
+        session.run(sessionRunInput),
         input.timeoutMs,
         abort,
       );
+      // `noSession` is a decode-only compatibility marker. Compatibility
+      // executors still use the normal Session path, then enforce discard
+      // retention before returning the legacy RoleRun projection.
+      if (noSession && result.sessionPath) await rm(result.sessionPath, { force: true });
       const outcome = completionOutcomeForRun(
         result.outcome,
         result.assistant,

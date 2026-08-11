@@ -54,6 +54,20 @@ spark tui --session-id <session-id>
 Session identity preserves conversation and execution continuity. It does not
 override workspace binding or permission checks.
 
+Every workspace has one protected Administrator root Session. Role, Skill,
+Task, and Workflow work runs in owner-bound child Sessions. Their active state
+comes from queued/running Invocations, not UI timers. Owned temporary children
+close with their owner and normally discard full transcripts; retained public
+Sessions alone can be restored as a new incarnation of the same stable ID.
+
+Before an owned temporary Session discards content, Spark seals one bounded
+close receipt. Role and Skill children reuse their reported outcome and final
+assistant result. Task and Repro children reuse the Task completion summary;
+`task_revision` receipts also collect the Invocation, Evidence, and Artifact
+references from that incarnation. If no valid semantic result exists, Spark
+stores a deterministic metadata-only fallback and still removes the content.
+The receipt is queryable Session metadata, not Evidence or Memory.
+
 ## Which mode should you use?
 
 - Use `spark run` for one foreground result.

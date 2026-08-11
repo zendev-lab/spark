@@ -156,6 +156,11 @@ export interface RoleRunLauncherInput extends RoleRunCommandInput {
    */
   stdinMode?: "pipe" | "ignore";
   roleId?: string;
+  roleRevision?: number;
+  roleSource?: RoleSource;
+  roleCapabilities?: RoleCapability[];
+  roleModelType?: SparkRoleModelType;
+  roleInstantiation?: SparkRoleInstantiation;
   /** Preserve workflow-vs-role accounting across the native executor boundary. */
   usageExecutionKind?: "role_run" | "workflow_agent";
   /** Reviewer-only authority for typed native executor compatibility recovery. */
@@ -1659,6 +1664,11 @@ export async function runRole(input: RoleRunLauncherInput): Promise<RoleRunResul
         ref: input.roleRef,
         id: input.roleId ?? roleIdFromRef(input.roleRef),
         systemPrompt: input.systemPrompt,
+        ...(input.roleRevision ? { revision: input.roleRevision } : {}),
+        ...(input.roleSource ? { source: input.roleSource } : {}),
+        ...(input.roleCapabilities ? { capabilities: input.roleCapabilities } : {}),
+        ...(input.roleModelType ? { modelType: input.roleModelType } : {}),
+        ...(input.roleInstantiation ? { instantiation: input.roleInstantiation } : {}),
         ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
       },
       instruction: {

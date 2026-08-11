@@ -115,6 +115,13 @@ export interface SparkDaemonSessionRunTask {
   /** Private execution transcripts are not indexed into the public registry. */
   hiddenExecution?: boolean;
   prompt: string;
+  /** Supervisor-frozen Role prompt for one owned child Session. */
+  roleSystemPrompt?: string;
+  /** Supervisor-frozen tool boundary for one owned child Session. */
+  roleAllowedTools?: string[];
+  /** Compatibility RoleRun projection identity; lifecycle remains Session-owned. */
+  roleRunRef?: string;
+  requireStructuredOutcome?: boolean;
   /** Canonical provider/model frozen when this turn is enqueued. */
   model?: string;
   /** Thinking/reasoning intensity frozen when this turn is enqueued. */
@@ -243,6 +250,13 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
     stateOwnerSessionId: nonEmptyString(task.stateOwnerSessionId),
     hiddenExecution: typeof task.hiddenExecution === "boolean" ? task.hiddenExecution : undefined,
     prompt: task.prompt,
+    roleSystemPrompt: nonEmptyString(task.roleSystemPrompt),
+    roleAllowedTools: optionalStringList(task.roleAllowedTools, "roleAllowedTools"),
+    roleRunRef: nonEmptyString(task.roleRunRef),
+    requireStructuredOutcome:
+      typeof task.requireStructuredOutcome === "boolean"
+        ? task.requireStructuredOutcome
+        : undefined,
     model: nonEmptyString(task.model),
     thinkingLevel: nonEmptyString(task.thinkingLevel),
     reset: typeof task.reset === "boolean" ? task.reset : undefined,
@@ -268,6 +282,16 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
       ? { channelContext: parseChannelContext(task.channelContext) }
       : {}),
   };
+}
+
+function optionalStringList(value: unknown, field: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error(`daemon task ${field} must be an array`);
+  const values = value.map((entry) => nonEmptyString(entry));
+  if (values.some((entry) => !entry)) {
+    throw new Error(`daemon task ${field} must contain non-empty strings`);
+  }
+  return values as string[];
 }
 
 function validateSparkDaemonLoopEvaluationTask(

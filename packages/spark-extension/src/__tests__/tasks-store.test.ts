@@ -8,6 +8,7 @@ import {
   RoleRegistry,
   builtinRoleRef,
   cancelRoleRun,
+  defaultProjectRoleModelSettingsStore,
   listActiveRoleRuns,
 } from "@zendev-lab/spark-roles";
 import { EvidenceStore } from "@zendev-lab/spark-artifacts";
@@ -25,7 +26,7 @@ import {
 import {
   WorkflowRunStoreFormatError,
   defaultWorkflowRunStore,
-  runReadyTasks,
+  runReadyTasks as runReadyTasksRuntime,
   type WorkflowRunRecord,
 } from "@zendev-lab/spark-workflows";
 import {
@@ -36,7 +37,7 @@ import {
   findResumableBackgroundRoleRunTasks,
   killActiveSparkRoleRunProcesses,
   listActiveSparkRoleRunProcesses,
-  runSparkTask,
+  runSparkTask as runSparkTaskRuntime,
   sparkTaskExecutorRoleRef,
   sweepExpiredTaskClaims,
   type SparkRoleInstructionExecutorInput,
@@ -69,7 +70,10 @@ import {
   resumeOwnedBackgroundSubroles,
 } from "../extension/spark-background-subrole-lifecycle.ts";
 import { SparkWorkflowRunManagerController } from "../extension/spark-workflow-run-manager.ts";
-import { createSparkRuntimeReadyTaskRunner } from "../extension/spark-ready-task-runtime.ts";
+import {
+  createSparkRuntimeReadyTaskRunner as createSparkRuntimeReadyTaskRunnerBase,
+  type SparkRuntimeReadyTaskRunnerOptions,
+} from "../extension/spark-ready-task-runtime.ts";
 import { saveCurrentProjectRef, sparkSessionOwnerKey } from "../extension/session-state.ts";
 
 after(async () => {
@@ -143,6 +147,33 @@ function testDagRunRecord(
 type WorkflowRunStore = ReturnType<typeof defaultWorkflowRunStore>;
 
 type RunSparkTaskResult = Awaited<ReturnType<typeof runSparkTask>>;
+
+const runSparkTask: typeof runSparkTaskRuntime = async (input) => {
+  await defaultProjectRoleModelSettingsStore(input.cwd ?? process.cwd()).save(
+    "implementation",
+    "test/model",
+  );
+  await defaultProjectRoleModelSettingsStore(input.cwd ?? process.cwd()).save(
+    "verification",
+    "test/model",
+  );
+  return await runSparkTaskRuntime(input);
+};
+
+const runReadyTasks = runReadyTasksRuntime;
+
+function createSparkRuntimeReadyTaskRunner(options: SparkRuntimeReadyTaskRunnerOptions) {
+  const runner = createSparkRuntimeReadyTaskRunnerBase(options);
+  return {
+    ...runner,
+    runTask: async (input: Parameters<typeof runner.runTask>[0]) => {
+      const cwd = options.cwd ?? process.cwd();
+      await defaultProjectRoleModelSettingsStore(cwd).save("implementation", "test/model");
+      await defaultProjectRoleModelSettingsStore(cwd).save("verification", "test/model");
+      return await runner.runTask(input);
+    },
+  };
+}
 
 type ChildOutputSuccessCase = {
   name: string;
@@ -2818,6 +2849,7 @@ test("Spark DAG manager reports widget refresh failures without failing complete
   const dir = await mkdtemp(join(tmpdir(), "spark-dag-refresh-failure-"));
   try {
     await mkdir(join(dir, ".spark"), { recursive: true });
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Demo", description: "demo" });
     const task = graph.createTask({

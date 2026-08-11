@@ -65,6 +65,7 @@ test("runSparkHeadlessSession retains the control root for nested daemon-native 
     loop: undefined,
     sessionQuestionChain: undefined,
     allowedTools: undefined,
+    roleRunner: undefined,
     allowedToolEffects: undefined,
     hasUI: false,
     streamTimeoutMs: 0,
@@ -788,6 +789,39 @@ test("runSparkHeadlessRoleInstruction records completed and blocked structured o
     assert.equal(result.record.status, expected.expectedStatus);
     assert.deepEqual(services.runtime.getActiveTools(), ["read", "role_report_outcome"]);
   }
+});
+
+test("runSparkHeadlessSession keeps supervised Role outcome tools in execute mode", async () => {
+  let sessionMode: "plan" | "execute" | undefined;
+  let allowedTools: readonly string[] | undefined;
+  const services = headlessRoleServices(async (tools) => {
+    await executeRoleOutcomeTool(tools, {
+      kind: "completed",
+      code: "review_completed",
+      reason: "Review completed",
+    });
+    return successfulOutcome("reviewed");
+  });
+
+  await runSparkHeadlessSession(
+    {
+      cwd: process.cwd(),
+      sessionId: "session:supervised-role",
+      prompt: "Review the change",
+      roleRunRef: "run:supervised-role",
+      allowedTools: ["read"],
+    },
+    {
+      createServices: async (options) => {
+        sessionMode = options?.sessionMode;
+        allowedTools = options?.allowedTools;
+        return services as never;
+      },
+    },
+  );
+
+  assert.equal(sessionMode, "execute");
+  assert.deepEqual(allowedTools, ["read", "role_report_outcome"]);
 });
 
 test("daemon headless role host exposes reviewer fallback roots to subject-review extensions", async () => {
