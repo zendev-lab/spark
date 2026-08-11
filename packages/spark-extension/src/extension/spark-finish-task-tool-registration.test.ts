@@ -95,6 +95,7 @@ async function addCompletionEvidence(
 function captureFinishTool(input: {
   daemon: SparkTaskClaimDaemonClient;
   reviewer: ReviewerRunner;
+  nowMs?: () => number;
 }): SparkRegisteredToolConfig {
   let tool: SparkRegisteredToolConfig | undefined;
   registerSparkFinishTaskTool(
@@ -105,6 +106,7 @@ function captureFinishTool(input: {
       refreshSparkWidget: async () => undefined,
       taskClaimDaemonClient: input.daemon,
       createReviewerRunner: async () => input.reviewer,
+      ...(input.nowMs ? { nowMs: input.nowMs } : {}),
     },
   );
   assert.ok(tool);
@@ -202,11 +204,16 @@ test("finish honors taskRef and text instead of finishing the current claimed ta
       },
     };
     let reviewed: TaskReviewInput | undefined;
+    let clockMs = 0;
     const tool = captureFinishTool({
       daemon,
       reviewer: approvedReviewer((input) => {
         reviewed = input;
       }),
+      nowMs: () => {
+        clockMs += 10;
+        return clockMs;
+      },
     });
 
     const result = await executeFinish(tool, ctx, {
@@ -223,6 +230,39 @@ test("finish honors taskRef and text instead of finishing the current claimed ta
         (result.details.transition as { committed?: boolean }).committed,
       true,
     );
+    const timing = result.details?.timing as
+      | {
+          format?: string;
+          totalMs?: number;
+          phasesMs?: Record<string, number>;
+        }
+      | undefined;
+    assert.equal(timing?.format, "spark.task-finish-timing/v1");
+    assert.ok((timing?.totalMs ?? 0) > 0);
+    assert.deepEqual(Object.keys(timing?.phasesMs ?? {}), [
+      "candidate",
+      "lens",
+      "followup",
+      "evidence",
+      "reviewer_bootstrap",
+      "reviewer_model",
+      "reviewer_escalation",
+      "commit",
+      "post_commit",
+    ]);
+    for (const phase of [
+      "candidate",
+      "lens",
+      "followup",
+      "evidence",
+      "reviewer_bootstrap",
+      "reviewer_model",
+      "commit",
+      "post_commit",
+    ]) {
+      assert.ok((timing?.phasesMs?.[phase] ?? 0) > 0, `${phase} timing must be recorded`);
+    }
+    assert.equal(timing?.phasesMs?.reviewer_escalation, 0);
     const persisted = await store.load();
     assert.equal(persisted?.getTask(target.ref).status, "done");
     assert.equal(persisted?.getTask(current.ref).status, "running");

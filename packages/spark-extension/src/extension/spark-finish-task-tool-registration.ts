@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { performance } from "node:perf_hooks";
 import {
   defaultLearningStore,
   type LearningLocation,
@@ -36,7 +37,11 @@ import { compactTaskDetail, normalizeOptionalToolString } from "./task-plan-tool
 import { compactLearningDetail } from "./learning-tools.ts";
 import { truncateInline } from "./tool-rendering.ts";
 import { NO_SPARK_PROJECT_FOUND_HINT } from "./spark-project-guidance.ts";
-import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
+import type {
+  SparkRegisteredToolConfig,
+  SparkToolContext,
+  SparkToolRegistrar,
+} from "./spark-tool-registration.ts";
 import type {
   GoalReviewEvidencePreview,
   ReviewerRunResult,
@@ -55,10 +60,79 @@ import { requireTaskLensPasses } from "./spark-lens-completion-gate.ts";
 interface SparkFinishTaskToolDependencies {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
   taskClaimDaemonClient: SparkTaskClaimDaemonClient;
+  nowMs?: () => number;
   createReviewerRunner?: (
     cwd: string,
     ctx: SparkToolContext,
   ) => ReviewerRunner | Promise<ReviewerRunner>;
+}
+
+const FINISH_TIMING_PHASES = [
+  "candidate",
+  "lens",
+  "followup",
+  "evidence",
+  "reviewer_bootstrap",
+  "reviewer_model",
+  "reviewer_escalation",
+  "commit",
+  "post_commit",
+] as const;
+
+type FinishTimingPhase = (typeof FINISH_TIMING_PHASES)[number];
+
+interface FinishTimingSnapshot {
+  format: "spark.task-finish-timing/v1";
+  totalMs: number;
+  phasesMs: Record<FinishTimingPhase, number>;
+}
+
+type FinishToolResult = Awaited<ReturnType<SparkRegisteredToolConfig["execute"]>>;
+
+class FinishTimingTracker {
+  readonly #nowMs: () => number;
+  readonly #startedAt: number;
+  readonly #phasesMs = Object.fromEntries(
+    FINISH_TIMING_PHASES.map((phase) => [phase, 0]),
+  ) as Record<FinishTimingPhase, number>;
+
+  constructor(nowMs: () => number = () => performance.now()) {
+    this.#nowMs = nowMs;
+    this.#startedAt = this.#nowMs();
+  }
+
+  async measure<T>(phase: FinishTimingPhase, action: () => T | Promise<T>): Promise<T> {
+    const startedAt = this.#nowMs();
+    try {
+      return await action();
+    } finally {
+      this.#phasesMs[phase] += Math.max(0, this.#nowMs() - startedAt);
+    }
+  }
+
+  snapshot(): FinishTimingSnapshot {
+    return {
+      format: "spark.task-finish-timing/v1",
+      totalMs: roundTimingMs(Math.max(0, this.#nowMs() - this.#startedAt)),
+      phasesMs: Object.fromEntries(
+        FINISH_TIMING_PHASES.map((phase) => [phase, roundTimingMs(this.#phasesMs[phase])]),
+      ) as Record<FinishTimingPhase, number>,
+    };
+  }
+}
+
+function withFinishTiming(timing: FinishTimingTracker, result: FinishToolResult): FinishToolResult {
+  return {
+    ...result,
+    details: {
+      ...(result.details ?? {}),
+      timing: timing.snapshot(),
+    },
+  };
+}
+
+function roundTimingMs(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 interface NormalizedSparkFinishTaskInput {
@@ -101,6 +175,15 @@ interface FinishTaskSuccessResult {
 interface FinishTaskErrorResult {
   error: "no_project" | "no_matching_claimed_task";
 }
+
+interface FinishReviewCandidate {
+  error?: undefined;
+  projectRef: ProjectRef;
+  task: Task;
+  persistedTask: Task;
+}
+
+type FinishReviewCandidateResult = FinishTaskErrorResult | FinishReviewCandidate;
 
 type FinishCommitResult = FinishTaskSuccessResult | FinishTaskErrorResult;
 
@@ -319,6 +402,7 @@ export function registerSparkFinishTaskTool(
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const timing = new FinishTimingTracker(deps.nowMs);
       const cwd = ctx.cwd;
       const stateCwd = sparkStateCwd(cwd, ctx);
       const input = normalizeSparkFinishTaskInput(params);
@@ -329,18 +413,20 @@ export function registerSparkFinishTaskTool(
       let generatedEvidence: (EvidenceRecord<JsonValue> & { ref: EvidenceRef }) | undefined;
 
       if (input.status === "done") {
-        let candidate = await resolveFinishReviewCandidate(store, cwd, ctx, input);
-        if (isFinishTaskErrorResult(candidate)) return renderFinishLookupError(candidate);
+        const resolvedCandidate = await timing.measure("candidate", () =>
+          resolveFinishReviewCandidate(store, cwd, ctx, input),
+        );
+        if (!isFinishReviewCandidate(resolvedCandidate))
+          return withFinishTiming(timing, renderFinishLookupError(resolvedCandidate));
+        let candidate = resolvedCandidate;
 
-        await requireTaskLensPasses(stateCwd, candidate.task);
-        const followUpDisposition = await checkResearchFollowUpDisposition(
-          stateCwd,
-          candidate.task,
-          input.summary,
+        await timing.measure("lens", () => requireTaskLensPasses(stateCwd, candidate.task));
+        const followUpDisposition = await timing.measure("followup", () =>
+          checkResearchFollowUpDisposition(stateCwd, candidate.task, input.summary),
         );
         if (!followUpDisposition.ready) {
           await deps.refreshSparkWidget(cwd, ctx);
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -353,7 +439,7 @@ export function registerSparkFinishTaskTool(
               task: compactTaskDetail(candidate.task),
               followUpDisposition,
             },
-          };
+          });
         }
 
         const preEvidenceReadiness = taskCompletionReadiness(candidate.task);
@@ -362,7 +448,7 @@ export function registerSparkFinishTaskTool(
         );
         if (openPlanItems) {
           await deps.refreshSparkWidget(cwd, ctx);
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -375,15 +461,17 @@ export function registerSparkFinishTaskTool(
               task: compactTaskDetail(candidate.task),
               completionReadiness: preEvidenceReadiness,
             },
-          };
+          });
         }
 
         if (input.evidence) {
-          generatedEvidence = await recordTaskFinishEvidence(
-            stateCwd,
-            candidate.projectRef,
-            candidate.persistedTask,
-            input,
+          generatedEvidence = await timing.measure("evidence", () =>
+            recordTaskFinishEvidence(
+              stateCwd,
+              candidate.projectRef,
+              candidate.persistedTask,
+              input,
+            ),
           );
           finishEvidenceRefs = [...finishEvidenceRefs, generatedEvidence.ref];
           candidate = {
@@ -396,7 +484,7 @@ export function registerSparkFinishTaskTool(
         const blockingIssue = firstBlockingCompletionIssue(completionReadiness);
         if (blockingIssue) {
           await deps.refreshSparkWidget(cwd, ctx);
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -410,10 +498,12 @@ export function registerSparkFinishTaskTool(
               completionReadiness,
               generatedEvidenceRef: generatedEvidence?.ref,
             },
-          };
+          });
         }
 
-        const taskEvidenceContext = await buildTaskReviewEvidenceContext(stateCwd, candidate.task);
+        const taskEvidenceContext = await timing.measure("evidence", () =>
+          buildTaskReviewEvidenceContext(stateCwd, candidate.task),
+        );
         const reviewInput: TaskReviewInput = {
           targetKind: "task",
           cwd,
@@ -430,7 +520,7 @@ export function registerSparkFinishTaskTool(
         };
         if (taskEvidenceContext.unreadableEvidence.length > 0) {
           await deps.refreshSparkWidget(cwd, ctx);
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -448,14 +538,16 @@ export function registerSparkFinishTaskTool(
               reviewRequired: true,
               reviewerStarted: false,
             },
-          };
+          });
         }
-        const reviewerRunner = await deps.createReviewerRunner?.(cwd, ctx);
+        const reviewerRunner = await timing.measure("reviewer_bootstrap", () =>
+          deps.createReviewerRunner?.(cwd, ctx),
+        );
         if (!reviewerRunner)
           throw new Error("task_write finish requires a reviewer runner for done transitions");
         try {
-          const leasedReview = await withSparkReviewerLease(cwd, ctx, () =>
-            reviewerRunner.review(reviewInput, _signal),
+          const leasedReview = await timing.measure("reviewer_model", () =>
+            withSparkReviewerLease(cwd, ctx, () => reviewerRunner.review(reviewInput, _signal)),
           );
           if (!leasedReview.acquired) {
             reviewResult = failedTaskReviewerRunResult(
@@ -479,7 +571,7 @@ export function registerSparkFinishTaskTool(
         if (reviewResult.failure) {
           await deps.refreshSparkWidget(cwd, ctx);
           const progress = await readFinishProjectProgress(store, candidate.projectRef);
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -505,19 +597,16 @@ export function registerSparkFinishTaskTool(
               remainingReadyTasks: progress.remainingReadyTasks,
               projectCompletionCandidate: progress.projectCompletionCandidate,
             }),
-          };
+          });
         }
         const verdict = reviewResult.verdict as TaskReviewVerdict;
-        reviewEvidence = await recordTaskReviewEvidence(
-          stateCwd,
-          candidate.projectRef,
-          candidate.task,
-          reviewResult,
+        reviewEvidence = await timing.measure("evidence", () =>
+          recordTaskReviewEvidence(stateCwd, candidate.projectRef, candidate.task, reviewResult!),
         );
         if (!verdict.approved) {
           await deps.refreshSparkWidget(cwd, ctx);
           const progress = await readFinishProjectProgress(store, candidate.projectRef);
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -543,25 +632,27 @@ export function registerSparkFinishTaskTool(
               remainingReadyTasks: progress.remainingReadyTasks,
               projectCompletionCandidate: progress.projectCompletionCandidate,
             }),
-          };
+          });
         }
       }
 
       let updated: FinishCommitEnvelope;
       try {
-        updated = await commitFinishedTask(store, cwd, ctx, deps.taskClaimDaemonClient, {
-          ...input,
-          evidenceRefs: finishEvidenceRefs,
-        });
+        updated = await timing.measure("commit", () =>
+          commitFinishedTask(store, cwd, ctx, deps.taskClaimDaemonClient, {
+            ...input,
+            evidenceRefs: finishEvidenceRefs,
+          }),
+        );
       } catch (error) {
         if (error instanceof DependencyError) {
-          return {
+          return withFinishTiming(timing, {
             content: [{ type: "text", text: `Cannot finish Spark task: ${error.message}` }],
             details: { found: true, error: "task_dependency_error", message: error.message },
-          };
+          });
         }
         if (error instanceof TaskFinishProjectionError) {
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -576,46 +667,55 @@ export function registerSparkFinishTaskTool(
               committed: error.daemonChanged,
             },
             isError: true,
-          };
+          });
         }
         throw error;
       }
 
       const finishResult = updated.result as FinishCommitResult;
       if (!updated.graph) {
-        return {
+        return withFinishTiming(timing, {
           content: [{ type: "text", text: NO_SPARK_PROJECT_FOUND_HINT }],
           details: { found: false },
-        };
+        });
       }
-      if (isFinishTaskErrorResult(finishResult)) return renderFinishLookupError(finishResult);
+      if (isFinishTaskErrorResult(finishResult))
+        return withFinishTiming(timing, renderFinishLookupError(finishResult));
 
       const finishedResult = finishResult;
-      const postCommitWarnings = [...finishedResult.postCommitWarnings];
-      try {
-        await saveCurrentProjectRef(cwd, ctx, finishedResult.projectRef);
-      } catch (error) {
-        postCommitWarnings.push(`Current project update failed: ${unknownErrorMessage(error)}`);
-      }
-      try {
-        await deps.refreshSparkWidget(cwd, ctx);
-      } catch (error) {
-        postCommitWarnings.push(`Widget refresh failed: ${unknownErrorMessage(error)}`);
-      }
-      let learningCandidate: Awaited<ReturnType<typeof recordTaskLearningCandidate>> | undefined;
-      if (input.status === "done" && input.summary) {
-        try {
-          learningCandidate = await recordTaskLearningCandidate(
-            stateCwd,
-            finishedResult.task,
-            input.summary,
-          );
-        } catch (error) {
-          postCommitWarnings.push(
-            `Learning candidate recording failed: ${unknownErrorMessage(error)}`,
-          );
-        }
-      }
+      const { postCommitWarnings, learningCandidate } = await timing.measure(
+        "post_commit",
+        async () => {
+          const postCommitWarnings = [...finishedResult.postCommitWarnings];
+          try {
+            await saveCurrentProjectRef(cwd, ctx, finishedResult.projectRef);
+          } catch (error) {
+            postCommitWarnings.push(`Current project update failed: ${unknownErrorMessage(error)}`);
+          }
+          try {
+            await deps.refreshSparkWidget(cwd, ctx);
+          } catch (error) {
+            postCommitWarnings.push(`Widget refresh failed: ${unknownErrorMessage(error)}`);
+          }
+          let learningCandidate:
+            | Awaited<ReturnType<typeof recordTaskLearningCandidate>>
+            | undefined;
+          if (input.status === "done" && input.summary) {
+            try {
+              learningCandidate = await recordTaskLearningCandidate(
+                stateCwd,
+                finishedResult.task,
+                input.summary,
+              );
+            } catch (error) {
+              postCommitWarnings.push(
+                `Learning candidate recording failed: ${unknownErrorMessage(error)}`,
+              );
+            }
+          }
+          return { postCommitWarnings, learningCandidate };
+        },
+      );
       const summarySuffix = input.summary ? ` — ${truncateInline(input.summary, 160)}` : "";
       const completionIssueSuffix =
         finishedResult.completionReadiness && !finishedResult.completionReadiness.ready
@@ -634,7 +734,7 @@ export function registerSparkFinishTaskTool(
           ? `\nPost-commit warnings: ${postCommitWarnings.join("; ")}`
           : "";
       const executionSuffix = renderFinishNextStepSuffix(finishedResult.nextReady, input.status);
-      return {
+      return withFinishTiming(timing, {
         content: [
           {
             type: "text",
@@ -661,7 +761,7 @@ export function registerSparkFinishTaskTool(
           postCommitWarnings,
           learningCandidate,
         }),
-      };
+      });
     },
   });
 }
@@ -896,12 +996,12 @@ function failedTaskReviewerRunResult(
   };
 }
 
-function isFinishTaskErrorResult(
-  result:
+function isFinishTaskErrorResult<
+  T extends
     | FinishCommitResult
     | { error?: undefined; projectRef: ProjectRef; task: Task }
     | { error: "no_project" | "no_matching_claimed_task" },
-): result is FinishTaskErrorResult {
+>(result: T): result is Extract<T, FinishTaskErrorResult> {
   return result.error === "no_project" || result.error === "no_matching_claimed_task";
 }
 
@@ -910,15 +1010,7 @@ async function resolveFinishReviewCandidate(
   cwd: string,
   ctx: SparkToolContext,
   input: NormalizedSparkFinishTaskInput,
-): Promise<
-  | { error: "no_project" | "no_matching_claimed_task" }
-  | {
-      error?: undefined;
-      projectRef: ProjectRef;
-      task: Task;
-      persistedTask: Task;
-    }
-> {
+): Promise<FinishReviewCandidateResult> {
   const graph = await store.load();
   if (!graph) return { error: "no_project" };
   const project = await currentSparkProject(cwd, ctx, graph);
@@ -931,6 +1023,12 @@ async function resolveFinishReviewCandidate(
     task: candidateTask,
     persistedTask: task,
   };
+}
+
+function isFinishReviewCandidate(
+  result: FinishReviewCandidateResult,
+): result is FinishReviewCandidate {
+  return result.error === undefined;
 }
 
 async function commitFinishedTask(

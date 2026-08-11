@@ -165,6 +165,11 @@ fail with stable machine-readable classes. The owner validates the complete
 candidate graph after a lock-scoped reload and persists only after every check
 passes; any failure leaves the graph bytes and revision unchanged.
 
+Task finish results expose a versioned diagnostic timing breakdown for candidate
+resolution, Lens, follow-up disposition, Evidence, reviewer bootstrap/model,
+optional reviewer escalation, commit, and post-commit work. Timing is
+observability only and must not change, skip, or relax any completion gate.
+
 ## Hook-projected state
 
 The `spark.todos` context provider may project the current durable TODO snapshot
