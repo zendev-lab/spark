@@ -611,6 +611,48 @@ test("SparkAgentSession continues from a persisted tool receipt after a terminal
   }
 });
 
+test("SparkAgentSession retries an overloaded provider error instead of surfacing it immediately", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-overload-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    const overloaded =
+      "server_error: Our servers are currently overloaded. Please try again later.";
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {
+        streamSimple: () => {
+          providerCalls += 1;
+          if (providerCalls === 1) {
+            return {
+              ...assistant("partial response"),
+              content: [{ type: "text", text: "partial response" }],
+              stopReason: "error",
+              errorMessage: overloaded,
+            } as unknown as AssistantMessage;
+          }
+          return assistant("recovered after overload");
+        },
+      },
+    );
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "overload-session",
+      prompt: "continue despite overload",
+    });
+
+    assert.equal(result.outcome?.status, "completed");
+    assert.equal(result.assistantText, "recovered after overload");
+    assert.equal(providerCalls, 2);
+    const saved = await services.sessionStore.load(result.sessionPath);
+    assert.equal(JSON.stringify(saved.entries).includes(overloaded), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("SparkAgentSession compacts persisted history and retries context overflow with backoff", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-overflow-"));
   try {
