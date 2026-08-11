@@ -6,6 +6,15 @@ import { describe, expect, it } from "vitest";
 import Catalog from "./Catalog.svelte";
 import { catalogFixtures, catalogScenarioKey } from "./fixtures";
 
+const darkSurfaceScreenshotOptions = {
+  comparatorName: "pixelmatch" as const,
+  comparatorOptions: {
+    // Dark text edges rasterize slightly differently between macOS and Linux Chromium.
+    // Keep the wider tolerance scoped to dark fixtures; light snapshots retain 4%.
+    allowedMismatchedPixelRatio: 0.07,
+  },
+};
+
 describe("Spark UI component catalog", () => {
   it("has no automatically detectable WCAG A or AA violations", async () => {
     const screen = await render(Catalog, { theme: "light", direction: "ltr" });
@@ -64,6 +73,7 @@ describe("Spark UI component catalog", () => {
 
     await expect(page.getByTestId("catalog-message-shell-overflow")).toMatchScreenshot(
       "catalog-message-shell-dark-rtl-mobile",
+      darkSurfaceScreenshotOptions,
     );
 
     await screen.unmount();
