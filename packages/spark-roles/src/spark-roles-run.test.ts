@@ -22,6 +22,7 @@ import {
   ROLE_RUN_DEPTH_ENV,
   RoleRegistry,
   resolveRoleModelSetting,
+  RoleModelSettingsMigrationConflictError,
   RoleModelSettingsStoreFormatError,
   RoleRunCancelledError,
   RoleRunTimeoutError,
@@ -163,6 +164,8 @@ test("spark-roles default registry ignores legacy agent-shaped role stores", asy
       systemPrompt: "You are the current worker.",
       rationale: "Exercise default role registry boundaries.",
       expectedUses: ["registry boundary test"],
+      capabilities: ["read", "write"],
+      modelType: "implementation",
     });
     await defaultProjectRoleStore(dir).save(currentRole);
 
@@ -222,9 +225,9 @@ test("spark-roles resolves role model settings with project and user precedence"
     const projectStore = defaultProjectRoleModelSettingsStore(dir);
     const userStore = defaultUserRoleModelSettingsStore(userHome);
 
-    await userStore.save("role:builtin-worker", "user-model");
-    await userStore.save("reviewer", "user-reviewer-model");
-    await projectStore.save("builtin-worker", "project-model");
+    await userStore.save("implementation", "user-model");
+    await userStore.save("verification", "user-reviewer-model");
+    await projectStore.save("implementation", "project-model");
 
     assert.deepEqual(
       await resolveRoleModelSetting({
@@ -232,7 +235,12 @@ test("spark-roles resolves role model settings with project and user precedence"
         projectStore,
         userStore,
       }),
-      { model: "project-model", source: "project", selector: "builtin-worker" },
+      {
+        model: "project-model",
+        source: "project",
+        modelType: "implementation",
+        selector: "implementation",
+      },
     );
     assert.deepEqual(
       await resolveRoleModelSetting({
@@ -241,7 +249,12 @@ test("spark-roles resolves role model settings with project and user precedence"
         projectStore,
         userStore,
       }),
-      { model: "user-reviewer-model", source: "user", selector: "reviewer" },
+      {
+        model: "user-reviewer-model",
+        source: "user",
+        modelType: "verification",
+        selector: "verification",
+      },
     );
     assert.equal(
       await resolveRoleModelSetting({
@@ -271,12 +284,12 @@ test("spark-roles persists user model settings under SPARK_HOME", async () => {
   process.env.SPARK_HOME = dir;
   try {
     const store = defaultUserRoleModelSettingsStore();
-    await store.save("role:builtin-reviewer", "provider/reviewer-model");
+    await store.save("verification", "provider/reviewer-model");
 
     assert.equal(store.filePath, join(dir, "role-model-settings.json"));
     assert.deepEqual(await store.loadAll(), [
       {
-        selector: "role:builtin-reviewer",
+        modelType: "verification",
         model: "provider/reviewer-model",
         source: "user",
       },
@@ -583,6 +596,50 @@ test("spark-roles rejects malformed role model settings stores", async () => {
         error instanceof RoleModelSettingsStoreFormatError &&
         error.filePath === store.filePath &&
         /roleModels\.worker must be a non-empty string/.test(error.message),
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("spark-roles migrates v1 roleModels to semantic Model Types and blocks conflicts", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-roles-model-settings-migration-"));
+  try {
+    const store = defaultProjectRoleModelSettingsStore(dir);
+    await mkdir(join(dir, ".spark"), { recursive: true });
+    await writeFile(
+      store.filePath,
+      `${JSON.stringify({
+        version: 1,
+        roleModels: {
+          "role:builtin-worker": "provider/implementation",
+          reviewer: "provider/verification",
+        },
+      })}\n`,
+      "utf8",
+    );
+    assert.deepEqual(await store.loadAll(), [
+      { modelType: "implementation", model: "provider/implementation", source: "project" },
+      { modelType: "verification", model: "provider/verification", source: "project" },
+    ]);
+
+    await writeFile(
+      store.filePath,
+      `${JSON.stringify({
+        version: 1,
+        roleModels: {
+          worker: "provider/one",
+          executor: "provider/two",
+        },
+      })}\n`,
+      "utf8",
+    );
+    await assert.rejects(
+      () => store.loadAll(),
+      (error) =>
+        error instanceof RoleModelSettingsMigrationConflictError &&
+        error.code === "role_model_type_migration_conflict" &&
+        error.modelType === "implementation",
     );
   } finally {
     await rm(dir, { recursive: true, force: true });

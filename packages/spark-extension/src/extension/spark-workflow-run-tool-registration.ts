@@ -44,7 +44,7 @@ import {
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 import { publishDynamicWorkflowRunViews } from "./spark-workflow-loop-entry.ts";
 
-const DEFAULT_WORKFLOW_ROLE_REF = "role:builtin-worker" as RoleRef;
+const DEFAULT_WORKFLOW_ROLE_REF = "role:builtin-executor" as RoleRef;
 const WORKFLOW_WEB_TOOL_TIMEOUT_MS = 120_000;
 
 export interface SparkWorkflowRunApprovalSummary {

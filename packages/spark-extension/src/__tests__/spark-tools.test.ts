@@ -10583,8 +10583,9 @@ test("workflow-run manager preflights role models through the host catalog witho
     assert.equal(result.continuePolling, false);
     const settingsFile = JSON.parse(
       await readFile(join(dir, "role-model-settings.json"), "utf8"),
-    ) as { roleModels: Record<string, string> };
-    assert.deepEqual(settingsFile.roleModels, { "role:builtin-worker": "test/model" });
+    ) as { version: number; modelTypes: Record<string, string> };
+    assert.equal(settingsFile.version, 2);
+    assert.deepEqual(settingsFile.modelTypes, { implementation: "test/model" });
     const dagStatus = await defaultWorkflowRunStore(dir).status();
     assert.equal(dagStatus.succeeded, 1);
     assert.equal(dagStatus.lastRun?.projectRef, project.ref);

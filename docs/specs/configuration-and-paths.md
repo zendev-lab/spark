@@ -36,7 +36,7 @@ $SPARK_HOME/
 ├── sessions/                      # local TUI transcripts
 ├── ask.json                       # ask capability settings
 ├── agent/keybindings.json         # TUI keybinding overrides
-├── role-model-settings.json       # Spark user role-to-model bindings
+├── role-model-settings.json       # Spark user Model Type-to-model bindings
 ├── prompts/                       # user prompt templates
 ├── themes/                        # user themes
 ├── memory/
@@ -107,6 +107,14 @@ These variables have no current path-resolution implementation and are ignored:
 - `SPARK_DAEMON_*_DIR`
 
 Explicit API path overrides remain available for embedded hosts and tests.
+
+## Role model settings
+
+Role model settings use schema v2 and bind open semantic `modelTypes` to model
+identifiers. Workspace `.spark/role-model-settings.json` entries override the
+user-level file. Spark read-migrates v1 `roleModels` through the canonical role
+to Model Type mapping. If distinct legacy role entries map to one Model Type but
+select different models, migration fails closed rather than choosing one.
 
 ## Migration
 

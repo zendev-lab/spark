@@ -1,10 +1,12 @@
 # @zendev-lab/spark-roles
 
-Owns reusable `RoleSpec` definitions, role model settings, anonymous `RoleRun` execution, the canonical `role` tool, and the dedicated `skill_delegate` execution surface.
+Owns reusable `RoleSpec` definitions, semantic Model Type settings, anonymous `RoleRun` execution, the canonical `role` tool, and the dedicated `skill_delegate` execution surface.
 
 ## Storage and models
 
-Role Markdown loads from project `.agents/roles/**/*.md`, user `~/.agents/roles/**/*.md`, builtins, and loaded extensions. Role files do not carry `model` or `defaultModel`; Spark model bindings live separately in project `.spark/role-model-settings.json` and user `$SPARK_HOME/role-model-settings.json` or `$XDG_CONFIG_HOME/spark/role-model-settings.json`. Resolution order is explicit run model, project settings, then user settings.
+Role Markdown loads from project `.agents/roles/**/*.md`, user `~/.agents/roles/**/*.md`, builtins, and loaded extensions. Every current `RoleSpec` has a stable `revision`, semantic `modelType`, declared `capabilities`, and an `owned` or `persistent` instantiation policy. Role files do not carry `model` or `defaultModel`; Spark model bindings live separately in project `.spark/role-model-settings.json` and user `$SPARK_HOME/role-model-settings.json` or `$XDG_CONFIG_HOME/spark/role-model-settings.json`. Resolution order is explicit run model, project Model Type settings, then user Model Type settings.
+
+The persisted settings schema is v2 and keys `modelTypes` by open semantic names such as `coordination`, `exploration`, and `implementation`. Spark read-migrates v1 `roleModels` entries through the builtin role-to-type mapping. If multiple legacy role entries collapse onto one Model Type with conflicting models, migration fails closed until the user chooses one mapping.
 
 ## Public surface
 
@@ -19,13 +21,15 @@ Use `skill_delegate` when a Skill can own a self-contained unit of work and the 
 
 Persistent identity, lifecycle, bindings, continuity, calls, and mail belong to canonical `session`. `role` and `skill_delegate` must not accept persistent session lifecycle or mail parameters.
 
-Builtin role capability profiles are:
+Builtin role identities, Model Types, and capability profiles are:
 
-- `explorer = read + exec` for non-mutating local repository and environment probes;
-- `researcher = read + net` for source, documentation, issue, PR, and prior-art research;
-- `reviewer = read + net` for independent verification;
-- `worker = read + net + exec + write` for approved implementation;
-- `scout = read + net` as a compatibility role for existing tasks.
+- `administrator → coordination = read + net + exec + write + interact + spawn` for workspace coordination;
+- `explorer → exploration = read + exec` for non-mutating local repository and environment probes;
+- `researcher → research = read + net` for source, documentation, issue, PR, and prior-art research;
+- `reviewer → verification = read + net` for independent verification;
+- `executor → implementation = read + net + exec + write` for approved implementation.
+
+`scout` is a hidden compatibility alias for `explorer`; `worker` is a hidden compatibility alias for `executor`. New configuration and user-facing selection expose only the canonical names.
 
 New research tasks default to `researcher`; tasks that need executable local probes select `explorer` explicitly. Builtin Roles do not receive interactive or orchestration tools and report blockers upward.
 

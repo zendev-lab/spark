@@ -57,6 +57,7 @@ export async function ensureRoleModelSettingsForProject(input: {
     const role = input.registry.get(roleRef) as RoleSpec;
     const existing = await resolveRoleModelSetting({
       roleRef,
+      modelType: role.modelType,
       roleId: role.id,
       roleName: role.id,
       projectStore,
@@ -82,11 +83,16 @@ export async function ensureRoleModelSettingsForProject(input: {
         throw new Error("Spark model catalog is unavailable in this host context");
       }
       await validateRoleModel({ catalog: modelCatalog, model });
-      const entry = await userStore.save(roleRef, model);
+      const entry = await userStore.save(role.modelType, model);
       boundRoleRefs.push(roleRef);
       resolvedModels.push({
         roleRef,
-        model: { model: entry.model, source: entry.source, selector: entry.selector },
+        model: {
+          model: entry.model,
+          source: entry.source,
+          modelType: entry.modelType,
+          selector: entry.modelType,
+        },
       });
       input.ctx.ui?.notify?.(`Saved model setting for Spark role ${role.id}: ${model}`, "success");
     } catch (error) {

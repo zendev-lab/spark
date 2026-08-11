@@ -27,6 +27,7 @@
     "./memory-approval": "./src/memory-approval.ts",
     "./refs": "./src/refs.ts",
     "./repro-formal-evidence": "./src/repro-formal-evidence.ts",
+    "./role-session": "./src/role-session.ts",
     "./session-assignment": "./src/session-assignment.ts",
     "./session-errors": "./src/session-errors.ts",
     "./session-mail": "./src/session-mail.ts",

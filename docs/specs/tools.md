@@ -26,7 +26,8 @@ over copied prose.
 - `memory` owns durable memory, learnings, candidates, and reflection state.
   `context` only exposes registered bounded providers; it accepts no arbitrary
   provider prompt.
-- `role` owns reusable definitions/model settings and fresh anonymous calls.
+- `role` owns reusable definitions, semantic Model Type settings, and fresh
+  anonymous calls.
   `session` owns persistent identity, lifecycle, bindings, calls, and mail.
   `skill_delegate` runs a fresh anonymous Skill Worker and does not create a
   persistent Session.
@@ -153,6 +154,12 @@ fields.
 
 `role` must not accept persistent Session lifecycle, mail, or a `sessionId`.
 `session` is the only persistent conversation lifecycle surface.
+
+Current builtin Role names and Model Types are `administrator → coordination`,
+`explorer → exploration`, `researcher → research`, `executor → implementation`,
+and `reviewer → verification`. Model Types are open semantic routing keys, not
+model tiers. `scout` and `worker` remain decode-only aliases for `explorer` and
+`executor`; new configuration and listings must not expose them.
 
 A Skill Worker receives the selected Skill instructions plus an explicit,
 self-contained delegation packet rather than the parent transcript. Its direct

@@ -109,6 +109,8 @@ export function createSparkGraftPatcherRoleSpec(): RoleSpec {
     id: SPARK_GRAFT_PATCHER_ROLE_ID,
     description:
       "Graft-owned patcher role for scratch/candidate/validation/materialization workflows.",
+    capabilities: ["read", "exec", "write"],
+    modelType: "implementation",
     systemPrompt: [
       "You are the spark-graft patcher role.",
       "Use only Graft scratch, candidate, validation, evidence, repository, and materialization tools exposed to you.",

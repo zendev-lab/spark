@@ -117,7 +117,7 @@ export function registerSparkPlanTasksTool(
           roleRef: Type.Optional(
             Type.String({
               description:
-                "Optional builtin/extension/project/user Spark role spec id or ref, e.g. explorer, researcher, reviewer, or worker. This is a preferred executor hint, not a readiness requirement.",
+                "Optional builtin/extension/project/user Spark role spec id or ref, e.g. explorer, researcher, reviewer, or executor. This is a preferred executor hint, not a readiness requirement.",
             }),
           ),
           executionPolicy: Type.Optional(taskExecutionPolicySchema()),

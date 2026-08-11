@@ -1189,6 +1189,9 @@ importers:
       '@zendev-lab/spark-host':
         specifier: workspace:^
         version: link:../spark-host
+      '@zendev-lab/spark-protocol':
+        specifier: workspace:^
+        version: link:../spark-protocol
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system

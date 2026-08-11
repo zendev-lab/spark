@@ -11,8 +11,16 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { resolveRoleNativeExecutor } from "./native-executor.ts";
 import { dirname, extname, join, relative, sep } from "node:path";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import {
+  parseSparkRoleSpec,
+  sparkRoleModelTypeSchema,
+  type SparkRoleCapability,
+  type SparkRoleInstantiation,
+  type SparkRoleModelType,
+  type SparkRoleSource,
+} from "@zendev-lab/spark-protocol/role-session";
 
-export type RoleSource = "builtin" | "extension" | "project" | "user";
+export type RoleSource = SparkRoleSource;
 export type WritableRoleSource = "project" | "user";
 export type RoleOriginKind = "manual" | "generated" | "builtin" | "extension";
 export type RoleRef = `role:${string}`;
@@ -33,9 +41,13 @@ export interface RoleSpec {
   ref: RoleRef;
   id: string;
   source: RoleSource;
+  revision: number;
   description: string;
   systemPrompt: string;
+  capabilities: RoleCapability[];
   allowedTools?: string[];
+  modelType: SparkRoleModelType;
+  instantiation: SparkRoleInstantiation;
   origin?: RoleOrigin;
   createdAt: string;
   updatedAt: string;
@@ -49,7 +61,10 @@ export interface RoleSpecProposal {
   systemPrompt: string;
   rationale: string;
   expectedUses: string[];
+  capabilities: RoleCapability[];
   allowedTools?: string[];
+  modelType: SparkRoleModelType;
+  instantiation?: SparkRoleInstantiation;
   origin?: RoleOrigin;
 }
 
@@ -199,19 +214,36 @@ export interface RoleRunInputDeliveryResult {
   errorMessage?: string;
 }
 
-export const builtinRoleIds = ["scout", "explorer", "researcher", "worker", "reviewer"] as const;
-export type BuiltinRoleId = (typeof builtinRoleIds)[number];
+export const builtinRoleIds = [
+  "administrator",
+  "explorer",
+  "researcher",
+  "executor",
+  "reviewer",
+] as const;
+export const legacyBuiltinRoleIds = ["scout", "worker"] as const;
+export type CanonicalBuiltinRoleId = (typeof builtinRoleIds)[number];
+export type LegacyBuiltinRoleId = (typeof legacyBuiltinRoleIds)[number];
+export type BuiltinRoleId = CanonicalBuiltinRoleId | LegacyBuiltinRoleId;
 
 export const ROLE_CAPABILITY_VOCAB = ["read", "write", "exec", "net", "interact", "spawn"] as const;
-export type RoleCapability = (typeof ROLE_CAPABILITY_VOCAB)[number];
+export type RoleCapability = SparkRoleCapability;
 
 export const BUILTIN_ROLE_CAPABILITY_PROFILES = {
-  scout: ["read", "net"],
+  administrator: ["read", "net", "exec", "write", "interact", "spawn"],
   explorer: ["read", "exec"],
   researcher: ["read", "net"],
   reviewer: ["read", "net"],
-  worker: ["read", "net", "exec", "write"],
-} as const satisfies Record<BuiltinRoleId, readonly RoleCapability[]>;
+  executor: ["read", "net", "exec", "write"],
+} as const satisfies Record<CanonicalBuiltinRoleId, readonly RoleCapability[]>;
+
+export const BUILTIN_ROLE_MODEL_TYPES = {
+  administrator: "coordination",
+  explorer: "exploration",
+  researcher: "research",
+  executor: "implementation",
+  reviewer: "verification",
+} as const satisfies Record<CanonicalBuiltinRoleId, SparkRoleModelType>;
 
 export interface DefaultRoleRegistryOptions {
   now?: string;
@@ -265,6 +297,10 @@ const ROLE_FRONTMATTER_KEYS = new Set([
   "allowedTools",
   "tools",
   "origin",
+  "revision",
+  "capabilities",
+  "modelType",
+  "instantiation",
   "createdAt",
   "updatedAt",
 ]);
@@ -284,10 +320,12 @@ export function roleIdFromRef(ref: string): string {
 }
 
 export function builtinRoleRef(id: BuiltinRoleId): RoleRef {
-  return `role:builtin-${id}`;
+  return `role:builtin-${canonicalBuiltinRoleId(id)}`;
 }
 
 export function normalizeRoleRef(value: string): RoleRef {
+  if (value === "role:builtin-scout" || value === "builtin-scout") return "role:builtin-explorer";
+  if (value === "role:builtin-worker" || value === "builtin-worker") return "role:builtin-executor";
   if (value.startsWith("role:")) return value as RoleRef;
   if (value.startsWith("agent:"))
     throw new Error("legacy agent refs are not supported; use role:*");
@@ -305,9 +343,9 @@ export function normalizeRoleSource(value: unknown): RoleSource | undefined {
 export function createBuiltinRoles(now = nowIso()): RoleSpec[] {
   const roles = [
     builtin(
-      "scout",
-      "Legacy fast repo and context reconnaissance; prefer explorer or researcher for new tasks.",
-      "You are a Spark scout retained for compatibility with existing tasks. Gather context, identify relevant files and risks, and do not edit files. New local executable investigations should use explorer, while source and prior-art investigations should use researcher. When a blocker, missing user decision, or ambiguity cannot be resolved from available context, report the blocker and the exact question needed upward in your final response instead of asking interactively. Flag clearly placeholder/generic/stale project or task names so the host can safely improve them without changing refs.",
+      "administrator",
+      "Owns one workspace's persistent coordination Session.",
+      "You are the Spark workspace Administrator. Coordinate work through owner APIs, preserve the user's intent and repository state, and delegate bounded work to owned Sessions. Keep execution truth in the daemon and ask only when a decision cannot be discovered safely.",
       now,
     ),
     builtin(
@@ -323,9 +361,9 @@ export function createBuiltinRoles(now = nowIso()): RoleSpec[] {
       now,
     ),
     builtin(
-      "worker",
+      "executor",
       "Executes approved implementation tasks.",
-      "You are a Spark worker. Implement only the assigned instruction. When a blocker, missing requirement, approval need, or ambiguity cannot be resolved from available context, stop and report the blocker and the exact question needed upward in your final response instead of asking interactively. When the user reports a concrete repo behavior change, fix the implementation instead of only recording a preference. Flag clearly placeholder/generic/stale project or claimed-task @name/title when the current intent makes the better name clear while preserving refs and intentional user names.",
+      "You are a Spark executor. Implement only the assigned instruction. When a blocker, missing requirement, approval need, or ambiguity cannot be resolved from available context, stop and report the blocker and the exact question needed upward in your final response instead of asking interactively. When the user reports a concrete repo behavior change, fix the implementation instead of only recording a preference. Flag clearly placeholder/generic/stale project or claimed-task @name/title when the current intent makes the better name clear while preserving refs and intentional user names.",
       now,
     ),
     builtin(
@@ -351,7 +389,10 @@ export function createExtensionRoleSpec(
     id: string;
     description: string;
     systemPrompt: string;
+    capabilities: RoleCapability[];
     allowedTools?: string[];
+    modelType: SparkRoleModelType;
+    instantiation?: SparkRoleInstantiation;
     origin?: RoleOrigin;
   },
   now = nowIso(),
@@ -360,9 +401,13 @@ export function createExtensionRoleSpec(
     ref: createRoleRef("extension", input.id),
     id: input.id,
     source: "extension",
+    revision: 1,
     description: input.description,
     systemPrompt: input.systemPrompt,
+    capabilities: input.capabilities,
     allowedTools: input.allowedTools,
+    modelType: input.modelType,
+    instantiation: input.instantiation ?? "owned",
     origin: input.origin ?? { kind: "extension" },
     createdAt: now,
     updatedAt: now,
@@ -387,8 +432,9 @@ export function hydrateExtensionRoles(registry: RoleRegistry): void {
 }
 
 export function builtinRoleAllowedTools(id: BuiltinRoleId): string[] {
+  const canonicalId = canonicalBuiltinRoleId(id);
   return uniqueStrings(
-    BUILTIN_ROLE_CAPABILITY_PROFILES[id].flatMap(
+    BUILTIN_ROLE_CAPABILITY_PROFILES[canonicalId].flatMap(
       (capability) => ROLE_TOOLS_BY_CAPABILITY[capability],
     ),
   );
@@ -405,13 +451,15 @@ export function validateBuiltinRoleProfiles(roles: readonly RoleSpec[]): void {
         throw new Error(`builtin role ${id} declares unknown capability ${capability}`);
     }
     const profileCapabilities: readonly RoleCapability[] = profile;
-    if (profileCapabilities.includes("interact") || profileCapabilities.includes("spawn"))
+    if (
+      id !== "administrator" &&
+      (profileCapabilities.includes("interact") || profileCapabilities.includes("spawn"))
+    )
       throw new Error(`builtin role ${id} must not include interact or spawn capability`);
   }
-  assertCapabilitySubset("scout", "researcher");
   assertCapabilitySubset("researcher", "reviewer");
-  assertCapabilitySubset("explorer", "worker");
-  assertCapabilitySubset("reviewer", "worker");
+  assertCapabilitySubset("explorer", "executor");
+  assertCapabilitySubset("reviewer", "executor");
 
   const rolesById = new Map(roles.map((role) => [role.id, role]));
   for (const id of builtinRoleIds) {
@@ -424,13 +472,13 @@ export function validateBuiltinRoleProfiles(roles: readonly RoleSpec[]): void {
         `builtin role ${id} allowedTools must match its capability profile: expected ${expectedTools.join(",")}, got ${actualTools.join(",")}`,
       );
     for (const tool of actualTools) {
-      if (FORBIDDEN_BUILTIN_ROLE_TOOLS.has(tool))
+      if (id !== "administrator" && FORBIDDEN_BUILTIN_ROLE_TOOLS.has(tool))
         throw new Error(`builtin role ${id} must not include forbidden tool ${tool}`);
     }
   }
 }
 
-function assertCapabilitySubset(left: BuiltinRoleId, right: BuiltinRoleId): void {
+function assertCapabilitySubset(left: CanonicalBuiltinRoleId, right: CanonicalBuiltinRoleId): void {
   const rightCapabilities = new Set<RoleCapability>(BUILTIN_ROLE_CAPABILITY_PROFILES[right]);
   for (const capability of BUILTIN_ROLE_CAPABILITY_PROFILES[left]) {
     if (!rightCapabilities.has(capability))
@@ -448,7 +496,7 @@ function sameStrings(left: readonly string[], right: readonly string[]): boolean
 }
 
 function builtin(
-  id: BuiltinRoleId,
+  id: CanonicalBuiltinRoleId,
   description: string,
   systemPrompt: string,
   now: string,
@@ -457,13 +505,23 @@ function builtin(
     ref: builtinRoleRef(id),
     id,
     source: "builtin",
+    revision: 1,
     description,
     systemPrompt,
+    capabilities: [...BUILTIN_ROLE_CAPABILITY_PROFILES[id]],
     allowedTools: builtinRoleAllowedTools(id),
+    modelType: BUILTIN_ROLE_MODEL_TYPES[id],
+    instantiation: id === "administrator" ? "persistent" : "owned",
     origin: { kind: "builtin" },
     createdAt: now,
     updatedAt: now,
   };
+}
+
+export function canonicalBuiltinRoleId(id: BuiltinRoleId): CanonicalBuiltinRoleId {
+  if (id === "scout") return "explorer";
+  if (id === "worker") return "executor";
+  return id;
 }
 
 export class RoleRegistry {
@@ -495,7 +553,9 @@ export class RoleRegistry {
   }
 
   select(idOrRef: string, filter: { source?: RoleSource } = {}): RoleSpec {
-    const normalized = idOrRef.startsWith("role:") ? normalizeRoleRef(idOrRef) : undefined;
+    const selection =
+      idOrRef === "scout" ? "explorer" : idOrRef === "worker" ? "executor" : idOrRef;
+    const normalized = selection.startsWith("role:") ? normalizeRoleRef(selection) : undefined;
     if (normalized) {
       const role = this.get(normalized);
       if (filter.source && role.source !== filter.source)
@@ -504,9 +564,9 @@ export class RoleRegistry {
     }
     const matches = this.list(filter).filter(
       (role) =>
-        role.id === idOrRef ||
-        roleRefId(role.ref) === idOrRef ||
-        roleIdFromRef(role.ref) === idOrRef,
+        role.id === selection ||
+        roleRefId(role.ref) === selection ||
+        roleIdFromRef(role.ref) === selection,
     );
     if (matches.length === 0) throw new Error(`no role matches: ${idOrRef}`);
     if (matches.length > 1) throw new Error(`ambiguous role: ${idOrRef}`);
@@ -593,19 +653,21 @@ export type RoleModelSettingsSource = "project" | "user";
 export type ResolvedRoleModelSource = "explicit" | RoleModelSettingsSource;
 
 export interface RoleModelSettingsEntry {
-  selector: string;
+  modelType: SparkRoleModelType;
   model: string;
   source: RoleModelSettingsSource;
 }
 
-interface RoleModelSettingsFile {
-  version: 1;
-  roleModels: Record<string, string>;
+interface RoleModelSettingsFileV2 {
+  version: 2;
+  modelTypes: Record<string, string>;
 }
 
 export interface ResolvedRoleModelSetting {
   model: string;
   source: ResolvedRoleModelSource;
+  modelType?: SparkRoleModelType;
+  /** @deprecated v2 settings are keyed by modelType. */
   selector?: string;
 }
 
@@ -619,6 +681,37 @@ export class RoleModelSettingsStoreFormatError extends Error {
   }
 }
 
+export class RoleModelSettingsMigrationConflictError extends RoleModelSettingsStoreFormatError {
+  readonly code = "role_model_type_migration_conflict" as const;
+  readonly modelType: SparkRoleModelType;
+  readonly selectors: string[];
+
+  constructor(filePath: string, modelType: SparkRoleModelType, selectors: string[]) {
+    super(
+      filePath,
+      `legacy roleModels map conflicting models to ${modelType}: ${selectors.join(", ")}; configure modelTypes.${modelType} explicitly`,
+    );
+    this.name = "RoleModelSettingsMigrationConflictError";
+    this.modelType = modelType;
+    this.selectors = selectors;
+  }
+}
+
+export class RoleModelTypeUnconfiguredError extends Error {
+  readonly code = "role_model_type_unconfigured" as const;
+  readonly roleRef: RoleRef;
+  readonly modelType: SparkRoleModelType;
+
+  constructor(roleRef: RoleRef, modelType: SparkRoleModelType) {
+    super(
+      `role model type ${modelType} is not configured for ${roleRef}; configure it with role({ action: "model_set" })`,
+    );
+    this.name = "RoleModelTypeUnconfiguredError";
+    this.roleRef = roleRef;
+    this.modelType = modelType;
+  }
+}
+
 export class RoleModelSettingsStore {
   readonly filePath: string;
   readonly source: RoleModelSettingsSource;
@@ -629,50 +722,51 @@ export class RoleModelSettingsStore {
   }
 
   async loadAll(): Promise<RoleModelSettingsEntry[]> {
+    const modelTypes = await this.loadModelTypes();
+    return Object.entries(modelTypes)
+      .map(([modelType, model]) => ({
+        modelType: modelType as SparkRoleModelType,
+        model,
+        source: this.source,
+      }))
+      .sort((left, right) => left.modelType.localeCompare(right.modelType));
+  }
+
+  async get(modelType: string): Promise<RoleModelSettingsEntry | undefined> {
+    const normalized = normalizeRoleModelType(modelType, "modelType");
+    return (await this.loadAll()).find((entry) => entry.modelType === normalized);
+  }
+
+  async save(modelType: string, model: string): Promise<RoleModelSettingsEntry> {
+    const normalizedModelType = normalizeRoleModelType(modelType, "modelType");
+    const normalizedModel = normalizeRoleModelName(model, "model");
+    const modelTypes = await this.loadModelTypes();
+    modelTypes[normalizedModelType] = normalizedModel;
+    await writeRoleModelSettingsFile(this.filePath, modelTypes);
+    return { modelType: normalizedModelType, model: normalizedModel, source: this.source };
+  }
+
+  async delete(modelType: string): Promise<boolean> {
+    const normalizedModelType = normalizeRoleModelType(modelType, "modelType");
+    const modelTypes = await this.loadModelTypes();
+    const deleted = Object.hasOwn(modelTypes, normalizedModelType);
+    delete modelTypes[normalizedModelType];
+    if (deleted) await writeRoleModelSettingsFile(this.filePath, modelTypes);
+    return deleted;
+  }
+
+  private async loadModelTypes(): Promise<Record<string, string>> {
     let raw: string;
     try {
       raw = await readFile(this.filePath, "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
       throw error;
     }
-    const parsed = parseRoleModelSettingsFileJson(raw, this.filePath);
-    assertRoleModelSettingsFile(parsed, this.filePath);
-    return Object.entries(parsed.roleModels)
-      .map(([selector, model]) => ({ selector, model, source: this.source }))
-      .sort((left, right) => left.selector.localeCompare(right.selector));
-  }
-
-  async get(selector: string): Promise<RoleModelSettingsEntry | undefined> {
-    const normalized = normalizeRoleModelSelector(selector, "selector");
-    return (await this.loadAll()).find((entry) => entry.selector === normalized);
-  }
-
-  async save(selector: string, model: string): Promise<RoleModelSettingsEntry> {
-    const normalizedSelector = normalizeRoleModelSelector(selector, "selector");
-    const normalizedModel = normalizeRoleModelName(model, "model");
-    const entries = await this.loadAll();
-    const roleModels: Record<string, string> = {};
-    for (const entry of entries) roleModels[entry.selector] = entry.model;
-    roleModels[normalizedSelector] = normalizedModel;
-    await writeRoleModelSettingsFile(this.filePath, roleModels);
-    return { selector: normalizedSelector, model: normalizedModel, source: this.source };
-  }
-
-  async delete(selector: string): Promise<boolean> {
-    const normalizedSelector = normalizeRoleModelSelector(selector, "selector");
-    const entries = await this.loadAll();
-    const roleModels: Record<string, string> = {};
-    let deleted = false;
-    for (const entry of entries) {
-      if (entry.selector === normalizedSelector) {
-        deleted = true;
-        continue;
-      }
-      roleModels[entry.selector] = entry.model;
-    }
-    if (deleted) await writeRoleModelSettingsFile(this.filePath, roleModels);
-    return deleted;
+    return normalizeRoleModelSettingsFile(
+      parseRoleModelSettingsFileJson(raw, this.filePath),
+      this.filePath,
+    );
   }
 }
 
@@ -690,6 +784,7 @@ export function defaultUserRoleModelSettingsStore(sparkHome?: string): RoleModel
 export async function resolveRoleModelSetting(input: {
   explicitModel?: string;
   roleRef: string;
+  modelType?: SparkRoleModelType;
   roleId?: string;
   roleName?: string;
   projectStore?: RoleModelSettingsStore;
@@ -698,40 +793,46 @@ export async function resolveRoleModelSetting(input: {
   const explicitModel = input.explicitModel?.trim();
   if (explicitModel) return { model: explicitModel, source: "explicit" };
   const roleRef = normalizeRoleRef(input.roleRef);
-  const selectors = roleModelSelectors({ roleRef, roleId: input.roleId, roleName: input.roleName });
+  const modelType =
+    input.modelType ??
+    legacyRoleModelType({ roleRef, roleId: input.roleId, roleName: input.roleName });
   for (const store of [input.projectStore, input.userStore]) {
     if (!store) continue;
-    const entries = await store.loadAll();
-    for (const selector of selectors) {
-      const entry = entries.find((candidate) => candidate.selector === selector);
-      if (entry) return { model: entry.model, source: entry.source, selector: entry.selector };
-    }
+    const entry = await store.get(modelType);
+    if (entry)
+      return {
+        model: entry.model,
+        source: entry.source,
+        modelType: entry.modelType,
+        selector: entry.modelType,
+      };
   }
   return undefined;
 }
 
-function roleModelSelectors(input: {
+function legacyRoleModelType(input: {
   roleRef: RoleRef;
   roleId?: string;
   roleName?: string;
-}): string[] {
+}): SparkRoleModelType {
   const candidates = [
     input.roleRef,
     input.roleRef.slice("role:".length),
     input.roleId,
     input.roleName,
   ];
-  return [
-    ...new Set(
-      candidates.map((value) => value?.trim()).filter((value): value is string => Boolean(value)),
-    ),
-  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const modelType = legacyRoleModelSelectorToModelType(candidate);
+    if (modelType !== "legacy") return modelType;
+  }
+  return "legacy";
 }
 
-function normalizeRoleModelSelector(value: string, field: string): string {
-  if (typeof value !== "string" || !value.trim())
-    throw new Error(`role model ${field} is required`);
-  return value.trim();
+function normalizeRoleModelType(value: string, field: string): SparkRoleModelType {
+  const parsed = sparkRoleModelTypeSchema.safeParse(value);
+  if (!parsed.success) throw new Error(`role model ${field} is invalid`);
+  return parsed.data;
 }
 
 function normalizeRoleModelName(value: string, field: string): string {
@@ -751,44 +852,92 @@ function parseRoleModelSettingsFileJson(text: string, filePath: string): unknown
   }
 }
 
-function assertRoleModelSettingsFile(
-  value: unknown,
-  filePath: string,
-): asserts value is RoleModelSettingsFile {
+function normalizeRoleModelSettingsFile(value: unknown, filePath: string): Record<string, string> {
   if (!isRecord(value)) {
     throw new RoleModelSettingsStoreFormatError(filePath, "JSON root must be an object");
   }
+  if (value.version === 2) {
+    if (!isRecord(value.modelTypes)) {
+      throw new RoleModelSettingsStoreFormatError(filePath, "modelTypes must be an object");
+    }
+    validateRoleModelMap(value.modelTypes, filePath, "modelTypes");
+    return Object.fromEntries(
+      Object.entries(value.modelTypes).map(([modelType, model]) => [
+        normalizeRoleModelType(modelType, "modelType"),
+        String(model).trim(),
+      ]),
+    );
+  }
   if (value.version !== 1) {
-    throw new RoleModelSettingsStoreFormatError(filePath, "version must be 1");
+    throw new RoleModelSettingsStoreFormatError(filePath, "version must be 1 or 2");
   }
   if (!isRecord(value.roleModels)) {
     throw new RoleModelSettingsStoreFormatError(filePath, "roleModels must be an object");
   }
+  validateRoleModelMap(value.roleModels, filePath, "roleModels");
+  const groups = new Map<SparkRoleModelType, Array<[string, string]>>();
   for (const [selector, model] of Object.entries(value.roleModels)) {
-    if (!selector.trim())
-      throw new RoleModelSettingsStoreFormatError(
+    const modelType = legacyRoleModelSelectorToModelType(selector);
+    const entries = groups.get(modelType) ?? [];
+    entries.push([selector, String(model).trim()]);
+    groups.set(modelType, entries);
+  }
+  const modelTypes: Record<string, string> = {};
+  for (const [modelType, entries] of groups) {
+    const models = new Set(entries.map(([, model]) => model));
+    if (models.size > 1) {
+      throw new RoleModelSettingsMigrationConflictError(
         filePath,
-        "roleModels selectors must be non-empty",
+        modelType,
+        entries.map(([selector]) => selector).sort((left, right) => left.localeCompare(right)),
       );
+    }
+    modelTypes[modelType] = entries[0]![1];
+  }
+  return modelTypes;
+}
+
+function validateRoleModelMap(
+  value: Record<string, unknown>,
+  filePath: string,
+  field: "roleModels" | "modelTypes",
+): void {
+  for (const [selector, model] of Object.entries(value)) {
+    if (!selector.trim())
+      throw new RoleModelSettingsStoreFormatError(filePath, `${field} selectors must be non-empty`);
     if (typeof model !== "string" || !model.trim())
       throw new RoleModelSettingsStoreFormatError(
         filePath,
-        `roleModels.${selector} must be a non-empty string`,
+        `${field}.${selector} must be a non-empty string`,
       );
   }
 }
 
+function legacyRoleModelSelectorToModelType(selector: string): SparkRoleModelType {
+  const normalized = selector
+    .trim()
+    .toLowerCase()
+    .replace(/^role:/u, "")
+    .replace(/^(?:builtin-|extension-|project-|user-)/u, "");
+  if (normalized === "administrator") return "coordination";
+  if (normalized === "scout" || normalized === "explorer") return "exploration";
+  if (normalized === "researcher") return "research";
+  if (normalized === "worker" || normalized === "executor") return "implementation";
+  if (normalized === "reviewer") return "verification";
+  return "legacy";
+}
+
 async function writeRoleModelSettingsFile(
   filePath: string,
-  roleModels: Record<string, string>,
+  modelTypes: Record<string, string>,
 ): Promise<void> {
   const sorted = Object.fromEntries(
-    Object.entries(roleModels).sort(([left], [right]) => left.localeCompare(right)),
+    Object.entries(modelTypes).sort(([left], [right]) => left.localeCompare(right)),
   );
   await mkdir(dirname(filePath), { recursive: true });
   await writeTextFileAtomic(
     filePath,
-    `${JSON.stringify({ version: 1, roleModels: sorted } satisfies RoleModelSettingsFile, null, 2)}\n`,
+    `${JSON.stringify({ version: 2, modelTypes: sorted } satisfies RoleModelSettingsFileV2, null, 2)}\n`,
   );
 }
 
@@ -872,9 +1021,13 @@ export function createRoleSpec(proposal: RoleSpecProposal, now = nowIso()): Role
     ref: createRoleRef(source, proposal.id),
     id: proposal.id,
     source,
+    revision: 1,
     description: proposal.description,
     systemPrompt: proposal.systemPrompt,
+    capabilities: proposal.capabilities,
     allowedTools: proposal.allowedTools,
+    modelType: proposal.modelType,
+    instantiation: proposal.instantiation ?? "owned",
     origin: proposal.origin,
     createdAt: now,
     updatedAt: now,
@@ -888,16 +1041,7 @@ export function createRoleRef(source: RoleSource, id: string): RoleRef {
 }
 
 export function validateRoleSpec(role: RoleSpec): void {
-  if (!role.ref.startsWith("role:")) throw new Error(`invalid role ref: ${role.ref}`);
-  assertNonEmpty(role.id, "role id");
-  assertNonEmpty(role.description, `role ${role.id} description`);
-  assertNonEmpty(role.systemPrompt, `role ${role.id} system prompt`);
-  if (!normalizeRoleSource(role.source))
-    throw new Error(`invalid role source: ${String(role.source)}`);
-}
-
-function assertNonEmpty(value: string, label: string): void {
-  if (!value.trim()) throw new Error(`${label} is required`);
+  parseSparkRoleSpec(role);
 }
 
 function sanitizeRoleRefPart(value: string): string {
@@ -979,10 +1123,18 @@ export function parseRoleSpecMarkdown(
     ref: createRoleRef(source, id),
     id,
     source,
+    revision: integerFrontmatter(frontmatter, "revision") ?? 1,
     description,
     systemPrompt,
+    capabilities:
+      roleCapabilitiesFrontmatter(frontmatter) ??
+      capabilitiesFromAllowedTools(
+        arrayFrontmatter(frontmatter, "allowedTools") ?? arrayFrontmatter(frontmatter, "tools"),
+      ),
     allowedTools:
       arrayFrontmatter(frontmatter, "allowedTools") ?? arrayFrontmatter(frontmatter, "tools"),
+    modelType: stringFrontmatter(frontmatter, "modelType") ?? "legacy",
+    instantiation: roleInstantiationFrontmatter(frontmatter) ?? "owned",
     origin,
     createdAt: stringFrontmatter(frontmatter, "createdAt") ?? now,
     updatedAt: stringFrontmatter(frontmatter, "updatedAt") ?? now,
@@ -997,6 +1149,10 @@ export function serializeRoleSpecMarkdown(role: RoleSpec): string {
     id: role.id,
     description: role.description,
     source: role.source,
+    revision: role.revision,
+    capabilities: role.capabilities,
+    modelType: role.modelType,
+    instantiation: role.instantiation,
   };
   if (role.allowedTools?.length) frontmatter.allowedTools = role.allowedTools;
   if (role.origin) frontmatter.origin = role.origin;
@@ -1161,6 +1317,45 @@ function arrayFrontmatter(frontmatter: Record<string, unknown>, key: string): st
   const value = frontmatter[key];
   if (!Array.isArray(value)) return undefined;
   return value.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function integerFrontmatter(frontmatter: Record<string, unknown>, key: string): number | undefined {
+  const value = frontmatter[key];
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function roleCapabilitiesFrontmatter(
+  frontmatter: Record<string, unknown>,
+): RoleCapability[] | undefined {
+  const values = arrayFrontmatter(frontmatter, "capabilities");
+  if (!values) return undefined;
+  const vocabulary = new Set<string>(ROLE_CAPABILITY_VOCAB);
+  for (const value of values) {
+    if (!vocabulary.has(value)) throw new Error(`unknown role capability: ${value}`);
+  }
+  return values as RoleCapability[];
+}
+
+function roleInstantiationFrontmatter(
+  frontmatter: Record<string, unknown>,
+): SparkRoleInstantiation | undefined {
+  const value = stringFrontmatter(frontmatter, "instantiation");
+  if (value === undefined) return undefined;
+  if (value === "persistent" || value === "owned") return value;
+  throw new Error(`invalid role instantiation: ${value}`);
+}
+
+function capabilitiesFromAllowedTools(allowedTools: string[] | undefined): RoleCapability[] {
+  if (!allowedTools) return [];
+  const capabilities = new Set<RoleCapability>();
+  for (const tool of allowedTools) {
+    for (const capability of ROLE_CAPABILITY_VOCAB) {
+      if ((ROLE_TOOLS_BY_CAPABILITY[capability] as readonly string[]).includes(tool))
+        capabilities.add(capability);
+    }
+  }
+  return [...capabilities];
 }
 
 function parseOrigin(value: unknown): RoleOrigin | undefined {
