@@ -8,8 +8,18 @@ import { fileURLToPath } from "node:url";
 import { SparkExtensionLoader, SparkHostRuntime } from "../apps/spark-tui/src/host/index.ts";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const baselinePath = resolve(repositoryRoot, "architecture/tool-surface-baseline.json");
+const contractPath = resolve(repositoryRoot, "architecture/tool-surface-contract.json");
+const packageInventoryPath = resolve(repositoryRoot, "architecture/packages.json");
 const DEFAULT_PROFILE = "spark-native-default";
+
+const TOOL_SURFACE_KINDS = ["action", "capability", "compatibility"] as const;
+const CONTRACT_EFFECTS = [
+  "read",
+  "local_write",
+  "external_write",
+  "destructive",
+  "unclassified",
+] as const;
 
 const ALIAS_PAIRS = [
   ["project", "projectRef"],
@@ -29,20 +39,24 @@ export interface ToolSurfaceMetrics {
   unionBranchCount: number;
 }
 
-interface ToolSurfaceMeasurement extends ToolSurfaceMetrics {
+export interface ToolSurfaceMeasurement extends ToolSurfaceMetrics {
   name: string;
   effect: string;
 }
 
-interface ToolSurfaceBudget extends ToolSurfaceMetrics {
-  effect: string;
+type ToolSurfaceKind = (typeof TOOL_SURFACE_KINDS)[number];
+type ContractEffect = (typeof CONTRACT_EFFECTS)[number];
+
+interface ToolSurfaceContractEntry {
+  owner: string;
+  kind: ToolSurfaceKind;
+  effect: ContractEffect;
 }
 
-interface ToolSurfaceBaseline {
-  format: "spark.tool-surface-baseline/v1";
+export interface ToolSurfaceContract {
+  format: "spark.tool-surface-contract/v1";
   profile: typeof DEFAULT_PROFILE;
-  maxActiveTools: number;
-  tools: Record<string, ToolSurfaceBudget>;
+  tools: Record<string, ToolSurfaceContractEntry>;
 }
 
 interface ToolSurfaceConfig {
@@ -88,49 +102,52 @@ export function measureToolSurface(
   };
 }
 
-export function toolSurfaceBaselineViolations(
-  baseline: ToolSurfaceBaseline,
+export function toolSurfaceContractViolations(
+  contract: ToolSurfaceContract,
   measurements: readonly ToolSurfaceMeasurement[],
 ): string[] {
   const violations: string[] = [];
-  if (measurements.length > baseline.maxActiveTools) {
-    violations.push(
-      `default active tool count grew: ${measurements.length} > ${baseline.maxActiveTools}`,
-    );
-  }
+  const activeNames = new Set<string>();
   for (const measurement of measurements) {
-    const budget = baseline.tools[measurement.name];
-    if (!budget) {
-      violations.push(`new default model-facing tool is not budgeted: ${measurement.name}`);
+    if (activeNames.has(measurement.name)) {
+      violations.push(`default profile registers duplicate active tool: ${measurement.name}`);
       continue;
     }
-    if (measurement.effect !== budget.effect) {
+    activeNames.add(measurement.name);
+    const declaration = contract.tools[measurement.name];
+    if (!declaration) {
+      violations.push(`active tool lacks architecture classification: ${measurement.name}`);
+      continue;
+    }
+    const declaredRuntimeEffect =
+      declaration.effect === "unclassified" ? "unknown" : declaration.effect;
+    if (measurement.effect !== declaredRuntimeEffect) {
       violations.push(
-        `${measurement.name} effect changed: ${measurement.effect} != ${budget.effect}`,
+        `${measurement.name} effect contract changed: ${measurement.effect} != ${declaration.effect}`,
       );
     }
-    for (const key of METRIC_KEYS) {
-      if (measurement[key] > budget[key]) {
-        violations.push(`${measurement.name} ${key} grew: ${measurement[key]} > ${budget[key]}`);
-      }
+    if (declaration.kind === "action" && measurement.actionCount === 0) {
+      violations.push(
+        `${measurement.name} is classified as an action surface but exposes no action discriminant`,
+      );
+    }
+  }
+  for (const name of Object.keys(contract.tools).sort()) {
+    if (!activeNames.has(name)) {
+      violations.push(`classified default tool is not active: ${name}`);
     }
   }
   return violations;
 }
 
-const METRIC_KEYS = [
-  "modelFacingBytes",
-  "schemaBytes",
-  "propertyCount",
-  "optionalFieldCount",
-  "untypedFieldCount",
-  "aliasPairCount",
-  "actionCount",
-  "unionBranchCount",
-] as const satisfies readonly (keyof ToolSurfaceMetrics)[];
-
 async function main(): Promise<void> {
-  const baseline = parseBaseline(JSON.parse(await readFile(baselinePath, "utf8")) as unknown);
+  const packageNames = parsePackageNames(
+    JSON.parse(await readFile(packageInventoryPath, "utf8")) as unknown,
+  );
+  const contract = parseContract(
+    JSON.parse(await readFile(contractPath, "utf8")) as unknown,
+    packageNames,
+  );
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-tool-surface-check" });
   const loaded = await new SparkExtensionLoader({ api: host }).load();
   const failedExtensions = loaded.outcomes.filter((outcome) => !outcome.ok);
@@ -148,10 +165,10 @@ async function main(): Promise<void> {
       measureToolSurface(tool.config as ToolSurfaceConfig, tool.policy.effect ?? "unknown"),
     )
     .sort((left, right) => left.name.localeCompare(right.name));
-  const violations = toolSurfaceBaselineViolations(baseline, measurements);
+  const violations = toolSurfaceContractViolations(contract, measurements);
   if (violations.length > 0) {
     console.error(
-      ["Tool-surface ratchet failed:", ...violations.map((entry) => `- ${entry}`)].join("\n"),
+      ["Tool-surface contract failed:", ...violations.map((entry) => `- ${entry}`)].join("\n"),
     );
     process.exitCode = 1;
     return;
@@ -165,8 +182,23 @@ async function main(): Promise<void> {
     .slice(0, 5)
     .map((measurement) => `${measurement.name}=${measurement.modelFacingBytes}`)
     .join(", ");
+  const diagnostics = measurements.reduce(
+    (totals, measurement) => ({
+      properties: totals.properties + measurement.propertyCount,
+      optional: totals.optional + measurement.optionalFieldCount,
+      untyped: totals.untyped + measurement.untypedFieldCount,
+      aliases: totals.aliases + measurement.aliasPairCount,
+      actions: totals.actions + measurement.actionCount,
+      unionBranches: totals.unionBranches + measurement.unionBranchCount,
+    }),
+    { properties: 0, optional: 0, untyped: 0, aliases: 0, actions: 0, unionBranches: 0 },
+  );
+  const unclassified = measurements
+    .filter((measurement) => measurement.effect === "unknown")
+    .map((measurement) => measurement.name)
+    .join(", ");
   console.log(
-    `Tool-surface ratchet passed (${measurements.length}/${baseline.maxActiveTools} active tools; ${totalBytes} model-facing bytes; largest: ${largest}).`,
+    `Tool-surface contract passed (${measurements.length} classified active tools; ${totalBytes} model-facing bytes; properties=${diagnostics.properties}, optional=${diagnostics.optional}, untyped=${diagnostics.untyped}, aliases=${diagnostics.aliases}, actions=${diagnostics.actions}, unionBranches=${diagnostics.unionBranches}; largest: ${largest}; unclassified effects (fail-closed): ${unclassified || "none"}).`,
   );
 }
 
@@ -273,17 +305,34 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function parseBaseline(value: unknown): ToolSurfaceBaseline {
+function parseContract(value: unknown, packageNames: ReadonlySet<string>): ToolSurfaceContract {
   const record = asRecord(value);
   if (
-    record?.format !== "spark.tool-surface-baseline/v1" ||
+    record?.format !== "spark.tool-surface-contract/v1" ||
     record.profile !== DEFAULT_PROFILE ||
-    !Number.isInteger(record.maxActiveTools) ||
     !asRecord(record.tools)
   ) {
-    throw new Error(`invalid tool-surface baseline: ${baselinePath}`);
+    throw new Error(`invalid tool-surface contract: ${contractPath}`);
   }
-  return record as unknown as ToolSurfaceBaseline;
+  for (const [name, rawEntry] of Object.entries(record.tools as Record<string, unknown>)) {
+    const entry = asRecord(rawEntry);
+    if (
+      !entry ||
+      typeof entry.owner !== "string" ||
+      !packageNames.has(entry.owner) ||
+      !TOOL_SURFACE_KINDS.includes(entry.kind as ToolSurfaceKind) ||
+      !CONTRACT_EFFECTS.includes(entry.effect as ContractEffect)
+    ) {
+      throw new Error(`invalid tool-surface contract entry: ${contractPath}#tools.${name}`);
+    }
+  }
+  return record as unknown as ToolSurfaceContract;
+}
+
+function parsePackageNames(value: unknown): ReadonlySet<string> {
+  const packages = asRecord(asRecord(value)?.packages);
+  if (!packages) throw new Error(`invalid package inventory: ${packageInventoryPath}`);
+  return new Set(Object.keys(packages));
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : undefined;
