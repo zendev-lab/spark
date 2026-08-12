@@ -160,7 +160,11 @@ export interface SparkDaemonTaskExecutorOptions {
     Partial<
       Pick<
         DaemonSessionRegistry,
-        "bindTranscriptPath" | "commitTranscriptReplacement" | "get" | "setNameIfMissing"
+        | "bindTranscriptPath"
+        | "commitTranscriptReplacement"
+        | "get"
+        | "getInvocationVisibilitySnapshot"
+        | "setNameIfMissing"
       >
     >;
   sessionSupervisor?: SessionSupervisor;
@@ -2421,10 +2425,18 @@ async function wakeTaskExecutionOwner(
   sessionId: string,
   options: SparkDaemonTaskExecutorOptions,
 ): Promise<void> {
-  if (!options.sessionRegistry?.get || !options.loopControl?.wakeOwner) return;
+  if (
+    !options.sessionRegistry?.getInvocationVisibilitySnapshot ||
+    !options.loopControl?.wakeOwner
+  ) {
+    return;
+  }
   try {
-    const session = await options.sessionRegistry.get(sessionId);
-    if (session?.owner?.kind !== "task_run") return;
+    // Task ownership is immutable after Session creation. Read the last atomic
+    // snapshot without waiting behind unrelated terminal recordRun mutations;
+    // ordinary read-after-mutation consistency is unnecessary for this gate.
+    const session = await options.sessionRegistry.getInvocationVisibilitySnapshot(sessionId);
+    if (session?.owner?.kind !== "task_run" && session?.owner?.kind !== "task_revision") return;
     await options.loopControl.wakeOwner(session.owner.supervisorSessionId, {
       target: "repro",
       reason: `managed Task Session ${sessionId} settled; reconcile ${session.owner.taskRef}`,

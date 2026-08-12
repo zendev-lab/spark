@@ -22,14 +22,7 @@ import {
 import { runSparkProcess } from "../support/spark-process-harness.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const MAX_ATTEMPTS = 3;
 const ATTEMPT_TIMEOUT_MS = 90_000;
-// The loaded child is normally CPU-saturated (about 0.9 locally). Keep this
-// deliberately low so daemon CPU work or ordinary timer variance cannot be
-// mislabeled as host preemption on either macOS or Linux runners.
-const HOST_PREEMPTION_MAX_PROCESS_CPU_TO_WALL_RATIO = 0.5;
-
-type CapacityAttemptDisposition = "pass" | "host-preempted" | "performance-failure";
 
 test(
   "50 fake-provider AgentLoops stream while direct oRPC stays responsive",
@@ -39,79 +32,24 @@ test(
     );
     await chmod(temporary, 0o700);
     try {
-      const hostPreemptedAttempts: string[] = [];
-      const dispositions: CapacityAttemptDisposition[] = [];
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-        const report = await runCapacityAttempt(temporary);
-        assertCapacityReportExceptMaxEventLoopGap(report);
-        const disposition = classifyEventLoopAttempt(report.scenario.eventLoop);
-        dispositions.push(disposition);
-
-        if (disposition === "pass") {
-          return;
-        }
-
-        const audit = hostSchedulingAudit(report, attempt);
-        assert.equal(
-          disposition,
-          "host-preempted",
-          `loaded event-loop gap exceeded the hard gate and was not eligible for a host-preemption retry: ${audit}`,
-        );
-        hostPreemptedAttempts.push(audit);
-        const seriesDisposition = classifyAttemptSeries(dispositions);
-        if (seriesDisposition === "host-preempted") {
-          process.stderr.write(
-            `[daemon-orpc-capacity] retrying host-preempted attempt: ${audit}\n`,
-          );
-          continue;
-        }
-        assert.equal(seriesDisposition, "infrastructure-failure");
-      }
-
-      assert.fail(
-        `capacity harness infrastructure failure: all ${MAX_ATTEMPTS} attempts were host-preempted; no attempt satisfied the ${DAEMON_ORPC_CAPACITY_MAX_EVENT_LOOP_GAP_MS}ms event-loop hard gate:\n${hostPreemptedAttempts.join("\n")}`,
+      const report = await runCapacityAttempt(temporary);
+      assertCapacityReportExceptMaxEventLoopGap(report);
+      assert.ok(
+        report.scenario.eventLoop.maxGapMs <= DAEMON_ORPC_CAPACITY_MAX_EVENT_LOOP_GAP_MS,
+        `loaded event-loop gap exceeded the hard gate: ${hostSchedulingAudit(report)}`,
       );
     } finally {
       await rm(temporary, { recursive: true, force: true });
     }
   },
-  MAX_ATTEMPTS * ATTEMPT_TIMEOUT_MS + 10_000,
+  ATTEMPT_TIMEOUT_MS + 10_000,
 );
 
-test("classifies an over-limit max-gap tick with aligned low CPU and preemption as retryable", () => {
-  assert.equal(
-    classifyEventLoopAttempt({
-      maxGapMs: DAEMON_ORPC_CAPACITY_MAX_EVENT_LOOP_GAP_MS + 1,
-      maxGapProcessCpuToWallRatio: 0.4,
-      maxGapInvoluntaryContextSwitchesDelta: 1,
-    }),
-    "host-preempted",
-  );
-});
-
-test("does not excuse an over-limit max-gap tick that consumed process CPU", () => {
-  assert.equal(
-    classifyEventLoopAttempt({
-      maxGapMs: DAEMON_ORPC_CAPACITY_MAX_EVENT_LOOP_GAP_MS + 1,
-      maxGapProcessCpuToWallRatio: 0.6,
-      maxGapInvoluntaryContextSwitchesDelta: 100,
-    }),
-    "performance-failure",
-  );
-});
-
-test("keeps the RPC hard gate outside host-preemption retry classification", () => {
+test("keeps the RPC latency limit as an independent hard gate", () => {
   assert.throws(
     () =>
       assertRpcLatencyWithinHardGate("loaded turn.status RTT", DAEMON_ORPC_CAPACITY_MAX_RPC_MS + 1),
     /loaded turn\.status RTT 501ms exceeded 500ms/u,
-  );
-});
-
-test("classifies three host-preempted attempts as an infrastructure failure", () => {
-  assert.equal(
-    classifyAttemptSeries(["host-preempted", "host-preempted", "host-preempted"]),
-    "infrastructure-failure",
   );
 });
 
@@ -131,7 +69,7 @@ async function runCapacityAttempt(temporary: string): Promise<DaemonOrpcCapacity
 function assertCapacityReportExceptMaxEventLoopGap(report: DaemonOrpcCapacityReport): void {
   const scenario = report.scenario;
 
-  assert.equal(report.version, 2);
+  assert.equal(report.version, 3);
   assert.match(report.environment.sourceCommit, /^[0-9a-f]{40}$/u);
   assert.equal(report.environment.runner, "tsx-source");
   assert.equal(report.transport.kind, "direct-orpc");
@@ -197,6 +135,10 @@ function assertCapacityReportExceptMaxEventLoopGap(report: DaemonOrpcCapacityRep
   assert.ok(scenario.eventLoop.maxGapProcessCpuMs >= 0);
   assert.ok(Number.isFinite(scenario.eventLoop.maxGapProcessCpuToWallRatio));
   assert.ok(scenario.eventLoop.maxGapProcessCpuToWallRatio >= 0);
+  assert.ok(Number.isFinite(scenario.eventLoop.maxGapThreadCpuMs));
+  assert.ok(scenario.eventLoop.maxGapThreadCpuMs >= 0);
+  assert.ok(Number.isFinite(scenario.eventLoop.maxGapThreadCpuToWallRatio));
+  assert.ok(scenario.eventLoop.maxGapThreadCpuToWallRatio >= 0);
   assert.ok(Number.isInteger(scenario.eventLoop.maxGapInvoluntaryContextSwitchesDelta));
   assert.ok(scenario.eventLoop.maxGapInvoluntaryContextSwitchesDelta >= 0);
   assert.ok(Number.isFinite(scenario.hostScheduling.observedWallMs));
@@ -247,44 +189,20 @@ function assertRpcLatencyWithinHardGate(label: string, maxMs: number): void {
   );
 }
 
-function classifyEventLoopAttempt(
-  eventLoop: Pick<
-    DaemonOrpcCapacityReport["scenario"]["eventLoop"],
-    "maxGapMs" | "maxGapProcessCpuToWallRatio" | "maxGapInvoluntaryContextSwitchesDelta"
-  >,
-): CapacityAttemptDisposition {
-  if (eventLoop.maxGapMs <= DAEMON_ORPC_CAPACITY_MAX_EVENT_LOOP_GAP_MS) return "pass";
-  if (
-    eventLoop.maxGapProcessCpuToWallRatio <= HOST_PREEMPTION_MAX_PROCESS_CPU_TO_WALL_RATIO &&
-    eventLoop.maxGapInvoluntaryContextSwitchesDelta > 0
-  ) {
-    return "host-preempted";
-  }
-  return "performance-failure";
-}
-
-function classifyAttemptSeries(
-  dispositions: readonly CapacityAttemptDisposition[],
-): CapacityAttemptDisposition | "infrastructure-failure" {
-  if (dispositions.includes("pass")) return "pass";
-  if (dispositions.includes("performance-failure")) return "performance-failure";
-  return dispositions.length >= MAX_ATTEMPTS ? "infrastructure-failure" : "host-preempted";
-}
-
-function hostSchedulingAudit(report: DaemonOrpcCapacityReport, attempt: number): string {
+function hostSchedulingAudit(report: DaemonOrpcCapacityReport): string {
   const { eventLoop, hostScheduling } = report.scenario;
   return JSON.stringify({
-    attempt,
-    maxAttempts: MAX_ATTEMPTS,
     eventLoopMaxGapMs: eventLoop.maxGapMs,
+    eventLoopMaxGapAtMs: eventLoop.maxGapAtMs,
     eventLoopHardGateMs: DAEMON_ORPC_CAPACITY_MAX_EVENT_LOOP_GAP_MS,
     maxGapProcessCpuMs: eventLoop.maxGapProcessCpuMs,
     maxGapProcessCpuToWallRatio: eventLoop.maxGapProcessCpuToWallRatio,
+    maxGapThreadCpuMs: eventLoop.maxGapThreadCpuMs,
+    maxGapThreadCpuToWallRatio: eventLoop.maxGapThreadCpuToWallRatio,
     maxGapInvoluntaryContextSwitchesDelta: eventLoop.maxGapInvoluntaryContextSwitchesDelta,
     observedWallMs: hostScheduling.observedWallMs,
     processCpuTotalMsDelta: hostScheduling.processCpuTotalMsDelta,
     observedProcessCpuToWallRatio: hostScheduling.observedProcessCpuToWallRatio,
-    hostPreemptionMaxProcessCpuToWallRatio: HOST_PREEMPTION_MAX_PROCESS_CPU_TO_WALL_RATIO,
     involuntaryContextSwitchesDelta: hostScheduling.involuntaryContextSwitchesDelta,
   });
 }

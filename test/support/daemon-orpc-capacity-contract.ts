@@ -82,7 +82,11 @@ export interface DaemonOrpcCapacityScenario {
     maxGapProcessCpuMs: number;
     /** maxGapProcessCpuMs / the actual timer interval containing maxGapMs. */
     maxGapProcessCpuToWallRatio: number;
-    /** OS-reported involuntary context switches during the max-gap timer interval. */
+    /** Main Node thread CPU time accrued during the timer interval containing maxGapMs. */
+    maxGapThreadCpuMs: number;
+    /** maxGapThreadCpuMs / the actual timer interval containing maxGapMs. */
+    maxGapThreadCpuToWallRatio: number;
+    /** Process-wide OS-reported involuntary context switches during the max-gap interval. */
     maxGapInvoluntaryContextSwitchesDelta: number;
   };
   hostScheduling: {
@@ -118,7 +122,7 @@ export interface DaemonOrpcCapacityScenario {
 }
 
 export interface DaemonOrpcCapacityReport {
-  version: 2;
+  version: 3;
   environment: {
     platform: NodeJS.Platform;
     arch: string;

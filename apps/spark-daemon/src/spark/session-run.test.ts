@@ -469,6 +469,34 @@ describe("daemon native session execution", () => {
   it("passes and releases the daemon-fenced lease for a managed Task Session", async () => {
     const wakeOwner = vi.fn();
     const release = vi.fn();
+    const taskSession = {
+      ...workspaceSessionRecord({
+        sessionId: "sess_task_execution",
+        workspaceId: "workspace-task",
+        roleBinding: { kind: "explicit", roleRef: "role:builtin-explorer" },
+      }),
+      owner: {
+        kind: "task_run",
+        supervisorSessionId: "sess_owner",
+        projectRef: "proj:repro",
+        taskRef: "task:probe",
+        runRef: "run:probe-1",
+        sessionGoalId: "goal-probe-1",
+        roleRef: "role:builtin-explorer",
+        jobId: "task-job:probe",
+        attempt: 1,
+      },
+    } as never;
+    let runRecorded = false;
+    const ordinaryGet = vi.fn(async () => {
+      if (runRecorded) throw new Error("terminal wake must not wait on an ordinary registry read");
+      return taskSession;
+    });
+    const getInvocationVisibilitySnapshot = vi.fn(async () => taskSession);
+    const recordRun = vi.fn(async () => {
+      runRecorded = true;
+      return {} as never;
+    });
     const executeSession = vi.fn(async () => ({
       assistantText: "done",
       sessionPath: "/tmp/sess_task_execution.jsonl",
@@ -494,28 +522,9 @@ describe("daemon native session execution", () => {
         })),
       },
       sessionRegistry: {
-        get: vi.fn(
-          async () =>
-            ({
-              ...workspaceSessionRecord({
-                sessionId: task.sessionId,
-                workspaceId: "workspace-task",
-                roleBinding: { kind: "explicit", roleRef: "role:builtin-explorer" },
-              }),
-              owner: {
-                kind: "task_run",
-                supervisorSessionId: "sess_owner",
-                projectRef: "proj:repro",
-                taskRef: "task:probe",
-                runRef: "run:probe-1",
-                sessionGoalId: "goal-probe-1",
-                roleRef: "role:builtin-explorer",
-                jobId: "task-job:probe",
-                attempt: 1,
-              },
-            }) as never,
-        ),
-        recordRun: vi.fn(async () => ({}) as never),
+        get: ordinaryGet,
+        getInvocationVisibilitySnapshot,
+        recordRun,
         recordTurnQueued: vi.fn(async () => ({}) as never),
         recordTurnSettled: vi.fn(async () => ({}) as never),
       },
@@ -550,6 +559,8 @@ describe("daemon native session execution", () => {
       }),
     );
     expect(release).toHaveBeenCalledOnce();
+    expect(getInvocationVisibilitySnapshot).toHaveBeenCalledWith("sess_task_execution");
+    expect(ordinaryGet).toHaveBeenCalledOnce();
     expect(wakeOwner).toHaveBeenCalledWith("sess_owner", {
       target: "repro",
       reason: expect.stringContaining("task:probe"),

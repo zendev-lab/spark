@@ -271,6 +271,10 @@ async function runScenario(): Promise<DaemonOrpcCapacityScenario> {
     const terminalCounts = await waitForCounts(persistent, counts(0, 0, 50));
     const streamingProbes = await streamingProbesPromise;
     await loadedLoopProbe.waitForSamples(DAEMON_ORPC_CAPACITY_MIN_STREAM_SAMPLES);
+    // Do not stop on the same turn that observed terminal state. A terminal
+    // persistence stall can leave the interval callback overdue; require one
+    // subsequent tick so that tail latency is always represented in maxGapMs.
+    await loadedLoopProbe.waitForNextSample();
     const loadedLoopMetrics = loadedLoopProbe.stop();
     const terminalTurnStatuses = await readTurnStatuses(persistent, invocationIds);
     const providerMetrics = capacityProviderController.snapshot();
@@ -535,6 +539,7 @@ async function rpc<M extends SparkLocalRpcMethod>(
 
 function startEventLoopProbe(intervalMs: number): {
   waitForSamples(count: number): Promise<void>;
+  waitForNextSample(): Promise<void>;
   stop(): Pick<DaemonOrpcCapacityScenario, "eventLoop" | "hostScheduling" | "rssBytes">;
 } {
   const samples: Array<{
@@ -542,15 +547,19 @@ function startEventLoopProbe(intervalMs: number): {
     atMs: number;
     processCpuMs: number;
     processCpuToWallRatio: number;
+    threadCpuMs: number;
+    threadCpuToWallRatio: number;
     involuntaryContextSwitchesDelta: number;
   }> = [];
   const rssBefore = process.memoryUsage.rss();
   const cpuBefore = process.cpuUsage();
+  const threadCpuBefore = process.threadCpuUsage();
   const resourceBefore = process.resourceUsage();
   let rssPeak = rssBefore;
   const started = performance.now();
   let previous = started;
   let previousCpu = cpuBefore;
+  let previousThreadCpu = threadCpuBefore;
   let previousResources = resourceBefore;
   let stopped:
     | Pick<DaemonOrpcCapacityScenario, "eventLoop" | "hostScheduling" | "rssBytes">
@@ -558,14 +567,20 @@ function startEventLoopProbe(intervalMs: number): {
   const timer = setInterval(() => {
     const now = performance.now();
     const cpu = process.cpuUsage();
+    const threadCpu = process.threadCpuUsage();
     const resources = process.resourceUsage();
     const elapsedMs = now - previous;
     const processCpuMs = (cpu.user - previousCpu.user + cpu.system - previousCpu.system) / 1_000;
+    const threadCpuMs =
+      (threadCpu.user - previousThreadCpu.user + threadCpu.system - previousThreadCpu.system) /
+      1_000;
     samples.push({
       gapMs: Math.max(0, elapsedMs - intervalMs),
       atMs: now - started,
       processCpuMs,
       processCpuToWallRatio: elapsedMs > 0 ? processCpuMs / elapsedMs : 0,
+      threadCpuMs,
+      threadCpuToWallRatio: elapsedMs > 0 ? threadCpuMs / elapsedMs : 0,
       involuntaryContextSwitchesDelta: Math.max(
         0,
         resources.involuntaryContextSwitches - previousResources.involuntaryContextSwitches,
@@ -573,6 +588,7 @@ function startEventLoopProbe(intervalMs: number): {
     });
     previous = now;
     previousCpu = cpu;
+    previousThreadCpu = threadCpu;
     previousResources = resources;
     rssPeak = Math.max(rssPeak, process.memoryUsage.rss());
   }, intervalMs);
@@ -581,6 +597,13 @@ function startEventLoopProbe(intervalMs: number): {
       await waitUntil(
         () => samples.length >= count,
         `event-loop probe to collect ${count} samples`,
+      );
+    },
+    async waitForNextSample() {
+      const currentCount = samples.length;
+      await waitUntil(
+        () => samples.length > currentCount,
+        "event-loop probe to sample after terminal completion",
       );
     },
     stop() {
@@ -602,6 +625,8 @@ function startEventLoopProbe(intervalMs: number): {
           atMs: 0,
           processCpuMs: 0,
           processCpuToWallRatio: 0,
+          threadCpuMs: 0,
+          threadCpuToWallRatio: 0,
           involuntaryContextSwitchesDelta: 0,
         },
       );
@@ -614,6 +639,8 @@ function startEventLoopProbe(intervalMs: number): {
           maxGapAtMs: max.atMs,
           maxGapProcessCpuMs: max.processCpuMs,
           maxGapProcessCpuToWallRatio: max.processCpuToWallRatio,
+          maxGapThreadCpuMs: max.threadCpuMs,
+          maxGapThreadCpuToWallRatio: max.threadCpuToWallRatio,
           maxGapInvoluntaryContextSwitchesDelta: max.involuntaryContextSwitchesDelta,
         },
         hostScheduling: {
@@ -709,7 +736,7 @@ function gitOutput(args: string[]): string {
 }
 
 const report: DaemonOrpcCapacityReport = {
-  version: 2,
+  version: 3,
   environment: {
     platform: process.platform,
     arch: process.arch,
