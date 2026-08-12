@@ -57,9 +57,11 @@ export interface SparkConfig {
   activeThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 }
 
-export const CURRENT_SPARK_EXTENSION_PROFILE_VERSION = 2;
+export const CURRENT_SPARK_EXTENSION_PROFILE_VERSION = 3;
 
 const CURRENT_SPARK_EXTENSION_FACADE = "@zendev-lab/spark-extension/extension";
+/** Standalone workflow entry superseded by the composition facade. */
+const STANDALONE_WORKFLOW_EXTENSION = "@zendev-lab/spark-workflows/extension";
 /** Pi product / prior Spark-native facade; rewrite to the Spark-native boundary. */
 const LEGACY_PI_EXTENSION_FACADE = "@zendev-lab/pi-extension/extension";
 const LEGACY_DEFAULT_EXTENSION_CORE = [
@@ -78,6 +80,18 @@ const SPARK_EXTENSION_PROFILE_V1 = [
   "@zendev-lab/spark-roles/extension",
   "@zendev-lab/spark-session/extension",
   "@zendev-lab/spark-web/extension",
+  CURRENT_SPARK_EXTENSION_FACADE,
+] as const;
+const SPARK_EXTENSION_PROFILE_V2 = [
+  "@zendev-lab/spark-ask/extension",
+  "@zendev-lab/spark-artifacts/extension",
+  "@zendev-lab/spark-cue/extension",
+  "@zendev-lab/spark-ai/models-extension",
+  "@zendev-lab/spark-memory/extension",
+  "@zendev-lab/spark-roles/extension",
+  "@zendev-lab/spark-session/extension",
+  "@zendev-lab/spark-web/extension",
+  "@zendev-lab/spark-workflows/extension",
   CURRENT_SPARK_EXTENSION_FACADE,
 ] as const;
 
@@ -263,7 +277,11 @@ export function migrateSparkExtensionProfile(
       specifier === LEGACY_PI_EXTENSION_FACADE ? CURRENT_SPARK_EXTENSION_FACADE : specifier,
     ),
   );
-  if (version >= CURRENT_SPARK_EXTENSION_PROFILE_VERSION) return normalized;
+  const conflictFree = removeWorkflowCompositionConflict(normalized);
+  if (version >= CURRENT_SPARK_EXTENSION_PROFILE_VERSION) return conflictFree;
+  if (containsBundledProfile(normalized, SPARK_EXTENSION_PROFILE_V2)) {
+    return migrateKnownBundledProfile(normalized, SPARK_EXTENSION_PROFILE_V2);
+  }
   if (version === 1 && containsBundledProfile(normalized, SPARK_EXTENSION_PROFILE_V1)) {
     return migrateKnownBundledProfile(normalized, SPARK_EXTENSION_PROFILE_V1);
   }
@@ -274,6 +292,7 @@ export function migrateSparkExtensionProfile(
       "@zendev-lab/spark-memory/extension",
       "@zendev-lab/spark-session/extension",
       "@zendev-lab/spark-web/extension",
+      STANDALONE_WORKFLOW_EXTENSION,
       "@zendev-lab/spark-graft/extension",
       CURRENT_SPARK_EXTENSION_FACADE,
       LEGACY_PI_EXTENSION_FACADE,
@@ -290,6 +309,7 @@ export function migrateSparkExtensionProfile(
       "@zendev-lab/spark-memory/extension",
       "@zendev-lab/spark-session/extension",
       "@zendev-lab/spark-web/extension",
+      STANDALONE_WORKFLOW_EXTENSION,
       "@zendev-lab/spark-graft/extension",
       CURRENT_SPARK_EXTENSION_FACADE,
       LEGACY_PI_EXTENSION_FACADE,
@@ -300,7 +320,17 @@ export function migrateSparkExtensionProfile(
   if (version === 0 && containsBundledProfile(normalized, SPARK_EXTENSION_PROFILE_V1)) {
     return migrateKnownBundledProfile(normalized, SPARK_EXTENSION_PROFILE_V1);
   }
-  return normalized;
+  return conflictFree;
+}
+
+function removeWorkflowCompositionConflict(extensions: readonly string[]): string[] {
+  if (
+    !extensions.includes(STANDALONE_WORKFLOW_EXTENSION) ||
+    !extensions.includes(CURRENT_SPARK_EXTENSION_FACADE)
+  ) {
+    return [...extensions];
+  }
+  return extensions.filter((specifier) => specifier !== STANDALONE_WORKFLOW_EXTENSION);
 }
 
 function legacyDefaultProfile(normalized: readonly string[]): boolean {

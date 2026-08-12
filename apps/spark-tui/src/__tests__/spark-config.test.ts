@@ -23,7 +23,7 @@ test("default Spark providers include shared Baidu OneAPI and OpenAI Codex adapt
     false,
   );
   assert.deepEqual(DEFAULT_SPARK_CONFIG.extensions, [...DEFAULT_SPARK_EXTENSION_SPECS]);
-  assert.equal(CURRENT_SPARK_EXTENSION_PROFILE_VERSION, 2);
+  assert.equal(CURRENT_SPARK_EXTENSION_PROFILE_VERSION, 3);
   assert.equal(
     DEFAULT_SPARK_CONFIG.extensionProfileVersion,
     CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
@@ -164,9 +164,9 @@ test("persisted v1 default profile gains the current artifact and workflow capab
   });
 
   assert.deepEqual(migrated.extensions, [...DEFAULT_SPARK_EXTENSION_SPECS, "my-extension"]);
-  assert.equal(migrated.extensionProfileVersion, 2);
+  assert.equal(migrated.extensionProfileVersion, CURRENT_SPARK_EXTENSION_PROFILE_VERSION);
   assert.equal(migrated.extensions.includes("@zendev-lab/spark-artifacts/extension"), true);
-  assert.equal(migrated.extensions.includes("@zendev-lab/spark-workflows/extension"), true);
+  assert.equal(migrated.extensions.includes("@zendev-lab/spark-workflows/extension"), false);
 });
 
 test("persisted v1 custom subsets remain explicit across profile migration", () => {
@@ -177,6 +177,43 @@ test("persisted v1 custom subsets remain explicit across profile migration", () 
 
   assert.deepEqual(migrated.extensions, ["@zendev-lab/spark-extension/extension", "my-extension"]);
   assert.equal(migrated.extensionProfileVersion, CURRENT_SPARK_EXTENSION_PROFILE_VERSION);
+});
+
+test("persisted v2 default profile drops standalone workflow after composition owns it", () => {
+  const v2Defaults = [
+    "@zendev-lab/spark-ask/extension",
+    "@zendev-lab/spark-artifacts/extension",
+    "@zendev-lab/spark-cue/extension",
+    "@zendev-lab/spark-ai/models-extension",
+    "@zendev-lab/spark-memory/extension",
+    "@zendev-lab/spark-roles/extension",
+    "@zendev-lab/spark-session/extension",
+    "@zendev-lab/spark-web/extension",
+    "@zendev-lab/spark-workflows/extension",
+    "@zendev-lab/spark-extension/extension",
+  ];
+
+  const migrated = mergeSparkConfigWithDefault({
+    extensionProfileVersion: 2,
+    extensions: [...v2Defaults, "my-extension"],
+  });
+
+  assert.deepEqual(migrated.extensions, [...DEFAULT_SPARK_EXTENSION_SPECS, "my-extension"]);
+  assert.equal(migrated.extensions.includes("@zendev-lab/spark-workflows/extension"), false);
+  assert.equal(migrated.extensionProfileVersion, CURRENT_SPARK_EXTENSION_PROFILE_VERSION);
+});
+
+test("current profiles remove a conflicting standalone workflow entry", () => {
+  const migrated = mergeSparkConfigWithDefault({
+    extensionProfileVersion: CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
+    extensions: [
+      "@zendev-lab/spark-workflows/extension",
+      "@zendev-lab/spark-extension/extension",
+      "my-extension",
+    ],
+  });
+
+  assert.deepEqual(migrated.extensions, ["@zendev-lab/spark-extension/extension", "my-extension"]);
 });
 
 test("unversioned Spark-native default profile also gains current capabilities", () => {
