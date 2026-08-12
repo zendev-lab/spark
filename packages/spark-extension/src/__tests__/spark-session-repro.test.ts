@@ -21,6 +21,7 @@ import {
   reviseReproPlan,
   satisfyAcceptanceCondition,
   sessionReproStorePath,
+  sparkReproNormativeOrderedStepIds,
   stepDefinitionDigest,
   updateReproStep,
   verifyReproStepPass,
@@ -519,6 +520,51 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       });
       const persisted = JSON.parse(await readFile(path, "utf8")) as { version: number };
       assert.equal(persisted.version, 7);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("normalizes legacy plan-array Normative order into stage order without promoting proof", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-repro-v7-order-normalization-"));
+    try {
+      const repro = reviseReproPlan(makeRepro(), {
+        reason: "Append a late raw-order Contract step",
+        subgoals: [
+          {
+            id: "late-raw-contract-step",
+            stage: "contract",
+            goal: "Normalize legacy raw ordering",
+            doneWhen: ["The stored order is normalized"],
+            evidenceRequired: ["Normalized snapshot"],
+            authority: "safe_local",
+          },
+        ],
+      });
+      const canonicalOrderedStepIds = sparkReproNormativeOrderedStepIds(repro.plan);
+      const legacyOrderedStepIds = repro.plan.steps.map((step) => step.id);
+      assert.notDeepEqual(legacyOrderedStepIds, canonicalOrderedStepIds);
+      assert.deepEqual(repro.dualLane.normative.orderedStepIds, canonicalOrderedStepIds);
+
+      const path = sessionReproStorePath(dir);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, `${JSON.stringify({ version: 7, repro })}\n`, "utf8");
+      const canonical = await readSessionRepro(dir);
+      assert.deepEqual(canonical?.dualLane.normative.orderedStepIds, canonicalOrderedStepIds);
+
+      const legacy = structuredClone(repro);
+      legacy.dualLane.normative = {
+        orderedStepIds: legacyOrderedStepIds,
+        currentStepId: legacyOrderedStepIds[0],
+        retiredStepIds: [],
+        candidateIds: [],
+      };
+      await writeFile(path, `${JSON.stringify({ version: 7, repro: legacy })}\n`, "utf8");
+      const normalized = await readSessionRepro(dir);
+      assert.deepEqual(normalized?.dualLane.normative.orderedStepIds, canonicalOrderedStepIds);
+      assert.equal(normalized?.dualLane.normative.currentStepId, canonicalOrderedStepIds[0]);
+      assert.deepEqual(normalized?.dualLane.normative.retiredStepIds, []);
+      assert.deepEqual(normalized?.dualLane.normative.candidateIds, []);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

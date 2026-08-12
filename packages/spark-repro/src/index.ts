@@ -1242,29 +1242,33 @@ function isStoredDualLaneSessionState(
       typeof value.normative.currentStepId !== "string")
   )
     return false;
-  const orderedStepIds = plan.steps.map((step) => step.id);
+  const orderedStepIds = sparkReproNormativeOrderedStepIds(plan);
+  const legacyOrderedStepIds = plan.steps.map((step) => step.id);
+  const persistedOrderedStepIds = value.normative.orderedStepIds;
+  const recognizedOrder =
+    JSON.stringify(persistedOrderedStepIds) === JSON.stringify(orderedStepIds) ||
+    JSON.stringify(persistedOrderedStepIds) === JSON.stringify(legacyOrderedStepIds);
+  if (!recognizedOrder) return false;
   const retiredStepIds = value.normative.retiredStepIds;
   const candidateIds = value.normative.candidateIds;
-  if (JSON.stringify(value.normative.orderedStepIds) !== JSON.stringify(orderedStepIds))
-    return false;
   if (
     new Set(retiredStepIds).size !== retiredStepIds.length ||
     new Set(candidateIds).size !== candidateIds.length ||
     JSON.stringify(retiredStepIds) !==
-      JSON.stringify(orderedStepIds.slice(0, retiredStepIds.length))
+      JSON.stringify(persistedOrderedStepIds.slice(0, retiredStepIds.length))
   )
     return false;
   const retired = new Set(retiredStepIds);
   if (
     candidateIds.some(
       (id) =>
-        !orderedStepIds.includes(id) ||
+        !persistedOrderedStepIds.includes(id) ||
         retired.has(id) ||
         plan.steps.find((step) => step.id === id)?.status !== "done",
     )
   )
     return false;
-  const currentStepId = orderedStepIds[retiredStepIds.length];
+  const currentStepId = persistedOrderedStepIds[retiredStepIds.length];
   if (value.normative.currentStepId !== currentStepId) return false;
   if (!isStringArray(value.unresolvedIds)) return false;
   if (
@@ -1546,6 +1550,18 @@ function isReproStageName(value: unknown): value is SparkReproStageName {
   );
 }
 
+export function sparkReproNormativeOrderedStepIds(plan: SparkReproPlan): string[] {
+  const stageRank = new Map(DEFAULT_REPRO_STAGES.map((stage, index) => [stage.name, index]));
+  return plan.steps
+    .map((step, index) => ({ step, index }))
+    .sort(
+      (left, right) =>
+        (stageRank.get(left.step.stage) ?? Number.MAX_SAFE_INTEGER) -
+          (stageRank.get(right.step.stage) ?? Number.MAX_SAFE_INTEGER) || left.index - right.index,
+    )
+    .map(({ step }) => step.id);
+}
+
 export function normalizeReproStageName(value: unknown): SparkReproStageName {
   switch (value) {
     case "contract":
@@ -1779,7 +1795,7 @@ function rebaseDualLaneSessionState(
   plan: SparkReproPlan,
   prior: SparkReproDualLaneSessionState,
 ): SparkReproDualLaneSessionState {
-  const orderedStepIds = plan.steps.map((step) => step.id);
+  const orderedStepIds = sparkReproNormativeOrderedStepIds(plan);
   return {
     ...prior,
     planRevision: plan.currentRevision,
@@ -1796,11 +1812,15 @@ function normalizeDualLaneSessionState(
   plan: SparkReproPlan,
   prior: SparkReproDualLaneSessionState,
 ): SparkReproDualLaneSessionState {
-  const orderedStepIds = plan.steps.map((step) => step.id);
+  const orderedStepIds = sparkReproNormativeOrderedStepIds(plan);
   const verifiedIds = new Set([...prior.normative.retiredStepIds, ...prior.normative.candidateIds]);
+  const previouslyRetired = new Set(prior.normative.retiredStepIds);
   const retiredStepIds: string[] = [];
-  for (const step of plan.steps) {
-    if (step.status !== "done" || !verifiedIds.has(step.id)) break;
+  for (const stepId of orderedStepIds) {
+    const step = plan.steps.find((candidate) => candidate.id === stepId)!;
+    // Loading can normalize legacy ordering, but must not promote a buffered
+    // completion into the retired prefix without a current owner fence.
+    if (step.status !== "done" || !previouslyRetired.has(step.id)) break;
     retiredStepIds.push(step.id);
   }
   const retired = new Set(retiredStepIds);
@@ -1829,14 +1849,14 @@ function synchronizeDualLaneSessionState(
   stepId: string,
   status: SparkReproStepStatus,
 ): SparkReproDualLaneSessionState {
-  const orderedStepIds = repro.plan.steps.map((step) => step.id);
+  const orderedStepIds = sparkReproNormativeOrderedStepIds(repro.plan);
   const verifiedIds = new Set([...prior.normative.retiredStepIds, ...prior.normative.candidateIds]);
   if (status === "done") verifiedIds.add(stepId);
   else verifiedIds.delete(stepId);
   const retiredStepIds: string[] = [];
   while (retiredStepIds.length < orderedStepIds.length) {
     const nextStepId = orderedStepIds[retiredStepIds.length]!;
-    const step = repro.plan.steps[retiredStepIds.length]!;
+    const step = repro.plan.steps.find((candidate) => candidate.id === nextStepId)!;
     if (step.status !== "done" || !verifiedIds.has(nextStepId)) break;
     retiredStepIds.push(nextStepId);
   }
@@ -1858,10 +1878,11 @@ function createInitialDualLaneSessionState(
   plan: SparkReproPlan,
   sourceVersion: 6 | 7 = 7,
 ): SparkReproDualLaneSessionState {
-  const orderedStepIds = plan.steps.map((step) => step.id);
+  const orderedStepIds = sparkReproNormativeOrderedStepIds(plan);
   const retiredStepIds: string[] = [];
   if (sourceVersion === 7) {
-    for (const step of plan.steps) {
+    for (const stepId of orderedStepIds) {
+      const step = plan.steps.find((candidate) => candidate.id === stepId)!;
       if (step.status !== "done") break;
       retiredStepIds.push(step.id);
     }
@@ -1869,16 +1890,18 @@ function createInitialDualLaneSessionState(
   const retired = new Set(retiredStepIds);
   const candidateIds =
     sourceVersion === 7
-      ? plan.steps
-          .filter((step) => step.status === "done" && !retired.has(step.id))
-          .map((step) => step.id)
+      ? orderedStepIds.filter(
+          (stepId) =>
+            plan.steps.find((step) => step.id === stepId)?.status === "done" &&
+            !retired.has(stepId),
+        )
       : [];
   const currentStepId = orderedStepIds.find((stepId) => !retired.has(stepId));
   const initial: SparkReproDualLaneSessionState = {
     schema: "spark.repro.dual-lane-session/v1",
     planRevision: plan.currentRevision,
     explore: {
-      stage: plan.steps[0]?.stage ?? "contract",
+      stage: plan.steps.find((step) => step.id === orderedStepIds[0])?.stage ?? "contract",
       observationIds: [],
     },
     normative: {
