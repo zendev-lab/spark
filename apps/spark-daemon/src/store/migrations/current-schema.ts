@@ -968,6 +968,7 @@ function tableExists(db: DatabaseSync, table: string): boolean {
 export function addMissingInvocationColumns(db: DatabaseSync): void {
   const columns = workspaceColumns(db, "invocations");
   const additions = [
+    ["workspace_binding_id", "TEXT"],
     ["session_id", "TEXT"],
     ["idempotency_key", "TEXT"],
     ["task_json", "TEXT"],

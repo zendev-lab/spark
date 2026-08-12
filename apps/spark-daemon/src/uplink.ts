@@ -23,6 +23,7 @@ import {
 import {
   getWorkspaceById,
   isBorrowedWorkspace,
+  listWorkspaceUplinkServerUrls,
   listWorkspaces,
   rebindWorkspaceServerUrl,
   type SparkDaemonWorkspace,
@@ -74,9 +75,8 @@ export function desiredUplinkServerUrls(paths: SparkPaths, db: DatabaseSync): Se
     listSparkDaemonServerProfiles(paths).map((profile) => [profile.serverUrl, profile]),
   );
   const desired = new Set<string>();
-  for (const workspace of listWorkspaces(db)) {
-    if (!workspace.serverUrl) continue;
-    const serverUrl = normalizeSparkDaemonServerUrl(workspace.serverUrl);
+  for (const candidateUrl of listWorkspaceUplinkServerUrls(db)) {
+    const serverUrl = normalizeSparkDaemonServerUrl(candidateUrl);
     const profile = profiles.get(serverUrl);
     if (!profile || profile.parked || !hasRunnableCredentials(profile)) continue;
     desired.add(serverUrl);

@@ -40,8 +40,8 @@ import {
   heartbeatWorkspaceClient,
   isMutationBlockingBorrowedWorkspace,
   isUserDetachedWorkspace,
+  listWorkspaceBindingIdsForServer,
   listWorkspaces,
-  listWorkspacesForServer,
   releaseWorkspaceClient,
   workspaceSummaries,
 } from "./store/workspaces.js";
@@ -77,14 +77,13 @@ function admitClaimedCommand(input: {
 }): ClaimedCommandExecution | undefined {
   const { ws, command, context } = input;
   const knownWorkspaceBindingIds = new Set(
-    (context.serverUrl
-      ? listWorkspacesForServer(context.db, context.serverUrl)
-      : listWorkspaces(context.db)
-    ).flatMap((workspace) =>
-      workspace.serverBindingId && workspace.serverBindingId !== workspace.id
-        ? [workspace.id, workspace.serverBindingId]
-        : [workspace.id],
-    ),
+    context.serverUrl
+      ? listWorkspaceBindingIdsForServer(context.db, context.serverUrl)
+      : listWorkspaces(context.db).flatMap((workspace) =>
+          workspace.serverBindingId && workspace.serverBindingId !== workspace.id
+            ? [workspace.id, workspace.serverBindingId]
+            : [workspace.id],
+        ),
   );
   const commandWorkspace = command.workspaceBindingId
     ? getWorkspaceById(context.db, command.workspaceBindingId)

@@ -17,6 +17,7 @@ describe("daemon migration registry", () => {
       expect.arrayContaining([
         "execution-attempts.schema",
         "human-waits.answer-event-mailbox",
+        "invocations.workspace-projection-index",
         "migration.driver-to-loop-v1",
         "migration.retire-daemon-error-outbox-v1",
         "repro.formal-evidence-receipts",
@@ -98,6 +99,7 @@ describe("daemon migration registry", () => {
           "execution_profile_json",
           "retention_summary_json",
           "payload_redacted_at",
+          "workspace_binding_id",
         ]),
       );
       expect(
@@ -112,6 +114,13 @@ describe("daemon migration registry", () => {
           )
           .get(),
       ).toEqual({ name: "invocations_claim_class_status_idx" });
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'invocations_workspace_updated_idx'",
+          )
+          .get(),
+      ).toEqual({ name: "invocations_workspace_updated_idx" });
     } finally {
       db.close();
     }

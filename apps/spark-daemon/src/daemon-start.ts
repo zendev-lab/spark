@@ -107,7 +107,8 @@ import { reconcileReproWorkbenchArtifacts } from "./spark/repro-workbench-reconc
 import { reconcileLoopGoalSettlements } from "./spark/loop-goal-settlements.ts";
 import {
   getWorkspaceById,
-  isUserDetachedWorkspace,
+  listWorkspaceBindingIdsForServer,
+  listWorkspaceUplinkServerUrls,
   listWorkspaces,
   listWorkspacesForServer,
   markSparkDaemonServerConnected,
@@ -1828,9 +1829,8 @@ function desiredSparkDaemonUplinks(
   }
 
   const desired = new Map<string, DesiredSparkDaemonUplink>();
-  for (const workspace of listWorkspaces(options.db)) {
-    if (!workspace.serverUrl || isUserDetachedWorkspace(workspace)) continue;
-    const serverUrl = normalizeSparkDaemonServerUrl(workspace.serverUrl);
+  for (const candidateUrl of listWorkspaceUplinkServerUrls(options.db)) {
+    const serverUrl = normalizeSparkDaemonServerUrl(candidateUrl);
     if (desired.has(serverUrl)) continue;
     const profile = profiles.get(serverUrl);
     if (!profile || profile.parked) continue;
@@ -1893,13 +1893,7 @@ async function runSparkDaemonServerConnection(
     const artifactReconciler = new ArtifactProjectionReconciler();
     const deliveryDestination = `hub:${runtimeId}`;
     const currentWorkspaceBindingIds = () =>
-      serverUrl
-        ? listWorkspacesForServer(options.db, serverUrl).flatMap((workspace) =>
-            workspace.serverBindingId && workspace.serverBindingId !== workspace.id
-              ? [workspace.id, workspace.serverBindingId]
-              : [workspace.id],
-          )
-        : [];
+      serverUrl ? listWorkspaceBindingIdsForServer(options.db, serverUrl) : [];
     const activeHandlers = new Set<Promise<void>>();
     const scheduleTokenRefresh = (delayMs = nextSparkDaemonTokenRefreshDelayMs(config)) => {
       if (options.signal?.aborted || delayMs === undefined) {

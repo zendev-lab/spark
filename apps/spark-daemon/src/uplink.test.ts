@@ -15,7 +15,12 @@ import {
 } from "./uplink.js";
 import { upsertSparkDaemonServerProfile } from "./server-profiles.js";
 import { openSparkDaemonDatabase } from "./store/schema.js";
-import { attachWorkspaceClient, getWorkspaceById, registerWorkspace } from "./store/workspaces.js";
+import {
+  attachWorkspaceClient,
+  getWorkspaceById,
+  registerWorkspace,
+  stopWorkspace,
+} from "./store/workspaces.js";
 
 const roots: string[] = [];
 
@@ -153,7 +158,7 @@ describe("daemon uplink park/prefer", () => {
       runtimeId: "rt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       runtimeToken: "spark_rt_access_00000000000000000000000000000000",
     });
-    registerWorkspace(db, {
+    const workspace = registerWorkspace(db, {
       serverUrl,
       localPath: workspacePath,
       localWorkspaceKey: "checkout",
@@ -172,6 +177,8 @@ describe("daemon uplink park/prefer", () => {
     });
     await unparkSparkDaemonUplink(paths, serverUrl);
     expect([...desiredUplinkServerUrls(paths, db)]).toEqual([serverUrl]);
+    stopWorkspace(db, { id: workspace.id });
+    expect([...desiredUplinkServerUrls(paths, db)]).toEqual([]);
     db.close();
   });
 

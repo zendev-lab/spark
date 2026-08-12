@@ -775,6 +775,55 @@ export function listWorkspaceClaimTargets(db: DatabaseSync): SparkDaemonWorkspac
     .all() as unknown as SparkDaemonWorkspaceClaimTarget[];
 }
 
+/**
+ * Return only the active Hub origins needed by the uplink supervisor.
+ *
+ * This path runs every 500 ms, so it must not hydrate invocation, client,
+ * server, or lifecycle projections for every workspace.
+ */
+export function listWorkspaceUplinkServerUrls(db: DatabaseSync): string[] {
+  const rows = db
+    .prepare(
+      `SELECT w.server_url AS serverUrl,
+              w.diagnostics_json AS diagnosticsJson
+       FROM workspaces w
+       WHERE w.server_url <> ''
+         AND NOT EXISTS (
+           SELECT 1 FROM workspace_lifecycle lifecycle WHERE lifecycle.workspace_id = w.id
+         )
+       ORDER BY w.display_name ASC, w.id ASC`,
+    )
+    .all() as Array<{ serverUrl: string; diagnosticsJson: string }>;
+  const serverUrls = new Set<string>();
+  for (const row of rows) {
+    if (parseObject(row.diagnosticsJson).userDetached === true) continue;
+    serverUrls.add(row.serverUrl);
+  }
+  return [...serverUrls];
+}
+
+/** Active local and Hub binding ids for one origin without workspace hydration. */
+export function listWorkspaceBindingIdsForServer(db: DatabaseSync, serverUrl: string): string[] {
+  const rows = db
+    .prepare(
+      `SELECT w.id,
+              dw.server_binding_id AS serverBindingId
+       FROM workspaces w
+       LEFT JOIN daemon_workspaces dw ON dw.id = w.id
+       WHERE w.server_url = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM workspace_lifecycle lifecycle WHERE lifecycle.workspace_id = w.id
+         )
+       ORDER BY w.id ASC`,
+    )
+    .all(serverUrl) as Array<{ id: string; serverBindingId: string | null }>;
+  return rows.flatMap((row) =>
+    row.serverBindingId && row.serverBindingId !== row.id
+      ? [row.id, row.serverBindingId]
+      : [row.id],
+  );
+}
+
 export function requireWorkspaceClaimTarget(
   db: DatabaseSync,
   workspaceId: string,
@@ -817,7 +866,10 @@ export function listWorkspaces(
        ORDER BY w.display_name ASC`,
     )
     .all(options.includeInactive ? 1 : 0) as unknown as WorkspaceRow[];
-  return rows.map((row) => mapWorkspaceRow(row, db, options.reconcileClientLeases));
+  if (rows.length > 0 && options.reconcileClientLeases !== false) {
+    expireWorkspaceClientLeases(db);
+  }
+  return rows.map((row) => mapWorkspaceRow(row, db, false));
 }
 
 export function listWorkspacesForServer(
