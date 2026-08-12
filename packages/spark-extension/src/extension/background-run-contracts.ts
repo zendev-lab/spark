@@ -19,6 +19,7 @@ export type SparkBackgroundChildStatus =
   | "active"
   | "running"
   | "queued"
+  | "paused"
   | "succeeded"
   | "blocked"
   | "failed"

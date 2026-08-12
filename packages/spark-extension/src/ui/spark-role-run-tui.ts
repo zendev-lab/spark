@@ -36,7 +36,12 @@ const TERMINAL_STATUSES = new Set<SparkRoleRunObservedStatus>([
   "cancelled",
 ]);
 const PROBLEM_STATUSES = new Set<SparkRoleRunObservedStatus>(["interrupted", "stale"]);
-const ACTIVE_STATUSES = new Set<SparkRoleRunObservedStatus>(["queued", "waiting", "running"]);
+const ACTIVE_STATUSES = new Set<SparkRoleRunObservedStatus>([
+  "queued",
+  "waiting",
+  "running",
+  "paused",
+]);
 
 export function formatSparkRoleRunStatusSummary(
   snapshot: SparkRoleRunRegistrySnapshot,
@@ -48,6 +53,7 @@ export function formatSparkRoleRunStatusSummary(
       "running",
       "waiting",
       "queued",
+      "paused",
       "blocked",
       "failed",
       "stale",
@@ -150,7 +156,9 @@ function formatRoleRunHeader(
 ): string {
   const counts = new Map<SparkRoleRunObservedStatus, number>();
   for (const entry of entries) counts.set(entry.status, (counts.get(entry.status) ?? 0) + 1);
-  const summary = (["running", "waiting", "queued", "blocked", "failed", "stale", "done"] as const)
+  const summary = (
+    ["running", "waiting", "queued", "paused", "blocked", "failed", "stale", "done"] as const
+  )
     .map((status) => {
       const count = counts.get(status) ?? 0;
       return count > 0 ? `${status}=${count}` : undefined;
@@ -248,6 +256,8 @@ function statusIcon(status: SparkRoleRunObservedStatus, theme: SparkRoleRunTuiTh
     case "queued":
     case "waiting":
       return fg(theme, "warning", "◼");
+    case "paused":
+      return fg(theme, "warning", "Ⅱ");
     case "done":
       return fg(theme, "success", "✓");
     case "blocked":

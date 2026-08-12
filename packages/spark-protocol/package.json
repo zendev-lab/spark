@@ -40,6 +40,7 @@
     "./runtime-v1/ephemeral-secret": "./src/runtime-v1/ephemeral-secret.ts",
     "./runtime-v1/messages": "./src/runtime-v1/messages.ts",
     "./runtime-v1/registration": "./src/runtime-v1/registration.ts",
+    "./execution-lifecycle": "./src/execution-lifecycle.ts",
     "./state-ownership": "./src/state-ownership.ts",
     "./version": "./src/version.ts",
     "./versioned-data": "./src/versioned-data.ts",

@@ -1544,6 +1544,89 @@ export interface TaskProposal {
   rationale: string;
 }
 
+export type ExecutionRunStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "cancelling"
+  | "cancelled"
+  | "succeeded"
+  | "failed"
+  | "blocked"
+  | "recovery_required";
+export type ExecutionAttemptStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "succeeded"
+  | "failed"
+  | "blocked"
+  | "recovery_required"
+  | "cancelled";
+export type ExecutionPauseReason =
+  | "session_shutdown"
+  | "daemon_restart"
+  | "launchagent_handoff"
+  | "process_interrupted"
+  | "lease_expired"
+  | "owner_detached";
+export type ExecutionRecoveryReason =
+  | "side_effect_uncertain"
+  | "checkpoint_invalid"
+  | "model_unavailable"
+  | "stale_generation"
+  | "missing_owner"
+  | "manual_reconcile";
+
+export interface ExecutionRunAggregate {
+  runRef: RunRef;
+  invocationId?: string;
+  taskRef?: TaskRef;
+  projectRef?: ProjectRef;
+  workspaceId?: string;
+  status: ExecutionRunStatus;
+  stateRevision: number;
+  pauseReason?: ExecutionPauseReason;
+  recoveryReason?: ExecutionRecoveryReason;
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface ExecutionAttemptAggregate {
+  attemptId: string;
+  runRef: RunRef;
+  attempt: number;
+  parentAttemptId?: string;
+  status: ExecutionAttemptStatus;
+  daemonGeneration: number;
+  stateRevision: number;
+  leaseToken: string;
+  checkpointRevision: number;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface ExecutionCheckpoint {
+  checkpointId: string;
+  runRef: RunRef;
+  attemptId: string;
+  revision: number;
+  payload: JsonValue;
+  createdAt: string;
+}
+
+export interface ExecutionLease {
+  leaseToken: string;
+  runRef: RunRef;
+  attemptId: string;
+  daemonGeneration: number;
+  stateRevision: number;
+  expiresAt?: string;
+  releasedAt?: string;
+}
+
 export type TaskRunFailureKind =
   | "runtime_timeout"
   | "runtime_error"
@@ -1551,7 +1634,14 @@ export type TaskRunFailureKind =
   | "claim_stale"
   | "blocked"
   | "provider_failure";
-export type TaskRunStatus = "queued" | "running" | "succeeded" | "blocked" | "failed" | "cancelled";
+export type TaskRunStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "succeeded"
+  | "blocked"
+  | "failed"
+  | "cancelled";
 
 export interface TaskRunCompletionSummary {
   runRef: RunRef;

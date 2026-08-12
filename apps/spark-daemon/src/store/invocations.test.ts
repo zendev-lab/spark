@@ -14,6 +14,7 @@ import {
   SparkInvocationStore,
 } from "./invocations.ts";
 import { buildPendingDeliveriesQuery } from "./invocation-delivery-query.ts";
+import { ExecutionRunStore, executionRunRefForInvocation } from "./execution-runs.ts";
 import {
   applyWorkspaceLifecycleMutation,
   listWorkspaceBindingIdsForServer,
@@ -56,6 +57,37 @@ function drainPendingDeliveryPages(
 }
 
 describe("SparkInvocationStore", () => {
+  it("binds every submitted invocation to one durable execution run", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({
+        invocationId: "inv_executionbinding",
+        workspaceBindingId: "rtwb_execution_binding",
+        sessionId: "session-execution-binding",
+        prompt: "persist aggregate",
+        now: "2026-08-12T00:00:00.000Z",
+      });
+      const executionRuns = new ExecutionRunStore(db);
+      const run = executionRuns.getByInvocationId(invocation.invocationId);
+      expect(run).toBeDefined();
+      if (!run) throw new Error("submitted invocation has no execution run");
+      expect(run).toMatchObject({
+        runRef: executionRunRefForInvocation(invocation.invocationId),
+        invocationId: invocation.invocationId,
+        workspaceId: "rtwb_execution_binding",
+        status: "queued",
+        stateRevision: 0,
+      });
+      expect(
+        db
+          .prepare("SELECT count(*) AS count FROM execution_run_attempts WHERE run_ref = ?")
+          .get(run.runRef),
+      ).toEqual({ count: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
   it("reports session activity from durable queued and running invocations", () => {
     const { db, store } = createStore();
     try {

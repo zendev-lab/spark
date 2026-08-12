@@ -49,6 +49,9 @@ test("read preflight previews a provider fix without modifying or persisting a p
     async formatSource() {
       return "export const value = 1;\n";
     },
+    async safeFixSource({ source }) {
+      return source;
+    },
   });
 
   const annotation = await integration.annotate({

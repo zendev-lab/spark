@@ -170,6 +170,22 @@ test("Spark role-run TUI renderer produces bounded board and status summaries", 
   assert.match(lines.join("\n"), /(tool edit|non-terminal)/);
 });
 
+test("Spark role-run TUI renders paused runs as visible recoverable work", () => {
+  const paused = taskRun({
+    ref: "run:paused11111111" as RunRef,
+    status: "paused",
+  });
+  const snapshot = buildSparkRoleRunRegistry({
+    graph: graphWithRuns([paused]),
+    now: "2026-06-17T00:00:30.000Z",
+  });
+
+  assert.equal(formatSparkRoleRunStatusSummary(snapshot), "roles: paused=1");
+  const board = renderSparkRoleRunBoardLines(snapshot, {}, { width: 120 }, theme).join("\n");
+  assert.match(board, /paused=1/u);
+  assert.match(board, /Ⅱ worker/u);
+});
+
 test("Spark role-run completion message renderer supports compact and expanded details", () => {
   const run = taskRun({
     ref: "run:cccccccc33333333" as RunRef,

@@ -166,6 +166,8 @@ function backgroundChildNextAction(child: SparkBackgroundChildRunView): string |
   }
   if (child.status === "failed")
     return "inspect failed task/run evidence, fix the cause, then rerun";
+  if (child.status === "paused")
+    return "resume the paused run when its recovery preconditions are satisfied";
   if (child.status === "queued" || child.status === "running")
     return "reconcile; no active process is currently tracked for this child";
   return undefined;
@@ -179,15 +181,17 @@ function taskRunStatusRank(status: SparkBackgroundChildStatus): number {
       return 1;
     case "queued":
       return 2;
-    case "blocked":
+    case "paused":
       return 3;
-    case "failed":
+    case "blocked":
       return 4;
-    case "cancelled":
+    case "failed":
       return 5;
-    case "succeeded":
+    case "cancelled":
       return 6;
-    case "unknown":
+    case "succeeded":
       return 7;
+    case "unknown":
+      return 8;
   }
 }

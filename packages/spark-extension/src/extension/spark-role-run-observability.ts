@@ -16,6 +16,7 @@ export type SparkRoleRunObservedStatus =
   | "queued"
   | "waiting"
   | "running"
+  | "paused"
   | "done"
   | "blocked"
   | "failed"
@@ -147,6 +148,7 @@ const EMPTY_COUNTS: Record<SparkRoleRunObservedStatus, number> = {
   queued: 0,
   waiting: 0,
   running: 0,
+  paused: 0,
   done: 0,
   blocked: 0,
   failed: 0,
@@ -227,6 +229,8 @@ export function roleRunObservedStatus(run: TaskRun): SparkRoleRunObservedStatus 
       return "done";
     case "blocked":
       return "blocked";
+    case "paused":
+      return "paused";
     case "failed":
     case "cancelled":
     case "queued":

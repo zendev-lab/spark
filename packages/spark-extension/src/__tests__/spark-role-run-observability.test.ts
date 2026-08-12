@@ -12,6 +12,7 @@ import type {
 } from "@zendev-lab/spark-core";
 import { TaskGraph } from "@zendev-lab/spark-tasks";
 import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-runtime";
+import { collectBackgroundChildRuns } from "../extension/background-child-runs.ts";
 import {
   buildSparkRoleRunRegistry,
   findSparkRoleRunRegistryEntry,
@@ -96,6 +97,28 @@ test("Spark role-run registry reconstructs ordered lifecycle events from task ru
   assert.deepEqual(entry?.events.at(-1)?.evidenceRefs, ["evidence:trace"]);
   assert.equal(entry?.events.at(-1)?.provenance.source, "task-graph");
   assert.equal(snapshot.counts.done, 1);
+});
+
+test("Spark role-run views preserve paused as recoverable non-terminal state", () => {
+  const run = taskRun({
+    ref: "run:paused" as RunRef,
+    status: "paused",
+  });
+  const graph = graphWithRuns([run]);
+  const snapshot = buildSparkRoleRunRegistry({ graph });
+  const entry = findSparkRoleRunRegistryEntry(snapshot, run.ref);
+  const [child] = collectBackgroundChildRuns({
+    graph,
+    workflowRuns: [],
+    activeProcesses: [],
+    targetRunRef: run.ref,
+  });
+
+  assert.equal(entry?.status, "paused");
+  assert.equal(snapshot.counts.paused, 1);
+  assert.equal(entry?.finishedAt, undefined);
+  assert.equal(child?.status, "paused");
+  assert.match(child?.nextAction ?? "", /resume the paused run/u);
 });
 
 test("Spark role-run registry serialization is reload-safe JSON data", () => {

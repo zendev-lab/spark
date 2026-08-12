@@ -16,6 +16,7 @@ import {
 } from "@zendev-lab/spark-turn";
 import { SparkDaemonControlError } from "../control-error.ts";
 import { buildPendingDeliveriesQuery } from "./invocation-delivery-query.ts";
+import { ExecutionRunStore, executionRunRefForInvocation } from "./execution-runs.ts";
 
 export const sparkInvocationStatuses = [
   "queued",
@@ -527,6 +528,8 @@ export class SparkInvocationStore {
     }
 
     const invocationId = input.invocationId ?? `inv_${randomUUID().replaceAll("-", "")}`;
+    const ownsTransaction = !this.db.isTransaction;
+    if (ownsTransaction) this.db.exec("BEGIN IMMEDIATE");
     try {
       this.db
         .prepare(
@@ -552,7 +555,17 @@ export class SparkInvocationStore {
           now,
           now,
         );
+      new ExecutionRunStore(this.db).createRun({
+        runRef: executionRunRefForInvocation(invocationId),
+        invocationId,
+        workspaceId: input.workspaceBindingId,
+        now,
+      });
+      const record = this.require(invocationId);
+      if (ownsTransaction) this.db.exec("COMMIT");
+      return record;
     } catch (error) {
+      if (ownsTransaction && this.db.isTransaction) this.db.exec("ROLLBACK");
       if (input.idempotencyKey) {
         const existing = this.findByIdempotencyKey(input.idempotencyKey);
         if (existing) {
@@ -562,7 +575,6 @@ export class SparkInvocationStore {
       }
       throw error;
     }
-    return this.require(invocationId);
   }
 
   submitIfSessionIdle(input: SubmitSparkInvocationInput): SparkInvocationRecord {
@@ -646,6 +658,12 @@ export class SparkInvocationStore {
         input.startedAt ?? null,
         input.finishedAt ?? null,
       );
+    new ExecutionRunStore(this.db).createRun({
+      runRef: executionRunRefForInvocation(input.invocationId),
+      invocationId: input.invocationId,
+      workspaceId: input.workspaceBindingId,
+      now: input.createdAt,
+    });
     return this.require(input.invocationId);
   }
 

@@ -11,6 +11,8 @@ import {
   type RoadmapItem,
   type RoadmapItemRef,
   type RoleRef,
+  type ExecutionAttemptAggregate,
+  type ExecutionRunAggregate,
   type Task,
   type TaskClaim,
   type TaskDependency,
@@ -70,6 +72,36 @@ import {
   taskTodosFromPlanItems,
   uniqueTaskName,
 } from "./internal.ts";
+
+export function applyExecutionProjection(
+  taskRun: TaskRun,
+  aggregate: ExecutionRunAggregate,
+  attempt?: ExecutionAttemptAggregate,
+): TaskRun {
+  let status: TaskRun["status"];
+  switch (aggregate.status) {
+    case "recovery_required":
+      status = "blocked";
+      break;
+    case "cancelling":
+      status = "running";
+      break;
+    default:
+      status = aggregate.status;
+  }
+  let execution = taskRun.execution;
+  if (execution && attempt) execution = { ...execution, attempt: attempt.attempt };
+  const projected = { ...taskRun, status, execution };
+  if (aggregate.status !== "paused" && aggregate.status !== "recovery_required") {
+    return projected;
+  }
+  return {
+    ...projected,
+    finishedAt: undefined,
+    errorMessage: undefined,
+    failureKind: undefined,
+  };
+}
 
 export class TaskGraph {
   #projects = new Map<ProjectRef, Project>();

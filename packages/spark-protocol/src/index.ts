@@ -7,4 +7,5 @@ export * from "./memory-approval.ts";
 export * from "./repro-formal-evidence.ts";
 export * from "./a2ui.ts";
 export * from "./role-session.ts";
+export * from "./execution-lifecycle.ts";
 export * from "./runtime-v1/diagnostics.ts";
