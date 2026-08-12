@@ -1,6 +1,8 @@
 import { sparkProtocolJsonObjectSchema } from "@zendev-lab/spark-protocol/daemon";
-import { type HumanResponseDeliverPayload } from "@zendev-lab/spark-protocol/runtime";
-import { type ServerCommandPayload } from "@zendev-lab/spark-protocol/daemon";
+import {
+  type HumanResponseDeliverPayload,
+  type ServerCommandPayload,
+} from "@zendev-lab/spark-protocol/runtime";
 import { type SparkHumanResponseStatus } from "@zendev-lab/spark-protocol/interaction";
 
 export type ApprovalCenterKind = "ask" | "workflow_risk" | "goal_review" | "approval";

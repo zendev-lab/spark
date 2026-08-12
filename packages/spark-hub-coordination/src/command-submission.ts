@@ -5,7 +5,7 @@
  * in SQLite and runtime-ws flushes them as `server.command` envelopes on reconnect/heartbeat.
  */
 
-import type { ServerCommandPayload } from "@zendev-lab/spark-protocol/daemon";
+import type { ServerCommandPayload } from "@zendev-lab/spark-protocol/runtime";
 import type { DatabaseSync } from "node:sqlite";
 import { queueCommandForWorkspaceLease, type QueueCommandInput } from "./projection-services.ts";
 

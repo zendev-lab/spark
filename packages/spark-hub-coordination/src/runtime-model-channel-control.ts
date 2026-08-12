@@ -10,10 +10,10 @@ import {
   type RuntimeCommandResultPayload,
   type RuntimeEphemeralSecretRequestPayload,
   type RuntimeEphemeralSecretResultPayload,
+  type ServerCommandPayload,
   type ServerEphemeralSecretRequestEnvelope,
 } from "@zendev-lab/spark-protocol/runtime";
 import {
-  type ServerCommandPayload,
   type SparkChannelControlSnapshot,
   type SparkModelControlSnapshot,
   type SparkProtocolJsonValue,

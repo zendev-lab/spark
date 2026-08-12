@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import {
-  createId,
   runtimeProtocolVersion,
   serverErrorEnvelopeSchema,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
 import type { RawData } from "ws";
 
 import {

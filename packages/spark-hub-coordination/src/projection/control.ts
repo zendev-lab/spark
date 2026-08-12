@@ -9,7 +9,7 @@ import {
   type WorkspaceBorrowedState,
   type WorkspaceClientProjection,
 } from "@zendev-lab/spark-protocol/runtime";
-import { type ServerCommandPayload } from "@zendev-lab/spark-protocol/daemon";
+import { type ServerCommandPayload } from "@zendev-lab/spark-protocol/runtime";
 
 import { appendEvent, nowIso, toJson, withTransaction } from "./workspace.ts";
 

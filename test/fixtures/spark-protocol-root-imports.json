@@ -2,6 +2,28 @@
   "schemaVersion": 1,
   "description": "Shrinking allowlist for production root-barrel imports of @zendev-lab/spark-protocol. New production root imports are forbidden; count may only decrease.",
   "packageName": "@zendev-lab/spark-protocol",
+  "migrationBaselineProductionRootImportCount": 207,
   "productionRootImportCeiling": 0,
+  "migrationBaselineRootExportCount": 1140,
+  "rootBarrelExportCeiling": 1119,
+  "rootBarrelExportDigest": "f5c28ca63aa8c1ddad7400d89165175e0514f5ecb5e805e16d638461e4029bee",
+  "subpathExportDigests": {
+    "domain": "355d03bd70342b06b3d242768de792b7ff49c173b992c0b12dbe6093347a174b",
+    "daemon": "adc6654ef3ddaeadfa3593af01d166c4a165a8ab6b8656f11ca3f34bcba6b180",
+    "runtime": "f2891d8a49b977777a4fad195d868e430ca6126ad79fb63f97fc9f54365f5b0d",
+    "interaction": "5a31c0e7f4c3c92bf88fa5d023799812952615833758c5ecdafbc5ca2734f887",
+    "presentation": "fae84eea33b7a3b5ae124e44bbe3f3c8a7732703d80038bb6698ce1b0f319fd2"
+  },
+  "rootBarrelModules": [
+    "./protocol.ts",
+    "./agent-tracing.ts",
+    "./conversation.ts",
+    "./local-rpc-orpc-contract.ts",
+    "./task-claim.ts",
+    "./memory-approval.ts",
+    "./repro-formal-evidence.ts",
+    "./a2ui.ts",
+    "./role-session.ts"
+  ],
   "requiredSubpaths": ["domain", "daemon", "runtime", "interaction", "presentation"]
 }

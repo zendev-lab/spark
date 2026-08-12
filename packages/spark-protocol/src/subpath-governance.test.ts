@@ -1,8 +1,15 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
+
+import {
+  findSparkProtocolRootReferences,
+  isSparkProductionSourcePath,
+  sparkProtocolSubpathBoundaryViolations,
+} from "../../../scripts/spark-protocol-governance.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageJsonPath = join(here, "..", "package.json");
@@ -56,10 +63,62 @@ describe("spark-protocol subpath governance", () => {
 
   test("runtime barrel stays inside runtime-v1 modules", () => {
     const runtime = readFileSync(runtimePath, "utf8");
-    for (const line of runtime.split("\n")) {
-      if (!line.includes("from ")) continue;
-      if (!line.includes("./")) continue;
-      expect(line.includes("./runtime-v1/")).toBe(true);
+    expect(sparkProtocolSubpathBoundaryViolations("runtime", runtime)).toEqual([]);
+  });
+
+  test("rejects every supported root-barrel reference form", () => {
+    const forbidden = [
+      'import { createId } from "@zendev-lab/spark-protocol";',
+      'export { createId } from "@zendev-lab/spark-protocol";',
+      'import "@zendev-lab/spark-protocol";',
+      'const protocol = import("@zendev-lab/spark-protocol");',
+      'type Protocol = import("@zendev-lab/spark-protocol").SparkJsonValue;',
+      'const protocol = require("@zendev-lab/spark-protocol");',
+    ];
+    for (const source of forbidden) {
+      expect(findSparkProtocolRootReferences(source), source).toHaveLength(1);
     }
+    expect(
+      findSparkProtocolRootReferences(
+        'import { createId } from "@zendev-lab/spark-protocol/domain";',
+      ),
+    ).toEqual([]);
+  });
+
+  test.each([
+    ["presentation", "presentation-imports-daemon.ts"],
+    ["domain", "domain-imports-presentation.ts"],
+    ["runtime", "runtime-imports-application.ts"],
+  ])("rejects forbidden %s boundary fixture with a non-zero exit", (subpath, fixture) => {
+    const checker = join(
+      here,
+      "..",
+      "..",
+      "..",
+      "scripts",
+      "check-spark-protocol-boundary-fixture.mjs",
+    );
+    const fixturePath = join(
+      here,
+      "..",
+      "..",
+      "..",
+      "test",
+      "fixtures",
+      "spark-protocol-boundaries",
+      fixture,
+    );
+    expect(() => execFileSync(process.execPath, [checker, subpath, fixturePath])).toThrow();
+    expect(
+      sparkProtocolSubpathBoundaryViolations(subpath, readFileSync(fixturePath, "utf8")),
+    ).not.toEqual([]);
+  });
+
+  test("production filtering cannot hide non-test source variants", () => {
+    expect(isSparkProductionSourcePath("apps/demo/src/main.mts")).toBe(true);
+    expect(isSparkProductionSourcePath("packages/demo/src/main.cts")).toBe(true);
+    expect(isSparkProductionSourcePath("packages/demo/src/main.jsx")).toBe(true);
+    expect(isSparkProductionSourcePath("packages/demo/src/main.test.ts")).toBe(false);
+    expect(isSparkProductionSourcePath("packages/demo/src/__tests__/main.ts")).toBe(false);
   });
 });

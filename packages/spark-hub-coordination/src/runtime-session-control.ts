@@ -9,9 +9,11 @@ import {
   sparkTurnSubmitResultSchema,
 } from "@zendev-lab/spark-protocol/daemon";
 import { createId } from "@zendev-lab/spark-protocol/domain";
-import { type RuntimeCommandResultPayload } from "@zendev-lab/spark-protocol/runtime";
 import {
+  type RuntimeCommandResultPayload,
   type ServerCommandPayload,
+} from "@zendev-lab/spark-protocol/runtime";
+import {
   type SparkProtocolJsonValue,
   type SparkSessionRegistryRecord,
   type SparkTurnCancelResult,

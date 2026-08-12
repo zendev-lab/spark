@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import {
-  createId,
   runtimeProtocolVersion,
   SparkRuntimeProtocolDiagnosticError,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
 
 import { parseHubRuntimeMessage, SparkHubRuntimeError } from "./server-message-diagnostics.ts";
 

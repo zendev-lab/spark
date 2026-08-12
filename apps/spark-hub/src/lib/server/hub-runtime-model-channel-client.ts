@@ -19,8 +19,8 @@ import {
   parseSparkQqbotQrAuthFlow,
   parseSparkSessionRegistryRecord,
 } from "@zendev-lab/spark-protocol/daemon";
+import type { ServerCommandPayload } from "@zendev-lab/spark-protocol/runtime";
 import {
-  type ServerCommandPayload,
   type SparkAuthFlow,
   type SparkChannelControlSnapshot,
   type SparkModelControlSnapshot,

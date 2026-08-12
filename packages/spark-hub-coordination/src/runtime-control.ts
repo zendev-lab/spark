@@ -9,8 +9,8 @@ import {
   type RuntimeCommandAckPayload,
   type RuntimeCommandRejectPayload,
   type RuntimeCommandResultPayload,
+  type ServerCommandPayload,
 } from "@zendev-lab/spark-protocol/runtime";
-import { type ServerCommandPayload } from "@zendev-lab/spark-protocol/daemon";
 import { appendEvent } from "./projection-services.ts";
 
 function parsePersistedJson(value: string, context: string): unknown {

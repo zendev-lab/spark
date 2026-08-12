@@ -14,7 +14,7 @@ Prefer these package exports for production imports:
 | `@zendev-lab/spark-protocol/interaction` | human interaction, ask semantics, loop contracts |
 | `@zendev-lab/spark-protocol/presentation` | A2UI, conversation projections, composite view models |
 
-The package root barrel remains a compatibility surface only. Production root-barrel imports are held at a shrinking ceiling of zero by `test/fixtures/spark-protocol-root-imports.json`.
+The package root barrel remains a compatibility surface only. The migration reduced production root references from 207 to 0 and root public symbols from 1140 to 1119. `test/fixtures/spark-protocol-root-imports.json` freezes the exact root/subpath symbol digests and shrinking ceilings; `check:architecture` rejects static imports/exports, side-effect imports, dynamic/type imports, `require`, forbidden cross-subpath edges, and symbols exported by more than one contract domain.
 
 The shared RoleSpec contract carries stable revision, semantic Model Type, capabilities, and instantiation policy. Session assignment carries independent lifetime, owner, lifecycle, authority, state binding, visibility, retention, purpose, and transcript reference fields. A discard-on-close Session may retain up to 16 daemon-sealed, 16 KiB close receipts while its transcript and invocation payloads are deleted. Close candidates are strict owner reports, not Evidence or automatic Memory. Decoders preserve unknown RoleSpec extension fields so older surfaces can read newer definitions without inventing lifecycle behavior.
 

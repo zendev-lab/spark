@@ -201,9 +201,13 @@ changes extension specifiers and user configuration compatibility.
   dependency on another Spark workspace. Public production imports use the
   contract-domain subpaths `domain`, `daemon`, `runtime`, `interaction`, and
   `presentation`. The package root barrel remains only as a shrinking
-  compatibility surface: new production root-barrel imports are forbidden, and
-  the production root import ceiling is owned by
-  `test/fixtures/spark-protocol-root-imports.json`.
+  compatibility surface: migration reduced production root references from 207
+  to 0 and root public symbols from 1140 to 1119. Static imports, exports,
+  side-effect imports, dynamic/type imports, and `require` are all scanned.
+  Symbol-set digests, unique subpath ownership, forbidden cross-subpath edges,
+  and both shrinking ceilings are owned by
+  `test/fixtures/spark-protocol-root-imports.json` and enforced by
+  `check:architecture`.
 - `spark-system` contains only local-system mechanisms: paths, permissions,
   commands, SQLite opening, strings, and the socket MessagePort adapter. It has
   no Spark workspace dependency.

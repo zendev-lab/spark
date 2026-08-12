@@ -11,7 +11,6 @@ export * from "./display-error.ts";
 export * from "./daemon-rpc-errors.ts";
 export * from "./token-usage.ts";
 export * from "./artifact-document.ts";
-export * from "./tool-display.ts";
 export * from "./host-events.ts";
 export * from "./agent-tracing.ts";
 export * from "./repro-formal-evidence.ts";
