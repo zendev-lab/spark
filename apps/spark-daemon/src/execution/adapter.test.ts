@@ -283,7 +283,7 @@ describe("production execution attempt orchestration", () => {
       });
 
       await expect(session.execute()).resolves.toEqual({ ok: true });
-      expect(persisted).toHaveLength(1);
+      expect(persisted).toHaveLength(0);
       session.terminal(status);
       expect(persisted).toHaveLength(2);
       expect(harness.attempts.events(harness.invocationId)).toEqual(
@@ -333,11 +333,7 @@ describe("production execution attempt orchestration", () => {
     });
 
     await expect(session.execute()).resolves.toEqual({ ok: true });
-    expect(streamingTexts(persisted)).toEqual([
-      "epoch-1-leading",
-      "epoch-1-latest",
-      "epoch-2-leading",
-    ]);
+    expect(streamingTexts(persisted)).toEqual(["epoch-1-leading", "epoch-1-latest"]);
     expect(() =>
       staleParent?.recordEvent(streamingMessage(invocationId, "stale-replacement")),
     ).toThrow(expect.objectContaining({ code: "execution_attempt_stale" }));

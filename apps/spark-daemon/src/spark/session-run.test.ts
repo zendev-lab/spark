@@ -493,6 +493,7 @@ describe("daemon native session execution", () => {
       return taskSession;
     });
     const getInvocationVisibilitySnapshot = vi.fn(async () => taskSession);
+    const recordTurnQueued = vi.fn(async () => taskSession);
     const recordRun = vi.fn(async () => {
       runRecorded = true;
       return {} as never;
@@ -525,7 +526,7 @@ describe("daemon native session execution", () => {
         get: ordinaryGet,
         getInvocationVisibilitySnapshot,
         recordRun,
-        recordTurnQueued: vi.fn(async () => ({}) as never),
+        recordTurnQueued,
         recordTurnSettled: vi.fn(async () => ({}) as never),
       },
       loopControl: {
@@ -559,7 +560,8 @@ describe("daemon native session execution", () => {
       }),
     );
     expect(release).toHaveBeenCalledOnce();
-    expect(getInvocationVisibilitySnapshot).toHaveBeenCalledWith("sess_task_execution");
+    expect(recordTurnQueued).toHaveBeenCalledWith("sess_task_execution");
+    expect(getInvocationVisibilitySnapshot).not.toHaveBeenCalled();
     expect(ordinaryGet).toHaveBeenCalledOnce();
     expect(wakeOwner).toHaveBeenCalledWith("sess_owner", {
       target: "repro",
@@ -2769,6 +2771,27 @@ describe("daemon native session execution", () => {
     const recordTurnQueued = vi.fn(async () => ({}) as never);
     const recordTurnSettled = vi.fn(async () => ({}) as never);
     const recordRun = vi.fn(async () => ({}) as never);
+    const wakeOwner = vi.fn();
+    const getInvocationVisibilitySnapshot = vi.fn(
+      async () =>
+        ({
+          ...workspaceSessionRecord({
+            sessionId: "owner-session",
+            workspaceId: "workspace-fresh",
+          }),
+          owner: {
+            kind: "task_run",
+            supervisorSessionId: "managed-owner-session",
+            projectRef: "proj:loop-owner",
+            taskRef: "task:loop-owner",
+            runRef: "run:loop-owner",
+            sessionGoalId: "goal:loop-owner",
+            roleRef: "role:builtin-explorer",
+            jobId: "task-job:loop-owner",
+            attempt: 1,
+          },
+        }) as never,
+    );
     const task: SparkDaemonLoopTickTask = {
       type: "loop.tick",
       sessionId: "owner-session",
@@ -2835,6 +2858,7 @@ describe("daemon native session execution", () => {
             updatedAt: "2026-07-23T00:00:00.000Z",
           }),
         ),
+        getInvocationVisibilitySnapshot,
         recordTurnQueued,
         recordTurnSettled,
         recordRun,
@@ -2842,6 +2866,7 @@ describe("daemon native session execution", () => {
       loopControl: {
         schedule: vi.fn(),
         stop: vi.fn(),
+        wakeOwner,
       },
       createSparkHeadlessSessionExecutor: () => executeSession,
     });
@@ -2874,6 +2899,11 @@ describe("daemon native session execution", () => {
     );
     expect(recordRun).not.toHaveBeenCalled();
     expect(recordTurnSettled).toHaveBeenCalledWith("owner-session");
+    expect(getInvocationVisibilitySnapshot).toHaveBeenCalledWith("owner-session");
+    expect(wakeOwner).toHaveBeenCalledWith("managed-owner-session", {
+      target: "repro",
+      reason: expect.stringContaining("task:loop-owner"),
+    });
     expect(emitted).toEqual([
       expect.objectContaining({
         sessionId: "owner-session",

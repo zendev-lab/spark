@@ -98,11 +98,13 @@ the attempt and invocation non-terminal for daemon recovery instead of treating 
 missing usage sequence as committed. The daemon commits a terminal state once.
 
 The daemon ingress coalesces only complete `daemon.view_event` snapshots whose
-view is a streaming assistant `session.message`. It durably writes the leading
-snapshot immediately and the latest trailing snapshot at intervals no longer
-than 100 milliseconds. The key includes invocation, Session, and message
-identity; replacement text does not need to extend the prior text. Every other
-event remains uncoalesced. Before persisting a tool, lifecycle, Artifact,
+view is a streaming assistant `session.message`. It retains the leading
+snapshot and the latest trailing snapshot at intervals no longer than 100
+milliseconds. All streaming snapshots share one daemon-wide cooperative FIFO
+that performs at most one durable write per macrotask. The key includes
+invocation, Session, and message identity; replacement text does not need to
+extend the prior text. Every other event remains uncoalesced. Before persisting a
+tool, lifecycle, Artifact,
 interaction, error, done, cancellation, or other non-coalescible event, the
 daemon synchronously flushes pending snapshots for that invocation. Terminal,
 failure, cancellation, retry replacement, and cooperative restart-yield paths

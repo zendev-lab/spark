@@ -36,7 +36,9 @@ export interface DaemonEventIngressOptions {
  * Streaming assistant message events are complete replacement snapshots, so
  * persisting every provider token only amplifies synchronous SQLite work. Keep
  * the leading snapshot and the latest trailing snapshot for each message while
- * preserving every event that carries a state transition or side effect.
+ * preserving every event that carries a state transition or side effect. All
+ * streaming writes share one cooperative daemon-wide pump so a burst of new
+ * streams cannot monopolize the event loop with synchronous persistence.
  */
 export class DaemonEventIngress implements ExecutionAttemptEventIngress {
   readonly #now: () => number;
@@ -71,19 +73,20 @@ export class DaemonEventIngress implements ExecutionAttemptEventIngress {
     this.#flushOtherPending(invocationId, key);
     const now = this.#now();
     const current = this.#streams.get(key);
+    const snapshot = { event, order: (this.#nextOrder += 1), persist };
     if (!current) {
-      persist(event);
-      this.#streams.set(key, { invocationId, lastPersistedAt: now });
+      const stream = { invocationId, lastPersistedAt: now };
+      this.#streams.set(key, stream);
       let keys = this.#keysByInvocation.get(invocationId);
       if (!keys) {
         keys = new Set();
         this.#keysByInvocation.set(invocationId, keys);
       }
       keys.add(key);
+      this.#markReady(key, stream, snapshot);
       return;
     }
 
-    const snapshot = { event, order: (this.#nextOrder += 1), persist };
     if (!current.ready && now - current.lastPersistedAt >= this.#intervalMs) {
       if (current.timer) clearTimeout(current.timer);
       current.timer = undefined;

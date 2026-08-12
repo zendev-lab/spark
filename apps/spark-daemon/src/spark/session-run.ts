@@ -394,10 +394,11 @@ export function createSparkDaemonTaskExecutor(
             release(): void | Promise<void>;
           }
         | undefined;
+      let queuedSession: SparkSessionState | undefined;
       let preserveLoopGenerationForRestart = false;
       try {
         sessionLease = await options.sessionLeaseControl?.acquire(sessionTask, trackedContext);
-        await options.sessionRegistry?.recordTurnQueued(sessionTask.sessionId);
+        queuedSession = await options.sessionRegistry?.recordTurnQueued(sessionTask.sessionId);
         const frozenSessionContext = await sessionContextForTask(
           sessionTask,
           options.sessionRegistry,
@@ -433,7 +434,11 @@ export function createSparkDaemonTaskExecutor(
           options.sessionRegistry,
           options.refreshSessionSnapshotIndex ?? refreshSparkSessionSnapshotIndex,
         );
-        await wakeTaskExecutionOwner(loopTask?.ownerSessionId ?? effectiveTask.sessionId, options);
+        await wakeTaskExecutionOwner(
+          loopTask?.ownerSessionId ?? effectiveTask.sessionId,
+          options,
+          loopTask ? undefined : queuedSession,
+        );
         if (completed.indexed && !loopTask) {
           // Naming is a detached post-commit projection, so it must not keep a
           // successful invocation open. It still observes cancellation/drain
@@ -456,7 +461,11 @@ export function createSparkDaemonTaskExecutor(
           await emitSessionFailure(sessionTask, trackedContext, error);
         }
         await settleFailedSessionRun(sessionTask.sessionId, options.sessionRegistry);
-        await wakeTaskExecutionOwner(loopTask?.ownerSessionId ?? sessionTask.sessionId, options);
+        await wakeTaskExecutionOwner(
+          loopTask?.ownerSessionId ?? sessionTask.sessionId,
+          options,
+          loopTask ? undefined : queuedSession,
+        );
         throw error;
       } finally {
         if (!preserveLoopGenerationForRestart) {
@@ -2424,18 +2433,17 @@ async function settleSessionRun(
 async function wakeTaskExecutionOwner(
   sessionId: string,
   options: SparkDaemonTaskExecutorOptions,
+  knownSession?: SparkSessionState,
 ): Promise<void> {
-  if (
-    !options.sessionRegistry?.getInvocationVisibilitySnapshot ||
-    !options.loopControl?.wakeOwner
-  ) {
-    return;
-  }
+  if (!options.loopControl?.wakeOwner) return;
+  const readVisibilitySnapshot = options.sessionRegistry?.getInvocationVisibilitySnapshot;
+  if (!knownSession && !readVisibilitySnapshot) return;
   try {
-    // Task ownership is immutable after Session creation. Read the last atomic
-    // snapshot without waiting behind unrelated terminal recordRun mutations;
-    // ordinary read-after-mutation consistency is unnecessary for this gate.
-    const session = await options.sessionRegistry.getInvocationVisibilitySnapshot(sessionId);
+    // Task ownership is immutable after Session creation. Ordinary turns reuse
+    // the authoritative recordTurnQueued result and perform no terminal read.
+    // Loop ticks can target a different owner Session, so they use the last
+    // atomic visibility snapshot without waiting behind unrelated recordRun work.
+    const session = knownSession ?? (await readVisibilitySnapshot!(sessionId));
     if (session?.owner?.kind !== "task_run" && session?.owner?.kind !== "task_revision") return;
     await options.loopControl.wakeOwner(session.owner.supervisorSessionId, {
       target: "repro",
