@@ -11,16 +11,13 @@
   let snapshot = $derived(data.control.snapshot);
   let flow = $derived(data.flow);
   let scopedModelValues = $derived(
-    snapshot.scopedModels
-      ? new Set(snapshot.scopedModels.map((model) => modelValue(model)))
-      : null,
+    new Set((snapshot.scopedModels ?? []).map((model) => modelValue(model))),
   );
   let availableModels = $derived(
     snapshot.providers.flatMap((provider: SparkModelCatalogProvider) =>
       provider.models.filter(
         (entry) =>
-          entry.available &&
-          (scopedModelValues === null || scopedModelValues.has(modelValue(entry.model))),
+          entry.available && scopedModelValues.has(modelValue(entry.model)),
       ),
     ),
   );
@@ -91,8 +88,7 @@
       options: provider.models
         .filter(
           (entry) =>
-            entry.available &&
-            (scopedModelValues === null || scopedModelValues.has(modelValue(entry.model))),
+            entry.available && scopedModelValues.has(modelValue(entry.model)),
         )
         .map((entry) => ({
           value: modelValue(entry.model),

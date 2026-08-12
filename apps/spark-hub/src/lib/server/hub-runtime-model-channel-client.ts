@@ -127,6 +127,23 @@ export interface HubRuntimeModelCatalogInput {
   timeoutMs?: number;
 }
 
+/**
+ * Adjacent-version compatibility for daemons that predate model-scope projections.
+ * Keep this translation at the Hub-to-daemon boundary so browser surfaces only
+ * consume one current snapshot shape.
+ */
+export function adaptLegacyDaemonModelControlSnapshot(
+  snapshot: SparkModelControlSnapshot,
+): SparkModelControlSnapshot {
+  if (snapshot.scopedModels !== undefined) return snapshot;
+  return {
+    ...snapshot,
+    scopedModels: snapshot.providers.flatMap((provider) =>
+      provider.models.map((entry) => entry.model),
+    ),
+  };
+}
+
 export function createHubRuntimeModelChannelClient(
   injectedDatabase?: DatabaseSync,
 ): HubRuntimeModelChannelClient {
@@ -170,15 +187,18 @@ async function catalog(
   // Prefer the live command result. Cached projection is offline fallback only;
   // a truthy empty projection must not hide a successful catalog response.
   const live = parseSparkModelControlSnapshot(result.snapshot);
-  if (live.providers.length > 0) return live;
-  return getRuntimeModelControlProjection(db, route.runtimeId) ?? live;
+  if (live.providers.length > 0) return adaptLegacyDaemonModelControlSnapshot(live);
+  return adaptLegacyDaemonModelControlSnapshot(
+    getRuntimeModelControlProjection(db, route.runtimeId) ?? live,
+  );
 }
 
 function projectedCatalog(
   db: DatabaseSync,
   input: HubRuntimeModelCatalogInput,
 ): SparkModelControlSnapshot | null {
-  return getRuntimeModelControlProjection(db, modelCatalogRoute(db, input).runtimeId);
+  const projected = getRuntimeModelControlProjection(db, modelCatalogRoute(db, input).runtimeId);
+  return projected ? adaptLegacyDaemonModelControlSnapshot(projected) : null;
 }
 
 function modelCatalogRoute(db: DatabaseSync, input: HubRuntimeModelCatalogInput) {
@@ -202,9 +222,9 @@ async function setDefault(
     requestedByUserId: input.requestedByUserId,
     payload: { kind: "model.default.set.request", payload: publicRuntimeObject(input) },
   });
-  return (
+  return adaptLegacyDaemonModelControlSnapshot(
     getRuntimeModelControlProjection(db, route.runtimeId) ??
-    parseSparkModelControlSnapshot(result.snapshot)
+      parseSparkModelControlSnapshot(result.snapshot),
   );
 }
 
@@ -269,9 +289,10 @@ async function logoutProvider(
   });
   return {
     removed: result.removed === true,
-    snapshot:
+    snapshot: adaptLegacyDaemonModelControlSnapshot(
       getRuntimeModelControlProjection(db, route.runtimeId) ??
-      parseSparkModelControlSnapshot(result.snapshot),
+        parseSparkModelControlSnapshot(result.snapshot),
+    ),
   };
 }
 
@@ -297,7 +318,7 @@ async function setProviderApiKey(
     context: input.context,
     requestId: input.requestId,
   });
-  return parseSparkModelControlSnapshot(result.result);
+  return adaptLegacyDaemonModelControlSnapshot(parseSparkModelControlSnapshot(result.result));
 }
 
 async function startOAuth(
