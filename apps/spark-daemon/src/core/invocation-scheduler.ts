@@ -39,8 +39,12 @@ import {
   type SparkDaemonTaskExecutor,
   type SparkDaemonTokenUsageObservation,
 } from "./types.ts";
+import {
+  DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY,
+  INVOCATION_SCHEDULER_QUESTION_OVERFLOW,
+} from "./invocation-scheduler-policy.ts";
 
-export const DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY = 4;
+export { DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY } from "./invocation-scheduler-policy.ts";
 /**
  * Daemon turns are durable background work, so their default lifetime is
  * bounded by explicit cancellation rather than an arbitrary wall-clock
@@ -49,7 +53,7 @@ export const DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY = 4;
  */
 export const DEFAULT_INVOCATION_TASK_TIMEOUT_MS = 0;
 export const DEFAULT_INVOCATION_ABORT_DRAIN_MS = 1_000;
-const MAX_BLOCKING_QUESTION_OVERFLOW = 1;
+export { INVOCATION_SCHEDULER_QUESTION_OVERFLOW } from "./invocation-scheduler-policy.ts";
 
 interface ActiveInvocation {
   invocation: SparkInvocationRecord;
@@ -213,7 +217,7 @@ export class SparkInvocationScheduler {
     }
     if (
       this.active.size >= this.concurrency &&
-      this.activeQuestionCount() < MAX_BLOCKING_QUESTION_OVERFLOW
+      this.activeQuestionCount() < INVOCATION_SCHEDULER_QUESTION_OVERFLOW
     ) {
       const question = this.store.claimNext(
         this.workerId,

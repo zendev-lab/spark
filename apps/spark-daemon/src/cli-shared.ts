@@ -177,6 +177,7 @@ export function printDaemonHelp(io: CliIo): void {
 
 Commands:
   status [--json]
+  configure --invocation-concurrency <integer 1..64> [--json]
   start
   stop
   restart [--yes] [--wait]
@@ -211,6 +212,7 @@ Commands:
   uplink status [--json]
   ws
   status
+  configure --invocation-concurrency <integer 1..64> [--json]
   start
   stop
   restart [--yes] [--wait]

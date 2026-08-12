@@ -58,6 +58,11 @@ describe("local-rpc direct oRPC service", () => {
       db,
       handlerOptions: {
         getLifecycle: () => ({ state: "running" as const }),
+        getExecutionStatus: () => ({
+          backend: "in_process" as const,
+          rootConcurrency: 8,
+          questionOverflow: 1 as const,
+        }),
       },
     });
     closers.push(() => server.close());
@@ -69,6 +74,7 @@ describe("local-rpc direct oRPC service", () => {
 
     await expect(handle.client.daemon.status({})).resolves.toMatchObject({
       lifecycle: { state: "running" },
+      execution: { backend: "in_process", rootConcurrency: 8, questionOverflow: 1 },
     });
     await expect(handle.client.workspace.list({})).resolves.toMatchObject({
       workspaces: [expect.objectContaining({ localPath: join(dir, "workspace") })],
