@@ -1714,7 +1714,7 @@ test("TUI action bar dispatches a normal action once even when Enter repeats", a
   await Promise.resolve();
 });
 
-test("bare catalog slash enters its primary destination without an intermediate action bar", async () => {
+test("bare catalog slash enters its protocol default destination without an intermediate action bar", async () => {
   const calls: string[] = [];
   const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,

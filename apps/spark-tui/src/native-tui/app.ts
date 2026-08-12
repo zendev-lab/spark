@@ -12,6 +12,7 @@ import {
   createBlockedInteractionResponse,
   parseSparkInteractionResponse,
   parseSparkViewModelEvent,
+  sparkActionBarDefaultAction,
   sparkSlashActionBarForInput,
   type SparkActionBarView,
   type SparkActionView,
@@ -2345,16 +2346,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
     const actionBar = sparkSlashActionBarForInput(input);
     if (actionBar) {
       // Bare slash commands enter their canonical destination in one step.
-      // The thinking-level bar is itself the final selector; every other
-      // catalog bar is presentation metadata whose primary action identifies
-      // the destination that the native TUI should enter directly.
-      if (actionBar.id === "thinking") {
-        this.openActionBar(actionBar);
-        return;
-      }
-      const primaryAction =
-        actionBar.actions.find((action) => action.tone === "primary") ?? actionBar.actions[0];
-      if (primaryAction) await this.executeActionBarAction(primaryAction);
+      // A protocol-owned default identifies shorthand behavior; bars without
+      // one (such as the thinking selector) are themselves the destination.
+      const defaultAction = sparkActionBarDefaultAction(actionBar);
+      if (defaultAction) await this.executeActionBarAction(defaultAction);
+      else this.openActionBar(actionBar);
       return;
     }
 
