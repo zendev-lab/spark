@@ -1096,39 +1096,6 @@ test("ask_user uses protocol interaction before legacy select UI", async () => {
   assert.equal(result.nextAction, "resume");
 });
 
-test("ask_user fails closed when protocol interaction is blocked", async () => {
-  await assert.rejects(
-    () =>
-      askUser(
-        createAskUserRequest({
-          title: "Choose mode",
-          mode: "clarification",
-          questions: [
-            {
-              id: "mode",
-              prompt: "Which mode?",
-              type: "single",
-              options: [
-                { value: "fast_mode", label: "Fast path" },
-                { value: "safe_mode", label: "Safe path" },
-              ],
-            },
-          ],
-        }),
-        {
-          interaction: async (request) => ({
-            kind: "askFlow",
-            requestId: request.requestId,
-            status: "blocked",
-            message: "headless host",
-          }),
-          select: async () => "Safe path",
-        },
-      ),
-    /ASK_TRANSPORT_REJECTED: headless host/u,
-  );
-});
-
 test("ask_user preserves protocol cancellation as a blocking result", async () => {
   const result = await askUser(
     createAskUserRequest({

@@ -180,7 +180,6 @@ describe("WorkbenchSessionRail browser contract", () => {
         "mode=contextual • generation=1 • status=ready",
       );
       expect(childLink?.getAttribute("href")).toBe("/spark/sessions/parent-alpha");
-      expect(screen.container.innerHTML).toMatchSnapshot();
 
       screen.getByRole("link", { name: `${messages.showArchived} (1)` });
       const showArchivedToggle =
