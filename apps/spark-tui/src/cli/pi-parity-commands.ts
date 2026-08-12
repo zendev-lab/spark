@@ -588,7 +588,7 @@ async function handleCompactCommand(
   client?: SparkSessionCompactClient,
 ): Promise<string> {
   if (!client) {
-    return "Session compaction is unavailable: this TUI is not attached to the daemon-owned session.compact capability.";
+    throw new Error("Spark TUI compact command requires its same-version daemon client");
   }
 
   const customInstructions = args.trim() || undefined;

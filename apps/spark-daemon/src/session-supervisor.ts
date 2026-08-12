@@ -482,8 +482,7 @@ export class SessionSupervisor {
     if (this.invocations.sessionActivity(current.sessionId).active) {
       return await this.require(current.sessionId);
     }
-    const settled = await this.registry.recordTurnSettled(current.sessionId, input.now);
-    const redaction = await this.prepareContentDiscard(settled, input);
+    const redaction = await this.prepareContentDiscard(current, input);
     if (redaction?.blockedInvocationIds.length) return await this.require(current.sessionId);
     const archiveInput: Parameters<DaemonSessionRegistry["archiveOwned"]>[0] = {
       sessionId: current.sessionId,

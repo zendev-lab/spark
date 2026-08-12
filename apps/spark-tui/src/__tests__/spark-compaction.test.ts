@@ -856,17 +856,16 @@ test("native /compact uses daemon-owned compaction and /tree keeps persisted bra
     session.addSystemMessage("banner");
     session.messages.push({ role: "user", text: "bounded visible projection" });
 
-    const unavailableCommands = createSparkPiParitySlashCommands(services);
-    const projectionBeforeUnavailable = structuredClone(session.messages);
-    const unavailable = await unavailableCommands.compact!.handler("", {
-      app: {} as never,
-      session,
-      exit: () => undefined,
-    });
-    assert.ok(typeof unavailable === "string" && unavailable.trim().length > 0);
-    assert.deepEqual(session.messages, projectionBeforeUnavailable);
-    assert.equal((await store.list()).length, 1);
-    assert.equal((await store.load(canonical.path)).entries.at(-1)?.type, "message");
+    const misconfiguredCommands = createSparkPiParitySlashCommands(services);
+    await assert.rejects(
+      async () =>
+        await misconfiguredCommands.compact!.handler("", {
+          app: {} as never,
+          session,
+          exit: () => undefined,
+        }),
+      /requires its same-version daemon client/u,
+    );
 
     const snapshot = {
       version: SPARK_PROTOCOL_VERSION,
