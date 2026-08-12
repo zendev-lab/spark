@@ -139,21 +139,22 @@ export function registerSparkReproTool(
     },
     resolvePolicy(args) {
       const status = args.action === undefined || args.action === "status";
+      const activatesDriver = args.action === "start";
       return {
         effect: status ? "read" : "local_write",
         executionMode: status ? "parallel" : "sequential",
         domains: ["repro"],
         modes: status ? ["plan", "execute", "fleet"] : ["plan", "execute"],
-        approval: "none",
+        approval: activatesDriver ? "required" : "none",
       };
     },
     promptGuidelines: [
       "Use repro action=status to inspect the goal contract, current plan revision, typed steps, stable requirement ids, and blockers.",
       "Use repro action=start to begin the Repro (clears goal/loop); pass objective for user-supplied reproduction focus.",
       "Use repro action=plan to set difficulty (1-10), revise the Goal Contract, or append/update stage-scoped subgoals. Split each stage by its objective, experiment risk, dependencies, and required evidence; every subgoal needs a stable id, explicit doneWhen/evidenceRequired, and authority.",
-      "Use repro action=step to update one step. A done step requires existing evidence that passes a typed StepVerifier; safe_local steps require spark.repro.step-proof/v1, while ask_decision/ask_approval steps require a current bound canonical Ask receipt.",
+      "Use repro action=step to update one step. A done step requires existing evidence that passes a typed StepVerifier; safe_local and driver_local steps require spark.repro.step-proof/v1, while ask_decision/ask_approval steps require a current bound canonical Ask receipt.",
       "In the contract stage, first verify whether the named reference implementation is runnable. If it is unavailable, ask how to construct or obtain it before any baseline probe; do not invent a substitute.",
-      "The owner Session owns Repro planning and reconciliation; use canonical assign to dispatch the independent safe_local ready Task frontier in parallel, while ask_decision and ask_approval Tasks stay with the owner and are never dispatched.",
+      "The owner Session owns Repro planning and reconciliation; use canonical assign to dispatch only the independent safe_local ready Task frontier in parallel. driver_local, ask_decision, and ask_approval Tasks stay with the owner and are never dispatched.",
       "When an external Bench manifest supplies a run_id, bind it at first start with reproId so the Repro, token ledger, child executions, report summary, and Artifact share one identity.",
       "Only create a waiting decision for a frozen-contract change, ambiguous reference ownership, scope expansion, exhausted reference-supported resource/topology options, a framework-global behavior change, or an approval-gated external publish. A failed experiment, ordinary ambiguity, or OOM with another reference-supported topology remains active and must be handled autonomously.",
       "Use repro action=record with requirementId and a matching evidence, decision, or validation proof.",
@@ -788,10 +789,12 @@ export async function ensureActiveReproLoop(
   } catch (error) {
     return { status: "unreachable", recovered: false, error: errorMessage(error) };
   }
+  if (current?.status === "stopped" && options.forceSchedule !== true) {
+    return { status: current.status, recovered: false, loop: current };
+  }
   const needsStart =
     options.forceSchedule === true ||
     current === undefined ||
-    current.status === "stopped" ||
     current.binding.goalId !== goal.goalId ||
     current.binding.workflowRunId !== `workflow-run:${repro.reproId}` ||
     current.binding.workflowSelector !== "builtin:repro";
@@ -989,7 +992,12 @@ function normalizeReproStepDefinition(
     throw new Error(`${field}[${index}].stage is invalid`);
   }
   const authority = normalizeRequiredString(value.authority, `${field}[${index}].authority`);
-  if (authority !== "safe_local" && authority !== "ask_decision" && authority !== "ask_approval") {
+  if (
+    authority !== "safe_local" &&
+    authority !== "driver_local" &&
+    authority !== "ask_decision" &&
+    authority !== "ask_approval"
+  ) {
     throw new Error(`${field}[${index}].authority is invalid`);
   }
   return {
@@ -1166,14 +1174,14 @@ async function verifyReproStepEvidence(
     Boolean(entry),
   );
 
-  if (step.authority === "safe_local") {
+  if (step.authority === "safe_local" || step.authority === "driver_local") {
     const expectedDigest = stepDefinitionDigest(step);
     const proof = presentEntries.find((entry) => isStepProofEvidence(entry.body));
     if (!proof || !isStepProofEvidence(proof.body)) {
       return {
         verdict: "Repair",
         stepId: step.id,
-        reasons: ["safe_local Step requires a spark.repro.step-proof/v1 Evidence record"],
+        reasons: [`${step.authority} Step requires a spark.repro.step-proof/v1 Evidence record`],
       };
     }
     if (
@@ -1343,7 +1351,13 @@ async function validateReproStepEvidence(cwd: string, step: SparkReproStep): Pro
       throw new Error(`repro step evidence not found: ${step.evidenceRefs[index]}`);
     }
   }
-  if (step.status !== "done" || step.authority === "safe_local") return;
+  if (
+    step.status !== "done" ||
+    step.authority === "safe_local" ||
+    step.authority === "driver_local"
+  ) {
+    return;
+  }
   for (const entry of evidence) {
     if (entry && (await canonicalProjectedAnswerEvent(cwd, entry))) return;
     if (entry && (await verifyCanonicalAskEvidence(cwd, entry))) return;
@@ -1537,7 +1551,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     "- Inspect the materialized Stage blueprint and revise it only when evidence changes the contract.",
     "- Compute the dependency-ready safe_local task frontier.",
     "- Use assign to dispatch independent ready tasks in parallel.",
-    "- Never dispatch ask_decision or ask_approval authority tasks; they remain owner-only.",
+    "- Never dispatch driver_local, ask_decision, or ask_approval authority tasks; they remain owner-only.",
     "- Reconcile child run and task status, then validate evidence and receipts before the owner settles.",
     "",
     "Current typed plan steps:",
@@ -1582,7 +1596,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     "",
     "Repro requirements:",
     `- Operate in the selected phase (${repro.currentPhase}); use its tool policy for plan or implement work.`,
-    "- The owner Session owns planning and reconciliation; use assign only for the independent safe_local ready frontier, while ask_decision and ask_approval remain owner-only.",
+    "- The owner Session owns planning and reconciliation; use assign only for the independent safe_local ready frontier, while driver_local, ask_decision, and ask_approval remain owner-only.",
     "- When blocked by a missing user decision, ambiguous requirement, unclear baseline/source, conflicting evidence, failing validation whose next step is unclear, or any problem the user can unblock, call ask immediately with a concrete question. Do not guess, invent substitutes, or end the turn with only a prose blocker report when ask can resolve it.",
     "- Advance milestones with repro record/evaluate/advance. Never treat prose, an unverified ref, or a bare boolean as proof.",
     "- Keep the deliverable report a live dashboard, not an append-only log: current status and one blocker card first, quantified gates next, long history behind progressive disclosure. Fold or rewrite stale sections instead of only appending, so low-signal detail cannot crowd out the current frontier.",
@@ -1680,12 +1694,14 @@ function renderRequirementNextStep(requirement: SparkReproRequirement): string {
 function renderPlanStepNextAction(repro: SparkSessionRepro, step: SparkReproStep): string {
   const checkpoint = `then call repro({ action: "step", stepId: "${step.id}", stepStatus: "done", stepEvidenceRefs: ["evidence:..."] })`;
   const askContext =
-    step.authority === "safe_local"
-      ? undefined
-      : encodeReproStepAskBinding(createReproStepAskBinding(repro, step));
+    step.authority === "ask_decision" || step.authority === "ask_approval"
+      ? encodeReproStepAskBinding(createReproStepAskBinding(repro, step))
+      : undefined;
   switch (step.authority) {
     case "safe_local":
       return `Next typed step: ${step.goal}. Execute the smallest safe-local action that can satisfy: ${step.doneWhen.join("; ")}. Capture ${step.evidenceRequired.join("; ")}, ${checkpoint}.`;
+    case "driver_local":
+      return `Next typed step: ${step.goal}. The active Repro driver owns this explicitly bounded low-risk action; execute it in the owner session without another approval and without dispatching it to a worker. Do not promote a Draft PR to ready or widen the scope. Capture ${step.evidenceRequired.join("; ")}, ${checkpoint}.`;
     case "ask_decision":
       return `Next typed step: ${step.goal}. Research enough to narrow the choice, then call canonical ask with delivery="async", mode="decision", context=${JSON.stringify(askContext)}. Continue every independent ready action while the detached EvidenceRequest is pending; after a direct user AnswerEvent is projected to canonical Evidence, ${checkpoint}.`;
     case "ask_approval":

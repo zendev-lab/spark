@@ -1,6 +1,7 @@
 import { Type } from "typebox";
 import {
   sparkStateCwd,
+  type SparkGitDraftTarget,
   type SparkHostAPI,
   type SparkHostContext,
   type ToolConfig,
@@ -13,7 +14,7 @@ import {
   type ArtifactRef,
   type GitChangeArtifactBody,
 } from "../artifact/index.ts";
-import { GitLifecycleService, type GitLifecycleAction } from "./lifecycle.ts";
+import { GitLifecycleError, GitLifecycleService, type GitLifecycleAction } from "./lifecycle.ts";
 import { gitChangeReviewState } from "./review-state.ts";
 
 export interface GitLifecycleExtensionApi {
@@ -55,8 +56,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       "Use one git_change Artifact and one writable worktree for the complete dependent stack.",
       "Give init a meaningful title or branch; Spark uses it for the workspace-local worktree name.",
       "gh stack is the only writable topology authority; do not emulate stack topology in Spark.",
-      "Submit or update the stack as draft while implementation, review, or validation remains. When the requested PR delivery is complete, required verification passes, and no blocker remains, submit again with ready=true; promotion to Ready and the refreshed git_change Artifact are part of completion.",
-      "A request to submit or open a PR authorizes this draft-to-Ready lifecycle; do not ask again solely for promotion unless target, scope, or external impact materially changes.",
+      "Submit or update the stack as draft while implementation, review, or validation remains. A Goal, Loop, or Repro driver may perform this bounded Draft PR lifecycle without another approval. When delivery is complete and required verification passes, submit again with ready=true; promotion to Ready remains approval-required.",
       "Do not post routine PR comments or boilerplate about stacking/testing. Report substantive state in the task or final response.",
       "cleanup is conservative: Spark ownership, a clean worktree, remote-covered commits, and terminal PRs are all required.",
     ],
@@ -84,12 +84,26 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
           executionMode: "sequential",
           domains: ["git", "artifact"],
           modes: ["plan", "execute"],
-          approval: "required",
+          approval: action === "sync" || args.ready === true ? "required" : "manual_only",
         };
       }
       if (action === "cleanup") {
         return {
           effect: "destructive",
+          executionMode: "sequential",
+          domains: ["git", "artifact"],
+          modes: ["plan", "execute"],
+          approval: "required",
+        };
+      }
+      if (
+        action === "init" ||
+        action === "checkout" ||
+        action === "layer_add" ||
+        action === "commit"
+      ) {
+        return {
+          effect: "local_write",
           executionMode: "sequential",
           domains: ["git", "artifact"],
           modes: ["plan", "execute"],
@@ -148,7 +162,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       ready: Type.Optional(
         Type.Boolean({
           description:
-            "For submit: promote the complete verified stack to Ready instead of keeping it draft.",
+            "For submit: promote the complete verified stack to Ready. For sync: explicitly approve mutation of an existing Ready or mixed stack.",
         }),
       ),
     }),
@@ -167,9 +181,26 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       const cwd = requireCwd(ctx);
       const workspaceRoot = sparkStateCwd(cwd, ctx);
       const store = defaultArtifactStore(workspaceRoot);
-      const service = new GitLifecycleService({ cwd, workspaceRoot, store });
       const action = normalizeGitAction(params.action);
       params = authorizeTaskGitAction(ctx, action, params);
+      const driverDraftMutation =
+        isContinuationDriver(ctx) &&
+        (action === "submit" || action === "sync") &&
+        params.ready !== true;
+      const service = new GitLifecycleService({
+        cwd,
+        workspaceRoot,
+        store,
+        ...(driverDraftMutation
+          ? {
+              beforeDraftExternalWrite: async (target: SparkGitDraftTarget) => {
+                if ((await ctx.loop?.authorizeGitDraftTarget?.(target)) !== true) {
+                  throw driverTargetUnauthorized(target.artifactRef);
+                }
+              },
+            }
+          : {}),
+      });
 
       if (action === "inspect") {
         const requestedArtifactRef = stringOrUndefined(params.artifactRef);
@@ -187,16 +218,46 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       }
 
       if (action === "init") {
+        if (isContinuationDriver(ctx)) {
+          if (ctx.cwdArtifactRef) {
+            throw new GitLifecycleError(
+              "driver_git_target_unauthorized",
+              `active driver is already attached to ${ctx.cwdArtifactRef}`,
+            );
+          }
+          if (stringOrUndefined(params.repositoryPath)) {
+            throw new GitLifecycleError(
+              "driver_git_target_unauthorized",
+              "active driver cannot widen Draft delivery with repositoryPath",
+            );
+          }
+          if ((await ctx.loop?.isAuthorityActive?.()) !== true) {
+            throw driverTargetUnauthorized();
+          }
+        }
         const artifact = await service.init({
           title: stringOrUndefined(params.title),
           branch: stringOrUndefined(params.branch),
           trunk: stringOrUndefined(params.trunk),
           repositoryPath: stringOrUndefined(params.repositoryPath),
         });
+        if (
+          isContinuationDriver(ctx) &&
+          (await ctx.loop?.bindGitDraftTarget?.(await service.driverDraftTarget(artifact.ref))) !==
+            true
+        ) {
+          throw driverTargetUnauthorized(artifact.ref);
+        }
         return changedResult(action, artifact);
       }
 
       if (action === "checkout") {
+        if (isContinuationDriver(ctx)) {
+          throw new GitLifecycleError(
+            "driver_git_target_unauthorized",
+            "active drivers cannot widen Draft delivery with checkout",
+          );
+        }
         const target = requiredString(params.target, "target");
         const artifact = await service.checkout({
           target,
@@ -207,6 +268,12 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       }
 
       if (action === "adopt") {
+        if (isContinuationDriver(ctx)) {
+          throw new GitLifecycleError(
+            "driver_git_target_unauthorized",
+            "active drivers cannot widen Draft delivery with adopt",
+          );
+        }
         const artifact = await service.adopt({
           worktreePath: stringOrUndefined(params.worktreePath),
           title: stringOrUndefined(params.title),
@@ -215,6 +282,13 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       }
 
       const artifactRef = await resolveGitChangeRef(store, params.artifactRef, action);
+      if (driverDraftMutation && ctx.cwdArtifactRef) {
+        if (artifactRef !== ctx.cwdArtifactRef) throw driverTargetUnauthorized(artifactRef);
+        const target = await service.driverDraftTarget(artifactRef);
+        if ((await ctx.loop?.bindGitDraftTarget?.(target)) !== true) {
+          throw driverTargetUnauthorized(artifactRef);
+        }
+      }
       if (action === "layer_add") {
         return changedResult(
           action,
@@ -242,7 +316,10 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
         );
       }
       if (action === "sync") {
-        return changedResult(action, await service.sync(artifactRef));
+        return changedResult(
+          action,
+          await service.sync(artifactRef, { allowReady: params.ready === true }),
+        );
       }
       return changedResult(action, await service.cleanup(artifactRef));
     },
@@ -267,6 +344,22 @@ function authorizeTaskGitAction(
     throw new Error(`Task is not authorized to mutate git_change ${requested ?? "<missing>"}`);
   }
   return { ...params, artifactRef: requested };
+}
+
+function isContinuationDriver(ctx: SparkHostContext): boolean {
+  const loop = ctx.loop;
+  if (!loop) return false;
+  const { goalId, reproId, workflowRunId } = loop.binding;
+  return Boolean(goalId || reproId || !workflowRunId);
+}
+
+function driverTargetUnauthorized(artifactRef?: ArtifactRef): GitLifecycleError {
+  return new GitLifecycleError(
+    "driver_git_target_unauthorized",
+    artifactRef
+      ? `active driver does not authorize Draft delivery for ${artifactRef}`
+      : "active driver no longer authorizes Draft delivery",
+  );
 }
 
 export function registerSparkGitLifecycleTool(pi: SparkHostAPI): void {

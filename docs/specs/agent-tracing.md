@@ -263,6 +263,15 @@ The started event records:
 - optional keyed argument fingerprint and argument byte size;
 - optional parallel-batch identity.
 
+Agent Trace schema version 1 records the effective call-time approval
+requirement and keeps its original `none | required | unknown` wire enum. A
+tool whose owner declares `manual_only` is projected to `required` for a manual
+turn and `none` for a driver-owned turn. Any producer that emits these events
+must use `projectSparkAgentTraceToolApproval()` and never emit `manual_only`
+into a v1 event. The helper is a wire-projection contract, not an execution
+authority decision or a runtime producer. This preserves strict v1 readers
+without weakening the effective gate.
+
 For unresolved Tool names, policy fields may be `unknown` because resolution failed before those facts existed.
 
 ### Terminal envelope

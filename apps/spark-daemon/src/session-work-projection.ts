@@ -5,6 +5,7 @@ import {
   type SparkSessionGoal,
 } from "@zendev-lab/spark-loop";
 import {
+  projectSparkSessionReproStepAuthority,
   sparkSessionGoalWorkViewSchema,
   sparkSessionReproWorkViewSchema,
   sparkSessionWorkViewSchema,
@@ -193,7 +194,7 @@ function projectReproWork(
               stage: currentStep.stage,
               goal: currentStep.goal,
               status: currentStep.status,
-              authority: currentStep.authority,
+              ...projectSparkSessionReproStepAuthority(currentStep.authority),
               doneWhen: [...currentStep.doneWhen],
               evidenceRequired: [...currentStep.evidenceRequired],
               ...(currentStep.blocker?.trim() ? { blocker: currentStep.blocker.trim() } : {}),
@@ -254,11 +255,18 @@ async function readRepro(
       return new Error(`invalid JSON at ${filePath}: ${message}`);
     });
     if (raw === undefined) return undefined;
-    if (!isRecord(raw) || (raw.version !== 5 && raw.version !== 6 && raw.version !== 7)) {
+    if (
+      !isRecord(raw) ||
+      (raw.version !== 5 && raw.version !== 6 && raw.version !== 7 && raw.version !== 8)
+    ) {
       recordDiagnostic({ sessionId, onDiagnostic }, "repro_state_unavailable", "repro");
       return undefined;
     }
     if (raw.repro === undefined) return undefined;
+    if (!isRecord(raw.repro) || raw.repro.version !== raw.version) {
+      recordDiagnostic({ sessionId, onDiagnostic }, "repro_state_unavailable", "repro");
+      return undefined;
+    }
     const repro = normalizeStoredSparkSessionRepro(raw.repro);
     if (repro) return repro;
   } catch {

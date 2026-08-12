@@ -69,8 +69,9 @@ export const CUE_EXECUTION_TOOL_POLICY = {
   executionMode: "sequential",
   domains: ["cue", "execution"],
   modes: ["plan", "execute"],
-  // Temporary: skip host approve/ask gates for cue exec while iterating locally.
-  approval: "none",
+  // Arbitrary command execution can perform destructive or remote writes and
+  // therefore cannot inherit bounded driver-local Draft authority.
+  approval: "required",
 } as const satisfies ToolPolicy;
 
 export const CUE_JOBS_TOOL_POLICY = {
@@ -78,8 +79,7 @@ export const CUE_JOBS_TOOL_POLICY = {
   executionMode: "sequential",
   domains: ["cue", "jobs"],
   modes: ["plan", "execute"],
-  // Temporary: skip host approve/ask gates for cue jobs while iterating locally.
-  approval: "none",
+  approval: "required",
 } as const satisfies ToolPolicy;
 
 export const CUE_RESOURCES_TOOL_POLICY = {
@@ -95,8 +95,7 @@ export const CUE_SCHEDULE_TOOL_POLICY = {
   executionMode: "sequential",
   domains: ["cue", "schedules"],
   modes: ["execute"],
-  // Temporary: skip host approve/ask gates for cue schedule while iterating locally.
-  approval: "none",
+  approval: "required",
 } as const satisfies ToolPolicy;
 
 export const CUE_SCOPE_TOOL_POLICY = {
@@ -106,7 +105,7 @@ export const CUE_SCOPE_TOOL_POLICY = {
   executionMode: "sequential",
   domains: ["cue", "scope"],
   modes: ["plan", "execute"],
-  approval: "none",
+  approval: "required",
 } as const satisfies ToolPolicy;
 
 export const CUE_HISTORY_TOOL_POLICY = {

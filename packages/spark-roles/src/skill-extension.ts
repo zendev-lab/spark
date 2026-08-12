@@ -82,7 +82,9 @@ const SKILL_AGENT_POLICY = {
   executionMode: "sequential",
   domains: ["skills", "roles"],
   modes: ["execute"],
-  approval: "none",
+  // The child can run arbitrary commands and edit files, so dispatch itself
+  // is a required gate even when the parent is an autonomous driver.
+  approval: "required",
 } as const;
 
 class ToolCallText implements ToolRenderComponent {

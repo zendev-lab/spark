@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import {
   SPARK_PROTOCOL_VERSION,
@@ -23,6 +24,7 @@ import {
   type SparkLoopView,
   type SparkDaemonEvent,
 } from "@zendev-lab/spark-protocol";
+import type { SparkGitDraftTarget } from "@zendev-lab/spark-core";
 import {
   SparkInvocationStore,
   isRetryableInvocationError,
@@ -66,11 +68,15 @@ export interface StartSparkLoopInput extends SparkLoopRoute {
   initialAttempt?: number;
   cancellationReason?: string;
   now?: string;
+  /** Store-private wake path: retain the existing driver Session incarnation. */
+  preserveDriverSession?: boolean;
 }
 
 export interface SparkLoopRecord extends SparkLoopView {
   /** Stable child Session for driver-lifetime loops; tick Sessions use cycle identities. */
   driverSessionId: string;
+  /** Daemon-private Draft target; intentionally omitted from protocol projections. */
+  driverGitDraftTarget?: SparkGitDraftTarget;
   prompt: string;
   wakePrompt?: string;
   route: SparkLoopRoute;
@@ -95,6 +101,7 @@ interface LoopRow {
   continuity: "session" | "fresh";
   session_lifetime: SparkLoopSessionLifetime;
   driver_session_id: string;
+  driver_target_json: string | null;
   status: SparkLoopStatus;
   generation: number;
   cycle_step: SparkLoopRecord["cycleStep"] | null;
@@ -116,7 +123,7 @@ interface LoopRow {
 }
 
 const loopSelect = `SELECT loop_id, owner_session_id, binding_json, continuity,
-  session_lifetime, driver_session_id, status,
+  session_lifetime, driver_session_id, driver_target_json, status,
   generation, cycle_step, policy_json, workflow_definition_digest, checkpoint_json, counters_json,
   due_at, attempt, last_invocation_id, reason, error, prompt, route_json,
   wake_prompt, domain_state_digest, created_at, updated_at
@@ -204,10 +211,9 @@ export class SparkLoopStore {
       const continuity = sessionLifetime === "driver_tick" ? "fresh" : "session";
       const nextGeneration = (existing?.generation ?? 0) + 1;
       const driverSessionId =
+        input.preserveDriverSession === true &&
         sessionLifetime === "driver" &&
-        existing?.sessionLifetime === "driver" &&
-        existing.status !== "completed" &&
-        existing.status !== "stopped"
+        existing?.sessionLifetime === "driver"
           ? existing.driverSessionId
           : loopDriverSessionId(loopId, nextGeneration);
       if (existing?.lastInvocationId) {
@@ -237,6 +243,7 @@ export class SparkLoopStore {
         .prepare(
           `UPDATE loop_wakeups
            SET status = 'stopped', generation = generation + 1, cycle_step = NULL, due_at = NULL,
+               driver_target_json = NULL,
                reason = 'superseded by another active loop', updated_at = ?
            WHERE owner_session_id = ? AND loop_id <> ?
              AND status NOT IN ('completed', 'stopped')`,
@@ -246,11 +253,11 @@ export class SparkLoopStore {
         .prepare(
           `INSERT INTO loop_wakeups
             (loop_id, owner_session_id, binding_json, continuity, session_lifetime,
-             driver_session_id, status, generation, cycle_step,
+             driver_session_id, driver_target_json, status, generation, cycle_step,
              policy_json, workflow_definition_digest, checkpoint_json, counters_json,
              due_at, attempt, reason, prompt, wake_prompt, route_json, domain_state_digest,
              created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, NULL, NULL,
+           VALUES (?, ?, ?, ?, ?, ?, NULL, ?, 1, NULL, ?, NULL, NULL,
              '{"tickCount":0,"skippedCount":0,"llmRequestsAvoided":0,"conditionRetryCount":0}',
              ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(loop_id) DO UPDATE SET
@@ -259,6 +266,11 @@ export class SparkLoopStore {
              continuity = excluded.continuity,
              session_lifetime = excluded.session_lifetime,
              driver_session_id = excluded.driver_session_id,
+             driver_target_json = CASE
+               WHEN loop_wakeups.driver_session_id = excluded.driver_session_id
+                 THEN loop_wakeups.driver_target_json
+               ELSE NULL
+             END,
              status = excluded.status,
              generation = loop_wakeups.generation + 1,
              cycle_step = NULL,
@@ -316,6 +328,169 @@ export class SparkLoopStore {
       throw new SparkDaemonControlError("loop_not_found", `Loop was not found: ${loopId}`);
     }
     return record;
+  }
+
+  /** Revalidate one exact daemon-owned driver Invocation at the point of use. */
+  isAuthorityActive(task: SparkDaemonLoopTickTask, invocationId: string): boolean {
+    const identity = loopAuthorityIdentity(task, invocationId);
+    if (!identity || !loopTaskMatchesRecord(this.get(task.loopId), task)) return false;
+    return Boolean(
+      this.#db
+        .prepare(
+          `SELECT 1
+           FROM loop_wakeups AS loop
+           JOIN invocations AS invocation ON invocation.id = loop.last_invocation_id
+           WHERE loop.loop_id = ? AND loop.owner_session_id = ?
+             AND loop.driver_session_id = ? AND loop.generation = ?
+             AND loop.status = 'running' AND loop.cycle_step = 'invoke'
+             AND loop.last_invocation_id = ? AND invocation.session_id = ?
+             AND invocation.status = 'running'`,
+        )
+        .get(
+          identity.loopId,
+          identity.ownerSessionId,
+          identity.driverSessionId,
+          identity.generation,
+          identity.invocationId,
+          identity.executionSessionId,
+        ),
+    );
+  }
+
+  /**
+   * Bind the first canonical Git Draft target for this driver Session
+   * incarnation. Replaying the same target is idempotent; a different target
+   * cannot replace it.
+   */
+  bindGitDraftTarget(
+    task: SparkDaemonLoopTickTask,
+    invocationId: string,
+    target: SparkGitDraftTarget,
+    now = new Date().toISOString(),
+  ): boolean {
+    const identity = loopAuthorityIdentity(task, invocationId);
+    const canonicalTarget = canonicalGitDraftTarget(target);
+    if (!identity || !canonicalTarget || !loopTaskMatchesRecord(this.get(task.loopId), task)) {
+      return false;
+    }
+    const encoded = JSON.stringify(canonicalTarget);
+    return (
+      Number(
+        this.#db
+          .prepare(
+            `UPDATE loop_wakeups
+             SET driver_target_json = ?, updated_at = ?
+             WHERE loop_id = ? AND owner_session_id = ?
+               AND driver_session_id = ? AND generation = ?
+               AND status = 'running' AND cycle_step = 'invoke'
+               AND last_invocation_id = ?
+               AND EXISTS (
+                 SELECT 1 FROM invocations
+                 WHERE id = ? AND session_id = ? AND status = 'running'
+               )
+               AND (driver_target_json IS NULL OR driver_target_json = ?)`,
+          )
+          .run(
+            encoded,
+            now,
+            identity.loopId,
+            identity.ownerSessionId,
+            identity.driverSessionId,
+            identity.generation,
+            identity.invocationId,
+            identity.invocationId,
+            identity.executionSessionId,
+            encoded,
+          ).changes,
+      ) === 1
+    );
+  }
+
+  /** Authorize only the exact canonical target persisted for this Invocation. */
+  authorizeGitDraftTarget(
+    task: SparkDaemonLoopTickTask,
+    invocationId: string,
+    target: SparkGitDraftTarget,
+  ): boolean {
+    const identity = loopAuthorityIdentity(task, invocationId);
+    const canonicalTarget = canonicalGitDraftTarget(target);
+    if (!identity || !canonicalTarget || !loopTaskMatchesRecord(this.get(task.loopId), task)) {
+      return false;
+    }
+    return Boolean(
+      this.#db
+        .prepare(
+          `SELECT 1
+           FROM loop_wakeups AS loop
+           JOIN invocations AS invocation ON invocation.id = loop.last_invocation_id
+           WHERE loop.loop_id = ? AND loop.owner_session_id = ?
+             AND loop.driver_session_id = ? AND loop.generation = ?
+             AND loop.status = 'running' AND loop.cycle_step = 'invoke'
+             AND loop.last_invocation_id = ? AND invocation.session_id = ?
+             AND invocation.status = 'running'
+             AND loop.driver_target_json = ?`,
+        )
+        .get(
+          identity.loopId,
+          identity.ownerSessionId,
+          identity.driverSessionId,
+          identity.generation,
+          identity.invocationId,
+          identity.executionSessionId,
+          JSON.stringify(canonicalTarget),
+        ),
+    );
+  }
+
+  /** Authorize file access only to the canonical worktree in the active Draft target. */
+  authorizeGitDraftArtifactTarget(
+    task: SparkDaemonLoopTickTask,
+    invocationId: string,
+    target: Pick<SparkGitDraftTarget, "artifactRef" | "worktreePath">,
+  ): boolean {
+    const identity = loopAuthorityIdentity(task, invocationId);
+    const rawArtifactRef: unknown = target.artifactRef;
+    const rawWorktreePath: unknown = target.worktreePath;
+    const artifactRef = typeof rawArtifactRef === "string" ? rawArtifactRef.trim() : undefined;
+    const worktreePath = typeof rawWorktreePath === "string" ? rawWorktreePath.trim() : undefined;
+    if (
+      !identity ||
+      !artifactRef ||
+      artifactRef !== rawArtifactRef ||
+      !artifactRef.startsWith("artifact:") ||
+      !worktreePath ||
+      worktreePath !== rawWorktreePath ||
+      !isAbsolute(worktreePath) ||
+      resolve(worktreePath) !== worktreePath ||
+      !loopTaskMatchesRecord(this.get(task.loopId), task)
+    ) {
+      return false;
+    }
+    return Boolean(
+      this.#db
+        .prepare(
+          `SELECT 1
+         FROM loop_wakeups AS loop
+         JOIN invocations AS invocation ON invocation.id = loop.last_invocation_id
+         WHERE loop.loop_id = ? AND loop.owner_session_id = ?
+           AND loop.driver_session_id = ? AND loop.generation = ?
+           AND loop.status = 'running' AND loop.cycle_step = 'invoke'
+           AND loop.last_invocation_id = ? AND invocation.session_id = ?
+           AND invocation.status = 'running'
+           AND json_extract(loop.driver_target_json, '$.artifactRef') = ?
+           AND json_extract(loop.driver_target_json, '$.worktreePath') = ?`,
+        )
+        .get(
+          identity.loopId,
+          identity.ownerSessionId,
+          identity.driverSessionId,
+          identity.generation,
+          identity.invocationId,
+          identity.executionSessionId,
+          artifactRef,
+          worktreePath,
+        ),
+    );
   }
 
   list(
@@ -509,6 +684,7 @@ export class SparkLoopStore {
       dueAt: now,
       domainStateDigest: current.domainStateDigest,
       cancellationReason: input.reason ?? "loop manually woken",
+      preserveDriverSession: current.status !== "completed" && current.status !== "stopped",
       now,
     });
   }
@@ -1309,7 +1485,9 @@ export class SparkLoopStore {
       .prepare(
         `UPDATE loop_wakeups
          SET generation = generation + 1, status = ?, cycle_step = NULL,
-             checkpoint_json = ?, due_at = ?, attempt = 0, reason = ?, error = ?, updated_at = ?
+             checkpoint_json = ?, due_at = ?, attempt = 0, reason = ?, error = ?,
+             driver_target_json = CASE WHEN ? = 'completed' THEN NULL ELSE driver_target_json END,
+             updated_at = ?
          WHERE loop_id = ? AND generation = ? AND last_invocation_id = ?
            AND status = 'running' AND cycle_step = 'after_tick'`,
       )
@@ -1319,6 +1497,7 @@ export class SparkLoopStore {
         dueAt,
         trustedGoalCompletion ? receipt.reason : "Goal completion receipt failed core gates",
         trustedGoalCompletion ? null : "achieved requires trusted Evidence-backed receipt",
+        status,
         now,
         task.loopId,
         task.generation,
@@ -1420,6 +1599,7 @@ export class SparkLoopStore {
            reason = ?,
            error = CASE WHEN ? THEN NULL ELSE error END,
            prompt = COALESCE(?, prompt),
+           driver_target_json = CASE WHEN ? IN ('completed', 'stopped') THEN NULL ELSE driver_target_json END,
            updated_at = ?
          WHERE loop_id = ?`,
       )
@@ -1432,6 +1612,7 @@ export class SparkLoopStore {
         options.reason ?? null,
         options.clearError ? 1 : 0,
         options.prompt ?? null,
+        status,
         now,
         loopId,
       );
@@ -1472,6 +1653,7 @@ function loopTickTask(
   return {
     type: "loop.tick",
     sessionId,
+    driverSessionId: record.driverSessionId,
     loopId: record.loopId,
     binding: record.binding,
     ownerSessionId: record.ownerSessionId,
@@ -1722,12 +1904,14 @@ function goalSettlement(row: GoalSettlementRow): SparkLoopGoalSettlement {
 
 function loopRecord(row: LoopRow): SparkLoopRecord {
   const route = parsePersistedLoopRoute(row);
+  const driverGitDraftTarget = parsePersistedDriverGitDraftTarget(row.driver_target_json);
   return {
     loopId: row.loop_id,
     ownerSessionId: row.owner_session_id,
     status: row.status,
     sessionLifetime: row.session_lifetime,
     driverSessionId: row.driver_session_id,
+    ...(driverGitDraftTarget ? { driverGitDraftTarget } : {}),
     continuity: row.continuity,
     generation: Number(row.generation),
     ...(row.workflow_definition_digest
@@ -1750,6 +1934,119 @@ function loopRecord(row: LoopRow): SparkLoopRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function loopAuthorityIdentity(
+  task: SparkDaemonLoopTickTask,
+  invocationId: string,
+):
+  | {
+      loopId: string;
+      ownerSessionId: string;
+      driverSessionId: string;
+      executionSessionId: string;
+      generation: number;
+      invocationId: string;
+    }
+  | undefined {
+  const loopId = task.loopId.trim();
+  const ownerSessionId = task.ownerSessionId.trim();
+  const driverSessionId = task.driverSessionId?.trim();
+  const executionSessionId = task.sessionId.trim();
+  const normalizedInvocationId = invocationId.trim();
+  if (
+    task.type !== "loop.tick" ||
+    !loopId ||
+    !ownerSessionId ||
+    !driverSessionId ||
+    !executionSessionId ||
+    !normalizedInvocationId ||
+    !Number.isSafeInteger(task.generation) ||
+    task.generation < 1
+  ) {
+    return undefined;
+  }
+  return {
+    loopId,
+    ownerSessionId,
+    driverSessionId,
+    executionSessionId,
+    generation: task.generation,
+    invocationId: normalizedInvocationId,
+  };
+}
+
+function loopTaskMatchesRecord(
+  record: SparkLoopRecord | undefined,
+  task: SparkDaemonLoopTickTask,
+): boolean {
+  return Boolean(
+    record &&
+    record.loopId === task.loopId &&
+    record.ownerSessionId === task.ownerSessionId &&
+    record.driverSessionId === task.driverSessionId &&
+    record.generation === task.generation &&
+    sameLoopBinding(record.binding, task.binding),
+  );
+}
+
+function sameLoopBinding(left: SparkLoopBinding, right: SparkLoopBinding): boolean {
+  return (
+    left.goalId === right.goalId &&
+    left.workflowRunId === right.workflowRunId &&
+    left.reproId === right.reproId &&
+    left.workflowSelector === right.workflowSelector
+  );
+}
+
+function canonicalGitDraftTarget(target: SparkGitDraftTarget): SparkGitDraftTarget | undefined {
+  const artifactRef = target.artifactRef?.trim();
+  const worktreePath = target.worktreePath?.trim();
+  const commonGitDir = target.commonGitDir?.trim();
+  const repository = target.repository?.trim();
+  const gitConfigDigest = target.gitConfigDigest?.trim();
+  const remoteUrls = canonicalStringSet(target.remoteUrls);
+  const pushUrls = canonicalStringSet(target.pushUrls);
+  if (
+    !artifactRef ||
+    !worktreePath ||
+    !commonGitDir ||
+    !repository ||
+    !gitConfigDigest ||
+    !remoteUrls ||
+    !pushUrls ||
+    !isAbsolute(worktreePath) ||
+    !isAbsolute(commonGitDir) ||
+    !/^sha256:[0-9a-f]{64}$/u.test(gitConfigDigest)
+  ) {
+    return undefined;
+  }
+  return {
+    artifactRef: artifactRef as SparkGitDraftTarget["artifactRef"],
+    worktreePath: resolve(worktreePath),
+    commonGitDir: resolve(commonGitDir),
+    repository,
+    remoteUrls,
+    pushUrls,
+    gitConfigDigest,
+  };
+}
+
+function canonicalStringSet(values: readonly string[] | undefined): string[] | undefined {
+  if (!Array.isArray(values)) return undefined;
+  const normalized = values.map((value) => value.trim()).filter(Boolean);
+  if (normalized.length !== values.length || normalized.length === 0) return undefined;
+  return [...new Set(normalized)].sort((left, right) => left.localeCompare(right));
+}
+
+function parsePersistedDriverGitDraftTarget(value: string | null): SparkGitDraftTarget | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as Partial<SparkGitDraftTarget>;
+    return canonicalGitDraftTarget(parsed as SparkGitDraftTarget);
+  } catch {
+    return undefined;
+  }
 }
 
 function parsePersistedLoopRoute(row: LoopRow): SparkLoopRoute {

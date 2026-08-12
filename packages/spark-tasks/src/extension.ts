@@ -445,7 +445,7 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
       executionMode: "sequential",
       domains: ["tasks", "sessions"],
       modes: ["execute", "fleet"],
-      approval: "none",
+      approval: "required",
     },
     promptGuidelines: [
       "Use assign only when ready Spark work should be dispatched to role runs.",

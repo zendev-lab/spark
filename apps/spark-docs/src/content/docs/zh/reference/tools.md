@@ -93,7 +93,27 @@ fail closed。
 
 - 只有明确允许并行的纯读取调用可以并发。
 - 写入、策略变更、混合 batch 和外部副作用保持串行，除非所属契约证明了安全替代。
-- 必需审批属于执行权限，不是展示文本。
+- `none` 操作不需要人工批准。
+- `manual_only` 操作必须有界、低风险且可撤销。手动推进时需要请求批准；活动
+  Goal、Loop 或 Repro driver 在已确认目标与 target 范围内可以直接执行，无需重复询问。
+  使用 `git submit` 创建或更新 Draft PR 是典型操作。`git sync` 可能发现并修改
+  仅存在于远端的 stack 成员，因此仍需人工批准。
+- `required` 操作始终需要人工批准，包括破坏性、不可逆、安全敏感、高成本、高影响或
+  实质扩大范围的操作，以及发布、部署、合并和把 Draft PR 提升为 Ready。
+  未结构化的命令、脚本与定时任务执行也属于 `required`，不能继承受限 Git capability。
+- WorkflowRun 不是 continuation driver；只有启动它的 driver 权限仍然有效时，它才继承
+  该审批上下文，且自身不能保留 driver 权限。
+- Draft submit 或 sync 前，Git 会刷新原生 PR stack；如果已有 Ready 层或 stack 为 mixed，
+  则 fail closed。此时必须通过人工批准并使用 `ready=true` 重试；对于 sync，该 flag 只是
+  授权修改已有 Ready/mixed stack，不会把 Draft 层提升为 Ready。
+- Driver-local Draft delivery 只绑定一个精确 `git_change`：要么是 daemon 解析出的当前
+  worktree owner，要么是在稳定 driver Session 的不可变 cwd 仓库内初始化的唯一 Artifact。
+  第二个 Artifact 或显式 `repositoryPath` 不能扩大这份权限。daemon 还会冻结规范 GitHub
+  仓库及 `origin` 的全部有效 fetch/push URL，Git 会在 delivery 前立即重新检查它们。
+- 最后一次成功的远端 Draft 状态刷新，加上 daemon 的副作用边界 claim，构成本地授权点。
+  它发生在隔离 Git/GitHub 环境准备完成之后、固定 stack 可执行文件启动之前；后续每次
+  操作都会重新执行完整检查。
+- 审批属于执行权限，不是展示文本。未知或冲突策略会 fail closed。
 - 兼容与 Channel profile 可以比原生 TUI 或 Hub Session 暴露更小的集合。
 
 私有实现 helper 不是公开工具。要查看当前安装版本的命令，请阅读

@@ -77,7 +77,11 @@ export function registerSparkWorkflowTool(
     policy: workflowToolPolicy("read", ["plan", "execute", "fleet"]),
     resolvePolicy(args) {
       const action = typeof args.action === "string" ? args.action : "";
-      return action === "list" || action === "read"
+      const runAction = typeof args.runAction === "string" ? args.runAction : "status";
+      return action === "list" ||
+        action === "read" ||
+        (action === "runs" &&
+          (runAction === "status" || runAction === "list" || runAction === "inspect"))
         ? workflowToolPolicy("read", ["plan", "execute", "fleet"])
         : workflowToolPolicy("external_write", ["plan", "execute"]);
     },
@@ -245,7 +249,7 @@ function workflowToolPolicy(
     executionMode: effect === "read" ? "parallel" : "sequential",
     domains: ["workflows"],
     modes,
-    approval: "none",
+    approval: effect === "read" ? "none" : "required",
   };
 }
 

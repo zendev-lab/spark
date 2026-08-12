@@ -96,6 +96,30 @@ test("sandbox stateful tools request sequential execution to avoid scratch races
   for (const toolName of ["graft", "graft_sandbox_status", "grep", "find", "ls"]) {
     assert.equal(tools.get(toolName)?.executionMode, undefined, toolName);
   }
+
+  for (const toolName of ["read", "grep", "find", "ls", "graft_sandbox_status"]) {
+    assert.equal(tools.get(toolName)?.policy?.approval, "none", toolName);
+    assert.equal(tools.get(toolName)?.policy?.effect, "read", toolName);
+  }
+  for (const toolName of [
+    "write",
+    "edit",
+    "graft_sandbox_enter",
+    "graft_sandbox_exit",
+    "graft_sandbox_materialize",
+  ]) {
+    assert.equal(tools.get(toolName)?.policy?.approval, "none", toolName);
+    assert.equal(tools.get(toolName)?.policy?.effect, "local_write", toolName);
+  }
+  assert.equal(tools.get("graft_sandbox_checkpoint")?.policy?.approval, "required");
+  assert.equal(
+    tools.get("graft_sandbox_promote")?.resolvePolicy?.({ apply: false }).approval,
+    "none",
+  );
+  assert.equal(
+    tools.get("graft_sandbox_promote")?.resolvePolicy?.({ apply: true }).approval,
+    "required",
+  );
 });
 
 test("sandbox entrypoint layers sandbox state tools over normal spark-graft", async () => {

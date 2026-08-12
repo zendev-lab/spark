@@ -1099,6 +1099,18 @@ function createDaemonScheduler(input: {
             }
           : {}),
         loopControl: {
+          isAuthorityActive: (task, authority) =>
+            input.loopStore.isAuthorityActive(task, authority.invocationId),
+          bindGitDraftTarget: (task, authority) =>
+            input.loopStore.bindGitDraftTarget(task, authority.invocationId, authority.target),
+          authorizeGitDraftTarget: (task, authority) =>
+            input.loopStore.authorizeGitDraftTarget(task, authority.invocationId, authority.target),
+          authorizeGitDraftArtifactTarget: (task, authority) =>
+            input.loopStore.authorizeGitDraftArtifactTarget(
+              task,
+              authority.invocationId,
+              authority.target,
+            ),
           schedule: (task, schedule) => {
             const loop = input.loopStore.schedule({
               loopId: task.loopId,

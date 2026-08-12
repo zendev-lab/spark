@@ -52,6 +52,31 @@ export const SPARK_AGENT_TOOL_EFFECTS = [
 
 export const sparkAgentToolEffectSchema = z.enum(SPARK_AGENT_TOOL_EFFECTS);
 
+export const SPARK_AGENT_TRACE_TOOL_APPROVALS = ["none", "required", "unknown"] as const;
+
+export const sparkAgentTraceToolApprovalSchema = z.enum(SPARK_AGENT_TRACE_TOOL_APPROVALS);
+
+const sparkAgentTraceToolApprovalProjectionInputSchema = z.enum([
+  "none",
+  "manual_only",
+  "required",
+  "unknown",
+]);
+
+/**
+ * Projection contract for Trace producers: convert contextual `manual_only`
+ * policy into the effective Agent Trace v1 approval requirement without
+ * widening the version-1 wire enum. This does not decide execution authority.
+ */
+export function projectSparkAgentTraceToolApproval(
+  value: unknown,
+  options: { driverOwned: boolean },
+): z.infer<typeof sparkAgentTraceToolApprovalSchema> {
+  const approval = sparkAgentTraceToolApprovalProjectionInputSchema.parse(value);
+  if (approval !== "manual_only") return approval;
+  return options.driverOwned ? "none" : "required";
+}
+
 export const SPARK_AGENT_TOOL_STATUSES = [
   "succeeded",
   "failed",
@@ -328,7 +353,7 @@ export const sparkAgentToolCallStartedTraceEventSchema = childEventSchema
     modelOrigin: sparkAgentToolModelOriginSchema.optional(),
     effect: sparkAgentToolEffectSchema,
     executionMode: z.enum(["parallel", "sequential", "unknown"]),
-    approval: z.enum(["none", "required", "unknown"]),
+    approval: sparkAgentTraceToolApprovalSchema,
     argumentFingerprint: sparkAgentArgumentFingerprintSchema.optional(),
     argumentBytes: z.number().int().nonnegative().optional(),
     parallelBatchId: idSchema.optional(),
@@ -429,6 +454,7 @@ export type SparkAgentTraceEventKind = z.infer<typeof sparkAgentTraceEventKindSc
 export type SparkAgentRunSource = z.infer<typeof sparkAgentRunSourceSchema>;
 export type SparkAgentTraceOutcome = z.infer<typeof sparkAgentTraceOutcomeSchema>;
 export type SparkAgentToolEffect = z.infer<typeof sparkAgentToolEffectSchema>;
+export type SparkAgentTraceToolApproval = z.infer<typeof sparkAgentTraceToolApprovalSchema>;
 export type SparkAgentToolStatus = z.infer<typeof sparkAgentToolStatusSchema>;
 export type SparkAgentToolFailureStage = z.infer<typeof sparkAgentToolFailureStageSchema>;
 export type SparkAgentToolFailureType = z.infer<typeof sparkAgentToolFailureTypeSchema>;

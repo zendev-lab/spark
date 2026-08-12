@@ -567,16 +567,61 @@ export const sparkSessionGoalWorkViewSchema = z.object({
   updatedAt: sparkIsoDateTimeSchema,
 });
 
-export const sparkSessionReproCurrentStepViewSchema = z.object({
-  id: z.string().min(1),
-  stage: z.enum(["contract", "reference", "target", "alignment", "delivery"]),
-  goal: z.string().min(1),
-  status: z.enum(["pending", "in_progress", "done", "blocked", "cancelled"]),
-  authority: z.enum(["safe_local", "ask_decision", "ask_approval"]),
-  doneWhen: z.array(z.string().min(1)),
-  evidenceRequired: z.array(z.string().min(1)),
-  blocker: z.string().min(1).optional(),
-});
+const sparkSessionReproStepAuthorityProjectionInputSchema = z.enum([
+  "safe_local",
+  "driver_local",
+  "ask_decision",
+  "ask_approval",
+]);
+
+export const sparkSessionReproStepWireAuthoritySchema = z.enum([
+  "safe_local",
+  "ask_decision",
+  "ask_approval",
+]);
+
+export interface SparkSessionReproStepAuthorityProjection {
+  authority: z.infer<typeof sparkSessionReproStepWireAuthoritySchema>;
+  driverManaged?: true;
+}
+
+/**
+ * Project owner-internal Repro authority into the additive SessionView v1 shape.
+ *
+ * Older readers see `driver_local` as evidence-backed `safe_local` and ignore
+ * the additive marker. Execution owners must use durable Repro state rather
+ * than this display-safe projection when deciding dispatch authority.
+ */
+export function projectSparkSessionReproStepAuthority(
+  value: unknown,
+): SparkSessionReproStepAuthorityProjection {
+  const authority = sparkSessionReproStepAuthorityProjectionInputSchema.parse(value);
+  return authority === "driver_local"
+    ? { authority: "safe_local", driverManaged: true }
+    : { authority };
+}
+
+export const sparkSessionReproCurrentStepViewSchema = z
+  .object({
+    id: z.string().min(1),
+    stage: z.enum(["contract", "reference", "target", "alignment", "delivery"]),
+    goal: z.string().min(1),
+    status: z.enum(["pending", "in_progress", "done", "blocked", "cancelled"]),
+    authority: sparkSessionReproStepWireAuthoritySchema,
+    driverManaged: z.literal(true).optional(),
+    doneWhen: z.array(z.string().min(1)),
+    evidenceRequired: z.array(z.string().min(1)),
+    blocker: z.string().min(1).optional(),
+  })
+  .superRefine((step, context) => {
+    if (step.driverManaged && step.authority !== "safe_local") {
+      context.addIssue({
+        code: "custom",
+        path: ["driverManaged"],
+        message: "driverManaged requires safe_local wire authority",
+      });
+    }
+  });
 
 export const sparkSessionVerificationReceiptViewSchema = z.object({
   stepId: z.string().min(1),

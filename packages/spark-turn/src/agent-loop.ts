@@ -570,19 +570,20 @@ export interface SparkAgentLoopOptions {
   /** Maximum concurrent calls in an explicitly safe read-only tool batch. Defaults to 4. */
   maxParallelToolCalls?: number;
   /**
-   * Session/host method for tools with `requiresApproval`.
-   * Defaults to `auto`. Local TUI should pass `skip`; channel sessions keep `auto`.
+   * Session/host method for approval-required tools. Defaults to `human`.
+   * Driver-owned turns bypass only calls explicitly marked `manual_only`.
    */
   approvalMethod?: SparkToolApprovalMethod;
   /**
-   * When `approvalMethod` is `auto` and the reviewer does not approve.
-   * Defaults to `ask` (escalate to human / toolApproval).
+   * When `approvalMethod` is `auto` and the reviewer rejects the call.
+   * Defaults to `ask`; reviewer approval is only a safety signal and still
+   * proceeds through human toolApproval.
    */
   approvalRejectAction?: SparkToolApprovalRejectAction;
   /**
    * Auto-review hook (same conceptual channel as goal completion reviewer).
-   * When omitted under `auto`, the call is treated as blocked and follows
-   * `approvalRejectAction`.
+   * It may reject before asking the user but cannot grant execution authority.
+   * When omitted under `auto`, the call follows `approvalRejectAction`.
    */
   reviewToolApproval?: (
     request: SparkToolApprovalReviewRequest,
@@ -1073,7 +1074,7 @@ export class SparkAgentLoop {
                 active: this.isToolAvailable(tool),
                 effect: policy.effect,
                 executionMode: policy.executionMode,
-                requiresApproval: policy.approval === "required",
+                approval: policy.approval,
                 domains: policy.domains,
                 modes: policy.modes,
                 promptGuidelines: tool.config.promptGuidelines,
@@ -1286,9 +1287,7 @@ export class SparkAgentLoop {
     if (!tool || !this.isToolAvailable(tool, toolCall.arguments)) return false;
     const policy = resolvedRegisteredToolPolicy(tool, toolCall.arguments);
     return (
-      policy.effect === "read" &&
-      policy.executionMode === "parallel" &&
-      !toolRequiresApproval(tool, toolCall.arguments)
+      policy.effect === "read" && policy.executionMode === "parallel" && policy.approval === "none"
     );
   }
 
@@ -1378,7 +1377,12 @@ export class SparkAgentLoop {
         model: this.getModel(),
         sessionId: this.viewSessionId,
       });
-      const approval = await this.requestToolApprovalIfNeeded(normalizedToolCall, tool, signal);
+      const approval = await this.requestToolApprovalIfNeeded(
+        normalizedToolCall,
+        tool,
+        ctx,
+        signal,
+      );
       if (!approval.approved) return errorToolResult(toolCall, approval.message);
       if (this.host.getTool(toolCall.name) !== tool) {
         return errorToolResult(
@@ -1677,20 +1681,25 @@ export class SparkAgentLoop {
   private async requestToolApprovalIfNeeded(
     toolCall: ToolCall,
     tool: SparkTurnRegisteredTool,
+    ctx: SparkHostContext,
     signal: AbortSignal,
   ): Promise<{ approved: true } | { approved: false; message: string }> {
-    if (!toolRequiresApproval(tool, toolCall.arguments)) return { approved: true };
+    if (!(await toolRequiresApproval(tool, toolCall.arguments, ctx))) return { approved: true };
 
     const reason = `Tool "${toolCall.name}" requires approval before execution.`;
     switch (this.approvalMethod) {
       case "skip":
-        return { approved: true };
+        // `skip` now skips only automated review. It is not authorization and
+        // therefore cannot waive either manual-only or required human gates.
+        return await this.requestHumanToolApproval(toolCall, reason, signal);
       case "human":
         return await this.requestHumanToolApproval(toolCall, reason, signal);
       case "auto": {
         const review = await this.runAutoToolApproval(toolCall, reason, signal);
         throwIfSignalAborted(signal);
-        if (review.outcome === "approved") return { approved: true };
+        if (review.outcome === "approved") {
+          return await this.requestHumanToolApproval(toolCall, reason, signal);
+        }
         const rejectMessage =
           review.summary.trim() || `tool "${toolCall.name}" was not auto-approved`;
         if (this.approvalRejectAction === "deny") {

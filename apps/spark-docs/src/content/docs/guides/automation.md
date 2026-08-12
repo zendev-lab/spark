@@ -24,6 +24,30 @@ start work or create a fifth automation mode.
 | Reproduce a model or system with evidence at each milestone | Repro | `/repro start Reproduce model X in framework Y` |
 | Execute a saved, staged procedure | Workflow | `/workflow run builtin:research Compare the two designs` |
 
+## Authority while a driver is active
+
+Starting a Goal, Loop, or Repro gives that driver bounded authority for its
+confirmed objective, Workspace, repository, and writable targets. While it is
+active, the driver may perform `manual_only` operations without asking again.
+Those operations must be low-risk and reversible. Creating or updating a Draft
+PR with `git submit` is the canonical example. `git sync` remains
+approval-required because it can discover remote-only stack members.
+
+Starting or reactivating a driver is itself a human-authorized authority grant.
+An agent cannot turn a manual continuation into a driver on its own, and an
+explicitly stopped Repro is not silently restarted by status or recovery.
+
+This does not authorize `required` operations. Destructive, irreversible,
+security-sensitive, costly, high-impact, or materially scope-expanding actions
+always need human approval, as do release, deployment, merge, and promotion of
+a Draft PR to Ready. When the driver stops, completes, or is replaced,
+that driver's authority expires. Later continuation uses manual approval
+behavior when no driver is active.
+
+A WorkflowRun is an execution mechanism, not a continuation driver. It inherits
+the approval context of the driver that started it only while that authority
+remains active, and grants or retains no authority by itself.
+
 ## Goal
 
 A goal keeps working toward one durable outcome and stops when it completes,
@@ -59,8 +83,8 @@ receiving either receipt as a transcript message.
 ## Repro
 
 Repro guides evidence-gated work through setup, scaffold, reproduce, scale,
-and deliver. It pauses instead of guessing when a baseline, authority decision,
-or approval is missing.
+and deliver. It pauses instead of guessing when a baseline, material authority
+decision, or `required` approval is missing.
 
 ```text
 /repro start <objective>

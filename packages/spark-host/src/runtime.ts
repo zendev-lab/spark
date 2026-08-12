@@ -87,6 +87,7 @@ import type {
 
 export interface SparkHostRuntimeOptions {
   cwd: string;
+  cwdArtifactRef?: SparkHostContext["cwdArtifactRef"];
   workspaceId?: string;
   sparkStateRoot?: string;
   sessionSurface?: "local" | "channel";
@@ -182,6 +183,7 @@ export class SparkHostRuntime implements SparkHostAPI {
       }
     | undefined;
   readonly invocationId: string | undefined;
+  cwdArtifactRef: SparkHostContext["cwdArtifactRef"];
   readonly stateBindingSessionId: string | undefined;
   readonly taskExecutionScope: SparkHostContext["taskExecutionScope"];
   readonly loop: SparkHostLoopContext | undefined;
@@ -212,6 +214,7 @@ export class SparkHostRuntime implements SparkHostAPI {
 
   constructor(options: SparkHostRuntimeOptions) {
     this.cwd = options.cwd;
+    this.cwdArtifactRef = options.cwdArtifactRef;
     this.workspaceId = options.workspaceId?.trim() || undefined;
     this.sparkStateRoot = options.sparkStateRoot;
     this.sessionSurface = options.sessionSurface;
@@ -581,6 +584,7 @@ export class SparkHostRuntime implements SparkHostAPI {
   setSessionContext(input: {
     sessionId?: string;
     cwd: string;
+    cwdArtifactRef?: SparkHostContext["cwdArtifactRef"];
     workspaceId?: string;
     sparkStateRoot?: string;
   }): void {
@@ -588,6 +592,7 @@ export class SparkHostRuntime implements SparkHostAPI {
     const workspaceId = input.workspaceId?.trim();
     this.sessionId = sessionId || undefined;
     this.cwd = input.cwd;
+    this.cwdArtifactRef = input.cwdArtifactRef;
     this.workspaceId = workspaceId || undefined;
     this.sparkStateRoot = input.sparkStateRoot?.trim() || undefined;
   }
@@ -606,6 +611,7 @@ export class SparkHostRuntime implements SparkHostAPI {
     const feedbackReceipt = directIntentAuthority?.currentFeedbackReceipt();
     return {
       cwd: this.cwd,
+      ...(this.cwdArtifactRef ? { cwdArtifactRef: this.cwdArtifactRef } : {}),
       ...(this.workspaceId ? { workspaceId: this.workspaceId } : {}),
       ...(this.stateBindingSessionId || this.sessionId
         ? { sessionId: this.stateBindingSessionId ?? this.sessionId }

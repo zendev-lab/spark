@@ -23,6 +23,7 @@ describe("SparkHostRuntime effect contract", () => {
   it("atomically rebinds session cwd and workspace state root", () => {
     const host = new SparkHostRuntime({
       cwd: "/workspace",
+      cwdArtifactRef: "artifact:current-change",
       workspaceId: "ws_one",
       sparkStateRoot: "/workspace/.spark",
     });
@@ -30,6 +31,7 @@ describe("SparkHostRuntime effect contract", () => {
     host.setSessionContext({
       sessionId: "session:worktree",
       cwd: "/worktrees/change/packages/app",
+      cwdArtifactRef: "artifact:current-change",
       workspaceId: "ws_one",
       sparkStateRoot: "/workspace/.spark",
     });
@@ -37,6 +39,7 @@ describe("SparkHostRuntime effect contract", () => {
     expect(host.makeContext()).toMatchObject({
       sessionId: "session:worktree",
       cwd: "/worktrees/change/packages/app",
+      cwdArtifactRef: "artifact:current-change",
       workspaceId: "ws_one",
       sparkStateRoot: "/workspace/.spark",
     });

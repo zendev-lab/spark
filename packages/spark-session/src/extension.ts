@@ -187,7 +187,7 @@ function sessionToolPolicy(
     executionMode: effect === "read" ? "parallel" : "sequential",
     domains: ["sessions"],
     modes,
-    approval: "none",
+    approval: effect === "read" ? "none" : "required",
   };
 }
 

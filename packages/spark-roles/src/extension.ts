@@ -586,7 +586,7 @@ function roleToolPolicy(effect: "read" | "external_write", modes: readonly strin
     executionMode: effect === "read" ? "parallel" : "sequential",
     domains: ["roles"],
     modes,
-    approval: "none",
+    approval: effect === "read" ? "none" : "required",
   };
 }
 

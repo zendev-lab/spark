@@ -48,13 +48,13 @@ export type SparkGraftAction = (typeof SPARK_GRAFT_ACTIONS)[number];
 /** Canonical public tool surface is `graft({ action })`. */
 export const SPARK_GRAFT_PATCHER_ALLOWED_TOOLS = ["graft"] as const;
 
-const GRAFT_READ_TOOL_POLICY = {
+export const GRAFT_READ_TOOL_POLICY = {
   effect: "read",
   executionMode: "sequential",
   domains: ["graft"],
   approval: "none",
 } as const satisfies ToolPolicy;
-const GRAFT_LOCAL_WRITE_TOOL_POLICY = {
+export const GRAFT_LOCAL_WRITE_TOOL_POLICY = {
   effect: "local_write",
   executionMode: "sequential",
   domains: ["graft"],
@@ -64,12 +64,18 @@ const GRAFT_DESTRUCTIVE_TOOL_POLICY = {
   effect: "destructive",
   executionMode: "sequential",
   domains: ["graft"],
-  approval: "none",
+  approval: "required",
+} as const satisfies ToolPolicy;
+export const GRAFT_EXECUTION_TOOL_POLICY = {
+  effect: "external_write",
+  executionMode: "sequential",
+  domains: ["graft", "execution"],
+  approval: "required",
 } as const satisfies ToolPolicy;
 const GRAFT_UNKNOWN_TOOL_POLICY = {
   executionMode: "sequential",
   domains: ["graft"],
-  approval: "none",
+  approval: "required",
 } as const satisfies ToolPolicy;
 
 const GRAFT_ACTION_POLICIES = {
@@ -88,7 +94,7 @@ const GRAFT_ACTION_POLICIES = {
   scratch_pin: GRAFT_LOCAL_WRITE_TOOL_POLICY,
   scratch_unpin: GRAFT_LOCAL_WRITE_TOOL_POLICY,
   candidate_from_scratch: GRAFT_LOCAL_WRITE_TOOL_POLICY,
-  validate: GRAFT_LOCAL_WRITE_TOOL_POLICY,
+  validate: GRAFT_EXECUTION_TOOL_POLICY,
   admit: GRAFT_LOCAL_WRITE_TOOL_POLICY,
   show: GRAFT_READ_TOOL_POLICY,
   evidence: GRAFT_READ_TOOL_POLICY,
@@ -161,6 +167,8 @@ export interface SparkGraftToolDefinition {
   parameters: unknown;
   /** Canonical Spark host policy; legacy Pi hosts safely ignore this field. */
   policy?: ToolPolicy;
+  /** Argument-aware policy for the canonical action surface. */
+  resolvePolicy?: (args: Readonly<Record<string, unknown>>) => ToolPolicy;
   /** Per-tool execution mode hint understood by Pi; stateful sandbox tools use sequential. */
   executionMode?: "sequential" | "parallel";
   renderCall?: (
@@ -262,6 +270,14 @@ function registerCanonicalGraftTool(
       "Use action=repo with repoAction for repository config/cache/lock workflows.",
     ],
     policy: GRAFT_CANONICAL_TOOL_POLICY,
+    resolvePolicy(args) {
+      const action = normalizeGraftAction(args.action);
+      if (action === "repo") {
+        const repoAction = enumParam(args, "repoAction", "list", GRAFT_REPO_ACTIONS);
+        return repoAction === "list" ? GRAFT_READ_TOOL_POLICY : GRAFT_EXECUTION_TOOL_POLICY;
+      }
+      return GRAFT_ACTION_POLICIES[action];
+    },
     parameters: Type.Object({
       action: Type.String({ description: SPARK_GRAFT_ACTIONS.join(" | ") }),
       topic: Type.Optional(Type.String()),
@@ -605,7 +621,7 @@ function assertCliExecAllowed(argv: string[]): void {
 
 function isAllowedCliExecCommand(primary: string, secondary: string | undefined): boolean {
   if (primary === "explain" || primary === "sync") return true;
-  if (primary === "get" || primary === "run") return true;
+  if (primary === "get") return true;
   if (primary === "bundle") return secondary === "export" || secondary === "import";
   if (primary === "repo")
     return ["add", "list", "sync", "lock", "update"].includes(secondary ?? "");
@@ -2181,7 +2197,7 @@ export function registerSparkGraftExtension(pi: SparkGraftHostApi): void {
     name: "graft_cli_exec",
     label: "Graft CLI Exec",
     description:
-      "Run allowlisted low-frequency Graft CLI argv: explain/sync/get/run, bundle export/import, repo add/list/sync/lock/update, workspace init/status/attach/detach/ps/doctor/gc, and patch incoming/list/show/search/diff/compose/migrate/revert/promote.",
+      "Run allowlisted low-frequency Graft CLI argv: explain/sync/get, bundle export/import, repo add/list/sync/lock/update, workspace init/status/attach/detach/ps/doctor/gc, and patch incoming/list/show/search/diff/compose/migrate/revert/promote.",
     parameters: Type.Object({
       argv: Type.Array(
         Type.String({ description: "Graft CLI arguments, excluding the graft binary." }),

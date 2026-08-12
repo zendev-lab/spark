@@ -108,7 +108,37 @@ Unknown or conflicting policy fails closed.
 - Pure reads that explicitly allow parallel execution may run concurrently.
 - Writes, policy changes, mixed batches, and external side effects remain
   serialized unless their owning contract proves a safe alternative.
-- A required approval is part of execution authority, not presentation text.
+- `none` operations need no human approval.
+- `manual_only` operations are bounded, low-risk, and reversible. Manual
+  continuation asks for approval; an active Goal, Loop, or Repro driver may
+  execute them within its confirmed objective and targets without asking
+  again. Creating or updating a Draft PR with `git submit` is the canonical
+  example. `git sync` can discover remote-only stack members and remains
+  approval-required.
+- `required` operations always need human approval. These include destructive,
+  irreversible, security-sensitive, costly, high-impact, or materially
+  scope-expanding actions, plus release, deployment, merge, and promotion of a
+  Draft PR to Ready. Unstructured command, script, and scheduled-job execution
+  is also `required` and cannot inherit a bounded Git capability.
+- A WorkflowRun is not a continuation driver. It inherits the approval context
+  of the driver that started it only while that authority remains active; it
+  cannot retain driver authority by itself.
+- Before Draft submit or sync, Git refreshes the native PR stack and refuses an
+  existing Ready or mixed stack. Retry with `ready=true` through human approval;
+  for sync, the flag authorizes changing that existing stack and does not
+  promote Draft layers.
+- Driver-local Draft delivery is bound to one exact `git_change`: either the
+  daemon-resolved worktree owner or the one Artifact initialized in the stable
+  driver Session's immutable cwd repository. A second Artifact or an explicit
+  repository path cannot widen that authority. The daemon also freezes the
+  canonical GitHub repository and all effective `origin` fetch and push URLs,
+  then Git rechecks them immediately before delivery.
+- The last successful remote Draft-state refresh followed by the daemon's
+  side-effect-boundary claim is the local authorization point. It runs after
+  isolated Git/GitHub environment setup and immediately before the pinned
+  stack executable starts; every later operation repeats the checks.
+- Approval is execution authority, not presentation text. Unknown or
+  conflicting policy fails closed.
 - Compatibility and Channel profiles may expose a smaller set than the native
   TUI or Hub Session.
 

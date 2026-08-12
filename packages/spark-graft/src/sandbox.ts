@@ -5,6 +5,9 @@ import { resolve } from "node:path";
 import { Type } from "typebox";
 
 import {
+  GRAFT_EXECUTION_TOOL_POLICY,
+  GRAFT_LOCAL_WRITE_TOOL_POLICY,
+  GRAFT_READ_TOOL_POLICY,
   registerSparkGraftExtension,
   type SparkGraftHostApi,
   type SparkGraftSessionContext,
@@ -1017,6 +1020,7 @@ export function registerSparkGraftSandboxExtension(pi: SparkGraftHostApi): void 
     promptSnippet:
       "Read a UTF-8 file from the active Graft sandbox scratch/base; never reads the working tree.",
     promptGuidelines: SANDBOX_FILE_PROMPT_GUIDELINES,
+    policy: GRAFT_READ_TOOL_POLICY,
     executionMode: "sequential",
     parameters: Type.Object({
       path: Type.String({ description: "Relative path inside the sandbox virtual repo tree." }),
@@ -1093,6 +1097,7 @@ export function registerSparkGraftSandboxExtension(pi: SparkGraftHostApi): void 
     promptSnippet:
       "Write a complete UTF-8 file into the active Graft sandbox scratch; never writes the working tree.",
     promptGuidelines: SANDBOX_FILE_PROMPT_GUIDELINES,
+    policy: GRAFT_LOCAL_WRITE_TOOL_POLICY,
     executionMode: "sequential",
     parameters: Type.Object({
       path: Type.String({ description: "Relative path inside the sandbox virtual repo tree." }),
@@ -1147,6 +1152,7 @@ export function registerSparkGraftSandboxExtension(pi: SparkGraftHostApi): void 
     promptSnippet:
       "Edit UTF-8 files in the active Graft sandbox scratch with exact replacements; never edits the working tree.",
     promptGuidelines: SANDBOX_FILE_PROMPT_GUIDELINES,
+    policy: GRAFT_LOCAL_WRITE_TOOL_POLICY,
     executionMode: "sequential",
     parameters: Type.Object({
       path: Type.String({ description: "Relative path inside the sandbox virtual repo tree." }),
@@ -1212,6 +1218,7 @@ export function registerSparkGraftSandboxExtension(pi: SparkGraftHostApi): void 
     promptSnippet:
       "Search UTF-8 text with the native Graft tree backend when semantics allow, otherwise with the materialized sandbox fallback; does not scan the working tree.",
     promptGuidelines: SANDBOX_FILE_PROMPT_GUIDELINES,
+    policy: GRAFT_READ_TOOL_POLICY,
     parameters: Type.Object({
       pattern: Type.String({ description: "Regex or literal pattern to search for." }),
       path: Type.Optional(Type.String({ description: "Optional explicit sandbox file/path." })),
@@ -1289,6 +1296,7 @@ export function registerSparkGraftSandboxExtension(pi: SparkGraftHostApi): void 
     promptSnippet:
       "Find sandbox-visible paths with the native Graft tree backend when available, otherwise with the materialized sandbox fallback; does not traverse the working tree.",
     promptGuidelines: SANDBOX_FILE_PROMPT_GUIDELINES,
+    policy: GRAFT_READ_TOOL_POLICY,
     parameters: Type.Object({
       pattern: Type.Optional(Type.String({ description: "Optional wildcard pattern, e.g. *.ts." })),
       path: Type.Optional(Type.String({ description: "Optional sandbox directory/path prefix." })),
@@ -1339,6 +1347,7 @@ export function registerSparkGraftSandboxExtension(pi: SparkGraftHostApi): void 
     promptSnippet:
       "List sandbox-visible entries with the native Graft tree backend when available, otherwise with the materialized sandbox fallback; does not read the working tree.",
     promptGuidelines: SANDBOX_FILE_PROMPT_GUIDELINES,
+    policy: GRAFT_READ_TOOL_POLICY,
     parameters: Type.Object({
       path: Type.Optional(
         Type.String({ description: "Sandbox directory/path prefix; defaults to root." }),
@@ -1393,6 +1402,7 @@ export function registerSparkGraftSandboxExtension(pi: SparkGraftHostApi): void 
     label: "Graft Sandbox Enter",
     description:
       "Enter explicit Graft sandbox mode: create or reuse a non-Git Graft workspace, attach a repo base, and make future sandbox file operations use Graft scratch state.",
+    policy: GRAFT_LOCAL_WRITE_TOOL_POLICY,
     executionMode: "sequential",
     parameters: Type.Object({
       repo: Type.Optional(
@@ -1475,6 +1485,7 @@ export function registerSparkGraftSandboxExtension(pi: SparkGraftHostApi): void 
     name: "graft_sandbox_status",
     label: "Graft Sandbox Status",
     description: "Show explicit Graft sandbox mode state and safety boundary status.",
+    policy: GRAFT_READ_TOOL_POLICY,
     parameters: Type.Object({}),
     async execute() {
       return {
@@ -1493,6 +1504,7 @@ export function registerSparkGraftSandboxExtension(pi: SparkGraftHostApi): void 
     label: "Graft Sandbox Exit",
     description:
       "Clear explicit Graft sandbox session state and report retained refs. V1 does not restore original built-in tools until the sandbox entrypoint is unloaded/reloaded.",
+    policy: GRAFT_LOCAL_WRITE_TOOL_POLICY,
     executionMode: "sequential",
     parameters: Type.Object({}),
     async execute() {
@@ -1518,6 +1530,7 @@ export function registerSparkGraftSandboxExtension(pi: SparkGraftHostApi): void 
     label: "Graft Sandbox Checkpoint",
     description:
       "Turn the current sandbox scratch into a candidate, run validation, and optionally admit a patch. Does not materialize or promote.",
+    policy: GRAFT_EXECUTION_TOOL_POLICY,
     executionMode: "sequential",
     parameters: Type.Object({
       expected: Type.Optional(
@@ -1616,6 +1629,7 @@ export function registerSparkGraftSandboxExtension(pi: SparkGraftHostApi): void 
     label: "Graft Sandbox Materialize",
     description:
       "Plan or materialize the current sandbox patch into an isolated inspection state. Defaults to dry-run and never promotes.",
+    policy: GRAFT_LOCAL_WRITE_TOOL_POLICY,
     executionMode: "sequential",
     parameters: Type.Object({
       patch: Type.Optional(
@@ -1673,6 +1687,10 @@ export function registerSparkGraftSandboxExtension(pi: SparkGraftHostApi): void 
     label: "Graft Sandbox Promote",
     description:
       "Explicitly promote a sandbox patch to a Git branch/target. Defaults to dry-run; apply:true adds the --yes side-effect gate.",
+    policy: GRAFT_LOCAL_WRITE_TOOL_POLICY,
+    resolvePolicy(args) {
+      return args.apply === true ? GRAFT_EXECUTION_TOOL_POLICY : GRAFT_LOCAL_WRITE_TOOL_POLICY;
+    },
     executionMode: "sequential",
     parameters: Type.Object({
       patch: Type.Optional(

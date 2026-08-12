@@ -98,6 +98,8 @@ export interface SparkHeadlessRoleInstructionResult {
 
 export interface SparkHeadlessSessionRunInput {
   cwd: string;
+  /** Daemon-resolved git_change that owns cwd. */
+  cwdArtifactRef?: import("@zendev-lab/spark-core").ArtifactRef;
   workspaceId?: string;
   /** Trusted workspace-owned state root; execution cwd may be a subdir/worktree. */
   sparkStateRoot?: string;
@@ -152,8 +154,8 @@ export interface SparkHeadlessSessionRunInput {
   /** Display-safe metadata persisted on the submitted user message only. */
   messageMetadata?: Record<string, unknown>;
   /**
-   * Tool approval method for `requiresApproval` tools.
-   * Defaults to `auto`; callers must opt into `skip` explicitly.
+   * Tool approval method for approval-required tools.
+   * Defaults to `human`; callers must opt into `skip` or `auto` explicitly.
    */
   approvalMethod?: "skip" | "human" | "auto";
   approvalRejectAction?: "ask" | "deny";
@@ -305,6 +307,7 @@ export async function runSparkHeadlessSession(
   const createServices = options.createServices;
   const services = await createServices({
     cwd: input.cwd,
+    ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
     workspaceId: input.workspaceId,
     sparkStateRoot: input.sparkStateRoot,
     sparkHome: options.sparkHome ?? input.sparkHome,
@@ -351,7 +354,7 @@ export async function runSparkHeadlessSession(
     // streams and tool calls keep their normal per-operation deadlines so a
     // genuinely wedged provider or tool cannot occupy the session forever.
     ...(input.interaction ? { interactionTimeoutMs: 0 } : {}),
-    approvalMethod: input.approvalMethod ?? "auto",
+    approvalMethod: input.approvalMethod ?? "human",
     ...(input.approvalRejectAction ? { approvalRejectAction: input.approvalRejectAction } : {}),
   } satisfies SparkCliHostServicesOptions);
   let primaryError: unknown;

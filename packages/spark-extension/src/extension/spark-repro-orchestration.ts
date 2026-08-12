@@ -6,6 +6,7 @@ export interface SparkReproOrchestrationSnapshot extends SparkReproOrchestration
   safeTaskRefs: TaskRef[];
   dispatchableTaskRefs: TaskRef[];
   activeTaskRefs: TaskRef[];
+  driverLocalTaskRefs: TaskRef[];
   excludedAskTaskRefs: TaskRef[];
 }
 
@@ -34,6 +35,14 @@ export function collectReproOrchestrationSnapshot(
       .map((subgoal) => subgoal.taskRef)
       .filter((ref): ref is TaskRef => !!ref),
   );
+  const driverLocalTaskRefs = [
+    ...new Set(
+      repro.subgoals
+        .filter((subgoal) => subgoal.authority === "driver_local")
+        .map((subgoal) => subgoal.taskRef)
+        .filter((ref): ref is TaskRef => !!ref),
+    ),
+  ].sort();
   const safeTaskRefs = [
     ...new Set(
       repro.subgoals
@@ -74,6 +83,7 @@ export function collectReproOrchestrationSnapshot(
     safeTaskRefs,
     dispatchableTaskRefs,
     activeTaskRefs,
+    driverLocalTaskRefs,
     excludedAskTaskRefs: [...askTaskRefs].sort(),
   };
 }
@@ -87,6 +97,7 @@ export function conservativeReproOrchestrationSnapshot(): SparkReproOrchestratio
     safeTaskRefs: [],
     dispatchableTaskRefs: [],
     activeTaskRefs: [],
+    driverLocalTaskRefs: [],
     excludedAskTaskRefs: [],
   };
 }

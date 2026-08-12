@@ -107,7 +107,12 @@ export type SparkReproGoalContractStatus = SparkGoalContractStatus;
 export type SparkReproGoalAuthority = SparkGoalAuthority;
 export type SparkReproGoalContract = SparkGoalContract;
 
-export type SparkReproStepAuthority = "safe_local" | "ask_decision" | "ask_approval";
+export type SparkReproStepAuthority =
+  | "safe_local"
+  | "driver_local"
+  | "ask_decision"
+  | "ask_approval";
+export type SparkReproStepAuthorityV4ToV7 = Exclude<SparkReproStepAuthority, "driver_local">;
 export type SparkReproStepStatus = "pending" | "in_progress" | "done" | "blocked" | "cancelled";
 
 export interface SparkReproStepDefinition {
@@ -175,13 +180,23 @@ export interface SparkReproPlan {
   steps: SparkReproStep[];
 }
 
-export interface SparkReproPlanRevisionV4 extends SparkReproPlanRevision {
-  minimumStepCount: number;
+export interface SparkReproStepDefinitionV4 extends Omit<SparkReproStepDefinition, "authority"> {
+  authority: SparkReproStepAuthorityV4ToV7;
 }
 
-export interface SparkReproPlanV4 extends Omit<SparkReproPlan, "revisions"> {
+export interface SparkReproStepV4 extends Omit<SparkReproStep, "authority"> {
+  authority: SparkReproStepAuthorityV4ToV7;
+}
+
+export interface SparkReproPlanRevisionV4 extends Omit<SparkReproPlanRevision, "steps"> {
+  minimumStepCount: number;
+  steps: SparkReproStepDefinitionV4[];
+}
+
+export interface SparkReproPlanV4 extends Omit<SparkReproPlan, "revisions" | "steps"> {
   minimumStepCount: number;
   revisions: SparkReproPlanRevisionV4[];
+  steps: SparkReproStepV4[];
 }
 
 export type SparkReproStopDecision = "continue" | "ask" | "complete";
@@ -201,6 +216,13 @@ export interface SparkReproStopGuard {
   lastSettledAt?: string;
 }
 
+/** Goal authority persisted before bounded driver writes were introduced in v7. */
+export type SparkReproGoalAuthorityV4ToV6 = Omit<SparkReproGoalAuthority, "boundedExternalWrites">;
+
+export interface SparkReproGoalContractV4ToV6 extends Omit<SparkReproGoalContract, "authority"> {
+  authority: SparkReproGoalAuthorityV4ToV6;
+}
+
 export interface SparkSessionReproV4 {
   version: 4;
   reproId: string;
@@ -208,7 +230,7 @@ export interface SparkSessionReproV4 {
   status: SparkReproStatus;
   /** Compatibility projection of goalContract.objective. */
   objective?: string;
-  goalContract: SparkReproGoalContract;
+  goalContract: SparkReproGoalContractV4ToV6;
   plan: SparkReproPlanV4;
   stopGuard: SparkReproStopGuard;
   currentStageIndex: number;
@@ -224,7 +246,7 @@ export interface SparkReproSubgoal extends SparkSubgoal {
   stage: SparkReproStageName;
 }
 
-export interface SparkReproSubgoalV5 extends SparkSubgoalDefinition {
+export interface SparkReproSubgoalV5 extends Omit<SparkSubgoalDefinition, "authority"> {
   ref: SubgoalRef;
   id: string;
   stage: SparkReproStageName;
@@ -234,6 +256,7 @@ export interface SparkReproSubgoalV5 extends SparkSubgoalDefinition {
   status: SparkSubgoalStatus;
   taskRefs: TaskRef[];
   evidenceRefs: EvidenceRef[];
+  authority: SparkReproStepAuthorityV4ToV7;
   delegation?: {
     sessionId: string;
     planRevision: number;
@@ -246,11 +269,17 @@ export interface SparkReproSubgoalV5 extends SparkSubgoalDefinition {
   updatedAt: string;
 }
 
+export type SparkReproPlanRevisionV5 = Omit<SparkReproPlanRevisionV4, "minimumStepCount">;
+
+export interface SparkReproPlanV5 extends Omit<SparkReproPlanV4, "minimumStepCount" | "revisions"> {
+  revisions: SparkReproPlanRevisionV5[];
+}
+
 export interface SparkSessionReproV5 extends Omit<SparkSessionReproV4, "version" | "plan"> {
   version: 5;
   /** Missing only while a legacy v4 snapshot awaits project backfill. */
   projectRef?: ProjectRef;
-  plan: SparkReproPlan;
+  plan: SparkReproPlanV5;
   subgoals: SparkReproSubgoalV5[];
 }
 
@@ -274,14 +303,69 @@ export interface SparkReproDualLaneSessionState {
   };
 }
 
-export interface SparkSessionReproV6 extends Omit<SparkSessionReproV5, "version" | "subgoals"> {
-  version: 6;
-  subgoals: SparkReproSubgoal[];
+export interface SparkReproSubgoalV6 extends Omit<SparkReproSubgoal, "authority"> {
+  authority: SparkReproStepAuthorityV4ToV7;
 }
 
-export interface SparkSessionRepro extends Omit<SparkSessionReproV6, "version"> {
+export interface SparkSessionReproV6 extends Omit<SparkSessionReproV5, "version" | "subgoals"> {
+  version: 6;
+  subgoals: SparkReproSubgoalV6[];
+}
+
+export type SparkReproStepAuthorityV7 = SparkReproStepAuthorityV4ToV7;
+
+export interface SparkReproGoalAuthorityV7 extends Omit<
+  SparkReproGoalAuthority,
+  "boundedExternalWrites"
+> {
+  boundedExternalWrites?: "driver";
+}
+
+export interface SparkReproGoalContractV7 extends Omit<SparkReproGoalContract, "authority"> {
+  authority: SparkReproGoalAuthorityV7;
+}
+
+export interface SparkReproStepDefinitionV7 extends Omit<SparkReproStepDefinition, "authority"> {
+  authority: SparkReproStepAuthorityV7;
+}
+
+export interface SparkReproStepV7 extends Omit<SparkReproStep, "authority"> {
+  authority: SparkReproStepAuthorityV7;
+}
+
+export interface SparkReproPlanRevisionV7 extends Omit<SparkReproPlanRevision, "steps"> {
+  steps: SparkReproStepDefinitionV7[];
+}
+
+export interface SparkReproPlanV7 extends Omit<SparkReproPlan, "revisions" | "steps"> {
+  revisions: SparkReproPlanRevisionV7[];
+  steps: SparkReproStepV7[];
+}
+
+export interface SparkReproSubgoalV7 extends Omit<SparkReproSubgoal, "authority"> {
+  authority: SparkReproStepAuthorityV7;
+}
+
+export interface SparkSessionReproV7 extends Omit<
+  SparkSessionReproV6,
+  "version" | "goalContract" | "plan" | "subgoals"
+> {
   version: 7;
+  goalContract: SparkReproGoalContractV7;
+  plan: SparkReproPlanV7;
+  subgoals: SparkReproSubgoalV7[];
   dualLane: SparkReproDualLaneSessionState;
+}
+
+/** Current snapshot model. V8 adds persisted `driver_local` Step authority. */
+export interface SparkSessionRepro extends Omit<
+  SparkSessionReproV7,
+  "version" | "goalContract" | "plan" | "subgoals"
+> {
+  version: 8;
+  goalContract: SparkReproGoalContract;
+  plan: SparkReproPlan;
+  subgoals: SparkReproSubgoal[];
 }
 
 export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
@@ -613,7 +697,7 @@ export function createSparkSessionRepro(
   const reproId = explicitReproId ?? crypto.randomUUID?.() ?? `repro-${Date.now()}`;
   const plan = createInitialReproPlan(resolvedStages, timestamp);
   const reproWithoutDigest: SparkSessionRepro = {
-    version: 7,
+    version: 8,
     reproId,
     sessionKey,
     status: "active",
@@ -941,7 +1025,7 @@ export function verifyReproStepPass(
 }
 
 export function reproStepPlanRevision(
-  repro: SparkSessionRepro | SparkSessionReproV6 | SparkSessionReproV5,
+  repro: SparkSessionRepro | SparkSessionReproV7 | SparkSessionReproV6 | SparkSessionReproV5,
   stepId: string,
 ): number {
   return (
@@ -974,6 +1058,56 @@ export function nextReproStep(repro: SparkSessionRepro): SparkReproStep | undefi
   );
 }
 
+/** Decode the bounded v4 persisted shape before any compatibility sanitization. */
+export function decodeStoredSparkSessionReproV4(value: unknown): SparkSessionReproV4 | undefined {
+  if (!isStoredSparkSessionReproBase(value, 4, true)) return undefined;
+  if (
+    Object.hasOwn(value, "projectRef") ||
+    Object.hasOwn(value, "subgoals") ||
+    Object.hasOwn(value, "dualLane") ||
+    !isRecord(value.goalContract) ||
+    !isStoredGoalContract(value.goalContract, "legacy_without_driver") ||
+    !isStoredReproPlanV4(value.plan)
+  ) {
+    return undefined;
+  }
+  return value as unknown as SparkSessionReproV4;
+}
+
+/** Decode the bounded v5 persisted shape before any compatibility sanitization. */
+export function decodeStoredSparkSessionReproV5(value: unknown): SparkSessionReproV5 | undefined {
+  if (!isStoredSparkSessionReproBase(value, 5, true)) return undefined;
+  if (
+    Object.hasOwn(value, "dualLane") ||
+    !isRecord(value.goalContract) ||
+    !isStoredGoalContract(value.goalContract, "legacy_without_driver") ||
+    !isStoredReproPlan(value.plan, false, true) ||
+    !Array.isArray(value.subgoals) ||
+    !value.subgoals.every((subgoal) => isStoredReproSubgoalV5(subgoal, false, true)) ||
+    !isStoredProjectRef(value.projectRef)
+  ) {
+    return undefined;
+  }
+  return value as unknown as SparkSessionReproV5;
+}
+
+/** Decode the bounded v6 persisted shape before any compatibility sanitization. */
+export function decodeStoredSparkSessionReproV6(value: unknown): SparkSessionReproV6 | undefined {
+  if (!isStoredSparkSessionReproBase(value, 6, true)) return undefined;
+  if (
+    Object.hasOwn(value, "dualLane") ||
+    !isRecord(value.goalContract) ||
+    !isStoredGoalContract(value.goalContract, "legacy_without_driver") ||
+    !isStoredReproPlan(value.plan, false, true) ||
+    !Array.isArray(value.subgoals) ||
+    !value.subgoals.every((subgoal) => isStoredReproSubgoal(subgoal, false, true)) ||
+    !isStoredProjectRef(value.projectRef)
+  ) {
+    return undefined;
+  }
+  return value as unknown as SparkSessionReproV6;
+}
+
 export function normalizeStoredSparkSessionRepro(value: unknown): SparkSessionRepro | undefined {
   if (!isStoredSparkSessionRepro(value)) return undefined;
   try {
@@ -982,7 +1116,9 @@ export function normalizeStoredSparkSessionRepro(value: unknown): SparkSessionRe
         ? migrateSparkSessionReproV5(value)
         : value.version === 6
           ? migrateSparkSessionReproV6(value)
-          : value;
+          : value.version === 7
+            ? migrateSparkSessionReproV7(value)
+            : value;
     const stages = normalizeStoredReproStages(repro.stages);
     const steps = repro.plan.steps.map((step: SparkReproStep) => {
       const evidenceRefs = step.evidenceRefs.filter(isStoredEvidenceRef);
@@ -997,13 +1133,22 @@ export function normalizeStoredSparkSessionRepro(value: unknown): SparkSessionRe
     });
     const normalizedPlan = { ...repro.plan, steps };
     const dualLane = normalizeDualLaneSessionState(normalizedPlan, repro.dualLane);
+    const goalContract: SparkReproGoalContract = {
+      ...repro.goalContract,
+      authority: {
+        ...repro.goalContract.authority,
+        boundedExternalWrites: "driver",
+      },
+    };
     const semanticStateChanged =
       JSON.stringify(stages) !== JSON.stringify(repro.stages) ||
       JSON.stringify(steps) !== JSON.stringify(repro.plan.steps) ||
-      JSON.stringify(dualLane) !== JSON.stringify(repro.dualLane);
+      JSON.stringify(dualLane) !== JSON.stringify(repro.dualLane) ||
+      JSON.stringify(goalContract) !== JSON.stringify(repro.goalContract);
     const normalized: SparkSessionRepro = {
       ...repro,
       stages,
+      goalContract,
       plan: normalizedPlan,
       dualLane,
       stopGuard: {
@@ -1050,7 +1195,7 @@ export function currentReproSteps(repro: SparkSessionRepro): SparkReproStep[] {
 }
 
 export function reproProgressDigest(
-  repro: SparkSessionRepro | SparkSessionReproV6 | SparkSessionReproV4,
+  repro: SparkSessionRepro | SparkSessionReproV7 | SparkSessionReproV6 | SparkSessionReproV4,
   orchestration: SparkReproOrchestrationInput = {},
 ): string {
   const progress = {
@@ -1091,7 +1236,7 @@ export function reproProgressDigest(
       evidenceRefs: step.evidenceRefs,
       blocker: step.blocker,
     })),
-    ...(repro.version === 7
+    ...(repro.version === 7 || repro.version === 8
       ? {
           dualLane: repro.dualLane,
           subgoalTasks: [...repro.subgoals]
@@ -1188,13 +1333,60 @@ function normalizeStoredReproStages(stages: readonly SparkReproStage[]): SparkRe
 
 function isStoredSparkSessionRepro(
   value: unknown,
-): value is SparkSessionRepro | SparkSessionReproV6 | SparkSessionReproV5 {
-  if (!isRecord(value) || (value.version !== 5 && value.version !== 6 && value.version !== 7))
+): value is SparkSessionRepro | SparkSessionReproV7 | SparkSessionReproV6 | SparkSessionReproV5 {
+  if (!isRecord(value)) return false;
+  if (value.version === 5) {
+    return (
+      isStoredSparkSessionReproBase(value, 5, false) &&
+      !Object.hasOwn(value, "dualLane") &&
+      isRecord(value.goalContract) &&
+      isStoredGoalContract(value.goalContract, "legacy_without_driver") &&
+      isStoredReproPlan(value.plan, false, false) &&
+      Array.isArray(value.subgoals) &&
+      value.subgoals.every((subgoal) => isStoredReproSubgoalV5(subgoal, false, false)) &&
+      isStoredProjectRef(value.projectRef)
+    );
+  }
+  if (value.version === 6) {
+    return (
+      isStoredSparkSessionReproBase(value, 6, false) &&
+      !Object.hasOwn(value, "dualLane") &&
+      isRecord(value.goalContract) &&
+      isStoredGoalContract(value.goalContract, "legacy_without_driver") &&
+      isStoredReproPlan(value.plan, false, false) &&
+      Array.isArray(value.subgoals) &&
+      value.subgoals.every((subgoal) => isStoredReproSubgoal(subgoal, false, false)) &&
+      isStoredProjectRef(value.projectRef)
+    );
+  }
+  if (value.version !== 7 && value.version !== 8) return false;
+  if (!isStoredSparkSessionReproBase(value, value.version, false)) return false;
+  if (!isRecord(value.goalContract) || !isStoredGoalContract(value.goalContract, "bounded_driver"))
     return false;
+  const allowDriverLocal = value.version === 8;
+  if (!isStoredReproPlan(value.plan, allowDriverLocal, false)) return false;
+  if (
+    !Array.isArray(value.subgoals) ||
+    !value.subgoals.every((subgoal) => isStoredReproSubgoal(subgoal, allowDriverLocal, false)) ||
+    !isStoredDualLaneSessionState(value.dualLane, value.plan as SparkReproPlan) ||
+    !isStoredProjectRef(value.projectRef)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function isStoredSparkSessionReproBase(
+  value: unknown,
+  version: 4 | 5 | 6 | 7 | 8,
+  allowLegacyStageNames: boolean,
+): value is Record<string, unknown> {
+  if (!isRecord(value) || value.version !== version) return false;
   if (
     typeof value.reproId !== "string" ||
     typeof value.sessionKey !== "string" ||
     (value.status !== "active" && value.status !== "complete") ||
+    (value.objective !== undefined && typeof value.objective !== "string") ||
     typeof value.createdAt !== "string" ||
     typeof value.updatedAt !== "string" ||
     (value.completedAt !== undefined && typeof value.completedAt !== "string") ||
@@ -1202,27 +1394,18 @@ function isStoredSparkSessionRepro(
     (value.currentPhase !== "plan" && value.currentPhase !== "implement") ||
     !Array.isArray(value.stages) ||
     value.stages.length === 0 ||
-    !value.stages.every(isStoredReproStage)
+    !value.stages.every((stage) => isStoredReproStage(stage, allowLegacyStageNames)) ||
+    !isRecord(value.stopGuard) ||
+    !isStoredStopGuard(value.stopGuard)
   ) {
     return false;
   }
-  if (!isRecord(value.goalContract) || !isStoredGoalContract(value.goalContract)) return false;
-  if (!isRecord(value.plan) || !isStoredReproPlan(value.plan)) return false;
-  if (
-    !Array.isArray(value.subgoals) ||
-    !value.subgoals.every(value.version === 5 ? isStoredReproSubgoalV5 : isStoredReproSubgoal)
-  )
-    return false;
-  if (value.version === 7 && !isStoredDualLaneSessionState(value.dualLane, value.plan))
-    return false;
-  if (
-    value.projectRef !== undefined &&
-    (typeof value.projectRef !== "string" || !isRef(value.projectRef, "proj"))
-  )
-    return false;
-  if (!isRecord(value.stopGuard) || !isStoredStopGuard(value.stopGuard)) return false;
   const currentStageIndex = Number(value.currentStageIndex);
   return currentStageIndex >= 0 && currentStageIndex < value.stages.length;
+}
+
+function isStoredProjectRef(value: unknown): boolean {
+  return value === undefined || (typeof value === "string" && isRef(value, "proj"));
 }
 
 function isStoredDualLaneSessionState(
@@ -1283,7 +1466,10 @@ function isStoredDualLaneSessionState(
   );
 }
 
-function isStoredGoalContract(value: Record<string, unknown>): boolean {
+function isStoredGoalContract(
+  value: Record<string, unknown>,
+  authorityVersion: "legacy_without_driver" | "bounded_driver",
+): boolean {
   return (
     (value.status === "draft" || value.status === "frozen") &&
     typeof value.objective === "string" &&
@@ -1293,53 +1479,92 @@ function isStoredGoalContract(value: Record<string, unknown>): boolean {
     isStringArray(value.successCriteria) &&
     isStringArray(value.evidenceRequired) &&
     Array.isArray(value.evidenceRefs) &&
-    isStoredGoalAuthority(value.authority) &&
+    isStoredGoalAuthority(value.authority, authorityVersion) &&
     typeof value.createdAt === "string" &&
     typeof value.updatedAt === "string" &&
     (value.frozenAt === undefined || typeof value.frozenAt === "string")
   );
 }
 
-function isStoredGoalAuthority(value: unknown): boolean {
+function isStoredGoalAuthority(
+  value: unknown,
+  authorityVersion: "legacy_without_driver" | "bounded_driver",
+): boolean {
   return (
     isRecord(value) &&
     value.safeLocal === "auto" &&
+    (authorityVersion === "legacy_without_driver"
+      ? !Object.hasOwn(value, "boundedExternalWrites")
+      : value.boundedExternalWrites === undefined || value.boundedExternalWrites === "driver") &&
     value.externalWrites === "ask" &&
     value.destructiveActions === "ask" &&
     value.scopeExpansion === "ask"
   );
 }
 
-function isStoredReproPlan(value: unknown): value is SparkReproPlan {
+function isStoredReproPlan(
+  value: unknown,
+  allowDriverLocal: boolean,
+  allowLegacyStageNames: boolean,
+): value is SparkReproPlan {
   if (!isRecord(value)) return false;
   return (
     Number.isInteger(value.currentRevision) &&
     Number(value.currentRevision) > 0 &&
     Number.isInteger(value.difficulty) &&
     Array.isArray(value.revisions) &&
-    value.revisions.every(isStoredReproPlanRevision) &&
+    value.revisions.every((revision) =>
+      isStoredReproPlanRevision(revision, allowDriverLocal, allowLegacyStageNames),
+    ) &&
     Array.isArray(value.steps) &&
-    value.steps.every(isStoredReproStep)
+    value.steps.every((step) => isStoredReproStep(step, allowDriverLocal, allowLegacyStageNames))
   );
 }
 
-function isStoredReproPlanRevision(value: unknown): boolean {
+function isStoredReproPlanV4(value: unknown): value is SparkReproPlanV4 {
+  if (
+    !isRecord(value) ||
+    !Number.isInteger(value.minimumStepCount) ||
+    Number(value.minimumStepCount) < 0 ||
+    !isStoredReproPlan(value, false, true)
+  ) {
+    return false;
+  }
+  return value.revisions.every(
+    (revision) =>
+      isRecord(revision) &&
+      Number.isInteger(revision.minimumStepCount) &&
+      Number(revision.minimumStepCount) >= 0,
+  );
+}
+
+function isStoredReproPlanRevision(
+  value: unknown,
+  allowDriverLocal: boolean,
+  allowLegacyStageNames: boolean,
+): boolean {
   return (
     isRecord(value) &&
     Number.isInteger(value.revision) &&
     typeof value.reason === "string" &&
     Number.isInteger(value.difficulty) &&
     Array.isArray(value.steps) &&
-    value.steps.every(isStoredReproStepDefinition) &&
+    value.steps.every((step) =>
+      isStoredReproStepDefinition(step, allowDriverLocal, allowLegacyStageNames),
+    ) &&
     typeof value.createdAt === "string"
   );
 }
 
-function isStoredReproSubgoalV5(value: unknown): boolean {
+function isStoredReproSubgoalV5(
+  value: unknown,
+  allowDriverLocal: boolean,
+  allowLegacyStageNames: boolean,
+): boolean {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
-    isReproStageName(value.stage) &&
+    isStoredReproStageName(value.stage, allowLegacyStageNames) &&
     typeof value.ref === "string" &&
     isRef(value.ref, "subgoal") &&
     typeof value.goalId === "string" &&
@@ -1349,9 +1574,7 @@ function isStoredReproSubgoalV5(value: unknown): boolean {
     typeof value.goal === "string" &&
     isStringArray(value.doneWhen) &&
     isStringArray(value.evidenceRequired) &&
-    (value.authority === "safe_local" ||
-      value.authority === "ask_decision" ||
-      value.authority === "ask_approval") &&
+    isStoredReproStepAuthority(value.authority, allowDriverLocal) &&
     (value.dependsOn === undefined ||
       (Array.isArray(value.dependsOn) &&
         value.dependsOn.every((ref) => typeof ref === "string" && isRef(ref, "subgoal")))) &&
@@ -1369,20 +1592,22 @@ function isStoredReproSubgoalV5(value: unknown): boolean {
   );
 }
 
-function isStoredReproSubgoal(value: unknown): boolean {
+function isStoredReproSubgoal(
+  value: unknown,
+  allowDriverLocal: boolean,
+  allowLegacyStageNames: boolean,
+): boolean {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
-    isReproStageName(value.stage) &&
+    isStoredReproStageName(value.stage, allowLegacyStageNames) &&
     typeof value.ref === "string" &&
     isRef(value.ref, "subgoal") &&
     Number.isInteger(value.planRevision) &&
     typeof value.goal === "string" &&
     isStringArray(value.doneWhen) &&
     isStringArray(value.evidenceRequired) &&
-    (value.authority === "safe_local" ||
-      value.authority === "ask_decision" ||
-      value.authority === "ask_approval") &&
+    isStoredReproStepAuthority(value.authority, allowDriverLocal) &&
     (value.dependsOn === undefined ||
       (Array.isArray(value.dependsOn) &&
         value.dependsOn.every((ref) => typeof ref === "string" && isRef(ref, "subgoal")))) &&
@@ -1419,10 +1644,14 @@ function isStoredSubgoalVerification(value: unknown): boolean {
   );
 }
 
-function isStoredReproStep(value: unknown): value is SparkReproStep {
+function isStoredReproStep(
+  value: unknown,
+  allowDriverLocal: boolean,
+  allowLegacyStageNames: boolean,
+): value is SparkReproStep {
   if (!isRecord(value)) return false;
   return (
-    isStoredReproStepDefinition(value) &&
+    isStoredReproStepDefinition(value, allowDriverLocal, allowLegacyStageNames) &&
     (value.status === "pending" ||
       value.status === "in_progress" ||
       value.status === "done" ||
@@ -1436,18 +1665,29 @@ function isStoredReproStep(value: unknown): value is SparkReproStep {
   );
 }
 
-function isStoredReproStepDefinition(value: unknown): boolean {
+function isStoredReproStepDefinition(
+  value: unknown,
+  allowDriverLocal: boolean,
+  allowLegacyStageNames: boolean,
+): boolean {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
-    isReproStageName(value.stage) &&
+    isStoredReproStageName(value.stage, allowLegacyStageNames) &&
     typeof value.goal === "string" &&
     isStringArray(value.doneWhen) &&
     isStringArray(value.evidenceRequired) &&
-    (value.authority === "safe_local" ||
-      value.authority === "ask_decision" ||
-      value.authority === "ask_approval") &&
+    isStoredReproStepAuthority(value.authority, allowDriverLocal) &&
     (value.dependsOn === undefined || isStringArray(value.dependsOn))
+  );
+}
+
+function isStoredReproStepAuthority(value: unknown, allowDriverLocal: boolean): boolean {
+  return (
+    value === "safe_local" ||
+    (allowDriverLocal && value === "driver_local") ||
+    value === "ask_decision" ||
+    value === "ask_approval"
   );
 }
 
@@ -1470,10 +1710,13 @@ function isStoredStepVerification(value: unknown): boolean {
   );
 }
 
-function isStoredReproStage(value: unknown): value is SparkReproStage {
+function isStoredReproStage(
+  value: unknown,
+  allowLegacyStageNames: boolean,
+): value is SparkReproStage {
   if (!isRecord(value)) return false;
   return (
-    isReproStageName(value.name) &&
+    isStoredReproStageName(value.name, allowLegacyStageNames) &&
     typeof value.title === "string" &&
     Array.isArray(value.phases) &&
     value.phases.every((phase) => phase === "plan" || phase === "implement") &&
@@ -1560,6 +1803,18 @@ export function sparkReproNormativeOrderedStepIds(plan: SparkReproPlan): string[
           (stageRank.get(right.step.stage) ?? Number.MAX_SAFE_INTEGER) || left.index - right.index,
     )
     .map(({ step }) => step.id);
+}
+
+function isStoredReproStageName(value: unknown, allowLegacyStageNames: boolean): boolean {
+  if (isReproStageName(value)) return true;
+  return (
+    allowLegacyStageNames &&
+    (value === "setup" ||
+      value === "scaffold" ||
+      value === "reproduce" ||
+      value === "scale" ||
+      value === "deliver")
+  );
 }
 
 export function normalizeReproStageName(value: unknown): SparkReproStageName {
@@ -1659,7 +1914,13 @@ export function migrateSparkSessionReproV3(repro: SparkSessionReproV3): SparkSes
     .flatMap((stage) => stage.acceptance)
     .find((requirement) => requirement.id === "repro-contract-frozen");
   const contractRefs = contractProof ? reproRequirementEvidenceRefs(contractProof) : [];
-  const goalContract = createGoalContract(repro.objective?.trim(), repro.createdAt);
+  const currentGoalContract = createGoalContract(repro.objective?.trim(), repro.createdAt);
+  const { boundedExternalWrites: _boundedExternalWrites, ...legacyGoalAuthority } =
+    currentGoalContract.authority;
+  const goalContract: SparkReproGoalContractV4ToV6 = {
+    ...currentGoalContract,
+    authority: legacyGoalAuthority,
+  };
   const migratedWithoutDigest: SparkSessionReproV4 = {
     ...repro,
     version: 4,
@@ -1696,7 +1957,8 @@ export function migrateSparkSessionReproV4(repro: SparkSessionReproV4): SparkSes
   const plan = migrateReproPlanV4(legacy.plan);
   const migratedWithoutDigest: SparkSessionRepro = {
     ...legacy,
-    version: 7,
+    version: 8,
+    goalContract: promoteLegacyGoalContract(legacy.goalContract),
     plan,
     subgoals: createInitialReproSubgoals(legacy.reproId, plan, legacy.updatedAt || nowIso()),
     dualLane: createInitialDualLaneSessionState(plan, 6),
@@ -1720,7 +1982,8 @@ export function migrateSparkSessionReproV5(repro: SparkSessionReproV5): SparkSes
   }
   const migratedWithoutDigest: SparkSessionRepro = {
     ...legacy,
-    version: 7,
+    version: 8,
+    goalContract: promoteLegacyGoalContract(legacy.goalContract),
     subgoals: legacy.subgoals.map((legacySubgoal): SparkReproSubgoal => {
       const uniqueTaskRefs = [...new Set(legacySubgoal.taskRefs)];
       const taskRef =
@@ -1766,7 +2029,8 @@ export function migrateSparkSessionReproV6(repro: SparkSessionReproV6): SparkSes
   const legacy = reopenLegacyCompletionForDualLane(repro);
   const migratedWithoutDigest: SparkSessionRepro = {
     ...legacy,
-    version: 7,
+    version: 8,
+    goalContract: promoteLegacyGoalContract(legacy.goalContract),
     dualLane: createInitialDualLaneSessionState(legacy.plan, 6),
   };
   return {
@@ -1774,6 +2038,38 @@ export function migrateSparkSessionReproV6(repro: SparkSessionReproV6): SparkSes
     stopGuard: {
       ...migratedWithoutDigest.stopGuard,
       lastProgressDigest: reproProgressDigest(migratedWithoutDigest),
+    },
+  };
+}
+
+/**
+ * Bounded native migration for the authority-only v8 snapshot bump.
+ *
+ * The v7 decoder rejects `driver_local`, so every accepted value can be
+ * promoted losslessly without inventing authority or reopening proof.
+ */
+export function migrateSparkSessionReproV7(repro: SparkSessionReproV7): SparkSessionRepro {
+  return {
+    ...repro,
+    version: 8,
+    goalContract: {
+      ...repro.goalContract,
+      authority: {
+        ...repro.goalContract.authority,
+        boundedExternalWrites: "driver",
+      },
+    },
+  };
+}
+
+function promoteLegacyGoalContract(
+  goalContract: SparkReproGoalContractV4ToV6,
+): SparkReproGoalContract {
+  return {
+    ...goalContract,
+    authority: {
+      ...goalContract.authority,
+      boundedExternalWrites: "driver",
     },
   };
 }
@@ -2002,7 +2298,7 @@ function subgoalFromStep(
           definitionDigest: subgoalDefinitionDigest(subgoal),
           evidenceRefs: [...step.evidenceRefs],
           verifiedDoneWhen: [...step.doneWhen],
-          ...(step.authority === "safe_local" || !step.evidenceRefs[0]
+          ...(isEvidenceStepAuthority(step.authority) || !step.evidenceRefs[0]
             ? {}
             : { canonicalAskEvidenceRef: step.evidenceRefs[0] }),
         }
@@ -2057,6 +2353,7 @@ function createGoalContract(
     evidenceRequired: ["Evidence refs for completed requirements and plan steps"],
     authority: {
       safeLocal: "auto",
+      boundedExternalWrites: "driver",
       externalWrites: "ask",
       destructiveActions: "ask",
       scopeExpansion: "ask",
@@ -2106,13 +2403,35 @@ function createLegacyReproPlanV4(
 ): SparkReproPlanV4 {
   const plan = createInitialReproPlan(stages, timestamp);
   return {
-    ...plan,
+    currentRevision: plan.currentRevision,
+    difficulty: plan.difficulty,
     minimumStepCount: plan.steps.length,
     revisions: plan.revisions.map((revision) => ({
       ...revision,
+      steps: revision.steps.map(toLegacyReproStepDefinition),
       minimumStepCount: revision.steps.length,
     })),
+    steps: plan.steps.map((step) => ({
+      ...step,
+      authority: toLegacyReproStepAuthority(step.authority),
+    })),
   };
+}
+
+function toLegacyReproStepDefinition(step: SparkReproStepDefinition): SparkReproStepDefinitionV4 {
+  return {
+    ...step,
+    authority: toLegacyReproStepAuthority(step.authority),
+  };
+}
+
+function toLegacyReproStepAuthority(
+  authority: SparkReproStepAuthority,
+): SparkReproStepAuthorityV4ToV7 {
+  if (authority === "driver_local") {
+    throw new Error("legacy Repro snapshots cannot persist driver_local authority");
+  }
+  return authority;
 }
 
 function migrateReproPlanV4(plan: SparkReproPlanV4): SparkReproPlan {
@@ -2167,6 +2486,10 @@ function stepDefinitionForRequirement(
 
 function stepDefinition(step: SparkReproStep): SparkReproStepDefinition {
   return stepDefinitionValue(step);
+}
+
+function isEvidenceStepAuthority(authority: SparkReproStepAuthority): boolean {
+  return authority === "safe_local" || authority === "driver_local";
 }
 
 function stepDefinitionValue(step: SparkReproStepDefinition): SparkReproStepDefinition {
@@ -2321,6 +2644,7 @@ function normalizeStepDefinitions(
     ids.add(id);
     if (
       definition.authority !== "safe_local" &&
+      definition.authority !== "driver_local" &&
       definition.authority !== "ask_decision" &&
       definition.authority !== "ask_approval"
     ) {

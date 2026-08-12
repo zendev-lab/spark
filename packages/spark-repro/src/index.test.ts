@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { EvidenceRef, RoleRef, TaskRef } from "@zendev-lab/spark-core";
 import {
   advanceReproStage,
+  createReproStepAskBinding,
   createSparkSessionRepro,
   evaluateStageGate,
   isPhaseComplete,
@@ -10,6 +11,7 @@ import {
   isStageComplete,
   migrateSparkSessionReproV5,
   migrateSparkSessionReproV6,
+  migrateSparkSessionReproV7,
   nextReproStagePlanningBlocker,
   nextReproStep,
   normalizeStoredSparkSessionRepro,
@@ -20,11 +22,16 @@ import {
   stepDefinitionDigest,
   updateReproStep,
   verifyReproStepPass,
+  type SparkReproGoalContractV4ToV6,
+  type SparkReproPlanV5,
   type SparkReproStepDefinition,
+  type SparkReproStepAuthority,
+  type SparkReproStepAuthorityV4ToV7,
   type SparkReproRequirementProof,
   type SparkSessionRepro,
   type SparkSessionReproV5,
   type SparkSessionReproV6,
+  type SparkSessionReproV7,
 } from "./index.ts";
 
 const ref = (id: string) => `evidence:${id}` as EvidenceRef;
@@ -56,7 +63,7 @@ describe("spark-repro", () => {
       objective: "Reproduce target logits",
     });
 
-    expect(repro.version).toBe(7);
+    expect(repro.version).toBe(8);
     expect(repro.dualLane).toMatchObject({
       schema: "spark.repro.dual-lane-session/v1",
       planRevision: 1,
@@ -104,12 +111,72 @@ describe("spark-repro", () => {
     ).toThrow("reproId must be a non-empty safe identifier");
   });
 
-  it("normalizes the current v7 persisted shape without dropping its dual-lane state", () => {
+  it("normalizes the current v8 persisted shape without dropping its dual-lane state", () => {
     const repro = createSparkSessionRepro("session:persisted-v6", undefined, {
       objective: "Read the current persisted shape",
     });
 
     expect(normalizeStoredSparkSessionRepro(structuredClone(repro))).toEqual(repro);
+  });
+
+  it("migrates the bounded v7 authority model to v8 without changing semantics", () => {
+    const current = createSparkSessionRepro("session:migrate-v7-authority");
+    const legacy = { ...structuredClone(current), version: 7 } as SparkSessionReproV7;
+    delete legacy.goalContract.authority.boundedExternalWrites;
+
+    const migrated = migrateSparkSessionReproV7(legacy);
+    expect(migrated).toEqual({
+      ...legacy,
+      version: 8,
+      goalContract: {
+        ...legacy.goalContract,
+        authority: {
+          ...legacy.goalContract.authority,
+          boundedExternalWrites: "driver",
+        },
+      },
+    });
+    expect(normalizeStoredSparkSessionRepro(structuredClone(legacy))).toEqual(migrated);
+    expect(normalizeStoredSparkSessionRepro(structuredClone(migrated))).toEqual(migrated);
+  });
+
+  it("rejects driver-local authority in v7 but accepts the explicit v8 state", () => {
+    const current = createSparkSessionRepro("session:versioned-driver-authority");
+    const stepId = current.plan.steps[0]!.id;
+    const withDriverAuthority = reviseReproPlan(current, {
+      reason: "Exercise the v8 authority member",
+      steps: current.plan.steps.map((step) => ({
+        ...stepDefinition(step),
+        authority: step.id === stepId ? ("driver_local" as const) : step.authority,
+      })),
+    });
+    expect(normalizeStoredSparkSessionRepro(structuredClone(withDriverAuthority))).toEqual(
+      withDriverAuthority,
+    );
+
+    const mislabeledV7 = { ...structuredClone(withDriverAuthority), version: 7 };
+    expect(normalizeStoredSparkSessionRepro(mislabeledV7)).toBeUndefined();
+  });
+
+  it("backfills bounded driver authority in a legacy Goal Contract", () => {
+    const legacy = structuredClone(createSparkSessionRepro("session:legacy-authority"));
+    delete (legacy.goalContract.authority as Partial<typeof legacy.goalContract.authority>)
+      .boundedExternalWrites;
+
+    expect(normalizeStoredSparkSessionRepro(legacy)?.goalContract.authority).toEqual({
+      safeLocal: "auto",
+      boundedExternalWrites: "driver",
+      externalWrites: "ask",
+      destructiveActions: "ask",
+      scopeExpansion: "ask",
+    });
+  });
+
+  it("rejects malformed bounded external-write authority fail closed", () => {
+    const invalid = structuredClone(createSparkSessionRepro("session:invalid-authority"));
+    invalid.goalContract.authority.boundedExternalWrites = "auto" as never;
+
+    expect(normalizeStoredSparkSessionRepro(invalid)).toBeUndefined();
   });
 
   it("migrates v5 evidence while invalidating delegation and ambiguous task bindings", () => {
@@ -119,13 +186,15 @@ describe("spark-repro", () => {
     );
     const sharedTaskRef = "task:legacy-shared" as TaskRef;
     const uniqueTaskRef = "task:legacy-unique" as TaskRef;
+    const { subgoals: _subgoals, ...legacyBase } = toV6(completed);
     const legacy: SparkSessionReproV5 = {
-      ...completed,
+      ...legacyBase,
       version: 5,
       subgoals: completed.subgoals.map((subgoal, index) => {
         const { taskRef: _taskRef, ...definition } = subgoal;
         return {
           ...definition,
+          authority: toLegacyAuthority(subgoal.authority),
           goalId: completed.reproId,
           roleRef: "role:builtin-explorer" as RoleRef,
           taskRefs: index < 2 ? [sharedTaskRef] : index === 2 ? [uniqueTaskRef] : [],
@@ -145,7 +214,7 @@ describe("spark-repro", () => {
     };
 
     const migrated = migrateSparkSessionReproV5(legacy);
-    expect(migrated.version).toBe(7);
+    expect(migrated.version).toBe(8);
     expect(migrated.subgoals[0]?.status).toBe("done");
     expect(migrated.subgoals[0]?.evidenceRefs).toEqual(completed.subgoals[0]?.evidenceRefs);
     expect(migrated.subgoals[0]?.taskRef).toBeUndefined();
@@ -168,8 +237,7 @@ describe("spark-repro", () => {
       createSparkSessionRepro("session:migrate-v6"),
       "repro-contract-frozen",
     );
-    const { dualLane: _dualLane, ...withoutDualLane } = current;
-    const legacy: SparkSessionReproV6 = { ...withoutDualLane, version: 6 };
+    const legacy = toV6(current);
 
     const first = migrateSparkSessionReproV6(legacy);
     const second = normalizeStoredSparkSessionRepro(structuredClone(first));
@@ -184,15 +252,14 @@ describe("spark-repro", () => {
     expect(first.dualLane.normative.retiredStepIds).toEqual([]);
   });
 
-  it("reopens a completed v6 snapshot until v7 Normative retirement is proven", () => {
+  it("reopens a completed v6 snapshot until Normative retirement is proven", () => {
     const current = createSparkSessionRepro("session:migrate-complete-v6");
-    const { dualLane: _dualLane, ...withoutDualLane } = current;
+    const legacyBase = toV6(current);
     const legacy: SparkSessionReproV6 = {
-      ...withoutDualLane,
-      version: 6,
+      ...legacyBase,
       status: "complete",
       completedAt: "2026-08-01T00:00:00.000Z",
-      stopGuard: { ...withoutDualLane.stopGuard, decision: "complete" },
+      stopGuard: { ...legacyBase.stopGuard, decision: "complete" },
     };
 
     const migrated = migrateSparkSessionReproV6(legacy);
@@ -211,8 +278,7 @@ describe("spark-repro", () => {
       createSparkSessionRepro("session:migrate-v6-revise"),
       "repro-contract-frozen",
     );
-    const { dualLane: _dualLane, ...withoutDualLane } = completed;
-    const legacy: SparkSessionReproV6 = { ...withoutDualLane, version: 6 };
+    const legacy = toV6(completed);
     let migrated = migrateSparkSessionReproV6(legacy);
     migrated = {
       ...migrated,
@@ -240,7 +306,7 @@ describe("spark-repro", () => {
     });
   });
 
-  it("buffers v7 StepVerifier completions and retires them only as an ordered prefix", () => {
+  it("buffers v8 StepVerifier completions and retires them only as an ordered prefix", () => {
     let repro = createSparkSessionRepro("session:ordered-retirement");
     const [s1, s2, s3, s4] = repro.plan.steps;
     repro = completeStep(repro, s3!.id);
@@ -593,6 +659,50 @@ describe("spark-repro", () => {
     expect(repro.plan.steps.find((candidate) => candidate.id === step.id)?.status).toBe("done");
   });
 
+  it("persists driver-local Steps as evidence authority without a canonical Ask", () => {
+    let repro = createSparkSessionRepro("session:driver-local");
+    const stepId = "repro-contract-frozen";
+    repro = reviseReproPlan(repro, {
+      reason: "Allow the active Repro driver to perform a bounded owner-local action",
+      steps: repro.plan.steps.map((step) =>
+        step.id === stepId
+          ? { ...stepDefinition(step), authority: "driver_local" as const }
+          : stepDefinition(step),
+      ),
+    });
+    const step = repro.plan.steps.find((candidate) => candidate.id === stepId)!;
+    expect(repro.subgoals.find((candidate) => candidate.id === stepId)).toMatchObject({
+      authority: "driver_local",
+      status: "pending",
+      planRevision: 2,
+    });
+    expect(() => createReproStepAskBinding(repro, step)).toThrow(
+      "does not require a canonical ask",
+    );
+
+    const evidenceRefs = [ref("driver-local-proof")];
+    const verifier = verifyReproStepPass(repro, step.id, {
+      verdict: "Pass",
+      planRevision: repro.plan.currentRevision,
+      definitionDigest: stepDefinitionDigest(step),
+      proofKind: "evidence",
+      evidenceRefs,
+      verifiedDoneWhen: step.doneWhen,
+    });
+    expect(verifier.verdict).toBe("Pass");
+
+    repro = updateReproStep(repro, step.id, { status: "done", evidenceRefs, verifier })!;
+    expect(repro.subgoals.find((candidate) => candidate.id === stepId)).toMatchObject({
+      authority: "driver_local",
+      status: "done",
+      verification: { verdict: "Pass", evidenceRefs },
+    });
+    expect(
+      repro.subgoals.find((candidate) => candidate.id === stepId)?.verification,
+    ).not.toHaveProperty("canonicalAskEvidenceRef");
+    expect(normalizeStoredSparkSessionRepro(structuredClone(repro))).toEqual(repro);
+  });
+
   it("blocks stage advance until the target stage has planned subgoals", () => {
     let repro = satisfySetupRequirements(createSparkSessionRepro("session:test"));
     repro = {
@@ -710,4 +820,47 @@ function stepDefinition(
     authority: step.authority,
     ...(step.dependsOn ? { dependsOn: step.dependsOn } : {}),
   };
+}
+
+function toV6(repro: SparkSessionRepro): SparkSessionReproV6 {
+  const { version: _version, dualLane: _dualLane, goalContract, plan, subgoals, ...legacy } = repro;
+  return {
+    ...legacy,
+    version: 6,
+    goalContract: toLegacyGoalContract(goalContract),
+    plan: toLegacyPlan(plan),
+    subgoals: subgoals.map((subgoal) => ({
+      ...subgoal,
+      authority: toLegacyAuthority(subgoal.authority),
+    })),
+  };
+}
+
+function toLegacyGoalContract(
+  goalContract: SparkSessionRepro["goalContract"],
+): SparkReproGoalContractV4ToV6 {
+  const { boundedExternalWrites: _boundedExternalWrites, ...authority } = goalContract.authority;
+  return { ...goalContract, authority };
+}
+
+function toLegacyPlan(plan: SparkSessionRepro["plan"]): SparkReproPlanV5 {
+  return {
+    ...plan,
+    revisions: plan.revisions.map((revision) => ({
+      ...revision,
+      steps: revision.steps.map((step) => ({
+        ...step,
+        authority: toLegacyAuthority(step.authority),
+      })),
+    })),
+    steps: plan.steps.map((step) => ({
+      ...step,
+      authority: toLegacyAuthority(step.authority),
+    })),
+  };
+}
+
+function toLegacyAuthority(authority: SparkReproStepAuthority): SparkReproStepAuthorityV4ToV7 {
+  if (authority === "driver_local") throw new Error("expected historical Repro authority");
+  return authority;
 }

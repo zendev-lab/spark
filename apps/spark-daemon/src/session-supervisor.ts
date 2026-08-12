@@ -344,6 +344,7 @@ export class SessionSupervisor {
       sessionId,
       scope: parent.scope,
       ...((input.cwd ?? parent.cwd) ? { cwd: input.cwd ?? parent.cwd } : {}),
+      ...(parent.cwdArtifactRef ? { cwdArtifactRef: parent.cwdArtifactRef } : {}),
       owner: input.owner,
       stateBinding: input.stateBinding,
       visibility: input.visibility ?? "internal",

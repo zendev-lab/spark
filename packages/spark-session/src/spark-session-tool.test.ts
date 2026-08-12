@@ -86,7 +86,7 @@ test("session tool exposes persistent lifecycle, calls, classification, and mail
     executionMode: "sequential",
     domains: ["sessions"],
     modes: ["plan", "execute"],
-    approval: "none",
+    approval: "required",
   });
   assert.match(tool.description, /Canonical scoped Session capability/u);
   assert.ok(tool.promptGuidelines?.length);

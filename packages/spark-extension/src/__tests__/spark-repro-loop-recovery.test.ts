@@ -105,16 +105,29 @@ test.each(["scheduled", "running", "retry_wait", "dormant", "blocked"] as const)
   },
 );
 
-test("explicit repro start reschedules a dormant daemon loop", async () => {
-  const { value, start } = control(loopView("dormant"));
-  const health = await ensureActiveReproLoop(context(), value, repro(), {
-    forceSchedule: true,
-    reason: "explicit repro start",
-  });
+test("active repro does not recover an explicitly stopped daemon loop", async () => {
+  const existing = loopView("stopped");
+  const { value, start } = control(existing);
 
-  expect(health).toMatchObject({ status: "scheduled", recovered: true });
-  expect(start).toHaveBeenCalledOnce();
+  const health = await ensureActiveReproLoop(context(), value, repro());
+
+  expect(health).toEqual({ status: "stopped", recovered: false, loop: existing });
+  expect(start).not.toHaveBeenCalled();
 });
+
+test.each(["dormant", "stopped"] as const)(
+  "explicit repro start reschedules a %s daemon loop",
+  async (status) => {
+    const { value, start } = control(loopView(status));
+    const health = await ensureActiveReproLoop(context(), value, repro(), {
+      forceSchedule: true,
+      reason: "explicit repro start",
+    });
+
+    expect(health).toMatchObject({ status: "scheduled", recovered: true });
+    expect(start).toHaveBeenCalledOnce();
+  },
+);
 
 test("daemon transport failures are visible and do not claim recovery", async () => {
   const { value, start } = control();

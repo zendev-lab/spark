@@ -379,6 +379,7 @@ describe("migrateSparkDaemonDatabase", () => {
           "continuity",
           "session_lifetime",
           "driver_session_id",
+          "driver_target_json",
           "status",
           "generation",
           "cycle_step",
@@ -604,17 +605,19 @@ describe("migrateSparkDaemonDatabase", () => {
           "counters_json",
           "session_lifetime",
           "driver_session_id",
+          "driver_target_json",
         ]),
       );
       expect(
         db
           .prepare(
-            "SELECT session_lifetime, driver_session_id FROM loop_wakeups WHERE loop_id = 'legacy-loop'",
+            "SELECT session_lifetime, driver_session_id, driver_target_json FROM loop_wakeups WHERE loop_id = 'legacy-loop'",
           )
           .get(),
       ).toMatchObject({
         session_lifetime: "driver",
         driver_session_id: expect.stringMatching(/^driver_/u),
+        driver_target_json: null,
       });
       expect(tableExists(db, "loop_goal_settlements")).toBe(true);
       expect(

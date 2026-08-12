@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
-import { parseSparkSessionView } from "./index.ts";
+import {
+  parseSparkSessionView,
+  projectSparkSessionReproStepAuthority,
+  sparkSessionReproCurrentStepViewSchema,
+} from "./index.ts";
 
 const baseSnapshot = {
   sessionId: "session-1",
@@ -19,6 +24,7 @@ describe("SparkSessionView work projection", () => {
   });
 
   it("parses display-safe Goal and Repro work", () => {
+    const projectedAuthority = projectSparkSessionReproStepAuthority("driver_local");
     const parsed = parseSparkSessionView({
       ...baseSnapshot,
       work: {
@@ -52,7 +58,7 @@ describe("SparkSessionView work projection", () => {
               stage: "target",
               goal: "Reach 20-step parity",
               status: "blocked",
-              authority: "safe_local",
+              ...projectedAuthority,
               doneWhen: ["20 steps pass"],
               evidenceRequired: ["Alignment result"],
               blocker: "GPU unavailable",
@@ -73,7 +79,42 @@ describe("SparkSessionView work projection", () => {
     expect(parsed.work?.repro?.plan.currentStep).toMatchObject({
       id: "bitwise-pass-20",
       status: "blocked",
+      authority: "safe_local",
+      driverManaged: true,
     });
     expect(parsed.work?.repro?.latestVerification?.evidenceRefs).toEqual(["evidence:baseline"]);
+  });
+
+  it("keeps SessionView v1 backward-readable while marking driver-owned authority", () => {
+    const projection = projectSparkSessionReproStepAuthority("driver_local");
+    expect(projection).toEqual({ authority: "safe_local", driverManaged: true });
+
+    const legacyAuthorityReader = z.object({
+      authority: z.enum(["safe_local", "ask_decision", "ask_approval"]),
+    });
+    expect(legacyAuthorityReader.parse(projection)).toEqual({ authority: "safe_local" });
+
+    const baseStep = {
+      id: "draft-pr",
+      stage: "delivery" as const,
+      goal: "Create Draft PR",
+      status: "pending" as const,
+      doneWhen: ["Draft PR exists"],
+      evidenceRequired: ["Draft PR URL"],
+    };
+    expect(() =>
+      sparkSessionReproCurrentStepViewSchema.parse({
+        ...baseStep,
+        authority: "driver_local",
+      }),
+    ).toThrow();
+    expect(() =>
+      sparkSessionReproCurrentStepViewSchema.parse({
+        ...baseStep,
+        authority: "ask_approval",
+        driverManaged: true,
+      }),
+    ).toThrow(/driverManaged requires safe_local wire authority/u);
+    expect(() => projectSparkSessionReproStepAuthority("future_authority")).toThrow();
   });
 });

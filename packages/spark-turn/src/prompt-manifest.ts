@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const SPARK_PROMPT_MANIFEST_VERSION = 4 as const;
+export const SPARK_PROMPT_MANIFEST_VERSION = 5 as const;
 
 export type SparkPromptManifestToolEffect =
   | "read"
@@ -18,6 +18,8 @@ export interface SparkPromptManifestToolInput {
   active?: boolean;
   effect?: string;
   executionMode?: string;
+  approval?: string;
+  /** @deprecated Compatibility input; prefer the canonical approval value. */
   requiresApproval?: boolean;
   domains?: readonly string[];
   modes?: readonly string[];
@@ -28,7 +30,7 @@ export interface SparkPromptManifestTool {
   name: string;
   effect: SparkPromptManifestToolEffect;
   executionMode: SparkPromptManifestExecutionMode;
-  approval: "none" | "required";
+  approval: "none" | "manual_only" | "required";
   domains: string[];
   modes: string[];
   guidanceHash?: string;
@@ -146,7 +148,12 @@ function normalizeTool(input: SparkPromptManifestToolInput): SparkPromptManifest
     name: normalizedLabel(input.name) ?? "unknown",
     effect: normalizeEffect(input.effect),
     executionMode: input.executionMode === "parallel" ? "parallel" : "sequential",
-    approval: input.requiresApproval === true ? "required" : "none",
+    approval:
+      input.approval === "required" || input.requiresApproval === true
+        ? "required"
+        : input.approval === "manual_only"
+          ? "manual_only"
+          : "none",
     domains: uniqueLabels(input.domains ?? []),
     modes: uniqueLabels(input.modes ?? []),
     ...(guidance ? { guidanceHash: guidance } : {}),

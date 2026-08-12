@@ -58,7 +58,9 @@ function task(
   },
 ): ReproTaskBlueprint {
   const authority = input.authority ?? "safe_local";
-  const kind = input.kind ?? (authority === "safe_local" ? "research" : "ask");
+  const kind =
+    input.kind ??
+    (isAskAuthority(authority) ? "ask" : authority === "driver_local" ? "implement" : "research");
   return {
     id,
     roadmapKey,
@@ -83,7 +85,8 @@ function defaultReproRoleRef(
   kind: TaskKind,
   authority: SparkReproStepAuthority,
 ): RoleRef {
-  if (authority !== "safe_local") return reviewer;
+  if (isAskAuthority(authority)) return reviewer;
+  if (authority === "driver_local") return executor;
   if (/(?:first-bad|boundary-classification|localiz)/u.test(id)) return divergenceLocalizer;
   if (/(?:precision-fix|incident-fix|apply-fix)/u.test(id)) return precisionFixer;
   if (/(?:performance-budget|benchmark)/u.test(id)) return performanceBenchmarker;
@@ -112,7 +115,7 @@ function defaultReproExecutionPolicy(
   kind: TaskKind,
   authority: SparkReproStepAuthority,
 ): TaskExecutionPolicy {
-  const isAsk = authority !== "safe_local";
+  const isAsk = isAskAuthority(authority);
   const isImplementation = kind === "implement";
   const isExperiment =
     /(?:probe|entrypoint|transaction|determinism|align|validate|run-|bitwise|qualify|compose|replay|ablation|benchmark|checker)/u.test(
@@ -166,6 +169,10 @@ function defaultReproExecutionPolicy(
     ...(isExperiment ? { timeoutMs: 6 * 60 * 60 * 1_000 } : {}),
     maxAttempts: 2,
   };
+}
+
+function isAskAuthority(authority: SparkReproStepAuthority): boolean {
+  return authority === "ask_decision" || authority === "ask_approval";
 }
 
 function roadmap(
@@ -560,9 +567,7 @@ const scaffold: ReproStageBlueprint = {
       "delivery",
       "Early reviewable delivery",
       "Publish the first buildable and reviewable slice.",
-      [
-        "Report evidence is current and owner-approved external publication has a Draft PR receipt.",
-      ],
+      ["Report evidence is current and the active driver has a Draft PR receipt."],
     ),
   ],
   tasks: [
@@ -848,13 +853,17 @@ const scaffold: ReproStageBlueprint = {
         evidenceRequired: ["Updated preview Artifact with evidence links and current limitations."],
       },
     ),
+    // Keep the stable id for persisted-plan compatibility even though active Repro
+    // driver authority now replaces a separate approval receipt for Draft delivery.
     task("create-initial-draft-pr-approved", "delivery", "Create or update initial Draft PR", {
-      authority: "ask_approval",
+      authority: "driver_local",
       dependsOn: ["update-scaffold-report"],
       doneWhen: [
-        "The owner authorizes external publication and the first buildable reviewable slice is in a Draft PR.",
+        "The active Repro driver publishes the first buildable reviewable slice as a Draft PR without promoting it to ready.",
       ],
-      evidenceRequired: ["Canonical approval receipt plus Draft PR and pushed commit refs."],
+      evidenceRequired: [
+        "Draft PR URL, pushed commit refs, and the validation results for that slice.",
+      ],
     }),
   ],
 };
@@ -1037,8 +1046,9 @@ const reproduce: ReproStageBlueprint = {
     task(
       "sync-reproduce-report-and-draft-pr",
       "delivery",
-      "Sync accepted fixes and precision matrix",
+      "Update accepted fixes and precision matrix",
       {
+        authority: "driver_local",
         dependsOn: ["bitwise-pass-20"],
         doneWhen: [
           "The report and managed Draft PR sections identify accepted fixes and all rejected or inconclusive incidents.",
@@ -1230,8 +1240,9 @@ const scale: ReproStageBlueprint = {
     task(
       "sync-scale-report-and-draft-pr",
       "delivery",
-      "Sync topology matrix, resources, and patches",
+      "Update topology matrix, resources, and Draft PR",
       {
+        authority: "driver_local",
         dependsOn: ["target-scale-convergence", "performance-budget"],
         doneWhen: [
           "Managed report and Draft PR sections match every enabled topology and performance feature.",

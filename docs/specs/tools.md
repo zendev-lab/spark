@@ -89,6 +89,58 @@ An owner may refine that conservative registration envelope with argument-aware
 `resolvePolicy`. Unknown, malformed, or conflicting policy fails closed to an
 unknown effect, sequential execution, and required approval.
 
+Approval requirements have three canonical values:
+
+- `none` needs no human approval;
+- `manual_only` covers bounded, low-risk, reversible external operations. A
+  manual continuation needs human approval for the exact operation; an active
+  Goal, Loop, or Repro driver may dispatch it without another approval when it
+  remains within the driver's confirmed objective and targets;
+- `required` needs human approval under every continuation driver.
+
+Creating or updating a Draft PR with `git submit` is the canonical
+`manual_only` operation. Stack synchronization may discover and mutate
+remote-only members, so `git sync` remains `required`. Destructive,
+irreversible, security-sensitive, costly,
+high-impact, materially scope-expanding, release, deployment, merge, and Ready
+promotion operations are `required`. Unstructured command, script, and scheduled
+job execution is also `required`; it cannot inherit a bounded Git capability.
+A WorkflowRun is not a driver and inherits
+the approval context of the continuation driver that started it only while that
+authority remains active.
+
+Creating or reactivating a continuation driver is itself `required`: only a
+human-authorized activation may mint the bounded authority. Read-only status,
+recovery, and an agent-authored objective cannot revive an explicitly stopped
+driver.
+
+The Git owner refreshes the native PR stack before every Draft submit or sync.
+If any non-terminal layer is already Ready, or the stack is mixed, the Draft
+operation fails closed. A human-approved continuation must retry with
+`ready=true`; for `sync`, that flag explicitly authorizes changing an existing
+Ready or mixed stack and does not promote Draft layers.
+
+Driver-local Draft delivery is also exact-target scoped. An attached Session may
+mutate only its daemon-resolved `cwdArtifactRef`. From a repository-root Session,
+the first `git init` in the immutable cwd repository binds one `git_change` to
+the stable driver Session incarnation; a second Artifact, `checkout`, `adopt`,
+or a model-supplied repository path cannot widen that binding. The binding also
+freezes the canonical GitHub repository and every effective `origin` fetch and
+push URL; Git re-resolves that identity immediately before the external write.
+For a driver-owned Draft submit, the final successful remote PR refresh followed
+by the daemon's side-effect-boundary claim is the local authorization
+linearization point. The claim runs after isolated Git/GitHub environment setup
+and immediately before spawning the pinned stack executable. A later external
+GitHub state change is a remote concurrency event, not retained driver
+authority; later operations re-run the complete checks.
+
+The host resolves driver-aware approval from authoritative continuation state
+immediately before dispatch. Prompt or transcript text, a tool name, Workflow
+metadata, and automated review cannot grant or widen authority. Driver stop,
+completion, or replacement expires that driver's authority. Each later
+dispatch re-resolves the current driver and uses manual approval behavior when
+none is active.
+
 A batch executes concurrently only when every concrete call resolves to an
 active, approval-free read tool with `executionMode=parallel`. Mixed, unknown,
 write-capable, policy-changing, or external-effect batches remain sequential.

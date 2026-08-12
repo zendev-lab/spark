@@ -17,6 +17,7 @@ import type {
   ArtifactRef,
   ExtensionInteractionCapabilities,
   ProjectRef,
+  SparkGitDraftTarget,
   SparkHostLoopContext,
   SparkSessionLeaseIdentity,
   SparkTaskExecutionScope,
@@ -183,6 +184,25 @@ export interface SparkDaemonTaskExecutorOptions {
       input: { delayMs?: number; dueAt?: string; reason?: string; prompt?: string },
     ): unknown;
     stop(task: SparkDaemonLoopTickTask, input?: { reason?: string }): unknown;
+    isAuthorityActive?(
+      task: SparkDaemonLoopTickTask,
+      input: { invocationId: string },
+    ): boolean | Promise<boolean>;
+    bindGitDraftTarget?(
+      task: SparkDaemonLoopTickTask,
+      input: { invocationId: string; target: SparkGitDraftTarget },
+    ): boolean | Promise<boolean>;
+    authorizeGitDraftTarget?(
+      task: SparkDaemonLoopTickTask,
+      input: { invocationId: string; target: SparkGitDraftTarget },
+    ): boolean | Promise<boolean>;
+    authorizeGitDraftArtifactTarget?(
+      task: SparkDaemonLoopTickTask,
+      input: {
+        invocationId: string;
+        target: Pick<SparkGitDraftTarget, "artifactRef" | "worktreePath">;
+      },
+    ): boolean | Promise<boolean>;
     wakeOwner?(ownerSessionId: string, input: { target: "repro"; reason: string }): unknown;
   };
   loopEvaluators?: SparkLoopEvaluatorRegistry;
@@ -380,7 +400,9 @@ export function createSparkDaemonTaskExecutor(
             frozenSessionContext,
             ...(sessionLease ? { sessionLease: sessionLease.identity } : {}),
           },
-          loopTask ? loopContextForTask(loopTask, options.loopControl) : undefined,
+          loopTask
+            ? loopContextForTask(loopTask, options.loopControl, context.invocationId)
+            : undefined,
         );
         const completed = await recordCompletedSessionRun(
           effectiveTask,
@@ -467,15 +489,47 @@ function sessionRunTaskFromLoopTick(task: SparkDaemonLoopTickTask): SparkDaemonS
 function loopContextForTask(
   task: SparkDaemonLoopTickTask,
   control: SparkDaemonTaskExecutorOptions["loopControl"],
+  invocationId: string,
 ): SparkHostLoopContext {
   if (!control) {
     throw new Error("loop.tick executor requires daemon loopControl");
   }
   return {
     loopId: task.loopId,
+    driverSessionId: task.driverSessionId ?? task.sessionId,
     binding: task.binding,
     generation: task.generation,
     ownerSessionId: task.ownerSessionId,
+    isAuthorityActive: async () => {
+      try {
+        return (await control.isAuthorityActive?.(task, { invocationId })) === true;
+      } catch {
+        return false;
+      }
+    },
+    bindGitDraftTarget: async (target) => {
+      try {
+        return (await control.bindGitDraftTarget?.(task, { invocationId, target })) === true;
+      } catch {
+        return false;
+      }
+    },
+    authorizeGitDraftTarget: async (target) => {
+      try {
+        return (await control.authorizeGitDraftTarget?.(task, { invocationId, target })) === true;
+      } catch {
+        return false;
+      }
+    },
+    authorizeGitDraftArtifactTarget: async (target) => {
+      try {
+        return (
+          (await control.authorizeGitDraftArtifactTarget?.(task, { invocationId, target })) === true
+        );
+      } catch {
+        return false;
+      }
+    },
     schedule: async (input) => await control.schedule(task, input),
     stop: async (input) => await control.stop(task, input),
   };
@@ -1033,6 +1087,7 @@ async function sessionExecutionIdentity(
   sessionContext: Awaited<ReturnType<typeof sessionContextForTask>>,
 ) {
   let cwd = sessionContext.cwd ?? task.cwd ?? options.cwd ?? process.cwd();
+  let cwdArtifactRef = sessionContext.cwdArtifactRef as ArtifactRef | undefined;
   const workspaceId = sessionContext.workspaceId ?? task.workspaceId;
   if (workspaceId && options.resolveSessionCwd) {
     const resolved = await options.resolveSessionCwd({
@@ -1042,6 +1097,15 @@ async function sessionExecutionIdentity(
       ...(sessionContext.fleetWorker ? { requireAttached: true } : {}),
     });
     cwd = resolved.cwd;
+    if (
+      sessionContext.cwdArtifactRef &&
+      resolved.cwdArtifactRef !== sessionContext.cwdArtifactRef
+    ) {
+      throw new Error(
+        `Session cwd revalidation resolved a different GitChange Artifact: ${sessionContext.cwdArtifactRef}`,
+      );
+    }
+    cwdArtifactRef = resolved.cwdArtifactRef as ArtifactRef | undefined;
   }
   assertSessionExecutionCwd(cwd);
   const workspaceRoot = workspaceId ? options.resolveWorkspaceCwd?.(workspaceId) : undefined;
@@ -1061,6 +1125,7 @@ async function sessionExecutionIdentity(
       : undefined;
   return {
     cwd,
+    ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
     ...(workspaceId ? { workspaceId } : {}),
     ...(workspaceRoot ? { sparkStateRoot: join(workspaceRoot, ".spark") } : {}),
     ...(taskExecutionScope ? { taskExecutionScope } : {}),
@@ -1253,7 +1318,9 @@ function sessionExecutionPolicy(
       ? { sessionQuestionChain: sessionQuestionChainForTask(task) }
       : {}),
     ...(allowedTools ? { allowedTools } : {}),
-    ...(sessionContext.surface === "channel" ? { approvalMethod: "auto" as const } : {}),
+    ...(sessionContext.surface === "channel"
+      ? { approvalMethod: "auto" as const }
+      : { approvalMethod: "human" as const }),
     ...(sessionContext.role?.allowedToolEffects
       ? { allowedToolEffects: sessionContext.role.allowedToolEffects }
       : {}),
@@ -1421,6 +1488,11 @@ export async function executeSparkDaemonSessionRunTask(
       ? "task_execution"
       : "root_session";
   const executionIdentity = await sessionExecutionIdentity(task, options, sessionContext);
+  const executionLoop = await scopeLoopGitDraftTarget(
+    loop,
+    executionIdentity,
+    options.resolveSessionCwd,
+  );
   const roleRunner =
     options.sessionSupervisor && executionIdentity.workspaceId
       ? createSupervisedRoleRunner({
@@ -1454,7 +1526,7 @@ export async function executeSparkDaemonSessionRunTask(
       task,
       sessionContext,
       binding,
-      loop,
+      executionLoop,
       executionIdentity.taskExecutionScope,
     ),
     ...(roleRunner ? { roleRunner } : {}),
@@ -1491,6 +1563,61 @@ export async function executeSparkDaemonSessionRunTask(
       : {}),
     onEvent: (event) => emitHeadlessEvent(event, task, context),
   });
+}
+
+async function scopeLoopGitDraftTarget(
+  loop: SparkHostLoopContext | undefined,
+  execution: { cwd: string; cwdArtifactRef?: ArtifactRef; workspaceId?: string },
+  resolveSessionCwd: SparkDaemonTaskExecutorOptions["resolveSessionCwd"],
+): Promise<SparkHostLoopContext | undefined> {
+  if (!loop) return undefined;
+  let frozenWorktreeRoot: string | undefined;
+  if (execution.cwdArtifactRef) {
+    if (!execution.workspaceId || !resolveSessionCwd) {
+      return {
+        ...loop,
+        bindGitDraftTarget: async () => false,
+        authorizeGitDraftTarget: async () => false,
+        authorizeGitDraftArtifactTarget: async () => false,
+      };
+    }
+    try {
+      const resolved = await resolveSessionCwd({
+        workspaceId: execution.workspaceId,
+        cwdArtifactRef: execution.cwdArtifactRef,
+        requireAttached: true,
+      });
+      if (resolved.cwdArtifactRef !== execution.cwdArtifactRef) throw new Error("target changed");
+      frozenWorktreeRoot = realpathSync(resolved.cwd);
+    } catch {
+      return {
+        ...loop,
+        bindGitDraftTarget: async () => false,
+        authorizeGitDraftTarget: async () => false,
+        authorizeGitDraftArtifactTarget: async () => false,
+      };
+    }
+  }
+  const targetMatchesFrozenScope = (target: SparkGitDraftTarget): boolean => {
+    if (!execution.cwdArtifactRef) return true;
+    if (target.artifactRef !== execution.cwdArtifactRef || !frozenWorktreeRoot) return false;
+    try {
+      return realpathSync(target.worktreePath) === frozenWorktreeRoot;
+    } catch {
+      return false;
+    }
+  };
+  return {
+    ...loop,
+    bindGitDraftTarget: async (target) =>
+      targetMatchesFrozenScope(target) && (await loop.bindGitDraftTarget?.(target)) === true,
+    authorizeGitDraftTarget: async (target) =>
+      targetMatchesFrozenScope(target) && (await loop.authorizeGitDraftTarget?.(target)) === true,
+    authorizeGitDraftArtifactTarget: async (target) =>
+      (!execution.cwdArtifactRef || target.artifactRef === execution.cwdArtifactRef) &&
+      (!frozenWorktreeRoot || target.worktreePath === frozenWorktreeRoot) &&
+      (await loop.authorizeGitDraftArtifactTarget?.(target)) === true,
+  };
 }
 
 function completeChannelBinding(task: SparkDaemonSessionRunTask) {

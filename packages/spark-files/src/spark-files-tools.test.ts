@@ -7,12 +7,13 @@ import {
   mkdir,
   readFile,
   readdir,
+  realpath,
   rm,
   stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
@@ -45,7 +46,7 @@ interface ToolConfig {
     params: Record<string, unknown>,
     signal: AbortSignal | undefined,
     onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void,
-    ctx: { cwd?: string; sparkStateRoot?: string; taskExecutionScope?: unknown },
+    ctx: { cwd?: string; sparkStateRoot?: string; taskExecutionScope?: unknown; loop?: unknown },
   ): Promise<ToolResult>;
 }
 
@@ -125,7 +126,9 @@ test("task execution scopes fail closed for readonly, traversal, symlink, and un
     const outside = join(dir, "outside");
     await Promise.all([mkdir(primary), mkdir(secondary), mkdir(outside)]);
     await symlink(outside, join(primary, "escape"));
-    const write = collectTools(piFilesExtension).get("write")!;
+    const tools = collectTools(piFilesExtension);
+    const write = tools.get("write")!;
+    const read = tools.get("read")!;
     const primaryRef = "artifact:primary";
     const secondaryRef = "artifact:secondary";
     const baseScope = {
@@ -179,6 +182,14 @@ test("task execution scopes fail closed for readonly, traversal, symlink, and un
         { cwd: primary, taskExecutionScope: baseScope },
       ),
       /not authorized/u,
+    );
+    await writeFile(join(outside, "secret.txt"), "secret", "utf8");
+    await assert.rejects(
+      read.execute("read-traversal", { path: join(outside, "secret.txt") }, undefined, noop, {
+        cwd: primary,
+        taskExecutionScope: baseScope,
+      }),
+      /escapes its scope/u,
     );
 
     const allowed = await write.execute(
@@ -238,6 +249,346 @@ test("isolated_results writes only below the daemon-resolved job root", async ()
       ),
       /cannot write a git_change Artifact/u,
     );
+  });
+});
+
+test("daemon continuations cannot escape file roots or enter Git control state", async () => {
+  await withTempDir(async (dir) => {
+    const root = join(dir, "workspace");
+    const outside = join(dir, "outside.txt");
+    await mkdir(root);
+    await writeFile(outside, "secret", "utf8");
+    const tools = collectTools(piFilesExtension);
+    const loop = {
+      loopId: "goal:file-scope",
+      binding: { goalId: "goal:file-scope" },
+      generation: 1,
+      ownerSessionId: "owner",
+      schedule: async () => {},
+      stop: async () => {},
+    };
+    const ctx = { cwd: root, loop };
+
+    await assert.rejects(
+      tools.get("read")!.execute("outside-read", { path: outside }, undefined, noop, ctx),
+      /escapes its scope/u,
+    );
+    await assert.rejects(
+      tools
+        .get("write")!
+        .execute(
+          "git-config-write",
+          { path: ".git/config", content: "[core]", expectedVersion: "missing" },
+          undefined,
+          noop,
+          ctx,
+        ),
+      /protected runtime control state/u,
+    );
+    await mkdir(join(root, ".git"));
+    await symlink(".git", join(root, "control"));
+    for (const path of [".GIT/config", "control/config"]) {
+      await assert.rejects(
+        tools
+          .get("write")!
+          .execute(
+            `protected-alias-${path}`,
+            { path, content: "[core]", expectedVersion: "missing" },
+            undefined,
+            noop,
+            ctx,
+          ),
+        /protected runtime control state/u,
+      );
+    }
+    const ghExtension = join(
+      homedir(),
+      ".local",
+      "share",
+      "gh",
+      "extensions",
+      "gh-stack",
+      "gh-stack",
+    );
+    await assert.rejects(
+      tools
+        .get("write")!
+        .execute(
+          "gh-extension-write",
+          { path: ghExtension, content: "#!/bin/sh", expectedVersion: "missing" },
+          undefined,
+          noop,
+          { ...ctx, cwd: homedir() },
+        ),
+      /protected credential state/u,
+    );
+    await assert.rejects(
+      tools
+        .get("write")!
+        .execute(
+          "manual-gh-extension-write",
+          { path: ghExtension, content: "#!/bin/sh", expectedVersion: "missing" },
+          undefined,
+          noop,
+          { cwd: homedir() },
+        ),
+      /protected credential state/u,
+    );
+    const previousXdgDataHome = process.env.XDG_DATA_HOME;
+    const xdgDataHome = join(dir, "xdg-data");
+    const canonicalGhData = join(root, "driver-visible-gh-data");
+    await Promise.all([mkdir(xdgDataHome), mkdir(canonicalGhData)]);
+    await symlink(canonicalGhData, join(xdgDataHome, "gh"));
+    process.env.XDG_DATA_HOME = xdgDataHome;
+    try {
+      await assert.rejects(
+        tools.get("write")!.execute(
+          "canonical-gh-extension-write",
+          {
+            path: join(canonicalGhData, "extensions", "gh-stack", "gh-stack"),
+            content: "#!/bin/sh",
+            expectedVersion: "missing",
+          },
+          undefined,
+          noop,
+          ctx,
+        ),
+        /protected credential state/u,
+      );
+    } finally {
+      if (previousXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
+      else process.env.XDG_DATA_HOME = previousXdgDataHome;
+    }
+    await assert.rejects(
+      tools.get("write")!.execute(
+        "git-global-config-write",
+        {
+          path: join(homedir(), ".config", "git", "config"),
+          content: "[credential]",
+          expectedVersion: "missing",
+        },
+        undefined,
+        noop,
+        { ...ctx, cwd: homedir() },
+      ),
+      /protected credential state/u,
+    );
+    await assert.rejects(
+      tools
+        .get("grep")!
+        .execute("outside-grep", { path: dir, pattern: "secret" }, undefined, noop, ctx),
+      /escapes its scope/u,
+    );
+  });
+});
+
+test("daemon continuations enter only their daemon-bound GitChange Artifact", async () => {
+  await withTempDir(async (dir) => {
+    const sessionCwd = join(dir, "session");
+    const worktree = join(dir, "worktree");
+    const worktreeAlias = join(dir, "worktree-alias");
+    await Promise.all([mkdir(sessionCwd), mkdir(worktree)]);
+    await symlink(worktree, worktreeAlias, "dir");
+    await writeFile(join(worktree, "source.txt"), "before needle\n", "utf8");
+    const artifact = await defaultArtifactStore(dir).put({
+      kind: "git_change",
+      title: "Driver target",
+      body: {
+        schemaVersion: 2,
+        kind: "git_change",
+        repository: { forge: "github", repo: "acme/app" },
+        trunk: "main",
+        worktree: {
+          path: worktreeAlias,
+          branch: "driver-change",
+          ownership: "spark",
+          status: "attached",
+        },
+        stack: {
+          authority: "gh-stack",
+          currentBranch: "driver-change",
+          entries: [
+            {
+              branch: "driver-change",
+              base: "base-oid",
+              isCurrent: true,
+              isMerged: false,
+              isQueued: false,
+              needsRebase: false,
+            },
+          ],
+        },
+        lifecycle: "local",
+      },
+    });
+    const tools = collectTools(piFilesExtension);
+    tools.set(
+      "ls",
+      collectTools((api) => registerSparkFilesTools(api, { tools: ["ls"] })).get("ls")!,
+    );
+    let boundArtifactRef: string | undefined;
+    let boundWorktreePath: string | undefined;
+    const authorizeGitDraftArtifactTarget = async (target: {
+      artifactRef: string;
+      worktreePath: string;
+    }) => target.artifactRef === boundArtifactRef && target.worktreePath === boundWorktreePath;
+    const loop = {
+      loopId: "goal:artifact-scope",
+      binding: { goalId: "goal:artifact-scope" },
+      generation: 1,
+      ownerSessionId: "owner",
+      authorizeGitDraftArtifactTarget,
+      schedule: async () => {},
+      stop: async () => {},
+    };
+    const ctx = {
+      cwd: sessionCwd,
+      sparkStateRoot: join(dir, ".spark"),
+      loop,
+    };
+    const artifactParams: Record<string, Record<string, unknown>> = {
+      read: { path: "source.txt", artifactRef: artifact.ref },
+      write: {
+        path: "created.txt",
+        artifactRef: artifact.ref,
+        content: "created\n",
+        expectedVersion: "missing",
+      },
+      edit: {
+        path: "source.txt",
+        artifactRef: artifact.ref,
+        edits: [{ oldText: "before", newText: "after" }],
+      },
+      ls: { path: ".", artifactRef: artifact.ref },
+      grep: { path: ".", artifactRef: artifact.ref, pattern: "needle" },
+      find: { path: ".", artifactRef: artifact.ref, pattern: "*.txt" },
+    };
+
+    for (const [name, params] of Object.entries(artifactParams)) {
+      await assert.rejects(
+        tools.get(name)!.execute(`unbound-${name}`, params, undefined, noop, ctx),
+        /not authorized to access/u,
+      );
+    }
+
+    boundArtifactRef = artifact.ref;
+    boundWorktreePath = sessionCwd;
+    await assert.rejects(
+      tools.get("read")!.execute("wrong-root-read", artifactParams.read!, undefined, noop, ctx),
+      /not authorized to access/u,
+    );
+    boundWorktreePath = await realpath(worktree);
+    const read = await tools
+      .get("read")!
+      .execute("bound-read", artifactParams.read!, undefined, noop, ctx);
+    assert.match(text(read), /before needle/u);
+    const write = await tools
+      .get("write")!
+      .execute("bound-write", artifactParams.write!, undefined, noop, ctx);
+    assert.equal(write.isError ?? false, false);
+    const edit = await tools
+      .get("edit")!
+      .execute("bound-edit", artifactParams.edit!, undefined, noop, ctx);
+    assert.equal(edit.isError ?? false, false);
+    const listing = await tools
+      .get("ls")!
+      .execute("bound-ls", artifactParams.ls!, undefined, noop, ctx);
+    assert.match(text(listing), /source\.txt/u);
+    assert.equal(listing.details?.artifactRef, artifact.ref);
+    const grep = await tools
+      .get("grep")!
+      .execute("bound-grep", artifactParams.grep!, undefined, noop, ctx);
+    assert.match(text(grep), /after needle/u);
+    const find = await tools
+      .get("find")!
+      .execute("bound-find", artifactParams.find!, undefined, noop, ctx);
+    assert.match(text(find), /source\.txt/u);
+
+    await assert.rejects(
+      tools.get("read")!.execute("missing-authority", artifactParams.read!, undefined, noop, {
+        ...ctx,
+        loop: { ...loop, authorizeGitDraftArtifactTarget: undefined },
+      }),
+      /not authorized to access/u,
+    );
+    await assert.rejects(
+      tools.get("read")!.execute("rejected-authority", artifactParams.read!, undefined, noop, {
+        ...ctx,
+        loop: {
+          ...loop,
+          authorizeGitDraftArtifactTarget: async () => {
+            throw new Error("stale invocation");
+          },
+        },
+      }),
+      /not authorized to access/u,
+    );
+
+    let writeAuthorityChecks = 0;
+    const fencedWrite = await tools.get("write")!.execute(
+      "fenced-write",
+      {
+        path: "fenced.txt",
+        artifactRef: artifact.ref,
+        content: "must not commit\n",
+        expectedVersion: "missing",
+      },
+      undefined,
+      noop,
+      {
+        ...ctx,
+        loop: {
+          ...loop,
+          authorizeGitDraftArtifactTarget: async (target: {
+            artifactRef: string;
+            worktreePath: string;
+          }) => {
+            writeAuthorityChecks += 1;
+            return (
+              target.artifactRef === artifact.ref &&
+              target.worktreePath === boundWorktreePath &&
+              writeAuthorityChecks === 1
+            );
+          },
+        },
+      },
+    );
+    assert.equal(fencedWrite.isError, true);
+    assert.equal(writeAuthorityChecks, 2);
+    await assert.rejects(stat(join(worktree, "fenced.txt")), { code: "ENOENT" });
+
+    const sourceBeforeFencedEdit = await readFile(join(worktree, "source.txt"), "utf8");
+    let editAuthorityChecks = 0;
+    const fencedEdit = await tools.get("edit")!.execute(
+      "fenced-edit",
+      {
+        path: "source.txt",
+        artifactRef: artifact.ref,
+        edits: [{ oldText: "after", newText: "must not commit" }],
+      },
+      undefined,
+      noop,
+      {
+        ...ctx,
+        loop: {
+          ...loop,
+          authorizeGitDraftArtifactTarget: async (target: {
+            artifactRef: string;
+            worktreePath: string;
+          }) => {
+            editAuthorityChecks += 1;
+            return (
+              target.artifactRef === artifact.ref &&
+              target.worktreePath === boundWorktreePath &&
+              editAuthorityChecks === 1
+            );
+          },
+        },
+      },
+    );
+    assert.equal(fencedEdit.isError, true);
+    assert.equal(editAuthorityChecks, 2);
+    assert.equal(await readFile(join(worktree, "source.txt"), "utf8"), sourceBeforeFencedEdit);
   });
 });
 

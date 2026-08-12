@@ -65,6 +65,8 @@ export interface SparkHeadlessTokenUsageContext extends Omit<
 
 export interface SparkHeadlessSessionRunInput {
   cwd: string;
+  /** Daemon-resolved git_change that owns cwd. */
+  cwdArtifactRef?: import("@zendev-lab/spark-core").ArtifactRef;
   sessionId: string;
   /** Daemon-authoritative native transcript path for this session generation. */
   sessionPath?: string;

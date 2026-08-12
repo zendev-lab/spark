@@ -24,7 +24,13 @@ export function registerSparkDelegationTool(registerSparkTool: SparkToolRegistra
       executionMode: "sequential",
       domains: ["delegation"],
       modes: ["plan", "execute"],
-      approval: "none",
+      approval: "required",
+    },
+    resolvePolicy(args) {
+      const action = typeof args.action === "string" ? args.action : "";
+      return action === "list" || action === "get"
+        ? delegationToolPolicy("read")
+        : delegationToolPolicy("external_write");
     },
     parameters: Type.Object({
       action: Type.String({
@@ -73,6 +79,16 @@ export function registerSparkDelegationTool(registerSparkTool: SparkToolRegistra
       };
     },
   });
+}
+
+function delegationToolPolicy(effect: "read" | "external_write") {
+  return {
+    effect,
+    executionMode: effect === "read" ? ("parallel" as const) : ("sequential" as const),
+    domains: ["delegation"],
+    modes: ["plan", "execute"],
+    approval: effect === "read" ? ("none" as const) : ("required" as const),
+  };
 }
 
 function mainSessionId(ctx: SparkToolContext): string {

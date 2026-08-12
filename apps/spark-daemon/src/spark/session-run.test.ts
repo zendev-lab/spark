@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -11,6 +19,7 @@ import type {
   ProjectRef,
   RoleRef,
   RunRef,
+  SparkGitDraftTarget,
   SparkHostLoopContext,
 } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
@@ -808,6 +817,11 @@ describe("daemon native session execution", () => {
     expect(executeSession).toHaveBeenCalledWith(
       expect.objectContaining({
         prompt: "continue",
+        approvalMethod: "human",
+        loop: expect.objectContaining({
+          loopId: "repro-123",
+          binding: { reproId: "repro-123" },
+        }),
       }),
     );
     expect(JSON.stringify(executeSession.mock.calls[0])).not.toContain("model-reproduction");
@@ -2424,6 +2438,7 @@ describe("daemon native session execution", () => {
     expect(executeSession).toHaveBeenCalledWith(
       expect.objectContaining({
         cwd,
+        cwdArtifactRef: "artifact:change",
         workspaceId: "workspace-fixed",
         sparkStateRoot: join(workspaceRoot, ".spark"),
       }),
@@ -2433,6 +2448,11 @@ describe("daemon native session execution", () => {
       cwd,
       cwdArtifactRef: "artifact:change",
     });
+
+    resolveSessionCwd.mockResolvedValueOnce({ cwd, cwdArtifactRef: "artifact:other" });
+    await expect(executor(task, context(task))).rejects.toThrow(
+      "Session cwd revalidation resolved a different GitChange Artifact",
+    );
 
     resolveSessionCwd.mockRejectedValueOnce(new Error("GitChange artifact is no longer attached"));
     await expect(executor(task, context(task))).rejects.toThrow(
@@ -2694,6 +2714,180 @@ describe("daemon native session execution", () => {
       expect.not.objectContaining({ allowedTools: expect.anything() }),
     );
     rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("revalidates daemon-owned driver authority after a self-stop", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "spark-session-cwd-driver-authority-"));
+    const task: SparkDaemonLoopTickTask = {
+      type: "loop.tick",
+      sessionId: "driver_tick_goal_active_3",
+      driverSessionId: "driver_goal_active",
+      loopId: "goal:active",
+      binding: { goalId: "goal:active" },
+      ownerSessionId: "owner-session",
+      generation: 3,
+      continuity: "session",
+      prompt: "goal tick",
+      cwd,
+    };
+    let active = true;
+    const isAuthorityActive = vi.fn(async () => active);
+    const stop = vi.fn(async () => {
+      active = false;
+    });
+    const observations: boolean[] = [];
+    const executeSession = vi.fn(async (input: SparkHeadlessSessionRunInput) => {
+      observations.push((await input.loop?.isAuthorityActive?.()) === true);
+      await input.loop?.stop({ reason: "goal completed" });
+      observations.push((await input.loop?.isAuthorityActive?.()) === true);
+      return { assistantText: "completed" };
+    });
+    const executor = createSparkDaemonTaskExecutor({
+      paths,
+      loopControl: {
+        isAuthorityActive,
+        schedule: vi.fn(),
+        stop,
+      },
+      createSparkHeadlessSessionExecutor: () => executeSession,
+    });
+
+    await executor(task, context(task));
+
+    expect(observations).toEqual([true, false]);
+    expect(executeSession.mock.calls[0]?.[0].loop?.driverSessionId).toBe("driver_goal_active");
+    expect(isAuthorityActive).toHaveBeenCalledTimes(2);
+    expect(isAuthorityActive).toHaveBeenCalledWith(task, { invocationId: "invocation-1" });
+    expect(stop).toHaveBeenCalledWith(task, { reason: "goal completed" });
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("freezes attached driver Git Draft callbacks to the daemon-resolved worktree", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "spark-driver-git-target-workspace-"));
+    const worktreeRoot = join(workspaceRoot, "change");
+    mkdirSync(worktreeRoot);
+    const artifactRef = "artifact:change" as ArtifactRef;
+    const task: SparkDaemonLoopTickTask = {
+      type: "loop.tick",
+      sessionId: "driver_goal_git",
+      driverSessionId: "driver_goal_git",
+      loopId: "goal:git",
+      binding: { goalId: "goal:git" },
+      ownerSessionId: "owner-session",
+      generation: 4,
+      continuity: "session",
+      prompt: "deliver Draft",
+      cwd: worktreeRoot,
+      workspaceId: "workspace-driver-git",
+    };
+    const target: SparkGitDraftTarget = {
+      artifactRef,
+      worktreePath: worktreeRoot,
+      commonGitDir: join(workspaceRoot, ".git"),
+      repository: "acme/app",
+      remoteUrls: ["git@github.com:acme/app.git"],
+      pushUrls: ["git@github.com:acme/app.git"],
+      gitConfigDigest: `sha256:${"0".repeat(64)}`,
+    };
+    const bindGitDraftTarget = vi.fn(async (_task, input) => input.target === target);
+    const authorizeGitDraftTarget = vi.fn(async (_task, input) => input.target === target);
+    const authorizeGitDraftArtifactTarget = vi.fn(
+      async (_task, input) =>
+        input.target.artifactRef === artifactRef &&
+        input.target.worktreePath === realpathSync(worktreeRoot),
+    );
+    const observations: boolean[] = [];
+    const executeSession = vi.fn(async (input: SparkHeadlessSessionRunInput) => {
+      observations.push((await input.loop?.bindGitDraftTarget?.(target)) === true);
+      observations.push((await input.loop?.authorizeGitDraftTarget?.(target)) === true);
+      observations.push(
+        (await input.loop?.authorizeGitDraftTarget?.({
+          ...target,
+          artifactRef: "artifact:other" as ArtifactRef,
+        })) === true,
+      );
+      observations.push(
+        (await input.loop?.authorizeGitDraftTarget?.({
+          ...target,
+          worktreePath: workspaceRoot,
+        })) === true,
+      );
+      observations.push(
+        (await input.loop?.authorizeGitDraftArtifactTarget?.({
+          artifactRef,
+          worktreePath: realpathSync(worktreeRoot),
+        })) === true,
+      );
+      observations.push(
+        (await input.loop?.authorizeGitDraftArtifactTarget?.({
+          artifactRef: "artifact:other" as ArtifactRef,
+          worktreePath: realpathSync(worktreeRoot),
+        })) === true,
+      );
+      observations.push(
+        (await input.loop?.authorizeGitDraftArtifactTarget?.({
+          artifactRef,
+          worktreePath: realpathSync(workspaceRoot),
+        })) === true,
+      );
+      return { assistantText: "draft synced" };
+    });
+    const resolveSessionCwd = vi.fn(async (input: { cwdArtifactRef?: string }) => ({
+      cwd: worktreeRoot,
+      cwdArtifactRef: input.cwdArtifactRef ?? artifactRef,
+    }));
+    const executor = createSparkDaemonTaskExecutor({
+      paths,
+      resolveWorkspaceCwd: () => workspaceRoot,
+      resolveSessionCwd,
+      sessionRegistry: {
+        get: vi.fn(
+          async () =>
+            ({
+              sessionId: task.sessionId,
+              cwd: worktreeRoot,
+              cwdArtifactRef: artifactRef,
+              scope: { kind: "workspace", workspaceId: task.workspaceId },
+              owner: { kind: "workspace", workspaceId: task.workspaceId },
+              roleBinding: { kind: "none" },
+              bindings: [],
+              status: "active",
+            }) as never,
+        ),
+        recordRun: vi.fn(async () => ({}) as never),
+        recordTurnQueued: vi.fn(async () => ({}) as never),
+        recordTurnSettled: vi.fn(async () => ({}) as never),
+      },
+      loopControl: {
+        isAuthorityActive: vi.fn(async () => true),
+        bindGitDraftTarget,
+        authorizeGitDraftTarget,
+        authorizeGitDraftArtifactTarget,
+        schedule: vi.fn(),
+        stop: vi.fn(),
+      },
+      createSparkHeadlessSessionExecutor: () => executeSession,
+    });
+
+    await executor(task, context(task));
+
+    expect(observations).toEqual([true, true, false, false, true, false, false]);
+    expect(bindGitDraftTarget).toHaveBeenCalledWith(task, {
+      invocationId: "invocation-1",
+      target,
+    });
+    expect(authorizeGitDraftTarget).toHaveBeenCalledTimes(1);
+    expect(authorizeGitDraftArtifactTarget).toHaveBeenCalledTimes(1);
+    expect(authorizeGitDraftArtifactTarget).toHaveBeenCalledWith(task, {
+      invocationId: "invocation-1",
+      target: { artifactRef, worktreePath: realpathSync(worktreeRoot) },
+    });
+    expect(resolveSessionCwd).toHaveBeenLastCalledWith({
+      workspaceId: "workspace-driver-git",
+      cwdArtifactRef: artifactRef,
+      requireAttached: true,
+    });
+    rmSync(workspaceRoot, { recursive: true, force: true });
   });
 
   it("reports driver Session token usage with discard-on-close persistence", async () => {

@@ -267,13 +267,25 @@ context-specific question when a missing answer would change those decisions.
 Do not ask about routine execution details that stay within confirmed intent
 and are low-risk, reversible, and high-confidence.
 
-Proceed without another confirmation for in-scope reads, local edits,
-non-destructive validation, and reversible high-confidence work already
-authorized by the request.
+Every action resolves to one approval requirement:
 
-Require user authorization for destructive, irreversible, externally
-consequential, security-sensitive, costly, high-impact, or materially
-scope-expanding actions. Automated review and model confidence are not user
+- `none`: proceed without another confirmation for in-scope reads, local
+  edits, non-destructive validation, and other approval-free work;
+- `manual_only`: a manual continuation requires human approval for the exact
+  operation, while an active Goal, Loop, or Repro driver may execute the
+  bounded, low-risk, reversible external operation without another approval
+  when it remains within the confirmed objective, Workspace, repository, and
+  writable target;
+- `required`: destructive, irreversible, security-sensitive, costly,
+  high-impact, materially scope-expanding, release, deployment, merge, and
+  other consequential actions always require human approval.
+
+Driver authority is temporary and scoped. It cannot widen the objective or
+target, resolve unknown or conflicting policy, or survive driver stop,
+completion, or replacement. A WorkflowRun is not a continuation driver and
+inherits the authority of the driver that started it only while that authority
+remains active; it cannot create or retain driver authority by itself.
+Automated review and model confidence are safety signals, not human
 authorization.
 
 ## Engineering policy
@@ -306,10 +318,15 @@ local work
   -> terminal when every PR is merged or closed
 ```
 
-A request to submit or open a PR authorizes creating or updating it as draft
-during work and promoting it to ready when the requested work is complete. Do
-not ask again solely for the draft-to-ready transition unless the target,
-scope, or external impact materially changes.
+Creating or updating a Draft PR with `git submit` is `manual_only`. A manual
+continuation obtains human approval for the exact operation. A Goal, Loop, or
+Repro driver-owned continuation may perform the same Draft submit without
+another approval while it remains inside its bounded authority. `git sync`
+may discover and mutate remote-only stack members, so it remains `required`.
+
+Promotion to Ready is `required`. It needs human approval for the exact PR
+stack after the gates below pass; a broad delivery objective, an active driver,
+automated review, or passing checks does not grant that approval.
 
 Before promotion to ready:
 
@@ -319,10 +336,11 @@ Before promotion to ready:
 - required Artifact and Evidence references are synchronized;
 - no unresolved blocker remains.
 
-Promotion to ready and the refreshed `git_change` Artifact are part of
-completing PR delivery. Do not leave completed work in draft unless the user
-explicitly asks for a draft-only deliverable or a documented blocker prevents
-review.
+After the gates pass, keep the Draft stack current through bounded Draft
+submits and request the required Ready approval. Any stack sync obtains its own
+human approval. Until Ready approval is granted, report PR delivery as waiting
+on that decision. Once granted, promotion to Ready and the refreshed
+`git_change` Artifact are part of completing PR delivery.
 
 Each PR snapshot already records `draft`. Stack review state should be derived,
 not independently persisted:
@@ -336,9 +354,10 @@ export type GitChangeReviewState =
   | "terminal";
 ```
 
-Intermediate Tasks may finish while a stack is still draft. Ready is required
-at the final PR-delivery, integration, Project-completion, or Goal-completion
-boundary when the confirmed success criteria include a reviewable PR.
+Intermediate Tasks may finish while a stack is still Draft. When the confirmed
+success criteria include a reviewable PR, the final PR-delivery, integration,
+Project-completion, or Goal-completion boundary waits for the required Ready
+approval.
 
 ## Acceptance criteria
 
@@ -353,9 +372,9 @@ The completed refactor must prove:
 - one `skill_agent` call loads and executes multiple Skills exactly once;
 - the dedicated Skill Agent cannot recursively delegate or mutate coordination
   state;
-- a requested PR is draft while work remains and ready when the complete
-  verified delivery is finished;
-- important actions still require user authorization even when an automated
-  reviewer approves them;
+- a requested PR remains Draft while work remains, and becomes Ready only after
+  complete verification and the required human approval;
+- `required` actions still need human approval under every continuation driver,
+  even when an automated reviewer approves them;
 - behavior tests cover unnecessary asks, missed material asks, unauthorized
   actions, unnecessary delegation, Skill conflicts, and final PR readiness.

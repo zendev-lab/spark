@@ -15,6 +15,7 @@ import type {
 } from "@zendev-lab/spark-protocol/token-usage";
 import {
   createSparkSessionRepro,
+  reviseReproPlan,
   stepDefinitionDigest,
   updateReproStep,
   verifyReproStepPass,
@@ -53,7 +54,7 @@ describe("session work projection", () => {
     const repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
       objective: "Own root-session token usage",
     });
-    await writeJson(sessionReproStorePathV2(cwd, context), { version: 7, repro });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 8, repro });
 
     await expect(resolveActiveSessionReproUsageScope({ cwd, sessionId })).resolves.toEqual({
       kind: "repro",
@@ -62,6 +63,39 @@ describe("session work projection", () => {
     await expect(
       resolveActiveSessionReproUsageScope({ cwd, sessionId: "another-session" }),
     ).resolves.toBeUndefined();
+  });
+
+  it("projects driver-local Repro authority through the backward-compatible SessionView", async () => {
+    const cwd = await tempCwd();
+    let repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
+      objective: "Create a bounded Draft PR",
+    });
+    const currentStepId = repro.plan.steps[0]!.id;
+    repro = reviseReproPlan(repro, {
+      reason: "Exercise the daemon's display-safe driver authority projection",
+      steps: repro.plan.steps.map((step) => ({
+        id: step.id,
+        stage: step.stage,
+        goal: step.goal,
+        doneWhen: [...step.doneWhen],
+        evidenceRequired: [...step.evidenceRequired],
+        authority: step.id === currentStepId ? ("driver_local" as const) : step.authority,
+        ...(step.dependsOn ? { dependsOn: [...step.dependsOn] } : {}),
+      })),
+    });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 8, repro });
+
+    const work = await projectSparkSessionWork({
+      cwd,
+      sessionId,
+      loops: [driver(repro.reproId, "repro", "running")],
+    });
+
+    expect(work?.repro?.plan.currentStep).toMatchObject({
+      id: currentStepId,
+      authority: "safe_local",
+      driverManaged: true,
+    });
   });
 
   it("joins durable Goal/Repro state into a bounded display projection", async () => {
@@ -142,12 +176,33 @@ describe("session work projection", () => {
     ]);
   });
 
+  it("rejects a mismatched Repro wrapper/model version in the display projection", async () => {
+    const cwd = await tempCwd();
+    const repro = createSparkSessionRepro(`session:${sessionId}`);
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 7, repro });
+    const diagnostics: SparkSessionWorkProjectionDiagnostic[] = [];
+
+    const work = await projectSparkSessionWork({
+      cwd,
+      sessionId,
+      loops: [driver(repro.reproId, "repro", "running")],
+      onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    });
+
+    expect(work).toEqual({ primary: { loopId: repro.reproId } });
+    expect(diagnostics).toContainEqual({
+      code: "repro_state_unavailable",
+      domain: "repro",
+      sessionId,
+    });
+  });
+
   it("projects daemon-owned Repro token usage without reading transcript totals", async () => {
     const cwd = await tempCwd();
     const repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
       objective: "Account for this reproduction",
     });
-    await writeJson(sessionReproStorePathV2(cwd, context), { version: 7, repro });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 8, repro });
     const tokenUsage: SparkTokenUsageAggregate = {
       scope: { kind: "repro", reproId: repro.reproId },
       reported: breakdown(12),
@@ -217,7 +272,7 @@ describe("session work projection", () => {
     const repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
       objective: "Keep the technical work visible",
     });
-    await writeJson(sessionReproStorePathV2(cwd, context), { version: 7, repro });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 8, repro });
     const diagnostics: string[] = [];
 
     const work = await projectSparkSessionWork({

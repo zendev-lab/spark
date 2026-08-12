@@ -30,7 +30,13 @@ import {
 } from "./file-version.ts";
 import { pathExists, resolveReadPath, resolveToCwd } from "./path-utils.ts";
 import { resolveArtifactFileRoot } from "./artifact-root.ts";
-import { resolveTaskScopedWriteTarget } from "./execution-scope.ts";
+import {
+  assertAutonomousFileTarget,
+  assertFileWriteTarget,
+  authorizeAutonomousArtifactTarget,
+  resolveTaskScopedReadTarget,
+  resolveTaskScopedWriteTarget,
+} from "./execution-scope.ts";
 import {
   errorMessage,
   resolveToolCwd,
@@ -135,12 +141,16 @@ export function createReadToolConfig(): ToolConfig {
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
       const rawPath = stringParam(params.path);
-      const root = await resolveArtifactFileRoot(
-        resolveToolCwd(ctx),
-        params.artifactRef,
-        resolveToolStateCwd(ctx),
-      );
+      const scopedTarget = await resolveTaskScopedReadTarget(ctx, rawPath, params.artifactRef);
+      const root =
+        scopedTarget ??
+        (await resolveArtifactFileRoot(
+          resolveToolCwd(ctx),
+          params.artifactRef,
+          resolveToolStateCwd(ctx),
+        ));
       const cwd = root.cwd;
+      await authorizeAutonomousArtifactTarget(ctx, root.artifactRef, cwd);
       const offset = positiveIntegerParam(params.offset);
       if (params.offset !== undefined && offset === undefined) {
         return errorResult("Could not read file: offset must be a positive integer.", {
@@ -155,7 +165,8 @@ export function createReadToolConfig(): ToolConfig {
           parameter: "limit",
         });
       }
-      const absolutePath = await resolveReadPath(rawPath, cwd);
+      const absolutePath = scopedTarget?.absolutePath ?? (await resolveReadPath(rawPath, cwd));
+      await assertAutonomousFileTarget(ctx, cwd, absolutePath);
       throwIfAborted(signal);
 
       let buffer: Buffer;
@@ -371,6 +382,7 @@ export function createWriteToolConfig(): ToolConfig {
           resolveToolStateCwd(ctx),
         ));
       const cwd = root.cwd;
+      await authorizeAutonomousArtifactTarget(ctx, root.artifactRef, cwd);
       if (typeof params.content !== "string") {
         return errorResult(`Could not write file: ${rawPath}. content must be a string.`, {
           code: "INVALID_WRITE_CONTENT",
@@ -389,11 +401,16 @@ export function createWriteToolConfig(): ToolConfig {
       }
       const expectedVersion = rawExpectedVersion as FileVersionState;
       const absolutePath = scopedTarget?.absolutePath ?? resolveToCwd(rawPath, cwd);
+      await assertFileWriteTarget(ctx, cwd, absolutePath);
       let result: Awaited<ReturnType<typeof atomicReplaceTextFile>>;
       try {
         result = await atomicReplaceTextFile(absolutePath, content, {
           expectedVersion,
           signal,
+          preCommit: async () => {
+            await authorizeAutonomousArtifactTarget(ctx, root.artifactRef, cwd);
+            await assertFileWriteTarget(ctx, cwd, absolutePath);
+          },
         });
       } catch (error) {
         return errorResult(`Could not write file: ${rawPath}. ${errorMessage(error)}.`);
@@ -486,6 +503,7 @@ export function createEditToolConfig(): ToolConfig {
           resolveToolStateCwd(ctx),
         ));
       const cwd = root.cwd;
+      await authorizeAutonomousArtifactTarget(ctx, root.artifactRef, cwd);
       const edits = normalizeEdits(params.edits);
       if (edits.length === 0) {
         return errorResult(
@@ -493,6 +511,7 @@ export function createEditToolConfig(): ToolConfig {
         );
       }
       const absolutePath = scopedTarget?.absolutePath ?? resolveToCwd(rawPath, cwd);
+      await assertFileWriteTarget(ctx, cwd, absolutePath);
 
       let snapshot: Awaited<ReturnType<typeof readRegularFileSnapshot>>;
       try {
@@ -533,6 +552,10 @@ export function createEditToolConfig(): ToolConfig {
         writeResult = await atomicReplaceTextFile(absolutePath, finalContent, {
           expectedVersion: snapshot.version,
           signal,
+          preCommit: async () => {
+            await authorizeAutonomousArtifactTarget(ctx, root.artifactRef, cwd);
+            await assertFileWriteTarget(ctx, cwd, absolutePath);
+          },
         });
       } catch (error) {
         return errorResult(`Could not edit file: ${rawPath}. ${errorMessage(error)}.`);
@@ -574,6 +597,12 @@ export function createEditToolConfig(): ToolConfig {
 // ── ls ──────────────────────────────────────────────────────────────────
 
 const lsSchema = Type.Object({
+  artifactRef: Type.Optional(
+    Type.String({
+      description:
+        "Optional git_change Artifact ref. Relative paths resolve from its attached worktree; absolute paths remain absolute.",
+    }),
+  ),
   path: Type.Optional(
     Type.String({ description: "Directory to list (default: current directory)" }),
   ),
@@ -595,11 +624,19 @@ export function createLsToolConfig(): ToolConfig {
     executionMode: FILE_READ_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const cwd = resolveToolCwd(ctx);
-      const dirPath = resolveToCwd(
-        typeof params.path === "string" && params.path ? params.path : ".",
-        cwd,
-      );
+      const rawPath = typeof params.path === "string" && params.path ? params.path : ".";
+      const scopedTarget = await resolveTaskScopedReadTarget(ctx, rawPath, params.artifactRef);
+      const root =
+        scopedTarget ??
+        (await resolveArtifactFileRoot(
+          resolveToolCwd(ctx),
+          params.artifactRef,
+          resolveToolStateCwd(ctx),
+        ));
+      const cwd = root.cwd;
+      await authorizeAutonomousArtifactTarget(ctx, root.artifactRef, cwd);
+      const dirPath = scopedTarget?.absolutePath ?? resolveToCwd(rawPath, cwd);
+      await assertAutonomousFileTarget(ctx, cwd, dirPath);
       const effectiveLimit = numberParam(params.limit) ?? LS_DEFAULT_LIMIT;
 
       if (!(await pathExists(dirPath))) return errorResult(`Path not found: ${dirPath}`);
@@ -642,7 +679,9 @@ export function createLsToolConfig(): ToolConfig {
       const compacted = compactLsResults(results);
       const truncation = truncateHead(compacted.text, { maxLines: Number.MAX_SAFE_INTEGER });
       let output = truncation.content;
-      const details: Record<string, unknown> = {};
+      const details: Record<string, unknown> = {
+        ...(root.artifactRef ? { artifactRef: root.artifactRef } : {}),
+      };
       if (compacted.grouped) details.grouped = "summary";
       const notices: string[] = [];
       if (entryLimitReached) {

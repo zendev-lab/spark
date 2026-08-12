@@ -70,6 +70,8 @@ export interface SparkDaemonLoopTickTask extends Omit<
   type: "loop.tick";
   /** Canonical owned child Session used for this tick's transcript and Invocation. */
   sessionId: string;
+  /** Stable driver Session incarnation; unlike sessionId this does not rotate per fresh tick. */
+  driverSessionId?: string;
   loopId: string;
   binding: SparkLoopBinding;
   ownerSessionId: string;

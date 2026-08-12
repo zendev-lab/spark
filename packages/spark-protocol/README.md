@@ -12,6 +12,16 @@ rendering and interaction behavior.
 
 Local RPC turn methods map to `turn.submit.request`, `turn.status.request`, `turn.stream.subscribe`, and `turn.cancel.request`. Bounded invocation list/result/retry/retention payloads are also protocol-owned; retry results identify a new invocation and `retryOfInvocationId`. Runtime commands map to the same transport-neutral `SparkCommand` vocabulary. Facts use `SparkEvent`, including command status/rejection, projections, diagnostics, and errors.
 
+Version-1 compatibility projections do not widen existing wire enums for
+driver-only authority. A Repro `driver_local` Step is projected into
+SessionView as `authority: "safe_local"` plus additive
+`driverManaged: true`; older display readers ignore the marker, while execution
+owners continue to decide dispatch from durable Repro state. Agent Trace v1
+records the effective call-time approval requirement, so `manual_only`
+projects to `required` on a manual turn and `none` on a driver-owned turn.
+Direct `driver_local` and `manual_only` values are not valid members of those
+version-1 wire enums.
+
 The package must not import terminal, Svelte, Pi SDK, `pi-tui`, or Spark app internals. See [`../../docs/specs/turn.md`](../../docs/specs/turn.md).
 
 The protocol package also owns the dependency-light A2UI v0.9/v0.9.1 basic

@@ -12,8 +12,8 @@ Spark supplies the generic state, scheduling, and evidence boundaries.
 The normative dual-lane, asynchronous-evidence, Profile/progress, numerical
 frontier, ReportModel, and completion semantics are defined in
 [`../../docs/specs/autonomous-dual-lane.md`](../../docs/specs/autonomous-dual-lane.md).
-The `spark.repro.work-summary/v2` and `SparkSessionRepro` v7 adapters implement
-that contract as structured state. Legacy work-summary/v1 and session v1-v6
+The `spark.repro.work-summary/v2` and `SparkSessionRepro` v8 adapters implement
+that contract as structured state. Legacy work-summary/v1 and session v1-v7
 records migrate only through explicit structured adapters; callers must not
 emulate vNext by parsing reports or adding another scheduler/store.
 
@@ -68,12 +68,15 @@ intermediate.
 ## Versioned session protocol
 
 The package root remains the compatibility execution and persistence model for
-session snapshots. SparkSessionRepro v7 adds a versioned dual-lane binding over
-the existing five-stage plan/subgoal protocol. Migrating v6 creates empty Explore
-observations, candidates, and unresolved bindings and does not promote legacy
-proof into Normative retirement. A later plan revision preserves observation and
-unresolved identities, but resets revision-bound candidates and retirement rather
-than inferring them from legacy `done` status.
+session snapshots. SparkSessionRepro v7 added a versioned dual-lane binding over
+the existing five-stage plan/subgoal protocol. V8 adds persisted `driver_local`
+Step/Subgoal authority; its bounded v7 decoder accepts only the historical
+`safe_local | ask_decision | ask_approval` enum and then migrates losslessly.
+Migrating v6 creates empty Explore observations, candidates, and unresolved
+bindings and does not promote legacy proof into Normative retirement. A later
+plan revision preserves observation and unresolved identities, but resets
+revision-bound candidates and retirement rather than inferring them from legacy
+`done` status.
 
 The legacy protocol includes four durable structures:
 
@@ -92,9 +95,12 @@ step for every configured stage, use unique stable ids, and have an acyclic
 dependency graph. Difficulty is an integer from 1 to 10 and enforces adaptive
 minimum plan sizes of 4, 6, 8, 11, or 13 steps; the fixed five-stage coverage
 requirement still applies. A step cannot start before its dependencies finish
-or become `done` without a passing typed StepVerifier result. Safe-local steps require
-structured proof bound to the current definition and `doneWhen`; decision and approval
-steps additionally require a current canonical Ask receipt bound to the exact Step.
+or become `done` without a passing typed StepVerifier result. `safe_local`
+steps are worker-dispatchable and require structured proof bound to the current
+definition and `doneWhen`. `driver_local` steps use the same evidence proof but
+remain owner/driver-only and are never dispatched to workers. `ask_decision`
+and `ask_approval` steps additionally require a current canonical Ask receipt
+bound to the exact Step.
 
 Setup is research-first and separates three requirement kinds:
 
@@ -111,10 +117,11 @@ the next tick; three unchanged settlements stop automatic continuation and
 require one concrete canonical Ask. Safe transient execution retry/backoff
 remains daemon-owned and is deliberately separate from semantic stagnation.
 
-Stored v1-v6 snapshots migrate to v7. Invalid legacy proof is removed,
-affected contracts/steps/gates reopen, and no legacy boolean or proof is promoted
-into a user decision, passing validation, Explore observation, candidate,
-unresolved discharge, or Normative retirement.
+Stored v1-v7 snapshots migrate to v8. Invalid legacy proof is removed, affected
+contracts/steps/gates reopen, and no legacy boolean or proof is promoted into a
+user decision, passing validation, Explore observation, candidate, unresolved
+discharge, or Normative retirement. A v7 snapshot containing `driver_local` is
+invalid rather than treated as a same-version extension.
 
 The setup stage first verifies whether the reference implementation named in
 the contract is runnable. An unavailable reference is a blocking user decision:

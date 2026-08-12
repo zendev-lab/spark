@@ -119,7 +119,7 @@ test("Ready gate accepts only a current digest-bound Pass receipt", async () => 
 });
 
 test("removes terminal worktree from artifact repository when daemon cwd is unrelated", async () => {
-  const fixture = await cleanupFixture();
+  const fixture = await cleanupFixture({ nonterminal: false });
 
   await expect(fixture.service.cleanup(fixture.artifactRef)).resolves.toMatchObject({
     body: { lifecycle: "cleaned", worktree: { status: "cleaned" } },
@@ -185,26 +185,30 @@ async function cleanupFixture(options: CleanupFixtureOptions = {}) {
               name: "cleanup-fixture",
               base: "base-oid",
               isCurrent: true,
-              isMerged: !options.nonterminal,
+              isMerged: false,
             },
           ],
         }),
       );
     }
-    if (args[0] === "pr" && args[1] === "view") {
+    if (args[0] === "pr" && args[1] === "list") {
       return commandSuccess(
-        JSON.stringify({
-          number: 123,
-          title: "Cleanup fixture",
-          state: options.nonterminal ? "OPEN" : "MERGED",
-          url: "https://github.com/acme/app/pull/123",
-          body: "Fixture",
-          labels: [],
-          headRefName: "cleanup-fixture",
-          baseRefName: "main",
-          isDraft: false,
-          statusCheckRollup: [],
-        }),
+        JSON.stringify([
+          {
+            number: 123,
+            title: "Cleanup fixture",
+            state: options.nonterminal ? "OPEN" : "MERGED",
+            url: "https://github.com/acme/app/pull/123",
+            body: "Fixture",
+            labels: [],
+            headRefName: "cleanup-fixture",
+            headRepositoryOwner: { login: "acme" },
+            isCrossRepository: false,
+            baseRefName: "main",
+            isDraft: false,
+            statusCheckRollup: [],
+          },
+        ]),
       );
     }
     if (args[0] === "worktree" && args[1] === "remove") {

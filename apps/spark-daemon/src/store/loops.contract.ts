@@ -1,8 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import type { SparkGitDraftTarget } from "@zendev-lab/spark-core";
 import type { SparkDaemonLoopTickTask } from "../core/types.ts";
 import type { SparkInvocationStore } from "./invocations.ts";
-import type { SparkLoopStore } from "./loops.ts";
+import { loopUpdateEvent, SparkLoopStore } from "./loops.ts";
 
 export interface SparkLoopStoreContractHarness {
   db: DatabaseSync;
@@ -134,6 +135,264 @@ export function runSparkLoopStoreContract(
         expect(() =>
           harness.loops.schedule({ loopId: "repro-loop", generation: 2, delayMs: 1000 }),
         ).toThrow(/LOOP_GENERATION_CONFLICT/u);
+      } finally {
+        harness.close();
+      }
+    });
+
+    it("binds one exact Git Draft target per active driver incarnation", async () => {
+      const harness = createHarness();
+      try {
+        const tick = await runningTick(harness, "loop-draft-bind", "owner-draft-bind");
+        const first = gitDraftTarget("artifact:first", "/workspace/first", "/repo/.git");
+        const changedPath = gitDraftTarget("artifact:first", "/workspace/changed", "/repo/.git");
+        const changedCommonDir = gitDraftTarget(
+          "artifact:first",
+          "/workspace/first",
+          "/other/.git",
+        );
+        const changedRemote = {
+          ...first,
+          repository: "other/repo",
+          remoteUrls: ["git@github.com:other/repo.git"],
+          pushUrls: ["git@github.com:other/repo.git"],
+        };
+        const second = gitDraftTarget("artifact:second", "/workspace/second", "/repo/.git");
+
+        expect(
+          harness.loops.authorizeGitDraftArtifactTarget(
+            tick.task,
+            tick.invocation.invocationId,
+            first,
+          ),
+        ).toBe(false);
+
+        expect(
+          harness.loops.bindGitDraftTarget(tick.task, tick.invocation.invocationId, first),
+        ).toBe(true);
+        expect(
+          harness.loops.bindGitDraftTarget(tick.task, tick.invocation.invocationId, first),
+        ).toBe(true);
+        expect(
+          harness.loops.bindGitDraftTarget(tick.task, tick.invocation.invocationId, second),
+        ).toBe(false);
+        expect(
+          harness.loops.authorizeGitDraftTarget(tick.task, tick.invocation.invocationId, first),
+        ).toBe(true);
+        expect(
+          harness.loops.authorizeGitDraftArtifactTarget(
+            tick.task,
+            tick.invocation.invocationId,
+            first,
+          ),
+        ).toBe(true);
+        expect(
+          harness.loops.authorizeGitDraftArtifactTarget(
+            tick.task,
+            tick.invocation.invocationId,
+            changedPath,
+          ),
+        ).toBe(false);
+        expect(
+          harness.loops.authorizeGitDraftArtifactTarget(
+            tick.task,
+            tick.invocation.invocationId,
+            second,
+          ),
+        ).toBe(false);
+        expect(
+          harness.loops.authorizeGitDraftTarget(
+            tick.task,
+            tick.invocation.invocationId,
+            changedPath,
+          ),
+        ).toBe(false);
+        expect(
+          harness.loops.authorizeGitDraftTarget(
+            tick.task,
+            tick.invocation.invocationId,
+            changedCommonDir,
+          ),
+        ).toBe(false);
+        expect(
+          harness.loops.authorizeGitDraftTarget(
+            tick.task,
+            tick.invocation.invocationId,
+            changedRemote,
+          ),
+        ).toBe(false);
+        expect(
+          harness.loops.authorizeGitDraftTarget(
+            { ...tick.task, binding: { goalId: "forged-goal" } },
+            tick.invocation.invocationId,
+            first,
+          ),
+        ).toBe(false);
+        expect(
+          harness.loops.authorizeGitDraftTarget(
+            { ...tick.task, driverSessionId: "driver_forged" },
+            tick.invocation.invocationId,
+            first,
+          ),
+        ).toBe(false);
+        expect(
+          harness.loops.authorizeGitDraftArtifactTarget(
+            { ...tick.task, binding: { goalId: "forged-goal" } },
+            tick.invocation.invocationId,
+            first,
+          ),
+        ).toBe(false);
+        expect(
+          harness.loops.authorizeGitDraftArtifactTarget(
+            { ...tick.task, driverSessionId: "driver_forged" },
+            tick.invocation.invocationId,
+            first,
+          ),
+        ).toBe(false);
+        expect(harness.loops.require(tick.task.loopId).driverGitDraftTarget).toEqual(first);
+        const persisted = harness.loops.require(tick.task.loopId);
+        expect(JSON.stringify(harness.loops.mutationResult(persisted))).not.toContain(
+          "driverGitDraftTarget",
+        );
+        expect(JSON.stringify(loopUpdateEvent(persisted))).not.toContain("driverGitDraftTarget");
+      } finally {
+        harness.close();
+      }
+    });
+
+    it("preserves a Git Draft target across a normal wake and store reopen", async () => {
+      const harness = createHarness();
+      try {
+        const firstTick = await runningTick(harness, "loop-draft-wake", "owner-draft-wake");
+        const target = gitDraftTarget("artifact:wake", "/workspace/wake", "/repo/.git");
+        expect(
+          harness.loops.bindGitDraftTarget(
+            firstTick.task,
+            firstTick.invocation.invocationId,
+            target,
+          ),
+        ).toBe(true);
+        harness.loops.completeTick(firstTick.invocation, firstTick.task, {
+          status: "succeeded",
+          now: "2026-07-23T00:00:00.000Z",
+        });
+        const driverSessionId = harness.loops.require(firstTick.task.loopId).driverSessionId;
+        const woken = harness.loops.wake(firstTick.task.loopId, {
+          reason: "normal continuation",
+          now: "2026-07-23T00:00:01.000Z",
+        });
+        expect(woken).toMatchObject({ driverSessionId, driverGitDraftTarget: target });
+
+        const reopened = new SparkLoopStore(harness.db, harness.invocations);
+        const submitted = await reopened.materializeDue("2026-07-23T00:00:01.000Z");
+        const invocation = harness.invocations.claimNext("reopened-worker")!;
+        const task = submitted?.invocation?.task as SparkDaemonLoopTickTask;
+        expect(reopened.authorizeGitDraftTarget(task, invocation.invocationId, target)).toBe(true);
+        expect(
+          reopened.authorizeGitDraftArtifactTarget(task, invocation.invocationId, target),
+        ).toBe(true);
+      } finally {
+        harness.close();
+      }
+    });
+
+    it("invalidates Git Draft authority on stop, restart, and owner replacement", async () => {
+      const harness = createHarness();
+      try {
+        const firstTick = await runningTick(
+          harness,
+          "loop-draft-invalidate",
+          "owner-draft-invalidate",
+        );
+        const target = gitDraftTarget("artifact:invalidate", "/workspace/invalidate", "/repo/.git");
+        expect(
+          harness.loops.bindGitDraftTarget(
+            firstTick.task,
+            firstTick.invocation.invocationId,
+            target,
+          ),
+        ).toBe(true);
+        harness.loops.stop(firstTick.task.loopId, "stop driver");
+        expect(
+          harness.loops.authorizeGitDraftTarget(
+            firstTick.task,
+            firstTick.invocation.invocationId,
+            target,
+          ),
+        ).toBe(false);
+        expect(
+          harness.loops.authorizeGitDraftArtifactTarget(
+            firstTick.task,
+            firstTick.invocation.invocationId,
+            target,
+          ),
+        ).toBe(false);
+
+        const restarted = harness.loops.restart(firstTick.task.loopId, "new incarnation");
+        expect(restarted.driverSessionId).not.toBe(firstTick.task.driverSessionId);
+        expect(restarted.driverGitDraftTarget).toBeUndefined();
+
+        const restartedAdvance = await harness.loops.materializeDue();
+        const restartedInvocation = harness.invocations.claimNext("restart-worker")!;
+        const restartedTask = restartedAdvance?.invocation?.task as SparkDaemonLoopTickTask;
+        expect(
+          harness.loops.bindGitDraftTarget(restartedTask, restartedInvocation.invocationId, target),
+        ).toBe(true);
+        harness.loops.start({
+          loopId: "replacement-loop",
+          ownerSessionId: restartedTask.ownerSessionId,
+          cwd: "/workspace",
+          prompt: "replacement",
+        });
+        expect(harness.loops.require(restartedTask.loopId).driverGitDraftTarget).toBeUndefined();
+        expect(
+          harness.loops.authorizeGitDraftTarget(
+            restartedTask,
+            restartedInvocation.invocationId,
+            target,
+          ),
+        ).toBe(false);
+      } finally {
+        harness.close();
+      }
+    });
+
+    it("rotates the driver incarnation when a terminal Loop is woken", async () => {
+      const harness = createHarness();
+      try {
+        const tick = await runningTick(harness, "loop-terminal-wake", "owner-terminal-wake");
+        const target = gitDraftTarget("artifact:terminal", "/workspace/terminal", "/repo/.git");
+        expect(
+          harness.loops.bindGitDraftTarget(tick.task, tick.invocation.invocationId, target),
+        ).toBe(true);
+        const stopped = harness.loops.stop(tick.task.loopId, "terminal");
+        const woken = harness.loops.wake(tick.task.loopId, { reason: "explicit wake" });
+        expect(woken.driverSessionId).not.toBe(stopped.driverSessionId);
+        expect(woken.driverGitDraftTarget).toBeUndefined();
+      } finally {
+        harness.close();
+      }
+    });
+
+    it("revokes an active invocation and target on explicit restart", async () => {
+      const harness = createHarness();
+      try {
+        const tick = await runningTick(harness, "loop-active-restart", "owner-active-restart");
+        const target = gitDraftTarget("artifact:active", "/workspace/active", "/repo/.git");
+        expect(
+          harness.loops.bindGitDraftTarget(tick.task, tick.invocation.invocationId, target),
+        ).toBe(true);
+
+        const restarted = harness.loops.restart(tick.task.loopId, "explicit restart");
+
+        expect(restarted.driverSessionId).not.toBe(tick.task.driverSessionId);
+        expect(restarted.driverGitDraftTarget).toBeUndefined();
+        expect(
+          harness.loops.authorizeGitDraftTarget(tick.task, tick.invocation.invocationId, target),
+        ).toBe(false);
+        expect(harness.invocations.get(tick.invocation.invocationId)?.cancelReason).toBe(
+          "explicit restart",
+        );
       } finally {
         harness.close();
       }
@@ -423,4 +682,20 @@ async function runningTick(
   await harness.loops.materializeDue();
   const invocation = harness.invocations.claimNext("worker")!;
   return { invocation, task: invocation.task as SparkDaemonLoopTickTask };
+}
+
+function gitDraftTarget(
+  artifactRef: string,
+  worktreePath: string,
+  commonGitDir: string,
+): SparkGitDraftTarget {
+  return {
+    artifactRef,
+    worktreePath,
+    commonGitDir,
+    repository: "acme/app",
+    remoteUrls: ["git@github.com:acme/app.git"],
+    pushUrls: ["git@github.com:acme/app.git"],
+    gitConfigDigest: `sha256:${"0".repeat(64)}`,
+  } as SparkGitDraftTarget;
 }

@@ -132,8 +132,15 @@ export interface SparkHostHookOptions {
 /** Pi-compatible per-tool sibling-call execution mode. */
 export type ToolExecutionMode = "sequential" | "parallel";
 
-/** Static approval requirement declared by the tool owner. */
-export type ToolApprovalPolicy = "none" | "required";
+/**
+ * Static approval requirement declared by the tool owner.
+ *
+ * `manual_only` is a narrow capability grant: a daemon-owned continuation
+ * driver may execute the call without another approval, while a manually
+ * submitted turn still requires approval. It must only be used for bounded,
+ * reversible low-risk effects; high-risk effects remain `required`.
+ */
+export type ToolApprovalPolicy = "none" | "manual_only" | "required";
 
 /**
  * Declarative tool policy owned by the package that implements the tool.
@@ -345,6 +352,7 @@ function resolveToolApproval(
 ): ToolApprovalPolicy {
   if (malformedPolicy || (legacy !== undefined && typeof legacy !== "boolean")) return "required";
   if (legacy === true || canonical === "required") return "required";
+  if (canonical === "manual_only" && legacy === undefined) return "manual_only";
   if (canonical === undefined || canonical === "none") return "none";
   return "required";
 }
@@ -372,7 +380,7 @@ function isOptionalToolExecutionMode(value: unknown): value is ToolExecutionMode
 }
 
 function isOptionalToolApproval(value: unknown): value is ToolApprovalPolicy | undefined {
-  return value === undefined || value === "none" || value === "required";
+  return value === undefined || value === "none" || value === "manual_only" || value === "required";
 }
 
 function isOptionalPolicyLabels(value: unknown): value is readonly string[] | undefined {
@@ -829,8 +837,25 @@ export type ExtensionRoleRunner = (
 
 export type SparkSessionMessageSource = "tui" | "web" | "channel" | "daemon" | "session";
 
+/** Canonical GitChange identity frozen by a daemon-owned continuation driver. */
+export interface SparkGitDraftTarget {
+  artifactRef: ArtifactRef;
+  worktreePath: string;
+  commonGitDir: string;
+  /** Canonical GitHub owner/name resolved from the effective origin. */
+  repository: string;
+  /** Complete effective fetch URL set for origin at bind time. */
+  remoteUrls: readonly string[];
+  /** Complete effective push URL set for origin at bind time. */
+  pushUrls: readonly string[];
+  /** Digest of the complete effective Git config; values never leave this digest. */
+  gitConfigDigest: string;
+}
+
 export interface SparkHostLoopContext {
   loopId: string;
+  /** Stable daemon-owned Session identity for this driver incarnation. */
+  driverSessionId?: string;
   binding: {
     goalId?: string;
     workflowRunId?: string;
@@ -840,6 +865,29 @@ export interface SparkHostLoopContext {
   ownerSessionId: string;
   /** @deprecated Compatibility projection; host execution uses Session stateBinding. */
   stateOwnerSessionId?: string;
+  /**
+   * Host-private, dispatch-time proof that this exact daemon driver generation
+   * still owns authority. Tool dispatch must fail closed when this predicate is
+   * absent, rejects, or returns false; a captured Loop object is not authority.
+   */
+  isAuthorityActive?: () => Promise<boolean>;
+  /**
+   * Host-private binding for one canonical Draft delivery target. The daemon
+   * persists the first target for the current driver Session incarnation and
+   * rejects attempts to replace it.
+   */
+  bindGitDraftTarget?: (target: SparkGitDraftTarget) => Promise<boolean>;
+  /** Host-private dispatch-time authorization for the exact persisted target. */
+  authorizeGitDraftTarget?: (target: SparkGitDraftTarget) => Promise<boolean>;
+  /**
+   * Host-private authorization for file tools to enter the exact canonical
+   * GitChange worktree bound to this driver incarnation. The daemon compares
+   * both fields against its persisted Draft target while fencing liveness.
+   */
+  authorizeGitDraftArtifactTarget?: (target: {
+    artifactRef: ArtifactRef;
+    worktreePath: string;
+  }) => Promise<boolean>;
   schedule(input: {
     delayMs?: number;
     dueAt?: string;
@@ -867,6 +915,8 @@ export interface SparkTaskExecutionScope {
 
 export interface SparkHostContext {
   cwd?: string;
+  /** Daemon-resolved git_change that owns cwd; model/tool arguments cannot widen it. */
+  cwdArtifactRef?: ArtifactRef;
   /** Durable workspace owner for state and daemon routing. */
   workspaceId?: string;
   /** Current Spark view/session identity for session-scoped extension state. */
@@ -1003,7 +1053,7 @@ export type CueJobRef = Ref<"cue-job">;
 export type SubgoalRef = Ref<"subgoal">;
 
 export type SparkSubgoalStatus = "pending" | "in_progress" | "done" | "blocked" | "cancelled";
-export type SparkSubgoalAuthority = "safe_local" | "ask_decision" | "ask_approval";
+export type SparkSubgoalAuthority = "safe_local" | "driver_local" | "ask_decision" | "ask_approval";
 
 export interface SparkSubgoalDefinition {
   goal: string;

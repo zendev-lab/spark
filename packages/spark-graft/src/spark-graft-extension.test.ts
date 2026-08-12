@@ -213,6 +213,18 @@ test("spark-graft registers the final high-frequency direct tool set and extensi
     domains: ["graft"],
     approval: "none",
   });
+  assert.equal(graft.resolvePolicy?.({ action: "read" }).approval, "none");
+  assert.equal(graft.resolvePolicy?.({ action: "validate" }).approval, "required");
+  assert.equal(graft.resolvePolicy?.({ action: "cli_exec" }).approval, "required");
+  assert.equal(graft.resolvePolicy?.({ action: "scratch_drop" }).approval, "required");
+  assert.equal(graft.resolvePolicy?.({ action: "repo", repoAction: "list" }).approval, "none");
+  for (const repoAction of ["add", "sync", "lock", "update"]) {
+    assert.equal(
+      graft.resolvePolicy?.({ action: "repo", repoAction }).approval,
+      "required",
+      `repo ${repoAction}`,
+    );
+  }
 });
 
 test("spark-graft lifecycle prerequisite errors point to the next tool", async () => {
@@ -483,6 +495,16 @@ test("graft action=cli_exec validates argv before daemon work", async () => {
         { cwd: "/tmp/spark-graft-no-daemon" },
       ),
     /does not allow graft patch materialize/,
+  );
+  await assert.rejects(
+    () =>
+      executeGraftAction(
+        tools,
+        "cli_exec",
+        { argv: ["run", "graft:state", "--", "gh", "pr", "create"] },
+        { cwd: "/tmp/spark-graft-no-daemon" },
+      ),
+    /does not allow graft run/,
   );
 });
 

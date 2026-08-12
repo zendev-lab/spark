@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "vitest";
 
-import type { EvidenceRef } from "@zendev-lab/spark-core";
+import type { EvidenceRef, RoleRef } from "@zendev-lab/spark-core";
 import {
   DEFAULT_REPRO_STAGES,
   advanceReproStage,
@@ -25,11 +25,17 @@ import {
   stepDefinitionDigest,
   updateReproStep,
   verifyReproStepPass,
+  type SparkReproGoalContractV4ToV6,
+  type SparkReproPlanV5,
   type SparkReproRequirementProof,
+  type SparkReproStepAuthority,
+  type SparkReproStepAuthorityV4ToV7,
   type SparkSessionRepro,
   type SparkSessionReproV3,
   type SparkSessionReproV4,
+  type SparkSessionReproV5,
   type SparkSessionReproV6,
+  type SparkSessionReproV7,
 } from "../extension/spark-session-repro.ts";
 
 const evidenceRef = (id: string) => `evidence:${id}` as EvidenceRef;
@@ -47,16 +53,26 @@ interface LegacyReproStageFixture {
   gate?: { id: string; description: string; passed: boolean };
 }
 
+interface MutableHistoricalReproFixture {
+  goalContract: { authority: { boundedExternalWrites?: string } };
+  plan: {
+    revisions: Array<{ steps: Array<{ authority: string }> }>;
+    steps: Array<{ authority: string }>;
+  };
+  subgoals?: Array<{ authority: string }>;
+  dualLane?: unknown;
+}
+
 describe("SparkSessionRepro evidence-backed state machine", () => {
   function makeRepro(): SparkSessionRepro {
     return createSparkSessionRepro("test-session");
   }
 
-  it("starts a v7 research-first setup with typed Goal Contract, plan, and subgoals", () => {
+  it("starts a v8 research-first setup with typed Goal Contract, plan, and subgoals", () => {
     const repro = makeRepro();
     const setup = currentReproStage(repro);
 
-    assert.equal(repro.version, 7);
+    assert.equal(repro.version, 8);
     assert.equal(repro.projectRef, undefined);
     assert.equal(
       repro.subgoals.length,
@@ -298,7 +314,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       await writeFile(path, `${JSON.stringify({ version: 1, repro: legacy })}\n`, "utf8");
 
       const migrated = await readSessionRepro(dir);
-      assert.equal(migrated?.version, 7);
+      assert.equal(migrated?.version, 8);
       assert.equal(migrated?.currentPhase, "plan");
       assert.deepEqual(migrated?.stages[0]?.phases, ["plan"]);
       assert.deepEqual(migrated?.stages[0]?.acceptance[0], {
@@ -320,7 +336,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       assert.equal(migrated?.stages[2]?.gate?.evaluation, undefined);
 
       const persisted = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
-      assert.equal(persisted.version, 7);
+      assert.equal(persisted.version, 8);
       assert.doesNotMatch(JSON.stringify(persisted), /"research"/u);
       assert.doesNotMatch(JSON.stringify(persisted), /"satisfied"/u);
     } finally {
@@ -350,7 +366,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       await writeFile(path, `${JSON.stringify({ version: 3, repro })}\n`, "utf8");
 
       const sanitized = await readSessionRepro(dir);
-      assert.equal(sanitized?.version, 7);
+      assert.equal(sanitized?.version, 8);
       assert.equal(sanitized?.goalContract.status, "draft");
       assert.equal(
         sanitized?.plan.steps.find((step) => step.id === "repro-contract-frozen")?.status,
@@ -453,7 +469,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
         await writeFile(path, `${JSON.stringify({ version, repro: legacy })}\n`, "utf8");
 
         const migrated = await readSessionRepro(dir);
-        assert.equal(migrated?.version, 7);
+        assert.equal(migrated?.version, 8);
         assert.equal(migrated?.status, "active");
         assert.equal(migrated?.completedAt, undefined);
         assert.equal(migrated?.currentStageIndex, 0);
@@ -482,7 +498,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
           version: number;
           repro?: Record<string, unknown>;
         };
-        assert.equal(persisted.version, 7);
+        assert.equal(persisted.version, 8);
         assert.equal(persisted.repro?.status, "active");
         assert.equal(Object.hasOwn(persisted.repro ?? {}, "completedAt"), false);
       } finally {
@@ -491,12 +507,11 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     });
   }
 
-  it("migrates a v6 snapshot to v7 idempotently without promoting proof authority", async () => {
+  it("migrates a v6 snapshot to v8 idempotently without promoting proof authority", async () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-repro-v6-dual-lane-migration-"));
     try {
       const current = makeRepro();
-      const { dualLane: _dualLane, ...withoutDualLane } = current;
-      const legacy: SparkSessionReproV6 = { ...withoutDualLane, version: 6 };
+      const legacy = toV6(current);
       const path = sessionReproStorePath(dir);
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, `${JSON.stringify({ version: 6, repro: legacy })}\n`, "utf8");
@@ -504,7 +519,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       const first = await readSessionRepro(dir);
       const second = await readSessionRepro(dir);
       assert.deepEqual(second, first);
-      assert.equal(first?.version, 7);
+      assert.equal(first?.version, 8);
       assert.deepEqual(first?.dualLane, {
         schema: "spark.repro.dual-lane-session/v1",
         planRevision: legacy.plan.currentRevision,
@@ -519,7 +534,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
         migration: { sourceVersion: 6, legacyProofAuthority: "not_promoted" },
       });
       const persisted = JSON.parse(await readFile(path, "utf8")) as { version: number };
-      assert.equal(persisted.version, 7);
+      assert.equal(persisted.version, 8);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -543,16 +558,17 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       });
       const canonicalOrderedStepIds = sparkReproNormativeOrderedStepIds(repro.plan);
       const legacyOrderedStepIds = repro.plan.steps.map((step) => step.id);
+      const v7 = toV7(repro);
       assert.notDeepEqual(legacyOrderedStepIds, canonicalOrderedStepIds);
       assert.deepEqual(repro.dualLane.normative.orderedStepIds, canonicalOrderedStepIds);
 
       const path = sessionReproStorePath(dir);
       await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, `${JSON.stringify({ version: 7, repro })}\n`, "utf8");
+      await writeFile(path, `${JSON.stringify({ version: 7, repro: v7 })}\n`, "utf8");
       const canonical = await readSessionRepro(dir);
       assert.deepEqual(canonical?.dualLane.normative.orderedStepIds, canonicalOrderedStepIds);
 
-      const legacy = structuredClone(repro);
+      const legacy = structuredClone(v7);
       legacy.dualLane.normative = {
         orderedStepIds: legacyOrderedStepIds,
         currentStepId: legacyOrderedStepIds[0],
@@ -570,13 +586,93 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     }
   });
 
-  it("preserves an invalid v7 snapshot instead of overwriting it as empty", async () => {
+  for (const [version, createLegacy] of [
+    [4, toV4],
+    [5, toV5],
+    [6, toV6],
+  ] as const) {
+    it(`preserves v${version} snapshots mislabeled with current-only authority`, async () => {
+      const dir = await mkdtemp(join(tmpdir(), `spark-repro-v${version}-authority-boundary-`));
+      try {
+        const current = makeRepro();
+        const path = sessionReproStorePath(dir);
+        await mkdir(dirname(path), { recursive: true });
+        const valid = createLegacy(current);
+        await writeFile(path, `${JSON.stringify({ version, repro: valid })}\n`, "utf8");
+        const migrated = await readSessionRepro(dir);
+        assert.equal(migrated?.version, 8);
+        assert.equal(migrated?.goalContract.authority.boundedExternalWrites, "driver");
+        const mutations: Array<[string, (candidate: MutableHistoricalReproFixture) => void]> = [
+          [
+            "persisted Step authority",
+            (candidate) => {
+              candidate.plan.steps[0]!.authority = "driver_local";
+            },
+          ],
+          [
+            "plan revision authority",
+            (candidate) => {
+              candidate.plan.revisions[0]!.steps[0]!.authority = "driver_local";
+            },
+          ],
+          [
+            "bounded external-write authority",
+            (candidate) => {
+              candidate.goalContract.authority.boundedExternalWrites = "driver";
+            },
+          ],
+          [
+            "dual-lane state",
+            (candidate) => {
+              candidate.dualLane = current.dualLane;
+            },
+          ],
+        ];
+        if (version !== 4) {
+          mutations.push([
+            "Subgoal authority",
+            (candidate) => {
+              candidate.subgoals![0]!.authority = "driver_local";
+            },
+          ]);
+        }
+
+        for (const [label, mutate] of mutations) {
+          const mislabeled = structuredClone(
+            createLegacy(current),
+          ) as unknown as MutableHistoricalReproFixture;
+          mutate(mislabeled);
+          const serialized = `${JSON.stringify({ version, repro: mislabeled })}\n`;
+          await writeFile(path, serialized, "utf8");
+
+          await assert.rejects(
+            readSessionRepro(dir),
+            /Stored Repro snapshot is invalid and was preserved/u,
+            label,
+          );
+          assert.equal(await readFile(path, "utf8"), serialized, label);
+        }
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("migrates a valid v7 snapshot to v8 and preserves invalid v7 state", async () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-repro-invalid-v7-preserved-"));
     try {
-      const invalid = makeRepro();
-      invalid.dualLane.planRevision += 1;
+      const current = makeRepro();
+      const legacy = toV7(current);
       const path = sessionReproStorePath(dir);
       await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, `${JSON.stringify({ version: 7, repro: legacy })}\n`, "utf8");
+
+      const migrated = await readSessionRepro(dir);
+      assert.deepEqual(migrated, { ...legacy, version: 8 });
+      assert.equal((JSON.parse(await readFile(path, "utf8")) as { version: number }).version, 8);
+
+      const invalid = structuredClone(legacy);
+      invalid.dualLane.planRevision += 1;
       const serialized = `${JSON.stringify({ version: 7, repro: invalid })}\n`;
       await writeFile(path, serialized, "utf8");
 
@@ -585,6 +681,26 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
         /Stored Repro snapshot is invalid and was preserved/u,
       );
       assert.equal(await readFile(path, "utf8"), serialized);
+
+      const driverLocalV7 = structuredClone(legacy) as unknown as SparkSessionRepro;
+      driverLocalV7.plan.steps[0]!.authority = "driver_local";
+      driverLocalV7.plan.revisions[0]!.steps[0]!.authority = "driver_local";
+      driverLocalV7.subgoals[0]!.authority = "driver_local";
+      const mislabeled = `${JSON.stringify({ version: 7, repro: driverLocalV7 })}\n`;
+      await writeFile(path, mislabeled, "utf8");
+      await assert.rejects(
+        readSessionRepro(dir),
+        /Stored Repro snapshot is invalid and was preserved/u,
+      );
+      assert.equal(await readFile(path, "utf8"), mislabeled);
+
+      const mismatched = `${JSON.stringify({ version: 7, repro: current })}\n`;
+      await writeFile(path, mismatched, "utf8");
+      await assert.rejects(
+        readSessionRepro(dir),
+        /Stored Repro snapshot is invalid and was preserved/u,
+      );
+      assert.equal(await readFile(path, "utf8"), mismatched);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -621,10 +737,16 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       await writeFile(path, `${JSON.stringify({ version: 4, repro: v4 })}\n`, "utf8");
 
       const migrated = await readSessionRepro(dir);
-      assert.equal(migrated?.version, 7);
+      assert.equal(migrated?.version, 8);
       assert.equal(migrated?.projectRef, undefined);
       assert.deepEqual(migrated?.stages, v4.stages);
-      assert.deepEqual(migrated?.goalContract, v4.goalContract);
+      assert.deepEqual(migrated?.goalContract, {
+        ...v4.goalContract,
+        authority: {
+          ...v4.goalContract.authority,
+          boundedExternalWrites: "driver",
+        },
+      });
       assert.deepEqual(migrated?.plan.steps, v4.plan.steps);
       assert.deepEqual(
         migrated?.plan.revisions,
@@ -666,19 +788,106 @@ function validation(id: string, passed: boolean): SparkReproRequirementProof {
 }
 
 function toV4(repro: SparkSessionRepro): SparkSessionReproV4 {
-  const { version: _version, projectRef: _projectRef, subgoals: _subgoals, plan, ...v4 } = repro;
+  const {
+    version: _version,
+    projectRef: _projectRef,
+    subgoals: _subgoals,
+    dualLane: _dualLane,
+    goalContract,
+    plan,
+    ...v4
+  } = repro;
   return {
     ...v4,
     version: 4,
+    goalContract: toLegacyGoalContract(goalContract),
     plan: {
-      ...plan,
+      ...toLegacyPlan(plan),
       minimumStepCount: plan.steps.length,
       revisions: plan.revisions.map((revision) => ({
         ...revision,
+        steps: revision.steps.map((step) => ({
+          ...step,
+          authority: toLegacyAuthority(step.authority),
+        })),
         minimumStepCount: revision.steps.length,
       })),
     },
   };
+}
+
+function toV5(repro: SparkSessionRepro): SparkSessionReproV5 {
+  const { subgoals: _subgoals, ...legacy } = toV6(repro);
+  return {
+    ...legacy,
+    version: 5,
+    subgoals: repro.subgoals.map((subgoal) => {
+      const { taskRef: _taskRef, ...definition } = subgoal;
+      return {
+        ...definition,
+        authority: toLegacyAuthority(subgoal.authority),
+        goalId: repro.reproId,
+        roleRef: "role:builtin-scout" as RoleRef,
+        taskRefs: [],
+      };
+    }),
+  };
+}
+
+function toV6(repro: SparkSessionRepro): SparkSessionReproV6 {
+  const { version: _version, dualLane: _dualLane, goalContract, plan, subgoals, ...legacy } = repro;
+  return {
+    ...legacy,
+    version: 6,
+    goalContract: toLegacyGoalContract(goalContract),
+    plan: toLegacyPlan(plan),
+    subgoals: subgoals.map((subgoal) => ({
+      ...subgoal,
+      authority: toLegacyAuthority(subgoal.authority),
+    })),
+  };
+}
+
+function toV7(repro: SparkSessionRepro): SparkSessionReproV7 {
+  const { version: _version, plan, subgoals, ...legacy } = repro;
+  return {
+    ...legacy,
+    version: 7,
+    plan: toLegacyPlan(plan),
+    subgoals: subgoals.map((subgoal) => ({
+      ...subgoal,
+      authority: toLegacyAuthority(subgoal.authority),
+    })),
+  };
+}
+
+function toLegacyGoalContract(
+  goalContract: SparkSessionRepro["goalContract"],
+): SparkReproGoalContractV4ToV6 {
+  const { boundedExternalWrites: _boundedExternalWrites, ...authority } = goalContract.authority;
+  return { ...goalContract, authority };
+}
+
+function toLegacyPlan(plan: SparkSessionRepro["plan"]): SparkReproPlanV5 {
+  return {
+    ...plan,
+    revisions: plan.revisions.map((revision) => ({
+      ...revision,
+      steps: revision.steps.map((step) => ({
+        ...step,
+        authority: toLegacyAuthority(step.authority),
+      })),
+    })),
+    steps: plan.steps.map((step) => ({
+      ...step,
+      authority: toLegacyAuthority(step.authority),
+    })),
+  };
+}
+
+function toLegacyAuthority(authority: SparkReproStepAuthority): SparkReproStepAuthorityV4ToV7 {
+  if (authority === "driver_local") throw new Error("expected historical Repro authority");
+  return authority;
 }
 
 function toV3(repro: SparkSessionRepro): SparkSessionReproV3 {

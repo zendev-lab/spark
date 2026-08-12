@@ -61,6 +61,7 @@ export interface SparkCliHostServices {
 
 export interface SparkCliHostServicesOptions {
   cwd?: string;
+  cwdArtifactRef?: SparkHostRuntimeOptions["cwdArtifactRef"];
   workspaceId?: string;
   sparkHome?: string;
   /** Control-plane Spark root retained across nested daemon-native role runs. */

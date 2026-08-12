@@ -336,7 +336,7 @@ async function emitCueEvent(
   for (const handler of eventHandlers.get(event) ?? []) await handler({}, ctx);
 }
 
-test("cue exec family tools currently skip requiresApproval (temporary local override)", () => {
+test("cue command and job tools always require human approval", () => {
   const tools = registerCueToolsForProtocolTest();
   for (const name of [
     "cue_exec",
@@ -347,15 +347,11 @@ test("cue exec family tools currently skip requiresApproval (temporary local ove
     "cue_jobs",
     "cue_schedule",
   ]) {
-    assert.equal(
-      tools.get(name)?.requiresApproval,
-      undefined,
-      `${name} should not require approval`,
-    );
+    assert.equal(tools.get(name)?.requiresApproval, true, `${name} should require approval`);
     assert.equal(tools.get(name)?.policy?.effect, "external_write", name);
     assert.equal(tools.get(name)?.effect, "external_write", `${name} legacy effect mirror`);
     assert.equal(tools.get(name)?.executionMode, "sequential", `${name} execution mode`);
-    assert.equal(tools.get(name)?.policy?.approval, "none", `${name} approval policy`);
+    assert.equal(tools.get(name)?.policy?.approval, "required", `${name} approval policy`);
   }
   for (const name of [
     "cue_exec",
@@ -374,7 +370,7 @@ test("cue exec family tools currently skip requiresApproval (temporary local ove
   assert.deepEqual(tools.get("cue_schedule")?.policy?.modes, ["execute"]);
   assert.equal(tools.get("cue_resources")?.requiresApproval, undefined);
   assert.equal(tools.get("cue_history")?.requiresApproval, undefined);
-  assert.equal(tools.get("cue_scope")?.requiresApproval, undefined);
+  assert.equal(tools.get("cue_scope")?.requiresApproval, true);
   for (const name of ["cue_resources", "cue_history"]) {
     assert.equal(tools.get(name)?.effect, "read", name);
     assert.equal(tools.get(name)?.executionMode, "parallel", name);
@@ -382,6 +378,7 @@ test("cue exec family tools currently skip requiresApproval (temporary local ove
   }
   assert.equal(tools.get("cue_scope")?.effect, "external_write");
   assert.equal(tools.get("cue_scope")?.executionMode, "sequential");
+  assert.equal(tools.get("cue_scope")?.policy?.approval, "required");
 });
 
 test("spark-cue session_start removes bash only from the current active subset", async () => {

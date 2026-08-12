@@ -135,7 +135,11 @@ export function createFileReadMetadata(input: {
 export async function atomicReplaceTextFile(
   filePath: string,
   content: string,
-  options: { expectedVersion: FileVersionState; signal?: AbortSignal },
+  options: {
+    expectedVersion: FileVersionState;
+    signal?: AbortSignal;
+    preCommit?: () => Promise<void>;
+  },
 ): Promise<AtomicReplaceResult | AtomicReplaceConflict> {
   return withFileWriteLock(filePath, options.signal, () =>
     atomicReplaceTextFileUnlocked(filePath, content, options),
@@ -223,7 +227,11 @@ export async function atomicReplaceTextFiles(
 async function atomicReplaceTextFileUnlocked(
   filePath: string,
   content: string,
-  options: { expectedVersion: FileVersionState; signal?: AbortSignal },
+  options: {
+    expectedVersion: FileVersionState;
+    signal?: AbortSignal;
+    preCommit?: () => Promise<void>;
+  },
 ): Promise<AtomicReplaceResult | AtomicReplaceConflict> {
   throwIfAborted(options.signal);
   const before = await readFileSnapshot(filePath);
@@ -265,6 +273,8 @@ async function atomicReplaceTextFileUnlocked(
       };
     }
 
+    throwIfAborted(options.signal);
+    await options.preCommit?.();
     throwIfAborted(options.signal);
     await assertTargetIsNotSymlink(filePath);
     throwIfAborted(options.signal);

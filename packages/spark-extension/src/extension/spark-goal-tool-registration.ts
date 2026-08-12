@@ -74,12 +74,14 @@ export function registerSparkGoalTool(
     },
     resolvePolicy(args) {
       const status = args.action === undefined || args.action === "status";
+      const activatesDriver =
+        args.action === "set" || args.action === "start" || args.action === "resume";
       return {
         effect: status ? "read" : "local_write",
         executionMode: status ? "parallel" : "sequential",
         domains: ["goals"],
         modes: status ? ["plan", "execute", "fleet"] : ["plan", "execute"],
-        approval: "none",
+        approval: activatesDriver ? "required" : "none",
       };
     },
     parameters: Type.Object({

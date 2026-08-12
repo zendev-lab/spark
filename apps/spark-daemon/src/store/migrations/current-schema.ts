@@ -106,6 +106,7 @@ export function prepareCurrentDaemonSchema(db: DatabaseSync): void {
       continuity TEXT NOT NULL CHECK (continuity IN ('session', 'fresh')),
       session_lifetime TEXT NOT NULL DEFAULT 'driver' CHECK (session_lifetime IN ('driver', 'driver_tick')),
       driver_session_id TEXT NOT NULL,
+      driver_target_json TEXT,
       status TEXT NOT NULL CHECK (status IN ('scheduled', 'running', 'retry_wait', 'dormant', 'paused', 'blocked', 'completed', 'stopped')),
       generation INTEGER NOT NULL CHECK (generation > 0),
       cycle_step TEXT CHECK (cycle_step IS NULL OR cycle_step IN ('before_tick', 'invoke', 'after_tick', 'settle')),
@@ -670,6 +671,14 @@ export function addMissingLoopColumns(db: DatabaseSync): void {
     db.exec(
       `ALTER TABLE loop_wakeups ADD COLUMN counters_json TEXT NOT NULL DEFAULT '{"tickCount":0,"skippedCount":0,"llmRequestsAvoided":0,"conditionRetryCount":0}'`,
     );
+  }
+}
+
+/** Add the daemon-private canonical Git Draft target for one driver incarnation. */
+export function addLoopDriverTargetColumn(db: DatabaseSync): void {
+  const columns = workspaceColumns(db, "loop_wakeups");
+  if (!columns.has("driver_target_json")) {
+    db.exec("ALTER TABLE loop_wakeups ADD COLUMN driver_target_json TEXT");
   }
 }
 

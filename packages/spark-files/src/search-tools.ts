@@ -31,6 +31,11 @@ import {
 } from "./truncate.ts";
 import { resolveToCwd } from "./path-utils.ts";
 import { resolveArtifactFileRoot } from "./artifact-root.ts";
+import {
+  assertAutonomousFileTarget,
+  authorizeAutonomousArtifactTarget,
+  resolveTaskScopedReadTarget,
+} from "./execution-scope.ts";
 
 const FILE_SEARCH_POLICY = {
   effect: "read",
@@ -96,17 +101,20 @@ export function createGrepToolConfig(): ToolConfig {
     executionMode: FILE_SEARCH_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const root = await resolveArtifactFileRoot(
-        resolveToolCwd(ctx),
-        params.artifactRef,
-        resolveToolStateCwd(ctx),
-      );
+      const rawPath = typeof params.path === "string" && params.path ? params.path : ".";
+      const scopedTarget = await resolveTaskScopedReadTarget(ctx, rawPath, params.artifactRef);
+      const root =
+        scopedTarget ??
+        (await resolveArtifactFileRoot(
+          resolveToolCwd(ctx),
+          params.artifactRef,
+          resolveToolStateCwd(ctx),
+        ));
       const cwd = root.cwd;
+      await authorizeAutonomousArtifactTarget(ctx, root.artifactRef, cwd);
       const pattern = stringParam(params.pattern);
-      const searchPath = resolveToCwd(
-        typeof params.path === "string" && params.path ? params.path : ".",
-        cwd,
-      );
+      const searchPath = scopedTarget?.absolutePath ?? resolveToCwd(rawPath, cwd);
+      await assertAutonomousFileTarget(ctx, cwd, searchPath);
       const glob = typeof params.glob === "string" && params.glob ? params.glob : undefined;
       const ignoreCase = params.ignoreCase === true;
       const literal = params.literal === true;
@@ -265,17 +273,20 @@ export function createFindToolConfig(): ToolConfig {
     executionMode: FILE_SEARCH_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const root = await resolveArtifactFileRoot(
-        resolveToolCwd(ctx),
-        params.artifactRef,
-        resolveToolStateCwd(ctx),
-      );
+      const rawPath = typeof params.path === "string" && params.path ? params.path : ".";
+      const scopedTarget = await resolveTaskScopedReadTarget(ctx, rawPath, params.artifactRef);
+      const root =
+        scopedTarget ??
+        (await resolveArtifactFileRoot(
+          resolveToolCwd(ctx),
+          params.artifactRef,
+          resolveToolStateCwd(ctx),
+        ));
       const cwd = root.cwd;
+      await authorizeAutonomousArtifactTarget(ctx, root.artifactRef, cwd);
       const pattern = stringParam(params.pattern);
-      const searchPath = resolveToCwd(
-        typeof params.path === "string" && params.path ? params.path : ".",
-        cwd,
-      );
+      const searchPath = scopedTarget?.absolutePath ?? resolveToCwd(rawPath, cwd);
+      await assertAutonomousFileTarget(ctx, cwd, searchPath);
       const effectiveLimit = numberParam(params.limit, FIND_DEFAULT_LIMIT);
 
       let isDirectory: boolean;

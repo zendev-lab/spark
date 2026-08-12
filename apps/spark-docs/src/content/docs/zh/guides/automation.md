@@ -21,6 +21,24 @@ description: 只有普通 Plan 与 Implement 路径不够时，才选择 Goal、
 | 在每个里程碑绑定证据后复现模型或系统 | Repro | `/repro start 在框架 Y 中复现模型 X` |
 | 执行已保存的分阶段流程 | Workflow | `/workflow run builtin:research 比较两个设计` |
 
+## Driver 活动期间的权限
+
+启动 Goal、Loop 或 Repro 后，该 driver 会在已确认的目标、Workspace、仓库和可写 target
+范围内获得有界权限。driver 活动期间可以直接执行 `manual_only` 操作，无需重复询问。
+这类操作必须低风险且可撤销；使用 `git submit` 创建或更新 Draft PR 属于这一类。
+`git sync` 可能发现仅存在于远端的 stack 成员，因此仍需人工批准。
+
+启动或重新激活 driver 本身就是一次经人工授权的权限授予。agent 不能自行把手动推进
+转换成 driver；显式停止的 Repro 也不会被 status 或恢复逻辑静默重启。
+
+该权限不包含 `required` 操作。破坏性、不可逆、安全敏感、高成本、高影响或实质扩大
+范围的操作始终需要人工批准；发布、部署、合并和把 Draft PR 提升为 Ready 也一样。
+driver 停止、完成或被替换后，该 driver 的权限失效；之后没有活动 driver 时，推进会使用
+手动审批行为。
+
+WorkflowRun 是执行机制，不是 continuation driver。它继承启动它的 driver 的审批上下文，
+但仅在该权限仍然有效时继承；自身不会授予或保留任何权限。
+
 ## Goal
 
 Goal 围绕一个持久结果继续工作，在完成、失败或需要你的输入时停止。
@@ -52,7 +70,7 @@ Loop 用于刻意保持开放的重复工作。只有当前步骤明确调度下
 ## Repro
 
 Repro 按 setup、scaffold、reproduce、scale 和 deliver 推进证据门控的复现工作。
-缺少基线、关键决定或批准时，它会暂停询问，而不是猜测。
+缺少基线、关键权限决定或 `required` 批准时，它会暂停询问，而不是猜测。
 
 ```text
 /repro start <目标>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  projectSparkAgentTraceToolApproval,
   sparkAgentTraceEventSchema,
   validateCompletedSparkAgentTrace,
   type SparkAgentTraceEvent,
@@ -260,6 +261,20 @@ describe("agent trace protocol", () => {
         retryable: false,
       }).kind,
     ).toBe("tool.call.finished");
+  });
+
+  it("keeps Trace v1 approval backward-compatible for contextual manual-only policy", () => {
+    expect(projectSparkAgentTraceToolApproval("manual_only", { driverOwned: false })).toBe(
+      "required",
+    );
+    expect(projectSparkAgentTraceToolApproval("manual_only", { driverOwned: true })).toBe("none");
+    expect(projectSparkAgentTraceToolApproval("required", { driverOwned: true })).toBe("required");
+    expect(projectSparkAgentTraceToolApproval("unknown", { driverOwned: false })).toBe("unknown");
+    expect(() =>
+      projectSparkAgentTraceToolApproval("future_policy", { driverOwned: true }),
+    ).toThrow();
+
+    expect(() => toolStarted({ approval: "manual_only" })).toThrow();
   });
 
   it.each([

@@ -21,7 +21,7 @@ const GOAL_INSTRUCTIONS: GoalInstructionStrings = {
   goalLine: (objective) => `Goal: ${objective}`,
   loopTickHeader: "Spark foreground goal loop tick.",
   loopModeDecisionContract:
-    "Goal driver requirements: use the objective, current project/task state, blockers, and validation needs to choose concrete next actions. Respect the standing Spark intent, authority, and delegation policy; Goal does not redefine those boundaries. When a missing user decision or authorization blocks progress, ask the exact question required instead of guessing.",
+    "Goal driver requirements: use the objective, current project/task state, blockers, and validation needs to choose concrete next actions. Respect the standing Spark intent, authority, and delegation policy; Goal grants only the bounded manual_only operations declared by tool owners and does not redefine other boundaries. When a missing user decision or required authorization blocks progress, ask the exact question required instead of guessing.",
   loopReviewerOwnership:
     "Goal owns autonomous continuation and reviewer-gated completion. Continue substantive in-scope work until the objective is satisfied, a material user decision is required, or a real blocker prevents progress. The reviewer audits completion evidence but never substitutes for user authorization.",
   emptyGoalNotSet: "Spark session goal is not set.",
