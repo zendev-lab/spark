@@ -145,6 +145,7 @@ import {
   type SparkNativeStatusContext,
   type SparkNativeToolStatus,
   type SparkNativeTuiAppOptions,
+  type SparkNativeTuiExitReason,
   type SparkNativeWidget,
   type SparkNativeWorkspaceSessionState,
 } from "./types.ts";
@@ -172,7 +173,8 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private readonly editor: Editor;
   private readonly tui: TUI;
   private readonly session: SparkNativeSession;
-  private readonly onExit: () => void;
+  private readonly onExit: (reason?: SparkNativeTuiExitReason) => void;
+  private readonly prepareEditorInput: (input: string, basePath: string) => Promise<string>;
   private readonly messageRenderers: ReadonlyMap<string, SparkHostMessageRenderer>;
   private readonly keybindings?: SparkKeybindings;
   private readonly keybindingContext: SparkKeybindingContext;
@@ -205,6 +207,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private pendingEscapeTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly editorPromptHistoryMessageIds = new Set<string>();
   private readonly pendingDurablePromptHistory: string[] = [];
+  private reloadBlockingOperations = 0;
   private readonly handleSessionChange = () => {
     this.syncWorkingSpinner();
     this.invalidate();
@@ -214,12 +217,13 @@ export class SparkNativeTuiApp implements Component, Focusable {
   constructor(
     tui: TUI,
     session: SparkNativeSession,
-    onExit: () => void,
+    onExit: (reason?: SparkNativeTuiExitReason) => void,
     options: SparkNativeTuiAppOptions = {},
   ) {
     this.tui = tui;
     this.session = session;
     this.onExit = onExit;
+    this.prepareEditorInput = options.prepareEditorInput ?? prepareSparkNativeEditorInput;
     this.messageRenderers = options.messageRenderers ?? new Map();
     this.keybindings = options.keybindings;
     this.keybindingContext = options.keybindingContext ?? { hasUI: true };
@@ -361,37 +365,58 @@ export class SparkNativeTuiApp implements Component, Focusable {
     options: { mode: SparkNativeQueueMode },
   ): Promise<"started" | "queued" | "ignored" | "command"> {
     const text = input.trim();
-    if (!text) return await this.session.submit(input, options);
+    const isSlashCommand = text.startsWith("/") && !text.startsWith("//");
     // Host controls must bypass SparkNativeSession.submit: an active turn may queue prompts,
     // but it must never queue or swallow slash commands such as /model and /plan.
-    if (text.startsWith("/") && !text.startsWith("//")) {
+    if (isSlashCommand) {
       await this.runSlashCommand(text);
       this.invalidate();
       this.tui.requestRender();
       return "command";
     }
-    const bang = parseBangCommand(input);
-    if (bang?.hidden) {
-      const hiddenResult = await runSparkNativeBangCommand(bang.command, true, this.inputBasePath);
-      this.session.addToolMessage({ toolName: "shell", text: hiddenResult, status: "success" });
-      return "ignored";
-    }
-    try {
-      const prepared = await prepareSparkNativeEditorInput(input, this.inputBasePath);
-      if (!bang) {
-        this.editor.addToHistory(input);
-        if (this.session.daemonOwnsQueue) {
-          this.pendingDurablePromptHistory.push(displayNativeSubmittedInput(prepared).trim());
+    return await this.withReloadBlocked(async () => {
+      if (!text) return await this.session.submit(input, options);
+      const bang = parseBangCommand(input);
+      try {
+        if (bang?.hidden) {
+          const hiddenResult = await runSparkNativeBangCommand(
+            bang.command,
+            true,
+            this.inputBasePath,
+          );
+          this.session.addToolMessage({
+            toolName: "shell",
+            text: hiddenResult,
+            status: "success",
+          });
+          return "ignored";
         }
+        const prepared = await this.prepareEditorInput(input, this.inputBasePath);
+        if (!bang) {
+          this.editor.addToHistory(input);
+          if (this.session.daemonOwnsQueue) {
+            this.pendingDurablePromptHistory.push(displayNativeSubmittedInput(prepared).trim());
+          }
+        }
+        return await this.session.submit(prepared, { ...options, submittedInput: input });
+      } catch (error) {
+        this.session.addSystemMessage(
+          nativeTuiStrings.inputPreparationFailed(
+            error instanceof Error ? error.message : String(error),
+          ),
+        );
+        return "ignored";
       }
-      return await this.session.submit(prepared, { ...options, submittedInput: input });
-    } catch (error) {
-      this.session.addSystemMessage(
-        nativeTuiStrings.inputPreparationFailed(
-          error instanceof Error ? error.message : String(error),
-        ),
-      );
-      return "ignored";
+    });
+  }
+
+  /** Keep process reload fenced until a presentation-owned async operation settles. */
+  async withReloadBlocked<T>(operation: () => Promise<T>): Promise<T> {
+    this.reloadBlockingOperations += 1;
+    try {
+      return await operation();
+    } finally {
+      this.reloadBlockingOperations -= 1;
     }
   }
 
@@ -1401,7 +1426,9 @@ export class SparkNativeTuiApp implements Component, Focusable {
     const key = parseKey(data) ?? data;
     const keybindings = this.keybindings;
     if (!keybindings || !keybindings.canExecuteKey(key, this.keybindingContext)) return false;
-    void keybindings.executeKey(key, this.keybindingContext).then(
+    void this.withReloadBlocked(
+      async () => await keybindings.executeKey(key, this.keybindingContext),
+    ).then(
       (didHandle) => {
         if (didHandle) {
           this.invalidate();
@@ -2310,6 +2337,19 @@ export class SparkNativeTuiApp implements Component, Focusable {
       return;
     }
 
+    if (parsed.name !== "reload") {
+      await this.withReloadBlocked(async () => {
+        await this.runParsedSlashCommand(input, parsed);
+      });
+      return;
+    }
+    await this.runParsedSlashCommand(input, parsed);
+  }
+
+  private async runParsedSlashCommand(
+    input: string,
+    parsed: NonNullable<ReturnType<typeof parseSlashCommand>>,
+  ): Promise<void> {
     // Compatibility aliases must execute their registered handler. Otherwise
     // a same-named local panel or legacy action bar can intercept the command
     // before it reaches the canonical command family.
@@ -2372,27 +2412,29 @@ export class SparkNativeTuiApp implements Component, Focusable {
     args: string,
     emitResult: boolean,
   ): Promise<void> {
-    const command = this.slashCommands[name];
-    if (!command) {
-      this.session.addSystemMessage(nativeTuiStrings.unknownCommand(name));
-      return;
-    }
+    await this.withReloadBlocked(async () => {
+      const command = this.slashCommands[name];
+      if (!command) {
+        this.session.addSystemMessage(nativeTuiStrings.unknownCommand(name));
+        return;
+      }
 
-    try {
-      const result = await command.handler(args, {
-        app: this,
-        session: this.session,
-        exit: this.onExit,
-      });
-      if (emitResult && result?.trim()) this.session.addSystemMessage(result.trim());
-    } catch (error) {
-      this.session.addSystemMessage(
-        nativeTuiStrings.commandFailed(
-          name,
-          error instanceof Error ? error.message : String(error),
-        ),
-      );
-    }
+      try {
+        const result = await command.handler(args, {
+          app: this,
+          session: this.session,
+          exit: this.onExit,
+        });
+        if (emitResult && result?.trim()) this.session.addSystemMessage(result.trim());
+      } catch (error) {
+        this.session.addSystemMessage(
+          nativeTuiStrings.commandFailed(
+            name,
+            error instanceof Error ? error.message : String(error),
+          ),
+        );
+      }
+    });
   }
 
   private builtInSlashCommand(name: string, _args: string): string | undefined | false {
@@ -2403,7 +2445,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
         this.session.clearTranscript();
         return false;
       case "reload":
-        return "Reload requested. Restart Spark TUI to reload extension state.";
+        if (this.reloadBlockingOperations > 0 || !this.session.canReloadSafely) {
+          return nativeTuiStrings.reloadBlocked;
+        }
+        this.onExit("reload");
+        return false;
       case "stop": {
         const result = this.session.abort(_args.trim() || "user stop");
         if (result.restoredText) this.setEditorText(result.restoredText);

@@ -17,6 +17,7 @@ import {
   parseSparkCliArgs,
   parseSparkCliCommand,
   runSparkCli,
+  sparkTuiReloadArgv,
   type SparkRpcState,
 } from "../cli.ts";
 import type { SparkDaemonClientOptions } from "../cli/daemon.ts";
@@ -39,6 +40,71 @@ test("parseSparkCliArgs treats positional args as the initial message", () => {
     help: false,
     initialMessage: "hello spark",
   });
+});
+
+test("sparkTuiReloadArgv keeps runtime overrides but pins one durable session", () => {
+  assert.deepEqual(
+    sparkTuiReloadArgv(
+      {
+        provider: "provider-a",
+        model: "model-a",
+        session: "old.jsonl",
+        sessionId: "old-session",
+        sparkSessionKey: "session:old-session",
+        sessionDir: ".spark-home",
+        noSession: true,
+        wait: true,
+        name: "named session",
+        extensions: ["extension-a"],
+        noExtensions: true,
+        skills: ["skill-a"],
+        noSkills: true,
+        promptTemplates: ["prompt-a"],
+        noPromptTemplates: true,
+        themes: ["theme-a"],
+        noThemes: true,
+        noContextFiles: true,
+        thinking: "xhigh",
+        tools: ["Read", "Write"],
+        excludeTools: ["Bash"],
+        projectTrustOverride: false,
+        fileArgs: ["README.md"],
+      },
+      "durable-session",
+    ),
+    [
+      "--provider",
+      "provider-a",
+      "--model",
+      "model-a",
+      "--session-dir",
+      ".spark-home",
+      "--name",
+      "named session",
+      "--extension",
+      "extension-a",
+      "--no-extensions",
+      "--skill",
+      "skill-a",
+      "--no-skills",
+      "--prompt-template",
+      "prompt-a",
+      "--no-prompt-templates",
+      "--theme",
+      "theme-a",
+      "--no-themes",
+      "--no-context-files",
+      "--thinking",
+      "xhigh",
+      "--tools",
+      "Read,Write",
+      "--exclude-tools",
+      "Bash",
+      "--no-approve",
+      "--session-id",
+      "durable-session",
+    ],
+  );
 });
 
 test("runSparkCli rejects implicit TUI launch in non-interactive terminals", async () => {

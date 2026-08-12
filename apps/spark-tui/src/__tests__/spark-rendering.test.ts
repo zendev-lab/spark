@@ -1009,7 +1009,7 @@ test("SparkNativeTuiApp handles local slash commands without submitting to respo
   assert.match(rendered, /Common/);
   assert.match(rendered, /\/status — show daemon status/);
   assert.match(rendered, /Advanced/);
-  assert.match(rendered, /\/reload — reload extension-owned slash command state/);
+  assert.match(rendered, /\/reload — restart the TUI process and keep this session/);
   assert.doesNotMatch(rendered, /\/plan —/);
   assert.doesNotMatch(rendered, /\/goal —/);
   assert.doesNotMatch(rendered, /\/hub —/);

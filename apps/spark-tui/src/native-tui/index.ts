@@ -5,6 +5,7 @@ export type {
   SparkNativeToolStatus,
   SparkNativeToolStatusInput,
   SparkNativeQueueMode,
+  SparkNativeTuiExitReason,
   SparkNativeMessage,
   SparkNativeToolMessageInput,
   SparkNativeCustomMessageInput,

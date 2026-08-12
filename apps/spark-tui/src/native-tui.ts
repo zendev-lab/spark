@@ -46,6 +46,7 @@ export {
   type SparkNativeToolMessageInput,
   type SparkNativeToolStatus,
   type SparkNativeToolStatusInput,
+  type SparkNativeTuiExitReason,
   type SparkNativeTuiAppOptions,
   type SparkNativeWorkspaceSessionMode,
   type SparkNativeWorkspaceSessionState,

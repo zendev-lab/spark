@@ -2846,6 +2846,33 @@ export interface SparkDaemonHumanInteractionRespondResult {
   winnerResponseId?: string;
 }
 
+export interface SparkDaemonPendingHumanInteractionIdentity {
+  interactionRequestId: string;
+  sessionId: string;
+  invocationId?: string;
+}
+
+/** Read daemon-owned pending Ask state without inferring lifecycle from event history. */
+export async function clientHasPendingHumanInteraction(
+  input: SparkDaemonPendingHumanInteractionIdentity,
+  client: SparkDaemonClientOptions = {},
+  options: { signal?: AbortSignal } = {},
+): Promise<boolean> {
+  const result = await requestSparkDaemonControl(
+    "human.interaction.list",
+    { sessionId: input.sessionId },
+    client,
+    options,
+  );
+  return result.waits.some(
+    (wait) =>
+      wait.status === "pending" &&
+      wait.interactionRequestId === input.interactionRequestId &&
+      wait.sessionId === input.sessionId &&
+      (input.invocationId === undefined || wait.invocationId === input.invocationId),
+  );
+}
+
 /** Deliver a native TUI answer to the daemon-owned interaction continuation. */
 export async function clientRespondHumanInteraction(
   input: SparkDaemonHumanInteractionRespondInput,
@@ -2904,6 +2931,39 @@ export async function handleSparkDaemonHumanInteractionRequest(
   options: SparkDaemonHumanInteractionRequestHandlerOptions,
 ): Promise<void> {
   const client = options.client ?? {};
+  const sessionId = event.sessionId ?? options.currentSessionId;
+  let ownerUnavailableReported = false;
+  while (!options.signal?.aborted) {
+    try {
+      const pending = await clientHasPendingHumanInteraction(
+        {
+          interactionRequestId: request.requestId,
+          sessionId,
+          ...(event.invocationId ? { invocationId: event.invocationId } : {}),
+        },
+        client,
+        { signal: options.signal },
+      );
+      if (!pending) return;
+      break;
+    } catch (error) {
+      if (options.signal?.aborted) return;
+      if (!ownerUnavailableReported) {
+        ownerUnavailableReported = true;
+        options.notify(
+          `Ask state is temporarily unavailable; waiting for daemon ownership before presenting it: ${turnTransportErrorMessage(error)}`,
+          "warning",
+        );
+      }
+      try {
+        await waitBeforeTurnTransportRetry(options.reopenDelayMs ?? 250, client, options.signal);
+      } catch (waitError) {
+        if (options.signal?.aborted) return;
+        throw waitError;
+      }
+    }
+  }
+  if (options.signal?.aborted) return;
   const humanResponseId = createId("hres");
   while (!options.signal?.aborted) {
     const response = parseSparkInteractionResponse(await options.interaction(request));
@@ -2922,7 +2982,7 @@ export async function handleSparkDaemonHumanInteractionRequest(
       delivered = await clientRespondHumanInteraction(
         {
           interactionRequestId: request.requestId,
-          sessionId: event.sessionId ?? options.currentSessionId,
+          sessionId,
           ...(event.invocationId ? { invocationId: event.invocationId } : {}),
           humanResponseId,
           status:

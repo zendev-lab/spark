@@ -39,6 +39,7 @@ export type SparkNativeMessageRole =
 export type SparkNativeToolStatus = SparkToolCallView["status"];
 export type SparkNativeToolStatusInput = SparkNativeToolStatus | "success" | "error";
 export type SparkNativeQueueMode = "steer" | "followUp";
+export type SparkNativeTuiExitReason = "exit" | "reload";
 
 export interface SparkNativeMessage {
   role: SparkNativeMessageRole;
@@ -268,6 +269,7 @@ export interface SparkNativeTuiAppOptions {
   interactionHandler?: SparkNativeInteractionHandler;
   workspaceSession?: SparkNativeWorkspaceSessionState;
   statusContext?: SparkNativeStatusContext;
+  prepareEditorInput?: (input: string, basePath: string) => Promise<string>;
 }
 
 export interface SparkNativeWidgetComponent {

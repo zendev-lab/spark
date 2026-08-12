@@ -33,6 +33,7 @@ spark
 /status
 /stop [原因]
 /retry
+/reload
 /inbox
 ```
 
@@ -49,6 +50,12 @@ key 再次提交 prompt。若模型正常结束却没有可见文本或 tool cal
 invocation 内有上限的 continuation 策略；预算耗尽后再由 `/retry` 显式恢复。
 admission 结果未知属于另一类情况：Spark 会自动使用同一提交身份对账，避免产生重复
 turn。
+
+`/reload` 会完整替换 TUI worker 进程，同时保留当前 daemon session 及其有效工作目录。
+新 worker 会重新 attach，并恢复持久 history 与 daemon 持有的运行中工作；首次启动
+Spark 时传入的 prompt 不会被重放。编辑器草稿、overlay、滚动位置和其他内存 UI
+状态会重置。如果 command、submission 或 retry 仍在处理中，或已提交的 prompt 尚未
+获得持久 daemon 身份，Spark 会拒绝本次 reload，避免本地工作随旧进程消失。
 
 不带参数的 slash command 会直接进入最终 TUI 目标，不再先打开中间 action bar。
 例如，`/model` 直接打开模型 selector，`/settings` 显示设置概览，`/queue` 检查

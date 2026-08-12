@@ -34,6 +34,7 @@ The short help keeps the common path bounded:
 /status
 /stop [reason]
 /retry
+/reload
 /inbox
 ```
 
@@ -53,6 +54,15 @@ in-invocation continuation policy; `/retry` remains the explicit recovery after
 that budget is exhausted. An unknown admission outcome is different: Spark
 automatically reconciles the same submit identity so it cannot create a
 duplicate turn.
+
+`/reload` fully replaces the TUI worker process while preserving the current
+daemon session and its effective workspace directory. The new worker reattaches
+and hydrates durable history and daemon-owned running work; it does not replay
+the prompt passed when Spark first launched. Draft editor text, overlays,
+scroll position, and other in-memory UI state reset. Spark refuses the reload
+until any in-flight command, submission, or retry has settled and a submitted
+prompt has received a durable daemon identity, so local work cannot disappear
+with the old process.
 
 Bare slash commands enter their final TUI destination directly instead of
 opening an intermediate action bar. For example, `/model` opens the model

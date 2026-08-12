@@ -81,6 +81,28 @@ test("direct PTY resize reaches ProcessTerminal and rerenders at the new width",
   }
 });
 
+test("direct PTY reload intent restores raw mode before the worker exits", async () => {
+  const harness = await createSparkNativeTuiDirectPtyHarness({
+    columns: 72,
+    rows: 18,
+    scenario: "reload",
+  });
+  try {
+    await harness.waitForReport((report) => report.event === "ready");
+    await harness.waitForOutput("direct PTY ready");
+
+    harness.write("/reload\r");
+    const stopped = await harness.waitForReport((report) => report.event === "stopped");
+    assert.equal(stopped.reason, "reload");
+    assert.equal(stopped.isRaw, false);
+    const final = await harness.waitForReport((report) => report.event === "final");
+    assert.equal(final.isRaw, false);
+    assert.equal((await harness.waitForExit()).exitCode, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("direct PTY scrolls transcript history and opens sessions on batched double escape", async () => {
   const harness = await createSparkNativeTuiDirectPtyHarness({
     columns: 72,

@@ -228,6 +228,6 @@ export function nativeKernelSlashCommandEntries(): Array<{
     { name: "exit", description: "exit the native TUI" },
     { name: "quit", description: "exit the native TUI", deprecatedAliasFor: "/exit" },
     { name: "clear", description: "clear the visible transcript" },
-    { name: "reload", description: "reload extension-owned slash command state" },
+    { name: "reload", description: "restart the TUI process and keep this session" },
   ];
 }

@@ -36,6 +36,12 @@ second CLI catalog.
 | slash `system` | n/a | TUI kernel command source | `/help`, `/exit`, `/quit`, `/clear`, `/reload` | project/task/goal/session/workflow commands |
 | slash `extension` | n/a | extension command source | extension-owned resource commands | TUI kernel lifecycle |
 
+`/reload` is a TUI process-lifecycle operation. The current worker must release
+its terminal and client leases before a supervisor starts a new worker on the
+same terminal. The replacement reattaches the exact daemon Session and reads
+its current workspace/cwd projection; it does not replay the initial prompt,
+cancel daemon-owned work, or restart the daemon.
+
 The application formerly named Cockpit is the Hub application because it
 contains the control plane, daemon gateway, authentication boundary, and its
 embedded Web UI in one deployment. Source directories, private packages, the
