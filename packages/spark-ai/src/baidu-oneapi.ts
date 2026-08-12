@@ -518,7 +518,8 @@ function registerBaiduOneApiProvider(
         },
         input: ["text", "image"],
         cost: CLAUDE_OPUS_COST,
-        contextWindow: 300000,
+        // Measured: ok at provider input ~360k; fails near ~400k with context_length_exceeded.
+        contextWindow: 384_000,
         maxTokens: 32000,
       },
       {
@@ -536,8 +537,13 @@ function registerBaiduOneApiProvider(
         },
         input: ["text"],
         cost: DEEPSEEK_V4_FLASH_COST,
-        contextWindow: 1_000_000,
-        maxTokens: 65_536,
+        // Measured against oneapi gateway deepseek-v4-flash-0731-internal:
+        // requests succeed around provider input ~663k, and hard-fail at
+        // usage.input=767994 with stopReason=length and output=0. Register the
+        // hard ceiling so Spark compaction/preflight trigger before empty
+        // completions (do not advertise 1M).
+        contextWindow: 768_000,
+        maxTokens: 32_768,
       },
       {
         id: "gpt-5.6-sol",
@@ -549,7 +555,8 @@ function registerBaiduOneApiProvider(
         thinkingLevelMap: GPT_THINKING_LEVEL_MAP,
         input: ["text", "image"],
         cost: GPT_5_6_SOL_COST,
-        contextWindow: 258000,
+        // Measured with luna/sol: ok ~359k provider input; fails between ~360k and ~400k.
+        contextWindow: 384_000,
         maxTokens: 32768,
       },
       {
@@ -562,7 +569,8 @@ function registerBaiduOneApiProvider(
         thinkingLevelMap: GPT_THINKING_LEVEL_MAP,
         input: ["text", "image"],
         cost: GPT_5_6_LUNA_COST,
-        contextWindow: 258000,
+        // Measured: ok ~359k provider input; fails by ~400k with explicit context overflow.
+        contextWindow: 384_000,
         maxTokens: 32768,
       },
       {
@@ -575,7 +583,8 @@ function registerBaiduOneApiProvider(
         thinkingLevelMap: GPT_THINKING_LEVEL_MAP,
         input: ["text", "image"],
         cost: GPT_5_6_TERRA_COST,
-        contextWindow: 258000,
+        // Same GPT-5.6 family as luna/sol; use the measured family window.
+        contextWindow: 384_000,
         maxTokens: 32768,
       },
       {
@@ -588,6 +597,7 @@ function registerBaiduOneApiProvider(
         thinkingLevelMap: GPT_THINKING_LEVEL_MAP,
         input: ["text", "image"],
         cost: GROK_4_5_COST,
+        // Measured: ok ~467k provider input; gateway rejects above max prompt length 500000.
         contextWindow: 500_000,
         maxTokens: 32_768,
       },
