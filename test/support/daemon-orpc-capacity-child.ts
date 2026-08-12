@@ -76,6 +76,7 @@ async function runScenario(invocationConcurrency: number): Promise<DaemonOrpcCap
   let daemonRun: Promise<void> | undefined;
   let persistent: SparkDaemonOrpcClientHandle | undefined;
   let loadedLoopProbe: ReturnType<typeof startEventLoopProbe> | undefined;
+  let administratorSessionId: string | undefined;
 
   try {
     writeSparkDaemonConfig(paths, {
@@ -105,10 +106,18 @@ async function runScenario(invocationConcurrency: number): Promise<DaemonOrpcCap
       sparkHome,
       config,
       db,
+      sessionRegistry,
       signal: shutdown.signal,
       managePidFile: false,
       executeInvocation: (task, context) => executor.execute(task, context),
       onReady: async (runtime) => {
+        if (!runtime.sessionSupervisor) {
+          throw new Error("capacity harness requires the daemon Session supervisor");
+        }
+        const administrator = await runtime.sessionSupervisor.ensureWorkspaceAdministrator(
+          workspace.id,
+        );
+        administratorSessionId = administrator.sessionId;
         rpcServer = await startLocalRpcServer({
           paths,
           sparkHome,
@@ -147,6 +156,9 @@ async function runScenario(invocationConcurrency: number): Promise<DaemonOrpcCap
     if (readyStatus.execution?.rootConcurrency !== effectiveConcurrency) {
       throw new Error("daemon.status did not report the configured root invocation concurrency");
     }
+    if (!administratorSessionId) {
+      throw new Error("daemon did not establish the workspace Administrator Session");
+    }
 
     const sessionIds: string[] = [];
     for (let index = 0; index < SESSION_COUNT; index += 1) {
@@ -154,8 +166,9 @@ async function runScenario(invocationConcurrency: number): Promise<DaemonOrpcCap
       const created = await rpc(persistent, "session.create", {
         sessionId,
         scope: { kind: "workspace", workspaceId: workspace.id },
+        supervisorSessionId: administratorSessionId,
         cwd: workspace.localPath,
-        title: `Capacity session ${index}`,
+        name: `Capacity session ${index}`,
       });
       sessionIds.push(created.sessionId);
     }
