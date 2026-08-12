@@ -21,7 +21,7 @@ import {
   type SparkTurnResumeCheckpoint,
 } from "@zendev-lab/spark-turn";
 import { assistantMessageToFinalAnswerText } from "../host/agent-session.ts";
-import { sparkProviderInputFitsContextWindow } from "../host/bootstrap.ts";
+import { sparkProviderRequestFitsContextWindow } from "../host/bootstrap.ts";
 import { createSparkHeadlessRoleExecutor } from "../headless-role-executor.ts";
 import {
   SparkNativeSession,
@@ -97,10 +97,11 @@ function fakeTui(): TUI {
   } as unknown as TUI;
 }
 
-test("provider input preflight reserves room for generated output", () => {
-  assert.equal(sparkProviderInputFitsContextWindow(7_999, 8_000), true);
-  assert.equal(sparkProviderInputFitsContextWindow(8_000, 8_000), false);
-  assert.equal(sparkProviderInputFitsContextWindow(8_001, 8_000), false);
+test("provider request preflight includes the requested output budget", () => {
+  assert.equal(sparkProviderRequestFitsContextWindow(4_000, 4_000, 8_000), true);
+  assert.equal(sparkProviderRequestFitsContextWindow(4_001, 4_000, 8_000), false);
+  assert.equal(sparkProviderRequestFitsContextWindow(7_999, 1, 8_000), true);
+  assert.equal(sparkProviderRequestFitsContextWindow(8_000, 1, 8_000), false);
 });
 
 test("channel-facing assistant text excludes thinking, tool arguments, and commentary", () => {
@@ -1295,42 +1296,6 @@ test("SparkAgentSession preflights the final system and tool request envelope", 
     assert.equal(
       saved.entries.some((entry) => entry.type === "compaction"),
       true,
-    );
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("SparkAgentSession does not reserve maximum output when assembled input fits", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-output-clamp-"));
-  try {
-    const cwd = join(dir, "repo");
-    const sparkHome = join(dir, ".spark");
-    await mkdir(cwd, { recursive: true });
-    let providerCalls = 0;
-    const services = await makeFakeServices(
-      { cwd, sparkHome, systemPrompt: "s".repeat(18_000) },
-      {
-        contextWindow: 8_000,
-        maxTokens: 4_000,
-        streamSimple: () => {
-          providerCalls += 1;
-          return assistant("provider clamped the output budget");
-        },
-      },
-    );
-
-    const result = await new SparkAgentSession(services).run({
-      sessionId: "output-clamp-session",
-      prompt: "continue",
-    });
-
-    assert.equal(result.outcome?.status, "completed");
-    assert.equal(providerCalls, 1);
-    const saved = await services.sessionStore.load(result.sessionPath);
-    assert.equal(
-      saved.entries.some((entry) => entry.type === "compaction"),
-      false,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
