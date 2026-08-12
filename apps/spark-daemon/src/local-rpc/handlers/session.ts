@@ -45,6 +45,7 @@ type SessionRequest = Extract<
       | "session.mail.read"
       | "session.mail.ack"
       | "session.model.set"
+      | "session.mode.set"
       | "session.thinking.set";
   }
 >;
@@ -102,6 +103,7 @@ export async function handleSessionRequest(
           loopId: loop.loopId,
           ownerSessionId: loop.ownerSessionId,
           status: loop.status,
+          sessionLifetime: loop.sessionLifetime,
           continuity: loop.continuity,
           generation: loop.generation,
           cycleStep: loop.cycleStep,
@@ -158,15 +160,49 @@ export async function handleSessionRequest(
       );
       return parseLocalRpcServiceOutput(request.method, executed.result.session);
     }
-    case "session.bind":
-    case "session.unbind":
-    case "session.archive":
+    case "session.archive": {
+      if (options.sessionSupervisor) {
+        return parseLocalRpcServiceOutput(
+          request.method,
+          await options.sessionSupervisor.close({
+            sessionId: request.params.sessionId,
+            ...(request.params.completion ? { completion: request.params.completion } : {}),
+            ...(request.params.reason ? { reason: request.params.reason } : {}),
+          }),
+        );
+      }
+      const executed = await executeSparkDaemonSessionControl(
+        sessionControlOptions(paths, db, options),
+        {
+          kind: "session.archive.request",
+          scope: "any",
+          sessionId: request.params.sessionId,
+          payload: { ...request.params },
+        },
+      );
+      return parseLocalRpcServiceOutput(request.method, executed.result.session);
+    }
     case "session.restore": {
-      const kind = `${request.method}.request` as
-        | "session.bind.request"
-        | "session.unbind.request"
-        | "session.archive.request"
-        | "session.restore.request";
+      if (options.sessionSupervisor) {
+        return parseLocalRpcServiceOutput(
+          request.method,
+          await options.sessionSupervisor.restore(request.params.sessionId),
+        );
+      }
+      const executed = await executeSparkDaemonSessionControl(
+        sessionControlOptions(paths, db, options),
+        {
+          kind: "session.restore.request",
+          scope: "any",
+          sessionId: request.params.sessionId,
+          payload: { ...request.params },
+        },
+      );
+      return parseLocalRpcServiceOutput(request.method, executed.result.session);
+    }
+    case "session.bind":
+    case "session.unbind": {
+      const kind = `${request.method}.request` as "session.bind.request" | "session.unbind.request";
       const executed = await executeSparkDaemonSessionControl(
         sessionControlOptions(paths, db, options),
         {
@@ -222,6 +258,18 @@ export async function handleSessionRequest(
         request.params.model,
       );
       return session;
+    }
+    case "session.mode.set": {
+      const executed = await executeSparkDaemonSessionControl(
+        sessionControlOptions(paths, db, options),
+        {
+          kind: "session.mode.set.request",
+          scope: "any",
+          sessionId: request.params.sessionId,
+          payload: { ...request.params },
+        },
+      );
+      return parseLocalRpcServiceOutput(request.method, executed.result);
     }
     case "session.thinking.set": {
       const session = await requireModelControl(options).setSessionThinkingLevel(
@@ -343,6 +391,9 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
                 fromSessionId: sent.message.fromSessionId,
                 toSessionId: sent.message.toSessionId,
                 notifyOnCompletion: params.notifyOnCompletion,
+                ...(Object.keys(params.payload).length > 0
+                  ? { requestPayload: params.payload }
+                  : {}),
                 ...(params.parentInvocationId
                   ? { parentInvocationId: params.parentInvocationId }
                   : {}),

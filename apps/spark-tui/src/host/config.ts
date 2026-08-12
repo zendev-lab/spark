@@ -26,6 +26,7 @@ import { dirname } from "node:path";
 
 import {
   DEFAULT_SPARK_PROVIDER_SPECS,
+  DEFAULT_SPARK_SCOPED_MODEL_PATTERNS,
   mergeSparkProviderSpecs,
 } from "@zendev-lab/spark-ai/control";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
@@ -38,6 +39,8 @@ export interface SparkConfig {
   /** Version of the bundled extension profile last reconciled with this config. */
   extensionProfileVersion?: number;
   providers: string[];
+  /** User-selected model patterns that daemon model mutations are allowed to use. */
+  enabledModels?: string[];
   skills?: string[];
   promptTemplates?: string[];
   themes?: string[];
@@ -81,6 +84,7 @@ export const DEFAULT_SPARK_CONFIG: SparkConfig = {
   extensions: [...DEFAULT_SPARK_EXTENSION_SPECS],
   extensionProfileVersion: CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
   providers: [...DEFAULT_SPARK_PROVIDER_SPECS],
+  enabledModels: [...DEFAULT_SPARK_SCOPED_MODEL_PATTERNS],
   skills: [],
   promptTemplates: [],
   themes: [],
@@ -133,6 +137,7 @@ export function mergeWithDefault(raw: unknown): SparkConfig {
     ),
     extensionProfileVersion: CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
     providers: mergeSparkProviderSpecs(stringArray(fields.providers, [])),
+    enabledModels: stringArray(fields.enabledModels, DEFAULT_SPARK_CONFIG.enabledModels ?? []),
     skills: stringArray(fields.skills, DEFAULT_SPARK_CONFIG.skills ?? []),
     promptTemplates: stringArray(
       fields.promptTemplates,
@@ -228,6 +233,7 @@ function cloneDefault(): SparkConfig {
     extensions: [...DEFAULT_SPARK_CONFIG.extensions],
     extensionProfileVersion: CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
     providers: [...DEFAULT_SPARK_CONFIG.providers],
+    enabledModels: [...(DEFAULT_SPARK_CONFIG.enabledModels ?? [])],
     skills: [...(DEFAULT_SPARK_CONFIG.skills ?? [])],
     promptTemplates: [...(DEFAULT_SPARK_CONFIG.promptTemplates ?? [])],
     themes: [...(DEFAULT_SPARK_CONFIG.themes ?? [])],

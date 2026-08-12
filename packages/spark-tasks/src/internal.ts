@@ -30,7 +30,9 @@ import {
 import type {
   CreateTaskTodoInput,
   NonConcreteTaskIssue,
+  SessionTodoStateInput,
   SessionTodoEntry,
+  TaskPlanItemStateInput,
   TaskPlanDecisionResult,
   TaskPlanInput,
   TaskTodoOp,
@@ -61,6 +63,203 @@ export function applyIndependentTodoOps(
       new Error(id ? `todo id not found: ${id}` : `todo item not found: ${content}`),
     isLiveForProgress: (todo) => todo.status !== "deleted" && todo.status !== "cancelled",
   });
+}
+
+/**
+ * Atomically reconcile the complete desired session TODO state. Existing rows
+ * omitted from the target remain as deleted history; no implicit progress
+ * transition is inferred from item order.
+ */
+export function reconcileIndependentTodoState(
+  todos: readonly SessionTodoEntry[],
+  items: readonly SessionTodoStateInput[],
+): SessionTodoEntry[] {
+  const now = nowIso();
+  const existing = cloneTodoList([...todos]);
+  const used = new Set<SessionTodoEntry>();
+  const ids = new Set<string>();
+  const contents = new Set<string>();
+  const desired = items.map((input, index) => {
+    const content = requiredTodoStateString(input.content, `items[${index}].content`);
+    const requestedId = optionalTodoStateString(input.id, `items[${index}].id`);
+    const current = requestedId
+      ? existing.find((todo) => todo.id === requestedId)
+      : existing.find((todo) => todo.content === content && !used.has(todo));
+    if (requestedId && !current) throw new Error(`unknown todo id: ${requestedId}`);
+    const id = requestedId ?? current?.id ?? materializeIndependentTodo(content, index, now).id;
+    if (!id) throw new Error(`items[${index}].id could not be assigned`);
+    if (ids.has(id)) throw new Error(`duplicate todo id: ${id}`);
+    if (contents.has(content)) throw new Error(`duplicate todo content: ${content}`);
+    ids.add(id);
+    contents.add(content);
+    if (current) used.add(current);
+    const status = requiredTodoStateStatus(input.status, `items[${index}].status`);
+    const next: SessionTodoEntry = {
+      ...(current ?? {}),
+      id,
+      content,
+      status,
+      notes:
+        input.notes === undefined
+          ? current?.notes
+            ? [...current.notes]
+            : undefined
+          : normalizeTodoStateStrings(input.notes, `items[${index}].notes`),
+      blockedBy:
+        input.blockedBy === undefined
+          ? current?.blockedBy
+            ? [...current.blockedBy]
+            : undefined
+          : normalizeTodoStateStrings(input.blockedBy, `items[${index}].blockedBy`),
+      createdAt: current?.createdAt ?? now,
+      updatedAt: now,
+      deletedAt: status === "deleted" ? (current?.deletedAt ?? now) : undefined,
+    };
+    return current && sameSessionTodoState(current, next) ? current : next;
+  });
+  assertSingleInProgress(desired);
+  const removed = existing.map((todo) => {
+    if (used.has(todo) || todo.status === "deleted") return todo;
+    return { ...todo, status: "deleted" as const, updatedAt: now, deletedAt: now };
+  });
+  return [...desired, ...removed.filter((todo) => !used.has(todo))];
+}
+
+/** Reconcile the complete desired Task plan-item state while retaining deleted history. */
+export function reconcileTaskPlanItemState(
+  items: readonly TaskPlanItem[],
+  target: readonly TaskPlanItemStateInput[],
+): TaskPlanItem[] {
+  const now = nowIso();
+  const existing = items.map((item) => ({
+    ...item,
+    notes: item.notes ? [...item.notes] : undefined,
+    blockedBy: item.blockedBy ? [...item.blockedBy] : undefined,
+    evidenceRefs: item.evidenceRefs ? [...item.evidenceRefs] : undefined,
+  }));
+  const used = new Set<TaskPlanItem>();
+  const ids = new Set<string>();
+  const titles = new Set<string>();
+  const desired = target.map((input, index) => {
+    const title = requiredTodoStateString(input.title, `items[${index}].title`);
+    const requestedId = optionalTodoStateString(input.id, `items[${index}].id`);
+    const current = requestedId
+      ? existing.find((item) => item.id === requestedId)
+      : existing.find((item) => item.title === title && !used.has(item));
+    if (requestedId && !current) throw new Error(`unknown plan item id: ${requestedId}`);
+    const id = requestedId ?? current?.id ?? todoIdFromContent(title, index);
+    if (ids.has(id)) throw new Error(`duplicate plan item id: ${id}`);
+    if (titles.has(title)) throw new Error(`duplicate plan item title: ${title}`);
+    ids.add(id);
+    titles.add(title);
+    if (current) used.add(current);
+    const status = requiredTodoStateStatus(input.status, `items[${index}].status`);
+    const next: TaskPlanItem = {
+      id,
+      title,
+      description:
+        input.description === undefined
+          ? current?.description
+          : optionalTodoStateString(input.description, `items[${index}].description`),
+      status,
+      notes:
+        input.notes === undefined
+          ? current?.notes
+            ? [...current.notes]
+            : undefined
+          : normalizeTodoStateStrings(input.notes, `items[${index}].notes`),
+      blockedBy:
+        input.blockedBy === undefined
+          ? current?.blockedBy
+            ? [...current.blockedBy]
+            : undefined
+          : normalizeTodoStateStrings(input.blockedBy, `items[${index}].blockedBy`),
+      evidenceRefs: input.evidenceRefs
+        ? [...new Set(input.evidenceRefs)]
+        : current?.evidenceRefs
+          ? [...current.evidenceRefs]
+          : undefined,
+      createdAt: current?.createdAt ?? now,
+      updatedAt: now,
+      deletedAt: status === "deleted" ? (current?.deletedAt ?? now) : undefined,
+    };
+    return current && sameTaskPlanItemState(current, next) ? current : next;
+  });
+  assertSingleInProgress(desired);
+  const removed = existing.map((item) => {
+    if (used.has(item) || item.status === "deleted") return item;
+    return { ...item, status: "deleted" as const, updatedAt: now, deletedAt: now };
+  });
+  return [...desired, ...removed.filter((item) => !used.has(item))];
+}
+
+function assertSingleInProgress(items: readonly Pick<TodoReducerItem, "status">[]): void {
+  if (items.filter((item) => item.status === "in_progress").length > 1) {
+    throw new Error("target TODO state may contain at most one in_progress item");
+  }
+}
+
+function requiredTodoStateStatus(value: unknown, path: string): TaskTodoStatus {
+  if (
+    value === "pending" ||
+    value === "in_progress" ||
+    value === "done" ||
+    value === "blocked" ||
+    value === "cancelled" ||
+    value === "deleted"
+  )
+    return value;
+  throw new Error(`${path} must be pending, in_progress, done, blocked, cancelled, or deleted`);
+}
+
+function requiredTodoStateString(value: unknown, path: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${path} must be non-empty`);
+  return value.trim();
+}
+
+function optionalTodoStateString(value: unknown, path: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  return requiredTodoStateString(value, path);
+}
+
+function normalizeTodoStateStrings(value: unknown, path: string): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) throw new Error(`${path} must be an array`);
+  const normalized = value.map((entry, index) =>
+    requiredTodoStateString(entry, `${path}[${index}]`),
+  );
+  return normalized.length ? [...new Set(normalized)] : undefined;
+}
+
+function sameSessionTodoState(left: SessionTodoEntry, right: SessionTodoEntry): boolean {
+  return (
+    left.id === right.id &&
+    left.content === right.content &&
+    left.status === right.status &&
+    sameTodoStateStrings(left.notes, right.notes) &&
+    sameTodoStateStrings(left.blockedBy, right.blockedBy) &&
+    left.deletedAt === right.deletedAt
+  );
+}
+
+function sameTaskPlanItemState(left: TaskPlanItem, right: TaskPlanItem): boolean {
+  return (
+    left.id === right.id &&
+    left.title === right.title &&
+    left.description === right.description &&
+    left.status === right.status &&
+    sameTodoStateStrings(left.notes, right.notes) &&
+    sameTodoStateStrings(left.blockedBy, right.blockedBy) &&
+    sameTodoStateStrings(left.evidenceRefs, right.evidenceRefs) &&
+    left.deletedAt === right.deletedAt
+  );
+}
+
+function sameTodoStateStrings(
+  left: readonly string[] | undefined,
+  right: readonly string[] | undefined,
+): boolean {
+  return JSON.stringify(left ?? []) === JSON.stringify(right ?? []);
 }
 
 export function assertAcyclic(dependencies: TaskDependency[]): void {
@@ -244,7 +443,7 @@ export function normalizeTask(task: Task): Task {
   rejectLegacyRoleFields(task, "task");
   rejectLegacyClaimFields(task, "task");
   const claim = isUnfinishedTaskStatus(task.status) ? normalizeTaskClaim(task.claim) : undefined;
-  return {
+  const normalized = {
     ref: task.ref,
     projectRef: task.projectRef,
     name: task.name ?? taskNameFromTitle(task.title),
@@ -270,6 +469,8 @@ export function normalizeTask(task: Task): Task {
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };
+  assertTaskWorktreeTargetArtifacts(normalized.executionPolicy, normalized.artifactRefs);
+  return normalized;
 }
 
 export function normalizeTaskPlan(
@@ -315,11 +516,25 @@ export function normalizeTaskExecutionPolicy(
     throw new Error("task executionPolicy must be an object");
   }
   if (
+    policy?.sessionLifetime !== undefined &&
+    policy.sessionLifetime !== "task_run" &&
+    policy.sessionLifetime !== "task_revision"
+  ) {
+    throw new Error("task executionPolicy.sessionLifetime is invalid");
+  }
+  if (
     policy?.continuity !== undefined &&
     policy.continuity !== "fresh" &&
     policy.continuity !== "reuse_within_revision"
   ) {
     throw new Error("task executionPolicy.continuity is invalid");
+  }
+  if (
+    policy?.sessionLifetime !== undefined &&
+    policy?.continuity !== undefined &&
+    (policy.sessionLifetime === "task_run") !== (policy.continuity === "fresh")
+  ) {
+    throw new Error("task executionPolicy sessionLifetime conflicts with legacy continuity");
   }
   if (
     policy?.isolation !== undefined &&
@@ -375,7 +590,11 @@ export function normalizeTaskExecutionPolicy(
   ) {
     throw new Error("task executionPolicy.resources.minGpuMemoryGiB must be positive");
   }
-  const continuity = policy?.continuity ?? "reuse_within_revision";
+  const sessionLifetime =
+    policy?.sessionLifetime ?? (policy?.continuity === "fresh" ? "task_run" : "task_revision");
+  const continuity =
+    policy?.continuity ?? (sessionLifetime === "task_run" ? "fresh" : "reuse_within_revision");
+  const worktreeTarget = normalizeTaskWorktreeTarget(policy?.worktreeTarget);
   const isolation =
     policy?.isolation === "isolated_worktree" ||
     policy?.isolation === "isolated_results" ||
@@ -409,16 +628,63 @@ export function normalizeTaskExecutionPolicy(
         }
       : undefined;
   return {
+    sessionLifetime,
     continuity,
     isolation,
     comparison,
     ...(resources ? { resources } : {}),
+    ...(worktreeTarget ? { worktreeTarget } : {}),
     concurrencyKeys: [...new Set(normalizeStringList(policy?.concurrencyKeys))],
     ...(normalizeOptionalPositiveInteger(policy?.timeoutMs) !== undefined
       ? { timeoutMs: normalizeOptionalPositiveInteger(policy?.timeoutMs) }
       : {}),
     maxAttempts: policy?.maxAttempts ?? 2,
   };
+}
+
+function normalizeTaskWorktreeTarget(
+  value: TaskExecutionPolicy["worktreeTarget"] | undefined,
+): TaskExecutionPolicy["worktreeTarget"] | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("task executionPolicy.worktreeTarget must be an object");
+  }
+  const primaryArtifactRef = value.primaryArtifactRef;
+  if (typeof primaryArtifactRef !== "string" || !primaryArtifactRef.startsWith("artifact:")) {
+    throw new Error(
+      "task executionPolicy.worktreeTarget.primaryArtifactRef must be an ArtifactRef",
+    );
+  }
+  if (
+    !Array.isArray(value.writableArtifactRefs) ||
+    value.writableArtifactRefs.length === 0 ||
+    value.writableArtifactRefs.some(
+      (ref) => typeof ref !== "string" || !ref.startsWith("artifact:"),
+    )
+  ) {
+    throw new Error(
+      "task executionPolicy.worktreeTarget.writableArtifactRefs must be a non-empty ArtifactRef array",
+    );
+  }
+  const writableArtifactRefs = [...new Set(value.writableArtifactRefs)];
+  if (!writableArtifactRefs.includes(primaryArtifactRef)) {
+    throw new Error("task executionPolicy.worktreeTarget.primaryArtifactRef must be writable");
+  }
+  return { primaryArtifactRef, writableArtifactRefs };
+}
+
+export function assertTaskWorktreeTargetArtifacts(
+  policy: TaskExecutionPolicy | undefined,
+  artifactRefs: readonly ArtifactRef[],
+): void {
+  const target = policy?.worktreeTarget;
+  if (!target) return;
+  const linked = new Set(artifactRefs);
+  for (const ref of target.writableArtifactRefs) {
+    if (!linked.has(ref)) {
+      throw new Error(`task executionPolicy.worktreeTarget ${ref} must be linked in artifactRefs`);
+    }
+  }
 }
 
 function normalizeOptionalPositiveInteger(value: unknown): number | undefined {
@@ -1340,6 +1606,12 @@ export function cloneTask(task: Task): Task {
           resources: task.executionPolicy.resources
             ? { ...task.executionPolicy.resources }
             : undefined,
+          worktreeTarget: task.executionPolicy.worktreeTarget
+            ? {
+                primaryArtifactRef: task.executionPolicy.worktreeTarget.primaryArtifactRef,
+                writableArtifactRefs: [...task.executionPolicy.worktreeTarget.writableArtifactRefs],
+              }
+            : undefined,
           concurrencyKeys: [...task.executionPolicy.concurrencyKeys],
         }
       : undefined,
@@ -1353,11 +1625,22 @@ export function cloneTask(task: Task): Task {
 
 export function normalizeTaskRun(run: TaskRun): TaskRun {
   rejectLegacyRoleFields(run, "task run");
+  const execution = run.execution
+    ? {
+        ...run.execution,
+        sessionId: run.execution.sessionId ?? run.execution.executionSessionId,
+        executionSessionId: run.execution.executionSessionId ?? run.execution.sessionId,
+        sessionLifetime: run.execution.sessionLifetime ?? "task_revision",
+      }
+    : undefined;
+  if (execution && !execution.sessionId) {
+    throw new Error(`task run ${run.ref} execution sessionId is required`);
+  }
   return {
     ...run,
     roleRef: normalizeRoleRef(run.roleRef),
     runName: run.runName?.trim() || undefined,
-    execution: run.execution ? { ...run.execution } : undefined,
+    execution,
     resourceAllocation: run.resourceAllocation
       ? {
           ...run.resourceAllocation,

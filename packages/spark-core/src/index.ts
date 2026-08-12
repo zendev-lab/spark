@@ -153,6 +153,19 @@ export interface ResolvedToolPolicy {
   readonly approval: ToolApprovalPolicy;
 }
 
+export interface ToolExecutionResult {
+  content: Array<{ type: "text"; text: string }>;
+  details?: Record<string, unknown>;
+  isError?: boolean;
+}
+
+export type ToolExecutionRetryability = "transient" | "permanent" | "agent-decides";
+
+export type ToolExecutionReconciliation =
+  | { outcome: "completed"; result: ToolExecutionResult }
+  | { outcome: "not-sent"; retryability: ToolExecutionRetryability }
+  | { outcome: "unknown"; message?: string };
+
 export interface ToolConfig {
   name: string;
   label?: string;
@@ -196,11 +209,21 @@ export interface ToolConfig {
     signal: AbortSignal,
     onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void,
     ctx: SparkHostContext,
-  ): Promise<{
-    content: Array<{ type: "text"; text: string }>;
-    details?: Record<string, unknown>;
-    isError?: boolean;
-  }>;
+  ): Promise<ToolExecutionResult>;
+  /**
+   * Query durable operation state after a post-dispatch failure. Implementations
+   * must not create a new side effect: `completed` returns its receipt/result;
+   * `not-sent` separately declares retryability; and `unknown` prevents replay
+   * while returning an error result to the Agent for recovery.
+   */
+  reconcile?(
+    toolCallId: string,
+    params: Record<string, unknown>,
+    signal: AbortSignal,
+    onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void,
+    ctx: SparkHostContext,
+    failure: unknown,
+  ): Promise<ToolExecutionReconciliation>;
 }
 
 /**
@@ -399,6 +422,19 @@ export type ExtensionInteractionResponseStatus =
   | "blocked"
   | "error";
 
+/** JSON-friendly declaration for the exact Ask semantics a host transport owns. */
+export interface ExtensionAskFlowInteractionCapabilities {
+  deliveries: Array<"blocking" | "async">;
+  timeout: boolean;
+  responseCorrelation: "request_id";
+  asyncAcknowledgement?: "pending_with_human_request_id" | undefined;
+}
+
+export interface ExtensionInteractionCapabilities {
+  version: 1;
+  askFlow?: ExtensionAskFlowInteractionCapabilities | undefined;
+}
+
 export interface ExtensionAskOptionView {
   value: string;
   label: string;
@@ -442,6 +478,8 @@ export interface ExtensionEvidenceRequestBinding {
 
 export interface ExtensionAskFlowInteractionRequest extends ExtensionInteractionRequestBase {
   kind: "askFlow";
+  /** Host-generated tool invocation identity used to resume the same durable wait. */
+  toolCallId?: string | undefined;
   delivery?: "blocking" | "async" | undefined;
   timeoutMs?: number | undefined;
   mode?: "clarification" | "decision" | "approval" | "unblock" | undefined;
@@ -568,11 +606,13 @@ export interface ExtensionUi {
   ) => Promise<{ value?: string; customText?: string } | string | undefined>;
   /**
    * Protocol-shaped interaction bridge for host-rendered UI. Spark hosts pass
-   * Spark interaction protocol payloads here; portable extensions should keep
-   * requests structural and fall back to legacy primitives when a host returns
-   * `blocked` or omits the hook.
+   * Spark interaction protocol payloads here. Callers select a supported
+   * transport from `interactionCapabilities` before dispatch; a dispatched
+   * interaction fails closed instead of falling through to another transport.
    */
   interaction?: (request: ExtensionInteractionRequest) => Promise<ExtensionInteractionResponse>;
+  /** Explicit transport contract used before dispatching async or timeout-backed asks. */
+  interactionCapabilities?: ExtensionInteractionCapabilities;
   setStatus?: (key: string, text: string | undefined) => void;
   setWidget?: (
     key: string,
@@ -721,6 +761,11 @@ export interface ExtensionRoleRunRequest {
     ref: RoleRef;
     id: string;
     systemPrompt: string;
+    revision?: number;
+    source?: "builtin" | "extension" | "project" | "user";
+    capabilities?: Array<"read" | "write" | "exec" | "net" | "interact" | "spawn">;
+    modelType?: string;
+    instantiation?: "persistent" | "owned";
     allowedTools?: string[];
   };
   instruction: {
@@ -742,11 +787,13 @@ export interface ExtensionRoleRunRequest {
     forkFromSession?: string;
     noSession?: boolean;
     sessionPersistence?: "anonymous" | "persistent";
+    /** Canonical daemon lifecycle; owned Sessions are closed with their caller. */
+    sessionLifetime?: "persistent" | "owned";
     outcome?: RoleRunCompletionOutcome;
   };
   cwd: string;
   timeoutMs: number;
-  mode?: "plan" | "execute";
+  mode?: "plan" | "execute" | "fleet";
   requireStructuredOutcome?: boolean;
   signal?: AbortSignal;
   sessionDir?: string;
@@ -790,7 +837,8 @@ export interface SparkHostLoopContext {
   };
   generation: number;
   ownerSessionId: string;
-  stateOwnerSessionId: string;
+  /** @deprecated Compatibility projection; host execution uses Session stateBinding. */
+  stateOwnerSessionId?: string;
   schedule(input: {
     delayMs?: number;
     dueAt?: string;
@@ -805,6 +853,15 @@ export interface SparkSessionLeaseIdentity {
   clientId: string;
   leaseFence: string;
   sessionId: string;
+}
+
+/** Host-private immutable write boundary for one daemon-owned Task Invocation. */
+export interface SparkTaskExecutionScope {
+  isolation: TaskExecutionIsolation;
+  primaryArtifactRef?: ArtifactRef;
+  writableArtifactRefs: ArtifactRef[];
+  writableRoots: string[];
+  resultsRoot?: string;
 }
 
 export interface SparkHostContext {
@@ -823,6 +880,8 @@ export interface SparkHostContext {
   sessionLease?: () => SparkSessionLeaseIdentity | undefined;
   /** Current daemon invocation, available only in daemon-owned headless turns. */
   invocationId?: string;
+  /** Daemon-resolved invocation scope; model/tool arguments cannot widen it. */
+  taskExecutionScope?: SparkTaskExecutionScope;
   /**
    * Host-signed, current-turn direct-memory intent receipt. Hosts keep the
    * signer private and expose only this verification input to capability code.
@@ -1353,11 +1412,23 @@ export interface TaskResourceRequest {
   exclusiveNode?: boolean;
 }
 
+/** Explicit existing git_change worktrees that one Task invocation may mutate. */
+export interface TaskWorktreeTarget {
+  /** Default invocation cwd. Must also appear in writableArtifactRefs. */
+  primaryArtifactRef: ArtifactRef;
+  /** Exact write-authorized git_change Artifact refs for this Task. */
+  writableArtifactRefs: ArtifactRef[];
+}
+
 export interface TaskExecutionPolicy {
-  continuity: TaskExecutionContinuity;
+  /** Canonical owner-bounded Session lifetime for Task attempts. */
+  sessionLifetime: "task_run" | "task_revision";
+  /** Legacy compatibility projection; runtime dispatch uses sessionLifetime. */
+  continuity?: TaskExecutionContinuity;
   isolation: TaskExecutionIsolation;
   comparison: TaskExecutionComparison;
   resources?: TaskResourceRequest;
+  worktreeTarget?: TaskWorktreeTarget;
   concurrencyKeys: string[];
   timeoutMs?: number;
   maxAttempts: number;
@@ -1495,13 +1566,19 @@ export interface TaskRunCompletionSummary {
 
 export interface TaskRunExecutionBinding {
   ownerSessionId: string;
-  executionSessionId: string;
+  /** Canonical daemon Session identity for this Task attempt. */
+  sessionId?: string;
+  /** Legacy decode/projection mirror of sessionId. */
+  executionSessionId?: string;
   sessionGoalId: string;
+  sessionLifetime?: "task_run" | "task_revision";
   subgoalRef?: SubgoalRef;
   planRevision?: number;
   definitionDigest?: string;
   jobId: string;
   attempt: number;
+  /** Stable Fleet worker lane used to serialize and reuse one execution Session. */
+  workerLaneKey?: string;
   /** Daemon invocation accepted for this attempt; used for restart-safe reconciliation. */
   invocationId?: string;
 }

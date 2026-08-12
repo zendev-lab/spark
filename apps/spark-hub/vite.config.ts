@@ -8,6 +8,13 @@ const runtimeWsPattern = /^\/api\/v1\/runtime\/runtimes\/(rt_[a-f0-9]{32})\/ws$/
 
 export default defineConfig({
   plugins: [runtimeWebSocketDevServer(), sveltekit()],
+  build: {
+    // Shiki's C++ grammar and Mermaid's shared parser are independent lazy
+    // chunks. Their minified raw sizes are 638/662 kB while their compressed
+    // transfer sizes are 50/143 kB, so retain a bounded warning threshold that
+    // reflects the actual on-demand payload instead of Vite's generic 500 kB.
+    chunkSizeWarningLimit: 700,
+  },
   optimizeDeps: {
     // Svelte source packages stay on the Svelte transform path. Their CommonJS
     // leaf dependencies are optimized explicitly for browser-compatible
@@ -19,6 +26,11 @@ export default defineConfig({
     dedupe: ["svelte"],
   },
   ssr: {
+    // Keep server-only runtime dependencies as package imports. Bundling them
+    // pulls TypeBox's internal module graph and Infoflow's vendored protobufjs
+    // runtime into every affected route, which both bloats the server output
+    // and turns upstream implementation details into Rolldown warnings.
+    external: ["typebox", "@core-workspace/infoflow-sdk-nodejs"],
     // Lucide publishes Svelte source that must pass through the Svelte
     // transform before Rolldown parses the SSR graph.
     noExternal: ["@zendev-lab/spark-ui", "@lucide/svelte", "bits-ui", "svelte-streamdown"],

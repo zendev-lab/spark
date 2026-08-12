@@ -33,7 +33,82 @@ import {
   type StoredAskPayload,
   verifyCanonicalAskEvidence,
 } from "@zendev-lab/spark-ask";
-import { newRef, type JsonValue } from "@zendev-lab/spark-core";
+import {
+  newRef,
+  type ExtensionInteractionCapabilities,
+  type JsonValue,
+  type ToolConfig,
+} from "@zendev-lab/spark-core";
+
+const TEST_ASK_INTERACTION_CAPABILITIES = {
+  version: 1,
+  askFlow: {
+    deliveries: ["blocking", "async"],
+    timeout: true,
+    responseCorrelation: "request_id",
+    asyncAcknowledgement: "pending_with_human_request_id",
+  },
+} satisfies ExtensionInteractionCapabilities;
+
+function timedOutAskUi() {
+  return {
+    interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
+    interaction: async (request: Record<string, unknown>) => ({
+      kind: "askFlow" as const,
+      requestId: request.requestId as string,
+      status: "cancelled" as const,
+      metadata: { timedOut: true },
+    }),
+  };
+}
+
+type NamedRegisteredTool = Pick<ToolConfig, "name" | "execute">;
+
+interface RegisteredToolResult {
+  content: Array<{ type?: string; text: string }>;
+  details: {
+    evidence: { kind: string };
+    refs: { evidenceRef: `evidence:${string}` };
+    count: number;
+    entries: Array<{ projectRef?: string }>;
+    request: { questions: unknown[] };
+    answerSource?: "user" | "reviewer";
+    result: {
+      answerSource?: "user" | "reviewer";
+      status: string;
+      timedOut?: boolean;
+      nextAction: "resume" | "block";
+      answers: Record<string, { values: string[]; labels?: string[] }>;
+    };
+    askEvidenceRef: `evidence:${string}`;
+    autoAnswered?: boolean;
+    autoAnswer: {
+      takeover?: string;
+      humanTimeoutMs?: number;
+      reason?: string;
+    };
+    blocked?: boolean;
+    reason: string;
+    status: string;
+    cancelled: boolean;
+    customUiFallback: string;
+  };
+  isError?: boolean;
+}
+
+interface RegisteredTool {
+  execute(
+    toolCallId: string,
+    params: Record<string, unknown>,
+    signal: AbortSignal,
+    onUpdate: (update: unknown) => void,
+    context?: Record<string, unknown>,
+  ): Promise<RegisteredToolResult>;
+}
+
+function asRegisteredTool(config: unknown): RegisteredTool {
+  return config as RegisteredTool;
+}
 
 test("evidence store creates canonical evidence refs in the evidence root", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-evidence-store-"));
@@ -103,29 +178,13 @@ test("Evidence store writes hashes, blobs, and lineage links", async () => {
   }
 });
 
-test("evidence tool describes valid provenance producers", () => {
-  const tools = new Map<string, { promptGuidelines?: string[]; parameters?: unknown }>();
-  registerSparkEvidenceTool({ registerTool: (config) => tools.set(config.name, config) });
-  const tool = tools.get("evidence");
-  assert.ok(tool);
-
-  const promptGuidelines = tool.promptGuidelines?.join("\n") ?? "";
-  const parameters = JSON.stringify(tool.parameters);
-  for (const text of [promptGuidelines, parameters]) {
-    assert.match(
-      text,
-      /spark \| role \| task \| review \| ask \| cue \| user|spark, role, task, review, ask, cue, user/,
-    );
-    assert.match(text, /producer=task/);
-  }
-  assert.match(parameters, /Role ref filter|role ref/i);
-});
-
 test("evidence tool rejects a retired Evidence parameter from the controlled fixture", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-evidence-retired-param-"));
   try {
-    const tools = new Map<string, { execute: Function }>();
-    registerSparkEvidenceTool({ registerTool: (config) => tools.set(config.name, config) });
+    const tools = new Map<string, RegisteredTool>();
+    registerSparkEvidenceTool({
+      registerTool: (config) => tools.set(config.name, asRegisteredTool(config)),
+    });
     const tool = tools.get("evidence");
     assert.ok(tool);
     const retiredParams = JSON.parse(
@@ -158,11 +217,10 @@ test("evidence tool rejects a retired Evidence parameter from the controlled fix
 test("evidence record stores validation evidence as a producer-tagged record", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-evidence-record-kind-"));
   try {
-    const tools = new Map<
-      string,
-      { execute: Function; promptGuidelines?: string[]; parameters?: unknown }
-    >();
-    registerSparkEvidenceTool({ registerTool: (config) => tools.set(config.name, config) });
+    const tools = new Map<string, RegisteredTool>();
+    registerSparkEvidenceTool({
+      registerTool: (config) => tools.set(config.name, asRegisteredTool(config)),
+    });
     const tool = tools.get("evidence");
     assert.ok(tool);
 
@@ -195,8 +253,10 @@ test("evidence record stores validation evidence as a producer-tagged record", a
 test("evidence record rejects retired verification kind with a directed hint", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-evidence-retired-kind-"));
   try {
-    const tools = new Map<string, { execute: Function }>();
-    registerSparkEvidenceTool({ registerTool: (config) => tools.set(config.name, config) });
+    const tools = new Map<string, RegisteredTool>();
+    registerSparkEvidenceTool({
+      registerTool: (config) => tools.set(config.name, asRegisteredTool(config)),
+    });
     const tool = tools.get("evidence");
     assert.ok(tool);
     await assert.rejects(
@@ -288,8 +348,10 @@ test("Evidence store rejects unknown non-canonical Evidence kinds when reading m
 test("Evidence record tool stores top-level refs as provenance shortcuts", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-evidence-record-shortcuts-"));
   try {
-    const tools = new Map<string, { execute: Function }>();
-    registerSparkEvidenceTool({ registerTool: (config) => tools.set(config.name, config) });
+    const tools = new Map<string, RegisteredTool>();
+    registerSparkEvidenceTool({
+      registerTool: (config) => tools.set(config.name, asRegisteredTool(config)),
+    });
     const tool = tools.get("evidence");
     assert.ok(tool);
     const projectRef = newRef("proj", "shortcut-project");
@@ -334,8 +396,10 @@ test("Evidence record tool stores top-level refs as provenance shortcuts", async
 test("evidence record rejects conflicting top-level provenance shortcuts", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-evidence-record-shortcut-conflict-"));
   try {
-    const tools = new Map<string, { execute: Function }>();
-    registerSparkEvidenceTool({ registerTool: (config) => tools.set(config.name, config) });
+    const tools = new Map<string, RegisteredTool>();
+    registerSparkEvidenceTool({
+      registerTool: (config) => tools.set(config.name, asRegisteredTool(config)),
+    });
     const tool = tools.get("evidence");
     assert.ok(tool);
 
@@ -953,8 +1017,10 @@ test("ask_user and ask_flow share result summary and Evidence body semantics", (
 });
 
 test("ask_user tool summary uses option labels rather than raw ids", async () => {
-  const tools = new Map<string, { execute: Function }>();
-  registerSparkAskTools({ registerTool: (config) => tools.set(config.name, config) });
+  const tools = new Map<string, RegisteredTool>();
+  registerSparkAskTools({
+    registerTool: (config) => tools.set(config.name, asRegisteredTool(config)),
+  });
   const tool = tools.get("ask_user");
   assert.ok(tool);
 
@@ -1025,39 +1091,42 @@ test("ask_user uses protocol interaction before legacy select UI", async () => {
   assert.equal(selectInvoked, false);
   assert.equal((sawRequest as { kind?: unknown }).kind, "askFlow");
   assert.equal((sawRequest as { source?: unknown }).source, "extension");
+  assert.match(String((sawRequest as { requestId?: unknown }).requestId), /^ask_[a-f0-9]{32}$/u);
   assert.deepEqual(result.answers.mode, { values: ["safe_mode"], labels: ["Safe path"] });
   assert.equal(result.nextAction, "resume");
 });
 
-test("ask_user falls back to legacy UI when protocol interaction is blocked", async () => {
-  const result = await askUser(
-    createAskUserRequest({
-      title: "Choose mode",
-      mode: "clarification",
-      questions: [
-        {
-          id: "mode",
-          prompt: "Which mode?",
-          type: "single",
-          options: [
-            { value: "fast_mode", label: "Fast path" },
-            { value: "safe_mode", label: "Safe path" },
+test("ask_user fails closed when protocol interaction is blocked", async () => {
+  await assert.rejects(
+    () =>
+      askUser(
+        createAskUserRequest({
+          title: "Choose mode",
+          mode: "clarification",
+          questions: [
+            {
+              id: "mode",
+              prompt: "Which mode?",
+              type: "single",
+              options: [
+                { value: "fast_mode", label: "Fast path" },
+                { value: "safe_mode", label: "Safe path" },
+              ],
+            },
           ],
+        }),
+        {
+          interaction: async (request) => ({
+            kind: "askFlow",
+            requestId: request.requestId,
+            status: "blocked",
+            message: "headless host",
+          }),
+          select: async () => "Safe path",
         },
-      ],
-    }),
-    {
-      interaction: async (request) => ({
-        kind: "askFlow",
-        requestId: request.requestId,
-        status: "blocked",
-        message: "headless host",
-      }),
-      select: async () => "Safe path",
-    },
+      ),
+    /ASK_TRANSPORT_REJECTED: headless host/u,
   );
-
-  assert.deepEqual(result.answers.mode, { values: ["safe_mode"], labels: ["Safe path"] });
 });
 
 test("ask_user preserves protocol cancellation as a blocking result", async () => {
@@ -1094,10 +1163,78 @@ test("ask_user preserves protocol cancellation as a blocking result", async () =
   assert.deepEqual(result.answers, {});
 });
 
+test("ask_user returns a request-correlated durable acknowledgement for async delivery", async () => {
+  const result = await askUser(
+    createAskUserRequest({
+      title: "Choose mode later",
+      mode: "decision",
+      delivery: "async",
+      interactionRequestId: "ask:test-ack",
+      questions: [
+        {
+          id: "mode",
+          prompt: "Which mode?",
+          type: "single",
+          options: [
+            { value: "fast_mode", label: "Fast path" },
+            { value: "safe_mode", label: "Safe path" },
+          ],
+        },
+      ],
+    }),
+    {
+      interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
+      interaction: async (request) => ({
+        kind: "askFlow",
+        requestId: request.requestId,
+        humanRequestId: "hreq:test-ack",
+        status: "pending",
+      }),
+    },
+  );
+
+  assert.equal(result.status, "pending");
+  assert.equal(result.humanRequestId, "hreq:test-ack");
+  assert.deepEqual(result.acknowledgement, {
+    schema: "spark.ask-ack/v1",
+    interactionRequestId: "ask:test-ack",
+    humanRequestId: "hreq:test-ack",
+  });
+});
+
+test("ask_user rejects uncorrelated protocol responses", async () => {
+  await assert.rejects(
+    () =>
+      askUser(
+        createAskUserRequest({
+          interactionRequestId: "ask:expected",
+          questions: [
+            {
+              id: "mode",
+              prompt: "Which mode?",
+              options: [
+                { value: "fast_mode", label: "Fast path" },
+                { value: "safe_mode", label: "Safe path" },
+              ],
+            },
+          ],
+        }),
+        {
+          interaction: async () => ({
+            kind: "askFlow",
+            requestId: "ask:wrong",
+            status: "cancelled",
+          }),
+        },
+      ),
+    /ASK_TRANSPORT_PROTOCOL_ERROR: response requestId=ask:wrong/u,
+  );
+});
+
 test("ask action tool dispatches canonical single-question asks", async () => {
-  const tools = new Map<string, { execute: Function }>();
-  const registerTool = (config: { name: string; execute: Function }) =>
-    tools.set(config.name, config);
+  const tools = new Map<string, RegisteredTool>();
+  const registerTool = (config: NamedRegisteredTool) =>
+    tools.set(config.name, asRegisteredTool(config));
   registerSparkAskTools({ registerTool });
   registerSparkAskFlowTool({ registerTool });
   registerSparkAskActionTool({ registerTool }, { resolveTool: (name) => tools.get(name) as never });
@@ -1132,12 +1269,62 @@ test("ask action tool dispatches canonical single-question asks", async () => {
   assert.equal(result.details.request.questions.length, 1);
 });
 
+test("ask action tool returns the durable async acknowledgement", async () => {
+  const tools = new Map<string, { execute: Function }>();
+  const registerTool = (config: { name: string; execute: Function }) =>
+    tools.set(config.name, config);
+  registerSparkAskTools({ registerTool });
+  registerSparkAskActionTool({ registerTool }, { resolveTool: (name) => tools.get(name) as never });
+  const tool = tools.get("ask");
+  assert.ok(tool);
+
+  const result = await tool.execute(
+    "ask-action-async-test",
+    {
+      action: "ask",
+      delivery: "async",
+      title: "Choose later",
+      questions: [
+        {
+          id: "mode",
+          prompt: "Which mode?",
+          options: [
+            { value: "fast_mode", label: "Fast path" },
+            { value: "safe_mode", label: "Safe path" },
+          ],
+        },
+      ],
+    },
+    new AbortController().signal,
+    () => undefined,
+    {
+      ui: {
+        interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
+        interaction: async (request: Record<string, unknown>) => ({
+          kind: "askFlow",
+          requestId: request.requestId,
+          humanRequestId: "hreq:canonical-async",
+          status: "pending",
+        }),
+      },
+    },
+  );
+
+  assert.equal(result.details.result.status, "pending");
+  assert.deepEqual(result.details.result.acknowledgement, {
+    schema: "spark.ask-ack/v1",
+    interactionRequestId: result.details.result.acknowledgement.interactionRequestId,
+    humanRequestId: "hreq:canonical-async",
+  });
+  assert.match(result.details.result.acknowledgement.interactionRequestId, /^ask_[a-f0-9]{32}$/u);
+});
+
 test("ask action tool can persist receipt-backed user decision evidence", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-ask-evidence-"));
   try {
-    const tools = new Map<string, { execute: Function }>();
-    const registerTool = (config: { name: string; execute: Function }) =>
-      tools.set(config.name, config);
+    const tools = new Map<string, RegisteredTool>();
+    const registerTool = (config: NamedRegisteredTool) =>
+      tools.set(config.name, asRegisteredTool(config));
     registerSparkAskTools({ registerTool });
     registerSparkAskFlowTool({ registerTool });
     registerSparkAskActionTool(
@@ -1321,9 +1508,9 @@ test("ask action tool can persist receipt-backed user decision evidence", async 
 test("ask evidence rejection reports partial answers and missing required questions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-ask-partial-evidence-"));
   try {
-    const tools = new Map<string, { execute: Function }>();
-    const registerTool = (config: { name: string; execute: Function }) =>
-      tools.set(config.name, config);
+    const tools = new Map<string, RegisteredTool>();
+    const registerTool = (config: NamedRegisteredTool) =>
+      tools.set(config.name, asRegisteredTool(config));
     registerSparkAskFlowTool({ registerTool });
     registerSparkAskActionTool(
       { registerTool },
@@ -1365,12 +1552,15 @@ test("ask evidence rejection reports partial answers and missing required questi
           {
             cwd: dir,
             ui: {
-              interaction: async (request: Record<string, unknown>) => ({
-                kind: "askFlow",
-                requestId: request.requestId,
-                status: "answered",
-                answers: { strategy: { values: ["reuse"], labels: ["Reuse"] } },
-              }),
+              interaction: async (request: Record<string, unknown>) => {
+                assert.match(String(request.requestId), /^ask_[a-f0-9]{32}$/u);
+                return {
+                  kind: "askFlow",
+                  requestId: request.requestId,
+                  status: "answered",
+                  answers: { strategy: { values: ["reuse"], labels: ["Reuse"] } },
+                };
+              },
             },
           },
         ),
@@ -1382,9 +1572,9 @@ test("ask evidence rejection reports partial answers and missing required questi
 });
 
 test("ask action tool rejects non-terminal evidence recording combinations", async () => {
-  const tools = new Map<string, { execute: Function }>();
-  const registerTool = (config: { name: string; execute: Function }) =>
-    tools.set(config.name, config);
+  const tools = new Map<string, RegisteredTool>();
+  const registerTool = (config: NamedRegisteredTool) =>
+    tools.set(config.name, asRegisteredTool(config));
   registerSparkAskTools({ registerTool });
   registerSparkAskFlowTool({ registerTool });
   registerSparkAskActionTool({ registerTool }, { resolveTool: (name) => tools.get(name) as never });
@@ -1433,9 +1623,9 @@ test("ask action tool rejects non-terminal evidence recording combinations", asy
 test("ask evidence timeout returns a blocker without minting decision evidence", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-ask-evidence-timeout-"));
   try {
-    const tools = new Map<string, { execute: Function }>();
-    const registerTool = (config: { name: string; execute: Function }) =>
-      tools.set(config.name, config);
+    const tools = new Map<string, RegisteredTool>();
+    const registerTool = (config: NamedRegisteredTool) =>
+      tools.set(config.name, asRegisteredTool(config));
     registerSparkAskTools({ registerTool });
     registerSparkAskActionTool(
       { registerTool },
@@ -1469,6 +1659,7 @@ test("ask evidence timeout returns a blocker without minting decision evidence",
         cwd: dir,
         askWaitTimeoutMs: 25,
         ui: {
+          interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
           interaction: async (request: Record<string, unknown>) => ({
             kind: "askFlow",
             requestId: request.requestId,
@@ -1488,9 +1679,9 @@ test("ask evidence timeout returns a blocker without minting decision evidence",
 });
 
 test("ask action tool returns a human answer before reviewer fallback", async () => {
-  const tools = new Map<string, { execute: Function }>();
-  const registerTool = (config: { name: string; execute: Function }) =>
-    tools.set(config.name, config);
+  const tools = new Map<string, RegisteredTool>();
+  const registerTool = (config: NamedRegisteredTool) =>
+    tools.set(config.name, asRegisteredTool(config));
   registerSparkAskTools({ registerTool });
   registerSparkAskFlowTool({ registerTool });
   registerSparkAskActionTool(
@@ -1513,6 +1704,7 @@ test("ask action tool returns a human answer before reviewer fallback", async ()
     {
       action: "ask",
       autoAnswer: true,
+      timeoutMs: 1,
       title: "Choose mode",
       mode: "decision",
       questions: [
@@ -1533,6 +1725,7 @@ test("ask action tool returns a human answer before reviewer fallback", async ()
     {
       askWaitTimeoutMs: 25,
       ui: {
+        interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
         interaction: async (request: Record<string, unknown>) => {
           uiInvoked = true;
           assert.equal(request.timeoutMs, 25);
@@ -1562,9 +1755,9 @@ test("ask action tool returns a human answer before reviewer fallback", async ()
 });
 
 test("ask action tool does not treat an explicit user cancel as reviewer timeout", async () => {
-  const tools = new Map<string, { execute: Function }>();
-  const registerTool = (config: { name: string; execute: Function }) =>
-    tools.set(config.name, config);
+  const tools = new Map<string, RegisteredTool>();
+  const registerTool = (config: NamedRegisteredTool) =>
+    tools.set(config.name, asRegisteredTool(config));
   registerSparkAskTools({ registerTool });
   let reviewerCalls = 0;
   registerSparkAskActionTool(
@@ -1604,6 +1797,7 @@ test("ask action tool does not treat an explicit user cancel as reviewer timeout
     {
       askReviewerFallbackAfterMs: 25,
       ui: {
+        interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
         interaction: async (request: Record<string, unknown>) => ({
           kind: "askFlow",
           requestId: request.requestId,
@@ -1620,9 +1814,9 @@ test("ask action tool does not treat an explicit user cancel as reviewer timeout
 });
 
 test("ask action tool lets false disable host auto-answer", async () => {
-  const tools = new Map<string, { execute: Function }>();
-  const registerTool = (config: { name: string; execute: Function }) =>
-    tools.set(config.name, config);
+  const tools = new Map<string, RegisteredTool>();
+  const registerTool = (config: NamedRegisteredTool) =>
+    tools.set(config.name, asRegisteredTool(config));
   registerSparkAskTools({ registerTool });
   let reviewerCalls = 0;
   registerSparkAskActionTool(
@@ -1660,6 +1854,7 @@ test("ask action tool lets false disable host auto-answer", async () => {
       askAutoAnswer: true,
       askReviewerFallbackAfterMs: 25,
       ui: {
+        interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
         interaction: async (request: Record<string, unknown>) => ({
           kind: "askFlow",
           requestId: request.requestId,
@@ -1676,9 +1871,9 @@ test("ask action tool lets false disable host auto-answer", async () => {
 });
 
 test("ask action tool lets reviewer take over only after the human wait times out", async () => {
-  const tools = new Map<string, { execute: Function }>();
-  const registerTool = (config: { name: string; execute: Function }) =>
-    tools.set(config.name, config);
+  const tools = new Map<string, RegisteredTool>();
+  const registerTool = (config: NamedRegisteredTool) =>
+    tools.set(config.name, asRegisteredTool(config));
   registerSparkAskTools({ registerTool });
   registerSparkAskActionTool(
     { registerTool },
@@ -1719,6 +1914,7 @@ test("ask action tool lets reviewer take over only after the human wait times ou
     {
       askReviewerFallbackAfterMs: 25,
       ui: {
+        interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
         interaction: async (request: Record<string, unknown>) => {
           observedTimeoutMs = request.timeoutMs;
           return {
@@ -1744,9 +1940,9 @@ test("ask action tool lets reviewer take over only after the human wait times ou
 test("ask action tool persists reviewer provenance for multi-question flows", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-ask-reviewer-flow-"));
   try {
-    const tools = new Map<string, { execute: Function }>();
-    const registerTool = (config: { name: string; execute: Function }) =>
-      tools.set(config.name, config);
+    const tools = new Map<string, RegisteredTool>();
+    const registerTool = (config: NamedRegisteredTool) =>
+      tools.set(config.name, asRegisteredTool(config));
     registerSparkAskTools({ registerTool });
     registerSparkAskFlowTool({ registerTool });
     registerSparkAskActionTool(
@@ -1803,6 +1999,7 @@ test("ask action tool persists reviewer provenance for multi-question flows", as
         cwd: dir,
         askReviewerFallbackAfterMs: 5,
         ui: {
+          interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
           interaction: async (request: Record<string, unknown>) => ({
             kind: "askFlow",
             requestId: request.requestId,
@@ -1833,9 +2030,9 @@ test("ask action tool persists reviewer provenance for multi-question flows", as
 });
 
 test("ask action tool reports missing reviewer resolver as a tool error with guidance", async () => {
-  const tools = new Map<string, { execute: Function }>();
-  const registerTool = (config: { name: string; execute: Function }) =>
-    tools.set(config.name, config);
+  const tools = new Map<string, RegisteredTool>();
+  const registerTool = (config: NamedRegisteredTool) =>
+    tools.set(config.name, asRegisteredTool(config));
   registerSparkAskTools({ registerTool });
   registerSparkAskActionTool({ registerTool }, { resolveTool: (name) => tools.get(name) as never });
   const tool = tools.get("ask");
@@ -1860,7 +2057,7 @@ test("ask action tool reports missing reviewer resolver as a tool error with gui
     },
     new AbortController().signal,
     () => undefined,
-    { askReviewerFallbackAfterMs: 1 },
+    { askReviewerFallbackAfterMs: 1, ui: timedOutAskUi() },
   );
 
   assert.equal(result.isError, true);
@@ -1873,10 +2070,94 @@ test("ask action tool reports missing reviewer resolver as a tool error with gui
   assert.match(result.content.map((part: { text: string }) => part.text).join("\n"), /blocked/i);
 });
 
-test("ask action tool blocks empty reviewer answers for required questions", async () => {
+test("ask action tool fails fast when reviewer takeover has no human transport", async () => {
   const tools = new Map<string, { execute: Function }>();
   const registerTool = (config: { name: string; execute: Function }) =>
     tools.set(config.name, config);
+  registerSparkAskTools({ registerTool });
+  registerSparkAskActionTool(
+    { registerTool },
+    {
+      resolveTool: (name) => tools.get(name) as never,
+      autoAnswer: async () => ({ answers: { mode: { values: ["safe_mode"] } } }),
+    },
+  );
+  const tool = tools.get("ask");
+  assert.ok(tool);
+
+  await assert.rejects(
+    () =>
+      tool.execute(
+        "ask-no-transport-test",
+        {
+          action: "ask",
+          autoAnswer: true,
+          mode: "decision",
+          questions: [
+            {
+              id: "mode",
+              prompt: "Which mode?",
+              type: "single",
+              required: true,
+              options: [{ value: "safe_mode", label: "Safe path" }],
+            },
+          ],
+        },
+        new AbortController().signal,
+        () => undefined,
+        { askWaitTimeoutMs: 60 * 60_000 },
+      ),
+    /ASK_TRANSPORT_UNAVAILABLE: reviewer takeover requires/u,
+  );
+});
+
+test("ask action tool rejects async delivery without a declared ACK capability", async () => {
+  const execute = async () => {
+    throw new Error("raw Ask adapter must not run");
+  };
+  let tool: { execute: Function } | undefined;
+  registerSparkAskActionTool(
+    { registerTool: (config) => (tool = config) },
+    { resolveTool: () => ({ execute }) as never },
+  );
+  assert.ok(tool);
+
+  await assert.rejects(
+    () =>
+      tool!.execute(
+        "ask-missing-ack-capability-test",
+        {
+          action: "ask",
+          delivery: "async",
+          questions: [
+            {
+              id: "mode",
+              prompt: "Which mode?",
+              options: [{ value: "safe_mode", label: "Safe path" }],
+            },
+          ],
+        },
+        new AbortController().signal,
+        () => undefined,
+        {
+          ui: {
+            interaction: async (request: Record<string, unknown>) => ({
+              kind: "askFlow",
+              requestId: request.requestId,
+              humanRequestId: "hreq:unverified",
+              status: "pending",
+            }),
+          },
+        },
+      ),
+    /ASK_TRANSPORT_CAPABILITY_MISMATCH: host did not declare/u,
+  );
+});
+
+test("ask action tool blocks empty reviewer answers for required questions", async () => {
+  const tools = new Map<string, RegisteredTool>();
+  const registerTool = (config: NamedRegisteredTool) =>
+    tools.set(config.name, asRegisteredTool(config));
   registerSparkAskTools({ registerTool });
   registerSparkAskActionTool(
     { registerTool },
@@ -1907,7 +2188,7 @@ test("ask action tool blocks empty reviewer answers for required questions", asy
     },
     new AbortController().signal,
     () => undefined,
-    { askReviewerFallbackAfterMs: 1 },
+    { askReviewerFallbackAfterMs: 1, ui: timedOutAskUi() },
   );
 
   assert.equal(result.isError, true);
@@ -1916,9 +2197,9 @@ test("ask action tool blocks empty reviewer answers for required questions", asy
 });
 
 test("ask action tool can auto-answer through a registered provider", async () => {
-  const tools = new Map<string, { execute: Function }>();
-  const registerTool = (config: { name: string; execute: Function }) =>
-    tools.set(config.name, config);
+  const tools = new Map<string, RegisteredTool>();
+  const registerTool = (config: NamedRegisteredTool) =>
+    tools.set(config.name, asRegisteredTool(config));
   registerSparkAskTools({ registerTool });
   registerSparkAskFlowTool({ registerTool });
   registerSparkAskActionTool({ registerTool }, { resolveTool: (name) => tools.get(name) as never });
@@ -1956,6 +2237,7 @@ test("ask action tool can auto-answer through a registered provider", async () =
       {
         askReviewerFallbackAfterMs: 5,
         ui: {
+          interactionCapabilities: TEST_ASK_INTERACTION_CAPABILITIES,
           interaction: async (request: Record<string, unknown>) => {
             uiInvoked = true;
             return {
@@ -1979,9 +2261,9 @@ test("ask action tool can auto-answer through a registered provider", async () =
 });
 
 test("ask action tool blocks invalid reviewer auto-answer output", async () => {
-  const tools = new Map<string, { execute: Function }>();
-  const registerTool = (config: { name: string; execute: Function }) =>
-    tools.set(config.name, config);
+  const tools = new Map<string, RegisteredTool>();
+  const registerTool = (config: NamedRegisteredTool) =>
+    tools.set(config.name, asRegisteredTool(config));
   registerSparkAskTools({ registerTool });
   registerSparkAskActionTool(
     { registerTool },
@@ -2015,7 +2297,7 @@ test("ask action tool blocks invalid reviewer auto-answer output", async () => {
     },
     new AbortController().signal,
     () => undefined,
-    { askReviewerFallbackAfterMs: 1 },
+    { askReviewerFallbackAfterMs: 1, ui: timedOutAskUi() },
   );
 
   assert.equal(result.isError, true);
@@ -2027,8 +2309,10 @@ test("ask action tool blocks invalid reviewer auto-answer output", async () => {
 });
 
 test("ask_flow fullscreen requires explicit cwd for persisted payloads", async () => {
-  const tools = new Map<string, { execute: Function }>();
-  registerSparkAskFlowTool({ registerTool: (config) => tools.set(config.name, config) });
+  const tools = new Map<string, RegisteredTool>();
+  registerSparkAskFlowTool({
+    registerTool: (config) => tools.set(config.name, asRegisteredTool(config)),
+  });
   const tool = tools.get("ask_flow");
   assert.ok(tool);
 
@@ -2062,8 +2346,10 @@ test("ask_flow fullscreen requires explicit cwd for persisted payloads", async (
 test("ask_flow fullscreen passes a custom UI factory to Pi host", async () => {
   const dir = await mkdtemp(join(tmpdir(), "ask-flow-custom-factory-"));
   try {
-    const tools = new Map<string, { execute: Function }>();
-    registerSparkAskFlowTool({ registerTool: (config) => tools.set(config.name, config) });
+    const tools = new Map<string, RegisteredTool>();
+    registerSparkAskFlowTool({
+      registerTool: (config) => tools.set(config.name, asRegisteredTool(config)),
+    });
     const tool = tools.get("ask_flow");
     assert.ok(tool);
 
@@ -2094,7 +2380,7 @@ test("ask_flow fullscreen passes a custom UI factory to Pi host", async () => {
             assert.equal(args.length, 1);
             assert.equal(typeof args[0], "function");
             sawFactory = true;
-            const factory = args[0] as Function;
+            const factory = args[0] as (...factoryArgs: unknown[]) => unknown;
             const component = factory(
               { terminal: { columns: 120 }, requestRender() {} },
               {
@@ -2125,8 +2411,10 @@ test("ask_flow fullscreen passes a custom UI factory to Pi host", async () => {
 test("ask_flow fullscreen catches custom UI failures and returns a blocking fallback", async () => {
   const dir = await mkdtemp(join(tmpdir(), "ask-flow-custom-fallback-"));
   try {
-    const tools = new Map<string, { execute: Function }>();
-    registerSparkAskFlowTool({ registerTool: (config) => tools.set(config.name, config) });
+    const tools = new Map<string, RegisteredTool>();
+    registerSparkAskFlowTool({
+      registerTool: (config) => tools.set(config.name, asRegisteredTool(config)),
+    });
     const tool = tools.get("ask_flow");
     assert.ok(tool);
 

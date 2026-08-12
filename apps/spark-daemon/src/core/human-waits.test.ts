@@ -394,13 +394,17 @@ describe("SparkDaemonHumanWaitRegistry", () => {
       });
       const repeatedRegistration = waits.register({
         ...waitInput("hreq-evidence-retry"),
-        interactionRequestId: `ask_async:${evidenceRequest.requestHash}`,
+        interactionRequestId: `ask_${evidenceRequest.requestHash.slice(0, 32)}`,
         evidenceRequest,
       });
       expect(firstRegistration.created).toBe(true);
       expect(repeatedRegistration).toMatchObject({
         created: false,
-        wait: { humanRequestId: "hreq-evidence", evidenceRequest },
+        wait: {
+          humanRequestId: "hreq-evidence",
+          interactionRequestId: `ask_async:${evidenceRequest.requestHash}`,
+          evidenceRequest,
+        },
       });
       const restartedPending = new SparkDaemonHumanWaitRegistry(db);
       expect(restartedPending.get("hreq-evidence")).toMatchObject({

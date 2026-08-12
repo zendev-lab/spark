@@ -68,7 +68,7 @@ questions, memory and context, models, roles, sessions, workflows, and durable
 loops. Users normally describe the desired outcome; the agent selects tools
 and asks for approval when policy requires it.
 
-See the complete, profile-aware [agent tool catalog](/reference/tools/).
+See the [tool activation and permission model](/reference/tools/).
 
 ## 4. Tasks and autonomous progress
 
@@ -80,7 +80,9 @@ Project → Task plan → claim or assign → Run → Artifact → Review
 
 `/plan` creates verifiable work without implementing it. `/execute` continues
 through ready tasks until complete, blocked, validation fails, or a decision is
-needed. Goal, Loop, Repro, and Workflow add daemon-owned continuation for work
+needed. `/fleet` coordinates a safe, target-disjoint ready frontier through
+reusable daemon worker Sessions without letting the owner edit code directly.
+Goal, Loop, Repro, and Workflow add daemon-owned continuation for work
 that must persist or repeat. `/automate` is only a picker for those existing
 modes.
 

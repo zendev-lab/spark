@@ -2,11 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { Type } from "typebox";
-import {
-  sparkEvidenceAnswerEventSchema,
-  type SparkEvidenceAnswerEvent,
-  type SparkLoopView,
-} from "@zendev-lab/spark-protocol";
+import type { SparkEvidenceAnswerEvent, SparkLoopView } from "@zendev-lab/spark-protocol";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import {
@@ -14,7 +10,7 @@ import {
   verifyCanonicalAskEvidence,
 } from "@zendev-lab/spark-ask";
 import { isRef, type EvidenceRef, type TaskRef } from "@zendev-lab/spark-core";
-import { sparkStateCwd, updateSubgoalStatus } from "@zendev-lab/spark-loop";
+import { sparkStateCwd } from "@zendev-lab/spark-loop";
 import {
   loadSessionGoal,
   restoreSessionGoal,
@@ -61,7 +57,6 @@ import {
   type SparkReproRequirement,
   type SparkReproRequirementProof,
   type SparkReproStageName,
-  type SparkReproSubgoal,
   type SparkReproSubgoalPlanInput,
   type SparkReproStep,
   type SparkReproStepAuthority,
@@ -135,6 +130,23 @@ export function registerSparkReproTool(
     label: "Spark Repro",
     description:
       "Manage the evidence-backed reproduction workflow. Goal contracts and typed step plans are revised explicitly; settle is the only normal path that schedules another tick. satisfy/gate remain fail-closed compatibility aliases.",
+    policy: {
+      effect: "local_write",
+      executionMode: "sequential",
+      domains: ["repro"],
+      modes: ["plan", "execute", "fleet"],
+      approval: "none",
+    },
+    resolvePolicy(args) {
+      const status = args.action === undefined || args.action === "status";
+      return {
+        effect: status ? "read" : "local_write",
+        executionMode: status ? "parallel" : "sequential",
+        domains: ["repro"],
+        modes: status ? ["plan", "execute", "fleet"] : ["plan", "execute"],
+        approval: "none",
+      };
+    },
     promptGuidelines: [
       "Use repro action=status to inspect the goal contract, current plan revision, typed steps, stable requirement ids, and blockers.",
       "Use repro action=start to begin the Repro (clears goal/loop); pass objective for user-supplied reproduction focus.",
@@ -345,6 +357,8 @@ export function registerSparkReproTool(
         const ownerSessionId = await prepareSparkDaemonLoopOwner(ctx, deps.loopControl);
         const objective = normalizeOptionalReproObjective(params.objective);
         const requestedReproId = normalizeOptionalReproId(params.reproId);
+        const requestedDifficulty =
+          typeof params.difficulty === "number" ? params.difficulty : undefined;
         const stored = await readSessionRepro(cwd, ctx);
         if (
           stored &&
@@ -405,6 +419,7 @@ export function registerSparkReproTool(
         const { repro } = await createProjectBackedSessionRepro(cwd, ctx, {
           objective,
           ...(requestedReproId ? { reproId: requestedReproId } : {}),
+          ...(requestedDifficulty !== undefined ? { difficulty: requestedDifficulty } : {}),
         });
         const loopHealth = await ensureActiveReproLoop(ctx, deps.loopControl, repro, {
           ownerSessionId,
@@ -604,7 +619,6 @@ export function registerSparkReproTool(
           };
         }
         if (settled.decision === "complete") {
-          await ctx.loop.stop({ reason: "repro completed" });
           return {
             content: [{ type: "text" as const, text: "Repro tick settled complete." }],
             details: reproDetails(settled.repro),
@@ -677,12 +691,10 @@ export function registerSparkReproTool(
         if (stageAdvanced) {
           await writeUnifiedSessionRepro(cwd, stageAdvanced, ctx);
           if (stageAdvanced.status === "complete") {
-            if (ctx.loop) await ctx.loop.stop({ reason: "repro completed" });
-            else
-              await deps.loopControl.stop({
-                loopId: stageAdvanced.reproId,
-                reason: "repro completed",
-              });
+            // The daemon's trusted after-tick evaluator is the only authority
+            // that may transition a successful Repro Loop to `completed`.
+            // Stopping here would bypass that review and leave the Workbench
+            // permanently live even though the Repro summary is complete.
             ctx.sparkActiveMode = sparkActiveMode(ctx.sparkActiveMode?.mode ?? "plan");
             await deps.refreshSparkWidget?.(cwd, ctx);
             return {
@@ -796,7 +808,7 @@ export async function ensureActiveReproLoop(
         reproId: repro.reproId,
       },
       ownerSessionId,
-      continuity: "session",
+      sessionLifetime: "driver",
       cwd: sparkStateCwd(ctx.cwd, ctx),
       prompt: renderReproTickInstruction(repro),
       reason: options.reason ?? "active Repror recovered",
@@ -1597,7 +1609,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
       "- Run a focused probe for validation uncertainty only after baseline availability or construction strategy is settled; record the command and result evidence.",
       "- Use a recommended default for reversible low-risk choices and record it in the research evidence.",
       "- Ask exactly one material user decision at a time with canonical ask and recordAsEvidence=true; do not use reviewer auto-answer for that decision.",
-      "- Keep research and decision-making in the main session; do not spawn anonymous role calls for ordinary contract research.",
+      "- Keep research and decision-making in the main session; do not spawn owned role calls for ordinary contract research.",
     );
   } else {
     lines.push(

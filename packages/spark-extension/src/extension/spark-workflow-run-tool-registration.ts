@@ -44,7 +44,7 @@ import {
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 import { publishDynamicWorkflowRunViews } from "./spark-workflow-loop-entry.ts";
 
-const DEFAULT_WORKFLOW_ROLE_REF = "role:builtin-worker" as RoleRef;
+const DEFAULT_WORKFLOW_ROLE_REF = "role:builtin-executor" as RoleRef;
 const WORKFLOW_WEB_TOOL_TIMEOUT_MS = 120_000;
 
 export interface SparkWorkflowRunApprovalSummary {
@@ -999,7 +999,7 @@ function renderWorkflowRunLiveUpdateText(
 }
 
 function renderWorkflowRunStartedText(source: string, run: SparkDynamicWorkflowRunRecord): string {
-  const controlHint = `inspect: task_read({ action: "run_status", runAction: "inspect", runRef: "${run.ref}" }) · controls: pause/resume/stop/restart/save via task_read run_status`;
+  const controlHint = `inspect: task_read({ action: "run_status", runAction: "inspect", runRef: "${run.ref}" }) · public controls: workflow({ action: "runs", runRef: "${run.ref}", runAction: ... })`;
   return [
     `Workflow run started: ${source}`,
     `╭─ Workflow ${run.meta.name} [running]`,

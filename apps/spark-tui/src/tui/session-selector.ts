@@ -30,8 +30,11 @@ function isUserFacingWorkspaceSession(session: SparkSessionRegistryRecord): bool
   return (
     session.scope.kind === "workspace" &&
     session.relation?.kind !== "task_execution" &&
+    session.relation?.kind !== "fleet_worker" &&
     session.role?.trim() !== "role:builtin-worker" &&
-    session.title?.trim() !== "role:builtin-worker"
+    session.role?.trim() !== "role:builtin-executor" &&
+    session.title?.trim() !== "role:builtin-worker" &&
+    session.title?.trim() !== "role:builtin-executor"
   );
 }
 

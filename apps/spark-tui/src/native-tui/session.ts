@@ -3,6 +3,9 @@
 import {
   SPARK_PROTOCOL_VERSION,
   createId,
+  mergeSparkConversationToolPart,
+  sparkConversationVisibleText,
+  type SparkConversationToolProjectionPart,
   type SparkMessageView,
   type SparkSessionPendingTurn,
   type SparkSessionView,
@@ -18,6 +21,7 @@ import {
   messageViewToNativeMessages,
   nativeMessageTime,
   nativeMessageToView,
+  toolViewDisplayText,
   toolViewToNativeMessage,
 } from "./message-view.ts";
 import { nativeTuiStrings } from "./strings.ts";
@@ -279,6 +283,12 @@ export class SparkNativeSession {
   }
 
   addToolView(tool: SparkToolCallView): void {
+    if (this.mergeToolViewIntoConversation(tool)) {
+      this.sortMessagesChronologically();
+      this.trimTranscript();
+      this.emitChange();
+      return;
+    }
     const native = toolViewToNativeMessage(tool);
     this.upsertMessage(native);
     this.sortMessagesChronologically();
@@ -353,6 +363,7 @@ export class SparkNativeSession {
       else messages.push(this.normalizeMessage(projected));
     }
     for (const tool of view.tools) {
+      if (this.mergeToolViewIntoConversation(tool, messages)) continue;
       const projected = toolViewToNativeMessage(tool);
       const index = this.findMessageViewIndex(projected, messages);
       if (index >= 0) messages[index] = this.normalizeMessage(projected, messages[index]);
@@ -366,6 +377,47 @@ export class SparkNativeSession {
     this.sortMessagesChronologically();
     this.trimTranscript();
     this.emitChange();
+  }
+
+  private mergeToolViewIntoConversation(
+    tool: SparkToolCallView,
+    messages: SparkNativeMessage[] = this.messages,
+  ): boolean {
+    for (const [messageIndex, message] of messages.entries()) {
+      const conversation = message.conversation;
+      if (!conversation) continue;
+      const partIndex = conversation.parts.findIndex(
+        (part) => part.type === "tool" && part.toolCallId === tool.id,
+      );
+      const previous = conversation.parts[partIndex];
+      if (partIndex < 0 || previous?.type !== "tool") continue;
+      const summary = toolViewDisplayText(tool);
+      const next: SparkConversationToolProjectionPart = {
+        id: `tool:${tool.id}`,
+        type: "tool",
+        toolCallId: tool.id,
+        toolName: tool.name,
+        status: tool.status,
+        ...(summary ? { summary } : {}),
+        lifecycle: tool.status === "pending" || tool.status === "running" ? "call" : "result",
+        sourcePartIds: [`tool:${tool.id}`],
+        metadata: tool.metadata,
+      };
+      const parts = [...conversation.parts];
+      parts[partIndex] = mergeSparkConversationToolPart(previous, next);
+      const updatedConversation = { ...conversation, parts };
+      messages[messageIndex] = {
+        ...message,
+        conversation: updatedConversation,
+        text:
+          sparkConversationVisibleText(updatedConversation, {
+            includeThinking: true,
+            includeTools: true,
+          }) || message.text,
+      };
+      return true;
+    }
+    return false;
   }
 
   clearTranscript(note: string = "Transcript cleared."): void {

@@ -19,7 +19,8 @@ evidence before calling it complete.
 ```
 
 You do not need to select tools, a Loop, or a command plane first. Use
-`/plan` for a multi-step change and `/execute` after the plan is ready.
+`/plan` for a multi-step change, `/execute` after the plan is ready, and
+`/fleet` when confirmed ready Tasks have independent existing worktree targets.
 
 ## Everyday controls
 
@@ -29,6 +30,7 @@ The short help keeps the common path bounded:
 /help
 /plan <goal>
 /execute [focus]
+/fleet [focus]
 /status
 /stop [reason]
 /retry
@@ -39,6 +41,9 @@ Model, thinking level, session selection, and queued input are available when
 needed. They are controls for the current interaction, not separate product
 features. New sessions use `high` thinking by default; an explicit session or
 saved user setting continues to take precedence.
+
+`/status` prints the complete daemon, current session, active work, usage, and
+turn-queue summary directly. It does not open an action picker.
 
 ## Inspect the current session
 

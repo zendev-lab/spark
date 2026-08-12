@@ -43,11 +43,15 @@ describe("daemon session registry", () => {
     };
     const tracked: DaemonSessionRegistry = {
       create: (input) => track(() => backing.create(toBackingCreateInput(input))),
+      createSupervised: (input) => track(() => backing.create(input)),
       list: (options) => backing.list(toBackingListOptions(options)),
       get: (sessionId) => backing.get(sessionId),
       bind: (input) => track(() => backing.bind(input)),
       unbind: (sessionId, externalKey) => track(() => backing.unbind(sessionId, externalKey)),
       archive: (sessionId) => track(() => backing.archive(sessionId)),
+      archiveOwned: (input) => track(() => backing.archiveOwned(input)),
+      markClosing: (input) => track(() => backing.markClosing(input)),
+      sealCloseReceipt: (input) => track(() => backing.sealCloseReceipt(input)),
       setRoleIfMissing: (sessionId, role) => track(() => backing.setRoleIfMissing(sessionId, role)),
       setModel: (sessionId, model) => track(() => backing.setModel(sessionId, model)),
       setThinkingLevel: (sessionId, thinkingLevel) =>
@@ -113,6 +117,35 @@ describe("daemon session registry", () => {
 });
 
 describe("daemon session registry cwd ownership", () => {
+  it("creates Channel sessions as Administrator-owned children of the workspace root", async () => {
+    const sparkHome = await mkdtemp(join(tmpdir(), "spark-daemon-channel-session-"));
+    roots.push(sparkHome);
+    const registry = createDaemonSessionRegistry(sparkHome, {
+      resolveWorkspaceCwd: () => "/Users/demo/workspace/channel",
+    });
+
+    const channel = await registry.resolveBinding({
+      externalKey: "feishu:chat:oc_operations",
+      onUnbound: "create",
+      create: { workspaceId: "ws_channel", title: "Operations" },
+    });
+    const root = await registry.ensureWorkspaceMain("ws_channel");
+
+    expect(channel).toMatchObject({
+      scope: { kind: "workspace", workspaceId: "ws_channel" },
+      lifetime: "persistent",
+      owner: { kind: "session", ref: root.sessionId },
+      roleRef: "role:builtin-administrator",
+      roleRevision: 1,
+      modelType: "coordination",
+      authority: { kind: "channel", ref: "feishu:chat:oc_operations" },
+      stateBinding: { kind: "channel", ref: "feishu:chat:oc_operations" },
+      visibility: "public",
+      retention: "retain",
+      purpose: "channel",
+    });
+  });
+
   it("ensures one stable workspace main session under concurrent delivery preparation", async () => {
     const sparkHome = await mkdtemp(join(tmpdir(), "spark-daemon-main-session-"));
     roots.push(sparkHome);

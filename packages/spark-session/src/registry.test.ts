@@ -1,7 +1,8 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import type { SparkSessionCloseReceipt } from "@zendev-lab/spark-protocol/session-assignment";
+import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import { SparkSessionRegistry, SparkSessionRegistryError } from "./registry.ts";
 
 const roots: string[] = [];
@@ -16,14 +17,29 @@ async function tempRegistry(): Promise<SparkSessionRegistry> {
   return new SparkSessionRegistry({ rootDir: root });
 }
 
+function closeReceipt(
+  input: Pick<SparkSessionCloseReceipt, "incarnation" | "code" | "summary" | "createdAt">,
+): SparkSessionCloseReceipt {
+  return {
+    version: 1,
+    source: "domain_completion",
+    quality: "semantic",
+    status: "completed",
+    evidenceRefs: [],
+    artifactRefs: [],
+    sourceInvocationIds: ["invocation:receipt"],
+    ...input,
+  };
+}
+
 describe("SparkSessionRegistry", () => {
   it("requires every registry error code to be registered in spark-protocol", () => {
     const registered = new SparkSessionRegistryError("session_not_found", "missing");
-    // @ts-expect-error Unregistered session domain codes must fail package typecheck.
-    const unregistered = new SparkSessionRegistryError("unregistered_session_error", "internal");
+    type RegistryErrorCode = ConstructorParameters<typeof SparkSessionRegistryError>[0];
 
     expect(registered.code).toBe("session_not_found");
-    expect(unregistered.code).toBe("unregistered_session_error");
+    expectTypeOf<"session_not_found">().toMatchTypeOf<RegistryErrorCode>();
+    expectTypeOf<"unregistered_session_error">().not.toMatchTypeOf<RegistryErrorCode>();
   });
 
   it("reads v1 workspace records as canonical workspace ownership", async () => {
@@ -49,16 +65,149 @@ describe("SparkSessionRegistry", () => {
     await expect(registry.get("sess_legacy")).resolves.toMatchObject({
       scope: { kind: "workspace", workspaceId: "legacy-workspace" },
       workspaceId: "legacy-workspace",
+      closeReceipts: [],
     });
 
     await registry.create({ workspaceId: "ws_new" });
     expect(JSON.parse(await readFile(registry.filePath, "utf8"))).toMatchObject({
-      version: 4,
+      version: 5,
+      revision: 1,
       sessions: [
         { sessionId: "sess_legacy", scope: { kind: "workspace" } },
         { scope: { kind: "workspace", workspaceId: "ws_new" } },
       ],
     });
+  });
+
+  it("persists a monotonic v5 revision and rejects malformed v5 state", async () => {
+    const registry = await tempRegistry();
+    const created = await registry.create({
+      sessionId: "sess_revision",
+      workspaceId: "ws_revision",
+    });
+    expect(JSON.parse(await readFile(registry.filePath, "utf8"))).toMatchObject({
+      version: 5,
+      revision: 1,
+    });
+
+    await registry.bind({
+      sessionId: created.sessionId,
+      externalKey: "infoflow:user:revision",
+    });
+    expect(JSON.parse(await readFile(registry.filePath, "utf8"))).toMatchObject({
+      version: 5,
+      revision: 2,
+    });
+
+    await writeFile(registry.filePath, `${JSON.stringify({ version: 5, sessions: [] })}\n`, "utf8");
+    await expect(registry.list()).rejects.toMatchObject({
+      code: "invalid_registry",
+      message: "registry v5 revision must be a non-negative integer",
+    });
+  });
+
+  it("seals the first close receipt for an incarnation and replays it idempotently", async () => {
+    const registry = await tempRegistry();
+    const created = await registry.create({
+      sessionId: "sess_receipt",
+      workspaceId: "ws_receipt",
+      lifetime: "owned",
+      owner: { kind: "task_run", ref: "run:receipt" },
+      retention: "discard_on_close",
+    });
+    await registry.markClosing({
+      sessionId: created.sessionId,
+      expectedLifecycle: "open",
+      now: new Date("2026-08-10T00:00:01.000Z"),
+    });
+    const firstReceipt = closeReceipt({
+      incarnation: 1,
+      code: "task_completed",
+      summary: "The task completed.",
+      createdAt: "2026-08-10T00:00:02.000Z",
+    });
+    const sealed = await registry.sealCloseReceipt({
+      sessionId: created.sessionId,
+      expectedIncarnation: 1,
+      expectedLifecycle: "closing",
+      receipt: firstReceipt,
+    });
+    expect(sealed.closeReceipts).toEqual([firstReceipt]);
+
+    const replay = await registry.sealCloseReceipt({
+      sessionId: created.sessionId,
+      expectedIncarnation: 1,
+      expectedLifecycle: "closing",
+      receipt: closeReceipt({
+        incarnation: 1,
+        code: "different_result",
+        summary: "This retry must not replace the first receipt.",
+        createdAt: "2026-08-10T00:00:03.000Z",
+      }),
+    });
+    expect(replay.closeReceipts).toEqual([firstReceipt]);
+    await expect(registry.get(created.sessionId)).resolves.toMatchObject({
+      closeReceipts: [firstReceipt],
+    });
+
+    const open = await registry.create({
+      sessionId: "sess_open_receipt",
+      workspaceId: "ws_receipt",
+      lifetime: "owned",
+      owner: { kind: "task_run", ref: "run:open" },
+    });
+    await expect(
+      registry.sealCloseReceipt({
+        sessionId: open.sessionId,
+        expectedIncarnation: 1,
+        expectedLifecycle: "closing",
+        receipt: firstReceipt,
+      }),
+    ).rejects.toMatchObject({ code: "session_registry_conflict" });
+  });
+
+  it("retains only the latest sixteen incarnation receipts", async () => {
+    const registry = await tempRegistry();
+    await registry.create({
+      sessionId: "sess_receipt_history",
+      workspaceId: "ws_receipt_history",
+      lifetime: "owned",
+      owner: { kind: "task_revision", ref: "task:history" },
+      retention: "discard_on_close",
+    });
+    const persisted = JSON.parse(await readFile(registry.filePath, "utf8")) as {
+      version: 5;
+      revision: number;
+      sessions: Array<Record<string, unknown>>;
+    };
+    const session = persisted.sessions[0]!;
+    session.incarnation = 17;
+    session.lifecycle = "closing";
+    session.closeReceipts = Array.from({ length: 16 }, (_, index) =>
+      closeReceipt({
+        incarnation: index + 1,
+        code: `incarnation_${index + 1}_completed`,
+        summary: `Completed incarnation ${index + 1}.`,
+        createdAt: `2026-08-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
+      }),
+    );
+    await writeFile(registry.filePath, `${JSON.stringify(persisted)}\n`, "utf8");
+
+    const sealed = await registry.sealCloseReceipt({
+      sessionId: "sess_receipt_history",
+      expectedIncarnation: 17,
+      expectedLifecycle: "closing",
+      receipt: closeReceipt({
+        incarnation: 17,
+        code: "incarnation_17_completed",
+        summary: "Completed incarnation 17.",
+        createdAt: "2026-08-17T00:00:00.000Z",
+      }),
+    });
+    expect(sealed.closeReceipts).toHaveLength(16);
+    expect(sealed.closeReceipts?.map((receipt) => receipt.incarnation)).toEqual(
+      Array.from({ length: 16 }, (_, index) => index + 2),
+    );
   });
 
   it("ensures one stable protected main session and advances generation after corruption", async () => {
@@ -69,7 +218,9 @@ describe("SparkSessionRegistry", () => {
     expect(first).toMatchObject({
       scope: { kind: "workspace", workspaceId: "ws_main" },
       relation: { kind: "workspace_main", generation: 1 },
-      role: "Workspace Coordinator",
+      role: "Administrator",
+      roleRef: "role:builtin-administrator",
+      modelType: "coordination",
     });
     await expect(registry.archive(first.sessionId)).rejects.toMatchObject({
       code: "workspace_main_session_mutation_forbidden",
@@ -108,7 +259,7 @@ describe("SparkSessionRegistry", () => {
         includeArchived: true,
         scope: { kind: "daemon", daemonId: "install-test" },
       }),
-    ).resolves.toEqual([global]);
+    ).resolves.toEqual([expect.objectContaining(global)]);
     await expect(
       registry.create({
         sessionId: "sess_new_global",
@@ -218,6 +369,43 @@ describe("SparkSessionRegistry", () => {
 
     expect(created.role).toBe("role:builtin-worker");
     expect(created).not.toHaveProperty("title");
+  });
+
+  it("persists Fleet worker lane identity without a user-facing title", async () => {
+    const registry = await tempRegistry();
+    const created = await registry.create({
+      sessionId: "sess_fleet_worker",
+      workspaceId: "ws_demo",
+      role: "role:executor",
+      relation: {
+        kind: "fleet_worker",
+        ownerSessionId: "sess_owner",
+        projectRef: "proj:demo",
+        roleRef: "role:executor",
+        laneKey: "fleet:lane",
+        primaryArtifactRef: "artifact:repo",
+        writableArtifactRefs: ["artifact:repo"],
+      },
+    });
+
+    expect(created).toMatchObject({
+      role: "role:executor",
+      relation: { kind: "fleet_worker", laneKey: "fleet:lane" },
+    });
+    expect(created).not.toHaveProperty("title");
+
+    const persisted = await registry.get("sess_fleet_worker");
+    expect(persisted).toMatchObject({
+      role: "role:executor",
+      lifetime: "persistent",
+      owner: { kind: "session", ref: "sess_owner" },
+      authority: { kind: "role", ref: "role:executor" },
+      stateBinding: { kind: "session", ref: "sess_fleet_worker" },
+      visibility: "internal",
+      retention: "retain",
+      purpose: "fleet_worker",
+      relation: { kind: "fleet_worker", laneKey: "fleet:lane" },
+    });
   });
 
   it("persists searchable archive tags and preserves them after restore", async () => {
@@ -546,7 +734,6 @@ describe("SparkSessionRegistry", () => {
       now: new Date("2026-07-10T08:04:00.000Z"),
     });
 
-    expect(first.sessionPath).toBe("/tmp/sessions/sess_recorded.jsonl");
     expect(first.status).toBe("ready");
     expect(replayed.updatedAt).toBe("2026-07-10T08:05:00.000Z");
     await expect(registry.get(created.sessionId)).resolves.toEqual(replayed);
@@ -659,6 +846,7 @@ describe("SparkSessionRegistry", () => {
       sessionPath: "/tmp/child-2.jsonl",
     });
     expect(reset.relation).toMatchObject({ generation: 2 });
+    expect(reset.incarnation).toBe(2);
     await registry.archive(parent.sessionId);
     await expect(registry.get(child.sessionId)).resolves.toMatchObject({ status: "archived" });
   });

@@ -2,9 +2,11 @@ import type {
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
   ExtensionRoleRunner,
+  LeafCapabilityRunner,
   SparkHostLoopContext,
   SparkHostContext,
   SparkSessionLeaseIdentity,
+  ToolPolicy,
 } from "@zendev-lab/spark-core";
 import type { ToolCallComponent, ToolCallRenderTheme } from "./tool-rendering.ts";
 
@@ -13,6 +15,8 @@ export interface SparkRegisteredToolConfig {
   label?: string;
   description: string;
   promptGuidelines?: string[];
+  policy?: ToolPolicy;
+  resolvePolicy?: (args: Readonly<Record<string, unknown>>) => ToolPolicy;
   parameters: unknown;
   renderCall?: (
     args: Record<string, unknown>,
@@ -54,13 +58,15 @@ export interface SparkToolContext {
   model?: SparkSessionModelRef;
   /** Daemon-backed model catalog projection supplied by the native host. */
   modelRegistry?: unknown;
+  /** Optional bounded single-shot model runner supplied by Spark-native hosts. */
+  runLeaf?: LeafCapabilityRunner;
   runRole?: ExtensionRoleRunner;
   roleNativeCompatibilityRecovery?: {
     sparkHome?: string;
     controlSparkHome?: string;
   };
   sparkActiveMode?: {
-    mode: "plan" | "execute";
+    mode: "plan" | "execute" | "fleet";
   };
   isIdle?: () => boolean;
   sessionManager?: {
@@ -71,7 +77,7 @@ export interface SparkToolContext {
   };
   hasUI?: boolean;
   askAutoAnswer?: boolean;
-  askAutoAnswerResolver?: (request: unknown, ctx: any) => Promise<unknown>;
+  askAutoAnswerResolver?: (request: unknown, ctx: SparkToolContext) => Promise<unknown>;
   /** Internal host policy; models cannot set the human-wait deadline. */
   askWaitTimeoutMs?: number;
   /** @deprecated Compatibility alias for askWaitTimeoutMs. */

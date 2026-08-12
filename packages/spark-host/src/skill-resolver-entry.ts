@@ -46,7 +46,7 @@ export function formatSparkSkillsForPrompt(skills: readonly SparkSkill[]): strin
   const lines = [
     "\n\nThe following Skills provide specialized instructions or intelligent execution for specific tasks.",
     "When one or more Skills match, choose one primary execution path:",
-    "- If skill_agent is active, call it once with the complete matching Skill set and a self-contained instruction. The host loads every selected Skill body exactly once for one dedicated anonymous Agent.",
+    "- If skill_agent is active, call it once with the complete matching Skill set and a self-contained instruction. The host loads every selected Skill body exactly once for one dedicated owned Agent Session.",
     "- Use read on a listed file only when this session itself must inspect and follow the Skill instructions.",
     "Do not explicitly read selected Skills before calling skill_agent, and do not duplicate work while the dedicated Agent owns it. Resolve relative references against each listed Skill directory.",
     "",

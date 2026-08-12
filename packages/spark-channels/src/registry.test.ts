@@ -69,7 +69,6 @@ describe("ChannelRegistry", () => {
     });
 
     const listed = await registry.notify({ action: "list" });
-    expect(listed.action).toBe("list");
     if (listed.action !== "list") throw new Error("expected list result");
     expect(listed.adapters.map((adapter) => adapter.id).sort()).toEqual(["feishu", "infoflow"]);
     expect(listed.routes.map((route) => route.name).sort()).toEqual(["alerts", "ops"]);

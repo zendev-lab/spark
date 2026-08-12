@@ -1,5 +1,3 @@
-/* eslint-disable */
-// @ts-nocheck
 
 /**
  * @typedef {"year" | "years" | "quarter" | "quarters" | "month" | "months" | "week" | "weeks" | "day" | "days" | "hour" | "hours" | "minute" | "minutes" | "second" | "seconds"} RelativeTimeFormatUnit
@@ -12,8 +10,8 @@
  * @returns {string}
  */
 export function plural(locale, input, options) {
-  return new Intl.PluralRules(locale, options).select(Number(input));
-}
+	return new Intl.PluralRules(locale, options).select(Number(input))
+};
 
 /**
  * @param {import("./runtime.js").Locale} locale
@@ -22,8 +20,8 @@ export function plural(locale, input, options) {
  * @returns {string}
  */
 export function number(locale, input, options) {
-  return new Intl.NumberFormat(locale, options).format(Number(input));
-}
+	return new Intl.NumberFormat(locale, options).format(Number(input))
+};
 
 /**
  * @param {import("./runtime.js").Locale} locale
@@ -32,8 +30,8 @@ export function number(locale, input, options) {
  * @returns {string}
  */
 export function datetime(locale, input, options) {
-  return new Intl.DateTimeFormat(locale, options).format(new Date(/** @type {string} */ (input)));
-}
+	return new Intl.DateTimeFormat(locale, options).format(new Date(/** @type {string} */ (input)))
+};
 
 /**
  * @param {import("./runtime.js").Locale} locale
@@ -42,6 +40,6 @@ export function datetime(locale, input, options) {
  * @returns {string}
  */
 export function relativetime(locale, input, options) {
-  const { unit, ...intlOptions } = options;
-  return new Intl.RelativeTimeFormat(locale, intlOptions).format(Number(input), unit);
-}
+	const { unit, ...intlOptions } = options;
+	return new Intl.RelativeTimeFormat(locale, intlOptions).format(Number(input), unit);
+};

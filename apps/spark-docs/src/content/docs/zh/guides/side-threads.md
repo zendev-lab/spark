@@ -28,7 +28,9 @@ Side Threads 是由 daemon 拥有、附属于主 TUI 会话的只读子对话。
 /btw thinking high
 ```
 
-重置会开始新的 Side Thread generation。模型和 thinking override 只影响子会话。
+重置会先关闭当前子 Session incarnation 并封存有界关闭回执，再以同一个稳定 Session
+ID 开始新的 Side Thread generation 和 Session incarnation。模型和 thinking override
+只影响子会话。
 
 ## 只读边界
 
@@ -37,3 +39,8 @@ host 拒绝。回答可以建议修改，但不能声称已经执行了修改。
 
 `handoff full` 或 `handoff summary` 会把选定结果显式接纳到主会话，并在接纳后
 重置子会话。只有当旁支结论确实属于主线时才进行 handoff。
+
+父 Session 关闭时，daemon 会先关闭 Side Thread。完整 transcript 与 Invocation
+内容会被删除；有界摘要、用量、执行画像和显式 Evidence 仍可供授权诊断查询。
+重置会保留上一 incarnation 的回执元数据，但不会恢复其 transcript 或重新打开子
+Session。

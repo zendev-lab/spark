@@ -483,17 +483,6 @@ Each `unknownFields[]` item contains `fieldPath`, `reason`, `sourceSchema`, and 
 
 Backfill is idempotent per Repro id, source schema, source digest, and migration revision. Restart after any partial write resumes from the durable checkpoint without duplicate Evidence, AnswerEvents, unresolved items, Artifact pages, Tasks, or TaskRuns. Migration reads structured records only. Markdown, A2UI, transcript prose, and historical percentage text are never inputs. A migration that cannot prove a field records the typed unknown/open item above; it never guesses.
 
-## Delivery stack
-
-The implementation is one GitChange with four dependent PR layers. Spark Tasks remain granular ownership/evidence units rather than PR topology.
-
-1. **Contract** — this specification fixes the versioned lane/Profile/progress/ReportModel, formal verifier, namespace, and migration contracts. It does not claim that runtime enforcement or migration is available in this layer; executable schemas, adapters, and tests land in dependent layers. No daemon scheduling change.
-2. **Async Evidence** — autonomous Ask guard, shared durable EvidenceRequest/AnswerEvent binding, hook reconciliation, direct-user provenance, restart/idempotency tests. No dual-frontier dispatch yet.
-3. **Dual-lane Runtime** — ordered Normative retirement, Explore frontier, unresolved accounting, independent scheduling/recovery, Goal integration, and completion fence.
-4. **Workbench & Rollout** — deterministic Artifact-first/A2UI/Hub/TUI projections, compatibility export, dogfood migrations, kill switch, browser/restart/E2E validation, and operator documentation.
-
-A layer may merge only when its own fail-closed tests pass and all prior layers remain green. The unrelated Pi provider-auth compatibility change—GitHub PR **#225**, branch `fix/pi-role-auth-compat`—must not enter this stack.
-
 ## Recovery, stagnation, and rollout
 
 Daemon restart reconstructs activity and idempotency from existing owners. No frontend timer reactivates work. Pending evidence requests survive restart and do not by themselves count as semantic stagnation.

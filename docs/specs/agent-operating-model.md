@@ -23,7 +23,7 @@ lower layer.
 
 | Term | Meaning | Examples |
 | --- | --- | --- |
-| **Mode** | How the current Session is allowed to work | `plan`, `execute` |
+| **Mode** | How the current Session is allowed to work | `plan`, `execute`, `fleet` |
 | **Continuation driver** | Who owns whether and when the Session receives another turn | `manual`, `goal`, `loop`, `repro` |
 | **Stage** | An ordered step inside a domain protocol or Workflow | Repro contract/baseline/alignment; Workflow stages |
 | **Status** | Lifecycle state of a durable object or run | `running`, `paused`, `complete`, `failed` |
@@ -44,7 +44,7 @@ A Session has an operating mode and may have a continuation driver. The two
 axes are independent:
 
 ```ts
-export type SparkSessionMode = "plan" | "execute";
+export type SparkSessionMode = "plan" | "execute" | "fleet";
 
 export type SparkContinuationDriver =
   | { kind: "manual" }
@@ -71,6 +71,32 @@ The mode answers **how this turn may work**:
 - continue until the assigned outcome is complete, a material user decision is
   required, or a real blocker prevents progress;
 - keep durable Task, Artifact, Evidence, and PR state synchronized.
+
+### Fleet mode
+
+- the owner Session coordinates existing Project Tasks but does not modify
+  source, Git, or Cue targets itself;
+- `assign` is the only Task dispatch primitive. With no `taskRefs`, it selects
+  the maximum currently safe ready frontier; explicit refs are an allowlist,
+  not a dependency or resource override;
+- the owner may inspect authoritative state, reconcile TaskRuns, recover an
+  explicit failed/blocked Task, continue unrelated work, control the mode, or
+  ask the user. Direct Role, Skill Agent, Workflow, Goal, Loop, Repro, and
+  workspace-delegation dispatch is unavailable;
+- workers run in daemon-owned persistent Sessions keyed by owner Session,
+  Project, Role, primary GitChange, and the exact sorted writable GitChange
+  set. One lane runs one Task at a time and reuses its Session after a terminal
+  TaskRun. `continuity: "fresh"` creates a new worker Session;
+- leaving Fleet stops new admission but does not cancel admitted work. Later
+  completion notifications reconcile idempotently without dispatching more
+  work; re-entering Fleet recovers from TaskGraph, TaskRun, resource, and
+  Session Registry state.
+
+Fleet status is a derived projection only:
+`recommended | running | ready | attention | done | workers`. There is no Fleet
+store or scheduler. Plan context recommends Fleet only when preflight can pack
+at least two ready, target-disjoint lanes, and the user still chooses Fleet or
+ordinary Execute. Explicit `/fleet` and `/execute` are already decisions.
 
 The continuation driver answers **who owns another turn**:
 
@@ -134,11 +160,11 @@ Prompt layers have these owners:
    - engineering policy;
    - Artifact, Evidence, and PR delivery policy.
 2. **Session mode**
-   - only `plan`-specific or `execute`-specific behavior.
+   - only `plan`-, `execute`-, or `fleet`-specific behavior.
 3. **Continuation driver**
    - only Goal, Loop, or Repro continuation and completion semantics.
 4. **Agent identity**
-   - persistent Role, anonymous Role, Skill Agent, Workflow child, reviewer, or
+   - persistent Role, owned Role call, Skill Agent, Workflow child, reviewer, or
      leaf responsibility and authority.
 5. **Tool guidance**
    - only tool-specific invocation constraints.
@@ -174,8 +200,15 @@ many requests. Reuse the closest existing responsibility before creating a new
 Session. A specialist directly completes ordinary work within its responsibility
 and does not recursively delegate routine substeps.
 
-An anonymous Role Agent is appropriate for one bounded invocation of a stable
-Role without conversation continuity.
+An owned Role Session is appropriate for one bounded invocation of a stable
+Role without conversation continuity. The daemon closes it when its owner
+settles; `RoleRun` remains a compatibility query projection. The compatibility
+projection reports `sessionLifetime=owned` rather than claiming persistent
+continuity. Workflow-agent calls remain owned by their active parent Invocation;
+a display run name is not lifecycle authority. The projection is computed before
+close, then its structured outcome and final assistant result become the Session
+close candidate. The sealed close receipt is Session metadata and is never copied
+into Invocation rows or injected into the parent transcript.
 
 ## Multi-Skill Agent
 
@@ -199,7 +232,7 @@ Rules:
 - duplicate names are rejected or normalized before execution;
 - the host resolves and loads every complete Skill body exactly once;
 - the aggregate Skill source is bounded and never silently truncated;
-- one fresh anonymous Agent receives the combined Skill set;
+- one fresh owned Agent Session receives the combined Skill set;
 - the parent transcript is intentionally unavailable, so `instruction` is
   self-contained;
 - the child cannot call Role, Session, Task, Skill Agent, Workflow, Git
@@ -307,36 +340,6 @@ export type GitChangeReviewState =
 Intermediate Tasks may finish while a stack is still draft. Ready is required
 at the final PR-delivery, integration, Project-completion, or Goal-completion
 boundary when the confirmed success criteria include a reviewable PR.
-
-## Migration plan
-
-The refactor is delivered as reviewable slices:
-
-1. **Operating contract and Skill Agent**
-   - add this specification;
-   - replace singular `skill_delegate` with plural `skill_agent`;
-   - update Skill catalog prompts and behavior tests;
-   - clarify draft-to-ready PR delivery in the system and Git tool prompts.
-2. **Session mode**
-   - rename `phase` to `mode` and `implement` to `execute`;
-   - migrate persisted current-project state from v1 `phase` to v2 `mode`;
-   - do not retain private API aliases after migration;
-   - keep `/plan` and replace `/execute` with `/execute` when the published
-     command contract permits the breaking change.
-3. **Prompt ownership**
-   - remove model-facing behavior from i18n;
-   - keep only user-visible localized copy;
-   - move Goal and active-context instructions to their domain owners;
-   - inject one output-language directive.
-4. **Native tool guidance**
-   - render guidelines for active tools into the native system prompt;
-   - remove duplicated global policy from tool guidance;
-   - record a guidance fingerprint in the prompt manifest.
-5. **Continuation ownership**
-   - expose explicit Session mode and continuation-driver state;
-   - keep WorkflowRun outside continuation-driver state;
-   - remove remaining `phase` aliases from Workflow metadata when compatibility
-     analysis permits.
 
 ## Acceptance criteria
 

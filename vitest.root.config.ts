@@ -9,7 +9,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test/**/*.test.ts", "packages/spark-protocol/src/memory-approval.test.ts"],
-    exclude: ["test/process/**/*.test.ts"],
+    exclude: ["test/process/**/*.test.ts", "test/journey/**/*.test.ts"],
     pool: "forks",
     fileParallelism: false,
     maxWorkers: 2,

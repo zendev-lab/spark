@@ -1,23 +1,24 @@
 <script lang="ts">
-  import { Icon } from "@zendev-lab/spark-ui";
   import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
-  import ApprovalPart from "./ApprovalPart.svelte";
-  import ArtifactPart from "./ArtifactPart.svelte";
-  import ErrorPart from "./ErrorPart.svelte";
-  import ImagePart from "./ImagePart.svelte";
-  import MessageActions from "./MessageActions.svelte";
-  import NoticePart from "./NoticePart.svelte";
-  import ReasoningPart from "./ReasoningPart.svelte";
-  import RuntimeControlPart from "./RuntimeControlPart.svelte";
-  import SessionRetryAction from "./SessionRetryAction.svelte";
-  import TaskRunPart from "./TaskRunPart.svelte";
-  import ThinkingChainPart from "./ThinkingChainPart.svelte";
-  import ToolCallPart from "./ToolCallPart.svelte";
   import {
+    ApprovalPart,
+    ArtifactPart,
+    ErrorPart,
+    MessageActions,
+    MessageShell,
+    NoticePart,
+    ReasoningPart,
+    TaskRunPart,
+    ThinkingChainPart,
+    ToolCallPart,
     visibleConversationParts,
     visibleConversationPartText,
-  } from "./conversation-view";
-  import type { ConversationMessageView, ConversationPartLabels } from "./types";
+    type ConversationMessageView,
+    type ConversationPartLabels,
+  } from "@zendev-lab/spark-ui/conversation";
+  import ImagePart from "./ImagePart.svelte";
+  import RuntimeControlPart from "./RuntimeControlPart.svelte";
+  import SessionRetryAction from "./SessionRetryAction.svelte";
 
   type Props = {
     item: ConversationMessageView;
@@ -69,361 +70,131 @@
   );
   let copyableText = $derived(visibleConversationPartText(item.parts));
   let hasCopyableText = $derived(copyableText.length > 0);
+
 </script>
 
-{#if visibleParts.length > 0}
-  <article
-    id={item.id}
-    class:runtime-only={runtimeOnly}
-    class="conversation-message {item.actor}"
-    data-message-id={item.id}
-    data-runtime-summary={runtimeOnly ? "true" : undefined}
-  >
-    {#if !runtimeOnly}
-      <span class="actor-mark" aria-hidden="true">
-        {#if item.actor === "spark"}
-          <Icon name="spark" size={16} />
-        {:else}
-          {actorLabel.slice(0, 1)}
+{#snippet messageContent()}
+  {#if item.title && item.title !== item.body}<h2>{item.title}</h2>{/if}
+  {#each visibleParts as part, partIndex (`${item.id}:${part.type}:${partIndex}`)}
+    {#if part.type === "quote"}
+      <blockquote class="user-quote">
+        {#if part.senderLabel}
+          <span class="user-quote-sender">{part.senderLabel}</span>
         {/if}
-      </span>
+        <p class="user-quote-text">{part.text}</p>
+      </blockquote>
+    {:else if part.type === "text"}
+      {#if item.actor === "spark" || item.actor === "session"}
+        <div class="assistant-content">
+          <SafeMarkdown source={part.text} streaming={part.streaming} />
+        </div>
+      {:else}
+        <p class="user-content">{part.text}</p>
+      {/if}
+    {:else if part.type === "image"}
+      <ImagePart
+        {sessionId}
+        messageId={item.sourceMessageId ?? item.id}
+        contentIndex={part.contentIndex}
+        mediaType={part.mediaType}
+        name={part.name}
+      />
+    {:else if part.type === "reasoning"}
+      <ReasoningPart
+        summary={part.summary}
+        state={part.state}
+        redacted={part.redacted}
+        labels={partLabels}
+      />
+    {:else if part.type === "commentary"}
+      <ReasoningPart summary={part.summary} state={part.state} labels={partLabels} />
+    {:else if part.type === "chain"}
+      <ThinkingChainPart
+        state={part.state}
+        steps={part.steps}
+        labels={partLabels}
+        {statusLabel}
+        {active}
+      />
+    {:else if part.type === "tool"}
+      <ToolCallPart
+        callId={part.callId}
+        name={part.name}
+        state={part.state}
+        summary={part.summary}
+        labels={partLabels}
+        {statusLabel}
+      />
+    {:else if part.type === "task"}
+      <TaskRunPart
+        taskRef={part.taskRef}
+        title={part.title}
+        state={part.state}
+        summary={part.summary}
+        labels={partLabels}
+        {statusLabel}
+      />
+    {:else if part.type === "approval"}
+      <ApprovalPart
+        requestId={part.requestId}
+        title={part.title}
+        state={part.state}
+        kind={part.kind}
+        summary={part.summary}
+        labels={partLabels}
+        {statusLabel}
+      />
+    {:else if part.type === "artifact"}
+      <ArtifactPart
+        artifactRef={part.artifactRef}
+        title={part.title}
+        kind={part.kind}
+        state={part.state}
+        summary={part.summary}
+        previewHref={part.previewHref}
+        previewLabel={partLabels.expand}
+        {statusLabel}
+      />
+    {:else if part.type === "error"}
+      <ErrorPart title={part.title} message={part.message} code={part.code} />
+    {:else if part.type === "notice"}
+      <NoticePart title={partLabels.budgetExhausted} message={partLabels.budgetExhaustedHint} />
+    {:else if part.type === "runtime"}
+      <RuntimeControlPart
+        bindingLabel={part.bindingLabel}
+        state={part.state}
+        request={part.request}
+        result={part.result}
+        labels={partLabels}
+        {statusLabel}
+      />
+    {:else}
+      <p class="unknown-part">{partLabels.unknown}: {part.label}</p>
     {/if}
-    <div class="message-column">
-      {#if !runtimeOnly}
-        <header class="message-meta">
-          <strong>{actorLabel}</strong>
-          <time datetime={item.timestamp}>{relativeTime(item.timestamp)}</time>
-          {#if item.status}
-            <span class="message-status {item.status}">{statusLabel(item.status)}</span>
-          {/if}
-        </header>
-      {/if}
+  {/each}
+  {#if item.meta}<small>{item.meta}</small>{/if}
+{/snippet}
 
-      <div class="message-content">
-        {#if item.title && item.title !== item.body}<h2>{item.title}</h2>{/if}
-        {#each visibleParts as part, partIndex (`${item.id}:${part.type}:${partIndex}`)}
-          {#if part.type === "quote"}
-            <blockquote class="user-quote">
-              {#if part.senderLabel}
-                <span class="user-quote-sender">{part.senderLabel}</span>
-              {/if}
-              <p class="user-quote-text">{part.text}</p>
-            </blockquote>
-          {:else if part.type === "text"}
-            {#if item.actor === "spark" || item.actor === "session"}
-              <div class="assistant-content">
-                <SafeMarkdown source={part.text} streaming={part.streaming} />
-              </div>
-            {:else}
-              <p class="user-content">{part.text}</p>
-            {/if}
-          {:else if part.type === "image"}
-            <ImagePart
-              {sessionId}
-              messageId={item.sourceMessageId ?? item.id}
-              contentIndex={part.contentIndex}
-              mediaType={part.mediaType}
-              name={part.name}
-            />
-          {:else if part.type === "reasoning"}
-            <ReasoningPart
-              summary={part.summary}
-              state={part.state}
-              redacted={part.redacted}
-              labels={partLabels}
-            />
-          {:else if part.type === "commentary"}
-            <ReasoningPart summary={part.summary} state={part.state} labels={partLabels} />
-          {:else if part.type === "chain"}
-            <ThinkingChainPart
-              state={part.state}
-              steps={part.steps}
-              labels={partLabels}
-              {statusLabel}
-              {active}
-            />
-          {:else if part.type === "tool"}
-            <ToolCallPart
-              callId={part.callId}
-              name={part.name}
-              state={part.state}
-              summary={part.summary}
-              labels={partLabels}
-              {statusLabel}
-            />
-          {:else if part.type === "task"}
-            <TaskRunPart
-              taskRef={part.taskRef}
-              title={part.title}
-              state={part.state}
-              summary={part.summary}
-              labels={partLabels}
-              {statusLabel}
-            />
-          {:else if part.type === "approval"}
-            <ApprovalPart
-              requestId={part.requestId}
-              title={part.title}
-              state={part.state}
-              kind={part.kind}
-              summary={part.summary}
-              labels={partLabels}
-              {statusLabel}
-            />
-          {:else if part.type === "artifact"}
-            <ArtifactPart
-              artifactRef={part.artifactRef}
-              title={part.title}
-              kind={part.kind}
-              state={part.state}
-              summary={part.summary}
-              previewLabel={partLabels.expand}
-              {statusLabel}
-            />
-          {:else if part.type === "error"}
-            <ErrorPart
-              title={part.title}
-              message={part.message}
-              code={part.code}
-            />
-          {:else if part.type === "notice"}
-            <NoticePart
-              title={partLabels.budgetExhausted}
-              message={partLabels.budgetExhaustedHint}
-            />
-          {:else if part.type === "runtime"}
-            <RuntimeControlPart
-              bindingLabel={part.bindingLabel}
-              state={part.state}
-              request={part.request}
-              result={part.result}
-              labels={partLabels}
-              {statusLabel}
-            />
-          {:else}
-            <p class="unknown-part">{partLabels.unknown}: {part.label}</p>
-          {/if}
-        {/each}
-        {#if item.meta}<small>{item.meta}</small>{/if}
-      </div>
+{#snippet messageActions()}
+  <MessageActions text={copyableText} {copyLabel} {copiedLabel} />
+{/snippet}
 
-      {#if hasCopyableText}
-        <MessageActions text={copyableText} {copyLabel} {copiedLabel} />
-      {/if}
-      {#if retryAction}
-        <SessionRetryAction {...retryAction} />
-      {/if}
-    </div>
-  </article>
+{#snippet messageFooter()}
+  {#if retryAction}<SessionRetryAction {...retryAction} />{/if}
+{/snippet}
+
+{#if visibleParts.length > 0}
+  <MessageShell
+    id={item.id}
+    actor={item.actor}
+    {actorLabel}
+    timestamp={item.timestamp}
+    relativeTime={relativeTime(item.timestamp)}
+    status={item.status}
+    statusLabel={item.status ? statusLabel(item.status) : undefined}
+    {runtimeOnly}
+    children={messageContent}
+    actions={hasCopyableText ? messageActions : undefined}
+    footer={retryAction ? messageFooter : undefined}
+  />
 {/if}
-
-<style>
-  .conversation-message {
-    align-items: start;
-    display: grid;
-    gap: 11px;
-    grid-template-columns: 30px minmax(0, 1fr);
-  }
-
-  .conversation-message.user {
-    grid-template-columns: minmax(0, 1fr) 30px;
-  }
-
-  .conversation-message.runtime-only {
-    display: block;
-    margin-left: 41px;
-  }
-
-  .conversation-message.runtime-only .message-column {
-    width: 100%;
-  }
-
-  .actor-mark {
-    align-items: center;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    color: var(--color-ink-muted);
-    display: inline-flex;
-    font-size: 11px;
-    font-weight: 700;
-    height: 30px;
-    justify-content: center;
-    width: 30px;
-  }
-
-  .conversation-message.spark .actor-mark {
-    background: var(--color-primary-weak);
-    border-color: var(--color-primary-soft);
-    color: var(--color-primary);
-  }
-
-  .conversation-message.session .actor-mark {
-    background: var(--color-surface-soft);
-    border-color: var(--color-primary-soft);
-    color: var(--color-primary);
-  }
-
-  .conversation-message.user .actor-mark {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .message-column {
-    min-width: 0;
-  }
-
-  .conversation-message.user .message-column {
-    display: grid;
-    grid-column: 1;
-    grid-row: 1;
-    justify-items: end;
-    justify-self: end;
-    max-width: min(88%, 720px);
-  }
-
-  .message-meta {
-    align-items: center;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 7px;
-    min-height: 24px;
-  }
-
-  .conversation-message.user .message-meta {
-    justify-content: flex-end;
-  }
-
-  .message-meta strong {
-    color: var(--color-ink);
-    font-size: 12px;
-    font-weight: 700;
-  }
-
-  .message-meta time,
-  .message-content small {
-    color: var(--color-ink-subtle);
-    font-size: 11px;
-  }
-
-  .message-content {
-    display: grid;
-    gap: 9px;
-    min-width: 0;
-  }
-
-  .conversation-message.user .message-content {
-    background: var(--color-surface-soft);
-    border: 1px solid var(--color-border-soft);
-    border-radius: 12px;
-    margin-top: 3px;
-    padding: 11px 13px;
-    width: fit-content;
-  }
-
-  .message-content h2 {
-    color: var(--color-ink);
-    font-size: 13px;
-    font-weight: 650;
-    margin: 0;
-  }
-
-  .user-content {
-    color: var(--color-ink-muted);
-    font-size: 14px;
-    line-height: 1.6;
-    margin: 0;
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
-  }
-
-  .user-quote {
-    border-left: 3px solid var(--color-border);
-    color: var(--color-ink-subtle);
-    display: grid;
-    gap: 4px;
-    margin: 0 0 8px;
-    padding: 2px 0 2px 10px;
-  }
-
-  .user-quote-sender {
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-  }
-
-  .user-quote-text {
-    font-size: 12px;
-    line-height: 1.5;
-    margin: 0;
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
-  }
-
-  .assistant-content {
-    color: var(--color-ink-muted);
-    font-size: 14px;
-    line-height: 1.65;
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-
-  .unknown-part {
-    background: var(--color-surface-soft);
-    border: 1px dashed var(--color-border);
-    border-radius: 8px;
-    color: var(--color-ink-subtle);
-    font-size: 11px;
-    margin: 0;
-    padding: 8px 10px;
-  }
-
-  .message-status {
-    background: var(--color-surface-soft);
-    border-radius: 999px;
-    color: var(--color-ink-subtle);
-    font-size: 10px;
-    font-weight: 650;
-    padding: 3px 7px;
-    text-transform: capitalize;
-  }
-
-  .message-status.running,
-  .message-status.streaming,
-  .message-status.pending,
-  .message-status.queued {
-    background: var(--color-primary-weak);
-    color: var(--color-primary);
-  }
-
-  .message-status.failed,
-  .message-status.error {
-    background: var(--color-danger-weak, #fef2f2);
-    color: var(--color-danger-strong, #b91c1c);
-  }
-
-  @media (max-width: 640px) {
-    .conversation-message {
-      gap: 8px;
-      grid-template-columns: 26px minmax(0, 1fr);
-    }
-
-    .conversation-message.user {
-      grid-template-columns: minmax(0, 1fr) 26px;
-    }
-
-    .conversation-message.runtime-only {
-      margin-left: 34px;
-    }
-
-    .conversation-message.user .message-column {
-      max-width: 94%;
-    }
-
-    .actor-mark {
-      border-radius: 7px;
-      height: 26px;
-      width: 26px;
-    }
-  }
-</style>

@@ -1,4 +1,4 @@
-import type { LoadEarlierOutcome } from "$lib/components/conversation/types";
+import type { LoadEarlierOutcome } from "@zendev-lab/spark-ui/conversation";
 import {
   hydrateSessionConversationWindow,
   mergeEarlierSessionSnapshotWindow,

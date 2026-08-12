@@ -5,10 +5,7 @@ import type {
   SessionStatusBarLabels,
   SlashActionAvailability,
 } from "$lib/components/conversation";
-import type {
-  ConversationPartLabels,
-  LoadEarlierOutcome,
-} from "$lib/components/conversation/types";
+import type { ConversationPartLabels, LoadEarlierOutcome } from "@zendev-lab/spark-ui/conversation";
 import type { ModelPickerGroup, ModelRuntimeControlLabels } from "$lib/components/model-selector";
 import type { PendingWorkbenchAsk } from "$lib/pending-ask";
 import type { SessionEventConnectionState } from "$lib/session-event-connection";
@@ -67,12 +64,16 @@ export type SessionConversationHost = {
   set sessionModelForm(value: HTMLFormElement | null);
   get sessionThinkingForm(): HTMLFormElement | null;
   set sessionThinkingForm(value: HTMLFormElement | null);
+  get sessionModeForm(): HTMLFormElement | null;
+  set sessionModeForm(value: HTMLFormElement | null);
   get retryMessageForm(): HTMLFormElement | null;
   set retryMessageForm(value: HTMLFormElement | null);
   get sessionModel(): string;
   set sessionModel(value: string);
   get sessionThinkingLevel(): string;
   set sessionThinkingLevel(value: string);
+  get sessionMode(): string;
+  set sessionMode(value: string);
   retryPrompt: string;
   retrySubmissionId: string;
   get message(): string;

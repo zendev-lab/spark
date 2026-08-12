@@ -10,10 +10,17 @@ import {
 import { loadProjectedModelControlForHub } from "$lib/server/model-control";
 import { createHubSubmissionId } from "$lib/server/submission-idempotency";
 import { workspaceIdForWorkbenchSession } from "$lib/workbench-session-scope";
+import type { HubConversationSummary } from "$lib/server/conversation-summaries";
+
+interface SessionPageParentData {
+  activeWorkspace?: { id: string } | null;
+  sessions: HubConversationSummary[];
+  sessionControlAvailable: boolean;
+}
 
 export interface SessionPageLoadEvent {
   params: { sessionId: string };
-  parent: () => Promise<any>;
+  parent: () => Promise<SessionPageParentData>;
   url: URL;
 }
 

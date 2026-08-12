@@ -4,6 +4,7 @@
   import MemoryQuarantineDetail from "$lib/MemoryQuarantineDetail.svelte";
   import { Button, Icon, Panel } from "@zendev-lab/spark-ui";
   import { GitChangePreview } from "@zendev-lab/spark-ui/git-change";
+  import { WebPreview, WebPreviewBody } from "@zendev-lab/spark-ui/workbench";
   import { gitChangePreviewFromContentRef } from "$lib/git-change-preview";
   import { enumLabel, formatByteSize, formatRelativeTime } from "$lib/i18n";
   import { workspacePath, workspaceSessionPath } from "$lib/workspace-routes";
@@ -91,18 +92,21 @@
     {#if gitChangePreview}
       <GitChangePreview change={gitChangePreview} labels={t.gitChange} />
     {:else if previewDocumentHtml}
-      <iframe
-        class="product-preview-frame"
-        title={`${t.preview.title}: ${displayTitle}`}
-        srcdoc={previewDocumentHtml}
-        sandbox=""
-      ></iframe>
-      <div class="preview-actions">
-        <span>{data.artifact.format} · {formatSize(preview.body?.bytes ?? null)}</span>
-        <Button variant="secondary" href={`/api/v1/artifacts/${data.artifact.id}/content`}>
-          {t.preview.openRaw}
-        </Button>
-      </div>
+      <WebPreview
+        class="artifact-web-preview"
+        view={{
+          id: `artifact-${data.artifact.id}`,
+          title: displayTitle,
+          description: `${data.artifact.format} · ${formatSize(preview.body?.bytes ?? null)}`,
+          href: `/api/v1/artifacts/${data.artifact.id}/content`,
+        }}
+        openLabel={t.preview.openRaw}
+      >
+        <WebPreviewBody
+          title={`${t.preview.title}: ${displayTitle}`}
+          documentHtml={previewDocumentHtml}
+        />
+      </WebPreview>
     {:else if preview.status === "ready" && preview.body}
       {#if preview.body.text !== null}
         <pre class="preview-body">{preview.body.text}</pre>
@@ -252,7 +256,7 @@
   }
 
   :global(.preview-panel .ui-panel-body) { gap: 0; }
-  .product-preview-frame { background: white; border: 0; display: block; height: min(70vh, 760px); min-height: 32rem; width: 100%; }
+  :global(.preview-panel .artifact-web-preview) { border: 0; border-radius: 0; }
   .preview-body { background: var(--color-ink); color: var(--color-border); font-size: var(--text-caption); margin: 0; max-height: 60vh; overflow: auto; padding: var(--spacing-xl); white-space: pre-wrap; }
 
   .preview-empty { align-items: center; display: grid; gap: var(--spacing-sm); justify-items: center; padding: var(--spacing-xxl); text-align: center; }

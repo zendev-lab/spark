@@ -10,8 +10,9 @@ its normal check and mutation evaluation can exercise it.
 | --- | --- | --- |
 | Package unit / contract | `packages/*/src/**/*.test.ts` | Pure behavior, schemas, state transitions, adapter contracts |
 | App unit / integration | `apps/*/src/**/*.test.ts` | App-owned composition, persistence, process, route, and rendering behavior |
-| Root integration | `pnpm test` (`test/**/*.test.ts`, excluding `test/process/`) | Behavior that genuinely crosses package or app ownership boundaries |
+| Root integration | `pnpm test` (`test/**/*.test.ts`, excluding `test/process/` and `test/journey/`) | Behavior that genuinely crosses package or app ownership boundaries |
 | Source process | `pnpm run test:process:source` (`test/process/**/*.test.ts`) | Exact source-distributed executable lifecycle under isolated local state |
+| Repro Golden Journey | `pnpm run test:journey:repro` (`test/journey/**/*.test.ts`) | Complete trusted product path through real source processes and cue-shell |
 | Browser component | `pnpm run test:browser:hub` | Browser-only interaction and DOM behavior |
 | Product process | `pnpm run smoke` | Packed, clean-installed public product lifecycle and Hub HTTP/client-asset smoke |
 | Capability CE | `pnpm run test:capability:ce` | Repeated zero-token Goal, Loop, and Repro sentinels, inventory stability, flakes, and duration variance |
@@ -34,18 +35,19 @@ contracts. The Direct PTY harness launches `runNativeSparkTui()` in a real pseud
 stdin/stdout bytes, raw mode, resize, redraw, and exit behavior. Do not simulate PTY semantics in
 the component harness or require a terminal multiplexer for either lane.
 
-Real process tests stay out of the root Vitest suite. Source and packed-product checks share the same
+Real process and journey tests stay out of the root Vitest suite. Source and packed-product checks share the same
 daemon lifecycle harness, but invoke different executable targets. This prevents the source launcher
 and generated npm product from drifting while keeping failures attributable to distinct named steps.
-`pnpm run check` remains the serial local gate. Static CI always runs the complete architecture,
-test-quality, documentation, formatting, lint, and type checks. Runtime CI runs the complete source
-and process suites on the Ubuntu/macOS matrix plus the browser suite for pull requests,
-`merge_group`, and `main` pushes. These jobs are advisory and there is no aggregate required test
-job.
+`pnpm run check` remains the serial local gate. Static CI runs maintained workflow validators,
+architecture, dependency, documentation, formatting, lint, and type checks. Runtime CI runs the
+complete source and process suites on the Ubuntu/macOS matrix, the Repro Golden Journey on Ubuntu
+with a pinned compatible cue-shell source build, plus the browser suite for pull requests and
+`merge_group`. CI workflows do not run on branch pushes. These jobs are advisory and there is no
+aggregate required test job.
 
 `prek` is the local fast-fix boundary: use native pre-commit integrations for file-format and
-workflow checks, plus the repository's `spark-check-fix` hook. Repository-specific read-only checks
-such as architecture and test quality stay in static CI instead of being wrapped as system hooks.
+workflow checks, plus the repository's `spark-check-fix` hook. Actionlint parses workflow syntax
+and expressions; Zizmor owns GitHub Actions security policy, including immutable action references.
 
 Continuous-evaluation lanes remain separate from merge gates. Capability CE repeats the exact
 owner tests selected by the deterministic sentinel runner and preserves missing runs, inventory
@@ -58,10 +60,11 @@ pull-request verification.
 Test ownership is structural instead of ledger-driven:
 
 - package and app tests live under their owning workspace and run through that workspace's `test` script;
-- `vitest.root.config.ts` owns cross-workspace tests under `test/` and excludes the separate real-process lane;
+- `vitest.root.config.ts` owns cross-workspace tests under `test/` and excludes separate real-process and journey lanes;
 - `vitest.process.config.ts` owns `test/process/`;
+- `vitest.journey.config.ts` owns `test/journey/` and may declare native runtime prerequisites in its dedicated CI job;
 - Dependency Cruiser rejects root/app deep links into workspace `src/` internals and cross-package relative source imports;
-- `pnpm -r --filter './packages/*' --if-present run test` discovers package-local tests directly from manifests, while `check-architecture-ratchets.mjs` fails closed when a package contains tests but does not expose a `test` script.
+- `pnpm -r --workspace-concurrency=1 --if-present run test` discovers every app- and package-local test script directly from manifests, while `check-architecture-ratchets.mjs` fails closed when any workspace contains tests but does not expose a `test` script.
 
 Mutation CE selection is also package-owned: either a `test:mutation` script or `stryker.config.json` requires the complete command, config, and dependency set. Shared Stryker dependencies alone do not enroll a package. This keeps pnpm recursive `--if-present` discovery fail-closed without a second workspace inventory.
 
@@ -74,22 +77,18 @@ CSS, or documentation to prove that an implementation fragment exists.
 
 Repository policy belongs to dedicated static tools invoked by `pnpm run check:static`:
 
-- `check-architecture-ratchets.mjs` owns Spark-specific workspace identity, dependency and
-  compatibility boundaries, plus fail-closed package test/mutation discovery that generic tools
-  cannot express;
-- `check-github-actions.mjs` owns immutable Action references and benchmark credential policy;
-- `check-pnpm-workspace-policy.mjs` owns hook-time pnpm mutation safety;
-- `check-hub-source-boundaries.mjs` owns Hub source/state-owner boundaries;
-- Dependency Cruiser and the existing terminology, documentation, distribution, and evidence
-  checkers own their declared repository surfaces.
+- Actionlint and Zizmor own GitHub Actions parsing and security analysis;
+- JSON Schema, Syncpack, and Knip own generic inventory and manifest consistency;
+- Dependency Cruiser owns import direction, cycles, deep-link bans, and transport boundaries;
+- `check-architecture-ratchets.mjs` compares the authoritative package inventory with workspace
+  manifests and keeps test and mutation discovery fail-closed;
+- Astro/Starlight own documentation parsing and compilation; focused tests exercise locale
+  selection and path mapping as behavior.
 
-Static checker self-tests do not belong in the root code-test suite. Validate repository policy by
-running its dedicated tool against the repository and keep code tests focused on product behavior.
-
-`pnpm run check:test-quality` enforces this split with no compatibility baseline. The detector
-follows direct and locally wrapped file reads, recognizes both production source and repository
-configuration, and rejects prompt or instruction fragment matching, including equivalent snapshot
-assertions. Any finding fails the gate even when the total suite still passes.
+Do not add a repository-wide source, YAML, schema-string, prompt, or prose keyword scanner. If a
+maintained parser or analyzer owns the format, configure it. If the concern is product behavior,
+test the consuming boundary. A project-specific static check is acceptable only when it compares
+structured sources of truth that generic tooling cannot relate.
 
 Prefer, in order:
 
@@ -100,10 +99,11 @@ Prefer, in order:
    behavior.
 
 Reading production source and asserting that fragments are present is not a behavior test. It is
-usually a brittle implementation mirror. Move a real repository constraint into its authoritative
-static checker; otherwise delete the assertion. The same rule applies to prompt and instruction
+usually a brittle implementation mirror. Express an import rule in Dependency Cruiser, validate a
+machine-readable contract, or delete the assertion. The same rule applies to prompt and instruction
 wording: verify structured behavior at the consuming boundary instead of matching text fragments.
-The gate scans current tests directly and has no exemption catalog or historical count to refresh.
+For schemas and transforms, test acceptance, rejection, normalization, or downstream behavior
+instead of proving that a word or field name appears in a serialized schema.
 
 ## Golden files
 

@@ -1,0 +1,17 @@
+@font-face {
+  font-family: "Spark Catalog Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: block;
+  src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2")
+    format("woff2-variations");
+}
+
+@font-face {
+  font-family: "Spark Catalog Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: block;
+  src: url("@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2")
+    format("woff2-variations");
+}

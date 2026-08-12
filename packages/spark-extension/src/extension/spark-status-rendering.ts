@@ -618,7 +618,7 @@ function renderProjectLines(
         );
       }
       lines.push(
-        '    Next: if owner is inactive, review failed with needs_changes, or claim expired, reclaim with task_write({ action: "claim", task: "@name" }); Spark will refuse active/recent owners and record recovery evidence.',
+        '    Next: if owner is inactive, review failed with needs_changes, or claim expired, reclaim with task_write({ action: "claim", taskRef: "@name" }); Spark will refuse active/recent owners and record recovery evidence.',
       );
     }
     if (isCurrent && input.sessionGoal) {

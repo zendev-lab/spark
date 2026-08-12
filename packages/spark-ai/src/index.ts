@@ -26,6 +26,7 @@ export type { OAuthLoginCallbacks } from "@earendil-works/pi-ai/oauth";
 
 export * from "./model-routing.ts";
 export * from "./provider-failure.ts";
+export { TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE } from "./provider-stream-retry.ts";
 export {
   type SparkProviderAttemptObservation,
   type SparkProviderAttemptObserver,

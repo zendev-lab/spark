@@ -26,12 +26,15 @@ over copied prose.
 - `memory` owns durable memory, learnings, candidates, and reflection state.
   `context` only exposes registered bounded providers; it accepts no arbitrary
   provider prompt.
-- `role` owns reusable definitions/model settings and fresh anonymous calls.
-  `session` owns persistent identity, lifecycle, bindings, calls, and mail.
-  `skill_delegate` runs a fresh anonymous Skill Worker and does not create a
-  persistent Session.
+- `role` owns reusable definitions and semantic Model Type settings. Calls
+  instantiate owner-bound child Sessions; `RoleRun` is a compatibility query
+  projection only.
+  `session` owns identity, lifecycle, bindings, calls, and mail.
+  `skill_agent` instantiates one owned child Session and does not create a
+  parallel Agent lifecycle.
 - `mode`, `goal`, `loop`, `workflow`, and `repro` bind capability contracts to
-  daemon-owned continuation. They do not create another executor or timer.
+  daemon-owned continuation. `workflow` also owns public WorkflowRun inspection
+  and control. They do not create another executor or timer.
 - Files, Cue execution, Web reads, Git delivery, Fusion, and Graft retain their
   package/domain owners. Optional capabilities do not become default authority
   merely by being registered.
@@ -52,6 +55,20 @@ current host policy immediately before execution.
 
 Compatibility aliases are bounded inputs only. They do not receive new product
 behavior and must not become a second canonical surface.
+
+The native default profile is described by
+`architecture/tool-surface-contract.json`. Every active tool declares its
+authoritative owner, surface kind (`action | capability | compatibility`), and
+conservative effect. Owners must exist in `architecture/packages.json`. Adding
+or removing a default tool, changing its effect, or
+changing whether it is an action surface requires an explicit contract update.
+An `action` surface must expose an action discriminant.
+
+`check:tool-surface` reports tool count, model-facing and schema size, field
+shape, alias, action, and union-branch diagnostics. These observations support
+architecture review but are not quantity limits. An `unclassified` effect is
+explicit design debt and remains fail-closed at runtime; the architecture
+contract must never infer or grant an effect merely to make the check pass.
 
 ## Effect and execution policy
 
@@ -75,21 +92,125 @@ native default concurrency bound is four.
 Restricted hosts also apply the same effect admission to lifecycle listeners and
 post-compaction hooks. Prompt instructions are not an enforcement boundary.
 
+## Tool failure and recovery
+
+Tool delivery certainty and retryability are independent facts:
+
+- `certainty=not-sent | unknown` states whether an external effect may have happened;
+- `retryability=transient | permanent | agent-decides` states who may choose another attempt.
+
+The runtime may transparently retry only `not-sent + transient`, and only within
+its bounded attempt budget. `not-sent + permanent` and `not-sent + agent-decides`
+become model-visible error ToolResults. An untagged failure is never interpreted
+as permission to replay.
+
+An `external_write` failure with an unknown outcome must use the tool owner's
+read-only `reconcile` capability when present. `completed` replays the durable
+receipt, while `not-sent` still requires a separate retryability classification.
+An absent, failed, timed-out, or inconclusive reconciliation produces an error
+ToolResult with a stable operation ID and `replayAllowed=false`; it does not turn
+the whole AgentLoop into a failed outcome. The Agent can inspect state, use other
+read tools, choose a different approach, or Ask the user, but the runtime does
+not automatically execute that uncertain operation again.
+
+A tool or reconciliation timeout aborts that individual attempt's signal before
+recovery begins. The runtime waits for that attempt to settle even when its
+implementation ignores the signal, so reconciliation or replay cannot overlap
+the original side effect. User/session abort remains the parent signal and stops
+recovery without releasing the execution fence before the active attempt settles.
+
 ## Task and assignment invariants
 
-New and claimed Tasks require an objectively verifiable plan. `assign` dispatches
-only an admissible ready frontier and dry-runs by default. Repro-owned dispatch
-must use the verified safe frontier and fail closed when it cannot prove that
-frontier.
+New and claimed Tasks require an objectively verifiable plan. Public
+`task_write` uses action-discriminated payloads and exposes only canonical ref
+selectors; compatibility aliases remain decoder-only. `task_read` is strictly
+read-only, including `run_status`; WorkflowRun mutations use `workflow`
+`action=runs`. `assign` is an explicit dispatch request and exposes only an
+optional `taskRefs` allowlist. Concurrency, timeout, and preview policy are
+host-owned. Repro-owned dispatch must use the verified safe frontier and fail
+closed when it cannot prove that frontier.
 
-Task execution policy may constrain continuity, isolation, comparison side,
+Session TODOs and Task plan items use target-state reconciliation. Public
+callers provide the complete desired non-deleted item list with explicit
+statuses; omitted existing items become deleted history, metadata is preserved
+when optional fields are absent, and a target with multiple `in_progress`
+items fails before mutation. Event-style checklist verbs are decoder-only
+compatibility and are absent from the model schema.
+
+Task execution policy uses `sessionLifetime=task_run | task_revision` and may
+constrain isolation, comparison side,
 GPU count/memory/topology, exclusivity, concurrency keys, timeout, and bounded
-attempts. Resource leases are scheduler-owned durable state reconstructed from
+attempts. Legacy `continuity` is decode/projection-only. Resource leases are
+scheduler-owned durable state reconstructed from
 queued/running TaskRuns after restart; terminal TaskRuns release those leases.
+Daemon execution attaches a fenced Session lease to every workspace-owned
+persistent Session turn, including the owning root Loop and managed Task
+Sessions. Task claim mutation must present that exact current Session lease;
+unowned or mismatched Sessions receive no claim authority.
+When a managed Task Session closes, its existing `TaskRunCompletionSummary`
+becomes the semantic close candidate. `task_run` includes that attempt;
+`task_revision` uses the final run summary and merges terminal Invocation IDs,
+Evidence refs, and Artifact refs from the current Session incarnation. A
+`succeeded` TaskRun maps to receipt status `completed`; `blocked`, `failed`, and
+`cancelled` retain their status.
+
+Fleet extends that policy with an optional exact worktree authorization:
+
+```ts
+worktreeTarget?: {
+  primaryArtifactRef: ArtifactRef;
+  writableArtifactRefs: ArtifactRef[];
+}
+```
+
+The primary ref must be writable and every ref must be linked by the Task and
+resolve, in the owning Workspace, to an attached `git_change` worktree. A Task
+with exactly one linked GitChange may infer it; multiple GitChanges require the
+explicit target. Target Artifact refs become scheduler concurrency keys, so
+partially overlapping target sets serialize while disjoint sets may run in
+parallel. Fleet never creates, selects, repairs, or substitutes a worktree.
+
+Before every worker Invocation the daemon freezes the current target paths and
+execution isolation. `isolated_worktree` file, Git, and local Cue writes must
+remain within one authorized canonical worktree; traversal, symlink escape,
+unlisted secondary repositories, remote Cue targets, missing/moved worktrees,
+and cross-Workspace refs fail closed. `readonly` admits only read effects.
+`isolated_results` writes only below `.spark/task-results/<jobId>` in the owning
+Workspace. Model arguments cannot widen this scope.
 
 Task state, Goal/Repro state, and transcript summaries are not interchangeable
 sources of truth. Historical text or hook-projected context must never authorize
 a mutation.
+
+Existing-Task dependency replacement is a dedicated canonical `task_write`
+action. It requires exactly one `task`/`taskRef` selector and a complete
+`dependsOn` replacement array; `[]` is the explicit empty set. The action must
+reject mixed creation, metadata, plan, or status mutation. Unknown or ambiguous
+selectors, cancelled or cross-Project prerequisites, self-edges, and cycles
+fail with stable machine-readable classes. The owner validates the complete
+candidate graph after a lock-scoped reload and persists only after every check
+passes; any failure leaves the graph bytes and revision unchanged.
+
+Task finish results expose a versioned diagnostic timing breakdown for candidate
+resolution, Lens, follow-up disposition, Evidence, reviewer bootstrap/model,
+optional reviewer escalation, commit, and post-commit work. Timing is
+observability only and must not change, skip, or relax any completion gate.
+
+For `status=done`, deterministic gates build one bounded review packet before
+commit. The normal reviewer is one tool-free structured leaf call using the
+independently configured `verification` Model Type, no reasoning request, a
+60-second deadline, and no whole-review retry. It may instantiate the canonical
+Reviewer Role Session only after the leaf returns typed `needs_deep_review`.
+A host with no leaf seam may use the explicit compatibility Role fallback;
+configured leaf model, route, or protocol failure instead fails closed.
+
+Task finish Evidence loading is cached within the call and bounded to four
+concurrent reads. The reviewer receives at most five current previews, at most
+3,000 characters per preview and 12,000 preview characters total; additional
+current Evidence remains represented by refs and an omitted count. The Task
+plan projection contains objective, constraints, non-goals, success criteria,
+Evidence requirements, open questions, item counts, and bounded unfinished
+items rather than the full persisted plan object.
 
 ## Hook-projected state
 
@@ -126,6 +247,9 @@ write paths expose revision, lease, or equivalent conflict validation.
 - Document preview is a view, not an Artifact kind.
 - Agent-authored Document content is bounded to supported safe formats; unknown
   or executable document payloads are not promoted to trusted UI.
+- Public `artifact.sync_file` input remains capped at 32 KiB. A Spark-generated
+  Repro report may use the internal 128 KiB cap only after its typed summary,
+  current StepVerifier authority, and formal Evidence receipts are validated.
 - `artifact.update` and `evidence.update` remain distinct event channels.
 - Repro Workbench interaction is daemon-bound Session control and does not turn
   Artifact previews into a generic interactive execution surface.
@@ -144,10 +268,17 @@ fields.
 
 ## Role, Skill Worker, and Session invariants
 
-`role` must not accept persistent Session lifecycle, mail, or a `sessionId`.
-`session` is the only persistent conversation lifecycle surface.
+`role` must not accept lifecycle, mail, or a `sessionId`; the daemon
+`SessionSupervisor` instantiates the owned child and closes it after the call.
+`session` is the only conversation lifecycle surface.
 
-A Skill Worker receives the selected Skill instructions plus an explicit,
+Current builtin Role names and Model Types are `administrator → coordination`,
+`explorer → exploration`, `researcher → research`, `executor → implementation`,
+and `reviewer → verification`. Model Types are open semantic routing keys, not
+model tiers. `scout` and `worker` remain decode-only aliases for `explorer` and
+`executor`; new configuration and listings must not expose them.
+
+A Skill Agent receives the selected Skill instructions plus an explicit,
 self-contained delegation packet rather than the parent transcript. Its direct
 work profile is bounded and cannot recurse into Roles/Skills, manage persistent
 Sessions, mutate Tasks, or publish Git/Artifact/Evidence state.

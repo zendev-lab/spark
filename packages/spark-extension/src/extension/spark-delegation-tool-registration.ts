@@ -19,6 +19,13 @@ export function registerSparkDelegationTool(registerSparkTool: SparkToolRegistra
       "Return only target workspace artifact: refs and bounded verification summaries; never return internal evidence bodies.",
       "Use action=list or action=get to inspect the daemon-local projection without inferring status from transcript text.",
     ],
+    policy: {
+      effect: "external_write",
+      executionMode: "sequential",
+      domains: ["delegation"],
+      modes: ["plan", "execute"],
+      approval: "none",
+    },
     parameters: Type.Object({
       action: Type.String({
         description: "create | get | list | ask | reply | complete | reject | cancel",

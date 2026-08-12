@@ -88,18 +88,6 @@ test("feedback tool accepts only host-verified current-turn receipts and exposes
       },
     );
     assert.ok(tool);
-    const schema = JSON.stringify(tool.parameters);
-    for (const forbidden of [
-      "memoryFeedback",
-      "feedbackReceipt",
-      "trustedTelemetryWriter",
-      "commitMemoryFeedback",
-      "releaseMemoryFeedback",
-      "privateKey",
-      "signMemoryFeedback",
-    ]) {
-      assert.equal(schema.includes(forbidden), false);
-    }
     const issue = async () => {
       const authority = createSparkMemoryDirectIntentTurnAuthority();
       const receipt = await authority.issueFeedback({

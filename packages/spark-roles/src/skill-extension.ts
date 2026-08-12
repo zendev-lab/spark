@@ -15,7 +15,14 @@ import {
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
 import { Type } from "typebox";
-import { runRole, type RoleRunRef } from "./role-runtime.ts";
+import {
+  RoleModelTypeUnconfiguredError,
+  defaultProjectRoleModelSettingsStore,
+  defaultUserRoleModelSettingsStore,
+  resolveRoleModelSetting,
+  runRole,
+  type RoleRunRef,
+} from "./role-runtime.ts";
 
 export interface SparkSkillAgentToolOptions {
   sparkHome?: string;
@@ -97,7 +104,7 @@ export function createSparkSkillAgentTool(options: SparkSkillAgentToolOptions = 
     name: "skill_agent",
     label: "Skill Agent",
     description:
-      "Run one dedicated anonymous Agent with one or more discovered Skills loaded in full exactly once. Use it for a self-contained unit of work jointly governed by the selected Skills.",
+      "Run one dedicated owned Agent Session with one or more discovered Skills loaded in full exactly once. Use it for a self-contained unit of work jointly governed by the selected Skills.",
     promptGuidelines: [
       "Use skill_agent once with the complete matching Skill set when one or more Skills jointly own a self-contained unit of work; use read only when the current session itself must inspect and follow Skill instructions.",
       "Pass a complete instruction because the dedicated Agent cannot see the parent transcript.",
@@ -171,8 +178,6 @@ export function createSparkSkillAgentTool(options: SparkSkillAgentToolOptions = 
       );
       const inputs = optionalStringArray(params.inputs, "skill_agent.inputs");
       const timeoutMs = normalizeTimeout(params.timeoutMs, defaultTimeoutMs);
-      const model = sessionModelName(ctx);
-      if (!model) throw new Error("skill_agent requires an active session model");
 
       const resolver = await createSkillResolver(cwd, options);
       const { skills: resolvedSkills } = await resolver.resolve();
@@ -198,6 +203,15 @@ export function createSparkSkillAgentTool(options: SparkSkillAgentToolOptions = 
 
       const identity = skillAgentIdentity(skillNames);
       const roleRef = `role:${identity}` as RoleRef;
+      const modelType = "implementation" as const;
+      const modelSetting = await resolveRoleModelSetting({
+        roleRef,
+        modelType,
+        projectStore: defaultProjectRoleModelSettingsStore(cwd),
+        userStore: defaultUserRoleModelSettingsStore(options.sparkHome),
+      });
+      if (!modelSetting) throw new RoleModelTypeUnconfiguredError(roleRef, modelType);
+      const model = modelSetting.model;
       const runRef = `run:${randomUUID()}` as RoleRunRef;
       const runName = `skills:${skillNames.join(",")}`;
       const agentInstruction = renderSkillAgentInstruction(instruction, inputs);
@@ -206,6 +220,11 @@ export function createSparkSkillAgentTool(options: SparkSkillAgentToolOptions = 
         runRef,
         roleRef,
         roleId: identity,
+        roleRevision: skillAgentRevision(loadedSkills),
+        roleSource: "extension",
+        roleCapabilities: ["read", "write", "exec", "net"],
+        roleModelType: modelType,
+        roleInstantiation: "owned",
         runName,
         systemPrompt: renderSkillAgentSystemPrompt(loadedSkills),
         instruction: agentInstruction,
@@ -215,7 +234,6 @@ export function createSparkSkillAgentTool(options: SparkSkillAgentToolOptions = 
         signal,
         launch: "fresh",
         model,
-        noSession: true,
         stdinMode: "ignore",
         nativeExecutor: ctx.runRole,
       });
@@ -365,10 +383,12 @@ function skillAgentIdentity(skillNames: readonly string[]): string {
   return `skill-agent-${digest}`;
 }
 
-function sessionModelName(ctx: SparkHostContext): string | undefined {
-  const provider = ctx.model?.provider.trim();
-  const id = ctx.model?.id.trim();
-  return provider && id ? `${provider}/${id}` : undefined;
+function skillAgentRevision(skills: readonly SparkLoadedSkill[]): number {
+  const digest = createHash("sha256")
+    .update(skills.map((skill) => `${skill.skill.name}\0${skill.content}`).join("\0"))
+    .digest("hex")
+    .slice(0, 8);
+  return Math.max(1, Number.parseInt(digest, 16));
 }
 
 function requiredCwd(ctx: SparkHostContext): string {

@@ -19,6 +19,7 @@ import { ensureRoleModelSettingsForProject } from "./role-model-settings.ts";
 import {
   currentSparkProject,
   loadSparkGraph,
+  loadSparkMode,
   saveSparkGraphAndTodos,
   sparkRunStrategyForMaxConcurrency,
   sparkStateCwd,
@@ -33,8 +34,10 @@ import { collectReproOrchestrationSnapshot } from "./spark-repro-orchestration.t
 import { readSessionRepro } from "./spark-session-repro.ts";
 import {
   dispatchManagedTaskSessions,
+  reconcileManagedTaskSessions,
   type ManagedTaskSessionDispatchInput,
 } from "./spark-task-session-dispatch.ts";
+import { prepareFleetTargetLocks } from "./spark-fleet-projection.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 
 interface SparkRunReadyTasksToolDeps {
@@ -108,7 +111,7 @@ export function registerSparkRunReadyTasksTool(
       );
       const requestedTaskRefs = normalizeSparkRunReadyTaskRefs(params.taskRefs);
       const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
-      const graph = await loadSparkGraph(cwd, ctx);
+      let graph = await loadSparkGraph(cwd, ctx);
       if (!graph)
         return {
           content: [{ type: "text", text: NO_SPARK_PROJECT_FOUND_HINT }],
@@ -126,6 +129,21 @@ export function registerSparkRunReadyTasksTool(
           ],
           details: { found: false, error: "no_current_project" },
         };
+      const sessionMode = (await loadSparkMode(cwd, ctx)).mode;
+      const fleet = sessionMode === "fleet";
+      if (fleet) {
+        const ownerSessionId = ctx.sessionId?.trim();
+        if (!ownerSessionId) {
+          throw new Error("Fleet assignment requires a daemon-owned owner Session");
+        }
+        await reconcileManagedTaskSessions({
+          cwd,
+          ctx,
+          projectRef: project.ref,
+          ownerSessionId,
+        });
+        graph = (await loadSparkGraph(cwd, ctx)) ?? graph;
+      }
       const registry = await createSparkRoleRegistry(sparkStateCwd(cwd, ctx));
       const repro = await readSessionRepro(cwd, ctx);
       const orchestration =
@@ -144,7 +162,9 @@ export function registerSparkRunReadyTasksTool(
             taskRefs: requestedTaskRefs,
             safeTaskRefs: orchestration?.dispatchableTaskRefs,
           })
-        : undefined;
+        : fleet
+          ? graph.readyTasks(project.ref).map((task) => task.ref)
+          : undefined;
       if (!dryRun) {
         const settingsResult = await ensureRoleModelSettingsForProject({
           graph,
@@ -169,7 +189,7 @@ export function registerSparkRunReadyTasksTool(
           const dispatch = deps.dispatchManagedTaskSessions ?? dispatchManagedTaskSessions;
           const requestedTasks = taskRefs.map((taskRef) => graph.getTask(taskRef));
           const attemptLimitDeferred = taskAttemptLimitDeferrals(requestedTasks, graph.runs());
-          if (attemptLimitDeferred.length > 0) {
+          if (attemptLimitDeferred.length > 0 && !fleet) {
             return {
               content: [
                 {
@@ -189,9 +209,12 @@ export function registerSparkRunReadyTasksTool(
               },
             };
           }
+          const fleetPreflight = fleet
+            ? await prepareFleetTargetLocks(sparkStateCwd(cwd, ctx), requestedTasks)
+            : { tasks: requestedTasks, deferred: [] };
           const resourceInventory = await discoverTaskResourceInventory();
           const packing = packTaskResourceFrontier({
-            tasks: requestedTasks,
+            tasks: fleetPreflight.tasks,
             runs: graph.runs(),
             inventory: resourceInventory,
             maxConcurrency,
@@ -199,17 +222,18 @@ export function registerSparkRunReadyTasksTool(
           const defensiveAttemptLimitDeferred = packing.deferred.filter(
             (deferred) => deferred.reason === "attempt_limit",
           );
-          if (defensiveAttemptLimitDeferred.length > 0) {
+          if (defensiveAttemptLimitDeferred.length > 0 && !fleet) {
             throw new Error(
               "managed Task Session attempt preflight diverged from resource packing",
             );
           }
           if (packing.scheduled.length === 0) {
+            const allDeferred = [...fleetPreflight.deferred, ...packing.deferred];
             return {
               content: [
                 {
                   type: "text",
-                  text: `Accepted 0 managed Task Session runs for “${project.title}”; ${packing.deferred.length} task(s) are waiting for resources.`,
+                  text: `Accepted 0 managed Task Session runs for “${project.title}”; ${allDeferred.length} task(s) are deferred.`,
                 },
               ],
               details: {
@@ -219,7 +243,7 @@ export function registerSparkRunReadyTasksTool(
                 taskRefs: [],
                 bindings: [],
                 resourceInventory,
-                resourceDeferred: packing.deferred,
+                resourceDeferred: allDeferred,
                 policy: { maxConcurrency, timeoutMs },
               },
             };
@@ -237,6 +261,7 @@ export function registerSparkRunReadyTasksTool(
             registry,
             resourceAllocations,
             ...(orchestration && repro ? { subgoals: repro.subgoals } : {}),
+            ...(fleet ? { fleet: true } : {}),
           } satisfies ManagedTaskSessionDispatchInput);
           await deps.refreshSparkWidget?.(cwd, ctx);
           return {
@@ -253,7 +278,7 @@ export function registerSparkRunReadyTasksTool(
               taskRefs: records.map((record) => record.taskRef),
               bindings: records,
               resourceInventory,
-              resourceDeferred: packing.deferred,
+              resourceDeferred: [...fleetPreflight.deferred, ...packing.deferred],
               policy: { maxConcurrency, timeoutMs },
             },
           };
@@ -294,6 +319,53 @@ export function registerSparkRunReadyTasksTool(
 
       const evidenceStore = defaultEvidenceStore(sparkStateCwd(cwd, ctx));
       const resourceInventory = await discoverTaskResourceInventory();
+      if (fleet) {
+        const candidates = (taskRefs ?? []).map((taskRef) => graph.getTask(taskRef));
+        const preflight = await prepareFleetTargetLocks(sparkStateCwd(cwd, ctx), candidates);
+        const packing = packTaskResourceFrontier({
+          tasks: preflight.tasks,
+          runs: graph.runs(),
+          inventory: resourceInventory,
+          maxConcurrency,
+        });
+        const deferred = [...preflight.deferred, ...packing.deferred];
+        const running = graph
+          .runs(project.ref)
+          .filter((run) => run.status === "queued" || run.status === "running");
+        const attention = graph
+          .tasks(project.ref)
+          .filter((task) => task.status === "blocked" || task.status === "failed");
+        const done = graph.tasks(project.ref).filter((task) => task.status === "done");
+        const workers = new Set(
+          graph
+            .runs(project.ref)
+            .map((run) => run.execution?.sessionId ?? run.execution?.executionSessionId)
+            .filter((sessionId): sessionId is string => Boolean(sessionId)),
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Fleet preflight for “${project.title}”: ${packing.scheduled.length} runnable lane(s), ${running.length} running, ${deferred.length} deferred.`,
+            },
+          ],
+          details: {
+            accepted: true,
+            dryRun: true,
+            projectRef: project.ref,
+            recommended: packing.scheduled.length >= 2,
+            running: running.length,
+            ready: candidates.length,
+            attention: attention.length,
+            done: done.length,
+            workers: workers.size,
+            taskRefs: packing.scheduled.map((item) => item.taskRef),
+            resourceInventory,
+            resourceDeferred: deferred,
+            policy: { maxConcurrency, timeoutMs },
+          },
+        };
+      }
       const runtimeRunner = createSparkRuntimeReadyTaskRunner({
         registry,
         evidenceStore,

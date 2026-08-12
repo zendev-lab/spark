@@ -13,6 +13,7 @@ export {
   WORKFLOW_AND_SUBAGENT_ARE_TOOLS,
   renderModePrompt,
   renderSparkExecuteModePrompt,
+  renderSparkFleetModePrompt,
   renderSparkModeVisibleMessage,
   renderSparkPlanModePrompt,
 } from "./spark-mode-renderers.ts";

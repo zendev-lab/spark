@@ -173,6 +173,7 @@ function policy(input: {
   maxAttempts?: number;
 }): TaskExecutionPolicy {
   return {
+    sessionLifetime: "task_revision",
     continuity: "reuse_within_revision",
     isolation: "isolated_results",
     comparison: input.comparison ?? "single_side",

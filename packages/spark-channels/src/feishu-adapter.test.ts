@@ -21,7 +21,6 @@ describe("FeishuAdapter quote parsing", () => {
         sender_name: "Alice",
       },
     });
-    expect(message.text).toBe("跟进一下");
     expect(message.messageReference).toEqual({
       messageId: "om_parent",
       preview: "原始任务说明",

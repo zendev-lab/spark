@@ -1,7 +1,18 @@
-import type { SparkMessageView } from "@zendev-lab/spark-protocol";
-import type { ConversationChainStep, ConversationPart } from "./types";
+import {
+  projectSparkConversationMessage,
+  sparkConversationPartSchema,
+  type SparkConversationProjectionPart,
+  type SparkMessageView,
+} from "@zendev-lab/spark-protocol";
+import {
+  conversationPartText,
+  groupThinkingChainParts,
+  textConversationPart,
+  visibleConversationParts,
+  visibleConversationPartText,
+  type ConversationPart,
+} from "@zendev-lab/spark-ui/conversation";
 import { isInternalExecutionTransportFailure } from "./internal-execution-detail";
-import { isVisibleThinkingChain } from "./thinking-chain-view";
 import {
   mergeToolParts,
   normalizeConversationPart,
@@ -9,6 +20,13 @@ import {
 } from "./conversation-part-converters";
 
 export { preferToolSummary } from "./conversation-part-converters";
+export {
+  conversationPartText,
+  groupThinkingChainParts,
+  textConversationPart,
+  visibleConversationParts,
+  visibleConversationPartText,
+};
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -18,9 +36,12 @@ export function conversationPartsFromMessage(
 ): ConversationPart[] {
   const messageRecord = message as SparkMessageView & { parts?: unknown };
   const rawParts = Array.isArray(messageRecord.parts) ? messageRecord.parts : [];
-  let parts = mergeToolParts(
-    rawParts.flatMap((part, index) => normalizePart(part, message, index)),
+  const canonicalParts = rawParts.every(
+    (part) => sparkConversationPartSchema.safeParse(part).success,
   );
+  let parts = canonicalParts
+    ? projectSparkConversationMessage(message).parts.flatMap(projectedConversationPart)
+    : mergeToolParts(rawParts.flatMap((part, index) => normalizePart(part, message, index)));
 
   if (displayText !== message.text) {
     const matchingTextParts = parts.filter(
@@ -62,7 +83,11 @@ export function conversationPartsFromMessage(
   }
 
   if (parts.length === 0) {
-    const fallback = fallbackParts(message, displayText);
+    const { parts: _parts, ...legacyMessage } = message;
+    const fallback = projectSparkConversationMessage({
+      ...legacyMessage,
+      text: displayText,
+    }).parts.flatMap(projectedConversationPart);
     return prependChannelQuotePart(message, fallback);
   }
 
@@ -119,97 +144,59 @@ function isBudgetExhaustedMessage(message: SparkMessageView): boolean {
   return /^agent loop hit maxRoundtrips=\d+; stopping$/u.test(detail.trim());
 }
 
-/**
- * Fold model reasoning, provider commentary, and tool process into one execution chain.
- * Answer text and other interaction parts stay outside the chain.
- */
-export function groupThinkingChainParts(parts: readonly ConversationPart[]): ConversationPart[] {
-  const chainSteps: ConversationChainStep[] = [];
-  const rest: ConversationPart[] = [];
-
-  for (const part of parts) {
-    if (part.type === "reasoning" || part.type === "commentary" || part.type === "tool") {
-      chainSteps.push(part);
-      continue;
-    }
-    if (part.type === "chain") {
-      chainSteps.push(...part.steps);
-      continue;
-    }
-    rest.push(part);
-  }
-
-  if (chainSteps.length === 0) return [...rest];
-
-  const chain: ConversationPart = {
-    type: "chain",
-    state: chainSteps.some(
-      (step) =>
-        ((step.type === "reasoning" || step.type === "commentary") && step.state === "streaming") ||
-        (step.type === "tool" &&
-          (step.state === "pending" ||
-            step.state === "running" ||
-            step.state === "awaiting-approval")),
-    )
-      ? "streaming"
-      : "complete",
-    steps: chainSteps,
-  };
-
-  const firstTextIndex = rest.findIndex((part) => part.type === "text");
-  if (firstTextIndex < 0) return [chain, ...rest];
-  return [...rest.slice(0, firstTextIndex), chain, ...rest.slice(firstTextIndex)];
-}
-
-/** Keep the execution chain in history; its component controls expanded/collapsed state. */
-export function visibleConversationParts(parts: readonly ConversationPart[]): ConversationPart[] {
-  return parts.filter(
-    (part) => part.type !== "chain" || isVisibleThinkingChain(part.state, part.steps),
-  );
-}
-
-/** Copy and live-region text intentionally excludes internal execution detail. */
-export function visibleConversationPartText(parts: readonly ConversationPart[]) {
-  return conversationPartText(
-    parts.filter((part) => part.type !== "chain" && part.type !== "runtime"),
-  );
-}
-
-export function conversationPartText(parts: readonly ConversationPart[]) {
-  return parts
-    .flatMap((part) => {
-      if (part.type === "text") return [part.text];
-      if (part.type === "quote") return [part.text];
-      if (part.type === "reasoning") return [part.summary];
-      if (part.type === "commentary") return [part.summary];
-      if (part.type === "tool") return [part.summary || part.name];
-      if (part.type === "chain") {
-        return part.steps.flatMap((step) => {
-          if (step.type === "reasoning" || step.type === "commentary") return [step.summary];
-          return [step.summary || step.name];
-        });
-      }
-      if (part.type === "task" || part.type === "approval") return [part.summary || part.title];
-      if (part.type === "artifact") return [part.summary || part.title];
-      if (part.type === "error") return [part.message || part.title];
-      if (part.type === "runtime") return [];
-      return [];
-    })
-    .filter(Boolean)
-    .join("\n")
-    .trim();
-}
-
-export function textConversationPart(text: string, streaming = false): ConversationPart {
-  return { type: "text", text, streaming };
-}
-
 function normalizePart(
   value: unknown,
   message: SparkMessageView,
   index: number,
 ): ConversationPart[] {
   return normalizeConversationPart(value, message, index);
+}
+
+function projectedConversationPart(part: SparkConversationProjectionPart): ConversationPart[] {
+  switch (part.type) {
+    case "text":
+      return part.text.trim()
+        ? part.phase === "commentary"
+          ? [
+              {
+                type: "commentary",
+                summary: part.text,
+                state: part.streaming ? "streaming" : "complete",
+              },
+            ]
+          : [{ type: "text", text: part.text, streaming: part.streaming }]
+        : [];
+    case "thinking":
+      return part.text.trim() || part.redacted
+        ? [
+            {
+              type: "reasoning",
+              summary: part.text,
+              state: part.streaming ? "streaming" : "complete",
+              redacted: part.redacted,
+            },
+          ]
+        : [];
+    case "image":
+      return [
+        {
+          type: "image",
+          contentIndex: part.contentIndex,
+          mediaType: part.mediaType,
+          ...(part.name ? { name: part.name } : {}),
+        },
+      ];
+    case "tool":
+      return [
+        {
+          type: "tool",
+          callId: part.toolCallId,
+          name: part.toolName,
+          state: toolState(part.status, part.lifecycle === "call" ? "tool-call" : "tool-result"),
+          ...(part.summary ? { summary: part.summary } : {}),
+        },
+      ];
+  }
 }
 
 function stripRenderedImagePlaceholders(parts: ConversationPart[]): ConversationPart[] {
@@ -229,31 +216,6 @@ function stripRenderedImagePlaceholders(parts: ConversationPart[]): Conversation
 
 function isImagePlaceholder(value: string): boolean {
   return /^\s*(?:\[图片\]|\[image(?::[^\]]+)?\])\s*$/iu.test(value);
-}
-
-function fallbackParts(message: SparkMessageView, displayText: string): ConversationPart[] {
-  if (!displayText.trim()) return [];
-  if (message.role === "thinking") {
-    return [
-      {
-        type: "reasoning",
-        summary: displayText,
-        state: message.status === "streaming" ? "streaming" : "complete",
-      },
-    ];
-  }
-  if (message.role === "tool") {
-    return [
-      {
-        type: "tool",
-        callId: message.toolCallId ?? message.id,
-        name: message.toolName ?? "tool",
-        state: toolState(message.status, "tool-result"),
-        summary: displayText,
-      },
-    ];
-  }
-  return [{ type: "text", text: displayText, streaming: message.status === "streaming" }];
 }
 
 function stringField(value: UnknownRecord, key: string) {

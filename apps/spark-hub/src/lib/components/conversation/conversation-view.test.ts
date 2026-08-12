@@ -6,7 +6,7 @@ import {
   visibleConversationParts,
   visibleConversationPartText,
 } from "./conversation-view";
-import { visibleThinkingChainSteps } from "./thinking-chain-view";
+import { visibleThinkingChainSteps } from "@zendev-lab/spark-ui/conversation";
 
 describe("Hub conversation view adapter", () => {
   it("keeps the legacy text field as a compatible presentation fallback", () => {
@@ -174,9 +174,11 @@ describe("Hub conversation view adapter", () => {
     ]);
     const chain = visible[0];
     expect(chain?.type).toBe("chain");
+    // Protocol-neutral UI helpers retain the supplied summary. The Hub timeline
+    // adapter strips this product-private transport diagnostic before render.
     expect(
       JSON.stringify(chain?.type === "chain" ? visibleThinkingChainSteps(chain.steps) : []),
-    ).not.toContain("TRANSPORT_RESOLVE_FAILED");
+    ).toContain("TRANSPORT_RESOLVE_FAILED");
   });
 
   it("presents a roundtrip budget stop as incomplete work without exposing the guard text", () => {
@@ -489,6 +491,34 @@ describe("Hub conversation view adapter", () => {
       },
     ]);
     expect(JSON.stringify(parts)).not.toContain("must-not-render");
+  });
+
+  it("passes only explicit safe artifact preview URLs to presentation", () => {
+    const parts = conversationPartsFromMessage({
+      ...message({ text: "" }),
+      parts: [
+        {
+          type: "artifact",
+          artifactRef: "artifact:safe",
+          title: "Safe preview",
+          previewHref: "/preview/safe-token",
+          summary: "https://localhost:4000/preview/must-not-be-inferred",
+        },
+        {
+          type: "artifact",
+          artifactRef: "artifact:unsafe",
+          title: "Unsafe preview",
+          previewHref: "javascript:alert(1)",
+        },
+      ],
+    } as unknown as SparkMessageView);
+
+    expect(parts[0]).toMatchObject({
+      type: "artifact",
+      artifactRef: "artifact:safe",
+      previewHref: "/preview/safe-token",
+    });
+    expect(parts[1]).not.toHaveProperty("previewHref");
   });
 
   it("handles parser aliases, unknown values, invalid records, and empty parts deterministically", () => {

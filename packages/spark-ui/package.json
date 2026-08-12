@@ -11,6 +11,9 @@
     "src/**/*.css",
     "src/markdown/UPSTREAM-LICENSE.txt",
     "src/markdown/VENDOR.md",
+    "src/conversation/UPSTREAM-LICENSE.txt",
+    "src/conversation/VENDOR.md",
+    "src/workbench/VENDOR.md",
     "svelte.config.js",
     "!src/**/*.test.ts",
     "README.md"
@@ -43,8 +46,27 @@
       "svelte": "./src/git-change.ts",
       "default": "./src/git-change.ts"
     },
+    "./conversation": {
+      "types": "./src/conversation/index.ts",
+      "svelte": "./src/conversation/index.ts",
+      "default": "./src/conversation/index.ts"
+    },
+    "./workbench": {
+      "types": "./src/workbench/index.ts",
+      "svelte": "./src/workbench/index.ts",
+      "default": "./src/workbench/index.ts"
+    },
     "./tokens.css": "./src/tokens.css",
     "./status-pill.css": "./src/ui/status-pill.css"
+  },
+  "scripts": {
+    "catalog:build": "vp build catalog",
+    "catalog:dev": "vp dev catalog",
+    "check": "vp check --no-fmt --no-lint . && vp test run --config vitest.config.ts && pnpm run catalog:build",
+    "test": "vp test run --config vitest.config.ts",
+    "test:browser": "pnpm run test:browser:components && pnpm run test:browser:catalog",
+    "test:browser:components": "vp test run src --config vitest.browser.config.ts",
+    "test:browser:catalog": "vp test run catalog --config vitest.browser.config.ts"
   },
   "dependencies": {
     "@lucide/svelte": "^1.16.0",
@@ -53,8 +75,17 @@
     "svelte-streamdown": "^3.1.2"
   },
   "devDependencies": {
+    "@fontsource-variable/geist-mono": "5.3.0",
+    "@fontsource-variable/inter": "5.3.0",
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "@vitest/browser-playwright": "4.1.10",
+    "axe-core": "catalog:",
+    "playwright": "1.62.1",
     "svelte": "^5.38.8",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:",
+    "vitest-browser-svelte": "3.0.0"
   },
   "engines": {
     "node": ">=26.0.0 <27"

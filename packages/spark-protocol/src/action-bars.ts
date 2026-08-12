@@ -21,6 +21,7 @@ export const sparkActionIntentOptions = [
   "queue.inspect",
   "turn.stop",
   "turn.retry",
+  "mode.select",
   "goal.status",
   "goal.start",
   "goal.restart",
@@ -193,18 +194,6 @@ const statusActionBar = actionBar({
   actions: [
     action("inspect-status", "Refresh status", "status.inspect", "primary"),
     action("inspect-queue", "Queue", "queue.inspect"),
-    action("inspect-session", "Session", "session.inspect"),
-  ],
-});
-
-const sessionActionBar = actionBar({
-  id: "session",
-  title: "Session controls",
-  description: "Switch, create, or inspect a Spark session.",
-  actions: [
-    action("select-session", "Choose session", "session.select", "primary"),
-    action("create-session", "New session", "session.create"),
-    action("inspect-session", "Current session", "session.inspect"),
   ],
 });
 
@@ -227,6 +216,19 @@ const scopedModelsActionBar = actionBar({
     action("inspect-providers", "Provider settings", "settings.providers"),
   ],
 });
+
+function modeActionBar(mode: "plan" | "execute" | "fleet", title: string): SparkActionBarView {
+  return actionBar({
+    id: `mode-${mode}`,
+    title,
+    description: `Enter Spark ${mode} mode for this Session.`,
+    actions: [action(`enter-${mode}`, `Enter ${title}`, "mode.select", "primary", { mode })],
+  });
+}
+
+const planModeActionBar = modeActionBar("plan", "Plan");
+const executeModeActionBar = modeActionBar("execute", "Execute");
+const fleetModeActionBar = modeActionBar("fleet", "Fleet");
 
 const goalActionBar = lifecycleActionBar("goal", "Goal controls", {
   status: "Inspect goal",
@@ -288,9 +290,11 @@ export const sparkSlashCommandDescriptors: readonly SparkSlashCommandDescriptor[
   slashCommand("thinking", thinkingActionBar),
   slashCommand("settings", settingsActionBar),
   slashCommand("status", statusActionBar),
-  slashCommand("session", sessionActionBar, ["sessions", "resume", "new"]),
   slashCommand("queue", queueActionBar),
   slashCommand("scoped-models", scopedModelsActionBar),
+  slashCommand("plan", planModeActionBar),
+  slashCommand("execute", executeModeActionBar),
+  slashCommand("fleet", fleetModeActionBar),
   slashCommand("goal", goalActionBar),
   slashCommand("loop", loopActionBar),
   slashCommand("repro", reproActionBar),

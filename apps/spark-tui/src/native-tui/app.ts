@@ -16,6 +16,7 @@ import {
   type SparkActionBarView,
   type SparkActionView,
   type SparkArtifactView,
+  type SparkConversationProjectionPart,
   type SparkInteractionRequest,
   type SparkInteractionResponse,
   type SparkRunView,
@@ -642,10 +643,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
       case "status.inspect":
         return "status";
       case "session.select":
-      case "session.create":
         return "sessions";
+      case "session.create":
+        return "new";
       case "session.inspect":
-        return "session";
+        return "status";
       case "turn.stop":
         return "stop";
       case "turn.retry":
@@ -721,10 +723,10 @@ export class SparkNativeTuiApp implements Component, Focusable {
           await this.invokeRegisteredSlashCommand("sessions", "", false);
           return;
         case "session.create":
-          await this.invokeRegisteredSlashCommand("sessions", "", false);
+          await this.invokeRegisteredSlashCommand("new", "", false);
           return;
         case "session.inspect":
-          await this.invokeRegisteredSlashCommand("session", "inspect", true);
+          await this.invokeRegisteredSlashCommand("status", "", true);
           return;
         case "queue.inspect":
           this.session.addSystemMessage(this.renderQueueInspection());
@@ -1446,6 +1448,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   private renderMessage(message: SparkNativeMessage, width: number): string[] {
     if (message.display === false) return [];
+    if (message.conversation) {
+      return message.conversation.parts.flatMap((part) =>
+        this.renderConversationPart(message, part, width),
+      );
+    }
     if (message.role === "tool") return this.renderToolMessage(message, width);
     if (message.role === "thinking") return this.renderThinkingMessage(message, width);
     if (message.role === "custom") return this.renderCustomMessage(message, width);
@@ -1463,6 +1470,51 @@ export class SparkNativeTuiApp implements Component, Focusable {
           )
         : this.renderPrefixedBlock(prefix, `${body}${suffix}`, width);
     return this.styleRoleLines(message.role, [...quoteLines, ...lines]);
+  }
+
+  private renderConversationPart(
+    message: SparkNativeMessage,
+    part: SparkConversationProjectionPart,
+    width: number,
+  ): string[] {
+    const details = { ...message.details, ...part.metadata, partStatus: part.status };
+    if (part.type === "thinking") {
+      return this.renderThinkingMessage(
+        {
+          role: "thinking",
+          text: part.redacted ? "[…]" : part.text,
+          streaming: part.streaming,
+          details,
+        },
+        width,
+      );
+    }
+    if (part.type === "tool") {
+      return this.renderToolMessage(
+        {
+          role: "tool",
+          text: part.summary ?? "",
+          toolName: part.toolName,
+          toolCallId: part.toolCallId,
+          toolStatus: part.status,
+          details,
+        },
+        width,
+      );
+    }
+    const text =
+      part.type === "image" ? (part.name ? `[image: ${part.name}]` : "[image]") : part.text;
+    return this.renderMessage(
+      {
+        role: message.role,
+        text,
+        streaming: part.type === "text" ? part.streaming : false,
+        customType: message.customType,
+        display: message.display,
+        details,
+      },
+      width,
+    );
   }
 
   private renderChannelQuoteLines(message: SparkNativeMessage, width: number): string[] {
@@ -2093,18 +2145,31 @@ export class SparkNativeTuiApp implements Component, Focusable {
       return;
     }
 
-    // `/sessions` is an explicit navigation command, not a palette request.
-    // Execute it directly so the host can exit this TUI and reopen the same
-    // selector used at startup. `/session` keeps the richer action bar.
-    if (parsed.name === "sessions" && !parsed.args.trim()) {
-      await this.invokeRegisteredSlashCommand(parsed.name, parsed.args, true);
+    // These commands already map to complete host-owned flows. Keep the
+    // action bar out of the way: show unified status, browse/resume through
+    // the startup selector, or create a daemon-managed session.
+    const directCommand =
+      parsed.name === "resume"
+        ? "sessions"
+        : ["status", "sessions", "new"].includes(parsed.name)
+          ? parsed.name
+          : undefined;
+    if (directCommand && !parsed.args.trim() && this.slashCommands[directCommand]) {
+      await this.invokeRegisteredSlashCommand(directCommand, "", directCommand === "status");
       return;
     }
 
-    // The canonical bare `/workflow` command owns the native workflow picker.
-    // Hub uses the shared semantic action bar, but the TUI must not let
-    // that presentation layer intercept its registered picker command.
-    if (parsed.name === "workflow" && !parsed.args.trim() && this.slashCommands.workflow) {
+    // Canonical mode commands and `/workflow` already own complete native
+    // flows. Hub uses the shared semantic action bars, but the TUI must not let
+    // that presentation layer intercept its registered command handlers.
+    const directRegisteredCommand = ["plan", "execute", "fleet", "workflow"].includes(parsed.name)
+      ? parsed.name
+      : undefined;
+    if (
+      directRegisteredCommand &&
+      !parsed.args.trim() &&
+      this.slashCommands[directRegisteredCommand]
+    ) {
       await this.invokeRegisteredSlashCommand(parsed.name, parsed.args, true);
       return;
     }

@@ -10,6 +10,7 @@ import type {
   SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 
+import { classifyProviderFailure } from "./provider-failure.ts";
 import {
   isMalformedProviderJsonFailure,
   retryProviderStreamBeforeOutput,
@@ -388,7 +389,10 @@ function streamBaiduOneApiOpenAIResponsesWith(
     maxRetries: options?.maxRetries ?? BAIDU_ONEAPI_STREAM_MAX_RETRIES,
     ...(options?.maxRetryDelayMs !== undefined ? { maxRetryDelayMs: options.maxRetryDelayMs } : {}),
     ...(options?.signal !== undefined ? { signal: options.signal } : {}),
-    shouldRetry: isMalformedProviderJsonFailure,
+    shouldRetry: (message) =>
+      isMalformedProviderJsonFailure(message) ||
+      classifyProviderFailure(message).failureClass === "transient",
+    shouldRetryThrown: (error) => classifyProviderFailure(error).failureClass === "transient",
   });
 }
 

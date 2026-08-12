@@ -1,9 +1,11 @@
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
+import { setSparkSessionMode } from "@zendev-lab/spark-loop";
 import {
   parseSparkAssignment,
   parseSparkSessionRegistryRecord,
+  parseSparkRoleSpec,
   parseSparkSessionRegistryRecords,
   parseSparkSessionView,
   sparkSessionArchiveRequestSchema,
@@ -12,6 +14,7 @@ import {
   sparkSessionGetRequestSchema,
   sparkSessionListRequestSchema,
   sparkSessionMediaReadRequestSchema,
+  sparkSessionSetModeRequestSchema,
   sparkSessionSnapshotPageSchema,
   sparkSessionSnapshotRequestSchema,
   sparkSessionUnbindRequestSchema,
@@ -38,13 +41,16 @@ import {
   SparkSessionRegistryError,
 } from "@zendev-lab/spark-session";
 import type { SparkPaths } from "@zendev-lab/spark-system";
+import { createSparkRoleRegistry } from "@zendev-lab/spark-roles";
 
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
+import type { SessionSupervisor } from "./session-supervisor.ts";
 import { validateSparkDaemonTask, type SparkDaemonSessionRunTask } from "./core/index.ts";
 import { SparkInvocationStore, type SparkInvocationRecord } from "./store/invocations.ts";
 import { getWorkspaceById, listWorkspaces, resolveWorkspaceLocalPath } from "./store/workspaces.ts";
+import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
 
 // Result and projection carry the same public page, so each copy must leave
 // room for the other copy and terminal envelope metadata under the 64 KiB wire cap.
@@ -57,6 +63,7 @@ export interface SparkDaemonSessionControlOptions {
   paths: SparkPaths;
   db: DatabaseSync;
   sessionRegistry?: DaemonSessionRegistry;
+  sessionSupervisor?: SessionSupervisor;
   modelControl?: SparkDaemonModelControl;
   /** Wake the owning scheduler immediately after a new durable admission. */
   onInvocationQueued?: () => void;
@@ -75,6 +82,7 @@ export interface SparkDaemonSessionControlRequest {
     | "session.unbind.request"
     | "session.archive.request"
     | "session.restore.request"
+    | "session.mode.set.request"
     | "turn.submit.request"
     | "turn.cancel.request"
     | "turn.status.request"
@@ -107,9 +115,14 @@ export async function executeSparkDaemonSessionControl(
     case "session.list.request": {
       const parsed = sparkSessionListRequestSchema.parse(request.payload);
       assertScopeInput(request, parsed.scope);
+      const visibleSessions = await listSessionsForRequest(options, request, parsed);
       const sessions = projectSessionInvocationActivity(
         new SparkInvocationStore(options.db),
-        await listSessionsForRequest(options, request, parsed),
+        visibleSessions,
+        await options.sessionRegistry?.list({
+          includeArchived: false,
+          includeSideThreads: true,
+        }),
       );
       const records = parseSparkSessionRegistryRecords(sessions);
       const page =
@@ -127,7 +140,14 @@ export async function executeSparkDaemonSessionControl(
       const owned = await requireSession(options, parsed.sessionId, request);
       assertOrdinarySessionVisible(owned);
       const session =
-        projectSessionInvocationActivity(new SparkInvocationStore(options.db), [owned])[0] ?? owned;
+        projectSessionInvocationActivity(
+          new SparkInvocationStore(options.db),
+          [owned],
+          await options.sessionRegistry?.list({
+            includeArchived: false,
+            includeSideThreads: true,
+          }),
+        )[0] ?? owned;
       const data = publicObject({ session });
       return { result: data, projection: { kind: "session.detail", data } };
     }
@@ -148,15 +168,27 @@ export async function executeSparkDaemonSessionControl(
         sessionsRoot: join(options.paths.piAgentDir, "sessions"),
         session,
       };
+      const activitySessionIds = descendantActivitySessionIds(
+        session.sessionId,
+        await options.sessionRegistry?.list({
+          includeArchived: false,
+          includeSideThreads: true,
+        }),
+      );
       const window = parsed.beforeMessageId
         ? boundedSessionSnapshot(
-            projectPendingSessionTurns(options.db, await loadSparkSessionSnapshot(snapshotInput)),
+            projectPendingSessionTurns(
+              options.db,
+              await loadSparkSessionSnapshot(snapshotInput),
+              activitySessionIds,
+            ),
             parsed,
           )
         : await loadLatestSessionSnapshotWindow(
             options.db,
             snapshotInput,
             parsed.messageLimit ?? defaultSessionSnapshotMessages,
+            activitySessionIds,
           );
       const data = publicObject(window);
       return { result: data, projection: { kind: "session.snapshot", data } };
@@ -206,6 +238,36 @@ export async function executeSparkDaemonSessionControl(
       assertScopeInput(request, parsed.scope);
       if (parsed.taskExecution) {
         await assertTaskExecutionOwner(options, request, parsed);
+      }
+      if (options.sessionSupervisor && !parsed.taskExecution) {
+        const workspaceCwd = resolveWorkspaceLocalPath(options.db, parsed.scope.workspaceId);
+        if (!workspaceCwd) {
+          throw new SparkSessionRegistryError(
+            "workspace_cwd_unavailable",
+            `workspace ${parsed.scope.workspaceId} has no daemon-local execution directory`,
+          );
+        }
+        const roles = await createSparkRoleRegistry(workspaceCwd);
+        const role = roles.get(parsed.roleRef ?? "role:builtin-administrator");
+        const root = await options.sessionSupervisor.ensureWorkspaceAdministrator(
+          parsed.scope.workspaceId,
+        );
+        const supervised = await options.sessionSupervisor.instantiate({
+          workspaceId: parsed.scope.workspaceId,
+          role: parseSparkRoleSpec(role),
+          ...(parsed.title ? { title: parsed.title } : {}),
+          parentSessionId: parsed.parentSessionId ?? root.sessionId,
+          ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}),
+          ...(parsed.cwd ? { cwd: parsed.cwd } : {}),
+          purpose: parsed.purpose ?? "interactive",
+          visibility: "public",
+          retention: "retain",
+        });
+        const session = parseSparkSessionRegistryRecord(
+          projectSessionForRequest(options.db, supervised, request),
+        );
+        const data = publicObject({ session });
+        return { result: data, projection: { kind: "session.detail", data } };
       }
       const session = parseSparkSessionRegistryRecord(
         projectSessionForRequest(
@@ -283,6 +345,35 @@ export async function executeSparkDaemonSessionControl(
       );
       const data = publicObject({ session });
       return { result: data, projection: { kind: "session.detail", data } };
+    }
+    case "session.mode.set.request": {
+      const parsed = sparkSessionSetModeRequestSchema.parse({
+        ...request.payload,
+        sessionId: request.sessionId ?? request.payload.sessionId,
+      });
+      const session = await requireSession(options, parsed.sessionId, request);
+      assertOrdinarySessionVisible(session, true);
+      if (session.status === "archived") {
+        throw new SparkSessionRegistryError(
+          "session_archived",
+          `cannot change mode for archived session: ${parsed.sessionId}`,
+        );
+      }
+      if (session.scope.kind !== "workspace") {
+        throw new SparkSessionRegistryError(
+          "invalid_scope",
+          "Session mode belongs to a workspace session.",
+        );
+      }
+      const cwd = resolveWorkspaceLocalPath(options.db, session.scope.workspaceId);
+      if (!cwd) {
+        throw new SparkSessionRegistryError(
+          "workspace_cwd_unavailable",
+          `Workspace ${session.scope.workspaceId} is unavailable for Session mode persistence.`,
+        );
+      }
+      const snapshot = await setSparkSessionMode(cwd, { sessionId: parsed.sessionId }, parsed.mode);
+      return { result: publicObject({ sessionId: parsed.sessionId, mode: snapshot.mode }) };
     }
     case "turn.submit.request": {
       const parsed = parseTurnSubmitPayload(request.payload, request.sessionId);
@@ -609,6 +700,39 @@ async function assertTaskExecutionOwner(
   if (!taskExecution) return;
   const owner = await requireSession(options, taskExecution.ownerSessionId, request);
   assertCreateScopeMatchesOwner(owner, create);
+  if (create.scope.kind !== "workspace") {
+    throw new SparkSessionRegistryError(
+      "session_owner_invalid",
+      "task execution session requires a workspace owner",
+    );
+  }
+  if (!create.sessionId) {
+    throw new SparkSessionRegistryError(
+      "session_owner_invalid",
+      "task execution session requires its canonical sessionId",
+    );
+  }
+  const ownerRef =
+    taskExecution.sessionLifetime === "task_revision"
+      ? ({ kind: "task_revision", ref: taskExecution.jobId } as const)
+      : ({ kind: "task_run", ref: taskExecution.runRef } as const);
+  const valid = await isTaskSessionOwnerValid(
+    {
+      owner: ownerRef,
+      workspaceId: create.scope.workspaceId,
+      sessionId: create.sessionId,
+      relation: { kind: "task_execution", ...taskExecution },
+    },
+    {
+      resolveWorkspaceCwd: (workspaceId) => resolveWorkspaceLocalPath(options.db, workspaceId),
+    },
+  );
+  if (!valid) {
+    throw new SparkSessionRegistryError(
+      "session_owner_invalid",
+      `task execution owner ${ownerRef.ref} is not active`,
+    );
+  }
 }
 
 function projectSessionForRequest(
@@ -957,12 +1081,13 @@ async function loadLatestSessionSnapshotWindow(
   db: DatabaseSync,
   snapshotInput: { sessionsRoot: string; session: SparkSessionRegistryRecord },
   requestedLimit: number,
+  activitySessionIds: string[] = [snapshotInput.session.sessionId],
 ) {
   const tail = await loadSparkSessionSnapshotTail({
     ...snapshotInput,
     messageLimit: requestedLimit,
   });
-  const snapshot = projectPendingSessionTurns(db, tail.snapshot);
+  const snapshot = projectPendingSessionTurns(db, tail.snapshot, activitySessionIds);
   const pendingMessages = snapshot.messages.length - tail.snapshot.messages.length;
   return boundedLatestSessionSnapshot(
     snapshot,
@@ -1028,27 +1153,35 @@ function boundedSessionSnapshotWindow(
 function projectPendingSessionTurns(
   db: DatabaseSync,
   snapshot: SparkSessionView,
+  activitySessionIds: string[] = [snapshot.sessionId],
 ): SparkSessionView {
-  const pending = new SparkInvocationStore(db).listPendingForSession(snapshot.sessionId);
+  const pending = activitySessionIds.flatMap((sessionId) =>
+    new SparkInvocationStore(db).listPendingForSession(sessionId),
+  );
   const hasRunningTurn = pending.some((invocation) => invocation.status === "running");
   const hasQueuedTurn = pending.some((invocation) => invocation.status === "queued");
-  const messages = pending.map((invocation) => ({
-    id: `invocation:${invocation.invocationId}`,
-    role: "user" as const,
-    text: validateSparkDaemonTask(invocation.task).prompt,
-    status: "done" as const,
-    createdAt: invocation.createdAt,
-    metadata: {
-      source: "daemon.invocation",
-      invocationId: invocation.invocationId,
-      invocationStatus: invocation.status,
-    },
-  }));
+  const messages = pending
+    .filter((invocation) => invocation.sessionId === snapshot.sessionId)
+    .map((invocation) => ({
+      id: `invocation:${invocation.invocationId}`,
+      role: "user" as const,
+      text: validateSparkDaemonTask(invocation.task).prompt,
+      status: "done" as const,
+      createdAt: invocation.createdAt,
+      metadata: {
+        source: "daemon.invocation",
+        invocationId: invocation.invocationId,
+        invocationStatus: invocation.status,
+      },
+    }));
   return parseSparkSessionView({
     ...snapshot,
     pendingTurns: pending.map((invocation) => ({
       invocationId: invocation.invocationId,
-      prompt: validateSparkDaemonTask(invocation.task).prompt,
+      prompt:
+        invocation.sessionId === snapshot.sessionId
+          ? validateSparkDaemonTask(invocation.task).prompt
+          : `Owned Session activity (${invocation.sourceKind ?? "daemon"})`,
       status: invocation.status,
       createdAt: invocation.createdAt,
       ...(invocation.startedAt ? { startedAt: invocation.startedAt } : {}),
@@ -1074,16 +1207,65 @@ function projectPendingSessionTurns(
 function projectSessionInvocationActivity(
   store: SparkInvocationStore,
   sessions: SparkSessionRegistryRecord[],
+  ownershipSessions: SparkSessionRegistryRecord[] = sessions,
 ): SparkSessionRegistryRecord[] {
-  const runningSessionIds = store.runningSessionIds();
+  const activeSessionIds = new Set(
+    [...store.sessionActivities(ownershipSessions.map((session) => session.sessionId))]
+      .filter(([, activity]) => activity.active)
+      .map(([sessionId]) => sessionId),
+  );
+  const parentBySessionId = new Map<string, string>();
+  for (const session of ownershipSessions) {
+    const parentSessionId =
+      session.stateBinding?.kind === "session" && session.stateBinding.ref !== session.sessionId
+        ? session.stateBinding.ref
+        : session.owner?.kind === "session" && session.owner.ref !== session.sessionId
+          ? session.owner.ref
+          : undefined;
+    if (parentSessionId) parentBySessionId.set(session.sessionId, parentSessionId);
+  }
+  for (const activeSessionId of [...activeSessionIds]) {
+    const visited = new Set<string>();
+    let parentSessionId = parentBySessionId.get(activeSessionId);
+    while (parentSessionId && !visited.has(parentSessionId)) {
+      visited.add(parentSessionId);
+      activeSessionIds.add(parentSessionId);
+      parentSessionId = parentBySessionId.get(parentSessionId);
+    }
+  }
   return sessions.map((session) =>
     session.status === "archived"
       ? session
       : {
           ...session,
-          status: runningSessionIds.has(session.sessionId) ? "running" : "ready",
+          status: activeSessionIds.has(session.sessionId) ? "running" : "ready",
         },
   );
+}
+
+function descendantActivitySessionIds(
+  rootSessionId: string,
+  sessions: SparkSessionRegistryRecord[] | undefined,
+): string[] {
+  if (!sessions) return [rootSessionId];
+  const result = new Set([rootSessionId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const session of sessions) {
+      const parentSessionId =
+        session.stateBinding?.kind === "session" && session.stateBinding.ref !== session.sessionId
+          ? session.stateBinding.ref
+          : session.owner?.kind === "session" && session.owner.ref !== session.sessionId
+            ? session.owner.ref
+            : undefined;
+      if (parentSessionId && result.has(parentSessionId) && !result.has(session.sessionId)) {
+        result.add(session.sessionId);
+        changed = true;
+      }
+    }
+  }
+  return [...result];
 }
 
 async function settleManagedSessionTurn(

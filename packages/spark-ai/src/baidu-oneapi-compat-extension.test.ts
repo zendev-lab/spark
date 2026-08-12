@@ -62,6 +62,14 @@ function terminalMessage(model: Model<Api>): AssistantMessage {
   };
 }
 
+function providerErrorMessage(model: Model<Api>, errorMessage: string): AssistantMessage {
+  return {
+    ...terminalMessage(model),
+    stopReason: "error",
+    errorMessage,
+  };
+}
+
 function terminalStream(
   model: Model<Api>,
   beforeDone?: () => void | Promise<void>,
@@ -99,6 +107,80 @@ test("Pi compatibility and Spark-native adapters expose the same Baidu model cat
   expect(nativeProvider?.models.map((model) => model.id)).toEqual(BAIDU_MODEL_IDS);
   expect(piProvider?.baseUrl).toBe(nativeProvider?.baseUrl);
   expect(piProvider?.api).toBe("baidu-oneapi");
+});
+
+test("Baidu Responses retries overloaded failures before any output", async () => {
+  const model = testModel("gpt-5.6-sol");
+  let attempts = 0;
+  const openAIResponses: ProviderStreams = {
+    stream: (input) => terminalStream(input),
+    streamSimple: (input) => {
+      attempts += 1;
+      if (attempts > 1) return terminalStream(input);
+      const failure = providerErrorMessage(
+        input,
+        "server_error: Our servers are currently overloaded. Please try again later.",
+      );
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield { type: "error", reason: "error", error: failure } as AssistantMessageEvent;
+        },
+        async result() {
+          return failure;
+        },
+      } as unknown as ReturnType<ProviderStreams["stream"]>;
+    },
+  };
+  const anthropicMessages: ProviderStreams = {
+    stream: (input) => terminalStream(input),
+    streamSimple: (input) => terminalStream(input),
+  };
+  const adapter = createBaiduOneApiProviderAdapter({ anthropicMessages, openAIResponses });
+
+  await consume(
+    adapter.streamOpenAIResponses(
+      model,
+      { messages: [], tools: [] },
+      { maxRetries: 1, maxRetryDelayMs: 1 },
+    ),
+  );
+
+  expect(attempts).toBe(2);
+});
+
+test("Baidu Responses retries thrown transient transport failures before any output", async () => {
+  const model = testModel("gpt-5.6-sol");
+  let attempts = 0;
+  const openAIResponses: ProviderStreams = {
+    stream: (input) => terminalStream(input),
+    streamSimple: (input) => {
+      attempts += 1;
+      if (attempts > 1) return terminalStream(input);
+      return {
+        async *[Symbol.asyncIterator]() {
+          throw new Error("ECONNRESET socket hang up");
+        },
+        async result(): Promise<AssistantMessage> {
+          throw new Error("ECONNRESET socket hang up");
+        },
+      } as unknown as ReturnType<ProviderStreams["stream"]>;
+    },
+  };
+  const anthropicMessages: ProviderStreams = {
+    stream: (input) => terminalStream(input),
+    streamSimple: (input) => terminalStream(input),
+  };
+  const adapter = createBaiduOneApiProviderAdapter({ anthropicMessages, openAIResponses });
+
+  await consume(
+    adapter.streamOpenAIResponses(
+      model,
+      { messages: [], tools: [] },
+      { maxRetries: 1, maxRetryDelayMs: 1 },
+    ),
+  );
+
+  expect(attempts).toBe(2);
 });
 
 test("OpenAI SDK log suppression spans lazy setup and concurrent streams", async () => {

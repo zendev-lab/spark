@@ -461,7 +461,7 @@ export function registerSparkWorkflowRunsTool(
                 runRefs: scopedRunRefs,
                 signal,
                 forceAfterMs,
-                reason: "task_read run_status kill_active",
+                reason: "workflow runs kill_active",
               })
             : [];
         await reconcileSparkWorkflowRunsWithActiveProcesses(runStore, graph, cwd);
@@ -591,7 +591,7 @@ export function registerSparkWorkflowRunsTool(
           runRefs: targetRunRefs,
           signal,
           forceAfterMs,
-          reason: "task_read run_status kill",
+          reason: "workflow runs kill",
         });
         await reconcileSparkWorkflowRunsWithActiveProcesses(runStore, graph, cwd);
         await deps.refreshSparkWidget?.(cwd, ctx);

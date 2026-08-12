@@ -505,6 +505,7 @@ function context(cwd: string): SparkLoopEvaluationContext {
       loopId: "repro-1",
       ownerSessionId: "session-1",
       status: "running",
+      sessionLifetime: "driver",
       continuity: "session",
       generation: 1,
       cycleStep: "after_tick",

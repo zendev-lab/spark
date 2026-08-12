@@ -537,16 +537,13 @@ async function sessionCreateRequest(
   if (params.title !== undefined) {
     throw new Error("session create names persistent sessions by role; use role instead of title");
   }
-  const role = requiredString(
-    params.role,
-    "session create requires role as a stable division of labour",
-  );
+  const roleRef = sessionCreateRoleRef(params.roleRef ?? params.role);
   const cwd = optionalString(params.cwd, "cwd") ?? ctx.cwd;
   const cwdArtifactRef = optionalString(params.cwdArtifactRef, "cwdArtifactRef");
   const common = {
     ...(sessionId ? { sessionId } : {}),
-    title: role,
-    role,
+    roleRef,
+    purpose: optionalString(params.purpose, "purpose") ?? "interactive",
     ...(cwd ? { cwd } : {}),
     ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
   };
@@ -561,6 +558,20 @@ async function sessionCreateRequest(
     scope: { kind: "workspace", workspaceId },
     workspaceId,
   };
+}
+
+function sessionCreateRoleRef(value: unknown): string {
+  if (value === undefined || value === null || value === "") {
+    return "role:builtin-administrator";
+  }
+  const normalized = requiredString(value, "session create roleRef must be a non-empty string");
+  if (normalized === "scout") return "role:builtin-explorer";
+  if (normalized === "worker") return "role:builtin-executor";
+  if (normalized.startsWith("role:")) return normalized;
+  if (["administrator", "explorer", "researcher", "executor", "reviewer"].includes(normalized)) {
+    return `role:builtin-${normalized}`;
+  }
+  return `role:${normalized}`;
 }
 
 async function currentWorkspaceId(

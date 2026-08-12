@@ -1,5 +1,5 @@
 import type { SessionStatusBarLabels } from "$lib/components/conversation";
-import type { ConversationPartLabels } from "$lib/components/conversation/types";
+import type { ConversationPartLabels } from "@zendev-lab/spark-ui/conversation";
 import type { ModelRuntimeControlLabels } from "$lib/components/model-selector";
 import type { SessionsWorkbenchCopy } from "./types";
 

@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { RoleRegistry } from "@zendev-lab/spark-roles";
-import { DependencyError } from "@zendev-lab/spark-core";
+import { DependencyError, type ArtifactRef } from "@zendev-lab/spark-core";
 import {
   collectNonConcreteTaskIssues,
   decideTaskPlanBeforeCreate,
@@ -117,10 +117,18 @@ export function registerSparkPlanTasksTool(
           roleRef: Type.Optional(
             Type.String({
               description:
-                "Optional builtin/extension/project/user Spark role spec id or ref, e.g. explorer, researcher, reviewer, or worker. This is a preferred executor hint, not a readiness requirement.",
+                "Optional builtin/extension/project/user Spark role spec id or ref, e.g. explorer, researcher, reviewer, or executor. This is a preferred executor hint, not a readiness requirement.",
             }),
           ),
           executionPolicy: Type.Optional(taskExecutionPolicySchema()),
+          artifactRefs: Type.Optional(
+            Type.Array(
+              Type.String({
+                description:
+                  "Existing Artifact refs explicitly linked to this Task; Fleet writable targets must all appear here.",
+              }),
+            ),
+          ),
           plan: Type.Optional(taskPlanSchema()),
           dependsOn: Type.Optional(
             Type.Array(
@@ -373,6 +381,10 @@ function normalizeSparkPlanTaskInput(
       `tasks[${position - 1}].executionPolicy`,
       kind,
     ),
+    artifactRefs: normalizeToolStringArray(
+      value.artifactRefs,
+      `tasks[${position - 1}].artifactRefs`,
+    ) as ArtifactRef[] | undefined,
     plan: normalizeTaskPlan(
       normalizeTaskPlanPatch(value.plan, `tasks[${position - 1}].plan`),
       description,

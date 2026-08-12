@@ -23,14 +23,13 @@
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-host": "workspace:^",
+    "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
     "@zendev-lab/spark-tui-adapter": "workspace:^",
     "es-toolkit": "catalog:",
     "typebox": "catalog:"
   },
   "devDependencies": {
-    "@zendev-lab/spark-graft": "workspace:^",
-    "@zendev-lab/spark-runtime": "workspace:^",
     "@zendev-lab/spark-tasks": "workspace:^",
     "typescript": "catalog:",
     "vitest": "catalog:"

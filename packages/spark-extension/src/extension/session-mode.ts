@@ -36,8 +36,9 @@ export async function saveSparkMode(
   return { mode: input.mode };
 }
 
-export const SPARK_SESSION_MODES: readonly SparkSessionMode[] = ["plan", "execute"];
+export const SPARK_SESSION_MODES: readonly SparkSessionMode[] = ["plan", "execute", "fleet"];
 
 export function nextSparkSessionMode(current: SparkSessionMode): SparkSessionMode {
-  return current === "plan" ? "execute" : "plan";
+  const index = SPARK_SESSION_MODES.indexOf(current);
+  return SPARK_SESSION_MODES[(index + 1) % SPARK_SESSION_MODES.length] ?? "plan";
 }

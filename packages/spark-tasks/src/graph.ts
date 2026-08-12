@@ -39,6 +39,7 @@ import {
   applyTaskTodoOps,
   assertAcyclic,
   assertTaskName,
+  assertTaskWorktreeTargetArtifacts,
   assertUniqueTaskName,
   attributionFromTask,
   claimExpiresAt,
@@ -157,6 +158,7 @@ export class TaskGraph {
       createdAt: now,
       updatedAt: now,
     };
+    assertTaskWorktreeTargetArtifacts(task.executionPolicy, task.artifactRefs);
     this.#tasks.set(task.ref, task);
     return task;
   }
@@ -201,6 +203,7 @@ export class TaskGraph {
               input.executionPolicy ?? existing.executionPolicy,
               input.kind ?? existing.kind,
             ),
+            artifactRefs: input.artifactRefs ?? existing.artifactRefs,
             supersededBy: input.supersededBy ?? existing.supersededBy,
             plan: normalizeTaskPlan(input.plan ?? existing.plan, description, title),
           })
@@ -213,6 +216,7 @@ export class TaskGraph {
             status: input.status,
             roleRef: normalizeRoleRef(input.roleRef),
             executionPolicy: normalizeTaskExecutionPolicy(input.executionPolicy, input.kind),
+            artifactRefs: input.artifactRefs,
             supersededBy: input.supersededBy,
             plan: normalizeTaskPlan(input.plan, description, title),
           });
@@ -418,8 +422,9 @@ export class TaskGraph {
   }
 
   recordRun(run: TaskRun): TaskRun {
-    this.#runs.set(run.ref, run);
-    return run;
+    const normalized = normalizeTaskRun(run);
+    this.#runs.set(run.ref, normalized);
+    return normalized;
   }
 
   mergeTaskProgressFrom(source: TaskGraph, taskRefs: Iterable<TaskRef>): void {
@@ -498,6 +503,7 @@ export class TaskGraph {
       ),
       updatedAt: now,
     };
+    assertTaskWorktreeTargetArtifacts(updated.executionPolicy, updated.artifactRefs);
     assertTaskName(updated.name);
     assertUniqueTaskName(this.tasks(task.projectRef), updated.name, taskRef);
     if (!updated.title.trim()) throw new Error("task title is required");
@@ -649,6 +655,75 @@ export class TaskGraph {
       this.#tasks.set(taskRef, { ...task, status: "pending", updatedAt: nowIso() });
     }
     return dependency;
+  }
+
+  replaceTaskDependencies(taskRef: TaskRef, dependsOnRefs: readonly TaskRef[]): TaskDependency[] {
+    let task: Task;
+    try {
+      task = this.getTask(taskRef);
+    } catch (error) {
+      if (error instanceof NotFoundError)
+        throw new TaskDependencyReplacementError(
+          "task_dependency_task_not_found",
+          "task not found: " + taskRef,
+        );
+      throw error;
+    }
+    const uniqueDependsOn = [...new Set(dependsOnRefs)];
+    const prerequisites = uniqueDependsOn.map((dependsOn) => {
+      try {
+        return this.getTask(dependsOn);
+      } catch (error) {
+        if (error instanceof NotFoundError)
+          throw new TaskDependencyReplacementError(
+            "task_dependency_prerequisite_not_found",
+            "unknown dependency: " + dependsOn,
+          );
+        throw error;
+      }
+    });
+    const replacements = prerequisites.map((prerequisite) => {
+      const dependsOn = prerequisite.ref;
+      if (taskRef === dependsOn)
+        throw new TaskDependencyReplacementError(
+          "task_dependency_self_edge",
+          "task cannot depend on itself: " + taskRef,
+        );
+      if (task.projectRef !== prerequisite.projectRef)
+        throw new TaskDependencyReplacementError(
+          "task_dependency_cross_project",
+          "task dependencies cannot cross projects: " + taskRef + " depends on " + dependsOn,
+        );
+      if (prerequisite.status === "cancelled")
+        throw new TaskDependencyReplacementError(
+          "task_dependency_cancelled_prerequisite",
+          "task cannot depend on cancelled task: " + taskRef + " depends on " + dependsOn,
+        );
+      return { taskRef, dependsOn } satisfies TaskDependency;
+    });
+    const next = [
+      ...this.#dependencies.filter((dependency) => dependency.taskRef !== taskRef),
+      ...replacements,
+    ];
+    try {
+      assertAcyclic(next);
+    } catch (error) {
+      if (error instanceof DependencyError)
+        throw new TaskDependencyReplacementError(
+          "task_dependency_cycle",
+          "dependency replacement would create a cycle for " + taskRef,
+          { cause: error.message },
+        );
+      throw error;
+    }
+    this.#dependencies = next;
+    if (
+      task.status === "ready" &&
+      prerequisites.some((prerequisite) => prerequisite.status !== "done")
+    ) {
+      this.#tasks.set(taskRef, { ...task, status: "pending", updatedAt: nowIso() });
+    }
+    return replacements;
   }
 
   readyTasks(projectRef?: ProjectRef): Task[] {
@@ -834,5 +909,31 @@ export class TaskGraph {
       (task) =>
         task.ref !== excludeTaskRef && task.kind === "interaction" && isOpenContextTask(task),
     );
+  }
+}
+
+export type TaskDependencyReplacementErrorCode =
+  | "task_dependency_cancelled_prerequisite"
+  | "task_dependency_cross_project"
+  | "task_dependency_cycle"
+  | "task_dependency_invalid_request"
+  | "task_dependency_mixed_mutation"
+  | "task_dependency_prerequisite_ambiguous"
+  | "task_dependency_prerequisite_not_found"
+  | "task_dependency_self_edge"
+  | "task_dependency_task_ambiguous"
+  | "task_dependency_task_not_found";
+
+export class TaskDependencyReplacementError extends DependencyError {
+  readonly reasonCode: TaskDependencyReplacementErrorCode;
+
+  constructor(
+    reasonCode: TaskDependencyReplacementErrorCode,
+    message: string,
+    details: Record<string, unknown> = {},
+  ) {
+    super(message, { ...details, reasonCode });
+    this.name = "TaskDependencyReplacementError";
+    this.reasonCode = reasonCode;
   }
 }

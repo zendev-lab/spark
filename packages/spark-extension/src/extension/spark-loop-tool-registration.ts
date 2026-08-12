@@ -24,6 +24,23 @@ export function registerSparkLoopTool(
     label: "Spark Loop",
     description:
       'Manage the current session\'s open-ended /loop. Actions: status, schedule, clear. During a /loop foreground tick, call loop({ action: "schedule", delayMs, reason }) before ending the turn to choose the next tick time; if the right cadence depends on user preference, call ask first.',
+    policy: {
+      effect: "local_write",
+      executionMode: "sequential",
+      domains: ["loops"],
+      modes: ["plan", "execute", "fleet"],
+      approval: "none",
+    },
+    resolvePolicy(args) {
+      const status = args.action === undefined || args.action === "status";
+      return {
+        effect: status ? "read" : "local_write",
+        executionMode: status ? "parallel" : "sequential",
+        domains: ["loops"],
+        modes: status ? ["plan", "execute", "fleet"] : ["plan", "execute"],
+        approval: "none",
+      };
+    },
     promptGuidelines: [
       "Use loop action=schedule inside /loop ticks to choose the next tick delay instead of relying on a fixed interval.",
       "Choose delayMs from the objective and current context: short for active monitoring, longer for periodic checks, and ask the user when cadence affects cost, latency, or priority.",

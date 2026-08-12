@@ -124,9 +124,7 @@ export function registerSparkStatusTool(
       const runStore = defaultSparkWorkflowRunStore(stateCwd);
       await reconcileSparkWorkflowRunsWithActiveProcesses(runStore, graph, cwd);
       const workflowRunStatus = await runStore.status();
-      const dynamicWorkflowRuns = await defaultSparkDynamicWorkflowEventStore(stateCwd)
-        .listRuns()
-        .catch(() => []);
+      const dynamicWorkflowRuns = await defaultSparkDynamicWorkflowEventStore(stateCwd).listRuns();
       const runControl = await runStore.loadControl();
       const sessionKey = sparkSessionKey(ctx);
       const currentProject = await currentSparkProject(cwd, ctx, graph);
@@ -248,7 +246,7 @@ function resolveSparkStatusScope(
       ok: false,
       error: "task_selector_required",
       message:
-        'task_status requires task or taskRef. Use task_read({ action: "project_status" }) for a project view or pass taskRef="task:...".',
+        'task_status requires taskRef. Use task_read({ action: "project_status" }) for a project view or pass taskRef="task:...".',
     };
   const project = projectSelector
     ? resolveSparkStatusProject(graph, projectSelector)

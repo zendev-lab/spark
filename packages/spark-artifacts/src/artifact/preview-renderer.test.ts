@@ -66,9 +66,9 @@ describe("Artifact preview rendering", () => {
     expect(rendered.html).not.toContain("dangerous()");
     expect(rendered.html).not.toContain('<section class="reference-card">');
     expect(rendered.html).not.toContain("<script");
-    expect(rendered.diagnostics.join("\n")).toContain(
-      "unsupported Safe MDX-lite component ArtifactCard",
-    );
+    expect(rendered.diagnostics).toEqual([
+      "error at line 5: unsupported Safe MDX-lite component ArtifactCard",
+    ]);
 
     const inline = renderArtifactPreviewDocument({
       title: "Inline UI",
@@ -119,7 +119,9 @@ describe("Artifact preview rendering", () => {
     });
 
     expect(rendered.html).toContain("No renderable A2UI surface");
-    expect(rendered.diagnostics.join("\n")).toContain("unsupported catalog");
+    expect(rendered.diagnostics).toEqual([
+      "surface main: unsupported catalog https://evil.example/catalog.json",
+    ]);
   });
 
   it("serves Hub previews on an expiring loopback URL", async () => {

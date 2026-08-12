@@ -2174,13 +2174,13 @@ describe("Spark daemon local RPC", () => {
         ok: true,
         result: {
           sessionId: "sess_a",
-          status: "ready",
+          status: "running",
           updatedAt: queuedRegistryUpdatedAt,
         },
       });
       expect(
         await request("session_list_active", "session.list", { workspaceId: "ws_a" }),
-      ).toMatchObject({ ok: true, result: [{ sessionId: "sess_a", status: "ready" }] });
+      ).toMatchObject({ ok: true, result: [{ sessionId: "sess_a", status: "running" }] });
       invocationStore.claimNext("test-worker", "2099-07-15T00:00:01.000Z");
       invocationStore.complete(activeInvocation.invocationId, {
         status: "succeeded",
@@ -2382,7 +2382,7 @@ describe("Spark daemon local RPC", () => {
         await request("get_question_running", "session.get", { sessionId: "sess_question" }),
       ).toMatchObject({
         ok: true,
-        result: { status: "ready" },
+        result: { status: "running" },
       });
 
       const workspaceTurn = await request("turn_workspace", "turn.submit", {

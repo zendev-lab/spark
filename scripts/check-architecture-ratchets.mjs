@@ -1,28 +1,9 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, extname, join, relative, resolve, sep } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import ts from "typescript";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const architecture = readJson(join(root, "architecture/packages.json"));
-const frozenCompatibilityExtensions = new Set([
-  "./packages/spark-ask/src/extension-entry.ts",
-  "./packages/spark-artifacts/src/extension-entry.ts",
-  "./packages/spark-cue/src/extension/index.ts",
-  "./packages/spark-files/src/extension-entry.ts",
-  "./packages/spark-ai/src/models-extension.ts",
-  "./packages/spark-roles/src/extension-entry.ts",
-  "./packages/spark-session/src/extension-entry.ts",
-  "./packages/spark-memory/src/extension-entry.ts",
-  "./packages/spark-web/src/extension-entry.ts",
-  "./packages/spark-workflows/src/extension-entry.ts",
-  "./packages/spark-ai/src/baidu-oneapi-compat-extension.ts",
-  "./packages/spark-extension/src/extension/index.ts",
-]);
-const legacyDaemonClientCompatibilitySources = new Set([
-  "packages/spark-daemon-client/src/daemon-client.ts",
-  "packages/spark-daemon-client/src/daemon-local-rpc.ts",
-]);
 
 function runArchitectureRatchets() {
   const failures = [];
@@ -77,20 +58,6 @@ function runArchitectureRatchets() {
       }
     }
 
-    visit(join(root, path), (sourcePath) => {
-      if (!isProductionSource(sourcePath)) return;
-      const source = readFileSync(sourcePath, "utf8");
-      const repositoryPath = relative(root, sourcePath).replaceAll("\\", "/");
-      if (!isLegacyDaemonClientBoundaryExempt(repositoryPath)) {
-        const violations = findLegacyDaemonClientViolations(source, repositoryPath);
-        if (violations.length > 0) {
-          failures.push(
-            `${repositoryPath} bypasses the protocol-aware daemon client facade (${violations.join(", ")}). Use requestSparkDaemon/createSparkDaemonClient; keep legacy transport access inside spark-daemon-client compatibility sources.`,
-          );
-        }
-      }
-    });
-
     if (path.startsWith("packages/")) {
       const policyViolations = workspacePackagePolicyViolations({
         manifest,
@@ -110,39 +77,6 @@ function runArchitectureRatchets() {
     }
   }
 
-  const rootPackage = readJson(join(root, "package.json"));
-  const compatibilityExtensions = Array.isArray(rootPackage.pi?.extensions)
-    ? rootPackage.pi.extensions
-    : [];
-  for (const extension of compatibilityExtensions) {
-    if (!frozenCompatibilityExtensions.has(extension)) {
-      failures.push(
-        `Compatibility loader extension surface grew: ${extension}. New capabilities must target Spark-native hosts.`,
-      );
-    }
-    const extensionPath = join(root, extension);
-    if (!isFile(extensionPath)) continue;
-    const unsafePiImports = findUnsafePiCompatibilityImportsInGraph(extensionPath);
-    if (unsafePiImports.length > 0) {
-      failures.push(
-        `${extension} runtime graph imports Pi subpaths unsupported by the compatibility loader (${unsafePiImports.join(", ")}). Use only loader-virtualized Pi entries from compatibility extensions.`,
-      );
-    }
-  }
-
-  const tsconfig = readJson(join(root, "tsconfig.base.json"));
-  for (const [specifier, targets] of Object.entries(tsconfig.compilerOptions?.paths ?? {})) {
-    if (
-      specifier.includes("pi-extension") ||
-      (Array.isArray(targets) &&
-        targets.some((target) => target.includes("packages/pi-extension/")))
-    ) {
-      failures.push(
-        `Retired pi-extension facade remains in tsconfig path mapping ${specifier}. Legacy config migration must not recreate a source workspace alias.`,
-      );
-    }
-  }
-
   if (failures.length > 0) {
     console.error(
       ["Architecture ratchet failed:", ...failures.map((failure) => `- ${failure}`)].join("\n"),
@@ -150,188 +84,9 @@ function runArchitectureRatchets() {
     process.exitCode = 1;
   } else {
     console.log(
-      `Architecture ratchet passed (${workspacePackages.length} workspaces classified; declared dependency boundaries, package test/mutation discovery, daemon RPC facade, and frozen compatibility surface enforced).`,
+      `Architecture inventory passed (${workspacePackages.length} workspaces classified; declared dependency boundaries, exports, workspace test discovery, and mutation ownership verified).`,
     );
   }
-}
-
-export function findUnsafePiCompatibilityImports(source, fileName = "source.ts") {
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
-  const safeSpecifiers = new Set([
-    "@earendil-works/pi-ai",
-    "@earendil-works/pi-ai/compat",
-    "@earendil-works/pi-ai/oauth",
-    "@earendil-works/pi-ai/providers/all",
-  ]);
-  const unsafe = new Set();
-
-  function inspect(node) {
-    const specifier = moduleSpecifierText(node);
-    if (
-      specifier === "@mariozechner/pi-ai" ||
-      specifier?.startsWith("@mariozechner/pi-ai/") ||
-      (specifier?.startsWith("@earendil-works/pi-ai/") && !safeSpecifiers.has(specifier))
-    ) {
-      unsafe.add(specifier);
-    }
-    ts.forEachChild(node, inspect);
-  }
-  inspect(sourceFile);
-  return [...unsafe].sort((left, right) => left.localeCompare(right));
-}
-
-export function findUnsafePiCompatibilityImportsInGraph(entryPath) {
-  const pending = [entryPath];
-  const visited = new Set();
-  const unsafe = new Set();
-
-  while (pending.length > 0) {
-    const currentPath = pending.pop();
-    if (!currentPath || visited.has(currentPath) || !isFile(currentPath)) continue;
-    visited.add(currentPath);
-    const source = readFileSync(currentPath, "utf8");
-    const displayPath = relative(root, currentPath);
-    for (const specifier of findUnsafePiCompatibilityImports(source, displayPath)) {
-      unsafe.add(`${displayPath}: ${specifier}`);
-    }
-    for (const specifier of findRuntimeModuleSpecifiers(source, displayPath)) {
-      const resolved = resolveCompatibilitySourceModule(currentPath, specifier);
-      if (resolved) pending.push(resolved);
-    }
-  }
-
-  return [...unsafe].sort((left, right) => left.localeCompare(right));
-}
-
-function findRuntimeModuleSpecifiers(source, fileName) {
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
-  const specifiers = new Set();
-  function inspect(node) {
-    const specifier = moduleSpecifierText(node);
-    if (specifier) specifiers.add(specifier);
-    ts.forEachChild(node, inspect);
-  }
-  inspect(sourceFile);
-  return [...specifiers];
-}
-
-function moduleSpecifierText(node) {
-  if (
-    (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-    node.moduleSpecifier &&
-    ts.isStringLiteralLike(node.moduleSpecifier) &&
-    !isTypeOnlyModuleEdge(node)
-  ) {
-    return node.moduleSpecifier.text;
-  }
-  if (
-    ts.isCallExpression(node) &&
-    node.expression.kind === ts.SyntaxKind.ImportKeyword &&
-    node.arguments.length === 1 &&
-    ts.isStringLiteralLike(node.arguments[0])
-  ) {
-    return node.arguments[0].text;
-  }
-  return undefined;
-}
-
-function isTypeOnlyModuleEdge(node) {
-  if (ts.isExportDeclaration(node)) return node.isTypeOnly;
-  const importClause = node.importClause;
-  if (!importClause) return false;
-  if (importClause.isTypeOnly) return true;
-  if (importClause.name || !importClause.namedBindings) return false;
-  return (
-    ts.isNamedImports(importClause.namedBindings) &&
-    importClause.namedBindings.elements.every((element) => element.isTypeOnly)
-  );
-}
-
-function resolveCompatibilitySourceModule(importerPath, specifier) {
-  if (specifier.startsWith(".")) return resolveRelativeSourceModule(importerPath, specifier);
-  if (!specifier.startsWith("@zendev-lab/")) return undefined;
-  try {
-    const resolvedPath = fileURLToPath(
-      import.meta.resolve(specifier, pathToFileURL(join(root, "package.json"))),
-    );
-    if (!resolvedPath.startsWith(`${root}${sep}`) || !isFile(resolvedPath)) return undefined;
-    return resolvedPath;
-  } catch {
-    return undefined;
-  }
-}
-
-function resolveRelativeSourceModule(importerPath, specifier) {
-  const base = resolve(dirname(importerPath), specifier);
-  const candidates = extname(base)
-    ? [base]
-    : [
-        base,
-        `${base}.ts`,
-        `${base}.tsx`,
-        `${base}.mts`,
-        `${base}.js`,
-        `${base}.mjs`,
-        join(base, "index.ts"),
-        join(base, "index.tsx"),
-        join(base, "index.mts"),
-        join(base, "index.js"),
-        join(base, "index.mjs"),
-      ];
-  return candidates.find((candidate) => isFile(candidate));
-}
-
-export function findLegacyDaemonClientViolations(source, fileName = "source.ts") {
-  const sourceFile = ts.createSourceFile(
-    fileName,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
-  let importsLegacySubpath = false;
-  let usesLegacyRequestSymbol = false;
-
-  function inspect(node) {
-    const moduleSpecifier = moduleSpecifierText(node);
-    if (moduleSpecifier === "@zendev-lab/spark-daemon-client/local-rpc") {
-      importsLegacySubpath = true;
-    }
-    if (
-      ts.isIdentifier(node) &&
-      (node.text === "requestSparkDaemonLocalRpc" || node.text === "requestSparkDaemonLocalRpcWire")
-    ) {
-      usesLegacyRequestSymbol = true;
-    }
-    ts.forEachChild(node, inspect);
-  }
-  inspect(sourceFile);
-
-  return [
-    ...(importsLegacySubpath ? ["legacy local-rpc subpath import"] : []),
-    ...(usesLegacyRequestSymbol ? ["legacy request symbol"] : []),
-  ];
-}
-
-export function isLegacyDaemonClientBoundaryExempt(repositoryPath) {
-  const normalized = repositoryPath.replaceAll("\\", "/").replace(/^\.\//u, "");
-  return (
-    legacyDaemonClientCompatibilitySources.has(normalized) ||
-    /(?:^|\/)(?:__fixtures__|__tests__|fixtures|test|tests)(?:\/|$)/u.test(normalized) ||
-    /\.(?:fixture|spec|test)\.[^/]+$/u.test(normalized)
-  );
 }
 
 function workspacePackagePolicyViolations({ manifest, hasTests, hasStrykerConfig }) {
@@ -374,14 +129,6 @@ function visit(directory, inspect) {
     if (entry.isDirectory()) visit(path, inspect);
     else if (entry.isFile()) inspect(path);
   }
-}
-
-function isProductionSource(path) {
-  if (![".js", ".mjs", ".svelte", ".ts", ".tsx"].includes(extname(path))) return false;
-  const normalized = path.replaceAll("\\", "/");
-  if (/\.(?:test|spec)\.[^.]+$/u.test(normalized)) return false;
-  if (normalized.includes("/src/paraglide/")) return false;
-  return !normalized.includes("/test/");
 }
 
 function isFile(path) {

@@ -48,7 +48,6 @@ Limit production builds to documentation inputs:
 
 ```text
 apps/spark-docs/**
-scripts/check-user-docs.mjs
 scripts/require-docs-deploy-env.mjs
 package.json
 pnpm-lock.yaml

@@ -4,7 +4,7 @@ import type {
   ConversationPart,
   ConversationTaskState,
   ConversationToolState,
-} from "./types";
+} from "@zendev-lab/spark-ui/conversation";
 
 type UnknownRecord = Record<string, unknown>;
 type PartContext = { message: SparkMessageView; index: number; partType: string };
@@ -147,6 +147,7 @@ function parseArtifactPart(
     stringField(value, "artifactId") ??
     stringField(value, "ref") ??
     `${message.id}:artifact:${index}`;
+  const previewHref = explicitPreviewHref(value);
   return [
     {
       type: "artifact",
@@ -155,8 +156,21 @@ function parseArtifactPart(
       kind: stringField(value, "kind"),
       state: stringField(value, "state") ?? stringField(value, "status"),
       summary: stringField(value, "summary"),
+      ...(previewHref ? { previewHref } : {}),
     },
   ];
+}
+
+function explicitPreviewHref(value: UnknownRecord): string | undefined {
+  const href = stringField(value, "previewHref");
+  if (!href) return undefined;
+  if (href.startsWith("/")) return href;
+  try {
+    const parsed = new URL(href);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function parseErrorPart(value: UnknownRecord): ConversationPart[] {

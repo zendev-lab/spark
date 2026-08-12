@@ -16,9 +16,11 @@ describe("Spark action-bar protocol", () => {
       "thinking",
       "settings",
       "status",
-      "session",
       "queue",
       "scoped-models",
+      "plan",
+      "execute",
+      "fleet",
       "goal",
       "loop",
       "repro",
@@ -69,20 +71,14 @@ describe("Spark action-bar protocol", () => {
     expect(canonicalPrefix).toMatchObject({
       kind: "suggest",
       query: "se",
-      suggestions: [
-        { command: "settings", canonicalCommand: "settings" },
-        { command: "session", canonicalCommand: "session" },
-      ],
+      suggestions: [{ command: "settings", canonicalCommand: "settings" }],
     });
 
     const mixedPrefix = resolveSparkSlashEditorInput("/r");
     expect(mixedPrefix).toMatchObject({
       kind: "suggest",
       query: "r",
-      suggestions: [
-        { command: "repro", canonicalCommand: "repro" },
-        { command: "resume", canonicalCommand: "session" },
-      ],
+      suggestions: [{ command: "repro", canonicalCommand: "repro" }],
     });
     expect(resolveSparkSlashEditorInput("/workflow-")).toEqual({
       kind: "unknown",
@@ -104,10 +100,9 @@ describe("Spark action-bar protocol", () => {
       command: "run",
       descriptor: { name: "workflow", actionBar: { id: "workflow" } },
     });
-    expect(resolveSparkSlashEditorInput("/NEW")).toMatchObject({
-      kind: "exact",
+    expect(resolveSparkSlashEditorInput("/NEW")).toEqual({
+      kind: "unknown",
       command: "new",
-      descriptor: { name: "session", actionBar: { id: "session" } },
     });
   });
 
@@ -155,16 +150,11 @@ describe("Spark action-bar protocol", () => {
     );
   });
 
-  it("maps aliases to the same session operation surface", () => {
-    const session = sparkSlashActionBarForInput("/session");
-    expect(sparkSlashActionBarForInput("/sessions")).toBe(session);
-    expect(sparkSlashActionBarForInput("/resume")).toBe(session);
-    expect(sparkSlashActionBarForInput("/new")).toBe(session);
-    expect(session?.actions.map((action) => action.intent)).toEqual([
-      "session.select",
-      "session.create",
-      "session.inspect",
-    ]);
+  it("does not synthesize action bars for direct session lifecycle commands", () => {
+    expect(sparkSlashActionBarForInput("/session")).toBeUndefined();
+    expect(sparkSlashActionBarForInput("/sessions")).toBeUndefined();
+    expect(sparkSlashActionBarForInput("/resume")).toBeUndefined();
+    expect(sparkSlashActionBarForInput("/new")).toBeUndefined();
   });
 
   it("publishes lifecycle controls and workflow run actions as typed intents", () => {
@@ -189,7 +179,7 @@ describe("Spark action-bar protocol", () => {
 
   it("only opens a catalog bar for an exact argument-free slash command", () => {
     expect(sparkSlashActionBarForInput(" /MODEL \n")?.id).toBe("model");
-    expect(sparkSlashActionBarForInput("/new")?.id).toBe("session");
+    expect(sparkSlashActionBarForInput("/new")).toBeUndefined();
     expect(sparkSlashActionBarForInput("/workflow")?.id).toBe("workflow");
     expect(sparkSlashActionBarForInput("/workflow-runs")?.id).toBe("workflow");
     expect(sparkSlashActionBarForInput("/runs")?.id).toBe("workflow");

@@ -4,6 +4,7 @@ import {
   builtinRoleRef,
   defaultProjectRoleModelSettingsStore,
   defaultUserRoleModelSettingsStore,
+  RoleModelTypeUnconfiguredError,
   resolveRoleModelSetting,
   runRole,
   type RoleRegistry,
@@ -226,6 +227,7 @@ export interface ReviewerRunRecord {
   runName?: string;
   startedAt: string;
   finishedAt: string;
+  model?: string;
   thinking?: ReviewerThinkingLevel;
   stdout?: string;
   stderr?: string;
@@ -313,6 +315,19 @@ export function capReviewerThinkingLevel(value: unknown): ReviewerThinkingLevel 
     : DEFAULT_REVIEWER_THINKING_LEVEL;
 }
 
+/** Resolve the builtin reviewer's semantic verification model without starting a Role Session. */
+export async function resolveBuiltinReviewerModel(cwd: string): Promise<string | undefined> {
+  const resolved = await resolveRoleModelSetting({
+    roleRef: builtinRoleRef("reviewer"),
+    modelType: "verification",
+    roleId: "reviewer",
+    roleName: "reviewer",
+    projectStore: defaultProjectRoleModelSettingsStore(cwd),
+    userStore: defaultUserRoleModelSettingsStore(),
+  });
+  return resolved?.model;
+}
+
 function isReviewerThinkingLevel(value: unknown): value is ReviewerThinkingLevel {
   return (
     value === "off" ||
@@ -356,7 +371,6 @@ export class SparkRolesReviewerRunner implements ReviewerRunner {
   readonly #timeoutMs: number;
   readonly #reviewerRoleRef: RoleRef;
   readonly #model?: string;
-  readonly #sessionModel?: string;
   readonly #sessionDir?: string;
   readonly #env?: NodeJS.ProcessEnv;
   readonly #reviewerThinkingLevel: ReviewerThinkingLevel;
@@ -372,7 +386,6 @@ export class SparkRolesReviewerRunner implements ReviewerRunner {
     this.#timeoutMs = options.timeoutMs ?? reviewerTimeoutMsFromEnv(process.env);
     this.#reviewerRoleRef = options.reviewerRoleRef ?? builtinRoleRef("reviewer");
     this.#model = options.model;
-    this.#sessionModel = options.sessionModel;
     this.#sessionDir = options.sessionDir;
     this.#env = options.env;
     this.#reviewerThinkingLevel = options.reviewerThinkingLevel ?? DEFAULT_REVIEWER_THINKING_LEVEL;
@@ -421,24 +434,31 @@ export class SparkRolesReviewerRunner implements ReviewerRunner {
     const startedAt = this.#now();
     const roleModel = await resolveRoleModelSetting({
       roleRef: role.ref,
+      modelType: role.modelType,
       roleId: role.id,
       roleName: role.id,
       projectStore: defaultProjectRoleModelSettingsStore(input.cwd || this.#cwd),
       userStore: defaultUserRoleModelSettingsStore(),
     });
-    const resolvedModel = this.#model ?? roleModel?.model ?? this.#sessionModel;
+    const resolvedModel = this.#model ?? roleModel?.model;
+    if (!resolvedModel) throw new RoleModelTypeUnconfiguredError(role.ref, role.modelType);
     let result: RoleRunResult;
     try {
       result = await runRole({
         runRef: runRef as `run:${string}`,
         roleRef: role.ref as `role:${string}`,
+        roleId: role.id,
+        roleRevision: role.revision,
+        roleSource: role.source,
+        roleCapabilities: role.capabilities,
+        roleModelType: role.modelType,
+        roleInstantiation: "owned",
         systemPrompt: buildReadOnlyReviewerSystemPrompt(role.systemPrompt),
         model: resolvedModel,
         thinking: this.#reviewerThinkingLevel,
         instruction: renderReviewerInstruction(input),
         runGuidance: REVIEWER_JSON_SCHEMA,
         allowedTools: reviewerGateAllowedTools(role.allowedTools),
-        noSession: true,
         noExtensions: true,
         launch: "fresh",
         sessionDir: this.#sessionDir,
@@ -536,24 +556,31 @@ export class SparkRolesReviewerRunner implements ReviewerRunner {
     const runRef = newRef("run");
     const roleModel = await resolveRoleModelSetting({
       roleRef: role.ref,
+      modelType: role.modelType,
       roleId: role.id,
       roleName: role.id,
       projectStore: defaultProjectRoleModelSettingsStore(input.cwd || this.#cwd),
       userStore: defaultUserRoleModelSettingsStore(),
     });
-    const resolvedModel = this.#model ?? roleModel?.model ?? this.#sessionModel;
+    const resolvedModel = this.#model ?? roleModel?.model;
+    if (!resolvedModel) throw new RoleModelTypeUnconfiguredError(role.ref, role.modelType);
     let result: RoleRunResult;
     try {
       result = await runRole({
         runRef: runRef as `run:${string}`,
         roleRef: role.ref as `role:${string}`,
+        roleId: role.id,
+        roleRevision: role.revision,
+        roleSource: role.source,
+        roleCapabilities: role.capabilities,
+        roleModelType: role.modelType,
+        roleInstantiation: "owned",
         systemPrompt: buildReadOnlyReviewerSystemPrompt(role.systemPrompt),
         model: resolvedModel,
         thinking: this.#reviewerThinkingLevel,
         instruction: renderAskAutoAnswerInstruction(input),
         runGuidance: ASK_AUTO_ANSWER_JSON_SCHEMA,
         allowedTools: reviewerGateAllowedTools(role.allowedTools),
-        noSession: true,
         noExtensions: true,
         launch: "fresh",
         sessionDir: this.#sessionDir,
@@ -986,6 +1013,7 @@ function roleRunRecord(
     runName: result.record.runName,
     startedAt: result.record.startedAt ?? fallbackStartedAt,
     finishedAt: result.record.finishedAt ?? fallbackFinishedAt,
+    ...(result.record.model ? { model: result.record.model } : {}),
     thinking: result.record.thinking,
     stdout: result.stdout,
     stderr: result.stderr,
@@ -1087,7 +1115,7 @@ function reviewerFailureResult(input: {
   };
 }
 
-function reviewerVerdictProtocolIssue(
+export function reviewerVerdictProtocolIssue(
   input: ReviewInput,
   verdict: ReviewerVerdict,
 ): string | undefined {

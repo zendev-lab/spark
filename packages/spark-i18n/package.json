@@ -32,7 +32,7 @@
     "test:mutation": "stryker run"
   },
   "devDependencies": {
-    "@inlang/paraglide-js": "^2.20.2",
+    "@inlang/paraglide-js": "2.23.2",
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
     "typescript": "catalog:",

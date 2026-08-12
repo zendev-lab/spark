@@ -11,6 +11,7 @@ import type {
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import {
+  createAutonomousAskInteractionRequestId,
   parseSparkMemoryApprovalBinding,
   sparkEvidenceRequestBindingSchema,
 } from "@zendev-lab/spark-protocol";
@@ -22,6 +23,7 @@ import {
 } from "./evidence.ts";
 import { SparkAutonomousAsyncOnlyError } from "./autonomous-policy.ts";
 import { summarizeAskResult, type AskSummaryAnswer } from "./summary.ts";
+import { requireCanonicalAskTransport } from "./transport.ts";
 
 export type SparkAskAction = "ask" | "flow";
 export type SparkAskAutoAnswerMode = boolean;
@@ -124,7 +126,7 @@ export function registerSparkAskActionTool(
       "Canonical ask capability. Use action=ask for a structured user ask; action=flow forces the fullscreen multi-question ask_flow renderer. autoAnswer=true waits for the user first and lets the host reviewer take over only after that wait times out; ordinary asks do not auto-answer.",
     promptGuidelines: [
       "Use ask as the canonical user-question tool instead of choosing between ask_user and ask_flow directly.",
-      "Use delivery=blocking when this turn cannot continue without the answer; use delivery=async to create an Inbox request and continue immediately.",
+      "Use delivery=blocking when this turn cannot continue without the answer; delivery=async continues only after the host returns a correlated durable acknowledgement.",
       "Ask only context-specific questions whose answers change the next action, plan, dependency, priority, or success criteria.",
       "Set recordAsEvidence=true when a later evidence gate must prove the user answered this ask.",
       "Use freeform questions for notes/context; do not create business options named Other or Type your own.",
@@ -207,6 +209,10 @@ export function registerSparkAskActionTool(
       if (autoAnswer && params.delivery === "async") {
         throw new Error("ask.autoAnswer cannot be combined with delivery=async");
       }
+      const autoAnswerResolver = options.autoAnswer ?? contextAutoAnswerResolver(ctx);
+      if (autoAnswer && !autoAnswerResolver && autoAnswerProviderRegistry().size === 0) {
+        return blockedAutoAnswerResult(params, missingAutoAnswerResolverReason());
+      }
       const target = selectAskTarget(action, params);
       const tool = options.resolveTool(target);
       if (!tool) throw new Error(`ask action adapter could not find ${target}`);
@@ -220,9 +226,14 @@ export function registerSparkAskActionTool(
           evidenceRequest: bound.evidenceRequest,
         };
       }
+      const delivery = forwarded.delivery === "async" ? "async" : "blocking";
+      const transport = requireCanonicalAskTransport(ctx, {
+        delivery,
+        autoAnswer: autoAnswer === true,
+      });
       const waitTimeoutMs = contextAskWaitTimeoutMs(ctx);
       const humanParams =
-        params.delivery !== "async" && hasProtocolInteraction(ctx)
+        delivery === "blocking" && transport === "protocol"
           ? { ...forwarded, timeoutMs: waitTimeoutMs }
           : forwarded;
       const dispatchCtx = autonomous
@@ -232,20 +243,11 @@ export function registerSparkAskActionTool(
         const result = await tool.execute(toolCallId, humanParams, signal, onUpdate, dispatchCtx);
         return autonomous ? result : maybeRecordAskEvidence(params, result, ctx);
       }
-      if (hasProtocolInteraction(ctx)) {
-        const humanResult = await tool.execute(toolCallId, humanParams, signal, onUpdate, ctx);
-        if (!didHumanAskTimeOut(humanResult)) return humanResult;
-      } else if (hasLegacyHumanInteraction(ctx)) {
-        // Legacy primitives cannot be cancelled. Keep one answer owner by waiting
-        // for the human instead of racing the prompt with reviewer output.
-        return await tool.execute(toolCallId, forwarded, signal, onUpdate, ctx);
-      } else {
-        await waitForReviewerFallback(waitTimeoutMs, signal);
-      }
+      const humanResult = await tool.execute(toolCallId, humanParams, signal, onUpdate, ctx);
+      if (!didHumanAskTimeOut(humanResult)) return humanResult;
       const request = decodeAutoAnswerRequest(params);
-      const resolver = options.autoAnswer ?? contextAutoAnswerResolver(ctx);
-      const autoAnswered = resolver
-        ? await resolver(request, ctx)
+      const autoAnswered = autoAnswerResolver
+        ? await autoAnswerResolver(request, ctx)
         : await resolveAutoAnswerFromProviders(request, ctx);
       if (!autoAnswered) return blockedAutoAnswerResult(params, missingAutoAnswerResolverReason());
       const blocked = validateAutoAnswerResult(request, autoAnswered);
@@ -358,7 +360,7 @@ async function createAutonomousEvidenceRequest(
     expectedAnswerKind: ownerQuestion.kind,
   }) as ExtensionEvidenceRequestBinding;
   return {
-    interactionRequestId: `ask_async:${requestHash}`,
+    interactionRequestId: createAutonomousAskInteractionRequestId(requestHash),
     evidenceRequest,
   };
 }
@@ -430,20 +432,6 @@ function contextAskWaitTimeoutMs(ctx: SparkHostContext): number {
   return Math.min(MAX_ASK_WAIT_TIMEOUT_MS, Math.max(1, Math.floor(value)));
 }
 
-function hasProtocolInteraction(ctx: SparkHostContext): boolean {
-  return typeof ctx.ui?.interaction === "function";
-}
-
-function hasLegacyHumanInteraction(ctx: SparkHostContext): boolean {
-  return Boolean(
-    ctx.ui &&
-    (typeof ctx.ui.select === "function" ||
-      typeof ctx.ui.selectWithCustom === "function" ||
-      typeof ctx.ui.input === "function" ||
-      typeof ctx.ui.custom === "function"),
-  );
-}
-
 function didHumanAskTimeOut(result: Awaited<ReturnType<ToolConfig["execute"]>>): boolean {
   return (
     isRecord(result.details) &&
@@ -490,21 +478,6 @@ function askSummaryAnswers(value: unknown): Record<string, AskSummaryAnswer> {
   return answers;
 }
 
-async function waitForReviewerFallback(timeoutMs: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted) throw signal.reason ?? new Error("ask aborted");
-  await new Promise<void>((resolve, reject) => {
-    const abort = () => {
-      clearTimeout(timer);
-      reject(signal.reason ?? new Error("ask aborted"));
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", abort);
-      resolve();
-    }, timeoutMs);
-    signal.addEventListener("abort", abort, { once: true });
-  });
-}
-
 async function resolveAutoAnswerFromProviders(
   request: SparkAskAutoAnswerRequest,
   ctx: SparkHostContext,
@@ -538,6 +511,7 @@ function stripAdapterOnlyParams(params: Record<string, unknown>): Record<string,
     action: _action,
     autoAnswer: _autoAnswer,
     recordAsEvidence: _recordAsEvidence,
+    timeoutMs: _timeoutMs,
     ...rest
   } = params;
   return rest;

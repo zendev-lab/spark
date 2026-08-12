@@ -4,7 +4,7 @@ import {
   visibleConversationParts,
   visibleConversationPartText,
 } from "./components/conversation/conversation-view";
-import { visibleThinkingChainSteps } from "./components/conversation/thinking-chain-view";
+import { visibleThinkingChainSteps } from "@zendev-lab/spark-ui/conversation";
 import {
   activeSessionTimelineProcessItemId,
   buildCanonicalSessionTimeline,

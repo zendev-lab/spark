@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { defaultArtifactStore } from "./store.ts";
-import { syncDocumentArtifactFile } from "./file-sync.ts";
+import {
+  ARTIFACT_SYNC_FILE_MAX_BYTES,
+  ARTIFACT_TRUSTED_SYNC_FILE_MAX_BYTES,
+  syncDocumentArtifactFile,
+} from "./file-sync.ts";
 import type { ArtifactRef } from "./types.ts";
 
 describe("document file sync", () => {
@@ -75,5 +79,43 @@ describe("document file sync", () => {
         mediaType: "text/plain" as never,
       }),
     ).rejects.toThrow("document media type is not writable: text/plain");
+  });
+
+  it("keeps the public file limit while allowing a bounded trusted producer override", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-document-file-sync-trusted-"));
+    const sourcePath = "generated-report.md";
+    const content = "x".repeat(ARTIFACT_SYNC_FILE_MAX_BYTES + 1);
+    await writeFile(join(cwd, sourcePath), content, "utf8");
+
+    await expect(
+      syncDocumentArtifactFile({
+        cwd,
+        sourcePath,
+        artifactRef: "artifact:default-limit" as ArtifactRef,
+        title: "Default limit",
+        mediaType: "text/markdown",
+      }),
+    ).rejects.toThrow(`${ARTIFACT_SYNC_FILE_MAX_BYTES}-byte sync_file limit`);
+
+    const trusted = await syncDocumentArtifactFile({
+      cwd,
+      sourcePath,
+      artifactRef: "artifact:trusted-limit" as ArtifactRef,
+      title: "Trusted limit",
+      mediaType: "text/markdown",
+      maxBytes: ARTIFACT_TRUSTED_SYNC_FILE_MAX_BYTES,
+    });
+    expect(trusted.artifact.body.content).toBe(content);
+
+    await expect(
+      syncDocumentArtifactFile({
+        cwd,
+        sourcePath,
+        artifactRef: "artifact:unbounded-limit" as ArtifactRef,
+        title: "Unbounded limit",
+        mediaType: "text/markdown",
+        maxBytes: ARTIFACT_TRUSTED_SYNC_FILE_MAX_BYTES + 1,
+      }),
+    ).rejects.toThrow("maxBytes must be a positive integer");
   });
 });

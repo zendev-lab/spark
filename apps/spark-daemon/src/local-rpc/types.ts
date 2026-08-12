@@ -29,6 +29,7 @@ import type { SparkDaemonModelControl } from "../model-control.ts";
 import type { SparkDaemonRelocationRequest, SparkDaemonRelocationResult } from "../relocation.ts";
 import type { SparkReproFormalEvidenceVerifier } from "../repro-formal-evidence-verifier.ts";
 import type { DaemonSessionRegistry } from "../session-registry.ts";
+import type { SessionSupervisor } from "../session-supervisor.ts";
 import type { SessionNotificationDeliveryQueue } from "../session-notification-delivery.ts";
 import type { SparkChannelDeliverySummary } from "../store/channel-deliveries.ts";
 import type {
@@ -169,6 +170,7 @@ export interface LocalRpcHandlerOptions {
   unbindSparkDaemonWorkspaceFromHub?: UnbindSparkDaemonWorkspaceFromHub;
   channelIngress?: Pick<DaemonChannelIngressRuntime, "status" | "configure" | "reload" | "notify">;
   sessionRegistry?: DaemonSessionRegistry;
+  sessionSupervisor?: SessionSupervisor;
   modelControl?: SparkDaemonModelControl;
   humanWaits?: SparkDaemonHumanWaitRegistry;
   reproFormalEvidenceVerifier?: SparkReproFormalEvidenceVerifier;

@@ -6,6 +6,7 @@ import {
   classifyProviderFailure,
   type AssistantMessage,
   type Message,
+  type ProviderFailureClassification,
   type ToolCall,
   type UserMessage,
 } from "@zendev-lab/spark-ai";
@@ -80,6 +81,7 @@ const MAX_CONTEXT_OVERFLOW_COMPACTIONS = 5;
 const CONTEXT_OVERFLOW_COMPACT_BACKOFF_MS = [0, 500, 1_500, 4_000, 10_000] as const;
 /** Provider concurrency/rate-limit retries after the stream already failed closed. */
 const MAX_RATE_LIMIT_RETRIES = 5;
+const MAX_TRANSIENT_CONTINUATIONS = 3;
 const RATE_LIMIT_BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 20_000] as const;
 const DAEMON_RESUME_NOTICE =
   "[Spark daemon resume] The previous attempt of this turn was interrupted mid-execution. Continue from the current session history. Do not repeat side effects that already completed.";
@@ -179,16 +181,18 @@ export class SparkAgentSession {
         this.restartHooks(record, beforeCount, options),
       );
 
+      let turnContinuationPersisted = false;
       let compactAttempt = 0;
       while (
         outcome.status === "failed" &&
-        classifyProviderFailure(outcome.errorMessage).failureClass === "context_overflow" &&
+        classifyRunOutcome(outcome).failureClass === "context_overflow" &&
         compactAttempt < MAX_CONTEXT_OVERFLOW_COMPACTIONS
       ) {
         await delay(CONTEXT_OVERFLOW_COMPACT_BACKOFF_MS[compactAttempt] ?? 10_000);
         const recovery = await this.tryCompactAfterOverflow(record, beforeCount);
         if (!recovery) break;
         compactAttempt += 1;
+        if (recovery === "continue") turnContinuationPersisted = true;
         // Reload from the persisted compacted record. A transient checkpoint
         // already contains this turn's user/tool history, so continue without
         // resubmitting the prompt; persisted-history recovery still submits it.
@@ -204,20 +208,54 @@ export class SparkAgentSession {
               );
       }
       let rateLimitAttempt = 0;
-      while (
-        outcome.status === "failed" &&
-        classifyProviderFailure(outcome.errorMessage).failureClass === "rate_limit" &&
-        rateLimitAttempt < MAX_RATE_LIMIT_RETRIES
-      ) {
+      while (outcome.status === "failed" && rateLimitAttempt < MAX_RATE_LIMIT_RETRIES) {
+        const failure = classifyRunOutcome(outcome);
+        if (failure.failureClass !== "rate_limit") break;
         await delay(RATE_LIMIT_BACKOFF_MS[rateLimitAttempt] ?? 20_000);
         rateLimitAttempt += 1;
-        // Same as overflow recovery: drop the failed transient turn and resubmit
-        // from the last persisted session snapshot.
-        beforeCount = this.loadPromptItems(record);
-        outcome = await this.services.agentLoop.submitWithOutcome(
-          prompt,
-          this.restartHooks(record, beforeCount, options),
+        const recovery = await this.prepareProviderContinuation(
+          record,
+          beforeCount,
+          failure,
+          rateLimitAttempt,
+          turnContinuationPersisted,
         );
+        if (recovery === "continue") turnContinuationPersisted = true;
+        beforeCount = this.loadPromptItems(record);
+        outcome =
+          recovery === "continue"
+            ? await this.services.agentLoop.continueWithOutcome(
+                this.restartHooks(record, beforeCount, options),
+              )
+            : await this.services.agentLoop.submitWithOutcome(
+                prompt,
+                this.restartHooks(record, beforeCount, options),
+              );
+      }
+      let transientAttempt = 0;
+      while (outcome.status === "failed" && transientAttempt < MAX_TRANSIENT_CONTINUATIONS) {
+        const failure = classifyRunOutcome(outcome);
+        if (failure.failureClass !== "transient") break;
+        await delay(RATE_LIMIT_BACKOFF_MS[transientAttempt] ?? 5_000);
+        transientAttempt += 1;
+        const recovery = await this.prepareProviderContinuation(
+          record,
+          beforeCount,
+          failure,
+          transientAttempt,
+          turnContinuationPersisted,
+        );
+        if (recovery === "continue") turnContinuationPersisted = true;
+        beforeCount = this.loadPromptItems(record);
+        outcome =
+          recovery === "continue"
+            ? await this.services.agentLoop.continueWithOutcome(
+                this.restartHooks(record, beforeCount, options),
+              )
+            : await this.services.agentLoop.submitWithOutcome(
+                prompt,
+                this.restartHooks(record, beforeCount, options),
+              );
       }
       return await this.persistRunOutcome(record, beforeCount, outcome, messageMetadata);
     } finally {
@@ -309,40 +347,6 @@ export class SparkAgentSession {
       assistant,
       outcome,
       sessionPersistence: "persistent",
-    };
-  }
-
-  async runAnonymous(options: SparkAgentSessionRunOptions): Promise<SparkAgentSessionRunResult> {
-    this.services.runtime.setSessionId(options.sessionId);
-    this.services.agentLoop.setViewSessionId(options.sessionId);
-    this.services.agentLoop.replacePromptItems([]);
-    let beforeCount = this.services.agentLoop.getPromptItems().length;
-    let outcome = await this.services.agentLoop.submitWithOutcome(options.prompt);
-    let rateLimitAttempt = 0;
-    while (
-      outcome.status === "failed" &&
-      classifyProviderFailure(outcome.errorMessage).failureClass === "rate_limit" &&
-      rateLimitAttempt < MAX_RATE_LIMIT_RETRIES
-    ) {
-      await delay(RATE_LIMIT_BACKOFF_MS[rateLimitAttempt] ?? 20_000);
-      rateLimitAttempt += 1;
-      this.services.agentLoop.replacePromptItems([]);
-      beforeCount = this.services.agentLoop.getPromptItems().length;
-      outcome = await this.services.agentLoop.submitWithOutcome(options.prompt);
-    }
-    const assistant = outcome.assistant;
-
-    return {
-      sessionId: options.sessionId,
-      sessionPath: "",
-      newMessageCount: this.services.agentLoop
-        .getPromptItems()
-        .slice(beforeCount)
-        .filter((item) => item.persistence === "session").length,
-      assistantText: assistantMessageToFinalAnswerText(assistant),
-      assistant,
-      outcome,
-      sessionPersistence: "anonymous",
     };
   }
 
@@ -513,6 +517,33 @@ export class SparkAgentSession {
         agentMessageToSessionMessage(item.content.message as Message),
       );
     }
+  }
+
+  private async prepareProviderContinuation(
+    record: SparkSessionRecord,
+    beforeCount: number,
+    failure: ProviderFailureClassification,
+    attempt: number,
+    turnContinuationPersisted: boolean,
+  ): Promise<"continue" | "resubmit"> {
+    const transientItems = this.services.agentLoop
+      .getPromptItems()
+      .slice(beforeCount)
+      .filter((item) => !isProviderErrorPromptItem(item));
+    const hasCompletedToolReceipt = transientItems.some((item) => item.authority === "tool");
+    if (!turnContinuationPersisted && !hasCompletedToolReceipt) return "resubmit";
+
+    // Commit the in-flight transcript before continuation. The provider error
+    // is lowered to typed runtime data rather than a fake ToolResult or provider
+    // assistant message, so completed receipts remain authoritative.
+    const checkpoint = structuredClone(record) as SparkSessionRecord;
+    this.appendPromptItemsToSessionRecord(checkpoint, [
+      ...transientItems,
+      providerRuntimeFailurePromptItem(failure, attempt),
+    ]);
+    await this.services.sessionStore.save(checkpoint);
+    record.entries = checkpoint.entries;
+    return "continue";
   }
 
   private async tryCompactAfterOverflow(
@@ -690,6 +721,39 @@ function isProviderErrorPromptItem(item: SparkPromptItem): boolean {
   if (item.content.kind !== "provider_message") return false;
   const message = item.content.message;
   return message.role === "assistant" && message.stopReason === "error";
+}
+
+function classifyRunOutcome(
+  outcome: Extract<SparkRunOutcome, { status: "failed" }>,
+): ProviderFailureClassification {
+  return classifyProviderFailure({
+    errorMessage: outcome.errorMessage,
+    assistantMessage: outcome.assistant,
+    ...(outcome.errorCode ? { code: outcome.errorCode } : {}),
+  });
+}
+
+function providerRuntimeFailurePromptItem(
+  failure: ProviderFailureClassification,
+  attempt: number,
+): SparkPromptItem {
+  const observation = {
+    kind: "provider",
+    code: failure.code ?? "PROVIDER_RUNTIME_FAILURE",
+    failureClass: failure.failureClass,
+    retryability: failure.policy.retriable ? "transient" : "permanent",
+    attempt,
+    message: failure.message.slice(0, 2_000),
+  };
+  return sparkRuntimePromptItem({
+    authority: "runtime_data",
+    trust: "untrusted",
+    visibility: "hidden",
+    persistence: "session",
+    customType: "spark-runtime-failure",
+    content: `Provider runtime failure observation (not a user stop request): ${JSON.stringify(observation)}. Continue from durable session history without repeating completed side effects.`,
+    details: observation,
+  });
 }
 
 function restartCheckpointForTurn(

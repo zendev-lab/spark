@@ -59,6 +59,7 @@ import {
   sparkPiAuthImportRequestSchema,
 } from "./model-control.ts";
 import { isoDateTimeSchema, prefixedIdSchema } from "./refs.ts";
+import { sparkSessionModeResultSchema, sparkSessionSetModeRequestSchema } from "./session-mode.ts";
 import {
   executorClientProjectionSchema,
   runtimeWorkspaceBindingStatusSchema,
@@ -179,6 +180,7 @@ export const sparkLocalRpcSessionOrpcErrors = {
   invalid_registry: { status: 500 },
   invalid_scope: { status: 422 },
   invalid_session_path: { status: 422 },
+  invalid_session_relation: { status: 422 },
   invalid_session_role: { status: 422 },
   invalid_session_tag: { status: 422 },
   invalid_session_snapshot: { status: 500 },
@@ -202,7 +204,10 @@ export const sparkLocalRpcSessionOrpcErrors = {
   session_media_invalid: { status: 422 },
   session_media_not_found: { status: 404 },
   session_not_found: { status: 404 },
+  session_owner_invalid: { status: 409 },
+  session_registry_conflict: { status: 409 },
   session_registry_unavailable: { status: 503 },
+  session_restore_forbidden: { status: 403 },
   session_scope_mismatch: { status: 409 },
   session_snapshot_cursor_not_found: { status: 404 },
   session_snapshot_mismatch: { status: 409 },
@@ -273,7 +278,9 @@ export const sparkLocalRpcInvocationOrpcErrors = {
 
 export const sparkLocalRpcModelOrpcErrors = {
   model_control_unavailable: { status: 503 },
+  role_model_type_unconfigured: { status: 422 },
   model_not_found: { status: 404 },
+  model_out_of_scope: { status: 422 },
   model_unavailable: { status: 422 },
   provider_not_found: { status: 404 },
   provider_auth_method_unsupported: { status: 422 },
@@ -425,6 +432,9 @@ const sparkLocalRpcSessionArchiveOrpcErrors = {
   ...sparkLocalRpcSessionRegistryBaseOrpcErrors,
   session_channel_bound: sparkLocalRpcSessionOrpcErrors.session_channel_bound,
   session_not_found: sparkLocalRpcSessionOrpcErrors.session_not_found,
+  session_owner_invalid: sparkLocalRpcSessionOrpcErrors.session_owner_invalid,
+  session_registry_conflict: sparkLocalRpcSessionOrpcErrors.session_registry_conflict,
+  session_restore_forbidden: sparkLocalRpcSessionOrpcErrors.session_restore_forbidden,
   session_scope_mismatch: sparkLocalRpcSessionOrpcErrors.session_scope_mismatch,
   side_thread_mutation_forbidden: sparkLocalRpcSessionOrpcErrors.side_thread_mutation_forbidden,
 } as const;
@@ -565,6 +575,7 @@ const sparkLocalRpcReadinessSessionModelOrpcErrors = {
   side_thread_mutation_forbidden: sparkLocalRpcSessionOrpcErrors.side_thread_mutation_forbidden,
   model_control_unavailable: sparkLocalRpcModelOrpcErrors.model_control_unavailable,
   model_not_found: sparkLocalRpcModelOrpcErrors.model_not_found,
+  model_out_of_scope: sparkLocalRpcModelOrpcErrors.model_out_of_scope,
   model_unavailable: sparkLocalRpcModelOrpcErrors.model_unavailable,
 } as const;
 
@@ -593,6 +604,7 @@ const sparkLocalRpcModelCatalogOrpcErrors = {
 const sparkLocalRpcModelSelectionOrpcErrors = {
   ...sparkLocalRpcModelCatalogOrpcErrors,
   model_not_found: sparkLocalRpcModelOrpcErrors.model_not_found,
+  model_out_of_scope: sparkLocalRpcModelOrpcErrors.model_out_of_scope,
   model_unavailable: sparkLocalRpcModelOrpcErrors.model_unavailable,
 } as const;
 
@@ -1581,6 +1593,10 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkSessionSetModelRequestSchema,
     output: sparkSessionRegistryRecordSchema,
   },
+  "session.mode.set": {
+    input: sparkSessionSetModeRequestSchema,
+    output: sparkSessionModeResultSchema,
+  },
   "session.thinking.set": {
     input: sparkSessionSetThinkingRequestSchema,
     output: sparkSessionRegistryRecordSchema,
@@ -2058,6 +2074,14 @@ export const sparkLocalRpcOrpcContract = {
         "POST",
         "/session/model/set",
         p["session.model.set"],
+        sparkLocalRpcReadinessSessionModelOrpcErrors,
+      ),
+    },
+    mode: {
+      set: procedure(
+        "POST",
+        "/session/mode/set",
+        p["session.mode.set"],
         sparkLocalRpcReadinessSessionModelOrpcErrors,
       ),
     },

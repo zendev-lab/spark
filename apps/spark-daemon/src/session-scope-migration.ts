@@ -4,13 +4,14 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   SPARK_SESSION_REGISTRY_VERSION,
   defaultSparkSessionRegistryRoot,
+  migrateSparkSessionRecordToV5,
 } from "@zendev-lab/spark-session";
 import {
   parseSparkSessionRegistryRecords,
   type SparkSessionRegistryRecord,
 } from "@zendev-lab/spark-protocol/session-assignment";
 
-const MIGRATABLE_REGISTRY_VERSIONS = new Set([1, 2, 3]);
+const MIGRATABLE_REGISTRY_VERSIONS = new Set([1, 2, 3, 4]);
 
 export interface SessionScopeMigrationWorkspace {
   id: string;
@@ -83,13 +84,16 @@ export async function migrateDaemonGlobalSessions(
 
   const raw = parseRegistryJson(source, registryPath);
   if (raw.version === SPARK_SESSION_REGISTRY_VERSION) {
+    if (!Number.isInteger(raw.revision) || Number(raw.revision) < 0) {
+      throw new Error(`session registry v5 revision is invalid: ${registryPath}`);
+    }
     const sessions = parseSparkSessionRegistryRecords(raw.sessions);
     const activeDaemonSession = sessions.find(
       (session) => session.scope.kind === "daemon" && session.status !== "archived",
     );
     if (activeDaemonSession) {
       throw new Error(
-        `session registry v4 contains active daemon-global session: ${activeDaemonSession.sessionId}`,
+        `session registry v5 contains active daemon-global session: ${activeDaemonSession.sessionId}`,
       );
     }
     const hash = sha256(source);
@@ -129,10 +133,12 @@ export async function migrateDaemonGlobalSessions(
       workspaceId: workspace.id,
     };
   });
-  const canonicalSessions = parseSparkSessionRegistryRecords(migrated);
+  const canonicalSessions = parseSparkSessionRegistryRecords(migrated).map(
+    migrateSparkSessionRecordToV5,
+  );
   const output = Buffer.from(
     `${JSON.stringify(
-      { version: SPARK_SESSION_REGISTRY_VERSION, sessions: canonicalSessions },
+      { version: SPARK_SESSION_REGISTRY_VERSION, revision: 1, sessions: canonicalSessions },
       null,
       2,
     )}\n`,
@@ -164,6 +170,9 @@ export async function migrateDaemonGlobalSessions(
   if (readbackJson.version !== SPARK_SESSION_REGISTRY_VERSION) {
     throw new Error(`session registry readback version mismatch: ${registryPath}`);
   }
+  if (readbackJson.revision !== 1) {
+    throw new Error(`session registry readback revision mismatch: ${registryPath}`);
+  }
   parseSparkSessionRegistryRecords(readbackJson.sessions);
 
   return {
@@ -180,7 +189,7 @@ export async function migrateDaemonGlobalSessions(
 function parseRegistryJson(
   bytes: Buffer,
   registryPath: string,
-): { version: number; sessions: unknown[] } {
+): { version: number; revision?: number; sessions: unknown[] } {
   let value: unknown;
   try {
     value = JSON.parse(bytes.toString("utf8"));
@@ -194,7 +203,11 @@ function parseRegistryJson(
   if (!Number.isInteger(record.version) || !Array.isArray(record.sessions)) {
     throw new Error(`session registry must contain integer version and sessions: ${registryPath}`);
   }
-  return { version: record.version as number, sessions: record.sessions };
+  return {
+    version: record.version as number,
+    ...(Number.isInteger(record.revision) ? { revision: record.revision as number } : {}),
+    sessions: record.sessions,
+  };
 }
 
 function normalizeWorkspaces(

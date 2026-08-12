@@ -21,8 +21,6 @@
  *
  * @see https://paraglidejs.com/middleware
  *
- * @template T - The return type of the resolve function
- *
  * @param {Request} request - The incoming request object
  * @param {(args: { request: Request, locale: import("./runtime.js").Locale }) => T | Promise<T>} resolve - Function to handle the request. The callback receives:
  *   - `request`: A modified request with a delocalized URL when the URL strategy is used (e.g., `/fr/about` → `/about`).
@@ -87,11 +85,10 @@
  * }
  * ```
  */
-export function paraglideMiddleware<T>(
-  request: Request,
-  resolve: (args: { request: Request; locale: import("./runtime.js").Locale }) => T | Promise<T>,
-  options?: {
+export function paraglideMiddleware(request: Request, resolve: (args: {
+    request: Request;
+    locale: import("./runtime.js").Locale;
+}) => Response | Promise<Response>, options?: {
     effectiveRequestUrl?: string | URL | ((request: Request) => string | URL);
     onRedirect?: (response: Response) => void;
-  },
-): Promise<Response>;
+}): Promise<Response>;

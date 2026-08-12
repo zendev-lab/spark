@@ -2,6 +2,7 @@ import type {
   SparkHeadlessTokenUsageContext,
   SparkHeadlessUserContent,
 } from "@zendev-lab/spark-host/headless-loader";
+import { rm } from "node:fs/promises";
 import {
   assistantMessageToText,
   classifyProviderFailure,
@@ -13,7 +14,9 @@ import {
   ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON,
   isRoleNativeExecutorCompatibilityError,
   type ExtensionInteractionRequest,
+  type ExtensionInteractionCapabilities,
   type ExtensionInteractionResponse,
+  type ExtensionRoleRunner,
   type ExtensionRoleRunInputControl,
   type RoleRunCompletionOutcome,
   type RoleRef,
@@ -73,7 +76,7 @@ export interface SparkHeadlessRoleInstructionInput {
   };
   cwd: string;
   timeoutMs: number;
-  mode?: "plan" | "execute";
+  mode?: "plan" | "execute" | "fleet";
   requireStructuredOutcome?: boolean;
   signal?: AbortSignal;
   sessionDir?: string;
@@ -133,12 +136,20 @@ export interface SparkHeadlessSessionRunInput {
     adapterAccountIdentity?: string;
   };
   invocationId?: string;
+  stateBindingSessionId?: string;
+  /** @deprecated Compatibility input. */
+  taskExecutionScope?: import("@zendev-lab/spark-core").SparkTaskExecutionScope;
   stateOwnerSessionId?: string;
   loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
   allowedTools?: readonly string[];
+  roleRunner?: ExtensionRoleRunner;
+  roleRunRef?: string;
+  requireStructuredOutcome?: boolean;
   /** Host-enforced effect allowlist; unknown tool effects are denied. */
   allowedToolEffects?: readonly ToolEffect[];
+  /** Daemon-forced Session mode; managed workers always execute. */
+  mode?: "plan" | "execute" | "fleet";
   /** Optional base identity/surface prompt; defaults to Spark host identity. */
   systemPrompt?: string;
   /** Display-safe metadata persisted on the submitted user message only. */
@@ -151,6 +162,8 @@ export interface SparkHeadlessSessionRunInput {
   approvalRejectAction?: "ask" | "deny";
   /** Daemon-owned UI bridge; hasUI stays false because no local terminal is attached. */
   interaction?: (request: ExtensionInteractionRequest) => Promise<ExtensionInteractionResponse>;
+  /** Exact capabilities of the daemon-owned interaction bridge. */
+  interactionCapabilities?: ExtensionInteractionCapabilities;
   tokenUsage?: SparkHeadlessTokenUsageContext;
   onEvent?: (event: unknown) => void | Promise<void>;
 }
@@ -163,6 +176,7 @@ export interface SparkHeadlessSessionRunResult {
   stderr: string;
   jsonEvents: unknown[];
   eventsStreamed?: boolean;
+  roleOutcome?: RoleRunCompletionOutcome;
 }
 
 export interface SparkHeadlessRoleExecutorOptions {
@@ -196,6 +210,7 @@ export async function runSparkHeadlessSession(
     workspaceId: input.workspaceId,
     sparkStateRoot: input.sparkStateRoot,
     sparkHome: options.sparkHome ?? input.sparkHome,
+    ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
     ...controlPlaneServicePaths(options.controlSparkHome),
     // Workspace business state stays under sparkStateRoot even when cwd points
     // at a workspace subdirectory or an attached GitChange worktree.
@@ -204,15 +219,30 @@ export async function runSparkHeadlessSession(
     sessionLease: input.sessionLease,
     channelBinding: input.channelBinding,
     invocationId: input.invocationId,
+    taskExecutionScope: input.taskExecutionScope,
     tokenUsage: input.tokenUsage,
-    stateOwnerSessionId: input.stateOwnerSessionId,
+    stateBindingSessionId: input.stateBindingSessionId ?? input.stateOwnerSessionId,
     loop: input.loop,
     sessionQuestionChain: input.sessionQuestionChain,
-    allowedTools: input.allowedTools,
+    allowedTools: input.roleRunRef
+      ? [...new Set([...(input.allowedTools ?? []), "role_report_outcome"])]
+      : input.allowedTools,
+    roleRunner: input.roleRunner,
     allowedToolEffects: input.allowedToolEffects,
+    sessionMode: input.mode,
     hasUI: false,
-    ...(input.interaction ? { ui: { interaction: input.interaction } } : {}),
+    ...(input.interaction
+      ? {
+          ui: {
+            interaction: input.interaction,
+            ...(input.interactionCapabilities
+              ? { interactionCapabilities: input.interactionCapabilities }
+              : {}),
+          },
+        }
+      : {}),
     ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
+    ...(input.roleRunRef ? { sessionMode: "execute" as const } : {}),
     // Daemon scheduler owns wall-clock execution budget. Model streams use idle
     // hang detection instead of a short hard stream deadline so long tool/model
     // turns can finish, and interrupted work can resume after restart.
@@ -225,6 +255,7 @@ export async function runSparkHeadlessSession(
     ...(input.approvalRejectAction ? { approvalRejectAction: input.approvalRejectAction } : {}),
   } satisfies SparkCliHostServicesOptions);
   let primaryError: unknown;
+  let reportedRoleOutcome: RoleRunCompletionOutcome | undefined;
   let abortFromSignal: (() => void) | undefined;
   let unsubscribe: () => void = () => undefined;
   let unsubscribeDaemon: () => void = () => undefined;
@@ -234,6 +265,14 @@ export async function runSparkHeadlessSession(
     // must never fall through to agentLoop.submit: abort() is intentionally a
     // no-op while the loop is idle and therefore cannot serve as this fence.
     throwIfHeadlessAborted(input.signal);
+    if (input.roleRunRef) {
+      registerRoleOutcomeTool(services, (outcome) => {
+        if (reportedRoleOutcome) {
+          throw new Error("role_report_outcome may only be called once per supervised Role");
+        }
+        reportedRoleOutcome = outcome;
+      });
+    }
     if (input.model?.trim()) selectHeadlessModel(services, input.model.trim());
     if (input.thinkingLevel?.trim()) {
       const level = input.thinkingLevel.trim();
@@ -288,6 +327,7 @@ export async function runSparkHeadlessSession(
       stderr: renderDiagnostics(services.diagnostics),
       jsonEvents,
       ...(input.onEvent ? { eventsStreamed: true } : {}),
+      ...(reportedRoleOutcome ? { roleOutcome: reportedRoleOutcome } : {}),
     };
   } catch (error) {
     primaryError = error;
@@ -325,6 +365,7 @@ export async function runSparkHeadlessRoleInstruction(
     services = await createServices({
       cwd: input.cwd,
       sparkHome: options.sparkHome,
+      ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
       ...controlPlaneServicePaths(options.controlSparkHome),
       hasUI: false,
       systemPrompt: input.role.systemPrompt,
@@ -429,10 +470,14 @@ export async function runSparkHeadlessRoleInstruction(
       };
       throwIfHeadlessAborted(input.signal);
       const result = await runWithHeadlessTimeout(
-        noSession ? session.runAnonymous(sessionRunInput) : session.run(sessionRunInput),
+        session.run(sessionRunInput),
         input.timeoutMs,
         abort,
       );
+      // `noSession` is a decode-only compatibility marker. Compatibility
+      // executors still use the normal Session path, then enforce discard
+      // retention before returning the legacy RoleRun projection.
+      if (noSession && result.sessionPath) await rm(result.sessionPath, { force: true });
       const outcome = completionOutcomeForRun(
         result.outcome,
         result.assistant,

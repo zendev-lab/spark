@@ -22,7 +22,7 @@ describe("human AnswerEvent Evidence projection", () => {
       schema: "spark.evidence-answer-event/v1" as const,
       answerEventId: `answer-event:${"a".repeat(64)}`,
       humanRequestId: "hreq-answer",
-      interactionRequestId: `ask_async:${"b".repeat(64)}`,
+      interactionRequestId: `ask_${"b".repeat(32)}`,
       humanResponseId: "hres-answer",
       provenance: "direct_user" as const,
       binding: {
@@ -79,7 +79,7 @@ describe("human AnswerEvent Evidence projection", () => {
       const waits = new SparkDaemonHumanWaitRegistry(db);
       waits.register({
         humanRequestId: "hreq-restart",
-        interactionRequestId: `ask_async:${binding.requestHash}`,
+        interactionRequestId: `ask_${binding.requestHash.slice(0, 32)}`,
         sessionId: "session:owner",
         workspaceBindingId: "binding-restart",
         workspaceId: "workspace-restart",

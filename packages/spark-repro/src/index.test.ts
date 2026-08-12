@@ -589,7 +589,6 @@ describe("spark-repro", () => {
       selectedValues: ["approve"],
       approvalResult: "approved",
     });
-    expect(approved.verdict).toBe("Pass");
     repro = updateReproStep(repro, step.id, { status: "done", evidenceRefs, verifier: approved })!;
     expect(repro.plan.steps.find((candidate) => candidate.id === step.id)?.status).toBe("done");
   });

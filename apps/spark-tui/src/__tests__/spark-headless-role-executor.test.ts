@@ -26,6 +26,55 @@ test("daemon headless loader resolves the real worker module and provider depend
   assert.equal(typeof headless.createSparkHeadlessSessionExecutor, "function");
 });
 
+test("runSparkHeadlessSession retains the control root for nested daemon-native roles", async () => {
+  let captured:
+    | {
+        sparkHome?: string;
+        controlSparkHome?: string;
+        configPath?: string;
+        authPath?: string;
+      }
+    | undefined;
+  await runSparkHeadlessSession(
+    { cwd: process.cwd(), sessionId: "session-control-root", prompt: "run" },
+    {
+      sparkHome: "/private/pi-agent",
+      controlSparkHome: "/control/spark",
+      createServices: async (options) => {
+        captured = options;
+        return eventfulHeadlessServices(0) as never;
+      },
+    },
+  );
+
+  assert.deepEqual(captured, {
+    cwd: process.cwd(),
+    workspaceId: undefined,
+    sparkStateRoot: undefined,
+    sparkHome: "/private/pi-agent",
+    controlSparkHome: "/control/spark",
+    configPath: "/control/spark/config.json",
+    authPath: "/control/spark/auth.json",
+    sessionSurface: undefined,
+    sessionSource: undefined,
+    sessionLease: undefined,
+    channelBinding: undefined,
+    invocationId: undefined,
+    taskExecutionScope: undefined,
+    tokenUsage: undefined,
+    stateBindingSessionId: undefined,
+    loop: undefined,
+    sessionQuestionChain: undefined,
+    allowedTools: undefined,
+    roleRunner: undefined,
+    allowedToolEffects: undefined,
+    sessionMode: undefined,
+    hasUI: false,
+    streamTimeoutMs: 0,
+    approvalMethod: "auto",
+  });
+});
+
 test("runSparkHeadlessSession streams events without retaining a duplicate event array", async () => {
   let streamedCount = 0;
   const streamed = await runSparkHeadlessSession(
@@ -720,7 +769,7 @@ test("runSparkHeadlessRoleInstruction records completed and blocked structured o
       expectedStatus: "failed" as const,
     },
   ]) {
-    let sessionMode: "plan" | "execute" | undefined;
+    let sessionMode: "plan" | "execute" | "fleet" | undefined;
     const services = headlessRoleServices(async (tools) => {
       await executeRoleOutcomeTool(tools, expected);
       return successfulOutcome("structured outcome recorded");
@@ -742,6 +791,39 @@ test("runSparkHeadlessRoleInstruction records completed and blocked structured o
     assert.equal(result.record.status, expected.expectedStatus);
     assert.deepEqual(services.runtime.getActiveTools(), ["read", "role_report_outcome"]);
   }
+});
+
+test("runSparkHeadlessSession keeps supervised Role outcome tools in execute mode", async () => {
+  let sessionMode: "plan" | "execute" | "fleet" | undefined;
+  let allowedTools: readonly string[] | undefined;
+  const services = headlessRoleServices(async (tools) => {
+    await executeRoleOutcomeTool(tools, {
+      kind: "completed",
+      code: "review_completed",
+      reason: "Review completed",
+    });
+    return successfulOutcome("reviewed");
+  });
+
+  await runSparkHeadlessSession(
+    {
+      cwd: process.cwd(),
+      sessionId: "session:supervised-role",
+      prompt: "Review the change",
+      roleRunRef: "run:supervised-role",
+      allowedTools: ["read"],
+    },
+    {
+      createServices: async (options) => {
+        sessionMode = options?.sessionMode;
+        allowedTools = options?.allowedTools;
+        return services as never;
+      },
+    },
+  );
+
+  assert.equal(sessionMode, "execute");
+  assert.deepEqual(allowedTools, ["read", "role_report_outcome"]);
 });
 
 test("daemon headless role host exposes reviewer fallback roots to subject-review extensions", async () => {

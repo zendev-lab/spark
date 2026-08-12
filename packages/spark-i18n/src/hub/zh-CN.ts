@@ -291,7 +291,7 @@ const messages = {
       inboxTitle: "处理请求",
       inboxBody: "回答需要你确认或审批的问题。",
       artifactsTitle: "查看产物",
-      artifactsBody: "打开 Issue、PR 与预览进度。",
+      artifactsBody: "打开 Issue、Git Change 与 Document。",
       resourcesTitle: "管理资源",
       resourcesBody: "添加仓库、文档、链接和工具。",
     },
@@ -601,6 +601,7 @@ const messages = {
     selectModelRequired: "请选择对话和模型。",
     effectiveModelMissing: "Spark daemon 未返回会话的有效模型。",
     selectThinkingRequired: "请选择对话和推理强度。",
+    selectModeRequired: "请选择对话和模式。",
     unknownWorkspace: "未知工作空间",
     workbench: {
       newConversation: "新对话",
@@ -733,6 +734,8 @@ const messages = {
       modelFailed: "无法切换模型。",
       thinkingUpdated: "推理强度已更新，将用于之后发送的消息。",
       thinkingFailed: "无法更新推理强度。",
+      modeUpdated: "会话模式已更新。",
+      modeFailed: "无法更新会话模式。",
       stop: "停止",
       stopping: "正在停止…",
       stopFailed: "无法停止当前执行，请重试。",
@@ -755,7 +758,7 @@ const messages = {
       noTasksTitle: "尚无任务",
       noTasksBody: "Spark 为当前会话创建的任务会显示在这里。",
       noArtifactsTitle: "尚无产物",
-      noArtifactsBody: "绑定到当前会话的 ISSUE / PR / 预览产物会显示在这里。",
+      noArtifactsBody: "绑定到当前会话的 Issue、Git Change 与 Document 会显示在这里。",
       noChangesTitle: "尚无结构化变更",
       noChangesBody: "Spark 发布的变更会显示在这里；仅有对话文字不算代码变更。",
       noSessionTodoTitle: "尚无会话 TODO",
@@ -820,6 +823,9 @@ const messages = {
           workflow: "工作流运行",
           help: "Spark 帮助",
           hotkeys: "快捷键",
+          "mode-plan": "Plan 模式",
+          "mode-execute": "Execute 模式",
+          "mode-fleet": "Fleet 模式",
         },
         descriptions: {
           model: "选择当前模型，或查看已配置的模型服务商。",
@@ -835,6 +841,9 @@ const messages = {
           workflow: "打开运行面板，或查看选中的工作流运行。",
           help: "打开 Hub 搜索，或查看快捷键。",
           hotkeys: "查看快捷键，或打开 Hub 搜索。",
+          "mode-plan": "规划改动，但不直接修改代码。",
+          "mode-execute": "在当前会话中直接执行改动。",
+          "mode-fleet": "通过 TaskGraph 调度获得授权的 worker 会话。",
         },
         actions: {
           "select-model": "选择模型",
@@ -871,6 +880,9 @@ const messages = {
           "inspect-workflow": "查看选中运行",
           "show-commands": "搜索 Hub",
           "show-hotkeys": "快捷键",
+          "enter-plan": "进入 Plan",
+          "enter-execute": "进入 Execute",
+          "enter-fleet": "进入 Fleet",
         },
         reasons: {
           ownerOffline: "工作空间 daemon 当前离线。",
@@ -1328,7 +1340,7 @@ const messages = {
     hero: {
       eyebrow: "工作空间",
       title: "产物",
-      lede: "仅产品交付物：远端 Issue、PR，以及 Markdown、安全 MDX、HTML 或 A2UI 实时预览。",
+      lede: "仅产品交付物：Issue、Git Change 与 Document，以及对应的安全预览视图。",
     },
     metrics: {
       aria: "产物状态",
@@ -1339,12 +1351,12 @@ const messages = {
     },
     emptyWorkspace: {
       title: "先创建工作空间",
-      body: "先创建工作空间，再查看 ISSUE、PR 与预览产物。",
+      body: "先创建工作空间，再查看 Issue、Git Change 与 Document。",
       action: "打开概览",
     },
     empty: {
       title: "还没有产物",
-      body: "Issue、Pull Request 与预览进度会出现在这里。",
+      body: "Issue、Git Change 与 Document 会出现在这里。",
     },
     list: {
       title: "工作空间产物",

@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-// @ts-expect-error The executable release script intentionally has no declaration surface.
 import * as migrationGate from "../scripts/test-release-migration.mjs";
 
 const {

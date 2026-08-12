@@ -265,10 +265,13 @@ describe("artifact kinds", () => {
         progress: { label: "sections", percent: 40, stage: "writing" },
       },
     });
-    expect(updated.body.kind).toBe("document");
-    if (updated.body.kind !== "document") throw new Error("expected document");
-    expect(updated.body.revision).toBe(2);
-    expect(updated.body.progress?.percent).toBe(40);
+    expect(updated).toMatchObject({
+      body: {
+        kind: "document",
+        revision: 2,
+        progress: { label: "sections", percent: 40, stage: "writing" },
+      },
+    });
     expect(Date.parse(updated.updatedAt)).toBeGreaterThan(Date.parse(created.updatedAt));
     const listed = await store.list({ kind: "document" });
     expect(listed).toHaveLength(1);

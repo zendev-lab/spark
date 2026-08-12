@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { delay } from "es-toolkit";
+import { Type, type Static, type TSchema } from "typebox";
+import { Errors } from "typebox/value";
 
 import {
   formatJsonFile,
@@ -206,8 +208,10 @@ async function readLegacyProjectJsonSnapshot(
     if (isFileNotFoundError(error)) return null;
     throw error;
   }
+  const raw = parseTaskGraphStoreJson(data, filePath);
+  assertPersistedValue(persistedTaskGraphSnapshotSchema, raw, filePath);
   return {
-    snapshot: parseTaskGraphStoreJson(data, filePath) as PersistedTaskGraphSnapshot,
+    snapshot: raw,
     hash: stableId(data),
   };
 }
@@ -323,6 +327,119 @@ interface RunFileSnapshot extends TaskRun {
   version: 2;
 }
 
+const nonEmptyStringSchema = Type.String({ minLength: 1 });
+const projectRefSchema = Type.String({ minLength: 6, pattern: "^proj:" });
+const taskRefSchema = Type.String({ minLength: 6, pattern: "^task:" });
+const runRefSchema = Type.String({ minLength: 5, pattern: "^run:" });
+
+const persistedProjectEntrySchema = Type.Object({ ref: projectRefSchema });
+const persistedTaskEntrySchema = Type.Object({ ref: taskRefSchema, projectRef: projectRefSchema });
+const persistedDependencyEntrySchema = Type.Object({
+  taskRef: taskRefSchema,
+  dependsOn: taskRefSchema,
+});
+const persistedRunEntrySchema = Type.Object({
+  ref: runRefSchema,
+  projectRef: projectRefSchema,
+  taskRef: taskRefSchema,
+});
+
+const persistedTaskGraphSnapshotSchema = Type.Unsafe<PersistedTaskGraphSnapshot>(
+  Type.Object({
+    projects: Type.Array(persistedProjectEntrySchema),
+    tasks: Type.Array(persistedTaskEntrySchema),
+    dependencies: Type.Optional(Type.Array(persistedDependencyEntrySchema)),
+    runs: Type.Optional(Type.Array(persistedRunEntrySchema)),
+  }),
+);
+
+const projectIndexSnapshotSchema = Type.Unsafe<ProjectIndexSnapshot>(
+  Type.Object({
+    version: Type.Literal(1),
+    rebuildable: Type.Literal(true),
+    generatedAt: nonEmptyStringSchema,
+    legacyImportOnly: Type.Array(Type.String()),
+    projects: Type.Array(
+      Type.Object({
+        projectRef: projectRefSchema,
+        path: nonEmptyStringSchema,
+        projectPath: nonEmptyStringSchema,
+        roadmapPath: nonEmptyStringSchema,
+        dependenciesPath: nonEmptyStringSchema,
+        tasksPath: nonEmptyStringSchema,
+        title: Type.String(),
+        updatedAt: nonEmptyStringSchema,
+        taskCount: Type.Integer({ minimum: 0 }),
+        currentTaskRef: Type.Optional(taskRefSchema),
+      }),
+    ),
+  }),
+);
+
+const projectFileSnapshotSchema = Type.Unsafe<ProjectFileSnapshot>(
+  Type.Object({
+    version: Type.Literal(1),
+    ref: projectRefSchema,
+    title: Type.String(),
+    description: Type.String(),
+    purpose: Type.Optional(Type.String()),
+    intent: Type.Optional(Type.String()),
+    outputLanguage: Type.Optional(Type.Union([Type.Literal("zh"), Type.Literal("en")])),
+    kind: Type.Optional(Type.String()),
+    currentTaskRef: Type.Optional(taskRefSchema),
+    createdAt: nonEmptyStringSchema,
+    updatedAt: nonEmptyStringSchema,
+    roadmapPath: Type.Literal("roadmap.json"),
+    dependenciesPath: Type.Literal("dependencies.json"),
+    tasksPath: Type.Literal("tasks"),
+    reviewPath: Type.Literal("reviews"),
+  }),
+);
+
+const roadmapItemSchema = Type.Object({
+  ref: Type.String({ minLength: 14, pattern: "^roadmap-item:" }),
+  objective: Type.String(),
+});
+const roadmapFileSnapshotSchema = Type.Unsafe<RoadmapFileSnapshot>(
+  Type.Object({
+    version: Type.Literal(1),
+    ref: Type.String({ minLength: 9, pattern: "^roadmap:" }),
+    title: Type.String(),
+    status: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("done")])),
+    activeItemRef: Type.Optional(Type.String({ minLength: 14, pattern: "^roadmap-item:" })),
+    items: Type.Array(roadmapItemSchema),
+    createdAt: nonEmptyStringSchema,
+    updatedAt: nonEmptyStringSchema,
+  }),
+);
+
+const dependencyFileSnapshotSchema = Type.Unsafe<DependencyFileSnapshot>(
+  Type.Object({
+    version: Type.Literal(1),
+    projectRef: projectRefSchema,
+    dependencies: Type.Array(persistedDependencyEntrySchema),
+  }),
+);
+
+const taskFileInputSchema = Type.Object({
+  version: Type.Union([Type.Literal(1), Type.Literal(2), Type.Literal(3)]),
+  ref: taskRefSchema,
+  projectRef: projectRefSchema,
+  title: Type.String(),
+  description: Type.String(),
+  status: nonEmptyStringSchema,
+  createdAt: nonEmptyStringSchema,
+  updatedAt: nonEmptyStringSchema,
+});
+
+const runFileInputSchema = Type.Object({
+  version: Type.Union([Type.Literal(1), Type.Literal(2)]),
+  ref: runRefSchema,
+  projectRef: projectRefSchema,
+  taskRef: taskRefSchema,
+  status: nonEmptyStringSchema,
+});
+
 async function writeProjectTreeSnapshot(
   root: string,
   snapshot: PersistedTaskGraphSnapshot,
@@ -433,7 +550,8 @@ async function readProjectTreeSnapshot(root: string): Promise<LoadedTaskGraphSto
     if (isFileNotFoundError(error)) return null;
     throw error;
   }
-  parseProjectTreeJson(indexData, indexPath);
+  const index = parseProjectTreeJson(indexData, indexPath);
+  assertPersistedValue(projectIndexSnapshotSchema, index, indexPath);
   const projectDirs = await listProjectDirs(root);
   const projects: PersistedProject[] = [];
   const tasks: Task[] = [];
@@ -441,21 +559,21 @@ async function readProjectTreeSnapshot(root: string): Promise<LoadedTaskGraphSto
   const runs: TaskRun[] = [];
   for (const projectDirName of projectDirs) {
     const projectDir = join(root, projectDirName);
-    const projectFile = (await readProjectTreeJson(
-      join(projectDir, "project.json"),
-    )) as unknown as ProjectFileSnapshot;
-    const roadmap = (await readProjectTreeJson(
-      join(projectDir, "roadmap.json"),
-    )) as unknown as RoadmapFileSnapshot;
+    const projectPath = join(projectDir, "project.json");
+    const projectFile = await readProjectTreeJson(projectPath);
+    assertPersistedValue(projectFileSnapshotSchema, projectFile, projectPath);
+    const roadmapPath = join(projectDir, "roadmap.json");
+    const roadmap = await readProjectTreeJson(roadmapPath);
+    assertPersistedValue(roadmapFileSnapshotSchema, roadmap, roadmapPath);
     projects.push({
       ...projectFile,
       purpose: projectFile.purpose ?? projectFile.intent,
       roadmap,
     });
-    const dependencyFile = (await readProjectTreeJson(
-      join(projectDir, "dependencies.json"),
-    )) as unknown as DependencyFileSnapshot;
-    dependencies.push(...(dependencyFile.dependencies ?? []));
+    const dependenciesPath = join(projectDir, "dependencies.json");
+    const dependencyFile = await readProjectTreeJson(dependenciesPath);
+    assertPersistedValue(dependencyFileSnapshotSchema, dependencyFile, dependenciesPath);
+    dependencies.push(...dependencyFile.dependencies);
     for (const taskDirName of await listChildDirs(join(projectDir, "tasks"))) {
       const taskDir = join(projectDir, "tasks", taskDirName);
       const taskPath = join(taskDir, "task.json");
@@ -501,19 +619,21 @@ function taskFileSnapshot(task: Task): TaskFileSnapshot {
 }
 
 function migrateTaskFileSnapshot(raw: Record<string, unknown>, filePath: string): TaskFileSnapshot {
+  assertPersistedValue(taskFileInputSchema, raw, filePath);
+  const fields: Record<string, unknown> = raw;
   if (raw.version === 3) {
-    rejectLegacyEvidenceFields(raw, filePath, ["inputArtifacts", "outputArtifacts"]);
+    rejectLegacyEvidenceFields(fields, filePath, ["inputArtifacts", "outputArtifacts"]);
     return {
       ...(raw as unknown as TaskFileSnapshot),
-      artifactRefs: persistedArtifactRefs(raw.artifactRefs, filePath),
+      artifactRefs: persistedArtifactRefs(fields.artifactRefs, filePath),
       inputEvidenceRefs: persistedEvidenceRefs(
-        raw.inputEvidenceRefs,
+        fields.inputEvidenceRefs,
         filePath,
         "inputEvidenceRefs",
         false,
       ),
       outputEvidenceRefs: persistedEvidenceRefs(
-        raw.outputEvidenceRefs,
+        fields.outputEvidenceRefs,
         filePath,
         "outputEvidenceRefs",
         false,
@@ -521,19 +641,19 @@ function migrateTaskFileSnapshot(raw: Record<string, unknown>, filePath: string)
     };
   }
   if (raw.version === 2) {
-    rejectLegacyEvidenceFields(raw, filePath, ["inputArtifacts", "outputArtifacts"]);
+    rejectLegacyEvidenceFields(fields, filePath, ["inputArtifacts", "outputArtifacts"]);
     return {
       ...(raw as unknown as Omit<TaskFileSnapshot, "version" | "artifactRefs">),
       version: 3,
       artifactRefs: [],
       inputEvidenceRefs: persistedEvidenceRefs(
-        raw.inputEvidenceRefs,
+        fields.inputEvidenceRefs,
         filePath,
         "inputEvidenceRefs",
         false,
       ),
       outputEvidenceRefs: persistedEvidenceRefs(
-        raw.outputEvidenceRefs,
+        fields.outputEvidenceRefs,
         filePath,
         "outputEvidenceRefs",
         false,
@@ -542,7 +662,7 @@ function migrateTaskFileSnapshot(raw: Record<string, unknown>, filePath: string)
   }
   if (raw.version !== 1)
     throw new TaskGraphStoreFormatError(filePath, "version must be 1, 2, or 3");
-  const { inputArtifacts, outputArtifacts, ...rest } = raw;
+  const { inputArtifacts, outputArtifacts, ...rest } = fields;
   return {
     ...(rest as unknown as Omit<
       TaskFileSnapshot,
@@ -577,21 +697,23 @@ function persistedArtifactRefs(
 }
 
 function migrateRunFileSnapshot(raw: Record<string, unknown>, filePath: string): RunFileSnapshot {
+  assertPersistedValue(runFileInputSchema, raw, filePath);
+  const fields: Record<string, unknown> = raw;
   if (raw.version === 2) {
-    rejectLegacyEvidenceFields(raw, filePath, ["outputArtifacts"]);
+    rejectLegacyEvidenceFields(fields, filePath, ["outputArtifacts"]);
     return {
       ...(raw as unknown as RunFileSnapshot),
       outputEvidenceRefs: persistedEvidenceRefs(
-        raw.outputEvidenceRefs,
+        fields.outputEvidenceRefs,
         filePath,
         "outputEvidenceRefs",
         false,
       ),
-      completionSummary: migrateCompletionSummary(raw.completionSummary, filePath, false),
+      completionSummary: migrateCompletionSummary(fields.completionSummary, filePath, false),
     };
   }
   if (raw.version !== 1) throw new TaskGraphStoreFormatError(filePath, "version must be 1 or 2");
-  const { outputArtifacts, ...rest } = raw;
+  const { outputArtifacts, ...rest } = fields;
   return {
     ...(rest as unknown as Omit<
       RunFileSnapshot,
@@ -599,7 +721,7 @@ function migrateRunFileSnapshot(raw: Record<string, unknown>, filePath: string):
     >),
     version: 2,
     outputEvidenceRefs: persistedEvidenceRefs(outputArtifacts, filePath, "outputArtifacts", true),
-    completionSummary: migrateCompletionSummary(raw.completionSummary, filePath, true),
+    completionSummary: migrateCompletionSummary(fields.completionSummary, filePath, true),
   };
 }
 
@@ -685,6 +807,42 @@ function parseProjectTreeJson(text: string, filePath: string): Record<string, un
     throw new TaskGraphStoreFormatError(filePath, "JSON root must be an object");
   }
   return raw as Record<string, unknown>;
+}
+
+function assertPersistedValue<const Schema extends TSchema>(
+  schema: Schema,
+  value: unknown,
+  filePath: string,
+): asserts value is Static<Schema> {
+  const issues = [...Errors(schema, value)];
+  if (issues.length === 0) return;
+  const details = issues.slice(0, 3).flatMap((issue) => {
+    const required =
+      issue.keyword === "required" && "requiredProperties" in issue.params
+        ? issue.params.requiredProperties
+        : undefined;
+    if (Array.isArray(required)) {
+      return required.map((property) => `.${String(property)} is required`);
+    }
+    const path = jsonPointerToPropertyPath(issue.instancePath);
+    const message = issue.message === "must be array" ? "must be an array" : issue.message;
+    return `${path} ${message}`;
+  });
+  const omitted = issues.length - Math.min(issues.length, 3);
+  throw new TaskGraphStoreFormatError(
+    filePath,
+    `does not match the persisted schema: ${details.join("; ")}${omitted > 0 ? `; ${omitted} additional issue(s) omitted` : ""}`,
+  );
+}
+
+function jsonPointerToPropertyPath(pointer: string): string {
+  if (!pointer) return "$";
+  return pointer
+    .split("/")
+    .slice(1)
+    .map((token) => token.replace(/~1/gu, "/").replace(/~0/gu, "~"))
+    .map((token) => (/^\d+$/u.test(token) ? `[${token}]` : `.${token}`))
+    .join("");
 }
 
 async function listProjectDirs(root: string): Promise<string[]> {

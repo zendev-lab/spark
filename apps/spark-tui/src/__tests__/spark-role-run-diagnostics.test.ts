@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
+import type { AssistantMessage } from "@zendev-lab/spark-ai";
 import { createSparkHeadlessRoleExecutor } from "../headless-role-executor.ts";
 import {
   createSparkCliHostServices,
@@ -12,14 +13,12 @@ import {
 } from "../host/index.ts";
 import { buildRoleRunFailureDiagnostic } from "@zendev-lab/spark-runtime";
 
-type AssistantMessage = any;
-
 test("empty-output anonymous role run failure records diagnostic artifact", () => {
   const diagnostic = buildRoleRunFailureDiagnostic({
     result: {
       record: {
-        ref: "run:empty-output" as any,
-        roleRef: "role:builtin-reviewer" as any,
+        ref: "run:empty-output",
+        roleRef: "role:builtin-reviewer",
         instruction: "review",
         status: "failed",
         launch: "fresh",
@@ -86,8 +85,8 @@ test("role-run diagnostic output redacts secrets", () => {
   const diagnostic = buildRoleRunFailureDiagnostic({
     result: {
       record: {
-        ref: "run:secret" as any,
-        roleRef: "role:builtin-reviewer" as any,
+        ref: "run:secret",
+        roleRef: "role:builtin-reviewer",
         instruction: "review",
         status: "failed",
         launch: "fresh",

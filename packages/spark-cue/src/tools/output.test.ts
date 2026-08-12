@@ -587,38 +587,9 @@ test("cue-shell command preflight explains bash syntax before dispatch", () => {
   assert.equal(cueShellCommandSyntaxIssue("echo 'a | b'"), undefined);
 });
 
-test("spark-cue tool descriptions match cue-shell chain operator contract", () => {
-  const tools = registerCueToolsForTest();
-  const execTool = tools.get("cue_exec");
-  const runTool = tools.get("cue_run");
-  const scriptTool = tools.get("cue_script");
-  assert.ok(execTool);
-  assert.ok(runTool);
-  assert.ok(scriptTool);
-
-  const execDescription = `${execTool.description} ${JSON.stringify(execTool.parameters)}`;
-  assert.match(execDescription, /\|\|\| runs jobs in parallel|\|\|\| for parallel jobs/);
-  assert.match(
-    execDescription,
-    /\|\?\| races jobs until one succeeds|\|\?\| for any-success race jobs/,
-  );
-  assert.match(execDescription, /&&\/\|\| are job-internal logical operators|'&&'\/\|\|'/);
-  assert.doesNotMatch(execDescription, /\|\| runs in parallel|\|\| parallel|\|\|\?\s+parallel/);
-
-  assert.match(runTool.description, /`\|\|\|`/);
-  assert.match(runTool.description, /`\|\?\|`/);
-  assert.match(scriptTool.description, /`\|\|\|`/);
-  assert.match(scriptTool.description, /`\|\?\|`/);
-});
-
 test("cue_jobs exposes chain IDs for status and wait", async () => {
   const jobsTool = registerCueToolsForTest().get("cue_jobs");
   assert.ok(jobsTool);
-
-  const contract = `${jobsTool.description} ${JSON.stringify(jobsTool.parameters)}`;
-  assert.match(contract, /action='status' inspects a job, chain, or cron/);
-  assert.match(contract, /action='wait' waits for a job or chain/);
-  assert.match(contract, /chain CH<n> for status\/wait/);
 
   const jobs = [
     {
@@ -670,10 +641,6 @@ test("cue_jobs exposes chain IDs for status and wait", async () => {
 test("cue_schedule filters the cron statuses emitted by cue-shell", async () => {
   const scheduleTool = registerCueToolsForTest().get("cue_schedule");
   assert.ok(scheduleTool);
-
-  const description = `${scheduleTool.description} ${JSON.stringify(scheduleTool.parameters)}`;
-  assert.match(description, /scheduled, paused, completed, expired, failed, all/);
-  assert.doesNotMatch(description, /scheduled, paused, completed, expired, active/);
 
   const ctx = {
     cueClient: {

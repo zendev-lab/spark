@@ -37,42 +37,14 @@ pnpm --filter @zendev-lab/spark-channels run test:mutation
 
 CI: `.github/workflows/ce-mutation.yml` (Monday 03:17 UTC + `workflow_dispatch`, `continue-on-error`, uploads HTML/JSON reports).
 
-## Timing comparison (local, Apple Silicon / Node 26)
+## Interpret the report
 
-Measured with `ignoreStatic: true`, `StringLiteral` excluded, and pnpm's serial recursive script runner. Each participating package owns a `test:mutation` script and `stryker.config.json`; `pnpm -r --if-present` discovers the active set without a second ownership ledger. Incremental reuse can make later CE runs much faster.
-
-| Lane | What it runs | Typical wall time | Gate? |
-| --- | --- | --- | --- |
-| Leaf/L1 unit (`vp test run`) | Vitest only | ~0.1–3 s per package | Yes, via package `check` |
-| Mutation CE L0 only | 4 packages | **~1.5 min** cold | No |
-| Mutation CE L0+L1 | 12 packages | **~15–40 min** cold (channels ~6 min, session ~3 min; coordination is the long pole) | No (weekly, 180 min budget) |
-| Root `pnpm test` | `test/**/*.test.ts`, excluding `test/process/` (Vitest / `vitest.root.config.ts`) | minutes | Yes, via `pnpm run check` |
-| Source process | `test/process/**/*.test.ts` (Vitest / `vitest.process.config.ts`) | seconds | Yes, isolated CI lane |
-| Full `pnpm run check` | static checks + unit/integration + source process | tens of minutes | Yes (PR/main, split into lanes) |
-
-Prefer the **covered** mutation score when prioritizing test work.
-
-### L1 smoke scores (local cold-ish)
-
-| Package | Wall time | Score (total / covered) |
-| --- | --- | --- |
-| `spark-repro` | ~3 s | ~36% / ~62% |
-| `spark-i18n` | ~5 s | ~53% / ~71% |
-| `spark-artifacts` | ~45 s | ~43% / ~67% |
-| `spark-session` | ~2.5 min | ~51% / ~64% |
-| `spark-channels` | ~6 min | ~49% / ~59% |
-| `spark-coordination` | longest L1 (large WS/registration surfaces) | measure in weekly CE |
-
-L0 package split remains in prior CE notes / local `reports/mutation/`.
-
-## Test-runner map
-
-| Surface | Runner today | Mutation CE? |
-| --- | --- | --- |
-| `packages/*/src/**/*.test.ts`, `apps/*/src/**/*.test.ts` | Vitest (`vp test run`) | Yes, when scoped |
-| Root `test/**/*.test.ts` (excluding `test/process/`) | Vitest via `pnpm test` (`vitest.root.config.ts`; still uses `node:assert/strict`) | No (integration suite; not Stryker-scoped) |
-
-Root suite migration (`node:test` → Vitest runner) is done. Remaining hygiene (optional): unify `assert` → `expect`, and only then consider host/turn mutate surfaces that today rely on root integration coverage.
+Each participating package owns its `test:mutation` script and
+`stryker.config.json`; `pnpm -r --if-present` discovers the active set without a
+second ownership ledger. Use the uploaded JSON/HTML report for the exact run
+duration and scores. Prefer the **covered** mutation score when prioritizing
+test work, and compare like-for-like runner, configuration, machine, and commit
+metadata rather than copying a point-in-time table into this runbook.
 
 ## Hygiene
 

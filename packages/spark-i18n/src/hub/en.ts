@@ -294,7 +294,7 @@ const messages = {
       inboxTitle: "Review requests",
       inboxBody: "Answer questions and approvals that need your attention.",
       artifactsTitle: "Browse artifacts",
-      artifactsBody: "Open Issues, PRs, and live preview progress.",
+      artifactsBody: "Open Issues, Git changes, and Documents.",
       resourcesTitle: "Manage resources",
       resourcesBody: "Add repositories, documents, links, and tools.",
     },
@@ -618,6 +618,7 @@ const messages = {
     selectModelRequired: "Select a conversation and model.",
     effectiveModelMissing: "The Spark daemon did not return an effective conversation model.",
     selectThinkingRequired: "Select a conversation and thinking level.",
+    selectModeRequired: "Select a conversation and mode.",
     unknownWorkspace: "Unknown workspace",
     workbench: {
       newConversation: "New conversation",
@@ -752,6 +753,8 @@ const messages = {
       modelFailed: "Could not switch models.",
       thinkingUpdated: "Thinking level updated. It will be used for future messages.",
       thinkingFailed: "Could not update the thinking level.",
+      modeUpdated: "Session mode updated.",
+      modeFailed: "Could not update the Session mode.",
       stop: "Stop",
       stopping: "Stopping…",
       stopFailed: "Could not stop the active turn. Try again.",
@@ -844,6 +847,9 @@ const messages = {
           workflow: "Workflow runs",
           help: "Spark help",
           hotkeys: "Keyboard controls",
+          "mode-plan": "Plan mode",
+          "mode-execute": "Execute mode",
+          "mode-fleet": "Fleet mode",
         },
         descriptions: {
           model: "Choose the active model or inspect configured providers.",
@@ -859,6 +865,9 @@ const messages = {
           workflow: "Open the run board or inspect the selected workflow run.",
           help: "Open Hub search or inspect keyboard controls.",
           hotkeys: "Inspect keyboard controls or open Hub search.",
+          "mode-plan": "Plan changes without modifying code.",
+          "mode-execute": "Execute changes directly in this Session.",
+          "mode-fleet": "Coordinate authorized worker Sessions through the TaskGraph.",
         },
         actions: {
           "select-model": "Choose model",
@@ -895,6 +904,9 @@ const messages = {
           "inspect-workflow": "Inspect selected run",
           "show-commands": "Search Hub",
           "show-hotkeys": "Keyboard shortcuts",
+          "enter-plan": "Enter Plan",
+          "enter-execute": "Enter Execute",
+          "enter-fleet": "Enter Fleet",
         },
         reasons: {
           ownerOffline: "The workspace daemon is offline.",
@@ -1365,7 +1377,7 @@ const messages = {
     hero: {
       eyebrow: "Workspace",
       title: "Artifacts",
-      lede: "Product deliverables only: forge Issues, PRs, and live Markdown, safe MDX, HTML, or A2UI previews.",
+      lede: "Product deliverables only: Issues, Git changes, and Documents with safe preview views.",
     },
     metrics: {
       aria: "Artifact status",

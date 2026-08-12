@@ -9,6 +9,23 @@ function autonomousContext(): SparkHostContext {
   return {
     cwd: "/workspace",
     sessionId: "session:owner",
+    ui: {
+      interactionCapabilities: {
+        version: 1,
+        askFlow: {
+          deliveries: ["blocking", "async"],
+          timeout: true,
+          responseCorrelation: "request_id",
+          asyncAcknowledgement: "pending_with_human_request_id",
+        },
+      },
+      interaction: async (request) => ({
+        kind: "askFlow",
+        requestId: request.requestId,
+        humanRequestId: "hreq:test",
+        status: "pending",
+      }),
+    },
     sparkAutonomousAsk: {
       modeScope: "goal",
       goalOrReproId: "goal:active",
@@ -97,18 +114,24 @@ describe("autonomous canonical Ask", () => {
     expect(forwarded).toHaveLength(2);
     const first = forwarded[0]?.params;
     const second = forwarded[1]?.params;
+    const firstEvidenceRequest = first?.evidenceRequest as
+      | { askRef?: string; requestHash?: string }
+      | undefined;
     expect(forwarded.map((entry) => entry.canonicalDispatch)).toEqual([true, true]);
-    expect(first?.interactionRequestId).toMatch(/^ask_async:[a-f0-9]{64}$/u);
+    expect(first?.interactionRequestId).toMatch(/^ask_[a-f0-9]{32}$/u);
+    expect(first?.interactionRequestId).toBe(
+      `ask_${String(firstEvidenceRequest?.requestHash).slice(0, 32)}`,
+    );
     expect(first?.evidenceRequest).toMatchObject({
       schema: "spark.evidence-request/v1",
-      askRef: expect.stringMatching(/^ask:[a-f0-9]{64}$/u),
+      askRef: `ask:${firstEvidenceRequest?.requestHash}`,
       ownerSessionId: "session:owner",
       goalOrReproId: "goal:active",
       modeScope: "goal",
       planRevision: 1,
       ownerStepOrUnresolvedId: "unresolved:decision",
       stepDefinitionDigest: "definition",
-      requestHash: String(first?.interactionRequestId).slice("ask_async:".length),
+      requestHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
       ownerQuestionId: "choice",
       expectedAnswerKind: "single",
     });

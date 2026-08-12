@@ -12,10 +12,13 @@ export {
   type RecordSparkSessionRunInput,
   type RelocateSparkSessionTranscriptInput,
   type ResolveBindingInput,
+  type SealSparkSessionCloseReceiptInput,
+  type TransitionSparkSessionLifecycleInput,
   type SparkSessionRegistryFile,
   type SparkSessionRegistryOptions,
   type SparkSessionUnboundPolicy,
 } from "./registry.ts";
+export { migrateSparkSessionRecordToV5 } from "./registry.ts";
 export {
   loadSparkSessionMediaChunk,
   loadSparkSessionSnapshot,

@@ -131,7 +131,11 @@ describe("sessions-workspace feature safety net", () => {
       { cancelState: "success", cancelFeedback: null, cancelledTurnId: "inv_1" },
       "inv_2",
     );
-    expect(cancel.cancelState).toBe("idle");
+    expect(cancel).toEqual({
+      cancelState: "idle",
+      cancelFeedback: null,
+      cancelledTurnId: "inv_1",
+    });
   });
 
   it("converges dequeue UI on session change and submit outcomes", () => {

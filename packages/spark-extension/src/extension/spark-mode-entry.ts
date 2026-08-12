@@ -1,6 +1,7 @@
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   renderSparkExecuteModePrompt,
+  renderSparkFleetModePrompt,
   renderSparkModeVisibleMessage,
   renderSparkPlanModePrompt,
 } from "./mode/index.ts";
@@ -125,5 +126,30 @@ export async function enterSparkExecuteMode(
     ctx,
     renderSparkExecuteModePrompt(graph, project?.ref, focus),
     renderSparkModeVisibleMessage("execute", project?.title, focus),
+  );
+}
+
+export async function enterSparkFleetMode(
+  piApi: SparkModeMessageApi,
+  deps: SparkModeEntryDeps,
+  ctx: SparkToolContext,
+  graph: TaskGraph,
+  focus?: string,
+): Promise<void> {
+  const project = await currentSparkProject(ctx.cwd, ctx, graph);
+  ctx.sparkActiveMode = sparkActiveMode("fleet");
+  if (project) await saveSparkMode(ctx.cwd, ctx, { mode: "fleet", projectRef: project.ref });
+  else {
+    await saveSparkMode(ctx.cwd, ctx, { mode: "fleet" });
+    await clearCurrentProjectRef(ctx.cwd, ctx);
+  }
+  await deps.refreshSparkWidget(ctx.cwd, ctx);
+  ctx.ui?.notify?.("Spark fleet mode: coordinate isolated task workers.", "info");
+  await dispatchSparkAgentInstruction(
+    piApi,
+    deps,
+    ctx,
+    renderSparkFleetModePrompt(graph, project?.ref, focus),
+    renderSparkModeVisibleMessage("fleet", project?.title, focus),
   );
 }

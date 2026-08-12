@@ -1,6 +1,7 @@
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import type {
+  ExtensionInteractionCapabilities,
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
   ExtensionRoleRunner,
@@ -94,12 +95,20 @@ export interface SparkHeadlessSessionRunInput {
     adapterAccountIdentity?: string;
   };
   invocationId?: string;
+  stateBindingSessionId?: string;
+  /** @deprecated Compatibility input; normalized before host construction. */
+  taskExecutionScope?: import("@zendev-lab/spark-core").SparkTaskExecutionScope;
   stateOwnerSessionId?: string;
   loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
   allowedTools?: readonly string[];
+  /** Daemon Supervisor-backed nested Role execution port. */
+  roleRunner?: ExtensionRoleRunner;
+  roleRunRef?: string;
+  requireStructuredOutcome?: boolean;
   /** Host-enforced effect allowlist; unknown tool effects are denied. */
   allowedToolEffects?: readonly ToolEffect[];
+  mode?: "plan" | "execute" | "fleet";
   /** Optional base identity/surface prompt; defaults to Spark host identity. */
   systemPrompt?: string;
   /** Display-safe metadata persisted on the submitted user message only. */
@@ -109,6 +118,8 @@ export interface SparkHeadlessSessionRunInput {
   approvalRejectAction?: "ask" | "deny";
   /** Daemon-owned UI bridge used by blocking and async structured asks. */
   interaction?: (request: ExtensionInteractionRequest) => Promise<ExtensionInteractionResponse>;
+  /** Exact capabilities of the daemon-owned interaction bridge. */
+  interactionCapabilities?: ExtensionInteractionCapabilities;
   /** Internal daemon accounting context; never serialized onto the session transcript. */
   tokenUsage?: SparkHeadlessTokenUsageContext;
   onEvent?: (event: unknown) => void | Promise<void>;

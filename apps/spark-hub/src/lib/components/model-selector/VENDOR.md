@@ -11,15 +11,19 @@
 
 ## Local changes
 
-`ModelPicker.svelte` is a Spark-owned, source-derived composition rather than a registry snapshot.
+The reusable model picker now lives in `@zendev-lab/spark-ui/conversation` as
+`ModelSelector`. Hub retains `ModelRuntimeControl.svelte` as the product adapter
+that binds provider catalog facts, Spark thinking levels, settings routes, and
+SvelteKit forms.
 
 - Kept the upstream searchable Dialog + Command interaction, implemented on the supported Bits UI
   primitives and Spark design tokens.
-- Replaced upstream model/provider shapes with the small `ModelPickerGroup` presentation contract.
+- Replaced upstream model/provider shapes with the small, protocol-neutral
+  `ConversationModelGroup` presentation contract.
 - Removed AI SDK, Tailwind, shadcn-svelte runtime, and `models.dev` logo requests.
 - Uses local monograms so Hub remains useful without external UI assets.
-- Leaves provider authentication, catalog truth, session model changes, and SvelteKit form submission
-  in the owning Hub route and Spark daemon.
+- Leaves provider authentication, catalog truth, session model changes, and
+  SvelteKit form submission in the owning Hub route and Spark daemon.
 
 Review upstream manually and port useful behavior deliberately. Do not run the registry installer over
 this directory.

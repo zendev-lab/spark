@@ -6,7 +6,11 @@ import { test } from "vitest";
 
 import sparkExtension from "@zendev-lab/spark-extension/extension";
 import type { SparkWidgetTheme, SparkWidgetTui } from "@zendev-lab/spark-host/spark-widget";
-import { RoleRegistry, builtinRoleRef } from "@zendev-lab/spark-roles";
+import {
+  RoleRegistry,
+  builtinRoleRef,
+  defaultProjectRoleModelSettingsStore,
+} from "@zendev-lab/spark-roles";
 import { defaultWorkflowRunStore } from "@zendev-lab/spark-workflows";
 import {
   killActiveSparkRoleRunProcesses,
@@ -283,6 +287,7 @@ test("Spark extension widget reconciles stale DAG records when an owned child ru
     await handlers.get("session_tree")?.({}, ctx);
     assert.doesNotMatch(widgetComponent.render().join("\n"), /Background work:/);
 
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     runPromise = runSparkTask({
       graph,
       taskRef: task.ref,
