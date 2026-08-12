@@ -110,7 +110,9 @@ daemon synchronously flushes pending snapshots for that invocation. Terminal,
 failure, cancellation, retry replacement, and cooperative restart-yield paths
 also flush and clear pending timers before closing the attempt fence, so no
 timer may append an event after terminal commit. This is daemon-owned ingress
-policy shared by in-process and future process attempts, not a `spark-turn`
+policy shared by in-process and future process attempts. A queued leading
+snapshot is covered by the same fence: terminal commit cannot overtake it merely
+because the cooperative pump has not run yet. This is not a `spark-turn`
 projection rule.
 
 ## Parent capabilities
