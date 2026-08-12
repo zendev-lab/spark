@@ -50,6 +50,27 @@ describe("architecture governance transitions", () => {
     );
   });
 
+  test.each(["toLayer", "reason", "owner", "exitTask", "nonGrowth"] as const)(
+    "rejects immutable exception metadata changes to %s",
+    (field) => {
+      const changed = structuredClone(inventory);
+      const exception = changed.governance.temporaryDependencyExceptions[0];
+      if (!exception) throw new Error("expected an exception fixture");
+      const replacements = {
+        toLayer: "application",
+        reason: `${exception.reason} altered`,
+        owner: `${exception.owner}-altered`,
+        exitTask: "task:00000000-0000-4000-8000-000000000000",
+        nonGrowth: false,
+      };
+      exception[field] = replacements[field as keyof typeof replacements];
+
+      expect(validateArchitectureGovernanceTransition(inventory, changed)).toContain(
+        `Architecture transition changes immutable temporary dependency exception metadata for ${exception.from}->${exception.to}`,
+      );
+    },
+  );
+
   test("CLI fails closed when the base ref cannot be read", () => {
     const result = spawnSync(
       process.execPath,

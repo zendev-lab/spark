@@ -101,6 +101,18 @@ function temporaryDependencyExceptionKey(exception) {
   return `${exception.from}->${exception.to}`;
 }
 
+function temporaryDependencyExceptionFingerprint(exception) {
+  return JSON.stringify({
+    from: exception.from,
+    to: exception.to,
+    toLayer: exception.toLayer,
+    reason: exception.reason,
+    owner: exception.owner,
+    exitTask: exception.exitTask,
+    nonGrowth: exception.nonGrowth,
+  });
+}
+
 function validateTemporaryDependencyExceptionSnapshot(inventory, label) {
   const failures = [];
   const exceptions = inventory?.governance?.temporaryDependencyExceptions;
@@ -156,12 +168,24 @@ function validateArchitectureGovernanceTransition(previousInventory, currentInve
 
   const currentExceptions = currentInventory.governance.temporaryDependencyExceptions;
   const currentBudget = currentInventory.governance.temporaryDependencyExceptionBudget;
-  const previousKeys = new Set(previousExceptions.map(temporaryDependencyExceptionKey));
+  const previousByKey = new Map(
+    previousExceptions.map((exception) => [temporaryDependencyExceptionKey(exception), exception]),
+  );
   for (const exception of currentExceptions) {
     const key = temporaryDependencyExceptionKey(exception);
-    if (!previousKeys.has(key)) {
+    const previousException = previousByKey.get(key);
+    if (!previousException) {
       failures.push(
         `Architecture transition adds or revives temporary dependency exception ${key}`,
+      );
+      continue;
+    }
+    if (
+      temporaryDependencyExceptionFingerprint(exception) !==
+      temporaryDependencyExceptionFingerprint(previousException)
+    ) {
+      failures.push(
+        `Architecture transition changes immutable temporary dependency exception metadata for ${key}`,
       );
     }
   }

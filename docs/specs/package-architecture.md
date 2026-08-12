@@ -101,13 +101,16 @@ exit task, and `nonGrowth: true`. Snapshot schema and semantic validation requir
 exact `temporaryDependencyExceptions` ledger length to be equal and no greater
 than 6. Cross-revision monotonicity is enforced separately by
 `pnpm run check:architecture-transition -- --base-ref <git-ref>`: every current
-exact `from->to` exception key must exist in the base inventory, and neither
-budget number may increase. A `6/6` to `5/5` reduction is valid only when the
-ledger shrinks with it; later restoration, replacement, or revival of an edge
-fails the transition gate even when the new snapshot is internally valid. CI
-compares pull requests and merge-queue commits with `origin/main`, and compares
-main pushes with `HEAD^`. The current exception ledger is read directly from the inventory rather
-than copied into this specification.
+exact `from->to` exception key must exist in the base inventory, its target
+layer, reason, owner, exit task, and `nonGrowth` metadata must remain byte-for-byte
+identical, and neither budget number may increase. A `6/6` to `5/5` reduction is
+valid only when the ledger shrinks with it; later metadata edits, restoration,
+replacement, or revival of an edge fail the transition gate even when the new
+snapshot is internally valid. CI compares pull requests and merge-group commits
+with `origin/main`. Protected `main` is PR-only, so every accepted inventory
+transition crosses that gate before merge rather than relying on a post-merge
+push check. The current exception ledger is read directly from the inventory
+rather than copied into this specification.
 
 ## Naming rules
 
