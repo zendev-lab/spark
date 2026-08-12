@@ -47,10 +47,11 @@ The root manifest remains the managed updater contract; the bounded companion
 manifests bind each app package to the same version, Git SHA, npm integrity,
 asset SHA256, and build fingerprint. Stable versions publish with npm tag
 `latest`; prereleases use `next` and a GitHub prerelease. The workflow validates
-all five artifacts before publishing in dependency order: daemon and Hub, then
+all five artifacts with `publint` during `pnpm run release:pack` before the
+installation smoke. It then publishes in dependency order: daemon and Hub, then
 TUI, the real `spark-cli` package, and finally the complete `spark` meta package.
-A rerun compares every already-published npm and GitHub asset integrity and fails
-closed on any difference.
+A rerun compares every already-published npm and GitHub asset integrity and
+fails closed on any difference.
 
 Production npm publication is OIDC-only. Each of the five npm package
 identities must configure trusted publishing for repository

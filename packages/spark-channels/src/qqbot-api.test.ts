@@ -46,6 +46,9 @@ describe("createQqbotApiClient", () => {
 
     try {
       const pending = request(api);
+      // Register the rejection handler before advancing fake time so Node does
+      // not observe an unhandled rejection between the timer and the await.
+      // oxlint-disable-next-line vitest/valid-expect
       const rejected = expect(pending).rejects.toMatchObject({
         name: "QqbotRequestTimeoutError",
         code: "QQBOT_REQUEST_TIMEOUT",
@@ -81,6 +84,9 @@ describe("createQqbotApiClient", () => {
 
     try {
       const pending = api.getGatewayUrl("token");
+      // Register the rejection handler before advancing fake time so Node does
+      // not observe an unhandled rejection between the timer and the await.
+      // oxlint-disable-next-line vitest/valid-expect
       const rejected = expect(pending).rejects.toMatchObject({
         name: "QqbotRequestTimeoutError",
         code: "QQBOT_REQUEST_TIMEOUT",

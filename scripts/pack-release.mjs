@@ -95,6 +95,7 @@ await writeFile(
     .map(({ manifest }) => `${manifest.assetSha256}  ${manifest.assetName}`)
     .join("\n")}\n`,
 );
+await import("./lint-release-packages.mjs");
 console.log(
   JSON.stringify(
     Object.fromEntries(manifests.map(({ distribution, manifest }) => [distribution.id, manifest])),
