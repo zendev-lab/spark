@@ -1604,8 +1604,11 @@ async function runSparkCliTuiSelection(input: {
           pendingNativeUiTransport = createSparkNativeUiTransport(app, session);
           services.runtime.setUiTransport(pendingNativeUiTransport);
           app.setWorkspaceSession(workspaceSession.state);
-          void loadSnapshot().then((snapshot) => {
-            if (!snapshot || session.hasSubmittedInput) return;
+          // runNativeSparkTui awaits configuration before starting terminal input or
+          // submitting the initial prompt, so hydrate daemon-owned history inside
+          // that startup barrier instead of racing it in a detached task.
+          const snapshot = await loadSnapshot();
+          if (snapshot) {
             sessionStatusModel = modelRefToSelection(snapshot.model) ?? sessionStatusModel;
             sessionStatusThinkingLevel = snapshot.thinkingLevel ?? sessionStatusThinkingLevel;
             app.applyViewModelEvent({
@@ -1613,7 +1616,7 @@ async function runSparkCliTuiSelection(input: {
               type: "session.snapshot",
               session: snapshot,
             });
-          });
+          }
           if (workspaceSession.attachMatchesControlPlane) {
             await hydrateNativeHubFromTaskRead(services, app, workspaceSession.state);
           }

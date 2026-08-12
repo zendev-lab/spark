@@ -174,11 +174,6 @@ export class SparkNativeSession {
     return !this.isProcessing && this.lastSubmittedInput !== undefined;
   }
 
-  /** Startup hydration must not replace input submitted while the snapshot was still loading. */
-  get hasSubmittedInput(): boolean {
-    return this.lastSubmittedInput !== undefined;
-  }
-
   get canStopOrRestore(): boolean {
     return this.isProcessing || this.queuedFollowUps.length > 0 || this.daemonQueuedCount() > 0;
   }
