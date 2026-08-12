@@ -398,8 +398,16 @@ describe("migrateSparkDaemonDatabase", () => {
           "invocations_status_idx",
           "invocations_session_status_idx",
           "invocations_session_updated_idx",
+          "invocations_workspace_updated_idx",
         ]),
       );
+      expect(indexColumns(db, "invocations_workspace_updated_idx")).toEqual([
+        "workspace_binding_id",
+        "updated_at",
+        "created_at",
+        "status",
+        "id",
+      ]);
       expect(indexNames(db, "invocation_events")).toEqual(
         expect.arrayContaining([
           "invocation_events_cursor_idx",
@@ -412,6 +420,13 @@ describe("migrateSparkDaemonDatabase", () => {
         "sequence",
       ]);
       expect(() => migrateSparkDaemonDatabase(db)).not.toThrow();
+      expect(indexColumns(db, "invocations_workspace_updated_idx")).toEqual([
+        "workspace_binding_id",
+        "updated_at",
+        "created_at",
+        "status",
+        "id",
+      ]);
       expect(indexColumns(db, "invocation_events_delivery_order_idx")).toEqual([
         "created_at",
         "invocation_id",

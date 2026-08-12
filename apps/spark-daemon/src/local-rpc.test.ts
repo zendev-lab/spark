@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { constants as sqliteConstants, type DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it, vi } from "vitest";
 import { parseSparkInteractionRequest } from "@zendev-lab/spark-protocol";
@@ -42,6 +43,24 @@ import type {
   DaemonChannelIngressRuntime,
   DaemonChannelIngressStatus,
 } from "./channels/ingress.ts";
+
+async function countSqliteAuthorizations<T>(
+  db: DatabaseSync,
+  matches: (actionCode: number, tableName: string | null) => boolean,
+  run: () => Promise<T>,
+): Promise<{ count: number; result: T }> {
+  let count = 0;
+  db.setAuthorizer((actionCode, tableName) => {
+    if (matches(actionCode, tableName)) count += 1;
+    return sqliteConstants.SQLITE_OK;
+  });
+  try {
+    const result = await run();
+    return { count, result };
+  } finally {
+    db.setAuthorizer(null);
+  }
+}
 
 describe("Spark daemon local RPC", () => {
   it("owns the complete driver control plane and publishes reconnectable projections", async () => {
@@ -1877,17 +1896,54 @@ describe("Spark daemon local RPC", () => {
         },
       });
 
-      const heartbeat = await handleLocalRpcLine(
-        JSON.stringify({
-          id: "client_heartbeat",
-          method: "workspace.client.heartbeat",
-          params: { clientId: "wcl-rpc-tui", leaseTtlMs: 60_000 },
-        }),
-        paths,
+      const heartbeatRequest = (id: string) =>
+        handleLocalRpcLine(
+          JSON.stringify({
+            id,
+            method: "workspace.client.heartbeat",
+            params: { clientId: "wcl-rpc-tui", leaseTtlMs: 60_000 },
+          }),
+          paths,
+          db,
+          undefined,
+        );
+      const baselineHeartbeat = await countSqliteAuthorizations(
         db,
-        undefined,
+        (actionCode, tableName) =>
+          actionCode === sqliteConstants.SQLITE_READ && tableName === "invocations",
+        () => heartbeatRequest("client_heartbeat_baseline"),
       );
-      expect(heartbeat).toMatchObject({ ok: true, result: { client: { status: "connected" } } });
+      expect(baselineHeartbeat.result).toMatchObject({
+        ok: true,
+        result: { client: { status: "connected" } },
+      });
+
+      const insert = db.prepare(
+        `INSERT INTO workspaces
+          (id, server_url, local_workspace_key, display_name, local_path, status,
+           capabilities_json, diagnostics_json, created_at, updated_at)
+         VALUES (?, '', ?, ?, ?, 'available', '{}', '{}', ?, ?)`,
+      );
+      for (let index = 0; index < 79; index += 1) {
+        const suffix = index.toString().padStart(2, "0");
+        insert.run(
+          `rtwb_unrelated_${suffix}`,
+          `unrelated-${suffix}`,
+          `Unrelated ${suffix}`,
+          join(root, `unrelated-${suffix}`),
+          "2026-05-26T00:00:00.000Z",
+          "2026-05-26T00:00:00.000Z",
+        );
+      }
+      const scaledHeartbeat = await countSqliteAuthorizations(
+        db,
+        (actionCode, tableName) =>
+          actionCode === sqliteConstants.SQLITE_READ && tableName === "invocations",
+        () => heartbeatRequest("client_heartbeat_scaled"),
+      );
+      expect(scaledHeartbeat.result).toMatchObject({ ok: true });
+      expect(baselineHeartbeat.count).toBeGreaterThan(0);
+      expect(scaledHeartbeat.count).toBe(baselineHeartbeat.count);
 
       const released = await handleLocalRpcLine(
         JSON.stringify({

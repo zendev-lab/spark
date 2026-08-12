@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { constants as sqliteConstants, type DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { SparkDaemonControlError } from "../control-error.ts";
@@ -19,7 +20,9 @@ import {
   getWorkspaceByPath,
   isBorrowedWorkspace,
   isMutationBlockingBorrowedWorkspace,
+  listWorkspaceBindingIdsForServer,
   listWorkspaceClients,
+  listWorkspaceUplinkServerUrls,
   listWorkspaces,
   markSparkDaemonServerConnected,
   markSparkDaemonServerDisconnected,
@@ -46,6 +49,24 @@ function expectControlError(run: () => unknown, code: SparkDaemonControlError["c
   } catch (error) {
     expect(error).toBeInstanceOf(SparkDaemonControlError);
     expect(error).toMatchObject({ code });
+  }
+}
+
+function countSqliteAuthorizations(
+  db: DatabaseSync,
+  matches: (actionCode: number, tableName: string | null) => boolean,
+  run: () => void,
+): number {
+  let count = 0;
+  db.setAuthorizer((actionCode, tableName) => {
+    if (matches(actionCode, tableName)) count += 1;
+    return sqliteConstants.SQLITE_OK;
+  });
+  try {
+    run();
+    return count;
+  } finally {
+    db.setAuthorizer(null);
   }
 }
 
@@ -107,6 +128,110 @@ describe("Spark daemon workspace store", () => {
       });
       expect(registered).toMatchObject({ id: workspace.id });
       expect(registered).not.toHaveProperty("lifecycle");
+    });
+  });
+
+  it("discovers active attached uplink origins without hydrating workspace projections", () => {
+    withSparkDaemonWorkspaceStore(({ db, root }) => {
+      const register = (name: string, serverUrl = "") => {
+        const localPath = join(root, name);
+        mkdirSync(localPath);
+        return registerWorkspace(db, {
+          serverUrl,
+          localPath,
+          localWorkspaceKey: name,
+          displayName: name,
+        });
+      };
+      register("active-a", "https://hub.example/");
+      register("active-b", "https://hub.example/");
+      const detached = register("detached", "https://detached.example/");
+      const inactive = register("inactive", "https://inactive.example/");
+      const missing = register("missing", "https://missing.example/");
+      register("local-only");
+      stopWorkspace(db, { id: detached.id });
+      applyWorkspaceLifecycleMutation(db, {
+        action: "unregister",
+        workspaceId: inactive.id,
+      });
+      db.prepare(
+        `UPDATE workspaces
+         SET status = 'unavailable', diagnostics_json = ?
+         WHERE id = ?`,
+      ).run(JSON.stringify({ pathMissing: true }), missing.id);
+
+      let serverUrls: string[] = [];
+      const forbiddenProjectionAccesses = countSqliteAuthorizations(
+        db,
+        (actionCode, tableName) =>
+          (actionCode === sqliteConstants.SQLITE_READ ||
+            actionCode === sqliteConstants.SQLITE_UPDATE) &&
+          tableName !== null &&
+          ["invocations", "daemon_workspace_clients", "daemon_workspaces"].includes(tableName),
+        () => {
+          serverUrls = listWorkspaceUplinkServerUrls(db);
+        },
+      );
+
+      expect(serverUrls).toEqual(["https://hub.example/", "https://missing.example/"]);
+      expect(forbiddenProjectionAccesses).toBe(0);
+    });
+  });
+
+  it("lists active workspace binding ids for one origin without workspace hydration", () => {
+    withSparkDaemonWorkspaceStore(({ db, root }) => {
+      const localPath = join(root, "active");
+      mkdirSync(localPath);
+      const local = addWorkspace(db, {
+        id: "workspace-active",
+        localWorkspaceKey: "active",
+        displayName: "active",
+        localPath,
+      });
+      const active = registerWorkspace(db, {
+        serverUrl: "https://hub.example/",
+        serverBindingId: "binding-active",
+        localWorkspaceKey: "active",
+        displayName: "active",
+        localPath,
+      });
+      expect(active.id).toBe(local.id);
+
+      const secondPath = join(root, "second");
+      mkdirSync(secondPath);
+      const second = registerWorkspace(db, {
+        serverUrl: "https://hub.example/",
+        serverBindingId: "binding-second",
+        localWorkspaceKey: "second",
+        displayName: "second",
+        localPath: secondPath,
+      });
+      const inactivePath = join(root, "inactive");
+      mkdirSync(inactivePath);
+      const inactive = registerWorkspace(db, {
+        serverUrl: "https://hub.example/",
+        serverBindingId: "binding-inactive",
+        localWorkspaceKey: "inactive",
+        displayName: "inactive",
+        localPath: inactivePath,
+      });
+      applyWorkspaceLifecycleMutation(db, {
+        action: "unregister",
+        workspaceId: inactive.id,
+      });
+      const otherPath = join(root, "other");
+      mkdirSync(otherPath);
+      registerWorkspace(db, {
+        serverUrl: "https://other.example/",
+        serverBindingId: "binding-other",
+        localWorkspaceKey: "other",
+        displayName: "other",
+        localPath: otherPath,
+      });
+
+      expect(new Set(listWorkspaceBindingIdsForServer(db, "https://hub.example/"))).toEqual(
+        new Set([active.id, "binding-active", second.id]),
+      );
     });
   });
 
@@ -550,6 +675,34 @@ describe("Spark daemon workspace store", () => {
           },
         ],
       });
+
+      const queryPlan = (sql: string) =>
+        (
+          db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(workspace.id) as Array<{
+            detail: string;
+          }>
+        ).map((row) => row.detail);
+      const countPlan = queryPlan(
+        "SELECT COUNT(*) FROM invocations WHERE workspace_binding_id IN (?)",
+      );
+      const recentPlan = queryPlan(
+        `SELECT id, status, updated_at
+         FROM invocations
+         WHERE workspace_binding_id IN (?)
+         ORDER BY updated_at DESC, created_at DESC
+         LIMIT 5`,
+      );
+      const activePlan = queryPlan(
+        `SELECT COUNT(*)
+         FROM invocations
+         WHERE workspace_binding_id IN (?)
+           AND status IN ('queued', 'running')`,
+      );
+      for (const plan of [countPlan, recentPlan, activePlan]) {
+        expect(plan.join("\n")).toContain("USING COVERING INDEX invocations_workspace_updated_idx");
+        expect(plan.join("\n")).not.toContain("SCAN invocations");
+      }
+      expect(recentPlan.join("\n")).not.toContain("USE TEMP B-TREE FOR ORDER BY");
     });
   });
 
@@ -925,6 +1078,50 @@ describe("Spark daemon workspace store", () => {
           now: "2026-05-26T00:00:01.001Z",
         }),
       ).toThrow(/expired/);
+    });
+  });
+
+  it("reconciles client leases once per workspace list regardless of workspace count", () => {
+    withSparkDaemonWorkspaceStore(({ db, root }) => {
+      addWorkspace(db, {
+        id: "workspace-target",
+        localWorkspaceKey: "target",
+        displayName: "target",
+        localPath: root,
+      });
+      const countLeaseUpdates = (reconcileClientLeases = true) =>
+        countSqliteAuthorizations(
+          db,
+          (actionCode, tableName) =>
+            actionCode === sqliteConstants.SQLITE_UPDATE &&
+            tableName === "daemon_workspace_clients",
+          () => {
+            listWorkspaces(db, { reconcileClientLeases });
+          },
+        );
+      const baselineUpdates = countLeaseUpdates();
+
+      const insert = db.prepare(
+        `INSERT INTO workspaces
+          (id, server_url, local_workspace_key, display_name, local_path, status,
+           capabilities_json, diagnostics_json, created_at, updated_at)
+         VALUES (?, '', ?, ?, ?, 'available', '{}', '{}', ?, ?)`,
+      );
+      for (let index = 0; index < 79; index += 1) {
+        const suffix = index.toString().padStart(2, "0");
+        insert.run(
+          `workspace-unrelated-${suffix}`,
+          `unrelated-${suffix}`,
+          `unrelated-${suffix}`,
+          join(root, `unrelated-${suffix}`),
+          "2026-08-12T00:00:00.000Z",
+          "2026-08-12T00:00:00.000Z",
+        );
+      }
+
+      expect(baselineUpdates).toBeGreaterThan(0);
+      expect(countLeaseUpdates()).toBe(baselineUpdates);
+      expect(countLeaseUpdates(false)).toBe(0);
     });
   });
 

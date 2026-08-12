@@ -17,7 +17,7 @@ import {
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import { isRetryableInvocationError, SparkInvocationStore } from "../store/invocations.ts";
 import {
-  listWorkspaces,
+  getWorkspaceById,
   WorkspacePathConflictError,
   type SparkDaemonWorkspaceClient,
 } from "../store/workspaces.js";
@@ -65,8 +65,8 @@ export function workspaceClientResult(
   db: DatabaseSync,
   client: SparkDaemonWorkspaceClient,
 ): LocalWorkspaceClientResult {
-  const workspace = listWorkspaces(db).find((candidate) => candidate.id === client.workspaceId);
-  if (!workspace) {
+  const workspace = getWorkspaceById(db, client.workspaceId);
+  if (!workspace || workspace.lifecycle) {
     throw new Error(`Unknown workspace connection: ${client.workspaceId}`);
   }
   return { client, workspace, observedAt: new Date().toISOString() };

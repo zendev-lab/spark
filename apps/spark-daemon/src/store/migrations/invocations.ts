@@ -1,3 +1,4 @@
+import type { DatabaseSync } from "node:sqlite";
 import {
   addMissingInvocationColumns,
   addMissingUsageExecutionColumns,
@@ -6,11 +7,24 @@ import {
 } from "./current-schema.js";
 import type { Migration } from "./types.js";
 
+function prepareWorkspaceInvocationProjectionIndex(db: DatabaseSync): void {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS invocations_workspace_updated_idx
+      ON invocations(workspace_binding_id, updated_at DESC, created_at DESC, status, id)
+      WHERE workspace_binding_id IS NOT NULL
+  `);
+}
+
 export const invocationSchemaMigrations = [
   {
     id: "invocations.lifecycle-columns-and-indexes",
     owner: "invocations",
     up: addMissingInvocationColumns,
+  },
+  {
+    id: "invocations.workspace-projection-index",
+    owner: "invocations",
+    up: prepareWorkspaceInvocationProjectionIndex,
   },
   {
     id: "invocations.usage-execution-kind-provisional",
