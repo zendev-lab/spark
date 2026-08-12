@@ -33,10 +33,5 @@
     "@zendev-lab/spark-tasks": "workspace:^",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "pi": {
-    "extensions": [
-      "./src/extension-entry.ts"
-    ]
   }
 }
