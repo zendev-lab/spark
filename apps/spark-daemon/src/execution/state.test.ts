@@ -3,11 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";
-import {
-  EXECUTION_ATTEMPT_ACCEPTED_CRASH_DELAYS_MS,
-  ExecutionAttemptStateError,
-  ExecutionAttemptStore,
-} from "./state.ts";
+import { EXECUTION_ATTEMPT_ACCEPTED_CRASH_DELAYS_MS, ExecutionAttemptStore } from "./state.ts";
 
 const databases: DatabaseSync[] = [];
 
@@ -243,5 +239,3 @@ function requiredString(value: string | undefined): string {
   if (!value) throw new Error("expected string");
   return value;
 }
-
-expect(ExecutionAttemptStateError).toBeDefined();

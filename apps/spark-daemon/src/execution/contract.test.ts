@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   EXECUTION_ATTEMPT_PROTOCOL_VERSION,
-  ExecutionAttemptProtocolError,
   ExecutionAttemptProtocolFence,
   MAX_EXECUTION_ATTEMPT_ENVELOPE_BYTES,
   MAX_EXECUTION_ATTEMPT_JSON_DEPTH,
@@ -416,5 +415,3 @@ type ExecutionAttemptEnvelopeBase = {
   sequence: number;
   correlationId: string;
 };
-
-expect(ExecutionAttemptProtocolError).toBeDefined();

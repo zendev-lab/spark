@@ -57,6 +57,7 @@ describe("project hub projection", () => {
   it("summarizes latest task graph snapshots with dependencies and invocation links", () => {
     const { db, now, runtimeWorkspaceBindingId, workspace, project } = setupProject();
     const invocationId = createId("inv");
+    const planArtifactId = createId("art");
 
     ingestTaskGraphSnapshot(db, {
       runtimeWorkspaceBindingId,
@@ -75,7 +76,7 @@ describe("project hub projection", () => {
             title: "Plan",
             status: "completed",
             inputArtifactIds: [],
-            outputArtifactIds: [createId("art")],
+            outputArtifactIds: [planArtifactId],
             runIds: [],
             payload: {},
           },
@@ -85,7 +86,7 @@ describe("project hub projection", () => {
             title: "Build",
             status: "blocked",
             agentRef: "role:worker",
-            inputArtifactIds: [createId("art")],
+            inputArtifactIds: [planArtifactId],
             outputArtifactIds: [],
             runIds: [invocationId],
             payload: {},
@@ -144,6 +145,7 @@ describe("project hub projection", () => {
     expect(buildTask?.invocationLinks).toMatchObject([
       { runtimeInvocationId: invocationId, agentName: "worker", status: "running" },
     ]);
+    expect(buildTask?.inputArtifactIds).toEqual([planArtifactId]);
     expect(buildTask?.inputArtifactCount).toBe(1);
     expect(buildTask?.readyFrontier).toBe(false);
 

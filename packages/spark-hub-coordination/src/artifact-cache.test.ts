@@ -1,15 +1,22 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
 import { createWorkspaceWithLease, recordArtifactProjection } from "./projection-services";
 import {
+  defaultArtifactCacheRoot,
   ensureArtifactPreviewCache,
   MAX_PREVIEW_BYTES,
   readArtifactPreviewContent,
 } from "./artifact-cache";
+
+const originalEnv = { ...process.env };
+
+afterEach(() => {
+  process.env = { ...originalEnv };
+});
 
 function setupWorkspace() {
   const db = openMemoryDatabase();
@@ -95,6 +102,76 @@ describe("artifact preview cache", () => {
       expect(cache.previewStatus).toBe("too_large");
       expect(cache.error?.reason).toBe("too_large");
     } finally {
+      rmSync(cacheRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves external runtime pointers unmaterialized", () => {
+    const { db, workspace, runtimeWorkspaceBindingId } = setupWorkspace();
+    const cacheRoot = mkdtempSync(join(tmpdir(), "spark-artifact-cache-"));
+    const artifactId = "artifact-runtime-pointer";
+    try {
+      recordArtifactProjection(db, {
+        workspaceId: workspace.id,
+        runtimeWorkspaceBindingId,
+        payload: {
+          artifactId,
+          scope: "workspace",
+          kind: "document",
+          title: "Runtime report",
+          format: "markdown",
+          source: "runtime",
+          contentRef: { runtimePathRef: `artifact://runtime/${artifactId}.md` },
+          provenance: { producer: "task" },
+          links: [],
+        },
+      });
+
+      const result = readArtifactPreviewContent(db, artifactId, { cacheRoot });
+
+      expect(result.cache).toMatchObject({
+        state: "missing",
+        previewStatus: "missing",
+        sourceRef: { runtimePathRef: `artifact://runtime/${artifactId}.md` },
+      });
+      expect(result.body).toBeUndefined();
+    } finally {
+      db.close();
+      rmSync(cacheRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects binary previews without materializing a cache file", () => {
+    const { db, workspace, runtimeWorkspaceBindingId } = setupWorkspace();
+    const cacheRoot = mkdtempSync(join(tmpdir(), "spark-artifact-cache-"));
+    const artifactId = "artifact-binary";
+    try {
+      recordArtifactProjection(db, {
+        workspaceId: workspace.id,
+        runtimeWorkspaceBindingId,
+        payload: {
+          artifactId,
+          scope: "workspace",
+          kind: "screenshot",
+          title: "Diagram capture",
+          format: "blob",
+          source: "runtime",
+          contentRef: { runtimePathRef: `artifact://runtime/${artifactId}.png` },
+          provenance: { producer: "task" },
+          links: [],
+        },
+      });
+
+      const cache = ensureArtifactPreviewCache(db, artifactId, { cacheRoot });
+
+      expect(cache).toMatchObject({
+        state: "failed",
+        previewStatus: "unsupported_binary",
+        error: { reason: "unsupported_binary" },
+      });
+      expect(existsSync(cache.cachePath)).toBe(false);
+    } finally {
+      db.close();
       rmSync(cacheRoot, { recursive: true, force: true });
     }
   });
@@ -223,5 +300,23 @@ describe("artifact preview cache", () => {
     } finally {
       rmSync(cacheRoot, { recursive: true, force: true });
     }
+  });
+});
+
+describe("artifact preview cache paths", () => {
+  it("uses the default XDG cache root", () => {
+    process.env = { HOME: "/Users/example" };
+
+    expect(defaultArtifactCacheRoot()).toBe(
+      join("/Users/example", ".cache", "spark", "hub", "artifacts"),
+    );
+  });
+
+  it("relocates the cache with SPARK_HOME", () => {
+    process.env = { HOME: "/Users/example", SPARK_HOME: "/Users/example/spark-home" };
+
+    expect(defaultArtifactCacheRoot()).toBe(
+      join("/Users/example/spark-home", "apps", "hub", "cache", "artifacts"),
+    );
   });
 });

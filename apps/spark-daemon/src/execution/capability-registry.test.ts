@@ -8,7 +8,6 @@ import {
 import type { ExecutionAttemptIdentity } from "./contract.ts";
 import {
   EXECUTION_PARENT_CAPABILITIES,
-  ExecutionParentCapabilityError,
   type ExecutionCapabilityDefinition,
 } from "./capability-registry.ts";
 import { createInProcessExecutionCapabilityRegistry } from "./owner-capabilities.ts";
@@ -179,5 +178,3 @@ describe("execution parent capability registry", () => {
     ).toThrowError(expect.objectContaining({ code: "execution_capability_registration_denied" }));
   });
 });
-
-expect(ExecutionParentCapabilityError).toBeDefined();
