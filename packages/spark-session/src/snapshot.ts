@@ -5,11 +5,16 @@ import { dirname, resolve } from "node:path";
 import {
   SPARK_PROTOCOL_VERSION,
   SPARK_SESSION_MEDIA_MAX_BYTES,
+  SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES,
+  SPARK_SESSION_PROMPT_HISTORY_MAX,
   sparkImageConversationPartSchema,
+  parseSparkSessionPromptHistory,
   parseSparkSessionView,
   sanitizeSparkDisplayError,
   sparkSessionMediaReadRequestSchema,
   sparkSessionMediaReadResultSchema,
+  sparkSessionSubmittedInputSchema,
+  sparkSessionSubmittedInputTextSchema,
   sparkSessionUsageSchema,
   sparkTextPhaseFromSignature,
   summarizeToolCallArguments,
@@ -20,6 +25,8 @@ import {
   type SparkSessionRegistryRecord,
   type SparkSessionMediaReadRequest,
   type SparkSessionMediaReadResult,
+  type SparkSessionPromptHistory,
+  type SparkSessionPromptHistoryEntry,
   type SparkSessionUsage,
   type SparkSessionView,
   type SparkToolCallView,
@@ -77,6 +84,9 @@ interface NativeSessionSnapshotIndex {
   activeLeafId?: string;
   messages: NativeSessionEntryLocation[];
   totalMessages: number;
+  /** Optional for compatibility with indexes written before durable prompt recall. */
+  prompts?: SparkSessionPromptHistoryEntry[];
+  totalPrompts?: number;
   lastMessage?: NativeSessionEntryLocation;
   usage?: SparkSessionUsage;
 }
@@ -149,6 +159,40 @@ export async function loadSparkSessionSnapshot(
       },
     })
   ).snapshot;
+}
+
+/** Read only indexed active-branch entries for the latest durable user prompts. */
+export async function loadSparkSessionPromptHistory(
+  input: LoadSparkSessionSnapshotInput & { limit: number },
+): Promise<SparkSessionPromptHistory> {
+  if (
+    !Number.isInteger(input.limit) ||
+    input.limit < 1 ||
+    input.limit > SPARK_SESSION_PROMPT_HISTORY_MAX
+  ) {
+    throw new Error(
+      `Spark session prompt history limit must be between 1 and ${SPARK_SESSION_PROMPT_HISTORY_MAX}.`,
+    );
+  }
+  const path = input.session.sessionPath;
+  if (!path) {
+    return parseSparkSessionPromptHistory({
+      sessionId: input.session.sessionId,
+      prompts: [],
+      totalPrompts: 0,
+      truncated: false,
+    });
+  }
+
+  const loaded = await loadSparkSessionSnapshotIndex(path, input.session.sessionId);
+  let index = loaded.index;
+  if (!hasPromptHistoryIndex(index)) {
+    index = (await rebuildSparkSessionSnapshotIndex(path, input.session.sessionId)).index;
+  }
+  if (!hasPromptHistoryIndex(index)) {
+    throw new Error("Spark session snapshot index has no prompt-history summary.");
+  }
+  return projectSparkSessionPromptHistory(input.session.sessionId, index, input.limit);
 }
 
 /** Refresh the rebuildable latest-page index after a transcript commit. */
@@ -465,6 +509,17 @@ function buildSparkSessionSnapshotIndex(
     .map((entry) => requiredEntryLocation(record, entry.id))
     .reverse();
   const messages = activeMessages.slice(-SNAPSHOT_INDEX_MESSAGE_LIMIT);
+  const activePrompts = activeNewestFirst
+    .flatMap((entry): SparkSessionPromptHistoryEntry[] => {
+      const text = promptHistoryText(entry);
+      return text === undefined ? [] : [{ messageId: entry.id, text }];
+    })
+    .reverse();
+  const prompts = boundedPromptHistorySummary(
+    expectedSessionId,
+    activePrompts.slice(-SPARK_SESSION_PROMPT_HISTORY_MAX),
+    activePrompts.length,
+  );
   const lastMessage = activeNewestFirst.find((entry) => entry.type === "message");
   const usage = sessionUsage(record.entries, activeNewestFirst);
   return {
@@ -478,6 +533,8 @@ function buildSparkSessionSnapshotIndex(
     ...(activeNewestFirst[0]?.id ? { activeLeafId: activeNewestFirst[0].id } : {}),
     messages,
     totalMessages: activeMessages.length,
+    prompts,
+    totalPrompts: activePrompts.length,
     ...(lastMessage ? { lastMessage: requiredEntryLocation(record, lastMessage.id) } : {}),
     ...(usage ? { usage } : {}),
   };
@@ -564,12 +621,34 @@ function parseSparkSessionSnapshotIndex(
   ) {
     throw new Error("Spark session snapshot index message summary is invalid.");
   }
-  let previousEnd = 0;
-  for (const entry of messages) {
-    if (entry.offset < previousEnd) {
-      throw new Error("Spark session snapshot index offsets are not monotonic.");
-    }
-    previousEnd = entry.offset + entry.length;
+  assertMonotonicIndexLocations(messages);
+  const hasPromptLocations = value.prompts !== undefined;
+  const hasPromptTotal = value.totalPrompts !== undefined;
+  if (hasPromptLocations !== hasPromptTotal) {
+    throw new Error("Spark session snapshot index prompt summary is incomplete.");
+  }
+  if (hasPromptLocations && !Array.isArray(value.prompts)) {
+    throw new Error("Spark session snapshot index prompt locations are invalid.");
+  }
+  const prompts = Array.isArray(value.prompts)
+    ? value.prompts.map((entry) => parsePromptHistoryIndexEntry(entry))
+    : undefined;
+  const totalPrompts = hasPromptTotal ? nonnegativeInteger(value.totalPrompts) : undefined;
+  if (
+    prompts &&
+    (prompts.length > SPARK_SESSION_PROMPT_HISTORY_MAX ||
+      totalPrompts === undefined ||
+      totalPrompts < prompts.length)
+  ) {
+    throw new Error("Spark session snapshot index prompt summary is invalid.");
+  }
+  if (prompts && totalPrompts !== undefined) {
+    parseSparkSessionPromptHistory({
+      sessionId: expectedSessionId,
+      prompts,
+      totalPrompts,
+      truncated: totalPrompts > prompts.length,
+    });
   }
   const lastMessage =
     value.lastMessage === undefined
@@ -588,9 +667,79 @@ function parseSparkSessionSnapshotIndex(
     ...(activeLeafId ? { activeLeafId } : {}),
     messages,
     totalMessages,
+    ...(prompts && totalPrompts !== undefined ? { prompts, totalPrompts } : {}),
     ...(lastMessage ? { lastMessage } : {}),
     ...(usage.success ? { usage: usage.data } : {}),
   };
+}
+
+function assertMonotonicIndexLocations(entries: readonly NativeSessionEntryLocation[]): void {
+  let previousEnd = 0;
+  for (const entry of entries) {
+    if (entry.offset < previousEnd) {
+      throw new Error("Spark session snapshot index offsets are not monotonic.");
+    }
+    previousEnd = entry.offset + entry.length;
+  }
+}
+
+function hasPromptHistoryIndex(
+  index: NativeSessionSnapshotIndex | undefined,
+): index is NativeSessionSnapshotIndex & {
+  prompts: SparkSessionPromptHistoryEntry[];
+  totalPrompts: number;
+} {
+  return Boolean(index?.prompts && index.totalPrompts !== undefined);
+}
+
+function projectSparkSessionPromptHistory(
+  sessionId: string,
+  index: NativeSessionSnapshotIndex & {
+    prompts: SparkSessionPromptHistoryEntry[];
+    totalPrompts: number;
+  },
+  limit: number,
+): SparkSessionPromptHistory {
+  const prompts = index.prompts.slice(-limit);
+  return parseSparkSessionPromptHistory({
+    sessionId,
+    prompts,
+    totalPrompts: index.totalPrompts,
+    truncated: index.totalPrompts > prompts.length,
+  });
+}
+
+function boundedPromptHistorySummary(
+  sessionId: string,
+  candidates: readonly SparkSessionPromptHistoryEntry[],
+  totalPrompts: number,
+): SparkSessionPromptHistoryEntry[] {
+  const prompts = [...candidates];
+  while (true) {
+    const result = {
+      sessionId,
+      prompts,
+      totalPrompts,
+      truncated: totalPrompts > prompts.length,
+    };
+    if (Buffer.byteLength(JSON.stringify(result)) <= SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES) {
+      return parseSparkSessionPromptHistory(result).prompts;
+    }
+    if (prompts.length === 0) {
+      throw new Error("Spark prompt-history metadata exceeds its projection byte limit.");
+    }
+    prompts.shift();
+  }
+}
+
+function parsePromptHistoryIndexEntry(value: unknown): SparkSessionPromptHistoryEntry {
+  if (!isRecord(value)) throw new Error("Spark session snapshot index prompt is invalid.");
+  const messageId = optionalIndexString(value.messageId);
+  const text = sparkSessionSubmittedInputTextSchema.safeParse(value.text);
+  if (!messageId || !text.success) {
+    throw new Error("Spark session snapshot index prompt is invalid.");
+  }
+  return { messageId, text: text.data };
 }
 
 function parseTranscriptCheckpoint(value: unknown): NativeTranscriptCheckpoint {
@@ -840,6 +989,20 @@ function isProjectableMessageEntry(entry: NativeSessionEntry): boolean {
     return true;
   }
   return isProviderErrorEntry(entry);
+}
+
+function promptHistoryText(entry: NativeSessionEntry): string | undefined {
+  if (entry.type !== "message" || entry.message?.role !== "user") return undefined;
+  const metadata = entry.message.metadata;
+  if (isRecord(metadata)) {
+    const submittedInput = sparkSessionSubmittedInputSchema.safeParse(metadata.submittedInput);
+    if (submittedInput.success) return submittedInput.data.text;
+  }
+  if (!isProjectableMessageEntry(entry)) return undefined;
+  const message = messageView(entry, new Map());
+  if (message?.role !== "user") return undefined;
+  const legacy = sparkSessionSubmittedInputTextSchema.safeParse(message.text);
+  return legacy.success ? legacy.data : undefined;
 }
 
 function isProjectableConversationValue(

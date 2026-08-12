@@ -22,6 +22,7 @@ import {
   type SparkInteractionResponse,
   type SparkMessageView,
   type SparkRunView,
+  type SparkSessionPromptHistoryEntry,
   type SparkSessionView,
   type SparkTaskView,
   type SparkViewModelEvent,
@@ -270,6 +271,15 @@ export class SparkNativeTuiApp implements Component, Focusable {
     return this.editor.getExpandedText();
   }
 
+  /** Seed durable prompt recall without replacing the bounded transcript projection. */
+  hydratePromptHistory(entries: readonly SparkSessionPromptHistoryEntry[]): void {
+    for (const entry of entries) {
+      if (this.editorPromptHistoryMessageIds.has(entry.messageId)) continue;
+      this.editorPromptHistoryMessageIds.add(entry.messageId);
+      this.editor.addToHistory(entry.text);
+    }
+  }
+
   async executeSlashCommand(input: string): Promise<void> {
     await this.runSlashCommand(input);
   }
@@ -374,7 +384,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
           this.pendingDurablePromptHistory.push(displayNativeSubmittedInput(prepared).trim());
         }
       }
-      return await this.session.submit(prepared, options);
+      return await this.session.submit(prepared, { ...options, submittedInput: input });
     } catch (error) {
       this.session.addSystemMessage(
         nativeTuiStrings.inputPreparationFailed(

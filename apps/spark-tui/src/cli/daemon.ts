@@ -14,9 +14,12 @@ import {
   parseSparkModelValue,
   parseSparkDaemonEvent,
   parseSparkInteractionResponse,
+  parseSparkSessionPromptHistory,
   parseSparkSessionView,
+  SPARK_SESSION_PROMPT_HISTORY_MAX,
   sparkLocalRpcProcedureSchemas,
   sparkModelValue,
+  sparkSessionSubmittedInputSchema,
   type SparkAssignment,
   type SparkDaemonEvent,
   type SparkInvocationListResult,
@@ -34,6 +37,7 @@ import {
   type SparkSessionCreateRequest,
   type SparkSessionListRequest,
   type SparkSessionRegistryRecord,
+  type SparkSessionPromptHistory,
   type SparkSessionView,
   type SparkViewModelEvent,
   type SparkTurnCancelResult,
@@ -1514,6 +1518,9 @@ export function createSparkDaemonNativeResponder(
   ): Promise<LocalTurnSubmitResult> => {
     const prompt = input.trim();
     if (!prompt) throw new Error(STRINGS.ignoredEmptyPrompt);
+    const submittedInput = sparkSessionSubmittedInputSchema.safeParse({
+      text: context.submittedInput,
+    });
     let submissionStarted = false;
     try {
       await ensureReady();
@@ -1525,6 +1532,7 @@ export function createSparkDaemonNativeResponder(
           idempotencyKey: context.submissionId,
           messageMetadata: {
             origin: { kind: "user", host: "tui", surface: "local" },
+            ...(submittedInput.success ? { submittedInput: submittedInput.data } : {}),
           },
         },
         client,
@@ -2147,6 +2155,16 @@ export async function clientGetManagedSessionSnapshot(
 ): Promise<SparkSessionView> {
   return parseSparkSessionView(
     await requestSparkDaemonControl("session.snapshot", { sessionId }, client),
+  );
+}
+
+export async function clientGetManagedSessionPromptHistory(
+  sessionId: string,
+  client: SparkDaemonClientOptions = {},
+  limit = SPARK_SESSION_PROMPT_HISTORY_MAX,
+): Promise<SparkSessionPromptHistory> {
+  return parseSparkSessionPromptHistory(
+    await requestSparkDaemonControl("session.prompt-history", { sessionId, limit }, client),
   );
 }
 

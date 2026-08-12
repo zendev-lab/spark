@@ -14,6 +14,7 @@ import {
   sparkSessionGetRequestSchema,
   sparkSessionListRequestSchema,
   sparkSessionMediaReadRequestSchema,
+  sparkSessionPromptHistoryRequestSchema,
   sparkSessionSetModeRequestSchema,
   sparkSessionSnapshotPageSchema,
   sparkSessionSnapshotRequestSchema,
@@ -32,10 +33,12 @@ import {
   type SparkProtocolJsonValue,
   type SparkSessionCreateRequest,
   type SparkSessionRegistryRecord,
+  type SparkSessionPromptHistory,
   type SparkSessionView,
 } from "@zendev-lab/spark-protocol";
 import {
   loadSparkSessionMediaChunk,
+  loadSparkSessionPromptHistory,
   loadSparkSessionSnapshot,
   loadSparkSessionSnapshotTail,
   SparkSessionRegistryError,
@@ -541,6 +544,33 @@ export async function executeSparkDaemonSessionControl(
       return { result: data, invocationId: parsed.invocationId };
     }
   }
+}
+
+/** Daemon-owned prompt recall read used by the typed local oRPC adapter. */
+export async function readSparkDaemonSessionPromptHistory(
+  options: SparkDaemonSessionControlOptions,
+  input: { sessionId: string; limit?: number },
+): Promise<SparkSessionPromptHistory> {
+  const parsed = sparkSessionPromptHistoryRequestSchema.parse(input);
+  const request: SparkDaemonSessionControlRequest = {
+    kind: "session.snapshot.request",
+    scope: "any",
+    sessionId: parsed.sessionId,
+    payload: parsed,
+  };
+  const session = await requireSession(options, parsed.sessionId, request);
+  assertOrdinarySessionVisible(session);
+  if (!options.paths.piAgentDir) {
+    throw new SparkDaemonControlError(
+      "session_storage_unavailable",
+      "Spark daemon native session storage is not available.",
+    );
+  }
+  return await loadSparkSessionPromptHistory({
+    sessionsRoot: join(options.paths.piAgentDir, "sessions"),
+    session,
+    limit: parsed.limit,
+  });
 }
 
 function assertIdempotentTurnReplay(

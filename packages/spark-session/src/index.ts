@@ -21,6 +21,7 @@ export {
 export { migrateSparkSessionRecordToV5 } from "./registry.ts";
 export {
   loadSparkSessionMediaChunk,
+  loadSparkSessionPromptHistory,
   loadSparkSessionSnapshot,
   loadSparkSessionSnapshotTail,
   refreshSparkSessionSnapshotIndex,

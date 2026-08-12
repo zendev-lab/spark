@@ -3185,6 +3185,23 @@ describe("Spark daemon local RPC", () => {
       expect(JSON.stringify(bound)).not.toMatch(
         /inactive answer|system-secret|tool-secret|secret-input|sessionPath/u,
       );
+      expect((bound as { result: Record<string, unknown> }).result).not.toHaveProperty("snapshot");
+      expect((bound as { result: Record<string, unknown> }).result).not.toHaveProperty("history");
+      const promptHistoryCompatibility = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "prompt_history_compatibility",
+          method: "session.prompt-history",
+          params: { sessionId: "sess_view", limit: 100 },
+        }),
+        paths,
+        db,
+        undefined,
+        { sessionRegistry },
+      );
+      expect(promptHistoryCompatibility).toMatchObject({
+        ok: false,
+        error: { message: "Unknown local RPC method: session.prompt-history" },
+      });
 
       const preferredPath = join(
         paths.piAgentDir!,

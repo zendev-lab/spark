@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { sparkLocalRpcProcedureSchemas } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
+import {
+  sparkLocalRpcOrpcOnlyMethods,
+  sparkLocalRpcProcedureSchemas,
+} from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
 import { isSparkLocalRpcMethod, parseLocalRpcRequest } from "./parse.ts";
 
 describe("side-thread local RPC parsing", () => {
@@ -46,6 +49,16 @@ describe("side-thread local RPC parsing", () => {
   it("recognizes every protocol-owned method and rejects unknown methods", () => {
     const methods = Object.keys(sparkLocalRpcProcedureSchemas);
     expect(methods.every(isSparkLocalRpcMethod)).toBe(true);
+    expect(sparkLocalRpcOrpcOnlyMethods).toEqual(["session.prompt-history"]);
+    expect(() =>
+      parseLocalRpcRequest(
+        JSON.stringify({
+          id: "orpc-only",
+          method: "session.prompt-history",
+          params: { sessionId: "session-1" },
+        }),
+      ),
+    ).toThrow("Unknown local RPC method: session.prompt-history");
     expect(() =>
       parseLocalRpcRequest(JSON.stringify({ id: "unknown", method: "legacy.unknown", params: {} })),
     ).toThrow("Unknown local RPC method: legacy.unknown");

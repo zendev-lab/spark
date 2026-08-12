@@ -1,4 +1,5 @@
 import {
+  sparkLocalRpcOrpcOnlyMethods,
   sparkLocalRpcProcedureSchemas,
   type SparkLocalRpcMethod,
   type SparkLocalRpcOutput,
@@ -38,7 +39,7 @@ export function parseLocalRpcRequest(line: string): LocalRpcRequest {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.method !== "string") {
     throw new Error("Invalid local RPC request.");
   }
-  if (!isSparkLocalRpcMethod(value.method)) {
+  if (!isSparkLocalRpcMethod(value.method) || isOrpcOnlyMethod(value.method)) {
     throw new Error(`Unknown local RPC method: ${value.method}`);
   }
   return {
@@ -57,6 +58,10 @@ function legacyInputCompatibility(method: SparkLocalRpcMethod, value: unknown): 
 
 export function isSparkLocalRpcMethod(value: string): value is SparkLocalRpcMethod {
   return Object.hasOwn(sparkLocalRpcProcedureSchemas, value);
+}
+
+function isOrpcOnlyMethod(method: SparkLocalRpcMethod): boolean {
+  return (sparkLocalRpcOrpcOnlyMethods as readonly SparkLocalRpcMethod[]).includes(method);
 }
 
 export function parseLocalRpcInput<M extends SparkLocalRpcMethod>(

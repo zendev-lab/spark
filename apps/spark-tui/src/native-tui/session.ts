@@ -91,6 +91,7 @@ function formatSteeringSubmission(inputs: string[]): string {
 type SparkNativeDaemonObservation = {
   readonly text: string;
   readonly effectivePrompt: string;
+  readonly submittedInput?: string;
   readonly mode: SparkNativeQueuedInput["mode"];
   readonly submissionId: string;
   admission?: SparkTurnSubmitResult;
@@ -145,7 +146,9 @@ export class SparkNativeSession {
   private readonly reportedDaemonFailures = new Set<string>();
   private daemonDetached = false;
   private readonly responder: SparkNativeResponder;
-  private lastSubmittedInput: { text: string; submissionId: string } | undefined;
+  private lastSubmittedInput:
+    | { text: string; submissionId: string; submittedInput?: string }
+    | undefined;
   private processing = false;
   private activeTurnId = 0;
   private currentAbort: AbortController | undefined;
@@ -238,13 +241,17 @@ export class SparkNativeSession {
     const text = input.trim();
     if (!text) return "ignored";
     const submissionId = options.submissionId ?? createId("idem");
-    this.lastSubmittedInput = { text, submissionId };
+    this.lastSubmittedInput = {
+      text,
+      submissionId,
+      ...(options.submittedInput !== undefined ? { submittedInput: options.submittedInput } : {}),
+    };
 
     if (hasDaemonQueueCapabilities(this.responder)) {
       const queued = this.isProcessing || this.daemonObservations.length > 0;
       // turn.submit is a durable next-turn admission. Until the daemon exposes
       // a real mid-turn input RPC, never label or rewrite it as steering.
-      this.enqueueDaemonObservation(text, "followUp", submissionId, queued);
+      this.enqueueDaemonObservation(text, "followUp", submissionId, queued, options.submittedInput);
       return queued ? "queued" : "started";
     }
 
@@ -260,9 +267,12 @@ export class SparkNativeSession {
 
   async retryLast(): Promise<"started" | "queued" | "ignored"> {
     if (!this.lastSubmittedInput) return "ignored";
-    const { text, submissionId } = this.lastSubmittedInput;
+    const { text, submissionId, submittedInput } = this.lastSubmittedInput;
     this.pushMessage({ role: "system", text: `Retrying: ${text}` });
-    return await this.submit(text, { submissionId });
+    return await this.submit(text, {
+      submissionId,
+      ...(submittedInput !== undefined ? { submittedInput } : {}),
+    });
   }
 
   addSystemMessage(text: string): void {
@@ -673,11 +683,13 @@ export class SparkNativeSession {
     mode: SparkNativeQueuedInput["mode"],
     submissionId: string,
     queued: boolean,
+    submittedInput?: string,
   ): void {
     this.removeFailedAdmission(submissionId);
     const observation: SparkNativeDaemonObservation = {
       text,
       effectivePrompt: text,
+      ...(submittedInput !== undefined ? { submittedInput } : {}),
       mode,
       submissionId,
     };
@@ -768,6 +780,9 @@ export class SparkNativeSession {
         try {
           admission = await this.responder.admit(observation.effectivePrompt, {
             submissionId: observation.submissionId,
+            ...(observation.submittedInput !== undefined
+              ? { submittedInput: observation.submittedInput }
+              : {}),
             signal: admissionAbort.signal,
           });
           break;

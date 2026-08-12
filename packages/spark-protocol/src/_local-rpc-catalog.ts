@@ -76,6 +76,7 @@ import {
   sparkSessionCreateRequestSchema,
   sparkSessionGetRequestSchema,
   sparkSessionListRequestSchema,
+  sparkSessionPromptHistoryRequestSchema,
   sparkSessionRegistryRecordSchema,
   sparkSessionSetModelRequestSchema,
   sparkSessionSetThinkingRequestSchema,
@@ -121,7 +122,7 @@ import {
   sparkReproFormalEvidenceRecordRequestSchema,
   sparkReproFormalEvidenceRecordResultSchema,
 } from "./repro-formal-evidence.ts";
-import { sparkSessionViewSchema } from "./protocol.ts";
+import { sparkSessionPromptHistorySchema, sparkSessionViewSchema } from "./protocol.ts";
 import { SPARK_PROTOCOL_VERSION } from "./version.ts";
 import {
   workspaceDelegationExecuteRequestSchema,
@@ -392,6 +393,13 @@ const sparkLocalRpcSessionSnapshotOrpcErrors = {
   invalid_session_snapshot: sparkLocalRpcSessionOrpcErrors.invalid_session_snapshot,
   session_snapshot_cursor_not_found:
     sparkLocalRpcSessionOrpcErrors.session_snapshot_cursor_not_found,
+  session_snapshot_mismatch: sparkLocalRpcSessionOrpcErrors.session_snapshot_mismatch,
+  session_storage_unavailable: sparkLocalRpcSessionOrpcErrors.session_storage_unavailable,
+} as const;
+
+const sparkLocalRpcSessionPromptHistoryOrpcErrors = {
+  ...sparkLocalRpcSessionGetOrpcErrors,
+  invalid_session_snapshot: sparkLocalRpcSessionOrpcErrors.invalid_session_snapshot,
   session_snapshot_mismatch: sparkLocalRpcSessionOrpcErrors.session_snapshot_mismatch,
   session_storage_unavailable: sparkLocalRpcSessionOrpcErrors.session_storage_unavailable,
 } as const;
@@ -1555,6 +1563,10 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkSessionSnapshotRequestSchema,
     output: z.lazy(() => sparkSessionViewSchema),
   },
+  "session.prompt-history": {
+    input: sparkSessionPromptHistoryRequestSchema,
+    output: z.lazy(() => sparkSessionPromptHistorySchema),
+  },
   "session.create": {
     input: sparkSessionCreateRequestSchema,
     output: sparkSessionRegistryRecordSchema,
@@ -1686,6 +1698,11 @@ export const sparkLocalRpcOrpcMethodPaths = Object.fromEntries(
 export const sparkLocalRpcOrpcLiveMethods = Object.keys(
   sparkLocalRpcProcedureSchemas,
 ) as SparkLocalRpcMethod[];
+
+/** New procedures intentionally excluded from the frozen 0.1.x NDJSON surface. */
+export const sparkLocalRpcOrpcOnlyMethods = [
+  "session.prompt-history",
+] as const satisfies readonly SparkLocalRpcMethod[];
 
 export type SparkLocalRpcInput<M extends SparkLocalRpcMethod> = z.input<
   (typeof sparkLocalRpcProcedureSchemas)[M]["input"]
@@ -2014,6 +2031,12 @@ export const sparkLocalRpcOrpcContract = {
       "/session/snapshot",
       p["session.snapshot"],
       sparkLocalRpcSessionSnapshotOrpcErrors,
+    ),
+    promptHistory: procedure(
+      "GET",
+      "/session/prompt-history",
+      p["session.prompt-history"],
+      sparkLocalRpcSessionPromptHistoryOrpcErrors,
     ),
     create: procedure(
       "POST",
