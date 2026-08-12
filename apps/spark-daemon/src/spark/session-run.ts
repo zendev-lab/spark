@@ -80,7 +80,10 @@ import type { SparkDaemonModelControl } from "../model-control.ts";
 import { artifactDaemonProjectionEventFromToolResult } from "../artifact-projection.ts";
 import type { DaemonSessionRegistry } from "../session-registry.ts";
 import type { SparkInvocationStore } from "../store/invocations.ts";
-import { ensureDaemonSessionTranscript } from "../session-transcript-control.ts";
+import {
+  ensureDaemonSessionTranscript,
+  resolveDaemonSessionTranscript,
+} from "../session-transcript-control.ts";
 import { ChannelReplyEventProjector } from "../channels/reply-stream.ts";
 import type { ChannelReplyDeliveryStore } from "../channels/reply-delivery.ts";
 import { assignCompletedSessionName } from "./session-title.ts";
@@ -151,7 +154,12 @@ export interface SparkDaemonTaskExecutorOptions {
     DaemonSessionRegistry,
     "recordRun" | "recordTurnQueued" | "recordTurnSettled"
   > &
-    Partial<Pick<DaemonSessionRegistry, "bindTranscriptPath" | "get" | "setNameIfMissing">>;
+    Partial<
+      Pick<
+        DaemonSessionRegistry,
+        "bindTranscriptPath" | "commitTranscriptReplacement" | "get" | "setNameIfMissing"
+      >
+    >;
   sessionSupervisor?: SessionSupervisor;
   invocationStore?: SparkInvocationStore;
   createSparkHeadlessSessionCompactor?: CreateSparkHeadlessSessionCompactorFn;
@@ -1322,6 +1330,21 @@ export async function executeSparkDaemonSessionCompactTask(
   }
   const sparkHome = options.paths.piAgentDir;
   if (!sparkHome) throw new Error("session.compact requires a daemon session state root");
+  if (!session.sessionPath) {
+    const existingPath = await resolveDaemonSessionTranscript({ session, sparkHome });
+    if (!existingPath) {
+      return {
+        sessionId: task.sessionId,
+        succeeded: false,
+        replayed: false,
+        tokensAfter: 0,
+        assistantText: `Nothing to compact in daemon session ${task.sessionId}.`,
+      };
+    }
+  }
+  if (!registry.commitTranscriptReplacement) {
+    throw new Error("session.compact requires atomic daemon transcript replacement");
+  }
   const sessionPath = await ensureDaemonSessionTranscript({
     session,
     sparkHome,
@@ -1349,6 +1372,17 @@ export async function executeSparkDaemonSessionCompactTask(
     ...(context.beginDurableCommit
       ? { beforeTranscriptCommit: () => context.beginDurableCommit?.() }
       : {}),
+    commitTranscriptReplacement: async (replace) => {
+      await registry.commitTranscriptReplacement!(
+        {
+          sessionId: task.sessionId,
+          sessionPath,
+          expectedIncarnation: task.sessionIncarnation,
+          expectedLifecycle: "open",
+        },
+        replace,
+      );
+    },
   });
 }
 
@@ -2116,7 +2150,7 @@ function projectHiddenLoopView(
 async function recordCompletedSessionCompaction(
   task: SparkDaemonSessionCompactTask,
   result: unknown,
-  registry: Pick<DaemonSessionRegistry, "recordRun" | "recordTurnSettled"> | undefined,
+  registry: Pick<DaemonSessionRegistry, "recordTurnSettled"> | undefined,
   refreshSessionSnapshotIndex: typeof refreshSparkSessionSnapshotIndex,
 ): Promise<unknown> {
   if (!registry) return result;
@@ -2125,6 +2159,10 @@ async function recordCompletedSessionCompaction(
       ? result.sessionPath.trim()
       : undefined;
   if (!sessionPath) {
+    if (isRecord(result) && result.succeeded === false) {
+      await settleSessionRun(task.sessionId, registry, "empty compact transcript");
+      return result;
+    }
     await settleSessionRun(task.sessionId, registry, "missing compacted sessionPath");
     return registryWarning(
       result,
@@ -2132,28 +2170,13 @@ async function recordCompletedSessionCompaction(
     );
   }
   try {
-    await registry.recordRun({
-      sessionId: task.sessionId,
-      sessionPath,
-      expectedIncarnation: task.sessionIncarnation,
-      expectedLifecycle: "open",
-    });
-    try {
-      await refreshSessionSnapshotIndex({ sessionId: task.sessionId, sessionPath });
-    } catch (error) {
-      console.error(
-        `[spark-daemon] failed to refresh compacted session snapshot index for ${task.sessionId}: ${errorMessage(error)}`,
-      );
-    }
-    return result;
+    await refreshSessionSnapshotIndex({ sessionId: task.sessionId, sessionPath });
   } catch (error) {
-    const message = `failed to index compacted session ${task.sessionId}: ${errorMessage(error)}`;
-    console.error(`[spark-daemon] ${message}`);
-    // The operationId makes an explicit retry idempotent. Report registry/CAS
-    // failure honestly instead of presenting a compact from a stale Session
-    // incarnation as successful.
-    throw error;
+    console.error(
+      `[spark-daemon] failed to refresh compacted session snapshot index for ${task.sessionId}: ${errorMessage(error)}`,
+    );
   }
+  return result;
 }
 
 async function recordCompletedSessionRun(

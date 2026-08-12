@@ -134,4 +134,104 @@ describe("SparkSessionStore.save", () => {
       message: { content: "committed" },
     });
   });
+
+  it("runs the replacement exactly once inside the async commit wrapper", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-session-store-commit-wrapper-"));
+    roots.push(root);
+    const store = new SparkSessionStore({
+      cwd: join(root, "workspace"),
+      sparkHome: join(root, "spark-home"),
+    });
+    const record = store.createCanonicalSession({
+      id: "sess_commit_wrapper",
+      timestamp: "2026-08-12T00:00:00.000Z",
+    });
+    store.appendMessage(record, { role: "user", content: "committed" });
+    await store.save(record);
+    store.appendMessage(record, { role: "assistant", content: "replacement" });
+    const events: string[] = [];
+
+    await store.save(record, {
+      beforeCommit: () => events.push("before-commit"),
+      commitTranscriptReplacement: async (replace) => {
+        events.push("wrapper-enter");
+        await Promise.all([replace(), replace()]);
+        events.push("wrapper-exit");
+      },
+    });
+
+    expect(events).toEqual(["wrapper-enter", "before-commit", "wrapper-exit"]);
+    const persisted = await store.load(record.path);
+    expect(persisted.entries).toHaveLength(2);
+    expect(persisted.entries[1]).toMatchObject({
+      type: "message",
+      message: { content: "replacement" },
+    });
+  });
+
+  it("keeps the old transcript when the async commit wrapper rejects before replacement", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-session-store-wrapper-reject-"));
+    roots.push(root);
+    const store = new SparkSessionStore({
+      cwd: join(root, "workspace"),
+      sparkHome: join(root, "spark-home"),
+    });
+    const record = store.createCanonicalSession({
+      id: "sess_wrapper_reject",
+      timestamp: "2026-08-12T00:00:00.000Z",
+    });
+    store.appendMessage(record, { role: "user", content: "committed" });
+    await store.save(record);
+    store.appendMessage(record, { role: "assistant", content: "must not commit" });
+    const wrapperError = new Error("owner fence rejected replacement");
+    let commitStarted = false;
+
+    await expect(
+      store.save(record, {
+        beforeCommit: () => {
+          commitStarted = true;
+        },
+        commitTranscriptReplacement: async () => {
+          throw wrapperError;
+        },
+      }),
+    ).rejects.toBe(wrapperError);
+
+    expect(commitStarted).toBe(false);
+    const persisted = await store.load(record.path);
+    expect(persisted.entries).toHaveLength(1);
+    expect(persisted.entries[0]).toMatchObject({
+      type: "message",
+      message: { content: "committed" },
+    });
+  });
+
+  it("rejects a commit wrapper that returns without replacing the transcript", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-session-store-wrapper-noop-"));
+    roots.push(root);
+    const store = new SparkSessionStore({
+      cwd: join(root, "workspace"),
+      sparkHome: join(root, "spark-home"),
+    });
+    const record = store.createCanonicalSession({
+      id: "sess_wrapper_noop",
+      timestamp: "2026-08-12T00:00:00.000Z",
+    });
+    store.appendMessage(record, { role: "user", content: "committed" });
+    await store.save(record);
+    store.appendMessage(record, { role: "assistant", content: "must not commit" });
+
+    await expect(
+      store.save(record, {
+        commitTranscriptReplacement: async () => undefined,
+      }),
+    ).rejects.toThrow("Session transcript commit wrapper did not invoke replacement");
+
+    const persisted = await store.load(record.path);
+    expect(persisted.entries).toHaveLength(1);
+    expect(persisted.entries[0]).toMatchObject({
+      type: "message",
+      message: { content: "committed" },
+    });
+  });
 });

@@ -21,6 +21,7 @@ import type { SparkDaemonEvent, SparkViewModelEvent } from "@zendev-lab/spark-pr
 import {
   SparkAgentLoop,
   estimateSparkProviderContextTokens,
+  resolveSparkProviderOutputTokens,
   resolveSparkPromptCache,
   SparkTurnRestartYieldError,
   splitSparkSystemPrompt,
@@ -217,6 +218,50 @@ test("provider Context meter accepts usage from a turn completed after compactio
 
   assert.equal(estimate.reportedPrefixTokens, 321);
   assert.ok(estimate.tokens >= 321);
+});
+
+test("provider output budget clamps to the assembled context boundary", () => {
+  assert.equal(resolveSparkProviderOutputTokens(4_000, 8_000, 4_000), 4_000);
+  assert.equal(resolveSparkProviderOutputTokens(4_001, 8_000, 4_000), 3_999);
+  assert.equal(resolveSparkProviderOutputTokens(7_999, 8_000, 4_000), 1);
+  assert.equal(resolveSparkProviderOutputTokens(8_000, 8_000, 4_000), 1);
+  assert.equal(resolveSparkProviderOutputTokens(9_000, 8_000, 4_000), 1);
+});
+
+test("SparkAgentLoop sends the effective output budget to its hook and provider", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-provider-output-budget" });
+  const model = { ...TEST_MODEL, contextWindow: 64, maxTokens: 40 };
+  let hookBudget: number | undefined;
+  let estimatedInputTokens: number | undefined;
+  let providerBudget: number | undefined;
+  const finalAssistant = buildAssistant([{ type: "text", text: "done" }]);
+  const loop = new SparkAgentLoop({
+    host,
+    getModel: () => model,
+    systemPrompt: "s".repeat(160),
+    beforeProviderRequest: ({ estimate, requestedOutputTokens }) => {
+      estimatedInputTokens = estimate.tokens;
+      hookBudget = requestedOutputTokens;
+    },
+    streamFunction: (streamModel, context, options) => {
+      providerBudget = options?.maxTokens;
+      return makeFakeStream({
+        rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
+      })(streamModel, context, options);
+    },
+  });
+
+  const outcome = await loop.submitWithOutcome("u".repeat(40));
+
+  assert.equal(outcome.status, "completed");
+  assert.notEqual(estimatedInputTokens, undefined);
+  assert.equal(
+    hookBudget,
+    resolveSparkProviderOutputTokens(estimatedInputTokens!, model.contextWindow, model.maxTokens),
+  );
+  assert.equal(providerBudget, hookBudget);
+  assert.ok((providerBudget ?? 0) > 0);
+  assert.ok((providerBudget ?? model.maxTokens) < model.maxTokens);
 });
 
 test("SparkAgentLoop runs final provider preflight after tool and prompt assembly", async () => {

@@ -21,7 +21,7 @@ import {
   type SparkTurnResumeCheckpoint,
 } from "@zendev-lab/spark-turn";
 import { assistantMessageToFinalAnswerText } from "../host/agent-session.ts";
-import { sparkProviderInputFitsContextWindow } from "../host/bootstrap.ts";
+import { sparkProviderRequestFitsContextWindow } from "../host/bootstrap.ts";
 import { createSparkHeadlessRoleExecutor } from "../headless-role-executor.ts";
 import {
   SparkNativeSession,
@@ -30,9 +30,12 @@ import {
 } from "../native-tui.ts";
 import type { TUI } from "../tui/pi-tui-adapter.ts";
 
-type FakeStreamSimple = (context: {
-  messages?: unknown[];
-}) => AssistantMessage | Promise<AssistantMessage>;
+type FakeStreamSimple = (
+  context: {
+    messages?: unknown[];
+  },
+  options?: { maxTokens?: number },
+) => AssistantMessage | Promise<AssistantMessage>;
 type FakeProviderOptions = {
   streamSimple?: FakeStreamSimple;
   contextWindow?: number;
@@ -97,10 +100,11 @@ function fakeTui(): TUI {
   } as unknown as TUI;
 }
 
-test("provider input preflight reserves room for generated output", () => {
-  assert.equal(sparkProviderInputFitsContextWindow(7_999, 8_000), true);
-  assert.equal(sparkProviderInputFitsContextWindow(8_000, 8_000), false);
-  assert.equal(sparkProviderInputFitsContextWindow(8_001, 8_000), false);
+test("provider request preflight includes the requested output budget", () => {
+  assert.equal(sparkProviderRequestFitsContextWindow(4_000, 4_000, 8_000), true);
+  assert.equal(sparkProviderRequestFitsContextWindow(4_001, 4_000, 8_000), false);
+  assert.equal(sparkProviderRequestFitsContextWindow(7_999, 1, 8_000), true);
+  assert.equal(sparkProviderRequestFitsContextWindow(8_000, 1, 8_000), false);
 });
 
 test("channel-facing assistant text excludes thinking, tool arguments, and commentary", () => {
@@ -1301,21 +1305,21 @@ test("SparkAgentSession preflights the final system and tool request envelope", 
   }
 });
 
-test("SparkAgentSession does not reserve maximum output when assembled input fits", async () => {
+test("SparkAgentSession explicitly clamps the provider output budget", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-output-clamp-"));
   try {
     const cwd = join(dir, "repo");
     const sparkHome = join(dir, ".spark");
     await mkdir(cwd, { recursive: true });
-    let providerCalls = 0;
+    let providerMaxTokens: number | undefined;
     const services = await makeFakeServices(
       { cwd, sparkHome, systemPrompt: "s".repeat(18_000) },
       {
         contextWindow: 8_000,
         maxTokens: 4_000,
-        streamSimple: () => {
-          providerCalls += 1;
-          return assistant("provider clamped the output budget");
+        streamSimple: (_context, options) => {
+          providerMaxTokens = options?.maxTokens;
+          return assistant("Spark clamped the output budget");
         },
       },
     );
@@ -1326,7 +1330,9 @@ test("SparkAgentSession does not reserve maximum output when assembled input fit
     });
 
     assert.equal(result.outcome?.status, "completed");
-    assert.equal(providerCalls, 1);
+    assert.notEqual(providerMaxTokens, undefined);
+    assert.ok(providerMaxTokens! > 0);
+    assert.ok(providerMaxTokens! < 4_000);
     const saved = await services.sessionStore.load(result.sessionPath);
     assert.equal(
       saved.entries.some((entry) => entry.type === "compaction"),
@@ -2083,11 +2089,16 @@ function fakeProviderModule(fake: FakeProviderOptions = {}) {
         name: "Fake Provider",
         baseUrl: "https://fake.test",
         api: "openai-completions",
-        streamSimple: (_model: unknown, context: { messages?: unknown[] }) => {
+        streamSimple: (
+          _model: unknown,
+          context: { messages?: unknown[] },
+          options?: { maxTokens?: number },
+        ) => {
           let messagePromise: Promise<AssistantMessage> | undefined;
           const resolveMessage = async () => {
             messagePromise ??= Promise.resolve(
-              fake.streamSimple?.(context) ?? assistant(`count:${context.messages?.length ?? 0}`),
+              fake.streamSimple?.(context, options) ??
+                assistant(`count:${context.messages?.length ?? 0}`),
             );
             return await messagePromise;
           };

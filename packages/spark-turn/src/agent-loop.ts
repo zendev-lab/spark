@@ -290,6 +290,23 @@ export function estimateSparkProviderContextTokens(
   };
 }
 
+/**
+ * Clamp Spark's configured output budget to the assembled provider envelope.
+ * Keep one token so the final owner guard can reject an input-only overflow
+ * before a provider request is opened.
+ */
+export function resolveSparkProviderOutputTokens(
+  estimatedInputTokens: number,
+  contextWindow: number,
+  configuredOutputTokens: number,
+): number {
+  const configured = Math.max(1, positiveTokenCount(configuredOutputTokens));
+  const window = positiveTokenCount(contextWindow);
+  const input = positiveTokenCount(estimatedInputTokens);
+  if (window === 0) return configured;
+  return Math.min(configured, Math.max(1, window - input));
+}
+
 function isSparkCompactionSummaryMessage(message: Message): boolean {
   return (
     message.role === "user" &&
@@ -1068,15 +1085,22 @@ export class SparkAgentLoop {
           });
           this.lastPromptManifest = manifest;
           this.publish({ type: "prompt_manifest", manifest });
+          const estimate = estimateSparkProviderContextTokens(context);
+          const requestedOutputTokens = resolveSparkProviderOutputTokens(
+            estimate.tokens,
+            model.contextWindow,
+            model.maxTokens,
+          );
           await this.beforeProviderRequest?.({
             model,
             context,
-            requestedOutputTokens: positiveTokenCount(model.maxTokens),
-            estimate: estimateSparkProviderContextTokens(context),
+            requestedOutputTokens,
+            estimate,
             roundtrips,
           });
           const stream = this.streamFunction(model, context, {
             signal: abortController.signal,
+            maxTokens: requestedOutputTokens,
             promptCacheKey: promptCache.promptCacheKey,
             prompt_cache_key: promptCache.promptCacheKey,
             ...(reasoning !== undefined ? { reasoning } : {}),

@@ -25,6 +25,11 @@ export interface SparkSessionAtomicWriteOptions {
   signal?: AbortSignal;
   /** Synchronous linearization hook invoked immediately before the atomic rename. */
   beforeCommit?: () => void;
+  /**
+   * Run the transcript replacement inside an async owner-controlled commit boundary.
+   * The wrapper must await `replace`; repeated calls share the same replacement.
+   */
+  commitTranscriptReplacement?: (replace: () => Promise<void>) => Promise<void>;
 }
 
 export class SparkSessionStore {
@@ -312,10 +317,26 @@ export async function writeJsonLinesAtomically(
   try {
     await writeFile(tmp, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
     throwIfAtomicWriteAborted(options.signal);
-    options.beforeCommit?.();
-    throwIfAtomicWriteAborted(options.signal);
-    await rename(tmp, path);
-    committed = true;
+    let replacement: Promise<void> | undefined;
+    const replace = (): Promise<void> => {
+      replacement ??= (async () => {
+        throwIfAtomicWriteAborted(options.signal);
+        options.beforeCommit?.();
+        throwIfAtomicWriteAborted(options.signal);
+        await rename(tmp, path);
+        committed = true;
+      })();
+      return replacement;
+    };
+    if (options.commitTranscriptReplacement) {
+      await options.commitTranscriptReplacement(replace);
+      if (!replacement) {
+        throw new Error("Session transcript commit wrapper did not invoke replacement");
+      }
+      await replacement;
+    } else {
+      await replace();
+    }
   } finally {
     if (!committed) await rm(tmp, { force: true }).catch(() => undefined);
   }

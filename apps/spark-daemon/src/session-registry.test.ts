@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
 
 const roots: string[] = [];
@@ -55,6 +55,84 @@ describe("daemon Session registry", () => {
     expect(persisted.find((session) => session.sessionId === second.sessionId)?.placement).toBe(
       "archived",
     );
+  });
+
+  it("prevents transcript replacement when archive wins the Session fence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-daemon-archive-first-"));
+    roots.push(root);
+    const registry = createDaemonSessionRegistry(root, {
+      resolveWorkspaceCwd: () => "/repo",
+    });
+    const admin = await registry.ensureWorkspaceAdministrator("ws_archive_first");
+    const session = await registry.create({
+      sessionId: "sess_archive_first",
+      scope: { kind: "workspace", workspaceId: "ws_archive_first" },
+      supervisorSessionId: admin.sessionId,
+    });
+    const sessionPath = join(root, "sess_archive_first.jsonl");
+    await registry.bindTranscriptPath({ sessionId: session.sessionId, sessionPath });
+    await registry.archive(session.sessionId);
+    const replace = vi.fn(async () => undefined);
+
+    await expect(
+      registry.commitTranscriptReplacement(
+        {
+          sessionId: session.sessionId,
+          sessionPath,
+          expectedIncarnation: session.incarnation,
+          expectedLifecycle: "open",
+        },
+        replace,
+      ),
+    ).rejects.toMatchObject({ code: "session_transcript_cas_failed" });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("holds archive behind an accepted transcript replacement", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-daemon-compact-first-"));
+    roots.push(root);
+    const registry = createDaemonSessionRegistry(root, {
+      resolveWorkspaceCwd: () => "/repo",
+    });
+    const admin = await registry.ensureWorkspaceAdministrator("ws_compact_first");
+    const session = await registry.create({
+      sessionId: "sess_compact_first",
+      scope: { kind: "workspace", workspaceId: "ws_compact_first" },
+      supervisorSessionId: admin.sessionId,
+    });
+    const sessionPath = join(root, "sess_compact_first.jsonl");
+    const bound = await registry.bindTranscriptPath({ sessionId: session.sessionId, sessionPath });
+    const replacementStarted = deferred();
+    const releaseReplacement = deferred();
+    const order: string[] = [];
+    const compact = registry.commitTranscriptReplacement(
+      {
+        sessionId: session.sessionId,
+        sessionPath,
+        expectedIncarnation: bound.incarnation,
+        expectedLifecycle: "open",
+      },
+      async () => {
+        order.push("replacement-started");
+        replacementStarted.resolve();
+        await releaseReplacement.promise;
+        order.push("replacement-finished");
+      },
+    );
+    await replacementStarted.promise;
+    let archiveSettled = false;
+    const archive = registry.archive(session.sessionId).then((result) => {
+      archiveSettled = true;
+      order.push("archive-finished");
+      return result;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(archiveSettled).toBe(false);
+    releaseReplacement.resolve();
+    await expect(compact).resolves.toMatchObject({ placement: "active" });
+    await expect(archive).resolves.toMatchObject({ placement: "archived" });
+    expect(order).toEqual(["replacement-started", "replacement-finished", "archive-finished"]);
   });
 });
 
@@ -182,3 +260,11 @@ describe("daemon session registry cwd ownership", () => {
     ).rejects.toMatchObject({ code: "workspace_administrator_session_mutation_forbidden" });
   });
 });
+
+function deferred(): { promise: Promise<void>; resolve(): void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}

@@ -260,6 +260,9 @@ export async function runSparkHeadlessSessionCompaction(
           throwIfHeadlessAborted(compactionSignal);
           transcriptCommitStarted = true;
         },
+        ...(input.commitTranscriptReplacement
+          ? { commitTranscriptReplacement: input.commitTranscriptReplacement }
+          : {}),
       }),
       input.timeoutMs,
       abort,

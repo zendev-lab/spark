@@ -70,7 +70,6 @@ import {
 import { loadSparkThemeCatalog } from "./theme.ts";
 
 import { SparkAgentLoop } from "./agent-loop.ts";
-import { DEFAULT_SPARK_COMPACTION_SETTINGS } from "./compaction.ts";
 export async function createSparkCliHostServices(
   options: SparkCliHostServicesOptions = {},
 ): Promise<SparkCliHostServices> {
@@ -286,22 +285,21 @@ export async function createSparkCliHostServices(
     beforeProviderRequest: ({ model, estimate, requestedOutputTokens }) => {
       const contextWindow = positiveFiniteInteger(model.contextWindow);
       if (!contextWindow) return;
-      const settings = config.compact ?? DEFAULT_SPARK_COMPACTION_SETTINGS;
+      const estimatedRequestTokens = estimate.tokens + requestedOutputTokens;
       // The earlier session preflight owns the configurable reserve and early
       // compaction thresholds. This final assembled-envelope guard is the hard
-      // provider boundary. The adapter may safely clamp the requested output
-      // budget, but the input must leave room for at least one generated token.
+      // provider boundary. SparkAgentLoop has already clamped the configured
+      // output budget, so this validates the exact envelope sent downstream.
       if (
-        !settings.enabled ||
-        sparkProviderInputFitsContextWindow(estimate.tokens, contextWindow)
+        sparkProviderRequestFitsContextWindow(estimate.tokens, requestedOutputTokens, contextWindow)
       ) {
         return;
       }
       const error = new Error(
-        `Spark provider input preflight estimated ${estimate.tokens} tokens ` +
+        `Spark provider request preflight estimated ${estimatedRequestTokens} tokens ` +
           `(messages=${estimate.messageTokens}, system=${estimate.systemPromptTokens}, ` +
-          `tools=${estimate.toolTokens}, requested output=${requestedOutputTokens}), leaving no ` +
-          `room for generated output within context window ${contextWindow}.`,
+          `tools=${estimate.toolTokens}, output=${requestedOutputTokens}), exceeding ` +
+          `context window ${contextWindow}.`,
       ) as Error & { code?: string };
       error.code = "SPARK_CONTEXT_OVERFLOW_PREFLIGHT";
       throw error;
@@ -569,12 +567,13 @@ function positiveFiniteInteger(value: unknown): number | undefined {
     : undefined;
 }
 
-/** A provider request needs room for at least one generated token. */
-export function sparkProviderInputFitsContextWindow(
+/** The assembled request and its configured output budget must fit together. */
+export function sparkProviderRequestFitsContextWindow(
   estimatedInputTokens: number,
+  requestedOutputTokens: number,
   contextWindow: number,
 ): boolean {
-  return estimatedInputTokens < contextWindow;
+  return estimatedInputTokens + requestedOutputTokens <= contextWindow;
 }
 
 export function selectInitialModel(

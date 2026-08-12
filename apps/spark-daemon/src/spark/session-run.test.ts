@@ -398,7 +398,9 @@ describe("daemon native session execution", () => {
       release,
     }));
     const compactSession = vi.fn(async (input: SparkHeadlessSessionCompactInput) => {
-      input.beforeTranscriptCommit?.();
+      await input.commitTranscriptReplacement?.(async () => {
+        input.beforeTranscriptCommit?.();
+      });
       return {
         sessionId: input.sessionId,
         sessionPath: input.sessionPath,
@@ -412,6 +414,12 @@ describe("daemon native session execution", () => {
     });
     const createSessionExecutor = vi.fn(() => vi.fn());
     const recordRun = vi.fn(async () => ({}) as never);
+    const commitTranscriptReplacement = vi.fn(
+      async (_input: unknown, replace: () => Promise<void>) => {
+        await replace();
+        return {} as never;
+      },
+    );
     const recordTurnQueued = vi.fn(async () => ({}) as never);
     const bindTranscriptPath = vi.fn(async () => ({}) as never);
     const task: SparkDaemonSessionCompactTask = {
@@ -447,6 +455,7 @@ describe("daemon native session execution", () => {
             }) as never,
         ),
         bindTranscriptPath,
+        commitTranscriptReplacement,
         recordRun,
         recordTurnQueued,
         recordTurnSettled: vi.fn(async () => ({}) as never),
@@ -481,16 +490,21 @@ describe("daemon native session execution", () => {
         },
         signal: expect.any(AbortSignal),
         beforeTranscriptCommit: expect.any(Function),
+        commitTranscriptReplacement: expect.any(Function),
       });
       expect(beginDurableCommit).toHaveBeenCalledOnce();
       expect(createSessionExecutor).not.toHaveBeenCalled();
       expect(recordTurnQueued).toHaveBeenCalledWith(task.sessionId);
-      expect(recordRun).toHaveBeenCalledWith({
-        sessionId: task.sessionId,
-        sessionPath: record.path,
-        expectedIncarnation: 1,
-        expectedLifecycle: "open",
-      });
+      expect(commitTranscriptReplacement).toHaveBeenCalledWith(
+        {
+          sessionId: task.sessionId,
+          sessionPath: record.path,
+          expectedIncarnation: 1,
+          expectedLifecycle: "open",
+        },
+        expect.any(Function),
+      );
+      expect(recordRun).not.toHaveBeenCalled();
       expect(bindTranscriptPath).not.toHaveBeenCalled();
       expect(release).toHaveBeenCalledOnce();
     } finally {
@@ -548,6 +562,62 @@ describe("daemon native session execution", () => {
     }
   });
 
+  it("keeps a blank unbound Session transcript-free when compact is a no-op", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-empty-compact-"));
+    const cwd = join(root, "workspace");
+    mkdirSync(cwd, { recursive: true });
+    const compactPaths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const task: SparkDaemonSessionCompactTask = {
+      type: "session.compact",
+      sessionId: "sess_empty_compact",
+      sessionIncarnation: 1,
+      prompt: "Compact session context",
+      operationId: "session.compact:empty",
+      cwd,
+      workspaceId: "workspace-empty",
+    };
+    const compactSession = vi.fn();
+    const bindTranscriptPath = vi.fn(async () => ({}) as never);
+    const commitTranscriptReplacement = vi.fn(async () => ({}) as never);
+    const store = new SparkSessionStore({ cwd, sparkHome: compactPaths.piAgentDir });
+    const canonicalPath = store.createCanonicalSession({ id: task.sessionId }).path;
+
+    try {
+      await expect(
+        executeSparkDaemonSessionCompactTask(task, context(task), {
+          paths: compactPaths,
+          compactSession,
+          sessionRegistry: {
+            get: vi.fn(
+              async () =>
+                workspaceSessionRecord({
+                  sessionId: task.sessionId,
+                  workspaceId: "workspace-empty",
+                  cwd,
+                }) as never,
+            ),
+            bindTranscriptPath,
+            commitTranscriptReplacement,
+            recordRun: vi.fn(async () => ({}) as never),
+            recordTurnQueued: vi.fn(async () => ({}) as never),
+            recordTurnSettled: vi.fn(async () => ({}) as never),
+          },
+        }),
+      ).resolves.toMatchObject({
+        sessionId: task.sessionId,
+        succeeded: false,
+        replayed: false,
+        tokensAfter: 0,
+      });
+      expect(compactSession).not.toHaveBeenCalled();
+      expect(bindTranscriptPath).not.toHaveBeenCalled();
+      expect(commitTranscriptReplacement).not.toHaveBeenCalled();
+      expect(existsSync(canonicalPath)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("fails a compact invocation when its transcript commit loses the Session fence", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-compact-cas-"));
     const cwd = join(root, "workspace");
@@ -565,20 +635,26 @@ describe("daemon native session execution", () => {
       cwd,
       workspaceId: "workspace-cas",
     };
-    const compactSession = vi.fn(async (input: SparkHeadlessSessionCompactInput) => ({
-      sessionId: input.sessionId,
-      sessionPath: input.sessionPath,
-      succeeded: true,
-      replayed: false,
-      tokensAfter: 40,
-      assistantText: "Compacted before CAS failure.",
-    }));
+    const compactSession = vi.fn(async (input: SparkHeadlessSessionCompactInput) => {
+      await input.commitTranscriptReplacement?.(async () => {
+        input.beforeTranscriptCommit?.();
+      });
+      return {
+        sessionId: input.sessionId,
+        sessionPath: input.sessionPath,
+        succeeded: true,
+        replayed: false,
+        tokensAfter: 40,
+        assistantText: "Compacted before CAS failure.",
+      };
+    });
     const commitError = Object.assign(new Error("Session generation changed"), {
       code: "session_transcript_cas_failed",
     });
-    const recordRun = vi.fn(async () => {
+    const commitTranscriptReplacement = vi.fn(async () => {
       throw commitError;
     });
+    const recordRun = vi.fn(async () => ({}) as never);
     const recordTurnSettled = vi.fn(async () => ({}) as never);
     const executor = createSparkDaemonTaskExecutor({
       paths: compactPaths,
@@ -596,6 +672,7 @@ describe("daemon native session execution", () => {
             }) as never,
         ),
         bindTranscriptPath: vi.fn(async () => ({}) as never),
+        commitTranscriptReplacement,
         recordRun,
         recordTurnQueued: vi.fn(async () => ({}) as never),
         recordTurnSettled,
@@ -605,12 +682,16 @@ describe("daemon native session execution", () => {
     try {
       await expect(executor(task, context(task))).rejects.toBe(commitError);
       expect(compactSession).toHaveBeenCalledOnce();
-      expect(recordRun).toHaveBeenCalledWith({
-        sessionId: task.sessionId,
-        sessionPath: record.path,
-        expectedIncarnation: 1,
-        expectedLifecycle: "open",
-      });
+      expect(commitTranscriptReplacement).toHaveBeenCalledWith(
+        {
+          sessionId: task.sessionId,
+          sessionPath: record.path,
+          expectedIncarnation: 1,
+          expectedLifecycle: "open",
+        },
+        expect.any(Function),
+      );
+      expect(recordRun).not.toHaveBeenCalled();
       expect(recordTurnSettled).toHaveBeenCalledWith(task.sessionId);
     } finally {
       rmSync(root, { recursive: true, force: true });

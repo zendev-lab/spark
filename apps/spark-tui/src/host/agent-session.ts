@@ -126,6 +126,8 @@ export interface SparkAgentSessionCompactOptions {
   signal?: AbortSignal;
   /** Synchronous daemon cancellation fence reached immediately before transcript commit. */
   beforeTranscriptCommit?: () => void;
+  /** Run transcript replacement while the daemon owner retains its commit boundary. */
+  commitTranscriptReplacement?: (replace: () => Promise<void>) => Promise<void>;
 }
 
 export interface SparkAgentSessionCompactResult {
@@ -187,6 +189,9 @@ export class SparkAgentSession {
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.beforeTranscriptCommit
         ? { beforeTranscriptCommit: options.beforeTranscriptCommit }
+        : {}),
+      ...(options.commitTranscriptReplacement
+        ? { commitTranscriptReplacement: options.commitTranscriptReplacement }
         : {}),
     });
     return {
@@ -727,6 +732,7 @@ export class SparkAgentSession {
       operationId?: string;
       signal?: AbortSignal;
       beforeTranscriptCommit?: () => void;
+      commitTranscriptReplacement?: (replace: () => Promise<void>) => Promise<void>;
     } = {},
   ): Promise<SparkCompactionEntry | undefined> {
     const initialPreparation = prepareForAutomaticCompaction(record, force, settings);
@@ -799,6 +805,9 @@ export class SparkAgentSession {
       await this.services.sessionStore.save(record, {
         ...(options.signal ? { signal: options.signal } : {}),
         ...(options.beforeTranscriptCommit ? { beforeCommit: options.beforeTranscriptCommit } : {}),
+        ...(options.commitTranscriptReplacement
+          ? { commitTranscriptReplacement: options.commitTranscriptReplacement }
+          : {}),
       });
       compactionSucceeded = true;
       return compactionEntry;

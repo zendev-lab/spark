@@ -356,6 +356,66 @@ test("durable headless compaction ignores cancellation after transcript commit b
   }
 });
 
+test("durable headless compaction runs its commit fence inside the owner wrapper", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-compaction-owner-commit-"));
+  try {
+    const cwd = join(dir, "repo");
+    const store = new SparkSessionStore({ cwd, sparkHome: join(dir, ".spark") });
+    const record = compactableRecord(store);
+    await store.save(record);
+    let ownerCommitActive = false;
+    let durableFenceCount = 0;
+    const services = {
+      cwd,
+      config: { compact: tinyKeepSettings },
+      sessionStore: store,
+      providerRegistry: {
+        getActive: () => ({ providerName: "fake-provider", modelId: "fake-model" }),
+      },
+      agentLoop: { setViewSessionId: () => undefined, abort: () => undefined },
+      runtime: {
+        setSessionId: () => undefined,
+        emit: async () => [],
+        shutdown: async () => undefined,
+      },
+      diagnostics: [],
+    };
+
+    const result = await runSparkHeadlessSessionCompaction(
+      {
+        cwd,
+        sessionId: record.header.id,
+        sessionPath: record.path,
+        operationId: "operation-owner-commit",
+        beforeTranscriptCommit: () => {
+          assert.equal(ownerCommitActive, true);
+          durableFenceCount += 1;
+        },
+        commitTranscriptReplacement: async (replace) => {
+          ownerCommitActive = true;
+          try {
+            await replace();
+          } finally {
+            ownerCommitActive = false;
+          }
+        },
+      },
+      { createServices: async () => services as never },
+    );
+
+    assert.equal(result.succeeded, true);
+    assert.equal(durableFenceCount, 1);
+    assert.equal(ownerCommitActive, false);
+    const persisted = await store.load(record.path);
+    assert.equal(
+      persisted.entries.some((entry) => entry.type === "compaction"),
+      true,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("durable headless compaction ignores its local timeout after transcript commit begins", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-compaction-commit-timeout-"));
   try {

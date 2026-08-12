@@ -146,6 +146,8 @@ export interface SparkHeadlessSessionCompactInput {
    * transcript replacement has entered its irreversible commit phase.
    */
   beforeTranscriptCommit?: () => void;
+  /** Run the atomic transcript replacement inside the daemon owner's commit boundary. */
+  commitTranscriptReplacement?: (replace: () => Promise<void>) => Promise<void>;
 }
 
 export interface SparkHeadlessSessionCompactResult {
