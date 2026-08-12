@@ -59,6 +59,7 @@ import {
   type SparkInvocationSchedulerOptions,
 } from "./core/index.ts";
 import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
+import { InvocationDeliveryPump } from "./core/invocation-delivery-pump.ts";
 import {
   ensureHumanAnswerEventEvidence,
   reconcileHumanAnswerEventEvidence,
@@ -1887,11 +1888,14 @@ async function runSparkDaemonServerConnection(
     let intentionalClose = false;
     let settled = false;
     let unregisterInvocationEventTarget: (() => void) | undefined;
+    let invocationDeliveryPump:
+      | InvocationDeliveryPump<NonNullable<ReturnType<typeof runtimeEnvelopeForInvocationEvent>>>
+      | undefined;
+    let invocationProjectionDropReporter:
+      | ReturnType<typeof createRepeatedErrorReporter>
+      | undefined;
     let unregisterHumanRequestOutboxTarget: (() => void) | undefined;
     let runtimeReady = false;
-    let inFlightInvocationEvent:
-      | { messageId: string; invocationId: string; sequence: number }
-      | undefined;
     let artifactReconcileRun: Promise<void> | undefined;
     const invocationStore = new SparkInvocationStore(options.db);
     const artifactReconciler = new ArtifactProjectionReconciler();
@@ -1927,6 +1931,10 @@ async function runSparkDaemonServerConnection(
     const detachInvocationEventTarget = () => {
       unregisterInvocationEventTarget?.();
       unregisterInvocationEventTarget = undefined;
+      invocationDeliveryPump?.close();
+      invocationDeliveryPump = undefined;
+      invocationProjectionDropReporter?.flush();
+      invocationProjectionDropReporter = undefined;
     };
 
     const detachHumanRequestOutboxTarget = () => {
@@ -1998,6 +2006,14 @@ async function runSparkDaemonServerConnection(
     const ws = new WebSocket(webSocketUrl, {
       headers: { Authorization: `Bearer ${runtimeToken}` },
     });
+    const failInvocationDelivery = (error: unknown) => {
+      if (settled) return;
+      logDaemonError(runtimeId, error);
+      clearRuntimeTimers();
+      markDisconnected("invocation.delivery.failed");
+      settle(error);
+      ws.terminate();
+    };
     const flushArtifactProjections = async () => {
       if (!runtimeReady || ws.readyState !== WebSocket.OPEN || !serverUrl) return;
       const workspaces = listWorkspacesForServer(options.db, serverUrl);
@@ -2042,38 +2058,6 @@ async function runSparkDaemonServerConnection(
       artifactReconcileRun = run;
       activeHandlers.add(run);
     };
-    const flushNextInvocationEvent = () => {
-      if (!runtimeReady || inFlightInvocationEvent || ws.readyState !== WebSocket.OPEN) {
-        return;
-      }
-      const pending = invocationStore.pendingDeliveries(
-        deliveryDestination,
-        1,
-        currentWorkspaceBindingIds(),
-      )[0];
-      if (!pending) return;
-      const projected = runtimeEnvelopeForInvocationEvent(pending, {
-        store: invocationStore,
-        db: options.db,
-        runtimeId,
-        serverUrl,
-      });
-      if (!projected) {
-        invocationStore.acknowledgeDelivery(
-          deliveryDestination,
-          pending.event.invocationId,
-          pending.event.sequence,
-        );
-        queueMicrotask(flushNextInvocationEvent);
-        return;
-      }
-      inFlightInvocationEvent = {
-        messageId: projected.messageId,
-        invocationId: pending.event.invocationId,
-        sequence: pending.event.sequence,
-      };
-      sendJson(ws, projected);
-    };
     if (options.signal?.aborted) {
       requestShutdown();
       return;
@@ -2081,26 +2065,58 @@ async function runSparkDaemonServerConnection(
     options.signal?.addEventListener("abort", requestShutdown, { once: true });
 
     ws.on("open", () => {
-      if (serverUrl) {
-        markSparkDaemonServerConnected(options.db, serverUrl);
+      try {
+        if (serverUrl) {
+          markSparkDaemonServerConnected(options.db, serverUrl);
+        }
+        invocationProjectionDropReporter = createRepeatedErrorReporter(
+          "[spark-daemon] dropping unroutable invocation events",
+        );
+        invocationDeliveryPump = new InvocationDeliveryPump({
+          workspaceBindingIds: currentWorkspaceBindingIds(),
+          loadPage: (workspaceBindingIds, limit) =>
+            invocationStore.pendingDeliveryPage(deliveryDestination, limit, workspaceBindingIds),
+          acknowledge: (event) =>
+            invocationStore.acknowledgeKnownDelivery(deliveryDestination, event),
+          project(delivery) {
+            const projected = runtimeEnvelopeForInvocationEvent(delivery, {
+              store: invocationStore,
+              db: options.db,
+              runtimeId,
+              serverUrl,
+            });
+            if (projected) invocationProjectionDropReporter?.recovered();
+            return projected;
+          },
+          send: (envelope) => sendJson(ws, envelope),
+          bindingForInvocation: (invocationId) =>
+            invocationStore.invocationDeliveryBinding(invocationId),
+          onProjectionDropped: () =>
+            invocationProjectionDropReporter?.report(
+              new Error("no workspace route was available for a persisted invocation event"),
+            ),
+          onFatal: failInvocationDelivery,
+        });
+        unregisterInvocationEventTarget = options.registerInvocationEventTarget?.((event) =>
+          invocationDeliveryPump?.offer(event),
+        );
+        sendJson(ws, {
+          protocolVersion: runtimeProtocolVersion,
+          messageId: createId("msg"),
+          type: "runtime.hello",
+          sentAt: new Date().toISOString(),
+          payload: {
+            runtimeId,
+            runtimeVersion: sparkDaemonVersion,
+            supportedFeatures: sparkDaemonSupportedFeatures,
+            workspaceBindings: serverUrl
+              ? reconcileWorkspacesForServer(options.db, serverUrl).map(workspaceSummary)
+              : [],
+          },
+        });
+      } catch (error) {
+        failInvocationDelivery(error);
       }
-      unregisterInvocationEventTarget = options.registerInvocationEventTarget?.(() =>
-        flushNextInvocationEvent(),
-      );
-      sendJson(ws, {
-        protocolVersion: runtimeProtocolVersion,
-        messageId: createId("msg"),
-        type: "runtime.hello",
-        sentAt: new Date().toISOString(),
-        payload: {
-          runtimeId,
-          runtimeVersion: sparkDaemonVersion,
-          supportedFeatures: sparkDaemonSupportedFeatures,
-          workspaceBindings: serverUrl
-            ? reconcileWorkspacesForServer(options.db, serverUrl).map(workspaceSummary)
-            : [],
-        },
-      });
     });
 
     ws.on("message", (data: RawData) => {
@@ -2126,7 +2142,7 @@ async function runSparkDaemonServerConnection(
         onRuntimeReady() {
           runtimeReady = true;
           flushPendingRuntimeCommandTerminals(ws, options.db, runtimeId, serverUrl);
-          flushNextInvocationEvent();
+          invocationDeliveryPump?.ready();
           queueArtifactReconcile();
           artifactReconcileTimer ??= setInterval(
             queueArtifactReconcile,
@@ -2135,15 +2151,11 @@ async function runSparkDaemonServerConnection(
         },
         onIngestAck(ackOf) {
           artifactReconciler.acknowledge(ackOf);
-          const inFlight = inFlightInvocationEvent;
-          if (inFlight?.messageId !== ackOf) return;
-          invocationStore.acknowledgeDelivery(
-            deliveryDestination,
-            inFlight.invocationId,
-            inFlight.sequence,
-          );
-          inFlightInvocationEvent = undefined;
-          flushNextInvocationEvent();
+          invocationDeliveryPump?.acknowledge(ackOf);
+        },
+        onWorkspaceBindingsChanged() {
+          invocationDeliveryPump?.refreshWorkspaceBindingIds(currentWorkspaceBindingIds());
+          invocationDeliveryPump?.requestCatchup();
         },
         get runtimeSessionId() {
           return runtimeSession.id;

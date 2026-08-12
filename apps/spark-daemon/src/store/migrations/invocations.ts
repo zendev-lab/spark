@@ -15,6 +15,21 @@ function prepareWorkspaceInvocationProjectionIndex(db: DatabaseSync): void {
   `);
 }
 
+function prepareLegacyInvocationDeliveryIndex(db: DatabaseSync): void {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS invocations_legacy_workspace_delivery_idx
+      ON invocations(json_extract(task_json, '$.workspaceId'), event_cursor, status, id)
+      WHERE workspace_binding_id IS NULL
+  `);
+}
+
+function prepareInvocationDeliveryHeadIndex(db: DatabaseSync): void {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS invocation_events_delivery_head_idx
+      ON invocation_events(invocation_id, sequence, created_at, kind)
+  `);
+}
+
 export const invocationSchemaMigrations = [
   {
     id: "invocations.lifecycle-columns-and-indexes",
@@ -25,6 +40,16 @@ export const invocationSchemaMigrations = [
     id: "invocations.workspace-projection-index",
     owner: "invocations",
     up: prepareWorkspaceInvocationProjectionIndex,
+  },
+  {
+    id: "invocations.legacy-delivery-index",
+    owner: "invocations",
+    up: prepareLegacyInvocationDeliveryIndex,
+  },
+  {
+    id: "invocations.delivery-head-index",
+    owner: "invocations",
+    up: prepareInvocationDeliveryHeadIndex,
   },
   {
     id: "invocations.usage-execution-kind-provisional",
