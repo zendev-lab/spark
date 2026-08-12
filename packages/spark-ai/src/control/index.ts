@@ -57,6 +57,7 @@ export {
   defaultSparkProviderConfigPath,
   loadSparkProviderCatalog,
   mergeSparkProviderSpecs,
+  normalizeSparkScopedModelPatterns,
   readSparkProviderConfig,
   resolveSparkScopedModelIds,
   writeSparkDefaultModel,

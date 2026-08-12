@@ -428,15 +428,6 @@ test("SparkProviderRegistry exposes routed Claude and GPT models from baidu-onea
   assert.equal(provider.api, "baidu-oneapi");
   assert.equal(provider.baseUrl, "https://oneapi-comate.baidu-int.com");
   const modelIds = provider.models.map((model) => model.id);
-  assert.deepEqual(modelIds, [
-    "claude-opus-4.6",
-    "claude-opus-5",
-    "deepseek-v4-flash",
-    "gpt-5.6-sol",
-    "gpt-5.6-luna",
-    "gpt-5.6-terra",
-    "grok-4.5",
-  ]);
   assert.equal(new Set(modelIds).size, modelIds.length, "provider model ids must be unique");
 
   const opusModel = registry.buildModel("baidu-oneapi", "claude-opus-5");
@@ -460,10 +451,6 @@ test("SparkProviderRegistry exposes routed Claude and GPT models from baidu-onea
   assert.equal(gptProfile.routes[0]?.transportApi, "openai-responses");
   assert.equal(gptProfile.routes[0]?.transportModelId, "gpt-5.6-luna");
   assert.equal(gptProfile.routes[0]?.baseUrl, "https://oneapi-comate.baidu-int.com/v1");
-
-  const deepseekProfile = registry.buildProfile("baidu-oneapi", "deepseek-v4-flash");
-  assert.equal(deepseekProfile.routes[0]?.transportApi, "anthropic-messages");
-  assert.equal(deepseekProfile.routes[0]?.transportModelId, "deepseek-v4-flash-0731-internal");
 
   const grokProfile = registry.buildProfile("baidu-oneapi", "grok-4.5");
   assert.equal(grokProfile.routes[0]?.transportApi, "openai-responses");

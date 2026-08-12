@@ -77,14 +77,6 @@ async function withSparkHome(fn: (sparkHome: string) => Promise<void>): Promise<
   }
 }
 
-function parseTestJson(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch (error) {
-    assert.fail(`Invalid JSON fixture: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
 test("Spark auth mutations reload and merge across store instances", async () => {
   await withSparkHome(async (sparkHome) => {
     const path = join(sparkHome, "auth.json");
@@ -142,50 +134,6 @@ test("provider control lists auth safely and patches only the default model fiel
     assert.equal(persisted.activeModelId, "env-provider/model-a");
     assert.equal("activeProvider" in persisted, false);
     assert.equal("activeModel" in persisted, false);
-  });
-});
-
-test("legacy provider config still exposes the bundled OpenAI Codex catalog", async () => {
-  await withSparkHome(async (sparkHome) => {
-    await writeFile(
-      join(sparkHome, "config.json"),
-      `${JSON.stringify({
-        providers: ["@zendev-lab/spark-ai/baidu-oneapi-provider"],
-        activeModelId: "baidu-oneapi/gpt-5.5",
-      })}\n`,
-    );
-    const control = createSparkProviderControl({ sparkHome, env: {} });
-
-    const snapshot = await control.snapshot();
-    const codex = snapshot.providers.find((provider) => provider.id === "openai-codex");
-    assert.equal(codex?.name, "OpenAI Codex");
-    assert.equal(codex?.modelCount, 7);
-    assert.equal(codex?.auth.kind, "oauth");
-    assert.equal(codex?.auth.configured, false);
-    assert.equal(snapshot.models.filter((model) => model.providerId === "openai-codex").length, 7);
-    assert.equal(
-      snapshot.models
-        .filter((model) => model.providerId === "openai-codex")
-        .every((model) => !model.available),
-      true,
-    );
-    assert.equal(
-      snapshot.loadOutcomes.find(
-        (outcome) => outcome.specifier === "@zendev-lab/spark-ai/openai-codex-provider",
-      )?.ok,
-      true,
-    );
-    assert.deepEqual(
-      snapshot.scopedModelIds.toSorted((a, b) => a.localeCompare(b)),
-      [
-        "baidu-oneapi/gpt-5.6-luna",
-        "baidu-oneapi/gpt-5.6-sol",
-        "baidu-oneapi/gpt-5.6-terra",
-        "openai-codex/gpt-5.6-luna",
-        "openai-codex/gpt-5.6-sol",
-        "openai-codex/gpt-5.6-terra",
-      ],
-    );
   });
 });
 

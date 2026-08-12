@@ -28,6 +28,7 @@ import {
   DEFAULT_SPARK_PROVIDER_SPECS,
   DEFAULT_SPARK_SCOPED_MODEL_PATTERNS,
   mergeSparkProviderSpecs,
+  normalizeSparkScopedModelPatterns,
 } from "@zendev-lab/spark-ai/control";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import { DEFAULT_SPARK_THINKING_LEVEL } from "@zendev-lab/spark-protocol";
@@ -137,7 +138,9 @@ export function mergeWithDefault(raw: unknown): SparkConfig {
     ),
     extensionProfileVersion: CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
     providers: mergeSparkProviderSpecs(stringArray(fields.providers, [])),
-    enabledModels: stringArray(fields.enabledModels, DEFAULT_SPARK_CONFIG.enabledModels ?? []),
+    enabledModels: normalizeSparkScopedModelPatterns(
+      stringArray(fields.enabledModels, DEFAULT_SPARK_CONFIG.enabledModels ?? []),
+    ),
     skills: stringArray(fields.skills, DEFAULT_SPARK_CONFIG.skills ?? []),
     promptTemplates: stringArray(
       fields.promptTemplates,
