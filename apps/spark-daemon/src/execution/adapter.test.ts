@@ -312,10 +312,12 @@ describe("production execution attempt orchestration", () => {
     const harness = createHarness(invocationId);
     const persisted: unknown[] = [];
     let calls = 0;
+    let staleParent: ExecutionAttemptParent | undefined;
     const adapter: ExecutionAttemptAdapter = {
       kind: "process",
       async execute(_request, parent) {
         calls += 1;
+        if (calls === 1) staleParent = parent;
         parent.accepted();
         parent.running();
         parent.recordEvent(streamingMessage(invocationId, `epoch-${calls}-leading`));
@@ -336,6 +338,9 @@ describe("production execution attempt orchestration", () => {
       "epoch-1-latest",
       "epoch-2-leading",
     ]);
+    expect(() =>
+      staleParent?.recordEvent(streamingMessage(invocationId, "stale-replacement")),
+    ).toThrow(expect.objectContaining({ code: "execution_attempt_stale" }));
     session.terminal("succeeded");
     expect(streamingTexts(persisted)).toEqual([
       "epoch-1-leading",
@@ -354,6 +359,33 @@ describe("production execution attempt orchestration", () => {
 
     vi.advanceTimersByTime(DAEMON_STREAMING_SNAPSHOT_INTERVAL_MS * 2);
     expect(persisted).toHaveLength(4);
+    harness.db.close();
+  });
+
+  it("rejects terminal commit after durable ownership moves to a replacement attempt", async () => {
+    const harness = createHarness("inv_stale_terminal");
+    const adapter: ExecutionAttemptAdapter = {
+      kind: "process",
+      async execute(_request, parent) {
+        parent.accepted();
+        parent.running();
+        return { ok: true };
+      },
+    };
+    const session = harness.session(adapter);
+
+    await expect(session.execute()).resolves.toEqual({ ok: true });
+    const current = harness.attempts.current(harness.invocationId);
+    if (!current) throw new Error("expected current execution attempt");
+    harness.attempts.crash(current, "successor_claimed", "2026-08-07T00:00:01.000Z");
+
+    expect(() => session.terminal("succeeded")).toThrow(
+      expect.objectContaining({ code: "execution_attempt_stale" }),
+    );
+    expect(harness.attempts.current(harness.invocationId)).toMatchObject({
+      attemptEpoch: 2,
+      status: "queued",
+    });
     harness.db.close();
   });
 });
@@ -388,9 +420,10 @@ function createHarness(
       adapter: ExecutionAttemptAdapter,
       timing: {
         daemonGeneration?: number;
+        eventCommitted?: (event: unknown) => void;
         eventIngress?: DaemonEventIngress;
         now?: () => string;
-        persistEvent?: (event: unknown) => void;
+        persistEvent?: (event: unknown) => unknown;
         signal?: AbortSignal;
         wait?: (delayMs: number, signal: AbortSignal) => Promise<void>;
       } = {},

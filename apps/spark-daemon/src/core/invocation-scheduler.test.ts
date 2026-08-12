@@ -89,6 +89,137 @@ describe("SparkInvocationScheduler", () => {
     }
   });
 
+  it("publishes an executor event only after both durable rows commit", async () => {
+    let invocationId = "";
+    let observedCommittedRows = false;
+    const { db, store, scheduler } = harness(
+      async (_task, context) => {
+        void context.emitEvent?.({
+          version: 1,
+          type: "daemon.view_event",
+          source: "daemon",
+          invocationId: context.invocationId,
+          view: { atomic: true },
+        } as never);
+        return { ok: true };
+      },
+      {
+        emitEvent: (event) => {
+          if (event.kind !== "daemon.view_event") return;
+          expect(db.isTransaction).toBe(false);
+          const attemptRows = db
+            .prepare(
+              `SELECT COUNT(*) AS count
+               FROM execution_attempt_events
+               WHERE invocation_id = ? AND kind = 'execution.attempt.event_persisted'`,
+            )
+            .get(invocationId) as { count: number };
+          const invocationRows = db
+            .prepare(
+              `SELECT COUNT(*) AS count
+               FROM invocation_events
+               WHERE invocation_id = ? AND kind = 'daemon.view_event'`,
+            )
+            .get(invocationId) as { count: number };
+          expect(attemptRows.count).toBe(1);
+          expect(invocationRows.count).toBe(1);
+          observedCommittedRows = true;
+        },
+      },
+    );
+    try {
+      const invocation = store.submit({
+        sessionId: "session-atomic-event",
+        prompt: "atomic event",
+        task: {
+          type: "session.run",
+          sessionId: "session-atomic-event",
+          prompt: "atomic event",
+        },
+      });
+      invocationId = invocation.invocationId;
+
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+
+      expect(observedCommittedRows).toBe(true);
+      expect(store.require(invocationId).status).toBe("succeeded");
+    } finally {
+      scheduler.stop();
+      db.close();
+    }
+  });
+
+  it("rolls back attempt output and suppresses the sink when invocation append fails", async () => {
+    const emittedKinds: string[] = [];
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { db, store, scheduler, executionAttemptStore } = harness(
+      async (_task, context) => {
+        void context.emitEvent?.({
+          version: 1,
+          type: "daemon.view_event",
+          source: "daemon",
+          invocationId: context.invocationId,
+          view: { atomic: false },
+        } as never);
+        return { unreachable: true };
+      },
+      {
+        emitEvent: (event) => {
+          emittedKinds.push(event.kind);
+        },
+      },
+    );
+    try {
+      db.exec(`
+        CREATE TRIGGER fail_atomic_invocation_event
+        BEFORE INSERT ON invocation_events
+        WHEN NEW.kind = 'daemon.view_event'
+        BEGIN
+          SELECT RAISE(ABORT, 'forced invocation append failure');
+        END;
+      `);
+      const invocation = store.submit({
+        sessionId: "session-atomic-failure",
+        prompt: "atomic failure",
+        task: {
+          type: "session.run",
+          sessionId: "session-atomic-failure",
+          prompt: "atomic failure",
+        },
+      });
+
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+
+      expect(emittedKinds).not.toContain("daemon.view_event");
+      expect(
+        executionAttemptStore
+          .events(invocation.invocationId)
+          .filter((event) => event.kind === "execution.attempt.event_persisted"),
+      ).toEqual([]);
+      expect(
+        store
+          .eventPage(invocation.invocationId)
+          .events.filter((event) => event.kind === "daemon.view_event"),
+      ).toEqual([]);
+      expect(store.require(invocation.invocationId).status).toBe("running");
+      expect(
+        db
+          .prepare("SELECT event_cursor FROM invocations WHERE id = ?")
+          .get(invocation.invocationId),
+      ).toEqual({ event_cursor: 1 });
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining("execution attempt terminal commit is blocked"),
+        expect.any(Error),
+      );
+    } finally {
+      scheduler.stop();
+      consoleError.mockRestore();
+      db.close();
+    }
+  });
+
   it("persists the production attempt lifecycle, replacement fence, and capability route", async () => {
     const requests: unknown[] = [];
     const loopStop = vi.fn(async () => ({ stopped: true }));
@@ -1181,6 +1312,71 @@ describe("SparkInvocationScheduler", () => {
       }
     } finally {
       gate.resolve();
+      db.close();
+    }
+  });
+
+  it("yields after durable root completion before reclaiming slots", async () => {
+    const completionGate = deferred<void>();
+    const thirdGate = deferred<void>();
+    const yieldGate = deferred<void>();
+    const launched: string[] = [];
+    let yieldCalls = 0;
+    const { db, store, scheduler } = harness(
+      async (task) => {
+        launched.push(task.prompt);
+        if (task.prompt === "third") await thirdGate.promise;
+        else await completionGate.promise;
+        return { prompt: task.prompt };
+      },
+      {
+        concurrency: 2,
+        yieldAfterInvocation: async () => {
+          yieldCalls += 1;
+          await yieldGate.promise;
+        },
+      },
+    );
+    try {
+      const invocations = ["first", "second", "third"].map((prompt) =>
+        store.submit({
+          sessionId: `session-${prompt}`,
+          prompt,
+          task: { type: "session.run", sessionId: `session-${prompt}`, prompt },
+        }),
+      );
+
+      expect(scheduler.processBatch()).toBe(true);
+      expect(launched).toEqual(["first", "second"]);
+
+      completionGate.resolve();
+      await eventually(
+        () =>
+          yieldCalls === 2 &&
+          invocations
+            .slice(0, 2)
+            .every((invocation) => store.require(invocation.invocationId).status === "succeeded"),
+      );
+
+      expect(scheduler.snapshot()).toHaveLength(2);
+      expect(store.require(invocations[2]!.invocationId).status).toBe("queued");
+      expect(scheduler.processBatch()).toBe(false);
+      expect(launched).toEqual(["first", "second"]);
+
+      yieldGate.resolve();
+      await scheduler.wait({ timeoutMs: 500 });
+      expect(scheduler.processBatch()).toBe(true);
+      expect(store.require(invocations[2]!.invocationId).status).toBe("running");
+      expect(launched).toEqual(["first", "second", "third"]);
+
+      thirdGate.resolve();
+      await scheduler.wait({ timeoutMs: 500 });
+      expect(store.require(invocations[2]!.invocationId).status).toBe("succeeded");
+    } finally {
+      completionGate.resolve();
+      thirdGate.resolve();
+      yieldGate.resolve();
+      scheduler.stop();
       db.close();
     }
   });

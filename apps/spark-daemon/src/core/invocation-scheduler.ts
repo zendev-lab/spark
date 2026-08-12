@@ -102,6 +102,8 @@ export interface SparkInvocationSchedulerOptions {
   initiallyAccepting?: boolean;
   /** Restart-only signal used to cooperatively yield at model-to-tool boundaries. */
   restartRequestedSignal?: AbortSignal;
+  /** Testable macrotask boundary before a completed root releases its scheduler slot. */
+  yieldAfterInvocation?: () => Promise<void>;
   tokenUsageStore?: SparkTokenUsageStore;
   /** Daemon-owned lookup of the active Repro bound to a persistent root session. */
   resolveReproUsageScope?: (task: SparkDaemonTask) => Promise<SparkReproUsageScope | undefined>;
@@ -123,6 +125,7 @@ export class SparkInvocationScheduler {
   private readonly concurrency: number;
   private readonly taskTimeoutMs: number;
   private readonly restartRequestedSignal?: AbortSignal;
+  private readonly yieldAfterInvocation: () => Promise<void>;
   private readonly tokenUsageStore?: SparkTokenUsageStore;
   private readonly resolveReproUsageScope?: SparkInvocationSchedulerOptions["resolveReproUsageScope"];
   private readonly active = new Map<string, ActiveInvocation>();
@@ -159,6 +162,7 @@ export class SparkInvocationScheduler {
       DEFAULT_INVOCATION_TASK_TIMEOUT_MS,
     );
     this.restartRequestedSignal = options.restartRequestedSignal;
+    this.yieldAfterInvocation = options.yieldAfterInvocation ?? yieldMacrotask;
     this.tokenUsageStore = options.tokenUsageStore;
     this.resolveReproUsageScope = options.resolveReproUsageScope;
     this.accepting = options.initiallyAccepting !== false;
@@ -381,12 +385,16 @@ export class SparkInvocationScheduler {
     if (sessionId) this.activeSessions.add(sessionId);
     const settled = this.run(invocation, task, controller, commitState, (promise) => {
       executorSettled = promise;
-    }).finally(() => {
-      this.active.delete(invocation.invocationId);
-      if (!sessionId) return;
-      const releaseSession = () => this.activeSessions.delete(sessionId);
-      if (executorSettled) void executorSettled.then(releaseSession, releaseSession);
-      else releaseSession();
+    }).finally(async () => {
+      try {
+        await this.yieldAfterInvocation();
+      } finally {
+        this.active.delete(invocation.invocationId);
+        if (!sessionId) return;
+        const releaseSession = () => this.activeSessions.delete(sessionId);
+        if (executorSettled) void executorSettled.then(releaseSession, releaseSession);
+        else releaseSession();
+      }
     });
     this.active.set(invocation.invocationId, { invocation, controller, commitState, settled });
   }
@@ -403,7 +411,7 @@ export class SparkInvocationScheduler {
     if (commitState.started) timeout.disable();
     else timeout.start();
     let executorSettled: Promise<unknown> | undefined;
-    let attemptSession: ExecutionAttemptSession | undefined;
+    let attemptSession: ExecutionAttemptSession<SparkInvocationEvent> | undefined;
     let streamedEventCount = 0;
     let restartYieldCommitted = false;
     const rootUsagePersistence =
@@ -590,10 +598,11 @@ export class SparkInvocationScheduler {
           if (typeof record.type !== "string" || record.type.length === 0) {
             throw new Error("execution attempt event type is missing");
           }
+          return this.store.appendEvent(invocation.invocationId, record.type, record);
+        },
+        eventCommitted: (event) => {
           streamedEventCount += 1;
-          void this.emitPersisted(
-            this.store.appendEvent(invocation.invocationId, record.type, record),
-          );
+          void this.emitPersisted(event);
         },
         persistUsage: (usage) => recordUsage(usage as SparkDaemonTokenUsageObservation),
         eventIngress: this.executionEventIngress,
@@ -771,6 +780,10 @@ export class SparkInvocationScheduler {
     });
     return emitted;
   }
+}
+
+async function yieldMacrotask(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 function daemonEventsFromTaskResult(
@@ -992,8 +1005,8 @@ function invalidTaskType(value: unknown): string {
   return "invalid";
 }
 
-function terminalAttempt(
-  session: ExecutionAttemptSession | undefined,
+function terminalAttempt<PersistedEvent>(
+  session: ExecutionAttemptSession<PersistedEvent> | undefined,
   status: "succeeded" | "failed" | "cancelled",
   result?: unknown,
 ): boolean {
