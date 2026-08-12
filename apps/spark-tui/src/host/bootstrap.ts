@@ -287,22 +287,21 @@ export async function createSparkCliHostServices(
       const contextWindow = positiveFiniteInteger(model.contextWindow);
       if (!contextWindow) return;
       const settings = config.compact ?? DEFAULT_SPARK_COMPACTION_SETTINGS;
-      const estimatedRequestTokens = estimate.tokens + requestedOutputTokens;
       // The earlier session preflight owns the configurable reserve and early
       // compaction thresholds. This final assembled-envelope guard is the hard
-      // provider boundary; using the reserve again would reject healthy small
-      // contexts before the configured request reaches the provider.
+      // provider boundary. The adapter may safely clamp the requested output
+      // budget, but the input must leave room for at least one generated token.
       if (
         !settings.enabled ||
-        sparkProviderRequestFitsContextWindow(estimate.tokens, requestedOutputTokens, contextWindow)
+        sparkProviderInputFitsContextWindow(estimate.tokens, contextWindow)
       ) {
         return;
       }
       const error = new Error(
-        `Spark provider request preflight estimated ${estimatedRequestTokens} tokens ` +
+        `Spark provider input preflight estimated ${estimate.tokens} tokens ` +
           `(messages=${estimate.messageTokens}, system=${estimate.systemPromptTokens}, ` +
-          `tools=${estimate.toolTokens}, output=${requestedOutputTokens}), exceeding the ` +
-          `compaction threshold for context window ${contextWindow}.`,
+          `tools=${estimate.toolTokens}, requested output=${requestedOutputTokens}), leaving no ` +
+          `room for generated output within context window ${contextWindow}.`,
       ) as Error & { code?: string };
       error.code = "SPARK_CONTEXT_OVERFLOW_PREFLIGHT";
       throw error;
@@ -570,13 +569,12 @@ function positiveFiniteInteger(value: unknown): number | undefined {
     : undefined;
 }
 
-/** The assembled request and its configured output budget must fit together. */
-export function sparkProviderRequestFitsContextWindow(
+/** A provider request needs room for at least one generated token. */
+export function sparkProviderInputFitsContextWindow(
   estimatedInputTokens: number,
-  requestedOutputTokens: number,
   contextWindow: number,
 ): boolean {
-  return estimatedInputTokens + requestedOutputTokens <= contextWindow;
+  return estimatedInputTokens < contextWindow;
 }
 
 export function selectInitialModel(
