@@ -70,6 +70,7 @@ import {
 import { loadSparkThemeCatalog } from "./theme.ts";
 
 import { SparkAgentLoop } from "./agent-loop.ts";
+import { DEFAULT_SPARK_COMPACTION_SETTINGS } from "./compaction.ts";
 export async function createSparkCliHostServices(
   options: SparkCliHostServicesOptions = {},
 ): Promise<SparkCliHostServices> {
@@ -212,6 +213,7 @@ export async function createSparkCliHostServices(
       model: request.model,
       metadata: { purpose: "session_compaction" },
       maxTokens: request.maxTokens,
+      ...(request.signal ? { signal: request.signal } : {}),
     });
     return response.structured ?? response.text;
   };
@@ -281,6 +283,25 @@ export async function createSparkCliHostServices(
       return model as Model<string>;
     },
     getReasoning: () => config.activeThinkingLevel,
+    beforeProviderRequest: ({ model, estimate, requestedOutputTokens }) => {
+      const contextWindow = positiveFiniteInteger(model.contextWindow);
+      if (!contextWindow) return;
+      const settings = config.compact ?? DEFAULT_SPARK_COMPACTION_SETTINGS;
+      const estimatedRequestTokens = estimate.tokens + requestedOutputTokens;
+      // The earlier session preflight owns the configurable reserve and early
+      // compaction thresholds. This final assembled-envelope guard is the hard
+      // provider boundary; using the reserve again would reject healthy small
+      // contexts before Pi can clamp their output budget.
+      if (!settings.enabled || estimatedRequestTokens <= contextWindow) return;
+      const error = new Error(
+        `Spark provider request preflight estimated ${estimatedRequestTokens} tokens ` +
+          `(messages=${estimate.messageTokens}, system=${estimate.systemPromptTokens}, ` +
+          `tools=${estimate.toolTokens}, output=${requestedOutputTokens}), exceeding the ` +
+          `compaction threshold for context window ${contextWindow}.`,
+      ) as Error & { code?: string };
+      error.code = "SPARK_CONTEXT_OVERFLOW_PREFLIGHT";
+      throw error;
+    },
     systemPrompt: initialPromptState.systemPrompt,
     streamTimeoutMs: options.streamTimeoutMs,
     streamIdleTimeoutMs: options.streamIdleTimeoutMs,
@@ -536,6 +557,12 @@ function formatProviderLoadError(providerLoadResult: LoadResult): string | undef
   return failures
     .map((outcome) => `${outcome.specifier}: ${outcome.error ?? "unknown error"}`)
     .join("; ");
+}
+
+function positiveFiniteInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : undefined;
 }
 
 export function selectInitialModel(

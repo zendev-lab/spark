@@ -20,6 +20,8 @@ export {
   sessionEntriesToPromptItems,
   sessionRecordToAgentMessages,
   sessionRecordToPromptItems,
+  type SparkAgentSessionCompactOptions,
+  type SparkAgentSessionCompactResult,
   type SparkAgentSessionRunOptions,
   type SparkAgentSessionRunResult,
 } from "./host/agent-session.ts";

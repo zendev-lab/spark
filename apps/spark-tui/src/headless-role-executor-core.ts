@@ -1,4 +1,6 @@
 import type {
+  SparkHeadlessSessionCompactInput,
+  SparkHeadlessSessionCompactResult,
   SparkHeadlessTokenUsageContext,
   SparkHeadlessUserContent,
 } from "@zendev-lab/spark-host/headless-loader";
@@ -191,6 +193,104 @@ export function createSparkHeadlessSessionExecutor(
   options: SparkHeadlessRoleExecutorOptions,
 ): (input: SparkHeadlessSessionRunInput) => Promise<SparkHeadlessSessionRunResult> {
   return async (input) => runSparkHeadlessSession(input, options);
+}
+
+export function createSparkHeadlessSessionCompactor(
+  options: SparkHeadlessRoleExecutorOptions,
+): (input: SparkHeadlessSessionCompactInput) => Promise<SparkHeadlessSessionCompactResult> {
+  return async (input) => runSparkHeadlessSessionCompaction(input, options);
+}
+
+export async function runSparkHeadlessSessionCompaction(
+  input: SparkHeadlessSessionCompactInput,
+  options: SparkHeadlessRoleExecutorOptions,
+): Promise<SparkHeadlessSessionCompactResult> {
+  throwIfHeadlessAborted(input.signal);
+  const services = await options.createServices({
+    cwd: input.cwd,
+    workspaceId: input.workspaceId,
+    sparkStateRoot: input.sparkStateRoot,
+    sparkHome: options.sparkHome ?? input.sparkHome,
+    ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
+    ...controlPlaneServicePaths(options.controlSparkHome),
+    sessionSurface: "local",
+    sessionSource: "daemon",
+    sessionLease: input.sessionLease,
+    hasUI: false,
+    streamTimeoutMs: 0,
+    approvalMethod: "auto",
+  } satisfies SparkCliHostServicesOptions);
+  let primaryError: unknown;
+  const timeoutAbort = new AbortController();
+  const compactionSignal = input.signal
+    ? AbortSignal.any([input.signal, timeoutAbort.signal])
+    : timeoutAbort.signal;
+  let transcriptCommitStarted = false;
+  const abort = (reason?: string) => {
+    const message = reason ?? abortReason(input.signal);
+    services.agentLoop.abort(message);
+    if (!timeoutAbort.signal.aborted) {
+      const error = new Error(message);
+      error.name = "AbortError";
+      timeoutAbort.abort(error);
+    }
+  };
+  const abortFromSignal = () => {
+    if (!transcriptCommitStarted) abort();
+  };
+  try {
+    throwIfHeadlessAborted(input.signal);
+    if (input.model?.trim()) selectHeadlessModel(services, input.model.trim());
+    if (input.thinkingLevel?.trim() && isThinkingLevel(input.thinkingLevel.trim())) {
+      services.config.activeThinkingLevel =
+        input.thinkingLevel.trim() as typeof services.config.activeThinkingLevel;
+    }
+    if (input.signal?.aborted) abortFromSignal();
+    else input.signal?.addEventListener("abort", abortFromSignal, { once: true });
+    const result = await runWithHeadlessTimeout(
+      new SparkAgentSession(services).compact({
+        sessionId: input.sessionId,
+        sessionPath: input.sessionPath,
+        operationId: input.operationId,
+        ...(input.customInstructions ? { customInstructions: input.customInstructions } : {}),
+        signal: compactionSignal,
+        beforeTranscriptCommit: () => {
+          throwIfHeadlessAborted(compactionSignal);
+          input.beforeTranscriptCommit?.();
+          throwIfHeadlessAborted(compactionSignal);
+          transcriptCommitStarted = true;
+        },
+      }),
+      input.timeoutMs,
+      abort,
+      () => transcriptCommitStarted,
+    );
+    const assistantText = result.succeeded
+      ? result.replayed
+        ? `Session ${result.sessionId} was already compacted for this operation.`
+        : `Compacted daemon session ${result.sessionId}.`
+      : `Nothing to compact in daemon session ${result.sessionId}.`;
+    return {
+      sessionId: result.sessionId,
+      sessionPath: result.sessionPath,
+      succeeded: result.succeeded,
+      replayed: result.replayed,
+      ...(result.compactionEntry ? { compactionEntryId: result.compactionEntry.id } : {}),
+      ...(result.tokensBefore !== undefined ? { tokensBefore: result.tokensBefore } : {}),
+      tokensAfter: result.tokensAfter,
+      assistantText,
+    };
+  } catch (error) {
+    primaryError = error;
+    throw error;
+  } finally {
+    input.signal?.removeEventListener("abort", abortFromSignal);
+    await shutdownHeadlessRuntime(
+      services.runtime,
+      "headless session compaction completed",
+      primaryError,
+    );
+  }
 }
 
 export async function runSparkHeadlessSession(
@@ -549,6 +649,7 @@ async function runWithHeadlessTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number | undefined,
   abort: (reason?: string) => void,
+  commitStarted: () => boolean = () => false,
 ): Promise<T> {
   const normalizedTimeoutMs = normalizeHeadlessTimeoutMs(timeoutMs);
   if (normalizedTimeoutMs === undefined) return await promise;
@@ -559,6 +660,7 @@ async function runWithHeadlessTimeout<T>(
       promise,
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
+          if (commitStarted()) return;
           const error = new SparkHeadlessTimeoutError(normalizedTimeoutMs);
           abort(error.message);
           reject(error);

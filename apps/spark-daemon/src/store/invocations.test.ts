@@ -289,6 +289,27 @@ describe("SparkInvocationStore", () => {
     }
   });
 
+  it("persists a durable commit fence against cancellation", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({
+        sessionId: "session-commit-fence",
+        prompt: "compact",
+        task: { type: "session.run", sessionId: "session-commit-fence", prompt: "compact" },
+      });
+      expect(store.claimNext("worker")?.invocationId).toBe(invocation.invocationId);
+
+      const event = store.markDurableCommitStarted(invocation.invocationId);
+      expect(event.kind).toBe("invocation.durable_commit_started");
+      expect(store.hasDurableCommitStarted(invocation.invocationId)).toBe(true);
+      expect(store.requestCancellation(invocation.invocationId, "too late")).toBe("terminal");
+      expect(store.require(invocation.invocationId)).toMatchObject({ status: "running" });
+      expect(store.markDurableCommitStarted(invocation.invocationId)).toEqual(event);
+    } finally {
+      db.close();
+    }
+  });
+
   it("replays only unacknowledged invocation events for each delivery destination", () => {
     const { db, store } = createStore();
     try {

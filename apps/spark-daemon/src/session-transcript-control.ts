@@ -7,6 +7,8 @@ export interface EnsureDaemonSessionTranscriptInput {
   session: SparkSessionState;
   sparkHome: string;
   registry: Pick<DaemonSessionRegistry, "bindTranscriptPath">;
+  expectedIncarnation?: number;
+  expectedLifecycle?: "open";
 }
 
 /**
@@ -48,6 +50,10 @@ export async function ensureDaemonSessionTranscript(
     const bound = await input.registry.bindTranscriptPath({
       sessionId: session.sessionId,
       sessionPath: record.path,
+      ...(input.expectedIncarnation === undefined
+        ? {}
+        : { expectedIncarnation: input.expectedIncarnation }),
+      ...(input.expectedLifecycle ? { expectedLifecycle: input.expectedLifecycle } : {}),
     });
     return bound.sessionPath!;
   }
@@ -60,6 +66,10 @@ export async function ensureDaemonSessionTranscript(
   const bound = await input.registry.bindTranscriptPath({
     sessionId: session.sessionId,
     sessionPath: record.path,
+    ...(input.expectedIncarnation === undefined
+      ? {}
+      : { expectedIncarnation: input.expectedIncarnation }),
+    ...(input.expectedLifecycle ? { expectedLifecycle: input.expectedLifecycle } : {}),
   });
   return bound.sessionPath!;
 }

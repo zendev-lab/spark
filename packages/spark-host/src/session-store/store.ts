@@ -1,7 +1,7 @@
 /** Filesystem JSONL SparkSessionStore for host-managed sessions. */
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { resolveSparkHome } from "@zendev-lab/spark-system";
 
@@ -19,6 +19,13 @@ import {
   type SparkSessionRecord,
   type SparkSessionStoreOptions,
 } from "./types.ts";
+
+export interface SparkSessionAtomicWriteOptions {
+  /** Abort is accepted only before the atomic transcript replacement begins. */
+  signal?: AbortSignal;
+  /** Synchronous linearization hook invoked immediately before the atomic rename. */
+  beforeCommit?: () => void;
+}
 
 export class SparkSessionStore {
   readonly cwd: string;
@@ -70,8 +77,11 @@ export class SparkSessionStore {
     return join(this.sessionDir, `${encodeURIComponent(normalized)}.jsonl`);
   }
 
-  async save(record: SparkSessionRecord): Promise<void> {
-    await writeJsonLinesAtomically(record.path, [record.header, ...record.entries]);
+  async save(
+    record: SparkSessionRecord,
+    options: SparkSessionAtomicWriteOptions = {},
+  ): Promise<void> {
+    await writeJsonLinesAtomically(record.path, [record.header, ...record.entries], options);
   }
 
   async load(path: string): Promise<SparkSessionRecord> {
@@ -294,11 +304,26 @@ function parseSessionHeaderLine(line: Buffer): SparkSessionHeader | undefined {
 export async function writeJsonLinesAtomically(
   path: string,
   entries: SparkSessionFileEntry[],
+  options: SparkSessionAtomicWriteOptions = {},
 ): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
-  await rename(tmp, path);
+  let committed = false;
+  try {
+    await writeFile(tmp, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
+    throwIfAtomicWriteAborted(options.signal);
+    options.beforeCommit?.();
+    throwIfAtomicWriteAborted(options.signal);
+    await rename(tmp, path);
+    committed = true;
+  } finally {
+    if (!committed) await rm(tmp, { force: true }).catch(() => undefined);
+  }
+}
+
+function throwIfAtomicWriteAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error ? signal.reason : new Error("Session write aborted");
 }
 
 function appendEntry(

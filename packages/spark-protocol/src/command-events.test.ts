@@ -92,6 +92,7 @@ describe("SparkCommand vocabulary", () => {
       "session.archive",
       "session.restore",
       "session.close",
+      "session.compact",
       "session.send",
       "session.inbox",
       "session.mail.read",
@@ -138,6 +139,8 @@ describe("SparkCommand vocabulary", () => {
     expect(sparkCommandKindForRuntimeServerCommand("workspace.relocate.request")).toBeNull();
     expect(sparkCommandKindForLocalRpcMethod("session.create")).toBe("session.create.request");
     expect(sparkCommandKindForLocalRpcMethod("session.snapshot")).toBe("session.snapshot.request");
+    expect(sparkCommandKindForLocalRpcMethod("session.compact")).toBe("session.compact.request");
+    expect(sparkCommandKindForRuntimeServerCommand("session.compact.request")).toBeNull();
     expect(sparkCommandKindForLocalRpcMethod("session.model.set")).toBe(
       "session.model.set.request",
     );

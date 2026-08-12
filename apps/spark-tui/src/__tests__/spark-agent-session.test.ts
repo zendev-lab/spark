@@ -251,6 +251,151 @@ test("SparkAgentSession persists and resumes JSONL sessions", async () => {
   }
 });
 
+test("SparkAgentSession manual compact mutates the canonical record idempotently", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-manual-compact-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {},
+      { compactKeepRecentTokens: 100 },
+    );
+    const record = services.sessionStore.createSession({ id: "manual-compact-session" });
+    for (let index = 0; index < 8; index += 1) {
+      services.sessionStore.appendMessage(record, {
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `${index}:${"canonical history ".repeat(100)}`,
+      });
+    }
+    await services.sessionStore.save(record);
+    const session = new SparkAgentSession(services);
+    const filesBefore = await listSessionFileNames(services.sessionStore.sessionDir);
+
+    const first = await session.compact({
+      sessionId: record.header.id,
+      sessionPath: record.path,
+      operationId: "compact-operation-1",
+      customInstructions: "preserve canonical decisions",
+    });
+    const replay = await session.compact({
+      sessionId: record.header.id,
+      sessionPath: record.path,
+      operationId: "compact-operation-1",
+      customInstructions: "preserve canonical decisions",
+    });
+
+    assert.equal(first.succeeded, true);
+    assert.equal(first.replayed, false);
+    assert.equal(replay.succeeded, true);
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.compactionEntry?.id, first.compactionEntry?.id);
+    const saved = await services.sessionStore.load(record.path);
+    const compactions = saved.entries.filter((entry) => entry.type === "compaction");
+    assert.equal(compactions.length, 1);
+    assert.equal(compactions[0]?.metadata?.operationId, "compact-operation-1");
+    assert.match(compactions[0]?.summary ?? "", /preserve canonical decisions/u);
+    assert.deepEqual(await listSessionFileNames(services.sessionStore.sessionDir), filesBefore);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentSession discards a measured low-yield repeated compact with a Memory checkpoint", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-low-yield-compact-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let modelCalls = 0;
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {},
+      {
+        compactKeepRecentTokens: 100,
+        runCompactionModel: async () => {
+          modelCalls += 1;
+          return {
+            version: 1,
+            objective: "low yield summary ".repeat(5_000),
+            completed: [],
+            inProgress: [],
+            decisions: [],
+            changedFiles: [],
+            commands: [],
+            failures: [],
+            preservedFacts: [],
+            unresolved: [],
+            memoryRefs: [],
+          };
+        },
+      },
+    );
+    services.config.compact!.minUsefulReduction = 0.99;
+    const lifecycle: Array<{ succeeded?: boolean }> = [];
+    services.runtime.on("session_before_compact", () => ({
+      message: {
+        customType: "spark-memory-checkpoint",
+        content: "Memory checkpoint appended after preparation.",
+        display: false,
+      },
+    }));
+    services.runtime.on("session_compact", (event) => {
+      if (event && typeof event === "object") {
+        lifecycle.push(event as { succeeded?: boolean });
+      }
+    });
+    const record = services.sessionStore.createSession({ id: "low-yield-compact-session" });
+    const firstKeptEntryId = services.sessionStore.appendMessage(record, {
+      role: "user",
+      content: "canonical history ".repeat(4_000),
+    });
+    services.sessionStore.appendMessage(record, {
+      role: "assistant",
+      content: "canonical answer ".repeat(4_000),
+    });
+    record.entries.push({
+      type: "compaction",
+      id: "existing-compaction",
+      parentId: record.entries.at(-1)?.id ?? null,
+      timestamp: new Date().toISOString(),
+      summary: "existing compacted facts ".repeat(200),
+      firstKeptEntryId,
+      tokensBefore: 40_000,
+    });
+    await services.sessionStore.save(record);
+
+    const result = await new SparkAgentSession(services).compact({
+      sessionId: record.header.id,
+      sessionPath: record.path,
+      operationId: "low-yield-operation",
+    });
+
+    assert.equal(modelCalls, 1);
+    assert.equal(result.succeeded, false);
+    assert.equal(result.compactionEntry, undefined);
+    assert.deepEqual(
+      lifecycle.map((event) => event.succeeded),
+      [false],
+    );
+    const saved = await services.sessionStore.load(record.path);
+    assert.deepEqual(
+      saved.entries.filter((entry) => entry.type === "compaction").map((entry) => entry.id),
+      ["existing-compaction"],
+    );
+    assert.equal(
+      saved.entries.some(
+        (entry) =>
+          entry.type === "custom_message" && entry.customType === "spark-memory-checkpoint",
+      ),
+      false,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test.each(["stale-message", "cross-turn", "proposal-drift", "ambiguous", "replayed"] as const)(
   "SparkAgentSession rejects local feedback case %s before trusted telemetry",
   async (name) => {
@@ -802,8 +947,106 @@ test("SparkAgentSession checkpoints transient tool output before overflow recove
     assert.equal(result.outcome?.status, "completed");
     assert.equal(result.assistantText, "continued without replaying the tool");
     const saved = await services.sessionStore.load(result.sessionPath);
-    assert.equal(saved.entries.filter((entry) => entry.type === "compaction").length, 1);
+    // Overflow recovery compacts the durable tool checkpoint; the assembled
+    // system/tool envelope then proves that leaf still needs one more pass.
+    assert.equal(saved.entries.filter((entry) => entry.type === "compaction").length, 2);
     assert.equal(JSON.stringify(saved.entries).includes(overflow), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentSession repeats canonical compact without replaying tool side effects", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-exact-repeated-overflow-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    let toolExecutions = 0;
+    const exactOverflow =
+      'OpenAI API error (400): {"message":"invalid-argument: This model\'s maximum prompt length is 500000 but the request contains 500522 tokens. (request id: 2000010100000000000000000000000)","type":"api_error","param":"","code":null}';
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {
+        contextWindow: 1_000_000,
+        maxTokens: 4_096,
+        streamSimple: ({ messages }) => {
+          providerCalls += 1;
+          if (providerCalls === 1) {
+            return {
+              ...assistant(""),
+              content: [
+                {
+                  type: "toolCall",
+                  id: "once-only-tool-call",
+                  name: "once_only_read",
+                  arguments: {},
+                },
+              ],
+              stopReason: "toolUse",
+            } as unknown as AssistantMessage;
+          }
+          if (providerCalls === 2 || providerCalls === 3) throw new Error(exactOverflow);
+          const finalContext = JSON.stringify(messages);
+          assert.match(finalContext, /authoritative tool receipt/u);
+          assert.match(finalContext, /execute the read once and continue/u);
+          assert.match(finalContext, /Memory checkpoint retained after repeated compaction/u);
+          return assistant("recovered after two exact overflows");
+        },
+      },
+      { compactKeepRecentTokens: 100 },
+    );
+    services.runtime.registerTool({
+      name: "once_only_read",
+      description: "read one receipt",
+      parameters: { type: "object" },
+      async execute() {
+        toolExecutions += 1;
+        return { content: [{ type: "text", text: "authoritative tool receipt" }] };
+      },
+    });
+    services.runtime.setActiveTools([
+      ...new Set([...services.runtime.getActiveTools(), "once_only_read"]),
+    ]);
+    services.runtime.on("session_before_compact", () => ({
+      message: {
+        customType: "spark-memory-checkpoint",
+        content: "Memory checkpoint retained after repeated compaction.",
+        display: false,
+      },
+    }));
+    const record = services.sessionStore.createSession({ id: "exact-repeated-overflow-session" });
+    for (let index = 0; index < 16; index += 1) {
+      services.sessionStore.appendMessage(record, {
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `${index}:${"older canonical history ".repeat(120)}`,
+      });
+    }
+    await services.sessionStore.save(record);
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: record.header.id,
+      prompt: "execute the read once and continue",
+    });
+
+    assert.equal(result.outcome?.status, "completed");
+    assert.equal(providerCalls, 4);
+    assert.equal(toolExecutions, 1);
+    const saved = await services.sessionStore.load(record.path);
+    const compactions = saved.entries.filter((entry) => entry.type === "compaction");
+    assert.equal(compactions.length, 2);
+    assert.doesNotMatch(compactions.at(-1)?.summary ?? "", /Previous summary:/u);
+    assert.equal(
+      saved.entries.filter(
+        (entry) =>
+          entry.type === "message" &&
+          entry.message.role === "user" &&
+          entry.message.content === "execute the read once and continue",
+      ).length,
+      1,
+    );
+    assert.equal(JSON.stringify(saved.entries).includes(exactOverflow), false);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -999,6 +1242,49 @@ test("restricted SparkAgentSession runs declared reads but skips unclassified li
   }
 });
 
+test("SparkAgentSession preflights the final system and tool request envelope", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-final-envelope-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    const services = await makeFakeServices(
+      { cwd, sparkHome, systemPrompt: "request scoped system ".repeat(1_800) },
+      {
+        contextWindow: 20_000,
+        maxTokens: 1,
+        streamSimple: () => {
+          providerCalls += 1;
+          return assistant("provider saw the compacted final envelope");
+        },
+      },
+      { compactKeepRecentTokens: 1_000 },
+    );
+    const record = services.sessionStore.createSession({ id: "final-envelope-session" });
+    for (let index = 0; index < 12; index += 1) {
+      services.sessionStore.appendMessage(record, {
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `${index}:${"persisted replay ".repeat(180)}`,
+      });
+    }
+    await services.sessionStore.save(record);
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: record.header.id,
+      prompt: "continue with final envelope accounting",
+    });
+
+    assert.equal(result.outcome?.status, "completed");
+    // The first oversized attempt is rejected by Spark before streamSimple.
+    assert.equal(providerCalls, 1);
+    const saved = await services.sessionStore.load(record.path);
+    assert.equal(saved.entries.filter((entry) => entry.type === "compaction").length, 2);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("SparkAgentSession persists and consumes a micro pass without forcing full compaction", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-micro-"));
   try {
@@ -1111,7 +1397,9 @@ test("SparkAgentSession full escalation summarizes the persisted micro replay on
     assert.equal(result.outcome?.status, "completed");
     assert.doesNotMatch(providerReplay, /same log line\\nsame log line/u);
     const saved = await services.sessionStore.load(record.path);
-    assert.equal(saved.entries.filter((entry) => entry.type === "compaction").length, 1);
+    // The legacy replay-only preflight performs the first full pass; final
+    // envelope accounting correctly repeats it until system + replay fits.
+    assert.equal(saved.entries.filter((entry) => entry.type === "compaction").length, 2);
     assert.equal(
       saved.entries.filter(
         (entry) => entry.type === "custom" && entry.customType === "spark-compaction-micro",
@@ -1229,6 +1517,66 @@ test("SparkAgentSession meters only the compacted replay on the active branch", 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("session replay strips stale usage before a compaction but retains later usage", () => {
+  const usage = (totalTokens: number) => ({
+    input: totalTokens,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  });
+  const items = sessionEntriesToPromptItems([
+    {
+      type: "message",
+      id: "kept-user",
+      parentId: null,
+      timestamp: "2026-07-17T00:00:00.000Z",
+      message: { role: "user", content: "protected request" },
+    },
+    {
+      type: "message",
+      id: "kept-assistant",
+      parentId: "kept-user",
+      timestamp: "2026-07-17T00:00:01.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "protected answer" }],
+        usage: usage(500_000),
+      },
+    },
+    {
+      type: "compaction",
+      id: "compaction-boundary",
+      parentId: "kept-assistant",
+      timestamp: "2026-07-17T00:00:02.000Z",
+      summary: "compacted prefix",
+      firstKeptEntryId: "kept-user",
+      tokensBefore: 500_000,
+    },
+    {
+      type: "message",
+      id: "later-assistant",
+      parentId: "compaction-boundary",
+      timestamp: "2026-07-17T00:00:03.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "later answer" }],
+        usage: usage(321),
+      },
+    },
+  ]);
+  const assistantMessages = items.flatMap((item) =>
+    item.content.kind === "provider_message" && item.authority === "assistant"
+      ? [item.content.message]
+      : [],
+  );
+
+  assert.equal(assistantMessages.length, 2);
+  assert.equal(assistantMessages[0]?.usage, undefined);
+  assert.deepEqual(assistantMessages[1]?.usage, usage(321));
 });
 
 test("SparkAgentSession projects loop view events into native TUI transport", async () => {

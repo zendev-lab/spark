@@ -206,6 +206,46 @@ describe("SessionSupervisor", () => {
     harness.close();
   });
 
+  it("settles a cancelled queued compact before archiving a persistent Session", async () => {
+    const harness = await createHarness();
+    const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");
+    const session = await harness.supervisor.instantiate({
+      workspaceId: "ws-test",
+      role: executorRole,
+      parentSessionId: root.sessionId,
+      sessionId: "queued-compact-close",
+      purpose: "interactive",
+      visibility: "public",
+      retention: "retain",
+    });
+    const invocation = harness.invocations.submit({
+      invocationId: "inv-queued-compact-close",
+      sessionId: session.sessionId,
+      prompt: "Compact session context",
+      task: {
+        type: "session.compact",
+        sessionId: session.sessionId,
+        sessionIncarnation: 1,
+        prompt: "Compact session context",
+        operationId: "session.compact:queued-close",
+      },
+      sourceKind: "session.compact",
+    });
+    await harness.registry.recordTurnQueued(session.sessionId);
+
+    const closed = await harness.supervisor.close({ sessionId: session.sessionId });
+
+    expect(harness.invocations.require(invocation.invocationId)).toMatchObject({
+      status: "cancelled",
+    });
+    expect(closed).toMatchObject({
+      sessionId: session.sessionId,
+      lifecycle: "closed",
+      placement: "archived",
+    });
+    harness.close();
+  });
+
   it("rejects external owners when no authoritative validator is installed", async () => {
     const harness = await createHarness();
     const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");

@@ -2292,6 +2292,11 @@ describe("Spark daemon local RPC", () => {
           expect.objectContaining({ sessionId: "sess_a", activity: "idle" }),
         ]),
       });
+      // The invocation projection can show the settled truth while this test's
+      // deliberately direct registry mutation remains stale. Reconcile the
+      // owner before a lifecycle mutation; archives now fail closed while the
+      // registry still reports a transcript-owning invocation.
+      await sessionRegistry.recordTurnSettled("sess_a");
 
       const bound = await request("session_bind", "session.bind", {
         sessionId: "sess_a",

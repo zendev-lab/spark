@@ -150,6 +150,10 @@ export interface BindSparkSessionInput {
 export interface RecordSparkSessionRunInput {
   sessionId: string;
   sessionPath: string;
+  /** Optional generation fence for work admitted against a durable Session incarnation. */
+  expectedIncarnation?: number;
+  /** Optional lifecycle fence for mutations that require an open Session. */
+  expectedLifecycle?: "open";
   now?: Date;
 }
 
@@ -1126,6 +1130,7 @@ export class SparkSessionRegistry {
       );
     }
     const current = file.sessions[index]!;
+    assertSessionRunFence(current, input);
     const sessionPath = normalizedSessionPath(input.sessionPath, input.sessionId);
     if (
       current.sessionPath &&
@@ -1158,6 +1163,7 @@ export class SparkSessionRegistry {
       );
     }
     const current = file.sessions[index]!;
+    assertSessionRunFence(current, input);
     const sessionPath = normalizedSessionPath(input.sessionPath, input.sessionId);
     if (current.sessionPath) {
       if (normalizedSessionPath(current.sessionPath, input.sessionId) !== sessionPath) {
@@ -2361,6 +2367,30 @@ function normalizedSessionPath(value: string, sessionId: string): string {
     );
   }
   return resolve(normalized);
+}
+
+function assertSessionRunFence(
+  current: SparkSessionState,
+  input: RecordSparkSessionRunInput,
+): void {
+  if (
+    input.expectedIncarnation !== undefined &&
+    (current.incarnation ?? 1) !== input.expectedIncarnation
+  ) {
+    throw new SparkSessionRegistryError(
+      "session_transcript_cas_failed",
+      `session ${input.sessionId} incarnation changed before transcript mutation`,
+    );
+  }
+  if (
+    input.expectedLifecycle !== undefined &&
+    (current.lifecycle !== input.expectedLifecycle || current.placement !== "active")
+  ) {
+    throw new SparkSessionRegistryError(
+      "session_transcript_cas_failed",
+      `session ${input.sessionId} lifecycle or placement changed before transcript mutation`,
+    );
+  }
 }
 
 interface ChannelBindingSelector {

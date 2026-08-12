@@ -131,6 +131,12 @@ export class SessionSupervisor {
     this.scheduler = scheduler;
   }
 
+  requestInvocationCancellation(invocationId: string, reason: string): boolean {
+    if (this.scheduler) return this.scheduler.cancel(invocationId, reason);
+    const outcome = this.invocations.requestCancellation(invocationId, reason);
+    return outcome === "cancelled" || outcome === "requested";
+  }
+
   async ensureWorkspaceAdministrator(workspaceId: string): Promise<SparkSessionState> {
     return await this.registry.ensureWorkspaceAdministrator(workspaceId);
   }
@@ -476,7 +482,8 @@ export class SessionSupervisor {
     if (this.invocations.sessionActivity(current.sessionId).active) {
       return await this.require(current.sessionId);
     }
-    const redaction = await this.prepareContentDiscard(current, input);
+    const settled = await this.registry.recordTurnSettled(current.sessionId, input.now);
+    const redaction = await this.prepareContentDiscard(settled, input);
     if (redaction?.blockedInvocationIds.length) return await this.require(current.sessionId);
     const archiveInput: Parameters<DaemonSessionRegistry["archiveOwned"]>[0] = {
       sessionId: current.sessionId,

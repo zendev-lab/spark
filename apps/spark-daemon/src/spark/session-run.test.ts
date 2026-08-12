@@ -14,7 +14,11 @@ import type {
   SparkHostLoopContext,
 } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
-import type { SparkHeadlessSessionRunInput } from "@zendev-lab/spark-host/headless-loader";
+import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
+import type {
+  SparkHeadlessSessionCompactInput,
+  SparkHeadlessSessionRunInput,
+} from "@zendev-lab/spark-host/headless-loader";
 import {
   SPARK_PROTOCOL_VERSION,
   createBlockedInteractionResponse,
@@ -26,6 +30,7 @@ import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab
 import { SparkTurnRestartYieldError, type SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
 import type {
   SparkDaemonLoopTickTask,
+  SparkDaemonSessionCompactTask,
   SparkDaemonSessionRunTask,
   SparkDaemonTaskExecutionContext,
 } from "../core/types.ts";
@@ -34,6 +39,7 @@ import {
   channelReplyDeliveryForCompletion,
   createChannelAwareTaskExecutor,
   createSparkDaemonTaskExecutor,
+  executeSparkDaemonSessionCompactTask,
   executeSparkDaemonSessionRunTask,
 } from "./session-run.ts";
 import { workspaceSessionRecord } from "../../../../test/support/session-fixtures.ts";
@@ -44,7 +50,7 @@ const paths = resolveSparkPaths({
 });
 
 function context(
-  _task: SparkDaemonSessionRunTask | SparkDaemonLoopTickTask,
+  _task: SparkDaemonSessionRunTask | SparkDaemonSessionCompactTask | SparkDaemonLoopTickTask,
   emitted: SparkDaemonEvent[] = [],
   signal: AbortSignal = new AbortController().signal,
 ): SparkDaemonTaskExecutionContext {
@@ -370,6 +376,244 @@ describe("daemon native session execution", () => {
       expect(executeSession).not.toHaveBeenCalled();
     } finally {
       rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("compacts the canonical daemon transcript under the session lease without submitting a turn", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-compact-executor-"));
+    const cwd = join(root, "workspace");
+    mkdirSync(cwd, { recursive: true });
+    const compactPaths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const store = new SparkSessionStore({ cwd, sparkHome: compactPaths.piAgentDir });
+    const record = store.createCanonicalSession({ id: "sess_compact" });
+    await store.save(record);
+    const release = vi.fn();
+    const acquire = vi.fn(async () => ({
+      identity: {
+        workspaceId: "workspace-compact",
+        clientId: "client-compact",
+        sessionId: "session:sess_compact",
+        leaseFence: "fence-compact",
+      },
+      release,
+    }));
+    const compactSession = vi.fn(async (input: SparkHeadlessSessionCompactInput) => {
+      input.beforeTranscriptCommit?.();
+      return {
+        sessionId: input.sessionId,
+        sessionPath: input.sessionPath,
+        succeeded: true,
+        replayed: false,
+        compactionEntryId: "compact-entry",
+        tokensBefore: 100,
+        tokensAfter: 40,
+        assistantText: "Compacted daemon session sess_compact.",
+      };
+    });
+    const createSessionExecutor = vi.fn(() => vi.fn());
+    const recordRun = vi.fn(async () => ({}) as never);
+    const recordTurnQueued = vi.fn(async () => ({}) as never);
+    const bindTranscriptPath = vi.fn(async () => ({}) as never);
+    const task: SparkDaemonSessionCompactTask = {
+      type: "session.compact",
+      sessionId: "sess_compact",
+      sessionIncarnation: 1,
+      prompt: "Compact session context",
+      operationId: "session.compact:operation-1",
+      customInstructions: "keep exact decisions",
+      model: "openai/test-model",
+      cwd,
+      workspaceId: "workspace-compact",
+    };
+    const beginDurableCommit = vi.fn();
+    const executionContext = { ...context(task), beginDurableCommit };
+    const executor = createSparkDaemonTaskExecutor({
+      paths: compactPaths,
+      resolveWorkspaceCwd: () => root,
+      resolveSessionCwd: vi.fn(async () => ({ cwd })),
+      createSparkHeadlessSessionExecutor: createSessionExecutor,
+      createSparkHeadlessSessionCompactor: () => compactSession,
+      sessionLeaseControl: { acquire },
+      sessionRegistry: {
+        get: vi.fn(
+          async () =>
+            workspaceSessionRecord({
+              sessionId: task.sessionId,
+              workspaceId: "workspace-compact",
+              cwd,
+              sessionPath: record.path,
+              model: { providerName: "openai", modelId: "test-model" },
+              thinkingLevel: "medium",
+            }) as never,
+        ),
+        bindTranscriptPath,
+        recordRun,
+        recordTurnQueued,
+        recordTurnSettled: vi.fn(async () => ({}) as never),
+      },
+    });
+
+    try {
+      await expect(executor(task, executionContext)).resolves.toMatchObject({
+        succeeded: true,
+        assistantText: "Compacted daemon session sess_compact.",
+      });
+      expect(acquire).toHaveBeenCalledWith(
+        task,
+        expect.objectContaining({ invocationId: "invocation-1" }),
+      );
+      expect(compactSession).toHaveBeenCalledWith({
+        cwd,
+        workspaceId: "workspace-compact",
+        sparkStateRoot: join(root, ".spark"),
+        sessionId: task.sessionId,
+        sessionPath: record.path,
+        operationId: task.operationId,
+        customInstructions: "keep exact decisions",
+        model: "openai/test-model",
+        thinkingLevel: "medium",
+        sparkHome: compactPaths.piAgentDir,
+        sessionLease: {
+          workspaceId: "workspace-compact",
+          clientId: "client-compact",
+          sessionId: "session:sess_compact",
+          leaseFence: "fence-compact",
+        },
+        signal: expect.any(AbortSignal),
+        beforeTranscriptCommit: expect.any(Function),
+      });
+      expect(beginDurableCommit).toHaveBeenCalledOnce();
+      expect(createSessionExecutor).not.toHaveBeenCalled();
+      expect(recordTurnQueued).toHaveBeenCalledWith(task.sessionId);
+      expect(recordRun).toHaveBeenCalledWith({
+        sessionId: task.sessionId,
+        sessionPath: record.path,
+        expectedIncarnation: 1,
+        expectedLifecycle: "open",
+      });
+      expect(bindTranscriptPath).not.toHaveBeenCalled();
+      expect(release).toHaveBeenCalledOnce();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a compact task admitted for a stale Session incarnation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-stale-compact-"));
+    const cwd = join(root, "workspace");
+    mkdirSync(cwd, { recursive: true });
+    const compactPaths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const task: SparkDaemonSessionCompactTask = {
+      type: "session.compact",
+      sessionId: "sess_stale_compact",
+      sessionIncarnation: 1,
+      prompt: "Compact session context",
+      operationId: "session.compact:stale",
+      cwd,
+      workspaceId: "workspace-stale",
+    };
+    const compactSession = vi.fn();
+    const bindTranscriptPath = vi.fn(async () => ({}) as never);
+    const recordRun = vi.fn(async () => ({}) as never);
+
+    try {
+      await expect(
+        executeSparkDaemonSessionCompactTask(task, context(task), {
+          paths: compactPaths,
+          compactSession,
+          sessionRegistry: {
+            get: vi.fn(
+              async () =>
+                ({
+                  ...workspaceSessionRecord({
+                    sessionId: task.sessionId,
+                    workspaceId: "workspace-stale",
+                    cwd,
+                  }),
+                  incarnation: 2,
+                }) as never,
+            ),
+            bindTranscriptPath,
+            recordRun,
+            recordTurnQueued: vi.fn(async () => ({}) as never),
+            recordTurnSettled: vi.fn(async () => ({}) as never),
+          },
+        }),
+      ).rejects.toMatchObject({ code: "session_transcript_cas_failed" });
+      expect(compactSession).not.toHaveBeenCalled();
+      expect(bindTranscriptPath).not.toHaveBeenCalled();
+      expect(recordRun).not.toHaveBeenCalled();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails a compact invocation when its transcript commit loses the Session fence", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-compact-cas-"));
+    const cwd = join(root, "workspace");
+    mkdirSync(cwd, { recursive: true });
+    const compactPaths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const store = new SparkSessionStore({ cwd, sparkHome: compactPaths.piAgentDir });
+    const record = store.createCanonicalSession({ id: "sess_compact_cas" });
+    await store.save(record);
+    const task: SparkDaemonSessionCompactTask = {
+      type: "session.compact",
+      sessionId: record.header.id,
+      sessionIncarnation: 1,
+      prompt: "Compact session context",
+      operationId: "session.compact:cas",
+      cwd,
+      workspaceId: "workspace-cas",
+    };
+    const compactSession = vi.fn(async (input: SparkHeadlessSessionCompactInput) => ({
+      sessionId: input.sessionId,
+      sessionPath: input.sessionPath,
+      succeeded: true,
+      replayed: false,
+      tokensAfter: 40,
+      assistantText: "Compacted before CAS failure.",
+    }));
+    const commitError = Object.assign(new Error("Session generation changed"), {
+      code: "session_transcript_cas_failed",
+    });
+    const recordRun = vi.fn(async () => {
+      throw commitError;
+    });
+    const recordTurnSettled = vi.fn(async () => ({}) as never);
+    const executor = createSparkDaemonTaskExecutor({
+      paths: compactPaths,
+      resolveWorkspaceCwd: () => root,
+      createSparkHeadlessSessionCompactor: () => compactSession,
+      sessionRegistry: {
+        get: vi.fn(
+          async () =>
+            workspaceSessionRecord({
+              sessionId: task.sessionId,
+              workspaceId: "workspace-cas",
+              cwd,
+              sessionPath: record.path,
+              activity: "running",
+            }) as never,
+        ),
+        bindTranscriptPath: vi.fn(async () => ({}) as never),
+        recordRun,
+        recordTurnQueued: vi.fn(async () => ({}) as never),
+        recordTurnSettled,
+      },
+    });
+
+    try {
+      await expect(executor(task, context(task))).rejects.toBe(commitError);
+      expect(compactSession).toHaveBeenCalledOnce();
+      expect(recordRun).toHaveBeenCalledWith({
+        sessionId: task.sessionId,
+        sessionPath: record.path,
+        expectedIncarnation: 1,
+        expectedLifecycle: "open",
+      });
+      expect(recordTurnSettled).toHaveBeenCalledWith(task.sessionId);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

@@ -13,6 +13,8 @@ import registerBaiduOneApiProvider from "./baidu-oneapi-provider.ts";
 import {
   type BaiduOneApiStream,
   createBaiduOneApiProviderAdapter,
+  isNormalizedBaiduContextOverflow,
+  normalizeBaiduOneApiMessage,
   silenceOpenAiSdkTransportLogs,
 } from "./baidu-oneapi.ts";
 import { SparkProviderRegistry } from "./provider-registry.ts";
@@ -91,6 +93,19 @@ async function consume(stream: BaiduOneApiStream): Promise<void> {
   for await (const _event of stream) void _event;
   await stream.result();
 }
+
+test("Baidu adapter normalizes the exact maximum prompt length provider error", () => {
+  const model = testModel("grok-4.5");
+  const message = normalizeBaiduOneApiMessage(
+    providerErrorMessage(
+      model,
+      'OpenAI API error (400): {"message":"invalid-argument: This model\'s maximum prompt length is 500000 but the request contains 500522 tokens."}',
+    ),
+  );
+
+  expect(message.errorMessage).toContain("context_length_exceeded:");
+  expect(isNormalizedBaiduContextOverflow(message)).toBe(true);
+});
 
 test("Pi compatibility and Spark-native adapters expose the same Baidu model catalog", () => {
   const piRegistry = new SparkProviderRegistry();

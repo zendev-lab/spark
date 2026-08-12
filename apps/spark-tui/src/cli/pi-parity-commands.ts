@@ -2,12 +2,17 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname } from "node:path";
 import type { OAuthLoginCallbacks } from "@zendev-lab/spark-ai";
 import { sparkTuiPiParityStrings } from "@zendev-lab/spark-i18n/cli";
-import type {
-  SparkAuthFlow,
-  SparkModelCatalogProvider,
-  SparkModelControlSnapshot,
+import {
+  SPARK_PROTOCOL_VERSION,
+  type SparkAuthFlow,
+  type SparkModelCatalogProvider,
+  type SparkModelControlSnapshot,
+  type SparkSessionCompactRequest,
+  type SparkSessionView,
+  type SparkTurnResult,
+  type SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
-import type { SparkSessionMessage, SparkSessionRecord } from "@zendev-lab/spark-host/session-store";
+import type { SparkSessionRecord } from "@zendev-lab/spark-host/session-store";
 
 import type {
   SparkNativeMessage,
@@ -28,11 +33,7 @@ import {
   writeSparkTranscriptHtml,
   type SparkHtmlTranscriptMessage,
 } from "../host/html-export.ts";
-import {
-  compactSparkVisibleTranscript,
-  navigateSparkSessionBranchWithSummary,
-  renderSparkSmartCompactionPrompt,
-} from "../host/compaction.ts";
+import { navigateSparkSessionBranchWithSummary } from "../host/compaction.ts";
 import { listOAuthProviderSummaries } from "../host/auth.ts";
 import { sessionMailStatus, type SparkSessionMailMessage } from "../host/session-mail-store.ts";
 import type { SparkCliHostServices } from "../host/index.ts";
@@ -49,6 +50,13 @@ export interface SparkSessionInboxClient {
   list(sessionId: string): Promise<SparkSessionMailMessage[]>;
   read(sessionId: string, messageId: string): Promise<SparkSessionMailMessage>;
   ack(sessionId: string, messageId: string): Promise<SparkSessionMailMessage>;
+}
+
+export interface SparkSessionCompactClient {
+  currentSessionId: string;
+  compact(input: SparkSessionCompactRequest): Promise<SparkTurnSubmitResult>;
+  waitForTerminal(invocationId: string): Promise<SparkTurnResult>;
+  snapshot(sessionId: string): Promise<SparkSessionView>;
 }
 
 const PI_COMMANDS = [
@@ -79,6 +87,7 @@ export function createSparkPiParitySlashCommands(
   services: SparkCliHostServices,
   modelAuthClient?: SparkDaemonModelAuthClient,
   inboxClient?: SparkSessionInboxClient,
+  compactClient?: SparkSessionCompactClient,
 ): SparkNativeSlashCommandMap {
   return withPiParityMetadata({
     settings: {
@@ -174,7 +183,7 @@ export function createSparkPiParitySlashCommands(
     compact: {
       description: STRINGS.descriptions.compact,
       argumentHint: "[custom instructions]",
-      handler: async (args, ctx) => handleCompactCommand(services, args, ctx.session.messages),
+      handler: async (args, ctx) => handleCompactCommand(args, ctx, compactClient),
     },
     resume: {
       description: STRINGS.descriptions.resume,
@@ -574,95 +583,35 @@ async function handleTreeCommand(services: SparkCliHostServices, args: string): 
 }
 
 async function handleCompactCommand(
-  services: SparkCliHostServices,
   args: string,
-  messages: SparkNativeMessage[],
+  ctx: SparkNativeSlashCommandContext,
+  client?: SparkSessionCompactClient,
 ): Promise<string> {
+  if (!client) {
+    return "Session compaction is unavailable: this TUI is not attached to the daemon-owned session.compact capability.";
+  }
+
   const customInstructions = args.trim() || undefined;
-  const beforeCompactResults = await services.runtime.emit("session_before_compact", {
-    reason: "manual",
-    customInstructions,
-    willRetry: false,
-    consumeMessage: true,
+  const submitted = await client.compact({
+    sessionId: client.currentSessionId,
+    idempotencyKey: `tui:session.compact:${client.currentSessionId}:${randomUUID()}`,
+    ...(customInstructions ? { customInstructions } : {}),
   });
-  const checkpointMessages = compactCheckpointMessagesFromEvents(beforeCompactResults);
-  const messagesForCompaction =
-    checkpointMessages.length > 0 ? [...messages, ...checkpointMessages] : messages;
-  const activeModel = services.providerRegistry.getActive();
-  const settings = services.config.compact ?? undefined;
-  const result = await compactSparkVisibleTranscript(services.sessionStore, messagesForCompaction, {
-    customInstructions,
-    ...(settings ? { settings } : {}),
-    ...(services.runCompactionModel
-      ? {
-          smart: {
-            ...(activeModel
-              ? { currentModel: `${activeModel.providerName}/${activeModel.modelId}` }
-              : {}),
-            runModel: async ({ model, preparation }) =>
-              await services.runCompactionModel!({
-                model,
-                prompt: renderSparkSmartCompactionPrompt(preparation, customInstructions),
-                maxTokens: 4096,
-              }),
-          },
-        }
-      : {}),
+  const terminal = await client.waitForTerminal(submitted.invocationId);
+  if (terminal.status !== "succeeded") {
+    const detail = terminal.error?.message ?? terminal.status;
+    return `Session compaction failed for ${client.currentSessionId} (invocation ${submitted.invocationId}): ${detail}`;
+  }
+  const snapshot = await client.snapshot(client.currentSessionId);
+  ctx.app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "session.snapshot",
+    session: snapshot,
   });
-  if (!result) return "Nothing to compact (visible transcript is too small).";
-
-  const firstMessageIndex = messages.findIndex(
-    (message) => message.display !== false && message.text.trim().length > 0,
+  return (
+    terminal.assistantText ??
+    `Compacted daemon-owned Spark session ${client.currentSessionId} (invocation ${submitted.invocationId}).`
   );
-  const deleteStart = firstMessageIndex < 0 ? 0 : firstMessageIndex;
-  messages.splice(deleteStart, messages.length - deleteStart, {
-    role: "custom",
-    customType: "compactionSummary",
-    text: `Compacted visible transcript summary:\n${result.entry.summary}`,
-  });
-  for (const kept of result.keptMessages) {
-    messages.push({ role: normalizeSessionMessageRole(kept.role), text: sessionMessageText(kept) });
-  }
-  await services.runtime.emit("session_compact", {
-    reason: "manual",
-    customInstructions,
-    willRetry: false,
-    sessionId: result.record.header.id,
-    compactType: "full",
-    succeeded: true,
-    compactionEntryId: result.entry.id,
-    compactionEntry: result.entry,
-  });
-  const metadata = result.entry.metadata;
-  return [
-    `Compacted visible Spark transcript into session ${result.record.header.id}`,
-    `type=full tokensBefore=${result.entry.tokensBefore} tokensAfter=${result.tokensAfter}`,
-    `reductionRatio=${(metadata?.measuredReductionRatio ?? 0).toFixed(3)} tokenSource=${metadata?.tokenSource ?? "estimated"}`,
-    `fallback=${metadata?.fallbackReason ?? "none"}`,
-  ].join("; ");
-}
-
-function compactCheckpointMessagesFromEvents(results: unknown[]): SparkNativeMessage[] {
-  const messages: SparkNativeMessage[] = [];
-  for (const result of results) {
-    const message = isRecord(result) ? result.message : undefined;
-    if (!isRecord(message)) continue;
-    const customType = typeof message.customType === "string" ? message.customType : undefined;
-    const content = typeof message.content === "string" ? message.content : undefined;
-    if (!customType || !content) continue;
-    messages.push({
-      role: "custom",
-      customType,
-      text: content,
-      display: true,
-      details: isRecord(message.details) ? message.details : undefined,
-    });
-  }
-  return messages;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function branchRowsForRecord(record: SparkSessionRecord) {
@@ -687,29 +636,6 @@ async function handleResumeCommand(services: SparkCliHostServices, args: string)
     formatSessionReplay(record),
     "Submit a new prompt to continue this Spark daemon session, or use /tree to inspect branches.",
   ].join("\n");
-}
-
-function normalizeSessionMessageRole(role: string): SparkNativeMessage["role"] {
-  if (role === "user" || role === "assistant" || role === "system") return role;
-  if (role === "toolResult") return "tool";
-  return "custom";
-}
-
-function sessionMessageText(message: SparkSessionMessage): string {
-  const content = message.content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return JSON.stringify(content ?? "");
-  return content
-    .map((block) => {
-      if (!block || typeof block !== "object") return "";
-      const record = block as Record<string, unknown>;
-      if (record.type === "text" && typeof record.text === "string") return record.text;
-      if (record.type === "thinking" && typeof record.thinking === "string") return record.thinking;
-      if (record.type === "image") return "[image]";
-      return "";
-    })
-    .filter(Boolean)
-    .join("\n");
 }
 
 function visibleTranscriptText(messages: readonly SparkNativeMessage[]): string {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { test } from "vitest";
 
 import {
@@ -9,7 +10,6 @@ import {
   DEFAULT_SPARK_COMPACTION_SETTINGS,
   type SparkCompactionOutcomeMetadata,
   normalizeSparkCompactionOutcomeMetadata,
-  SparkHostRuntime,
   SparkSessionStore,
   compactSparkSessionRecord,
   compactSparkVisibleTranscript,
@@ -33,10 +33,13 @@ import {
   type SparkSmartCompactionSummary,
 } from "../host/index.ts";
 import { createSparkPiParitySlashCommands } from "../cli/pi-parity-commands.ts";
+import { runSparkHeadlessSessionCompaction } from "../headless-role-executor.ts";
 import { SparkNativeSession } from "../native-tui.ts";
-import { defaultSparkMemoryStore } from "@zendev-lab/spark-memory";
-import { createLegacyMemoryFixturePermit } from "@zendev-lab/spark-memory/legacy-fixture";
-import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
+import {
+  SPARK_PROTOCOL_VERSION,
+  type SparkSessionView,
+  type SparkViewModelEvent,
+} from "@zendev-lab/spark-protocol";
 import { SPARK_PROMPT_ITEM_METADATA_KEY } from "@zendev-lab/spark-turn";
 
 function compactableRecord(store: SparkSessionStore): SparkSessionRecord {
@@ -155,6 +158,276 @@ test("Smart fixed summary validates, renders, selects current model, and falls b
   }
 });
 
+test("durable headless compaction aborts a deferred smart summary without persisting fallback", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-compaction-abort-"));
+  try {
+    const cwd = join(dir, "repo");
+    const store = new SparkSessionStore({ cwd, sparkHome: join(dir, ".spark") });
+    const record = compactableRecord(store);
+    await store.save(record);
+    const controller = new AbortController();
+    let startSummary!: () => void;
+    const summaryStarted = new Promise<void>((resolve) => {
+      startSummary = resolve;
+    });
+    let observedSignal: AbortSignal | undefined;
+    const services = {
+      cwd,
+      config: { compact: tinyKeepSettings },
+      sessionStore: store,
+      providerRegistry: {
+        getActive: () => ({ providerName: "fake-provider", modelId: "fake-model" }),
+      },
+      agentLoop: {
+        setViewSessionId: () => undefined,
+        abort: () => undefined,
+      },
+      runtime: {
+        setSessionId: () => undefined,
+        emit: async () => [],
+        shutdown: async () => undefined,
+      },
+      runCompactionModel: async ({ signal }: { signal?: AbortSignal }) => {
+        observedSignal = signal;
+        startSummary();
+        return await new Promise<never>((_resolve, reject) => {
+          const rejectAbort = () => reject(signal?.reason);
+          if (signal?.aborted) rejectAbort();
+          else signal?.addEventListener("abort", rejectAbort, { once: true });
+        });
+      },
+      diagnostics: [],
+    };
+
+    const compacting = runSparkHeadlessSessionCompaction(
+      {
+        cwd,
+        sessionId: record.header.id,
+        sessionPath: record.path,
+        operationId: "operation-aborted",
+        signal: controller.signal,
+      },
+      { createServices: async () => services as never },
+    );
+    await summaryStarted;
+    assert.ok(observedSignal);
+    assert.equal(observedSignal.aborted, false);
+    const abortError = new Error("cancel durable compaction");
+    abortError.name = "AbortError";
+    controller.abort(abortError);
+
+    await assert.rejects(compacting, (error: unknown) => error === abortError);
+    assert.equal(observedSignal.aborted, true);
+    const persisted = await store.load(record.path);
+    assert.equal(
+      persisted.entries.some((entry) => entry.type === "compaction"),
+      false,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("durable headless compaction timeout aborts its provider signal before persistence", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-compaction-timeout-"));
+  try {
+    const cwd = join(dir, "repo");
+    const store = new SparkSessionStore({ cwd, sparkHome: join(dir, ".spark") });
+    const record = compactableRecord(store);
+    await store.save(record);
+    let providerStarted = false;
+    let observedSignal: AbortSignal | undefined;
+    const services = {
+      cwd,
+      config: { compact: tinyKeepSettings },
+      sessionStore: store,
+      providerRegistry: {
+        getActive: () => ({ providerName: "fake-provider", modelId: "fake-model" }),
+      },
+      agentLoop: { setViewSessionId: () => undefined, abort: () => undefined },
+      runtime: {
+        setSessionId: () => undefined,
+        emit: async () => [],
+        shutdown: async () => undefined,
+      },
+      runCompactionModel: async ({ signal }: { signal?: AbortSignal }) => {
+        providerStarted = true;
+        observedSignal = signal;
+        return await new Promise<never>((_resolve, reject) => {
+          const rejectAbort = () => reject(signal?.reason);
+          if (signal?.aborted) rejectAbort();
+          else signal?.addEventListener("abort", rejectAbort, { once: true });
+        });
+      },
+      diagnostics: [],
+    };
+
+    await assert.rejects(
+      runSparkHeadlessSessionCompaction(
+        {
+          cwd,
+          sessionId: record.header.id,
+          sessionPath: record.path,
+          operationId: "operation-timeout",
+          timeoutMs: 25,
+        },
+        { createServices: async () => services as never },
+      ),
+      (error: unknown) => error instanceof Error && error.name === "SparkHeadlessTimeoutError",
+    );
+    assert.equal(providerStarted, true);
+    assert.equal(observedSignal?.aborted, true);
+    const persisted = await store.load(record.path);
+    assert.equal(
+      persisted.entries.some((entry) => entry.type === "compaction"),
+      false,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("durable headless compaction ignores cancellation after transcript commit begins", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-compaction-commit-cancel-"));
+  try {
+    const cwd = join(dir, "repo");
+    const store = new SparkSessionStore({ cwd, sparkHome: join(dir, ".spark") });
+    const record = compactableRecord(store);
+    await store.save(record);
+    const originalSave = store.save.bind(store);
+    let signalCommit!: () => void;
+    const commitReached = new Promise<void>((resolve) => {
+      signalCommit = resolve;
+    });
+    let releaseSave!: () => void;
+    const saveReleased = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    store.save = async (nextRecord, saveOptions) => {
+      saveOptions?.beforeCommit?.();
+      signalCommit();
+      await saveReleased;
+      await originalSave(nextRecord);
+    };
+    let durableFenceCount = 0;
+    const services = {
+      cwd,
+      config: { compact: tinyKeepSettings },
+      sessionStore: store,
+      providerRegistry: {
+        getActive: () => ({ providerName: "fake-provider", modelId: "fake-model" }),
+      },
+      agentLoop: { setViewSessionId: () => undefined, abort: () => undefined },
+      runtime: {
+        setSessionId: () => undefined,
+        emit: async () => [],
+        shutdown: async () => undefined,
+      },
+      diagnostics: [],
+    };
+    const controller = new AbortController();
+    const compacting = runSparkHeadlessSessionCompaction(
+      {
+        cwd,
+        sessionId: record.header.id,
+        sessionPath: record.path,
+        operationId: "operation-commit-cancel",
+        signal: controller.signal,
+        beforeTranscriptCommit: () => {
+          durableFenceCount += 1;
+        },
+      },
+      { createServices: async () => services as never },
+    );
+
+    await commitReached;
+    controller.abort(new Error("late cancellation"));
+    releaseSave();
+
+    const result = await compacting;
+    assert.equal(result.succeeded, true);
+    assert.equal(durableFenceCount, 1);
+    const persisted = await store.load(record.path);
+    assert.equal(
+      persisted.entries.some((entry) => entry.type === "compaction"),
+      true,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("durable headless compaction ignores its local timeout after transcript commit begins", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-compaction-commit-timeout-"));
+  try {
+    const cwd = join(dir, "repo");
+    const store = new SparkSessionStore({ cwd, sparkHome: join(dir, ".spark") });
+    const record = compactableRecord(store);
+    await store.save(record);
+    const originalSave = store.save.bind(store);
+    let signalCommit!: () => void;
+    const commitReached = new Promise<void>((resolve) => {
+      signalCommit = resolve;
+    });
+    let releaseSave!: () => void;
+    const saveReleased = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    store.save = async (nextRecord, saveOptions) => {
+      saveOptions?.beforeCommit?.();
+      signalCommit();
+      await saveReleased;
+      await originalSave(nextRecord);
+    };
+    let abortCount = 0;
+    const services = {
+      cwd,
+      config: { compact: tinyKeepSettings },
+      sessionStore: store,
+      providerRegistry: {
+        getActive: () => ({ providerName: "fake-provider", modelId: "fake-model" }),
+      },
+      agentLoop: {
+        setViewSessionId: () => undefined,
+        abort: () => {
+          abortCount += 1;
+        },
+      },
+      runtime: {
+        setSessionId: () => undefined,
+        emit: async () => [],
+        shutdown: async () => undefined,
+      },
+      diagnostics: [],
+    };
+    const compacting = runSparkHeadlessSessionCompaction(
+      {
+        cwd,
+        sessionId: record.header.id,
+        sessionPath: record.path,
+        operationId: "operation-commit-timeout",
+        timeoutMs: 100,
+      },
+      { createServices: async () => services as never },
+    );
+
+    await commitReached;
+    await delay(150);
+    releaseSave();
+
+    const result = await compacting;
+    assert.equal(result.succeeded, true);
+    assert.equal(abortCount, 0);
+    const persisted = await store.load(record.path);
+    assert.equal(
+      persisted.entries.some((entry) => entry.type === "compaction"),
+      true,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("Compact V2 scheduler performs one micro pass and schedules full escalation", () => {
   const messages = [
     {
@@ -231,7 +504,14 @@ test("Compact V2 forced overflow preparation can compact an existing compaction 
   assert.equal(forced.previousSummary, undefined);
   assert.equal(forced.messagesToSummarize.length, 1);
   assert.equal(forced.messagesToSummarize[0]?.role, "compactionSummary");
-  assert.equal(forced.firstKeptEntryId, "last-compaction");
+  assert.equal(forced.firstKeptEntryId, firstKeptEntryId);
+  assert.equal(
+    forced.tokensBefore,
+    estimateSparkContextTokens([
+      { role: "compactionSummary", summary: "already compacted" },
+      ...entriesToMessages(record.entries.slice(0, -1)),
+    ]).tokens,
+  );
 });
 
 test("Spark compaction uses Pi default trigger settings", () => {
@@ -567,97 +847,110 @@ test("navigateSparkSessionBranchWithSummary appends Pi-style branch summary at t
   }
 });
 
-test("native /compact and /tree summarize commands use persisted compaction helpers", async () => {
+test("native /compact uses daemon-owned compaction and /tree keeps persisted branch summaries", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-compact-slash-"));
   try {
     const cwd = join(dir, "repo");
     const store = new SparkSessionStore({ cwd, sparkHome: join(dir, ".spark") });
-    const runtime = new SparkHostRuntime({ cwd });
-    sparkMemoryExtension(runtime);
-    let compactLifecycleEvent: unknown;
-    runtime.on("session_compact", (event) => {
-      compactLifecycleEvent = event;
-    });
-    await defaultSparkMemoryStore(cwd, "workspace", undefined, {
-      legacyFixturePermit: createLegacyMemoryFixturePermit(),
-    }).remember({
-      scope: "workspace",
-      category: "insight",
-      text: "Compact handoff should preserve Spark memory checkpoints.",
-      reason: "Validate /compact integration with session_before_compact memory handoff.",
-    });
-    let smartRequest: { model: string; focusPrompt: string } | undefined;
+    const canonical = store.createCanonicalSession({ id: "canonical-session" });
+    store.appendMessage(canonical, { role: "user", content: "Canonical request" });
+    store.appendMessage(canonical, { role: "assistant", content: "Canonical answer" });
+    await store.save(canonical);
     const services = {
       cwd,
-      runtime,
       sessionStore: store,
-      config: { compact: { ...tinyKeepSettings, compactModel: "current" } },
-      providerRegistry: {
-        getActive: () => ({ providerName: "fake-provider", modelId: "fake-model" }),
-      },
-      runCompactionModel: async (request: { model: string; prompt: string }) => {
-        smartRequest = {
-          model: request.model,
-          focusPrompt: request.prompt,
-        };
-        return {
-          version: 1,
-          objective: "Finish Compact V2",
-          completed: [],
-          inProgress: [],
-          decisions: [],
-          changedFiles: [],
-          commands: [],
-          failures: [],
-          preservedFacts: ["Manual compact used the Smart summarizer."],
-          unresolved: [],
-          memoryRefs: [],
-        };
-      },
     } as unknown as SparkCliHostServices;
-    const commands = createSparkPiParitySlashCommands(services);
     const session = new SparkNativeSession(async () => "unused");
     session.addSystemMessage("banner");
-    session.messages.push({ role: "user", text: "First prompt " + "x".repeat(200) });
-    session.appendAssistantChunk("First answer " + "y".repeat(200));
-    session.finishAssistantMessage();
-    session.messages.push({ role: "user", text: "Recent prompt" });
-    session.appendAssistantChunk("Recent answer");
-    session.finishAssistantMessage();
+    session.messages.push({ role: "user", text: "bounded visible projection" });
 
-    const compacted = await commands.compact!.handler("focus", {
+    const unavailableCommands = createSparkPiParitySlashCommands(services);
+    const unavailable = await unavailableCommands.compact!.handler("", {
       app: {} as never,
       session,
       exit: () => undefined,
     });
-    assert.match(String(compacted), /Compacted visible Spark transcript into session/);
-    assert.match(String(compacted), /type=full/);
-    assert.match(String(compacted), /tokensBefore=\d+ tokensAfter=\d+/);
-    assert.match(String(compacted), /reductionRatio=\d+\.\d{3}/);
-    assert.match(String(compacted), /tokenSource=estimated/);
-    assert.match(String(compacted), /fallback=none/);
-    assert.equal(smartRequest?.model, "fake-provider/fake-model");
-    assert.equal((await store.list()).length, 1);
-    const compactedText = session.messages.map((message) => message.text).join("\n");
-    assert.match(compactedText, /Compacted visible transcript summary/);
-    assert.match(compactedText, /Manual compact used the Smart summarizer/);
-    assert.equal(
-      compactLifecycleEvent && typeof compactLifecycleEvent === "object"
-        ? (compactLifecycleEvent as { compactionEntry?: { details?: { mode?: unknown } } })
-            .compactionEntry?.details?.mode
-        : undefined,
-      "smart",
-    );
+    assert.match(String(unavailable), /compaction is unavailable/u);
+
+    const snapshot = {
+      version: SPARK_PROTOCOL_VERSION,
+      sessionId: canonical.header.id,
+      status: "idle",
+      messages: [],
+      tools: [],
+      runs: [],
+      tasks: [],
+      artifacts: [],
+      evidence: [],
+      metadata: {},
+    } satisfies SparkSessionView;
+    let compactInput: unknown;
+    let waitedInvocationId: string | undefined;
+    let snapshotSessionId: string | undefined;
+    let appliedEvent: SparkViewModelEvent | undefined;
+    const commands = createSparkPiParitySlashCommands(services, undefined, undefined, {
+      currentSessionId: canonical.header.id,
+      compact: async (input) => {
+        compactInput = input;
+        return {
+          invocationId: "invocation-compact",
+          status: "queued",
+          acceptedAt: "2026-08-12T00:00:00.000Z",
+        };
+      },
+      waitForTerminal: async (invocationId) => {
+        waitedInvocationId = invocationId;
+        return {
+          invocationId,
+          status: "succeeded",
+          finishedAt: "2026-08-12T00:00:01.000Z",
+        };
+      },
+      snapshot: async (sessionId) => {
+        snapshotSessionId = sessionId;
+        return snapshot;
+      },
+    });
+
+    const compacted = await commands.compact!.handler("focus", {
+      app: {
+        applyViewModelEvent(event: SparkViewModelEvent) {
+          appliedEvent = event;
+        },
+      } as never,
+      session,
+      exit: () => undefined,
+    });
+    assert.match(String(compacted), /Compacted daemon-owned Spark session canonical-session/u);
     assert.deepEqual(
-      compactLifecycleEvent && typeof compactLifecycleEvent === "object"
+      compactInput && typeof compactInput === "object"
         ? {
-            compactType: (compactLifecycleEvent as { compactType?: unknown }).compactType,
-            succeeded: (compactLifecycleEvent as { succeeded?: unknown }).succeeded,
-            entryType: (compactLifecycleEvent as { compactionEntry?: { type?: unknown } })
-              .compactionEntry?.type,
+            sessionId: (compactInput as { sessionId?: unknown }).sessionId,
+            customInstructions: (compactInput as { customInstructions?: unknown })
+              .customInstructions,
+            idempotencyKey: String(
+              (compactInput as { idempotencyKey?: unknown }).idempotencyKey,
+            ).replace(/:[^:]+$/u, ":<uuid>"),
           }
         : undefined,
-      { compactType: "full", succeeded: true, entryType: "compaction" },
+      {
+        sessionId: canonical.header.id,
+        customInstructions: "focus",
+        idempotencyKey: `tui:session.compact:${canonical.header.id}:<uuid>`,
+      },
+    );
+    assert.equal(waitedInvocationId, "invocation-compact");
+    assert.equal(snapshotSessionId, canonical.header.id);
+    assert.deepEqual(appliedEvent, {
+      version: SPARK_PROTOCOL_VERSION,
+      type: "session.snapshot",
+      session: snapshot,
+    });
+    assert.equal((await store.list()).length, 1);
+    assert.equal((await store.load(canonical.path)).entries.at(-1)?.type, "message");
+    assert.equal(
+      session.messages.some((message) => message.customType === "compactionSummary"),
+      false,
     );
 
     const record = compactableRecord(store);

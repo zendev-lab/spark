@@ -43,6 +43,7 @@ type SessionRequest = Extract<
       | "session.archive"
       | "session.restore"
       | "session.close"
+      | "session.compact"
       | "session.send"
       | "session.inbox"
       | "session.mail.read"
@@ -204,6 +205,19 @@ export async function handleSessionRequest(
         },
       );
       return parseLocalRpcServiceOutput(request.method, executed.result.session);
+    }
+    case "session.compact": {
+      const executed = await executeSparkDaemonSessionControl(
+        sessionControlOptions(paths, db, options),
+        {
+          kind: "session.compact.request",
+          scope: "any",
+          sessionId: request.params.sessionId,
+          idempotencyKey: request.params.idempotencyKey,
+          payload: { ...request.params },
+        },
+      );
+      return parseLocalRpcServiceOutput(request.method, executed.result);
     }
     case "session.bind":
     case "session.unbind": {

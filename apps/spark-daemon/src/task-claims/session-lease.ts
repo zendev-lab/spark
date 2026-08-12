@@ -2,7 +2,11 @@ import type { DatabaseSync } from "node:sqlite";
 
 import type { SparkSessionLeaseIdentity } from "@zendev-lab/spark-core";
 import { sparkSessionKey } from "@zendev-lab/spark-loop";
-import type { SparkDaemonTaskExecutionContext, SparkDaemonSessionRunTask } from "../core/types.ts";
+import type {
+  SparkDaemonSessionCompactTask,
+  SparkDaemonSessionRunTask,
+  SparkDaemonTaskExecutionContext,
+} from "../core/types.ts";
 import type { DaemonSessionRegistry } from "../session-registry.ts";
 import {
   attachWorkspaceClient,
@@ -20,7 +24,7 @@ export interface DaemonSessionLeaseHandle {
 
 export async function acquireDaemonSessionLease(input: {
   db: DatabaseSync;
-  task: SparkDaemonSessionRunTask;
+  task: SparkDaemonSessionRunTask | SparkDaemonSessionCompactTask;
   context: SparkDaemonTaskExecutionContext;
   sessionRegistry: Pick<DaemonSessionRegistry, "get">;
   onHeartbeatError?: (error: unknown) => void;

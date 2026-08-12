@@ -60,11 +60,15 @@ export interface DaemonSessionRegistry {
   recordRun(input: {
     sessionId: string;
     sessionPath: string;
+    expectedIncarnation?: number;
+    expectedLifecycle?: "open";
     now?: Date;
   }): Promise<SparkSessionState>;
   bindTranscriptPath(input: {
     sessionId: string;
     sessionPath: string;
+    expectedIncarnation?: number;
+    expectedLifecycle?: "open";
     now?: Date;
   }): Promise<SparkSessionState>;
   relocateTranscriptPath(input: {

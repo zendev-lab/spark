@@ -458,6 +458,11 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.close"].output,
       client.session.close(input, options),
     ),
+  "session.compact": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.compact"].output,
+      client.session.compact(input, options),
+    ),
   "session.send": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.send"].output,
@@ -509,6 +514,7 @@ const sessionInvokers = {
   | "session.archive"
   | "session.restore"
   | "session.close"
+  | "session.compact"
   | "session.send"
   | "session.inbox"
   | "session.mail.read"

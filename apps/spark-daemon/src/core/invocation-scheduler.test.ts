@@ -623,6 +623,70 @@ describe("SparkInvocationScheduler", () => {
     }
   });
 
+  it("does not replay an invocation whose durable commit outcome was interrupted", () => {
+    const { db, store, scheduler } = harness(async () => ({ ok: true }));
+    try {
+      const invocation = store.submit({
+        sessionId: "interrupted-commit",
+        prompt: "compact",
+        task: { type: "session.run", sessionId: "interrupted-commit", prompt: "compact" },
+      });
+      expect(store.claimNext("dead-worker")?.invocationId).toBe(invocation.invocationId);
+      store.markDurableCommitStarted(invocation.invocationId);
+
+      expect(scheduler.recover("2026-08-12T00:00:00.000Z")).toBe(1);
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "failed",
+        errorCode: "DURABLE_COMMIT_OUTCOME_UNKNOWN",
+      });
+      expect(scheduler.processBatch()).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("resumes an idempotent compact invocation after an interrupted durable commit", async () => {
+    const executions: string[] = [];
+    const { db, store, scheduler } = harness(
+      async (task, context) => {
+        executions.push(task.type);
+        expect(context.signal.aborted).toBe(false);
+        context.beginDurableCommit?.();
+        await delay(30);
+        return { replayed: true };
+      },
+      { taskTimeoutMs: 10 },
+    );
+    try {
+      const invocation = store.submit({
+        sessionId: "interrupted-compact",
+        prompt: "Compact session context",
+        task: {
+          type: "session.compact",
+          sessionId: "interrupted-compact",
+          sessionIncarnation: 1,
+          prompt: "Compact session context",
+          operationId: "session.compact:recover",
+        },
+      });
+      expect(store.claimNext("dead-worker")?.invocationId).toBe(invocation.invocationId);
+      store.markDurableCommitStarted(invocation.invocationId);
+
+      expect(scheduler.recover("2026-08-12T00:00:00.000Z")).toBe(1);
+      expect(store.require(invocation.invocationId)).toMatchObject({ status: "queued" });
+      expect(store.requestCancellation(invocation.invocationId, "too late")).toBe("terminal");
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "succeeded",
+        result: { replayed: true },
+      });
+      expect(executions).toEqual(["session.compact"]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("durably yields at a planned restart checkpoint and lets the successor continue it", async () => {
     const restart = new AbortController();
     restart.abort(new Error("planned restart"));
@@ -974,24 +1038,34 @@ describe("SparkInvocationScheduler", () => {
     };
     const { db, store, scheduler } = harness(executeTask, { concurrency: 2 });
     try {
-      for (const [sessionId, prompt] of [
-        ["same", "first"],
-        ["same", "second"],
-        ["other", "third"],
-      ] as const) {
-        store.submit({
-          sessionId,
-          prompt,
-          task: { type: "session.run", sessionId, prompt },
-        });
-      }
+      store.submit({
+        sessionId: "same",
+        prompt: "first",
+        task: { type: "session.run", sessionId: "same", prompt: "first" },
+      });
+      store.submit({
+        sessionId: "same",
+        prompt: "Compact session context",
+        task: {
+          type: "session.compact",
+          sessionId: "same",
+          sessionIncarnation: 1,
+          prompt: "Compact session context",
+          operationId: "scheduler-compact",
+        },
+      });
+      store.submit({
+        sessionId: "other",
+        prompt: "third",
+        task: { type: "session.run", sessionId: "other", prompt: "third" },
+      });
       expect(scheduler.processBatch()).toBe(true);
       expect(launched.sort()).toEqual(["first", "third"]);
       gate.resolve();
       await scheduler.wait();
       expect(scheduler.processBatch()).toBe(true);
       await scheduler.wait();
-      expect(launched.sort()).toEqual(["first", "second", "third"]);
+      expect(launched.sort()).toEqual(["Compact session context", "first", "third"]);
       for (const invocation of store.list()) {
         const sequences = store
           .eventPage(invocation.invocationId)
@@ -1150,6 +1224,68 @@ describe("SparkInvocationScheduler", () => {
       await scheduler.wait({ timeoutMs: 500 });
     } finally {
       gate.resolve();
+      db.close();
+    }
+  });
+
+  it("rejects cancellation after an executor crosses its durable commit point", async () => {
+    const commitReached = deferred<void>();
+    const releaseCommit = deferred<void>();
+    const { db, store, scheduler } = harness(async (_task, context) => {
+      context.beginDurableCommit?.();
+      commitReached.resolve();
+      await releaseCommit.promise;
+      return { committed: true };
+    });
+    try {
+      const invocation = store.submit({
+        sessionId: "commit-wins",
+        prompt: "compact",
+        task: { type: "session.run", sessionId: "commit-wins", prompt: "compact" },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await commitReached.promise;
+
+      expect(scheduler.cancel(invocation.invocationId, "too late")).toBe(false);
+      const running = store.require(invocation.invocationId);
+      expect(running.status).toBe("running");
+      expect("cancelReason" in running).toBe(false);
+
+      releaseCommit.resolve();
+      await scheduler.wait({ timeoutMs: 500 });
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "succeeded",
+        result: { committed: true },
+      });
+    } finally {
+      releaseCommit.resolve();
+      await scheduler.wait({ timeoutMs: 500 }).catch(() => undefined);
+      db.close();
+    }
+  });
+
+  it("disables the invocation timeout after durable commit begins", async () => {
+    const { db, store, scheduler } = harness(
+      async (_task, context) => {
+        context.beginDurableCommit?.();
+        await delay(30);
+        return { committed: true };
+      },
+      { taskTimeoutMs: 10 },
+    );
+    try {
+      const invocation = store.submit({
+        sessionId: "commit-timeout",
+        prompt: "compact",
+        task: { type: "session.run", sessionId: "commit-timeout", prompt: "compact" },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "succeeded",
+        result: { committed: true },
+      });
+    } finally {
       db.close();
     }
   });

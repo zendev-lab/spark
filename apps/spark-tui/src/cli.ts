@@ -1972,31 +1972,53 @@ function createSparkNativeSlashCommands(
 ): SparkNativeSlashCommandMap {
   const daemonCommands = createSparkDaemonNativeCommands(daemonClient);
   const localControlCommands = createSparkNativeLocalControlSlashCommands();
-  const piParityCommands = createSparkPiParitySlashCommands(services, modelControl, {
-    currentSessionId,
-    list: async (sessionId) => {
-      await ensureCurrentSession();
-      return (
-        await requestSparkDaemonControl(
-          "session.inbox",
-          { sessionId, includeAcked: false },
-          daemonClient,
-        )
-      ).messages;
+  const piParityCommands = createSparkPiParitySlashCommands(
+    services,
+    modelControl,
+    {
+      currentSessionId,
+      list: async (sessionId) => {
+        await ensureCurrentSession();
+        return (
+          await requestSparkDaemonControl(
+            "session.inbox",
+            { sessionId, includeAcked: false },
+            daemonClient,
+          )
+        ).messages;
+      },
+      read: async (sessionId, messageId) => {
+        await ensureCurrentSession();
+        return (
+          await requestSparkDaemonControl(
+            "session.mail.read",
+            { sessionId, messageId },
+            daemonClient,
+          )
+        ).message;
+      },
+      ack: async (sessionId, messageId) => {
+        await ensureCurrentSession();
+        return (
+          await requestSparkDaemonControl(
+            "session.mail.ack",
+            { sessionId, messageId },
+            daemonClient,
+          )
+        ).message;
+      },
     },
-    read: async (sessionId, messageId) => {
-      await ensureCurrentSession();
-      return (
-        await requestSparkDaemonControl("session.mail.read", { sessionId, messageId }, daemonClient)
-      ).message;
+    {
+      currentSessionId,
+      compact: async (input) => {
+        await ensureCurrentSession();
+        return await requestSparkDaemonControl("session.compact", input, daemonClient);
+      },
+      waitForTerminal: async (invocationId) =>
+        await waitForInvocationTerminal(invocationId, daemonClient),
+      snapshot: async (sessionId) => await clientGetManagedSessionSnapshot(sessionId, daemonClient),
     },
-    ack: async (sessionId, messageId) => {
-      await ensureCurrentSession();
-      return (
-        await requestSparkDaemonControl("session.mail.ack", { sessionId, messageId }, daemonClient)
-      ).message;
-    },
-  });
+  );
   const sideThreadCommands = createSparkNativeSideThreadSlashCommands({
     parentSessionId: () => currentSessionId,
     client: {
