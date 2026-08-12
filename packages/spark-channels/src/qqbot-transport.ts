@@ -435,16 +435,20 @@ export function createQqbotTransport(
     const cancel = cancelPendingConnect;
     cancelPendingConnect = null;
     cancel?.(cancelReason ?? new Error("qqbot websocket connection superseded"));
-    if (ws) {
-      try {
-        ws.removeAllListeners();
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
-        }
-      } catch {
-        // ignore close errors during teardown
+    const socket = ws;
+    ws = null;
+    if (!socket) return;
+
+    try {
+      socket.removeAllListeners();
+      socket.once("error", () => {
+        // ws can emit an asynchronous error after close() interrupts CONNECTING.
+      });
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
       }
-      ws = null;
+    } catch {
+      // ignore close errors during teardown
     }
   }
 

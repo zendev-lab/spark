@@ -21,13 +21,20 @@ const config: QqbotAdapterConfig = {
 class FakeWebSocket extends EventEmitter {
   readyState: number = WebSocket.OPEN;
   readonly sent: string[] = [];
+  closeCalls = 0;
+  closeError: Error | null = null;
 
   send(data: string): void {
     this.sent.push(data);
   }
 
   close(): void {
+    this.closeCalls += 1;
     this.readyState = WebSocket.CLOSED;
+    if (this.closeError) {
+      const error = this.closeError;
+      queueMicrotask(() => this.emit("error", error));
+    }
   }
 }
 
@@ -352,6 +359,64 @@ describe("createQqbotTransport", () => {
     await new Promise((resolve) => setTimeout(resolve, 110));
     expect(sockets).toHaveLength(1);
     expect(transport.status?.()).toEqual({ state: "stopped" });
+  });
+
+  it("stops a connecting socket without removing the teardown error guard", async () => {
+    const sockets: FakeWebSocket[] = [];
+    const onMessage = vi.fn();
+    const { api } = createApiMock();
+    const transport = createQqbotTransport(config, {
+      api,
+      connectTimeoutMs: 10_000,
+      webSocketFactory: () => {
+        const socket = new FakeWebSocket();
+        socket.readyState = WebSocket.CONNECTING;
+        socket.closeError = new Error("connect interrupted by close");
+        sockets.push(socket);
+        return socket as unknown as WebSocket;
+      },
+    });
+
+    await transport.start(onMessage);
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    const socket = sockets[0]!;
+
+    await expect(transport.stop()).resolves.toBeUndefined();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    expect(socket.closeCalls).toBe(1);
+    expect(socket.listenerCount("error")).toBe(0);
+    socket.emit("open");
+    socket.emit("message", Buffer.from(JSON.stringify({ op: 0, t: "C2C_MESSAGE_CREATE" })));
+    expect(onMessage).not.toHaveBeenCalled();
+    expect(transport.status?.()).toEqual({ state: "stopped" });
+  });
+
+  it("coalesces reconnect with double stop", async () => {
+    vi.useFakeTimers();
+    const { api, getGatewayUrl } = createApiMock();
+    getGatewayUrl.mockRejectedValueOnce(new Error("gateway unavailable"));
+    const transport = createQqbotTransport(config, {
+      api,
+      reconnectDelaysMs: [1_000],
+      reconnectRandom: () => 1,
+    });
+
+    try {
+      await transport.start(() => undefined);
+      await vi.waitFor(() => expect(transport.status?.()).toMatchObject({ state: "reconnecting" }));
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+      await expect(Promise.allSettled([transport.stop(), transport.stop()])).resolves.toEqual([
+        { status: "fulfilled", value: undefined },
+        { status: "fulfilled", value: undefined },
+      ]);
+
+      expect(vi.getTimerCount()).toBe(0);
+      expect(transport.status?.()).toEqual({ state: "stopped" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("resumes before a message whose durable receipt failed", async () => {
