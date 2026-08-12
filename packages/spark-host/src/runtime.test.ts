@@ -53,6 +53,36 @@ describe("SparkHostRuntime effect contract", () => {
     expect(host.makeContext({ sessionId: "session:view" }).sessionId).toBe("session:state-owner");
   });
 
+  it("fails closed without replacing or re-announcing a duplicate tool", () => {
+    const host = new SparkHostRuntime({
+      cwd: "/tmp/spark-host-runtime-duplicate-tool",
+    });
+    const registrations: string[] = [];
+    host.onToolRegistration(({ name }) => registrations.push(name));
+    host.registerTool({
+      name: "probe",
+      description: "first",
+      parameters: {},
+      async execute() {
+        return { content: [{ type: "text" as const, text: "first" }] };
+      },
+    });
+
+    expect(() =>
+      host.registerTool({
+        name: "probe",
+        description: "second",
+        parameters: {},
+        async execute() {
+          return { content: [{ type: "text" as const, text: "second" }] };
+        },
+      }),
+    ).toThrowError('SparkHostRuntime.registerTool: duplicate tool registration for "probe"');
+
+    expect(host.getTool("probe")?.config.description).toBe("first");
+    expect(registrations).toEqual(["probe"]);
+  });
+
   it("keeps internal tools inactive unless an explicit allowlist selects them", () => {
     const ordinary = new SparkHostRuntime({
       cwd: "/tmp/spark-host-runtime-internal-ordinary",

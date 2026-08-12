@@ -34,7 +34,8 @@
   "type": "module",
   "scripts": {
     "check": "pnpm run check:static && pnpm run check:docs && pnpm run test:unit && pnpm run test:process:source",
-    "check:static": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/sync-workspace-versions.mjs && pnpm exec prek run actionlint --all-files && pnpm exec prek run zizmor --all-files && pnpm run check:architecture && pnpm run check:tool-surface && pnpm run check:boundaries && vp fmt . --check && vp lint --quiet --report-unused-disable-directives-severity error && pnpm run typecheck",
+    "check:static": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/sync-workspace-versions.mjs && pnpm exec prek run actionlint --all-files && pnpm exec prek run zizmor --all-files && pnpm run check:pi-extensions && pnpm run check:architecture && pnpm run check:tool-surface && pnpm run check:boundaries && vp fmt . --check && vp lint --quiet --report-unused-disable-directives-severity error && pnpm run typecheck",
+    "check:pi-extensions": "node scripts/check-pi-extensions.mjs",
     "check:architecture": "prek run check-jsonschema check-metaschema --files architecture/packages.json architecture/packages.schema.json && syncpack lint --config .syncpackrc.json --no-ansi && knip --strict --include unlisted --no-progress --no-config-hints && node scripts/check-architecture-ratchets.mjs",
     "check:tool-surface": "node --experimental-strip-types scripts/check-tool-surface.mts",
     "check:boundaries": "depcruise --config .dependency-cruiser.cjs apps packages test",
@@ -133,7 +134,6 @@
       "./packages/spark-session/src/extension-entry.ts",
       "./packages/spark-memory/src/extension-entry.ts",
       "./packages/spark-web/src/extension-entry.ts",
-      "./packages/spark-workflows/src/extension-entry.ts",
       "./packages/spark-ai/src/baidu-oneapi-compat-extension.ts",
       "./packages/spark-extension/src/extension/index.ts"
     ]

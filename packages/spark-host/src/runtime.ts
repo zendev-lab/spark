@@ -257,11 +257,16 @@ export class SparkHostRuntime implements SparkHostAPI {
   ): void {
     if (!config.name) throw new Error(`SparkHostRuntime.${method} requires a tool name`);
     const existing = this.tools.get(config.name);
+    if (existing) {
+      throw new Error(
+        `SparkHostRuntime.${method}: duplicate tool registration for "${config.name}"`,
+      );
+    }
     const policy = resolveToolPolicy(config);
     const entry: RegisteredTool = {
       config,
       policy,
-      active: this.isToolAllowed(config.name, policy) && (existing?.active ?? activeByDefault),
+      active: this.isToolAllowed(config.name, policy) && activeByDefault,
     };
     this.tools.set(config.name, entry);
     for (const listener of Array.from(this.toolRegistrationListeners)) {

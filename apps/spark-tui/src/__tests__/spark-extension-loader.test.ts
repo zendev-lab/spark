@@ -64,7 +64,10 @@ test("loadBuiltinExtensionFactories exposes the retained Spark CLI builtin exten
     "@zendev-lab/spark-fusion/extension",
     "@zendev-lab/spark-graft/extension",
   ]);
-  const defaultExpected = builtinExpected.filter((specifier) => !optInExtensions.has(specifier));
+  const defaultExpected = builtinExpected.filter(
+    (specifier) =>
+      !optInExtensions.has(specifier) && specifier !== "@zendev-lab/spark-workflows/extension",
+  );
   assert.deepEqual(
     loadBuiltinExtensionFactories().map((entry) => entry.specifier),
     builtinExpected,
