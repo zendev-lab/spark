@@ -24,6 +24,7 @@ test("daemon headless loader resolves the real worker module and provider depend
 
   assert.equal(typeof headless.createSparkHeadlessRoleExecutor, "function");
   assert.equal(typeof headless.createSparkHeadlessSessionExecutor, "function");
+  assert.equal(typeof headless.createSparkHeadlessSessionCompactor, "function");
 });
 
 test("runSparkHeadlessSession retains the control root for nested daemon-native roles", async () => {

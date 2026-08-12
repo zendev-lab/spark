@@ -77,8 +77,13 @@ direction.
 3. Make the smallest change that preserves dependency and state ownership.
 4. Move shared validation or semantics into the existing owner or protocol
    before adding another surface adapter.
-5. Add focused tests for behavior, failure, compatibility, and every newly
-   reachable state.
+5. Add focused tests for observable behavior, state transitions, persisted
+   effects, boundary calls, failure modes, schemas, compatibility, and every
+   newly reachable state. Do not encode source, prompt, or prose wording in
+   literal or substring assertions, snapshots, or fixed hashes unless the exact
+   representation or digest is itself an intentional contract, such as a
+   complete serialized or rendered artifact, content-addressed identity, or
+   integrity/wire digest.
 6. Update the public guide, normative specification, or operation that owns any
    changed behavior. Link instead of copying.
 7. Follow the validation matrix in

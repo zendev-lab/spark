@@ -2292,7 +2292,6 @@ describe("Spark daemon local RPC", () => {
           expect.objectContaining({ sessionId: "sess_a", activity: "idle" }),
         ]),
       });
-
       const bound = await request("session_bind", "session.bind", {
         sessionId: "sess_a",
         externalKey: "feishu:chat:oc_demo",

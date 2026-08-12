@@ -5,9 +5,11 @@ import {
   sparkSessionLifetimeForOwner,
   SPARK_SESSION_CLOSE_RECEIPT_HISTORY_LIMIT,
   SPARK_SESSION_CLOSE_RECEIPT_MAX_BYTES,
+  SPARK_SESSION_COMPACT_CUSTOM_INSTRUCTIONS_MAX_LENGTH,
   sparkSessionArchiveRequestSchema,
   sparkSessionBindRequestSchema,
   sparkSessionCloseReceiptSchema,
+  sparkSessionCompactRequestSchema,
   sparkSessionCreateRequestSchema,
   sparkSessionListRequestSchema,
   sparkSessionUnbindRequestSchema,
@@ -88,6 +90,26 @@ describe("session ownership protocol", () => {
         lifetime: lifetime === "persistent" ? "ephemeral" : "persistent",
       }),
     ).toThrow(/lifetime must be/u);
+  });
+
+  it("normalizes bounded manual compaction instructions", () => {
+    expect(
+      sparkSessionCompactRequestSchema.parse({
+        sessionId: " session-compact ",
+        customInstructions: " preserve exact identifiers ",
+        idempotencyKey: " compact-once ",
+      }),
+    ).toEqual({
+      sessionId: "session-compact",
+      customInstructions: "preserve exact identifiers",
+      idempotencyKey: "compact-once",
+    });
+    expect(() =>
+      sparkSessionCompactRequestSchema.parse({
+        sessionId: "session-compact",
+        customInstructions: "x".repeat(SPARK_SESSION_COMPACT_CUSTOM_INSTRUCTIONS_MAX_LENGTH + 1),
+      }),
+    ).toThrow();
   });
 
   it("hard-rejects retired writable role, relation, status, and workspaceId fields", () => {

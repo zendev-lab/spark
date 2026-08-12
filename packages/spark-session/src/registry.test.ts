@@ -164,6 +164,52 @@ describe("SparkSessionRegistry v6 ownership", () => {
     });
   });
 
+  it("fences transcript mutation to the admitted open and active incarnation", async () => {
+    const registry = await tempRegistry();
+    const admin = await administrator(registry);
+    const session = await registry.create({
+      sessionId: "sess_transcript_fence",
+      scope: admin.scope,
+      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+    });
+
+    await registry.archive(session.sessionId);
+    await expect(
+      registry.bindTranscriptPath({
+        sessionId: session.sessionId,
+        sessionPath: "/tmp/sessions/stale-archived.jsonl",
+        expectedIncarnation: session.incarnation,
+        expectedLifecycle: "open",
+      }),
+    ).rejects.toMatchObject({ code: "session_transcript_cas_failed" });
+
+    const restored = await registry.restore(session.sessionId);
+    expect(restored).toMatchObject({
+      lifecycle: "open",
+      placement: "active",
+      incarnation: session.incarnation,
+    });
+    await expect(
+      registry.recordRun({
+        sessionId: session.sessionId,
+        sessionPath: "/tmp/sessions/stale-incarnation.jsonl",
+        expectedIncarnation: session.incarnation + 1,
+        expectedLifecycle: "open",
+      }),
+    ).rejects.toMatchObject({ code: "session_transcript_cas_failed" });
+    await expect(
+      registry.recordRun({
+        sessionId: session.sessionId,
+        sessionPath: "/tmp/sessions/current-incarnation.jsonl",
+        expectedIncarnation: session.incarnation,
+        expectedLifecycle: "open",
+      }),
+    ).resolves.toMatchObject({
+      sessionPath: "/tmp/sessions/current-incarnation.jsonl",
+      incarnation: session.incarnation,
+    });
+  });
+
   it("keeps channel bindings as routing aliases rather than owners", async () => {
     const registry = await tempRegistry();
     const admin = await administrator(registry);

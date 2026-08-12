@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import type {
   SparkSessionGetRequest,
   SparkSessionBindRequest,
@@ -19,6 +21,7 @@ import {
   type EnsureSparkSideThreadInput,
   type EnsureSparkDriverGenerationSessionInput,
   type ResetSparkSideThreadInput,
+  type RecordSparkSessionRunInput,
   type ResolveBindingInput,
   type SealSparkSessionCloseReceiptInput,
   type TransitionSparkSessionLifecycleInput,
@@ -60,11 +63,24 @@ export interface DaemonSessionRegistry {
   recordRun(input: {
     sessionId: string;
     sessionPath: string;
+    expectedIncarnation?: number;
+    expectedLifecycle?: "open";
     now?: Date;
   }): Promise<SparkSessionState>;
+  /**
+   * Linearize the final transcript replacement with every Session registry
+   * mutation. The registry fence is checked before the replacement callback
+   * may rename the canonical JSONL.
+   */
+  commitTranscriptReplacement(
+    input: CommitDaemonSessionTranscriptReplacementInput,
+    replace: () => Promise<void>,
+  ): Promise<SparkSessionState>;
   bindTranscriptPath(input: {
     sessionId: string;
     sessionPath: string;
+    expectedIncarnation?: number;
+    expectedLifecycle?: "open";
     now?: Date;
   }): Promise<SparkSessionState>;
   relocateTranscriptPath(input: {
@@ -80,6 +96,11 @@ export interface DaemonSessionRegistry {
   resetSideThread(input: ResetSparkSideThreadInput): Promise<SparkSessionState>;
   configureSideThread(input: ConfigureSparkSideThreadInput): Promise<SparkSessionState>;
   resolveBinding(input: ResolveBindingInput): Promise<SparkSessionState>;
+}
+
+export interface CommitDaemonSessionTranscriptReplacementInput extends RecordSparkSessionRunInput {
+  expectedIncarnation: number;
+  expectedLifecycle: "open";
 }
 
 /** Diagnostic child visibility is daemon-internal and absent from the wire schema. */
@@ -152,6 +173,8 @@ export function createSerializedDaemonSessionRegistry(
     recordTurnQueued: (sessionId, now) => mutate(() => registry.recordTurnQueued(sessionId, now)),
     recordTurnSettled: (sessionId, now) => mutate(() => registry.recordTurnSettled(sessionId, now)),
     recordRun: (input) => mutate(() => registry.recordRun(input)),
+    commitTranscriptReplacement: (input, replace) =>
+      mutate(() => registry.commitTranscriptReplacement(input, replace)),
     bindTranscriptPath: (input) => mutate(() => registry.bindTranscriptPath(input)),
     relocateTranscriptPath: (input) => mutate(() => registry.relocateTranscriptPath(input)),
     ensureSideThread: (input) => mutate(() => registry.ensureSideThread(input)),
@@ -206,6 +229,12 @@ export function createDaemonSessionRegistry(
     recordTurnQueued: async (sessionId, now) => await registry.recordTurnQueued(sessionId, now),
     recordTurnSettled: async (sessionId, now) => await registry.recordTurnSettled(sessionId, now),
     recordRun: async (input) => await registry.recordRun(input),
+    commitTranscriptReplacement: async (input, replace) => {
+      const session = await registry.get(input.sessionId);
+      assertTranscriptReplacementFence(session, input);
+      await replace();
+      return session!;
+    },
     bindTranscriptPath: async (input) => await registry.bindTranscriptPath(input),
     relocateTranscriptPath: async (input) => await registry.relocateTranscriptPath(input),
     ensureSideThread: async (input) => await registry.ensureSideThread(input),
@@ -240,6 +269,27 @@ export function createDaemonSessionRegistry(
     },
   };
   return createSerializedDaemonSessionRegistry(ownedRegistry);
+}
+
+function assertTranscriptReplacementFence(
+  session: SparkSessionState | undefined,
+  input: CommitDaemonSessionTranscriptReplacementInput,
+): asserts session is SparkSessionState {
+  const pathMatches =
+    session?.sessionPath !== undefined &&
+    resolve(session.sessionPath) === resolve(input.sessionPath);
+  if (
+    !session ||
+    (session.incarnation ?? 1) !== input.expectedIncarnation ||
+    session.lifecycle !== input.expectedLifecycle ||
+    session.placement !== "active" ||
+    !pathMatches
+  ) {
+    throw new SparkSessionRegistryError(
+      "session_transcript_cas_failed",
+      `session ${input.sessionId} changed before transcript replacement`,
+    );
+  }
 }
 
 async function resolveCreateRequest(

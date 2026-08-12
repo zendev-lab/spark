@@ -207,6 +207,7 @@ const BAIDU_CONTEXT_OVERFLOW_SEMANTIC = "context_length_exceeded";
 const BAIDU_CONTEXT_OVERFLOW_PATTERNS = [
   /\bcontext (?:window|length) (?:is )?(?:full|exceeded)\b/iu,
   /\bmaximum context (?:window|length)(?: size)?(?: is| has been)? exceeded\b/iu,
+  /\bmaximum prompt length (?:is|of) \d+\b/iu,
   /\bprompt (?:is )?too long for (?:the )?context window\b/iu,
   /\bcontext[_ -]length[_ -]exceeded\b/iu,
 ] as const;

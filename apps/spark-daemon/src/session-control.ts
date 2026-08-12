@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
@@ -12,6 +13,7 @@ import {
   sparkSessionBindRequestSchema,
   sparkSessionCreateRequestSchema,
   sparkSessionCloseRequestSchema,
+  sparkSessionCompactRequestSchema,
   sparkSessionGetRequestSchema,
   sparkSessionListRequestSchema,
   sparkSessionMediaReadRequestSchema,
@@ -55,7 +57,12 @@ import type { SparkDaemonModelControl } from "./model-control.ts";
 import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import type { SessionSupervisor } from "./session-supervisor.ts";
-import { validateSparkDaemonTask, type SparkDaemonSessionRunTask } from "./core/index.ts";
+import {
+  SPARK_SESSION_COMPACT_PROMPT,
+  validateSparkDaemonTask,
+  type SparkDaemonSessionCompactTask,
+  type SparkDaemonSessionRunTask,
+} from "./core/index.ts";
 import { SparkInvocationStore, type SparkInvocationRecord } from "./store/invocations.ts";
 import { getWorkspaceById, listWorkspaces, resolveWorkspaceLocalPath } from "./store/workspaces.ts";
 import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
@@ -90,6 +97,7 @@ export interface SparkDaemonSessionControlRequest {
     | "session.unbind.request"
     | "session.archive.request"
     | "session.restore.request"
+    | "session.compact.request"
     | "session.mode.set.request"
     | "session.close.request"
     | "turn.submit.request"
@@ -370,6 +378,80 @@ export async function executeSparkDaemonSessionControl(
       const data = publicObject({ session });
       return { result: data, projection: { kind: "session.detail", data } };
     }
+    case "session.compact.request": {
+      const parsed = sparkSessionCompactRequestSchema.parse({
+        ...request.payload,
+        sessionId: request.sessionId ?? request.payload.sessionId,
+        idempotencyKey: request.idempotencyKey ?? request.payload.idempotencyKey,
+      });
+      const session = await requireSession(options, parsed.sessionId, request);
+      assertOrdinarySessionVisible(session, true);
+      if (session.placement === "archived" || session.lifecycle !== "open") {
+        throw new SparkSessionRegistryError(
+          "session_archived",
+          `cannot compact closed session: ${parsed.sessionId}`,
+        );
+      }
+      const route = sessionTurnRoute(options.db, session);
+      const idempotencyKey = parsed.idempotencyKey ?? request.idempotencyKey;
+      const store = new SparkInvocationStore(options.db);
+      const existing = idempotencyKey ? store.findByIdempotencyKey(idempotencyKey) : undefined;
+      if (existing) {
+        assertIdempotentCompactReplay(existing, parsed);
+        return {
+          result: publicObject(turnSubmitResultForInvocation(existing)),
+          invocationId: existing.invocationId,
+        };
+      }
+
+      const model = await effectiveTurnModel(options, parsed.sessionId);
+      await options.sessionRegistry?.recordTurnQueued(parsed.sessionId);
+      let submitted;
+      let raced: ReturnType<typeof store.findByIdempotencyKey>;
+      try {
+        submitted = submitInvocationTask(
+          options.db,
+          {
+            type: "session.compact",
+            sessionId: parsed.sessionId,
+            sessionIncarnation: session.incarnation ?? 1,
+            prompt: SPARK_SESSION_COMPACT_PROMPT,
+            operationId: `session.compact:${randomUUID()}`,
+            ...(parsed.customInstructions ? { customInstructions: parsed.customInstructions } : {}),
+            ...(model ? { model } : {}),
+            cwd: route.cwd,
+            ...(request.workspaceBindingId
+              ? { workspaceBindingId: request.workspaceBindingId }
+              : {}),
+            ...(route.workspaceId ? { workspaceId: route.workspaceId } : {}),
+          },
+          idempotencyKey,
+          { kind: "session.compact" },
+        );
+      } catch (error) {
+        raced = idempotencyKey ? store.findByIdempotencyKey(idempotencyKey) : undefined;
+        if (raced) {
+          try {
+            assertIdempotentCompactReplay(raced, parsed);
+          } finally {
+            if (isTerminalInvocationStatus(raced.status)) {
+              await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
+            }
+          }
+          return {
+            result: publicObject(turnSubmitResultForInvocation(raced)),
+            invocationId: raced.invocationId,
+          };
+        }
+        await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
+        throw error;
+      }
+      options.onInvocationQueued?.();
+      if (isTerminalInvocationStatus(store.require(submitted.invocationId).status)) {
+        await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
+      }
+      return { result: publicObject(submitted), invocationId: submitted.invocationId };
+    }
     case "session.mode.set.request": {
       const parsed = sparkSessionSetModeRequestSchema.parse({
         ...request.payload,
@@ -562,15 +644,24 @@ export async function executeSparkDaemonSessionControl(
         true,
       );
       const reason = parsed.reason ?? "Spark runtime turn cancellation requested.";
-      const outcome = store.requestCancellation(parsed.invocationId, reason);
-      if (outcome === "cancelled" && invocation.sessionId) {
+      const cancelRequested = options.sessionSupervisor
+        ? options.sessionSupervisor.requestInvocationCancellation(parsed.invocationId, reason)
+        : (() => {
+            const outcome = store.requestCancellation(parsed.invocationId, reason);
+            return outcome === "cancelled" || outcome === "requested";
+          })();
+      const current = store.require(parsed.invocationId);
+      if (
+        invocation.status === "queued" &&
+        current.status === "cancelled" &&
+        invocation.sessionId
+      ) {
         await settleManagedSessionTurn(options.sessionRegistry, invocation.sessionId);
       }
-      const current = store.require(parsed.invocationId);
       const result = sparkTurnCancelResultSchema.parse({
         invocationId: parsed.invocationId,
         status: current.status,
-        cancelRequested: outcome === "cancelled" || outcome === "requested",
+        cancelRequested,
       });
       const data = publicObject(result);
       return { result: data, invocationId: parsed.invocationId };
@@ -676,6 +767,23 @@ function assertIdempotentTurnReplay(
     JSON.stringify(task.attachments) !== JSON.stringify(parsed.attachments) ||
     JSON.stringify(originBindingFromTask(task)) !== JSON.stringify(parsed.originBinding) ||
     existing.parentInvocationId !== parsed.parentInvocationId
+  ) {
+    throw new SparkDaemonControlError(
+      "invocation_idempotency_conflict",
+      `Invocation idempotency conflict: ${parsed.idempotencyKey ?? "unknown"}`,
+    );
+  }
+}
+
+function assertIdempotentCompactReplay(
+  existing: SparkInvocationRecord,
+  parsed: ReturnType<typeof sparkSessionCompactRequestSchema.parse>,
+): void {
+  const task = validateSparkDaemonTask(existing.task);
+  if (
+    task.type !== "session.compact" ||
+    task.sessionId !== parsed.sessionId ||
+    task.customInstructions !== parsed.customInstructions
   ) {
     throw new SparkDaemonControlError(
       "invocation_idempotency_conflict",
@@ -1168,7 +1276,7 @@ function assertOriginBindingRoute(
 
 function submitInvocationTask(
   db: DatabaseSync,
-  task: SparkDaemonSessionRunTask,
+  task: SparkDaemonSessionRunTask | SparkDaemonSessionCompactTask,
   idempotencyKey?: string,
   source?: { kind: string; ref?: string; parentInvocationId?: string },
 ) {
@@ -1378,18 +1486,24 @@ function projectPendingSessionTurns(
   const hasQueuedTurn = pending.some((invocation) => invocation.status === "queued");
   const messages = pending
     .filter((invocation) => invocation.sessionId === snapshot.sessionId)
-    .map((invocation) => ({
-      id: `invocation:${invocation.invocationId}`,
-      role: "user" as const,
-      text: validateSparkDaemonTask(invocation.task).prompt,
-      status: "done" as const,
-      createdAt: invocation.createdAt,
-      metadata: {
-        source: "daemon.invocation",
-        invocationId: invocation.invocationId,
-        invocationStatus: invocation.status,
-      },
-    }));
+    .flatMap((invocation) => {
+      const task = validateSparkDaemonTask(invocation.task);
+      if (task.type === "session.compact") return [];
+      return [
+        {
+          id: `invocation:${invocation.invocationId}`,
+          role: "user" as const,
+          text: task.prompt,
+          status: "done" as const,
+          createdAt: invocation.createdAt,
+          metadata: {
+            source: "daemon.invocation",
+            invocationId: invocation.invocationId,
+            invocationStatus: invocation.status,
+          },
+        },
+      ];
+    });
   return parseSparkSessionView({
     ...snapshot,
     pendingTurns: pending.map((invocation) => ({

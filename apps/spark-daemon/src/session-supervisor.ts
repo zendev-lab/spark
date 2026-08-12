@@ -131,6 +131,12 @@ export class SessionSupervisor {
     this.scheduler = scheduler;
   }
 
+  requestInvocationCancellation(invocationId: string, reason: string): boolean {
+    if (this.scheduler) return this.scheduler.cancel(invocationId, reason);
+    const outcome = this.invocations.requestCancellation(invocationId, reason);
+    return outcome === "cancelled" || outcome === "requested";
+  }
+
   async ensureWorkspaceAdministrator(workspaceId: string): Promise<SparkSessionState> {
     return await this.registry.ensureWorkspaceAdministrator(workspaceId);
   }

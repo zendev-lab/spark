@@ -9,6 +9,8 @@ import {
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { upsertSparkDaemonServerProfile } from "../server-profiles.ts";
+import { createDaemonSessionRegistry } from "../session-registry.ts";
+import { createDaemonWorkspaceSession } from "../../../../test/support/session-fixtures.ts";
 import { SparkReproFormalEvidenceReceiptStore } from "../store/repro-formal-evidence.ts";
 import { openSparkDaemonDatabase } from "../store/schema.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";
@@ -46,6 +48,48 @@ describe("transport-neutral local RPC service", () => {
     expect(direct).not.toHaveProperty("id");
     expect(direct).not.toHaveProperty("ok");
     expect(legacy).toEqual({ id: "rpc_workspace_list", ok: true, result: direct });
+    db.close();
+  });
+
+  it("routes session.compact through the typed service into a durable invocation", async () => {
+    const { paths, db } = createFixture();
+    const workspaceRoot = join(paths.dataDir, "compact-workspace");
+    mkdirSync(workspaceRoot, { recursive: true });
+    const sessionRegistry = createDaemonSessionRegistry(join(paths.dataDir, ".spark"), {
+      daemonId: "compact-service-test",
+      daemonCwd: workspaceRoot,
+    });
+    await createDaemonWorkspaceSession(sessionRegistry, {
+      sessionId: "session-compact-service",
+      workspaceId: "workspace-compact-service",
+      cwd: workspaceRoot,
+    });
+    const onInvocationQueued = vi.fn();
+
+    const result = await invokeLocalRpcService(
+      "session.compact",
+      {
+        sessionId: "session-compact-service",
+        customInstructions: "preserve durable decisions",
+        idempotencyKey: "compact-service-once",
+      },
+      {
+        paths,
+        db,
+        handlerOptions: { sessionRegistry, onInvocationQueued },
+      },
+    );
+
+    expect(result).toMatchObject({ status: "queued", invocationId: expect.any(String) });
+    expect(new SparkInvocationStore(db).require(result.invocationId)).toMatchObject({
+      sourceKind: "session.compact",
+      task: {
+        type: "session.compact",
+        sessionId: "session-compact-service",
+        customInstructions: "preserve durable decisions",
+      },
+    });
+    expect(onInvocationQueued).toHaveBeenCalledOnce();
     db.close();
   });
 

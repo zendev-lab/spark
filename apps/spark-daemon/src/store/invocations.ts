@@ -773,6 +773,7 @@ export class SparkInvocationStore {
   ): "cancelled" | "requested" | "terminal" | "not-found" {
     const current = this.getSummary(invocationId);
     if (!current) return "not-found";
+    if (this.hasDurableCommitStarted(invocationId)) return "terminal";
     if (current.status === "queued") {
       this.complete(invocationId, { status: "cancelled", cancelReason: reason, now });
       return "cancelled";
@@ -786,6 +787,55 @@ export class SparkInvocationStore {
       )
       .run(reason, now, invocationId);
     return "requested";
+  }
+
+  markDurableCommitStarted(
+    invocationId: string,
+    now = new Date().toISOString(),
+  ): SparkInvocationEvent {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.require(invocationId);
+      if (current.status !== "running") {
+        throw new Error(`Invocation durable commit conflict: ${invocationId} is ${current.status}`);
+      }
+      if (current.cancelReason) {
+        throw new Error(`Invocation cancellation already requested: ${current.cancelReason}`);
+      }
+      const existing = this.previousEvent(
+        invocationId,
+        Number.MAX_SAFE_INTEGER,
+        "invocation.durable_commit_started",
+      );
+      if (existing) {
+        this.db.exec("COMMIT");
+        return existing;
+      }
+      const event = this.appendEventInTransaction(
+        invocationId,
+        "invocation.durable_commit_started",
+        { phase: "transcript_replace" },
+        now,
+      );
+      this.db.exec("COMMIT");
+      return { ...event, payload: { phase: "transcript_replace" } };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  hasDurableCommitStarted(invocationId: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1
+           FROM invocation_events
+           WHERE invocation_id = ? AND kind = 'invocation.durable_commit_started'
+           LIMIT 1`,
+        )
+        .get(invocationId),
+    );
   }
 
   failInterruptedRunning(now = new Date().toISOString()): number {
@@ -2204,6 +2254,7 @@ export function isRetryableInvocationError(errorCode: string | undefined): boole
 
 function markTaskForResume(task: unknown): unknown {
   if (!task || typeof task !== "object" || Array.isArray(task)) return task;
+  if ((task as { type?: unknown }).type === "session.compact") return task;
   return { ...(task as Record<string, unknown>), resumeFromInterrupt: true };
 }
 

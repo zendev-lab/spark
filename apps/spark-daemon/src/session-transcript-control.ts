@@ -7,17 +7,22 @@ export interface EnsureDaemonSessionTranscriptInput {
   session: SparkSessionState;
   sparkHome: string;
   registry: Pick<DaemonSessionRegistry, "bindTranscriptPath">;
+  expectedIncarnation?: number;
+  expectedLifecycle?: "open";
 }
 
+export type ResolveDaemonSessionTranscriptInput = Omit<
+  EnsureDaemonSessionTranscriptInput,
+  "registry" | "expectedIncarnation" | "expectedLifecycle"
+>;
+
 /**
- * Resolve the one transcript owned by a daemon registry record.
- *
- * Ordinary conversations are preallocated at a stable path before execution.
- * Side-thread generations retain their explicitly registered generation path.
+ * Resolve an already persisted transcript without allocating or binding one.
+ * This keeps `/compact` on a blank provisional Session a true no-op.
  */
-export async function ensureDaemonSessionTranscript(
-  input: EnsureDaemonSessionTranscriptInput,
-): Promise<string> {
+export async function resolveDaemonSessionTranscript(
+  input: ResolveDaemonSessionTranscriptInput,
+): Promise<string | undefined> {
   const session = input.session;
   if (session.owner?.kind === "side_thread") {
     if (!session.sessionPath) {
@@ -42,16 +47,37 @@ export async function ensureDaemonSessionTranscript(
       `session ${session.sessionId} has ${recovered.length} transcript fragments; run transcript unification before continuing`,
     );
   }
-  if (recovered.length === 1) {
-    const record = recovered[0]!;
-    assertTranscriptIdentity(record.header.id, record.header.cwd, session);
+  const record = recovered[0];
+  if (!record) return undefined;
+  assertTranscriptIdentity(record.header.id, record.header.cwd, session);
+  return record.path;
+}
+
+/**
+ * Resolve the one transcript owned by a daemon registry record.
+ *
+ * Ordinary conversations are preallocated at a stable path before execution.
+ * Side-thread generations retain their explicitly registered generation path.
+ */
+export async function ensureDaemonSessionTranscript(
+  input: EnsureDaemonSessionTranscriptInput,
+): Promise<string> {
+  const session = input.session;
+  const existingPath = await resolveDaemonSessionTranscript(input);
+  if (existingPath) {
+    if (session.sessionPath || session.owner?.kind === "side_thread") return existingPath;
     const bound = await input.registry.bindTranscriptPath({
       sessionId: session.sessionId,
-      sessionPath: record.path,
+      sessionPath: existingPath,
+      ...(input.expectedIncarnation === undefined
+        ? {}
+        : { expectedIncarnation: input.expectedIncarnation }),
+      ...(input.expectedLifecycle ? { expectedLifecycle: input.expectedLifecycle } : {}),
     });
     return bound.sessionPath!;
   }
 
+  const store = new SparkSessionStore({ cwd: session.cwd!, sparkHome: input.sparkHome });
   const record = store.createCanonicalSession({
     id: session.sessionId,
     timestamp: session.createdAt,
@@ -60,6 +86,10 @@ export async function ensureDaemonSessionTranscript(
   const bound = await input.registry.bindTranscriptPath({
     sessionId: session.sessionId,
     sessionPath: record.path,
+    ...(input.expectedIncarnation === undefined
+      ? {}
+      : { expectedIncarnation: input.expectedIncarnation }),
+    ...(input.expectedLifecycle ? { expectedLifecycle: input.expectedLifecycle } : {}),
   });
   return bound.sessionPath!;
 }

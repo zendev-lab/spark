@@ -654,6 +654,19 @@ export const sparkSessionInvocationReceiptSchema = z.object({
   finishedAt: isoDateTimeSchema.optional(),
 });
 
+export const SPARK_SESSION_COMPACT_CUSTOM_INSTRUCTIONS_MAX_LENGTH = 8_192;
+
+/** Queue one daemon-owned compaction against the canonical Session transcript. */
+export const sparkSessionCompactRequestSchema = sparkSessionGetRequestSchema.extend({
+  customInstructions: z
+    .string()
+    .trim()
+    .min(1)
+    .max(SPARK_SESSION_COMPACT_CUSTOM_INSTRUCTIONS_MAX_LENGTH)
+    .optional(),
+  idempotencyKey: z.string().trim().min(1).optional(),
+});
+
 /**
  * Read one bounded transcript page. `beforeMessageId` is an exclusive cursor:
  * callers pass the first message id from the current window to load the page
@@ -822,6 +835,7 @@ export type SparkSessionArchiveRequest = z.infer<typeof sparkSessionArchiveReque
 export type SparkSessionRestoreRequest = z.infer<typeof sparkSessionRestoreRequestSchema>;
 export type SparkSessionCloseRequest = z.infer<typeof sparkSessionCloseRequestSchema>;
 export type SparkSessionInvocationReceipt = z.infer<typeof sparkSessionInvocationReceiptSchema>;
+export type SparkSessionCompactRequest = z.infer<typeof sparkSessionCompactRequestSchema>;
 export type SparkSessionSnapshotRequest = z.infer<typeof sparkSessionSnapshotRequestSchema>;
 export type SparkSessionMediaReadRequest = z.infer<typeof sparkSessionMediaReadRequestSchema>;
 export type SparkSessionMediaReadResult = z.infer<typeof sparkSessionMediaReadResultSchema>;

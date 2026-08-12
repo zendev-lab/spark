@@ -1386,17 +1386,27 @@ async function waitForInvocation(
   invocationId: string,
   expected: string,
 ): Promise<Record<string, unknown>> {
-  return await waitFor(
+  const result = await waitFor(
     async () => {
       const result = jsonObject(
         (await runSparkProcess(target, ["daemon", "invocation", "result", invocationId, "--json"]))
           .stdout,
       );
-      return result.status === expected ? result : undefined;
+      return result.status === "succeeded" ||
+        result.status === "failed" ||
+        result.status === "cancelled"
+        ? result
+        : undefined;
     },
     60_000,
-    `invocation ${invocationId} to become ${expected}`,
+    `invocation ${invocationId} to become terminal`,
   );
+  if (result.status !== expected) {
+    throw new Error(
+      `Invocation ${invocationId} became ${String(result.status)}, expected ${expected}: ${JSON.stringify(result)}`,
+    );
+  }
+  return result;
 }
 
 async function waitForSinglePendingAsk(

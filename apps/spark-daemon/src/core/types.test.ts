@@ -1,7 +1,54 @@
 import { describe, expect, it } from "vitest";
-import { validateSparkDaemonTask } from "./types.ts";
+import {
+  SPARK_SESSION_COMPACT_PROMPT,
+  getSparkDaemonTaskSessionId,
+  validateSparkDaemonTask,
+} from "./types.ts";
 
 describe("daemon task validation", () => {
+  it("validates daemon-owned session compaction tasks", () => {
+    const task = validateSparkDaemonTask({
+      type: "session.compact",
+      sessionId: " session-compact ",
+      sessionIncarnation: 2,
+      prompt: SPARK_SESSION_COMPACT_PROMPT,
+      operationId: " compact-operation ",
+      customInstructions: " preserve decisions ",
+      model: "provider/model",
+      cwd: "/workspace",
+      workspaceId: "workspace-compact",
+    });
+    expect(task).toEqual({
+      type: "session.compact",
+      sessionId: "session-compact",
+      sessionIncarnation: 2,
+      prompt: SPARK_SESSION_COMPACT_PROMPT,
+      operationId: "compact-operation",
+      customInstructions: "preserve decisions",
+      model: "provider/model",
+      cwd: "/workspace",
+      workspaceId: "workspace-compact",
+    });
+    expect(getSparkDaemonTaskSessionId(task)).toBe("session-compact");
+    expect(() =>
+      validateSparkDaemonTask({
+        type: "session.compact",
+        sessionId: "session-compact",
+        sessionIncarnation: 2,
+        prompt: "Summarize this transcript",
+        operationId: "compact-operation",
+      }),
+    ).toThrow();
+    expect(() =>
+      validateSparkDaemonTask({
+        type: "session.compact",
+        sessionId: "session-compact",
+        prompt: SPARK_SESSION_COMPACT_PROMPT,
+        operationId: "compact-operation",
+      }),
+    ).toThrow(/positive sessionIncarnation/u);
+  });
+
   it("preserves normalized channel context without folding it into the prompt", () => {
     const imageData = Buffer.from("image").toString("base64");
     expect(

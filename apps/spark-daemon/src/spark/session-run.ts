@@ -35,7 +35,9 @@ import {
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import {
   loadSparkHeadlessSessionModule,
+  type CreateSparkHeadlessSessionCompactorFn,
   type CreateSparkHeadlessSessionExecutorFn,
+  type SparkHeadlessSessionCompactor,
   type SparkHeadlessSessionExecutor,
 } from "@zendev-lab/spark-host/headless-loader";
 import {
@@ -45,7 +47,10 @@ import {
   renderSparkChannelSurfacePrompt,
 } from "@zendev-lab/spark-host/system-prompt";
 import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
-import { refreshSparkSessionSnapshotIndex } from "@zendev-lab/spark-session";
+import {
+  refreshSparkSessionSnapshotIndex,
+  SparkSessionRegistryError,
+} from "@zendev-lab/spark-session";
 import {
   isSparkTurnRestartYieldError,
   type SparkTurnResumeCheckpoint,
@@ -62,6 +67,7 @@ import {
 import type { InfoflowAdapterConfig, QqbotAdapterConfig } from "@zendev-lab/spark-channels";
 import { loadDaemonChannelsConfig, type DaemonChannelIngressRuntime } from "../channels/ingress.ts";
 import type {
+  SparkDaemonSessionCompactTask,
   SparkDaemonSessionRunTask,
   SparkDaemonLoopTickTask,
   SparkDaemonTask,
@@ -74,7 +80,10 @@ import type { SparkDaemonModelControl } from "../model-control.ts";
 import { artifactDaemonProjectionEventFromToolResult } from "../artifact-projection.ts";
 import type { DaemonSessionRegistry } from "../session-registry.ts";
 import type { SparkInvocationStore } from "../store/invocations.ts";
-import { ensureDaemonSessionTranscript } from "../session-transcript-control.ts";
+import {
+  ensureDaemonSessionTranscript,
+  resolveDaemonSessionTranscript,
+} from "../session-transcript-control.ts";
 import { ChannelReplyEventProjector } from "../channels/reply-stream.ts";
 import type { ChannelReplyDeliveryStore } from "../channels/reply-delivery.ts";
 import { assignCompletedSessionName } from "./session-title.ts";
@@ -145,14 +154,20 @@ export interface SparkDaemonTaskExecutorOptions {
     DaemonSessionRegistry,
     "recordRun" | "recordTurnQueued" | "recordTurnSettled"
   > &
-    Partial<Pick<DaemonSessionRegistry, "bindTranscriptPath" | "get" | "setNameIfMissing">>;
+    Partial<
+      Pick<
+        DaemonSessionRegistry,
+        "bindTranscriptPath" | "commitTranscriptReplacement" | "get" | "setNameIfMissing"
+      >
+    >;
   sessionSupervisor?: SessionSupervisor;
   invocationStore?: SparkInvocationStore;
+  createSparkHeadlessSessionCompactor?: CreateSparkHeadlessSessionCompactorFn;
   createSparkHeadlessSessionExecutor?: CreateSparkHeadlessSessionExecutorFn;
   refreshSessionSnapshotIndex?: typeof refreshSparkSessionSnapshotIndex;
   sessionLeaseControl?: {
     acquire(
-      task: SparkDaemonSessionRunTask,
+      task: SparkDaemonSessionRunTask | SparkDaemonSessionCompactTask,
       context: SparkDaemonTaskExecutionContext,
     ): Promise<
       | {
@@ -196,7 +211,23 @@ export { loadSparkHeadlessSessionModule };
 export function createSparkDaemonTaskExecutor(
   options: SparkDaemonTaskExecutorOptions,
 ): SparkDaemonTaskExecutor {
+  let sessionCompactor: SparkHeadlessSessionCompactor | undefined;
   let sessionExecutor: SparkHeadlessSessionExecutor | undefined;
+
+  const getSessionCompactor = async () => {
+    if (sessionCompactor) return sessionCompactor;
+    const createSessionCompactor =
+      options.createSparkHeadlessSessionCompactor ??
+      (await loadSparkHeadlessSessionModule()).createSparkHeadlessSessionCompactor;
+    if (!createSessionCompactor) {
+      throw new Error("Spark headless session module does not export a session compactor");
+    }
+    sessionCompactor = createSessionCompactor({
+      ...(options.paths.piAgentDir ? { sparkHome: options.paths.piAgentDir } : {}),
+      ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
+    });
+    return sessionCompactor;
+  };
 
   const getSessionExecutor = async () => {
     if (sessionExecutor) return sessionExecutor;
@@ -217,6 +248,58 @@ export function createSparkDaemonTaskExecutor(
         options.loopEvaluators ?? new SparkLoopEvaluatorRegistry(),
         context.signal,
       );
+    }
+    if (task.type === "session.compact") {
+      let projectedFailure = false;
+      const trackedContext: SparkDaemonTaskExecutionContext = {
+        ...context,
+        emitEvent: (event) => {
+          const projected = canonicalSessionFailureEvent(
+            event,
+            task.sessionId,
+            context.invocationId,
+          );
+          if (isProjectedSessionFailure(projected, task.sessionId)) projectedFailure = true;
+          return context.emitEvent?.(projected);
+        },
+      };
+      let sessionLease:
+        | {
+            identity: SparkSessionLeaseIdentity;
+            release(): void | Promise<void>;
+          }
+        | undefined;
+      try {
+        sessionLease = await options.sessionLeaseControl?.acquire(task, trackedContext);
+        await options.sessionRegistry?.recordTurnQueued(task.sessionId);
+        const effectiveTask = await withEffectiveCompactTaskModel(task, options.modelControl);
+        const result = await executeSparkDaemonSessionCompactTask(effectiveTask, trackedContext, {
+          ...options,
+          compactSession: await getSessionCompactor(),
+          ...(sessionLease ? { sessionLease: sessionLease.identity } : {}),
+        });
+        return await recordCompletedSessionCompaction(
+          effectiveTask,
+          result,
+          options.sessionRegistry,
+          options.refreshSessionSnapshotIndex ?? refreshSparkSessionSnapshotIndex,
+        );
+      } catch (error) {
+        if (!context.signal.aborted && !projectedFailure) {
+          await emitSessionFailure(task, trackedContext, error);
+        }
+        await settleFailedSessionRun(task.sessionId, options.sessionRegistry);
+        throw error;
+      } finally {
+        try {
+          await sessionLease?.release();
+        } catch (error) {
+          console.error(
+            `[spark-daemon] failed to release Session lease for ${task.sessionId}`,
+            error,
+          );
+        }
+      }
     }
     if (task.type === "session.run" || task.type === "loop.tick") {
       const loopTask = task.type === "loop.tick" ? task : undefined;
@@ -444,7 +527,7 @@ function isTerminalSessionFailureMessage(message: { role: string; status: string
 }
 
 async function emitSessionFailure(
-  task: SparkDaemonSessionRunTask,
+  task: SparkDaemonSessionRunTask | SparkDaemonSessionCompactTask,
   context: SparkDaemonTaskExecutionContext,
   error: unknown,
 ): Promise<void> {
@@ -534,6 +617,18 @@ async function withEffectiveTaskProfile(
     model: `${model.providerName}/${model.modelId}`,
     ...(thinkingLevel ? { thinkingLevel } : {}),
   };
+}
+
+async function withEffectiveCompactTaskModel(
+  task: SparkDaemonSessionCompactTask,
+  modelControl: Pick<SparkDaemonModelControl, "effectiveModel" | "prepareModel"> | undefined,
+): Promise<SparkDaemonSessionCompactTask> {
+  if (!modelControl) return task;
+  const model = task.model
+    ? modelRefFromValue(task.model)
+    : await modelControl.effectiveModel(task.sessionId);
+  await modelControl.prepareModel(model);
+  return task.model ? task : { ...task, model: `${model.providerName}/${model.modelId}` };
 }
 
 function modelRefFromValue(value: string): { providerName: string; modelId: string } {
@@ -1183,6 +1278,112 @@ function allowedToolsForSessionExecution(
   if (!allowedTools) return [...roleTools];
   const roleCeiling = new Set(roleTools);
   return allowedTools.filter((tool) => roleCeiling.has(tool));
+}
+
+export async function executeSparkDaemonSessionCompactTask(
+  task: SparkDaemonSessionCompactTask,
+  context: SparkDaemonTaskExecutionContext,
+  options: SparkDaemonTaskExecutorOptions & {
+    compactSession: SparkHeadlessSessionCompactor;
+    sessionLease?: SparkSessionLeaseIdentity;
+  },
+): Promise<unknown> {
+  const registry = options.sessionRegistry;
+  if (!registry?.get || !registry.bindTranscriptPath) {
+    throw new Error("session.compact requires the daemon session registry");
+  }
+  const session = await registry.get(task.sessionId);
+  if (!session) throw new Error(`Unknown daemon Session: ${task.sessionId}`);
+  if (
+    session.incarnation !== task.sessionIncarnation ||
+    session.lifecycle !== "open" ||
+    session.placement === "archived"
+  ) {
+    throw sessionCompactionFenceError(task, session);
+  }
+  if (session.owner.kind === "side_thread") {
+    throw new SparkSessionRegistryError(
+      "side_thread_mutation_forbidden",
+      `session.compact cannot mutate side thread ${task.sessionId}`,
+    );
+  }
+  const workspaceId =
+    session.scope.kind === "workspace" ? session.scope.workspaceId : task.workspaceId;
+  if (task.workspaceId && workspaceId && task.workspaceId !== workspaceId) {
+    throw new Error(
+      `Daemon Session ${task.sessionId} workspace mismatch: ${task.workspaceId} != ${workspaceId}.`,
+    );
+  }
+  let cwd = session.cwd ?? task.cwd ?? options.cwd ?? process.cwd();
+  if (workspaceId && options.resolveSessionCwd) {
+    const resolved = await options.resolveSessionCwd({
+      workspaceId,
+      cwd,
+      ...(session.cwdArtifactRef ? { cwdArtifactRef: session.cwdArtifactRef } : {}),
+    });
+    cwd = resolved.cwd;
+  }
+  assertSessionExecutionCwd(cwd);
+  const workspaceRoot = workspaceId ? options.resolveWorkspaceCwd?.(workspaceId) : undefined;
+  if (workspaceId && options.resolveWorkspaceCwd && !workspaceRoot) {
+    throw new Error(`Workspace ${workspaceId} has no daemon-local state root.`);
+  }
+  const sparkHome = options.paths.piAgentDir;
+  if (!sparkHome) throw new Error("session.compact requires a daemon session state root");
+  if (!session.sessionPath) {
+    const existingPath = await resolveDaemonSessionTranscript({ session, sparkHome });
+    if (!existingPath) {
+      return {
+        sessionId: task.sessionId,
+        succeeded: false,
+        replayed: false,
+        tokensAfter: 0,
+        assistantText: `Nothing to compact in daemon session ${task.sessionId}.`,
+      };
+    }
+  }
+  if (!registry.commitTranscriptReplacement) {
+    throw new Error("session.compact requires atomic daemon transcript replacement");
+  }
+  const sessionPath = await ensureDaemonSessionTranscript({
+    session,
+    sparkHome,
+    registry: { bindTranscriptPath: registry.bindTranscriptPath },
+    expectedIncarnation: task.sessionIncarnation,
+    expectedLifecycle: "open",
+  });
+  return await options.compactSession({
+    cwd,
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(workspaceRoot ? { sparkStateRoot: join(workspaceRoot, ".spark") } : {}),
+    sessionId: task.sessionId,
+    sessionPath,
+    operationId: task.operationId,
+    ...(task.customInstructions ? { customInstructions: task.customInstructions } : {}),
+    ...(task.model
+      ? { model: task.model }
+      : session.model
+        ? { model: `${session.model.providerName}/${session.model.modelId}` }
+        : {}),
+    ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
+    sparkHome,
+    ...(options.sessionLease ? { sessionLease: options.sessionLease } : {}),
+    signal: context.signal,
+    ...(context.beginDurableCommit
+      ? { beforeTranscriptCommit: () => context.beginDurableCommit?.() }
+      : {}),
+    commitTranscriptReplacement: async (replace) => {
+      await registry.commitTranscriptReplacement!(
+        {
+          sessionId: task.sessionId,
+          sessionPath,
+          expectedIncarnation: task.sessionIncarnation,
+          expectedLifecycle: "open",
+        },
+        replace,
+      );
+    },
+  });
 }
 
 export async function executeSparkDaemonSessionRunTask(
@@ -1946,6 +2147,38 @@ function projectHiddenLoopView(
   return view;
 }
 
+async function recordCompletedSessionCompaction(
+  task: SparkDaemonSessionCompactTask,
+  result: unknown,
+  registry: Pick<DaemonSessionRegistry, "recordTurnSettled"> | undefined,
+  refreshSessionSnapshotIndex: typeof refreshSparkSessionSnapshotIndex,
+): Promise<unknown> {
+  if (!registry) return result;
+  const sessionPath =
+    isRecord(result) && typeof result.sessionPath === "string" && result.sessionPath.trim()
+      ? result.sessionPath.trim()
+      : undefined;
+  if (!sessionPath) {
+    if (isRecord(result) && result.succeeded === false) {
+      await settleSessionRun(task.sessionId, registry, "empty compact transcript");
+      return result;
+    }
+    await settleSessionRun(task.sessionId, registry, "missing compacted sessionPath");
+    return registryWarning(
+      result,
+      `session ${task.sessionId} compacted without a native sessionPath`,
+    );
+  }
+  try {
+    await refreshSessionSnapshotIndex({ sessionId: task.sessionId, sessionPath });
+  } catch (error) {
+    console.error(
+      `[spark-daemon] failed to refresh compacted session snapshot index for ${task.sessionId}: ${errorMessage(error)}`,
+    );
+  }
+  return result;
+}
+
 async function recordCompletedSessionRun(
   task: SparkDaemonSessionRunTask,
   result: unknown,
@@ -2108,6 +2341,18 @@ function registryWarning(result: unknown, message: string): Record<string, unkno
     ...(isRecord(result) ? result : { result }),
     registryPersistence: { status: "failed", message },
   };
+}
+
+function sessionCompactionFenceError(
+  task: SparkDaemonSessionCompactTask,
+  session: SparkSessionState,
+): SparkSessionRegistryError {
+  return new SparkSessionRegistryError(
+    "session_transcript_cas_failed",
+    `session ${task.sessionId} changed before compact execution ` +
+      `(expected incarnation ${task.sessionIncarnation} open, found ` +
+      `${session.incarnation} ${session.lifecycle}/${session.placement})`,
+  );
 }
 
 function errorMessage(error: unknown): string {

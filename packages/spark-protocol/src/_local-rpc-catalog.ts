@@ -73,8 +73,9 @@ import {
   sparkAssignmentSchema,
   sparkSessionArchiveRequestSchema,
   sparkSessionBindRequestSchema,
-  sparkSessionCreateRequestSchema,
   sparkSessionCloseRequestSchema,
+  sparkSessionCompactRequestSchema,
+  sparkSessionCreateRequestSchema,
   sparkSessionGetRequestSchema,
   sparkSessionListRequestSchema,
   sparkSessionProjectionSchema,
@@ -442,6 +443,19 @@ const sparkLocalRpcSessionArchiveOrpcErrors = {
   session_restore_forbidden: sparkLocalRpcSessionOrpcErrors.session_restore_forbidden,
   session_scope_mismatch: sparkLocalRpcSessionOrpcErrors.session_scope_mismatch,
   side_thread_mutation_forbidden: sparkLocalRpcSessionOrpcErrors.side_thread_mutation_forbidden,
+} as const;
+
+const sparkLocalRpcSessionCompactOrpcErrors = {
+  ...sparkLocalRpcSessionRegistryBaseOrpcErrors,
+  session_archived: sparkLocalRpcSessionOrpcErrors.session_archived,
+  session_cwd_unavailable: sparkLocalRpcSessionOrpcErrors.session_cwd_unavailable,
+  session_not_found: sparkLocalRpcSessionOrpcErrors.session_not_found,
+  session_scope_mismatch: sparkLocalRpcSessionOrpcErrors.session_scope_mismatch,
+  side_thread_mutation_forbidden: sparkLocalRpcSessionOrpcErrors.side_thread_mutation_forbidden,
+  invocation_idempotency_conflict:
+    sparkLocalRpcInvocationOrpcErrors.invocation_idempotency_conflict,
+  model_not_found: sparkLocalRpcModelOrpcErrors.model_not_found,
+  model_unavailable: sparkLocalRpcModelOrpcErrors.model_unavailable,
 } as const;
 
 const sparkLocalRpcSessionInboxOrpcErrors = {
@@ -1581,6 +1595,10 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkSessionCloseRequestSchema,
     output: sparkSessionProjectionSchema,
   },
+  "session.compact": {
+    input: sparkSessionCompactRequestSchema,
+    output: sparkTurnSubmitResultSchema,
+  },
   "session.send": { input: sparkSessionSendRequestSchema, output: sparkSessionSendResultSchema },
   "session.inbox": { input: sparkSessionInboxRequestSchema, output: sparkSessionInboxResultSchema },
   "session.mail.read": {
@@ -2054,6 +2072,12 @@ export const sparkLocalRpcOrpcContract = {
       "/session/close",
       p["session.close"],
       sparkLocalRpcSessionArchiveOrpcErrors,
+    ),
+    compact: procedure(
+      "POST",
+      "/session/compact",
+      p["session.compact"],
+      sparkLocalRpcSessionCompactOrpcErrors,
     ),
     send: procedure("POST", "/session/send", p["session.send"], sparkLocalRpcSessionSendOrpcErrors),
     inbox: procedure(

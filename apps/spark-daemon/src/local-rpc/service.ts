@@ -105,6 +105,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "session.archive",
     "session.restore",
     "session.close",
+    "session.compact",
     "session.send",
     "session.inbox",
     "session.mail.read",

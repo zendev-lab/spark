@@ -268,6 +268,13 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ),
     ).toBe(true);
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("session.get", "session_not_found")).toBe(true);
+    expect(isSparkLocalRpcOrpcErrorCodeForMethod("session.compact", "session_archived")).toBe(true);
+    expect(
+      sparkLocalRpcProcedureSchemas["session.compact"].input.parse({
+        sessionId: "session-compact",
+        customInstructions: "keep decisions",
+      }),
+    ).toEqual({ sessionId: "session-compact", customInstructions: "keep decisions" });
     expect(
       isSparkLocalRpcOrpcErrorCodeForMethod("session.restore", "session_restore_forbidden"),
     ).toBe(true);
