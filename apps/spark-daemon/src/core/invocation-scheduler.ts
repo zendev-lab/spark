@@ -68,6 +68,8 @@ interface InvocationCommitState {
   started: boolean;
 }
 
+type TerminalDeferralResult = { status: "fulfilled" } | { status: "rejected"; reason: unknown };
+
 export interface SparkInvocationSchedulerOptions {
   store: SparkInvocationStore;
   executeTask: SparkDaemonTaskExecutor;
@@ -414,6 +416,29 @@ export class SparkInvocationScheduler {
     let attemptSession: ExecutionAttemptSession<SparkInvocationEvent> | undefined;
     let streamedEventCount = 0;
     let restartYieldCommitted = false;
+    const terminalDeferrals = new Set<Promise<TerminalDeferralResult>>();
+    const deferTerminalUntil = (delivery: PromiseLike<unknown>): void => {
+      const tracked = Promise.resolve(delivery).then(
+        (): TerminalDeferralResult => ({ status: "fulfilled" }),
+        (reason: unknown): TerminalDeferralResult => ({ status: "rejected", reason }),
+      );
+      terminalDeferrals.add(tracked);
+    };
+    const drainTerminalDeferrals = async (): Promise<void> => {
+      let firstFailure: unknown;
+      let failed = false;
+      while (terminalDeferrals.size > 0) {
+        const pending = [...terminalDeferrals];
+        const results = await Promise.all(pending);
+        for (const delivery of pending) terminalDeferrals.delete(delivery);
+        for (const result of results) {
+          if (result.status !== "rejected" || failed) continue;
+          firstFailure = result.reason;
+          failed = true;
+        }
+      }
+      if (failed) throw firstFailure;
+    };
     const rootUsagePersistence =
       invocation.claimClass === "structured"
         ? "anonymous"
@@ -631,6 +656,7 @@ export class SparkInvocationScheduler {
           commitState.started = true;
           timeout.disable();
         },
+        deferTerminalUntil,
         withPausedTimeout: async <T>(operation: () => Promise<T>) =>
           await timeout.runPaused(operation),
         yieldForRestartIfRequested: (checkpoint: SparkTurnResumeCheckpoint) => {
@@ -663,6 +689,9 @@ export class SparkInvocationScheduler {
         executorSettled,
         abortPromise(controller.signal, () => commitState.started),
       ]);
+      // Async projections accepted before executor settlement are part of the
+      // attempt output boundary. Never commit its high-water mark first.
+      await drainTerminalDeferrals();
       await bindLateReproUsageScope();
       if (streamedEventCount === 0) {
         for (const event of daemonEventsFromTaskResult(result, task, invocation.invocationId)) {
@@ -674,6 +703,13 @@ export class SparkInvocationScheduler {
       this.settleTokenUsageExecution(rootUsageExecution?.executionId, "complete");
       this.emit(lifecycleEvent(invocation.invocationId, task, "succeeded"));
     } catch (error) {
+      try {
+        await drainTerminalDeferrals();
+      } catch {
+        // Preserve cancellation/timeout/executor failure precedence after all
+        // accepted projections settle. A deferral failure reached from the
+        // success path is already the primary error caught here.
+      }
       if (restartYieldCommitted && isSparkTurnRestartYieldError(error)) {
         terminalAttempt(attemptSession, "cancelled", { errorCode: "restart_yield" });
         await bindLateReproUsageScope();

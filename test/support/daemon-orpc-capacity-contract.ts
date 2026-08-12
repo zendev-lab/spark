@@ -78,6 +78,24 @@ export interface DaemonOrpcCapacityScenario {
     maxGapMs: number;
     /** Milliseconds after the loaded streaming probe began. */
     maxGapAtMs: number;
+    /** Process CPU time accrued during the timer interval containing maxGapMs. */
+    maxGapProcessCpuMs: number;
+    /** maxGapProcessCpuMs / the actual timer interval containing maxGapMs. */
+    maxGapProcessCpuToWallRatio: number;
+    /** OS-reported involuntary context switches during the max-gap timer interval. */
+    maxGapInvoluntaryContextSwitchesDelta: number;
+  };
+  hostScheduling: {
+    /** Wall-clock duration covered by the event-loop probe. */
+    observedWallMs: number;
+    processCpuUserMsDelta: number;
+    processCpuSystemMsDelta: number;
+    /** processCpuUserMsDelta + processCpuSystemMsDelta. */
+    processCpuTotalMsDelta: number;
+    /** processCpuTotalMsDelta / observedWallMs; may exceed 1 with concurrent native work. */
+    observedProcessCpuToWallRatio: number;
+    /** OS-reported involuntary context-switch count accrued during observedWallMs. */
+    involuntaryContextSwitchesDelta: number;
   };
   rssBytes: {
     before: number;

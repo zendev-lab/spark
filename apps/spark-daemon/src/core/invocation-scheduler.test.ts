@@ -150,6 +150,119 @@ describe("SparkInvocationScheduler", () => {
     }
   });
 
+  it("drains an accepted async projection before timeout commits the attempt terminal", async () => {
+    const projectionGate = deferred<void>();
+    const executionGate = deferred<void>();
+    const accepted = deferred<void>();
+    const aborted = deferred<void>();
+    const deliveryError = new Error("secondary projection delivery failed");
+    const { db, store, scheduler, executionAttemptStore } = harness(
+      async (task, context) => {
+        const delivery = projectionGate.promise.then(() => {
+          void context.emitEvent?.(
+            streamingAssistantMessage(
+              context.invocationId,
+              task.type === "loop.tick"
+                ? task.ownerSessionId
+                : "sessionId" in task
+                  ? task.sessionId
+                  : context.invocationId,
+              "terminal-before-timeout",
+              "accepted before timeout",
+            ),
+          );
+        });
+        context.deferTerminalUntil?.(delivery);
+        context.deferTerminalUntil?.(
+          projectionGate.promise.then(() => Promise.reject(deliveryError)),
+        );
+        accepted.resolve();
+        if (context.signal.aborted) aborted.resolve();
+        else context.signal.addEventListener("abort", () => aborted.resolve(), { once: true });
+        await executionGate.promise;
+        return { late: true };
+      },
+      { taskTimeoutMs: 10 },
+    );
+    try {
+      const invocation = store.submit({
+        sessionId: "terminal-deferral-timeout",
+        prompt: "race timeout",
+        task: {
+          type: "session.run",
+          sessionId: "terminal-deferral-timeout",
+          prompt: "race timeout",
+        },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await accepted.promise;
+      await aborted.promise;
+
+      expect(store.require(invocation.invocationId).status).toBe("running");
+      expect(executionAttemptStore.current(invocation.invocationId)).toMatchObject({
+        status: "running",
+        eventHighWaterMark: 0,
+      });
+
+      projectionGate.resolve();
+      await eventually(() => store.require(invocation.invocationId).status === "failed");
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "failed",
+        errorCode: "EXECUTOR_TIMEOUT",
+        errorMessage: "Spark daemon invocation timed out after 10ms",
+      });
+      expect(streamingMessageTexts(store, invocation.invocationId)).toEqual([
+        "accepted before timeout",
+      ]);
+      expect(executionAttemptStore.current(invocation.invocationId)).toMatchObject({
+        status: "failed",
+        eventHighWaterMark: 1,
+      });
+
+      executionGate.resolve();
+      await scheduler.wait({ timeoutMs: 500 });
+    } finally {
+      projectionGate.resolve();
+      executionGate.resolve();
+      scheduler.stop();
+      db.close();
+    }
+  });
+
+  it("fails successful execution when an accepted terminal deferral rejects", async () => {
+    const deliveryError = new Error("terminal projection delivery failed");
+    const { db, store, scheduler, executionAttemptStore } = harness(async (_task, context) => {
+      context.deferTerminalUntil?.(Promise.reject(deliveryError));
+      return { mustNotCommit: true };
+    });
+    try {
+      const invocation = store.submit({
+        sessionId: "terminal-deferral-failure",
+        prompt: "fail delivery",
+        task: {
+          type: "session.run",
+          sessionId: "terminal-deferral-failure",
+          prompt: "fail delivery",
+        },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "failed",
+        errorCode: "EXECUTION_FAILED",
+        errorMessage: deliveryError.message,
+      });
+      expect(executionAttemptStore.current(invocation.invocationId)).toMatchObject({
+        status: "failed",
+        eventHighWaterMark: 0,
+      });
+    } finally {
+      scheduler.stop();
+      db.close();
+    }
+  });
+
   it("rolls back attempt output and suppresses the sink when invocation append fails", async () => {
     const emittedKinds: string[] = [];
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);

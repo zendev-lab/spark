@@ -87,6 +87,228 @@ function loopContext(
 }
 
 describe("daemon native session execution", () => {
+  it("serializes terminal projection bundles across Sessions with a macrotask fence", async () => {
+    const yieldGates: Array<() => void> = [];
+    const projected: string[] = [];
+    const projectionFailure = new Error("first terminal projection failed");
+    let projectionFailed = false;
+    const executor = createSparkDaemonTaskExecutor({
+      paths,
+      yieldBeforeTerminalProjection: () =>
+        new Promise<void>((resolve) => {
+          yieldGates.push(resolve);
+        }),
+      createSparkHeadlessSessionExecutor: () => async (input) => {
+        void input.onEvent?.({
+          type: "view_event",
+          event: {
+            version: SPARK_PROTOCOL_VERSION,
+            type: "session.message",
+            sessionId: input.sessionId,
+            message: {
+              version: SPARK_PROTOCOL_VERSION,
+              id: `${input.sessionId}:assistant`,
+              role: "assistant",
+              text: "done",
+              status: "done",
+              metadata: { stopReason: "stop" },
+            },
+          },
+        });
+        void input.onEvent?.({
+          type: "view_event",
+          event: {
+            version: SPARK_PROTOCOL_VERSION,
+            type: "run.update",
+            sessionId: input.sessionId,
+            run: {
+              version: SPARK_PROTOCOL_VERSION,
+              id: `${input.sessionId}:run`,
+              kind: "session",
+              status: "succeeded",
+              evidenceRefs: [],
+              artifactRefs: [],
+              metadata: {},
+            },
+          },
+        });
+        return { assistantText: "done" };
+      },
+    });
+    const run = (sessionId: string, invocationId: string) =>
+      executor(
+        { type: "session.run", sessionId, prompt: "finish" },
+        {
+          invocationId,
+          signal: new AbortController().signal,
+          emitEvent: (event) => {
+            if (event.type !== "daemon.view_event") return;
+            const label = `${event.sessionId}:${event.view.type === "session.message" ? "done" : "run"}`;
+            projected.push(label);
+            if (label === "session-a:done" && !projectionFailed) {
+              projectionFailed = true;
+              throw projectionFailure;
+            }
+          },
+        },
+      );
+
+    const first = run("session-a", "invocation-a");
+    const firstFailure = first.catch((error: unknown) => error);
+    await vi.waitFor(() => expect(yieldGates).toHaveLength(1));
+    const second = run("session-b", "invocation-b");
+    await Promise.resolve();
+    expect(projected).toEqual([]);
+    expect(yieldGates).toHaveLength(1);
+
+    const expected = ["session-a:done", "session-a:run", "session-b:done", "session-b:run"];
+    for (let index = 0; index < expected.length; index += 1) {
+      yieldGates[index]!();
+      await vi.waitFor(() => expect(projected).toHaveLength(index + 1));
+      expect(projected).toEqual(expected.slice(0, index + 1));
+      if (index + 1 < expected.length) {
+        await vi.waitFor(() => expect(yieldGates).toHaveLength(index + 2));
+      }
+    }
+    await vi.waitFor(() => expect(yieldGates).toHaveLength(5));
+    yieldGates[4]!();
+    await vi.waitFor(() => expect(projected).toHaveLength(5));
+    expect(projected[4]).toBe("session-a:done");
+    await expect(firstFailure).resolves.toBe(projectionFailure);
+    await expect(second).resolves.toMatchObject({ assistantText: "done" });
+  });
+
+  it("keeps fire-and-forget retry projections behind the closing terminal bundle", async () => {
+    const yieldGates: Array<() => void> = [];
+    const projected: string[] = [];
+    let initialEventsEmitted!: () => void;
+    const initialEvents = new Promise<void>((resolve) => {
+      initialEventsEmitted = resolve;
+    });
+    let continueAfterClosing!: () => void;
+    const closingDrained = new Promise<void>((resolve) => {
+      continueAfterClosing = resolve;
+    });
+    let directRetryEmitted!: () => void;
+    const directRetry = new Promise<void>((resolve) => {
+      directRetryEmitted = resolve;
+    });
+    let finishRetry!: () => void;
+    const finish = new Promise<void>((resolve) => {
+      finishRetry = resolve;
+    });
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "session-retry-terminal-bundle",
+      prompt: "retry once",
+    };
+    const viewEvent = (event: Record<string, unknown>) => ({ type: "view_event", event });
+    const runUpdate = (status: "running" | "failed" | "succeeded") =>
+      viewEvent({
+        version: SPARK_PROTOCOL_VERSION,
+        type: "run.update",
+        sessionId: task.sessionId,
+        run: {
+          version: SPARK_PROTOCOL_VERSION,
+          id: `${task.sessionId}:run`,
+          kind: "session",
+          status,
+          evidenceRefs: [],
+          artifactRefs: [],
+          metadata: {},
+        },
+      });
+    const assistant = (id: string, status: "streaming" | "done" | "error", stopReason: string) =>
+      viewEvent({
+        version: SPARK_PROTOCOL_VERSION,
+        type: "session.message",
+        sessionId: task.sessionId,
+        message: {
+          version: SPARK_PROTOCOL_VERSION,
+          id,
+          role: "assistant",
+          text: id,
+          status,
+          metadata: { stopReason },
+        },
+      });
+    const executor = createSparkDaemonTaskExecutor({
+      paths,
+      yieldBeforeTerminalProjection: () =>
+        new Promise<void>((resolve) => {
+          yieldGates.push(resolve);
+        }),
+      createSparkHeadlessSessionExecutor: () => async (input) => {
+        // SparkAgentLoop observers are synchronous and intentionally ignore
+        // returned Promises. Publish the whole retry boundary without awaiting
+        // any projection so this fixture exercises the production race.
+        void input.onEvent?.(assistant("retry-error", "error", "error"));
+        void input.onEvent?.(runUpdate("failed"));
+        void input.onEvent?.(runUpdate("running"));
+        void input.onEvent?.(assistant("retry-partial-1", "streaming", ""));
+        initialEventsEmitted();
+
+        await closingDrained;
+        void input.onEvent?.(assistant("retry-partial-2", "streaming", ""));
+        directRetryEmitted();
+
+        await finish;
+        void input.onEvent?.(assistant("retry-final", "done", "stop"));
+        void input.onEvent?.(runUpdate("succeeded"));
+        return { assistantText: "retry-final" };
+      },
+    });
+
+    const running = executor(task, {
+      invocationId: "invocation-retry-terminal-bundle",
+      signal: new AbortController().signal,
+      emitEvent: (event) => {
+        if (event.type !== "daemon.view_event") return;
+        if (event.view.type === "run.update") {
+          projected.push(`run:${event.view.run.status}`);
+        } else if (event.view.type === "session.message") {
+          projected.push(event.view.message.id);
+        }
+      },
+    });
+
+    await initialEvents;
+    await vi.waitFor(() => expect(yieldGates).toHaveLength(1));
+    expect(projected).toEqual([]);
+    const queuedRetry = [
+      "invocation:invocation-retry-terminal-bundle:failure",
+      "run:failed",
+      "run:running",
+      "retry-partial-1",
+    ];
+    for (let index = 0; index < queuedRetry.length; index += 1) {
+      yieldGates[index]!();
+      await vi.waitFor(() => expect(projected).toHaveLength(index + 1));
+      expect(projected).toEqual(queuedRetry.slice(0, index + 1));
+      if (index + 1 < queuedRetry.length) {
+        await vi.waitFor(() => expect(yieldGates).toHaveLength(index + 2));
+      }
+    }
+
+    // The fence clears only after the last projection that followed the
+    // closing run.update settles. Later retry streaming returns to the direct
+    // path and does not consume another macrotask gate.
+    continueAfterClosing();
+    await directRetry;
+    expect(projected).toEqual([...queuedRetry, "retry-partial-2"]);
+    expect(yieldGates).toHaveLength(4);
+
+    finishRetry();
+    await vi.waitFor(() => expect(yieldGates).toHaveLength(5));
+    expect(projected).toEqual([...queuedRetry, "retry-partial-2"]);
+    yieldGates[4]!();
+    await vi.waitFor(() => expect(projected).toHaveLength(6));
+    await vi.waitFor(() => expect(yieldGates).toHaveLength(6));
+    yieldGates[5]!();
+    await expect(running).resolves.toMatchObject({ assistantText: "retry-final" });
+    expect(projected).toEqual([...queuedRetry, "retry-partial-2", "retry-final", "run:succeeded"]);
+  });
+
   it("derives a Fleet worker scope from exact TaskRun metadata and fails stale attempts closed", async () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), "spark-daemon-fleet-scope-"));
     const firstRoot = join(workspaceRoot, "first");

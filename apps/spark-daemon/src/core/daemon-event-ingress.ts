@@ -1,4 +1,5 @@
 import type { SparkJsonValue } from "@zendev-lab/spark-protocol";
+import { setImmediate as scheduleImmediate } from "node:timers";
 import type { ExecutionAttemptEventIngress } from "../execution/adapter.ts";
 
 export const DAEMON_STREAMING_SNAPSHOT_INTERVAL_MS = 100;
@@ -12,13 +13,21 @@ interface PendingSnapshot {
 interface StreamingSnapshotState {
   invocationId: string;
   lastPersistedAt: number;
+  ready?: PendingSnapshot;
   pending?: PendingSnapshot;
   timer?: ReturnType<typeof setTimeout>;
+}
+
+interface ReadySnapshot {
+  key: string;
+  snapshot: PendingSnapshot;
 }
 
 export interface DaemonEventIngressOptions {
   now?: () => number;
   intervalMs?: number;
+  /** Test seam for the cooperative daemon-wide ready-snapshot pump. */
+  scheduleMacrotask?: (callback: () => void) => void;
 }
 
 /**
@@ -32,14 +41,18 @@ export interface DaemonEventIngressOptions {
 export class DaemonEventIngress implements ExecutionAttemptEventIngress {
   readonly #now: () => number;
   readonly #intervalMs: number;
+  readonly #scheduleMacrotask: (callback: () => void) => void;
   readonly #streams = new Map<string, StreamingSnapshotState>();
   readonly #keysByInvocation = new Map<string, Set<string>>();
   readonly #failures = new Map<string, unknown>();
+  readonly #readyQueue: ReadySnapshot[] = [];
   #nextOrder = 0;
+  #pumpScheduled = false;
 
   constructor(options: DaemonEventIngressOptions = {}) {
     this.#now = options.now ?? Date.now;
     this.#intervalMs = positiveInterval(options.intervalMs);
+    this.#scheduleMacrotask = options.scheduleMacrotask ?? scheduleMacrotask;
   }
 
   record(
@@ -70,17 +83,17 @@ export class DaemonEventIngress implements ExecutionAttemptEventIngress {
       return;
     }
 
-    if (!current.pending && now - current.lastPersistedAt >= this.#intervalMs) {
-      persist(event);
-      current.lastPersistedAt = now;
+    const snapshot = { event, order: (this.#nextOrder += 1), persist };
+    if (!current.ready && now - current.lastPersistedAt >= this.#intervalMs) {
+      if (current.timer) clearTimeout(current.timer);
+      current.timer = undefined;
+      current.pending = undefined;
+      this.#markReady(key, current, snapshot);
       return;
     }
 
-    current.pending = { event, order: (this.#nextOrder += 1), persist };
-    if (current.timer) return;
-    const remaining = Math.max(0, this.#intervalMs - (now - current.lastPersistedAt));
-    current.timer = setTimeout(() => this.#flushTimer(key), remaining);
-    current.timer.unref?.();
+    current.pending = snapshot;
+    if (!current.ready) this.#scheduleStreamTimer(key, current, now);
   }
 
   flush(invocationId: string): void {
@@ -93,6 +106,7 @@ export class DaemonEventIngress implements ExecutionAttemptEventIngress {
       const stream = this.#streams.get(key);
       if (!stream) continue;
       if (stream.timer) clearTimeout(stream.timer);
+      if (stream.ready) pending.push(stream.ready);
       if (stream.pending) pending.push(stream.pending);
       this.#streams.delete(key);
     }
@@ -129,13 +143,13 @@ export class DaemonEventIngress implements ExecutionAttemptEventIngress {
     const pending = stream.pending;
     stream.pending = undefined;
     if (!pending) return;
-    try {
-      pending.persist(pending.event);
-      stream.lastPersistedAt = this.#now();
-    } catch (error) {
-      this.#failures.set(stream.invocationId, error);
-      this.#releaseStreams(stream.invocationId);
-    }
+    this.#markReady(key, stream, pending);
+  }
+
+  #markReady(key: string, stream: StreamingSnapshotState, snapshot: PendingSnapshot): void {
+    stream.ready = snapshot;
+    this.#readyQueue.push({ key, snapshot });
+    this.#schedulePump();
   }
 
   #flushOtherPending(invocationId: string, currentKey: string): void {
@@ -145,10 +159,12 @@ export class DaemonEventIngress implements ExecutionAttemptEventIngress {
     for (const key of keys) {
       if (key === currentKey) continue;
       const stream = this.#streams.get(key);
-      if (!stream?.pending) continue;
+      if (!stream) continue;
       if (stream.timer) clearTimeout(stream.timer);
       stream.timer = undefined;
-      pending.push({ snapshot: stream.pending, stream });
+      if (stream.ready) pending.push({ snapshot: stream.ready, stream });
+      if (stream.pending) pending.push({ snapshot: stream.pending, stream });
+      stream.ready = undefined;
       stream.pending = undefined;
     }
     pending.sort((left, right) => left.snapshot.order - right.snapshot.order);
@@ -164,6 +180,41 @@ export class DaemonEventIngress implements ExecutionAttemptEventIngress {
     }
   }
 
+  #scheduleStreamTimer(key: string, stream: StreamingSnapshotState, now = this.#now()): void {
+    if (stream.timer || stream.ready || !stream.pending) return;
+    const remaining = Math.max(0, this.#intervalMs - (now - stream.lastPersistedAt));
+    stream.timer = setTimeout(() => this.#flushTimer(key), remaining);
+    stream.timer.unref?.();
+  }
+
+  #schedulePump(): void {
+    if (this.#pumpScheduled || this.#readyQueue.length === 0) return;
+    this.#pumpScheduled = true;
+    this.#scheduleMacrotask(() => this.#pumpOne());
+  }
+
+  #pumpOne(): void {
+    this.#pumpScheduled = false;
+    while (this.#readyQueue.length > 0) {
+      const queued = this.#readyQueue.shift()!;
+      const stream = this.#streams.get(queued.key);
+      if (!stream || stream.ready !== queued.snapshot) continue;
+      stream.ready = undefined;
+      try {
+        queued.snapshot.persist(queued.snapshot.event);
+        stream.lastPersistedAt = this.#now();
+        this.#scheduleStreamTimer(queued.key, stream);
+      } catch (error) {
+        this.#failures.set(stream.invocationId, error);
+        this.#releaseStreams(stream.invocationId);
+      }
+      // Whether persistence succeeds or fails, one cooperative macrotask owns
+      // at most one real write attempt. Stale queue entries are free to skip.
+      this.#schedulePump();
+      return;
+    }
+  }
+
   #releaseStreams(invocationId: string): void {
     const hadFailure = this.#failures.has(invocationId);
     const failure = this.#failures.get(invocationId);
@@ -174,6 +225,11 @@ export class DaemonEventIngress implements ExecutionAttemptEventIngress {
   #throwFailure(invocationId: string): void {
     if (this.#failures.has(invocationId)) throw this.#failures.get(invocationId);
   }
+}
+
+function scheduleMacrotask(callback: () => void): void {
+  const immediate = scheduleImmediate(callback);
+  immediate.unref?.();
 }
 
 function streamingAssistantMessageKey(

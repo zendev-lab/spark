@@ -217,6 +217,8 @@ export interface SparkDaemonTaskExecutionContext {
    * executor to its real success/failure instead of publishing cancellation.
    */
   beginDurableCommit?(): void;
+  /** Fence attempt terminal commit behind an already accepted async projection. */
+  deferTerminalUntil?(delivery: PromiseLike<unknown>): void;
   /** Pause the task wall-clock timeout while waiting on an explicit human decision. */
   withPausedTimeout?<T>(operation: () => Promise<T>): Promise<T>;
   /**

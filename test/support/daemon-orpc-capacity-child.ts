@@ -50,7 +50,6 @@ import {
   CAPACITY_MODEL_ID,
   CAPACITY_MODEL_REF,
   CAPACITY_PROVIDER_ID,
-  CAPACITY_STREAM_CHUNK_COUNT,
   capacityProviderController,
   capacityRequestId,
   expectedCapacityAnswer,
@@ -91,7 +90,6 @@ async function runScenario(): Promise<DaemonOrpcCapacityScenario> {
   let daemonRun: Promise<void> | undefined;
   let persistent: SparkDaemonOrpcClientHandle | undefined;
   let loadedLoopProbe: ReturnType<typeof startEventLoopProbe> | undefined;
-  let administratorSessionId: string | undefined;
 
   capacityProviderController.configure(DAEMON_ORPC_CAPACITY_SESSION_COUNT);
   try {
@@ -157,13 +155,6 @@ async function runScenario(): Promise<DaemonOrpcCapacityScenario> {
       sessionRegistry,
       modelControl,
       onReady: async (runtime) => {
-        if (!runtime.sessionSupervisor) {
-          throw new Error("capacity harness requires the daemon Session supervisor");
-        }
-        const administrator = await runtime.sessionSupervisor.ensureWorkspaceAdministrator(
-          workspace.id,
-        );
-        administratorSessionId = administrator.sessionId;
         rpcServer = await startLocalRpcServer({
           paths,
           sparkHome,
@@ -201,10 +192,6 @@ async function runScenario(): Promise<DaemonOrpcCapacityScenario> {
     if (readyStatus.execution?.rootConcurrency !== effectiveConcurrency) {
       throw new Error("daemon.status did not report the configured root invocation concurrency");
     }
-    if (!administratorSessionId) {
-      throw new Error("daemon did not establish the workspace Administrator Session");
-    }
-
     const catalog = await rpc(persistent, "model.catalog", {});
     const provider = catalog.providers.find(
       (candidate) => candidate.providerName === CAPACITY_PROVIDER_ID,
@@ -227,13 +214,14 @@ async function runScenario(): Promise<DaemonOrpcCapacityScenario> {
       );
     }
 
+    const administrator = await sessionRegistry.ensureWorkspaceAdministrator(workspace.id);
     const sessions = await Promise.all(
       Array.from({ length: DAEMON_ORPC_CAPACITY_SESSION_COUNT }, async (_, index) => {
         const sessionId = `capacity-session-${String(index).padStart(2, "0")}`;
         return await rpc(persistent!, "session.create", {
           sessionId,
           scope: { kind: "workspace", workspaceId: workspace.id },
-          supervisorSessionId: administratorSessionId,
+          supervisorSessionId: administrator.sessionId,
           cwd: workspace.localPath,
           // A real name also suppresses the optional post-turn session-name leaf call,
           // keeping provider call cardinality exactly equal to root turns.
@@ -327,6 +315,7 @@ async function runScenario(): Promise<DaemonOrpcCapacityScenario> {
         streaming: { persistent: streamingProbes[0], fresh: streamingProbes[1] },
       },
       eventLoop: loadedLoopMetrics.eventLoop,
+      hostScheduling: loadedLoopMetrics.hostScheduling,
       rssBytes: loadedLoopMetrics.rssBytes,
       persistence,
     };
@@ -546,18 +535,45 @@ async function rpc<M extends SparkLocalRpcMethod>(
 
 function startEventLoopProbe(intervalMs: number): {
   waitForSamples(count: number): Promise<void>;
-  stop(): Pick<DaemonOrpcCapacityScenario, "eventLoop" | "rssBytes">;
+  stop(): Pick<DaemonOrpcCapacityScenario, "eventLoop" | "hostScheduling" | "rssBytes">;
 } {
-  const samples: Array<{ gapMs: number; atMs: number }> = [];
+  const samples: Array<{
+    gapMs: number;
+    atMs: number;
+    processCpuMs: number;
+    processCpuToWallRatio: number;
+    involuntaryContextSwitchesDelta: number;
+  }> = [];
   const rssBefore = process.memoryUsage.rss();
+  const cpuBefore = process.cpuUsage();
+  const resourceBefore = process.resourceUsage();
   let rssPeak = rssBefore;
   const started = performance.now();
   let previous = started;
-  let stopped: Pick<DaemonOrpcCapacityScenario, "eventLoop" | "rssBytes"> | undefined;
+  let previousCpu = cpuBefore;
+  let previousResources = resourceBefore;
+  let stopped:
+    | Pick<DaemonOrpcCapacityScenario, "eventLoop" | "hostScheduling" | "rssBytes">
+    | undefined;
   const timer = setInterval(() => {
     const now = performance.now();
-    samples.push({ gapMs: Math.max(0, now - previous - intervalMs), atMs: now - started });
+    const cpu = process.cpuUsage();
+    const resources = process.resourceUsage();
+    const elapsedMs = now - previous;
+    const processCpuMs = (cpu.user - previousCpu.user + cpu.system - previousCpu.system) / 1_000;
+    samples.push({
+      gapMs: Math.max(0, elapsedMs - intervalMs),
+      atMs: now - started,
+      processCpuMs,
+      processCpuToWallRatio: elapsedMs > 0 ? processCpuMs / elapsedMs : 0,
+      involuntaryContextSwitchesDelta: Math.max(
+        0,
+        resources.involuntaryContextSwitches - previousResources.involuntaryContextSwitches,
+      ),
+    });
     previous = now;
+    previousCpu = cpu;
+    previousResources = resources;
     rssPeak = Math.max(rssPeak, process.memoryUsage.rss());
   }, intervalMs);
   return {
@@ -570,11 +586,24 @@ function startEventLoopProbe(intervalMs: number): {
     stop() {
       if (stopped) return stopped;
       clearInterval(timer);
+      const stoppedAt = performance.now();
+      const cpuDelta = process.cpuUsage(cpuBefore);
+      const resourceAfter = process.resourceUsage();
       const rssAfter = process.memoryUsage.rss();
+      const observedWallMs = stoppedAt - started;
+      const processCpuUserMsDelta = cpuDelta.user / 1_000;
+      const processCpuSystemMsDelta = cpuDelta.system / 1_000;
+      const processCpuTotalMsDelta = processCpuUserMsDelta + processCpuSystemMsDelta;
       const gaps = samples.map((sample) => sample.gapMs);
       const max = samples.reduce(
         (highest, sample) => (sample.gapMs > highest.gapMs ? sample : highest),
-        { gapMs: 0, atMs: 0 },
+        {
+          gapMs: 0,
+          atMs: 0,
+          processCpuMs: 0,
+          processCpuToWallRatio: 0,
+          involuntaryContextSwitchesDelta: 0,
+        },
       );
       stopped = {
         eventLoop: {
@@ -583,6 +612,21 @@ function startEventLoopProbe(intervalMs: number): {
           p95GapMs: percentile(gaps, 0.95),
           maxGapMs: max.gapMs,
           maxGapAtMs: max.atMs,
+          maxGapProcessCpuMs: max.processCpuMs,
+          maxGapProcessCpuToWallRatio: max.processCpuToWallRatio,
+          maxGapInvoluntaryContextSwitchesDelta: max.involuntaryContextSwitchesDelta,
+        },
+        hostScheduling: {
+          observedWallMs,
+          processCpuUserMsDelta,
+          processCpuSystemMsDelta,
+          processCpuTotalMsDelta,
+          observedProcessCpuToWallRatio:
+            observedWallMs > 0 ? processCpuTotalMsDelta / observedWallMs : 0,
+          involuntaryContextSwitchesDelta: Math.max(
+            0,
+            resourceAfter.involuntaryContextSwitches - resourceBefore.involuntaryContextSwitches,
+          ),
         },
         rssBytes: { before: rssBefore, peak: Math.max(rssPeak, rssAfter), after: rssAfter },
       };

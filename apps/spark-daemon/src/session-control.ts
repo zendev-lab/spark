@@ -1081,7 +1081,15 @@ async function requireInvocationSession(
 ): Promise<SparkSessionState | undefined> {
   if (request.scope === "any" && !options.sessionRegistry) return undefined;
   if (!sessionId) throw new Error("Invocation has no daemon-owned session route.");
-  return await requireSession(options, sessionId, request);
+  const session = await requireSessionRegistry(options).getInvocationVisibilitySnapshot(sessionId);
+  if (!session) {
+    throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
+  }
+  // Invocation admission happens only after Session creation completes. Scope
+  // and owner are immutable thereafter, so visibility checks may use the
+  // last atomically committed snapshot without waiting for unrelated mutable
+  // bookkeeping (for example terminal recordRun writes).
+  return projectSessionForRequest(options.db, session, request);
 }
 
 function assertOrdinarySessionVisible(

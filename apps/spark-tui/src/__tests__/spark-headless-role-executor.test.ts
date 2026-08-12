@@ -102,6 +102,93 @@ test("runSparkHeadlessSession streams events without retaining a duplicate event
   assert.equal(buffered.jsonEvents.length, 3);
 });
 
+test("runSparkHeadlessSession waits for accepted async event delivery before success", async () => {
+  let releaseDelivery!: () => void;
+  const delivery = new Promise<void>((resolve) => {
+    releaseDelivery = resolve;
+  });
+  let resolved = false;
+  const running = runSparkHeadlessSession(
+    {
+      cwd: process.cwd(),
+      sessionId: "session-async-event-delivery",
+      prompt: "finish",
+      onEvent: () => delivery,
+    },
+    { createServices: async () => eventfulHeadlessServices(1) as never },
+  ).then((result) => {
+    resolved = true;
+    return result;
+  });
+
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(resolved, false);
+  releaseDelivery();
+  await running;
+  assert.equal(resolved, true);
+});
+
+test("runSparkHeadlessSession drains event delivery failures and preserves the primary error", async () => {
+  const deliveryError = new Error("terminal projection failed");
+  let shutdownCalls = 0;
+  const syncFailure = eventfulHeadlessServices(1);
+  syncFailure.runtime.shutdown = async () => {
+    shutdownCalls += 1;
+  };
+  await assert.rejects(
+    runSparkHeadlessSession(
+      {
+        cwd: process.cwd(),
+        sessionId: "session-event-delivery-failed",
+        prompt: "finish",
+        onEvent: () => {
+          throw deliveryError;
+        },
+      },
+      { createServices: async () => syncFailure as never },
+    ),
+    (error) => error === deliveryError,
+  );
+
+  const primaryError = new Error("session execution failed");
+  let releaseDelivery!: () => void;
+  const delivery = new Promise<void>((resolve) => {
+    releaseDelivery = resolve;
+  });
+  const primaryFailure = eventfulHeadlessServices(1);
+  const originalOnEvent = primaryFailure.agentLoop.onEvent;
+  let listener: ((event: never) => void) | undefined;
+  primaryFailure.agentLoop.onEvent = (next: (event: never) => void) => {
+    listener = next;
+    return originalOnEvent(next);
+  };
+  primaryFailure.agentLoop.submitWithOutcome = async () => {
+    listener?.({ type: "runtime_message", item: { terminal: true } } as never);
+    throw primaryError;
+  };
+  primaryFailure.runtime.shutdown = async () => {
+    shutdownCalls += 1;
+  };
+  let rejected = false;
+  const running = runSparkHeadlessSession(
+    {
+      cwd: process.cwd(),
+      sessionId: "session-primary-failure-drain",
+      prompt: "fail",
+      onEvent: () => delivery,
+    },
+    { createServices: async () => primaryFailure as never },
+  ).catch((error: unknown) => {
+    rejected = true;
+    throw error;
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(rejected, false);
+  releaseDelivery();
+  await assert.rejects(running, (error) => error === primaryError);
+  assert.equal(shutdownCalls, 2);
+});
+
 test("headless sessions release extension resources after success and failure", async () => {
   const shutdownReasons: string[] = [];
   const completedBase = headlessServices(async () => successfulOutcome("done"));
