@@ -15,6 +15,11 @@ export const DEFAULT_SPARK_PROVIDER_SPECS = [
 
 /** Initial user policy for daemon-selectable models. Config `enabledModels` replaces this list. */
 export const DEFAULT_SPARK_SCOPED_MODEL_PATTERNS = [
+  "openai-codex/gpt-5.6-*",
+  "baidu-oneapi/*",
+] as const;
+
+const LEGACY_SPARK_SCOPED_MODEL_PATTERNS = [
   "openai-codex/gpt-5.6-luna",
   "openai-codex/gpt-5.6-sol",
   "openai-codex/gpt-5.6-terra",
@@ -22,6 +27,23 @@ export const DEFAULT_SPARK_SCOPED_MODEL_PATTERNS = [
   "baidu-oneapi/gpt-5.6-sol",
   "baidu-oneapi/gpt-5.6-terra",
 ] as const;
+
+/**
+ * Migrate bundled defaults from earlier releases without rewriting a user's
+ * explicit custom scope. The provider catalog may retain compatibility models,
+ * but only the current frontier Codex family is enabled by default.
+ */
+export function normalizeSparkScopedModelPatterns(patterns: readonly string[]): string[] {
+  const normalized = patterns.map((pattern) => pattern.trim()).filter(Boolean);
+  if (sameStringSet(normalized, LEGACY_SPARK_SCOPED_MODEL_PATTERNS)) {
+    return [...DEFAULT_SPARK_SCOPED_MODEL_PATTERNS];
+  }
+  return normalized;
+}
+
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && right.every((value) => left.includes(value));
+}
 
 export type SparkProviderImporter = (specifier: string) => Promise<unknown>;
 
@@ -178,7 +200,9 @@ function readEnabledModels(raw: Record<string, unknown>): {
     };
   }
   const patterns = stringArray(raw.enabledModels);
-  if (patterns && patterns.length === raw.enabledModels.length) return { patterns };
+  if (patterns && patterns.length === raw.enabledModels.length) {
+    return { patterns: normalizeSparkScopedModelPatterns(patterns) };
+  }
   return {
     patterns: [],
     error: "Spark config enabledModels must contain only non-empty strings",

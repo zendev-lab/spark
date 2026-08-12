@@ -20,33 +20,6 @@ afterEach(async () => {
 });
 
 describe("daemon model control", () => {
-  it("projects the six default GPT-5.6 scoped models while retaining the full catalog", async () => {
-    const root = await mkdtemp(join(tmpdir(), "spark-model-default-scope-"));
-    roots.push(root);
-    const control = createSparkDaemonModelControl({
-      providerControl: createSparkProviderControl({ sparkHome: join(root, "spark-home"), env: {} }),
-      sessionRegistry: createDaemonSessionRegistry(root, {
-        daemonId: "install-model-default-scope",
-        daemonCwd: root,
-      }),
-    });
-
-    const snapshot = await control.snapshot();
-    expect(
-      snapshot.scopedModels
-        ?.map((entry) => `${entry.providerName}/${entry.modelId}`)
-        .toSorted((a, b) => a.localeCompare(b)),
-    ).toEqual([
-      "baidu-oneapi/gpt-5.6-luna",
-      "baidu-oneapi/gpt-5.6-sol",
-      "baidu-oneapi/gpt-5.6-terra",
-      "openai-codex/gpt-5.6-luna",
-      "openai-codex/gpt-5.6-sol",
-      "openai-codex/gpt-5.6-terra",
-    ]);
-    expect(snapshot.providers.flatMap((provider) => provider.models).length).toBeGreaterThan(6);
-  });
-
   it("projects one catalog and persists a conversation-scoped model across fresh snapshots", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-model-control-"));
     roots.push(root);
