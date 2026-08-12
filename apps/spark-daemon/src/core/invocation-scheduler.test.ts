@@ -889,7 +889,7 @@ describe("SparkInvocationScheduler", () => {
 
   it(
     "persists streamed events while bounding the terminal result payload",
-    { timeout: 60_000 },
+    { timeout: 20_000 },
     async () => {
       const jsonEvents = Array.from({ length: 10_000 }, (_, index) => ({
         type: "view_event",
