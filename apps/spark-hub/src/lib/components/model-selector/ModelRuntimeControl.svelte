@@ -1,9 +1,6 @@
 <script lang="ts">
-  import {
-    DEFAULT_SPARK_THINKING_LEVEL,
-    sparkThinkingLevelOptions,
-    type SparkThinkingLevel,
-  } from "@zendev-lab/spark-protocol";
+  import { DEFAULT_SPARK_THINKING_LEVEL, sparkThinkingLevelOptions } from "@zendev-lab/spark-protocol/daemon";
+import { type SparkThinkingLevel } from "@zendev-lab/spark-protocol/daemon";
   import { Select } from "@zendev-lab/spark-ui";
   import { ModelSelector } from "@zendev-lab/spark-ui/conversation";
   import type { ModelPickerGroup, ModelRuntimeControlLabels } from "./types";

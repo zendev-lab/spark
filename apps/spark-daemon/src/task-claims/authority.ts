@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { RoleRef } from "@zendev-lab/spark-core";
-import type { SparkLocalRpcParsedInput } from "@zendev-lab/spark-protocol";
+import type { SparkLocalRpcParsedInput } from "@zendev-lab/spark-protocol/daemon";
 import type { SparkTaskClaimMutationResult } from "@zendev-lab/spark-protocol/task-claim";
 import { SparkDaemonControlError } from "../control-error.ts";
 import {

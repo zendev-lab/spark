@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { createId } from "@zendev-lab/spark-protocol";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import { listRuntimeEnrollmentTokens } from "../runtime-registration.ts";
 import { loadWorkspaceByRouteId } from "../routing.ts";
 import {

@@ -4,10 +4,12 @@ import { getRuntimeSessionProjection } from "@zendev-lab/spark-hub-coordination/
 import {
   normalizeSparkA2uiDocument,
   sparkWorkbenchActionRequestSchema,
-  type SparkLoopMutationResult,
+} from "@zendev-lab/spark-protocol/presentation";
+import { type SparkLoopMutationResult } from "@zendev-lab/spark-protocol/interaction";
+import {
   type SparkSessionReproWorkView,
   type SparkWorkbenchActionRequest,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 
 import {
   createHubRuntimeSessionClient,

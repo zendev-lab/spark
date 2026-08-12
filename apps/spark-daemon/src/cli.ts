@@ -16,7 +16,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { resolvePiAuthSourcePath } from "@zendev-lab/spark-ai/control";
-import type { SparkAuthFlow, SparkAuthImportReport } from "@zendev-lab/spark-protocol";
+import type { SparkAuthFlow, SparkAuthImportReport } from "@zendev-lab/spark-protocol/daemon";
 import { gitCommand, resolveSparkPaths } from "@zendev-lab/spark-system";
 import {
   defaultSparkDaemonConfig,

@@ -7,6 +7,8 @@ import {
   DEFAULT_SPARK_THINKING_LEVEL,
   parseSparkAuthFlow,
   parseSparkModelControlSnapshot,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkAuthImportReport,
   type SparkAuthFlow,
   type SparkModelCatalogEntry,
@@ -16,7 +18,7 @@ import {
   type SparkProviderAuthStatus,
   type SparkSessionRegistryRecord,
   type SparkThinkingLevel,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import type { SparkOAuthFlowSnapshot } from "@zendev-lab/spark-ai/control";
 import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";

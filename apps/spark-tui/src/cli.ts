@@ -8,15 +8,13 @@ import { fileURLToPath } from "node:url";
 import { sparkSessionKey } from "@zendev-lab/spark-extension/host-support";
 import { sparkTuiCliStrings, sparkTuiPiParityStrings } from "@zendev-lab/spark-i18n/cli";
 import { isTaskStatus } from "@zendev-lab/spark-core";
+import { createId, SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/domain";
 import {
-  createId,
-  SPARK_PROTOCOL_VERSION,
   type SparkSessionRegistryRecord,
-  type SparkSessionView,
-  type SparkTaskView,
   type SparkThinkingLevel,
   type SparkTurnResult,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import { type SparkSessionView, type SparkTaskView } from "@zendev-lab/spark-protocol/presentation";
 
 import {
   attachSparkWorkspaceClient,

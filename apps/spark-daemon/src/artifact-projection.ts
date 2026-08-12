@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/domain";
+import { type ArtifactProjectionPayload } from "@zendev-lab/spark-protocol/runtime";
 import {
-  SPARK_PROTOCOL_VERSION,
   sparkArtifactProjectionSchema,
-  type ArtifactProjectionPayload,
   type SparkArtifactProjection,
   type SparkDaemonEvent,
   type SparkJsonObject,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 import { defaultArtifactStore, projectArtifact, type Artifact } from "@zendev-lab/spark-artifacts";
 
 export const ARTIFACT_KINDS = new Set(["issue", "git_change", "document", "pr", "preview"]);

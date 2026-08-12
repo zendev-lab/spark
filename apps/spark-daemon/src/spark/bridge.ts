@@ -80,11 +80,11 @@ type SparkRuntimeModules = {
   createSparkHeadlessRoleExecutor: CreateSparkHeadlessRoleExecutorFn;
 };
 import {
-  createId,
   type InvocationLogChunkStream,
   type ServerCommandPayload,
   type serverCommandEnvelopeSchema,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import { extractFinalAssistantText, extractTextDelta } from "../pi/session.ts";
 import type { SparkDaemonWorkspace } from "../store/workspaces.js";

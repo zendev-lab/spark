@@ -1,4 +1,4 @@
-import type { RuntimeDeviceAuthorizationRequest } from "@zendev-lab/spark-protocol";
+import type { RuntimeDeviceAuthorizationRequest } from "@zendev-lab/spark-protocol/runtime";
 
 export interface RegisteredRuntime {
   runtimeId: string;

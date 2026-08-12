@@ -6,7 +6,7 @@ import type {
   SparkAuthFlow,
   SparkModelCatalogProvider,
   SparkModelControlSnapshot,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import type { SparkSessionMessage, SparkSessionRecord } from "@zendev-lab/spark-host/session-store";
 
 import type {

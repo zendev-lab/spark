@@ -1,17 +1,18 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
-  createId,
-  wireIdempotencyKey,
   workspaceDelegationExecuteResultSchema,
   workspaceDelegationProjectionSchema,
   workspaceDelegationReceiptSchema,
   workspaceDelegationRequestSchema,
+} from "@zendev-lab/spark-protocol/daemon";
+import { createId, wireIdempotencyKey } from "@zendev-lab/spark-protocol/domain";
+import {
   type WorkspaceDelegationDelivery,
   type WorkspaceDelegationExecuteRequest,
   type WorkspaceDelegationExecuteResult,
   type WorkspaceDelegationProjection,
   type WorkspaceDelegationStatus,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";

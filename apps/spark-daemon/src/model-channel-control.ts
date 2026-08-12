@@ -11,16 +11,20 @@ import {
   parseSparkSessionSetModelRequest,
   parseSparkSessionSetThinkingRequest,
   sparkProtocolJsonObjectSchema,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type RuntimeCommandProjectionKind,
   type RuntimeEphemeralSecretRequestPayload,
   type RuntimeEphemeralSecretResultPayload,
+} from "@zendev-lab/spark-protocol/runtime";
+import {
   type SparkAuthFlow,
   type SparkChannelConfigurationProjection,
   type SparkChannelControlSnapshot,
   type SparkModelControlSnapshot,
   type SparkProtocolJsonValue,
   type SparkSessionRegistryRecord,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import { loadDaemonChannelsConfig } from "./channels/ingress.ts";
 import type { SparkDaemonModelControl } from "./model-control.ts";

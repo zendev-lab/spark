@@ -1,15 +1,16 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
-  createId,
-  prefixedIdSchema,
   runtimeCommandResultPayloadSchema,
-  runtimeServerCommandSpecification,
   serverCommandPayloadSchema,
+} from "@zendev-lab/spark-protocol/runtime";
+import { runtimeServerCommandSpecification } from "@zendev-lab/spark-protocol/daemon";
+import { createId, prefixedIdSchema } from "@zendev-lab/spark-protocol/domain";
+import {
   type RuntimeCommandAckPayload,
   type RuntimeCommandRejectPayload,
   type RuntimeCommandResultPayload,
   type ServerCommandPayload,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
 import { appendEvent } from "./projection-services.ts";
 
 function parsePersistedJson(value: string, context: string): unknown {

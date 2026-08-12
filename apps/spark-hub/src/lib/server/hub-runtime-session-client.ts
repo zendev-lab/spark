@@ -23,8 +23,6 @@ import {
   sparkSessionModeResultSchema,
   sparkSessionSetModeRequestSchema,
   sparkSessionSnapshotRequestSchema,
-  sparkLoopControlRequestSchema,
-  sparkLoopMutationResultSchema,
   sparkSideThreadConfigureRequestSchema,
   sparkSideThreadEnsureRequestSchema,
   sparkSideThreadHandoffRequestSchema,
@@ -39,6 +37,12 @@ import {
   sparkTurnStatusResultSchema,
   sparkTurnStreamPageSchema,
   sparkTurnSubmitResultSchema,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
+  sparkLoopControlRequestSchema,
+  sparkLoopMutationResultSchema,
+} from "@zendev-lab/spark-protocol/interaction";
+import {
   type SparkAssignment,
   type SparkSessionBindRequest,
   type SparkSessionCreateRequest,
@@ -49,8 +53,6 @@ import {
   type SparkSessionModeResult,
   type SparkSessionRegistryRecord,
   type SparkSessionSnapshotRequest,
-  type SparkLoopControlRequest,
-  type SparkLoopMutationResult,
   type SparkSideThreadSnapshot,
   type SparkSideThreadSubmitResult,
   type SparkSideThreadHandoffResult,
@@ -59,7 +61,11 @@ import {
   type SparkTurnStreamPage,
   type SparkTurnAttachment,
   type SparkTurnSubmitResult,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import {
+  type SparkLoopControlRequest,
+  type SparkLoopMutationResult,
+} from "@zendev-lab/spark-protocol/interaction";
 import {
   parseSessionSnapshotWindow,
   type SessionSnapshotWindow,

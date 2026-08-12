@@ -1,7 +1,10 @@
 /** Ask-flow normalization for native TUI interaction presentation. */
 
 import type { SparkAskFlowRequest, SparkAskFlowResult } from "@zendev-lab/spark-ask";
-import type { SparkInteractionRequest, SparkJsonObject } from "@zendev-lab/spark-protocol";
+import type {
+  SparkInteractionRequest,
+  SparkJsonObject,
+} from "@zendev-lab/spark-protocol/presentation";
 
 export function nativeAskFlowRequest(
   request: Extract<SparkInteractionRequest, { kind: "askFlow" }>,

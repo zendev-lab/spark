@@ -1,13 +1,12 @@
+import { serverCommandEnvelopeSchema } from "@zendev-lab/spark-protocol/runtime";
 import {
-  createId,
   normalizeServerCommandForExecution,
-  serverCommandEnvelopeSchema,
-  sparkLoopControlRequestSchema,
   sparkProtocolJsonObjectSchema,
-  type RuntimeCommandResultPayload,
-  type SparkCommand,
-  type SparkProtocolJsonValue,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import { sparkLoopControlRequestSchema } from "@zendev-lab/spark-protocol/interaction";
+import { createId } from "@zendev-lab/spark-protocol/domain";
+import { type RuntimeCommandResultPayload } from "@zendev-lab/spark-protocol/runtime";
+import { type SparkCommand, type SparkProtocolJsonValue } from "@zendev-lab/spark-protocol/daemon";
 import { sparkCommandFromServerCommandEnvelope } from "./command-dispatcher.ts";
 import {
   commandRoute,

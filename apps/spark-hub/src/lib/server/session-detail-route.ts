@@ -1,5 +1,5 @@
 import { error } from "@sveltejs/kit";
-import { createId } from "@zendev-lab/spark-protocol";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import { latestEventCursor } from "@zendev-lab/spark-hub-coordination/events";
 import { loadSessionActivity } from "@zendev-lab/spark-hub-coordination/session-activity";
 import { getDatabase } from "$lib/server/db";

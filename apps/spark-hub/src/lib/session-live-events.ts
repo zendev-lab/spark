@@ -1,11 +1,11 @@
+import { sanitizeSparkDisplayError } from "@zendev-lab/spark-protocol/domain";
 import {
   parseSparkDaemonEvent,
-  sanitizeSparkDisplayError,
   type SparkDaemonEvent,
   type SparkMessageView,
   type SparkSessionSnapshotHistory,
   type SparkSessionView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 
 export interface SessionSerializedEvent {
   id: string;

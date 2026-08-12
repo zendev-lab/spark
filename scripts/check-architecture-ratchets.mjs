@@ -1,8 +1,18 @@
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  findSparkProtocolRootReferences,
+  isSparkProductionSourcePath,
+  sparkProtocolSubpathBoundaryViolations,
+} from "./spark-protocol-governance.mjs";
+
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const require = createRequire(import.meta.url);
+const ts = require("typescript");
 const architecture = readJson(join(root, "architecture/packages.json"));
 
 function runArchitectureRatchets() {
@@ -77,6 +87,8 @@ function runArchitectureRatchets() {
     }
   }
 
+  checkSparkProtocolRootImportCeiling(failures);
+
   if (failures.length > 0) {
     console.error(
       ["Architecture ratchet failed:", ...failures.map((failure) => `- ${failure}`)].join("\n"),
@@ -145,6 +157,159 @@ function readJson(path) {
   } catch (error) {
     throw new Error(`Failed to parse JSON from ${path}`, { cause: error });
   }
+}
+
+function checkSparkProtocolRootImportCeiling(failures) {
+  const allowlistPath = join(root, "test/fixtures/spark-protocol-root-imports.json");
+  if (!isFile(allowlistPath)) {
+    failures.push("missing test/fixtures/spark-protocol-root-imports.json");
+    return;
+  }
+  const allowlist = readJson(allowlistPath);
+  const requiredSubpaths = allowlist.requiredSubpaths ?? [];
+  const protocolPackage = readJson(join(root, "packages/spark-protocol/package.json"));
+  for (const subpath of requiredSubpaths) {
+    const target = protocolPackage.exports?.[`./${subpath}`];
+    if (typeof target !== "string") {
+      failures.push(`@zendev-lab/spark-protocol is missing required export ./${subpath}`);
+      continue;
+    }
+    if (!isFile(join(root, "packages/spark-protocol", target))) {
+      failures.push(`@zendev-lab/spark-protocol export ./${subpath} points to missing ${target}`);
+    }
+  }
+  let productionRootImportCount = 0;
+  for (const workspaceDir of ["apps", "packages"]) {
+    visit(join(root, workspaceDir), (sourcePath) => {
+      if (!isSparkProductionSourcePath(sourcePath)) return;
+      const references = findSparkProtocolRootReferences(
+        readFileSync(sourcePath, "utf8"),
+        sourcePath,
+      );
+      if (references.length === 0) return;
+      productionRootImportCount += references.length;
+      failures.push(
+        `${relative(root, sourcePath).replaceAll("\\", "/")} references @zendev-lab/spark-protocol root barrel (${references.map((reference) => reference.kind).join(", ")}); use domain/daemon/runtime/interaction/presentation subpaths`,
+      );
+    });
+  }
+  const ceiling = allowlist.productionRootImportCeiling;
+  const importBaseline = allowlist.migrationBaselineProductionRootImportCount;
+  if (typeof ceiling !== "number") {
+    failures.push("spark-protocol root import allowlist is missing productionRootImportCeiling");
+  } else if (productionRootImportCount > ceiling) {
+    failures.push(
+      `spark-protocol production root imports ${productionRootImportCount} exceed ceiling ${ceiling}`,
+    );
+  } else if (productionRootImportCount < ceiling) {
+    failures.push(
+      `spark-protocol production root import ceiling is stale: lower ${ceiling} to ${productionRootImportCount}`,
+    );
+  }
+  if (!Number.isSafeInteger(importBaseline) || importBaseline <= ceiling) {
+    failures.push(
+      `spark-protocol root import ceiling ${ceiling} must remain below migration baseline ${importBaseline}`,
+    );
+  }
+
+  for (const subpath of ["domain", "presentation", "runtime"]) {
+    const source = readFileSync(join(root, `packages/spark-protocol/src/${subpath}.ts`), "utf8");
+    for (const violation of sparkProtocolSubpathBoundaryViolations(subpath, source)) {
+      failures.push(`spark-protocol ${violation}`);
+    }
+  }
+
+  const rootIndexPath = join(root, "packages/spark-protocol/src/index.ts");
+  const rootIndex = readFileSync(rootIndexPath, "utf8");
+  const rootExports = [...rootIndex.matchAll(/^export\s+\*\s+from\s+["']([^"']+)["'];?$/gmu)].map(
+    (match) => match[1],
+  );
+  const allowedRootExports = new Set(allowlist.rootBarrelModules ?? []);
+  for (const module of rootExports) {
+    if (!allowedRootExports.has(module)) {
+      failures.push(`spark-protocol root barrel exports unapproved module ${module}`);
+    }
+  }
+  for (const module of allowedRootExports) {
+    if (!rootExports.includes(module)) {
+      failures.push(`spark-protocol root barrel module ceiling is stale: ${module} can be removed`);
+    }
+  }
+
+  const rootExportNames = typeScriptModuleExportNames(rootIndexPath);
+  const rootExportCount = rootExportNames.length;
+  const rootExportDigest = symbolDigest(rootExportNames);
+  const rootExportCeiling = allowlist.rootBarrelExportCeiling;
+  const migrationBaseline = allowlist.migrationBaselineRootExportCount;
+  if (!Number.isSafeInteger(rootExportCeiling) || rootExportCeiling < 0) {
+    failures.push("spark-protocol root import allowlist is missing rootBarrelExportCeiling");
+  } else if (rootExportCount > rootExportCeiling) {
+    failures.push(
+      `spark-protocol root public exports ${rootExportCount} exceed ceiling ${rootExportCeiling}`,
+    );
+  } else if (rootExportCount < rootExportCeiling) {
+    failures.push(
+      `spark-protocol root public export ceiling is stale: lower ${rootExportCeiling} to ${rootExportCount}`,
+    );
+  }
+  if (!Number.isSafeInteger(migrationBaseline) || migrationBaseline <= rootExportCeiling) {
+    failures.push(
+      `spark-protocol root public export ceiling ${rootExportCeiling} must remain below migration baseline ${migrationBaseline}`,
+    );
+  }
+  if (allowlist.rootBarrelExportDigest !== rootExportDigest) {
+    failures.push(
+      `spark-protocol root public export digest changed: expected ${allowlist.rootBarrelExportDigest}, received ${rootExportDigest}`,
+    );
+  }
+
+  const subpathExportOwners = new Map();
+  for (const subpath of requiredSubpaths) {
+    const names = typeScriptModuleExportNames(
+      join(root, `packages/spark-protocol/src/${subpath}.ts`),
+    );
+    const digest = symbolDigest(names);
+    if (allowlist.subpathExportDigests?.[subpath] !== digest) {
+      failures.push(
+        `spark-protocol ${subpath} public export digest changed: expected ${allowlist.subpathExportDigests?.[subpath]}, received ${digest}`,
+      );
+    }
+    for (const name of names) {
+      const owners = subpathExportOwners.get(name) ?? [];
+      owners.push(subpath);
+      subpathExportOwners.set(name, owners);
+    }
+  }
+  for (const [name, owners] of subpathExportOwners) {
+    if (owners.length > 1) {
+      failures.push(
+        `spark-protocol public symbol ${name} has multiple domain owners: ${owners.join(", ")}`,
+      );
+    }
+  }
+}
+
+function typeScriptModuleExportNames(entryPath) {
+  const program = ts.createProgram([entryPath], {
+    allowImportingTsExtensions: true,
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    noEmit: true,
+    skipLibCheck: true,
+    target: ts.ScriptTarget.ESNext,
+  });
+  const source = program.getSourceFile(entryPath);
+  const symbol = source && program.getTypeChecker().getSymbolAtLocation(source);
+  if (!symbol) throw new Error(`Failed to resolve TypeScript exports for ${entryPath}`);
+  return program
+    .getTypeChecker()
+    .getExportsOfModule(symbol)
+    .map((item) => item.name)
+    .sort();
+}
+
+function symbolDigest(names) {
+  return createHash("sha256").update(names.join("\n")).digest("hex");
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {

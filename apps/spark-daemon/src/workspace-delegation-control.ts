@@ -1,9 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
+import { workspaceDelegationDeliverySchema } from "@zendev-lab/spark-protocol/daemon";
 import {
-  workspaceDelegationDeliverySchema,
   type SparkProtocolJsonValue,
   type WorkspaceDelegationDelivery,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";

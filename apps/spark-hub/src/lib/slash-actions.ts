@@ -3,8 +3,8 @@ import {
   parseSparkSlashInput,
   resolveSparkSlashEditorInput,
   sparkSlashActionBarCatalog,
-  type SparkActionBarView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
+import { type SparkActionBarView } from "@zendev-lab/spark-protocol/presentation";
 
 export const hubOpenSearchEvent = "spark-hub:open-search";
 

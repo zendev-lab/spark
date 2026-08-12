@@ -15,7 +15,7 @@ import {
   sparkSideThreadHandoffRequestSchema,
   sparkSideThreadResetRequestSchema,
   sparkSideThreadSubmitRequestSchema,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import { sparkLocalRpcSideThreadOrpcErrors } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
 import { RuntimeControlCommandError } from "@zendev-lab/spark-hub-coordination/runtime-control";
 import { json } from "@sveltejs/kit";

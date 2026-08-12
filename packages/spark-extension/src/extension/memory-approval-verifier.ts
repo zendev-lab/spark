@@ -12,8 +12,8 @@ import {
 import {
   sparkMemoryDirectIntentAnswerDigest,
   sparkMemoryDirectIntentReceiptSchema,
-  type SparkMemoryApprovalProof,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import { type SparkMemoryApprovalProof } from "@zendev-lab/spark-protocol/daemon";
 
 const verifierByWorkspace = new Map<string, MemoryApprovalVerifier>();
 

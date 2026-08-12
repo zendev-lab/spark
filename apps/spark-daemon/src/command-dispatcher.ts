@@ -1,15 +1,16 @@
 import {
+  type ServerCommandPayload,
+  type serverCommandEnvelopeSchema,
+} from "@zendev-lab/spark-protocol/runtime";
+import {
   parseSparkCommand,
   runtimeServerCommandSpecification,
   runtimeServerCommandSupportsScope,
   sparkCommandKindForLocalRpcMethod,
   sparkCommandKindForRuntimeServerCommand,
   sparkProtocolJsonObjectSchema,
-  type ServerCommandPayload,
-  type SparkCommand,
-  type SparkCommandKind,
-  type serverCommandEnvelopeSchema,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import { type SparkCommand, type SparkCommandKind } from "@zendev-lab/spark-protocol/daemon";
 
 export type RuntimeServerCommandEnvelope = ReturnType<typeof serverCommandEnvelopeSchema.parse>;
 

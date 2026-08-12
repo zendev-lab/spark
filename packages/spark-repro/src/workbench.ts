@@ -2,11 +2,9 @@ import { createHash } from "node:crypto";
 
 import type { ArtifactRef } from "@zendev-lab/spark-core";
 import type { SparkGoalContract } from "@zendev-lab/spark-loop";
-import type {
-  SparkLoopView,
-  SparkTokenUsageAggregate,
-  SparkWorkbenchActionId,
-} from "@zendev-lab/spark-protocol";
+import type { SparkLoopView } from "@zendev-lab/spark-protocol/interaction";
+import type { SparkWorkbenchActionId } from "@zendev-lab/spark-protocol/presentation";
+import type { SparkTokenUsageAggregate } from "@zendev-lab/spark-protocol/domain";
 
 import { SPARK_REPRO_WORK_STAGES, type SparkReproWorkSummary } from "./work-summary.ts";
 

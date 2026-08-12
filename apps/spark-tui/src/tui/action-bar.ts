@@ -6,7 +6,7 @@ import {
   type Component,
   type Focusable,
 } from "./pi-tui-adapter.ts";
-import type { SparkActionBarView, SparkActionView } from "@zendev-lab/spark-protocol";
+import type { SparkActionBarView, SparkActionView } from "@zendev-lab/spark-protocol/presentation";
 
 export interface SparkTuiActionBarTheme {
   fg?: (color: string, text: string) => string;

@@ -1,5 +1,6 @@
 import { untrack } from "svelte";
-import { createId, DEFAULT_SPARK_THINKING_LEVEL } from "@zendev-lab/spark-protocol";
+import { DEFAULT_SPARK_THINKING_LEVEL } from "@zendev-lab/spark-protocol/daemon";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import {
   readSessionDraft,
   readSessionPendingSubmission,

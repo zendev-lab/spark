@@ -3,16 +3,20 @@ import {
   workspaceDelegationDeliverySchema,
   workspaceDelegationReceiptSchema,
   workspaceDelegationRequestSchema,
-  wireIdempotencyKey,
+} from "@zendev-lab/spark-protocol/daemon";
+import { wireIdempotencyKey } from "@zendev-lab/spark-protocol/domain";
+import {
   type RuntimeCommandAckPayload,
   type RuntimeCommandRejectPayload,
   type RuntimeCommandResultPayload,
-  type SparkDaemonEvent,
+} from "@zendev-lab/spark-protocol/runtime";
+import {
   type WorkspaceDelegationDelivery,
   type WorkspaceDelegationReceipt,
   type WorkspaceDelegationRequest,
   type WorkspaceDelegationStatus,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import { type SparkDaemonEvent } from "@zendev-lab/spark-protocol/presentation";
 import { appendEvent } from "./projection-services.ts";
 import {
   RuntimeControlCommandError,

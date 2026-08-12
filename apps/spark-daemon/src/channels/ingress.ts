@@ -38,15 +38,15 @@ import {
   createSparkMemoryDirectIntentTurnAuthority,
   type SparkMemoryDirectIntentTurnAuthority,
 } from "@zendev-lab/spark-host/memory-direct-intent";
+import { parseSparkAssignment } from "@zendev-lab/spark-protocol/daemon";
 import {
-  parseSparkAssignment,
   type SparkAssignment,
   type SparkMemoryDirectIntentReceipt,
   type SparkMemoryFeedbackReceipt,
-  type SparkMessageView,
   type SparkQqbotQrAuthFlow,
   type SparkSessionRegistryRecord,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import { type SparkMessageView } from "@zendev-lab/spark-protocol/presentation";
 import { loadSparkSessionSnapshot } from "@zendev-lab/spark-session";
 import { resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
 import { createHash, randomUUID } from "node:crypto";

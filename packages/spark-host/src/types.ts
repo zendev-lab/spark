@@ -20,11 +20,13 @@ import type {
 } from "@zendev-lab/spark-core";
 import type {
   SparkDaemonEvent,
+  SparkViewModelEvent,
+} from "@zendev-lab/spark-protocol/presentation";
+import type {
   SparkHostBuiltinEventName,
   SparkHostBuiltinEventPayloadMap,
-  SparkViewModelEvent,
-} from "@zendev-lab/spark-protocol";
-import { SPARK_HOST_BUILTIN_EVENT_NAMES } from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/domain";
+import { SPARK_HOST_BUILTIN_EVENT_NAMES } from "@zendev-lab/spark-protocol/domain";
 
 export interface SparkHostRegistryModel {
   provider: string;

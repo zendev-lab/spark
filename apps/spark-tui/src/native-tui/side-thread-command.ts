@@ -1,12 +1,12 @@
 /** Native `/btw` control surface for daemon-owned read-only side threads. */
 
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import {
-  createId,
   type SparkModelRef,
   type SparkSideThreadMode,
   type SparkSideThreadSnapshot,
   type SparkThinkingLevel,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import type { SparkNativeSlashCommandMap } from "./types.ts";
 
 export interface SparkNativeSideThreadClient {

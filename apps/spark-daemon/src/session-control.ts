@@ -7,7 +7,6 @@ import {
   parseSparkSessionRegistryRecord,
   parseSparkRoleSpec,
   parseSparkSessionRegistryRecords,
-  parseSparkSessionView,
   sparkSessionArchiveRequestSchema,
   sparkSessionBindRequestSchema,
   sparkSessionCreateRequestSchema,
@@ -15,7 +14,6 @@ import {
   sparkSessionListRequestSchema,
   sparkSessionMediaReadRequestSchema,
   sparkSessionSetModeRequestSchema,
-  sparkSessionSnapshotPageSchema,
   sparkSessionSnapshotRequestSchema,
   sparkSessionUnbindRequestSchema,
   sparkTurnCancelRequestSchema,
@@ -26,14 +24,20 @@ import {
   sparkTurnStreamRequestSchema,
   sparkTurnSubmitRequestSchema,
   sparkTurnSubmitResultSchema,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkAssignment,
   type SparkCommandKind,
   type SparkInvocationStatus,
   type SparkProtocolJsonValue,
   type SparkSessionCreateRequest,
   type SparkSessionRegistryRecord,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
+  parseSparkSessionView,
+  sparkSessionSnapshotPageSchema,
   type SparkSessionView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 import {
   loadSparkSessionMediaChunk,
   loadSparkSessionSnapshot,

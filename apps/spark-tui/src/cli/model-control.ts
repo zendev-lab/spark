@@ -2,10 +2,12 @@ import {
   createSparkModelControlClient,
   sparkLocalRpcProcedureSchemas,
   sparkModelValue,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkModelControlClient,
   type SparkModelControlSnapshot,
   type SparkModelRef,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import type { SparkModelPickerState } from "../host/model-selector.ts";
 import type { SparkActiveSelection } from "../host/provider-registry.ts";
 import { requestSparkDaemonControl, type SparkDaemonClientOptions } from "./daemon.ts";

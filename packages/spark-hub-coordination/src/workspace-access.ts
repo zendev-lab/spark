@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { createId } from "@zendev-lab/spark-protocol";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import { hashSecret } from "./security.ts";
 import type { DatabaseSync } from "node:sqlite";
 

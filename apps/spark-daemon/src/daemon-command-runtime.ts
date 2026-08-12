@@ -1,9 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
-import {
-  serverCommandEnvelopeSchema,
-  sparkProtocolJsonObjectSchema,
-} from "@zendev-lab/spark-protocol";
+import { serverCommandEnvelopeSchema } from "@zendev-lab/spark-protocol/runtime";
+import { sparkProtocolJsonObjectSchema } from "@zendev-lab/spark-protocol/daemon";
 
 import { workspaceSnapshot, type RouteContext } from "./protocol/outbound.ts";
 import { SparkChannelDeliveryStore } from "./store/channel-deliveries.ts";

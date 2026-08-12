@@ -1,10 +1,10 @@
 import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { sparkLoopMutationResultSchema } from "@zendev-lab/spark-protocol/interaction";
 import {
-  sparkLoopMutationResultSchema,
   type SparkLoopControlRequest,
   type SparkLoopMutationResult,
   type SparkLoopView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/interaction";
 
 import { SparkDaemonControlError } from "./control-error.ts";
 import { SparkLoopStore, loopUpdateEvent } from "./store/loops.ts";

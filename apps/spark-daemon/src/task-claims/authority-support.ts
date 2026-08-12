@@ -1,7 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import type { DatabaseSync } from "node:sqlite";
 import type { Task } from "@zendev-lab/spark-core";
-import type { SparkLocalRpcParsedInput } from "@zendev-lab/spark-protocol";
+import type { SparkLocalRpcParsedInput } from "@zendev-lab/spark-protocol/daemon";
 import type { SparkTaskClaimMutationResult } from "@zendev-lab/spark-protocol/task-claim";
 import {
   defaultTaskGraphStore,

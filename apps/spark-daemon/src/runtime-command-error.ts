@@ -1,4 +1,4 @@
-import { sparkSideThreadErrorCodeOptions } from "@zendev-lab/spark-protocol";
+import { sparkSideThreadErrorCodeOptions } from "@zendev-lab/spark-protocol/daemon";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 import { SparkDaemonControlError } from "./control-error.ts";
 

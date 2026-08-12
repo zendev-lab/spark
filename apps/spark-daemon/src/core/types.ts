@@ -2,20 +2,23 @@
 
 import {
   parseSparkAssignment,
+  sparkTurnAttachmentsSchema,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   sparkLoopCycleCheckpointSchema,
   sparkLoopPolicySchema,
   sparkLoopViewSchema,
-  sparkTurnAttachmentsSchema,
-  type SparkAssignment,
-  type SparkDaemonEvent,
+} from "@zendev-lab/spark-protocol/interaction";
+import { type SparkAssignment, type SparkTurnAttachment } from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkLoopBinding,
   type SparkLoopConditionReceipt,
   type SparkLoopCycleCheckpoint,
   type SparkLoopPolicy,
   type SparkLoopSessionLifetime,
   type SparkLoopView,
-  type SparkTurnAttachment,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/interaction";
+import { type SparkDaemonEvent } from "@zendev-lab/spark-protocol/presentation";
 import {
   CHANNEL_IMAGE_MAX_COUNT,
   CHANNEL_IMAGE_MAX_TOTAL_BYTES,

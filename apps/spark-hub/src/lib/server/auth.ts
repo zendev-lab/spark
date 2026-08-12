@@ -4,7 +4,7 @@ import {
   consumeWorkspaceAccessToken,
   type ConsumedWorkspaceAccessToken,
 } from "@zendev-lab/spark-hub-coordination/workspace-access";
-import { createId } from "@zendev-lab/spark-protocol";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import type { Cookies } from "@sveltejs/kit";
 import type { DatabaseSync } from "node:sqlite";
 

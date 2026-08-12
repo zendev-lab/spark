@@ -15,7 +15,7 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, join, relative } from "node:path";
 
-import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/domain";
 import { resolveRenamedEnvironmentVariable } from "@zendev-lab/spark-system";
 
 import { isSparkBuildInfo, readSparkBuildInfo } from "./build-info.ts";

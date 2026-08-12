@@ -2,10 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   parseSparkMemoryApprovalProof,
   parseSparkMemoryProposal,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkMemoryApprovalProof,
   type SparkMemoryProposal,
   type SparkMemoryMutationOperation,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 
 import {
   memoryContentDigest,

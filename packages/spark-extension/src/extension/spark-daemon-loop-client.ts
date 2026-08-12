@@ -2,6 +2,8 @@ import { resolve } from "node:path";
 import {
   type SparkLocalRpcInput,
   type SparkLocalRpcOutput,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkLoopListResult,
   type SparkLoopMutationRequest,
   type SparkLoopMutationResult,
@@ -9,7 +11,7 @@ import {
   type SparkLoopStartRequest,
   type SparkLoopStatusRequest,
   type SparkLoopWakeRequest,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/interaction";
 import {
   ensureSparkDaemonRunning,
   requestSparkDaemon,

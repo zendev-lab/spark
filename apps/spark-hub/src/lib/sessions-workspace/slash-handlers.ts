@@ -6,11 +6,9 @@ import {
   scheduleHubActionAfterCurrentEvent,
   type HubSlashCommandSuggestion,
 } from "$lib/slash-actions";
-import {
-  sparkThinkingLevelOptions,
-  type SparkActionView,
-  type SparkThinkingLevel,
-} from "@zendev-lab/spark-protocol";
+import { sparkThinkingLevelOptions } from "@zendev-lab/spark-protocol/daemon";
+import { type SparkThinkingLevel } from "@zendev-lab/spark-protocol/daemon";
+import { type SparkActionView } from "@zendev-lab/spark-protocol/presentation";
 import type { ComposerController } from "./composer.svelte";
 import type { ComposerSurface } from "./types";
 

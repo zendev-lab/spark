@@ -1,11 +1,11 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/domain";
 import {
-  SPARK_PROTOCOL_VERSION,
   parseSparkDaemonEvent,
   parseSparkViewModelEvent,
   type SparkDaemonEvent,
   type SparkJsonObject,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 import {
   SparkTurnRestartYieldError,
   isSparkTurnRestartYieldError,

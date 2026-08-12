@@ -29,14 +29,10 @@
   import { buildSessionWorkbenchView } from "$lib/session-workbench";
   import { workspaceIdForWorkbenchSession } from "$lib/workbench-session-scope";
   import { workspaceSessionsPath } from "$lib/workspace-routes";
-  import {
-    createId,
-    DEFAULT_SPARK_THINKING_LEVEL,
-    sparkSlashActionBarForInput,
-    sparkThinkingLevelOptions,
-    type SparkActionView,
-    type SparkSessionView,
-  } from "@zendev-lab/spark-protocol";
+  import { DEFAULT_SPARK_THINKING_LEVEL, sparkThinkingLevelOptions } from "@zendev-lab/spark-protocol/daemon";
+import { sparkSlashActionBarForInput } from "@zendev-lab/spark-protocol/presentation";
+import { createId } from "@zendev-lab/spark-protocol/domain";
+import { type SparkActionView, type SparkSessionView } from "@zendev-lab/spark-protocol/presentation";
   import type { HubMessages } from "@zendev-lab/spark-i18n/hub";
   import {
     onMount,

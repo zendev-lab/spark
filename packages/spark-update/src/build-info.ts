@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/domain";
 
 import type { SparkBuildInfo, SparkDistributionPackageName } from "./types.ts";
 

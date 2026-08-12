@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
-import { createId, type HumanRequestCreatedPayload } from "@zendev-lab/spark-protocol";
+import { createId } from "@zendev-lab/spark-protocol/domain";
+import { type HumanRequestCreatedPayload } from "@zendev-lab/spark-protocol/runtime";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import { readSparkDaemonConfig } from "./config.js";
 import {

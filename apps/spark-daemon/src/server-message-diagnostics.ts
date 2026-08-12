@@ -2,7 +2,7 @@ import {
   assertRuntimeProtocolMessage,
   parseRuntimeProtocolJson,
   serverErrorEnvelopeSchema,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
 
 const hubToRuntimeBoundary = {
   direction: "server-to-runtime" as const,

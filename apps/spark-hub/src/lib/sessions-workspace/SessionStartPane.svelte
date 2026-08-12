@@ -13,7 +13,7 @@
     type ModelRuntimeControlLabels,
   } from "$lib/components/model-selector";
   import { Icon } from "@zendev-lab/spark-ui";
-  import type { SparkActionBarView, SparkActionView } from "@zendev-lab/spark-protocol";
+  import type { SparkActionBarView, SparkActionView } from "@zendev-lab/spark-protocol/presentation";
   import type { SubmitFunction } from "@sveltejs/kit";
   import type { HubSlashCommandSuggestion } from "$lib/slash-actions";
   import type {

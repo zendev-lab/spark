@@ -2,7 +2,7 @@ import type {
   SparkDaemonLoopEvaluationResult,
   SparkDaemonLoopEvaluationTask,
 } from "../core/types.ts";
-import type { SparkLoopConditionReceipt } from "@zendev-lab/spark-protocol";
+import type { SparkLoopConditionReceipt } from "@zendev-lab/spark-protocol/interaction";
 import { SparkLoopEvaluatorRegistry } from "../store/loop-evaluators.ts";
 
 export async function evaluateLoopAfterTick(

@@ -5,7 +5,7 @@ import type {
   ExtensionInteractionResponse,
   SparkHostContext,
 } from "@zendev-lab/spark-core";
-import { createId } from "@zendev-lab/spark-protocol";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
 import { Type } from "typebox";
 

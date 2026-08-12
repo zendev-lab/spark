@@ -30,7 +30,7 @@ import {
   mergeSparkProviderSpecs,
 } from "@zendev-lab/spark-ai/control";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
-import { DEFAULT_SPARK_THINKING_LEVEL } from "@zendev-lab/spark-protocol";
+import { DEFAULT_SPARK_THINKING_LEVEL } from "@zendev-lab/spark-protocol/daemon";
 import { DEFAULT_SPARK_COMPACTION_SETTINGS, type SparkCompactionSettings } from "./compaction.ts";
 import { DEFAULT_SPARK_EXTENSION_SPECS } from "./extension-specs.ts";
 

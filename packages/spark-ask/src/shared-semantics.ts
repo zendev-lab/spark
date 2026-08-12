@@ -17,13 +17,15 @@ import {
   nextActionForSparkAskSubmit,
   parseSparkAskChoice,
   requiresExplicitSparkAskGateSelection,
+} from "@zendev-lab/spark-protocol/interaction";
+import {
   type SparkAskAnswerValuesLike,
   type SparkAskOptionLike,
   type SparkAskQuestionType,
   type SparkAskRequestLike,
   type SparkGateQuestionLike,
   type SparkParsedAskChoice,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/interaction";
 
 import { SENTINEL_LABELS } from "./schema.ts";
 

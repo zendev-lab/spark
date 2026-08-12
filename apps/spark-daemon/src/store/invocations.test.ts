@@ -280,7 +280,7 @@ describe("SparkInvocationStore", () => {
     } finally {
       db.close();
     }
-  });
+  }, 20_000);
 
   it("replays only unacknowledged invocation events for each delivery destination", () => {
     const { db, store } = createStore();

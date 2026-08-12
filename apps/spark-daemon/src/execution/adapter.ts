@@ -1,4 +1,4 @@
-import type { SparkJsonValue } from "@zendev-lab/spark-protocol";
+import type { SparkJsonValue } from "@zendev-lab/spark-protocol/presentation";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   EXECUTION_ATTEMPT_PROTOCOL_VERSION,

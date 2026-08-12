@@ -1,6 +1,6 @@
 import { Type, type Static } from "typebox";
 import type { ExtensionEvidenceRequestBinding } from "@zendev-lab/spark-core";
-import type { SparkMemoryApprovalBinding } from "@zendev-lab/spark-protocol";
+import type { SparkMemoryApprovalBinding } from "@zendev-lab/spark-protocol/daemon";
 
 import type { SparkAskAnswerSource } from "./answer-source.ts";
 import type { SparkAskAcknowledgement } from "./transport.ts";

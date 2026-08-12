@@ -1,9 +1,9 @@
 import {
-  createId,
   runtimeEphemeralSecretResultEnvelopeSchema,
   runtimeHeartbeatEnvelopeSchema,
   runtimeHelloEnvelopeSchema,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import { bearerTokenFromAuthorization } from "@zendev-lab/spark-system";
 import {
   registerRuntimeControlDispatcher,

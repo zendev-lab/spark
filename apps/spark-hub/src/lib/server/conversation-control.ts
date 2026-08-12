@@ -6,10 +6,12 @@ import {
   parseSparkAssignment,
   sparkTurnCancelResultSchema,
   sparkTurnSubmitResultSchema,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkAssignment,
   type SparkInvocationStatus,
   type SparkTurnAttachment,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import { createHubRuntimeSessionClient } from "./hub-runtime-session-client";
 import { conversationTurnIdempotencyKey } from "./conversation-submission";
 

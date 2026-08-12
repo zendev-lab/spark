@@ -2,7 +2,10 @@
 
 import { createHash } from "node:crypto";
 import { Type } from "typebox";
-import type { SparkEvidenceAnswerEvent, SparkLoopView } from "@zendev-lab/spark-protocol";
+import type {
+  SparkEvidenceAnswerEvent,
+  SparkLoopView,
+} from "@zendev-lab/spark-protocol/interaction";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import {

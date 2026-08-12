@@ -1,9 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
+import { projectInboxItemStatus } from "@zendev-lab/spark-protocol/interaction";
 import {
   assertHubMayWriteScope,
   assertDaemonOwnsScope,
   createId,
-  projectInboxItemStatus,
+} from "@zendev-lab/spark-protocol/domain";
+import {
   type ArtifactProjectionPayload,
   type HumanRequestCreatedPayload,
   type HumanResponseAckPayload,
@@ -14,7 +16,7 @@ import {
   type RuntimeCommandAckPayload,
   type RuntimeCommandRejectPayload,
   type TaskGraphSnapshotPayload,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
 
 import { appendEvent, nowIso, toJson, withTransaction } from "./workspace.ts";
 import { isRecord } from "./control.ts";

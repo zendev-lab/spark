@@ -1,6 +1,6 @@
+import { runtimeProtocolVersion } from "@zendev-lab/spark-protocol/runtime";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import {
-  createId,
-  runtimeProtocolVersion,
   type ArtifactProjectionPayload,
   type DaemonEventPayload,
   type InvocationLogChunkPayload,
@@ -11,7 +11,7 @@ import {
   type RuntimeReconcileReportPayload,
   type TaskGraphSnapshotPayload,
   type WorkspaceSnapshotPayload,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
 
 export interface RouteContext {
   runtimeId: string;

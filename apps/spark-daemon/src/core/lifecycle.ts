@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/domain";
 import { SparkDaemonControlError } from "../control-error.ts";
 
 export type SparkDaemonLifecycleState = "starting" | "running" | "draining" | "stopping";

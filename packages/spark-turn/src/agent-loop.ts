@@ -119,16 +119,18 @@ export type {
   SparkPromptManifestToolEffect,
   SparkPromptManifestToolInput,
 } from "./prompt-manifest.ts";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/domain";
 import {
-  SPARK_PROTOCOL_VERSION,
-  type SparkAgentLoopEventType,
   type SparkInteractionRequest,
   type SparkInteractionResponse,
   type SparkMessageView,
-  type SparkRunOutcomeStatus,
   type SparkRunView,
   type SparkViewModelEvent,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
+import {
+  type SparkAgentLoopEventType,
+  type SparkRunOutcomeStatus,
+} from "@zendev-lab/spark-protocol/domain";
 
 import {
   appendRawRecoveryHint,

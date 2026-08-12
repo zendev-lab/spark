@@ -1,4 +1,4 @@
-import type { ServerCommandPayload } from "@zendev-lab/spark-protocol";
+import type { ServerCommandPayload } from "@zendev-lab/spark-protocol/runtime";
 
 export interface AssignableProjectTask {
   runtimeTaskId: string;

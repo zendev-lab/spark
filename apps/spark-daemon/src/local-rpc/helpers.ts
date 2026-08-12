@@ -1,14 +1,16 @@
 import type { DatabaseSync } from "node:sqlite";
 import { ChannelDeliveryError, channelDeliveryFailureCertainty } from "@zendev-lab/spark-channels";
 import {
-  parseSparkSessionView,
   sparkInvocationListRequestSchema,
   sparkInvocationListResultSchema,
   sparkTurnResultSchema,
-  type SparkInvocationStatus,
+} from "@zendev-lab/spark-protocol/daemon";
+import { type SparkInvocationStatus } from "@zendev-lab/spark-protocol/daemon";
+import {
+  parseSparkSessionView,
   type SparkSessionMailChannelDeliveryView,
   type SparkSessionView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 import {
   SparkSessionRegistryError,
   type SparkSessionMailDeliveryStatus,

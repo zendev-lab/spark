@@ -2,7 +2,11 @@ import type { SparkPaths } from "@zendev-lab/spark-system";
 import type { ChannelNotifyInput, ChannelsConfig } from "@zendev-lab/spark-channels";
 import {
   type SparkLocalRpcOutput,
-  type SparkSessionView,
+  type SparkAuthImportReport,
+  type SparkAuthFlow,
+  type SparkModelControlSnapshot,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkLoopListResult,
   type SparkLoopControlRequest,
   type SparkLoopMutationRequest,
@@ -11,10 +15,8 @@ import {
   type SparkLoopStartRequest,
   type SparkLoopStatusRequest,
   type SparkLoopWakeRequest,
-  type SparkAuthImportReport,
-  type SparkAuthFlow,
-  type SparkModelControlSnapshot,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/interaction";
+import { type SparkSessionView } from "@zendev-lab/spark-protocol/presentation";
 import {
   type LocalDaemonRestartResult,
   type LocalDaemonStatusResult,

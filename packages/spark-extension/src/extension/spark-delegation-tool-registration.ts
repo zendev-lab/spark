@@ -1,8 +1,6 @@
 import { Type } from "typebox";
-import {
-  workspaceDelegationExecuteResultSchema,
-  type WorkspaceDelegationExecuteRequest,
-} from "@zendev-lab/spark-protocol";
+import { workspaceDelegationExecuteResultSchema } from "@zendev-lab/spark-protocol/daemon";
+import { type WorkspaceDelegationExecuteRequest } from "@zendev-lab/spark-protocol/daemon";
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 

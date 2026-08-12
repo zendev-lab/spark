@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invalidateAll } from "$app/navigation";
   import { A2uiRenderer, type SparkA2uiInteractiveBinding } from "@zendev-lab/spark-ui/a2ui";
-  import type { SparkWorkbenchActionRequest } from "@zendev-lab/spark-protocol";
+  import type { SparkWorkbenchActionRequest } from "@zendev-lab/spark-protocol/presentation";
 
   let {
     sessionId,

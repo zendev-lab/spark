@@ -1,5 +1,9 @@
 import { error as httpError, fail, redirect } from "@sveltejs/kit";
-import { createId, sparkSessionModeSchema } from "@zendev-lab/spark-protocol";
+import {
+  sparkSessionModeSchema,
+  type SparkTurnAttachment,
+} from "@zendev-lab/spark-protocol/daemon";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import { getRequestDictionary, localeCookieName } from "$lib/i18n";
 import { titleFromPrompt } from "@zendev-lab/spark-hub-coordination/agents-product";
 import {
@@ -730,7 +734,7 @@ async function submitConversationMessage(input: {
   sessionId: string;
   message: string;
   submissionId?: string;
-  attachments?: import("@zendev-lab/spark-protocol").SparkTurnAttachment[];
+  attachments?: SparkTurnAttachment[];
 }) {
   const title = titleFromPrompt(input.message);
   return await submitConversationTurnForHub({

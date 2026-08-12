@@ -2,8 +2,8 @@ import type { HumanQuestion } from "@zendev-lab/spark-hub-coordination/hub-queri
 import {
   hasSparkAskAnswerContent,
   parseSparkAskChoice,
-  type SparkAskOptionLike,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/interaction";
+import { type SparkAskOptionLike } from "@zendev-lab/spark-protocol/interaction";
 
 export interface PendingWorkbenchAsk {
   id: string;

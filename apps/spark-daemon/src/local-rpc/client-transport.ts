@@ -8,7 +8,7 @@ import type {
   SparkLocalRpcInput,
   SparkLocalRpcMethod,
   SparkLocalRpcOutput,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import { localRpcResponseError } from "./results.ts";
 import { LocalRpcUnavailableError } from "./types.ts";

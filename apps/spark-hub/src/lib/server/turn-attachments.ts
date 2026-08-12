@@ -3,8 +3,8 @@ import {
   SPARK_TURN_ATTACHMENT_MAX_COUNT,
   SPARK_TURN_ATTACHMENT_MAX_TOTAL_BYTES,
   sparkTurnAttachmentsSchema,
-  type SparkTurnAttachment,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import { type SparkTurnAttachment } from "@zendev-lab/spark-protocol/daemon";
 
 const MODEL_IMAGE_MEDIA_TYPES = new Set([
   "image/bmp",

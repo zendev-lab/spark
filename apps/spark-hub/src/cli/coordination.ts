@@ -1,6 +1,7 @@
 import { type TaskGraph } from "@zendev-lab/spark-tasks";
 import type { Project, ProjectRef, Task, TaskRef } from "@zendev-lab/spark-core";
-import { createId, parseSparkAssignment } from "@zendev-lab/spark-protocol";
+import { parseSparkAssignment } from "@zendev-lab/spark-protocol/daemon";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 
 import {
   consoleSparkCliErrorOutput,

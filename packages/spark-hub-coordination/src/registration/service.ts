@@ -2,13 +2,15 @@ import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import {
-  createId,
   runtimeDeviceAuthorizationRequestSchema,
   runtimeProtocolVersion,
+} from "@zendev-lab/spark-protocol/runtime";
+import { createId } from "@zendev-lab/spark-protocol/domain";
+import {
   type RuntimeDeviceAuthorizationRequest,
   type RuntimeRegistrationRequest,
   type RuntimeWorkspaceRegistrationRequest,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
 import { asciiSlug } from "@zendev-lab/spark-system";
 import { appendEvent } from "../projection-services.ts";
 import { hashSecret } from "../security.ts";

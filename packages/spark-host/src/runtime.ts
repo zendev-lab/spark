@@ -47,17 +47,17 @@ import {
   type ResolvedToolPolicy,
   type ToolEffect,
 } from "@zendev-lab/spark-core";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/domain";
 import {
-  SPARK_PROTOCOL_VERSION,
   createBlockedInteractionResponse,
   parseSparkInteractionRequest,
   parseSparkInteractionResponse,
   type SparkDaemonEvent,
-  type SparkHostBuiltinEventName,
   type SparkInteractionRequest,
   type SparkInteractionResponse,
   type SparkViewModelEvent,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
+import { type SparkHostBuiltinEventName } from "@zendev-lab/spark-protocol/domain";
 
 import type { SparkMemoryDirectIntentTurnAuthority } from "./memory-direct-intent.js";
 import {

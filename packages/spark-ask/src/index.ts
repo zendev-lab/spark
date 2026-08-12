@@ -7,11 +7,11 @@ import type {
   SparkHostContext,
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import {
-  createId,
   parseSparkMemoryApprovalBinding,
   type SparkMemoryApprovalBinding,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import { Type } from "typebox";
 
 import { rejectAutonomousAskAlias } from "./autonomous-policy.ts";

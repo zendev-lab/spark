@@ -2,13 +2,15 @@ import { createHash, randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import type { DatabaseSync } from "node:sqlite";
 import {
-  SPARK_PROTOCOL_VERSION,
   sparkLoopCountersSchema,
   sparkLoopConditionReceiptSchema,
   sparkLoopCycleCheckpointSchema,
   sparkLoopMutationResultSchema,
   sparkLoopPolicySchema,
   sparkLoopViewSchema,
+} from "@zendev-lab/spark-protocol/interaction";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/domain";
+import {
   type SparkLoopBinding,
   type SparkLoopConditionReceipt,
   type SparkLoopCounters,
@@ -21,8 +23,8 @@ import {
   type SparkLoopScheduleRequest,
   type SparkLoopStatus,
   type SparkLoopView,
-  type SparkDaemonEvent,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/interaction";
+import { type SparkDaemonEvent } from "@zendev-lab/spark-protocol/presentation";
 import {
   SparkInvocationStore,
   isRetryableInvocationError,

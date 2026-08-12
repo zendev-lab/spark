@@ -9,9 +9,9 @@ import {
   parseSparkAskAcknowledgement,
   parseSparkInteractionCapabilities,
   type SparkAskAcknowledgement,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 
-export type { SparkAskAcknowledgement } from "@zendev-lab/spark-protocol";
+export type { SparkAskAcknowledgement } from "@zendev-lab/spark-protocol/presentation";
 
 export type SparkAskTransportErrorCode =
   | "ASK_TRANSPORT_UNAVAILABLE"

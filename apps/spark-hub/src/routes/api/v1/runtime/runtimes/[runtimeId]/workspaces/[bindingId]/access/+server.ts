@@ -1,4 +1,4 @@
-import { workspaceBrowserAuthorizationSchema } from "@zendev-lab/spark-protocol";
+import { workspaceBrowserAuthorizationSchema } from "@zendev-lab/spark-protocol/runtime";
 import { bearerTokenFromAuthorization } from "@zendev-lab/spark-system";
 import { json, type RequestHandler } from "@sveltejs/kit";
 import { getDatabase } from "$lib/server/db";

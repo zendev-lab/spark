@@ -1,5 +1,5 @@
 import { fail, redirect, error as kitError } from "@sveltejs/kit";
-import { hasNonEmptySparkHumanAnswer } from "@zendev-lab/spark-protocol";
+import { hasNonEmptySparkHumanAnswer } from "@zendev-lab/spark-protocol/interaction";
 import { getRequestDictionary, localeCookieName } from "$lib/i18n";
 import {
   buildApprovalDecisionPayload,

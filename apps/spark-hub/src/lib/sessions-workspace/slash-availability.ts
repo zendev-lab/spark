@@ -1,5 +1,5 @@
 import type { SlashActionAvailability } from "$lib/components/conversation/index";
-import type { SparkActionView } from "@zendev-lab/spark-protocol";
+import type { SparkActionView } from "@zendev-lab/spark-protocol/presentation";
 import type { ComposerSurface, SessionsWorkbenchCopy, SubmissionState } from "./types";
 
 export type SlashAvailabilityContext = {

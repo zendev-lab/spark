@@ -1,6 +1,6 @@
 /** Footer metrics helpers for the native TUI. */
 
-import type { SparkRunView } from "@zendev-lab/spark-protocol";
+import type { SparkRunView } from "@zendev-lab/spark-protocol/presentation";
 
 import { isRecord, numberFromRecord } from "./message-view.ts";
 import type { SparkNativeFooterMetrics } from "./types.ts";

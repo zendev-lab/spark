@@ -1,13 +1,15 @@
 import {
   parseSparkSessionRegistryRecord,
   parseSparkSessionRegistryRecords,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkSessionBindRequest,
   type SparkSessionCreateRequest,
   type SparkSessionListRequest,
   type SparkSessionRegistryRecord,
   type SparkSessionUnbindRequest,
   type SparkLocalRpcInput,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import { requestSparkDaemon, type SparkDaemonClientOptions } from "@zendev-lab/spark-daemon-client";
 
 export interface SparkDaemonManagedSessionsClient {

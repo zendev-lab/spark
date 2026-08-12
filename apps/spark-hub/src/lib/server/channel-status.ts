@@ -1,10 +1,10 @@
 import { parseChannelsConfig, type ChannelsConfig } from "@zendev-lab/spark-channels";
 import type { RuntimeEphemeralSecretRequestContext } from "@zendev-lab/spark-hub-coordination/runtime-model-channel-control";
+import { parseSparkChannelControlSnapshot } from "@zendev-lab/spark-protocol/daemon";
 import {
-  parseSparkChannelControlSnapshot,
   type SparkChannelConfigurationProjection,
   type SparkChannelControlSnapshot,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import type { MessagePlatformAdapter } from "../message-platform";
 import { createHubRuntimeModelChannelClient } from "./hub-runtime-model-channel-client.ts";
 

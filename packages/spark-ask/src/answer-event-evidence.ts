@@ -11,7 +11,7 @@ import {
   matchesAutonomousAskInteractionRequestId,
   sparkEvidenceAnswerEventSchema,
   type SparkEvidenceAnswerEvent,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/interaction";
 
 interface CanonicalAnswerEventEvidenceReceipt {
   schema: "spark.evidence-answer-event-receipt/v1";
