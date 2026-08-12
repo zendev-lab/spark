@@ -3,7 +3,7 @@ import {
   getCurrentUserIdBySessionToken,
   loadWorkspaceSettings,
 } from "@zendev-lab/spark-hub-coordination/hub-queries";
-import type { SparkQqbotQrAuthFlow } from "@zendev-lab/spark-protocol";
+import type { SparkQqbotQrAuthFlow } from "@zendev-lab/spark-protocol/daemon";
 import { renderSVG } from "uqr";
 import {
   isMessagePlatformAdapter,

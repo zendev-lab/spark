@@ -3,7 +3,7 @@
 import { resolve } from "node:path";
 
 import type { SparkHostAPI } from "@zendev-lab/spark-core";
-import { sparkMemoryDirectIntentReceiptSchema } from "@zendev-lab/spark-protocol";
+import { sparkMemoryDirectIntentReceiptSchema } from "@zendev-lab/spark-protocol/daemon";
 
 import sparkAskExtension from "@zendev-lab/spark-ask/extension";
 import sparkArtifactsExtension from "@zendev-lab/spark-artifacts/extension";

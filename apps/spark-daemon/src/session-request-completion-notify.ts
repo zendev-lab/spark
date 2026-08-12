@@ -1,5 +1,5 @@
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
+import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol/daemon";
 
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";

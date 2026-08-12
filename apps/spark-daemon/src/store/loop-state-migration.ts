@@ -7,7 +7,7 @@ import {
   sessionLoopStorePathV2,
   sessionReproStorePathV2,
 } from "@zendev-lab/spark-loop";
-import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
+import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol/daemon";
 import { defaultWorkflowRunStore } from "@zendev-lab/spark-workflows";
 import type { DaemonSessionRegistry } from "../session-registry.ts";
 import { SparkLoopStore } from "./loops.ts";

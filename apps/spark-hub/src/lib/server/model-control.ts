@@ -4,12 +4,14 @@ import {
   parseSparkModelValue,
   parseSparkThinkingLevelValue,
   sparkModelValue,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkAuthFlow,
   type SparkModelControlSnapshot,
   type SparkModelRef,
   type SparkSessionRegistryRecord,
   type SparkThinkingLevel,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import type { RuntimeEphemeralSecretRequestContext } from "@zendev-lab/spark-hub-coordination/runtime-model-channel-control";
 import { createHubRuntimeModelChannelClient } from "./hub-runtime-model-channel-client.ts";
 

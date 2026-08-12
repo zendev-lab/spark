@@ -1,14 +1,7 @@
 <script lang="ts">
-  import {
-    normalizeSparkA2uiDocument,
-    resolveSparkA2uiDataPath,
-    sparkWorkbenchActionRequestSchema,
-    updateSparkA2uiDataModel,
-    type SparkA2uiComponent,
-    type SparkA2uiSurface,
-    type SparkProtocolJsonValue,
-    type SparkWorkbenchActionRequest,
-  } from "@zendev-lab/spark-protocol";
+  import { normalizeSparkA2uiDocument, resolveSparkA2uiDataPath, sparkWorkbenchActionRequestSchema, updateSparkA2uiDataModel } from "@zendev-lab/spark-protocol/presentation";
+import { type SparkProtocolJsonValue } from "@zendev-lab/spark-protocol/daemon";
+import { type SparkA2uiComponent, type SparkA2uiSurface, type SparkWorkbenchActionRequest } from "@zendev-lab/spark-protocol/presentation";
   import { onMount, type Component } from "svelte";
   import type { SparkA2uiActionHandler, SparkA2uiInteractiveBinding } from "./a2ui.ts";
 

@@ -15,18 +15,22 @@ import {
   type SparkDaemonOrpcClientHandle,
 } from "@zendev-lab/spark-daemon-client";
 import {
-  createId,
   parseSparkSessionRegistryRecord,
-  sparkDaemonEventSchema,
   sparkTurnCancelResultSchema,
   sparkTurnResultSchema,
   sparkTurnStatusResultSchema,
   sparkTurnStreamPageSchema,
   sparkTurnSubmitResultSchema,
-  type SparkDaemonEvent,
+} from "@zendev-lab/spark-protocol/daemon";
+import { createId } from "@zendev-lab/spark-protocol/domain";
+import {
   type SparkInvocationStatus,
   type SparkTurnStreamPage,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import {
+  sparkDaemonEventSchema,
+  type SparkDaemonEvent,
+} from "@zendev-lab/spark-protocol/presentation";
 
 export interface SparkAcpSessionRecord {
   /** ACP deliberately reuses the daemon's canonical session id. */

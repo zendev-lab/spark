@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "description": "Shrinking allowlist for production root-barrel imports of @zendev-lab/spark-protocol. New production root imports are forbidden; count may only decrease.",
+  "packageName": "@zendev-lab/spark-protocol",
+  "productionRootImportCeiling": 0,
+  "requiredSubpaths": ["domain", "daemon", "runtime", "interaction", "presentation"]
+}

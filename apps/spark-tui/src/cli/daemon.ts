@@ -8,24 +8,22 @@ import { fileURLToPath } from "node:url";
 
 import type { ChannelNotifySendResult } from "@zendev-lab/spark-channels";
 import {
-  createId,
-  hasNonEmptySparkHumanAnswer,
-  isTerminalSparkHumanInteractionDelivery,
   parseSparkModelValue,
-  parseSparkDaemonEvent,
-  parseSparkInteractionResponse,
-  parseSparkSessionView,
   sparkLocalRpcProcedureSchemas,
   sparkModelValue,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
+  hasNonEmptySparkHumanAnswer,
+  isTerminalSparkHumanInteractionDelivery,
+} from "@zendev-lab/spark-protocol/interaction";
+import { createId } from "@zendev-lab/spark-protocol/domain";
+import {
   type SparkAssignment,
-  type SparkDaemonEvent,
   type SparkInvocationListResult,
   type SparkInvocationRetentionApplyResult,
   type SparkInvocationRetentionPreviewResult,
   type SparkInvocationRetryResult,
   type SparkInvocationStatus,
-  type SparkInteractionRequest,
-  type SparkInteractionResponse,
   type SparkLocalRpcInput,
   type SparkLocalRpcMethod,
   type SparkLocalRpcOutput,
@@ -34,14 +32,22 @@ import {
   type SparkSessionCreateRequest,
   type SparkSessionListRequest,
   type SparkSessionRegistryRecord,
-  type SparkSessionView,
-  type SparkViewModelEvent,
   type SparkTurnCancelResult,
   type SparkTurnResult,
   type SparkTurnStatusResult,
   type SparkTurnStreamPage,
   type SparkTurnSubmitResult,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import {
+  parseSparkDaemonEvent,
+  parseSparkInteractionResponse,
+  parseSparkSessionView,
+  type SparkDaemonEvent,
+  type SparkInteractionRequest,
+  type SparkInteractionResponse,
+  type SparkSessionView,
+  type SparkViewModelEvent,
+} from "@zendev-lab/spark-protocol/presentation";
 import { sparkDaemonCliStrings } from "@zendev-lab/spark-i18n/cli";
 import { cappedExponentialCeiling, equalJitter } from "@zendev-lab/spark-retry";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";

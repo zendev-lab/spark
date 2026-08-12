@@ -13,7 +13,7 @@ import type {
   SparkSessionMailVisibility,
   SparkProtocolJsonValue,
   SparkTurnSubmitResult,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import { resolveSparkHome } from "@zendev-lab/spark-system";
 
 export type {
@@ -25,7 +25,7 @@ export type {
   SparkSessionMailMessage,
   SparkSessionMailOriginBinding,
   SparkSessionMailVisibility,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 
 export interface SparkSessionMailboxFile {
   version: 1;

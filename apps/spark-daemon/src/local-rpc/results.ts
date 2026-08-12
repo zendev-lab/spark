@@ -1,4 +1,5 @@
-import { SPARK_PROTOCOL_VERSION, sparkTurnSubmitResultSchema } from "@zendev-lab/spark-protocol";
+import { sparkTurnSubmitResultSchema } from "@zendev-lab/spark-protocol/daemon";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/domain";
 import type { DaemonChannelIngressStatus } from "../channels/ingress.ts";
 import type { SparkDaemonLifecycleSnapshot } from "../core/index.ts";
 import type { SparkChannelDeliverySummary } from "../store/channel-deliveries.ts";

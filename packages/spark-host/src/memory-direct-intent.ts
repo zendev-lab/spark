@@ -12,11 +12,13 @@ import {
   sparkMemoryFeedbackReceiptSigningPayload,
   verifySparkMemoryDirectIntentReceipt,
   verifySparkMemoryFeedbackReceipt,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type PrepareSparkMemoryDirectIntentReceiptInput,
   type SparkMemoryDirectIntentReceipt,
   type SparkMemoryFeedbackReceipt,
   type SparkMemoryFeedbackVerificationResult,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 
 export interface SparkMemoryDirectIntentTurnAuthority {
   readonly keyId: string;

@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
+import { sparkLoopConditionReceiptSchema } from "@zendev-lab/spark-protocol/interaction";
 import {
-  sparkLoopConditionReceiptSchema,
   type SparkLoopBooleanExpression,
   type SparkLoopCondition,
   type SparkLoopConditionReceipt,
   type SparkLoopCycleCheckpoint,
   type SparkLoopView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/interaction";
 
 export interface SparkLoopEvaluationContext {
   loop: SparkLoopView;

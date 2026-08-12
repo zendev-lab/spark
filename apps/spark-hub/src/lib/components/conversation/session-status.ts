@@ -1,4 +1,5 @@
-import type { SparkModelRef, SparkSessionView } from "@zendev-lab/spark-protocol";
+import type { SparkModelRef } from "@zendev-lab/spark-protocol/daemon";
+import type { SparkSessionView } from "@zendev-lab/spark-protocol/presentation";
 
 export {
   describeSessionStatus,

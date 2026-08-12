@@ -10,11 +10,11 @@ import type {
   ToolRenderTheme,
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-text";
+import { parseSparkMemoryApprovalBinding } from "@zendev-lab/spark-protocol/daemon";
 import {
   createAutonomousAskInteractionRequestId,
-  parseSparkMemoryApprovalBinding,
   sparkEvidenceRequestBindingSchema,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/interaction";
 import {
   isExplicitMemoryApprovalEvidenceBody,
   isUserAnsweredAskEvidenceBody,

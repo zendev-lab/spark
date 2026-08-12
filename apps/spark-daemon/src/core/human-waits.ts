@@ -2,17 +2,19 @@ import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   createAutonomousAskInteractionRequestId,
-  createId,
   hasNonEmptySparkHumanAnswer,
   matchesAutonomousAskInteractionRequestId,
   sparkEvidenceAnswerEventSchema,
-  type HumanRequestCreatedPayload,
+} from "@zendev-lab/spark-protocol/interaction";
+import { createId } from "@zendev-lab/spark-protocol/domain";
+import { type HumanRequestCreatedPayload } from "@zendev-lab/spark-protocol/runtime";
+import {
   type SparkDirectAnswerProvenance,
   type SparkEvidenceAnswerEvent,
   type SparkEvidenceRequestBinding,
   type SparkHumanInteractionDeliveryOutcome,
   type SparkHumanInteractionStatus,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/interaction";
 
 type JsonObject = Record<string, unknown>;
 type HumanQuestion = HumanRequestCreatedPayload["questions"][number];

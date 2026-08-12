@@ -7,7 +7,7 @@ import type {
   SparkSessionRegistryRecord,
   SparkSessionScope,
   SparkThinkingLevel,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import {
   defaultSparkSessionRegistryRoot,
   SparkSessionRegistry,

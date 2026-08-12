@@ -1,4 +1,4 @@
-import type { SparkJsonObject, SparkSessionView } from "@zendev-lab/spark-protocol";
+import type { SparkJsonObject, SparkSessionView } from "@zendev-lab/spark-protocol/presentation";
 
 const MAX_OUTPUT_CHARS = 4_000;
 const MAX_PREVIEW_CHARS = 8_000;

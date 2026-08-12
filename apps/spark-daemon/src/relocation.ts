@@ -4,8 +4,8 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   hubRuntimeRelocationMetadataSchema,
   runtimeRelocationPreflightResponseSchema,
-  type RuntimeRelocationPreflightResponse,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
+import { type RuntimeRelocationPreflightResponse } from "@zendev-lab/spark-protocol/runtime";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 
 import { SparkDaemonControlError } from "./control-error.ts";

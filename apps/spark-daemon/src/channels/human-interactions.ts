@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import {
-  createId,
   hasNonEmptySparkHumanAnswer,
   parseSparkAskChoice,
-  type SparkEvidenceAnswerEvent,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/interaction";
+import { createId } from "@zendev-lab/spark-protocol/domain";
+import { type SparkEvidenceAnswerEvent } from "@zendev-lab/spark-protocol/interaction";
 import type { ChannelAskRequest, IncomingMessage } from "@zendev-lab/spark-channels";
 import { renderTextChannelAsk } from "@zendev-lab/spark-channels";
 import { runtimeEnvelope } from "../protocol/outbound.ts";

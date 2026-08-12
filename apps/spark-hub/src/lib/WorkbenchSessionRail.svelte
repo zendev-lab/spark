@@ -1,6 +1,6 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
-  import type { SparkSessionRelation } from "@zendev-lab/spark-protocol";
+  import type { SparkSessionRelation } from "@zendev-lab/spark-protocol/daemon";
   import { Icon } from "@zendev-lab/spark-ui";
   import ChannelSessionIcon from "$lib/ChannelSessionIcon.svelte";
   import {

@@ -1,13 +1,13 @@
 /**
  * Conversation part projection helpers for SparkAgentLoop.
  */
+import { summarizeToolCallArguments } from "@zendev-lab/spark-protocol/presentation";
 import {
   sparkImageConversationPartSchema,
   sparkTextPhaseFromSignature,
-  summarizeToolCallArguments,
   type SparkConversationPart,
   type SparkMessageView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 
 export function assistantConversationParts(
   content: unknown,

@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { parseSparkInteractionRequest } from "@zendev-lab/spark-protocol";
+import { parseSparkInteractionRequest } from "@zendev-lab/spark-protocol/presentation";
 import type { SparkDaemonHumanInteractionBroker } from "../core/human-interactions.ts";
 import type { ExecutionOwnerHandlers } from "./owner-capabilities.ts";
 import { createTaskClaimExecutionOwner } from "./task-claim-owner.ts";

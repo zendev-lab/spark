@@ -1,4 +1,4 @@
-import type { ServerCommandPayload, SparkCommand } from "@zendev-lab/spark-protocol";
+import type { ServerCommandPayload, SparkCommand } from "@zendev-lab/spark-protocol/daemon";
 import {
   decideSparkDaemonCommandPolicy,
   sparkCommandFromServerCommandPayload,

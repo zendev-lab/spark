@@ -1,7 +1,8 @@
 import { visibleConversationPartText } from "$lib/components/conversation/conversation-view";
 import type { SessionTimelineItem } from "$lib/session-timeline";
 import type { SessionEventConnectionState } from "$lib/session-event-connection";
-import type { SparkMessageView, SparkModelRef } from "@zendev-lab/spark-protocol";
+import type { SparkModelRef } from "@zendev-lab/spark-protocol/daemon";
+import type { SparkMessageView } from "@zendev-lab/spark-protocol/presentation";
 import type { SessionsWorkbenchCopy } from "./types";
 
 export function modelValue(model: SparkModelRef | undefined): string {

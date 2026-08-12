@@ -2,12 +2,14 @@ import {
   sparkInvocationListResultSchema,
   sparkTurnStatusResultSchema,
   sparkTurnStreamPageSchema,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkInvocationListRequest,
   type SparkInvocationListResult,
   type SparkInvocationStatus,
   type SparkTurnStatusResult,
   type SparkTurnStreamPage,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import { requestSparkDaemon, SparkDaemonUnavailableError } from "@zendev-lab/spark-daemon-client";
 
 const DEFAULT_LIST_LIMIT = 50;

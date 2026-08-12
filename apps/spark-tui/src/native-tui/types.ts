@@ -2,15 +2,17 @@
 
 import type { CommandMetadata, SparkHostCommandContext } from "@zendev-lab/spark-core";
 import type {
+  SparkTurnCancelResult,
+  SparkTurnStatusResult,
+  SparkTurnSubmitResult,
+} from "@zendev-lab/spark-protocol/daemon";
+import type {
   SparkInteractionRequest,
   SparkInteractionResponse,
   SparkConversationProjection,
   SparkMessageView,
-  SparkTurnCancelResult,
-  SparkTurnStatusResult,
-  SparkTurnSubmitResult,
   SparkToolCallView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 import type { SparkKeybindingContext, SparkKeybindings } from "../host/keybindings.ts";
 import type { SparkHostMessageRenderer, RegisteredCommand } from "../host/types.ts";
 import type { SparkTheme } from "../host/theme.ts";

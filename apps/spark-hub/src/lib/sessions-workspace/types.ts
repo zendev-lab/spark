@@ -4,7 +4,10 @@ import type {
   SessionActivityQueuedTurn,
   SessionActivityReport,
 } from "@zendev-lab/spark-hub-coordination/session-activity";
-import type { SparkModelControlSnapshot, SparkSessionRelation } from "@zendev-lab/spark-protocol";
+import type {
+  SparkModelControlSnapshot,
+  SparkSessionRelation,
+} from "@zendev-lab/spark-protocol/daemon";
 import type { HubMessages } from "@zendev-lab/spark-i18n/hub";
 
 /** Canonical session activity projection; UI previously re-declared a near-isomorphic subset. */

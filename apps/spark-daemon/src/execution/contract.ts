@@ -1,4 +1,4 @@
-import type { SparkJsonValue } from "@zendev-lab/spark-protocol";
+import type { SparkJsonValue } from "@zendev-lab/spark-protocol/presentation";
 
 export const EXECUTION_ATTEMPT_PROTOCOL_VERSION = 1 as const;
 export const MAX_EXECUTION_ATTEMPT_ENVELOPE_BYTES = 64 * 1024;

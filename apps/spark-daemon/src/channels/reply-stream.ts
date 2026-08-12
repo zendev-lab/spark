@@ -3,7 +3,7 @@ import type {
   SparkConversationPart,
   SparkDaemonEvent,
   SparkMessageView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 
 const TOOL_CALL_MARKER = /\[tool call:\s*[^\]]+\]/giu;
 

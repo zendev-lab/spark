@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { createId } from "@zendev-lab/spark-protocol";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 
 export function nowIso() {
   return new Date().toISOString();

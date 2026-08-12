@@ -7,7 +7,7 @@ import {
   type SessionSnapshotHistory,
   type SessionSnapshotWindow,
 } from "$lib/session-snapshot-window";
-import type { SparkSessionView } from "@zendev-lab/spark-protocol";
+import type { SparkSessionView } from "@zendev-lab/spark-protocol/presentation";
 import { SESSION_TIMELINE_PAGE_SIZE } from "$lib/session-timeline";
 
 export type TimelineHistoryLoadInput = {

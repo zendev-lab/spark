@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { sparkAgentsHubSource } from "@zendev-lab/spark-protocol";
+import { sparkAgentsHubSource } from "@zendev-lab/spark-protocol/daemon";
 import { readArtifactPreviewContent } from "./artifact-cache.ts";
 import { loadWorkspaceServerControl } from "./projection-services.ts";
 

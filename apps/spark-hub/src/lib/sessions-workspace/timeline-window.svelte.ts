@@ -7,7 +7,7 @@ import {
   type SessionSnapshotWindow,
 } from "$lib/session-snapshot-window";
 import { SESSION_TIMELINE_PAGE_SIZE } from "$lib/session-timeline";
-import type { SparkSessionView } from "@zendev-lab/spark-protocol";
+import type { SparkSessionView } from "@zendev-lab/spark-protocol/presentation";
 import type { SessionLiveEventState } from "$lib/session-live-events";
 import { bumpTimelineRenderLimit, loadEarlierSessionTimeline } from "./timeline-window";
 

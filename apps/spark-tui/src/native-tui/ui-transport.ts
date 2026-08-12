@@ -1,6 +1,6 @@
 /** Host UI transport adapter over SparkNativeTuiApp + session. */
 
-import { parseSparkInteractionRequest } from "@zendev-lab/spark-protocol";
+import { parseSparkInteractionRequest } from "@zendev-lab/spark-protocol/presentation";
 import type { SparkHostUiTransport } from "../host/types.ts";
 import type { SparkNativeTuiApp } from "./app.ts";
 import type { SparkNativeSession } from "./session.ts";

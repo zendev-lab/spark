@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
-import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
+import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol/daemon";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 
 export interface EnsureDaemonSessionTranscriptInput {

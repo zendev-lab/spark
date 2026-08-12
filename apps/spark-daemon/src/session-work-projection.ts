@@ -4,15 +4,15 @@ import {
   sessionReproStorePathV2,
   type SparkSessionGoal,
 } from "@zendev-lab/spark-loop";
+import { type SparkLoopView } from "@zendev-lab/spark-protocol/interaction";
 import {
   sparkSessionGoalWorkViewSchema,
   sparkSessionReproWorkViewSchema,
   sparkSessionWorkViewSchema,
-  type SparkLoopView,
   type SparkSessionGoalWorkView,
   type SparkSessionReproWorkView,
   type SparkSessionWorkView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 import type {
   SparkReproUsageScope,
   SparkTokenUsageAggregate,

@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { createId } from "@zendev-lab/spark-protocol";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import { appendEvent } from "./projection-services";
 
 /** Absolute age after which a still-running mirrored invocation is marked lost. */

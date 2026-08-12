@@ -10,11 +10,7 @@
   import { sparkActionFromPresentation } from "$lib/components/conversation/action-adapter";
   import { ModelRuntimeControl } from "$lib/components/model-selector";
   import { Icon } from "@zendev-lab/spark-ui";
-  import {
-    SPARK_TURN_ATTACHMENT_MAX_BYTES,
-    SPARK_TURN_ATTACHMENT_MAX_COUNT,
-    SPARK_TURN_ATTACHMENT_MAX_TOTAL_BYTES,
-  } from "@zendev-lab/spark-protocol";
+  import { SPARK_TURN_ATTACHMENT_MAX_BYTES, SPARK_TURN_ATTACHMENT_MAX_COUNT, SPARK_TURN_ATTACHMENT_MAX_TOTAL_BYTES } from "@zendev-lab/spark-protocol/daemon";
   import type { SubmitFunction } from "@sveltejs/kit";
   import { onDestroy } from "svelte";
   import { sessionHasProjectedWork } from "$lib/session-work-view";

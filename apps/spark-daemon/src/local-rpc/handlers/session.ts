@@ -1,13 +1,15 @@
 import {
   parseSparkSessionRegistryRecord,
-  parseSparkSessionView,
   sparkSessionInboxResultSchema,
   sparkSessionMailMutationResultSchema,
   sparkSessionSendResultSchema,
   sparkTurnSubmitResultSchema,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkSessionMailMessage,
   type SparkSessionSendRequest,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import { parseSparkSessionView } from "@zendev-lab/spark-protocol/presentation";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 import { executeSparkDaemonSessionControl } from "../../session-control.ts";
 import { SparkLoopStore } from "../../store/loops.ts";

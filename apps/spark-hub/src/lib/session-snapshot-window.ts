@@ -2,7 +2,7 @@ import {
   sparkSessionSnapshotPageSchema,
   type SparkSessionSnapshotHistory,
   type SparkSessionSnapshotPage,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 
 export const SESSION_SNAPSHOT_PAGE_SIZE = 32;
 export const SESSION_SNAPSHOT_MAX_MESSAGES = 10_000;

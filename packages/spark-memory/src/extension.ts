@@ -20,7 +20,7 @@ import {
   parseSparkMemoryFeedbackReceipt,
   parseSparkMemoryProposal,
   SPARK_MEMORY_DIRECT_INTENT_REASON,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import {
   createMemoryProposal,
   MemoryApprovalError,

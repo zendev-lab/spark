@@ -1,6 +1,6 @@
 /** Hub panel helpers shared by the native TUI app. */
 
-import type { SparkArtifactView, SparkRunView } from "@zendev-lab/spark-protocol";
+import type { SparkArtifactView, SparkRunView } from "@zendev-lab/spark-protocol/presentation";
 
 import { stringFromRecord } from "./message-view.ts";
 import {

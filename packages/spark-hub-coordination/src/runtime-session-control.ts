@@ -1,24 +1,28 @@
 import type { DatabaseSync } from "node:sqlite";
 
 import {
-  createId,
   parseSparkSessionRegistryRecord,
   parseSparkSessionRegistryRecords,
-  sparkSessionViewSchema,
   sparkTurnCancelResultSchema,
   sparkTurnStatusResultSchema,
   sparkTurnStreamPageSchema,
   sparkTurnSubmitResultSchema,
-  type RuntimeCommandResultPayload,
+} from "@zendev-lab/spark-protocol/daemon";
+import { createId } from "@zendev-lab/spark-protocol/domain";
+import { type RuntimeCommandResultPayload } from "@zendev-lab/spark-protocol/runtime";
+import {
   type ServerCommandPayload,
   type SparkProtocolJsonValue,
   type SparkSessionRegistryRecord,
-  type SparkSessionView,
   type SparkTurnCancelResult,
   type SparkTurnStatusResult,
   type SparkTurnStreamPage,
   type SparkTurnSubmitResult,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import {
+  sparkSessionViewSchema,
+  type SparkSessionView,
+} from "@zendev-lab/spark-protocol/presentation";
 
 import {
   dispatchRuntimeControlCommands,

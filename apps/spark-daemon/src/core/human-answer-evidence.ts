@@ -1,7 +1,7 @@
 import { defaultEvidenceStore, type EvidenceRecord } from "@zendev-lab/spark-artifacts";
 import { recordCanonicalAnswerEventEvidenceReceipt } from "@zendev-lab/spark-ask";
 import type { AskRef, EvidenceRef, JsonValue } from "@zendev-lab/spark-core";
-import type { SparkEvidenceAnswerEvent } from "@zendev-lab/spark-protocol";
+import type { SparkEvidenceAnswerEvent } from "@zendev-lab/spark-protocol/interaction";
 import type {
   HumanAnswerEventWakeClaim,
   HumanAnswerEventWakeClaimResult,

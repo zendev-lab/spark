@@ -1,9 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
+import { sanitizeSparkDisplayError } from "@zendev-lab/spark-protocol/domain";
 import {
-  sanitizeSparkDisplayError,
   sparkMessageViewSchema,
   type SparkMessageView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 
 export interface SessionActivityCommand {
   id: string;

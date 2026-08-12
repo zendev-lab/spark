@@ -9,13 +9,15 @@ import {
   sparkSideThreadSnapshotRequestSchema,
   sparkSideThreadSubmitRequestSchema,
   sparkSideThreadSubmitResultSchema,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkCommandKind,
   type SparkModelRef,
   type SparkProtocolJsonValue,
   type SparkSessionRegistryRecord,
   type SparkSideThreadErrorCode,
   type SparkSideThreadMode,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 
 import { validateSparkDaemonTask } from "./core/index.ts";

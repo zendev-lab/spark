@@ -1,15 +1,12 @@
 import { createHash } from "node:crypto";
 import {
   artifactProjectionEnvelopeSchema,
-  createId,
-  createServerCommandEnvelope,
   daemonEventEnvelopeSchema,
   humanRequestCreatedEnvelopeSchema,
   humanResponseAckEnvelopeSchema,
   humanResponseRecordedEnvelopeSchema,
   invocationLogChunkEnvelopeSchema,
   invocationUpdateEnvelopeSchema,
-  optionalWireIdempotencyKey,
   runtimeCommandAckEnvelopeSchema,
   runtimeCommandRejectEnvelopeSchema,
   runtimeCommandResultEnvelopeSchema,
@@ -17,12 +14,16 @@ import {
   runtimeHelloEnvelopeSchema,
   runtimeProtocolVersion,
   runtimeReconcileReportEnvelopeSchema,
-  parseSparkDaemonEvent,
-  serializeServerCommandEnvelope,
   taskGraphSnapshotEnvelopeSchema,
   workspaceSnapshotEnvelopeSchema,
-  type ArtifactProjectionPayload,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
+import {
+  createServerCommandEnvelope,
+  serializeServerCommandEnvelope,
+} from "@zendev-lab/spark-protocol/daemon";
+import { createId, optionalWireIdempotencyKey } from "@zendev-lab/spark-protocol/domain";
+import { type ArtifactProjectionPayload } from "@zendev-lab/spark-protocol/runtime";
+import { parseSparkDaemonEvent } from "@zendev-lab/spark-protocol/presentation";
 import {
   markRuntimeControlCommandDeliveryAttempt,
   pendingRuntimeControlCommands,

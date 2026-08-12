@@ -2,7 +2,7 @@ import {
   sparkInvocationRetentionApplyResultSchema,
   sparkInvocationRetentionPreviewResultSchema,
   sparkInvocationRetryResultSchema,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import { SparkInvocationStore } from "../../store/invocations.ts";
 import { executeSparkDaemonSessionControl } from "../../session-control.ts";
 import {

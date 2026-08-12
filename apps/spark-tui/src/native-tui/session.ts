@@ -1,19 +1,22 @@
 /** In-memory native TUI session: transcript, queue, and turn lifecycle. */
 
 import {
-  SPARK_PROTOCOL_VERSION,
-  createId,
   mergeSparkConversationToolPart,
   sparkConversationVisibleText,
-  type SparkConversationToolProjectionPart,
-  type SparkMessageView,
+} from "@zendev-lab/spark-protocol/presentation";
+import { SPARK_PROTOCOL_VERSION, createId } from "@zendev-lab/spark-protocol/domain";
+import {
   type SparkSessionPendingTurn,
-  type SparkSessionView,
   type SparkTurnCancelResult,
   type SparkTurnStatusResult,
   type SparkTurnSubmitResult,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
+  type SparkConversationToolProjectionPart,
+  type SparkMessageView,
+  type SparkSessionView,
   type SparkToolCallView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 
 import { displayNativeSubmittedInput } from "./editor-input.ts";
 import {

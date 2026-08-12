@@ -1,12 +1,12 @@
+import type { SparkLoopView } from "@zendev-lab/spark-protocol/interaction";
 import type {
   SparkArtifactView,
-  SparkLoopView,
   SparkEvidenceView,
   SparkInteractionRequest,
   SparkRunView,
   SparkSessionView,
   SparkTaskView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 
 export type SparkNativeHubPanel =
   | "overview"

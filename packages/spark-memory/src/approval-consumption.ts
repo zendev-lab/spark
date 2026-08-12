@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
-import type { SparkMemoryApprovalProof } from "@zendev-lab/spark-protocol";
+import type { SparkMemoryApprovalProof } from "@zendev-lab/spark-protocol/daemon";
 
 import { memoryContentDigest } from "./lifecycle.ts";
 import { withFileMutationLock } from "./mutation-lock.ts";

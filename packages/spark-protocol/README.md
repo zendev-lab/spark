@@ -2,6 +2,20 @@
 
 JSON-safe schemas and types shared by native TUI, daemon, runtime WebSocket, and Hub surfaces. This package owns refs/errors, command/event envelopes, RoleSpec and Session lifecycle contracts, invocation lifecycle, registration, projections, interactions, and view models.
 
+## Contract-domain subpaths
+
+Prefer these package exports for production imports:
+
+| Subpath | Ownership |
+| --- | --- |
+| `@zendev-lab/spark-protocol/domain` | refs, versions, ownership, errors, shared primitives |
+| `@zendev-lab/spark-protocol/daemon` | local RPC, task claims, commands, sessions, memory approval |
+| `@zendev-lab/spark-protocol/runtime` | runtime WebSocket / registration contracts |
+| `@zendev-lab/spark-protocol/interaction` | human interaction, ask semantics, loop contracts |
+| `@zendev-lab/spark-protocol/presentation` | A2UI, conversation projections, composite view models |
+
+The package root barrel remains a compatibility surface only. Production root-barrel imports are held at a shrinking ceiling of zero by `test/fixtures/spark-protocol-root-imports.json`.
+
 The shared RoleSpec contract carries stable revision, semantic Model Type, capabilities, and instantiation policy. Session assignment carries independent lifetime, owner, lifecycle, authority, state binding, visibility, retention, purpose, and transcript reference fields. A discard-on-close Session may retain up to 16 daemon-sealed, 16 KiB close receipts while its transcript and invocation payloads are deleted. Close candidates are strict owner reports, not Evidence or automatic Memory. Decoders preserve unknown RoleSpec extension fields so older surfaces can read newer definitions without inventing lifecycle behavior.
 
 `@zendev-lab/spark-protocol/conversation` projects the existing message-part

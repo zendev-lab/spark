@@ -1,12 +1,12 @@
+import { sparkLocalRpcProcedureSchemas } from "@zendev-lab/spark-protocol/daemon";
 import {
-  sparkLocalRpcProcedureSchemas,
   type SparkAssignment,
   type SparkLocalRpcInput,
   type SparkLocalRpcMethod,
   type SparkLocalRpcOutput,
   type SparkSessionRegistryRecord,
   type SparkTurnSubmitResult,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { requestSparkDaemon, type SparkDaemonClientOptions } from "@zendev-lab/spark-daemon-client";
 

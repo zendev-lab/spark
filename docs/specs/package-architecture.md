@@ -198,7 +198,12 @@ changes extension specifiers and user configuration compatibility.
 ## Deliberate boundaries
 
 - `spark-protocol` is a pure wire-contract package. It has no production
-  dependency on another Spark workspace.
+  dependency on another Spark workspace. Public production imports use the
+  contract-domain subpaths `domain`, `daemon`, `runtime`, `interaction`, and
+  `presentation`. The package root barrel remains only as a shrinking
+  compatibility surface: new production root-barrel imports are forbidden, and
+  the production root import ceiling is owned by
+  `test/fixtures/spark-protocol-root-imports.json`.
 - `spark-system` contains only local-system mechanisms: paths, permissions,
   commands, SQLite opening, strings, and the socket MessagePort adapter. It has
   no Spark workspace dependency.

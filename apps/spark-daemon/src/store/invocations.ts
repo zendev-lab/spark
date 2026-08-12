@@ -1,4 +1,4 @@
-import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/domain";
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";

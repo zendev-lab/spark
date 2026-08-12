@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import type { SparkLoopConditionReceipt } from "@zendev-lab/spark-protocol";
+import type { SparkLoopConditionReceipt } from "@zendev-lab/spark-protocol/interaction";
 import type {
   SparkTrustedLoopEvaluator,
   SparkTrustedLoopEvaluatorResult,

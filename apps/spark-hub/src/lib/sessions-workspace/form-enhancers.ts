@@ -1,5 +1,5 @@
 import type { SubmitFunction } from "@sveltejs/kit";
-import { createId } from "@zendev-lab/spark-protocol";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import {
   readStartConversationPendingSubmission,
   startConversationPendingSubmissionMatches,

@@ -1,4 +1,4 @@
-import type { SparkMemoryApprovalBinding } from "@zendev-lab/spark-protocol";
+import type { SparkMemoryApprovalBinding } from "@zendev-lab/spark-protocol/daemon";
 
 export interface SparkAskAutoAnswerRequest {
   title?: string;

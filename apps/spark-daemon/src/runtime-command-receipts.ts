@@ -4,11 +4,13 @@ import {
   runtimeCommandAckEnvelopeSchema,
   runtimeCommandResultEnvelopeSchema,
   runtimeProtocolVersion,
-  runtimeServerCommandSpecification,
   serverCommandPayloadSchema,
+} from "@zendev-lab/spark-protocol/runtime";
+import {
+  runtimeServerCommandSpecification,
   sparkTurnSubmitResultSchema,
-  type ServerCommandEnvelope,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import { type ServerCommandEnvelope } from "@zendev-lab/spark-protocol/daemon";
 import { assertIdempotentTurnPayloadReplay } from "./session-control.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 

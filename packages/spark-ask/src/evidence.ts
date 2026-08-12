@@ -2,11 +2,11 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import type { EvidenceRecord } from "@zendev-lab/spark-artifacts";
+import { parseSparkMemoryApprovalBinding } from "@zendev-lab/spark-protocol/daemon";
 import {
-  parseSparkMemoryApprovalBinding,
   type SparkMemoryApprovalBinding,
   type SparkMemoryApprovalProof,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import {
   readJsonFileOptional,
   writeJsonFileAtomic,

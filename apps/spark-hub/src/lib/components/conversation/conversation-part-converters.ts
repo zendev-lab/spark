@@ -1,4 +1,4 @@
-import type { SparkMessageView } from "@zendev-lab/spark-protocol";
+import type { SparkMessageView } from "@zendev-lab/spark-protocol/presentation";
 import type {
   ConversationApprovalState,
   ConversationPart,

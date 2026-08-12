@@ -1,5 +1,6 @@
 import { error as httpError, fail, redirect } from "@sveltejs/kit";
-import { createId, sparkSessionModeSchema } from "@zendev-lab/spark-protocol";
+import { sparkSessionModeSchema } from "@zendev-lab/spark-protocol/daemon";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import { getRequestDictionary, localeCookieName } from "$lib/i18n";
 import { titleFromPrompt } from "@zendev-lab/spark-hub-coordination/agents-product";
 import {

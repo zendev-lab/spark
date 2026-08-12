@@ -1,4 +1,4 @@
-import type { SparkSessionView } from "@zendev-lab/spark-protocol";
+import type { SparkSessionView } from "@zendev-lab/spark-protocol/presentation";
 
 export interface HubPendingTurn {
   commandId: string;

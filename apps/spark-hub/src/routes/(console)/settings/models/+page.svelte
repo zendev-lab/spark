@@ -4,7 +4,7 @@
   import { Icon } from "@zendev-lab/spark-ui";
   import { ModelPicker, type ModelPickerGroup } from "$lib/components/model-selector";
   import { Button, Field, Input, PageHeader, Select } from "@zendev-lab/spark-ui";
-  import type { SparkModelCatalogProvider } from "@zendev-lab/spark-protocol";
+  import type { SparkModelCatalogProvider } from "@zendev-lab/spark-protocol/daemon";
 
   let { data, form } = $props();
   let copy = $derived(data.messages.modelSettings);

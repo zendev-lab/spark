@@ -1,4 +1,5 @@
-import type { SparkLoopStatus, SparkLoopView, SparkSessionView } from "@zendev-lab/spark-protocol";
+import type { SparkLoopStatus, SparkLoopView } from "@zendev-lab/spark-protocol/interaction";
+import type { SparkSessionView } from "@zendev-lab/spark-protocol/presentation";
 
 export type SessionPrimaryView = "work" | "transcript";
 

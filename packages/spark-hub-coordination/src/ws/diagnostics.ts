@@ -1,13 +1,13 @@
 import {
-  createId,
   diagnoseRuntimeProtocolMessage,
   formatRuntimeProtocolDiagnostic,
   invalidRuntimeProtocolJsonDiagnostic,
   runtimeProtocolDiagnosticDetails,
   runtimeProtocolVersion,
   serverErrorEnvelopeSchema,
-  type RuntimeProtocolDiagnostic,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
+import { createId } from "@zendev-lab/spark-protocol/domain";
+import { type RuntimeProtocolDiagnostic } from "@zendev-lab/spark-protocol/runtime";
 import type { RawData } from "ws";
 
 const runtimeToHubBoundary = {

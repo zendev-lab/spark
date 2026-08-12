@@ -1,4 +1,4 @@
-import type { SparkModelRef, SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
+import type { SparkModelRef, SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol/daemon";
 
 import type { DaemonSessionRegistry } from "../session-registry.ts";
 

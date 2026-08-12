@@ -1,9 +1,9 @@
+import { projectSparkConversationMessage } from "@zendev-lab/spark-protocol/presentation";
 import {
-  projectSparkConversationMessage,
   sparkConversationPartSchema,
   type SparkConversationProjectionPart,
   type SparkMessageView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 import {
   conversationPartText,
   groupThinkingChainParts,

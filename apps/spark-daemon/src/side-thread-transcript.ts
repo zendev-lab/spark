@@ -6,13 +6,15 @@ import { SparkSessionStore, type SparkSessionEntry } from "@zendev-lab/spark-hos
 import {
   sparkSideThreadSnapshotSchema,
   sparkSideThreadExchangeSchema,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkModelRef,
   type SparkSessionRegistryRecord,
   type SparkSideThreadErrorCode,
   type SparkSideThreadExchange,
   type SparkSideThreadMode,
   type SparkSideThreadSnapshot,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import {
   loadSparkSessionSnapshot,
   sparkSessionSnapshotIndexPath,

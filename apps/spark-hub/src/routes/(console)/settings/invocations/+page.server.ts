@@ -1,4 +1,4 @@
-import type { SparkInvocationStatus } from "@zendev-lab/spark-protocol";
+import type { SparkInvocationStatus } from "@zendev-lab/spark-protocol/daemon";
 import { loadInvocationDiagnosticsForHub } from "$lib/server/invocation-diagnostics";
 import type { PageServerLoad } from "./$types";
 

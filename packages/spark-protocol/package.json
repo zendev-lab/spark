@@ -13,6 +13,11 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./domain": "./src/domain.ts",
+    "./daemon": "./src/daemon.ts",
+    "./runtime": "./src/runtime.ts",
+    "./interaction": "./src/interaction.ts",
+    "./presentation": "./src/presentation.ts",
     "./a2ui": "./src/a2ui.ts",
     "./agent-tracing": "./src/agent-tracing.ts",
     "./artifact-document": "./src/artifact-document.ts",

@@ -18,6 +18,8 @@ import {
   parseSparkModelControlSnapshot,
   parseSparkQqbotQrAuthFlow,
   parseSparkSessionRegistryRecord,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type ServerCommandPayload,
   type SparkAuthFlow,
   type SparkChannelControlSnapshot,
@@ -26,7 +28,7 @@ import {
   type SparkQqbotQrAuthFlow,
   type SparkSessionRegistryRecord,
   type SparkThinkingLevel,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import type { ChannelsConfig } from "@zendev-lab/spark-channels";
 import { getDatabase } from "./db.ts";
 

@@ -2,8 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { createId } from "@zendev-lab/spark-protocol/domain";
 import {
-  createId,
   type ExecutorClientProjection,
   type RuntimeWorkspaceBindingAssignment,
   type RuntimeWorkspaceBindingSummary,
@@ -13,7 +13,7 @@ import {
   type WorkspaceClientProjection,
   type WorkspaceOccupancySession,
   type WorkspaceSessionSurface,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
 import type { SparkTaskClaimLeaseIdentity } from "@zendev-lab/spark-protocol/task-claim";
 import { asciiSlug } from "@zendev-lab/spark-system";
 import { SparkDaemonControlError } from "../control-error.ts";

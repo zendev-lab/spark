@@ -10,7 +10,7 @@
   import { statusLabel } from "$lib/i18n";
   import { Button, Field, Icon, Input, PageHeader, Select } from "@zendev-lab/spark-ui";
   import type { ActionResult, SubmitFunction } from "@sveltejs/kit";
-  import type { SparkQqbotQrAuthReason, SparkQqbotQrAuthStatus } from "@zendev-lab/spark-protocol";
+  import type { SparkQqbotQrAuthReason, SparkQqbotQrAuthStatus } from "@zendev-lab/spark-protocol/daemon";
   import { onDestroy, untrack } from "svelte";
 
   type QqbotQrFlowView = {

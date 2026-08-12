@@ -79,12 +79,10 @@ type SparkRuntimeModules = {
   ): Promise<Array<{ signalSent?: boolean; closed?: boolean }>>;
   createSparkHeadlessRoleExecutor: CreateSparkHeadlessRoleExecutorFn;
 };
-import {
-  createId,
-  type InvocationLogChunkStream,
-  type ServerCommandPayload,
-  type serverCommandEnvelopeSchema,
-} from "@zendev-lab/spark-protocol";
+import { type serverCommandEnvelopeSchema } from "@zendev-lab/spark-protocol/runtime";
+import { createId } from "@zendev-lab/spark-protocol/domain";
+import { type InvocationLogChunkStream } from "@zendev-lab/spark-protocol/runtime";
+import { type ServerCommandPayload } from "@zendev-lab/spark-protocol/daemon";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import { extractFinalAssistantText, extractTextDelta } from "../pi/session.ts";
 import type { SparkDaemonWorkspace } from "../store/workspaces.js";

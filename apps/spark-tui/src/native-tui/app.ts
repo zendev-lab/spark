@@ -7,12 +7,12 @@ import {
   type RenderTheme as AskRenderTheme,
   type SparkAskFlowResult,
 } from "@zendev-lab/spark-ask";
+import { sparkSlashActionBarForInput } from "@zendev-lab/spark-protocol/presentation";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/domain";
 import {
-  SPARK_PROTOCOL_VERSION,
   createBlockedInteractionResponse,
   parseSparkInteractionResponse,
   parseSparkViewModelEvent,
-  sparkSlashActionBarForInput,
   type SparkActionBarView,
   type SparkActionView,
   type SparkArtifactView,
@@ -23,7 +23,7 @@ import {
   type SparkSessionView,
   type SparkTaskView,
   type SparkViewModelEvent,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 
 import {
   CombinedAutocompleteProvider,

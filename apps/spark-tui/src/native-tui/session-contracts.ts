@@ -1,4 +1,4 @@
-import type { SparkMessageView, SparkToolCallView } from "@zendev-lab/spark-protocol";
+import type { SparkMessageView, SparkToolCallView } from "@zendev-lab/spark-protocol/presentation";
 import type { SparkNativeHubPanel } from "./hub-types.ts";
 
 interface SparkNativeSessionMessageContract {

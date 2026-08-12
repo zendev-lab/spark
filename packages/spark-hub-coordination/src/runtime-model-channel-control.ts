@@ -1,19 +1,23 @@
 import type { DatabaseSync } from "node:sqlite";
+import { runtimeEphemeralSecretResultPayloadSchema } from "@zendev-lab/spark-protocol/runtime";
 import {
-  createId,
   parseSparkChannelControlSnapshot,
   parseSparkModelControlSnapshot,
-  runtimeEphemeralSecretResultPayloadSchema,
   sparkProtocolJsonObjectSchema,
+} from "@zendev-lab/spark-protocol/daemon";
+import { createId } from "@zendev-lab/spark-protocol/domain";
+import {
   type RuntimeCommandResultPayload,
   type RuntimeEphemeralSecretRequestPayload,
   type RuntimeEphemeralSecretResultPayload,
   type ServerEphemeralSecretRequestEnvelope,
+} from "@zendev-lab/spark-protocol/runtime";
+import {
   type ServerCommandPayload,
   type SparkChannelControlSnapshot,
   type SparkModelControlSnapshot,
   type SparkProtocolJsonValue,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import {
   dispatchRuntimeControlCommands,
   RuntimeControlCommandError,

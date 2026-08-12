@@ -1,4 +1,4 @@
-import { runtimeTokenRefreshResponseSchema } from "@zendev-lab/spark-protocol";
+import { runtimeTokenRefreshResponseSchema } from "@zendev-lab/spark-protocol/runtime";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import { readSparkDaemonConfig, writeSparkDaemonConfig, type SparkDaemonConfig } from "./config.js";
 import { fetchRegistrationEndpoint } from "./registration-http.js";

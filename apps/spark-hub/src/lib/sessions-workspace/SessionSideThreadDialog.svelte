@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Icon } from "@zendev-lab/spark-ui";
-  import type { SparkSideThreadSnapshot } from "@zendev-lab/spark-protocol";
+  import type { SparkSideThreadSnapshot } from "@zendev-lab/spark-protocol/daemon";
   import type { SessionsMessages } from "./types";
 
   let {

@@ -7,19 +7,21 @@ import {
   sparkSessionInboxResultSchema,
   sparkSessionMailMutationResultSchema,
   sparkSessionSendResultSchema,
+  sparkTurnSubmitResultSchema,
+  sparkTurnResultSchema,
+  sparkTurnStatusResultSchema,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   type SparkChannelAdapter,
   type SparkSessionCreateRequest,
   type SparkSessionListRequest,
   type SparkSessionMailKind,
   type SparkSessionMailMessage,
-  sparkTurnSubmitResultSchema,
-  sparkTurnResultSchema,
-  sparkTurnStatusResultSchema,
   type SparkSessionRegistryRecord,
   type SparkTurnSubmitResult,
   type SparkTurnResult,
   type SparkTurnStatusResult,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import { requestSparkDaemon, type SparkDaemonClient } from "@zendev-lab/spark-daemon-client";
 
 const DEFAULT_LIMIT = 20;

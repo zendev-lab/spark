@@ -2,7 +2,6 @@ import { join } from "node:path";
 import { sparkLocalRpcProcedureSchemas } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
 import type {
   SparkAssignment,
-  SparkDaemonEvent,
   SparkInvocationListResult,
   SparkInvocationRetentionPreviewResult,
   SparkInvocationRetryResult,
@@ -14,7 +13,8 @@ import type {
   SparkTurnStatusResult,
   SparkTurnStreamPage,
   SparkTurnSubmitResult,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
+import type { SparkDaemonEvent } from "@zendev-lab/spark-protocol/presentation";
 import type { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import type { DaemonChannelIngressRuntime } from "../channels/ingress.ts";

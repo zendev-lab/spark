@@ -1,4 +1,4 @@
-import type { SparkActionBarView } from "@zendev-lab/spark-protocol";
+import type { SparkActionBarView } from "@zendev-lab/spark-protocol/presentation";
 import type { SessionInspectorLabels } from "$lib/session-workbench";
 import type { SessionsWorkbenchCopy } from "./types";
 

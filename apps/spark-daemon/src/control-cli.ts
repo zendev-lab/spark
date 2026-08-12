@@ -1,9 +1,8 @@
+import { parseSparkModelValue, sparkModelValue } from "@zendev-lab/spark-protocol/daemon";
 import {
-  parseSparkModelValue,
-  sparkModelValue,
   type SparkInvocationStatus,
   type SparkModelControlSnapshot,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/daemon";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 
 import { localRpcRequest } from "./local-rpc/client.js";

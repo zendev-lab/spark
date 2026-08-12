@@ -16,7 +16,7 @@ import {
   type SessionActivityState,
 } from "$lib/session-activity-state";
 import type { SessionSnapshotHistory } from "$lib/session-snapshot-window";
-import type { SparkSessionView } from "@zendev-lab/spark-protocol";
+import type { SparkSessionView } from "@zendev-lab/spark-protocol/presentation";
 import { attachSessionLiveEventSource, attachSessionStatusProbe } from "./live-connection";
 import { resetDequeueUiOnSessionChange, type DequeueTurnUiState } from "./cancel-dequeue";
 import { invalidateLatestSessionTimelineCache, loadLatestSessionTimeline } from "./timeline-window";

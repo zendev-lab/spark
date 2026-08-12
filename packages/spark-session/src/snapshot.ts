@@ -3,27 +3,35 @@ import { createHash, randomUUID } from "node:crypto";
 import { open, readFile, rename, stat, unlink } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
-  SPARK_PROTOCOL_VERSION,
   SPARK_SESSION_MEDIA_MAX_BYTES,
-  sparkImageConversationPartSchema,
-  parseSparkSessionView,
-  sanitizeSparkDisplayError,
   sparkSessionMediaReadRequestSchema,
   sparkSessionMediaReadResultSchema,
-  sparkSessionUsageSchema,
-  sparkTextPhaseFromSignature,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
   summarizeToolCallArguments,
   summarizeToolResultContent,
-  type SparkConversationPart,
-  type SparkJsonObject,
-  type SparkMessageView,
+} from "@zendev-lab/spark-protocol/presentation";
+import {
+  SPARK_PROTOCOL_VERSION,
+  sanitizeSparkDisplayError,
+} from "@zendev-lab/spark-protocol/domain";
+import {
   type SparkSessionRegistryRecord,
   type SparkSessionMediaReadRequest,
   type SparkSessionMediaReadResult,
+} from "@zendev-lab/spark-protocol/daemon";
+import {
+  sparkImageConversationPartSchema,
+  parseSparkSessionView,
+  sparkSessionUsageSchema,
+  sparkTextPhaseFromSignature,
+  type SparkConversationPart,
+  type SparkJsonObject,
+  type SparkMessageView,
   type SparkSessionUsage,
   type SparkSessionView,
   type SparkToolCallView,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/presentation";
 import { gitCommand } from "@zendev-lab/spark-system";
 import { SparkSessionRegistryError } from "./registry.ts";
 

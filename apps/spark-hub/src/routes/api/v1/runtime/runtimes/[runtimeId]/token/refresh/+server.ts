@@ -1,7 +1,7 @@
 import {
   runtimeTokenRefreshRequestSchema,
   runtimeTokenRefreshResponseSchema,
-} from "@zendev-lab/spark-protocol";
+} from "@zendev-lab/spark-protocol/runtime";
 import { json, type RequestHandler } from "@sveltejs/kit";
 import { getDatabase } from "$lib/server/db";
 import { errorJson } from "$lib/server/json";

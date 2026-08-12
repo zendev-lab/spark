@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -77,6 +77,8 @@ function runArchitectureRatchets() {
     }
   }
 
+  checkSparkProtocolRootImportCeiling(failures);
+
   if (failures.length > 0) {
     console.error(
       ["Architecture ratchet failed:", ...failures.map((failure) => `- ${failure}`)].join("\n"),
@@ -139,11 +141,64 @@ function isFile(path) {
   }
 }
 
+function isProductionSource(path) {
+  if (![".js", ".mjs", ".svelte", ".ts", ".tsx"].includes(extname(path))) return false;
+  const normalized = path.replaceAll("\\", "/");
+  if (/\.(?:test|spec)\.[^.]+$/u.test(normalized)) return false;
+  if (normalized.includes("/src/paraglide/")) return false;
+  if (normalized.includes("/__tests__/")) return false;
+  return !normalized.includes("/test/");
+}
+
 function readJson(path) {
   try {
     return JSON.parse(readFileSync(path, "utf8"));
   } catch (error) {
     throw new Error(`Failed to parse JSON from ${path}`, { cause: error });
+  }
+}
+
+function checkSparkProtocolRootImportCeiling(failures) {
+  const allowlistPath = join(root, "test/fixtures/spark-protocol-root-imports.json");
+  if (!isFile(allowlistPath)) {
+    failures.push("missing test/fixtures/spark-protocol-root-imports.json");
+    return;
+  }
+  const allowlist = readJson(allowlistPath);
+  const requiredSubpaths = allowlist.requiredSubpaths ?? [];
+  const protocolPackage = readJson(join(root, "packages/spark-protocol/package.json"));
+  for (const subpath of requiredSubpaths) {
+    const target = protocolPackage.exports?.[`./${subpath}`];
+    if (typeof target !== "string") {
+      failures.push(`@zendev-lab/spark-protocol is missing required export ./${subpath}`);
+      continue;
+    }
+    if (!isFile(join(root, "packages/spark-protocol", target))) {
+      failures.push(`@zendev-lab/spark-protocol export ./${subpath} points to missing ${target}`);
+    }
+  }
+  const rootImportRe = /from\s+["']@zendev-lab\/spark-protocol["']/g;
+  let productionRootImportCount = 0;
+  for (const workspaceDir of ["apps", "packages"]) {
+    visit(join(root, workspaceDir), (sourcePath) => {
+      if (!isProductionSource(sourcePath)) return;
+      const source = readFileSync(sourcePath, "utf8");
+      const matches = source.match(rootImportRe);
+      if (matches?.length) {
+        productionRootImportCount += matches.length;
+        failures.push(
+          `${relative(root, sourcePath).replaceAll("\\", "/")} imports @zendev-lab/spark-protocol root barrel; use domain/daemon/runtime/interaction/presentation subpaths`,
+        );
+      }
+    });
+  }
+  const ceiling = allowlist.productionRootImportCeiling;
+  if (typeof ceiling !== "number") {
+    failures.push("spark-protocol root import allowlist is missing productionRootImportCeiling");
+  } else if (productionRootImportCount > ceiling) {
+    failures.push(
+      `spark-protocol production root imports ${productionRootImportCount} exceed ceiling ${ceiling}`,
+    );
   }
 }
 
