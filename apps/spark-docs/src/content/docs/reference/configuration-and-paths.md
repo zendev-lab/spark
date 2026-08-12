@@ -51,6 +51,24 @@ $XDG_RUNTIME_DIR/spark
 
 Platform defaults apply when an individual XDG variable is unset.
 
+## Daemon invocation concurrency
+
+The daemon admits up to four root invocations from distinct sessions by
+default. Configure a startup value from `1` through `64`, then restart the
+daemon to apply it:
+
+```bash
+spark daemon configure --invocation-concurrency 8
+spark daemon restart --yes --wait
+spark daemon status --json
+```
+
+The effective runtime value appears under `execution.rootConcurrency`; status
+also reports the `in_process` backend and the one reserved blocking-question
+overflow slot. This setting controls root invocation admission. It does not
+create operating-system worker processes, and work in the same session remains
+serialized.
+
 ## Cockpit-to-Hub upgrade
 
 On first use of the default Hub database, Spark automatically migrates the

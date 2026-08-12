@@ -63,6 +63,7 @@ describe("Spark daemon token refresh", () => {
     const config = {
       installationId: "install-test",
       displayName: "Test daemon",
+      invocationConcurrency: 8,
       serverUrl: "http://127.0.0.1:5173",
       runtimeId: "rt_11111111111141111111111111111111",
       runtimeToken: "spark_rt_old_token_0000000000000000000000000000000",
@@ -105,10 +106,12 @@ describe("Spark daemon token refresh", () => {
         }),
       );
       expect(refreshed.runtimeToken).toBe("spark_rt_new_token_0000000000000000000000000000000");
+      expect(refreshed.invocationConcurrency).toBe(8);
       expect(config.refreshToken).toBe("spark_rt_refresh_new_000000000000000000000000000");
       expect(readSparkDaemonConfig(paths)).toEqual({
         installationId: "install-test",
         displayName: "Test daemon",
+        invocationConcurrency: 8,
       });
       expect(getSparkDaemonServerProfile(paths, "http://127.0.0.1:5173")).toMatchObject({
         runtimeToken: "spark_rt_new_token_0000000000000000000000000000000",
