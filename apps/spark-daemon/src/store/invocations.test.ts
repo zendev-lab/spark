@@ -742,6 +742,61 @@ describe("SparkInvocationStore", () => {
     }
   });
 
+  it("selects only the latest TUI user turn as the cold-start retry target", () => {
+    const { db, store } = createStore();
+    const task = (prompt: string, origin: "tui" | "channel" = "tui") => ({
+      type: "session.run",
+      sessionId: "session-tui-retry-target",
+      prompt,
+      messageMetadata: {
+        origin: {
+          kind: "user",
+          host: origin,
+          surface: origin === "tui" ? "local" : "channel",
+        },
+      },
+    });
+    try {
+      const retryable = store.submit({
+        sessionId: "session-tui-retry-target",
+        task: task("retryable"),
+        now: "2026-08-12T00:00:00.000Z",
+      });
+      store.complete(retryable.invocationId, {
+        status: "failed",
+        errorCode: "EXECUTION_TRANSIENT",
+        errorMessage: "empty response",
+        now: "2026-08-12T00:00:01.000Z",
+      });
+      expect(store.latestTuiUserRetryTargetForSession("session-tui-retry-target")).toMatchObject({
+        invocationId: retryable.invocationId,
+      });
+
+      const hidden = store.submit({
+        sessionId: "session-tui-retry-target",
+        task: task("channel failure", "channel"),
+        now: "2026-08-12T00:00:02.000Z",
+      });
+      store.complete(hidden.invocationId, {
+        status: "failed",
+        errorCode: "EXECUTION_TRANSIENT",
+        now: "2026-08-12T00:00:03.000Z",
+      });
+      expect(store.latestTuiUserRetryTargetForSession("session-tui-retry-target")).toMatchObject({
+        invocationId: retryable.invocationId,
+      });
+
+      store.submit({
+        sessionId: "session-tui-retry-target",
+        task: task("newer pending"),
+        now: "2026-08-12T00:00:04.000Z",
+      });
+      expect(store.latestTuiUserRetryTargetForSession("session-tui-retry-target")).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+
   it("previews retention only for terminal history whose known delivery cursors are complete", () => {
     const { db, store } = createStore();
     try {

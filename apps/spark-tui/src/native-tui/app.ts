@@ -2412,9 +2412,6 @@ export class SparkNativeTuiApp implements Component, Focusable {
           ? `Restored ${result.clearedQueued} queued input(s) to the editor.`
           : nativeTuiStrings.noTurnRunning;
       }
-      case "retry":
-        void this.session.retryLast();
-        return false;
       case "inspect":
       case "hub":
         return this.openHubPanelFromArgs(_args);

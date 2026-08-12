@@ -12,6 +12,9 @@ export type FailureClass =
   | "fatal"
   | "aborted";
 
+/** The provider ended normally but produced no user-visible text or tool call. */
+export const MODEL_EMPTY_RESPONSE_ERROR_CODE = "MODEL_EMPTY_RESPONSE";
+
 export interface FailurePolicyHint {
   retriable: boolean;
   cooldown: boolean;
@@ -61,6 +64,7 @@ export function classifyProviderFailure(input: unknown): ProviderFailureClassifi
 function chooseFailureClass(input: NormalizedProviderFailure): FailureClass {
   const text = input.message.toLowerCase();
   if (input.stopReason === "aborted") return "aborted";
+  if (input.code === MODEL_EMPTY_RESPONSE_ERROR_CODE) return "transient";
   if (input.code === TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE) return "transient";
   // Compatibility fallback for adapters that have not preserved the stable code yet.
   if (

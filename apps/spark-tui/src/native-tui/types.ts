@@ -4,6 +4,8 @@ import type { CommandMetadata, SparkHostCommandContext } from "@zendev-lab/spark
 import type {
   SparkInteractionRequest,
   SparkInteractionResponse,
+  SparkInvocationRetryResult,
+  SparkSessionRetryTarget,
   SparkConversationProjection,
   SparkMessageView,
   SparkTurnCancelResult,
@@ -75,7 +77,7 @@ export interface SparkNativeCustomMessageInput {
 
 export interface SparkNativeResponderContext {
   readonly messages: readonly SparkNativeMessage[];
-  /** Stable identity for one user submit, retained when `/retry` resubmits it. */
+  /** Stable identity for one user submit and ambiguous admission reconciliation. */
   readonly submissionId?: string;
   readonly signal?: AbortSignal;
   readonly appendAssistantChunk?: (chunk: string) => void;
@@ -105,6 +107,11 @@ export interface SparkNativeInvocationStatusContext {
   readonly signal?: AbortSignal;
 }
 
+export interface SparkNativeInvocationRetryContext {
+  /** Detach stops local acknowledgement reconciliation; daemon execution remains durable. */
+  readonly signal?: AbortSignal;
+}
+
 type SparkNativeResponderFunction = (
   input: string,
   context: SparkNativeResponderContext,
@@ -121,6 +128,15 @@ export type SparkNativeResponder = SparkNativeResponderFunction & {
     context: SparkNativeResponderContext,
   ) => Promise<string>;
   cancel?: (invocationId: string, reason: string) => Promise<SparkTurnCancelResult>;
+  /** Create the daemon-owned linked attempt for one failed invocation. */
+  retry?: (
+    invocationId: string,
+    context?: SparkNativeInvocationRetryContext,
+  ) => Promise<SparkInvocationRetryResult>;
+  /** Read the daemon-selected explicit retry target for this TUI Session. */
+  latestRetryableFailure?: (
+    context?: SparkNativeInvocationRetryContext,
+  ) => Promise<SparkSessionRetryTarget["target"]>;
   status?: (
     invocationId: string,
     context?: SparkNativeInvocationStatusContext,

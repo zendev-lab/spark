@@ -142,6 +142,24 @@ describe("local-rpc direct oRPC service", () => {
       cwd: dir,
       sessionPath: transcriptPath,
     });
+    const retrySource = new SparkInvocationStore(db).submit({
+      sessionId,
+      task: {
+        type: "session.run",
+        sessionId,
+        prompt: "retry this TUI turn",
+        messageMetadata: {
+          origin: { kind: "user", host: "tui", surface: "local" },
+        },
+      },
+      now: "2026-08-12T00:00:04.000Z",
+    });
+    new SparkInvocationStore(db).complete(retrySource.invocationId, {
+      status: "failed",
+      errorCode: "EXECUTION_TRANSIENT",
+      errorMessage: "empty response",
+      now: "2026-08-12T00:00:05.000Z",
+    });
     const server = await startLocalRpcOrpcServer({
       paths,
       db,
@@ -163,6 +181,15 @@ describe("local-rpc direct oRPC service", () => {
       truncated: true,
     });
     await expect(
+      invokeSparkDaemonOrpcLiveMethod(handle.client, "session.retry-target", { sessionId }),
+    ).resolves.toEqual({
+      sessionId,
+      target: {
+        invocationId: retrySource.invocationId,
+        failedAt: "2026-08-12T00:00:05.000Z",
+      },
+    });
+    await expect(
       handleLocalRpcLine(
         JSON.stringify({
           id: "legacy-prompt-history",
@@ -177,6 +204,22 @@ describe("local-rpc direct oRPC service", () => {
     ).resolves.toMatchObject({
       ok: false,
       error: { message: "Unknown local RPC method: session.prompt-history" },
+    });
+    await expect(
+      handleLocalRpcLine(
+        JSON.stringify({
+          id: "legacy-retry-target",
+          method: "session.retry-target",
+          params: { sessionId },
+        }),
+        paths,
+        db,
+        undefined,
+        { sessionRegistry },
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { message: "Unknown local RPC method: session.retry-target" },
     });
   });
 

@@ -206,6 +206,7 @@ export interface SparkNativeTuiStrings {
   unknownCommand: (name: string) => string;
   commandFailed: (name: string, error: string) => string;
   noTurnRunning: string;
+  noRetryableFailure: string;
   exiting: string;
   hubPanelClosed: string;
   hubPanelOpen: (panel: string, countsLine: string) => string;
@@ -336,7 +337,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     observationInterrupted: (invocationId, error) =>
       `Live observation of daemon invocation ${invocationId} was interrupted: ${error}. Daemon ownership is retained; inspect /status or reconnect for the latest projection.`,
     turnFailed: (error) =>
-      `Spark turn failed: ${withoutTerminalPunctuation(error)}. Use /retry to resubmit or /status to inspect the daemon.`,
+      `Spark turn failed: ${withoutTerminalPunctuation(error)}. If the daemon marks it retryable, use /retry to create a linked attempt; use /status to inspect the daemon.`,
     steeringUpdate: (body) =>
       `Steering update for the previous Spark turn. Use this to adjust or correct the in-progress response before continuing.\n\n${body}`,
     defaultHelp: [
@@ -367,7 +368,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
         description: "request cancellation of the current Spark invocation",
         argumentHint: "[reason]",
       },
-      { name: "retry", description: "resubmit the previous user prompt" },
+      { name: "retry", description: "retry the latest failed daemon invocation" },
       {
         name: "inspect",
         description: "show the local session inspector",
@@ -428,6 +429,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     unknownCommand: (name) => `Unknown command: /${name}. Type /help for available commands.`,
     commandFailed: (name, error) => `Command /${name} failed: ${error}`,
     noTurnRunning: "No Spark turn is currently running.",
+    noRetryableFailure: "No retryable failed TUI invocation is available.",
     exiting: "Exiting Spark native TUI.",
     hubPanelClosed: "Local session inspector closed.",
     hubPanelOpen: (panel, countsLine) =>
@@ -455,7 +457,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     observationInterrupted: (invocationId, error) =>
       `daemon invocation ${invocationId} 的实时观察已中断：${error}。执行所有权仍在 daemon；请用 /status 检查或重新连接以获取最新投影。`,
     turnFailed: (error) =>
-      `Spark turn 失败：${withoutTerminalPunctuation(error)}。使用 /retry 重新提交，或用 /status 检查 daemon。`,
+      `Spark turn 失败：${withoutTerminalPunctuation(error)}。若 daemon 将其标记为可重试，可用 /retry 创建关联 attempt；用 /status 检查 daemon。`,
     steeringUpdate: (body) =>
       `上一轮 Spark turn 的 steering update。用于在继续前调整或纠正进行中的回复。\n\n${body}`,
     defaultHelp: [
@@ -482,7 +484,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
         description: "请求取消当前 Spark invocation",
         argumentHint: "[reason]",
       },
-      { name: "retry", description: "重新提交上一条用户 prompt" },
+      { name: "retry", description: "重试最近失败的 daemon invocation" },
       {
         name: "inspect",
         description: "显示本地会话检查器",
@@ -543,6 +545,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     unknownCommand: (name) => `未知命令：/${name}。输入 /help 查看可用命令。`,
     commandFailed: (name, error) => `命令 /${name} 失败：${error}`,
     noTurnRunning: "当前没有运行中的 Spark turn。",
+    noRetryableFailure: "当前没有可重试的失败 TUI invocation。",
     exiting: "正在退出 Spark native TUI。",
     hubPanelClosed: "本地会话检查器已关闭。",
     hubPanelOpen: (panel, countsLine) => `本地会话检查器 ${panel} 面板已打开。\n${countsLine}`,

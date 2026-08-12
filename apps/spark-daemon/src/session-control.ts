@@ -15,6 +15,8 @@ import {
   sparkSessionListRequestSchema,
   sparkSessionMediaReadRequestSchema,
   sparkSessionPromptHistoryRequestSchema,
+  sparkSessionRetryTargetRequestSchema,
+  sparkSessionRetryTargetSchema,
   sparkSessionSetModeRequestSchema,
   sparkSessionSnapshotPageSchema,
   sparkSessionSnapshotRequestSchema,
@@ -34,6 +36,7 @@ import {
   type SparkSessionCreateRequest,
   type SparkSessionRegistryRecord,
   type SparkSessionPromptHistory,
+  type SparkSessionRetryTarget,
   type SparkSessionView,
 } from "@zendev-lab/spark-protocol";
 import {
@@ -570,6 +573,34 @@ export async function readSparkDaemonSessionPromptHistory(
     sessionsRoot: join(options.paths.piAgentDir, "sessions"),
     session,
     limit: parsed.limit,
+  });
+}
+
+/** Daemon-owned explicit retry eligibility read used by the native TUI. */
+export async function readSparkDaemonSessionRetryTarget(
+  options: SparkDaemonSessionControlOptions,
+  input: { sessionId: string },
+): Promise<SparkSessionRetryTarget> {
+  const parsed = sparkSessionRetryTargetRequestSchema.parse(input);
+  const request: SparkDaemonSessionControlRequest = {
+    kind: "session.snapshot.request",
+    scope: "any",
+    sessionId: parsed.sessionId,
+    payload: parsed,
+  };
+  const session = await requireSession(options, parsed.sessionId, request);
+  assertOrdinarySessionVisible(session);
+  const target = new SparkInvocationStore(options.db).latestTuiUserRetryTargetForSession(
+    session.sessionId,
+  );
+  return sparkSessionRetryTargetSchema.parse({
+    sessionId: session.sessionId,
+    target: target
+      ? {
+          invocationId: target.invocationId,
+          failedAt: target.failedAt,
+        }
+      : null,
   });
 }
 

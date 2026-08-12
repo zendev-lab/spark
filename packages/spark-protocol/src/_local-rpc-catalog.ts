@@ -77,6 +77,8 @@ import {
   sparkSessionGetRequestSchema,
   sparkSessionListRequestSchema,
   sparkSessionPromptHistoryRequestSchema,
+  sparkSessionRetryTargetRequestSchema,
+  sparkSessionRetryTargetSchema,
   sparkSessionRegistryRecordSchema,
   sparkSessionSetModelRequestSchema,
   sparkSessionSetThinkingRequestSchema,
@@ -1567,6 +1569,10 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkSessionPromptHistoryRequestSchema,
     output: z.lazy(() => sparkSessionPromptHistorySchema),
   },
+  "session.retry-target": {
+    input: sparkSessionRetryTargetRequestSchema,
+    output: sparkSessionRetryTargetSchema,
+  },
   "session.create": {
     input: sparkSessionCreateRequestSchema,
     output: sparkSessionRegistryRecordSchema,
@@ -1702,6 +1708,7 @@ export const sparkLocalRpcOrpcLiveMethods = Object.keys(
 /** New procedures intentionally excluded from the frozen 0.1.x NDJSON surface. */
 export const sparkLocalRpcOrpcOnlyMethods = [
   "session.prompt-history",
+  "session.retry-target",
 ] as const satisfies readonly SparkLocalRpcMethod[];
 
 export type SparkLocalRpcInput<M extends SparkLocalRpcMethod> = z.input<
@@ -2037,6 +2044,12 @@ export const sparkLocalRpcOrpcContract = {
       "/session/prompt-history",
       p["session.prompt-history"],
       sparkLocalRpcSessionPromptHistoryOrpcErrors,
+    ),
+    retryTarget: procedure(
+      "GET",
+      "/session/retry-target",
+      p["session.retry-target"],
+      sparkLocalRpcSessionGetOrpcErrors,
     ),
     create: procedure(
       "POST",

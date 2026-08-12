@@ -3202,6 +3202,21 @@ describe("Spark daemon local RPC", () => {
         ok: false,
         error: { message: "Unknown local RPC method: session.prompt-history" },
       });
+      const retryTargetCompatibility = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "retry_target_compatibility",
+          method: "session.retry-target",
+          params: { sessionId: "sess_view" },
+        }),
+        paths,
+        db,
+        undefined,
+        { sessionRegistry },
+      );
+      expect(retryTargetCompatibility).toMatchObject({
+        ok: false,
+        error: { message: "Unknown local RPC method: session.retry-target" },
+      });
 
       const preferredPath = join(
         paths.piAgentDir!,

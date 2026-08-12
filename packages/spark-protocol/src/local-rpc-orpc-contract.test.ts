@@ -124,7 +124,14 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "session",
       "promptHistory",
     ]);
-    expect(sparkLocalRpcOrpcOnlyMethods).toEqual(["session.prompt-history"]);
+    expect(sparkLocalRpcOrpcMethodPaths["session.retry-target"]).toEqual([
+      "session",
+      "retryTarget",
+    ]);
+    expect(sparkLocalRpcOrpcOnlyMethods).toEqual([
+      "session.prompt-history",
+      "session.retry-target",
+    ]);
   });
 
   it("marks every contracted method as live", () => {
@@ -182,6 +189,32 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES,
     );
     expect(procedure.output.safeParse(oversized).success).toBe(false);
+  });
+
+  it("keeps the oRPC-only retry target narrow and daemon-owned", () => {
+    const procedure = sparkLocalRpcProcedureSchemas["session.retry-target"];
+    expect(procedure.input.parse({ sessionId: "session-1" })).toEqual({
+      sessionId: "session-1",
+    });
+    expect(procedure.output.parse({ sessionId: "session-1", target: null })).toEqual({
+      sessionId: "session-1",
+      target: null,
+    });
+    expect(
+      procedure.output.parse({
+        sessionId: "session-1",
+        target: {
+          invocationId: "inv_retrytarget",
+          failedAt: "2026-08-12T00:00:00.000Z",
+        },
+      }),
+    ).toEqual({
+      sessionId: "session-1",
+      target: {
+        invocationId: "inv_retrytarget",
+        failedAt: "2026-08-12T00:00:00.000Z",
+      },
+    });
   });
 
   it("keeps spike leaves for daemon/workspace/uplink/model", () => {
@@ -348,6 +381,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["session.snapshot", "session_snapshot_mismatch"],
       ["session.snapshot", "session_snapshot_cursor_not_found"],
       ["session.prompt-history", "invalid_session_snapshot"],
+      ["session.retry-target", "session_not_found"],
       ["turn.submit", "side_thread_direct_submit_forbidden"],
       ["turn.submit", "session_cwd_unavailable"],
     ] as const;

@@ -118,6 +118,11 @@ export interface SparkInvocationSessionActivity {
   updatedAt?: string;
 }
 
+export interface SparkInvocationRetryTarget {
+  invocationId: string;
+  failedAt: string;
+}
+
 export interface SparkInvocationRetentionPreview {
   before: string;
   invocationIds: string[];
@@ -259,6 +264,15 @@ interface InvocationSummaryRow {
   updated_at: string;
   started_at: string | null;
   finished_at: string | null;
+}
+
+interface InvocationRetryTargetRow {
+  id: string;
+  status: string;
+  error_code: string | null;
+  source_kind: string | null;
+  finished_at: string | null;
+  updated_at: string;
 }
 
 interface InvocationEventRow {
@@ -567,6 +581,36 @@ export class SparkInvocationStore {
         )
         .all(normalizedSessionId) as unknown as InvocationRow[]
     ).map(invocationRecord);
+  }
+
+  latestTuiUserRetryTargetForSession(sessionId: string): SparkInvocationRetryTarget | undefined {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) return undefined;
+    const row = this.db
+      .prepare(
+        `SELECT id, status, error_code, source_kind, finished_at, updated_at
+         FROM invocations
+         WHERE session_id = ?
+           AND json_extract(task_json, '$.type') = 'session.run'
+           AND json_extract(task_json, '$.messageMetadata.origin.kind') = 'user'
+           AND json_extract(task_json, '$.messageMetadata.origin.host') = 'tui'
+         ORDER BY created_at DESC, rowid DESC
+         LIMIT 1`,
+      )
+      .get(normalizedSessionId) as InvocationRetryTargetRow | undefined;
+    if (!row) return undefined;
+    if (!isInvocationStatus(row.status))
+      throw new Error(`Invalid invocation status: ${row.status}`);
+    const invocation = {
+      status: row.status,
+      ...(row.error_code ? { errorCode: row.error_code } : {}),
+      ...(row.source_kind ? { sourceKind: row.source_kind } : {}),
+      hasObjectTask: true,
+      taskType: "session.run",
+    };
+    return isExplicitlyRetryableInvocationState(invocation)
+      ? { invocationId: row.id, failedAt: row.finished_at ?? row.updated_at }
+      : undefined;
   }
 
   /**
@@ -1131,31 +1175,26 @@ export class SparkInvocationStore {
 
   retry(invocationId: string, now = new Date().toISOString()): SparkInvocationRecord {
     const original = this.require(invocationId);
-    if (
-      original.sourceKind === "loop.tick" ||
-      (original.task &&
-        typeof original.task === "object" &&
-        !Array.isArray(original.task) &&
-        (original.task as { type?: unknown }).type === "loop.tick")
-    ) {
+    if (isLoopTickInvocation(original)) {
       throw new SparkDaemonControlError(
         "invocation_not_retryable",
         `INVOCATION_NOT_RETRYABLE: ${invocationId} is a Loop tick; use loop.restart or loop.wake`,
       );
     }
-    if (original.status !== "failed") {
+    const explicitlyRetryable = isExplicitlyRetryableInvocation(original);
+    if (!explicitlyRetryable && original.status !== "failed") {
       throw new SparkDaemonControlError(
         "invocation_not_retryable",
         `INVOCATION_NOT_RETRYABLE: ${invocationId} is ${original.status}`,
       );
     }
-    if (!isRetryableInvocationError(original.errorCode)) {
+    if (!explicitlyRetryable && !isRetryableInvocationError(original.errorCode)) {
       throw new SparkDaemonControlError(
         "invocation_not_retryable",
         `INVOCATION_NOT_RETRYABLE: ${original.errorCode ?? "UNKNOWN"} requires correction before resubmission`,
       );
     }
-    if (!original.task) {
+    if (!explicitlyRetryable) {
       throw new SparkDaemonControlError(
         "invocation_not_retryable",
         `INVOCATION_NOT_RETRYABLE: ${invocationId} has no task`,
@@ -2054,6 +2093,47 @@ export function isRetryableInvocationError(errorCode: string | undefined): boole
     errorCode === "EXECUTION_TRANSIENT" ||
     errorCode === "DELIVERY_FAILED" ||
     errorCode === SPARK_INVOCATION_INTERRUPTED_ERROR_CODE
+  );
+}
+
+export function isExplicitlyRetryableInvocation(invocation: SparkInvocationRecord): boolean {
+  const task =
+    invocation.task && typeof invocation.task === "object" && !Array.isArray(invocation.task)
+      ? (invocation.task as { type?: unknown })
+      : undefined;
+  return isExplicitlyRetryableInvocationState({
+    status: invocation.status,
+    ...(invocation.errorCode ? { errorCode: invocation.errorCode } : {}),
+    ...(invocation.sourceKind ? { sourceKind: invocation.sourceKind } : {}),
+    hasObjectTask: task !== undefined,
+    taskType: task?.type,
+  });
+}
+
+function isExplicitlyRetryableInvocationState(invocation: {
+  status: SparkInvocationStatus;
+  errorCode?: string;
+  sourceKind?: string;
+  hasObjectTask: boolean;
+  taskType?: unknown;
+}): boolean {
+  if (invocation.status !== "failed" || !isRetryableInvocationError(invocation.errorCode)) {
+    return false;
+  }
+  return (
+    invocation.hasObjectTask &&
+    invocation.sourceKind !== "loop.tick" &&
+    invocation.taskType !== "loop.tick"
+  );
+}
+
+function isLoopTickInvocation(invocation: { sourceKind?: string; task?: unknown }): boolean {
+  return (
+    invocation.sourceKind === "loop.tick" ||
+    (invocation.task !== undefined &&
+      typeof invocation.task === "object" &&
+      !Array.isArray(invocation.task) &&
+      (invocation.task as { type?: unknown }).type === "loop.tick")
   );
 }
 

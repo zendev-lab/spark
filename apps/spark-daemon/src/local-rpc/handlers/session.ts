@@ -12,6 +12,7 @@ import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 import {
   executeSparkDaemonSessionControl,
   readSparkDaemonSessionPromptHistory,
+  readSparkDaemonSessionRetryTarget,
 } from "../../session-control.ts";
 import { SparkLoopStore } from "../../store/loops.ts";
 import { WorkbenchArtifactBindingStore } from "../../store/workbench-artifact-bindings.ts";
@@ -39,6 +40,7 @@ type SessionRequest = Extract<
       | "session.get"
       | "session.snapshot"
       | "session.prompt-history"
+      | "session.retry-target"
       | "session.create"
       | "session.bind"
       | "session.unbind"
@@ -163,6 +165,13 @@ export async function handleSessionRequest(
         request.params,
       );
       return parseLocalRpcServiceOutput(request.method, history);
+    }
+    case "session.retry-target": {
+      const target = await readSparkDaemonSessionRetryTarget(
+        sessionControlOptions(paths, db, options),
+        request.params,
+      );
+      return parseLocalRpcServiceOutput(request.method, target);
     }
     case "session.create": {
       const executed = await executeSparkDaemonSessionControl(

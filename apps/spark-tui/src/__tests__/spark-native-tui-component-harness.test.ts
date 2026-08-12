@@ -436,6 +436,12 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   assert.equal(local.review?.metadata?.canonicalCliTarget, "spark hub review list");
   assert.equal(local.run?.metadata?.canonicalCliTarget, "spark daemon run list");
   assert.equal(local.stop?.metadata?.canonicalCliTarget, "spark daemon run cancel <run>");
+  assert.equal(local.retry?.metadata?.plane, "daemon");
+  assert.equal(local.retry?.metadata?.resource, "invocation");
+  assert.equal(
+    local.retry?.metadata?.canonicalCliTarget,
+    "spark daemon invocation retry <invocation-id>",
+  );
   assert.equal(local.tasks?.metadata?.deprecatedAliasFor, "/task list");
   assert.equal(local.artifacts?.metadata?.deprecatedAliasFor, "/artifact list");
   assert.equal(local.runs?.metadata?.deprecatedAliasFor, "/run list");
@@ -723,7 +729,7 @@ test("Spark native TUI harness submits input and drives exit keys without a real
   assert.equal(harness.state.renderRequests.length > 0, true);
 });
 
-test("Spark native TUI keeps one submission identity across an ACK-loss retry", async () => {
+test("Spark native TUI manual retry uses a fresh submission identity", async () => {
   const seen: Array<{ input: string; submissionId?: string }> = [];
   let failFirst = true;
   const harness = createSparkNativeTuiComponentHarness({
@@ -745,12 +751,49 @@ test("Spark native TUI keeps one submission identity across an ACK-loss retry", 
   await harness.flush();
 
   assert.match(seen[0]?.submissionId ?? "", /^idem_[a-f0-9]{32}$/u);
-  assert.equal(seen[1]?.submissionId, seen[0]?.submissionId);
+  assert.notEqual(seen[1]?.submissionId, seen[0]?.submissionId);
   assert.notEqual(seen[2]?.submissionId, seen[0]?.submissionId);
   assert.deepEqual(
     seen.map(({ input }) => input),
     ["retry-safe prompt", "retry-safe prompt", "fresh prompt"],
   );
+});
+
+test("Spark native TUI awaits and renders canonical retry RPC failures", async () => {
+  const responder = Object.assign(async () => "compatibility path", {
+    admit: async () => ({
+      invocationId: "inv_retryerror",
+      status: "running" as const,
+      acceptedAt: "2026-08-12T00:00:00.000Z",
+    }),
+    observe: async () => {
+      throw new Error("stream ended");
+    },
+    status: async (invocationId: string) => ({
+      invocationId,
+      status: "failed" as const,
+      createdAt: "2026-08-12T00:00:00.000Z",
+      updatedAt: "2026-08-12T00:00:01.000Z",
+      finishedAt: "2026-08-12T00:00:01.000Z",
+      error: { code: "EXECUTION_TRANSIENT", message: "empty response" },
+      eventCursor: 1,
+    }),
+    retry: async () => {
+      throw new Error("retry RPC unavailable");
+    },
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "failed" as const,
+      cancelRequested: false,
+    }),
+  }) satisfies SparkNativeResponder;
+  const harness = createSparkNativeTuiComponentHarness({ responder });
+
+  assert.equal(await harness.submit("fail with retryable status"), "started");
+  await harness.flush();
+  assert.equal(await harness.submit("/retry"), "command");
+
+  assert.match(stripAnsi(harness.render()), /Command \/retry failed: retry RPC unavailable/u);
 });
 
 test("native TUI defaults to workspace session selector when no session target is provided", () => {
@@ -2019,7 +2062,7 @@ test("Spark native TUI surfaces command availability, queued work, stop, and tur
   await harness.flush();
   assert.match(
     stripAnsi(harness.render()),
-    /system> Spark turn failed: daemon unavailable\. Use \/retry to resubmit or \/status to inspect the\s+daemon\./,
+    /system> Spark turn failed: daemon unavailable\. If the daemon marks it retryable, use \/retry to\s+create a linked attempt; use \/status to inspect the daemon\./,
   );
 });
 
