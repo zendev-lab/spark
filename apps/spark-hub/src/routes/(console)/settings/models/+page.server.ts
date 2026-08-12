@@ -6,28 +6,37 @@ import {
   cancelProviderOAuthForHub,
   getProviderOAuthFlowForHub,
   loadModelControlForHub,
+  loadProjectedModelControlForHub,
   logoutProviderForHub,
   parseModelValue,
   respondProviderOAuthForHub,
   setDefaultModelForHub,
   setProviderApiKeyForHub,
   startProviderOAuthForHub,
+  testModelForHub,
 } from "$lib/server/model-control";
 import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ url }) => {
-  const control = await loadModelControlForHub();
+export const load: PageServerLoad = async ({ parent, url }) => {
+  const layout = await parent();
+  const workspaceId = layout.activeWorkspace?.id ?? "";
+  const workspaceSlug = layout.activeWorkspace?.slug ?? "";
+  const route = { workspaceId };
+  let control = await loadProjectedModelControlForHub(route);
+  if (!control.available) {
+    control = await loadModelControlForHub({ ...route, timeoutMs: 2_000 });
+  }
   const flowId = url.searchParams.get("flow")?.trim() || null;
   let flow = null;
   let flowError: string | null = null;
   if (flowId && control.available) {
     try {
-      flow = await getProviderOAuthFlowForHub(flowId);
+      flow = await getProviderOAuthFlowForHub(flowId, route);
     } catch (error) {
       flowError = errorMessage(error);
     }
   }
-  return { control, flow, flowError };
+  return { control, flow, flowError, workspaceId, workspaceSlug };
 };
 
 export const actions: Actions = {
@@ -35,11 +44,41 @@ export const actions: Actions = {
     const form = await request.formData();
     const copy = actionCopy(cookies.get(localeCookieName), request.headers.get("accept-language"));
     try {
-      await setDefaultModelForHub(parseModelValue(formText(form, "model")));
+      await setDefaultModelForHub(parseModelValue(formText(form, "model")), workspaceRoute(form));
       return { intent: "setDefaultModel", success: true, message: copy.defaultUpdated };
     } catch (error) {
       return fail(400, actionError("setDefaultModel", error));
     }
+  },
+
+  testModel: async ({ cookies, request }) => {
+    const form = await request.formData();
+    const copy = actionCopy(cookies.get(localeCookieName), request.headers.get("accept-language"));
+    try {
+      const test = await testModelForHub(
+        parseModelValue(formText(form, "model")),
+        workspaceRoute(form),
+      );
+      return {
+        intent: "testModel",
+        success: test.status === "reachable",
+        message:
+          test.status === "reachable"
+            ? copy.connectivitySucceeded.replace("{latency}", String(test.latencyMs))
+            : copy.connectivityFailed,
+        test,
+      };
+    } catch (error) {
+      return fail(400, actionError("testModel", error));
+    }
+  },
+
+  refreshCatalog: async ({ cookies, request }) => {
+    const form = await request.formData();
+    const copy = actionCopy(cookies.get(localeCookieName), request.headers.get("accept-language"));
+    const control = await loadModelControlForHub({ ...workspaceRoute(form), timeoutMs: 10_000 });
+    if (!control.available) return fail(503, actionError("refreshCatalog", control.error));
+    return { intent: "refreshCatalog", success: true, message: copy.catalogRefreshed };
   },
 
   saveApiKey: async (event) => {
@@ -49,7 +88,12 @@ export const actions: Actions = {
     const providerName = formText(form, "providerName").trim();
     const apiKey = formText(form, "apiKey");
     try {
-      await setProviderApiKeyForHub(providerName, apiKey, requireSecretRequestContext(event));
+      await setProviderApiKeyForHub(
+        providerName,
+        apiKey,
+        requireSecretRequestContext(event),
+        workspaceRoute(form),
+      );
       return { intent: "saveApiKey", success: true, message: copy.credentialSaved };
     } catch (error) {
       return fail(400, actionError("saveApiKey", error));
@@ -60,7 +104,7 @@ export const actions: Actions = {
     const form = await request.formData();
     const copy = actionCopy(cookies.get(localeCookieName), request.headers.get("accept-language"));
     try {
-      await logoutProviderForHub(formText(form, "providerName").trim());
+      await logoutProviderForHub(formText(form, "providerName").trim(), workspaceRoute(form));
       return { intent: "logout", success: true, message: copy.credentialRemoved };
     } catch (error) {
       return fail(400, actionError("logout", error));
@@ -71,7 +115,10 @@ export const actions: Actions = {
     const form = await request.formData();
     let flowId: string;
     try {
-      const flow = await startProviderOAuthForHub(formText(form, "providerName").trim());
+      const flow = await startProviderOAuthForHub(
+        formText(form, "providerName").trim(),
+        workspaceRoute(form),
+      );
       flowId = flow.id;
     } catch (error) {
       return fail(400, actionError("startOAuth", error));
@@ -89,6 +136,7 @@ export const actions: Actions = {
         formText(form, "promptId").trim(),
         formText(form, "response"),
         requireSecretRequestContext(event),
+        workspaceRoute(form),
       );
     } catch (error) {
       return fail(400, actionError("respondOAuth", error));
@@ -96,19 +144,25 @@ export const actions: Actions = {
     redirect(303, flowUrl(url, flowId));
   },
 
-  cancelOAuth: async ({ request }) => {
+  cancelOAuth: async ({ request, url }) => {
     const form = await request.formData();
     try {
-      await cancelProviderOAuthForHub(formText(form, "flowId").trim());
+      await cancelProviderOAuthForHub(formText(form, "flowId").trim(), workspaceRoute(form));
     } catch (error) {
       return fail(400, actionError("cancelOAuth", error));
     }
-    redirect(303, "/settings/models");
+    const next = new URL("/settings/models", url);
+    next.searchParams.delete("flow");
+    redirect(303, `${next.pathname}${next.search}`);
   },
 };
 
 function actionError(intent: string, error: unknown) {
   return { intent, success: false, message: errorMessage(error) };
+}
+
+function workspaceRoute(form: FormData): { workspaceId: string } {
+  return { workspaceId: formText(form, "workspaceId").trim() };
 }
 
 function errorMessage(error: unknown): string {

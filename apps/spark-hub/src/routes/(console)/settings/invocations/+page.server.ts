@@ -10,12 +10,14 @@ const invocationStatuses = new Set<SparkInvocationStatus>([
   "cancelled",
 ]);
 
-export const load: PageServerLoad = async ({ url }) => {
+export const load: PageServerLoad = async ({ parent, url }) => {
+  const layout = await parent();
   const status = parseStatus(url.searchParams.get("status"));
   const sessionId = url.searchParams.get("session")?.trim() || undefined;
   const invocationId = url.searchParams.get("invocation")?.trim() || undefined;
   const offset = parseOffset(url.searchParams.get("offset"));
   const diagnostics = await loadInvocationDiagnosticsForHub({
+    workspaceId: layout.activeWorkspace?.id,
     ...(status ? { status } : {}),
     ...(sessionId ? { sessionId } : {}),
     ...(invocationId ? { invocationId } : {}),
@@ -25,6 +27,7 @@ export const load: PageServerLoad = async ({ url }) => {
   return {
     diagnostics,
     filters: {
+      workspace: layout.activeWorkspace?.slug ?? "",
       status: status ?? "all",
       sessionId: sessionId ?? "",
       offset,

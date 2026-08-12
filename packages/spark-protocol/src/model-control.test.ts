@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseSparkAuthFlow,
   parseSparkModelControlSnapshot,
+  parseSparkModelConnectivityTestResult,
   sparkDefaultModelSetRequestSchema,
 } from "./model-control.ts";
 import {
@@ -104,5 +105,24 @@ describe("Spark model-control protocol", () => {
         updatedAt: "2026-07-10T06:00:00.000Z",
       }).model,
     ).toEqual(model);
+  });
+
+  it("keeps quick-test results credential-free and reason-coded", () => {
+    expect(
+      parseSparkModelConnectivityTestResult({
+        status: "unreachable",
+        model,
+        latencyMs: 250,
+        checkedAt: "2026-07-10T06:00:01.000Z",
+        reasonCode: "model-out-of-scope",
+        providerMessage: "secret upstream detail",
+      }),
+    ).toEqual({
+      status: "unreachable",
+      model,
+      latencyMs: 250,
+      checkedAt: "2026-07-10T06:00:01.000Z",
+      reasonCode: "model-out-of-scope",
+    });
   });
 });

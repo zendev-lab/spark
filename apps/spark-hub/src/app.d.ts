@@ -11,6 +11,7 @@ declare global {
       sessionToken: string | null;
       workspaceSessionToken: string | null;
       workspaceId: string | null;
+      hasControlPlaneAccess: boolean;
     }
   }
 }

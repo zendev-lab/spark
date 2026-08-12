@@ -8,6 +8,7 @@ import {
 import {
   parseSparkChannelControlSnapshot,
   parseSparkDefaultModelSetRequest,
+  sparkModelConnectivityTestRequestSchema,
   parseSparkSessionSetModelRequest,
   parseSparkSessionSetThinkingRequest,
   projectSparkSessionState,
@@ -31,6 +32,7 @@ export type SparkDaemonModelChannelPublicKind =
   | "session.model.set.request"
   | "session.thinking.set.request"
   | "model.catalog.request"
+  | "model.connectivity.test.request"
   | "model.default.set.request"
   | "provider.auth.logout.request"
   | "provider.auth.login.start.request"
@@ -73,6 +75,7 @@ export function isSparkDaemonModelChannelPublicKind(
     kind === "session.model.set.request" ||
     kind === "session.thinking.set.request" ||
     kind === "model.catalog.request" ||
+    kind === "model.connectivity.test.request" ||
     kind === "model.default.set.request" ||
     kind === "provider.auth.logout.request" ||
     kind === "provider.auth.login.start.request" ||
@@ -124,6 +127,13 @@ export async function executeSparkDaemonModelChannelPublicControl(
       return {
         result: { snapshot: data },
         projection: { kind: "model.catalog", data },
+      };
+    }
+    case "model.connectivity.test.request": {
+      const request = sparkModelConnectivityTestRequestSchema.parse(input.payload);
+      const control = requireModelControl(options);
+      return {
+        result: { test: publicObject(await control.testModel(request.model)) },
       };
     }
     case "model.default.set.request": {

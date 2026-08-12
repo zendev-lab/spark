@@ -411,6 +411,7 @@ describe("local-rpc direct oRPC service", () => {
       effectiveModel: unusedModelControlMethod,
       effectiveThinkingLevel: unusedModelControlMethod,
       prepareModel: unusedModelControlMethod,
+      testModel: unusedModelControlMethod,
     };
     const channelStatus = {
       plane: "daemon" as const,
@@ -613,6 +614,7 @@ describe("local-rpc direct oRPC service", () => {
       effectiveModel: crossDomainFailure,
       effectiveThinkingLevel: crossDomainFailure,
       prepareModel: crossDomainFailure,
+      testModel: crossDomainFailure,
     };
     const handlerOptions: LocalRpcHandlerOptions = { modelControl };
     const server = await startLocalRpcOrpcServer({ paths, db, handlerOptions });

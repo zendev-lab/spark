@@ -145,6 +145,35 @@ test("session model mutation projects activity from Invocation truth", async () 
   }
 });
 
+test("runtime model control exposes a credential-free quick-test result", async () => {
+  const testModel = vi.fn(async () => ({
+    status: "reachable" as const,
+    model,
+    latencyMs: 42,
+    checkedAt: "2026-08-09T00:00:00.000Z",
+  }));
+  const result = await executeSparkDaemonModelChannelPublicControl(
+    { modelControl: { testModel } as never },
+    {
+      kind: "model.connectivity.test.request",
+      scope: "daemon",
+      payload: { model },
+    },
+  );
+
+  assert.deepEqual(result, {
+    result: {
+      test: {
+        status: "reachable",
+        model,
+        latencyMs: 42,
+        checkedAt: "2026-08-09T00:00:00.000Z",
+      },
+    },
+  });
+  assert.deepEqual(testModel.mock.calls[0], [model]);
+});
+
 test("runtime channel control routes QQ QR auth within one workspace", async () => {
   const flow = {
     id: "qrauth_0123456789abcdef0123456789abcdef",

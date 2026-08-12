@@ -11,7 +11,7 @@
 </svelte:head>
 
 <section class="update-page">
-  <PageHeader title={copy.title} lede={copy.lede} />
+  <PageHeader title={copy.title} />
 
   <section class="status-grid" aria-label={copy.title}>
     <article>
@@ -39,7 +39,6 @@
   {#if !update.managed && update.repairCommand}
     <section class="notice">
       <h2>{copy.unmanaged}</h2>
-      <p>{copy.unmanagedBody}</p>
       <code>{update.repairCommand}</code>
     </section>
   {/if}
@@ -47,7 +46,6 @@
   {#if update.updateCommand}
     <section class="notice">
       <h2>{copy.packageManaged}</h2>
-      <p>{copy.packageManagedBody}</p>
       <code>{update.updateCommand}</code>
     </section>
   {/if}
@@ -65,7 +63,6 @@
     </section>
   {/if}
 
-  <p class="ownership">{copy.readOnly}</p>
 </section>
 
 <style>
@@ -97,7 +94,6 @@
   }
 
   article span,
-  .ownership,
   .candidate span {
     color: var(--color-ink-muted);
     font-size: 13px;
@@ -117,9 +113,7 @@
     border-color: var(--color-danger);
   }
 
-  .notice h2,
-  .notice p,
-  .ownership {
+  .notice h2 {
     margin: 0;
   }
 

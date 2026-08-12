@@ -8,6 +8,8 @@ import {
   parseSparkSessionState,
   projectSparkSessionState,
   sparkSessionLifetimeForOwner,
+  sparkInvocationListRequestSchema,
+  sparkInvocationListResultSchema,
   parseSparkSessionView,
   sparkSessionArchiveRequestSchema,
   sparkSessionBindRequestSchema,
@@ -32,6 +34,7 @@ import {
   type SparkAssignment,
   type SparkCommandKind,
   type SparkInvocationStatus,
+  type SparkInvocationListResult,
   type SparkProtocolJsonValue,
   type SparkSessionCreateRequest,
   type SparkSessionProjection,
@@ -63,7 +66,11 @@ import {
   type SparkDaemonSessionCompactTask,
   type SparkDaemonSessionRunTask,
 } from "./core/index.ts";
-import { SparkInvocationStore, type SparkInvocationRecord } from "./store/invocations.ts";
+import {
+  isRetryableInvocationError,
+  SparkInvocationStore,
+  type SparkInvocationRecord,
+} from "./store/invocations.ts";
 import { getWorkspaceById, listWorkspaces, resolveWorkspaceLocalPath } from "./store/workspaces.ts";
 import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
 
@@ -104,6 +111,7 @@ export interface SparkDaemonSessionControlRequest {
     | "turn.cancel.request"
     | "turn.status.request"
     | "turn.stream.subscribe"
+    | "invocation.list.request"
   >;
   payload: Record<string, unknown>;
   scope: "any" | "daemon" | "workspace";
@@ -129,6 +137,19 @@ export async function executeSparkDaemonSessionControl(
   request: SparkDaemonSessionControlRequest,
 ): Promise<SparkDaemonSessionControlResult> {
   switch (request.kind) {
+    case "invocation.list.request": {
+      if (request.scope === "workspace") {
+        throw new SparkDaemonControlError(
+          "invalid_scope",
+          "Invocation diagnostics require a daemon-scoped route.",
+        );
+      }
+      const page = invocationListControlResult(
+        new SparkInvocationStore(options.db),
+        sparkInvocationListRequestSchema.parse(request.payload),
+      );
+      return { result: publicObject(page) };
+    }
     case "session.list.request": {
       await reconcileClosingSessionLifecycles(options);
       const parsed = sparkSessionListRequestSchema.parse(request.payload);
@@ -745,6 +766,25 @@ function sessionOwnerSessionId(owner: SparkSessionState["owner"]): string | unde
     case "workspace":
       return undefined;
   }
+}
+
+/** One credential-free invocation page shared by local RPC and runtime control. */
+export function invocationListControlResult(
+  store: SparkInvocationStore,
+  params: ReturnType<typeof sparkInvocationListRequestSchema.parse>,
+): SparkInvocationListResult {
+  const page = store.listSummaryPage(params);
+  return sparkInvocationListResultSchema.parse({
+    invocations: page.invocations.map((invocation) => ({
+      ...invocation,
+      errorMessage: invocation.errorMessage?.slice(0, 500),
+      retryable: isRetryableInvocationError(invocation.errorCode),
+    })),
+    total: page.total,
+    limit: page.limit,
+    offset: page.offset,
+    observedAt: new Date().toISOString(),
+  });
 }
 
 function assertIdempotentTurnReplay(

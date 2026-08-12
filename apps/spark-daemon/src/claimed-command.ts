@@ -785,7 +785,8 @@ function isRuntimeSessionControlKind(
     kind === "turn.submit.request" ||
     kind === "turn.cancel.request" ||
     kind === "turn.status.request" ||
-    kind === "turn.stream.subscribe"
+    kind === "turn.stream.subscribe" ||
+    kind === "invocation.list.request"
   );
 }
 

@@ -1,5 +1,6 @@
 import {
   sparkInvocationListResultSchema,
+  sparkProtocolJsonObjectSchema,
   sparkTurnStatusResultSchema,
   sparkTurnStreamPageSchema,
   type SparkInvocationListRequest,
@@ -8,7 +9,12 @@ import {
   type SparkTurnStatusResult,
   type SparkTurnStreamPage,
 } from "@zendev-lab/spark-protocol";
-import { requestSparkDaemon, SparkDaemonUnavailableError } from "@zendev-lab/spark-daemon-client";
+import {
+  runRuntimeSessionControlCommand,
+  runtimeSessionRouteForRuntime,
+  runtimeSessionRouteForWorkspace,
+} from "@zendev-lab/spark-hub-coordination/runtime-session-control";
+import { getDatabase } from "./db.ts";
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_DIAGNOSTIC_EVENTS = 100;
@@ -37,16 +43,9 @@ export interface HubInvocationDiagnosticsSnapshot {
   error?: string;
 }
 
-const daemonInvocationDiagnosticsClient: HubInvocationDiagnosticsClient = {
-  daemonStatus: async () => await requestSparkDaemon("daemon.status", {}),
-  list: async (input) => await requestSparkDaemon("invocation.list", input),
-  status: async (invocationId) => await requestSparkDaemon("turn.status", { invocationId }),
-  stream: async (invocationId, after, limit) =>
-    await requestSparkDaemon("turn.stream", { invocationId, after, limit }),
-};
-
 export async function loadInvocationDiagnosticsForHub(
   input: {
+    workspaceId?: string;
     status?: SparkInvocationStatus;
     sessionId?: string;
     since?: string;
@@ -54,7 +53,7 @@ export async function loadInvocationDiagnosticsForHub(
     offset?: number;
     invocationId?: string;
   } = {},
-  client: HubInvocationDiagnosticsClient = daemonInvocationDiagnosticsClient,
+  client: HubInvocationDiagnosticsClient = runtimeInvocationDiagnosticsClient(input.workspaceId),
 ): Promise<HubInvocationDiagnosticsSnapshot> {
   const request: SparkInvocationListRequest = {
     ...(input.status ? { status: input.status } : {}),
@@ -72,17 +71,59 @@ export async function loadInvocationDiagnosticsForHub(
     const selected = invocationId ? await loadSelectedInvocation(invocationId, client) : null;
     return { available: true, daemon, list, selected };
   } catch (error) {
-    if (error instanceof SparkDaemonUnavailableError) {
-      return {
-        available: false,
-        daemon: null,
-        list: emptyInvocationList(request),
-        selected: null,
-        error: error.message,
-      };
-    }
-    throw error;
+    return {
+      available: false,
+      daemon: null,
+      list: emptyInvocationList(request),
+      selected: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
+}
+
+function runtimeInvocationDiagnosticsClient(
+  workspaceId: string | undefined,
+): HubInvocationDiagnosticsClient {
+  const db = getDatabase();
+  const selectedWorkspaceId = workspaceId?.trim();
+  if (!selectedWorkspaceId) {
+    return unavailableDiagnosticsClient("Select a workspace to route daemon diagnostics.");
+  }
+  let route: ReturnType<typeof runtimeSessionRouteForRuntime>;
+  try {
+    const workspaceRoute = runtimeSessionRouteForWorkspace(db, selectedWorkspaceId);
+    route = runtimeSessionRouteForRuntime(workspaceRoute.runtimeId);
+  } catch (error) {
+    return unavailableDiagnosticsClient(error instanceof Error ? error.message : String(error));
+  }
+  const run = async (
+    kind: Parameters<typeof runRuntimeSessionControlCommand>[1]["payload"]["kind"],
+    payload: Record<string, unknown>,
+  ) =>
+    await runRuntimeSessionControlCommand(db, {
+      route,
+      timeoutMs: 5_000,
+      payload: { kind, payload: sparkProtocolJsonObjectSchema.parse(payload) },
+    });
+  return {
+    daemonStatus: async () => await run("daemon.status.request", {}),
+    list: async (input) => await run("invocation.list.request", input),
+    status: async (invocationId) => await run("turn.status.request", { invocationId }),
+    stream: async (invocationId, after, limit) =>
+      await run("turn.stream.subscribe", { invocationId, after, limit }),
+  };
+}
+
+function unavailableDiagnosticsClient(message: string): HubInvocationDiagnosticsClient {
+  const unavailable = async () => {
+    throw new Error(message);
+  };
+  return {
+    daemonStatus: unavailable,
+    list: unavailable,
+    status: unavailable,
+    stream: unavailable,
+  };
 }
 
 async function loadSelectedInvocation(

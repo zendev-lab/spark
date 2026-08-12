@@ -35,6 +35,10 @@ import {
   createWorkspaceWithLease,
   type RuntimeWebSocketConnection,
 } from "@zendev-lab/spark-hub-coordination";
+import {
+  runRuntimeSessionControlCommand,
+  runtimeSessionRouteForRuntime,
+} from "@zendev-lab/spark-hub-coordination/runtime-session-control";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
 import { createHubRuntimeSessionClient } from "./hub-runtime-session-client.ts";
 import { listProjectedManagedSessionsForHub } from "./managed-sessions.ts";
@@ -264,6 +268,19 @@ test("remote Hub controls workspace sessions without a daemon socket", async () 
       invocationStore.claimNext("remote-e2e", "2026-07-15T00:00:01.000Z")?.invocationId,
       workspaceTurn.invocationId,
     );
+    const invocationDiagnostics = await runRuntimeSessionControlCommand(hubDb, {
+      route: runtimeSessionRouteForRuntime(runtimeId),
+      payload: {
+        kind: "invocation.list.request",
+        payload: { sessionId: workspaceSessionId, limit: 50, offset: 0 },
+      },
+    });
+    assert.deepEqual(
+      (invocationDiagnostics.invocations as Array<{ invocationId: string }>).map(
+        ({ invocationId }) => invocationId,
+      ),
+      [workspaceTurn.invocationId],
+    );
     insertInvocationEvents(daemonDb, workspaceTurn.invocationId, 10_000);
 
     bridge.dropNextTerminalFor("turn.submit.request");
@@ -414,6 +431,7 @@ test("remote Hub controls workspace sessions without a daemon socket", async () 
           listPaged: true,
           bindUnbindArchived: true,
           turnSubmitted: true,
+          invocationDiagnosticsLoaded: true,
           turnCancelled: true,
           terminalResultRecoveredAfterReconnect: true,
           transcriptSnapshotLoaded: true,
