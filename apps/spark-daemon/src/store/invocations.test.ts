@@ -14,7 +14,11 @@ import {
   SparkInvocationStore,
 } from "./invocations.ts";
 import { buildPendingDeliveriesQuery } from "./invocation-delivery-query.ts";
-import { registerWorkspace } from "./workspaces.ts";
+import {
+  applyWorkspaceLifecycleMutation,
+  listWorkspaceBindingIdsForServer,
+  registerWorkspace,
+} from "./workspaces.ts";
 
 function createStore(): { db: DatabaseSync; store: SparkInvocationStore } {
   const db = new DatabaseSync(":memory:");
@@ -99,6 +103,91 @@ describe("SparkInvocationStore", () => {
         "session-missing": { active: false, activity: "idle" },
       });
       expect(store.sessionActivities([])).toEqual(new Map());
+    } finally {
+      db.close();
+    }
+  });
+
+  it("lists only unredacted Loop execution sessions for the requested owner", () => {
+    const { db, store } = createStore();
+    try {
+      const insert = db.prepare(
+        `INSERT INTO invocations (
+           id, session_id, status, task_json, source_kind, payload_redacted_at,
+           created_at, updated_at
+         ) VALUES (?, ?, 'succeeded', ?, ?, ?, ?, ?)`,
+      );
+      const now = "2026-08-13T00:00:00.000Z";
+      insert.run(
+        "inv-loop-current",
+        "execution-current",
+        JSON.stringify({ type: "loop.tick", ownerSessionId: "owner-session" }),
+        "loop.tick",
+        null,
+        now,
+        now,
+      );
+      insert.run(
+        "inv-loop-legacy",
+        "execution-legacy",
+        JSON.stringify({ type: "loop.tick", stateOwnerSessionId: "owner-session" }),
+        "invocation.retry",
+        null,
+        now,
+        now,
+      );
+      insert.run(
+        "inv-loop-duplicate-route",
+        "execution-current",
+        JSON.stringify({ type: "loop.tick", ownerSessionId: "owner-session" }),
+        "loop.tick",
+        null,
+        now,
+        now,
+      );
+      insert.run(
+        "inv-loop-owner-route",
+        "owner-session",
+        JSON.stringify({ type: "loop.tick", ownerSessionId: "owner-session" }),
+        "loop.tick",
+        null,
+        now,
+        now,
+      );
+      insert.run(
+        "inv-loop-redacted",
+        "execution-redacted",
+        JSON.stringify({ type: "loop.tick", ownerSessionId: "owner-session" }),
+        "loop.tick",
+        now,
+        now,
+        now,
+      );
+      insert.run(
+        "inv-loop-other-owner",
+        "execution-other",
+        JSON.stringify({ type: "loop.tick", ownerSessionId: "other-session" }),
+        "loop.tick",
+        null,
+        now,
+        now,
+      );
+      insert.run(
+        "inv-loop-unrelated",
+        "execution-unrelated",
+        JSON.stringify({ type: "session.run" }),
+        "loop.tick",
+        null,
+        now,
+        now,
+      );
+
+      expect(store.listLoopExecutionSessionIds(" owner-session ")).toEqual([
+        "execution-current",
+        "execution-legacy",
+      ]);
+      expect(store.listLoopExecutionSessionIds("other-session")).toEqual(["execution-other"]);
+      expect(store.listLoopExecutionSessionIds("  ")).toEqual([]);
     } finally {
       db.close();
     }
@@ -879,6 +968,34 @@ describe("SparkInvocationStore", () => {
     }
   });
 
+  it("identifies only the final delivery cursor of a terminal Invocation as retention-relevant", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({ sessionId: "session-delivery-repair", prompt: "deliver" });
+      const running = store.appendEvent(invocation.invocationId, "daemon.task.lifecycle", {
+        status: "running",
+      });
+      store.appendEvent(invocation.invocationId, "daemon.view_event", { text: "progress" });
+      const terminal = store.appendEvent(invocation.invocationId, "daemon.task.lifecycle", {
+        status: "succeeded",
+      });
+
+      expect(
+        store.terminalDeliveryMayUnblockRetention(invocation.invocationId, terminal.sequence),
+      ).toBe(false);
+      store.claimNext("delivery-repair-worker");
+      store.complete(invocation.invocationId, { status: "succeeded" });
+      expect(
+        store.terminalDeliveryMayUnblockRetention(invocation.invocationId, running.sequence),
+      ).toBe(false);
+      expect(
+        store.terminalDeliveryMayUnblockRetention(invocation.invocationId, terminal.sequence),
+      ).toBe(true);
+    } finally {
+      db.close();
+    }
+  });
+
   it("drains an interleaved backlog in stable global delivery order", () => {
     const { db, store } = createStore();
     try {
@@ -1029,6 +1146,17 @@ describe("SparkInvocationStore", () => {
       expect(store.pendingDeliveries("hub:first", 10, [first.id])).toEqual([]);
       expect(store.pendingDeliveries("hub:second", 10, [second.id])).toEqual([]);
       expect(store.pendingDeliveries("hub:both", 10, [first.id, second.id])).toEqual([]);
+
+      applyWorkspaceLifecycleMutation(db, {
+        action: "unregister",
+        workspaceId: first.id,
+      });
+      expect(store.pendingDeliveries("hub:first", 10, [first.id])).toEqual([]);
+      expect(
+        store
+          .pendingDeliveries("hub:second", 10, [second.id])
+          .map(({ event }) => [event.invocationId, event.sequence]),
+      ).toEqual([[invocation.invocationId, 1]]);
     } finally {
       db.close();
       rmSync(firstPath, { recursive: true, force: true });
@@ -1876,6 +2004,191 @@ describe("SparkInvocationStore", () => {
       expect(Buffer.byteLength(JSON.stringify(persistedIdentity?.payload))).toBeLessThanOrEqual(
         MAX_PERSISTED_INVOCATION_EVENT_BYTES,
       );
+    } finally {
+      db.close();
+    }
+  });
+
+  it("waits only for the Hub uplink that can deliver a bound invocation before redaction", () => {
+    const { db, store } = createStore();
+    try {
+      const runtimeA = "rt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+      const runtimeB = "rt_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+      const workspaceA = registerWorkspace(db, {
+        serverUrl: "https://hub-a.example",
+        serverBindingId: "rtwb_delivery_route_a",
+        serverWorkspaceId: "ws_delivery_route_a",
+        localWorkspaceKey: "delivery-route-a",
+        displayName: "Delivery route A",
+        localPath: join(process.cwd(), ".delivery-route-a"),
+        serverCredential: { runtimeId: runtimeA, runtimeToken: "runtime-token-a" },
+      });
+      const workspaceB = registerWorkspace(db, {
+        serverUrl: "https://hub-b.example",
+        serverBindingId: "rtwb_delivery_route_b",
+        serverWorkspaceId: "ws_delivery_route_b",
+        localWorkspaceKey: "delivery-route-b",
+        displayName: "Delivery route B",
+        localPath: join(process.cwd(), ".delivery-route-b"),
+        serverCredential: { runtimeId: runtimeB, runtimeToken: "runtime-token-b" },
+      });
+      const invocation = store.submit({
+        workspaceBindingId: workspaceA.id,
+        sessionId: "session-delivery-route-a",
+        prompt: "deliver only through uplink A",
+      });
+      expect(store.claimNext("worker-delivery-route-a")?.invocationId).toBe(
+        invocation.invocationId,
+      );
+      const terminal = store.appendEvent(
+        invocation.invocationId,
+        "daemon.task.lifecycle",
+        { status: "succeeded" },
+        "2026-08-13T01:00:00.000Z",
+      );
+      store.complete(invocation.invocationId, {
+        status: "succeeded",
+        now: "2026-08-13T01:00:01.000Z",
+      });
+
+      const destinationA = `hub:${runtimeA}`;
+      const destinationB = `hub:${runtimeB}`;
+      expect(store.pendingDeliveryPage(destinationA, 64, [workspaceA.id])).toEqual({
+        deliveries: [{ event: terminal, workspaceBindingId: workspaceA.id }],
+        hasMore: false,
+      });
+      expect(store.pendingDeliveryPage(destinationB, 64, [workspaceB.id])).toEqual({
+        deliveries: [],
+        hasMore: false,
+      });
+
+      expect(
+        store.redactSessionPayloads("session-delivery-route-a", {
+          now: "2026-08-13T01:00:02.000Z",
+        }),
+      ).toMatchObject({
+        redactedInvocationIds: [],
+        blockedInvocationIds: [invocation.invocationId],
+      });
+
+      store.acknowledgeKnownDelivery(destinationA, terminal, "2026-08-13T01:00:03.000Z");
+      expect(
+        store.redactSessionPayloads("session-delivery-route-a", {
+          now: "2026-08-13T01:00:04.000Z",
+        }),
+      ).toEqual({
+        sessionId: "session-delivery-route-a",
+        redactedInvocationIds: [invocation.invocationId],
+        deletedEventCount: 1,
+        blockedInvocationIds: [],
+        redactedAt: "2026-08-13T01:00:04.000Z",
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("fences redaction on the current Hub route before its consumer registers", () => {
+    const { db, store } = createStore();
+    try {
+      const currentRuntime = "rt_cccccccccccccccccccccccccccccccc";
+      const workspace = registerWorkspace(db, {
+        serverUrl: "https://hub-current.example",
+        serverBindingId: "rtwb_delivery_route_current",
+        serverWorkspaceId: "ws_delivery_route_current",
+        localWorkspaceKey: "delivery-route-current",
+        displayName: "Delivery route current",
+        localPath: join(process.cwd(), ".delivery-route-current"),
+        serverCredential: {
+          runtimeId: currentRuntime,
+          runtimeToken: "runtime-token-current",
+        },
+      });
+      store.ensureDeliveryConsumer("hub:rt_stale_runtime");
+      const invocation = store.submit({
+        workspaceBindingId: workspace.id,
+        sessionId: "session-delivery-route-current",
+        prompt: "retain until the current uplink acknowledges",
+      });
+      expect(store.claimNext("worker-delivery-route-current")?.invocationId).toBe(
+        invocation.invocationId,
+      );
+      const terminal = store.appendEvent(invocation.invocationId, "daemon.task.lifecycle", {
+        status: "succeeded",
+      });
+      store.complete(invocation.invocationId, { status: "succeeded" });
+
+      expect(
+        db
+          .prepare(
+            `SELECT destination
+             FROM invocation_event_delivery_consumers
+             ORDER BY destination`,
+          )
+          .all(),
+      ).toEqual([{ destination: "hub:rt_stale_runtime" }]);
+      expect(store.redactSessionPayloads("session-delivery-route-current")).toMatchObject({
+        redactedInvocationIds: [],
+        blockedInvocationIds: [invocation.invocationId],
+      });
+
+      store.acknowledgeKnownDelivery(`hub:${currentRuntime}`, terminal);
+      expect(store.redactSessionPayloads("session-delivery-route-current")).toMatchObject({
+        redactedInvocationIds: [invocation.invocationId],
+        blockedInvocationIds: [],
+      });
+      expect(
+        db
+          .prepare(
+            `SELECT destination
+             FROM invocation_event_delivery_consumers
+             ORDER BY destination`,
+          )
+          .all(),
+      ).toEqual([{ destination: "hub:rt_stale_runtime" }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("does not wait for a Hub route after its workspace is unregistered", () => {
+    const { db, store } = createStore();
+    try {
+      const serverUrl = "https://hub-unregistered.example";
+      const workspace = registerWorkspace(db, {
+        serverUrl,
+        serverBindingId: "rtwb_delivery_route_unregistered",
+        serverWorkspaceId: "ws_delivery_route_unregistered",
+        localWorkspaceKey: "delivery-route-unregistered",
+        displayName: "Delivery route unregistered",
+        localPath: join(process.cwd(), ".delivery-route-unregistered"),
+        serverCredential: {
+          runtimeId: "rt_dddddddddddddddddddddddddddddddd",
+          runtimeToken: "runtime-token-unregistered",
+        },
+      });
+      const invocation = store.submit({
+        workspaceBindingId: workspace.id,
+        sessionId: "session-delivery-route-unregistered",
+        prompt: "release after the only delivery route is unregistered",
+      });
+      expect(store.claimNext("worker-delivery-route-unregistered")?.invocationId).toBe(
+        invocation.invocationId,
+      );
+      store.appendEvent(invocation.invocationId, "daemon.task.lifecycle", {
+        status: "succeeded",
+      });
+      store.complete(invocation.invocationId, { status: "succeeded" });
+
+      applyWorkspaceLifecycleMutation(db, {
+        action: "unregister",
+        workspaceId: workspace.id,
+      });
+      expect(listWorkspaceBindingIdsForServer(db, serverUrl)).toEqual([]);
+      expect(store.redactSessionPayloads("session-delivery-route-unregistered")).toMatchObject({
+        redactedInvocationIds: [invocation.invocationId],
+        blockedInvocationIds: [],
+      });
     } finally {
       db.close();
     }

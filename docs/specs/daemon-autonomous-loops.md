@@ -48,14 +48,22 @@ context contract. Legacy `continuity=session|fresh` input remains decode-only
 and projects to `driver|driver_tick`; conflicting canonical and legacy values
 are rejected.
 
+`start`, `restart`, and `wake` commit their synchronous Loop mutation inside
+the durable owner's serialized open-Session boundary. If close wins first the
+control request is rejected without changing Loop state; if the Loop mutation
+wins first, close subsequently observes and quiesces that generation.
+
 ## Persistence and migration
 
 Dynamic Loop state lives in daemon SQLite. `loop_wakeups` persists the binding,
 status, generation, `session_lifetime`, stable `driver_session_id`, current
 cycle step, due time, attempt, invocation link, prompt, route, and transition
 reason. Materializing a due Loop and creating its `loop.tick` Invocation are
-one transaction. Successful main work is never replayed merely because a later
-checkpoint needs recovery.
+one transaction inside the owning Session's serialized Invocation-admission
+boundary. If Session close wins that boundary, the claimed Loop generation
+stops without creating an Invocation; if materialization wins, close observes
+and settles that durable row. Successful main work is never replayed merely
+because a later checkpoint needs recovery.
 
 Startup performs a one-way migration from legacy `driver_wakeups` and
 `driver_hidden_sessions`. Supported Goal, bare Loop, Repro, and Workflow rows
@@ -84,7 +92,10 @@ that removal, a `driver_tick` child seals a close receipt from its terminal tick
 result. A `driver` child remains open across ticks and seals one receipt from
 the final evaluation result when stop, completion, or replacement closes the
 incarnation. The receipt stays in Session metadata and is never copied into the
-parent transcript or individual Invocation rows.
+parent transcript or individual Invocation rows. Closing a durable Loop owner
+stops its active Loops and applies retention to every synthetic execution route
+recorded for that owner, including routes from superseded generations whose
+current Loop pointer has already been cleared.
 
 ## Trusted event preflight
 

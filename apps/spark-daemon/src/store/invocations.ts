@@ -38,6 +38,93 @@ export const SPARK_INVOCATION_INTERRUPTED_ERROR_MESSAGE =
 
 export const SPARK_INVOCATION_RESUME_SOURCE_KIND = "invocation.resume";
 
+export const LOOP_EXECUTION_SESSION_IDS_QUERY = `SELECT DISTINCT session_id
+ FROM invocations
+ WHERE session_id IS NOT NULL
+   AND session_id <> ?
+   AND payload_redacted_at IS NULL
+   AND (
+     source_kind = 'loop.tick'
+     OR CASE
+       WHEN json_valid(task_json)
+         THEN json_extract(task_json, '$.type') = 'loop.tick'
+       ELSE 0
+     END
+   )
+   AND CASE
+     WHEN json_valid(task_json) THEN COALESCE(
+       json_extract(task_json, '$.ownerSessionId'),
+       json_extract(task_json, '$.stateOwnerSessionId')
+     )
+   END = ?
+ ORDER BY session_id`;
+
+function unacknowledgedDeliveryExistsSql(
+  invocationAlias: string,
+  invocationIdSql: string,
+  cursorSql: string,
+): string {
+  return `(
+    EXISTS (
+      SELECT 1
+      FROM daemon_server_credentials route_credentials
+      JOIN daemon_workspaces route_workspace
+        ON route_workspace.server_id = route_credentials.server_id
+      LEFT JOIN invocation_event_deliveries route_delivery
+        ON route_delivery.destination = 'hub:' || route_credentials.runtime_id
+       AND route_delivery.invocation_id = ${invocationIdSql}
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM workspace_lifecycle route_lifecycle
+        WHERE route_lifecycle.workspace_id = route_workspace.id
+      )
+        AND (
+        ${invocationAlias}.workspace_binding_id = route_workspace.id
+        OR ${invocationAlias}.workspace_binding_id = route_workspace.server_binding_id
+        OR (
+          ${invocationAlias}.workspace_binding_id IS NULL
+          AND route_workspace.server_workspace_id = CASE
+            WHEN json_valid(${invocationAlias}.task_json)
+              THEN json_extract(${invocationAlias}.task_json, '$.workspaceId')
+          END
+          AND (
+            SELECT COUNT(*)
+            FROM daemon_workspaces unique_route_workspace
+            WHERE unique_route_workspace.server_workspace_id = CASE
+              WHEN json_valid(${invocationAlias}.task_json)
+                THEN json_extract(${invocationAlias}.task_json, '$.workspaceId')
+            END
+              AND NOT EXISTS (
+                SELECT 1
+                FROM workspace_lifecycle unique_route_lifecycle
+                WHERE unique_route_lifecycle.workspace_id = unique_route_workspace.id
+              )
+          ) = 1
+        )
+      )
+        AND COALESCE(route_delivery.sequence, 0) < ${cursorSql}
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM invocation_event_delivery_consumers known
+      LEFT JOIN invocation_event_deliveries known_delivery
+        ON known_delivery.destination = known.destination
+       AND known_delivery.invocation_id = ${invocationIdSql}
+      WHERE (
+        substr(known.destination, 1, 4) <> 'hub:'
+        OR NOT EXISTS (SELECT 1 FROM daemon_server_credentials)
+      )
+        AND COALESCE(known_delivery.sequence, 0) < ${cursorSql}
+    )
+  )`;
+}
+
+const LATEST_INVOCATION_EVENT_SEQUENCE_SQL = `COALESCE((
+  SELECT MAX(latest.sequence)
+  FROM invocation_events latest
+  WHERE latest.invocation_id = i.id
+), 0)`;
+
 export interface SparkInvocationRecord {
   invocationId: string;
   commandId?: string;
@@ -745,6 +832,22 @@ export class SparkInvocationStore {
   }
 
   /**
+   * Find every unredacted synthetic execution Session ever materialized for
+   * one durable Loop owner. Loop restart clears its current last-invocation
+   * pointer, so close cleanup must query the durable Invocation history.
+   */
+  listLoopExecutionSessionIds(ownerSessionId: string): string[] {
+    const normalizedOwnerSessionId = ownerSessionId.trim();
+    if (!normalizedOwnerSessionId) return [];
+    const rows = this.db
+      .prepare(LOOP_EXECUTION_SESSION_IDS_QUERY)
+      .all(normalizedOwnerSessionId, normalizedOwnerSessionId) as unknown as Array<{
+      session_id: string;
+    }>;
+    return rows.map((row) => row.session_id);
+  }
+
+  /**
    * Return the durable execution state for one session without hydrating task
    * or result payloads. Session registry status is only a convenience mirror;
    * SQLite invocations are the execution source of truth.
@@ -1346,13 +1449,29 @@ export class SparkInvocationStore {
               AND (
                 SELECT COUNT(*)
                 FROM daemon_workspaces unique_dw
-                WHERE unique_dw.server_workspace_id = json_extract(i.task_json, '$.workspaceId')
+                WHERE unique_dw.server_workspace_id = CASE
+                    WHEN json_valid(i.task_json)
+                      THEN json_extract(i.task_json, '$.workspaceId')
+                  END
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM workspace_lifecycle unique_lifecycle
+                    WHERE unique_lifecycle.workspace_id = unique_dw.id
+                  )
               ) = 1
               AND EXISTS (
                 SELECT 1
                 FROM daemon_workspaces dw
                 WHERE dw.id IN (${bindingPlaceholders})
-                  AND dw.server_workspace_id = json_extract(i.task_json, '$.workspaceId')
+                  AND dw.server_workspace_id = CASE
+                    WHEN json_valid(i.task_json)
+                      THEN json_extract(i.task_json, '$.workspaceId')
+                  END
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM workspace_lifecycle lifecycle
+                    WHERE lifecycle.workspace_id = dw.id
+                  )
               )
             )
           )`
@@ -1677,6 +1796,11 @@ export class SparkInvocationStore {
         `SELECT server_workspace_id, MIN(id) AS binding_id
          FROM daemon_workspaces
          WHERE server_workspace_id IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1
+             FROM workspace_lifecycle lifecycle
+             WHERE lifecycle.workspace_id = daemon_workspaces.id
+           )
          GROUP BY server_workspace_id
          HAVING COUNT(*) = 1 AND MIN(id) IN (${placeholders})`,
       )
@@ -1741,6 +1865,26 @@ export class SparkInvocationStore {
       .run(destination, invocationId, sequence, now);
   }
 
+  /** True only when this acknowledgement reaches a terminal Invocation's
+   * current event cursor and can therefore release a retention delivery fence. */
+  terminalDeliveryMayUnblockRetention(invocationId: string, sequence: number): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT status, payload_redacted_at, event_cursor
+         FROM invocations
+         WHERE id = ?`,
+      )
+      .get(invocationId) as
+      | { status: string; payload_redacted_at: string | null; event_cursor: number }
+      | undefined;
+    return Boolean(
+      row &&
+      isTerminalInvocationStatus(row.status) &&
+      row.payload_redacted_at === null &&
+      Math.max(0, Math.floor(sequence)) === Number(row.event_cursor),
+    );
+  }
+
   latestEventSequence(invocationId: string): number {
     this.require(invocationId);
     const row = this.db
@@ -1800,22 +1944,13 @@ export class SparkInvocationStore {
       .prepare(
         `SELECT i.id,
                 COUNT(e.sequence) AS event_count,
-                CASE WHEN COALESCE((
-                  SELECT MAX(latest.sequence)
-                  FROM invocation_events latest
-                  WHERE latest.invocation_id = i.id
-                ), 0) > 0 AND EXISTS (
-                  SELECT 1
-                  FROM invocation_event_delivery_consumers known
-                  LEFT JOIN invocation_event_deliveries d
-                    ON d.destination = known.destination
-                   AND d.invocation_id = i.id
-                  WHERE COALESCE(d.sequence, 0) < COALESCE((
-                    SELECT MAX(latest.sequence)
-                    FROM invocation_events latest
-                    WHERE latest.invocation_id = i.id
-                  ), 0)
-                ) THEN 1 ELSE 0 END AS blocked
+                CASE WHEN ${LATEST_INVOCATION_EVENT_SEQUENCE_SQL} > 0
+                  AND ${unacknowledgedDeliveryExistsSql(
+                    "i",
+                    "i.id",
+                    LATEST_INVOCATION_EVENT_SEQUENCE_SQL,
+                  )}
+                  THEN 1 ELSE 0 END AS blocked
          FROM invocations i
          LEFT JOIN invocation_events e ON e.invocation_id = i.id
          WHERE i.status IN ('succeeded', 'failed', 'cancelled')
@@ -1854,14 +1989,7 @@ export class SparkInvocationStore {
              WHERE e.kind = 'daemon.view_event'
                AND e.created_at < ?
                AND i.status IN ('succeeded', 'failed', 'cancelled')
-               AND NOT EXISTS (
-                 SELECT 1
-                 FROM invocation_event_delivery_consumers known
-                 LEFT JOIN invocation_event_deliveries d
-                   ON d.destination = known.destination
-                  AND d.invocation_id = e.invocation_id
-                 WHERE COALESCE(d.sequence, 0) < e.sequence
-               )
+               AND NOT ${unacknowledgedDeliveryExistsSql("i", "e.invocation_id", "e.sequence")}
              ORDER BY e.created_at, e.rowid
              LIMIT ?
            )`,
@@ -1885,14 +2013,7 @@ export class SparkInvocationStore {
            AND i.status IN ('succeeded', 'failed', 'cancelled')
            AND i.finished_at IS NOT NULL
            AND i.finished_at < ?
-           AND NOT EXISTS (
-             SELECT 1
-             FROM invocation_event_delivery_consumers known
-             LEFT JOIN invocation_event_deliveries d
-               ON d.destination = known.destination
-              AND d.invocation_id = i.id
-             WHERE COALESCE(d.sequence, 0) < i.event_cursor
-           )
+           AND NOT ${unacknowledgedDeliveryExistsSql("i", "i.id", "i.event_cursor")}
          ORDER BY i.finished_at, i.id
          LIMIT ?`,
       )
@@ -1915,14 +2036,7 @@ export class SparkInvocationStore {
                AND i.status IN ('succeeded', 'failed', 'cancelled')
                AND i.finished_at IS NOT NULL
                AND i.finished_at < ?
-               AND NOT EXISTS (
-                 SELECT 1
-                 FROM invocation_event_delivery_consumers known
-                 LEFT JOIN invocation_event_deliveries d
-                   ON d.destination = known.destination
-                  AND d.invocation_id = i.id
-                 WHERE COALESCE(d.sequence, 0) < i.event_cursor
-               )`,
+               AND NOT ${unacknowledgedDeliveryExistsSql("i", "i.id", "i.event_cursor")}`,
           )
           .get(candidate.id, before);
         if (!eligible) {
@@ -1992,14 +2106,7 @@ export class SparkInvocationStore {
            AND i.status IN ('succeeded', 'failed', 'cancelled')
            AND i.finished_at IS NOT NULL
            AND i.finished_at < ?
-           AND EXISTS (
-             SELECT 1
-             FROM invocation_event_delivery_consumers known
-             LEFT JOIN invocation_event_deliveries d
-               ON d.destination = known.destination
-              AND d.invocation_id = i.id
-             WHERE COALESCE(d.sequence, 0) < i.event_cursor
-           )`,
+           AND ${unacknowledgedDeliveryExistsSql("i", "i.id", "i.event_cursor")}`,
       )
       .get(before) as { count: number };
     const hasMore = Boolean(
@@ -2011,14 +2118,7 @@ export class SparkInvocationStore {
              AND i.status IN ('succeeded', 'failed', 'cancelled')
              AND i.finished_at IS NOT NULL
              AND i.finished_at < ?
-             AND NOT EXISTS (
-               SELECT 1
-               FROM invocation_event_delivery_consumers known
-               LEFT JOIN invocation_event_deliveries d
-                 ON d.destination = known.destination
-                AND d.invocation_id = i.id
-               WHERE COALESCE(d.sequence, 0) < i.event_cursor
-             )
+             AND NOT ${unacknowledgedDeliveryExistsSql("i", "i.id", "i.event_cursor")}
            LIMIT 1`,
         )
         .get(before),
@@ -2072,12 +2172,9 @@ export class SparkInvocationStore {
           this.db
             .prepare(
               `SELECT 1
-               FROM invocation_event_delivery_consumers known
-               LEFT JOIN invocation_event_deliveries d
-                 ON d.destination = known.destination
-                AND d.invocation_id = ?
-               WHERE COALESCE(d.sequence, 0) < ?
-               LIMIT 1`,
+               FROM invocations i
+               WHERE i.id = ?
+                 AND ${unacknowledgedDeliveryExistsSql("i", "i.id", "?2")}`,
             )
             .get(row.id, Number(row.event_cursor)),
         );

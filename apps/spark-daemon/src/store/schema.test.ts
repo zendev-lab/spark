@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { LOOP_EXECUTION_SESSION_IDS_QUERY } from "./invocations.js";
 import { migrateSparkDaemonDatabase } from "./schema.js";
 
 describe("migrateSparkDaemonDatabase", () => {
@@ -400,6 +401,7 @@ describe("migrateSparkDaemonDatabase", () => {
           "invocations_session_updated_idx",
           "invocations_workspace_updated_idx",
           "invocations_legacy_workspace_delivery_idx",
+          "invocations_loop_execution_owner_idx",
         ]),
       );
       expect(indexColumns(db, "invocations_workspace_updated_idx")).toEqual([
@@ -445,6 +447,44 @@ describe("migrateSparkDaemonDatabase", () => {
       );
       expect(indexNames(db, "runtime_command_receipts")).toContain(
         "runtime_command_receipts_terminal_idx",
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it("adds the Loop execution owner index to legacy invocation tables", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`
+        CREATE TABLE invocations (
+          id TEXT PRIMARY KEY,
+          command_id TEXT,
+          status TEXT NOT NULL,
+          prompt TEXT,
+          task_json TEXT,
+          source_kind TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO invocations (
+          id, status, task_json, source_kind, created_at, updated_at
+        ) VALUES (
+          'inv-unrelated', 'succeeded', '{"type":"session.run"}', 'loop.tick',
+          '2026-08-13T00:00:00.000Z', '2026-08-13T00:00:00.000Z'
+        );
+      `);
+
+      migrateSparkDaemonDatabase(db);
+      migrateSparkDaemonDatabase(db);
+
+      expect(indexNames(db, "invocations")).toContain("invocations_loop_execution_owner_idx");
+      expect(db.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
+      const plan = db
+        .prepare(`EXPLAIN QUERY PLAN ${LOOP_EXECUTION_SESSION_IDS_QUERY}`)
+        .all("owner-session", "owner-session") as unknown as Array<{ detail: string }>;
+      expect(plan.map((row) => row.detail).join("\n")).toContain(
+        "invocations_loop_execution_owner_idx",
       );
     } finally {
       db.close();

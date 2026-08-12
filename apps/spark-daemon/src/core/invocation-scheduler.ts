@@ -136,6 +136,7 @@ export class SparkInvocationScheduler {
   private readonly active = new Map<string, ActiveInvocation>();
   private readonly structuredActive = new Map<string, ActiveInvocation>();
   private readonly activeSessions = new Set<string>();
+  private readonly sessionIdleWaiters = new Map<string, Set<() => void>>();
   private terminalCommitTail: Promise<void> = Promise.resolve();
   private accepting: boolean;
 
@@ -270,6 +271,31 @@ export class SparkInvocationScheduler {
     );
   }
 
+  /** True while this process still owns an executor for the Session, even
+   * after cancellation has made the durable Invocation row terminal. */
+  isSessionActive(sessionId: string): boolean {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) return false;
+    if (this.activeSessions.has(normalizedSessionId)) return true;
+    return [...this.structuredActive.values()].some(
+      ({ invocation }) => invocation.sessionId === normalizedSessionId,
+    );
+  }
+
+  /** Resolve after this process has released every executor that owns the Session. */
+  async waitForSessionIdle(sessionId: string): Promise<void> {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId || !this.isSessionActive(normalizedSessionId)) return;
+    await new Promise<void>((resolve) => {
+      const waiters = this.sessionIdleWaiters.get(normalizedSessionId) ?? new Set<() => void>();
+      waiters.add(resolve);
+      this.sessionIdleWaiters.set(normalizedSessionId, waiters);
+      if (!this.isSessionActive(normalizedSessionId)) {
+        this.resolveSessionIdleWaiters(normalizedSessionId);
+      }
+    });
+  }
+
   /** Stop claiming durable queued work while allowing active invocations to settle normally. */
   beginDrain(): number {
     this.accepting = false;
@@ -325,12 +351,17 @@ export class SparkInvocationScheduler {
     const commitState: InvocationCommitState = {
       started: this.store.hasDurableCommitStarted(invocationId),
     };
+    const sessionId = getSparkDaemonTaskSessionId(task);
     let executorSettled: Promise<unknown> | undefined;
     const settled = this.run(invocation, task, controller, commitState, (promise) => {
       executorSettled = promise;
     }).finally(() => {
-      this.structuredActive.delete(invocationId);
-      if (executorSettled) void executorSettled.catch(() => undefined);
+      const release = () => {
+        this.structuredActive.delete(invocationId);
+        if (sessionId) this.resolveSessionIdleWaiters(sessionId);
+      };
+      if (executorSettled) void executorSettled.then(release, release);
+      else release();
     });
     this.structuredActive.set(invocationId, { invocation, controller, commitState, settled });
     await settled;
@@ -398,12 +429,23 @@ export class SparkInvocationScheduler {
       } finally {
         this.active.delete(invocation.invocationId);
         if (!sessionId) return;
-        const releaseSession = () => this.activeSessions.delete(sessionId);
+        const releaseSession = () => {
+          this.activeSessions.delete(sessionId);
+          this.resolveSessionIdleWaiters(sessionId);
+        };
         if (executorSettled) void executorSettled.then(releaseSession, releaseSession);
         else releaseSession();
       }
     });
     this.active.set(invocation.invocationId, { invocation, controller, commitState, settled });
+  }
+
+  private resolveSessionIdleWaiters(sessionId: string): void {
+    if (this.isSessionActive(sessionId)) return;
+    const waiters = this.sessionIdleWaiters.get(sessionId);
+    if (!waiters) return;
+    this.sessionIdleWaiters.delete(sessionId);
+    for (const resolve of waiters) resolve();
   }
 
   private async run(

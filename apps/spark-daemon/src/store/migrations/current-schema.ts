@@ -1066,6 +1066,26 @@ export function addMissingInvocationColumns(db: DatabaseSync): void {
     CREATE UNIQUE INDEX IF NOT EXISTS invocations_idempotency_idx
       ON invocations(idempotency_key)
       WHERE idempotency_key IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS invocations_loop_execution_owner_idx
+      ON invocations(
+        CASE
+          WHEN json_valid(task_json) THEN COALESCE(
+            json_extract(task_json, '$.ownerSessionId'),
+            json_extract(task_json, '$.stateOwnerSessionId')
+          )
+        END,
+        session_id
+      )
+      WHERE session_id IS NOT NULL
+        AND payload_redacted_at IS NULL
+        AND (
+          source_kind = 'loop.tick'
+          OR CASE
+            WHEN json_valid(task_json)
+              THEN json_extract(task_json, '$.type') = 'loop.tick'
+            ELSE 0
+          END
+        );
     CREATE TABLE IF NOT EXISTS invocation_event_delivery_consumers (
       destination TEXT PRIMARY KEY,
       registered_at TEXT NOT NULL

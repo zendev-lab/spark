@@ -3360,6 +3360,41 @@ describe("daemon native session execution", () => {
     }
   });
 
+  it("rejects a closing Session snapshot with an existing transcript before execution", async () => {
+    const executeSession = vi.fn(async () => ({
+      sessionId: "sess_closing_snapshot",
+      sessionPath: "/daemon/sessions/sess_closing_snapshot.jsonl",
+      assistantText: "must not execute",
+    }));
+    const recordRun = vi.fn(async () => ({}) as never);
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_closing_snapshot",
+      prompt: "must remain fenced",
+    };
+    const executor = createSparkDaemonTaskExecutor({
+      paths,
+      sessionRegistry: {
+        get: vi.fn(async () =>
+          workspaceSessionRecord({
+            sessionId: task.sessionId,
+            workspaceId: "workspace-closing",
+            lifecycle: "closing",
+            sessionPath: "/daemon/sessions/sess_closing_snapshot.jsonl",
+          }),
+        ),
+        recordTurnQueued: vi.fn(async () => ({}) as never),
+        recordTurnSettled: vi.fn(async () => ({}) as never),
+        recordRun,
+      },
+      createSparkHeadlessSessionExecutor: () => executeSession,
+    });
+
+    await expect(executor(task, context(task))).rejects.toMatchObject({ code: "session_closing" });
+    expect(executeSession).not.toHaveBeenCalled();
+    expect(recordRun).not.toHaveBeenCalled();
+  });
+
   it("settles a committed turn that returns no transcript path without replaying it", async () => {
     const recordTurnQueued = vi.fn(async () => ({}) as never);
     const recordTurnSettled = vi.fn(async () => ({}) as never);
