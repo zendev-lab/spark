@@ -27,7 +27,7 @@ const OPENAI_RESPONSES_FALLBACK_INSTRUCTIONS = "You are a helpful assistant.";
 const GATEWAY_MODEL_BY_ID: Record<string, string> = {
   "claude-opus-4.6": "Claude Opus 4.6",
   "claude-opus-5": "Opus 5",
-  "deepseek-v4-flash": "DeepSeek-V4-Flash",
+  "deepseek-v4-flash": "deepseek-v4-flash-0731-internal",
   "gpt-5.6-luna": "gpt-5.6-luna",
   "gpt-5.6-sol": "gpt-5.6-sol",
   "gpt-5.6-terra": "gpt-5.6-terra",

@@ -463,7 +463,7 @@ test("SparkProviderRegistry exposes routed Claude and GPT models from baidu-onea
 
   const deepseekProfile = registry.buildProfile("baidu-oneapi", "deepseek-v4-flash");
   assert.equal(deepseekProfile.routes[0]?.transportApi, "anthropic-messages");
-  assert.equal(deepseekProfile.routes[0]?.transportModelId, "DeepSeek-V4-Flash");
+  assert.equal(deepseekProfile.routes[0]?.transportModelId, "deepseek-v4-flash-0731-internal");
 
   const grokProfile = registry.buildProfile("baidu-oneapi", "grok-4.5");
   assert.equal(grokProfile.routes[0]?.transportApi, "openai-responses");
