@@ -44,6 +44,7 @@ than copying another long list into Markdown.
 - [`specs/skill-delegation.md`](./specs/skill-delegation.md): dedicated anonymous multi-Skill Agents, invocation, prompt composition, lifecycle, and authority boundaries.
 - [`specs/sessions-and-channels.md`](./specs/sessions-and-channels.md): persistent sessions, daemon-owned Side Threads, origins, mail, and channel policy.
 - [`specs/daemon-autonomous-loops.md`](./specs/daemon-autonomous-loops.md): daemon-owned Loop cadence, bindings, retry, recovery, and fresh-continuity boundaries.
+- [`specs/execution-attempts.md`](./specs/execution-attempts.md): private invocation attempt identity, fencing, durable crash recovery, capability allowlist, and worker import boundary.
 - [`specs/human-interaction.md`](./specs/human-interaction.md): ask/approval waits, status vocabulary, and correlation.
 - [`specs/autonomous-dual-lane.md`](./specs/autonomous-dual-lane.md): dual-lane Goal/Repro autonomy, async evidence requests, Profile/progress semantics, ReportModel, and Artifact/Workbench projections.
 - [`specs/hub-product-design.md`](./specs/hub-product-design.md): daemon-truth, Work-first session hierarchy, interaction boundaries, and reachable-state UI verification.

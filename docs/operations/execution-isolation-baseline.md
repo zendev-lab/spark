@@ -2,7 +2,9 @@
 
 This source-process baseline measures the current single-daemon execution fault domain before an
 execution-attempt process boundary is introduced. It is a diagnostic contract, not a claim that the
-daemon already isolates invocations or cleans up descendant processes.
+daemon already isolates invocations or cleans up descendant processes. The normative replaceable
+attempt identity, fencing, crash, capability, and worker-import rules are in
+[`docs/specs/execution-attempts.md`](../specs/execution-attempts.md).
 
 ## Run
 

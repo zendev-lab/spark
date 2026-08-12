@@ -79,7 +79,8 @@ Repository policy belongs to dedicated static tools invoked by `pnpm run check:s
 
 - Actionlint and Zizmor own GitHub Actions parsing and security analysis;
 - JSON Schema, Syncpack, and Knip own generic inventory and manifest consistency;
-- Dependency Cruiser owns import direction, cycles, deep-link bans, and transport boundaries;
+- Dependency Cruiser owns import direction, cycles, deep-link bans, transport boundaries, and the
+  daemon execution worker import graph;
 - `check-architecture-ratchets.mjs` compares the authoritative package inventory with workspace
   manifests and keeps test and mutation discovery fail-closed;
 - Astro/Starlight own documentation parsing and compilation; focused tests exercise locale

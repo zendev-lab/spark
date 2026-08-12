@@ -1,11 +1,18 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   MAX_SPARK_TURN_RESUME_CHECKPOINT_BYTES,
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
 } from "@zendev-lab/spark-turn";
+import {
+  ExecutionAttemptCrashedError,
+  InProcessExecutionAttemptAdapter,
+  type ExecutionAttemptAdapter,
+} from "../execution/adapter.ts";
+import type { ExecutionOwnerHandlers } from "../execution/owner-capabilities.ts";
+import { ExecutionAttemptStore } from "../execution/state.ts";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";
 import { SparkTokenUsageStore } from "../store/token-usage.ts";
@@ -15,6 +22,14 @@ import {
 } from "./invocation-scheduler.ts";
 import type { SparkDaemonTaskExecutor } from "./types.ts";
 
+function testExecutionAttemptOptions(db: DatabaseSync) {
+  return {
+    executionAttemptStore: new ExecutionAttemptStore(db),
+    executionOwnerHandlers: testExecutionOwners(),
+    executionAttemptGeneration: 1,
+  };
+}
+
 function harness(
   executeTask: SparkDaemonTaskExecutor,
   options: Partial<SparkInvocationSchedulerOptions> = {},
@@ -22,11 +37,135 @@ function harness(
   const db = new DatabaseSync(":memory:");
   migrateSparkDaemonDatabase(db);
   const store = new SparkInvocationStore(db);
-  const scheduler = new SparkInvocationScheduler({ store, executeTask, ...options });
-  return { db, store, scheduler };
+  const executionAttemptStore = options.executionAttemptStore ?? new ExecutionAttemptStore(db);
+  const scheduler = new SparkInvocationScheduler({
+    store,
+    executeTask,
+    ...testExecutionAttemptOptions(db),
+    ...options,
+    executionAttemptStore,
+  });
+  return { db, store, scheduler, executionAttemptStore };
+}
+
+function testExecutionOwners(): ExecutionOwnerHandlers {
+  return {
+    taskClaim: async () => ({}),
+    humanInteraction: async () => ({}),
+    loopSchedule: async () => ({}),
+    loopStop: async () => ({}),
+  };
 }
 
 describe("SparkInvocationScheduler", () => {
+  it("uses the private execution-attempt adapter and defaults to in-process execution", async () => {
+    const calls: string[] = [];
+    const adapter: ExecutionAttemptAdapter = {
+      kind: "process",
+      async execute(request, parent) {
+        calls.push(request.invocationId);
+        parent.accepted();
+        parent.running();
+        return await parent.executeInProcess();
+      },
+    };
+    const { db, store, scheduler } = harness(async () => ({ ok: true }), {
+      executionAttemptAdapter: adapter,
+    });
+    try {
+      const invocation = store.submit({
+        sessionId: "session-adapter",
+        prompt: "adapter",
+        task: { type: "session.run", sessionId: "session-adapter", prompt: "adapter" },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+      expect(calls).toEqual([invocation.invocationId]);
+      expect(store.require(invocation.invocationId).status).toBe("succeeded");
+      expect(new InProcessExecutionAttemptAdapter().kind).toBe("in_process");
+    } finally {
+      scheduler.stop();
+      db.close();
+    }
+  });
+
+  it("persists the production attempt lifecycle, replacement fence, and capability route", async () => {
+    const requests: unknown[] = [];
+    const loopStop = vi.fn(async () => ({ stopped: true }));
+    let calls = 0;
+    const adapter: ExecutionAttemptAdapter = {
+      kind: "process",
+      async execute(request, parent) {
+        requests.push(structuredClone(request));
+        calls += 1;
+        if (calls === 1) throw new ExecutionAttemptCrashedError("process_spawn_failed");
+        parent.accepted();
+        parent.running();
+        await parent.dispatchCapability("loop.stop", { loopId: "loop-fixture" });
+        parent.recordEvent({ type: "execution.fixture", value: calls });
+        return { ok: true };
+      },
+    };
+    const { db, store, scheduler, executionAttemptStore } = harness(
+      async () => {
+        throw new Error("process adapter must not call the in-process executor");
+      },
+      {
+        executionAttemptAdapter: adapter,
+        executionOwnerHandlers: {
+          taskClaim: async () => ({}),
+          humanInteraction: async () => ({}),
+          loopSchedule: async () => ({}),
+          loopStop,
+        },
+      },
+    );
+    try {
+      const invocation = store.submit({
+        sessionId: "session-process-attempt",
+        prompt: "process attempt",
+        task: {
+          type: "session.run",
+          sessionId: "session-process-attempt",
+          prompt: "process attempt",
+        },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+
+      expect(requests).toHaveLength(2);
+      expect(() => structuredClone(requests[1])).not.toThrow();
+      expect(loopStop).toHaveBeenCalledOnce();
+      expect(executionAttemptStore.crashes(invocation.invocationId)).toEqual([
+        expect.objectContaining({ attemptEpoch: 1, accepted: false }),
+      ]);
+      const current = executionAttemptStore.current(invocation.invocationId)!;
+      expect(current).toMatchObject({
+        attemptEpoch: 2,
+        status: "succeeded",
+        eventHighWaterMark: 1,
+        usageHighWaterMark: 0,
+      });
+      expect(executionAttemptStore.events(invocation.invocationId)).toEqual([
+        expect.objectContaining({
+          attemptEpoch: 2,
+          kind: "execution.attempt.event_persisted",
+          payload: expect.objectContaining({ outputSequence: 1 }),
+        }),
+      ]);
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "succeeded",
+        result: { ok: true },
+      });
+      expect(() =>
+        executionAttemptStore.complete(current, "succeeded", { event: 1, usage: 0 }),
+      ).toThrowError(expect.objectContaining({ code: "execution_attempt_transition_invalid" }));
+    } finally {
+      scheduler.stop();
+      db.close();
+    }
+  });
+
   it("records structured child usage as anonymous without conflicting with its observer", async () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
@@ -34,6 +173,7 @@ describe("SparkInvocationScheduler", () => {
     const tokenUsageStore = new SparkTokenUsageStore(db);
     const scheduler = new SparkInvocationScheduler({
       store,
+      ...testExecutionAttemptOptions(db),
       tokenUsageStore,
       executeTask: async (_task, context) => {
         context.recordTokenUsage?.({
@@ -98,6 +238,7 @@ describe("SparkInvocationScheduler", () => {
         status: "complete",
       });
     } finally {
+      scheduler.stop();
       db.close();
     }
   });
@@ -109,6 +250,7 @@ describe("SparkInvocationScheduler", () => {
     const tokenUsageStore = new SparkTokenUsageStore(db);
     const scheduler = new SparkInvocationScheduler({
       store,
+      ...testExecutionAttemptOptions(db),
       tokenUsageStore,
       executeTask: async (_task, context) => {
         expect(context.tokenUsageScope).toEqual({ kind: "repro", reproId: "repro-driver-1" });
@@ -192,6 +334,86 @@ describe("SparkInvocationScheduler", () => {
     }
   });
 
+  it("blocks production terminal commit when token-usage persistence fails", async () => {
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    const store = new SparkInvocationStore(db);
+    const executionAttemptStore = new ExecutionAttemptStore(db);
+    const tokenUsageStore = new SparkTokenUsageStore(db);
+    const persistenceFailure = new Error("injected token usage persistence failure");
+    const recordTurnComplete = vi
+      .spyOn(tokenUsageStore, "recordTurnComplete")
+      .mockImplementation(() => {
+        throw persistenceFailure;
+      });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const scheduler = new SparkInvocationScheduler({
+      store,
+      executionAttemptStore,
+      executionOwnerHandlers: testExecutionOwners(),
+      executionAttemptGeneration: 1,
+      tokenUsageStore,
+      executeTask: async (_task, context) => {
+        context.recordTokenUsage?.({ event: usageEvent("response-persistence-failure", 3, 2) });
+        return { mustNotCommit: true };
+      },
+    });
+    try {
+      const invocation = store.submit({
+        sessionId: "session-usage-persistence-failure",
+        prompt: "record usage fail closed",
+        task: {
+          type: "loop.tick",
+          sessionId: "session-usage-persistence-failure",
+          loopId: "repro-usage-persistence-failure",
+          binding: { reproId: "repro-usage-persistence-failure" },
+          ownerSessionId: "session-usage-persistence-failure",
+          stateOwnerSessionId: "session-usage-persistence-failure",
+          generation: 1,
+          continuity: "session",
+          cwd: process.cwd(),
+          prompt: "record usage fail closed",
+        },
+      });
+
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+
+      expect(recordTurnComplete).toHaveBeenCalledOnce();
+      expect(store.require(invocation.invocationId).status).toBe("running");
+      expect(executionAttemptStore.current(invocation.invocationId)).toMatchObject({
+        status: "running",
+        eventHighWaterMark: 0,
+        usageHighWaterMark: 0,
+      });
+      expect(executionAttemptStore.events(invocation.invocationId)).toEqual([
+        expect.objectContaining({
+          kind: "execution.attempt.usage_persisted",
+          payload: expect.objectContaining({ outputSequence: 1 }),
+        }),
+      ]);
+      expect(
+        tokenUsageStore.summarize({
+          scope: { kind: "repro", reproId: "repro-usage-persistence-failure" },
+        }),
+      ).toMatchObject({ totalTokens: 0, responseCount: 0 });
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining("execution attempt terminal commit is blocked"),
+        expect.objectContaining({ code: "execution_attempt_high_water_invalid" }),
+      );
+      expect(scheduler.recover("2026-08-07T00:00:10.000Z")).toBe(1);
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "queued",
+        sourceKind: "invocation.resume",
+      });
+    } finally {
+      scheduler.stop();
+      consoleError.mockRestore();
+      recordTurnComplete.mockRestore();
+      db.close();
+    }
+  });
+
   it("late-binds the persistent root turn that starts Repro and scopes later turns immediately", async () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
@@ -201,6 +423,7 @@ describe("SparkInvocationScheduler", () => {
     let executedTurns = 0;
     const scheduler = new SparkInvocationScheduler({
       store,
+      ...testExecutionAttemptOptions(db),
       tokenUsageStore,
       resolveReproUsageScope: async () =>
         activeRepro ? { kind: "repro", reproId: "repro-started-here" } : undefined,
@@ -284,6 +507,7 @@ describe("SparkInvocationScheduler", () => {
     const tokenUsageStore = new SparkTokenUsageStore(db);
     const scheduler = new SparkInvocationScheduler({
       store,
+      ...testExecutionAttemptOptions(db),
       tokenUsageStore,
       resolveReproUsageScope: async () => undefined,
       executeTask: async (_task, context) => {
@@ -482,6 +706,8 @@ describe("SparkInvocationScheduler", () => {
       const resumedTasks: unknown[] = [];
       const successor = new SparkInvocationScheduler({
         store,
+        ...testExecutionAttemptOptions(db),
+        executionAttemptGeneration: 2,
         executeTask: async (task) => {
           resumedTasks.push(task);
           return { resumed: true };
@@ -962,15 +1188,16 @@ describe("SparkInvocationScheduler", () => {
     }
   });
 
-  it("pauses the invocation timeout while awaiting human input", async () => {
-    const { db, store, scheduler } = harness(
+  it("keeps the same invocation and session slot active while awaiting human input", async () => {
+    const gate = deferred<void>();
+    let executingInvocationId: string | undefined;
+    const { db, store, scheduler, executionAttemptStore } = harness(
       async (_task, context) => {
-        await context.withPausedTimeout?.(async () => {
-          await delay(30);
-        });
+        executingInvocationId = context.invocationId;
+        await context.withPausedTimeout?.(async () => await gate.promise);
         return { answered: true };
       },
-      { taskTimeoutMs: 10 },
+      { concurrency: 2, taskTimeoutMs: 10 },
     );
     try {
       const invocation = store.submit({
@@ -978,13 +1205,40 @@ describe("SparkInvocationScheduler", () => {
         prompt: "wait",
         task: { type: "session.run", sessionId: "human-wait", prompt: "wait" },
       });
+      const successor = store.submit({
+        sessionId: "human-wait",
+        prompt: "after-answer",
+        task: { type: "session.run", sessionId: "human-wait", prompt: "after-answer" },
+      });
       expect(scheduler.processBatch()).toBe(true);
+      await eventually(() => executingInvocationId === invocation.invocationId);
+      expect(scheduler.snapshot().map(({ invocationId }) => invocationId)).toEqual([
+        invocation.invocationId,
+      ]);
+      expect(store.require(invocation.invocationId).status).toBe("running");
+      expect(store.require(successor.invocationId).status).toBe("queued");
+      expect(executionAttemptStore.current(invocation.invocationId)).toMatchObject({
+        attemptEpoch: 1,
+        status: "running",
+      });
+      expect(scheduler.processBatch()).toBe(false);
+
+      gate.resolve();
       await scheduler.wait({ timeoutMs: 500 });
       expect(store.require(invocation.invocationId)).toMatchObject({
         status: "succeeded",
         result: { answered: true },
       });
+      expect(executingInvocationId).toBe(invocation.invocationId);
+      expect(executionAttemptStore.current(invocation.invocationId)).toMatchObject({
+        attemptEpoch: 1,
+        status: "succeeded",
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+      expect(store.require(successor.invocationId).status).toBe("succeeded");
     } finally {
+      gate.resolve();
       db.close();
     }
   });

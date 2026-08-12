@@ -304,6 +304,21 @@ module.exports = {
         path: "node_modules/.*/@zendev-lab/spark-tui|/node_modules/@zendev-lab/spark-tui|^apps/spark-tui/",
       },
     },
+    {
+      name: "execution-worker-import-boundary",
+      comment:
+        "Daemon-private execution worker modules may import only their wire contract and the host, protocol, and turn boundaries.",
+      severity: "error",
+      from: {
+        path: "^apps/spark-daemon/src/execution/(?:contract[.]ts|worker-entry[.]ts|worker/)",
+      },
+      to: {
+        pathNot: [
+          "^apps/spark-daemon/src/execution/(?:contract[.]ts|worker/)",
+          "^packages/spark-(?:host|protocol|turn)/",
+        ].join("|"),
+      },
+    },
 
     // --- Hub app and Hub-private packages ---
     {

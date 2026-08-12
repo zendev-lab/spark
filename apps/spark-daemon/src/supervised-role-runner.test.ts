@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
+import { ExecutionAttemptStore } from "./execution/state.ts";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { SessionSupervisor } from "./session-supervisor.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
@@ -27,6 +28,13 @@ describe("supervised Role runner", () => {
       const invocations = new SparkInvocationStore(db);
       const scheduler = new SparkInvocationScheduler({
         store: invocations,
+        executionAttemptStore: new ExecutionAttemptStore(db),
+        executionOwnerHandlers: {
+          taskClaim: async () => ({}),
+          humanInteraction: async () => ({}),
+          loopSchedule: async () => ({}),
+          loopStop: async () => ({}),
+        },
         executeTask: async () => ({
           assistantText: "implemented by child",
           roleOutcome: {

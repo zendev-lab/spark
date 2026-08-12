@@ -6,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SparkRoleSpec } from "@zendev-lab/spark-protocol/role-session";
 import { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
+import { ExecutionAttemptStore } from "./execution/state.ts";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { SessionSupervisor } from "./session-supervisor.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
@@ -689,6 +690,8 @@ describe("SessionSupervisor", () => {
     });
     const scheduler = new SparkInvocationScheduler({
       store: invocations,
+      executionAttemptStore: new ExecutionAttemptStore(db),
+      executionOwnerHandlers: inertExecutionOwners,
       concurrency: 1,
       executeTask: async (task) => {
         if (task.type === "session.run" && task.prompt === "hold parent") await parentGate;
@@ -785,6 +788,13 @@ describe("SessionSupervisor", () => {
     harness.close();
   });
 });
+
+const inertExecutionOwners = {
+  taskClaim: async () => ({}),
+  humanInteraction: async () => ({}),
+  loopSchedule: async () => ({}),
+  loopStop: async () => ({}),
+};
 
 async function createHarness() {
   const root = await mkdtemp(join(tmpdir(), "spark-session-supervisor-"));

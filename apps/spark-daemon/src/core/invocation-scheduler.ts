@@ -22,6 +22,15 @@ import {
   type SparkInvocationRecord,
 } from "../store/invocations.ts";
 import { SparkTokenUsageStore, type RegisterUsageExecutionInput } from "../store/token-usage.ts";
+import {
+  ExecutionAttemptSession,
+  InProcessExecutionAttemptAdapter,
+  type ExecutionAttemptAdapter,
+} from "../execution/adapter.ts";
+import { createInProcessExecutionCapabilityRegistry } from "../execution/owner-capabilities.ts";
+import type { ExecutionOwnerHandlers } from "../execution/owner-capabilities.ts";
+import type { ExecutionCapabilityRegistry } from "../execution/capability-registry.ts";
+import type { ExecutionAttemptStore } from "../execution/state.ts";
 import { artifactDaemonProjectionEventFromToolResult } from "../artifact-projection.ts";
 import {
   getSparkDaemonTaskSessionId,
@@ -51,6 +60,14 @@ interface ActiveInvocation {
 export interface SparkInvocationSchedulerOptions {
   store: SparkInvocationStore;
   executeTask: SparkDaemonTaskExecutor;
+  /** Daemon-owned durable state for every invocation execution epoch. */
+  executionAttemptStore: ExecutionAttemptStore;
+  /** Closed set of daemon owner callbacks exposed to a replaceable backend. */
+  executionOwnerHandlers: ExecutionOwnerHandlers;
+  /** Monotonic process generation; production supplies the daemon start generation. */
+  executionAttemptGeneration?: number;
+  /** Private fault-domain backend; defaults to the existing in-process executor. */
+  executionAttemptAdapter?: ExecutionAttemptAdapter;
   /**
    * Optional daemon-owned terminal commit. Production uses this to commit the
    * invocation outcome and its channel-delivery intent in one SQLite
@@ -80,6 +97,10 @@ export interface SparkInvocationSchedulerOptions {
 export class SparkInvocationScheduler {
   private readonly store: SparkInvocationStore;
   private readonly executeTask: SparkDaemonTaskExecutor;
+  private readonly executionAttemptAdapter: ExecutionAttemptAdapter;
+  private readonly executionAttemptStore: ExecutionAttemptStore;
+  private readonly executionCapabilityRegistry: ExecutionCapabilityRegistry;
+  private readonly executionAttemptGeneration: number;
   private readonly completeInvocation: NonNullable<
     SparkInvocationSchedulerOptions["completeInvocation"]
   >;
@@ -98,6 +119,17 @@ export class SparkInvocationScheduler {
   constructor(options: SparkInvocationSchedulerOptions) {
     this.store = options.store;
     this.executeTask = options.executeTask;
+    this.executionAttemptAdapter =
+      options.executionAttemptAdapter ?? new InProcessExecutionAttemptAdapter();
+    this.executionAttemptStore = options.executionAttemptStore;
+    this.executionCapabilityRegistry = createInProcessExecutionCapabilityRegistry({
+      currentAttempt: (invocationId) => this.executionAttemptStore.current(invocationId),
+      owners: options.executionOwnerHandlers,
+    });
+    this.executionAttemptGeneration = positiveInteger(
+      options.executionAttemptGeneration,
+      Date.now(),
+    );
     this.completeInvocation =
       options.completeInvocation ??
       ((invocation, _task, completion) => this.store.complete(invocation.invocationId, completion));
@@ -328,6 +360,7 @@ export class SparkInvocationScheduler {
     const timeout = new InvocationTimeoutController(this.taskTimeoutMs, controller);
     timeout.start();
     let executorSettled: Promise<unknown> | undefined;
+    let attemptSession: ExecutionAttemptSession | undefined;
     let streamedEventCount = 0;
     let restartYieldCommitted = false;
     const rootUsagePersistence =
@@ -412,37 +445,30 @@ export class SparkInvocationScheduler {
         pendingUsageObservations.push(observation);
         return;
       }
-      try {
-        this.tokenUsageStore?.recordTurnComplete({
-          invocationId: invocation.invocationId,
-          scope: rootUsageExecution.scope,
-          executionId: observation.executionId ?? invocation.invocationId,
-          kind: observation.kind ?? "root_session",
-          ...(observation.detailKind
-            ? { detailKind: observation.detailKind }
-            : task.type === "loop.tick"
-              ? { detailKind: "loop_tick" }
-              : task.type === "loop.evaluate"
-                ? { detailKind: "loop_evaluator" }
-                : {}),
-          persistence: observation.persistence ?? rootUsagePersistence,
-          sessionId:
-            observation.sessionId ??
-            (task.type === "loop.tick" || task.type === "loop.evaluate"
-              ? task.ownerSessionId
-              : task.sessionId),
-          ...(observation.parentExecutionId
-            ? { parentExecutionId: observation.parentExecutionId }
-            : {}),
-          ...(observation.runRef ? { runRef: observation.runRef } : {}),
-          event: observation.event,
-        });
-      } catch (error) {
-        console.error(
-          `[spark-daemon] failed to record token usage for ${invocation.invocationId}`,
-          error,
-        );
-      }
+      this.tokenUsageStore?.recordTurnComplete({
+        invocationId: invocation.invocationId,
+        scope: rootUsageExecution.scope,
+        executionId: observation.executionId ?? invocation.invocationId,
+        kind: observation.kind ?? "root_session",
+        ...(observation.detailKind
+          ? { detailKind: observation.detailKind }
+          : task.type === "loop.tick"
+            ? { detailKind: "loop_tick" }
+            : task.type === "loop.evaluate"
+              ? { detailKind: "loop_evaluator" }
+              : {}),
+        persistence: observation.persistence ?? rootUsagePersistence,
+        sessionId:
+          observation.sessionId ??
+          (task.type === "loop.tick" || task.type === "loop.evaluate"
+            ? task.ownerSessionId
+            : task.sessionId),
+        ...(observation.parentExecutionId
+          ? { parentExecutionId: observation.parentExecutionId }
+          : {}),
+        ...(observation.runRef ? { runRef: observation.runRef } : {}),
+        event: observation.event,
+      });
     };
     const settleUsageExecution = (settlement: {
       executionId: string;
@@ -503,6 +529,31 @@ export class SparkInvocationScheduler {
       }
     }
     try {
+      let executeInProcess: (() => Promise<unknown>) | undefined;
+      attemptSession = new ExecutionAttemptSession({
+        store: this.executionAttemptStore,
+        registry: this.executionCapabilityRegistry,
+        adapter: this.executionAttemptAdapter,
+        invocationId: invocation.invocationId,
+        daemonGeneration: this.executionAttemptGeneration,
+        task,
+        signal: controller.signal,
+        executeInProcess: () => {
+          if (!executeInProcess) throw new Error("in-process execution context is not initialized");
+          return executeInProcess();
+        },
+        persistEvent: (event) => {
+          const record = event as Record<string, unknown>;
+          if (typeof record.type !== "string" || record.type.length === 0) {
+            throw new Error("execution attempt event type is missing");
+          }
+          streamedEventCount += 1;
+          void this.emitPersisted(
+            this.store.appendEvent(invocation.invocationId, record.type, record),
+          );
+        },
+        persistUsage: (usage) => recordUsage(usage as SparkDaemonTokenUsageObservation),
+      });
       const context = {
         invocationId: invocation.invocationId,
         signal: controller.signal,
@@ -521,45 +572,64 @@ export class SparkInvocationScheduler {
           restartYieldCommitted = true;
           throw new SparkTurnRestartYieldError();
         },
-        emitEvent: (event: SparkDaemonEvent) => {
-          streamedEventCount += 1;
-          return this.emitPersisted(
-            this.store.appendEvent(
-              invocation.invocationId,
-              event.type,
-              event as unknown as Record<string, unknown>,
-            ),
-          );
-        },
+        emitEvent: (event: SparkDaemonEvent) => attemptSession!.recordEvent(event),
         ...(this.tokenUsageStore
           ? {
               ...(rootUsageExecution ? { tokenUsageScope: rootUsageExecution.scope } : {}),
               registerTokenUsageExecution: registerUsageExecution,
               settleTokenUsageExecution: settleUsageExecution,
-              recordTokenUsage: recordUsage,
+              recordTokenUsage: (observation: SparkDaemonTokenUsageObservation) =>
+                attemptSession!.recordUsage(observation),
             }
           : {}),
       };
-      executorSettled = this.executeTask(task, context);
+      executeInProcess = () => this.executeTask(task, context);
+      executorSettled = attemptSession.execute();
       trackExecutorSettlement(executorSettled);
       const result = await Promise.race([executorSettled, abortPromise(controller.signal)]);
       await bindLateReproUsageScope();
       if (streamedEventCount === 0) {
         for (const event of daemonEventsFromTaskResult(result, task, invocation.invocationId)) {
-          this.emit(event);
+          attemptSession.recordEvent(event);
         }
       }
+      attemptSession.terminal("succeeded");
       this.completeInvocation(invocation, task, { status: "succeeded", result });
       this.settleTokenUsageExecution(rootUsageExecution?.executionId, "complete");
       this.emit(lifecycleEvent(invocation.invocationId, task, "succeeded"));
     } catch (error) {
       if (restartYieldCommitted && isSparkTurnRestartYieldError(error)) {
+        terminalAttempt(attemptSession, "cancelled", { errorCode: "restart_yield" });
         await bindLateReproUsageScope();
         return;
       }
       const reason = abortReason(controller.signal, error);
       const usageStatus =
         reason instanceof InvocationCancelledError ? ("cancelled" as const) : ("failed" as const);
+      const attemptStatus =
+        reason instanceof InvocationCancelledError ? ("cancelled" as const) : ("failed" as const);
+      const attemptResult =
+        reason instanceof InvocationCancelledError
+          ? { errorCode: "invocation_cancelled" }
+          : {
+              errorCode: executionErrorCode(reason),
+              errorMessage: reason.message,
+            };
+      if (!terminalAttempt(attemptSession, attemptStatus, attemptResult)) {
+        if (controller.signal.aborted && executorSettled) {
+          await executorSettled.catch(() => undefined);
+        }
+        try {
+          await bindLateReproUsageScope();
+        } catch (usageError) {
+          console.error(
+            `[spark-daemon] token usage remained uncommitted for ${invocation.invocationId}`,
+            usageError,
+          );
+        }
+        this.settleTokenUsageExecution(rootUsageExecution?.executionId, usageStatus);
+        return;
+      }
       if (reason instanceof InvocationCancelledError) {
         this.completeInvocation(invocation, task, {
           status: "cancelled",
@@ -838,6 +908,26 @@ function invalidTaskType(value: unknown): string {
     if (typeof type === "string" && type.trim()) return type.trim();
   }
   return "invalid";
+}
+
+function terminalAttempt(
+  session: ExecutionAttemptSession | undefined,
+  status: "succeeded" | "failed" | "cancelled",
+  result?: unknown,
+): boolean {
+  if (!session) return true;
+  const current = session.current();
+  if (current.status !== "accepted" && current.status !== "running") return true;
+  try {
+    session.terminal(status, result);
+    return true;
+  } catch (error) {
+    console.error(
+      `[spark-daemon] execution attempt terminal commit is blocked for ${current.invocationId}`,
+      error,
+    );
+    return false;
+  }
 }
 
 function positiveInteger(value: number | undefined, fallback: number): number {
