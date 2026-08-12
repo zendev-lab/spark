@@ -171,8 +171,12 @@ test("Baidu Responses retries thrown transient transport failures before any out
       attempts += 1;
       if (attempts > 1) return terminalStream(input);
       return {
-        async *[Symbol.asyncIterator]() {
-          throw new Error("ECONNRESET socket hang up");
+        [Symbol.asyncIterator]() {
+          return {
+            async next(): Promise<IteratorResult<AssistantMessageEvent>> {
+              throw new Error("ECONNRESET socket hang up");
+            },
+          };
         },
         async result(): Promise<AssistantMessage> {
           throw new Error("ECONNRESET socket hang up");
