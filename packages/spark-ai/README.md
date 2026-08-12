@@ -44,7 +44,7 @@ adaptive-friendly model ids (`claude-opus-4.6`, `claude-opus-5`,
 `deepseek-v4-flash`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`, `grok-4.5`)
 with provider-specific prices in USD per million tokens, while rewriting outbound
 payloads back to the gateway-required model ids (`Claude Opus 4.6`, `Opus 5`,
-`DeepSeek-V4-Flash`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`, `grok-4.5`).
+`deepseek-v4-flash-0731-internal`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`, `grok-4.5`).
 
 The root Pi compatibility profile loads the separate
 `@zendev-lab/spark-ai/baidu-oneapi-compat-extension` adapter. Only that entrypoint
