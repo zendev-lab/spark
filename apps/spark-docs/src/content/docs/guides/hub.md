@@ -11,7 +11,7 @@ provides:
 - **Overview** for connection status and shortcuts,
 - a persistent **Conversations** rail for existing and new sessions,
 - **Inbox** for questions and approvals,
-- **Artifacts** for Issues, PRs, and previews, and
+- **Artifacts** for Issues, Git changes, and Documents, and
 - **Resources** for repositories, documents, links, and tools.
 
 Inside a conversation, the inspector separates Summary, Artifacts, Changes,

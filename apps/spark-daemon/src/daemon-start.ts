@@ -61,6 +61,8 @@ import {
   wakeHumanAnswerEvidenceOwner,
 } from "./core/human-answer-evidence.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
+import { SessionSupervisor } from "./session-supervisor.ts";
+import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
 import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
 import { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
 import { ExecutionAttemptStore } from "./execution/state.ts";
@@ -116,6 +118,7 @@ import {
   resolveWorkspaceLocalPath,
 } from "./store/workspaces.js";
 import { runSparkCommandBridge, cancelSparkBridgeInvocation } from "./spark/bridge.js";
+import { loopDriverCloseCandidate, loopTickCloseCandidate } from "./spark/loop-close-completion.ts";
 import { createChannelAwareTaskExecutor, sessionSourceForTask } from "./spark/session-run.js";
 import { reconcileSessionNotificationDeliveries } from "./session-notification-delivery.ts";
 import {
@@ -160,7 +163,7 @@ import {
   MAIN_TASK_CLAIM_STARTUP_RECOVERY_WINDOW_MS,
 } from "./task-claims/policy.ts";
 import { reconcileMainTaskClaims } from "./task-claims/reconciler.ts";
-import { acquireManagedTaskSessionLease } from "./task-claims/session-lease.ts";
+import { acquireDaemonSessionLease } from "./task-claims/session-lease.ts";
 
 export async function startSparkDaemon(options: StartSparkDaemonOptions): Promise<void> {
   const runtime = await createPreparedDaemonRuntime(options);
@@ -227,6 +230,7 @@ interface PreparedDaemonRuntime {
   nextStorageMaintenanceAtMs: number;
   channelReplyDeliveryStore: ChannelReplyDeliveryStore;
   scheduler: SparkInvocationScheduler | null;
+  sessionSupervisor: SessionSupervisor | null;
   mailStore: SparkSessionMailStore;
   sessionCompletionDeliveryStore: SessionRequestCompletionDeliveryStore;
   servingGate: ServingLoopGate;
@@ -361,6 +365,52 @@ async function createPreparedDaemonRuntime(
       },
     });
   const sessionCompletionDeliveryStore = new SessionRequestCompletionDeliveryStore(options.db);
+  const sessionSupervisor = options.sessionRegistry
+    ? new SessionSupervisor({
+        registry: options.sessionRegistry,
+        invocations: invocationStore,
+        resolveWorkspaceBindingId: (workspaceId) =>
+          resolveWorkspaceBindingId(options.db, workspaceId),
+        ownerExists: async (owner, session) => {
+          if (owner.kind === "driver") {
+            const loop = loopStore.get(owner.ref);
+            return Boolean(
+              loop &&
+              loop.driverSessionId === session.sessionId &&
+              loop.status !== "completed" &&
+              loop.status !== "stopped",
+            );
+          }
+          if (owner.kind === "driver_tick") {
+            const invocation = invocationStore.getSummary(owner.ref);
+            return Boolean(
+              invocation &&
+              invocation.sessionId === session.sessionId &&
+              (invocation.status === "queued" || invocation.status === "running"),
+            );
+          }
+          if (
+            (owner.kind === "task_run" || owner.kind === "task_revision") &&
+            session.relation?.kind === "task_execution" &&
+            session.scope.kind === "workspace"
+          ) {
+            return await isTaskSessionOwnerValid(
+              {
+                owner,
+                workspaceId: session.scope.workspaceId,
+                sessionId: session.sessionId,
+                relation: session.relation,
+              },
+              {
+                resolveWorkspaceCwd: (workspaceId) =>
+                  resolveWorkspaceLocalPath(options.db, workspaceId),
+              },
+            );
+          }
+          return false;
+        },
+      })
+    : null;
   const scheduler = createDaemonScheduler({
     options,
     runtimeSignal,
@@ -377,7 +427,9 @@ async function createPreparedDaemonRuntime(
     channelsSparkHome: userPaths.dataRoot,
     mailStore,
     sessionCompletionDeliveryStore,
+    sessionSupervisor,
   });
+  if (scheduler) sessionSupervisor?.attachScheduler(scheduler);
   const closeRestartAdmission = () => {
     admission.open = false;
     scheduler?.beginDrain();
@@ -429,6 +481,7 @@ async function createPreparedDaemonRuntime(
     nextStorageMaintenanceAtMs: Date.now(),
     channelReplyDeliveryStore,
     scheduler,
+    sessionSupervisor,
     mailStore,
     sessionCompletionDeliveryStore,
     servingGate,
@@ -571,6 +624,7 @@ async function prepareDaemonServing(runtime: PreparedDaemonRuntime): Promise<voi
       flushHumanRequestOutbox: runtime.flushHumanRequestOutbox,
       processInvocationQueue: () =>
         runtime.admission.open ? (runtime.scheduler?.processBatch() ?? false) : false,
+      sessionSupervisor: runtime.sessionSupervisor,
     });
   }
   if (channelIngress && canOpenDaemonAdmission(runtime)) {
@@ -654,6 +708,11 @@ function canOpenDaemonAdmission(runtime: PreparedDaemonRuntime): boolean {
 
 async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<void> {
   runtime.scheduler?.recover();
+  await runtime.sessionSupervisor?.reconcile({
+    workspaceIds: listWorkspaces(runtime.options.db)
+      .filter((workspace) => workspace.status !== "archived")
+      .map((workspace) => workspace.id),
+  });
   runtime.loopStore.reconcileTerminalTicks();
   await reconcileLoopGoalSettlements(runtime.loopStore, { retryErrors: true });
   await reconcileReproWorkbenches(runtime);
@@ -927,6 +986,7 @@ function daemonServerConnectionOptions(
     humanWaits: runtime.humanWaits,
     respondHumanInteraction: (wait, input) => runtime.humanInteractions.respond(wait, input),
     channelIngress: runtime.channelIngress ?? undefined,
+    sessionSupervisor: runtime.sessionSupervisor ?? undefined,
     registerInvocationEventTarget: (sink) => runtime.eventHub.register(sink),
     registerHumanRequestOutboxTarget: runtime.registerHumanRequestOutboxTarget,
   };
@@ -973,6 +1033,7 @@ function createDaemonScheduler(input: {
   channelsSparkHome: string;
   mailStore: SparkSessionMailStore;
   sessionCompletionDeliveryStore: SessionRequestCompletionDeliveryStore;
+  sessionSupervisor: SessionSupervisor | null;
 }): SparkInvocationScheduler | null {
   if (input.options.runScheduler === false) return null;
   const { options } = input;
@@ -1019,16 +1080,17 @@ function createDaemonScheduler(input: {
         ...(sessionRegistry
           ? {
               sessionRegistry,
+              ...(input.sessionSupervisor ? { sessionSupervisor: input.sessionSupervisor } : {}),
               sessionLeaseControl: {
                 acquire: async (task, context) =>
-                  await acquireManagedTaskSessionLease({
+                  await acquireDaemonSessionLease({
                     db: options.db,
                     task,
                     context,
                     sessionRegistry,
                     onHeartbeatError: (error) =>
                       console.error(
-                        `[spark-daemon] managed Task Session lease heartbeat failed for ${task.sessionId}`,
+                        `[spark-daemon] Session lease heartbeat failed for ${task.sessionId}`,
                         error,
                       ),
                   }),
@@ -1126,11 +1188,49 @@ function completeScheduledInvocation(
   if (task.type === "loop.tick") {
     const completed = input.loopStore.completeTick(invocation, task, completion);
     emitLoopUpdate(input, completed.loop, invocation.invocationId);
+    const sessionLifetime =
+      task.sessionLifetime ?? (task.continuity === "fresh" ? "driver_tick" : "driver");
+    if (
+      sessionLifetime === "driver_tick" ||
+      completed.loop.status === "completed" ||
+      completed.loop.status === "stopped"
+    ) {
+      const closeCompletion =
+        sessionLifetime === "driver_tick"
+          ? loopTickCloseCandidate(invocation.invocationId, completion)
+          : loopDriverCloseCandidate(completed.loop);
+      void input.sessionSupervisor
+        ?.close({
+          sessionId: task.sessionId,
+          reason: `Loop ${completed.loop.status}`,
+          ...(closeCompletion ? { completion: closeCompletion } : {}),
+          settleTimeoutMs: 5_000,
+        })
+        .catch((error) => {
+          console.error(`[spark-daemon] failed to close Loop Session ${task.sessionId}`, error);
+        });
+    }
     return completed.invocation;
   }
   if (task.type === "loop.evaluate") {
     const completed = input.loopStore.completeEvaluation(invocation, task, completion);
     emitLoopUpdate(input, completed.loop, invocation.invocationId);
+    if (completed.loop.status === "completed" || completed.loop.status === "stopped") {
+      const closeCompletion = loopDriverCloseCandidate(completed.loop);
+      void input.sessionSupervisor
+        ?.close({
+          sessionId: completed.loop.driverSessionId,
+          reason: `Loop ${completed.loop.status}`,
+          ...(closeCompletion ? { completion: closeCompletion } : {}),
+          settleTimeoutMs: 5_000,
+        })
+        .catch((error) => {
+          console.error(
+            `[spark-daemon] failed to close Loop Session ${completed.loop.driverSessionId}`,
+            error,
+          );
+        });
+    }
     return completed.invocation;
   }
   const completed = completeInvocationWithChannelDelivery(
@@ -1568,6 +1668,7 @@ interface SparkDaemonServerConnectionOptions extends StartSparkDaemonOptions {
   humanWaits: SparkDaemonHumanWaitRegistry;
   respondHumanInteraction: SparkDaemonHumanInteractionResponder;
   channelIngress?: DaemonChannelIngressRuntime;
+  sessionSupervisor?: SessionSupervisor;
   registerInvocationEventTarget?: (
     sink: (event: SparkInvocationEvent) => void | Promise<void>,
   ) => () => void;
@@ -2019,6 +2120,7 @@ async function runSparkDaemonServerConnection(
         ...(options.modelControl ? { modelControl: options.modelControl } : {}),
         ...(options.channelIngress ? { channelIngress: options.channelIngress } : {}),
         ...(options.sessionRegistry ? { sessionRegistry: options.sessionRegistry } : {}),
+        ...(options.sessionSupervisor ? { sessionSupervisor: options.sessionSupervisor } : {}),
         invocationRegistry: options.invocationRegistry,
         humanWaits: options.humanWaits,
         respondHumanInteraction: options.respondHumanInteraction,

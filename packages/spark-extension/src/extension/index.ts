@@ -28,6 +28,7 @@ import { registerSparkLoopTool } from "./spark-loop-tool-registration.ts";
 import { ensureActiveReproLoop, registerSparkReproTool } from "./spark-repro-tool-registration.ts";
 import { registerSparkStatusTool } from "./spark-status-tool-registration.ts";
 import { registerSparkPlanTasksTool } from "./spark-plan-tasks-tool-registration.ts";
+import { registerSparkTaskDependencyReplacementTool } from "./spark-task-dependency-replacement.ts";
 import { registerSparkProjectTools } from "./spark-project-tool-registration.ts";
 import { registerSparkCommands, type SparkCommandApi } from "./spark-command-registration.ts";
 import {
@@ -39,7 +40,6 @@ import {
   sparkExtensionContextProviderStrings,
   sparkExtensionToolCopy,
 } from "./spark-model-prompts.ts";
-import { sessionModelName } from "./session-model.ts";
 import { withSparkToolOperationalNotes } from "./spark-tool-operational-notes.ts";
 import { SparkWorkflowRunManagerController } from "./spark-workflow-run-manager.ts";
 import { registerSparkModeTool } from "./mode/index.ts";
@@ -61,6 +61,7 @@ import { createSparkRoleRegistry } from "./spark-role-registry.ts";
 import {
   SparkRolesReviewerRunner,
   capReviewerThinkingLevel,
+  resolveBuiltinReviewerModel,
   type ReviewerRunner,
 } from "./reviewer-runner.ts";
 import { registerSparkReflectionCommands } from "./reflection-in-session-scheduler.ts";
@@ -162,10 +163,10 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkAskAutoAnswerProvider("spark-goal-reviewer", async (request, rawCtx) => {
     const askCtx = rawCtx as SparkToolContext;
     if (!askCtx.cwd) return undefined;
-    if (sparkActiveModeValue(askCtx.sparkActiveMode) === "execute")
+    if (sparkActiveModeValue(askCtx.sparkActiveMode) !== "plan")
       return {
         blocked: true,
-        reason: "reviewer ask auto-answer is disabled in /implement mode",
+        reason: "reviewer ask auto-answer is disabled outside Plan mode",
       };
     const goal = await loadSessionGoal(askCtx.cwd, askCtx);
     if (goal?.status !== "active") return undefined;
@@ -207,8 +208,24 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     return new SparkRolesReviewerRunner({
       registry: await createSparkRoleRegistry(sparkStateCwd(cwd, ctx)),
       cwd,
-      sessionModel: sessionModelName(ctx.model),
       reviewerThinkingLevel: capReviewerThinkingLevel(pi.getThinkingLevel?.()),
+      nativeExecutor: ctx.runRole,
+      nativeExecutorFallback: ctx.roleNativeCompatibilityRecovery,
+    });
+  }
+
+  async function createTaskFinishDeepReviewerRunner(
+    cwd: string,
+    ctx: SparkToolContext,
+  ): Promise<ReviewerRunner> {
+    const provided = await pi.createReviewerRunner?.(cwd, ctx);
+    if (provided) return provided;
+    return new SparkRolesReviewerRunner({
+      registry: await createSparkRoleRegistry(sparkStateCwd(cwd, ctx)),
+      cwd,
+      timeoutMs: 120_000,
+      reviewerThinkingLevel: "low",
+      maxRetries: 0,
       nativeExecutor: ctx.runRole,
       nativeExecutorFallback: ctx.roleNativeCompatibilityRecovery,
     });
@@ -252,7 +269,8 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
 
   registerSparkFinishTaskTool(registerSparkImplementationTool, {
     refreshSparkWidget,
-    createReviewerRunner,
+    createReviewerRunner: createTaskFinishDeepReviewerRunner,
+    resolveReviewerModel: (cwd) => resolveBuiltinReviewerModel(cwd),
     taskClaimDaemonClient,
   });
 
@@ -274,6 +292,10 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   });
 
   registerSparkPlanTasksTool(registerSparkImplementationTool, { refreshSparkWidget });
+
+  registerSparkTaskDependencyReplacementTool(registerSparkImplementationTool, {
+    refreshSparkWidget,
+  });
 
   registerSparkGoalTool(registerSparkTool, {
     loopControl,
@@ -301,8 +323,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
 
   registerSparkWorkflowTool(
     {
-      registerTool: (config) =>
-        registerSparkImplementationTool(config as SparkRegisteredToolConfig),
+      registerTool: (config) => registerSparkTool(config as SparkRegisteredToolConfig),
     },
     {
       run: async (params, signal, onUpdate, hostContext) => {
@@ -315,6 +336,18 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
           hostContext as SparkToolContext,
         );
       },
+      runs: async (params, signal, onUpdate, hostContext) =>
+        executeSparkImplementationTool(
+          (name) => registeredSparkTools.get(name),
+          "impl_workflow_runs",
+          {
+            toolCallId: "workflow-runs",
+            params,
+            signal,
+            onUpdate,
+            ctx: hostContext,
+          },
+        ),
       tick: async (hostContext) => {
         const ctx = hostContext as SparkToolContext;
         if (!ctx.loop?.binding.workflowRunId)
@@ -416,6 +449,7 @@ function createSparkTaskHandlers(resolveTool: SparkImplementationResolver): Spar
     project_metadata_update: projectMutation("metadata_update"),
     claim: direct("impl_claim_task"),
     plan: direct("impl_plan_tasks"),
+    replace_dependencies: direct("impl_replace_task_dependencies"),
     finish: direct("impl_finish_task"),
     recover: direct("impl_recover_task_claim"),
     release: direct("impl_release_task_claim"),
@@ -443,7 +477,14 @@ function createSparkTaskHandlers(resolveTool: SparkImplementationResolver): Spar
         onUpdate,
         ctx,
       }),
-    assign: direct("impl_run_ready_tasks"),
+    assign: ({ toolCallId, params, signal, onUpdate, ctx }) =>
+      executeSparkImplementationTool(resolveTool, "impl_run_ready_tasks", {
+        toolCallId,
+        params: { taskRefs: params.taskRefs, dryRun: false },
+        signal,
+        onUpdate,
+        ctx,
+      }),
     cache_cleanup: ({ toolCallId, params, signal, onUpdate, ctx }) =>
       executeSparkImplementationTool(resolveTool, "impl_state", {
         toolCallId,
@@ -497,34 +538,11 @@ function normalizeTaskPlanUpdateScope(value: unknown): "task" {
   throw new Error('task.scope must be "task" for plan_update');
 }
 
-function normalizeTaskRunStatusAction(
-  value: unknown,
-):
-  | "status"
-  | "list"
-  | "inspect"
-  | "reconcile"
-  | "kill"
-  | "reply"
-  | "steer"
-  | "ack"
-  | "kill_active" {
+function normalizeTaskRunStatusAction(value: unknown): "status" | "list" | "inspect" {
   if (value === undefined || value === null) return "status";
-  if (
-    value === "status" ||
-    value === "list" ||
-    value === "inspect" ||
-    value === "reconcile" ||
-    value === "kill" ||
-    value === "reply" ||
-    value === "steer" ||
-    value === "ack" ||
-    value === "kill_active"
-  ) {
-    return value;
-  }
+  if (value === "status" || value === "list" || value === "inspect") return value;
   throw new Error(
-    "task.runAction must be status, list, inspect, reconcile, kill, reply, steer, ack, or kill_active for run_status",
+    'task_read run_status is read-only and runAction must be status, list, or inspect; use workflow({ action: "runs", runAction: ... }) for WorkflowRun mutations',
   );
 }
 

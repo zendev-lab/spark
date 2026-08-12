@@ -10,7 +10,9 @@ description: 端到端运行 Spark、连接 Hub、创建会话、检查 invocati
 - **daemon** 拥有执行、会话、invocation、工作区绑定和恢复状态。
 - **TUI** 是交互式终端宿主；它展示 daemon 状态，并把用户意图提交给 daemon。
 - **Hub Web** 是浏览器协调与投影界面，不能根据浏览器计时器或 transcript 文本推断执行状态。
-- 产品 Artifact 只有 Issue、PR 和 Preview；内部验证 Evidence 使用独立命名空间，不是产品 Artifact。
+- 产品 Artifact 只有 Issue、Git Change 和 Document；一个 Git Change 拥有一个
+  worktree 及其 PR stack，Preview 是 Document 的视图。内部验证 Evidence 使用独立
+  命名空间，不是产品 Artifact。
 
 多个界面的状态不一致时，先检查 daemon。
 
@@ -220,7 +222,7 @@ no-op。`/status`、action bar 和 palette 的普通动作一次 Enter 即执行
 
 - **Conversations** 与 TUI 展示 daemon 拥有的会话和 turn。
 - **Inbox** 展示内联问题与审批；Ask 不应变成全局 modal。
-- **Artifacts** 只包含 Issue、PR 和 Preview。
+- **Artifacts** 只包含 Issue、Git Change 和 Document。
 - **Resources** 包含工作区仓库、文档、URL、文件、工具和 secret reference。
 - Goal、Repro、Workflow 与后台 Loop 保持不同语义；不能合并 scheduled、running、
   retry-waiting、dormant、blocked 和 stopped 状态。
@@ -231,10 +233,8 @@ no-op。`/status`、action bar 和 palette 的普通动作一次 Enter 即执行
 ### Renderer 状态
 
 Spark 0.2.0 继续在私有 `SparkTerminalController` 后使用 Pi TUI kernel。
-OpenTUI 只是隔离候选，不是生产依赖。运行 `pnpm run audit:renderer` 可查看
-fail-closed readiness 报告。在 launcher flag、native artifact、PTY 生命周期、
-四种终端尺寸和完整 controller contract 都提供可复现证据前，Spark 不会提高 Node
-基线，也不会切换 renderer。
+OpenTUI 只是隔离候选，不是生产依赖。切换 renderer 需要独立的架构决策，并提供
+component、Direct PTY、打包产物和受支持平台验证的实际证据。
 
 ## 8. 远程访问
 

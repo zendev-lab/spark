@@ -105,7 +105,8 @@ the change:
 | One root test file | `pnpm test test/name.test.ts` |
 | Package-local tests or invariants | `pnpm --filter <package> run test` or `run check` |
 | Source dispatcher and daemon lifecycle | `pnpm run test:process:source` |
-| Hub browser interactions | `pnpm run test:browser:hub` |
+| Complete Repro Golden Journey | `pnpm run test:journey:repro` (requires cue-shell IPC v2 with `session-handshake-required`) |
+| Hub and shared Svelte UI browser interactions | `pnpm run test:browser` |
 | User documentation | `pnpm run check:docs && pnpm run build:docs` |
 | Package dependency boundaries | `pnpm run check:boundaries` |
 | Packed public product and clean installation | `pnpm run smoke` |
@@ -203,6 +204,21 @@ Do not duplicate exhaustive CLI references, validation command lists, package
 inventories, migration histories, or operator procedures in `README.md` or
 `AGENTS.md`. Behavioral changes should update the public guide, normative
 contract, or operation that owns the behavior.
+
+Pull-request sequencing, issue status, dated delivery notes, completed-work
+recaps, and active backlogs belong in the PR, issue tracker, or Spark runtime
+state—not in specs, operations, or package READMEs. Keep only durable rationale,
+invariants, and unresolved project-level direction in source documentation.
+
+Local timings, mutation scores, current readiness output, and other run results
+belong in CI artifacts or gitignored local reports. Operations document how to
+run and interpret the check. Likewise, exact command and tool inventories are
+owned by runtime help and active schemas; public docs teach discovery and stable
+semantics instead of maintaining a second exhaustive catalog.
+
+Vendor notices and licenses, checked-in protocol fixtures, test snapshots, and
+source-generation notes may remain next to the code they constrain. They are
+source contracts, not user or project-status documentation.
 
 User documentation is bilingual. Update the English and Chinese versions
 together and preserve versioned archives unless the change explicitly targets

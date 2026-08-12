@@ -7,14 +7,14 @@ import {
 } from "./loop.ts";
 
 describe("Spark loop protocol", () => {
-  it("defaults ordinary loops to session continuity and accepts fresh explicitly", () => {
+  it("authors driver lifetimes and decodes legacy continuity without ambiguity", () => {
     expect(
       sparkLoopStartRequestSchema.parse({
         ownerSessionId: "owner",
         cwd: "/workspace",
         prompt: "tick",
       }),
-    ).toMatchObject({ continuity: "session" });
+    ).toMatchObject({ sessionLifetime: "driver", continuity: "session" });
     expect(
       sparkLoopStartRequestSchema.parse({
         ownerSessionId: "owner",
@@ -22,7 +22,24 @@ describe("Spark loop protocol", () => {
         cwd: "/workspace",
         prompt: "tick",
       }),
-    ).toMatchObject({ continuity: "fresh" });
+    ).toMatchObject({ sessionLifetime: "driver_tick", continuity: "fresh" });
+    expect(
+      sparkLoopStartRequestSchema.parse({
+        ownerSessionId: "owner",
+        sessionLifetime: "driver_tick",
+        cwd: "/workspace",
+        prompt: "tick",
+      }),
+    ).toMatchObject({ sessionLifetime: "driver_tick", continuity: "fresh" });
+    expect(() =>
+      sparkLoopStartRequestSchema.parse({
+        ownerSessionId: "owner",
+        sessionLifetime: "driver",
+        continuity: "fresh",
+        cwd: "/workspace",
+        prompt: "tick",
+      }),
+    ).toThrow(/conflicts/u);
   });
 
   it("exposes generation as the projection and control compare-and-swap fence", () => {
@@ -46,7 +63,12 @@ describe("Spark loop protocol", () => {
         dueAt: "2026-07-23T00:00:00.000Z",
         attempt: 0,
       }),
-    ).toMatchObject({ generation: 3, binding: {} });
+    ).toMatchObject({
+      generation: 3,
+      binding: {},
+      sessionLifetime: "driver_tick",
+      continuity: "fresh",
+    });
   });
 
   it("accepts typed conditions and only trusted evaluator selectors", () => {

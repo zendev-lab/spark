@@ -5,7 +5,7 @@
     type SparkThinkingLevel,
   } from "@zendev-lab/spark-protocol";
   import { Select } from "@zendev-lab/spark-ui";
-  import ModelPicker from "./ModelPicker.svelte";
+  import { ModelSelector } from "@zendev-lab/spark-ui/conversation";
   import type { ModelPickerGroup, ModelRuntimeControlLabels } from "./types";
 
   type Props = {
@@ -75,7 +75,7 @@
 </script>
 
 <div class="model-runtime-control" role="group" aria-label={labels.aria}>
-  <ModelPicker
+  <ModelSelector
     id={`${id}-model`}
     bind:open
     name={modelName}
@@ -172,7 +172,7 @@
   }
 
   .thinking-control {
-    border-left: 1px solid var(--color-border);
+    border-inline-start: 1px solid var(--color-border);
     display: flex;
     flex: 0 0 auto;
     max-width: 7.5rem;

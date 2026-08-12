@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Icon } from "@zendev-lab/spark-ui";
   import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
-  import type { ConversationPartLabels } from "./types";
+  import type { ConversationPartLabels } from "@zendev-lab/spark-ui/conversation";
 
   type Props = {
     bindingLabel?: string;

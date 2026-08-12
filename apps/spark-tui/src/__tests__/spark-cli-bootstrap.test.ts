@@ -22,15 +22,15 @@ import {
 async function setModeThroughTool(
   cwd: string,
   context: ReturnType<SparkHostRuntime["makeContext"]>,
-  phase: "plan" | "execute",
+  mode: "plan" | "execute" | "fleet",
 ): Promise<void> {
   const runtime = new SparkHostRuntime({ cwd });
   sparkExtension(runtime as Parameters<typeof sparkExtension>[0]);
-  const tool = runtime.getTool("phase")?.config;
-  assert.ok(tool, "missing registered phase tool");
+  const tool = runtime.getTool("mode")?.config;
+  assert.ok(tool, "missing registered mode tool");
   await tool.execute(
-    `phase-`,
-    { action: phase, focus: "native host phase profile test" },
+    `mode-${mode}`,
+    { action: mode, focus: "native host mode profile test" },
     new AbortController().signal,
     () => undefined,
     context,
@@ -211,6 +211,9 @@ test("createSparkCliHostServices constructs runtime, extensions, provider regist
       config,
       extensions: config.extensions,
       providers: config.providers,
+      roleRunner: async () => {
+        throw new Error("test supervised Role runner was not expected to execute");
+      },
       providerImporter: async () => fakeProviderModule(captured),
     });
 
@@ -293,8 +296,8 @@ test("native host selects at most three request skills dynamically and clears th
   }
 });
 
-test("native host keeps prompt phase and executable tool profile on one loaded state", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-cli-phase-profile-"));
+test("native host keeps prompt mode and executable tool profile on one loaded state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-cli-mode-profile-"));
   try {
     const captured: Parameters<typeof fakeProviderModule>[0] = {};
     const services = await createSparkCliHostServices({

@@ -27,11 +27,10 @@ export interface SparkNativeCommandPresentation {
   command?: SparkNativeSlashCommand;
 }
 
-const COMMON_COMMANDS = new Set(["help", "plan", "implement", "status", "stop", "retry", "inbox"]);
+const COMMON_COMMANDS = new Set(["help", "plan", "status", "stop", "retry", "inbox"]);
 const AUTOMATION_COMMANDS = new Set(["automate", "goal", "loop", "repro"]);
 const SESSION_COMMANDS = new Set([
   "sessions",
-  "session",
   "resume",
   "new",
   "compact",

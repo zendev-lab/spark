@@ -14,6 +14,7 @@ import {
   type SparkConfig,
 } from "../host/index.ts";
 import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
+import type { SparkViewModelEvent } from "@zendev-lab/spark-protocol";
 import {
   SPARK_PROMPT_ITEM_METADATA_KEY,
   SparkTurnRestartYieldError,
@@ -68,6 +69,21 @@ function stripAnsi(text: string): string {
 
 function testContentText(content: unknown): string {
   return typeof content === "string" ? content : JSON.stringify(content);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isDoneStreamEvent(value: unknown): boolean {
+  if (!isRecord(value) || value.type !== "stream_event") return false;
+  return isRecord(value.event) && value.event.type === "done";
+}
+
+type SessionMessageViewEvent = Extract<SparkViewModelEvent, { type: "session.message" }>;
+
+function isSessionMessageViewEvent(event: SparkViewModelEvent): event is SessionMessageViewEvent {
+  return event.type === "session.message";
 }
 
 function fakeTui(): TUI {
@@ -180,7 +196,7 @@ test("SparkAgentSession persists and resumes JSONL sessions", async () => {
     const cwd = join(dir, "repo");
     const sparkHome = join(dir, ".spark");
     await mkdir(cwd, { recursive: true });
-    const viewEvents: unknown[] = [];
+    const viewEvents: SparkViewModelEvent[] = [];
     const services = await makeFakeServices({
       cwd,
       sparkHome,
@@ -219,7 +235,7 @@ test("SparkAgentSession persists and resumes JSONL sessions", async () => {
     assert.equal(messages[3]?.message.metadata, undefined);
     assert.equal(
       viewEvents.some(
-        (event: any) =>
+        (event) =>
           event.type === "session.message" &&
           event.sessionId === "session-a" &&
           event.message.role === "assistant",
@@ -227,9 +243,7 @@ test("SparkAgentSession persists and resumes JSONL sessions", async () => {
       true,
     );
     assert.equal(
-      viewEvents.some(
-        (event: any) => event.type === "run.update" && event.run.status === "succeeded",
-      ),
+      viewEvents.some((event) => event.type === "run.update" && event.run.status === "succeeded"),
       true,
     );
   } finally {
@@ -478,18 +492,6 @@ test("SparkAgentSession follows the authoritative transcript path across same-id
       },
     );
     const sessionId = "same-id-side-thread";
-    const stale = services.sessionStore.createSession({
-      id: sessionId,
-      timestamp: "2026-07-22T01:00:00.000Z",
-    });
-    services.sessionStore.appendMessage(stale, {
-      role: "user",
-      content: "stale generation exchange",
-      timestamp: Date.parse("2026-07-22T03:00:00.000Z"),
-    });
-    stale.entries.at(-1)!.timestamp = "2026-07-22T03:00:00.000Z";
-    await services.sessionStore.save(stale);
-
     const reset = services.sessionStore.createSession({
       id: sessionId,
       timestamp: "2026-07-22T04:00:00.000Z",
@@ -502,7 +504,19 @@ test("SparkAgentSession follows the authoritative transcript path across same-id
     reset.entries.at(-1)!.timestamp = "2026-07-22T00:00:00.000Z";
     await services.sessionStore.save(reset);
 
-    assert.equal((await services.sessionStore.findById(sessionId))?.path, stale.path);
+    const stale = services.sessionStore.createSession({
+      id: sessionId,
+      timestamp: "2026-07-22T01:00:00.000Z",
+    });
+    services.sessionStore.appendMessage(stale, {
+      role: "user",
+      content: "stale generation exchange",
+      timestamp: Date.parse("2026-07-22T03:00:00.000Z"),
+    });
+    stale.entries.at(-1)!.timestamp = "2026-07-22T03:00:00.000Z";
+    await services.sessionStore.save(stale);
+
+    assert.equal((await services.sessionStore.findById(sessionId))?.path, reset.path);
     const result = await new SparkAgentSession(services).run({
       sessionId,
       sessionPath: reset.path,
@@ -520,6 +534,148 @@ test("SparkAgentSession follows the authoritative transcript path across same-id
       JSON.stringify((await services.sessionStore.load(reset.path)).entries),
       /generation two prompt/u,
     );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentSession continues from a persisted tool receipt after a terminal-less provider failure", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-terminal-less-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    let toolExecutions = 0;
+    const viewEvents: SparkViewModelEvent[] = [];
+    const services = await makeFakeServices(
+      { cwd, sparkHome, ui: { publishView: (event) => viewEvents.push(event) } },
+      {
+        streamSimple: () => {
+          providerCalls += 1;
+          if (providerCalls === 1) {
+            return {
+              ...assistant(""),
+              content: [{ type: "toolCall", id: "once", name: "write_once", arguments: {} }],
+              stopReason: "toolUse",
+            } as unknown as AssistantMessage;
+          }
+          if (providerCalls === 2 || providerCalls === 3) {
+            return {
+              ...assistant(""),
+              content: [],
+              stopReason: "error",
+              errorMessage: "opaque provider stream failure",
+              code: "PROVIDER_STREAM_TERMINAL_LESS",
+            } as unknown as AssistantMessage;
+          }
+          return assistant("continued from checkpoint");
+        },
+      },
+    );
+    services.runtime.registerTool({
+      name: "write_once",
+      description: "side effect probe",
+      parameters: { type: "object" },
+      async execute() {
+        toolExecutions += 1;
+        return { content: [{ type: "text", text: "receipt:once" }] };
+      },
+    });
+    services.runtime.setActiveTools([
+      ...new Set([...services.runtime.getActiveTools(), "write_once"]),
+    ]);
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "terminal-less-session",
+      prompt: "perform once",
+    });
+    assert.equal(result.outcome?.status, "completed");
+    assert.equal(result.assistantText, "continued from checkpoint");
+    assert.equal(providerCalls, 4);
+    assert.equal(toolExecutions, 1);
+    const record = await services.sessionStore.load(result.sessionPath);
+    assert.deepEqual(
+      record.entries.filter((entry) => entry.type === "message").map((entry) => entry.message.role),
+      ["user", "assistant", "toolResult", "assistant"],
+    );
+    assert.equal(
+      record.entries.filter(
+        (entry) => entry.type === "custom_message" && entry.customType === "spark-runtime-failure",
+      ).length,
+      2,
+    );
+    assert.equal(
+      record.entries.some(
+        (entry) =>
+          entry.type === "custom_message" &&
+          entry.customType === "spark-runtime-failure" &&
+          (entry.details as { code?: unknown } | undefined)?.code ===
+            "PROVIDER_STREAM_TERMINAL_LESS",
+      ),
+      true,
+    );
+    const assistantViews = viewEvents
+      .filter(isSessionMessageViewEvent)
+      .filter((event) => event.message.role === "assistant")
+      .map((event) => event.message);
+    assert.equal(
+      assistantViews.some(
+        (message) =>
+          message.status === "error" &&
+          String(message.text).includes("opaque provider stream failure"),
+      ),
+      true,
+    );
+    assert.equal(
+      assistantViews.some(
+        (message) =>
+          message.status === "done" && String(message.text).includes("continued from checkpoint"),
+      ),
+      true,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentSession retries an overloaded provider error instead of surfacing it immediately", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-overload-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    const overloaded =
+      "server_error: Our servers are currently overloaded. Please try again later.";
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {
+        streamSimple: () => {
+          providerCalls += 1;
+          if (providerCalls === 1) {
+            return {
+              ...assistant("partial response"),
+              content: [{ type: "text", text: "partial response" }],
+              stopReason: "error",
+              errorMessage: overloaded,
+            } as unknown as AssistantMessage;
+          }
+          return assistant("recovered after overload");
+        },
+      },
+    );
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "overload-session",
+      prompt: "continue despite overload",
+    });
+
+    assert.equal(result.outcome?.status, "completed");
+    assert.equal(result.assistantText, "recovered after overload");
+    assert.equal(providerCalls, 2);
+    const saved = await services.sessionStore.load(result.sessionPath);
+    assert.equal(JSON.stringify(saved.entries).includes(overloaded), false);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1209,10 +1365,7 @@ test("Spark headless role executor forwards live events through onEvent", async 
 
     assert.equal(result.record.status, "succeeded");
     assert.equal(streamed.length, result.jsonEvents.length);
-    assert.equal(
-      streamed.some((event: any) => event.type === "stream_event" && event.event?.type === "done"),
-      true,
-    );
+    assert.equal(streamed.some(isDoneStreamEvent), true);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

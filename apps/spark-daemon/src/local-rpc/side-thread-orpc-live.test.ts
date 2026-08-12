@@ -12,6 +12,8 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import { createDaemonSessionRegistry } from "../session-registry.ts";
+import { SessionSupervisor } from "../session-supervisor.ts";
+import { SparkInvocationStore } from "../store/invocations.ts";
 import { openSparkDaemonDatabase } from "../store/schema.ts";
 import { registerWorkspace } from "../store/workspaces.ts";
 import { startLocalRpcServer } from "./transport.ts";
@@ -38,11 +40,16 @@ describe("Side Thread local-rpc oRPC integration", () => {
     });
     const ensureSideThread = vi.spyOn(sessionRegistry, "ensureSideThread");
     const resetSideThread = vi.spyOn(sessionRegistry, "resetSideThread");
+    const sessionSupervisor = new SessionSupervisor({
+      registry: sessionRegistry,
+      invocations: new SparkInvocationStore(db),
+    });
     const server = await startLocalRpcServer({
       paths,
       sparkHome,
       db,
       sessionRegistry,
+      sessionSupervisor,
     });
 
     try {
@@ -138,12 +145,36 @@ describe("Side Thread local-rpc oRPC integration", () => {
         expect(String(unknownLegacyFailure)).not.toContain("injected registry write failure");
 
         expect(resetSideThread).toHaveBeenCalledTimes(1);
-        const afterFailure = sparkSideThreadSnapshotSchema.parse(
-          await invokeSparkDaemonOrpcLiveMethod(handle.client, "side-thread.snapshot", {
+        await expect(sessionRegistry.get(ensured.sessionId)).resolves.toMatchObject({
+          lifecycle: "closed",
+          status: "archived",
+          closeReceipts: [expect.objectContaining({ incarnation: 1 })],
+        });
+
+        const archivedSnapshot = await invokeSparkDaemonOrpcLiveMethod(
+          handle.client,
+          "side-thread.snapshot",
+          {
             parentSessionId: "parent-session",
+          },
+        ).then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+        expect(isSparkDaemonSideThreadOrpcError(archivedSnapshot)).toBe(true);
+        if (isSparkDaemonSideThreadOrpcError(archivedSnapshot)) {
+          expect(archivedSnapshot.code).toBe("side_thread_not_found");
+        }
+
+        const recovered = sparkSideThreadSnapshotSchema.parse(
+          await invokeSparkDaemonOrpcLiveMethod(handle.client, "side-thread.reset", {
+            parentSessionId: "parent-session",
+            expectedGeneration: 1,
+            mode: "tangent",
           }),
         );
-        expect(afterFailure).toEqual(snapshot);
+        expect(recovered).toMatchObject({ generation: 2, mode: "tangent", status: "idle" });
+        expect(resetSideThread).toHaveBeenCalledTimes(2);
       } finally {
         handle.close();
       }

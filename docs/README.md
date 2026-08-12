@@ -19,7 +19,7 @@ add only audience-specific context. In particular:
 
 - public command syntax and examples belong in
   [`apps/spark-docs/src/content/docs/reference/cli.md`](../apps/spark-docs/src/content/docs/reference/cli.md);
-- the public agent-tool catalog belongs in
+- public tool activation and permission guidance belongs in
   [`apps/spark-docs/src/content/docs/reference/tools.md`](../apps/spark-docs/src/content/docs/reference/tools.md);
 - user-visible configuration and path guidance belongs in
   [`apps/spark-docs/src/content/docs/reference/configuration-and-paths.md`](../apps/spark-docs/src/content/docs/reference/configuration-and-paths.md);
@@ -40,6 +40,7 @@ than copying another long list into Markdown.
 - [`specs/compact-v2.md`](./specs/compact-v2.md): compaction thresholds, token sources, repeated-overflow bounds, and Memory handoff.
 - [`specs/tools.md`](./specs/tools.md): internal tool ownership, effect policy, activation, and cross-tool invariants.
 - [`specs/agent-operating-model.md`](./specs/agent-operating-model.md): model-facing prompt ownership, Session modes, continuation drivers, multi-Skill Agents, authority, and PR delivery lifecycle.
+- [`specs/agent-tracing.md`](./specs/agent-tracing.md): privacy-safe Agent run, model, Skill, and Tool lifecycle facts; completed-trace validation; and downstream CI/CE evaluation boundaries.
 - [`specs/skill-delegation.md`](./specs/skill-delegation.md): dedicated anonymous multi-Skill Agents, invocation, prompt composition, lifecycle, and authority boundaries.
 - [`specs/sessions-and-channels.md`](./specs/sessions-and-channels.md): persistent sessions, daemon-owned Side Threads, origins, mail, and channel policy.
 - [`specs/daemon-autonomous-loops.md`](./specs/daemon-autonomous-loops.md): daemon-owned Loop cadence, bindings, retry, recovery, and fresh-continuity boundaries.
@@ -55,15 +56,16 @@ than copying another long list into Markdown.
 
 - [`operations/hub-relocation.md`](./operations/hub-relocation.md): feature-only Hub snapshot relocation, HTTPS/WSS cutover, validation, and rollback.
 - [`operations/native-tui-validation.md`](./operations/native-tui-validation.md): component and Direct PTY validation for native TUI behavior.
-- [`operations/renderer-readiness.md`](./operations/renderer-readiness.md): renderer-neutral controller and fail-closed OpenTUI release/PTY gates.
-- [`operations/test-architecture.md`](./operations/test-architecture.md): test ownership, assertion hierarchy, source-mirror ratchet, and golden-file policy.
+- [`operations/test-architecture.md`](./operations/test-architecture.md): test ownership, assertion hierarchy, static-tool boundaries, and golden-file policy.
 - [`operations/execution-isolation-baseline.md`](./operations/execution-isolation-baseline.md): reproducible single-daemon event-loop, session-fence, synchronous I/O, and descendant-process baseline.
 - [`operations/capability-sentinels.md`](./operations/capability-sentinels.md): deterministic Goal, Loop, and Repro release sentinels, budgets, and failure triage.
+- [`operations/repro-golden-journey.md`](./operations/repro-golden-journey.md): deterministic end-to-end Repro acceptance, recovery, delivery, and CI ownership.
 - [`operations/nightly-capability-ce.md`](./operations/nightly-capability-ce.md): repeated zero-token capability evaluation, variance reporting, budgets, artifacts, and triage.
-- [`operations/mutation-ce.md`](./operations/mutation-ce.md): leaf-package Stryker continuous evaluation, timing table, and hygiene.
+- [`operations/scripted-provider-ce.md`](./operations/scripted-provider-ce.md): repeated provider-stream and tool-dispatch continuous evaluation.
+- [`operations/mutation-ce.md`](./operations/mutation-ce.md): leaf-package Stryker continuous evaluation, CI artifacts, interpretation, and hygiene.
 - [`operations/acp.md`](./operations/acp.md): ACP adapter ownership, protocol contract, and maintainer validation.
 - [`operations/mcp.md`](./operations/mcp.md): MCP adapter ownership, read-only boundary, and maintainer validation.
-- [`operations/durable-execution-notes.md`](./operations/durable-execution-notes.md): Inngest/Restate step-checkpoint notes mapped to workflows/loop/invocations.
+- [`operations/container.md`](./operations/container.md): containerized Hub build, release, health, persistence, and rollback.
 - [`operations/releases.md`](./operations/releases.md): release artifacts, publication, updater compatibility gates, rollback invariants, and rollout policy.
 
 ## Terminology: three “runtime” meanings

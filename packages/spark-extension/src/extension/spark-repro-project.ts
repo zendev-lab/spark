@@ -44,7 +44,12 @@ function reproProjectTitle(objective: string): string {
 export async function createProjectBackedSessionRepro(
   cwd: string,
   ctx: SparkSessionContext | undefined,
-  input: { objective?: string; reproId?: string; existing?: SparkSessionRepro } = {},
+  input: {
+    objective?: string;
+    reproId?: string;
+    difficulty?: number;
+    existing?: SparkSessionRepro;
+  } = {},
 ): Promise<ReproProjectBindingResult> {
   const existing = input.existing;
   if (existing?.projectRef) {
@@ -61,7 +66,14 @@ export async function createProjectBackedSessionRepro(
       readyTaskRefs: [],
     };
   }
-  const repro = existing ?? createSparkSessionRepro(sparkSessionOwnerKey(ctx), undefined, input);
+  const created = existing ?? createSparkSessionRepro(sparkSessionOwnerKey(ctx), undefined, input);
+  const repro =
+    input.difficulty === undefined
+      ? created
+      : reviseReproPlan(created, {
+          reason: "Select Repro decomposition difficulty before Stage materialization",
+          difficulty: input.difficulty,
+        });
   const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
   const { result } = await store.update((graph): ReproProjectBindingResult => {
     const objective = repro.goalContract.objective;
@@ -116,7 +128,30 @@ function materializeStageInGraph(
   projectRef: ProjectRef,
   stage: SparkReproStageName,
 ): { repro: SparkSessionRepro; taskRefs: TaskRef[] } {
-  const blueprint = reproStageBlueprint(stage);
+  const fullBlueprint = reproStageBlueprint(stage);
+  const acceptanceIds = new Set(
+    repro.stages
+      .find((candidate) => candidate.name === stage)
+      ?.acceptance.map((entry) => entry.id) ?? [],
+  );
+  const selectedTasks =
+    repro.plan.difficulty <= 5
+      ? fullBlueprint.tasks
+          .filter((task) => acceptanceIds.has(task.id))
+          .map((task) => ({
+            ...task,
+            dependsOn: task.dependsOn.filter((dependency) => acceptanceIds.has(dependency)),
+          }))
+      : fullBlueprint.tasks;
+  if (selectedTasks.length === 0) {
+    throw new Error(`repro ${stage} Stage materialization produced no tasks`);
+  }
+  const selectedRoadmapKeys = new Set(selectedTasks.map((task) => task.roadmapKey));
+  const blueprint = {
+    ...fullBlueprint,
+    roadmaps: fullBlueprint.roadmaps.filter((item) => selectedRoadmapKeys.has(item.key)),
+    tasks: selectedTasks,
+  };
   const timestamp = nowIso();
   const project = graph.getProject(projectRef);
   const roadmapItems = blueprint.roadmaps.map(

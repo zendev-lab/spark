@@ -1,7 +1,15 @@
-import type { ProjectRef, Task } from "@zendev-lab/spark-core";
-import { isReproRequirementSatisfied, type SparkReproRequirement } from "@zendev-lab/spark-repro";
-import type { WorkflowRunStatusSummary } from "@zendev-lab/spark-workflows";
-import type { SessionTodoEntry } from "@zendev-lab/spark-tasks";
+import type { Project, ProjectRef, RunRef, Task, TaskRun } from "@zendev-lab/spark-core";
+import {
+  isReproRequirementSatisfied,
+  type SparkReproRequirement,
+  type SparkSessionRepro,
+} from "@zendev-lab/spark-repro";
+import type {
+  WorkflowRunReconcileInput,
+  WorkflowRunStatusSummary,
+  WorkflowRunStoreSnapshot,
+} from "@zendev-lab/spark-workflows";
+import type { SessionTodoEntry, TaskGraph, TaskGraphStore } from "@zendev-lab/spark-tasks";
 import {
   SparkWidget,
   type SparkWidgetActiveLens,
@@ -10,49 +18,108 @@ import {
 } from "./spark-widget.ts";
 
 export interface SparkWidgetControllerContext {
+  cwd?: string;
+  sessionId?: string;
+  sparkStateRoot?: string;
+  sessionManager?: {
+    getSessionId?: () => string;
+    getSessionFile?: () => string | undefined;
+    getLeafId?: () => string | undefined;
+  };
   sparkActiveMode?: SparkWidgetActiveLens;
   ui?: unknown;
 }
 
+export interface SparkTodoDisplayNumberState {
+  version: 1;
+  next: number;
+  numbers: Record<string, number>;
+  changed?: boolean;
+}
+
+export interface SparkSessionGoalProjection {
+  status: "active" | "paused" | "complete";
+  objective: string;
+}
+
+export interface SparkSessionLoopProjection {
+  status: "active" | "paused";
+  objective: string;
+}
+
 export interface SparkWidgetControllerDeps {
-  ensureLocalSparkDirectory: (cwd: string, ctx?: any) => Promise<void>;
-  defaultTaskGraphStore: (cwd: string, ctx?: any) => unknown;
-  loadSparkGraph: (cwd: string, ctx?: any) => Promise<any>;
-  ensureSparkGraphInvariants: (graph: any) => boolean;
-  saveSparkGraphAndTodos: (cwd: string, graph: any, ctx: any, store: any) => Promise<void>;
-  sparkSessionKey: (ctx?: any) => string;
-  sparkSessionOwnerKey: (ctx?: any) => string;
-  activeSparkRoleRunProcessesForCwd: (cwd: string) => Array<{ runRef?: string }>;
+  ensureLocalSparkDirectory: (cwd: string, ctx?: SparkWidgetControllerContext) => Promise<void>;
+  defaultTaskGraphStore: (cwd: string, ctx?: SparkWidgetControllerContext) => TaskGraphStore;
+  loadSparkGraph: (cwd: string, ctx?: SparkWidgetControllerContext) => Promise<TaskGraph | null>;
+  ensureSparkGraphInvariants: (graph: TaskGraph) => boolean;
+  saveSparkGraphAndTodos: (
+    cwd: string,
+    graph: TaskGraph,
+    ctx: SparkWidgetControllerContext | undefined,
+    store: TaskGraphStore,
+  ) => Promise<void>;
+  sparkSessionKey: (ctx?: SparkWidgetControllerContext) => string;
+  sparkSessionOwnerKey: (ctx?: SparkWidgetControllerContext) => string;
+  activeSparkRoleRunProcessesForCwd: (cwd: string) => Array<{ runRef?: RunRef }>;
   defaultSparkWorkflowRunStore: (
     cwd: string,
-    ctx?: any,
+    ctx?: SparkWidgetControllerContext,
   ) => {
-    reconcile(input: any): Promise<unknown>;
+    reconcile(input: WorkflowRunReconcileInput): Promise<WorkflowRunStoreSnapshot>;
     status(): Promise<WorkflowRunStatusSummary>;
   };
-  listDynamicWorkflowRuns: (cwd: string, ctx?: any) => Promise<SparkDynamicWorkflowRunProjection[]>;
-  loadTodoDisplayNumberState: (cwd: string, ctx?: any) => Promise<any>;
-  saveTodoDisplayNumberState: (cwd: string, ctx: any, state: any) => Promise<void>;
-  loadIndependentTodos: (cwd: string, ctx?: any) => Promise<SessionTodoEntry[]>;
-  currentSparkProject: (cwd: string, ctx: any, graph: any) => Promise<any>;
-  loadSessionGoal: (cwd: string, ctx?: any) => Promise<any>;
-  loadSessionLoop: (cwd: string, ctx?: any) => Promise<any>;
-  clearSessionLoop: (cwd: string, ctx?: any) => Promise<void>;
-  readSessionRepro: (cwd: string, ctx?: any) => Promise<any>;
-  loadSparkMode: (cwd: string, ctx?: any) => Promise<{ mode: "plan" | "execute" }>;
-  sparkActiveMode: (mode: "plan" | "execute") => SparkWidgetActiveLens;
-  renderSparkProjectKindDisplay: (project: any) => SparkWidgetState["projectKind"];
+  listDynamicWorkflowRuns: (
+    cwd: string,
+    ctx?: SparkWidgetControllerContext,
+  ) => Promise<SparkDynamicWorkflowRunProjection[]>;
+  loadTodoDisplayNumberState: (
+    cwd: string,
+    ctx?: SparkWidgetControllerContext,
+  ) => Promise<SparkTodoDisplayNumberState>;
+  saveTodoDisplayNumberState: (
+    cwd: string,
+    ctx: SparkWidgetControllerContext | undefined,
+    state: SparkTodoDisplayNumberState,
+  ) => Promise<void>;
+  loadIndependentTodos: (
+    cwd: string,
+    ctx?: SparkWidgetControllerContext,
+  ) => Promise<SessionTodoEntry[]>;
+  currentSparkProject: (
+    cwd: string,
+    ctx: SparkWidgetControllerContext | undefined,
+    graph: TaskGraph,
+  ) => Promise<Project | undefined>;
+  loadSessionGoal: (
+    cwd: string,
+    ctx?: SparkWidgetControllerContext,
+  ) => Promise<SparkSessionGoalProjection | undefined>;
+  loadSessionLoop: (
+    cwd: string,
+    ctx?: SparkWidgetControllerContext,
+  ) => Promise<SparkSessionLoopProjection | undefined>;
+  clearSessionLoop: (cwd: string, ctx?: SparkWidgetControllerContext) => Promise<void>;
+  readSessionRepro: (
+    cwd: string,
+    ctx?: SparkWidgetControllerContext,
+  ) => Promise<SparkSessionRepro | undefined>;
+  loadSparkMode: (
+    cwd: string,
+    ctx?: SparkWidgetControllerContext,
+  ) => Promise<{ mode: "plan" | "execute" | "fleet" }>;
+  sparkActiveMode: (mode: "plan" | "execute" | "fleet") => SparkWidgetActiveLens;
+  renderSparkProjectKindDisplay: (project: Project) => SparkWidgetState["projectKind"];
   isPlaceholderProjectTitle: (title: string) => boolean;
-  latestRunsByTaskRef: (runs: any) => Map<string, any>;
+  latestRunsByTaskRef: (runs: TaskRun[]) => Map<string, TaskRun>;
   taskPlanSummary: (task: Task) => TaskEntry["planSummary"];
   deriveTaskRoleLabel: (input: {
     task: Task;
     currentSessionKey: string;
-    latestRun?: any;
+    latestRun?: Partial<TaskRun>;
   }) => string | undefined;
   isClaimOwnedBySession: (task: Task, sessionKey: string) => boolean;
-  taskClaimedBy: (task: Task) => unknown;
-  assignTodoDisplayNumber: (state: any, key: string) => number;
+  taskClaimedBy: (task: Task) => string | undefined;
+  assignTodoDisplayNumber: (state: SparkTodoDisplayNumberState, key: string) => number;
   taskTodoDisplayKey: (taskRef: string, todoId: string) => string;
   independentTodoDisplayKey: (todo: SessionTodoEntry) => string;
 }
@@ -106,14 +173,12 @@ export class SparkWidgetController {
     const activeRunRefs = new Set(
       activeProcesses
         .map((process) => process.runRef)
-        .filter((runRef): runRef is string => typeof runRef === "string"),
+        .filter((runRef): runRef is RunRef => typeof runRef === "string"),
     );
     const runStore = this.deps.defaultSparkWorkflowRunStore(cwd, ctx);
     if (graph && activeRunRefs.size > 0) await runStore.reconcile({ graph, activeRunRefs });
     const workflowRunStatus = await runStore.status();
-    const dynamicWorkflowRuns = await this.deps
-      .listDynamicWorkflowRuns(cwd, ctx)
-      .catch(() => [] as SparkDynamicWorkflowRunProjection[]);
+    const dynamicWorkflowRuns = await this.deps.listDynamicWorkflowRuns(cwd, ctx);
     const dynamicWorkflowRun = sparkDynamicWorkflowRunWidgetEntry(dynamicWorkflowRuns);
     const todoDisplayNumbers = await this.deps.loadTodoDisplayNumberState(cwd, ctx);
     const independentTodos = await this.deps.loadIndependentTodos(cwd, ctx);
@@ -223,14 +288,16 @@ export class SparkWidgetController {
   }
 }
 
-function sparkProjectWidgetEntries(graph: any, activeProject: any): SparkWidgetState["projects"] {
-  const projects = typeof graph.projects === "function" ? graph.projects() : [];
-  if (!Array.isArray(projects) || projects.length === 0) return undefined;
+function sparkProjectWidgetEntries(
+  graph: TaskGraph,
+  activeProject: Project | undefined,
+): SparkWidgetState["projects"] {
+  const projects = graph.projects();
+  if (projects.length === 0) return undefined;
   return projects
-    .map((project: any) => {
-      const tasks = typeof graph.tasks === "function" ? (graph.tasks(project.ref) as Task[]) : [];
-      const readyTasks =
-        typeof graph.readyTasks === "function" ? (graph.readyTasks(project.ref) as Task[]) : [];
+    .map((project) => {
+      const tasks = graph.tasks(project.ref);
+      const readyTasks = graph.readyTasks(project.ref);
       return {
         title: typeof project.title === "string" ? project.title : "Untitled project",
         ref: typeof project.ref === "string" ? project.ref : undefined,
@@ -298,9 +365,9 @@ function mapTodoStatus(status: string): SessionTodoEntry["status"] {
 }
 
 function sparkForegroundLoopWidgetEntries(
-  sessionGoal: any,
-  sessionLoop: any,
-  sessionRepro?: any,
+  sessionGoal: SparkSessionGoalProjection | undefined,
+  sessionLoop: SparkSessionLoopProjection | undefined,
+  sessionRepro?: SparkSessionRepro,
 ): Pick<SparkWidgetState, "goal" | "loop" | "repro"> {
   if (sessionRepro?.status === "active") {
     const stage = sessionRepro.stages[sessionRepro.currentStageIndex];

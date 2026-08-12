@@ -29,6 +29,22 @@ test("default Spark providers include shared Baidu OneAPI and OpenAI Codex adapt
     CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
   );
   assert.equal(DEFAULT_SPARK_CONFIG.activeThinkingLevel, "high");
+  assert.deepEqual(DEFAULT_SPARK_CONFIG.enabledModels, [
+    "openai-codex/gpt-5.6-luna",
+    "openai-codex/gpt-5.6-sol",
+    "openai-codex/gpt-5.6-terra",
+    "baidu-oneapi/gpt-5.6-luna",
+    "baidu-oneapi/gpt-5.6-sol",
+    "baidu-oneapi/gpt-5.6-terra",
+  ]);
+});
+
+test("user enabledModels replaces defaults and preserves an explicit empty scope", () => {
+  assert.deepEqual(
+    mergeSparkConfigWithDefault({ enabledModels: ["openai-codex/*"] }).enabledModels,
+    ["openai-codex/*"],
+  );
+  assert.deepEqual(mergeSparkConfigWithDefault({ enabledModels: [] }).enabledModels, []);
 });
 
 test("Compact V2 config defaults to 40% reduction and current session model", () => {

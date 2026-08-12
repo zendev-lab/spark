@@ -1,5 +1,5 @@
 import { untrack } from "svelte";
-import type { LoadEarlierOutcome } from "$lib/components/conversation/types";
+import type { LoadEarlierOutcome } from "@zendev-lab/spark-ui/conversation";
 import {
   SESSION_CONVERSATION_ANCHOR_BATCH,
   sessionConversationAnchorCount,

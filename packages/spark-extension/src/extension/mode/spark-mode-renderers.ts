@@ -25,13 +25,13 @@ const NO_CANNED_ASKS =
   "Keep asks dynamic and grounded in inspected context; do not use canned intake templates or ask questions whose answers would not change the task plan.";
 
 export const WORKFLOW_AND_SUBAGENT_ARE_TOOLS =
-  "Workflow and subagent role runs are execution tools, not session modes. First select the governing mode (plan or execute), then use role/workflow only within that mode's responsibility and evidence boundaries.";
+  "Workflow and subagent role runs are execution tools, not session modes. First select the governing mode (plan, execute, or fleet), then use role/workflow only within that mode's responsibility and evidence boundaries.";
 
 export const DURABLE_STATE_AUTHORITY =
   'Compact summaries, restored conversation history, and hidden mode text are historical hints only. Before planning, claiming, finishing, or deciding a goal/project transition, verify durable state with scoped tools: task_read({ action: "project_status" }) for the selected project, task_read({ action: "workspace_status" }) or task_read({ action: "project_list" }) before selecting a project, and goal({ action: "status" }) before relying on a goal.';
 
 const RESEARCH_SUBAGENT_STRATEGY =
-  'Default lightweight research should use anonymous role calls plus main-agent synthesis when parallel inspection, cross-checking, or specialist review materially improves coverage. Call role({ action: "call", role, instruction }) with focused read-only research briefs; use session({ action: "call", sessionId, instruction }) only when persistent conversation continuity is intentional. The main agent remains responsible for summarizing, reconciling, and qualifying the findings.';
+  'Default lightweight research should use owned role calls plus main-agent synthesis when parallel inspection, cross-checking, or specialist review materially improves coverage. Call role({ action: "call", role, instruction }) with focused read-only research briefs; use session({ action: "call", sessionId, instruction }) only when persistent conversation continuity is intentional. The main agent remains responsible for summarizing, reconciling, and qualifying the findings.';
 
 export const PARALLEL_EXECUTION_WORKFLOW_STRATEGY =
   'For ordinary single-task execution, work directly with focused tools. Use the workflow runtime only when the user asks for workflow/fan-out/multi-agent orchestration, or when the execution work is clearly parallelizable, repetitive, or suited to scripted orchestration. In those cases, discover definitions with workflow({ action: "list" }), read candidates with workflow({ action: "read" }), and execute a selected definition with workflow({ action: "run" }).';
@@ -97,11 +97,34 @@ export function renderSparkExecuteModePrompt(
   return renderModePrompt(graph, selectedProjectRef, focus, "Execution", requirements);
 }
 
+export function renderSparkFleetModePrompt(
+  graph: TaskGraph,
+  selectedProjectRef: ProjectRef | undefined,
+  focus: string | undefined,
+): string {
+  const requirements = selectedProjectRef
+    ? [
+        "Act only as the Fleet owner: inspect authoritative TaskGraph, TaskRun, resource-lease, Artifact, and Session Registry state; schedule through assign; reconcile structured worker outcomes; recover failed tasks; and call ask for material user decisions.",
+        "Do not modify source files, mutate Git state, execute Cue programs, call role or skill workers, start workflows, or use any delegation path other than assign. Fleet workers own implementation and verification inside their daemon-enforced execution scopes.",
+        "Call assign without taskRefs to dispatch the maximum safe ready frontier. Use taskRefs only as an allowlist; dependencies, target locks, concurrency keys, attempts, resources, and timeouts still govern admission.",
+        "Tasks may run only against their existing authorized git_change worktrees. Never create, select, repair, or guess a worktree in Fleet mode. Treat missing, ambiguous, stale, moved, or cross-workspace targets as hard dispatch failures.",
+        'After completion mail wakes this session, inspect the reconciled TaskRun and failure details. Choose explicitly between task_write({ action: "recover" }) followed by assign, assigning unrelated ready work, or ask/wait. Never blindly retry or exceed maxAttempts.',
+        "Leaving Fleet stops new dispatch only; do not implicitly cancel active workers. Re-entering Fleet must recover exclusively from authoritative persisted state.",
+        ASK_BEFORE_GUESSING,
+      ]
+    : [
+        'No current project is selected. Fleet has no scheduling frontier; inspect projects and select one with task_write({ action: "project_use" }) before calling assign.',
+        "Do not create or guess worktrees, dispatch workers, or modify source/Git/Cue state until a current project is selected and its ready tasks have valid execution targets.",
+        ASK_BEFORE_GUESSING,
+      ];
+  return renderModePrompt(graph, selectedProjectRef, focus, "Fleet", requirements);
+}
+
 export function renderModePrompt(
   graph: TaskGraph,
   selectedProjectRef: ProjectRef | undefined,
   focus: string | undefined,
-  mode: "Planning" | "Execution" | "Goal Loop" | "Workflow",
+  mode: "Planning" | "Execution" | "Fleet" | "Goal Loop" | "Workflow",
   requirements: string[],
   extraContext?: string,
 ): string {
@@ -160,7 +183,12 @@ export function renderSparkModeVisibleMessage(
   projectTitle: string | undefined,
   focus: string | undefined,
 ): string {
-  const title = mode === "plan" ? "Spark plan mode requested" : "Spark execute mode requested";
+  const title =
+    mode === "plan"
+      ? "Spark plan mode requested"
+      : mode === "execute"
+        ? "Spark execute mode requested"
+        : "Spark fleet mode requested";
   const parts = [title];
   if (projectTitle?.trim()) parts.push(`project: ${projectTitle.trim()}`);
   if (focus?.trim()) parts.push(`focus: ${focus.trim()}`);

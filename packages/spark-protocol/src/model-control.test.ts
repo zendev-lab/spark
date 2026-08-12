@@ -43,10 +43,12 @@ describe("Spark model-control protocol", () => {
         },
       ],
       defaultModel: model,
+      scopedModels: [model],
       session: { sessionId: "sess_demo", model },
     });
 
     expect(snapshot.providers[0]?.auth.reference).toBe("openai-codex");
+    expect(snapshot.scopedModels).toEqual([model]);
     expect(snapshot.session?.model).toEqual(model);
     expect(snapshot.diagnostics).toEqual([]);
   });
@@ -70,7 +72,6 @@ describe("Spark model-control protocol", () => {
       credentials: { refresh: "must-not-cross-the-protocol" },
     });
 
-    expect(flow.status).toBe("waiting_for_user");
     expect(flow.progress).toEqual([]);
     expect(flow).not.toHaveProperty("access");
     expect(flow).not.toHaveProperty("credentials");

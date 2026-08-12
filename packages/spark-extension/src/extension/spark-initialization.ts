@@ -175,7 +175,7 @@ function createInitialSparkTasks(
         "Keep changes inside the confirmed non-goals boundary.",
       ]),
       kind: "implement",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
     });
     const verify = graph.createTask({
       projectRef,

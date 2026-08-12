@@ -59,6 +59,6 @@ pnpm --filter @zendev-lab/spark-tui test -- --runInBand
 pnpm --filter @zendev-lab/spark-tui exec tsc --noEmit -p tsconfig.json
 ```
 
-Renderer replacement remains a separate architecture decision. See
-[`renderer-readiness.md`](./renderer-readiness.md) for its additional native
-artifact, release, and compatibility gates.
+Renderer replacement remains a separate architecture decision backed by the
+component, Direct PTY, packaged-product, and platform validation appropriate to
+the proposed renderer.

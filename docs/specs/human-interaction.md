@@ -37,7 +37,29 @@ Stable ids must travel together:
 
 - `humanRequestId` — durable daemon wait id
 - `interactionRequestId` — optional host/tool correlation
+- `toolCallId` — host-generated tool invocation identity; together with the
+  owning `sessionId`, it reattaches a replayed tool call to the same durable
+  wait across daemon restarts
 - `humanResponseId` — Hub / channel response id
+
+Replay identity must not be derived from mutable request content such as
+`flow`, prompts, titles, or question text.
+
+An `ExtensionUi.interaction` host declares its `askFlow` capabilities before
+canonical Ask dispatch: supported deliveries, host-owned timeout support,
+`request_id` response correlation, and (for async delivery)
+`pending_with_human_request_id` acknowledgement. An async Ask is accepted only
+after the response matches the exact `interactionRequestId` and returns both
+`status=pending` and a non-empty durable `humanRequestId`; `spark-ask` exposes
+that pair as `spark.ask-ack/v1`. A mismatched response, missing ACK, unsupported
+capability, `blocked`/`error` response, or transport exception fails closed.
+
+Canonical blocking Ask injects the host policy timeout and strips any caller
+`timeoutMs`; reviewer takeover is reachable only after the transport returns a
+correlated cancellation marked `timedOut=true`. Missing transports fail
+immediately and never simulate a human wait with a local timer. Legacy local
+select/input primitives remain blocking-only compatibility and cannot create an
+async request or reviewer-timeout takeover.
 
 ## Answer semantics
 
@@ -85,4 +107,4 @@ Spark keeps exactly two identity vocabularies. Do not add a third.
 | Domain refs | `kind:id` (e.g. `task:…`, `proj:…`, `evidence:…`) | `@zendev-lab/spark-core` (`RefKind`, `newRef`) | In-process task graphs, memory, tools, artifacts, agent-facing state |
 | Wire ids | `prefix_hex` (e.g. `sess_<32 hex>`, `inv_<32 hex>`, `hreq_<32 hex>`) | `@zendev-lab/spark-protocol` (`refs.ts` / `createId`) | Daemon persistence, Hub, local RPC, runtime WebSocket envelopes |
 
-Translate at the boundary when a surface must speak both (for example projecting a domain `task:` ref into a protocol task view that still carries the same `task:` ref string today, versus minting a new `task_<hex>` for a daemon row). Interaction correlation uses wire-style ids (`humanRequestId`, `interactionRequestId`) as documented above; domain `ask:` refs remain graph-local.
+Translate at the boundary when a surface must speak both (for example projecting a domain `task:` ref into a protocol task view that still carries the same `task:` ref string today, versus minting a new `task_<hex>` for a daemon row). Interaction correlation uses wire-style ids (`humanRequestId`, `interactionRequestId`) as documented above; generated Ask correlations use `ask_<32 hex>`, while domain `ask:` refs remain graph-local. Readers accept the retired `ask_async:<64 hex>` autonomous correlation only for durable or in-flight requests created before this normalization; writers never emit it.

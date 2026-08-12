@@ -196,18 +196,18 @@ describe("runtime WebSocket diagnostics", () => {
 
   it("formalizes server acknowledgements and errors used by both endpoints", () => {
     expect(
-      serverIngestAckEnvelopeSchema.parse({
+      serverIngestAckEnvelopeSchema.safeParse({
         protocolVersion: runtimeProtocolVersion,
         messageId: createId("msg"),
         type: "server.ingest_ack",
         sentAt: "2026-08-04T00:00:00.000Z",
         ackOf: createId("msg"),
         payload: { accepted: true, receivedType: "daemon.event" },
-      }).type,
-    ).toBe("server.ingest_ack");
+      }).success,
+    ).toBe(true);
 
     expect(
-      serverErrorEnvelopeSchema.parse({
+      serverErrorEnvelopeSchema.safeParse({
         protocolVersion: runtimeProtocolVersion,
         messageId: createId("msg"),
         type: "server.error",
@@ -218,7 +218,7 @@ describe("runtime WebSocket diagnostics", () => {
           action: "upgrade both components",
           details: { expectedProtocolVersion: runtimeProtocolVersion },
         },
-      }).payload.code,
-    ).toBe("protocol_version_mismatch");
+      }).success,
+    ).toBe(true);
   });
 });

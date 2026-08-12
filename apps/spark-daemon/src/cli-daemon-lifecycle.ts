@@ -90,6 +90,7 @@ import {
   watchSparkDaemonBuild,
 } from "./build-reload.ts";
 import { createRepeatedErrorReporter } from "./repeated-error-reporter.ts";
+import type { SessionSupervisor } from "./session-supervisor.ts";
 import { closeDaemonLensBroker, prepareDaemonLensBroker } from "./lens/broker-lifecycle.ts";
 import { closeDaemonLensToolService } from "./lens/tool.ts";
 import {
@@ -233,6 +234,7 @@ export async function start(
   let respondHumanInteraction: SparkDaemonHumanInteractionResponder | null = null;
   let flushHumanRequestOutbox: (() => void) | undefined;
   let processInvocationQueue: (() => boolean) | undefined;
+  let sessionSupervisor: SessionSupervisor | null = null;
   let drainProgress: SparkDaemonDrainProgress | undefined;
   const uplinkControl = createSparkDaemonUplinkControl();
   const buildWatchErrors = createRepeatedErrorReporter(
@@ -344,6 +346,7 @@ export async function start(
       eventBus: localEventBus,
       ...(channelIngress ? { channelIngress } : {}),
       sessionRegistry,
+      ...(sessionSupervisor ? { sessionSupervisor } : {}),
       modelControl,
       humanWaits,
       ...(reproFormalEvidenceVerifier ? { reproFormalEvidenceVerifier } : {}),
@@ -404,6 +407,7 @@ export async function start(
         respondHumanInteraction = runtime.respondHumanInteraction;
         flushHumanRequestOutbox = runtime.flushHumanRequestOutbox;
         processInvocationQueue = runtime.processInvocationQueue;
+        sessionSupervisor = runtime.sessionSupervisor;
         // Bind status/stop while startup admission remains closed. Binding a
         // socket is not successor readiness: the Claimed fence remains active
         // until every daemon admission loop is live below.

@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { minimatch } from "minimatch";
 import { SparkProviderRegistry, type ProviderRegistrationAPI } from "../provider-registry.ts";
 import registerBaiduOneApiProvider from "../baidu-oneapi-provider.ts";
 import registerOpenAiCodexProvider from "../openai-codex-provider.ts";
@@ -10,6 +11,16 @@ import { withPathMutation } from "./path-mutation.ts";
 export const DEFAULT_SPARK_PROVIDER_SPECS = [
   "@zendev-lab/spark-ai/baidu-oneapi-provider",
   "@zendev-lab/spark-ai/openai-codex-provider",
+] as const;
+
+/** Initial user policy for daemon-selectable models. Config `enabledModels` replaces this list. */
+export const DEFAULT_SPARK_SCOPED_MODEL_PATTERNS = [
+  "openai-codex/gpt-5.6-luna",
+  "openai-codex/gpt-5.6-sol",
+  "openai-codex/gpt-5.6-terra",
+  "baidu-oneapi/gpt-5.6-luna",
+  "baidu-oneapi/gpt-5.6-sol",
+  "baidu-oneapi/gpt-5.6-terra",
 ] as const;
 
 export type SparkProviderImporter = (specifier: string) => Promise<unknown>;
@@ -35,6 +46,8 @@ export interface SparkProviderConfigState {
   path: string;
   raw: Record<string, unknown>;
   providerSpecs: string[];
+  /** User policy patterns. An explicitly configured empty array permits no models. */
+  enabledModels: string[];
   activeModelId?: string;
   loadError?: string;
 }
@@ -92,11 +105,16 @@ export async function readSparkProviderConfig(
     else throw error;
   }
   const providerSpecs = mergeSparkProviderSpecs(stringArray(raw.providers));
+  const enabledModels = readEnabledModels(raw);
+  if (enabledModels.error) {
+    loadError = loadError ? `${loadError}; ${enabledModels.error}` : enabledModels.error;
+  }
   const activeModelId = readActiveModelId(raw);
   return {
     path: resolvedPath,
     raw: { ...raw },
     providerSpecs,
+    enabledModels: enabledModels.patterns,
     ...(activeModelId ? { activeModelId } : {}),
     ...(loadError ? { loadError } : {}),
   };
@@ -105,6 +123,32 @@ export async function readSparkProviderConfig(
 /** Bundled providers are product capabilities; config.providers adds plugins. */
 export function mergeSparkProviderSpecs(configured: readonly string[] | undefined): string[] {
   return [...new Set([...DEFAULT_SPARK_PROVIDER_SPECS, ...(configured ?? [])])];
+}
+
+/** Resolve user scope patterns against the complete provider capability catalog. */
+export function resolveSparkScopedModelIds(
+  registry: SparkProviderRegistry,
+  patterns: readonly string[],
+): string[] {
+  const scoped: string[] = [];
+  for (const provider of registry.listProviders()) {
+    for (const model of provider.models) {
+      const modelRef = `${provider.name}/${model.id}`;
+      if (
+        patterns.some((pattern) =>
+          [modelRef, model.id].some((candidate) =>
+            minimatch(candidate, stripThinkingSuffix(pattern), {
+              nocase: true,
+              nonegate: true,
+            }),
+          ),
+        )
+      ) {
+        scoped.push(modelRef);
+      }
+    }
+  }
+  return scoped;
 }
 
 export async function writeSparkDefaultModel(path: string, activeModelId: string): Promise<void> {
@@ -118,6 +162,31 @@ export async function writeSparkDefaultModel(path: string, activeModelId: string
     delete next.activeModel;
     await persistJson(path, next);
   });
+}
+
+function readEnabledModels(raw: Record<string, unknown>): {
+  patterns: string[];
+  error?: string;
+} {
+  if (!("enabledModels" in raw)) {
+    return { patterns: [...DEFAULT_SPARK_SCOPED_MODEL_PATTERNS] };
+  }
+  if (!Array.isArray(raw.enabledModels)) {
+    return {
+      patterns: [],
+      error: "Spark config enabledModels must be an array of non-empty strings",
+    };
+  }
+  const patterns = stringArray(raw.enabledModels);
+  if (patterns && patterns.length === raw.enabledModels.length) return { patterns };
+  return {
+    patterns: [],
+    error: "Spark config enabledModels must contain only non-empty strings",
+  };
+}
+
+function stripThinkingSuffix(pattern: string): string {
+  return pattern.replace(/:(?:off|minimal|low|medium|high|xhigh)$/iu, "");
 }
 
 function readActiveModelId(raw: Record<string, unknown>): string | undefined {

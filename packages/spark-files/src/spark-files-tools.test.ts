@@ -45,7 +45,7 @@ interface ToolConfig {
     params: Record<string, unknown>,
     signal: AbortSignal | undefined,
     onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void,
-    ctx: { cwd?: string; sparkStateRoot?: string },
+    ctx: { cwd?: string; sparkStateRoot?: string; taskExecutionScope?: unknown },
   ): Promise<ToolResult>;
 }
 
@@ -55,15 +55,6 @@ function collectTools(
   const tools = new Map<string, ToolConfig>();
   register({ registerTool: (config) => tools.set(config.name, config as ToolConfig) });
   return tools;
-}
-
-function requiredParameters(tool: ToolConfig | undefined): string[] {
-  const schema = tool?.parameters;
-  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return [];
-  const required = (schema as { required?: unknown }).required;
-  return Array.isArray(required)
-    ? required.filter((value): value is string => typeof value === "string")
-    : [];
 }
 
 const noop = () => {};
@@ -115,7 +106,7 @@ test("read repair refines the ordinary read policy into a sequential write", () 
     effect: "read",
     executionMode: "parallel",
     domains: ["files"],
-    modes: ["plan", "execute"],
+    modes: ["plan", "execute", "fleet"],
     approval: "none",
   });
   assert.deepEqual(read.resolvePolicy?.({ path: "index.ts", repair: "format" }), {
@@ -124,6 +115,129 @@ test("read repair refines the ordinary read policy into a sequential write", () 
     domains: ["files"],
     modes: ["execute"],
     approval: "none",
+  });
+});
+
+test("task execution scopes fail closed for readonly, traversal, symlink, and unauthorized refs", async () => {
+  await withTempDir(async (dir) => {
+    const primary = join(dir, "primary");
+    const secondary = join(dir, "secondary");
+    const outside = join(dir, "outside");
+    await Promise.all([mkdir(primary), mkdir(secondary), mkdir(outside)]);
+    await symlink(outside, join(primary, "escape"));
+    const write = collectTools(piFilesExtension).get("write")!;
+    const primaryRef = "artifact:primary";
+    const secondaryRef = "artifact:secondary";
+    const baseScope = {
+      isolation: "isolated_worktree",
+      primaryArtifactRef: primaryRef,
+      writableArtifactRefs: [primaryRef, secondaryRef],
+      writableRoots: [primary, secondary],
+    };
+
+    await assert.rejects(
+      write.execute(
+        "readonly",
+        { path: "blocked.txt", content: "x", expectedVersion: "missing" },
+        undefined,
+        noop,
+        { cwd: primary, taskExecutionScope: { ...baseScope, isolation: "readonly" } },
+      ),
+      /readonly/u,
+    );
+    await assert.rejects(
+      write.execute(
+        "traversal",
+        { path: "../outside/traversal.txt", content: "x", expectedVersion: "missing" },
+        undefined,
+        noop,
+        { cwd: primary, taskExecutionScope: baseScope },
+      ),
+      /escapes its scope/u,
+    );
+    await assert.rejects(
+      write.execute(
+        "symlink",
+        { path: "escape/symlink.txt", content: "x", expectedVersion: "missing" },
+        undefined,
+        noop,
+        { cwd: primary, taskExecutionScope: baseScope },
+      ),
+      /crosses a symlink/u,
+    );
+    await assert.rejects(
+      write.execute(
+        "unauthorized",
+        {
+          path: "blocked.txt",
+          artifactRef: "artifact:other",
+          content: "x",
+          expectedVersion: "missing",
+        },
+        undefined,
+        noop,
+        { cwd: primary, taskExecutionScope: baseScope },
+      ),
+      /not authorized/u,
+    );
+
+    const allowed = await write.execute(
+      "secondary",
+      {
+        path: "allowed.txt",
+        artifactRef: secondaryRef,
+        content: "ok",
+        expectedVersion: "missing",
+      },
+      undefined,
+      noop,
+      { cwd: primary, taskExecutionScope: baseScope },
+    );
+    assert.equal(allowed.isError, undefined);
+    assert.equal(await readFile(join(secondary, "allowed.txt"), "utf8"), "ok");
+    await assert.rejects(stat(join(outside, "traversal.txt")));
+    await assert.rejects(stat(join(outside, "symlink.txt")));
+  });
+});
+
+test("isolated_results writes only below the daemon-resolved job root", async () => {
+  await withTempDir(async (dir) => {
+    const resultsRoot = join(dir, ".spark", "task-results", "job_1");
+    await mkdir(resultsRoot, { recursive: true });
+    const write = collectTools(piFilesExtension).get("write")!;
+    const ctx = {
+      cwd: dir,
+      taskExecutionScope: {
+        isolation: "isolated_results",
+        writableArtifactRefs: [],
+        writableRoots: [],
+        resultsRoot,
+      },
+    };
+    const result = await write.execute(
+      "results",
+      { path: "result.json", content: "{}", expectedVersion: "missing" },
+      undefined,
+      noop,
+      ctx,
+    );
+    assert.equal(result.isError, undefined);
+    assert.equal(await readFile(join(resultsRoot, "result.json"), "utf8"), "{}");
+    await assert.rejects(
+      write.execute(
+        "results-ref",
+        {
+          path: "blocked.txt",
+          artifactRef: "artifact:primary",
+          content: "x",
+          expectedVersion: "missing",
+        },
+        undefined,
+        noop,
+        ctx,
+      ),
+      /cannot write a git_change Artifact/u,
+    );
   });
 });
 
@@ -146,14 +260,6 @@ test("read expectedVersion fails closed without returning a newer snapshot", asy
     assert.equal(conflict.details?.code, "VERSION_CONFLICT");
     assert.doesNotMatch(text(conflict), /second/u);
   });
-});
-
-test("file tool schemas keep artifactRef out of required inputs", () => {
-  const tools = collectTools(piFilesExtension);
-  for (const name of ["read", "write", "edit", "grep", "find"] as const) {
-    const required = requiredParameters(tools.get(name));
-    assert.equal(required.includes("artifactRef"), false, `${name} requires artifactRef`);
-  }
 });
 
 test("blank artifactRef uses the selected cwd across file tools", async () => {

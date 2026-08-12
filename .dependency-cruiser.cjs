@@ -41,6 +41,23 @@ module.exports = {
         path: "@zendev-lab/[^/]+/src(/|$)",
       },
     },
+    {
+      name: "no-production-legacy-daemon-local-rpc",
+      comment:
+        "Production callers must use the protocol-aware daemon client facade instead of the legacy local-rpc transport.",
+      severity: "error",
+      from: {
+        pathNot:
+          "(?:^test/|/(?:__fixtures__|__tests__|fixtures|test|tests)/|\\.(?:fixture|spec|test)\\.[^/]+$|^packages/spark-daemon-client/src/(?:index|daemon-client|daemon-local-rpc)\\.ts$)",
+      },
+      to: {
+        path:
+          "node_modules/.*/@zendev-lab/spark-daemon-client/local-rpc|" +
+          "/node_modules/@zendev-lab/spark-daemon-client/local-rpc|" +
+          "^@zendev-lab/spark-daemon-client/local-rpc$|" +
+          "^packages/spark-daemon-client/src/daemon-local-rpc\\.",
+      },
+    },
 
     // --- deep-link: relative packages/*/src from apps and root tests ---
     {

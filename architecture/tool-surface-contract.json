@@ -1,0 +1,201 @@
+{
+  "format": "spark.tool-surface-contract/v1",
+  "profile": "spark-native-default",
+  "tools": {
+    "artifact": {
+      "owner": "@zendev-lab/spark-artifacts",
+      "kind": "action",
+      "effect": "local_write"
+    },
+    "ask": {
+      "owner": "@zendev-lab/spark-ask",
+      "kind": "action",
+      "effect": "unclassified"
+    },
+    "assign": {
+      "owner": "@zendev-lab/spark-tasks",
+      "kind": "capability",
+      "effect": "external_write"
+    },
+    "code_search": {
+      "owner": "@zendev-lab/spark-web",
+      "kind": "compatibility",
+      "effect": "unclassified"
+    },
+    "context": {
+      "owner": "@zendev-lab/spark-host",
+      "kind": "action",
+      "effect": "read"
+    },
+    "cue_exec": {
+      "owner": "@zendev-lab/spark-cue",
+      "kind": "capability",
+      "effect": "external_write"
+    },
+    "cue_history": {
+      "owner": "@zendev-lab/spark-cue",
+      "kind": "capability",
+      "effect": "read"
+    },
+    "cue_jobs": {
+      "owner": "@zendev-lab/spark-cue",
+      "kind": "capability",
+      "effect": "external_write"
+    },
+    "cue_resources": {
+      "owner": "@zendev-lab/spark-cue",
+      "kind": "capability",
+      "effect": "read"
+    },
+    "cue_run": {
+      "owner": "@zendev-lab/spark-cue",
+      "kind": "capability",
+      "effect": "external_write"
+    },
+    "cue_schedule": {
+      "owner": "@zendev-lab/spark-cue",
+      "kind": "capability",
+      "effect": "external_write"
+    },
+    "cue_scope": {
+      "owner": "@zendev-lab/spark-cue",
+      "kind": "capability",
+      "effect": "external_write"
+    },
+    "cue_script": {
+      "owner": "@zendev-lab/spark-cue",
+      "kind": "capability",
+      "effect": "external_write"
+    },
+    "delegation": {
+      "owner": "@zendev-lab/spark-extension",
+      "kind": "action",
+      "effect": "external_write"
+    },
+    "edit": {
+      "owner": "@zendev-lab/spark-files",
+      "kind": "capability",
+      "effect": "local_write"
+    },
+    "evidence": {
+      "owner": "@zendev-lab/spark-artifacts",
+      "kind": "action",
+      "effect": "local_write"
+    },
+    "fetch_content": {
+      "owner": "@zendev-lab/spark-web",
+      "kind": "capability",
+      "effect": "unclassified"
+    },
+    "find": {
+      "owner": "@zendev-lab/spark-files",
+      "kind": "capability",
+      "effect": "read"
+    },
+    "get_search_content": {
+      "owner": "@zendev-lab/spark-web",
+      "kind": "capability",
+      "effect": "read"
+    },
+    "git": {
+      "owner": "@zendev-lab/spark-artifacts",
+      "kind": "action",
+      "effect": "destructive"
+    },
+    "goal": {
+      "owner": "@zendev-lab/spark-extension",
+      "kind": "action",
+      "effect": "local_write"
+    },
+    "grep": {
+      "owner": "@zendev-lab/spark-files",
+      "kind": "capability",
+      "effect": "read"
+    },
+    "loop": {
+      "owner": "@zendev-lab/spark-extension",
+      "kind": "action",
+      "effect": "local_write"
+    },
+    "memory": {
+      "owner": "@zendev-lab/spark-memory",
+      "kind": "action",
+      "effect": "unclassified"
+    },
+    "mode": {
+      "owner": "@zendev-lab/spark-extension",
+      "kind": "action",
+      "effect": "unclassified"
+    },
+    "models": {
+      "owner": "@zendev-lab/spark-ai",
+      "kind": "capability",
+      "effect": "read"
+    },
+    "read": {
+      "owner": "@zendev-lab/spark-files",
+      "kind": "capability",
+      "effect": "read"
+    },
+    "repro": {
+      "owner": "@zendev-lab/spark-extension",
+      "kind": "action",
+      "effect": "local_write"
+    },
+    "role": {
+      "owner": "@zendev-lab/spark-roles",
+      "kind": "action",
+      "effect": "read"
+    },
+    "script_eval": {
+      "owner": "@zendev-lab/spark-cue",
+      "kind": "capability",
+      "effect": "external_write"
+    },
+    "script_run": {
+      "owner": "@zendev-lab/spark-cue",
+      "kind": "capability",
+      "effect": "external_write"
+    },
+    "session": {
+      "owner": "@zendev-lab/spark-session",
+      "kind": "action",
+      "effect": "external_write"
+    },
+    "skill_agent": {
+      "owner": "@zendev-lab/spark-roles",
+      "kind": "capability",
+      "effect": "external_write"
+    },
+    "task_read": {
+      "owner": "@zendev-lab/spark-tasks",
+      "kind": "action",
+      "effect": "read"
+    },
+    "task_write": {
+      "owner": "@zendev-lab/spark-tasks",
+      "kind": "action",
+      "effect": "local_write"
+    },
+    "todo": {
+      "owner": "@zendev-lab/spark-tasks",
+      "kind": "action",
+      "effect": "unclassified"
+    },
+    "web_search": {
+      "owner": "@zendev-lab/spark-web",
+      "kind": "capability",
+      "effect": "unclassified"
+    },
+    "workflow": {
+      "owner": "@zendev-lab/spark-workflows",
+      "kind": "action",
+      "effect": "read"
+    },
+    "write": {
+      "owner": "@zendev-lab/spark-files",
+      "kind": "capability",
+      "effect": "local_write"
+    }
+  }
+}

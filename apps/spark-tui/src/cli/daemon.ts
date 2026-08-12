@@ -1925,8 +1925,9 @@ async function clientSessions(
   if (command.subcommand === "create") {
     const session = await managedSessions.create({
       workspaceId: command.workspaceId!,
+      roleRef: daemonSessionRoleRef(command.role),
+      purpose: "interactive",
       title: command.title,
-      role: command.role,
       sessionId: command.sessionId,
       cwd: process.cwd(),
     });
@@ -2092,6 +2093,18 @@ async function clientSessions(
   };
 }
 
+function daemonSessionRoleRef(role: string | undefined): string {
+  const normalized = role?.trim();
+  if (!normalized) return "role:builtin-administrator";
+  if (normalized === "scout") return "role:builtin-explorer";
+  if (normalized === "worker") return "role:builtin-executor";
+  if (normalized.startsWith("role:")) return normalized;
+  if (["administrator", "explorer", "researcher", "executor", "reviewer"].includes(normalized)) {
+    return `role:builtin-${normalized}`;
+  }
+  return `role:${normalized}`;
+}
+
 export async function clientGetManagedSession(
   sessionId: string,
   client: SparkDaemonClientOptions = {},
@@ -2165,6 +2178,8 @@ export async function ensureSparkDaemonWorkspaceSession(
     scope: { kind: "workspace", workspaceId: input.workspaceId },
     workspaceId: input.workspaceId,
     cwd: input.cwd,
+    roleRef: "role:builtin-administrator",
+    purpose: "interactive",
   });
 }
 

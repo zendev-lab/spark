@@ -1,89 +1,117 @@
 ---
-title: Agent tools
-description: Complete catalog of canonical Spark tools, default profiles, side effects, and restricted surfaces.
+title: Agent tools and permissions
+description: Understand how Spark activates tools, owns their state, and applies effect and permission policy.
 ---
 
-Agent tools are model-facing capabilities, not commands users must memorize.
-Describe the outcome first; inspect this page when auditing permissions,
-building a host profile, or diagnosing why a capability is unavailable.
+The active tool schemas supplied to an Agent by its Host and Session are the
+authoritative tool surface for that run. Registration does not imply
+activation: surface, mode, permission, extension configuration, and compatibility
+policy can all narrow the available set.
 
-## Default native profile
+This page documents stable domains and policy. It is intentionally not an
+exhaustive list of tool names. Inspect the active schemas shown by the Host when
+you need the exact names, actions, and arguments for a run.
 
-| Intent | Canonical tools | Effect |
+## Stable tool domains
+
+Spark groups related actions behind canonical `tool({ action })` surfaces when
+they share one owner, state, permission, rendering, and result contract.
+
+| Domain | What it is for | Authoritative owner |
 | --- | --- | --- |
-| Ask for a decision | `ask` | Pauses for structured user input |
-| Read and change files | `read`, `write`, `edit`, `grep`, `find` | Read or workspace write |
-| Manage code delivery | `git` | Worktree, native PR-stack, commit, submit, sync, and cleanup lifecycle |
-| Search and fetch the Web | `web_search`, `code_search`, `fetch_content`, `get_search_content` | External read; fetched text is untrusted |
-| Inspect and change work | `task_read`, `task_write`, `assign`, `todo` | Task/session state; assignment may execute work |
-| Preserve results | `artifact`, `evidence`, `memory`, `context` | Product output, internal ledger, memory, bounded context |
-| Coordinate agents | `role`, `skill_agent`, `session` | Definitions, anonymous calls, dedicated multi-Skill Agents, persistent sessions, and mail |
-| Choose models | `models` | Model catalog and selection |
-| Choose Session behavior or autonomous continuation | `mode`, `goal`, `loop`, `repro` | Session `plan`/`execute` mode plus daemon-owned continuation state |
-| Discover and run procedures | `workflow` | List, read, or run a selected `WORKFLOW.md` definition |
+| Human interaction | Structured questions, approvals, and correlated answers | Shared interaction protocol and daemon lifecycle |
+| Files and execution | Read, search, edit, and approved local execution | Host adapters operating in the selected workspace |
+| Work coordination | Tasks, Session `plan`/`execute`/`fleet` modes, Goals, Loops, Repros, and Workflows | Their domain owner; durable scheduling remains daemon-owned |
+| Result ownership | User-facing outcomes and internal Evidence | Artifact and Evidence stores remain separate |
+| Agent composition | Roles and owner-bound Skill Agents | Session/Role registry and Skill loader |
+| External adapters | Channels, ACP, MCP, Git, and provider-specific capabilities | The owning adapter behind Spark contracts |
 
-The file tools in this table are the Spark-native surface. The external Pi
-product retains its own file and search tools; Spark does not replace Pi's
-`read`, `write`, `edit`, `grep`, `find`, or `ls` implementations. Pi product
-compatibility is additive and intentionally does not promise full Spark-native
-feature parity.
+`ask` validates the host interaction capability before async delivery or
+reviewer-timeout takeover. Async acceptance returns a correlated durable ACK
+(`interactionRequestId` plus `humanRequestId`); missing capabilities, malformed
+ACKs, transport rejection, and request-id mismatches fail closed. Blocking
+timeouts are host policy and cannot be selected per tool call.
 
-`artifact` is user-facing and limited to Issue, GitChange, and Document
-deliverables. GitChange owns one worktree and one native GitHub PR stack;
-`git({ action })` owns that lifecycle. Preview is a view of a Document, not an
-Artifact kind.
-`evidence` is an agent-internal ledger and is not shown as a artifact.
-`context` can only list or preview registered bounded providers; it does not
-accept an arbitrary prompt.
+## Artifacts and Evidence
 
-`skill_agent({ skills, instruction, inputs? })` resolves one to eight exact
-model-invocable Skills and runs one fresh anonymous dedicated Agent with every
-selected Skill body loaded in full exactly once. The Agent receives the
-self-contained instruction and bounded inputs, not the parent transcript. It
-can use a bounded direct-work tool profile, but cannot recurse into Roles,
-Skill Agents, or persistent Sessions, mutate coordination state, or publish
-Git, Artifact, or Evidence state. Use `read` instead when the parent Session
-itself must inspect and follow `SKILL.md`.
+User-facing Artifact kinds are exactly `issue | git_change | document`.
+A `git_change` owns one worktree and one native PR stack; a preview is a
+Document view, not another Artifact kind.
 
-## Shell and script tools
+Evidence records internal claims and verification. Artifact and Evidence refs
+use separate namespaces, stores, permissions, and lifecycle rules. A tool must
+not silently promote a file path, transcript statement, or unverified result
+into either one.
 
-The native profile includes ten cue-shell tools:
+## Replacing Task dependencies
 
-| Tools | Purpose |
-| --- | --- |
-| `cue_exec`, `cue_run` | Direct commands and managed jobs |
-| `cue_script`, `script_run`, `script_eval` | Saved or inline controlled scripts |
-| `cue_jobs` | Inspect and control jobs |
-| `cue_resources` | Inspect resource providers and snapshots |
-| `cue_schedule` | Manage schedules |
-| `cue_scope` | Inspect or manage execution scopes |
-| `cue_history` | Read execution history |
+`task_write({ action: "replace_dependencies", taskRef, dependsOn })` atomically
+replaces the complete dependency set of one existing Task. An empty `dependsOn`
+array clears every dependency. Selectors may be exact Task refs, names, or
+titles; the legacy `task` spelling remains a bounded decoder input rather than a
+model-facing field.
 
-These tools can execute code or cause local/external side effects. Host policy
-resolves approval, effect, and sequential/parallel behavior before execution.
+This action is dependency-only. It rejects Task creation and metadata, plan, or
+status mutations in the same call. Unknown or ambiguous selectors, cancelled or
+cross-project prerequisites, self-edges, and cycles return stable failure
+classes. Validation happens against a lock-scoped reload before persistence, so
+a failed replacement does not write Task graph state.
+
+## Roles, Sessions, and Skill Agents
+
+- A Role defines a typed capability and responsibility profile, including its
+  semantic Model Type and `persistent` or `owned` instantiation policy.
+- A Session is the runtime instance that owns continuity, bindings, calls, and
+  mail. Owner-bound child Sessions are non-restorable and close with their
+  parent operation.
+- `skill_agent({ skills, instruction, inputs? })` resolves one to eight exact
+  Skills and runs one fresh owned child Session with every selected Skill body
+  loaded once. It receives the explicit packet, not the parent transcript, and
+  cannot recurse into Roles, Skill Agents, or persistent Sessions.
+
+Role and Skill Agent children select models through semantic Model Types. A
+missing binding fails with `role_model_type_unconfigured`; Spark does not fall
+back to the parent Session model. On close, an owned child seals a bounded
+receipt before discarding its full transcript and Invocation payload. The
+receipt is operational Session metadata rather than Evidence.
+
+The parent Session remains responsible for decomposition, durable coordination,
+verification of consequential claims, and user-facing synthesis.
+
+## Task and Workflow ownership
+
+`task_read` is read-only. Its `run_status` action accepts only `status`, `list`,
+and `inspect`; WorkflowRun reconciliation, acknowledgement, input delivery, and
+termination use `workflow({ action: "runs", runAction: ... })`. `assign` is an
+explicit dispatch request: model-facing callers may select `taskRefs`, while
+concurrency, timeout, and preview policy remain host-owned rather than becoming
+per-call scheduler knobs.
+
+`todo({ action: "update", items })` and `task_write({ action: "plan_update",
+items })` each reconcile one complete target checklist atomically. Give every
+item an explicit status and keep at most one `in_progress`; omitted existing
+items become deleted history. Legacy transition verbs are not model-facing.
+
+## Task finish review
+
+Finishing a Task as `done` keeps the same deterministic Lens, plan, Evidence,
+and follow-up gates. Spark normally evaluates the prepared bounded packet with
+one tool-free structured review using the independently configured
+`verification` Model Type. The reviewer may request a deeper Reviewer Session
+only through an explicit `needs_deep_review` result; a leaf model, route, or
+protocol failure blocks the transition instead of silently approving it.
+
+## Effects, approval, and parallelism
+
+Every active tool carries an effect and permission policy enforced by the Host.
 Unknown or conflicting policy fails closed.
 
-## Restricted and optional profiles
+- Pure reads that explicitly allow parallel execution may run concurrently.
+- Writes, policy changes, mixed batches, and external side effects remain
+  serialized unless their owning contract proves a safe alternative.
+- A required approval is part of execution authority, not presentation text.
+- Compatibility and Channel profiles may expose a smaller set than the native
+  TUI or Hub Session.
 
-- Message-platform channels expose only `session`, `ask`, `context`, and
-  `todo`.
-- `fusion` is opt-in bounded multi-model deliberation. It does not write the
-  final answer or prove a runtime claim.
-- `graft` is a sealed, opt-in scratch/candidate/patch capability and is not
-  part of the active Git workflow.
-- `ls` remains available only to an explicitly configured Spark-native
-  compatibility profile; it is not registered in the native default profile.
-  Use `find` for file discovery and `grep` for content search.
-- External Pi compatibility may expose a smaller additive subset. A capability
-  is removed when its compatibility cost exceeds its retained product value.
-
-Private implementation and orchestration helpers are deliberately absent from
-this public catalog.
-
-## Execution policy
-
-Registration does not guarantee activation. A host may narrow the active tool
-set by surface, mode, permission, or extension configuration. Only
-approval-free read calls explicitly marked parallel may execute concurrently;
-mixed, unknown, write-capable, policy-changing, and external-effect batches
-remain sequential.
+Private implementation helpers are not public tools. For the commands available
+in your installed version, see [command discovery](/reference/cli/).

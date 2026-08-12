@@ -1,6 +1,5 @@
 <script lang="ts">
-  import SessionQueue from "$lib/components/conversation/SessionQueue.svelte";
-  import SessionStatusBar from "$lib/components/conversation/SessionStatusBar.svelte";
+  import { SessionQueue, SessionStatusBar } from "@zendev-lab/spark-ui/conversation";
   import { Icon } from "@zendev-lab/spark-ui";
   import type { IconName } from "@zendev-lab/spark-ui";
   import type { SessionConversationHost } from "./conversation-host";

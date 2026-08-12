@@ -98,7 +98,7 @@ export function registerSparkClaimTaskTool(
     name: "impl_claim_task",
     label: "Spark Claim Task",
     description:
-      'Implementation for task_write({ action: "claim" }): claim an existing Spark task that already has a complete task.plan. Claim never accepts or applies a new plan; create or update task plans first with task_write({ action: "plan", tasks: [...] }). For Spark-native delegated work, existing tasks may include an optional roleRef hint, but assign({ dryRun: true }) assigns the concrete executor role at dispatch; do not spawn nested pi CLI sessions as pseudo-roles unless explicitly testing Pi CLI behavior.',
+      'Implementation for task_write({ action: "claim" }): claim an existing Spark task that already has a complete task.plan. Claim never accepts or applies a new plan; create or update task plans first with task_write({ action: "plan", tasks: [...] }). For Spark-native delegated work, existing tasks may include an optional roleRef hint, while assign({ taskRefs: [...] }) dispatches the selected ready frontier through host-owned policy; do not spawn nested pi CLI sessions as pseudo-roles unless explicitly testing Pi CLI behavior.',
     parameters: Type.Object({
       project: Type.Optional(Type.String({ description: "Optional project selector/ref/title." })),
       projectRef: Type.Optional(
@@ -138,7 +138,7 @@ export function registerSparkClaimTaskTool(
       roleRef: Type.Optional(
         Type.String({
           description:
-            'Optional builtin/extension/project/user role spec id or ref from role({ action: "list" }), e.g. explorer, researcher, reviewer, or worker. This is a preferred executor hint; assign({ dryRun: true }) can also assign a role at dispatch.',
+            'Optional builtin/extension/project/user role spec id or ref from role({ action: "list" }), e.g. explorer, researcher, reviewer, or executor. This is a preferred executor hint; assign({ taskRefs: [...] }) dispatches through the host policy.',
         }),
       ),
     }),
@@ -604,11 +604,11 @@ function renderClaimedTaskText(
   lines.push("");
   if (hasActiveTodos) {
     lines.push(
-      'Task plan items are present for this claim. Next: execute the task plan items, and refine them with task_write({ action: "plan_update", scope: "task", ops: [...] }) if the breakdown is incomplete.',
+      'Task plan items are present for this claim. Next: execute them, then atomically reconcile their complete target state with task_write({ action: "plan_update", items: [...] }).',
     );
   } else {
     lines.push(
-      'Next: set task plan items with task_write({ action: "plan_update", scope: "task", ops: [{ op: "init", items: [...] }] }) before doing implementation work.',
+      'Next: set the complete initial Task plan-item state with task_write({ action: "plan_update", items: [{ title, status: "pending" }] }) before doing implementation work.',
     );
   }
   return lines.join("\n");

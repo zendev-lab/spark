@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
-import type { ExtensionRoleRunner } from "@zendev-lab/spark-core";
+import type { ExtensionRoleRunner, ToolPolicy } from "@zendev-lab/spark-core";
 import { Type } from "typebox";
 import {
   createDefaultRoleRegistry,
@@ -12,9 +12,12 @@ import {
   hydrateDefaultRoleRegistry,
   normalizeRoleLaunchMode,
   resolveRoleModelSetting,
+  RoleModelTypeUnconfiguredError,
   runRole,
   validateRoleModel,
   modelCatalogPortFromHostRegistry,
+  ROLE_CAPABILITY_VOCAB,
+  type RoleCapability,
   type ResolvedRoleModelSetting,
   type RoleModelSettingsEntry,
   type RoleModelSettingsSource,
@@ -35,6 +38,8 @@ interface SparkRolesToolConfig {
   label?: string;
   description: string;
   promptGuidelines?: string[];
+  policy?: ToolPolicy;
+  resolvePolicy?: (args: Readonly<Record<string, unknown>>) => ToolPolicy;
   parameters: unknown;
   renderCall?: (
     args: Record<string, unknown>,
@@ -169,7 +174,8 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
     description: "Inspect one builtin, extension, project, or user Pi role spec.",
     parameters: Type.Object({
       role: Type.String({
-        description: "Role id or full role ref, e.g. worker or role:builtin-worker.",
+        description:
+          "Role id or full role ref, e.g. executor or role:builtin-executor. worker remains a compatibility alias.",
       }),
       includeUser: Type.Optional(
         Type.Boolean({
@@ -225,6 +231,10 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       systemPrompt: Type.String({ description: "Fixed system prompt for the role spec." }),
       rationale: Type.String({ description: "Why this role spec should exist." }),
       expectedUses: Type.Array(Type.String()),
+      capabilities: Type.Array(
+        Type.String({ description: "read | write | exec | net | interact | spawn" }),
+      ),
+      modelType: Type.String({ description: "Semantic model routing key." }),
       source: Type.Optional(Type.String({ description: "project | user. Defaults to project." })),
       allowedTools: Type.Optional(Type.Array(Type.String())),
     }),
@@ -250,7 +260,9 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
         systemPrompt: normalizeRequiredString(params.systemPrompt, "create_role systemPrompt"),
         rationale: normalizeRequiredString(params.rationale, "create_role rationale"),
         expectedUses: normalizeRequiredStringArray(params.expectedUses, "create_role expectedUses"),
+        capabilities: normalizeRoleCapabilities(params.capabilities, "create_role capabilities"),
         allowedTools: normalizeOptionalStringArray(params.allowedTools, "create_role allowedTools"),
+        modelType: normalizeRequiredString(params.modelType, "create_role modelType"),
         origin: { kind: "manual" },
       };
       const role = createRoleSpec(proposal);
@@ -272,7 +284,8 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       "Call one reusable Spark role in a fresh anonymous session. Persistent conversation continuity is owned by the canonical session tool.",
     parameters: Type.Object({
       role: Type.String({
-        description: "Role id or full role ref, e.g. worker or role:builtin-worker.",
+        description:
+          "Role id or full role ref, e.g. executor or role:builtin-executor. worker remains a compatibility alias.",
       }),
       instruction: Type.String({ description: "Concrete instruction for this one role call." }),
       launch: Type.Optional(
@@ -318,10 +331,7 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       const model = await resolveRoleModelForCall({
         role,
         explicitModel: p.model,
-        sessionModel: sessionModelName(ctx.model),
         cwd,
-        actualRun: true,
-        ui: ctx.ui,
       });
       const commandInput = {
         runRef,
@@ -334,8 +344,12 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
         timeoutMs: p.timeoutMs,
         signal,
         stdinMode: "ignore" as const,
-        noSession: true,
         roleId: role.id,
+        roleRevision: role.revision,
+        roleSource: role.source,
+        roleCapabilities: role.capabilities,
+        roleModelType: role.modelType,
+        roleInstantiation: "owned" as const,
         allowedTools: role.allowedTools,
         nativeExecutor: ctx.runRole,
       };
@@ -406,7 +420,7 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       );
       const entries = await loadRoleModelSettingEntries(cwd, source);
       const lines = entries.map(
-        (entry) => `- [${entry.source}] ${entry.selector} -> ${entry.model}`,
+        (entry) => `- [${entry.source}] ${entry.modelType} -> ${entry.model}`,
       );
       return {
         content: [
@@ -433,8 +447,8 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       const role = await selectRoleForModelAction(cwd, params, "role model_get");
       const resolved = await resolveRoleModelForRole(cwd, role);
       const text = resolved
-        ? `Role model for ${role.id} (${role.ref}): ${resolved.model} source=${resolved.source}${resolved.selector ? ` selector=${resolved.selector}` : ""}`
-        : `No role model setting for ${role.id} (${role.ref}).`;
+        ? `Role model for ${role.id} (${role.ref}) modelType=${role.modelType}: ${resolved.model} source=${resolved.source}`
+        : `No model setting for type ${role.modelType} used by ${role.id} (${role.ref}).`;
       return {
         content: [{ type: "text", text }],
         details: { role: compactRole(role), model: resolved },
@@ -473,8 +487,8 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       });
       const source = normalizeRoleModelSettingsSource(params.source, "role model_set source");
       const store = roleModelSettingsStoreForSource(cwd, source);
-      const entry = await store.save(role.ref, model);
-      const text = `Saved ${source} role model setting for ${role.id} (${role.ref}): ${entry.model}`;
+      const entry = await store.save(role.modelType, model);
+      const text = `Saved ${source} model setting for type ${role.modelType}, used by ${role.id} (${role.ref}): ${entry.model}`;
       return {
         content: [{ type: "text", text }],
         details: { role: compactRole(role), setting: entry },
@@ -503,13 +517,10 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       const role = await selectRoleForModelAction(cwd, params, "role model_delete");
       const source = normalizeRoleModelSettingsSource(params.source, "role model_delete source");
       const store = roleModelSettingsStoreForSource(cwd, source);
-      const deleted: string[] = [];
-      for (const selector of roleModelActionSelectors(role)) {
-        if (await store.delete(selector)) deleted.push(selector);
-      }
+      const deleted = (await store.delete(role.modelType)) ? [role.modelType] : [];
       const text = deleted.length
-        ? `Deleted ${source} role model setting(s) for ${role.id}: ${deleted.join(", ")}`
-        : `No ${source} role model settings matched ${role.id} (${role.ref}).`;
+        ? `Deleted ${source} model setting for type ${role.modelType}`
+        : `No ${source} model setting matched type ${role.modelType}.`;
       return {
         content: [{ type: "text", text }],
         details: { role: compactRole(role), source, deleted },
@@ -527,6 +538,16 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       "Use the canonical session tool for persistent session lifecycle, calls, classification, and durable mail.",
       "Use assign instead of direct role calls when work belongs to a Spark task and needs claims, run records, or evidence attribution.",
     ],
+    policy: roleToolPolicy("read", ["plan", "execute", "fleet"]),
+    resolvePolicy(args) {
+      const action = typeof args.action === "string" ? args.action : "";
+      return action === "list" ||
+        action === "get" ||
+        action === "model_list" ||
+        action === "model_get"
+        ? roleToolPolicy("read", ["plan", "execute", "fleet"])
+        : roleToolPolicy("external_write", ["plan", "execute"]);
+    },
     parameters: Type.Object({
       action: Type.String({
         description:
@@ -541,6 +562,8 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       systemPrompt: Type.Optional(Type.String({ description: "Role system prompt for create." })),
       rationale: Type.Optional(Type.String({ description: "Role creation rationale." })),
       expectedUses: Type.Optional(Type.Array(Type.String())),
+      capabilities: Type.Optional(Type.Array(Type.String())),
+      modelType: Type.Optional(Type.String()),
       allowedTools: Type.Optional(Type.Array(Type.String())),
       instruction: Type.Optional(Type.String({ description: "Instruction for call." })),
       launch: Type.Optional(Type.String({ description: "fresh for call." })),
@@ -567,6 +590,16 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       return tool.execute(toolCallId, stripRoleAction(params), signal, onUpdate, ctx);
     },
   });
+}
+
+function roleToolPolicy(effect: "read" | "external_write", modes: readonly string[]): ToolPolicy {
+  return {
+    effect,
+    executionMode: effect === "read" ? "parallel" : "sequential",
+    domains: ["roles"],
+    modes,
+    approval: "none",
+  };
 }
 
 type RoleAction =
@@ -660,15 +693,12 @@ async function resolveRoleModelForRole(
 ): Promise<ResolvedRoleModelSetting | undefined> {
   return resolveRoleModelSetting({
     roleRef: role.ref,
+    modelType: role.modelType,
     roleId: role.id,
     roleName: role.id,
     projectStore: defaultProjectRoleModelSettingsStore(cwd),
     userStore: defaultUserRoleModelSettingsStore(),
   });
-}
-
-function roleModelActionSelectors(role: RoleSpec): string[] {
-  return [...new Set([role.ref, role.ref.slice("role:".length), role.id])];
 }
 
 function normalizeRoleModelSettingsSource(value: unknown, field: string): RoleModelSettingsSource {
@@ -697,38 +727,22 @@ function requiredSparkRolesCwd(ctx: { cwd?: string }, toolName: string): string 
   throw new Error(`${toolName} requires ctx.cwd or an explicit cwd parameter.`);
 }
 
-function sessionModelName(model: SparkRolesSessionModel | undefined): string | undefined {
-  const provider = typeof model?.provider === "string" ? model.provider.trim() : "";
-  const id = typeof model?.id === "string" ? model.id.trim() : "";
-  return provider && id ? `${provider}/${id}` : undefined;
-}
-
 async function resolveRoleModelForCall(input: {
   role: RoleSpec;
   explicitModel?: string;
-  sessionModel?: string;
   cwd: string;
-  actualRun: boolean;
-  ui?: {
-    notify?: (message: string, level?: string) => void;
-    input?: (title: string, defaultValue?: string) => Promise<string | undefined>;
-  };
-}): Promise<string | undefined> {
+}): Promise<string> {
   const resolved = await resolveRoleModelSetting({
     explicitModel: input.explicitModel,
     roleRef: input.role.ref,
+    modelType: input.role.modelType,
     roleId: input.role.id,
     roleName: input.role.id,
     projectStore: defaultProjectRoleModelSettingsStore(input.cwd),
     userStore: defaultUserRoleModelSettingsStore(),
   });
   if (resolved) return resolved.model;
-  if (input.sessionModel) return input.sessionModel;
-  if (!input.actualRun) return undefined;
-
-  throw new Error(
-    `role model unavailable for ${input.role.id} (${input.role.ref}); provide model, save one with role({ action: "model_set" }), or run with an active session model`,
-  );
+  throw new RoleModelTypeUnconfiguredError(input.role.ref, input.role.modelType);
 }
 
 function normalizeCallRoleToolParams(params: Record<string, unknown>): CallRoleToolParams {
@@ -840,10 +854,23 @@ function compactRole(role: RoleSpec) {
     ref: role.ref,
     id: role.id,
     source: role.source,
+    revision: role.revision,
     description: role.description,
+    capabilities: role.capabilities,
+    modelType: role.modelType,
+    instantiation: role.instantiation,
     systemPromptChars: role.systemPrompt.length,
     allowedTools: role.allowedTools,
   };
+}
+
+function normalizeRoleCapabilities(value: unknown, field: string): RoleCapability[] {
+  const values = normalizeRequiredStringArray(value, field);
+  const vocabulary = new Set<string>(ROLE_CAPABILITY_VOCAB);
+  for (const capability of values) {
+    if (!vocabulary.has(capability)) throw new Error(`${field} contains unknown ${capability}`);
+  }
+  return values as RoleCapability[];
 }
 
 const TOOL_CALL_DEFAULT_ARG_MAX_LENGTH = 80;

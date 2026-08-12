@@ -10,6 +10,21 @@ import {
   type ProviderConfig,
 } from "./index.ts";
 
+type CapturedProviderOptions = NonNullable<Parameters<ProviderConfig["streamSimple"]>[2]> & {
+  prompt_cache_key?: string;
+  promptCacheKey?: string;
+};
+
+function activeModel(registry: SparkProviderRegistry) {
+  const model = registry.buildActiveModel();
+  assert.ok(model);
+  return model;
+}
+
+function streamOptions(options: CapturedProviderOptions): CapturedProviderOptions {
+  return options;
+}
+
 const fakeProvider: ProviderConfig = {
   name: "fake",
   baseUrl: "https://fake.test",
@@ -52,7 +67,7 @@ function fakeAssistant(stopReason: "stop" | "error", errorMessage?: string) {
 
 test("provider registry stream path forwards prompt_cache_key to OpenAI-compatible options", async () => {
   const registry = new SparkProviderRegistry();
-  let capturedOptions: any;
+  let capturedOptions: CapturedProviderOptions | undefined;
   registry.registerProvider("fake", {
     ...fakeProvider,
     streamSimple: (_model, _context, options) => {
@@ -61,17 +76,21 @@ test("provider registry stream path forwards prompt_cache_key to OpenAI-compatib
     },
   });
   registry.setActive({ providerName: "fake", modelId: "model-a" });
+  const activeModel = registry.buildActiveModel();
+  assert.ok(activeModel);
 
   createProviderRegistryStreamFunction(registry)(
-    registry.buildActiveModel() as never,
-    { messages: [], tools: [] } as never,
-    { prompt_cache_key: "spark:cache:key" } as never,
+    activeModel,
+    { messages: [], tools: [] },
+    streamOptions({ prompt_cache_key: "spark:cache:key" }),
   );
 
+  assert.ok(capturedOptions);
   assert.equal(capturedOptions.prompt_cache_key, "spark:cache:key");
-  assert.equal(capturedOptions.metadata.prompt_cache_key, "spark:cache:key");
+  assert.deepEqual(capturedOptions.metadata, { prompt_cache_key: "spark:cache:key" });
   assert.equal(capturedOptions.sessionId, undefined);
-  assert.deepEqual(await capturedOptions.onPayload({ model: "model-a" }, {}), {
+  assert.ok(capturedOptions.onPayload);
+  assert.deepEqual(await capturedOptions.onPayload({ model: "model-a" }, activeModel), {
     model: "model-a",
     prompt_cache_key: "spark:cache:key",
   });
@@ -82,7 +101,7 @@ test("provider registry stream path forwards prompt_cache_key to OpenAI-compatib
 
 test("provider transport retries have no attempt cap inside an abortable turn", () => {
   const registry = new SparkProviderRegistry();
-  let capturedOptions: any;
+  let capturedOptions: CapturedProviderOptions | undefined;
   registry.registerProvider("fake", {
     ...fakeProvider,
     streamSimple: (_model, _context, options) => {
@@ -91,19 +110,19 @@ test("provider transport retries have no attempt cap inside an abortable turn", 
     },
   });
   registry.setActive({ providerName: "fake", modelId: "model-a" });
-
   createProviderRegistryStreamFunction(registry)(
-    registry.buildActiveModel() as never,
-    { messages: [], tools: [] } as never,
-    { signal: new AbortController().signal } as never,
+    activeModel(registry),
+    { messages: [], tools: [] },
+    { signal: new AbortController().signal },
   );
 
+  assert.ok(capturedOptions);
   assert.equal(capturedOptions.maxRetries, SPARK_PROVIDER_TRANSPORT_MAX_RETRIES);
 });
 
 test("provider transport preserves an explicit retry policy", () => {
   const registry = new SparkProviderRegistry();
-  let capturedOptions: any;
+  let capturedOptions: CapturedProviderOptions | undefined;
   registry.registerProvider("fake", {
     ...fakeProvider,
     streamSimple: (_model, _context, options) => {
@@ -114,11 +133,12 @@ test("provider transport preserves an explicit retry policy", () => {
   registry.setActive({ providerName: "fake", modelId: "model-a" });
 
   createProviderRegistryStreamFunction(registry)(
-    registry.buildActiveModel() as never,
-    { messages: [], tools: [] } as never,
-    { signal: new AbortController().signal, maxRetries: 2 } as never,
+    activeModel(registry),
+    { messages: [], tools: [] },
+    { signal: new AbortController().signal, maxRetries: 2 },
   );
 
+  assert.ok(capturedOptions);
   assert.equal(capturedOptions.maxRetries, 2);
 });
 
@@ -153,13 +173,13 @@ test("provider stream retries concatenated JSON failures before visible output",
   registry.setActive({ providerName: "fake", modelId: "model-a" });
 
   const stream = createProviderRegistryStreamFunction(registry)(
-    registry.buildActiveModel() as never,
-    { messages: [], tools: [] } as never,
+    activeModel(registry),
+    { messages: [], tools: [] },
     {
       signal: new AbortController().signal,
       maxRetries: 1,
       maxRetryDelayMs: 1,
-    } as never,
+    },
   );
   const eventTypes: string[] = [];
   for await (const event of stream) eventTypes.push(event.type);
@@ -196,13 +216,13 @@ test("provider stream preserves errors after visible output", async () => {
   registry.setActive({ providerName: "fake", modelId: "model-a" });
 
   const stream = createProviderRegistryStreamFunction(registry)(
-    registry.buildActiveModel() as never,
-    { messages: [], tools: [] } as never,
+    activeModel(registry),
+    { messages: [], tools: [] },
     {
       signal: new AbortController().signal,
       maxRetries: 1,
       maxRetryDelayMs: 1,
-    } as never,
+    },
   );
   const eventTypes: string[] = [];
   for await (const event of stream) eventTypes.push(event.type);
@@ -214,7 +234,7 @@ test("provider stream preserves errors after visible output", async () => {
 
 test("provider registry bridge composes an existing OpenAI Responses payload hook", async () => {
   const registry = new SparkProviderRegistry();
-  let capturedOptions: any;
+  let capturedOptions: CapturedProviderOptions | undefined;
   registry.registerProvider("fake", {
     ...fakeProvider,
     streamSimple: (_model, _context, options) => {
@@ -223,17 +243,19 @@ test("provider registry bridge composes an existing OpenAI Responses payload hoo
     },
   });
   registry.setActive({ providerName: "fake", modelId: "model-a" });
+  const model = activeModel(registry);
 
   createProviderRegistryStreamFunction(registry)(
-    registry.buildActiveModel() as never,
-    { messages: [], tools: [] } as never,
-    {
+    model,
+    { messages: [], tools: [] },
+    streamOptions({
       prompt_cache_key: "spark:cache:key",
       onPayload: (payload: unknown) => ({ ...(payload as object), caller_marker: true }),
-    } as never,
+    }),
   );
 
-  assert.deepEqual(await capturedOptions.onPayload({ model: "model-a" }, {}), {
+  assert.ok(capturedOptions?.onPayload);
+  assert.deepEqual(await capturedOptions.onPayload({ model: "model-a" }, model), {
     model: "model-a",
     prompt_cache_key: "spark:cache:key",
     caller_marker: true,
@@ -242,7 +264,7 @@ test("provider registry bridge composes an existing OpenAI Responses payload hoo
 
 test("provider registry bridge preserves an explicit OpenAI Responses sessionId", () => {
   const registry = new SparkProviderRegistry();
-  let capturedOptions: any;
+  let capturedOptions: CapturedProviderOptions | undefined;
   registry.registerProvider("fake", {
     ...fakeProvider,
     streamSimple: (_model, _context, options) => {
@@ -251,20 +273,20 @@ test("provider registry bridge preserves an explicit OpenAI Responses sessionId"
     },
   });
   registry.setActive({ providerName: "fake", modelId: "model-a" });
-
   createProviderRegistryStreamFunction(registry)(
-    registry.buildActiveModel() as never,
-    { messages: [], tools: [] } as never,
-    { prompt_cache_key: "spark:cache:key", sessionId: "existing-session" } as never,
+    activeModel(registry),
+    { messages: [], tools: [] },
+    streamOptions({ prompt_cache_key: "spark:cache:key", sessionId: "existing-session" }),
   );
 
+  assert.ok(capturedOptions);
   assert.equal(capturedOptions.sessionId, "existing-session");
   assert.equal(capturedOptions.onPayload, undefined);
 });
 
 test("provider registry payload bridge honors disabled cache retention", () => {
   const registry = new SparkProviderRegistry();
-  let capturedOptions: any;
+  let capturedOptions: CapturedProviderOptions | undefined;
   registry.registerProvider("fake", {
     ...fakeProvider,
     streamSimple: (_model, _context, options) => {
@@ -275,18 +297,19 @@ test("provider registry payload bridge honors disabled cache retention", () => {
   registry.setActive({ providerName: "fake", modelId: "model-a" });
 
   createProviderRegistryStreamFunction(registry)(
-    registry.buildActiveModel() as never,
-    { messages: [], tools: [] } as never,
-    { prompt_cache_key: "spark:cache:key", cacheRetention: "none" } as never,
+    activeModel(registry),
+    { messages: [], tools: [] },
+    streamOptions({ prompt_cache_key: "spark:cache:key", cacheRetention: "none" }),
   );
 
+  assert.ok(capturedOptions);
   assert.equal(capturedOptions.cacheRetention, "none");
   assert.equal(capturedOptions.onPayload, undefined);
 });
 
 test("provider registry payload bridge preserves the OpenAI cache-key length limit", async () => {
   const registry = new SparkProviderRegistry();
-  let capturedOptions: any;
+  let capturedOptions: CapturedProviderOptions | undefined;
   registry.registerProvider("fake", {
     ...fakeProvider,
     streamSimple: (_model, _context, options) => {
@@ -295,20 +318,22 @@ test("provider registry payload bridge preserves the OpenAI cache-key length lim
     },
   });
   registry.setActive({ providerName: "fake", modelId: "model-a" });
+  const model = activeModel(registry);
 
   createProviderRegistryStreamFunction(registry)(
-    registry.buildActiveModel() as never,
-    { messages: [], tools: [] } as never,
-    { prompt_cache_key: "x".repeat(80) } as never,
+    model,
+    { messages: [], tools: [] },
+    streamOptions({ prompt_cache_key: "x".repeat(80) }),
   );
 
-  const payload = (await capturedOptions.onPayload({}, {})) as Record<string, unknown>;
+  assert.ok(capturedOptions?.onPayload);
+  const payload = (await capturedOptions.onPayload({}, model)) as Record<string, unknown>;
   assert.equal(payload.prompt_cache_key, "x".repeat(64));
 });
 
 test("provider registry payload bridge leaves other transports untouched", () => {
   const registry = new SparkProviderRegistry();
-  let capturedOptions: any;
+  let capturedOptions: CapturedProviderOptions | undefined;
   registry.registerProvider("fake", {
     ...fakeProvider,
     api: "anthropic-messages",
@@ -320,11 +345,12 @@ test("provider registry payload bridge leaves other transports untouched", () =>
   registry.setActive({ providerName: "fake", modelId: "model-a" });
 
   createProviderRegistryStreamFunction(registry)(
-    registry.buildActiveModel() as never,
-    { messages: [], tools: [] } as never,
-    { prompt_cache_key: "spark:cache:key" } as never,
+    activeModel(registry),
+    { messages: [], tools: [] },
+    streamOptions({ prompt_cache_key: "spark:cache:key" }),
   );
 
+  assert.ok(capturedOptions);
   assert.equal(capturedOptions.sessionId, undefined);
   assert.equal(capturedOptions.onPayload, undefined);
 });
@@ -355,9 +381,9 @@ test("Spark prompt cache key reaches the real pi-ai OpenAI Responses payload", a
     const stream = createProviderRegistryStreamFunction(registry, {
       resolveApiKey: () => "wire-test-key",
     })(
-      registry.buildActiveModel() as never,
-      { messages: [], tools: [] } as never,
-      { prompt_cache_key: "spark:wire:cache:key" } as never,
+      activeModel(registry),
+      { messages: [], tools: [] },
+      streamOptions({ prompt_cache_key: "spark:wire:cache:key" }),
     );
     await stream.result();
 
@@ -397,9 +423,9 @@ test("Spark real pi-ai provider retries transient responses inside one invocatio
     const stream = createProviderRegistryStreamFunction(registry, {
       resolveApiKey: () => "wire-test-key",
     })(
-      registry.buildActiveModel() as never,
-      { messages: [], tools: [] } as never,
-      { signal: new AbortController().signal } as never,
+      activeModel(registry),
+      { messages: [], tools: [] },
+      { signal: new AbortController().signal },
     );
     const result = await stream.result();
 

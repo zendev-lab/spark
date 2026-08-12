@@ -2,7 +2,7 @@ import { render } from "vitest-browser-svelte";
 import { describe, expect, it, vi } from "vitest";
 
 import Message from "./Message.svelte";
-import type { ConversationMessageView } from "./types";
+import type { ConversationMessageView } from "@zendev-lab/spark-ui/conversation";
 
 const baseProps = {
   sessionId: "session:test",

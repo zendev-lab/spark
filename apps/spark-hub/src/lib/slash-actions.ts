@@ -26,6 +26,8 @@ export type HubSlashCommandSuggestion = Readonly<{
   description?: string;
 }>;
 
+export type HubDirectSessionCommand = "select" | "create";
+
 export function hubComposerFeedbackAfterInput(
   state: HubComposerSubmissionState,
 ): HubComposerFeedbackTransition {
@@ -72,32 +74,35 @@ export function hubSlashSuggestionsForInput(
   messages: HubSlashActionMessages,
 ): readonly HubSlashCommandSuggestion[] {
   const resolution = resolveSparkSlashEditorInput(input);
-  if (resolution.kind !== "suggest") return [];
+  const catalogSuggestions =
+    resolution.kind === "suggest"
+      ? resolution.suggestions.map((suggestion) => {
+          const view = localizeHubSlashActionBar(suggestion.descriptor.actionBar, messages);
+          return {
+            id: `${suggestion.canonicalCommand}:${suggestion.command}`,
+            command: suggestion.command,
+            canonicalCommand: suggestion.canonicalCommand,
+            title: view.title,
+            ...(view.description ? { description: view.description } : {}),
+          };
+        })
+      : [];
 
-  return resolution.suggestions.map((suggestion) => {
-    const view = localizeHubSlashActionBar(suggestion.descriptor.actionBar, messages);
-    return {
-      id: `${suggestion.canonicalCommand}:${suggestion.command}`,
-      command: suggestion.command,
-      canonicalCommand: suggestion.canonicalCommand,
-      title: view.title,
-      ...(view.description ? { description: view.description } : {}),
-    };
-  });
+  return [...catalogSuggestions, ...hubDirectSessionSuggestions(input, messages)];
 }
 
 /**
- * The session picker is a navigation surface, so its two explicit spellings
- * should open it directly on Enter instead of requiring a second action-bar
- * click. Other session aliases keep their distinct action-bar semantics.
+ * Session navigation is host-owned rather than an action-bar surface.
+ * `/sessions` and bare `/resume` open the selector; `/new` opens creation.
  */
-export function hubSessionSelectionShortcutForInput(input: string): boolean {
-  const resolution = resolveSparkSlashEditorInput(input);
-  return (
-    resolution.kind === "exact" &&
-    resolution.descriptor.name === "session" &&
-    (resolution.command === "session" || resolution.command === "sessions")
-  );
+export function hubDirectSessionCommandForInput(
+  input: string,
+): HubDirectSessionCommand | undefined {
+  const parsed = parseSparkSlashInput(input);
+  if (!parsed || parsed.args) return undefined;
+  if (parsed.command === "sessions" || parsed.command === "resume") return "select";
+  if (parsed.command === "new") return "create";
+  return undefined;
 }
 
 /** Match a known command name even when arguments are present. */
@@ -123,4 +128,35 @@ export function hubSlashSubmissionError(
 function lookup(values: object, key: string): string | undefined {
   const candidate = (values as Record<string, unknown>)[key];
   return typeof candidate === "string" && candidate.trim() ? candidate : undefined;
+}
+
+function hubDirectSessionSuggestions(
+  input: string,
+  messages: HubSlashActionMessages,
+): HubSlashCommandSuggestion[] {
+  const match = /^\/([a-z0-9-]*)$/iu.exec(input.trim());
+  if (!match || input.trim().startsWith("//")) return [];
+  const query = (match[1] ?? "").toLowerCase();
+  const candidates: Array<{ command: string; canonicalCommand: string }> = [];
+  if (query === "") {
+    candidates.push(
+      { command: "sessions", canonicalCommand: "sessions" },
+      { command: "new", canonicalCommand: "new" },
+    );
+  } else if ("sessions".startsWith(query)) {
+    candidates.push({ command: "sessions", canonicalCommand: "sessions" });
+  } else if ("resume".startsWith(query)) {
+    candidates.push({ command: "resume", canonicalCommand: "sessions" });
+  } else if ("new".startsWith(query)) {
+    candidates.push({ command: "new", canonicalCommand: "new" });
+  }
+  if (candidates.some((candidate) => candidate.command === query)) return [];
+  const title = lookup(messages.titles, "session") ?? messages.fallbackTitle;
+  const description = lookup(messages.descriptions, "session");
+  return candidates.map((candidate) => ({
+    id: `${candidate.canonicalCommand}:${candidate.command}`,
+    ...candidate,
+    title,
+    ...(description ? { description } : {}),
+  }));
 }

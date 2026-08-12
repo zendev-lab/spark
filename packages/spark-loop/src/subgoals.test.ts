@@ -179,8 +179,10 @@ describe("updateSubgoalStatus", () => {
     });
 
     const reopened = updateSubgoalStatus(completed, { status: "pending" });
-    expect(reopened.status).toBe("pending");
-    expect(reopened.verification).toBeUndefined();
-    expect(reopened.evidenceRefs).toEqual([proofRef]);
+    expect(reopened).toMatchObject({
+      status: "pending",
+      evidenceRefs: [proofRef],
+      verification: undefined,
+    });
   });
 });

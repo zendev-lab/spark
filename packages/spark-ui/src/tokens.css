@@ -12,6 +12,8 @@
  */
 
 :root {
+  color-scheme: light;
+
   /* ----- Colors ---------------------------------------------------------- */
 
   /* Primary action and selection. */
@@ -70,6 +72,7 @@
   --color-code-surface-soft: #1e293b;
   --color-code-ink: #e2e8f0;
   --color-code-muted: #94a3b8;
+  --color-overlay: rgb(15 23 42 / 42%);
 
   /* ----- Brand --------------------------------------------------------- */
   /*
@@ -179,6 +182,71 @@
 }
 
 /*
+ * Dark tokens are opt-in. Product surfaces decide when to set the theme; the
+ * UI package only guarantees that components inherit a complete token set.
+ */
+:root[data-spark-theme="dark"],
+[data-spark-theme="dark"] {
+  color-scheme: dark;
+
+  --color-primary: #60a5fa;
+  --color-primary-hover: #93c5fd;
+  --color-primary-soft: #1e3a5f;
+  --color-primary-weak: #172554;
+  --color-on-primary: #0f172a;
+
+  --color-canvas: #0b1120;
+  --color-surface: #111827;
+  --color-surface-soft: #172033;
+  --color-surface-muted: #1e293b;
+  --color-surface-raised: #172033;
+
+  --color-border: #334155;
+  --color-border-soft: #273449;
+  --color-border-strong: #475569;
+  --color-focus-ring: #60a5fa;
+
+  --color-ink: #f8fafc;
+  --color-ink-muted: #cbd5e1;
+  --color-ink-subtle: #94a3b8;
+  --color-ink-disabled: #64748b;
+  --color-on-dark: #f8fafc;
+
+  --color-success: #4ade80;
+  --color-success-strong: #86efac;
+  --color-success-soft: #14532d;
+  --color-success-weak: #052e16;
+
+  --color-warning: #fb923c;
+  --color-warning-strong: #fdba74;
+  --color-warning-soft: #7c2d12;
+  --color-warning-weak: #431407;
+
+  --color-danger: #f87171;
+  --color-danger-strong: #fca5a5;
+  --color-danger-soft: #7f1d1d;
+  --color-danger-weak: #450a0a;
+
+  --color-info: #60a5fa;
+  --color-info-strong: #93c5fd;
+  --color-info-soft: #1e3a8a;
+
+  --color-purple: #a78bfa;
+  --color-purple-soft: #4c1d95;
+
+  --color-code-surface: #020617;
+  --color-code-surface-soft: #0f172a;
+  --color-code-ink: #e2e8f0;
+  --color-code-muted: #94a3b8;
+  --color-overlay: rgb(2 6 23 / 68%);
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 22%);
+  --shadow-card-raised: 0 18px 48px rgb(0 0 0 / 24%);
+  --shadow-popover: 0 16px 40px rgb(0 0 0 / 42%);
+  --shadow-focus: 0 0 0 3px rgb(96 165 250 / 36%);
+}
+
+/*
  * Global element resets that depend on tokens. Keep this minimal — it is not
  * a CSS reset library, only the per-element defaults that ensure tokenised
  * components render the same regardless of which page mounts them.
@@ -215,4 +283,20 @@ samp {
 :focus-visible {
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-default: 0ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -18,7 +18,8 @@ spark
 ```
 
 不需要先选择工具、Loop 或 command plane。多步骤修改先用 `/plan`，计划确认后
-再用 `/execute`。
+用 `/execute`；当确认后的 ready Task 具有互不冲突的现有 worktree 目标时，使用
+`/fleet`。
 
 ## 日常控制
 
@@ -28,6 +29,7 @@ spark
 /help
 /plan <目标>
 /execute [范围]
+/fleet [范围]
 /status
 /stop [原因]
 /retry
@@ -37,6 +39,9 @@ spark
 模型、推理强度、会话选择和输入队列会在需要时出现。它们是当前交互的控制项，
 不是独立产品功能。新会话的默认推理强度为 `high`；会话显式设置或已保存的用户设置
 仍然优先。
+
+`/status` 会直接输出 daemon、当前 session、活跃工作、用量和输入队列的完整汇总，
+不会先打开 action picker。
 
 ## 查看当前会话
 

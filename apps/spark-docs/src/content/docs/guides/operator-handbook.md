@@ -14,8 +14,9 @@ also defines the checks to run before changing state when something goes wrong.
   sends user intent to the daemon.
 - **Hub Web** is the browser coordination and projection surface. It does not
   infer execution state from browser timers or transcript text.
-- Product artifacts are exactly Issues, PRs, and previews. Internal verification
-  evidence is a separate namespace and is not a product artifact.
+- Product artifacts are exactly Issues, Git changes, and Documents. A Git change
+  owns one worktree and its PR stack; a preview is a Document view. Internal
+  verification Evidence is a separate namespace and is not a product Artifact.
 
 When two surfaces disagree, inspect the daemon first.
 
@@ -245,7 +246,7 @@ Use these surfaces together:
 - **Conversations** and the TUI show daemon-owned sessions and turns.
 - **Inbox** shows inline questions and approvals without moving Ask into a
   global modal.
-- **Artifacts** contains only Issues, PRs, and previews.
+- **Artifacts** contains only Issues, Git changes, and Documents.
 - **Resources** contains workspace repositories, documents, URLs, files, tools,
   and secret references.
 - Goal, Repro, Workflow, and background loops remain distinct; do not collapse
@@ -258,10 +259,9 @@ Continue with [TUI](/guides/tui/), [runs and sessions](/guides/runs-and-sessions
 
 Spark 0.2.0 keeps the Pi TUI kernel behind the private
 `SparkTerminalController`. OpenTUI is an isolated candidate, not a production
-dependency. Run `pnpm run audit:renderer` to see the fail-closed readiness
-report. Spark will not raise its Node baseline or switch renderers until
-launcher flags, native artifacts, PTY lifecycle, all four terminal sizes, and
-the complete controller contract pass as reproducible gates.
+dependency. A renderer change requires a separate architecture decision and
+evidence from the component, Direct PTY, packaged-product, and supported
+platform validation lanes.
 
 ## 8. Remote access
 

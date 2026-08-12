@@ -11,13 +11,13 @@ import {
   sparkLoopViewSchema,
   type SparkLoopBinding,
   type SparkLoopConditionReceipt,
-  type SparkLoopContinuity,
   type SparkLoopCounters,
   type SparkLoopCycleCheckpoint,
   type SparkLoopListResult,
   type SparkLoopMutationResult,
   type SparkLoopPolicy,
   type SparkLoopPolicyInput,
+  type SparkLoopSessionLifetime,
   type SparkLoopScheduleRequest,
   type SparkLoopStatus,
   type SparkLoopView,
@@ -54,7 +54,9 @@ export interface StartSparkLoopInput extends SparkLoopRoute {
   ownerSessionId: string;
   binding?: SparkLoopBinding;
   policy?: SparkLoopPolicyInput;
-  continuity?: SparkLoopContinuity;
+  sessionLifetime?: SparkLoopSessionLifetime;
+  /** @deprecated Compatibility input; runtime uses sessionLifetime. */
+  continuity?: "session" | "fresh";
   prompt: string;
   dueAt?: string;
   reason?: string;
@@ -67,6 +69,8 @@ export interface StartSparkLoopInput extends SparkLoopRoute {
 }
 
 export interface SparkLoopRecord extends SparkLoopView {
+  /** Stable child Session for driver-lifetime loops; tick Sessions use cycle identities. */
+  driverSessionId: string;
   prompt: string;
   wakePrompt?: string;
   route: SparkLoopRoute;
@@ -88,7 +92,9 @@ interface LoopRow {
   loop_id: string;
   owner_session_id: string;
   binding_json: string;
-  continuity: SparkLoopContinuity;
+  continuity: "session" | "fresh";
+  session_lifetime: SparkLoopSessionLifetime;
+  driver_session_id: string;
   status: SparkLoopStatus;
   generation: number;
   cycle_step: SparkLoopRecord["cycleStep"] | null;
@@ -109,7 +115,8 @@ interface LoopRow {
   updated_at: string;
 }
 
-const loopSelect = `SELECT loop_id, owner_session_id, binding_json, continuity, status,
+const loopSelect = `SELECT loop_id, owner_session_id, binding_json, continuity,
+  session_lifetime, driver_session_id, status,
   generation, cycle_step, policy_json, workflow_definition_digest, checkpoint_json, counters_json,
   due_at, attempt, last_invocation_id, reason, error, prompt, route_json,
   wake_prompt, domain_state_digest, created_at, updated_at
@@ -192,6 +199,17 @@ export class SparkLoopStore {
     if (ownsTransaction) this.#db.exec("BEGIN IMMEDIATE");
     try {
       const existing = this.get(loopId);
+      const sessionLifetime =
+        input.sessionLifetime ?? (input.continuity === "fresh" ? "driver_tick" : "driver");
+      const continuity = sessionLifetime === "driver_tick" ? "fresh" : "session";
+      const nextGeneration = (existing?.generation ?? 0) + 1;
+      const driverSessionId =
+        sessionLifetime === "driver" &&
+        existing?.sessionLifetime === "driver" &&
+        existing.status !== "completed" &&
+        existing.status !== "stopped"
+          ? existing.driverSessionId
+          : loopDriverSessionId(loopId, nextGeneration);
       if (existing?.lastInvocationId) {
         this.#invocations.requestCancellation(
           existing.lastInvocationId,
@@ -227,17 +245,20 @@ export class SparkLoopStore {
       this.#db
         .prepare(
           `INSERT INTO loop_wakeups
-            (loop_id, owner_session_id, binding_json, continuity, status, generation, cycle_step,
+            (loop_id, owner_session_id, binding_json, continuity, session_lifetime,
+             driver_session_id, status, generation, cycle_step,
              policy_json, workflow_definition_digest, checkpoint_json, counters_json,
              due_at, attempt, reason, prompt, wake_prompt, route_json, domain_state_digest,
              created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 1, NULL, ?, NULL, NULL,
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, NULL, NULL,
              '{"tickCount":0,"skippedCount":0,"llmRequestsAvoided":0,"conditionRetryCount":0}',
              ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(loop_id) DO UPDATE SET
              owner_session_id = excluded.owner_session_id,
              binding_json = excluded.binding_json,
              continuity = excluded.continuity,
+             session_lifetime = excluded.session_lifetime,
+             driver_session_id = excluded.driver_session_id,
              status = excluded.status,
              generation = loop_wakeups.generation + 1,
              cycle_step = NULL,
@@ -259,7 +280,9 @@ export class SparkLoopStore {
           loopId,
           ownerSessionId,
           JSON.stringify(binding),
-          input.continuity ?? "session",
+          continuity,
+          sessionLifetime,
+          driverSessionId,
           input.initialStatus ?? "scheduled",
           JSON.stringify(policy),
           input.dueAt ?? now,
@@ -457,7 +480,7 @@ export class SparkLoopStore {
       ownerSessionId: current.ownerSessionId,
       binding: current.binding,
       policy: current.policy,
-      continuity: current.continuity,
+      sessionLifetime: current.sessionLifetime,
       prompt: current.prompt,
       reason,
       dueAt: now,
@@ -479,7 +502,7 @@ export class SparkLoopStore {
       ownerSessionId: current.ownerSessionId,
       binding: current.binding,
       policy: current.policy,
-      continuity: current.continuity,
+      sessionLifetime: current.sessionLifetime,
       prompt: current.prompt,
       wakePrompt: input.prompt,
       reason: input.reason,
@@ -868,7 +891,7 @@ export class SparkLoopStore {
     try {
       const invocation = this.#invocations.submit({
         workspaceBindingId: record.route.workspaceBindingId,
-        sessionId: record.ownerSessionId,
+        sessionId: task.sessionId,
         idempotencyKey: `loop.tick:${record.loopId}:${checkpoint.cycleId}:${record.attempt}`,
         prompt: task.prompt,
         task,
@@ -894,17 +917,6 @@ export class SparkLoopStore {
           ).changes,
       );
       if (changes !== 1) throw new Error(`LOOP_MATERIALIZE_CONFLICT: ${record.loopId}`);
-      if (record.continuity === "fresh") {
-        const executionSessionId = loopExecutionSessionId(record);
-        this.#db
-          .prepare(
-            `INSERT INTO loop_hidden_sessions
-              (execution_session_id, loop_id, generation, invocation_id, status, created_at)
-             VALUES (?, ?, ?, ?, 'active', ?)
-             ON CONFLICT(execution_session_id) DO UPDATE SET invocation_id = excluded.invocation_id`,
-          )
-          .run(executionSessionId, record.loopId, record.generation, invocation.invocationId, now);
-      }
       this.#db.exec("COMMIT");
       return invocation;
     } catch (error) {
@@ -1111,22 +1123,6 @@ export class SparkLoopStore {
     completion: CompleteSparkInvocationInput,
     now: string,
   ): void {
-    if (task.continuity === "fresh" && task.executionSessionId) {
-      this.#db
-        .prepare(
-          `UPDATE loop_hidden_sessions
-           SET status = 'archived', session_path = COALESCE(?, session_path),
-               archived_at = ?, gc_after = ?
-           WHERE execution_session_id = ? AND invocation_id = ?`,
-        )
-        .run(
-          resultSessionPath(completion.result) ?? null,
-          now,
-          new Date(Date.parse(now) + 24 * 60 * 60_000).toISOString(),
-          task.executionSessionId,
-          invocation.invocationId,
-        );
-    }
     if (
       current.generation !== task.generation ||
       current.lastInvocationId !== invocation.invocationId ||
@@ -1469,23 +1465,24 @@ function loopTickTask(
   record: SparkLoopRecord,
   checkpoint: SparkLoopCycleCheckpoint = requireCheckpoint(record, "before_tick"),
 ): SparkDaemonLoopTickTask {
-  const executionSessionId =
-    record.continuity === "fresh" ? loopExecutionSessionId(record) : record.ownerSessionId;
+  const sessionId =
+    record.sessionLifetime === "driver_tick"
+      ? loopTickSessionId(record, checkpoint.cycleId)
+      : record.driverSessionId;
   return {
     type: "loop.tick",
-    sessionId: record.ownerSessionId,
+    sessionId,
     loopId: record.loopId,
     binding: record.binding,
     ownerSessionId: record.ownerSessionId,
     generation: record.generation,
-    continuity: record.continuity,
+    sessionLifetime: record.sessionLifetime,
     prompt: renderTickPrompt(record, checkpoint),
     cwd: record.route.cwd,
     workspaceBindingId: record.route.workspaceBindingId,
     workspaceId: record.route.workspaceId,
     projectId: record.route.projectId,
-    stateOwnerSessionId: record.ownerSessionId,
-    ...(record.continuity === "fresh" ? { executionSessionId, reset: true } : {}),
+    ...(record.sessionLifetime === "driver_tick" ? { reset: true } : {}),
   };
 }
 
@@ -1618,15 +1615,18 @@ function parseEvaluationResult(value: unknown): SparkDaemonLoopEvaluationResult 
   return { receipts, decision: { action: decision.action } };
 }
 
-function loopExecutionSessionId(record: Pick<SparkLoopRecord, "loopId" | "generation">): string {
-  const loopHash = createHash("sha256").update(record.loopId).digest("hex").slice(0, 24);
-  return `loop_${loopHash}_${record.generation}`;
+function loopDriverSessionId(loopId: string, generation: number): string {
+  const loopHash = createHash("sha256").update(loopId).digest("hex").slice(0, 24);
+  return `driver_${loopHash}_${generation}`;
 }
 
-function resultSessionPath(result: unknown): string | undefined {
-  if (!result || typeof result !== "object" || Array.isArray(result)) return undefined;
-  const value = (result as Record<string, unknown>).sessionPath;
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+function loopTickSessionId(
+  record: Pick<SparkLoopRecord, "loopId" | "generation">,
+  cycleId: string,
+): string {
+  const loopHash = createHash("sha256").update(record.loopId).digest("hex").slice(0, 24);
+  const cycleHash = createHash("sha256").update(cycleId).digest("hex").slice(0, 12);
+  return `driver_tick_${loopHash}_${record.generation}_${cycleHash}`;
 }
 
 function completionTransition(
@@ -1726,6 +1726,8 @@ function loopRecord(row: LoopRow): SparkLoopRecord {
     loopId: row.loop_id,
     ownerSessionId: row.owner_session_id,
     status: row.status,
+    sessionLifetime: row.session_lifetime,
+    driverSessionId: row.driver_session_id,
     continuity: row.continuity,
     generation: Number(row.generation),
     ...(row.workflow_definition_digest
@@ -1796,6 +1798,7 @@ function loopView(record: SparkLoopRecord): SparkLoopView {
     loopId: record.loopId,
     ownerSessionId: record.ownerSessionId,
     status: record.status,
+    sessionLifetime: record.sessionLifetime,
     continuity: record.continuity,
     generation: record.generation,
     workflowDefinitionDigest: record.workflowDefinitionDigest,

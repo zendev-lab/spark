@@ -281,7 +281,10 @@ test("impl_ask tool uses fullscreen ask flow when custom UI is available", async
         cwd: dir,
         ui: {
           custom: async (...args: unknown[]) => {
-            const factory = args[0] as Function;
+            const factory = args[0] as (...factoryArgs: unknown[]) => {
+              render(width: number): string[];
+              handleInput(data: string): void;
+            };
             let component: { render(width: number): string[]; handleInput(data: string): void };
             component = factory(
               { terminal: { columns: 120 }, requestRender() {} },
@@ -342,7 +345,7 @@ test("impl_ask custom fullscreen UI times out when done is never called", async 
         ui: {
           customTimeoutMs: 10,
           custom: (...args: unknown[]) => {
-            const factory = args[0] as Function;
+            const factory = args[0] as (...factoryArgs: unknown[]) => unknown;
             factory(
               { terminal: { columns: 80 }, requestRender() {} },
               {

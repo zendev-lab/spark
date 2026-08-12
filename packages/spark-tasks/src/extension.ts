@@ -14,6 +14,7 @@ export type SparkTaskWriteAction =
   | "project_metadata_update"
   | "claim"
   | "plan"
+  | "replace_dependencies"
   | "finish"
   | "recover"
   | "release"
@@ -25,11 +26,12 @@ export type SparkTaskAssignAction = "assign";
 export type SparkTaskAction = SparkTaskReadAction | SparkTaskWriteAction | SparkTaskAssignAction;
 
 /**
- * Session-bound TODO checklist ops. The `todo` tool is a lightweight, action-style
- * checklist that survives reload for the current session and is not tied to a claimed
- * task. Task plan items live on task_write({ action: "plan_update" }) instead.
+ * Session-bound TODO checklist actions. The public `update` action reconciles target
+ * state atomically; event-style actions remain decoder-only compatibility inputs. Task
+ * plan items live on task_write({ action: "plan_update" }) instead.
  */
 export type SparkTodoAction =
+  | "update"
   | "list"
   | "init"
   | "append"
@@ -102,6 +104,7 @@ const TASK_WRITE_ACTIONS: readonly SparkTaskWriteAction[] = [
   "project_metadata_update",
   "claim",
   "plan",
+  "replace_dependencies",
   "finish",
   "recover",
   "release",
@@ -112,6 +115,7 @@ const TASK_WRITE_ACTIONS: readonly SparkTaskWriteAction[] = [
 ];
 
 const TODO_ACTIONS: readonly SparkTodoAction[] = [
+  "update",
   "list",
   "init",
   "append",
@@ -126,69 +130,128 @@ const TODO_ACTIONS: readonly SparkTodoAction[] = [
   "note",
 ];
 
+const taskStatusSchema = Type.Union([
+  Type.Literal("pending"),
+  Type.Literal("ready"),
+  Type.Literal("running"),
+  Type.Literal("blocked"),
+  Type.Literal("cancelled"),
+]);
+
+const todoStatusSchema = Type.Union([
+  Type.Literal("pending"),
+  Type.Literal("in_progress"),
+  Type.Literal("done"),
+  Type.Literal("blocked"),
+  Type.Literal("cancelled"),
+]);
+
+const taskPlanItemStateSchema = Type.Object(
+  {
+    id: Type.Optional(Type.String({ description: "Existing plan-item id; omit for a new item." })),
+    title: Type.String({ description: "Concrete plan-item outcome." }),
+    description: Type.Optional(Type.String()),
+    status: todoStatusSchema,
+    notes: Type.Optional(Type.Array(Type.String())),
+    blockedBy: Type.Optional(Type.Array(Type.String())),
+    evidenceRefs: Type.Optional(Type.Array(Type.String())),
+  },
+  { additionalProperties: false },
+);
+
+const sessionTodoStateSchema = Type.Object(
+  {
+    id: Type.Optional(Type.String({ description: "Existing TODO id; omit for a new item." })),
+    content: Type.String({ description: "Standalone next-step text." }),
+    status: todoStatusSchema,
+    notes: Type.Optional(Type.Array(Type.String())),
+    blockedBy: Type.Optional(Type.Array(Type.String())),
+  },
+  { additionalProperties: false },
+);
+
+const taskMutationSchema = Type.Object(
+  {
+    taskRef: Type.Optional(Type.String({ description: "Exact existing Task ref." })),
+    name: Type.Optional(Type.String({ description: "Stable @task name." })),
+    title: Type.Optional(Type.String({ description: "Task title." })),
+    description: Type.Optional(Type.String({ description: "Concrete task objective." })),
+    kind: Type.Optional(Type.String({ description: "research | implement | review" })),
+    status: Type.Optional(taskStatusSchema),
+    roleRef: Type.Optional(Type.String({ description: "Preferred executor Role ref." })),
+    executionPolicy: Type.Optional(
+      Type.Record(Type.String(), Type.Unknown(), {
+        description: "Typed Task execution-policy object.",
+      }),
+    ),
+    plan: Type.Optional(
+      Type.Record(Type.String(), Type.Unknown(), {
+        description: "High-bar TaskPlan object.",
+      }),
+    ),
+    dependsOn: Type.Optional(Type.Array(Type.String())),
+    rationale: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+
+const finishEvidenceSchema = Type.Object(
+  {
+    title: Type.Optional(Type.String()),
+    notes: Type.Optional(Type.String()),
+    changedFiles: Type.Optional(Type.Array(Type.String())),
+    sourceRefs: Type.Optional(Type.Array(Type.String())),
+    validationCommands: Type.Optional(Type.Array(Type.String())),
+  },
+  { additionalProperties: false },
+);
+
+const statusViewProperties = {
+  includeWorkspaceSummary: Type.Optional(Type.Boolean()),
+  includeStateSummary: Type.Optional(Type.Boolean()),
+  view: Type.Optional(Type.Union([Type.Literal("active"), Type.Literal("summary")])),
+  format: Type.Optional(Type.Union([Type.Literal("text"), Type.Literal("json")])),
+  limit: Type.Optional(Type.Number()),
+};
+
 export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskToolOptions): void {
   pi.registerTool({
     name: "task_read",
     label: "Task Read",
     description:
       "Read-only project/task/TODO/run graph capability. Use action=task_status for one task, project_status for one project, workspace_status for the broad workspace summary, project_list for project lists, or run_status for task-run status.",
+    policy: {
+      effect: "read",
+      executionMode: "parallel",
+      domains: ["tasks"],
+      modes: ["plan", "execute", "fleet"],
+      approval: "none",
+    },
     promptGuidelines: [
-      "Use task_read for project/task/TODO/run graph inspection; run_status also exposes explicit background-run controls such as inspect/reconcile/kill when runAction selects them.",
+      "Use task_read only for project/task/TODO/run graph inspection. run_status accepts status, list, or inspect; use workflow action=runs for mutations and lifecycle control.",
       "Use task_write for project/task/TODO graph mutations.",
-      "Use assign for explicit role-run spawning; task_read never schedules or controls child runs.",
+      "Use assign for explicit role-run spawning; task_read never schedules, reconciles, acknowledges, or controls child runs.",
     ],
-    parameters: Type.Object({
-      action: Type.String({
-        description: "task_status | project_status | workspace_status | project_list | run_status",
-      }),
-      project: Type.Optional(Type.String({ description: "Project selector/ref/title." })),
-      projectRef: Type.Optional(Type.String({ description: "Project ref filter or selector." })),
-      task: Type.Optional(Type.String({ description: "Task selector/ref/name/title." })),
-      taskRef: Type.Optional(Type.String({ description: "Task ref/name/title selector." })),
-      status: Type.Optional(Type.String({ description: "Project-list status filter." })),
-      includeHistory: Type.Optional(Type.Boolean({ description: "Include terminal run history." })),
-      signal: Type.Optional(Type.String({ description: "run_status kill only; default SIGTERM." })),
-      forceAfterMs: Type.Optional(
-        Type.Number({ description: "run_status kill only; delay before force-kill scheduling." }),
-      ),
-      all: Type.Optional(
-        Type.Boolean({
-          description: "run_status kill only; required to kill all active children.",
-        }),
-      ),
-      message: Type.Optional(
-        Type.String({
-          description:
-            "run_status reply/steer only; text to deliver to a selected active role-run input control channel, including daemon-native control when exposed. Runs without a channel report not delivered.",
-        }),
-      ),
-      includeWorkspaceSummary: Type.Optional(
-        Type.Boolean({
-          description: "For scoped status actions, include broad workspace summary.",
-        }),
-      ),
-      includeStateSummary: Type.Optional(
-        Type.Boolean({ description: "For status actions, include Spark state/cache summary." }),
-      ),
-      runRef: Type.Optional(Type.String({ description: "Run ref selector." })),
-      runAction: Type.Optional(
-        Type.String({
-          description:
-            "For run_status: status | list | inspect | reconcile | kill | reply | steer | ack | kill_active.",
-        }),
-      ),
-      view: Type.Optional(
-        Type.String({
-          description: "For workspace_status/project_status/task_status: active | summary.",
-        }),
-      ),
-      format: Type.Optional(
-        Type.String({
-          description: "For workspace_status/project_status/task_status: text | json.",
-        }),
-      ),
-      limit: Type.Optional(Type.Number({ description: "Bounded row/list limit." })),
-    }),
+    parameters: Type.Object(
+      {
+        action: Type.Union([
+          Type.Literal("task_status"),
+          Type.Literal("project_status"),
+          Type.Literal("workspace_status"),
+          Type.Literal("project_list"),
+          Type.Literal("run_status"),
+        ]),
+        projectRef: Type.Optional(Type.String()),
+        taskRef: Type.Optional(Type.String()),
+        runRef: Type.Optional(Type.String()),
+        runAction: Type.Optional(
+          Type.Union([Type.Literal("status"), Type.Literal("list"), Type.Literal("inspect")]),
+        ),
+        includeHistory: Type.Optional(Type.Boolean()),
+        ...statusViewProperties,
+      },
+      { additionalProperties: false },
+    ),
     renderCall(args, theme) {
       return renderTaskCall("task_read", args, theme);
     },
@@ -208,112 +271,155 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
     name: "task_write",
     label: "Task Write",
     description:
-      "Project/task graph mutation capability. Use intent-specific actions to select/finish/rename/update projects, claim/plan/finish/release tasks, update task plan items, or clean task-owned caches.",
+      "Project/task graph mutation capability. Use intent-specific actions to select/finish/rename/update projects, claim/plan/replace dependencies/finish/release tasks, update task plan items, or clean task-owned caches.",
+    policy: taskWritePolicy(["plan", "execute", "fleet"]),
+    resolvePolicy(args) {
+      const action = typeof args.action === "string" ? args.action : "";
+      if (action === "project_use") return taskWritePolicy(["plan", "execute", "fleet"]);
+      if (action === "recover" || action === "release" || action === "finish") {
+        return taskWritePolicy(["execute", "fleet"]);
+      }
+      if (
+        action === "claim" ||
+        action === "artifact_link" ||
+        action === "artifact_unlink" ||
+        action === "plan_update"
+      ) {
+        return taskWritePolicy(["execute"]);
+      }
+      return taskWritePolicy(["plan"]);
+    },
     promptGuidelines: [
       "Use task_write for project/task graph mutations.",
       "Creating or claiming a task is plan-locked: every task must have a bound high-bar task.plan before claim/creation completes; objectives, success criteria, evidence, and plan items must be concrete and objectively verifiable.",
-      "Use action=release to give up this session's unfinished task claim without finishing or cancelling the task; use action=plan_update to refine claimed task plan items.",
+      "Use action=replace_dependencies only to atomically replace one existing task's complete dependency set; it rejects mixed task creation, metadata, plan, and status mutations.",
+      "Use action=release to give up this session's unfinished task claim without finishing or cancelling the task; action=plan_update atomically reconciles the complete desired plan-item state for the claimed task.",
       "Use artifact_link/artifact_unlink to maintain the task's durable product Artifact references.",
       "Use the session-bound todo tool for standalone session checklists.",
       "Use assign for explicit role-run spawning; task_write does not expose run_ready or run_control.",
     ],
-    parameters: Type.Object({
-      action: Type.String({
-        description:
-          "project_use | project_rename | project_metadata_update | claim | plan | finish | recover | release | artifact_link | artifact_unlink | plan_update | cache_cleanup",
-      }),
-      scope: Type.Optional(Type.String({ description: "For plan_update: task plan items only." })),
-      project: Type.Optional(Type.String({ description: "Project selector/ref/title." })),
-      projectRef: Type.Optional(Type.String({ description: "Project ref filter or selector." })),
-      task: Type.Optional(Type.String({ description: "Task selector/ref/name/title." })),
-      taskRef: Type.Optional(Type.String({ description: "Task ref/name/title selector." })),
-      artifactRef: Type.Optional(
-        Type.String({ description: "Artifact ref/prefix for artifact_link/artifact_unlink." }),
+    parameters: Type.Union([
+      Type.Object(
+        {
+          action: Type.Literal("project_use"),
+          projectRef: Type.Optional(Type.String({ description: "Existing Project ref/title." })),
+          title: Type.Optional(Type.String({ description: "New Project title." })),
+          description: Type.Optional(Type.String()),
+          purpose: Type.Optional(Type.String({ description: "Project purpose." })),
+          outputLanguage: Type.Optional(Type.Union([Type.Literal("zh"), Type.Literal("en")])),
+        },
+        { additionalProperties: false },
       ),
-      title: Type.Optional(Type.String({ description: "Project/task title." })),
-      description: Type.Optional(Type.String({ description: "Project/task description." })),
-      purpose: Type.Optional(Type.String({ description: "Project purpose." })),
-      name: Type.Optional(Type.String({ description: "Stable @task name for claim/plan." })),
-      kind: Type.Optional(
-        Type.String({
-          description:
-            "Project kind id for project_use/project_metadata_update, or optional task executor hint: research | implement | review. Omit for normal work.",
-        }),
+      Type.Object(
+        {
+          action: Type.Literal("project_rename"),
+          projectRef: Type.Optional(Type.String()),
+          title: Type.String({ description: "New Project title." }),
+          text: Type.Optional(Type.String({ description: "Reason for the rename." })),
+        },
+        { additionalProperties: false },
       ),
-      kindState: Type.Optional(
-        Type.Any({
-          description: "Project-kind-specific JSON state for project_use/project_metadata_update.",
-        }),
+      Type.Object(
+        {
+          action: Type.Literal("project_metadata_update"),
+          projectRef: Type.Optional(Type.String()),
+          description: Type.Optional(Type.String()),
+          purpose: Type.Optional(Type.String({ description: "Project purpose." })),
+          outputLanguage: Type.Optional(Type.Union([Type.Literal("zh"), Type.Literal("en")])),
+          text: Type.Optional(Type.String({ description: "Reason for the update." })),
+        },
+        { additionalProperties: false },
       ),
-      status: Type.Optional(
-        Type.String({ description: "Task status for task finish/creation paths." }),
+      Type.Object(
+        {
+          action: Type.Literal("claim"),
+          projectRef: Type.Optional(Type.String()),
+          taskRef: Type.Optional(Type.String()),
+          name: Type.Optional(Type.String()),
+          title: Type.Optional(Type.String()),
+          description: Type.Optional(Type.String()),
+          kind: Type.Optional(Type.String({ description: "research | implement | review" })),
+          status: Type.Optional(taskStatusSchema),
+          roleRef: Type.Optional(Type.String()),
+        },
+        { additionalProperties: false },
       ),
-      outputLanguage: Type.Optional(Type.String({ description: "Project output language." })),
-      roleRef: Type.Optional(
-        Type.String({
-          description:
-            "Executor role ref for hosts that bind reusable role specs; omit for normal task planning.",
-        }),
-      ),
-      plan: Type.Optional(
-        Type.Any({
-          description:
-            "Task plan patch or plan metadata; must be high-bar, concrete, and objectively verifiable.",
-        }),
-      ),
-      tasks: Type.Optional(
-        Type.Array(
-          Type.Any({
+      Type.Object(
+        {
+          action: Type.Literal("plan"),
+          projectRef: Type.Optional(Type.String()),
+          tasks: Type.Array(taskMutationSchema, {
             description:
-              "Concrete task plan entries with high-bar objectives, verifiable success criteria, concrete evidence, and checkable plan items.",
+              "Concrete Task plan entries with high-bar objectives, verifiable success criteria, concrete evidence, and checkable plan items.",
           }),
-        ),
+        },
+        { additionalProperties: false },
       ),
-      dependsOn: Type.Optional(
-        Type.Array(Type.String({ description: "Task dependency selectors." })),
+      Type.Object(
+        {
+          action: Type.Literal("replace_dependencies"),
+          taskRef: Type.String({
+            description: "Existing Task ref, exact name, or exact title selector.",
+          }),
+          dependsOn: Type.Array(
+            Type.String({
+              description:
+                "Complete replacement prerequisite selector list; [] clears all dependencies.",
+            }),
+          ),
+        },
+        { additionalProperties: false },
       ),
-      todos: Type.Optional(
-        Type.Array(
-          Type.String({
+      Type.Object(
+        {
+          action: Type.Literal("finish"),
+          taskRef: Type.Optional(Type.String()),
+          status: Type.Optional(
+            Type.Union([Type.Literal("done"), Type.Literal("failed"), Type.Literal("cancelled")]),
+          ),
+          summary: Type.Optional(Type.String()),
+          evidenceRefs: Type.Optional(Type.Array(Type.String())),
+          evidence: Type.Optional(finishEvidenceSchema),
+        },
+        { additionalProperties: false },
+      ),
+      Type.Object(
+        {
+          action: Type.Union([Type.Literal("recover"), Type.Literal("release")]),
+          projectRef: Type.Optional(Type.String()),
+          taskRef: Type.Optional(Type.String()),
+        },
+        { additionalProperties: false },
+      ),
+      Type.Object(
+        {
+          action: Type.Union([Type.Literal("artifact_link"), Type.Literal("artifact_unlink")]),
+          taskRef: Type.Optional(Type.String()),
+          artifactRef: Type.String(),
+        },
+        { additionalProperties: false },
+      ),
+      Type.Object(
+        {
+          action: Type.Literal("plan_update"),
+          taskRef: Type.Optional(Type.String()),
+          items: Type.Array(taskPlanItemStateSchema, {
             description:
-              "Initial task plan items for task-creation handlers that explicitly support them; plan-aware handlers may also derive plan items from task.plan.",
+              "Complete desired non-deleted plan-item state; omitted existing items become deleted history.",
           }),
-        ),
+        },
+        { additionalProperties: false },
       ),
-      ops: Type.Optional(
-        Type.Array(
-          Type.Any({
-            description:
-              "Plan-item operation entries for plan_update, e.g. init/append/start/done/upsert_done/block/cancel/delete/restore/remove/note.",
-          }),
-        ),
+      Type.Object(
+        {
+          action: Type.Literal("cache_cleanup"),
+          dryRun: Type.Optional(Type.Boolean()),
+          olderThanDays: Type.Optional(Type.Number()),
+          includeBroken: Type.Optional(Type.Boolean()),
+        },
+        { additionalProperties: false },
       ),
-      items: Type.Optional(Type.Array(Type.String({ description: "Plan-item text list." }))),
-      item: Type.Optional(Type.String({ description: "Plan-item text." })),
-      id: Type.Optional(Type.String({ description: "Plan-item id." })),
-      text: Type.Optional(
-        Type.String({ description: "Plan-item note/free text or completion summary." }),
-      ),
-      summary: Type.Optional(Type.String({ description: "Task completion/failure summary." })),
-      evidenceRefs: Type.Optional(
-        Type.Array(
-          Type.String({ description: "EvidenceRecord refs that evidence task completion." }),
-        ),
-      ),
-      evidence: Type.Optional(
-        Type.Any({
-          description:
-            "Optional structured finish evidence. Spark can turn validationCommands, changedFiles, sourceRefs, and notes into a bounded task Evidence record automatically.",
-        }),
-      ),
-      dryRun: Type.Optional(
-        Type.Boolean({ description: "Dry-run for task-owned cache cleanup actions." }),
-      ),
-      olderThanDays: Type.Optional(Type.Number({ description: "cache_cleanup staleness cutoff." })),
-      includeBroken: Type.Optional(
-        Type.Boolean({ description: "cache_cleanup malformed-cache flag." }),
-      ),
-    }),
+    ]),
     renderCall(args, theme) {
       return renderTaskCall("task_write", args, theme);
     },
@@ -333,34 +439,36 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
     name: "assign",
     label: "Assign",
     description:
-      "Explicit Spark assignment/spawn capability. Schedule an allowlisted ready-task frontier through daemon-managed Task Sessions; dry-run by default.",
+      "Explicit Spark assignment/spawn capability. Dispatch an allowlisted ready-task frontier through daemon-managed Task Sessions using host-owned scheduling policy.",
+    policy: {
+      effect: "external_write",
+      executionMode: "sequential",
+      domains: ["tasks", "sessions"],
+      modes: ["execute", "fleet"],
+      approval: "none",
+    },
     promptGuidelines: [
       "Use assign only when ready Spark work should be dispatched to role runs.",
       "Prefer workflow runtime for parallel/scripted execution; assign is the explicit spawn surface for Spark ready-task frontiers.",
       "Use task_read for inspection and task_write for graph mutations before assigning work.",
       "When a planner supplies taskRefs, only those ready tasks may be dispatched; non-ready or out-of-scope refs fail closed.",
     ],
-    parameters: Type.Object({
-      dryRun: Type.Optional(
-        Type.Boolean({
-          description: "Dry-run assignment without spawning child role runs. Default true.",
-        }),
-      ),
-      maxConcurrency: Type.Optional(Type.Number({ description: "Assignment concurrency limit." })),
-      timeoutMs: Type.Optional(Type.Number({ description: "Foreground wait budget." })),
-      taskRefs: Type.Optional(
-        Type.Array(
-          Type.String({
-            description: "Optional explicit ready-task allowlist. Required by active Repro drives.",
-          }),
+    parameters: Type.Object(
+      {
+        taskRefs: Type.Optional(
+          Type.Array(
+            Type.String({
+              description:
+                "Optional explicit ready-task allowlist. Required by active Repro drives.",
+            }),
+          ),
         ),
-      ),
-    }),
+      },
+      { additionalProperties: false },
+    ),
     renderCall(args, theme) {
-      const dryRun = args.dryRun === false ? "spawn" : "dry-run";
-      const concurrency =
-        typeof args.maxConcurrency === "number" ? `max=${args.maxConcurrency}` : undefined;
-      const text = ["assign", dryRun, concurrency].filter(Boolean).join(" ");
+      const taskCount = Array.isArray(args.taskRefs) ? `tasks=${args.taskRefs.length}` : undefined;
+      const text = ["assign", "dispatch", taskCount].filter(Boolean).join(" ");
       return new ToolCallText(theme.bold ? theme.bold(text) : text);
     },
     async execute(toolCallId, params, signal, onUpdate, ctx) {
@@ -373,6 +481,16 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
       });
     },
   });
+}
+
+function taskWritePolicy(modes: string[]) {
+  return {
+    effect: "local_write" as const,
+    executionMode: "sequential" as const,
+    domains: ["tasks"],
+    modes,
+    approval: "none" as const,
+  };
 }
 
 function executeSparkTaskAction(
@@ -391,33 +509,28 @@ export function registerSparkTodoTool(pi: SparkTaskHostApi, options: SparkTodoTo
     name: "todo",
     label: "Todo",
     description:
-      "Mutate the session-bound TODO checklist of lightweight standalone next-steps that survive reload and are not tied to a claimed task. Current TODO state is injected automatically; use the registered context provider only for explicit diagnostics.",
+      "Atomically reconcile the session-bound TODO checklist of lightweight standalone next-steps that survive reload and are not tied to a claimed task. Current TODO state is injected automatically; use the registered context provider only for explicit diagnostics.",
     promptGuidelines: [
       "Use todo for standalone session next-steps that are not tied to a claimed durable task.",
       "Use task_write({ action: 'plan_update' }) for plan items of the currently claimed task, and task_write({ action: 'plan' }) to create durable project tasks.",
-      "When an injected session TODO snapshot is active, mark an item in_progress before doing its work and prefer one in_progress item at a time.",
-      "As soon as completion evidence or an exact blocker is known, update that item with done, block, cancel, or note before starting unrelated work; do not batch status transitions at the final response.",
-      "Before finalizing, reconcile every active item from the injected snapshot directly. Normal agent flow must not call the deprecated list compatibility action.",
+      "Call action=update with the complete desired non-deleted checklist; retain existing ids, set explicit target statuses, and keep at most one in_progress item.",
+      "As soon as completion evidence or an exact blocker is known, send the updated target state before starting unrelated work; do not batch status changes at the final response.",
+      "Items omitted from update become deleted history. Normal agent flow must not call legacy event-style compatibility actions or list.",
     ],
-    parameters: Type.Object({
-      action: Type.String({
-        description:
-          "init | append | start | done | upsert_done | block | cancel | delete | restore | remove | note",
-      }),
-      id: Type.Optional(Type.String({ description: "Target TODO id for id-addressed ops." })),
-      item: Type.Optional(Type.String({ description: "TODO item text for single-item ops." })),
-      items: Type.Optional(
-        Type.Array(Type.String({ description: "TODO item text list for init/append." })),
-      ),
-      text: Type.Optional(Type.String({ description: "Note text for the note op." })),
-      blockedBy: Type.Optional(
-        Type.Array(Type.String({ description: "Blocking references for the block op." })),
-      ),
-    }),
+    parameters: Type.Object(
+      {
+        action: Type.Literal("update"),
+        items: Type.Array(sessionTodoStateSchema, {
+          description:
+            "Complete desired non-deleted checklist. Existing rows omitted here become deleted history.",
+        }),
+      },
+      { additionalProperties: false },
+    ),
     renderCall(args, theme) {
       const action = typeof args.action === "string" ? args.action : undefined;
-      const item = typeof args.item === "string" ? args.item : undefined;
-      const text = ["todo", action && `action=${action}`, item].filter(Boolean).join(" ");
+      const count = Array.isArray(args.items) ? `items=${args.items.length}` : undefined;
+      const text = ["todo", action && `action=${action}`, count].filter(Boolean).join(" ");
       return new ToolCallText(theme.bold ? theme.bold(text) : text);
     },
     async execute(toolCallId, params, signal, onUpdate, ctx) {

@@ -1,6 +1,7 @@
 import { Type } from "typebox";
 
 import type {
+  ArtifactRef,
   Task,
   TaskExecutionPolicy,
   TaskKind,
@@ -12,6 +13,7 @@ import { normalizeTaskExecutionPolicy, type TaskPlanResult } from "@zendev-lab/s
 
 export function taskExecutionPolicySchema() {
   return Type.Object({
+    sessionLifetime: Type.Optional(Type.String({ description: "task_run | task_revision" })),
     continuity: Type.Optional(Type.String({ description: "reuse_within_revision | fresh" })),
     isolation: Type.Optional(
       Type.String({ description: "readonly | isolated_worktree | isolated_results" }),
@@ -32,6 +34,17 @@ export function taskExecutionPolicySchema() {
       }),
     ),
     concurrencyKeys: Type.Optional(Type.Array(Type.String())),
+    worktreeTarget: Type.Optional(
+      Type.Object({
+        primaryArtifactRef: Type.String({
+          description: "Primary existing git_change Artifact ref and default worker cwd.",
+        }),
+        writableArtifactRefs: Type.Array(Type.String(), {
+          minItems: 1,
+          description: "Exact existing git_change Artifact refs the Task may mutate.",
+        }),
+      }),
+    ),
     timeoutMs: Type.Optional(Type.Number()),
     maxAttempts: Type.Optional(Type.Number()),
   });
@@ -51,6 +64,10 @@ export function normalizeTaskExecutionPolicyPatch(
   const continuity = optionalChoice(value.continuity, `${path}.continuity`, [
     "reuse_within_revision",
     "fresh",
+  ] as const);
+  const sessionLifetime = optionalChoice(value.sessionLifetime, `${path}.sessionLifetime`, [
+    "task_run",
+    "task_revision",
   ] as const);
   const isolation = optionalChoice(value.isolation, `${path}.isolation`, [
     "readonly",
@@ -78,8 +95,10 @@ export function normalizeTaskExecutionPolicyPatch(
   );
   const timeoutMs = optionalPositiveInteger(value.timeoutMs, `${path}.timeoutMs`);
   const maxAttempts = optionalPositiveInteger(value.maxAttempts, `${path}.maxAttempts`);
+  const worktreeTarget = normalizeTaskWorktreeTargetPatch(value.worktreeTarget, path);
   return normalizeTaskExecutionPolicy(
     {
+      sessionLifetime,
       continuity,
       isolation,
       comparison,
@@ -94,11 +113,32 @@ export function normalizeTaskExecutionPolicyPatch(
           }
         : {}),
       concurrencyKeys: normalizeToolStringArray(value.concurrencyKeys, `${path}.concurrencyKeys`),
+      worktreeTarget,
       timeoutMs,
       maxAttempts,
     },
     kind,
   );
+}
+
+function normalizeTaskWorktreeTargetPatch(
+  value: unknown,
+  path: string,
+): TaskExecutionPolicy["worktreeTarget"] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) throw new Error(`${path}.worktreeTarget must be an object`);
+  const primaryArtifactRef = normalizeRequiredToolString(
+    value.primaryArtifactRef,
+    `${path}.worktreeTarget.primaryArtifactRef`,
+  );
+  const writableArtifactRefs = normalizeToolStringArray(
+    value.writableArtifactRefs,
+    `${path}.worktreeTarget.writableArtifactRefs`,
+  );
+  return {
+    primaryArtifactRef: primaryArtifactRef as ArtifactRef,
+    writableArtifactRefs: writableArtifactRefs as ArtifactRef[],
+  };
 }
 
 export function taskPlanSchema() {
@@ -185,7 +225,7 @@ export function normalizeTaskKind(value: unknown): TaskKind | undefined {
   if (value === "generic") return value;
   if (typeof value === "string" && value.startsWith("proj:"))
     throw new Error(
-      `kind received a project ref (${value}); pass it as project/projectRef, e.g. task_write({ action: "plan", project: "${value}", tasks: [...] })`,
+      `kind received a project ref (${value}); pass it as projectRef, e.g. task_write({ action: "plan", projectRef: "${value}", tasks: [...] })`,
     );
   if (value === "plan" || value === "ask" || value === "cue" || value === "interaction")
     throw new Error(
@@ -341,6 +381,7 @@ export function compactTaskDetail(task: Task) {
     kind: task.kind,
     roleRef: task.roleRef,
     executionPolicy: task.executionPolicy,
+    artifactRefs: task.artifactRefs,
     projectRef: task.projectRef,
     cancellation: task.cancellation,
     supersededBy: task.supersededBy,

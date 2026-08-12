@@ -1264,6 +1264,10 @@ export async function runSparkCli(
         currentSessionOptions = runtimeOptionsForSparkSession(command.options, result.sessionId);
         initialMessage = undefined;
         hasLaunchedTui = true;
+        if (result.newSessionId) {
+          selectionOptions = runtimeOptionsForSparkSession(command.options, result.newSessionId);
+          continue;
+        }
         if (!result.sessionSelectorRequested) return 0;
         selectionOptions = runtimeOptionsWithoutSparkSessionTarget(command.options);
       }
@@ -1273,7 +1277,12 @@ export async function runSparkCli(
 
 type SparkCliTuiSelectionResult =
   | { cancelled: true }
-  | { cancelled?: false; sessionId: string; sessionSelectorRequested: boolean };
+  | {
+      cancelled?: false;
+      sessionId: string;
+      sessionSelectorRequested: boolean;
+      newSessionId?: string;
+    };
 
 async function runSparkCliTuiSelection(input: {
   command: Extract<SparkCliCommand, { kind: "tui" }>;
@@ -1466,6 +1475,7 @@ async function runSparkCliTuiSelection(input: {
       },
     };
     let sessionSelectorRequested = false;
+    let newSessionId: string | undefined;
     const runTui = options.runTui ?? runNativeSparkTui;
     const attachSessionClient = options.attachSessionClient ?? attachSparkWorkspaceSessionClient;
     const sessionHeartbeat = await attachSessionClient(daemonClient, {
@@ -1518,6 +1528,20 @@ async function runSparkCliTuiSelection(input: {
           ensureCurrentSession,
           () => {
             sessionSelectorRequested = true;
+          },
+          async () => {
+            const session = await clientCreateManagedSession(
+              {
+                scope: { kind: "workspace", workspaceId: lease.workspace.id },
+                workspaceId: lease.workspace.id,
+                cwd: sessionCwd,
+                ...(selectedManagedSession.cwdArtifactRef
+                  ? { cwdArtifactRef: selectedManagedSession.cwdArtifactRef }
+                  : {}),
+              },
+              daemonClient,
+            );
+            newSessionId = session.sessionId;
           },
         ),
         autocompleteBasePath: sessionCwd,
@@ -1588,7 +1612,11 @@ async function runSparkCliTuiSelection(input: {
       });
       pendingNativeUiTransport = undefined;
     }
-    return { sessionId: currentSessionId, sessionSelectorRequested };
+    return {
+      sessionId: currentSessionId,
+      sessionSelectorRequested,
+      ...(newSessionId ? { newSessionId } : {}),
+    };
   } finally {
     await lease.release();
   }
@@ -1648,6 +1676,7 @@ const NATIVE_SLASH_COMMAND_EXCLUSIONS = [
   "reviews",
   "review",
   "graft",
+  "session",
 ] as const;
 
 function registerSparkNativeModelCommand(
@@ -1905,6 +1934,7 @@ function createSparkNativeSlashCommands(
   currentSessionId: string,
   ensureCurrentSession: () => Promise<void>,
   requestSessionSelector: () => void,
+  requestNewSession: () => Promise<void>,
 ): SparkNativeSlashCommandMap {
   const daemonCommands = createSparkDaemonNativeCommands(daemonClient);
   const localControlCommands = createSparkNativeLocalControlSlashCommands();
@@ -1982,6 +2012,36 @@ function createSparkNativeSlashCommands(
       },
     };
   }
+  const statusCommand = daemonCommands.status;
+  if (statusCommand) {
+    daemonCommands.status = {
+      ...statusCommand,
+      description: "Show unified daemon, current session, work, and turn queue status",
+      handler: async (_args, context) => {
+        await ensureCurrentSession();
+        const [daemonStatus, session] = await Promise.all([
+          statusCommand.handler("", context),
+          clientGetManagedSessionSnapshot(currentSessionId, daemonClient),
+        ]);
+        return formatNativeTuiStatus(
+          typeof daemonStatus === "string" ? daemonStatus : "daemon: unknown",
+          session,
+          context.app.renderQueueInspection(),
+        );
+      },
+    };
+  }
+  const newCommand = piParityCommands.new;
+  if (newCommand) {
+    piParityCommands.new = {
+      ...newCommand,
+      description: "Create and open a daemon-managed session in the current workspace",
+      handler: async (_args, context) => {
+        await requestNewSession();
+        context.exit();
+      },
+    };
+  }
   const promptTemplateCommands = createSparkPromptTemplateSlashCommands(services, {
     reservedNames: [
       ...NATIVE_SLASH_COMMAND_EXCLUSIONS,
@@ -2000,6 +2060,57 @@ function createSparkNativeSlashCommands(
     ...sideThreadCommands,
     ...promptTemplateCommands,
   };
+}
+
+function formatNativeTuiStatus(
+  daemonStatus: string,
+  session: SparkSessionView,
+  queueStatus: string,
+): string {
+  const model = session.model
+    ? `${session.model.providerName}/${session.model.modelId}`
+    : "inherited";
+  const pendingMailbox = (session.mailbox ?? []).filter((message) => !message.ackedAt).length;
+  const lines = [
+    daemonStatus,
+    "",
+    "session:",
+    `id: ${session.sessionId}`,
+    `status: ${session.status}`,
+    `title: ${session.title ?? "untitled"}`,
+    `cwd: ${session.cwd ?? "unknown"}`,
+    `model: ${model}`,
+    `thinking: ${session.thinkingLevel ?? "inherited"}`,
+    `git-branch: ${session.gitBranch ?? "unknown"}`,
+    `activity: messages=${session.messages.length} tools=${session.tools.length} runs=${session.runs.length} loops=${session.loops?.length ?? 0} tasks=${session.tasks.length}`,
+    `records: artifacts=${session.artifacts.length} evidence=${session.evidence.length} mailbox=${pendingMailbox}/${session.mailbox?.length ?? 0}`,
+    `daemon-pending-turns: ${session.pendingTurns?.length ?? 0}`,
+  ];
+
+  if (session.usage) {
+    lines.push(
+      `usage: input=${session.usage.inputTokens} output=${session.usage.outputTokens} cache-read=${session.usage.cacheReadTokens} cache-write=${session.usage.cacheWriteTokens} cost-usd=${session.usage.costUsd}`,
+    );
+  }
+  if (session.work?.primary) lines.push(`primary-loop: ${session.work.primary.loopId}`);
+  if (session.work?.goal) {
+    lines.push(
+      `goal: ${session.work.goal.status} ${session.work.goal.goalId} — ${session.work.goal.objective}`,
+    );
+  }
+  if (session.work?.repro) {
+    const repro = session.work.repro;
+    lines.push(
+      `repro: ${repro.status} ${repro.reproId} — ${repro.objective}`,
+      `repro-stage: ${repro.stage.index + 1}/${repro.stage.total} ${repro.stage.name} phase=${repro.stage.phase}`,
+      `repro-plan: ${repro.plan.completedSteps}/${repro.plan.totalSteps} stop=${repro.stopGuard.decision}`,
+    );
+  }
+  if (session.activeLeafId) lines.push(`active-leaf: ${session.activeLeafId}`);
+  if (session.createdAt) lines.push(`created-at: ${session.createdAt}`);
+  if (session.updatedAt) lines.push(`updated-at: ${session.updatedAt}`);
+  lines.push("", "turn-queue:", queueStatus);
+  return lines.join("\n");
 }
 
 async function hostServiceOptionsFromRuntime(

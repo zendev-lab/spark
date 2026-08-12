@@ -269,6 +269,9 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     ).toBe(true);
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("session.get", "session_not_found")).toBe(true);
     expect(
+      isSparkLocalRpcOrpcErrorCodeForMethod("session.restore", "session_restore_forbidden"),
+    ).toBe(true);
+    expect(
       isSparkLocalRpcOrpcErrorCodeForMethod("session.get", "relocation_source_not_found"),
     ).toBe(false);
   });
@@ -334,6 +337,8 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["human.interaction.respond", "human_wait_registry_unavailable"],
       ["session.notification.deliver", "channel_delivery_not_sent"],
       ["session.model.set", "model_control_unavailable"],
+      ["session.model.set", "model_out_of_scope"],
+      ["model.default.set", "model_out_of_scope"],
     ] as const;
     for (const [method, code] of declaredCases) {
       expect(isSparkLocalRpcOrpcErrorCodeForMethod(method, code), `${method}: ${code}`).toBe(true);

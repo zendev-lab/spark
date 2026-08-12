@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { FAILURE_CLASS_POLICIES, classifyProviderFailure, type FailureClass } from "./index.ts";
+import {
+  FAILURE_CLASS_POLICIES,
+  classifyProviderFailure,
+  TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
+  type FailureClass,
+} from "./index.ts";
 
 const cases: Array<{
   name: string;
@@ -134,4 +139,22 @@ test("classifyProviderFailure gives auth a cooldown+failover policy but not tran
     cooldown: true,
     failover: true,
   });
+});
+
+test("classifyProviderFailure uses the terminal-less provider code before message heuristics", () => {
+  const result = classifyProviderFailure(
+    Object.assign(new Error("opaque provider failure"), {
+      code: TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
+    }),
+  );
+  assert.equal(result.failureClass, "transient");
+  assert.equal(result.policy.retriable, true);
+  assert.equal(result.code, TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE);
+});
+
+test("classifyProviderFailure retains the legacy terminal-less message fallback", () => {
+  const result = classifyProviderFailure(
+    new Error('Provider "terminal-less" stream ended without a terminal event'),
+  );
+  assert.equal(result.failureClass, "transient");
 });

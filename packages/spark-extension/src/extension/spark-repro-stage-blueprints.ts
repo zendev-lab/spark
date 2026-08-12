@@ -34,7 +34,7 @@ export interface ReproStageBlueprint {
 
 const explorer = "role:builtin-explorer" as RoleRef;
 const researcher = "role:builtin-researcher" as RoleRef;
-const worker = "role:builtin-worker" as RoleRef;
+const executor = "role:builtin-executor" as RoleRef;
 const reviewer = "role:builtin-reviewer" as RoleRef;
 const distributedRunner = "role:extension-repro-distributed-runner" as RoleRef;
 const divergenceLocalizer = "role:extension-repro-first-divergence-localizer" as RoleRef;
@@ -102,7 +102,7 @@ function defaultReproRoleRef(
   ) {
     return distributedRunner;
   }
-  if (kind === "implement") return worker;
+  if (kind === "implement") return executor;
   if (kind === "review") return reviewer;
   return explorer;
 }
@@ -139,11 +139,13 @@ function defaultReproExecutionPolicy(
     : isExperiment
       ? "isolated_results"
       : "readonly";
+  const sessionLifetime =
+    kind === "research" || kind === "review" || kind === "plan" || isAsk
+      ? "task_run"
+      : "task_revision";
   return {
-    continuity:
-      kind === "research" || kind === "review" || kind === "plan" || isAsk
-        ? "fresh"
-        : "reuse_within_revision",
+    sessionLifetime,
+    continuity: sessionLifetime === "task_run" ? "fresh" : "reuse_within_revision",
     isolation,
     comparison: paired ? "paired" : "single_side",
     ...(axisGpuCount > 0 || exclusiveNode

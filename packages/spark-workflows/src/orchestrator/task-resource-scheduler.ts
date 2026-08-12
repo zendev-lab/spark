@@ -13,6 +13,7 @@ import {
 
 export type TaskResourceDeferralReason =
   | "attempt_limit"
+  | "isolation_unavailable"
   | "concurrency_limit"
   | "concurrency_key"
   | "exclusive_node"
@@ -206,6 +207,7 @@ function allocationGroups(
 function effectiveTaskExecutionPolicy(task: Task): TaskExecutionPolicy {
   return (
     task.executionPolicy ?? {
+      sessionLifetime: "task_revision",
       continuity: "reuse_within_revision",
       isolation:
         task.kind === "implement"

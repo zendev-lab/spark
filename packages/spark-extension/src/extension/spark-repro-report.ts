@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import {
+  ARTIFACT_TRUSTED_SYNC_FILE_MAX_BYTES,
   defaultArtifactStore,
   defaultEvidenceStore,
   syncDocumentArtifactFile,
@@ -108,6 +109,7 @@ export async function syncSparkReproReportArtifact(
       label: `${work.stage} · ${work.status}`,
       ...(work.progress.quantified ? { percent: work.progress.percent } : {}),
     },
+    maxBytes: ARTIFACT_TRUSTED_SYNC_FILE_MAX_BYTES,
     store: defaultArtifactStore(cwd),
   });
   return { ...result, reportArtifactRef, work };

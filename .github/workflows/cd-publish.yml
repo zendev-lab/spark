@@ -2,8 +2,6 @@ name: "CD - Publish"
 
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*"
   pull_request:

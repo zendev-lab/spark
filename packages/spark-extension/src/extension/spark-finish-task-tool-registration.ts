@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { performance } from "node:perf_hooks";
 import {
   defaultLearningStore,
   type LearningLocation,
@@ -36,7 +37,11 @@ import { compactTaskDetail, normalizeOptionalToolString } from "./task-plan-tool
 import { compactLearningDetail } from "./learning-tools.ts";
 import { truncateInline } from "./tool-rendering.ts";
 import { NO_SPARK_PROJECT_FOUND_HINT } from "./spark-project-guidance.ts";
-import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
+import type {
+  SparkRegisteredToolConfig,
+  SparkToolContext,
+  SparkToolRegistrar,
+} from "./spark-tool-registration.ts";
 import type {
   GoalReviewEvidencePreview,
   ReviewerRunResult,
@@ -51,14 +56,88 @@ import {
 } from "./spark-task-claim-daemon-client.ts";
 import { recordTaskSubjectReview } from "./subject-review-store.ts";
 import { requireTaskLensPasses } from "./spark-lens-completion-gate.ts";
+import {
+  runTaskFinishReviewWorkflow,
+  type TaskFinishReviewWorkflowMode,
+} from "./spark-finish-review-workflow.ts";
 
 interface SparkFinishTaskToolDependencies {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
   taskClaimDaemonClient: SparkTaskClaimDaemonClient;
+  nowMs?: () => number;
+  resolveReviewerModel?: (cwd: string, ctx: SparkToolContext) => Promise<string | undefined>;
   createReviewerRunner?: (
     cwd: string,
     ctx: SparkToolContext,
   ) => ReviewerRunner | Promise<ReviewerRunner>;
+}
+
+const FINISH_TIMING_PHASES = [
+  "candidate",
+  "lens",
+  "followup",
+  "evidence",
+  "reviewer_bootstrap",
+  "reviewer_model",
+  "reviewer_escalation",
+  "commit",
+  "post_commit",
+] as const;
+
+type FinishTimingPhase = (typeof FINISH_TIMING_PHASES)[number];
+
+interface FinishTimingSnapshot {
+  format: "spark.task-finish-timing/v1";
+  totalMs: number;
+  phasesMs: Record<FinishTimingPhase, number>;
+}
+
+type FinishToolResult = Awaited<ReturnType<SparkRegisteredToolConfig["execute"]>>;
+
+class FinishTimingTracker {
+  readonly #nowMs: () => number;
+  readonly #startedAt: number;
+  readonly #phasesMs = Object.fromEntries(
+    FINISH_TIMING_PHASES.map((phase) => [phase, 0]),
+  ) as Record<FinishTimingPhase, number>;
+
+  constructor(nowMs: () => number = () => performance.now()) {
+    this.#nowMs = nowMs;
+    this.#startedAt = this.#nowMs();
+  }
+
+  async measure<T>(phase: FinishTimingPhase, action: () => T | Promise<T>): Promise<T> {
+    const startedAt = this.#nowMs();
+    try {
+      return await action();
+    } finally {
+      this.#phasesMs[phase] += Math.max(0, this.#nowMs() - startedAt);
+    }
+  }
+
+  snapshot(): FinishTimingSnapshot {
+    return {
+      format: "spark.task-finish-timing/v1",
+      totalMs: roundTimingMs(Math.max(0, this.#nowMs() - this.#startedAt)),
+      phasesMs: Object.fromEntries(
+        FINISH_TIMING_PHASES.map((phase) => [phase, roundTimingMs(this.#phasesMs[phase])]),
+      ) as Record<FinishTimingPhase, number>,
+    };
+  }
+}
+
+function withFinishTiming(timing: FinishTimingTracker, result: FinishToolResult): FinishToolResult {
+  return {
+    ...result,
+    details: {
+      ...(result.details ?? {}),
+      timing: timing.snapshot(),
+    },
+  };
+}
+
+function roundTimingMs(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 interface NormalizedSparkFinishTaskInput {
@@ -101,6 +180,15 @@ interface FinishTaskSuccessResult {
 interface FinishTaskErrorResult {
   error: "no_project" | "no_matching_claimed_task";
 }
+
+interface FinishReviewCandidate {
+  error?: undefined;
+  projectRef: ProjectRef;
+  task: Task;
+  persistedTask: Task;
+}
+
+type FinishReviewCandidateResult = FinishTaskErrorResult | FinishReviewCandidate;
 
 type FinishCommitResult = FinishTaskSuccessResult | FinishTaskErrorResult;
 
@@ -319,28 +407,34 @@ export function registerSparkFinishTaskTool(
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const timing = new FinishTimingTracker(deps.nowMs);
       const cwd = ctx.cwd;
       const stateCwd = sparkStateCwd(cwd, ctx);
       const input = normalizeSparkFinishTaskInput(params);
       const store = defaultTaskGraphStore(stateCwd);
       let reviewEvidence: EvidenceRecord<JsonValue> | undefined;
       let reviewResult: ReviewerRunResult | undefined;
+      let reviewerMode: TaskFinishReviewWorkflowMode | undefined;
+      let reviewerModel: string | undefined;
       let finishEvidenceRefs = input.evidenceRefs;
       let generatedEvidence: (EvidenceRecord<JsonValue> & { ref: EvidenceRef }) | undefined;
 
       if (input.status === "done") {
-        let candidate = await resolveFinishReviewCandidate(store, cwd, ctx, input);
-        if (isFinishTaskErrorResult(candidate)) return renderFinishLookupError(candidate);
+        const resolvedCandidate = await timing.measure("candidate", () =>
+          resolveFinishReviewCandidate(store, cwd, ctx, input),
+        );
+        if (!isFinishReviewCandidate(resolvedCandidate))
+          return withFinishTiming(timing, renderFinishLookupError(resolvedCandidate));
+        let candidate = resolvedCandidate;
+        const evidenceLoader = createTaskReviewEvidenceLoader(stateCwd);
 
-        await requireTaskLensPasses(stateCwd, candidate.task);
-        const followUpDisposition = await checkResearchFollowUpDisposition(
-          stateCwd,
-          candidate.task,
-          input.summary,
+        await timing.measure("lens", () => requireTaskLensPasses(stateCwd, candidate.task));
+        const followUpDisposition = await timing.measure("followup", () =>
+          checkResearchFollowUpDisposition(stateCwd, candidate.task, input.summary, evidenceLoader),
         );
         if (!followUpDisposition.ready) {
           await deps.refreshSparkWidget(cwd, ctx);
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -353,7 +447,7 @@ export function registerSparkFinishTaskTool(
               task: compactTaskDetail(candidate.task),
               followUpDisposition,
             },
-          };
+          });
         }
 
         const preEvidenceReadiness = taskCompletionReadiness(candidate.task);
@@ -362,7 +456,7 @@ export function registerSparkFinishTaskTool(
         );
         if (openPlanItems) {
           await deps.refreshSparkWidget(cwd, ctx);
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -375,15 +469,17 @@ export function registerSparkFinishTaskTool(
               task: compactTaskDetail(candidate.task),
               completionReadiness: preEvidenceReadiness,
             },
-          };
+          });
         }
 
         if (input.evidence) {
-          generatedEvidence = await recordTaskFinishEvidence(
-            stateCwd,
-            candidate.projectRef,
-            candidate.persistedTask,
-            input,
+          generatedEvidence = await timing.measure("evidence", () =>
+            recordTaskFinishEvidence(
+              stateCwd,
+              candidate.projectRef,
+              candidate.persistedTask,
+              input,
+            ),
           );
           finishEvidenceRefs = [...finishEvidenceRefs, generatedEvidence.ref];
           candidate = {
@@ -396,7 +492,7 @@ export function registerSparkFinishTaskTool(
         const blockingIssue = firstBlockingCompletionIssue(completionReadiness);
         if (blockingIssue) {
           await deps.refreshSparkWidget(cwd, ctx);
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -410,10 +506,12 @@ export function registerSparkFinishTaskTool(
               completionReadiness,
               generatedEvidenceRef: generatedEvidence?.ref,
             },
-          };
+          });
         }
 
-        const taskEvidenceContext = await buildTaskReviewEvidenceContext(stateCwd, candidate.task);
+        const taskEvidenceContext = await timing.measure("evidence", () =>
+          buildTaskReviewEvidenceContext(stateCwd, candidate.task, evidenceLoader),
+        );
         const reviewInput: TaskReviewInput = {
           targetKind: "task",
           cwd,
@@ -430,7 +528,7 @@ export function registerSparkFinishTaskTool(
         };
         if (taskEvidenceContext.unreadableEvidence.length > 0) {
           await deps.refreshSparkWidget(cwd, ctx);
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -448,15 +546,52 @@ export function registerSparkFinishTaskTool(
               reviewRequired: true,
               reviewerStarted: false,
             },
-          };
+          });
         }
-        const reviewerRunner = await deps.createReviewerRunner?.(cwd, ctx);
-        if (!reviewerRunner)
-          throw new Error("task_write finish requires a reviewer runner for done transitions");
         try {
-          const leasedReview = await withSparkReviewerLease(cwd, ctx, () =>
-            reviewerRunner.review(reviewInput, _signal),
+          const configuredReviewerModel = await timing.measure("reviewer_bootstrap", () =>
+            deps.resolveReviewerModel?.(stateCwd, ctx),
           );
+          const leasedReview = await withSparkReviewerLease(cwd, ctx, async () => {
+            const workflow = await timing.measure("reviewer_model", () =>
+              runTaskFinishReviewWorkflow(ctx, reviewInput, _signal, {
+                ...(configuredReviewerModel ? { model: configuredReviewerModel } : {}),
+              }),
+            );
+            if (workflow.kind === "reviewed") {
+              return {
+                review: workflow.review,
+                mode: workflow.mode,
+                model: workflow.model ?? configuredReviewerModel,
+              };
+            }
+            if (workflow.kind === "unavailable") {
+              return {
+                review: workflow.review,
+                mode: "lightweight" as const,
+                model: workflow.model ?? configuredReviewerModel,
+              };
+            }
+            const mode =
+              workflow.kind === "needs_deep_review"
+                ? ("deep_role" as const)
+                : ("compatibility_role" as const);
+            return await timing.measure("reviewer_escalation", async () => {
+              const reviewerRunner = await deps.createReviewerRunner?.(cwd, ctx);
+              if (!reviewerRunner)
+                throw new Error(
+                  "task_write finish requires a reviewer runner for deep review transitions",
+                );
+              const review = await reviewerRunner.review(reviewInput, _signal);
+              return {
+                review,
+                mode,
+                model:
+                  review.record.model ??
+                  (workflow.kind === "needs_deep_review" ? workflow.model : undefined),
+              };
+            });
+          });
           if (!leasedReview.acquired) {
             reviewResult = failedTaskReviewerRunResult(
               reviewInput,
@@ -466,7 +601,9 @@ export function registerSparkFinishTaskTool(
             );
           } else {
             if (!leasedReview.result) throw new Error("reviewer did not return a verdict");
-            reviewResult = leasedReview.result;
+            reviewResult = leasedReview.result.review;
+            reviewerMode = leasedReview.result.mode;
+            reviewerModel = leasedReview.result.model;
           }
         } catch (error) {
           reviewResult = failedTaskReviewerRunResult(
@@ -479,7 +616,7 @@ export function registerSparkFinishTaskTool(
         if (reviewResult.failure) {
           await deps.refreshSparkWidget(cwd, ctx);
           const progress = await readFinishProjectProgress(store, candidate.projectRef);
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -501,23 +638,22 @@ export function registerSparkFinishTaskTool(
               reviewRequired: true,
               review: reviewResult.verdict as TaskReviewVerdict,
               reviewerFailure: reviewResult.failure,
+              reviewerMode,
+              reviewerModel,
               generatedEvidenceRef: generatedEvidence?.ref,
               remainingReadyTasks: progress.remainingReadyTasks,
               projectCompletionCandidate: progress.projectCompletionCandidate,
             }),
-          };
+          });
         }
         const verdict = reviewResult.verdict as TaskReviewVerdict;
-        reviewEvidence = await recordTaskReviewEvidence(
-          stateCwd,
-          candidate.projectRef,
-          candidate.task,
-          reviewResult,
+        reviewEvidence = await timing.measure("evidence", () =>
+          recordTaskReviewEvidence(stateCwd, candidate.projectRef, candidate.task, reviewResult!),
         );
         if (!verdict.approved) {
           await deps.refreshSparkWidget(cwd, ctx);
           const progress = await readFinishProjectProgress(store, candidate.projectRef);
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -538,30 +674,34 @@ export function registerSparkFinishTaskTool(
               reviewEvidenceRefs: taskEvidenceContext.currentEvidenceRefs,
               reviewRequired: true,
               review: verdict,
+              reviewerMode,
+              reviewerModel,
               reviewEvidenceRef: reviewEvidence.ref,
               generatedEvidenceRef: generatedEvidence?.ref,
               remainingReadyTasks: progress.remainingReadyTasks,
               projectCompletionCandidate: progress.projectCompletionCandidate,
             }),
-          };
+          });
         }
       }
 
       let updated: FinishCommitEnvelope;
       try {
-        updated = await commitFinishedTask(store, cwd, ctx, deps.taskClaimDaemonClient, {
-          ...input,
-          evidenceRefs: finishEvidenceRefs,
-        });
+        updated = await timing.measure("commit", () =>
+          commitFinishedTask(store, cwd, ctx, deps.taskClaimDaemonClient, {
+            ...input,
+            evidenceRefs: finishEvidenceRefs,
+          }),
+        );
       } catch (error) {
         if (error instanceof DependencyError) {
-          return {
+          return withFinishTiming(timing, {
             content: [{ type: "text", text: `Cannot finish Spark task: ${error.message}` }],
             details: { found: true, error: "task_dependency_error", message: error.message },
-          };
+          });
         }
         if (error instanceof TaskFinishProjectionError) {
-          return {
+          return withFinishTiming(timing, {
             content: [
               {
                 type: "text",
@@ -576,46 +716,55 @@ export function registerSparkFinishTaskTool(
               committed: error.daemonChanged,
             },
             isError: true,
-          };
+          });
         }
         throw error;
       }
 
       const finishResult = updated.result as FinishCommitResult;
       if (!updated.graph) {
-        return {
+        return withFinishTiming(timing, {
           content: [{ type: "text", text: NO_SPARK_PROJECT_FOUND_HINT }],
           details: { found: false },
-        };
+        });
       }
-      if (isFinishTaskErrorResult(finishResult)) return renderFinishLookupError(finishResult);
+      if (isFinishTaskErrorResult(finishResult))
+        return withFinishTiming(timing, renderFinishLookupError(finishResult));
 
       const finishedResult = finishResult;
-      const postCommitWarnings = [...finishedResult.postCommitWarnings];
-      try {
-        await saveCurrentProjectRef(cwd, ctx, finishedResult.projectRef);
-      } catch (error) {
-        postCommitWarnings.push(`Current project update failed: ${unknownErrorMessage(error)}`);
-      }
-      try {
-        await deps.refreshSparkWidget(cwd, ctx);
-      } catch (error) {
-        postCommitWarnings.push(`Widget refresh failed: ${unknownErrorMessage(error)}`);
-      }
-      let learningCandidate: Awaited<ReturnType<typeof recordTaskLearningCandidate>> | undefined;
-      if (input.status === "done" && input.summary) {
-        try {
-          learningCandidate = await recordTaskLearningCandidate(
-            stateCwd,
-            finishedResult.task,
-            input.summary,
-          );
-        } catch (error) {
-          postCommitWarnings.push(
-            `Learning candidate recording failed: ${unknownErrorMessage(error)}`,
-          );
-        }
-      }
+      const { postCommitWarnings, learningCandidate } = await timing.measure(
+        "post_commit",
+        async () => {
+          const postCommitWarnings = [...finishedResult.postCommitWarnings];
+          try {
+            await saveCurrentProjectRef(cwd, ctx, finishedResult.projectRef);
+          } catch (error) {
+            postCommitWarnings.push(`Current project update failed: ${unknownErrorMessage(error)}`);
+          }
+          try {
+            await deps.refreshSparkWidget(cwd, ctx);
+          } catch (error) {
+            postCommitWarnings.push(`Widget refresh failed: ${unknownErrorMessage(error)}`);
+          }
+          let learningCandidate:
+            | Awaited<ReturnType<typeof recordTaskLearningCandidate>>
+            | undefined;
+          if (input.status === "done" && input.summary) {
+            try {
+              learningCandidate = await recordTaskLearningCandidate(
+                stateCwd,
+                finishedResult.task,
+                input.summary,
+              );
+            } catch (error) {
+              postCommitWarnings.push(
+                `Learning candidate recording failed: ${unknownErrorMessage(error)}`,
+              );
+            }
+          }
+          return { postCommitWarnings, learningCandidate };
+        },
+      );
       const summarySuffix = input.summary ? ` — ${truncateInline(input.summary, 160)}` : "";
       const completionIssueSuffix =
         finishedResult.completionReadiness && !finishedResult.completionReadiness.ready
@@ -634,7 +783,7 @@ export function registerSparkFinishTaskTool(
           ? `\nPost-commit warnings: ${postCommitWarnings.join("; ")}`
           : "";
       const executionSuffix = renderFinishNextStepSuffix(finishedResult.nextReady, input.status);
-      return {
+      return withFinishTiming(timing, {
         content: [
           {
             type: "text",
@@ -653,6 +802,8 @@ export function registerSparkFinishTaskTool(
           reviewEvidenceRefs: finishedResult.task.outputEvidenceRefs,
           reviewRequired: input.status === "done",
           review: reviewResult?.verdict as TaskReviewVerdict | undefined,
+          reviewerMode,
+          reviewerModel,
           reviewEvidenceRef: reviewEvidence?.ref,
           generatedEvidenceRef: generatedEvidence?.ref,
           remainingReadyTasks: finishedResult.remainingReadyTasks,
@@ -661,7 +812,7 @@ export function registerSparkFinishTaskTool(
           postCommitWarnings,
           learningCandidate,
         }),
-      };
+      });
     },
   });
 }
@@ -679,10 +830,57 @@ function renderFinishLookupError(result: FinishTaskErrorResult) {
   };
 }
 
+type LoadedTaskReviewEvidence = Awaited<ReturnType<ReturnType<typeof defaultEvidenceStore>["get"]>>;
+
+interface TaskReviewEvidenceLoadResult {
+  ref: EvidenceRef;
+  evidence?: LoadedTaskReviewEvidence;
+  error?: unknown;
+}
+
+interface TaskReviewEvidenceLoader {
+  loadMany(refs: readonly EvidenceRef[]): Promise<TaskReviewEvidenceLoadResult[]>;
+}
+
+const TASK_REVIEW_EVIDENCE_LOAD_CONCURRENCY = 4;
+
+function createTaskReviewEvidenceLoader(cwd: string): TaskReviewEvidenceLoader {
+  const store = defaultEvidenceStore(cwd);
+  const cache = new Map<EvidenceRef, Promise<LoadedTaskReviewEvidence>>();
+  const load = (ref: EvidenceRef): Promise<LoadedTaskReviewEvidence> => {
+    const existing = cache.get(ref);
+    if (existing) return existing;
+    const pending = store.get(ref);
+    cache.set(ref, pending);
+    return pending;
+  };
+  return {
+    async loadMany(refs) {
+      const results: TaskReviewEvidenceLoadResult[] = [];
+      for (let offset = 0; offset < refs.length; offset += TASK_REVIEW_EVIDENCE_LOAD_CONCURRENCY) {
+        const batch = refs.slice(offset, offset + TASK_REVIEW_EVIDENCE_LOAD_CONCURRENCY);
+        results.push(
+          ...(await Promise.all(
+            batch.map(async (ref): Promise<TaskReviewEvidenceLoadResult> => {
+              try {
+                return { ref, evidence: await load(ref) };
+              } catch (error) {
+                return { ref, error };
+              }
+            }),
+          )),
+        );
+      }
+      return results;
+    },
+  };
+}
+
 async function checkResearchFollowUpDisposition(
   cwd: string,
   task: Task,
   summary: string | undefined,
+  loader: TaskReviewEvidenceLoader = createTaskReviewEvidenceLoader(cwd),
 ): Promise<FollowUpDispositionCheck> {
   if (!FOLLOW_UP_RESEARCH_KINDS.has(task.kind)) {
     return {
@@ -695,13 +893,13 @@ async function checkResearchFollowUpDisposition(
 
   const sources: Array<{ source: string; text: string }> = [];
   if (summary) sources.push({ source: "finish summary", text: summary });
-  const evidenceStore = defaultEvidenceStore(cwd);
-  for (const evidenceRef of task.outputEvidenceRefs) {
-    try {
-      sources.push({ source: evidenceRef, text: await evidenceStore.getBody(evidenceRef) });
-    } catch {
-      // Completion readiness and the reviewer own missing/unreadable Evidence handling.
-    }
+  for (const loaded of await loader.loadMany(task.outputEvidenceRefs)) {
+    if (!loaded.evidence) continue;
+    const text =
+      typeof loaded.evidence.body === "string"
+        ? loaded.evidence.body
+        : JSON.stringify(loaded.evidence.body, null, 2);
+    sources.push({ source: loaded.ref, text });
   }
 
   const summaryText = summary ?? "";
@@ -849,7 +1047,7 @@ function renderOpenTaskPlanItemBlockedMessage(
           ...(hidden > 0 ? [`- … ${hidden} more open plan item(s)`] : []),
         ].join("\n")
       : "- (no detail)";
-  return `Task finish blocked by open task plan items: @${task.name}: ${task.title}\nFinish or disposition (cancel/delete/done) the remaining task plan items before marking the task done.\nOpen plan items (${items.length}):\n${list}\nThe task was not marked done. Update task plan items with task_write({ action: "plan_update", scope: "task", ops: [...] }), then call task_write({ action: "finish" }) again.`;
+  return `Task finish blocked by open task plan items: @${task.name}: ${task.title}\nFinish or disposition (cancel/delete/done) the remaining task plan items before marking the task done.\nOpen plan items (${items.length}):\n${list}\nThe task was not marked done. Reconcile the complete target state with task_write({ action: "plan_update", items: [...] }), then call task_write({ action: "finish" }) again.`;
 }
 
 function renderTaskCompletionBlockedMessage(
@@ -896,12 +1094,12 @@ function failedTaskReviewerRunResult(
   };
 }
 
-function isFinishTaskErrorResult(
-  result:
+function isFinishTaskErrorResult<
+  T extends
     | FinishCommitResult
     | { error?: undefined; projectRef: ProjectRef; task: Task }
     | { error: "no_project" | "no_matching_claimed_task" },
-): result is FinishTaskErrorResult {
+>(result: T): result is Extract<T, FinishTaskErrorResult> {
   return result.error === "no_project" || result.error === "no_matching_claimed_task";
 }
 
@@ -910,15 +1108,7 @@ async function resolveFinishReviewCandidate(
   cwd: string,
   ctx: SparkToolContext,
   input: NormalizedSparkFinishTaskInput,
-): Promise<
-  | { error: "no_project" | "no_matching_claimed_task" }
-  | {
-      error?: undefined;
-      projectRef: ProjectRef;
-      task: Task;
-      persistedTask: Task;
-    }
-> {
+): Promise<FinishReviewCandidateResult> {
   const graph = await store.load();
   if (!graph) return { error: "no_project" };
   const project = await currentSparkProject(cwd, ctx, graph);
@@ -931,6 +1121,12 @@ async function resolveFinishReviewCandidate(
     task: candidateTask,
     persistedTask: task,
   };
+}
+
+function isFinishReviewCandidate(
+  result: FinishReviewCandidateResult,
+): result is FinishReviewCandidate {
+  return result.error === undefined;
 }
 
 async function commitFinishedTask(
@@ -1095,6 +1291,8 @@ interface FinishTransitionDetailsInput {
   reviewRequired: boolean;
   review?: TaskReviewVerdict;
   reviewerFailure?: ReviewerRunResult["failure"];
+  reviewerMode?: TaskFinishReviewWorkflowMode;
+  reviewerModel?: string;
   reviewEvidenceRef?: EvidenceRef;
   generatedEvidenceRef?: EvidenceRef;
   remainingReadyTasks: Task[];
@@ -1147,6 +1345,8 @@ function renderFinishTransitionDetails(
       blockers: input.review?.blockers,
       confidence: input.review?.confidence,
       failure: input.reviewerFailure,
+      mode: input.reviewerMode,
+      model: input.reviewerModel,
       evidenceRef: input.reviewEvidenceRef,
       generatedEvidenceEvidenceRef: input.generatedEvidenceRef,
     },
@@ -1268,6 +1468,7 @@ async function recordTaskReviewEvidence(
     ...(review.record.runName ? { runName: review.record.runName } : {}),
     startedAt: review.record.startedAt,
     finishedAt: review.record.finishedAt,
+    ...(review.record.model ? { model: review.record.model } : {}),
     ...(review.record.thinking ? { thinking: review.record.thinking } : {}),
     ...(review.record.stdout
       ? { stdoutPreview: truncateReviewRunOutput(review.record.stdout, 4_000) }
@@ -1410,54 +1611,91 @@ interface TaskReviewEvidenceContext {
   unreadableEvidence: GoalReviewEvidencePreview[];
 }
 
-const TASK_REVIEW_EVIDENCE_PREVIEW_LIMIT = 20;
+const TASK_REVIEW_EVIDENCE_PREVIEW_LIMIT = 5;
+const TASK_REVIEW_EVIDENCE_PREVIEW_TOTAL_CHARS = 12_000;
+const TASK_REVIEW_EVIDENCE_PREVIEW_ITEM_CHARS = 3_000;
+const TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT = 128;
 
 export async function buildTaskReviewEvidenceContext(
   cwd: string,
   task: Pick<Task, "outputEvidenceRefs" | "plan">,
+  loader: TaskReviewEvidenceLoader = createTaskReviewEvidenceLoader(cwd),
 ): Promise<TaskReviewEvidenceContext> {
-  const store = defaultEvidenceStore(cwd);
-  const queue = collectTaskReviewEvidenceRefs(task);
+  const collected = collectTaskReviewEvidenceRefs(task);
+  const queue = collected.refs;
   const visited = new Set<EvidenceRef>();
   const currentEvidenceRefs: EvidenceRef[] = [];
   const currentEvidencePreviews: GoalReviewEvidencePreview[] = [];
   const supersededEvidenceRefs: EvidenceRef[] = [];
   const supersededReplacements = new Map<EvidenceRef, EvidenceRef[]>();
   const unreadableEvidence: GoalReviewEvidencePreview[] = [];
+  let traversalOverflowRef = collected.overflowRef;
 
   while (queue.length > 0) {
-    const ref = queue.shift()!;
-    if (visited.has(ref)) continue;
-    visited.add(ref);
-    try {
-      const evidence = await store.get(ref);
-      const replacements = evidence.curation?.supersededBy ?? [];
-      if (evidence.curation?.status === "superseded") {
-        supersededEvidenceRefs.push(ref);
-        supersededReplacements.set(ref, replacements);
-        if (replacements.length === 0) {
-          unreadableEvidence.push({
-            ref,
-            curationStatus: "superseded",
-            error: "superseded Evidence has no current replacement",
-          });
+    const batch: EvidenceRef[] = [];
+    while (
+      queue.length > 0 &&
+      batch.length < TASK_REVIEW_EVIDENCE_LOAD_CONCURRENCY &&
+      visited.size < TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT
+    ) {
+      const ref = queue.shift()!;
+      if (visited.has(ref)) continue;
+      visited.add(ref);
+      batch.push(ref);
+    }
+    for (const loaded of await loader.loadMany(batch)) {
+      const ref = loaded.ref;
+      if (loaded.evidence) {
+        const evidence = loaded.evidence;
+        const allReplacements = evidence.curation?.supersededBy ?? [];
+        const replacements = allReplacements.slice(0, TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT);
+        if (allReplacements.length > replacements.length) {
+          traversalOverflowRef ??= allReplacements[replacements.length];
+        }
+        if (evidence.curation?.status === "superseded") {
+          supersededEvidenceRefs.push(ref);
+          supersededReplacements.set(ref, replacements);
+          if (replacements.length === 0) {
+            unreadableEvidence.push({
+              ref,
+              curationStatus: "superseded",
+              error: "superseded Evidence has no current replacement",
+            });
+            continue;
+          }
+          for (const replacement of replacements) {
+            if (visited.has(replacement) || queue.includes(replacement)) continue;
+            if (visited.size + queue.length >= TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT) {
+              traversalOverflowRef ??= replacement;
+              continue;
+            }
+            queue.push(replacement);
+          }
           continue;
         }
-        for (const replacement of replacements)
-          if (!visited.has(replacement)) queue.push(replacement);
-        continue;
+        currentEvidenceRefs.push(ref);
+        currentEvidencePreviews.push(taskEvidencePreview(evidence));
+      } else {
+        currentEvidenceRefs.push(ref);
+        const preview = {
+          ref,
+          error: loaded.error instanceof Error ? loaded.error.message : String(loaded.error),
+        };
+        currentEvidencePreviews.push(preview);
+        unreadableEvidence.push(preview);
       }
-      currentEvidenceRefs.push(ref);
-      currentEvidencePreviews.push(taskEvidencePreview(evidence));
-    } catch (error) {
-      currentEvidenceRefs.push(ref);
-      const preview = {
-        ref,
-        error: error instanceof Error ? error.message : String(error),
-      };
-      currentEvidencePreviews.push(preview);
-      unreadableEvidence.push(preview);
     }
+    if (visited.size >= TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT && queue.length > 0) {
+      traversalOverflowRef ??= queue[0];
+      break;
+    }
+  }
+
+  if (traversalOverflowRef) {
+    unreadableEvidence.push({
+      ref: traversalOverflowRef,
+      error: `Evidence traversal exceeded the ${TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT}-ref safety limit`,
+    });
   }
 
   const currentSet = new Set(currentEvidenceRefs);
@@ -1474,16 +1712,36 @@ export async function buildTaskReviewEvidenceContext(
     });
   }
 
+  const selectedEvidencePreviews = selectTaskReviewEvidencePreviews(currentEvidencePreviews);
   return {
     currentEvidenceRefs,
-    currentEvidencePreviews: currentEvidencePreviews.slice(0, TASK_REVIEW_EVIDENCE_PREVIEW_LIMIT),
+    currentEvidencePreviews: selectedEvidencePreviews,
     evidencePreviewOmittedCount: Math.max(
       0,
-      currentEvidencePreviews.length - TASK_REVIEW_EVIDENCE_PREVIEW_LIMIT,
+      currentEvidencePreviews.length - selectedEvidencePreviews.length,
     ),
     supersededEvidenceRefs,
     unreadableEvidence,
   };
+}
+
+function selectTaskReviewEvidencePreviews(
+  previews: readonly GoalReviewEvidencePreview[],
+): GoalReviewEvidencePreview[] {
+  const selected: GoalReviewEvidencePreview[] = [];
+  let remainingChars = TASK_REVIEW_EVIDENCE_PREVIEW_TOTAL_CHARS;
+  for (const preview of previews.slice(0, TASK_REVIEW_EVIDENCE_PREVIEW_LIMIT)) {
+    if (remainingChars <= 0) break;
+    const bodyPreview = preview.bodyPreview
+      ? boundedEvidencePreview(
+          preview.bodyPreview,
+          Math.min(TASK_REVIEW_EVIDENCE_PREVIEW_ITEM_CHARS, remainingChars),
+        )
+      : undefined;
+    selected.push({ ...preview, ...(bodyPreview !== undefined ? { bodyPreview } : {}) });
+    remainingChars -= bodyPreview?.length ?? 0;
+  }
+  return selected;
 }
 
 interface SupersededChainAnalysis {
@@ -1510,19 +1768,30 @@ function analyzeSupersededChain(
   return { reachesCurrent, hasCycle };
 }
 
-function collectTaskReviewEvidenceRefs(
-  task: Pick<Task, "outputEvidenceRefs" | "plan">,
-): EvidenceRef[] {
-  const refs = new Set<EvidenceRef>(task.outputEvidenceRefs);
+function collectTaskReviewEvidenceRefs(task: Pick<Task, "outputEvidenceRefs" | "plan">): {
+  refs: EvidenceRef[];
+  overflowRef?: EvidenceRef;
+} {
+  const refs = new Set<EvidenceRef>();
+  let overflowRef: EvidenceRef | undefined;
+  const add = (ref: EvidenceRef) => {
+    if (refs.has(ref)) return;
+    if (refs.size >= TASK_REVIEW_EVIDENCE_TRAVERSAL_LIMIT) {
+      overflowRef ??= ref;
+      return;
+    }
+    refs.add(ref);
+  };
+  for (const ref of task.outputEvidenceRefs) add(ref);
   for (const requirement of task.plan?.evidenceRequired ?? []) {
     for (const match of requirement.matchAll(/\bevidence:[A-Za-z0-9][A-Za-z0-9._-]*/g)) {
-      if (isRef(match[0], "evidence")) refs.add(match[0]);
+      if (isRef(match[0], "evidence")) add(match[0]);
     }
   }
   for (const item of task.plan?.items ?? []) {
-    for (const ref of item.evidenceRefs ?? []) refs.add(ref);
+    for (const ref of item.evidenceRefs ?? []) add(ref);
   }
-  return [...refs];
+  return { refs: [...refs], ...(overflowRef ? { overflowRef } : {}) };
 }
 
 function taskEvidencePreview(
@@ -1532,13 +1801,40 @@ function taskEvidencePreview(
     typeof evidence.body === "string" ? evidence.body : JSON.stringify(evidence.body, null, 2);
   return {
     ref: evidence.ref,
-    title: evidence.title,
-    kind: evidence.kind,
-    format: evidence.format,
-    provenance: evidence.provenance as unknown as Record<string, unknown>,
-    bodyPreview:
-      evidence.bodyPreview ?? (bodyText.length > 2000 ? bodyText.slice(0, 2000) + "…" : bodyText),
+    title: boundedEvidencePreview(evidence.title, 500),
+    kind: boundedEvidencePreview(evidence.kind, 100),
+    format: boundedEvidencePreview(evidence.format, 100),
+    provenance: compactEvidenceProvenance(
+      evidence.provenance as unknown as Record<string, unknown>,
+    ),
+    bodyPreview: boundedEvidencePreview(
+      evidence.bodyPreview ?? bodyText,
+      TASK_REVIEW_EVIDENCE_PREVIEW_ITEM_CHARS,
+    ),
     curationStatus: evidence.curation?.status,
-    supersededBy: evidence.curation?.supersededBy,
+    supersededBy: evidence.curation?.supersededBy?.slice(0, 5),
   };
+}
+
+function compactEvidenceProvenance(value: Record<string, unknown>): Record<string, unknown> {
+  const compact: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value).slice(0, 10)) {
+    const boundedKey = boundedEvidencePreview(key, 100);
+    if (typeof entry === "string") compact[boundedKey] = boundedEvidencePreview(entry, 300);
+    else if (typeof entry === "number" || typeof entry === "boolean" || entry === null)
+      compact[boundedKey] = entry;
+    else {
+      try {
+        compact[boundedKey] = boundedEvidencePreview(JSON.stringify(entry), 500);
+      } catch {
+        compact[boundedKey] = "[unserializable metadata]";
+      }
+    }
+  }
+  return compact;
+}
+
+function boundedEvidencePreview(value: string, maxChars: number): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, Math.max(0, maxChars - 1))}…`;
 }

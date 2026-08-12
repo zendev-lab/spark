@@ -28,14 +28,7 @@ const verificationTargetSchema = Type.Union([
   Type.Object({ kind: Type.Literal("goal"), goalRef: Type.String() }),
 ]);
 
-export function createSparkLensToolConfig(): SparkRegisteredToolConfig & {
-  policy: {
-    effect: "write";
-    executionMode: "sequential";
-    domains: string[];
-    approval: "none";
-  };
-} {
+export function createSparkLensToolConfig(): SparkRegisteredToolConfig {
   return {
     name: "lens",
     label: "Lens",
@@ -51,10 +44,21 @@ export function createSparkLensToolConfig(): SparkRegisteredToolConfig & {
       "Suppressing a finding requires an applied Patch Proposal for the suppression annotation.",
     ],
     policy: {
-      effect: "write",
+      effect: "local_write",
       executionMode: "sequential",
       domains: ["workspace", "evidence"],
+      modes: ["plan", "execute", "fleet"],
       approval: "none",
+    },
+    resolvePolicy(args) {
+      const read = args.action === "status" || args.action === "inspect";
+      return {
+        effect: read ? "read" : "local_write",
+        executionMode: read ? "parallel" : "sequential",
+        domains: ["workspace", "evidence"],
+        modes: read ? ["plan", "execute", "fleet"] : ["plan", "execute"],
+        approval: "none",
+      };
     },
     parameters: Type.Union([
       Type.Object(

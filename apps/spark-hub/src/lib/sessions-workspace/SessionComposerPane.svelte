@@ -1,10 +1,13 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
   import {
+    AttachmentList,
     Composer,
     SlashActionBar,
     SlashCommandMenu,
+    type ConversationAttachmentView,
   } from "$lib/components/conversation";
+  import { sparkActionFromPresentation } from "$lib/components/conversation/action-adapter";
   import { ModelRuntimeControl } from "$lib/components/model-selector";
   import { Icon } from "@zendev-lab/spark-ui";
   import {
@@ -29,6 +32,20 @@
   let selectedAttachments = $state<SelectedAttachment[]>([]);
   let attachmentError = $state<string | null>(null);
   let draggingAttachments = $state(false);
+  let attachmentViews = $derived<ConversationAttachmentView[]>(
+    selectedAttachments.map((attachment) => ({
+      id: attachment.key,
+      name: attachment.file.name,
+      kind: attachment.file.type.startsWith("image/")
+        ? "image"
+        : attachment.file.type.startsWith("audio/")
+          ? "audio"
+          : "file",
+      mediaType: attachment.file.type || undefined,
+      sizeBytes: attachment.file.size,
+      previewHref: attachment.previewUrl,
+    })),
+  );
 
   const enhanceSendMessage: SubmitFunction = async (submission) => {
     const callback = await host.enhanceSendMessage(submission);
@@ -134,12 +151,6 @@
     addAttachments(files);
   }
 
-  function formatFileSize(size: number): string {
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${Math.ceil(size / 102.4) / 10} KB`;
-    return `${Math.ceil(size / (1024 * 102.4)) / 10} MB`;
-  }
-
   onDestroy(clearAttachments);
 </script>
 <form
@@ -204,36 +215,15 @@
           expanded: host.sessionSlashSuggestions.length > 0,
           listboxId: host.sessionSlashListboxId,
           activeOptionId: host.sessionSlashActiveOptionId,
-        }}        >
+        }}
+      >
         {#snippet attachments()}
-          {#if selectedAttachments.length > 0}
-            <div class="attachment-tray" aria-label={host.copy.addAttachment}>
-              {#each selectedAttachments as attachment (attachment.key)}
-                <article class="attachment-card" class:image={Boolean(attachment.previewUrl)}>
-                  {#if attachment.previewUrl}
-                    <img src={attachment.previewUrl} alt={attachment.file.name} />
-                  {:else}
-                    <span class="attachment-file-mark" aria-hidden="true">
-                      {attachment.file.name.split(".").pop()?.slice(0, 4).toUpperCase() || "FILE"}
-                    </span>
-                  {/if}
-                  <div class="attachment-copy">
-                    <strong title={attachment.file.name}>{attachment.file.name}</strong>
-                    <span>{formatFileSize(attachment.file.size)}</span>
-                  </div>
-                  <button
-                    type="button"
-                    class="attachment-remove"
-                    aria-label={`${host.copy.removeAttachment}: ${attachment.file.name}`}
-                    title={host.copy.removeAttachment}
-                    onclick={() => removeAttachment(attachment.key)}
-                  >
-                    <Icon name="close" size={13} stroke={2.3} />
-                  </button>
-                </article>
-              {/each}
-            </div>
-          {/if}
+          <AttachmentList
+            items={attachmentViews}
+            label={host.copy.addAttachment}
+            removeLabel={host.copy.removeAttachment}
+            onRemove={(attachment) => removeAttachment(attachment.id)}
+          />
         {/snippet}
         {#snippet actions()}
           {#if host.sessionSlashSuggestions.length > 0}
@@ -250,8 +240,10 @@
           {#if host.sessionSlashActionBar}
             <SlashActionBar
               view={host.sessionSlashActionBar}
-              resolveAction={(action) => host.slashActionAvailability(action, "session")}
-              onAction={(action) => host.handleSlashAction(action, "session")}
+              resolveAction={(action) =>
+                host.slashActionAvailability(sparkActionFromPresentation(action), "session")}
+              onAction={(action) =>
+                host.handleSlashAction(sparkActionFromPresentation(action), "session")}
             />
           {/if}
         {/snippet}
@@ -368,71 +360,6 @@
     display: none;
   }
 
-  .attachment-tray {
-    display: flex;
-    gap: 8px;
-    min-width: 0;
-    overflow-x: auto;
-    padding-bottom: 2px;
-  }
-
-  .attachment-card {
-    align-items: center;
-    background: var(--color-surface-soft);
-    border: 1px solid var(--color-border-soft);
-    border-radius: 10px;
-    display: grid;
-    flex: 0 0 184px;
-    gap: 8px;
-    grid-template-columns: 40px minmax(0, 1fr) 22px;
-    min-height: 52px;
-    overflow: hidden;
-    padding: 5px;
-  }
-
-  .attachment-card.image {
-    flex-basis: 154px;
-  }
-
-  .attachment-card img,
-  .attachment-file-mark {
-    border-radius: 7px;
-    height: 40px;
-    object-fit: cover;
-    width: 40px;
-  }
-
-  .attachment-file-mark {
-    align-items: center;
-    background: var(--color-primary-weak);
-    color: var(--color-primary);
-    display: flex;
-    font-size: 9px;
-    font-weight: 750;
-    justify-content: center;
-    letter-spacing: 0.02em;
-  }
-
-  .attachment-copy {
-    display: grid;
-    gap: 2px;
-    min-width: 0;
-  }
-
-  .attachment-copy strong {
-    color: var(--color-ink);
-    font-size: 11px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .attachment-copy span {
-    color: var(--color-ink-subtle);
-    font-size: 10px;
-  }
-
-  .attachment-remove,
   .attachment-add {
     align-items: center;
     background: transparent;
@@ -443,13 +370,6 @@
     justify-content: center;
   }
 
-  .attachment-remove {
-    align-self: start;
-    border-radius: 999px;
-    height: 22px;
-    width: 22px;
-  }
-
   .attachment-add {
     border-radius: 9px;
     flex: 0 0 auto;
@@ -457,13 +377,11 @@
     width: 34px;
   }
 
-  .attachment-remove:hover,
   .attachment-add:hover:not(:disabled) {
     background: var(--color-surface-raised, var(--color-surface-soft));
     color: var(--color-ink);
   }
 
-  .attachment-remove:focus-visible,
   .attachment-add:focus-visible {
     box-shadow: var(--shadow-focus);
     outline: none;

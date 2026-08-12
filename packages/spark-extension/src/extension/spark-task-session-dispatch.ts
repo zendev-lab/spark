@@ -9,6 +9,7 @@ import {
   type RoleRef,
   type RunRef,
   type SubgoalRef,
+  type Task,
   type TaskRef,
   type TaskExecutionPolicy,
   type TaskResourceAllocation,
@@ -22,10 +23,16 @@ import {
   subgoalDefinitionDigest,
   type SparkSessionContext,
 } from "@zendev-lab/spark-loop";
-import type { RoleRegistry } from "@zendev-lab/spark-roles";
+import type { SparkSessionCloseCandidate } from "@zendev-lab/spark-protocol/session-assignment";
+import type { RoleRegistry, RoleSpec } from "@zendev-lab/spark-roles";
 import { sparkTaskExecutorRoleRef } from "@zendev-lab/spark-runtime";
 import { defaultTaskGraphStore, type TaskGraph } from "@zendev-lab/spark-tasks";
 import type { SparkReproSubgoal } from "./spark-session-repro.ts";
+import {
+  fleetLaneKey,
+  resolveFleetTaskTarget,
+  type ResolvedFleetTarget,
+} from "./spark-fleet-target.ts";
 
 export interface ManagedTaskSessionDispatchInput {
   cwd: string;
@@ -38,6 +45,8 @@ export interface ManagedTaskSessionDispatchInput {
   registry: RoleRegistry;
   subgoals?: readonly SparkReproSubgoal[];
   resourceAllocations?: Partial<Record<TaskRef, TaskResourceAllocation>>;
+  /** Fleet uses stable target lanes and completion mail instead of per-Task Sessions. */
+  fleet?: boolean;
   daemonRequest?: typeof requestSparkDaemon;
 }
 
@@ -94,8 +103,11 @@ export async function dispatchManagedTaskSessions(
   const store = defaultTaskGraphStore(stateCwd);
   const uniqueTaskRefs = [...new Set(input.taskRefs)];
   if (uniqueTaskRefs.length === 0) return [];
+  const fleetTargets = input.fleet
+    ? await resolveFleetTargets(stateCwd, store, uniqueTaskRefs)
+    : undefined;
   const reserved = await store.update(
-    (graph) => reserveTaskSessionRuns(graph, input, uniqueTaskRefs),
+    (graph) => reserveTaskSessionRuns(graph, input, uniqueTaskRefs, fleetTargets),
     { createIfMissing: false },
   );
   if (!reserved.graph) throw new Error("Spark task graph is unavailable");
@@ -105,6 +117,7 @@ export async function dispatchManagedTaskSessions(
     try {
       const execution = reservation.run.execution;
       if (!execution) throw new Error(`task run ${reservation.run.ref} has no execution binding`);
+      const sessionId = taskExecutionSessionId(execution);
       await ensureTaskExecutionSession({
         cwd: input.cwd,
         ctx: input.ctx,
@@ -112,40 +125,32 @@ export async function dispatchManagedTaskSessions(
         taskRef: reservation.run.taskRef,
         runRef: reservation.run.ref,
         roleRef: reservation.roleRef,
+        role: input.registry.get(reservation.roleRef),
         goal: reservation.goal,
         evidenceRequired: reservation.evidenceRequired,
         execution,
+        fleetTarget: fleetTargets?.get(reservation.run.taskRef),
         daemonRequest,
       });
-      const submitted = await daemonRequest("turn.submit", {
-        sessionId: execution.executionSessionId,
-        prompt: renderTaskExecutionPrompt(reservation),
-        ...(input.parentInvocationId ? { parentInvocationId: input.parentInvocationId } : {}),
-        idempotencyKey: `${execution.jobId}:attempt:${execution.attempt}`,
-        assignment: {
-          goal: reservation.goal,
-          target: {
-            sessionId: execution.executionSessionId,
-            role: reservation.roleRef,
-          },
-          constraints: [
-            `Work only on ${reservation.run.taskRef}.`,
-            "Do not select, claim, or mutate another Project Task.",
-            "Record inspectable evidence and finish the bound task explicitly.",
-          ],
-          evidence: reservation.evidenceRequired,
-          source: { kind: "internal", externalRef: execution.jobId },
-          title: `Task execution ${reservation.run.taskRef}`,
-        },
-        messageMetadata: {
-          kind: "task_execution",
-          projectRef: input.projectRef,
-          taskRef: reservation.run.taskRef,
-          runRef: reservation.run.ref,
-          jobId: execution.jobId,
-          attempt: execution.attempt,
-        },
-      });
+      const prompt = renderTaskExecutionPrompt(reservation);
+      const submitted = input.fleet
+        ? await submitFleetTaskRequest({
+            daemonRequest,
+            ownerSessionId: input.ownerSessionId,
+            sessionId,
+            parentInvocationId: input.parentInvocationId,
+            projectRef: input.projectRef,
+            reservation,
+            prompt,
+          })
+        : await daemonRequest("turn.submit", {
+            sessionId,
+            prompt,
+            ...(input.parentInvocationId ? { parentInvocationId: input.parentInvocationId } : {}),
+            idempotencyKey: `${execution.jobId}:attempt:${execution.attempt}`,
+            assignment: taskAssignment(reservation),
+            messageMetadata: taskMessageMetadata(input.projectRef, reservation),
+          });
       await updateReservedRun(stateCwd, reservation.run.ref, reservation.run.taskRef, (run) => ({
         ...run,
         status: "running",
@@ -158,7 +163,7 @@ export async function dispatchManagedTaskSessions(
         runRef: reservation.run.ref,
         taskRef: reservation.run.taskRef,
         roleRef: reservation.roleRef,
-        sessionId: execution.executionSessionId,
+        sessionId,
         goalId: execution.sessionGoalId,
         jobId: execution.jobId,
         attempt: execution.attempt,
@@ -183,6 +188,8 @@ export async function reconcileManagedTaskSessions(input: {
   cwd: string;
   ctx: SparkSessionContext;
   projectRef: ProjectRef;
+  /** Reconcile only TaskRuns owned by this Session (Fleet completion wake path). */
+  ownerSessionId?: string;
   subgoals?: readonly SparkReproSubgoal[];
   daemonRequest?: typeof requestSparkDaemon;
 }): Promise<ManagedTaskSessionReconcileResult> {
@@ -192,8 +199,12 @@ export async function reconcileManagedTaskSessions(input: {
   const active =
     snapshot
       ?.runs(input.projectRef)
-      .filter((run) => run.execution && (run.status === "queued" || run.status === "running")) ??
-    [];
+      .filter(
+        (run) =>
+          run.execution &&
+          (!input.ownerSessionId || run.execution.ownerSessionId === input.ownerSessionId) &&
+          (run.status === "queued" || run.status === "running"),
+      ) ?? [];
   if (active.length === 0) return emptyReconcileResult();
 
   const daemonRequest = input.daemonRequest ?? requestSparkDaemon;
@@ -350,16 +361,118 @@ export async function reconcileManagedTaskSessions(input: {
     },
     { createIfMissing: false },
   );
+  const graph = reconciled.graph;
+  if (graph) {
+    const closeRequests = active.flatMap((previous) => {
+      const run = graph.runs(input.projectRef).find((candidate) => candidate.ref === previous.ref);
+      if (!run?.execution || run.status === "queued" || run.status === "running") return [];
+      const task = graph.getTask(run.taskRef);
+      const revisionEnded =
+        task.status === "done" || task.status === "failed" || task.status === "cancelled";
+      if (run.execution.sessionLifetime !== "task_run" && !revisionEnded) return [];
+      const sessionId = taskExecutionSessionId(run.execution);
+      return [
+        {
+          sessionId,
+          completion: taskSessionCloseCandidate(graph, input.projectRef, task, run, sessionId),
+        },
+      ];
+    });
+    await Promise.all(
+      [...new Map(closeRequests.map((request) => [request.sessionId, request])).values()].map(
+        async ({ sessionId, completion }) =>
+          await daemonRequest("session.archive", {
+            sessionId,
+            ...(completion ? { completion } : {}),
+          }),
+      ),
+    );
+  }
   return reconciled.result;
+}
+
+function taskSessionCloseCandidate(
+  graph: TaskGraph,
+  projectRef: ProjectRef,
+  task: Task,
+  finalRun: TaskRun,
+  sessionId: string,
+): SparkSessionCloseCandidate | undefined {
+  const runs =
+    finalRun.execution?.sessionLifetime === "task_revision"
+      ? graph.runs(projectRef).filter((run) => {
+          if (!run.execution || run.status === "queued" || run.status === "running") return false;
+          return taskExecutionSessionId(run.execution) === sessionId;
+        })
+      : [finalRun];
+  const sourceInvocationIds = unique(
+    runs.flatMap((run) => (run.execution?.invocationId ? [run.execution.invocationId] : [])),
+  ).slice(0, 64);
+  if (sourceInvocationIds.length === 0) return undefined;
+  const summary = finalRun.completionSummary;
+  const outcome = summary?.outcome ?? finalRun.outcome;
+  const status = finalRun.status === "succeeded" ? "completed" : finalRun.status;
+  if (
+    status !== "completed" &&
+    status !== "blocked" &&
+    status !== "failed" &&
+    status !== "cancelled"
+  ) {
+    return undefined;
+  }
+  const evidenceRefs = unique(
+    runs.flatMap((run) => [
+      ...run.outputEvidenceRefs,
+      ...(run.completionSummary?.evidenceRefs ?? []),
+    ]),
+  ).slice(0, 64);
+  const nextAction = boundCloseText(outcome?.nextAction, 2_048);
+  return {
+    source: "domain_completion",
+    status,
+    code: normalizeTaskCloseCode(outcome?.code ?? `task_session_${status}`),
+    summary:
+      boundCloseText(summary?.summary) ??
+      `Task ${task.ref} ${status === "completed" ? "completed" : status}.`,
+    ...(nextAction ? { nextAction } : {}),
+    evidenceRefs,
+    artifactRefs: unique(task.artifactRefs).slice(0, 32),
+    sourceInvocationIds,
+  };
+}
+
+function unique<T extends string>(values: readonly T[]): T[] {
+  return [...new Set(values)];
+}
+
+function boundCloseText(value: string | undefined, maxLength = 4_096): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized.slice(0, maxLength).trim() : undefined;
+}
+
+function normalizeTaskCloseCode(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9._-]+/gu, "_")
+    .replaceAll(/^_+|_+$/gu, "");
+  return (/^[a-z]/u.test(normalized) ? normalized : `task_${normalized || "failed"}`).slice(0, 128);
 }
 
 function reserveTaskSessionRuns(
   graph: TaskGraph,
   input: ManagedTaskSessionDispatchInput,
   taskRefs: TaskRef[],
+  fleetTargets?: Map<TaskRef, ResolvedFleetTarget>,
 ): ReservedTaskSessionRun[] {
   const ready = new Set(graph.readyTasks(input.projectRef).map((task) => task.ref));
   const projectRuns = graph.runs(input.projectRef);
+  const activeFleetLanes = new Set(
+    projectRuns
+      .filter((run) => run.status === "queued" || run.status === "running")
+      .map((run) => run.execution?.workerLaneKey)
+      .filter((lane): lane is string => Boolean(lane)),
+  );
   for (const taskRef of taskRefs) {
     const task = graph.getTask(taskRef);
     if (task.projectRef !== input.projectRef) {
@@ -410,28 +523,48 @@ function reserveTaskSessionRuns(
     const historicalRuns = projectRuns.filter((run) => run.taskRef === taskRef && !run.dryRun);
     const attempt = historicalRuns.length + 1;
     const executionPolicy = task.executionPolicy;
+    const fleetTarget = fleetTargets?.get(taskRef);
+    const workerLaneKey = fleetTarget
+      ? fleetLaneKey({
+          ownerSessionId: input.ownerSessionId,
+          projectRef: input.projectRef,
+          roleRef,
+          primaryArtifactRef: fleetTarget.primaryArtifactRef,
+          writableArtifactRefs: fleetTarget.writableArtifactRefs,
+        })
+      : undefined;
+    if (workerLaneKey && activeFleetLanes.has(workerLaneKey)) {
+      throw new Error(`Fleet lane ${workerLaneKey} already has an active TaskRun`);
+    }
+    if (workerLaneKey) activeFleetLanes.add(workerLaneKey);
     const priorInRevision = historicalRuns
       .filter((run) => run.execution?.jobId === jobId)
       .sort((left, right) => (left.startedAt ?? "").localeCompare(right.startedAt ?? ""))
       .at(-1);
-    const reuseSession = executionPolicy?.continuity !== "fresh";
+    const reuseSession = executionPolicy?.sessionLifetime === "task_revision";
     const reusableExecution = reuseSession ? priorInRevision?.execution : undefined;
-    const executionSessionId =
-      reusableExecution?.executionSessionId ??
-      `sess_task_${stableId(`${input.projectRef}:${taskRef}:${jobId}:attempt:${attempt}`)}`;
+    const sessionId = workerLaneKey
+      ? executionPolicy?.continuity === "fresh"
+        ? `sess_fleet_${stableId(`${workerLaneKey}:${jobId}:attempt:${attempt}`)}`
+        : `sess_fleet_${stableId(workerLaneKey)}`
+      : ((reusableExecution ? taskExecutionSessionId(reusableExecution) : undefined) ??
+        `sess_task_${stableId(`${input.projectRef}:${taskRef}:${jobId}:attempt:${attempt}`)}`);
     const sessionGoalId = reusableExecution?.sessionGoalId ?? randomUUID();
     const execution: TaskRunExecutionBinding = {
       ownerSessionId: input.ownerSessionId,
-      executionSessionId,
+      sessionId,
+      executionSessionId: sessionId,
       sessionGoalId,
+      sessionLifetime: executionPolicy?.sessionLifetime ?? "task_revision",
       ...(subgoal ? { subgoalRef: subgoal.ref, planRevision: subgoal.planRevision } : {}),
       ...(definitionDigest ? { definitionDigest } : {}),
       jobId,
       attempt,
+      ...(workerLaneKey ? { workerLaneKey } : {}),
     };
     const runRef = newRef("run");
     const runName = `${task.name}-attempt-${attempt}`;
-    const claimSessionId = sparkSessionKey({ sessionId: executionSessionId });
+    const claimSessionId = sparkSessionKey({ sessionId });
     graph.claimTask(taskRef, {
       kind: "role-run",
       claimedBy: claimSessionId,
@@ -482,59 +615,93 @@ async function ensureTaskExecutionSession(input: {
   taskRef: TaskRef;
   runRef: RunRef;
   roleRef: RoleRef;
+  role: RoleSpec;
   goal: string;
   evidenceRequired: string[];
   execution: TaskRunExecutionBinding;
+  fleetTarget?: ResolvedFleetTarget;
   daemonRequest: typeof requestSparkDaemon;
 }): Promise<void> {
+  const sessionId = taskExecutionSessionId(input.execution);
   const owner = await input.daemonRequest("session.get", {
     sessionId: input.execution.ownerSessionId,
   });
   try {
     await input.daemonRequest("session.create", {
-      sessionId: input.execution.executionSessionId,
+      sessionId,
       scope:
         owner.scope.kind === "workspace"
           ? { kind: "workspace", workspaceId: owner.scope.workspaceId }
           : { kind: "daemon" },
       role: input.roleRef,
-      ...(owner.cwd ? { cwd: owner.cwd } : {}),
-      ...(owner.cwdArtifactRef ? { cwdArtifactRef: owner.cwdArtifactRef } : {}),
-      taskExecution: {
-        ownerSessionId: input.execution.ownerSessionId,
-        projectRef: input.projectRef,
-        taskRef: input.taskRef,
-        runRef: input.runRef,
-        sessionGoalId: input.execution.sessionGoalId,
-        ...(input.execution.subgoalRef ? { subgoalRef: input.execution.subgoalRef } : {}),
-        roleRef: input.roleRef,
-        ...(input.execution.planRevision ? { planRevision: input.execution.planRevision } : {}),
-        ...(input.execution.definitionDigest
-          ? { definitionDigest: input.execution.definitionDigest }
-          : {}),
-        jobId: input.execution.jobId,
-        attempt: input.execution.attempt,
-      },
+      ...(input.fleetTarget
+        ? {
+            cwd: input.fleetTarget.primaryRoot,
+            cwdArtifactRef: input.fleetTarget.primaryArtifactRef,
+          }
+        : {
+            ...(owner.cwd ? { cwd: owner.cwd } : {}),
+            ...(owner.cwdArtifactRef ? { cwdArtifactRef: owner.cwdArtifactRef } : {}),
+          }),
+      ...(input.fleetTarget && input.execution.workerLaneKey
+        ? {
+            fleetWorker: {
+              ownerSessionId: input.execution.ownerSessionId,
+              projectRef: input.projectRef,
+              roleRef: input.roleRef,
+              laneKey: input.execution.workerLaneKey,
+              primaryArtifactRef: input.fleetTarget.primaryArtifactRef,
+              writableArtifactRefs: input.fleetTarget.writableArtifactRefs,
+            },
+          }
+        : {
+            taskExecution: {
+              ownerSessionId: input.execution.ownerSessionId,
+              projectRef: input.projectRef,
+              taskRef: input.taskRef,
+              runRef: input.runRef,
+              sessionGoalId: input.execution.sessionGoalId,
+              ...(input.execution.subgoalRef ? { subgoalRef: input.execution.subgoalRef } : {}),
+              roleRef: input.roleRef,
+              roleRevision: input.role.revision,
+              modelType: input.role.modelType,
+              sessionLifetime: input.execution.sessionLifetime,
+              ...(input.execution.planRevision
+                ? { planRevision: input.execution.planRevision }
+                : {}),
+              ...(input.execution.definitionDigest
+                ? { definitionDigest: input.execution.definitionDigest }
+                : {}),
+              jobId: input.execution.jobId,
+              attempt: input.execution.attempt,
+            },
+          }),
     });
   } catch (error) {
     if (!isSessionAlreadyExists(error)) throw error;
     const existing = await input.daemonRequest("session.get", {
-      sessionId: input.execution.executionSessionId,
+      sessionId,
     });
-    if (
-      existing.relation?.kind !== "task_execution" ||
-      existing.relation.jobId !== input.execution.jobId ||
-      existing.relation.taskRef !== input.taskRef ||
-      existing.relation.sessionGoalId !== input.execution.sessionGoalId
-    ) {
-      throw new Error(
-        `managed session ${input.execution.executionSessionId} has a conflicting relation`,
-      );
+    const relationMatches = input.fleetTarget
+      ? existing.relation?.kind === "fleet_worker" &&
+        existing.relation.ownerSessionId === input.execution.ownerSessionId &&
+        existing.relation.projectRef === input.projectRef &&
+        existing.relation.roleRef === input.roleRef &&
+        existing.relation.laneKey === input.execution.workerLaneKey &&
+        existing.relation.primaryArtifactRef === input.fleetTarget.primaryArtifactRef &&
+        sameStrings(existing.relation.writableArtifactRefs, input.fleetTarget.writableArtifactRefs)
+      : existing.relation?.kind === "task_execution" &&
+        existing.relation.jobId === input.execution.jobId &&
+        existing.relation.taskRef === input.taskRef &&
+        existing.relation.sessionGoalId === input.execution.sessionGoalId;
+    if (!relationMatches) {
+      throw new Error(`managed session ${sessionId} has a conflicting relation`);
     }
   }
+  if (input.fleetTarget) return;
   const goal = await setSessionGoal(
     input.cwd,
-    { ...input.ctx, sessionId: input.execution.executionSessionId },
+    { ...input.ctx, sessionId },
     {
       objective: input.goal,
       source: "explicit",
@@ -543,8 +710,94 @@ async function ensureTaskExecutionSession(input: {
     },
   );
   if (goal.goalId !== input.execution.sessionGoalId) {
-    throw new Error(`managed session ${input.execution.executionSessionId} has a conflicting goal`);
+    throw new Error(`managed session ${sessionId} has a conflicting goal`);
   }
+}
+
+async function resolveFleetTargets(
+  stateCwd: string,
+  store: ReturnType<typeof defaultTaskGraphStore>,
+  taskRefs: TaskRef[],
+): Promise<Map<TaskRef, ResolvedFleetTarget>> {
+  const graph = await store.load();
+  if (!graph) throw new Error("Spark task graph is unavailable");
+  const entries = await Promise.all(
+    taskRefs.map(async (taskRef) => {
+      const task = graph.getTask(taskRef);
+      return [taskRef, await resolveFleetTaskTarget({ workspaceCwd: stateCwd, task })] as const;
+    }),
+  );
+  return new Map(entries);
+}
+
+async function submitFleetTaskRequest(input: {
+  daemonRequest: typeof requestSparkDaemon;
+  ownerSessionId: string;
+  sessionId: string;
+  parentInvocationId?: string;
+  projectRef: ProjectRef;
+  reservation: ReservedTaskSessionRun;
+  prompt: string;
+}): Promise<{ invocationId: string }> {
+  const execution = input.reservation.run.execution;
+  if (!execution) throw new Error("Fleet TaskRun has no execution binding");
+  const result = await input.daemonRequest("session.send", {
+    toSessionId: input.sessionId,
+    fromSessionId: input.ownerSessionId,
+    kind: "request",
+    intent: "fleet.task.execute",
+    payload: taskMessageMetadata(input.projectRef, input.reservation),
+    idempotencyKey: `${execution.jobId}:attempt:${execution.attempt}`,
+    body: input.prompt,
+    origin: { surface: "local", host: "daemon" },
+    ...(input.parentInvocationId ? { parentInvocationId: input.parentInvocationId } : {}),
+    notifyOnCompletion: true,
+    source: "tool",
+  });
+  if (!result.submitted) throw new Error("Fleet request was not admitted as an invocation");
+  return result.submitted;
+}
+
+function taskAssignment(reservation: ReservedTaskSessionRun) {
+  const execution = reservation.run.execution;
+  if (!execution) throw new Error("TaskRun has no execution binding");
+  return {
+    goal: reservation.goal,
+    target: {
+      sessionId: taskExecutionSessionId(execution),
+      role: reservation.roleRef,
+    },
+    constraints: [
+      `Work only on ${reservation.run.taskRef}.`,
+      "Do not select, claim, or mutate another Project Task.",
+      "Record inspectable evidence and finish the bound task explicitly.",
+    ],
+    evidence: reservation.evidenceRequired,
+    source: { kind: "internal" as const, externalRef: execution.jobId },
+    title: `Task execution ${reservation.run.taskRef}`,
+  };
+}
+
+function taskMessageMetadata(
+  projectRef: ProjectRef,
+  reservation: ReservedTaskSessionRun,
+): Record<string, string | number> {
+  const execution = reservation.run.execution;
+  if (!execution) throw new Error("TaskRun has no execution binding");
+  return {
+    kind: "task_execution",
+    projectRef,
+    taskRef: reservation.run.taskRef,
+    runRef: reservation.run.ref,
+    jobId: execution.jobId,
+    attempt: execution.attempt,
+  };
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+  const a = [...left].sort();
+  const b = [...right].sort();
+  return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
 async function updateReservedRun(
@@ -598,7 +851,7 @@ function renderTaskExecutionPrompt(reservation: ReservedTaskSessionRun): string 
     `Execute the Project Task ${reservation.run.taskRef}.`,
     `Your Session Goal is exactly: ${reservation.goal}`,
     `TaskRun: ${reservation.run.ref}; jobId=${execution.jobId}; attempt=${execution.attempt}.`,
-    `Execution policy: continuity=${reservation.executionPolicy.continuity}; isolation=${reservation.executionPolicy.isolation}; comparison=${reservation.executionPolicy.comparison}; maxAttempts=${reservation.executionPolicy.maxAttempts}.`,
+    `Execution policy: sessionLifetime=${reservation.executionPolicy.sessionLifetime}; isolation=${reservation.executionPolicy.isolation}; comparison=${reservation.executionPolicy.comparison}; maxAttempts=${reservation.executionPolicy.maxAttempts}.`,
     reservation.executionPolicy.isolation === "readonly"
       ? "Do not modify repository source or external state."
       : reservation.executionPolicy.isolation === "isolated_worktree"
@@ -667,6 +920,13 @@ function taskRunTimedOut(run: TaskRun, timeoutMs: number): boolean {
   if (run.timeoutRequestedAt) return true;
   const startedAt = Date.parse(run.startedAt ?? "");
   return Number.isFinite(startedAt) && Date.now() - startedAt >= timeoutMs;
+}
+
+/** Decode old TaskRun snapshots once; active dispatch consumes the canonical sessionId. */
+function taskExecutionSessionId(execution: TaskRunExecutionBinding): string {
+  const sessionId = execution.sessionId ?? execution.executionSessionId;
+  if (!sessionId?.trim()) throw new Error("task execution binding sessionId is required");
+  return sessionId;
 }
 
 function isSessionAlreadyExists(error: unknown): boolean {

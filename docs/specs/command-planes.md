@@ -85,6 +85,11 @@ session id and only connection-local active-invocation routing is retained.
 | terminal presentation and interaction | `apps/spark-tui` behind `spark-tui` / `spark-text` boundaries | no durable business-state ownership |
 | extension composition | `spark-extension` | compatible loaders may call the same host-neutral contract; no second facade owns behavior |
 
+TUI, Hub, ACP, and Channel adapters create or select daemon Sessions through
+the same protocol. They do not author lifecycle or activity: the daemon derives
+visible activity from queued/running Invocations, rolls owned child activity up
+to its parent, and emits the projection consumed by every surface.
+
 Generated UI is artifact-backed data, never executable MDX, JS, JSX, imports,
 exports, or raw HTML. Public action-tool names remain canonical. Serialized
 `.spark/` markers change only through an explicit, idempotent migration with
@@ -106,16 +111,12 @@ projections must be rebuildable, and caches cannot become admission or execution
 truth. Compatibility adapters have written exit criteria and do not receive new
 product behavior.
 
-`scripts/check-architecture-ratchets.mjs`, run by `pnpm run check:static`, is
-the mechanical growth ratchet. During the early product phase its ceilings are
-recorded in `architecture/packages.json` plus a 4,000-line production-file
-limit, and it rejects additions to the frozen compatibility extension manifest.
-The headroom allows a small number of evidence-backed owner boundaries without
-pinning every ceiling to today's count. These remain ceilings, not design
-targets: an oversized module should still be split at a domain/adapter boundary
-before it reaches the limit. Raising a ceiling requires an architecture
-rationale in the same change; deleting a package or compatibility manifest entry
-never requires lowering a frozen allowlist first.
+`scripts/check-architecture-ratchets.mjs`, run by `pnpm run check:static`,
+compares workspace manifests with `architecture/packages.json`, verifies
+declared export targets, and keeps workspace test and mutation discovery
+fail-closed. Dependency Cruiser owns source import direction and compatibility
+transport boundaries. Growth decisions remain architectural review decisions;
+they are not inferred from line counts, frozen source lists, or keyword scans.
 
 ### Open-source adoption
 

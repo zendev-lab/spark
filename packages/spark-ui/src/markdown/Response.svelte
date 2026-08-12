@@ -106,7 +106,7 @@
   .ai-response :global(:where(ul, ol)) {
     display: grid;
     gap: 0.28rem;
-    padding-left: 1.45rem;
+    padding-inline-start: 1.45rem;
   }
 
   .ai-response :global(li > :where(ul, ol)) {
@@ -130,9 +130,9 @@
   }
 
   .ai-response :global(blockquote) {
-    border-left: 3px solid var(--color-primary-soft);
+    border-inline-start: 3px solid var(--color-primary-soft);
     color: var(--color-ink-muted);
-    padding-left: 0.95rem;
+    padding-inline-start: 0.95rem;
   }
 
   .ai-response :global(:not(pre) > code) {
@@ -167,7 +167,7 @@
     display: flex;
     gap: 4px;
     position: absolute;
-    right: 8px;
+    inset-inline-end: 8px;
     top: 5px;
     z-index: 1;
   }
@@ -251,7 +251,7 @@
   .ai-response :global(:where(th, td)) {
     border: 1px solid var(--color-border);
     padding: 0.5rem 0.65rem;
-    text-align: left;
+    text-align: start;
     vertical-align: top;
   }
 
@@ -299,7 +299,7 @@
     content: "";
     display: inline-block;
     height: 1em;
-    margin-left: 0.22em;
+    margin-inline-start: 0.22em;
     vertical-align: -0.12em;
     width: 0.5em;
   }

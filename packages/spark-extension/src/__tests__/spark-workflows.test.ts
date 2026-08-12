@@ -23,6 +23,7 @@ import {
   createSparkWorkflowRoleRunAdapter,
   type SparkRoleRunResult,
 } from "@zendev-lab/spark-runtime";
+import { defaultProjectRoleModelSettingsStore } from "@zendev-lab/spark-roles";
 import {
   registerSparkWorkflowRunTool,
   workflowAgentTelemetryFromRoleRun,
@@ -361,6 +362,7 @@ return 'ok'`;
 test("Spark workflow_run tool routes default agents through ctx.runRole", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-dynamic-workflow-native-role-"));
   try {
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     type TestWorkflowRunTool = {
       execute: (
         toolCallId: string,
@@ -415,7 +417,7 @@ return await agent('use native role', { label: 'native-agent', model: 'test/mode
 
     assert.match(result.content[0]?.text ?? "", /Workflow run completed/);
     assert.equal(nativeInputs.length, 1);
-    assert.equal(nativeInputs[0]?.role.ref, "role:builtin-worker");
+    assert.equal(nativeInputs[0]?.role.ref, "role:builtin-executor");
     assert.equal(nativeInputs[0]?.model, "test/model");
     assert.equal(nativeInputs[0]?.cwd, dir);
     assert.equal(nativeInputs[0]?.usageExecutionKind, "workflow_agent");

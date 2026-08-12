@@ -645,6 +645,13 @@ function routeForDaemonEvent(
   ) {
     return null;
   }
+  if (workspaceBindingId) {
+    const inferred = inferDaemonEventWorkspaceRoute(context.db, context.serverUrl, {
+      workspaceBindingId,
+    });
+    workspaceBindingId = inferred?.workspaceBindingId ?? workspaceBindingId;
+    workspaceId = inferred?.workspaceId ?? workspaceId;
+  }
   if (!workspaceBindingId || !workspaceId) {
     const inferred = inferDaemonEventWorkspaceRoute(context.db, context.serverUrl, {
       workspaceBindingId,
@@ -682,13 +689,14 @@ function inferDaemonEventWorkspaceRoute(
        JOIN daemon_workspaces dw ON dw.id = w.id
        WHERE w.server_url = ?
          AND dw.server_workspace_id IS NOT NULL
-         AND (? IS NULL OR w.id = ?)
+         AND (? IS NULL OR w.id = ? OR dw.server_binding_id = ?)
          AND (? IS NULL OR dw.server_workspace_id = ?)
        ORDER BY w.updated_at DESC
        LIMIT 2`,
     )
     .all(
       serverUrl,
+      hints.workspaceBindingId ?? null,
       hints.workspaceBindingId ?? null,
       hints.workspaceBindingId ?? null,
       hints.workspaceId ?? null,

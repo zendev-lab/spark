@@ -68,6 +68,8 @@ export const sparkSessionModelSelectionSchema = z.object({
 export const sparkModelControlSnapshotSchema = z.object({
   providers: z.array(sparkModelCatalogProviderSchema).default([]),
   defaultModel: sparkModelRefSchema.optional(),
+  /** Resolved user policy. Omitted only by older daemons. */
+  scopedModels: z.array(sparkModelRefSchema).optional(),
   session: sparkSessionModelSelectionSchema.optional(),
   diagnostics: z.array(z.string()).default([]),
 });

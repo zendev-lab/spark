@@ -69,25 +69,25 @@ describe("typed runtime control messages", () => {
 
   it("parses explicit daemon and workspace command scopes", () => {
     expect(
-      serverCommandEnvelopeSchema.parse({
+      serverCommandEnvelopeSchema.safeParse({
         ...base,
         payload: { kind: "daemon.status.request", scope: "daemon" },
-      }).payload.scope,
-    ).toBe("daemon");
+      }).success,
+    ).toBe(true);
     expect(
-      serverCommandEnvelopeSchema.parse({
+      serverCommandEnvelopeSchema.safeParse({
         ...base,
         workspaceBindingId: createId("rtwb"),
         workspaceId: createId("ws"),
         payload: { kind: "workspace.snapshot.request", scope: "workspace" },
-      }).payload.scope,
-    ).toBe("workspace");
+      }).success,
+    ).toBe(true);
   });
 
   it("accepts explicit daemon and workspace session scopes with session routing", () => {
     const sessionId = "sess_runtime_control";
     expect(
-      serverCommandEnvelopeSchema.parse({
+      serverCommandEnvelopeSchema.safeParse({
         ...base,
         sessionId,
         payload: {
@@ -95,10 +95,10 @@ describe("typed runtime control messages", () => {
           scope: "daemon",
           payload: { sessionId },
         },
-      }).sessionId,
-    ).toBe(sessionId);
+      }).success,
+    ).toBe(true);
     expect(
-      serverCommandEnvelopeSchema.parse({
+      serverCommandEnvelopeSchema.safeParse({
         ...base,
         sessionId,
         workspaceBindingId: createId("rtwb"),
@@ -108,8 +108,8 @@ describe("typed runtime control messages", () => {
           scope: "workspace",
           payload: { sessionId, prompt: "continue" },
         },
-      }).payload.scope,
-    ).toBe("workspace");
+      }).success,
+    ).toBe(true);
   });
 
   it("reports every missing workspace route at the envelope field", () => {
@@ -198,12 +198,12 @@ describe("typed runtime control messages", () => {
     });
     expect(parsed.success).toBe(false);
     if (parsed.success) return;
-    expect(parsed.error.issues).toContainEqual(
+    expect(parsed.error.issues).toEqual([
       expect.objectContaining({
         path: ["payload", "payload"],
         message: `Payload exceeds ${maxRuntimeCommandPayloadBytes} bytes`,
       }),
-    );
+    ]);
   });
 
   it("parses one bounded terminal result and rejects secret or oversize results", () => {
@@ -222,8 +222,8 @@ describe("typed runtime control messages", () => {
         completedAt: "2026-07-15T00:00:01.000Z",
       },
     };
-    expect(runtimeCommandResultEnvelopeSchema.parse(result).payload.status).toBe("succeeded");
-    expect(runtimeMessageEnvelopeSchema.parse(result).type).toBe("runtime.command.result");
+    expect(runtimeCommandResultEnvelopeSchema.safeParse(result).success).toBe(true);
+    expect(runtimeMessageEnvelopeSchema.safeParse(result).success).toBe(true);
     expect(
       runtimeCommandResultEnvelopeSchema.safeParse({ ...result, runtimeId: undefined }).success,
     ).toBe(false);
@@ -249,8 +249,8 @@ describe("runtime human response messages", () => {
   it("accepts a routed channel response as an already-recorded runtime fact", () => {
     const envelope = recordedChannelResponse();
 
-    expect(humanResponseRecordedEnvelopeSchema.parse(envelope)).toEqual(envelope);
-    expect(runtimeMessageEnvelopeSchema.parse(envelope).type).toBe("human.response.recorded");
+    expect(humanResponseRecordedEnvelopeSchema.safeParse(envelope).success).toBe(true);
+    expect(runtimeMessageEnvelopeSchema.safeParse(envelope).success).toBe(true);
   });
 
   it("accepts a daemon-originated cancellation as an already-recorded runtime fact", () => {

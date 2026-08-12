@@ -2,7 +2,7 @@ import { goto, invalidateAll } from "$app/navigation";
 import { tick } from "svelte";
 import {
   hubOpenSearchEvent,
-  hubSessionSelectionShortcutForInput,
+  hubDirectSessionCommandForInput,
   scheduleHubActionAfterCurrentEvent,
   type HubSlashCommandSuggestion,
 } from "$lib/slash-actions";
@@ -23,6 +23,7 @@ export type SlashHandlerDeps = {
   getLatestRetryPrompt: () => string | null;
   retryConversationTurn: (prompt: string) => void;
   submitThinkingSelection: () => Promise<void>;
+  submitModeSelection: (mode: "plan" | "execute" | "fleet") => Promise<void>;
   openActivityPane: () => void;
 };
 
@@ -31,6 +32,13 @@ function thinkingLevelFromAction(action: SparkActionView): SparkThinkingLevel | 
   return typeof candidate === "string" &&
     (sparkThinkingLevelOptions as readonly string[]).includes(candidate)
     ? (candidate as SparkThinkingLevel)
+    : null;
+}
+
+function modeFromAction(action: SparkActionView): "plan" | "execute" | "fleet" | null {
+  const candidate = action.payload.mode;
+  return candidate === "plan" || candidate === "execute" || candidate === "fleet"
+    ? candidate
     : null;
 }
 
@@ -115,10 +123,15 @@ export function createSlashHandlers(deps: SlashHandlerDeps) {
   function handleSlashCompletionKeydown(event: KeyboardEvent, surface: ComposerSurface) {
     if (event.isComposing) return;
     const input = surface === "start" ? composer.startMessage : composer.message;
-    if (event.key === "Enter" && !event.shiftKey && hubSessionSelectionShortcutForInput(input)) {
+    const directSessionCommand = hubDirectSessionCommandForInput(input);
+    if (event.key === "Enter" && !event.shiftKey && directSessionCommand) {
       event.preventDefault();
       clearSlashInput(surface);
-      void goto(deps.getSessionsHref());
+      void goto(
+        directSessionCommand === "create"
+          ? `${deps.getSessionsHref()}?new=workspace`
+          : deps.getSessionsHref(),
+      );
       return;
     }
     const suggestions =
@@ -178,6 +191,14 @@ export function createSlashHandlers(deps: SlashHandlerDeps) {
       }
       composer.sessionThinkingLevel = thinkingLevel;
       await deps.submitThinkingSelection();
+      return;
+    }
+
+    if (action.intent === "mode.select") {
+      const mode = modeFromAction(action);
+      if (!mode) return;
+      clearSlashInput(surface);
+      await deps.submitModeSelection(mode);
       return;
     }
 

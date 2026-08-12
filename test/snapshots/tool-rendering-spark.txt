@@ -8,7 +8,7 @@ task_read action=project_list
 task_write action=plan
 
 # assign
-assign dry-run max=2
+assign dispatch
 
 # goal
 goal action=status

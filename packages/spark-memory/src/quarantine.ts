@@ -357,15 +357,16 @@ export function parseMemoryQuarantineManifest(value: unknown): MemoryQuarantineM
   ) {
     throw new MemoryQuarantineError("MEMORY_QUARANTINE_INVALID", "manifest fields are invalid");
   }
-  const items = value.items.map((item, index) => parseManifestItem(item, index, value.expiresAt));
+  const expiresAt = value.expiresAt;
+  const items = value.items.map((item, index) => parseManifestItem(item, index, expiresAt));
   const manifest: MemoryQuarantineManifest = {
     schemaVersion: 1,
     quarantineId: value.quarantineId,
     createdAt: value.createdAt,
-    expiresAt: value.expiresAt,
+    expiresAt,
     policy: {
       physicalPurgeRequiresApproval: true,
-      restoreBefore: value.expiresAt,
+      restoreBefore: expiresAt,
       ...(typeof value.policy.naviaGraceDays === "number"
         ? { naviaGraceDays: value.policy.naviaGraceDays }
         : {}),
@@ -472,6 +473,7 @@ export function parseMemoryQuarantineProposal(value: unknown): MemoryQuarantineP
     !isString(value.workspaceId) ||
     !isLifecycleScope(value.scope) ||
     !isString(value.recordRef) ||
+    typeof value.expectedRevision !== "number" ||
     !Number.isInteger(value.expectedRevision) ||
     value.expectedRevision < 0 ||
     !isDigest(value.contentDigest) ||
@@ -1106,6 +1108,7 @@ export function parseMemoryPurgeTombstone(value: unknown): MemoryPurgeTombstone 
         !isDigest(receipt.planDigest) ||
         receipt.manifestDigest !== value.manifestDigest ||
         !isDigest(receipt.expectedSha256) ||
+        typeof receipt.expectedBytes !== "number" ||
         !Number.isInteger(receipt.expectedBytes) ||
         receipt.expectedBytes < 0 ||
         !(receipt.expectedFileVersion === null || isString(receipt.expectedFileVersion)) ||
@@ -1178,15 +1181,17 @@ function parseManifestItem(
       "MEMORY_QUARANTINE_INVALID",
       `items[${index}] must be an object`,
     );
+  const reverseRefs = value.reverseRefs ?? [];
   if (
     !isString(value.source) ||
     !isString(value.destination) ||
+    typeof value.bytes !== "number" ||
     !Number.isInteger(value.bytes) ||
     value.bytes < 0 ||
     !isDigest(value.sha256) ||
     !isString(value.reasonCode) ||
-    !Array.isArray(value.reverseRefs ?? []) ||
-    !(value.reverseRefs ?? []).every(isString)
+    !Array.isArray(reverseRefs) ||
+    !reverseRefs.every(isString)
   ) {
     throw new MemoryQuarantineError(
       "MEMORY_QUARANTINE_INVALID",
@@ -1206,7 +1211,7 @@ function parseManifestItem(
     bytes: value.bytes,
     sha256: value.sha256,
     reasonCode: value.reasonCode,
-    reverseRefs: uniqueStrings(value.reverseRefs ?? []),
+    reverseRefs: uniqueStrings(reverseRefs),
     purgeAfter,
     ...(isTargetKind(value.targetKind) ? { targetKind: value.targetKind } : {}),
     ...(value.fileVersion === null || typeof value.fileVersion === "string"
@@ -1226,7 +1231,7 @@ function digestManifest(
   return digest(unsigned);
 }
 
-function legacyPlanDigest(value: Record<string, any>): string {
+function legacyPlanDigest(value: Record<string, unknown>): string {
   const legacy = {
     schemaVersion: value.schemaVersion,
     quarantineId: value.quarantineId,
@@ -1323,12 +1328,12 @@ function assertDigest(value: unknown, label: string): asserts value is string {
     );
 }
 
-function hasOnlyKeys(value: Record<string, any>, allowed: readonly string[]): boolean {
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
   const allowedKeys = new Set(allowed);
   return Object.keys(value).every((key) => allowedKeys.has(key));
 }
 
-function isRecord(value: unknown): value is Record<string, any> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 

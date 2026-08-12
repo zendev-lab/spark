@@ -21,4 +21,6 @@ Non-responsibilities:
 
 ## Package boundary (vs spark-host)
 
-See [MERGE-EVAL.md](./MERGE-EVAL.md): keep `spark-loop` as a separate leaf. It is intentionally not folded into `@zendev-lab/spark-host`.
+Keep `spark-loop` as a separate leaf. Its continuation state and goal policy are
+reusable capability contracts; `spark-host` composes them with execution and
+session adapters but must not become their owner.

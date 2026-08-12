@@ -256,7 +256,7 @@ export function runSparkLoopStoreContract(
       }
     });
 
-    it("uses a hidden reset Session for fresh continuity and archives its path", async () => {
+    it("authors a driver_tick child Session instead of a hidden execution alias", async () => {
       const harness = createHarness();
       try {
         harness.loops.start({
@@ -270,13 +270,13 @@ export function runSparkLoopStoreContract(
         const invocation = (await harness.loops.materializeDue())!.invocation!;
         expect(invocation.task).toMatchObject({
           type: "loop.tick",
-          sessionId: "owner-session",
+          sessionId: expect.stringMatching(/^driver_tick_[0-9a-f]{24}_1_[0-9a-f]{12}$/u),
           ownerSessionId: "owner-session",
-          stateOwnerSessionId: "owner-session",
-          executionSessionId: expect.stringMatching(/^loop_[0-9a-f]{24}_1$/u),
+          sessionLifetime: "driver_tick",
           reset: true,
         });
-        const executionSessionId = (invocation.task as SparkDaemonLoopTickTask).executionSessionId!;
+        const executionSessionId = (invocation.task as SparkDaemonLoopTickTask).sessionId;
+        expect(invocation.sessionId).toBe(executionSessionId);
         const running = harness.invocations.claimNext("fresh-worker")!;
         harness.loops.completeTick(running, running.task as SparkDaemonLoopTickTask, {
           status: "succeeded",
@@ -285,16 +285,35 @@ export function runSparkLoopStoreContract(
         });
         expect(
           harness.db
-            .prepare(
-              `SELECT status, session_path, gc_after FROM loop_hidden_sessions
-               WHERE execution_session_id = ?`,
-            )
+            .prepare("SELECT 1 FROM loop_hidden_sessions WHERE execution_session_id = ?")
             .get(executionSessionId),
-        ).toMatchObject({
-          status: "archived",
-          session_path: `/daemon/private/${executionSessionId}.jsonl`,
-          gc_after: "2026-07-24T00:00:00.000Z",
+        ).toBeUndefined();
+      } finally {
+        harness.close();
+      }
+    });
+
+    it("creates a new driver Session incarnation after a terminal restart", () => {
+      const harness = createHarness();
+      try {
+        const first = harness.loops.start({
+          loopId: "loop-driver-restart",
+          ownerSessionId: "owner-driver-restart",
+          sessionLifetime: "driver",
+          cwd: "/workspace",
+          prompt: "first driver",
         });
+        harness.loops.stop(first.loopId, "first incarnation complete");
+        const restarted = harness.loops.start({
+          loopId: first.loopId,
+          ownerSessionId: first.ownerSessionId,
+          sessionLifetime: "driver",
+          cwd: "/workspace",
+          prompt: "second driver",
+        });
+
+        expect(restarted.driverSessionId).not.toBe(first.driverSessionId);
+        expect(restarted.driverSessionId).toMatch(/^driver_[0-9a-f]{24}_3$/u);
       } finally {
         harness.close();
       }
@@ -324,16 +343,33 @@ export function runSparkLoopStoreContract(
       }
     });
 
-    it("garbage-collects expired fresh Sessions and retains failed removals", async () => {
+    it("garbage-collects migrated legacy hidden Sessions and retains failed removals", async () => {
       const harness = createHarness();
       try {
         const tick = await runningTick(harness, "loop-fresh-gc", "owner-fresh-gc", "fresh");
-        const executionSessionId = tick.task.executionSessionId!;
+        const executionSessionId = tick.task.sessionId;
         harness.loops.completeTick(tick.invocation, tick.task, {
           status: "succeeded",
           result: { sessionPath: `/daemon/private/${executionSessionId}.jsonl` },
           now: "2026-07-23T00:00:00.000Z",
         });
+        harness.db
+          .prepare(
+            `INSERT INTO loop_hidden_sessions
+              (execution_session_id, loop_id, generation, invocation_id, status, session_path,
+               created_at, archived_at, gc_after)
+             VALUES (?, ?, ?, ?, 'archived', ?, ?, ?, ?)`,
+          )
+          .run(
+            executionSessionId,
+            tick.task.loopId,
+            tick.task.generation,
+            tick.invocation.invocationId,
+            `/daemon/private/${executionSessionId}.jsonl`,
+            "2026-07-23T00:00:00.000Z",
+            "2026-07-23T00:00:00.000Z",
+            "2026-07-24T00:00:00.000Z",
+          );
         expect(
           await harness.loops.gcHiddenSessions("2026-07-24T00:00:00.000Z", async () => {
             throw new Error("filesystem busy");

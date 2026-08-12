@@ -62,7 +62,7 @@ Spark 提供文件、搜索、shell/script、任务、产物、询问、记忆�
 角色、会话、workflow 和持久驱动工具。用户通常只需描述目标；agent 会选择工具，
 并在策略要求时请求确认。
 
-完整且区分 profile 的清单见 [Agent 工具参考](/zh/reference/tools/)。
+参见 [Agent 工具激活与权限模型](/zh/reference/tools/)。
 
 ## 4. 任务与自主推进
 
@@ -73,7 +73,9 @@ Project → Task plan → claim 或 assign → Run → Artifact → Review
 ```
 
 `/plan` 创建可验证工作，但不实施；`/execute` 持续处理 ready task，直到完成、
-阻塞、验证失败或需要决策。Goal、Loop、Repro 和 Workflow 为需要持续或重复的
+阻塞、验证失败或需要决策。`/fleet` 通过可复用 daemon worker Session 协调目标
+互不冲突的安全 ready frontier，父会话本身不直接修改代码。Goal、Loop、Repro 和
+Workflow 为需要持续或重复的
 工作提供 daemon 所有的续跑能力。`/automate` 只是这些已有模式的选择器。
 
 先读[规划并实现一个修改](/zh/guides/plan-and-execute/)，需要长期工作时再读

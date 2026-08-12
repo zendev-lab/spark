@@ -462,6 +462,8 @@ function orpcDaemon(handle: SparkDaemonOrpcClientHandle): SparkAcpDaemon {
           workspaceId: input.workspaceId,
           cwd: input.cwd,
           ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
+          roleRef: "role:builtin-administrator",
+          purpose: "acp_interactive",
           title: input.title,
         }),
       );

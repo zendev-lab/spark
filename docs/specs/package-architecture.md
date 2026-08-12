@@ -20,7 +20,7 @@ Generic monorepo mechanics are delegated to maintained open-source tools:
 | dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` | [Syncpack](https://github.com/JoshuaKGoldberg/syncpack) |
 | imports from dependencies missing in the owning workspace manifest | Knip strict unlisted-dependency analysis | [Knip](https://knip.dev/features/monorepos-and-workspaces) |
 | cycles and dependency direction | Dependency Cruiser | [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser) |
-| Spark package identity, explicit workspace dependency restrictions, package test/mutation discovery, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |
+| Spark package identity, explicit workspace dependency restrictions, export targets, and workspace test and package mutation discovery | `architecture/packages.json` plus `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |
 
 `pnpm run check:architecture` validates the schema, runs Syncpack and Knip, and
 then executes the Spark-specific ratchets. `pnpm run check:boundaries` runs
@@ -28,12 +28,12 @@ Dependency Cruiser. The custom checker does not duplicate schema validation,
 dependency-version consistency, or generic manifest/import analysis.
 
 Test and mutation discovery follow the same rule. Vitest configs define the
-root, process, browser, and capability suites; the root unit lane runs package
-`test` scripts through pnpm recursive `--if-present` discovery. The architecture
-checker requires a `test` script when a package contains tests. Either a
-`test:mutation` script or Stryker config requires the complete standard command,
-dependency, and config set. Historical ledgers are not parallel workspace
-inventories.
+root, process, browser, and capability suites; the root unit lane runs every app
+and package `test` script through pnpm recursive `--if-present` discovery. The
+architecture checker requires a `test` script when any workspace contains tests.
+For package-owned mutation CE, either a `test:mutation` script or Stryker config
+requires the complete standard command, dependency, and config set. Historical
+ledgers are not parallel workspace inventories.
 
 ### Repository script policy
 
@@ -41,15 +41,17 @@ Top-level scripts are permitted only when declarative configuration or an
 existing maintained tool cannot express the product contract. The retained
 categories are:
 
-- public-product assembly, runtime-closure validation, clean-install smoke,
-  release identity, rollback, and mixed-version migration checks;
-- Spark-specific static and compatibility ratchets for Evidence, diagnostics,
-  test quality, workflows, Hub source ownership, and compatibility loaders;
-- daemon RPC facade, public distribution policy, and pull-request metadata
-  validation;
-- English/Chinese documentation surface and CLI/help synchronization;
+- public-product assembly, clean-install smoke, release identity, rollback, and
+  mixed-version migration checks;
+- structured package-inventory comparison and documentation builds;
 - Lens/capability continuous-evaluation evidence projection;
 - live Cue, provider, daemon, Direct PTY, and renderer acceptance harnesses.
+
+Do not add scripts that parse GitHub Actions or pnpm YAML with regular
+expressions, scan source or documentation for words, serialize schemas to look
+for field names, or maintain occurrence hashes and compatibility allowlists.
+Use the maintained parser or analyzer for that format, or test observable
+behavior at the owning boundary.
 
 Do not keep one-shot task seeders, completed migration wrappers, detached manual
 matrices, or duplicate subprocess wrappers under `scripts/`. Use canonical
