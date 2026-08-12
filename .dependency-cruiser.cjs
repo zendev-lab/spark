@@ -310,7 +310,7 @@ module.exports = {
         "Daemon-private execution worker modules may import only their wire contract and the host, protocol, and turn boundaries.",
       severity: "error",
       from: {
-        path: "^apps/spark-daemon/src/execution/(?:worker-entry[.]ts|worker/)",
+        path: "^apps/spark-daemon/src/execution/(?:contract[.]ts|worker-entry[.]ts|worker/)",
       },
       to: {
         pathNot: [

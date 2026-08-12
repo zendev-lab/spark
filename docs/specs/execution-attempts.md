@@ -25,7 +25,8 @@ Every message carries:
 - protocol `version`;
 - `invocationId`;
 - monotonically increasing `attemptEpoch` for that invocation;
-- owning `daemonGeneration`;
+- owning `daemonGeneration`, allocated from daemon SQLite so restarts and wall-clock rollback cannot
+  reuse or decrease it;
 - per-attempt monotonically increasing `sequence`;
 - bounded `correlationId`;
 - one closed message type.
@@ -114,10 +115,10 @@ The worker entry may import only the private attempt contract, worker-local modu
 and the shared `spark-host`, `spark-turn`, and `spark-protocol` contract surfaces. It
 must not import adapters, daemon SQLite stores, token-usage owners, Task Claim
 authority, Session registry, channel owners, human-wait stores, daemon startup
-composition, or stateful capability packages. The boundary check parses static
-imports with the TypeScript AST and recursively walks every worker-local module, so a
-worker-local bridge cannot hide a transitive daemon-state import.
-`scripts/check-execution-worker-boundary.mjs` enforces this boundary.
+composition, or stateful capability packages. Dependency Cruiser's
+`execution-worker-import-boundary` rule checks every edge from the worker entry,
+private contract, and worker-local subtree, so a worker-local bridge cannot hide a
+transitive daemon-state import. `pnpm run check:boundaries` enforces the rule.
 
 ## Platform and lifecycle policy
 

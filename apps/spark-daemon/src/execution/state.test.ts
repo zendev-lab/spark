@@ -16,6 +16,18 @@ afterEach(() => {
 });
 
 describe("daemon-owned execution attempt state", () => {
+  it("allocates restart-stable monotonic daemon generations", () => {
+    const { attempts, db } = harness("inv_daemon_generation");
+    attempts.create("inv_daemon_generation", 7, "corr_generation_seed", at(0));
+    expect(attempts.allocateDaemonGeneration(at(1))).toBe(8);
+    expect(new ExecutionAttemptStore(db).allocateDaemonGeneration(at(2))).toBe(9);
+    expect(
+      db
+        .prepare("SELECT value FROM daemon_meta WHERE key = ?")
+        .get("execution-attempts.daemon-generation"),
+    ).toEqual({ value: "9" });
+  });
+
   it("persists queued -> accepted -> running -> terminal with monotonic epochs", () => {
     const { attempts } = harness("inv_state");
     const first = attempts.create("inv_state", 4, "corr_state", at(0));

@@ -2,6 +2,7 @@ import type { SparkJsonValue } from "@zendev-lab/spark-protocol";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   EXECUTION_ATTEMPT_PROTOCOL_VERSION,
+  cloneExecutionAttemptPayload,
   ExecutionAttemptProtocolError,
   ExecutionAttemptProtocolFence,
   parseExecutionAttemptEnvelope,
@@ -430,48 +431,7 @@ function executionTaskDescriptor(value: unknown): SparkJsonValue {
 }
 
 function cloneExecutionRequest(value: unknown): SparkJsonValue {
-  assertExecutionRequestValue(value, "task");
-  const encoded = JSON.stringify(value);
-  if (encoded === undefined) {
-    throw new ExecutionAttemptProtocolError(
-      "execution_attempt_invalid_payload",
-      "execution attempt request is not JSON serializable",
-    );
-  }
-  return JSON.parse(encoded) as SparkJsonValue;
-}
-
-function assertExecutionRequestValue(value: unknown, path: string): void {
-  if (
-    value === undefined ||
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    (typeof value === "number" && Number.isFinite(value))
-  ) {
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const [index, entry] of value.entries()) {
-      if (entry === undefined) {
-        throw new ExecutionAttemptProtocolError(
-          "execution_attempt_invalid_payload",
-          `${path}[${index}] cannot be undefined`,
-        );
-      }
-      assertExecutionRequestValue(entry, `${path}[${index}]`);
-    }
-    return;
-  }
-  if (!value || typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype) {
-    throw new ExecutionAttemptProtocolError(
-      "execution_attempt_invalid_payload",
-      `${path} is not JSON serializable`,
-    );
-  }
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    assertExecutionRequestValue(entry, `${path}.${key}`);
-  }
+  return cloneExecutionAttemptPayload(value, "task");
 }
 
 function correlationId(invocationId: string, daemonGeneration: number): string {

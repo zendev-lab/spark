@@ -188,6 +188,19 @@ export function parseExecutionAttemptEnvelope(value: unknown): ExecutionAttemptE
   }
 }
 
+/** Validate and detach one worker-facing JSON value with the envelope limits. */
+export function cloneExecutionAttemptPayload(value: unknown, path = "payload"): SparkJsonValue {
+  assertJsonValue(value, path);
+  const encoded = JSON.stringify(value);
+  if (Buffer.byteLength(encoded, "utf8") > MAX_EXECUTION_ATTEMPT_ENVELOPE_BYTES) {
+    throw new ExecutionAttemptProtocolError(
+      "execution_attempt_payload_too_large",
+      "execution attempt payload exceeds the maximum envelope size",
+    );
+  }
+  return JSON.parse(encoded) as SparkJsonValue;
+}
+
 export class ExecutionAttemptProtocolFence {
   readonly identity: ExecutionAttemptIdentity;
   readonly correlationId: string;
@@ -440,6 +453,9 @@ function assertJsonValue(value: unknown, path = "envelope"): asserts value is Sp
     pending.push({ kind: "leave", value: entry });
     if (Array.isArray(entry)) {
       for (let index = entry.length - 1; index >= 0; index -= 1) {
+        if (entry[index] === undefined) {
+          invalidPayload(`${current.path}[${index}] cannot be undefined`);
+        }
         pending.push({
           kind: "visit",
           value: entry[index],
@@ -453,6 +469,10 @@ function assertJsonValue(value: unknown, path = "envelope"): asserts value is Sp
       invalidPayload(`${current.path} is not JSON/structured-clone safe`);
     }
     for (const [key, child] of Object.entries(entry as Record<string, unknown>).toReversed()) {
+      // JSON.stringify omits undefined object fields. Keep that established task
+      // compatibility while rejecting undefined array entries, which serialize
+      // as a semantically different null value.
+      if (child === undefined) continue;
       if (isForbiddenExecutionPayloadKey(key)) {
         invalidPayload(`${current.path}.${key} is forbidden in execution attempt messages`);
       }
@@ -467,7 +487,6 @@ function assertJsonValue(value: unknown, path = "envelope"): asserts value is Sp
 }
 
 const FORBIDDEN_EXECUTION_PAYLOAD_KEY_SEGMENTS = new Set([
-  "apikey",
   "auth",
   "authentication",
   "authorization",
@@ -485,6 +504,7 @@ const FORBIDDEN_EXECUTION_PAYLOAD_KEY_SEGMENTS = new Set([
   "secret",
   "signal",
   "token",
+  "tokens",
 ]);
 
 const ALLOWED_EXECUTION_TOKEN_ACCOUNTING_KEYS = new Set([
@@ -495,24 +515,39 @@ const ALLOWED_EXECUTION_TOKEN_ACCOUNTING_KEYS = new Set([
   "providertotaltokens",
   "reasoningtokens",
   "totaltokens",
+  "contexttokens",
+  "contexttokensource",
+  "latestcontexttokens",
+  "latestcontexttokensource",
+  "latestreportedcontexttokens",
+  "tokenbreakdown",
+  "tokenbudget",
+  "tokenusage",
+  "tokenusagebypersistence",
 ]);
 
-const FORBIDDEN_EXECUTION_PAYLOAD_SUBSTRINGS = [
+const FORBIDDEN_EXECUTION_PAYLOAD_KEYS = new Set([
   "accesskey",
   "apikey",
-  "auth",
   "authheader",
   "authorization",
+  "authorizationheader",
   "bearer",
+  "clientauth",
   "clientsecret",
   "cookie",
   "credential",
+  "credentials",
   "databasesync",
+  "devicecode",
   "encryptionkey",
   "environment",
+  "environmentvariables",
   "envvars",
   "githubpat",
   "jwt",
+  "oauthcode",
+  "oauthresponse",
   "passphrase",
   "password",
   "privatekey",
@@ -523,7 +558,7 @@ const FORBIDDEN_EXECUTION_PAYLOAD_SUBSTRINGS = [
   "signingkey",
   "sshkey",
   "token",
-] as const;
+]);
 
 function isForbiddenExecutionPayloadKey(key: string): boolean {
   const segments =
@@ -535,6 +570,7 @@ function isForbiddenExecutionPayloadKey(key: string): boolean {
   const normalized = segments.join("");
   if (normalized === "authority" || normalized === "authorities") return false;
   if (ALLOWED_EXECUTION_TOKEN_ACCOUNTING_KEYS.has(normalized)) return false;
+  if (FORBIDDEN_EXECUTION_PAYLOAD_KEYS.has(normalized)) return true;
   if (segments.some((segment) => FORBIDDEN_EXECUTION_PAYLOAD_KEY_SEGMENTS.has(segment))) {
     return true;
   }
@@ -546,7 +582,7 @@ function isForbiddenExecutionPayloadKey(key: string): boolean {
   ) {
     return true;
   }
-  return FORBIDDEN_EXECUTION_PAYLOAD_SUBSTRINGS.some((substring) => normalized.includes(substring));
+  return normalized.endsWith("token") || normalized.endsWith("tokens");
 }
 
 function recordValue(value: unknown): Record<string, unknown> {

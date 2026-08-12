@@ -39,6 +39,32 @@ describe("production execution attempt orchestration", () => {
     harness.db.close();
   });
 
+  it("reports cyclic worker output with the stable bounded-payload error", async () => {
+    const harness = createHarness("inv_cyclic_output");
+    const cyclic: Record<string, unknown> = { type: "execution.fixture" };
+    cyclic.self = cyclic;
+    let parentSeen: ExecutionAttemptParent | undefined;
+    const adapter: ExecutionAttemptAdapter = {
+      kind: "process",
+      async execute(_request, parent) {
+        parentSeen = parent;
+        parent.accepted();
+        parent.running();
+        parent.recordEvent(cyclic);
+        return { unreachable: true };
+      },
+    };
+    const session = harness.session(adapter);
+
+    await expect(session.execute()).rejects.toMatchObject({
+      code: "execution_attempt_invalid_payload",
+    });
+    expect(() => parentSeen?.recordEvent({ type: "execution.recovered" })).not.toThrow();
+    session.terminal("failed");
+    expect(harness.attempts.current(harness.invocationId)).toMatchObject({ status: "failed" });
+    harness.db.close();
+  });
+
   it("retries pre-accepted and accepted crashes durably before succeeding", async () => {
     const harness = createHarness("inv_retry_orchestrator");
     const waits: number[] = [];

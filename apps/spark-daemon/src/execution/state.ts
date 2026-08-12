@@ -121,6 +121,50 @@ export class ExecutionAttemptStore {
     this.#db = db;
   }
 
+  allocateDaemonGeneration(now = new Date().toISOString()): number {
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      const marker = this.#db
+        .prepare("SELECT value FROM daemon_meta WHERE key = ?")
+        .get("execution-attempts.daemon-generation") as { value: string } | undefined;
+      const stored = marker ? Number(marker.value) : 0;
+      if (!Number.isSafeInteger(stored) || stored < 0) {
+        throw new ExecutionAttemptStateError(
+          "execution_attempt_corrupt_state",
+          "execution attempt daemon generation marker is invalid",
+        );
+      }
+      const observed = Number(
+        (
+          this.#db
+            .prepare(
+              "SELECT COALESCE(MAX(daemon_generation), 0) AS generation FROM execution_attempts",
+            )
+            .get() as { generation: number }
+        ).generation,
+      );
+      const generation = Math.max(stored, observed) + 1;
+      if (!Number.isSafeInteger(generation)) {
+        throw new ExecutionAttemptStateError(
+          "execution_attempt_corrupt_state",
+          "execution attempt daemon generation is exhausted",
+        );
+      }
+      this.#db
+        .prepare(
+          `INSERT INTO daemon_meta (key, value, updated_at)
+           VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        )
+        .run("execution-attempts.daemon-generation", String(generation), now);
+      this.#db.exec("COMMIT");
+      return generation;
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   create(
     invocationId: string,
     daemonGeneration: number,

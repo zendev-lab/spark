@@ -113,10 +113,27 @@ describe("execution attempt envelope", () => {
         cachewritetokens: 1,
         providerTotalTokens: 5,
         reasoning_tokens: 0,
+        contextTokens: 4,
+        contextTokenSource: "reported",
+        tokenUsage: { totalTokens: 5 },
+        tokenUsageByPersistence: { persistent: { totalTokens: 5 } },
         authority: "runtime_control",
       },
     });
     expect(parseExecutionAttemptEnvelope(usage)).toEqual(usage);
+  });
+
+  it("does not confuse ordinary author, path, or compatibility keys with secrets", () => {
+    const event = envelope("event", 1, {
+      eventSequence: 1,
+      event: {
+        author: "alice",
+        path: "/workspace/result.json",
+        compatibility: "v1",
+        dispatch: { status: "complete" },
+      },
+    });
+    expect(parseExecutionAttemptEnvelope(event)).toEqual(event);
   });
 
   it("rejects malformed JSON and missing required fields with stable codes", () => {

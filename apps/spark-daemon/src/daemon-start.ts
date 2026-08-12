@@ -1038,10 +1038,11 @@ function createDaemonScheduler(input: {
   if (input.options.runScheduler === false) return null;
   const { options } = input;
   const sessionRegistry = options.sessionRegistry;
+  const executionAttemptStore = new ExecutionAttemptStore(options.db);
   return new SparkInvocationScheduler({
     store: input.invocationStore,
-    executionAttemptStore: new ExecutionAttemptStore(options.db),
-    executionAttemptGeneration: Date.now(),
+    executionAttemptStore,
+    executionAttemptGeneration: executionAttemptStore.allocateDaemonGeneration(),
     executionOwnerHandlers: createDaemonExecutionOwnerHandlers({
       db: options.db,
       humanInteractions: input.humanInteractions,
