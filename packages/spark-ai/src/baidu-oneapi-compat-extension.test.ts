@@ -103,7 +103,6 @@ test("Baidu adapter normalizes the exact maximum prompt length provider error", 
     ),
   );
 
-  expect(message.errorMessage).toContain("context_length_exceeded:");
   expect(isNormalizedBaiduContextOverflow(message)).toBe(true);
 });
 

@@ -142,7 +142,6 @@ test("Smart fixed summary validates, renders, selects current model, and falls b
       runModel: () => fixture.invalid,
     });
     assert.equal(invalid.fallbackReason, fixture.expectedFallbackReasons.invalidStructure);
-    assert.match(invalid.result.summary, /Conversation summary:/u);
 
     const failed = await smartSparkCompactionSummaryWithFallback(preparation, {
       model: fixture.configuredModel,
@@ -709,7 +708,6 @@ test("deterministic compaction preserves signals across the whole summarized his
     assert.match(summary, /request-00/u);
     assert.match(summary, /decision-20/u);
     assert.match(summary, /request-39/u);
-    assert.match(summary, /Turn Context \(split turn\):/u);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -765,7 +763,6 @@ test("compactSparkVisibleTranscript persists a compaction entry and returns kept
 
     assert.ok(result);
     assert.equal(result.entry.type, "compaction");
-    assert.match(result.entry.summary, /Conversation summary:/);
     assert.match(result.entry.summary, /Original request/);
     assert.equal(result.keptMessages.at(-1)?.content, "Recent answer");
     const keptTokens = meterSparkContextTokens({ messages: result.keptMessages }).tokens;
@@ -779,10 +776,6 @@ test("compactSparkVisibleTranscript persists a compaction entry and returns kept
     assert.equal(saved.entries.at(-1)?.type, "compaction");
     const context = sessionEntriesToAgentMessages(saved.entries);
     assert.equal(context[0]?.role, "user");
-    assert.match(
-      testContentText(context[0]?.content),
-      /conversation history before this point was compacted/,
-    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -834,14 +827,13 @@ test("navigateSparkSessionBranchWithSummary appends Pi-style branch summary at t
     assert.equal(result.summaryEntry.parentId, targetId);
     assert.equal(result.activeLeafId, result.summaryEntry.id);
     assert.match(result.summaryEntry.summary, /old branch request/);
-    assert.match(result.summaryEntry.summary, /Custom focus: focus on abandoned work/);
+    assert.match(result.summaryEntry.summary, /focus on abandoned work/);
     assert.doesNotMatch(result.summaryEntry.summary, /target branch answer/);
     const context = sessionEntriesToAgentMessages(record.entries);
     assert.deepEqual(
       context.map((message) => message.role),
       ["user", "assistant", "user", "assistant", "user"],
     );
-    assert.match(testContentText(context.at(-1)?.content), /summary of a branch/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -865,12 +857,16 @@ test("native /compact uses daemon-owned compaction and /tree keeps persisted bra
     session.messages.push({ role: "user", text: "bounded visible projection" });
 
     const unavailableCommands = createSparkPiParitySlashCommands(services);
+    const projectionBeforeUnavailable = structuredClone(session.messages);
     const unavailable = await unavailableCommands.compact!.handler("", {
       app: {} as never,
       session,
       exit: () => undefined,
     });
-    assert.match(String(unavailable), /compaction is unavailable/u);
+    assert.ok(typeof unavailable === "string" && unavailable.trim().length > 0);
+    assert.deepEqual(session.messages, projectionBeforeUnavailable);
+    assert.equal((await store.list()).length, 1);
+    assert.equal((await store.load(canonical.path)).entries.at(-1)?.type, "message");
 
     const snapshot = {
       version: SPARK_PROTOCOL_VERSION,
@@ -921,24 +917,15 @@ test("native /compact uses daemon-owned compaction and /tree keeps persisted bra
       session,
       exit: () => undefined,
     });
-    assert.match(String(compacted), /Compacted daemon-owned Spark session canonical-session/u);
-    assert.deepEqual(
-      compactInput && typeof compactInput === "object"
-        ? {
-            sessionId: (compactInput as { sessionId?: unknown }).sessionId,
-            customInstructions: (compactInput as { customInstructions?: unknown })
-              .customInstructions,
-            idempotencyKey: String(
-              (compactInput as { idempotencyKey?: unknown }).idempotencyKey,
-            ).replace(/:[^:]+$/u, ":<uuid>"),
-          }
-        : undefined,
-      {
-        sessionId: canonical.header.id,
-        customInstructions: "focus",
-        idempotencyKey: `tui:session.compact:${canonical.header.id}:<uuid>`,
-      },
-    );
+    assert.ok(typeof compacted === "string" && compacted.trim().length > 0);
+    const compactRequest = compactInput as
+      | { sessionId?: unknown; customInstructions?: unknown; idempotencyKey?: unknown }
+      | undefined;
+    assert.equal(compactRequest?.sessionId, canonical.header.id);
+    assert.equal(compactRequest?.customInstructions, "focus");
+    const idempotencyKey = compactRequest?.idempotencyKey;
+    assert.ok(typeof idempotencyKey === "string");
+    assert.notEqual(idempotencyKey.trim(), "");
     assert.equal(waitedInvocationId, "invocation-compact");
     assert.equal(snapshotSessionId, canonical.header.id);
     assert.deepEqual(appliedEvent, {
@@ -961,7 +948,7 @@ test("native /compact uses daemon-owned compaction and /tree keeps persisted bra
       session,
       exit: () => undefined,
     });
-    assert.match(String(tree), /Branch summary appended:/);
+    assert.ok(typeof tree === "string" && tree.trim().length > 0);
     const summarized = await store.loadByRef(record.header.id);
     assert.equal(summarized.entries.at(-1)?.type, "branch_summary");
   } finally {

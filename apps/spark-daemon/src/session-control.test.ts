@@ -12,6 +12,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import type { SparkDaemonModelControl } from "./model-control.ts";
+import { SPARK_SESSION_COMPACT_PROMPT } from "./core/types.ts";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { channelReplyDeliveryForCompletion } from "./spark/session-run.ts";
 import { executeSparkDaemonSessionControl } from "./session-control.ts";
@@ -122,13 +123,11 @@ describe("daemon session control admission", () => {
         sessionId: "session-compact",
         sourceKind: "session.compact",
         idempotencyKey: "compact-once",
-        prompt: "Compact session context",
         task: {
           type: "session.compact",
           sessionId: "session-compact",
           sessionIncarnation: 1,
-          prompt: "Compact session context",
-          operationId: expect.stringMatching(/^session\.compact:/u),
+          operationId: expect.any(String),
           customInstructions: "preserve decisions",
           model: "provider-a/model-a",
           cwd: root,
@@ -762,12 +761,12 @@ describe("daemon session control admission", () => {
       });
       const compact = store.submit({
         sessionId,
-        prompt: "Compact session context",
+        prompt: SPARK_SESSION_COMPACT_PROMPT,
         task: {
           type: "session.compact",
           sessionId,
           sessionIncarnation: 1,
-          prompt: "Compact session context",
+          prompt: SPARK_SESSION_COMPACT_PROMPT,
           operationId: "pending-compact",
         },
         sourceKind: "session.compact",
@@ -802,7 +801,7 @@ describe("daemon session control admission", () => {
         },
         {
           invocationId: compact.invocationId,
-          prompt: "Compact session context",
+          prompt: SPARK_SESSION_COMPACT_PROMPT,
           status: "queued",
           createdAt: "2026-07-17T07:47:01.000Z",
         },

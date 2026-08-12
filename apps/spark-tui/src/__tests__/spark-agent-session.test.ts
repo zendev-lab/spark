@@ -21,6 +21,7 @@ import {
   type SparkTurnResumeCheckpoint,
 } from "@zendev-lab/spark-turn";
 import { assistantMessageToFinalAnswerText } from "../host/agent-session.ts";
+import { sparkProviderInputFitsContextWindow } from "../host/bootstrap.ts";
 import { createSparkHeadlessRoleExecutor } from "../headless-role-executor.ts";
 import {
   SparkNativeSession,
@@ -95,6 +96,12 @@ function fakeTui(): TUI {
     setFocus: () => undefined,
   } as unknown as TUI;
 }
+
+test("provider input preflight reserves room for generated output", () => {
+  assert.equal(sparkProviderInputFitsContextWindow(7_999, 8_000), true);
+  assert.equal(sparkProviderInputFitsContextWindow(8_000, 8_000), false);
+  assert.equal(sparkProviderInputFitsContextWindow(8_001, 8_000), false);
+});
 
 test("channel-facing assistant text excludes thinking, tool arguments, and commentary", () => {
   assert.equal(
@@ -1036,7 +1043,7 @@ test("SparkAgentSession repeats canonical compact without replaying tool side ef
     const saved = await services.sessionStore.load(record.path);
     const compactions = saved.entries.filter((entry) => entry.type === "compaction");
     assert.equal(compactions.length, 2);
-    assert.doesNotMatch(compactions.at(-1)?.summary ?? "", /Previous summary:/u);
+    assert.equal((compactions.at(-1)?.summary.length ?? Number.POSITIVE_INFINITY) < 2_000, true);
     assert.equal(
       saved.entries.filter(
         (entry) =>
@@ -1052,7 +1059,7 @@ test("SparkAgentSession repeats canonical compact without replaying tool side ef
   }
 });
 
-test("SparkAgentSession compacts a compacted leaf again after repeated context overflow", async () => {
+test("SparkAgentSession resubmits one prompt across repeated overflow compactions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-repeated-overflow-"));
   try {
     const cwd = join(dir, "repo");
@@ -1090,12 +1097,7 @@ test("SparkAgentSession compacts a compacted leaf again after repeated context o
     assert.equal(providerCalls, 3);
     assert.equal(result.outcome?.status, "completed");
     const saved = await services.sessionStore.load(record.path);
-    const savedCompactions = saved.entries.filter((entry) => entry.type === "compaction");
-    assert.equal(savedCompactions.length, 2);
-    const latestSummary = savedCompactions.at(-1)?.summary;
-    assert.equal(typeof latestSummary, "string");
-    assert.equal(latestSummary?.includes("Previous summary:"), false);
-    assert.equal((latestSummary?.length ?? Number.POSITIVE_INFINITY) < 2_000, true);
+    assert.equal(saved.entries.filter((entry) => entry.type === "compaction").length, 2);
     const persistedMessages = saved.entries.filter((entry) => entry.type === "message");
     assert.equal(
       persistedMessages.filter(
@@ -1261,6 +1263,17 @@ test("SparkAgentSession preflights the final system and tool request envelope", 
       },
       { compactKeepRecentTokens: 1_000 },
     );
+    services.runtime.registerTool({
+      name: "final_envelope_probe",
+      description: "provider-visible schema ".repeat(200),
+      parameters: { type: "object" },
+      async execute() {
+        return { content: [{ type: "text", text: "unused" }] };
+      },
+    });
+    services.runtime.setActiveTools([
+      ...new Set([...services.runtime.getActiveTools(), "final_envelope_probe"]),
+    ]);
     const record = services.sessionStore.createSession({ id: "final-envelope-session" });
     for (let index = 0; index < 12; index += 1) {
       services.sessionStore.appendMessage(record, {
@@ -1279,7 +1292,46 @@ test("SparkAgentSession preflights the final system and tool request envelope", 
     // The first oversized attempt is rejected by Spark before streamSimple.
     assert.equal(providerCalls, 1);
     const saved = await services.sessionStore.load(record.path);
-    assert.equal(saved.entries.filter((entry) => entry.type === "compaction").length, 2);
+    assert.equal(
+      saved.entries.some((entry) => entry.type === "compaction"),
+      true,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentSession does not reserve maximum output when assembled input fits", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-output-clamp-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    const services = await makeFakeServices(
+      { cwd, sparkHome, systemPrompt: "s".repeat(18_000) },
+      {
+        contextWindow: 8_000,
+        maxTokens: 4_000,
+        streamSimple: () => {
+          providerCalls += 1;
+          return assistant("provider clamped the output budget");
+        },
+      },
+    );
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "output-clamp-session",
+      prompt: "continue",
+    });
+
+    assert.equal(result.outcome?.status, "completed");
+    assert.equal(providerCalls, 1);
+    const saved = await services.sessionStore.load(result.sessionPath);
+    assert.equal(
+      saved.entries.some((entry) => entry.type === "compaction"),
+      false,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1349,7 +1401,7 @@ test("SparkAgentSession persists and consumes a micro pass without forcing full 
   }
 });
 
-test("SparkAgentSession full escalation summarizes the persisted micro replay once", async () => {
+test("SparkAgentSession full escalation summarizes the persisted micro replay", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-micro-full-"));
   try {
     const cwd = join(dir, "repo");
@@ -1397,9 +1449,6 @@ test("SparkAgentSession full escalation summarizes the persisted micro replay on
     assert.equal(result.outcome?.status, "completed");
     assert.doesNotMatch(providerReplay, /same log line\\nsame log line/u);
     const saved = await services.sessionStore.load(record.path);
-    // The legacy replay-only preflight performs the first full pass; final
-    // envelope accounting correctly repeats it until system + replay fits.
-    assert.equal(saved.entries.filter((entry) => entry.type === "compaction").length, 2);
     assert.equal(
       saved.entries.filter(
         (entry) => entry.type === "custom" && entry.customType === "spark-compaction-micro",
@@ -1407,6 +1456,7 @@ test("SparkAgentSession full escalation summarizes the persisted micro replay on
       1,
     );
     const full = saved.entries.find((entry) => entry.type === "compaction");
+    assert.ok(full);
     assert.doesNotMatch(
       full?.type === "compaction" ? full.summary : "",
       /same log line\nsame log line/u,

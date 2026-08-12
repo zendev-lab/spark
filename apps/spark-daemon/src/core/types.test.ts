@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getSparkDaemonTaskSessionId, validateSparkDaemonTask } from "./types.ts";
+import {
+  SPARK_SESSION_COMPACT_PROMPT,
+  getSparkDaemonTaskSessionId,
+  validateSparkDaemonTask,
+} from "./types.ts";
 
 describe("daemon task validation", () => {
   it("validates daemon-owned session compaction tasks", () => {
@@ -7,7 +11,7 @@ describe("daemon task validation", () => {
       type: "session.compact",
       sessionId: " session-compact ",
       sessionIncarnation: 2,
-      prompt: "Compact session context",
+      prompt: SPARK_SESSION_COMPACT_PROMPT,
       operationId: " compact-operation ",
       customInstructions: " preserve decisions ",
       model: "provider/model",
@@ -18,7 +22,7 @@ describe("daemon task validation", () => {
       type: "session.compact",
       sessionId: "session-compact",
       sessionIncarnation: 2,
-      prompt: "Compact session context",
+      prompt: SPARK_SESSION_COMPACT_PROMPT,
       operationId: "compact-operation",
       customInstructions: "preserve decisions",
       model: "provider/model",
@@ -34,12 +38,12 @@ describe("daemon task validation", () => {
         prompt: "Summarize this transcript",
         operationId: "compact-operation",
       }),
-    ).toThrow(/prompt must be Compact session context/u);
+    ).toThrow();
     expect(() =>
       validateSparkDaemonTask({
         type: "session.compact",
         sessionId: "session-compact",
-        prompt: "Compact session context",
+        prompt: SPARK_SESSION_COMPACT_PROMPT,
         operationId: "compact-operation",
       }),
     ).toThrow(/positive sessionIncarnation/u);

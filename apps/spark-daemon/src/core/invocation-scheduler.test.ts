@@ -20,7 +20,7 @@ import {
   SparkInvocationScheduler,
   type SparkInvocationSchedulerOptions,
 } from "./invocation-scheduler.ts";
-import type { SparkDaemonTaskExecutor } from "./types.ts";
+import { SPARK_SESSION_COMPACT_PROMPT, type SparkDaemonTaskExecutor } from "./types.ts";
 
 function testExecutionAttemptOptions(db: DatabaseSync) {
   return {
@@ -660,12 +660,12 @@ describe("SparkInvocationScheduler", () => {
     try {
       const invocation = store.submit({
         sessionId: "interrupted-compact",
-        prompt: "Compact session context",
+        prompt: SPARK_SESSION_COMPACT_PROMPT,
         task: {
           type: "session.compact",
           sessionId: "interrupted-compact",
           sessionIncarnation: 1,
-          prompt: "Compact session context",
+          prompt: SPARK_SESSION_COMPACT_PROMPT,
           operationId: "session.compact:recover",
         },
       });
@@ -1032,8 +1032,8 @@ describe("SparkInvocationScheduler", () => {
     const gate = deferred<void>();
     const launched: string[] = [];
     const executeTask: SparkDaemonTaskExecutor = async (task) => {
-      launched.push(task.prompt);
-      if (task.prompt === "first") await gate.promise;
+      launched.push(`${task.type}:${task.sessionId}`);
+      if (task.type === "session.run" && task.sessionId === "same") await gate.promise;
       return { ok: true };
     };
     const { db, store, scheduler } = harness(executeTask, { concurrency: 2 });
@@ -1045,12 +1045,12 @@ describe("SparkInvocationScheduler", () => {
       });
       store.submit({
         sessionId: "same",
-        prompt: "Compact session context",
+        prompt: SPARK_SESSION_COMPACT_PROMPT,
         task: {
           type: "session.compact",
           sessionId: "same",
           sessionIncarnation: 1,
-          prompt: "Compact session context",
+          prompt: SPARK_SESSION_COMPACT_PROMPT,
           operationId: "scheduler-compact",
         },
       });
@@ -1060,12 +1060,16 @@ describe("SparkInvocationScheduler", () => {
         task: { type: "session.run", sessionId: "other", prompt: "third" },
       });
       expect(scheduler.processBatch()).toBe(true);
-      expect(launched.sort()).toEqual(["first", "third"]);
+      expect(launched.sort()).toEqual(["session.run:other", "session.run:same"]);
       gate.resolve();
       await scheduler.wait();
       expect(scheduler.processBatch()).toBe(true);
       await scheduler.wait();
-      expect(launched.sort()).toEqual(["Compact session context", "first", "third"]);
+      expect(launched.sort()).toEqual([
+        "session.compact:same",
+        "session.run:other",
+        "session.run:same",
+      ]);
       for (const invocation of store.list()) {
         const sequences = store
           .eventPage(invocation.invocationId)

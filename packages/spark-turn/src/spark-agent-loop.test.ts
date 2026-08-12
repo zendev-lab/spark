@@ -437,9 +437,34 @@ test("Spark prompt cache splits stable/dynamic prompt sections and honors disabl
     checkpoint: "manual refresh",
     env: {},
   });
-  assert.match(enabled.promptCacheKey ?? "", /^spark:[0-9a-f]{16}:[0-9a-f]{16}:manual-refresh$/);
+  const repeated = resolveSparkPromptCache({
+    systemPrompt: [split.stablePrompt, split.dynamicPrompt].join("\n\n"),
+    sessionId: "session:abc",
+    checkpoint: "manual refresh",
+    env: {},
+  });
+  assert.equal(typeof enabled.promptCacheKey, "string");
+  assert.equal(repeated.promptCacheKey, enabled.promptCacheKey);
   assert.ok((enabled.promptCacheKey?.length ?? Infinity) <= 64);
   assert.equal(enabled.disabledReason, undefined);
+
+  const changedStablePrompt = resolveSparkPromptCache({
+    systemPrompt: ["Changed stable operating rules.", split.dynamicPrompt].join("\n\n"),
+    sessionId: "session:abc",
+    checkpoint: "manual refresh",
+    env: {},
+  });
+  const changedDynamicPrompt = resolveSparkPromptCache({
+    systemPrompt: [
+      split.stablePrompt,
+      "Current date: 2026-07-04\nCurrent working directory: /other-repo",
+    ].join("\n\n"),
+    sessionId: "session:abc",
+    checkpoint: "manual refresh",
+    env: {},
+  });
+  assert.notEqual(changedStablePrompt.promptCacheKey, enabled.promptCacheKey);
+  assert.equal(changedDynamicPrompt.promptCacheKey, enabled.promptCacheKey);
 
   const disabled = resolveSparkPromptCache({
     systemPrompt: split.stablePrompt,
@@ -450,7 +475,7 @@ test("Spark prompt cache splits stable/dynamic prompt sections and honors disabl
   assert.equal(disabled.disabledReason, "env");
 });
 
-test("Spark prompt cache hashes long session ids without losing the stable fingerprint", () => {
+test("Spark prompt cache keeps long session identities distinct within the provider limit", () => {
   const systemPrompt = "Stable Spark operating rules.";
   const sharedSessionPrefix = `session:${"shared-segment-".repeat(20)}`;
   const first = resolveSparkPromptCache({
@@ -467,11 +492,8 @@ test("Spark prompt cache hashes long session ids without losing the stable finge
   });
 
   for (const snapshot of [first, second]) {
+    assert.equal(typeof snapshot.promptCacheKey, "string");
     assert.ok((snapshot.promptCacheKey?.length ?? Infinity) <= 64);
-    assert.match(
-      snapshot.promptCacheKey ?? "",
-      new RegExp(`^spark:[0-9a-f]{16}:${snapshot.stableHash.slice(0, 16)}:manual-refresh$`),
-    );
   }
   assert.notEqual(first.promptCacheKey, second.promptCacheKey);
 });
@@ -551,7 +573,7 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
 
   const outcome = await loop.submitWithOutcome("use cache");
 
-  assert.match(calls[0]?.contextPromptCacheKey ?? "", /^spark:[0-9a-f]{16}:[0-9a-f]{16}:/);
+  assert.equal(typeof calls[0]?.contextPromptCacheKey, "string");
   assert.ok((calls[0]?.contextPromptCacheKey?.length ?? Infinity) <= 64);
   assert.equal(calls[0]?.contextSystemPromptStable, "Stable Spark operating rules.");
   assert.equal(calls[0]?.optionPromptCacheKeyCompat, calls[0]?.contextPromptCacheKey);

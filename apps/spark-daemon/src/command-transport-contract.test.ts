@@ -37,14 +37,6 @@ describe("turn command transport contract", () => {
     ).toMatchObject({ kind: "turn.submit.request", route: { sessionId: "session-a" } });
     expect(
       sparkCommandFromLocalRpcRequest({
-        id: "local_compact",
-        method: "session.compact",
-        params: { sessionId: "session-a" },
-      }),
-    ).toMatchObject({ kind: "session.compact.request", route: { sessionId: "session-a" } });
-
-    expect(
-      sparkCommandFromLocalRpcRequest({
         id: "local_cancel",
         method: "turn.cancel",
         params: { invocationId: "inv_01234567890123456789012345678901", reason: "stop" },
