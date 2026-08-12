@@ -857,6 +857,7 @@ test("native /compact uses daemon-owned compaction and /tree keeps persisted bra
     session.messages.push({ role: "user", text: "bounded visible projection" });
 
     const misconfiguredCommands = createSparkPiParitySlashCommands(services);
+    const projectionBeforeMisconfigured = structuredClone(session.messages);
     await assert.rejects(
       async () =>
         await misconfiguredCommands.compact!.handler("", {
@@ -864,8 +865,10 @@ test("native /compact uses daemon-owned compaction and /tree keeps persisted bra
           session,
           exit: () => undefined,
         }),
-      /requires its same-version daemon client/u,
     );
+    assert.deepEqual(session.messages, projectionBeforeMisconfigured);
+    assert.equal((await store.list()).length, 1);
+    assert.equal((await store.load(canonical.path)).entries.at(-1)?.type, "message");
 
     const snapshot = {
       version: SPARK_PROTOCOL_VERSION,
