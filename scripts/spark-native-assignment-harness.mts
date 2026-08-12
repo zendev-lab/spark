@@ -29,7 +29,7 @@ async function main(): Promise<void> {
       name: "native-assignment-leaf",
       title: "Native assignment leaf",
       description: "Complete through the daemon-native role executor stub.",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: {
         objective:
           "Verify Spark assignment routes ready tasks through the daemon-native role executor.",

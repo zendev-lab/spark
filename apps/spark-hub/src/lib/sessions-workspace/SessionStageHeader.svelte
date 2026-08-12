@@ -27,7 +27,14 @@
     onOpenSideThread: () => void;
   } = $props();
 
-  let displayedSessionStatus = $derived(visibleSessionStatus(host.selected.status));
+  let displayedSessionStatus = $derived(
+    visibleSessionStatus(
+      host.selected.placement === "archived" ? "archived" : (host.selected.activity ?? "idle"),
+    ),
+  );
+  let explicitRoleRef = $derived(
+    host.selected.roleBinding.kind === "explicit" ? host.selected.roleBinding.roleRef : null,
+  );
   let selectedPresentation = $derived(host.sessionPresentation(host.selected));
   let objective = $derived(sessionWorkObjective(host.liveSessionView));
   let primaryLoop = $derived(primarySessionLoop(host.liveSessionView));
@@ -67,7 +74,7 @@
         <p>{currentStep ?? (objective ? selectedPresentation.title : host.sessionScopeLabel(host.selected))}</p>
       </div>
       <div class="stage-actions">
-        {#if host.selected.role}<span class="context-chip">{host.selected.role}</span>{/if}
+        {#if explicitRoleRef}<span class="context-chip">{explicitRoleRef}</span>{/if}
         <Button
           variant="secondary"
           size="compact"

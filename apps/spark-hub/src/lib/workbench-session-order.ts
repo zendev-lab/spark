@@ -2,8 +2,7 @@ import { visibleConversationActivityStatus } from "./conversation-status";
 
 export type WorkbenchSessionOrderLike = {
   sessionId: string;
-  status: string;
-  activityStatus?: string;
+  activity?: string;
   activityUpdatedAt?: string;
   updatedAt: string;
 };
@@ -20,7 +19,7 @@ export function orderWorkbenchSessionsByAttention<T extends WorkbenchSessionOrde
 }
 
 export function workbenchSessionNeedsAttention(session: WorkbenchSessionOrderLike) {
-  return visibleConversationActivityStatus(session.activityStatus ?? session.status) !== null;
+  return visibleConversationActivityStatus(session.activity ?? "idle") !== null;
 }
 
 function compareWorkbenchSessionsByAttention(

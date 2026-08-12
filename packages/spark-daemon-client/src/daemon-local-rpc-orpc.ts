@@ -453,6 +453,11 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.restore"].output,
       client.session.restore(input, options),
     ),
+  "session.close": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.close"].output,
+      client.session.close(input, options),
+    ),
   "session.send": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.send"].output,
@@ -503,6 +508,7 @@ const sessionInvokers = {
   | "session.unbind"
   | "session.archive"
   | "session.restore"
+  | "session.close"
   | "session.send"
   | "session.inbox"
   | "session.mail.read"
@@ -794,7 +800,9 @@ async function invokeSparkDaemonOrpcProcedure<M extends SparkLocalRpcMethod>(
   // Each table entry is checked against its method-specific input and output
   // above. Indexing a mapped type with a generic key loses that correlation in
   // TypeScript, so restore precisely the selected entry's generic signature.
-  const invoke = sparkDaemonOrpcProcedureInvokers[method] as SparkDaemonOrpcProcedureInvoker<M>;
+  const invoke = sparkDaemonOrpcProcedureInvokers[
+    method
+  ] as unknown as SparkDaemonOrpcProcedureInvoker<M>;
   return await invoke(client, params, options);
 }
 

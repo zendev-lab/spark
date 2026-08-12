@@ -4,7 +4,7 @@ import {
   type SparkLocalRpcInput,
   type SparkLocalRpcMethod,
   type SparkLocalRpcOutput,
-  type SparkSessionRegistryRecord,
+  type SparkSessionProjection,
   type SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
@@ -26,7 +26,7 @@ export interface HubCoordinationDaemonClientOptions {
 export async function getManagedSession(
   sessionId: string,
   options: HubCoordinationDaemonClientOptions = {},
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionProjection> {
   return daemonRequest("session.get", { sessionId }, options);
 }
 

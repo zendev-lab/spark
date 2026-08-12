@@ -41,8 +41,7 @@ export interface HubWorkspaceRecord {
   name: string;
   status: string;
   runtimeId?: string;
-  mainSessionId?: string;
-  mainSessionGeneration?: number;
+  administratorSessionId?: string;
 }
 
 export interface HubWorkspaceDelegationRecord {
@@ -51,7 +50,6 @@ export interface HubWorkspaceDelegationRecord {
   version: number;
   nextMessageSequence: number;
   targetSessionId?: string;
-  targetSessionGeneration?: number;
   targetInvocationId?: string;
   receipt?: WorkspaceDelegationReceipt;
   failureCode?: string;
@@ -152,10 +150,9 @@ export function loadHubStatus(db: DatabaseSync): HubStatusRecord {
 export function listHubWorkspaces(db: DatabaseSync): HubWorkspaceRecord[] {
   const rows = db
     .prepare(
-      `SELECT w.id, w.slug, w.name, w.status,
+      `SELECT w.id, w.slug, w.name, w.status, w.provisioning_state AS provisioningState,
               rwb.runtime_id AS runtimeId,
-              rwb.main_session_id AS mainSessionId,
-              rwb.main_session_generation AS mainSessionGeneration
+              rwb.administrator_session_id AS administratorSessionId
        FROM workspaces w
        LEFT JOIN workspace_leases wl ON wl.workspace_id = w.id AND wl.ended_at IS NULL
        LEFT JOIN runtime_workspace_bindings rwb ON rwb.id = wl.runtime_workspace_binding_id
@@ -167,20 +164,17 @@ export function listHubWorkspaces(db: DatabaseSync): HubWorkspaceRecord[] {
     slug: string;
     name: string;
     status: string;
+    provisioningState: "provisioning" | "active" | "failed";
     runtimeId: string | null;
-    mainSessionId: string | null;
-    mainSessionGeneration: number | null;
+    administratorSessionId: string | null;
   }>;
   return rows.map((row) => ({
     id: row.id,
     slug: row.slug,
     name: row.name,
-    status: row.status,
+    status: row.provisioningState === "active" ? row.status : row.provisioningState,
     ...(row.runtimeId ? { runtimeId: row.runtimeId } : {}),
-    ...(row.mainSessionId ? { mainSessionId: row.mainSessionId } : {}),
-    ...(row.mainSessionGeneration !== null
-      ? { mainSessionGeneration: Number(row.mainSessionGeneration) }
-      : {}),
+    ...(row.administratorSessionId ? { administratorSessionId: row.administratorSessionId } : {}),
   }));
 }
 
@@ -443,16 +437,16 @@ export function recordHubWorkspaceDelegationDaemonEvent(
       "Delegation event workspace does not match its authenticated route.",
     );
   }
-  requireProjectedMainSession(db, routedWorkspaceId, event.sessionId);
+  requireProjectedAdministratorSession(db, routedWorkspaceId, event.sessionId);
   if (event.type === "daemon.delegation.requested") {
     if (
       event.request.sourceWorkspaceId !== routedWorkspaceId ||
-      event.request.actor.kind !== "workspace_main_session" ||
+      event.request.actor.kind !== "workspace_administrator_session" ||
       event.request.actor.sessionId !== event.sessionId
     ) {
       throw new HubWorkspaceDelegationError(
         "delegation_actor_forbidden",
-        "Only the routed source workspace main session may create a delegation.",
+        "Only the routed source workspace Administrator Session may create a delegation.",
       );
     }
     return createHubWorkspaceDelegation(db, event.request);
@@ -589,9 +583,10 @@ export function recordHubWorkspaceDelegationCommandResult(
   const result = payload.result;
   if (message.kind === "request" || message.kind === "reply") {
     transitionDelegation(db, delegation, "running", {
-      targetSessionId: typeof result.mainSessionId === "string" ? result.mainSessionId : undefined,
-      targetSessionGeneration:
-        typeof result.mainSessionGeneration === "number" ? result.mainSessionGeneration : undefined,
+      targetSessionId:
+        typeof result.administratorSessionId === "string"
+          ? result.administratorSessionId
+          : undefined,
       targetInvocationId: typeof result.invocationId === "string" ? result.invocationId : undefined,
     });
   } else if (message.kind === "cancel") {
@@ -816,7 +811,6 @@ function transitionDelegation(
   next: WorkspaceDelegationStatus,
   details: {
     targetSessionId?: string;
-    targetSessionGeneration?: number;
     targetInvocationId?: string;
     failureCode?: string;
     failureMessage?: string;
@@ -835,7 +829,6 @@ function transitionDelegation(
       `UPDATE workspace_delegations
      SET status = ?, version = version + 1,
          target_session_id = COALESCE(?, target_session_id),
-         target_session_generation = COALESCE(?, target_session_generation),
          target_invocation_id = COALESCE(?, target_invocation_id),
          failure_code = ?, failure_message = ?, updated_at = ?
      WHERE id = ? AND version = ? AND status = ?`,
@@ -843,7 +836,6 @@ function transitionDelegation(
     .run(
       next,
       details.targetSessionId ?? null,
-      details.targetSessionGeneration ?? null,
       details.targetInvocationId ?? null,
       details.failureCode ?? null,
       details.failureMessage ?? null,
@@ -990,10 +982,10 @@ function authorizeDelegationActor(db: DatabaseSync, request: WorkspaceDelegation
   if (!request.actor.sessionId) {
     throw new HubWorkspaceDelegationError(
       "delegation_actor_forbidden",
-      "Workspace delegation actor is missing its main session id.",
+      "Workspace delegation actor is missing its Administrator Session id.",
     );
   }
-  requireProjectedMainSession(db, request.sourceWorkspaceId, request.actor.sessionId);
+  requireProjectedAdministratorSession(db, request.sourceWorkspaceId, request.actor.sessionId);
 }
 
 function requireHubOwner(db: DatabaseSync, userId: string): void {
@@ -1008,14 +1000,14 @@ function requireHubOwner(db: DatabaseSync, userId: string): void {
   }
 }
 
-function requireProjectedMainSession(
+function requireProjectedAdministratorSession(
   db: DatabaseSync,
   workspaceId: string,
   sessionId: string | undefined,
 ): void {
   const row = db
     .prepare(
-      `SELECT rwb.main_session_id AS sessionId
+      `SELECT rwb.administrator_session_id AS sessionId
        FROM workspace_leases wl
        JOIN runtime_workspace_bindings rwb ON rwb.id = wl.runtime_workspace_binding_id
        WHERE wl.workspace_id = ? AND wl.ended_at IS NULL
@@ -1025,7 +1017,7 @@ function requireProjectedMainSession(
   if (!sessionId || row?.sessionId !== sessionId) {
     throw new HubWorkspaceDelegationError(
       "delegation_actor_forbidden",
-      `Session ${sessionId ?? "<missing>"} is not the projected main session for ${workspaceId}.`,
+      `Session ${sessionId ?? "<missing>"} is not the projected Administrator Session for ${workspaceId}.`,
     );
   }
 }
@@ -1091,7 +1083,13 @@ function verifyTargetArtifactRefs(
 }
 
 function requireActiveWorkspace(db: DatabaseSync, workspaceId: string): void {
-  if (!db.prepare("SELECT 1 FROM workspaces WHERE id = ? AND status = 'active'").get(workspaceId)) {
+  if (
+    !db
+      .prepare(
+        "SELECT 1 FROM workspaces WHERE id = ? AND status = 'active' AND provisioning_state = 'active'",
+      )
+      .get(workspaceId)
+  ) {
     throw new HubWorkspaceDelegationError(
       "delegation_route_unavailable",
       `Workspace ${workspaceId} is not active in this Hub.`,
@@ -1108,14 +1106,14 @@ function requireSourceWorkspaceBinding(db: DatabaseSync, workspaceId: string): v
        JOIN runtime_connections rc ON rc.id = rwb.runtime_id
        WHERE wl.workspace_id = ? AND wl.ended_at IS NULL
          AND rwb.status <> 'archived' AND rc.status <> 'disabled'
-         AND rwb.main_session_id IS NOT NULL
+         AND rwb.administrator_session_id IS NOT NULL
        LIMIT 1`,
     )
     .get(workspaceId);
   if (!binding) {
     throw new HubWorkspaceDelegationError(
       "delegation_route_unavailable",
-      `Source workspace ${workspaceId} has no active runtime binding with a main session.`,
+      `Source workspace ${workspaceId} has no active runtime binding with an Administrator Session.`,
     );
   }
 }
@@ -1268,7 +1266,6 @@ function delegationSelect(where: string): string {
                  d.hop_count AS hopCount, d.idempotency_key AS idempotencyKey,
                  d.status, d.version, d.next_message_sequence AS nextMessageSequence,
                  d.target_session_id AS targetSessionId,
-                 d.target_session_generation AS targetSessionGeneration,
                  d.target_invocation_id AS targetInvocationId,
                  d.receipt_json AS receiptJson, d.failure_code AS failureCode,
                  d.failure_message AS failureMessage, d.created_at AS createdAt,
@@ -1300,9 +1297,6 @@ function delegationFromRow(row: DelegationRow): HubWorkspaceDelegationRecord {
     version: Number(row.version),
     nextMessageSequence: Number(row.nextMessageSequence),
     ...(row.targetSessionId ? { targetSessionId: row.targetSessionId } : {}),
-    ...(row.targetSessionGeneration !== null
-      ? { targetSessionGeneration: Number(row.targetSessionGeneration) }
-      : {}),
     ...(row.targetInvocationId ? { targetInvocationId: row.targetInvocationId } : {}),
     ...(row.receiptJson
       ? { receipt: workspaceDelegationReceiptSchema.parse(JSON.parse(row.receiptJson)) }
@@ -1333,7 +1327,7 @@ interface DelegationRow {
   goal: string;
   constraintsJson: string;
   requestedRole: string | null;
-  actorKind: "hub_owner" | "workspace_main_session";
+  actorKind: "hub_owner" | "workspace_administrator_session";
   actorId: string;
   actorSessionId: string | null;
   lineageJson: string;
@@ -1343,7 +1337,6 @@ interface DelegationRow {
   version: number;
   nextMessageSequence: number;
   targetSessionId: string | null;
-  targetSessionGeneration: number | null;
   targetInvocationId: string | null;
   receiptJson: string | null;
   failureCode: string | null;

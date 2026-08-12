@@ -10,7 +10,7 @@
     "ask": {
       "owner": "@zendev-lab/spark-ask",
       "kind": "action",
-      "effect": "unclassified"
+      "effect": "external_write"
     },
     "assign": {
       "owner": "@zendev-lab/spark-tasks",
@@ -20,7 +20,7 @@
     "code_search": {
       "owner": "@zendev-lab/spark-web",
       "kind": "compatibility",
-      "effect": "unclassified"
+      "effect": "network_read"
     },
     "context": {
       "owner": "@zendev-lab/spark-host",
@@ -85,7 +85,7 @@
     "fetch_content": {
       "owner": "@zendev-lab/spark-web",
       "kind": "capability",
-      "effect": "unclassified"
+      "effect": "network_read"
     },
     "find": {
       "owner": "@zendev-lab/spark-files",
@@ -185,7 +185,7 @@
     "web_search": {
       "owner": "@zendev-lab/spark-web",
       "kind": "capability",
-      "effect": "unclassified"
+      "effect": "network_read"
     },
     "workflow": {
       "owner": "@zendev-lab/spark-workflows",

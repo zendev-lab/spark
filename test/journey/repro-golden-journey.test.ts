@@ -507,8 +507,11 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     resolve(sparkHome, "role-model-settings.json"),
     `${JSON.stringify(
       {
-        version: 1,
-        roleModels: { "role:builtin-reviewer": "spark-scripted/spark-scripted-provider" },
+        version: 2,
+        modelTypes: {
+          coordination: "spark-scripted/spark-scripted-provider",
+          verification: "spark-scripted/spark-scripted-provider",
+        },
       },
       null,
       2,
@@ -1334,7 +1337,9 @@ async function assertClosedDriverRetention(sparkHome: string, daemonDbPath: stri
                 i.result_json AS resultJson,
                 i.error_message AS errorMessage,
                 i.payload_redacted_at AS payloadRedactedAt,
-                (SELECT COUNT(*) FROM invocation_events e WHERE e.invocation_id = i.id) AS eventCount
+                (SELECT COUNT(*) FROM invocation_events e WHERE e.invocation_id = i.id) AS eventCount,
+                (SELECT COUNT(*) FROM invocation_events e
+                 WHERE e.invocation_id = i.id AND e.kind = 'invocation.receipt_context') AS receiptCount
          FROM invocations i
          WHERE i.session_id IN (${placeholders})`,
       )
@@ -1346,7 +1351,8 @@ async function assertClosedDriverRetention(sparkHome: string, daemonDbPath: stri
       assert.equal(row.resultJson, null);
       assert.equal(row.errorMessage, null);
       assert.equal(typeof row.payloadRedactedAt, "string");
-      assert.equal(row.eventCount, 0);
+      assert.equal(row.eventCount, 1);
+      assert.equal(row.receiptCount, 1);
     }
   } finally {
     db.close();

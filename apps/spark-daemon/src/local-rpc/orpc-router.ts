@@ -253,6 +253,7 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       restore: os.session.restore.handler(async ({ input: params }) =>
         invoke("session.restore", params),
       ),
+      close: os.session.close.handler(async ({ input: params }) => invoke("session.close", params)),
       send: os.session.send.handler(async ({ input: params }) => invoke("session.send", params)),
       inbox: os.session.inbox.handler(async ({ input: params }) => invoke("session.inbox", params)),
       mail: {

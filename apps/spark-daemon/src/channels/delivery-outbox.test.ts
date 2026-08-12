@@ -25,6 +25,10 @@ import {
 } from "@zendev-lab/spark-channels";
 import { legacyChannelInboundMessageIdempotencyKey } from "./admission.ts";
 import { CHANNEL_REPLY_DELIVERY_PENDING_ERROR_CODE } from "./reply-delivery.ts";
+import {
+  createDaemonWorkspaceSession,
+  workspaceSessionRecord,
+} from "../../../../test/support/session-fixtures.ts";
 
 describe("daemon channel delivery outbox", () => {
   it("routes QQ ingress through a persistent child despite current binding drift", async () => {
@@ -42,9 +46,8 @@ describe("daemon channel delivery outbox", () => {
       workspaceName: "qq-origin",
       localPath: root,
     });
-    await registry.create({
+    await createDaemonWorkspaceSession(registry, {
       sessionId: "session-persistent-child",
-      scope: { kind: "workspace", workspaceId: workspace.id },
       workspaceId: workspace.id,
       cwd: root,
     });
@@ -77,6 +80,12 @@ describe("daemon channel delivery outbox", () => {
           },
         },
         sessionRegistry: {
+          ensureWorkspaceAdministrator: async () =>
+            workspaceSessionRecord({
+              sessionId: "sess_admin_workspace_qq_origin",
+              workspaceId: "workspace-qq-origin",
+              administrator: true,
+            }),
           resolveBinding: async () =>
             ({
               sessionId: "session-qq-origin",

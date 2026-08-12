@@ -1,10 +1,10 @@
 import { resolve } from "node:path";
 import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
-import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
+import type { SparkSessionState } from "@zendev-lab/spark-protocol";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 
 export interface EnsureDaemonSessionTranscriptInput {
-  session: SparkSessionRegistryRecord;
+  session: SparkSessionState;
   sparkHome: string;
   registry: Pick<DaemonSessionRegistry, "bindTranscriptPath">;
 }
@@ -19,7 +19,7 @@ export async function ensureDaemonSessionTranscript(
   input: EnsureDaemonSessionTranscriptInput,
 ): Promise<string> {
   const session = input.session;
-  if (session.relation?.kind === "side_thread") {
+  if (session.owner?.kind === "side_thread") {
     if (!session.sessionPath) {
       throw new Error(`side-thread session ${session.sessionId} has no registered transcript`);
     }
@@ -67,7 +67,7 @@ export async function ensureDaemonSessionTranscript(
 function assertTranscriptIdentity(
   transcriptId: string,
   transcriptCwd: string,
-  session: SparkSessionRegistryRecord,
+  session: SparkSessionState,
 ): void {
   if (transcriptId !== session.sessionId) {
     throw new Error(`registered transcript belongs to ${transcriptId}, not ${session.sessionId}`);

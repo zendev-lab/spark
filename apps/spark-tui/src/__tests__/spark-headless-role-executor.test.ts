@@ -796,6 +796,7 @@ test("runSparkHeadlessRoleInstruction records completed and blocked structured o
 test("runSparkHeadlessSession keeps supervised Role outcome tools in execute mode", async () => {
   let sessionMode: "plan" | "execute" | "fleet" | undefined;
   let allowedTools: readonly string[] | undefined;
+  let allowedToolEffects: readonly string[] | undefined;
   const services = headlessRoleServices(async (tools) => {
     await executeRoleOutcomeTool(tools, {
       kind: "completed",
@@ -812,11 +813,13 @@ test("runSparkHeadlessSession keeps supervised Role outcome tools in execute mod
       prompt: "Review the change",
       roleRunRef: "run:supervised-role",
       allowedTools: ["read"],
+      allowedToolEffects: ["read", "network_read"],
     },
     {
       createServices: async (options) => {
         sessionMode = options?.sessionMode;
         allowedTools = options?.allowedTools;
+        allowedToolEffects = options?.allowedToolEffects;
         return services as never;
       },
     },
@@ -824,6 +827,7 @@ test("runSparkHeadlessSession keeps supervised Role outcome tools in execute mod
 
   assert.equal(sessionMode, "execute");
   assert.deepEqual(allowedTools, ["read", "role_report_outcome"]);
+  assert.deepEqual(allowedToolEffects, ["read", "network_read", "control"]);
 });
 
 test("daemon headless role host exposes reviewer fallback roots to subject-review extensions", async () => {
@@ -947,18 +951,20 @@ test("runSparkHeadlessRoleInstruction records an in-flight abort as cancelled", 
 function roleInstructionInput(suffix: string): SparkHeadlessRoleInstructionInput {
   return {
     role: {
-      ref: "role:builtin-worker",
+      ref: "role:builtin-executor",
       id: "worker",
+      revision: "test-revision",
       systemPrompt: "Implement the assigned task and report a structured terminal outcome.",
       allowedTools: ["read"],
     },
     instruction: {
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       instruction: "Complete the scheduler-owned task.",
     },
     record: {
       ref: `run:headless-${suffix}` as `run:${string}`,
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
+      roleRevision: "test-revision",
       instruction: "Complete the scheduler-owned task.",
       status: "queued",
     },
@@ -966,7 +972,6 @@ function roleInstructionInput(suffix: string): SparkHeadlessRoleInstructionInput
     timeoutMs: 1_000,
     mode: "execute",
     requireStructuredOutcome: true,
-    noSession: true,
   };
 }
 

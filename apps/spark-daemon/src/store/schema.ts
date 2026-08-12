@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+
 import {
   applyDaemonSqliteResourceLimits,
   openSqliteDatabase,

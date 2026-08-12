@@ -5,10 +5,13 @@ import {
   parseSparkDaemonEvent,
   parseSparkInteractionRequest,
   parseSparkViewModelEvent,
+  sparkSessionLifetimeForOwner,
+  sparkThinkingLevelSchema,
   type SparkDaemonEvent,
   type SparkJsonObject,
   type SparkInteractionRequest,
   type SparkInteractionResponse,
+  type SparkSessionState,
 } from "@zendev-lab/spark-protocol";
 import type {
   ArtifactRef,
@@ -18,7 +21,17 @@ import type {
   SparkSessionLeaseIdentity,
   SparkTaskExecutionScope,
 } from "@zendev-lab/spark-core";
+import { contentHash } from "@zendev-lab/spark-core";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+import {
+  createDefaultRoleRegistry,
+  defaultProjectRoleModelSettingsStore,
+  defaultUserRoleModelSettingsStore,
+  hydrateDefaultRoleRegistry,
+  resolveRoleModelSetting,
+  RoleModelTypeUnconfiguredError,
+  type RoleSpec,
+} from "@zendev-lab/spark-roles";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import {
   loadSparkHeadlessSessionModule,
@@ -29,7 +42,6 @@ import {
   DEFAULT_SPARK_IDENTITY_PROMPT,
   SPARK_CHANNEL_ALLOWED_TOOLS,
   SPARK_CHANNEL_SESSION_EXECUTION_PROMPT,
-  renderPersistentSessionRolePrompt,
   renderSparkChannelSurfacePrompt,
 } from "@zendev-lab/spark-host/system-prompt";
 import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
@@ -61,10 +73,11 @@ import { evaluateLoopAfterTick } from "./loop-evaluation.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";
 import { artifactDaemonProjectionEventFromToolResult } from "../artifact-projection.ts";
 import type { DaemonSessionRegistry } from "../session-registry.ts";
+import type { SparkInvocationStore } from "../store/invocations.ts";
 import { ensureDaemonSessionTranscript } from "../session-transcript-control.ts";
 import { ChannelReplyEventProjector } from "../channels/reply-stream.ts";
 import type { ChannelReplyDeliveryStore } from "../channels/reply-delivery.ts";
-import { assignCompletedSessionRole } from "./session-title.ts";
+import { assignCompletedSessionName } from "./session-title.ts";
 import type { SessionSupervisor } from "../session-supervisor.ts";
 import { createSupervisedRoleRunner } from "../supervised-role-runner.ts";
 
@@ -127,13 +140,14 @@ export interface SparkDaemonTaskExecutorOptions {
     timestampMs: number;
   }) => void;
   modelControl?: Pick<SparkDaemonModelControl, "effectiveModel" | "prepareModel"> &
-    Partial<Pick<SparkDaemonModelControl, "generateSessionRole">>;
+    Partial<Pick<SparkDaemonModelControl, "generateSessionName">>;
   sessionRegistry?: Pick<
     DaemonSessionRegistry,
     "recordRun" | "recordTurnQueued" | "recordTurnSettled"
   > &
-    Partial<Pick<DaemonSessionRegistry, "bindTranscriptPath" | "get" | "setRoleIfMissing">>;
+    Partial<Pick<DaemonSessionRegistry, "bindTranscriptPath" | "get" | "setNameIfMissing">>;
   sessionSupervisor?: SessionSupervisor;
+  invocationStore?: SparkInvocationStore;
   createSparkHeadlessSessionExecutor?: CreateSparkHeadlessSessionExecutorFn;
   refreshSessionSnapshotIndex?: typeof refreshSparkSessionSnapshotIndex;
   sessionLeaseControl?: {
@@ -215,9 +229,19 @@ export function createSparkDaemonTaskExecutor(
           parentSessionId: loopTask.ownerSessionId,
           owner:
             sessionLifetime === "driver"
-              ? { kind: "driver", ref: loopTask.loopId }
-              : { kind: "driver_tick", ref: context.invocationId },
-          authority: { kind: "driver", ref: loopTask.loopId },
+              ? {
+                  kind: "driver",
+                  driverId: loopTask.loopId,
+                  generation: loopTask.generation,
+                  supervisorSessionId: loopTask.ownerSessionId,
+                }
+              : {
+                  kind: "driver_tick",
+                  driverId: loopTask.loopId,
+                  generation: loopTask.generation,
+                  tickInvocationId: context.invocationId,
+                  supervisorSessionId: loopTask.ownerSessionId,
+                },
           stateBinding: { kind: "session", ref: loopTask.ownerSessionId },
           purpose: sessionLifetime,
           cwd: loopTask.cwd,
@@ -243,16 +267,34 @@ export function createSparkDaemonTaskExecutor(
             release(): void | Promise<void>;
           }
         | undefined;
+      let preserveLoopGenerationForRestart = false;
       try {
         sessionLease = await options.sessionLeaseControl?.acquire(sessionTask, trackedContext);
         await options.sessionRegistry?.recordTurnQueued(sessionTask.sessionId);
-        const effectiveTask = await withEffectiveTaskModel(sessionTask, options.modelControl);
+        const frozenSessionContext = await sessionContextForTask(
+          sessionTask,
+          options.sessionRegistry,
+          options.paths.piAgentDir,
+        );
+        const effectiveTask = await withEffectiveTaskProfile(
+          sessionTask,
+          frozenSessionContext,
+          options.modelControl,
+          options.sessionRegistry,
+        );
+        recordInvocationReceiptContext(
+          effectiveTask,
+          frozenSessionContext,
+          trackedContext.invocationId,
+          options.invocationStore,
+        );
         const result = await executeSparkDaemonSessionRunTask(
           effectiveTask,
           trackedContext,
           {
             ...options,
             executeSession: await getSessionExecutor(),
+            frozenSessionContext,
             ...(sessionLease ? { sessionLease: sessionLease.identity } : {}),
           },
           loopTask ? loopContextForTask(loopTask, options.loopControl) : undefined,
@@ -272,7 +314,10 @@ export function createSparkDaemonTaskExecutor(
         }
         return completed.result;
       } catch (error) {
-        if (isSparkTurnRestartYieldError(error)) throw error;
+        if (isSparkTurnRestartYieldError(error)) {
+          preserveLoopGenerationForRestart = true;
+          throw error;
+        }
         if (!context.signal.aborted && !projectedFailure) {
           await emitSessionFailure(sessionTask, trackedContext, error);
         }
@@ -280,6 +325,9 @@ export function createSparkDaemonTaskExecutor(
         await wakeTaskExecutionOwner(loopTask?.ownerSessionId ?? sessionTask.sessionId, options);
         throw error;
       } finally {
+        if (!preserveLoopGenerationForRestart) {
+          await closeLoopGenerationSession(loopTask, options.sessionSupervisor);
+        }
         try {
           await sessionLease?.release();
         } catch (error) {
@@ -439,16 +487,53 @@ async function emitSessionFailure(
   }
 }
 
-async function withEffectiveTaskModel(
+async function withEffectiveTaskProfile(
   task: SparkDaemonSessionRunTask,
+  sessionContext: SessionInvocationContext,
   modelControl: Pick<SparkDaemonModelControl, "effectiveModel" | "prepareModel"> | undefined,
+  registry: SparkDaemonTaskExecutorOptions["sessionRegistry"],
 ): Promise<SparkDaemonSessionRunTask> {
   if (!modelControl) return task;
+  const roleModel = sessionContext.role
+    ? await resolveRoleModelSetting({
+        roleRef: sessionContext.role.ref,
+        modelType: sessionContext.role.modelType,
+        roleId: sessionContext.role.id,
+        roleName: sessionContext.role.id,
+        projectStore: defaultProjectRoleModelSettingsStore(
+          sessionContext.cwd ?? task.cwd ?? process.cwd(),
+        ),
+        userStore: defaultUserRoleModelSettingsStore(),
+      })
+    : undefined;
+  if (sessionContext.role && !task.model && !sessionContext.session?.model && !roleModel) {
+    throw new RoleModelTypeUnconfiguredError(
+      sessionContext.role.ref,
+      sessionContext.role.modelType,
+    );
+  }
+  const inheritedModel = sessionContext.role
+    ? undefined
+    : await inheritedSessionModel(sessionContext.session, registry);
   const model = task.model
     ? modelRefFromValue(task.model)
-    : await modelControl.effectiveModel(task.sessionId);
+    : sessionContext.session?.model
+      ? sessionContext.session.model
+      : roleModel
+        ? modelRefFromValue(roleModel.model)
+        : (inheritedModel ?? (await modelControl.effectiveModel(task.sessionId)));
   await modelControl.prepareModel(model);
-  return task.model ? task : { ...task, model: `${model.providerName}/${model.modelId}` };
+  const thinkingLevel =
+    task.thinkingLevel ??
+    sessionContext.session?.thinkingLevel ??
+    (sessionContext.role
+      ? undefined
+      : await inheritedSessionThinkingLevel(sessionContext.session, registry));
+  return {
+    ...task,
+    model: `${model.providerName}/${model.modelId}`,
+    ...(thinkingLevel ? { thinkingLevel } : {}),
+  };
 }
 
 function modelRefFromValue(value: string): { providerName: string; modelId: string } {
@@ -875,7 +960,7 @@ async function sessionExecutionIdentity(
           workspaceId,
           workspaceRoot,
           executionSessionId: task.executionSessionId ?? task.sessionId,
-          relation: sessionContext.fleetWorker,
+          binding: sessionContext.fleetWorker,
           resolveSessionCwd: options.resolveSessionCwd,
         })
       : undefined;
@@ -890,7 +975,9 @@ async function sessionExecutionIdentity(
       ? { sessionPath: sessionContext.sessionPath }
       : {}),
     ...(task.model ? { model: task.model } : {}),
-    ...(task.thinkingLevel ? { thinkingLevel: task.thinkingLevel } : {}),
+    ...(task.thinkingLevel
+      ? { thinkingLevel: sparkThinkingLevelSchema.parse(task.thinkingLevel) }
+      : {}),
     reset: task.reset,
     ...(task.hiddenExecution
       ? {
@@ -907,7 +994,7 @@ async function resolveFleetExecutionScope(input: {
   workspaceId: string;
   workspaceRoot: string;
   executionSessionId: string;
-  relation: {
+  binding: {
     ownerSessionId: string;
     projectRef: string;
     laneKey: string;
@@ -918,11 +1005,11 @@ async function resolveFleetExecutionScope(input: {
 }): Promise<SparkTaskExecutionScope> {
   const request = fleetTaskRequestMetadata(input.task);
   if (!request) throw new Error("Fleet invocation is missing exact TaskRun request metadata");
-  if (request.projectRef !== input.relation.projectRef) {
+  if (request.projectRef !== input.binding.projectRef) {
     throw new Error("Fleet invocation Project does not match its worker lane");
   }
   const mail = recordValue(input.task.messageMetadata?.sessionMail);
-  if (mail?.fromSessionId !== input.relation.ownerSessionId) {
+  if (mail?.fromSessionId !== input.binding.ownerSessionId) {
     throw new Error("Fleet invocation owner does not match its worker lane");
   }
   const graph = await defaultTaskGraphStore(input.workspaceRoot).load();
@@ -936,23 +1023,23 @@ async function resolveFleetExecutionScope(input: {
     (run.execution.sessionId ?? run.execution.executionSessionId) !== input.executionSessionId ||
     run.execution.jobId !== request.jobId ||
     run.execution.attempt !== request.attempt ||
-    run.execution.workerLaneKey !== input.relation.laneKey
+    run.execution.workerLaneKey !== input.binding.laneKey
   ) {
     throw new Error("Fleet invocation no longer matches its authoritative TaskRun binding");
   }
   const task = graph.getTask(run.taskRef);
   const policy = task.executionPolicy;
   if (!policy) throw new Error(`Fleet Task ${task.ref} has no executionPolicy`);
-  const writableArtifactRefs = [...new Set(input.relation.writableArtifactRefs)].sort();
+  const writableArtifactRefs = [...new Set(input.binding.writableArtifactRefs)].sort();
   if (
-    !writableArtifactRefs.includes(input.relation.primaryArtifactRef) ||
+    !writableArtifactRefs.includes(input.binding.primaryArtifactRef) ||
     writableArtifactRefs.some((ref) => !task.artifactRefs.includes(ref as ArtifactRef))
   ) {
     throw new Error("Fleet worker lane targets are no longer authorized by the Task");
   }
   if (policy.worktreeTarget) {
     if (
-      policy.worktreeTarget.primaryArtifactRef !== input.relation.primaryArtifactRef ||
+      policy.worktreeTarget.primaryArtifactRef !== input.binding.primaryArtifactRef ||
       !sameStringSet(policy.worktreeTarget.writableArtifactRefs, writableArtifactRefs)
     ) {
       throw new Error("Fleet worker lane targets diverge from Task executionPolicy");
@@ -973,7 +1060,7 @@ async function resolveFleetExecutionScope(input: {
     }
     writableRoots.push(resolved.cwd);
   }
-  const primaryIndex = writableArtifactRefs.indexOf(input.relation.primaryArtifactRef);
+  const primaryIndex = writableArtifactRefs.indexOf(input.binding.primaryArtifactRef);
   if (primaryIndex < 0) throw new Error("Fleet worker lane has no primary worktree");
   let resultsRoot: string | undefined;
   if (policy.isolation === "isolated_results") {
@@ -984,7 +1071,7 @@ async function resolveFleetExecutionScope(input: {
   }
   return Object.freeze({
     isolation: policy.isolation,
-    primaryArtifactRef: input.relation.primaryArtifactRef as ArtifactRef,
+    primaryArtifactRef: input.binding.primaryArtifactRef as ArtifactRef,
     writableArtifactRefs: writableArtifactRefs as ArtifactRef[],
     writableRoots,
     ...(resultsRoot ? { resultsRoot } : {}),
@@ -1056,6 +1143,7 @@ function sessionExecutionPolicy(
   loop: SparkHostLoopContext | undefined,
   taskExecutionScope?: SparkTaskExecutionScope,
 ) {
+  const allowedTools = allowedToolsForSessionExecution(sessionContext, loop);
   return {
     ...(sessionContext.surface ? { sessionSurface: sessionContext.surface } : {}),
     sessionSource: sessionSourceForTask(task),
@@ -1069,11 +1157,10 @@ function sessionExecutionPolicy(
     ...(sessionQuestionChainForTask(task)
       ? { sessionQuestionChain: sessionQuestionChainForTask(task) }
       : {}),
-    ...(sessionContext.surface === "channel"
-      ? {
-          allowedTools: SPARK_CHANNEL_ALLOWED_TOOLS,
-          approvalMethod: "auto" as const,
-        }
+    ...(allowedTools ? { allowedTools } : {}),
+    ...(sessionContext.surface === "channel" ? { approvalMethod: "auto" as const } : {}),
+    ...(sessionContext.role?.allowedToolEffects
+      ? { allowedToolEffects: sessionContext.role.allowedToolEffects }
       : {}),
     ...(sessionContext.sideThread ? { allowedToolEffects: ["read"] as const } : {}),
     ...(sessionContext.taskSession ? { mode: "execute" as const } : {}),
@@ -1081,8 +1168,21 @@ function sessionExecutionPolicy(
       ? { allowedToolEffects: ["read"] as const }
       : {}),
     ...(loop?.binding.workflowRunId && !loop.binding.reproId ? { allowedTools: ["workflow"] } : {}),
-    ...(task.roleAllowedTools ? { allowedTools: task.roleAllowedTools } : {}),
   };
+}
+
+function allowedToolsForSessionExecution(
+  sessionContext: Awaited<ReturnType<typeof sessionContextForTask>>,
+  loop: SparkHostLoopContext | undefined,
+): string[] | undefined {
+  let allowedTools: string[] | undefined =
+    sessionContext.surface === "channel" ? [...SPARK_CHANNEL_ALLOWED_TOOLS] : undefined;
+  if (loop?.binding.workflowRunId && !loop.binding.reproId) allowedTools = ["workflow"];
+  const roleTools = sessionContext.role?.allowedTools;
+  if (!roleTools) return allowedTools;
+  if (!allowedTools) return [...roleTools];
+  const roleCeiling = new Set(roleTools);
+  return allowedTools.filter((tool) => roleCeiling.has(tool));
 }
 
 export async function executeSparkDaemonSessionRunTask(
@@ -1091,14 +1191,13 @@ export async function executeSparkDaemonSessionRunTask(
   options: SparkDaemonTaskExecutorOptions & {
     executeSession: SparkHeadlessSessionExecutor;
     sessionLease?: SparkSessionLeaseIdentity;
+    frozenSessionContext?: SessionInvocationContext;
   },
   loop?: SparkHostLoopContext,
 ): Promise<unknown> {
-  const sessionContext = await sessionContextForTask(
-    task,
-    options.sessionRegistry,
-    options.paths.piAgentDir,
-  );
+  const sessionContext =
+    options.frozenSessionContext ??
+    (await sessionContextForTask(task, options.sessionRegistry, options.paths.piAgentDir));
   const systemPrompt = await systemPromptForSession(
     task,
     options,
@@ -1388,13 +1487,10 @@ export function sessionSourceForTask(
   return "daemon";
 }
 
-async function sessionContextForTask(
-  task: SparkDaemonSessionRunTask,
-  registry: SparkDaemonTaskExecutorOptions["sessionRegistry"],
-  sparkHome: string | undefined,
-): Promise<{
+interface SessionInvocationContext {
+  session?: SparkSessionState;
   surface?: "local" | "channel";
-  role?: string;
+  role?: RoleSpec;
   sideThread?: boolean;
   taskSession?: boolean;
   stateBindingSessionId?: string;
@@ -1412,9 +1508,17 @@ async function sessionContextForTask(
     primaryArtifactRef: string;
     writableArtifactRefs: string[];
   };
-}> {
-  const session = await registry?.get?.(task.sessionId);
-  const role = session?.role?.trim();
+}
+
+async function sessionContextForTask(
+  task: SparkDaemonSessionRunTask,
+  registry: SparkDaemonTaskExecutorOptions["sessionRegistry"],
+  sparkHome: string | undefined,
+): Promise<SessionInvocationContext> {
+  const session = await registry?.get?.(task.executionSessionId ?? task.sessionId);
+  const role = session
+    ? await resolveInvocationRole(registry, session, session.cwd ?? task.cwd ?? process.cwd())
+    : undefined;
   const sessionPath =
     !task.hiddenExecution && session && sparkHome && registry?.bindTranscriptPath
       ? await ensureDaemonSessionTranscript({
@@ -1426,6 +1530,7 @@ async function sessionContextForTask(
   if (task.channelReply) {
     return {
       surface: "channel",
+      ...(session ? { session } : {}),
       ...(session?.cwd ? { cwd: session.cwd } : {}),
       ...(session?.scope?.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
       ...(session?.cwdArtifactRef ? { cwdArtifactRef: session.cwdArtifactRef } : {}),
@@ -1435,16 +1540,17 @@ async function sessionContextForTask(
   }
   if (!session) return {};
   return {
+    session,
     surface: session.bindings.length > 0 ? "channel" : "local",
     ...(session.cwd ? { cwd: session.cwd } : {}),
     ...(session.scope?.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
     ...(session.cwdArtifactRef ? { cwdArtifactRef: session.cwdArtifactRef } : {}),
     ...(role ? { role } : {}),
-    ...(session.relation?.kind === "side_thread" ? { sideThread: true } : {}),
-    ...(session.relation?.kind === "task_execution" || session.relation?.kind === "fleet_worker"
+    ...(session.owner.kind === "side_thread" ? { sideThread: true } : {}),
+    ...(session.owner.kind === "task_run" || session.owner.kind === "task_revision"
       ? { taskSession: true }
       : {}),
-    ...(session.relation?.kind === "fleet_worker" ? { fleetWorker: session.relation } : {}),
+    ...(session.fleetWorker ? { taskSession: true, fleetWorker: session.fleetWorker } : {}),
     ...(session.stateBinding?.kind === "session"
       ? { stateBindingSessionId: session.stateBinding.ref }
       : {}),
@@ -1452,6 +1558,133 @@ async function sessionContextForTask(
     ...(session.purpose ? { purpose: session.purpose } : {}),
     ...(sessionPath ? { sessionPath } : {}),
   };
+}
+
+async function inheritedSessionModel(
+  session: SparkSessionState | undefined,
+  registry: SparkDaemonTaskExecutorOptions["sessionRegistry"],
+) {
+  let current = session;
+  const visited = new Set<string>();
+  while (current) {
+    const supervisorId = supervisorSessionIdForOwner(current);
+    if (!supervisorId || visited.has(supervisorId)) return undefined;
+    visited.add(supervisorId);
+    current = await registry?.get?.(supervisorId);
+    if (current?.model) return current.model;
+  }
+  return undefined;
+}
+
+async function inheritedSessionThinkingLevel(
+  session: SparkSessionState | undefined,
+  registry: SparkDaemonTaskExecutorOptions["sessionRegistry"],
+) {
+  let current = session;
+  const visited = new Set<string>();
+  while (current) {
+    const supervisorId = supervisorSessionIdForOwner(current);
+    if (!supervisorId || visited.has(supervisorId)) return undefined;
+    visited.add(supervisorId);
+    current = await registry?.get?.(supervisorId);
+    if (current?.thinkingLevel) return current.thinkingLevel;
+  }
+  return undefined;
+}
+
+function recordInvocationReceiptContext(
+  task: SparkDaemonSessionRunTask,
+  context: SessionInvocationContext,
+  invocationId: string,
+  store: SparkDaemonTaskExecutorOptions["invocationStore"],
+): void {
+  const session = context.session;
+  if (!store || !session) return;
+  const invocation = store.require(invocationId);
+  const inputRefs = new Set<string>(task.assignment?.evidence ?? []);
+  for (const attachment of task.attachments ?? []) {
+    if (typeof attachment.name === "string" && attachment.name.trim()) {
+      inputRefs.add(`attachment:${attachment.name.trim()}`);
+    }
+  }
+  const policy = {
+    allowedTools: context.role?.allowedTools ?? [],
+    allowedToolEffects: context.sideThread ? ["read"] : (context.role?.allowedToolEffects ?? []),
+    surface: context.surface ?? "local",
+  };
+  store.recordReceiptContext(invocationId, {
+    lifetime: sparkSessionLifetimeForOwner(session.owner),
+    ownerKind: session.owner.kind,
+    ...(context.role ? { effectiveRoleRef: context.role.ref } : {}),
+    ...(context.role ? { effectiveRoleRevision: context.role.revision } : {}),
+    ...(task.model ? { model: modelRefFromValue(task.model) } : {}),
+    ...(task.thinkingLevel
+      ? { thinkingLevel: sparkThinkingLevelSchema.parse(task.thinkingLevel) }
+      : {}),
+    toolPolicyDigest: contentHash(JSON.stringify(policy)),
+    authorizationSource: {
+      kind: invocation.parentInvocationId
+        ? "parent_invocation"
+        : (invocation.sourceKind ?? "session.supervised"),
+      ...(invocation.parentInvocationId
+        ? { ref: invocation.parentInvocationId }
+        : invocation.sourceRef
+          ? { ref: invocation.sourceRef }
+          : {}),
+    },
+    inputRefs: [...inputRefs].sort(),
+  });
+}
+
+async function resolveInvocationRole(
+  registry: SparkDaemonTaskExecutorOptions["sessionRegistry"],
+  initial: SparkSessionState,
+  cwd: string,
+): Promise<RoleSpec | undefined> {
+  const visited = new Set<string>();
+  let current: SparkSessionState | undefined = initial;
+  while (current) {
+    if (visited.has(current.sessionId)) {
+      throw new Error(`Session owner cycle while resolving Role: ${current.sessionId}`);
+    }
+    visited.add(current.sessionId);
+    if (current.roleBinding.kind === "none") return undefined;
+    if (current.roleBinding.kind === "explicit") {
+      const roles = createDefaultRoleRegistry();
+      await hydrateDefaultRoleRegistry(roles, cwd, { includeUser: true });
+      const role = roles.get(current.roleBinding.roleRef);
+      if (!role) throw new Error(`Session Role is not defined: ${current.roleBinding.roleRef}`);
+      return role;
+    }
+    const supervisorSessionId = supervisorSessionIdForOwner(current);
+    if (!supervisorSessionId) {
+      throw new Error(`Session ${current.sessionId} cannot inherit Role without a supervisor`);
+    }
+    current = await registry?.get?.(supervisorSessionId);
+    if (!current) {
+      throw new Error(
+        `Session ${initial.sessionId} Role supervisor is missing: ${supervisorSessionId}`,
+      );
+    }
+  }
+  return undefined;
+}
+
+function supervisorSessionIdForOwner(session: SparkSessionState): string | undefined {
+  switch (session.owner.kind) {
+    case "session":
+    case "task_run":
+    case "task_revision":
+    case "workflow_run":
+    case "driver":
+    case "driver_tick":
+    case "invocation":
+      return session.owner.supervisorSessionId;
+    case "side_thread":
+      return session.owner.parentSessionId;
+    case "workspace":
+      return undefined;
+  }
 }
 
 async function systemPromptForChannelSession(
@@ -1528,14 +1761,11 @@ async function systemPromptForSession(
   task: SparkDaemonSessionRunTask,
   options: SparkDaemonTaskExecutorOptions,
   sessionSurface: "local" | "channel" | undefined,
-  role: string | undefined,
+  role: RoleSpec | undefined,
   sideThread = false,
 ): Promise<string | undefined> {
-  if (task.roleSystemPrompt) {
-    return composeAgentSystemPrompt([DEFAULT_SPARK_IDENTITY_PROMPT, task.roleSystemPrompt]);
-  }
   const channelPrompt = await systemPromptForChannelSession(task, options, sessionSurface);
-  const rolePrompt = role ? renderPersistentSessionRolePrompt(role) : undefined;
+  const rolePrompt = role?.systemPrompt;
   const sideThreadPrompt = sideThread ? SPARK_SIDE_THREAD_EXECUTION_PROMPT : undefined;
   if (channelPrompt) return composeAgentSystemPrompt([channelPrompt, rolePrompt, sideThreadPrompt]);
   if (rolePrompt || sideThreadPrompt) {
@@ -1762,19 +1992,38 @@ async function recordCompletedSessionRun(
   }
 }
 
+async function closeLoopGenerationSession(
+  task: SparkDaemonLoopTickTask | undefined,
+  supervisor: SessionSupervisor | undefined,
+): Promise<void> {
+  if (task?.continuity !== "fresh" || !task.executionSessionId || !supervisor) {
+    return;
+  }
+  try {
+    await supervisor.close({
+      sessionId: task.executionSessionId,
+      reason: `loop ${task.loopId} generation ${task.generation} terminated`,
+    });
+  } catch (error) {
+    console.error(
+      `[spark-daemon] failed to close Loop generation Session ${task.executionSessionId}: ${errorMessage(error)}`,
+    );
+  }
+}
+
 async function assignRoleAfterCompletedSessionRun(
   task: SparkDaemonSessionRunTask,
   context: SparkDaemonTaskExecutionContext,
   options: SparkDaemonTaskExecutorOptions,
 ): Promise<void> {
-  const generateSessionRole = options.modelControl?.generateSessionRole;
+  const generateSessionName = options.modelControl?.generateSessionName;
   const get = options.sessionRegistry?.get;
-  const setRoleIfMissing = options.sessionRegistry?.setRoleIfMissing;
-  if (!task.model || !generateSessionRole || !get || !setRoleIfMissing) return;
+  const setNameIfMissing = options.sessionRegistry?.setNameIfMissing;
+  if (!task.model || !generateSessionName || !get || !setNameIfMissing) return;
   try {
     const current = await get(task.sessionId);
-    if (current?.relation?.kind === "side_thread") return;
-    const session = await assignCompletedSessionRole(
+    if (current?.owner?.kind === "side_thread") return;
+    const session = await assignCompletedSessionName(
       {
         sessionId: task.sessionId,
         prompt: task.prompt,
@@ -1786,16 +2035,16 @@ async function assignRoleAfterCompletedSessionRun(
       },
       {
         modelControl: {
-          generateSessionRole: (input) => options.modelControl!.generateSessionRole!(input),
+          generateSessionName: (input) => options.modelControl!.generateSessionName!(input),
         },
         sessionRegistry: {
           get: (sessionId) => options.sessionRegistry!.get!(sessionId),
-          setRoleIfMissing: (sessionId, role) =>
-            options.sessionRegistry!.setRoleIfMissing!(sessionId, role),
+          setNameIfMissing: (sessionId, name) =>
+            options.sessionRegistry!.setNameIfMissing!(sessionId, name),
         },
       },
     );
-    if (!session?.title) return;
+    if (!session?.name) return;
     await context.emitEvent?.({
       version: SPARK_PROTOCOL_VERSION,
       type: "daemon.session.updated",
@@ -1805,13 +2054,13 @@ async function assignRoleAfterCompletedSessionRun(
       ...(task.projectId ? { projectId: task.projectId } : {}),
       sessionId: task.sessionId,
       invocationId: context.invocationId,
-      title: session.title,
+      title: session.name,
       metadata: daemonTaskRouteMetadata(task),
     });
   } catch {
     // Keep role naming fully advisory even if a future dependency implementation
     // violates the helper's best-effort contract.
-    console.error(`[spark-daemon] unexpected session role failure for ${task.sessionId}`);
+    console.error(`[spark-daemon] unexpected session name failure for ${task.sessionId}`);
   }
 }
 
@@ -1844,10 +2093,10 @@ async function wakeTaskExecutionOwner(
   if (!options.sessionRegistry?.get || !options.loopControl?.wakeOwner) return;
   try {
     const session = await options.sessionRegistry.get(sessionId);
-    if (session?.relation?.kind !== "task_execution") return;
-    await options.loopControl.wakeOwner(session.relation.ownerSessionId, {
+    if (session?.owner?.kind !== "task_run") return;
+    await options.loopControl.wakeOwner(session.owner.supervisorSessionId, {
       target: "repro",
-      reason: `managed Task Session ${sessionId} settled; reconcile ${session.relation.taskRef}`,
+      reason: `managed Task Session ${sessionId} settled; reconcile ${session.owner.taskRef}`,
     });
   } catch (error) {
     console.error(`[spark-daemon] failed to wake Task Session owner for ${sessionId}`, error);

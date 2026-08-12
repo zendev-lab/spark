@@ -5,7 +5,7 @@ import {
   sparkDefaultModelSetRequestSchema,
 } from "./model-control.ts";
 import {
-  parseSparkSessionRegistryRecord,
+  parseSparkSessionProjection,
   parseSparkSessionSetModelRequest,
 } from "./session-assignment.ts";
 
@@ -84,9 +84,21 @@ describe("Spark model-control protocol", () => {
       model,
     });
     expect(
-      parseSparkSessionRegistryRecord({
+      parseSparkSessionProjection({
         sessionId: "sess_demo",
-        workspaceId: "ws_demo",
+        scope: { kind: "workspace", workspaceId: "ws_demo" },
+        lifecycle: "open",
+        placement: "active",
+        lifetime: "scoped",
+        activity: "idle",
+        roleBinding: { kind: "none" },
+        owner: { kind: "session", supervisorSessionId: "sess_admin_ws_demo" },
+        incarnation: 1,
+        stateBinding: { kind: "session", ref: "sess_admin_ws_demo" },
+        visibility: "public",
+        retention: "retain",
+        purpose: "interactive",
+        bindings: [],
         model,
         createdAt: "2026-07-10T06:00:00.000Z",
         updatedAt: "2026-07-10T06:00:00.000Z",

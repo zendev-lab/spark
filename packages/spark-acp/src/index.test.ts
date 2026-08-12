@@ -195,7 +195,7 @@ describe("spark-acp daemon adapter", () => {
         cwd: "/worktrees/change/packages/app",
         cwdArtifactRef: "artifact:git:change",
         workspaceId: "workspace-acp",
-        title: "ACP session",
+        name: "ACP session",
       },
     ]);
   });
@@ -225,7 +225,7 @@ describe("spark-acp daemon adapter", () => {
 
     expect(daemon.ensuredWorkspaces).toEqual(["/tmp/spark-acp"]);
     expect(daemon.createdSessions).toEqual([
-      { cwd: "/tmp/spark-acp", workspaceId: "workspace-acp", title: "ACP session" },
+      { cwd: "/tmp/spark-acp", workspaceId: "workspace-acp", name: "ACP session" },
     ]);
     expect(daemon.submitted).toEqual([
       expect.objectContaining({

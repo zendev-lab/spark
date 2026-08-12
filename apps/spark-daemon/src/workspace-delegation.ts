@@ -16,7 +16,7 @@ import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { getWorkspaceById } from "./store/workspaces.ts";
-import { assertWorkspaceMainSession } from "./workspace-main-session.ts";
+import { assertWorkspaceAdministratorSession } from "./workspace-administrator-session.ts";
 
 export async function executeWorkspaceDelegationAction(input: {
   db: DatabaseSync;
@@ -25,7 +25,7 @@ export async function executeWorkspaceDelegationAction(input: {
 }): Promise<WorkspaceDelegationExecuteResult> {
   const { db, sessionRegistry, request } = input;
   const session = await sessionRegistry.get(request.sessionId);
-  assertWorkspaceMainSession(session, request.sessionId);
+  assertWorkspaceAdministratorSession(session, request.sessionId);
   const workspaceId = hubWorkspaceId(db, session.scope.workspaceId);
 
   if (request.action === "get") {
@@ -84,7 +84,7 @@ export async function executeWorkspaceDelegationAction(input: {
       constraints: request.constraints ?? [],
       requestedRole: request.requestedRole,
       actor: {
-        kind: "workspace_main_session",
+        kind: "workspace_administrator_session",
         id: request.sessionId,
         sessionId: request.sessionId,
       },
@@ -352,7 +352,7 @@ function requireInvocationForSession(
   if (invocation.sessionId !== sessionId) {
     throw delegationError(
       "delegation_invocation_mismatch",
-      `invocation ${invocationId} does not belong to main session ${sessionId}`,
+      `invocation ${invocationId} does not belong to Administrator Session ${sessionId}`,
     );
   }
   return invocationId;

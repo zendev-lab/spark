@@ -13,6 +13,7 @@ import {
   submitChannelInboundInvocation,
 } from "./admission.ts";
 import { createChannelIngressController, type ChannelIngressAssignment } from "./ingress.ts";
+import { workspaceSessionRecord } from "../../../../test/support/session-fixtures.ts";
 
 interface ReplayCase {
   name: string;
@@ -72,11 +73,9 @@ describe("channel inbound durable admission", () => {
       const firstTransport = new FakeChannelTransport();
       const secondTransport = new FakeChannelTransport();
       const invocationIds: string[] = [];
-      const session = {
+      const session = workspaceSessionRecord({
         sessionId: `session-${replayCase.name.toLowerCase()}`,
-        scope: { kind: "workspace" as const, workspaceId: "ws-overlap" },
         workspaceId: "ws-overlap",
-        status: "ready" as const,
         bindings: [
           {
             kind: "channel" as const,
@@ -86,7 +85,7 @@ describe("channel inbound durable admission", () => {
         ],
         createdAt: "2026-07-15T00:00:00.000Z",
         updatedAt: "2026-07-15T00:00:00.000Z",
-      };
+      });
       const resolveBinding = vi.fn(async () => session);
       const createAssignmentHandler =
         (store: SparkInvocationStore) => async (assignment: ChannelIngressAssignment) => {
@@ -108,7 +107,15 @@ describe("channel inbound durable admission", () => {
           sparkHome: "/unused",
           config: replayCase.config,
           hooks: { onAssignment: createAssignmentHandler(store) },
-          sessionRegistry: { resolveBinding },
+          sessionRegistry: {
+            ensureWorkspaceAdministrator: async () =>
+              workspaceSessionRecord({
+                sessionId: "sess_admin_ws_overlap",
+                workspaceId: "ws-overlap",
+                administrator: true,
+              }),
+            resolveBinding,
+          },
           workspaceId: "ws-overlap",
           createTransport: () => transport,
         });

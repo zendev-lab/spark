@@ -7,12 +7,13 @@ import { test } from "vitest";
 import type { ToolConfig } from "@zendev-lab/spark-core";
 import { SparkSessionMailStore, sanitizeSessionMailScope } from "./index.ts";
 import type {
-  SparkSessionRegistryRecord,
+  SparkSessionProjection,
   SparkSessionSendRequest,
   SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
 import { registerSparkSessionTool } from "./extension.ts";
 import type { SparkSessionToolContext } from "./action-tool.ts";
+import { workspaceSessionRecord } from "../../../test/support/session-fixtures.ts";
 
 const NOW = "2026-07-13T00:00:00.000Z";
 
@@ -49,15 +50,57 @@ async function sessionSendRpc(
   };
 }
 
+test("session tool exposes persistent lifecycle, calls, classification, and mail", () => {
+  const tool = registerTestTool({
+    request: async () => assert.fail("request should not run during registration"),
+  });
+  const schema = JSON.stringify(tool.parameters);
+  const properties = (tool.parameters as { properties?: Record<string, unknown> }).properties ?? {};
+  assert.equal("scope" in properties, false);
+  for (const action of [
+    "list",
+    "get",
+    "create",
+    "call",
+    "bind",
+    "unbind",
+    "archive",
+    "restore",
+    "close",
+    "send",
+    "inbox",
+    "read",
+    "ack",
+  ]) {
+    assert.match(schema, new RegExp(action));
+  }
+  assert.deepEqual(tool.resolvePolicy?.({ action: "list" }), {
+    effect: "read",
+    executionMode: "parallel",
+    domains: ["sessions"],
+    modes: ["plan", "execute", "fleet"],
+    approval: "none",
+  });
+  assert.deepEqual(tool.resolvePolicy?.({ action: "call" }), {
+    effect: "external_write",
+    executionMode: "sequential",
+    domains: ["sessions"],
+    modes: ["plan", "execute"],
+    approval: "none",
+  });
+  assert.match(tool.description, /Canonical scoped Session capability/u);
+  assert.ok(tool.promptGuidelines?.length);
+});
+
 test("session tool routes managed actions through daemon RPC and classifies surfaces", async () => {
   const calls: Array<{ method: string; params: unknown }> = [];
-  const records = new Map<string, SparkSessionRegistryRecord>([
+  const records = new Map<string, SparkSessionProjection>([
     ["session:a", sessionRecord("session:a")],
     [
       "session:b",
       {
         ...sessionRecord("session:b"),
-        status: "running",
+        activity: "running",
         bindings: [
           {
             kind: "channel",
@@ -79,7 +122,7 @@ test("session tool routes managed actions through daemon RPC and classifies surf
       const record = sessionRecord(
         typeof input.sessionId === "string" ? input.sessionId : "session:new",
         {
-          title: typeof input.title === "string" ? input.title : undefined,
+          title: typeof input.name === "string" ? input.name : undefined,
         },
       );
       records.set(record.sessionId, record);
@@ -109,7 +152,7 @@ test("session tool routes managed actions through daemon RPC and classifies surf
     }
     if (method === "session.archive") {
       const current = records.get(String(input.sessionId))!;
-      const record = { ...current, status: "archived" as const };
+      const record = { ...current, placement: "archived" as const };
       records.set(record.sessionId, record);
       return record as T;
     }
@@ -168,21 +211,10 @@ test("session tool routes managed actions through daemon RPC and classifies surf
     "session:a",
   );
 
-  await execute(tool, ctx, { action: "create", sessionId: "session:default" });
-  assert.deepEqual(calls.find((call) => call.method === "session.create")?.params, {
-    sessionId: "session:default",
-    roleRef: "role:builtin-administrator",
-    purpose: "interactive",
-    cwd: "/workspace/test",
-    scope: { kind: "workspace", workspaceId: "workspace:test" },
-    workspaceId: "workspace:test",
-  });
-  calls.length = 0;
-
   const created = await execute(tool, ctx, {
     action: "create",
     sessionId: "session:new",
-    roleRef: "role:builtin-reviewer",
+    name: "Verification",
   });
   assert.equal(
     (created.details as { session: { sessionId: string } }).session.sessionId,
@@ -190,11 +222,12 @@ test("session tool routes managed actions through daemon RPC and classifies surf
   );
   assert.deepEqual(calls.find((call) => call.method === "session.create")?.params, {
     sessionId: "session:new",
-    roleRef: "role:builtin-reviewer",
-    purpose: "interactive",
+    name: "Verification",
+    roleBinding: { kind: "none" },
+    placement: "child",
+    supervisorSessionId: "session:a",
     cwd: "/workspace/test",
     scope: { kind: "workspace", workspaceId: "workspace:test" },
-    workspaceId: "workspace:test",
   });
 
   await execute(tool, ctx, {
@@ -211,10 +244,22 @@ test("session tool routes managed actions through daemon RPC and classifies surf
     action: "archive",
     sessionId: "session:new",
   });
-  assert.equal((archived.details as { session: { status: string } }).session.status, "archived");
+  assert.equal(
+    (archived.details as { session: { placement: string } }).session.placement,
+    "archived",
+  );
   assert.deepEqual(
     calls.map((call) => call.method),
     [
+      "workspace.ensure-local",
+      "session.list",
+      "workspace.ensure-local",
+      "session.list",
+      "workspace.ensure-local",
+      "session.list",
+      "workspace.ensure-local",
+      "session.list",
+      "session.get",
       "workspace.ensure-local",
       "session.create",
       "session.bind",
@@ -225,7 +270,7 @@ test("session tool routes managed actions through daemon RPC and classifies surf
 });
 
 test("channel sessions can inspect same-workspace local and channel sessions", async () => {
-  const channelCurrent: SparkSessionRegistryRecord = {
+  const channelCurrent: SparkSessionProjection = {
     ...sessionRecord("session:channel"),
     bindings: [
       {
@@ -237,7 +282,7 @@ test("channel sessions can inspect same-workspace local and channel sessions", a
     ],
   };
   const localTarget = sessionRecord("session:local");
-  const channelPeer: SparkSessionRegistryRecord = {
+  const channelPeer: SparkSessionProjection = {
     ...sessionRecord("session:channel-peer"),
     bindings: [
       {
@@ -248,10 +293,10 @@ test("channel sessions can inspect same-workspace local and channel sessions", a
       },
     ],
   };
-  const otherWorkspace: SparkSessionRegistryRecord = {
+  const otherWorkspace: SparkSessionProjection = {
     ...sessionRecord("session:other-workspace"),
     scope: { kind: "workspace", workspaceId: "workspace:other" },
-    workspaceId: "workspace:other",
+    owner: { kind: "session", supervisorSessionId: "sess_admin_workspace_other" },
   };
   const records = new Map(
     [channelCurrent, localTarget, channelPeer, otherWorkspace].map((record) => [
@@ -280,7 +325,6 @@ test("channel sessions can inspect same-workspace local and channel sessions", a
   );
   assert.deepEqual(calls.find((call) => call.method === "session.list")?.params, {
     scope: { kind: "workspace", workspaceId: "workspace:test" },
-    workspaceId: "workspace:test",
     includeArchived: false,
   });
 
@@ -344,9 +388,9 @@ test("session call uses daemon turn.submit for persistent continuity", async () 
     sessionId: "session:persistent",
     instruction: "Continue the investigation",
   });
-  assert.match(toolText(result), /Queued persistent Spark session call/u);
+  assert.match(toolText(result), /Queued Spark Session call/u);
   assert.match(toolText(result), /invocation inv_persistentcall was accepted/u);
-  assert.equal((result.details as { sessionPersistence: string }).sessionPersistence, "persistent");
+  assert.equal((result.details as { sessionLifetime: string }).sessionLifetime, "scoped");
   assert.deepEqual(calls, [
     { method: "session.get", params: { sessionId: "session:persistent" } },
     {
@@ -523,7 +567,7 @@ test("session request delegates durable admission context to the daemon", async 
       request: async <T>(method: string, params?: unknown): Promise<T> => {
         assert.equal(method, "session.get");
         const sessionId = String((params as { sessionId?: string }).sessionId);
-        return { ...sessionRecord(sessionId), status: "archived" } as T;
+        return { ...sessionRecord(sessionId), placement: "archived" } as T;
       },
     });
     await assert.rejects(
@@ -534,7 +578,7 @@ test("session request delegates durable admission context to the daemon", async 
           toSessionId: "session:archived-worker",
           message: "Invalid archived target",
         }),
-      /cannot request archived persistent session/u,
+      /cannot request archived Session/u,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -830,7 +874,7 @@ test("channel sessions may request work only from local sessions in their worksp
   const dir = await mkdtemp(join(tmpdir(), "spark-session-channel-request-"));
   try {
     const mailStore = new SparkSessionMailStore({ sparkHome: dir });
-    const channelCurrent: SparkSessionRegistryRecord = {
+    const channelCurrent: SparkSessionProjection = {
       ...sessionRecord("session:channel"),
       bindings: [
         {
@@ -842,7 +886,7 @@ test("channel sessions may request work only from local sessions in their worksp
       ],
     };
     const localTarget = sessionRecord("session:local");
-    const channelTarget: SparkSessionRegistryRecord = {
+    const channelTarget: SparkSessionProjection = {
       ...sessionRecord("session:channel-target"),
       bindings: [
         {
@@ -1153,17 +1197,15 @@ function context(sessionId: string): SparkSessionToolContext {
 function sessionRecord(
   sessionId: string,
   options: { title?: string } = {},
-): SparkSessionRegistryRecord {
-  return {
+): SparkSessionProjection {
+  return workspaceSessionRecord({
     sessionId,
-    scope: { kind: "workspace", workspaceId: "workspace:test" },
     workspaceId: "workspace:test",
-    status: "ready",
     bindings: [],
     createdAt: NOW,
     updatedAt: NOW,
-    ...(options.title ? { title: options.title } : {}),
-  };
+    ...(options.title ? { name: options.title } : {}),
+  });
 }
 
 function toolText(result: SessionToolResult): string {

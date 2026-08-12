@@ -208,19 +208,19 @@ test("task graph rejects cycles and cross-project dependencies", () => {
     projectRef: project.ref,
     title: "A",
     description: "a",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
   });
   const b = graph.createTask({
     projectRef: project.ref,
     title: "B",
     description: "b",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
   });
   const other = graph.createTask({
     projectRef: otherProject.ref,
     title: "Other task",
     description: "other task",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
   });
   graph.addDependency(b.ref, a.ref);
   assert.throws(() => graph.addDependency(a.ref, b.ref), /cyclic task dependency/);
@@ -267,14 +267,14 @@ test("task graph plans multiple tasks without claiming them", () => {
       title: "Inspect ask flow",
       description: "Compare current ask flow with references.",
       kind: "research",
-      roleRef: builtinRoleRef("scout"),
+      roleRef: builtinRoleRef("explorer"),
       plan: executionReadyPlan("Inspect ask flow"),
     },
     {
       title: "Design claim registry",
       description: "Plan one-active-task claim semantics.",
       kind: "plan",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("Design claim registry"),
       dependsOn: ["Inspect ask flow"],
     },
@@ -303,7 +303,7 @@ test("ready tasks require completed dependencies and execution-ready plans", () 
     projectRef: project.ref,
     title: "B",
     description: "b",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     plan: executionReadyPlan("B"),
   });
   graph.addDependency(b.ref, a.ref);
@@ -339,7 +339,7 @@ test("task role labels prefer active claim, finished attribution, then latest ru
   graph.claimTask(roleRun.ref, {
     kind: "role-run",
     claimedBy: `${current}+worker-1234`,
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     sessionId: current,
     runName: "worker-1234",
     leaseMs: 60_000,
@@ -397,7 +397,7 @@ test("task graph maintains todos alongside a claimed current task", () => {
     title: "Plan",
     description: "plan",
     kind: "plan",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     todos: [{ content: "Read inputs" }, { content: "Draft graph" }],
   });
   graph.setCurrentTask(project.ref, task.ref);

@@ -2,7 +2,7 @@
 description: "spark：以 Pi SDK 为内核，统一 TUI / Hub / 消息平台的本地智能开发编排"
 owner: zrr1999
 created: 2026-05-18
-updated: 2026-08-11
+updated: 2026-08-04
 ---
 
 # `spark` 项目意图
@@ -13,7 +13,9 @@ updated: 2026-08-11
 
 ## 目标
 
-- 以 daemon 为持久会话与调用调度真源；TUI、Hub、消息通道、本地 RPC 共用一套 registry 与 invocation，不维护并行会话状态机。
+- 以 daemon 为 Session registry、Owner 派生生命周期、关闭级联与 Invocation 调度真源；TUI、Hub、消息通道、本地 RPC 共用一套状态机，不维护并行会话状态。
+- 将 Role 固定为可选行为/能力类型叠加，Session 固定为执行上下文，Invocation 固定为一次执行；默认 `roleBinding=none` 不注入额外 Role prompt，`role call` 只实例化不可恢复的 ephemeral Session 并留下 receipt。
+- Session Owner 只表达生命周期与资源归属，不表达 Role 能力或子 Session 创建授权；Registry 只持久化严格 state，`lifetime` 与 `activity` 分别由 Owner 和 Invocation 真相投影。
 - 以 Spark Hub 作为同一 Hub 内跨 workspace 的逻辑协调真源；Hub 持有 registry、委托状态、投递幂等、审计和有限回执，目标 daemon/workspace 始终持有执行、工具副作用与本地成果真相，Hub 只负责呈现和收集决策。
 - 本地 daemon 控制面以 `spark-protocol` 类型化契约和 oRPC 为唯一主路径；兼容传输只翻译旧 wire，不拥有业务语义或状态。
 - 以 daemon 为 `goal | loop | repro | workflow` 定时驱动的唯一自治运行时；计时、generation、重试、恢复和 fresh 隐藏执行均进入 SQLite 与现有 invocation scheduler，前端只发控制命令并展示投影。`execute` mode 与 session TODO 延续由 `spark-extension` 的受限 `agent_end` hook 协调，每个用户输入周期至多追加一次 follow-up，不进入 daemon tick。
@@ -52,7 +54,7 @@ updated: 2026-08-11
 - 不引入独立 Workstream aggregate，不在 Spark 内复制可写 PR 拓扑；`gh stack` 是 GitHub stack 的唯一可写 topology authority。
 - 不用 Temporal、Restate、Inngest 等外部 durable engine 替换当前 daemon/SQLite 调度真相；只有隔离实验能证明本地 step journal 无法满足需求时才重新评估。
 - 不实现 root 跨 Unix 用户 supervisor；多用户部署采用每个 Unix 用户独立运行一个 Spark daemon。
-- Hub v1 不实现 `WorkspaceLink`、Artifact 复制/导入、直接控制目标 session 或跨 Hub Federation；同 Hub 默认互信只授予路由能力，目标主 session 仍可追问或拒绝。
+- Hub v1 不实现 `WorkspaceLink`、Artifact 复制/导入、直接控制目标 session 或跨 Hub Federation；同 Hub 默认互信只授予路由能力，目标 Administrator Session 仍可追问或拒绝。
 
 ## 成功信号
 
@@ -65,8 +67,10 @@ updated: 2026-08-11
 - CI failure、review comment 与 merge conflict 能以幂等反馈事件回到创建该 change/PR 的原 session，并带可审查 evidence，而不是要求用户手工复制终端输出。
 - 用户能以一个 `git_change` Artifact 查看、提交、同步并保守清理一个完整 PR stack；默认创建 draft PR，不产生重复进度评论或“stacked/tested”样板文本。
 - Project-bound 命令、任务图、ask、roles、cue 的既有成功信号仍成立，并通过测试与 `vp check` / `prek` 守门。
-- `/fleet` 在 TUI 与 Hub 使用同一协议目录；同 lane Task 串行复用持久 worker Session，`fresh` 明确逃生，多 worktree 写授权与 completion reconcile 均由 daemon fail-closed 执行。
-- 每个活跃 workspace 都有唯一、重启稳定且禁止普通归档的 `workspace_main` session；跨 workspace 文本以不可信外部输入进入目标主 session，只有结构化 `delegation({ action })` 事件能推进委托状态。
+- `/fleet` 在 TUI 与 Hub 使用同一协议目录；同 lane Task 串行复用 scoped worker Session，`fresh` 明确逃生，多 worktree 写授权与 completion reconcile 均由 daemon fail-closed 执行。
+- 每个 Workspace 都能幂等补建唯一、重启稳定的 persistent Administrator Session；它禁止 archive/close/delete/retention，Hub 独立置顶且默认选中。跨 Workspace 文本以不可信外部输入进入目标 Administrator，只有结构化 `delegation({ action })` 事件能推进委托状态。
+- builtin Role 只有 `administrator | explorer | executor | reviewer`；Administrator 的实际工具策略禁止 write/exec/net，Explorer/Reviewer 只有 read/net 且没有 exec，Role revision 在 Invocation 开始时冻结。
+- registry v6、daemon SQLite、Task/Workflow/Repro、Role model settings 与 Evidence 的结构化 RoleRef 能在 daemon admission 前完成有备份、journal、校验与恢复入口的硬切迁移；EvidenceRef 保持稳定，正文 hash 重算，自由文本与 transcript 不改写。
 - 两个同 Hub workspace 可完成 create → delivery → ask/reply → complete/reject/cancel 闭环；离线恢复复用原消息幂等键，最多四跳且拒绝 workspace 循环，回执仅公开目标 `artifact:` refs 与有限验证摘要。
 
 ## 当前开放问题

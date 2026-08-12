@@ -1,6 +1,6 @@
 # Sessions and channels
 
-The daemon owns persistent conversations. TUI, Hub, local RPC, and channel adapters use one registry and invocation scheduler; they do not maintain parallel session state machines.
+The daemon owns Session registry, lifecycle, Invocation admission, and migration truth. TUI, Hub, local RPC, and channel adapters use that one state machine; they do not maintain parallel Session state.
 
 A workspace identity is created only by the explicit `spark daemon workspace register <path> ...` control path. Starting TUI, headless execution, an ACP client, or a test harness in an unregistered directory fails with `workspace_not_found`; runtime attachment may resolve or re-attach an existing registration but must never mint a workspace implicitly. Git worktrees and temporary directories therefore remain ordinary directories unless an operator deliberately registers them.
 
@@ -27,96 +27,77 @@ daemon-owned durable turn journal and must not be inferred from prompt text.
 
 ## Role and session boundary
 
-- `role` owns reusable definitions and Model Type settings. Calls instantiate
-  owned child Sessions; `RoleRun` is a compatibility projection.
-- `session` owns identity, lifecycle, continuity, bindings, calls, and mail.
+- A **RoleSpec** is an optional behavior and capability overlay. Builtins are exactly `administrator | explorer | executor | reviewer`; the default binding is `none`, which adds no Role prompt or Role capability ceiling.
+- A **Session** is an execution context with one immutable Owner, an Owner-derived lifetime, a lifecycle, a placement, and optional continuity.
+- An **Invocation** is one admitted execution. `queued | running | idle` is projected from Invocation truth and is never stored as Session lifecycle.
+- A **RoleRun** is only the receipt/projection of a Role Invocation; it is not another execution primitive.
 
-Both use the daemon `SessionSupervisor` over the same headless host and
-`SparkAgentSession`. `role` must not accept lifecycle, mail,
-`resource=session`, or `sessionId` inputs. Missing child Model Type bindings
-fail with `role_model_type_unconfigured`; the parent Session model is never a
-fallback.
+`SessionRoleBinding` is `none | inherit | explicit(roleRef)`. `inherit` resolves the supervisor's binding at Invocation start. An explicit RoleSpec is also resolved at Invocation start; that Role revision, effective model/thinking, tool policy summary, inputs, outputs, status, errors, and timing are frozen into the Invocation receipt. Editing a Role during execution affects only later Invocations.
 
-## Canonical lifecycle ownership
+The builtins have runtime-enforced capability ceilings:
 
-The daemon runtime chain is `RoleSpec -> Session -> Invocation`.
-`SessionSupervisor` composes the existing Session Registry and Invocation
-SQLite store; it is not another store or scheduler. Every workspace has one
-protected persistent Administrator root Session. Other runtime owners create
-children with an explicit owner kind: `session | role_call | task_run |
-task_revision | workflow_run | driver | driver_tick`. Ordinary TUI, Hub, ACP,
-and Channel conversations are persistent Administrator instances owned by the
-workspace root. Role calls and managed Task, Workflow, Loop, Repro, and Side
-Thread work use `lifetime=owned` with the owner-specific retention policy.
+- Administrator reads state/results, interacts, asks, and manages tasks, Sessions, workflows, and delegation. It cannot use file write, exec, or network tools; its prompt requires decomposition, delegation, monitoring, acceptance, and escalation rather than implementation.
+- Explorer and Reviewer use read plus `network_read`, cannot execute, write,
+  interact, or delegate, and respectively gather facts or independently verify
+  work. Spark does not currently expose a `safe_exec` capability.
+- Executor uses read, network, exec, and write for an approved implementation, returning blockers to Administrator.
 
-The canonical lifecycle is `open | closing | closed`. Compatibility
-`ready | running | archived` fields may still be decoded and projected, but
-activity is derived from queued/running Invocations and never written as a
-second lifecycle truth. A Session also carries independent `authority`,
-`stateBinding`, `visibility`, `retention`, `purpose`, and `transcriptRef`
-fields. Owner validity is checked at instantiation and startup reconcile;
-children close before owners, and an interrupted `closing` record is reconciled
-idempotently after restart.
+`role call` is syntactic sugar for `SessionRuntime.instantiate -> invoke -> close`: it creates an explicit-Role, Invocation-owned ephemeral Session. The Session never enters lists, mail, binding, archive/restore, or resume surfaces; only the Invocation receipt remains. `role` therefore accepts no Session lifecycle, persistence, mail, or Session identity inputs.
 
-Queued/running child Invocations roll activity up through `stateBinding` or
-Session ownership to the visible parent. Parent snapshots may expose bounded
-child activity receipts, but never copy a private child prompt into the public
-message transcript. Structured nested Role Invocations reuse the scheduler's
-child execution path and do not acquire another root worker claim.
+## Ownership and lifetime
 
-Internal close replaces archive as the lifecycle operation. Restore is allowed
-only for a closed, public, persistent, retained record whose owner remains
-valid. It reopens the same stable Session ID as a new incarnation and does not
-restore children. Closing `retention=discard_on_close` deletes the exact
-transcript and redacts terminal Invocation prompts, task/result payloads,
-events, and content-bearing errors. Before deletion, the supervisor validates
-an owner-provided completion candidate or derives a semantic terminal-result
-summary; otherwise it creates a deterministic metadata-only fallback. Registry
-v5 seals the resulting receipt before content removal with first-write-wins CAS
-per Session incarnation and retains the latest 16 incarnations. A seal or
-Registry I/O failure leaves all content intact and the Session in `closing` for
-reconcile; summary-generation failure falls back and does not block cleanup.
-The receipt is Session metadata, not Evidence, and is not injected into a
-parent transcript or copied to Invocation rows. Invocation status, source kind,
-error code, execution profile, usage, the receipt, and explicit Evidence remain
-queryable. Active or undelivered Invocations block destructive redaction and
-leave the Session in `closing` for reconcile.
+Lifetime is derived, never caller-selected:
 
-Local role-managed sessions are named by division of labour, not by the task currently in flight. The registry's `role` field is the canonical stable responsibility and `title` is its compatibility display mirror. Agent-created local sessions must provide that role at creation and reuse the matching session for later tasks; the registry rejects a second active owner of the same normalized role in one workspace. A user-created local session may begin unassigned; its first completed user turn classifies one reusable role and compare-and-set persists both fields. Concrete task text belongs only in `session call` or `session send`.
+| Owner | Lifetime | End condition |
+| --- | --- | --- |
+| Workspace | `persistent` | no independent termination operation |
+| Session / SideThread / TaskRun / TaskRevision / WorkflowRun / Driver / DriverTick | `scoped` | Owner ends, or explicit close |
+| Invocation | `ephemeral` | the single Invocation ends |
 
-Selecting `+ New session` in the TUI allocates a provisional ID only. The daemon persists the Session on the first operation that needs durable state, instantiates the Administrator Role, and parents it to the workspace root. Hub and ACP use the same creation contract, so opening and immediately closing a blank conversation cannot grow the registry or create a parallel root.
+Each Session has exactly one Owner. Ownership cannot form a cycle, and a child may only inherit or narrow its Owner's workspace, cwd/GitChange root, Task/Workflow, and Fleet resource boundaries. A channel binding is a routing alias, not a second Owner. Owner does not encode tool capability: after creation admission succeeds, the child resolves its own Role and tool policy independently and does not inherit the parent's Role ceiling.
 
-The default registry/TUI view is the Active working set. A ready local Session with no role/title, channel binding, managed relation, or active Goal/Repro/Loop/Workflow Loop moves to History after 30 days without activity. Retention runs once before daemon admission and then daily; a compare-and-set guard leaves a concurrently changed Session active. History preserves the original Session ID and transcript and is restored explicitly before it can run again. Workspace aliases affect only canonical grouping; they never merge Session records or transcripts.
+Creation authority is also independent from durable Session state. An Agent Invocation must have the relevant `session` or `role` action in its effective tool policy; authenticated Hub, TUI, ACP, and CLI requests use Workspace-scoped admission; daemon-owned Task, Workflow, Driver, Channel, and Side Thread adapters validate their real Owner. The authorization source is written to the parent Invocation receipt, Hub audit, or scheduler receipt, never to the child Session.
 
-Every archive operation appends a durable `archiveHistory` event and searchable tags. The registry always adds archive source, archive month, original scope/workspace, role state, and relation tags; retention also adds `policy:inactive-unassigned-30d`, `retention-days:30`, and `last-active:YYYY-MM`. Tags survive restore. Operators can search History with `session list includeArchived=true query=...`, exact `tags=[...]`, or `spark daemon sessions list --registry --include-archived --query ... --tags ...`; `session restore` and `spark daemon sessions restore <session-id>` reactivate one identity without copying its transcript.
+Each registered Workspace has exactly one Workspace-owned persistent Administrator Session. Provisioning is idempotent on creation, daemon startup, attach, channel admission, and Hub delegation. Its durable `provisioning | active | failed` state, last error, and retry count remain daemon-owned and are projected into Hub; offline creation stays retryable instead of pretending to be active. Administrator is permanently `open + active`; archive, restore, close, delete, and retention all fail with a stable protected-Session error. Disabling or archiving the Workspace prevents new Invocations but does not mutate its Administrator.
 
-Message-platform Channel sessions are persistent Administrator children of the
-workspace root with Channel authority and state binding. Message-platform
-settings still own their creation policy, technical identity title, binding,
-credentials, and retirement; generic first-turn role classification must
-ignore channel-bound or platform-titled sessions.
+`session create` creates a scoped Session. It requires a supervisor, a `child | sibling` placement selector, an independent name, and a three-state Role binding. Administrator has no supervisor, so it cannot create a sibling. Closed or ephemeral Sessions cannot be mailed, bound, resumed, archived, or restored.
+
+Selecting `+ New session` in the TUI allocates a provisional ID only. The daemon persists the Session on the first operation that needs durable state, uses the default `none` Role binding, and parents it to the Workspace Administrator. Hub and ACP use the same creation contract, so opening and immediately closing a blank conversation cannot grow the registry or create a parallel root.
+
+The default registry/TUI view is the active placement. An eligible open scoped Session with no name, explicit Role binding, channel binding, managed Owner, or active Goal/Repro/Loop/Workflow Loop may move to archived placement after 30 days without activity. Retention runs once before daemon admission and then daily; a compare-and-set guard leaves a concurrently changed Session active. Archive is recoverable placement only. Restore preserves the Session ID and transcript, but never revives scoped descendants that were closed when their parent was archived. Workspace aliases affect only canonical grouping; they never merge Session records or transcripts.
+
+Every archive operation appends a durable `archiveHistory` event and searchable tags. The registry adds archive source/month plus scope, Owner, and Role-binding tags; retention also adds `policy:inactive-unassigned-30d`, `retention-days:30`, and `last-active:YYYY-MM`. Tags survive restore. Operators can search History with `session list includeArchived=true query=...`, exact `tags=[...]`, or `spark daemon sessions list --registry --include-archived --query ... --tags ...`.
+
+Close is irreversible. `open -> closing` rejects new Invocations; daemon-owned reconciliation cancels or settles active Invocations, recursively closes scoped descendants, seals a bounded receipt, applies the Session retention policy, then commits `closed + archived`. `retain` keeps content, `discard_on_close` removes transcript and Invocation payload content, and `audit` retains the protected audit record; Evidence and receipts are never deleted by Session close. Close is idempotent. Archiving a parent also closes scoped descendants before moving the parent; restore does not revive them.
+
+Message-platform settings own channel routing policy, technical identity, credentials, and retirement. Their binding remains an alias on an Administrator-owned scoped Session; it does not change Session ownership.
 
 ## Registry projection
 
-Canonical lifecycle is `open | closing | closed`; the current compatibility
-projection remains `ready | running | archived`. `session list|get` also
-expose:
+`session list|get` expose independent axes:
 
-- `surface: local | channel`, derived from authoritative channel bindings;
-- `activity: idle | running`, projected without changing lifecycle status;
-- adapter IDs, external keys, bindings, and workspace ownership.
+- `lifecycle: open | closing | closed`;
+- `placement: active | archived`;
+- `activity: idle | queued | running`, projected from SQLite Invocations;
+- `lifetime: persistent | scoped | ephemeral`, derived from Owner;
+- `roleBinding`, channel bindings, and the canonical Owner.
+
+The registry stores only strict `SparkSessionState`: lifecycle, placement, Owner, Role binding, resource scope, configuration, and continuity references. It rejects caller-supplied `activity`, `lifetime`, and the retired `authority` field. Daemon RPC constructs `SparkSessionProjection` by deriving lifetime from Owner and activity from the Invocation store; Hub, TUI, ACP, and adapters never decode the raw registry shape. After an Invocation-owned Session closes, the registry replaces it with a non-addressable minimal tombstone containing only identity, Invocation Owner, scope, closed/archived state, timestamps, and close receipts. Effective Role, model, tool policy, authorization source, and input/output references remain in the Invocation receipt.
 
 Every new top-level session belongs to a registered workspace. A session has two roots: immutable `cwd` is the execution root for files, search, Git, Lens, and local Cue; the owning workspace root is the durable root for Task, Artifact, Evidence, Memory, Workflow, Repro, and project `.agents` state. Both roots may be the workspace root, but they are not interchangeable.
 
-`session.create` accepts a workspace-relative cwd, an absolute workspace descendant, or a path inside one of that workspace's attached GitChange worktrees. `cwdArtifactRef` selects a GitChange root explicitly, with relative cwd resolved below it. The daemon canonicalizes with `realpath`, rejects missing/non-directory/root/escaping paths, and persists the normalized absolute cwd plus the matched ref. Clients may call `workspace.resolve-session-cwd` to map an invocation directory to its existing workspace, but `session.create` repeats admission independently. A disappeared cwd fails execution and never falls back to the workspace root. Old records without cwd retain the workspace-root default.
+`session.create` accepts a workspace-relative cwd, an absolute workspace descendant, or a path inside one of that workspace's attached GitChange worktrees. `cwdArtifactRef` selects a GitChange root explicitly, with relative cwd resolved below it. The daemon canonicalizes with `realpath`, rejects missing/non-directory/root/escaping paths, verifies that the child only inherits or narrows the supervisor boundary, and persists the normalized absolute cwd plus the matched ref. Clients may call `workspace.resolve-session-cwd` to map an invocation directory to its existing workspace, but `session.create` repeats admission independently. A disappeared cwd fails execution and never falls back to the workspace root.
 
-TUI, Hub, and ACP all use this contract. Starting TUI/ACP below a workspace or in a registered worktree keeps one owning workspace instead of registering the worktree as another workspace. Side threads, Task execution sessions, and Loop ticks inherit the owner cwd; switching TUI sessions rebinds session ID, cwd, workspace ID, and workspace `.spark` root as one host context. Daemon-global scope remains a read-only legacy shape so old transcripts can be recovered; startup migration maps records whose `cwd` identifies one workspace and archives unmatched records without deleting their transcript pointers. The migration keeps an exact hash-manifested backup, uses a compare-and-set v5 revision plus atomic replacement and write-back validation, and is idempotent after registry v5.
+TUI, Hub, and ACP all use this contract. Starting TUI/ACP below a workspace or in a registered worktree keeps one owning workspace instead of registering the worktree as another workspace. Side Threads, TaskRun Sessions, and Loop-owned DriverGeneration Sessions inherit the Owner boundary; switching TUI Sessions rebinds Session ID, cwd, Workspace ID, and Workspace `.spark` root as one host context. Legacy daemon-global Sessions migrate to non-executable closed audit records.
 
-Fleet workers use the stable `fleet_worker` relation. It records the owner
-Session, Project, Role, lane key, primary GitChange ref, and exact writable ref
-set. Task, TaskRun, attempt, job, and Invocation remain per-request mail and run
-metadata; they are never copied into the stable worker identity. The daemon
-validates both layers before each invocation, so a stale relation, moved
+Registry v6 is a hard cut. Daemon startup preflights the complete v1-v5 registry, writes a backup and recovery journal, migrates through a staged file, validates ownership/cycles/scope, then atomically swaps it. The same admission barrier backs up and migrates structured RoleRefs in daemon SQLite JSON columns, project/user Role model settings, Task project trees, Workflow runs/events, per-Session Repro state, and Evidence metadata/JSON bodies. Evidence keeps the same `evidence:` ref while its body hash and blob path are recomputed. Each store performs its own backup, staged validation or transaction, atomic switch, and journal; successful earlier stores are recognized idempotently after restart, but Spark does not claim a cross-store transaction. SQLite uses a complete `VACUUM INTO` backup. Failure keeps daemon admission closed and reports the recovery location. Runtime accepts only strict Role model settings v2; v1 `roleModels` are converted to v2 `modelTypes` during admission, and conflicting collapsed Model Types fail closed. Migration is idempotent and does not dual-read old fields. Structured `scout/researcher` refs map to `explorer`, and `worker` maps to `executor`; free text, prompts, scripts, and transcripts are not rewritten.
+
+Fleet workers are supervisor-owned scoped Sessions with a stable `fleetWorker`
+execution binding. The binding records the owner Session, Project, Role, lane
+key, primary GitChange ref, and exact writable ref set; it is not a second
+Owner. Task, TaskRun, attempt, job, and Invocation remain per-request mail and
+run metadata; they are never copied into the stable worker identity. The daemon
+validates both layers before each Invocation, so a stale binding, moved
 worktree, changed Task authorization, wrong owner, or reordered/duplicated
 completion cannot widen authority.
 
@@ -141,12 +122,12 @@ invocation.
 
 ## Side threads
 
-A Side Thread is a daemon-owned, read-only child conversation attached to one persistent parent session. The daemon registry, native transcript, and invocation scheduler are the only state owners; TUI and Hub are control/projection adapters.
+A Side Thread is a daemon-owned, read-only scoped child attached to one parent Session. Its `owner.kind=side_thread` records `parentSessionId` and `generation`; `sideThreadMode` records `contextual | tangent`. The daemon registry, native transcript, and Invocation scheduler are the only state owners; TUI and Hub are control/projection adapters.
 
-- A non-side-thread parent has at most one active child. The child has the same scope and working directory as its parent, cannot itself be a parent, and is closed by `SessionSupervisor` before its parent closes.
-- The child relation stores `parentSessionId`, `generation`, and `mode` (`contextual | tangent`). Ordinary registry lists and the Hub session rail hide child records. Its JSONL header is also marked `visibility=internal` / `purpose=side_thread`, so public history, ref lookup, show/tree/fork, export/share, and `--session` fallback surfaces cannot reopen the inherited seed; owning daemon code uses the registry's exact path.
+- A non-side-thread parent has at most one active child. The child has the same scope and working directory as its parent, cannot itself be a parent, and is archived when the parent is archived.
+- The child Owner stores `parentSessionId` and `generation`; its mode is independent configuration. Ordinary registry lists and the Hub session rail hide child records. Its JSONL header is also marked `visibility=internal` / `purpose=side_thread`, so public history, ref lookup, show/tree/fork, export/share, and `--session` fallback surfaces cannot reopen the inherited seed; owning daemon code uses the registry's exact path.
 - `contextual` creation or reset seeds a new native transcript with the parent's stable history through the last completed assistant turn. `tangent` starts with no parent messages. A durable seed-boundary marker separates inherited context from side-thread exchanges: inherited messages never appear in the child snapshot and are never included in a handoff.
-- A reset first closes the current child incarnation through `SessionSupervisor`, sealing its terminal-result or fallback receipt before content removal. It then creates a fresh, uniquely named transcript, increments both relation `generation` and Session `incarnation` under the same stable Session ID, and preserves the selected mode. Existing receipt history remains queryable; no child Session or discarded transcript is restored. The registry's `sessionPath` is passed explicitly to the headless executor; execution never guesses between same-id generation files by recency. Model and thinking overrides are child-only configuration; clearing an override returns to the parent's effective setting.
+- A reset first closes the current child incarnation through `SessionSupervisor`, sealing its terminal-result or fallback receipt before content removal. It then creates a fresh, uniquely named transcript, increments both Owner `generation` and Session `incarnation` under the same stable Session ID, and preserves the selected mode. Existing receipt history remains queryable; no child Session or discarded transcript is restored. The registry's `sessionPath` is passed explicitly to the headless executor; execution never guesses between same-id generation files by recency. Model and thinking overrides are child-only configuration; clearing an override returns to the parent's effective setting.
 
 All side-thread mutations use the dedicated daemon controller. Submit, reset, configure, and handoff require the caller's expected generation; submit and handoff also require idempotency keys, and handoff pins the expected head exchange. Mutations for the same parent are serialized. Reusing an idempotency key with different content or acting on a stale generation/head fails closed instead of guessing. Ordinary session submit, lifecycle, binding, model, and thinking mutation paths reject the hidden child.
 

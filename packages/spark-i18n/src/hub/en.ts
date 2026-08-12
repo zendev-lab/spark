@@ -152,7 +152,7 @@ const messages = {
     artifacts: "Artifacts",
     verification: "Verification",
     audit: "Delivery audit",
-    openMainSession: "Open target main session",
+    openAdministratorSession: "Open target Administrator Session",
   },
   console: {
     badge: "Console",
@@ -525,6 +525,7 @@ const messages = {
       feishuConversation: "Feishu chat",
     },
     sessionTypes: {
+      administrator: "Administrator",
       workspace: "Workspace chats",
       private: "Direct chats",
       group: "Group chats",
@@ -576,6 +577,7 @@ const messages = {
     archiveBody:
       "Archived conversations leave the list while existing messages and reports stay in the record.",
     archiveSubmit: "Archive conversation",
+    closeSubmit: "Close conversation",
     showArchived: "Show archived",
     hideArchived: "Hide archived",
     archivedLabel: "archived",
@@ -615,6 +617,8 @@ const messages = {
     archiveChannelBound:
       "Message-platform conversations remain managed by their channel and cannot be archived here.",
     archiveFailed: "Could not archive the conversation.",
+    closeSessionRequired: "Select a conversation to close.",
+    closeFailed: "Could not close the conversation.",
     selectModelRequired: "Select a conversation and model.",
     effectiveModelMissing: "The Spark daemon did not return an effective conversation model.",
     selectThinkingRequired: "Select a conversation and thinking level.",
@@ -685,7 +689,7 @@ const messages = {
       tokenBreakdown: "Token breakdown",
       executionKinds: "Execution types",
       models: "Models",
-      sessionPersistence: "Session persistence",
+      executionPersistence: "Execution storage",
       anonymousSessions: "Temporary sessions",
       persistentSessions: "Persistent sessions",
       responses: "responses",

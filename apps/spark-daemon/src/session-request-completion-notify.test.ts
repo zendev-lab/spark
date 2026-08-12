@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
+import type { SparkSessionProjection } from "@zendev-lab/spark-protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -15,6 +15,7 @@ import {
 import { SessionRequestCompletionDeliveryStore } from "./store/session-request-completion-deliveries.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { migrateSparkDaemonDatabase } from "./store/schema.ts";
+import { workspaceSessionRecord } from "../../../test/support/session-fixtures.ts";
 
 describe("session request completion notify", () => {
   it("submits one durable sender continuation for wait=accepted request completions", async () => {
@@ -467,17 +468,14 @@ function createHarness() {
   };
 }
 
-function localSession(sessionId: string, cwd: string): SparkSessionRegistryRecord {
-  return {
+function localSession(sessionId: string, cwd: string): SparkSessionProjection {
+  return workspaceSessionRecord({
     sessionId,
-    scope: { kind: "workspace", workspaceId: "workspace-test" },
     workspaceId: "workspace-test",
     cwd,
-    status: "ready",
-    bindings: [],
     createdAt: "2026-07-20T00:00:00.000Z",
     updatedAt: "2026-07-20T00:00:00.000Z",
-  };
+  });
 }
 
 function requestMailTask(fromSessionId: string, toSessionId: string, notifyOnCompletion: boolean) {

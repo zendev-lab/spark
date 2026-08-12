@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { WebSocketServer } from "ws";
 import { describe, expect, it, vi } from "vitest";
 import {
-  type SparkSessionRegistryRecord,
+  type SparkSessionProjection,
   SPARK_PROTOCOL_VERSION,
   createId,
   runtimeProtocolVersion,
@@ -32,6 +32,10 @@ import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { SessionRequestCompletionDeliveryStore } from "./store/session-request-completion-deliveries.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
+import {
+  createDaemonWorkspaceSession,
+  workspaceSessionRecord,
+} from "../../../test/support/session-fixtures.ts";
 import {
   addWorkspace,
   attachWorkspaceClient,
@@ -715,16 +719,13 @@ describe("Spark daemon handleCommand task.start.request", () => {
       result: { assistantText: "recovered result" },
     });
     deliveries.enqueue(source.invocationId);
-    const sender: SparkSessionRegistryRecord = {
+    const sender = workspaceSessionRecord({
       sessionId: "sender-session-restart",
-      scope: { kind: "workspace", workspaceId: harness.workspace.id },
       workspaceId: harness.workspace.id,
       cwd: harness.workspace.localPath,
-      status: "ready",
-      bindings: [],
       createdAt: "2026-07-29T00:00:00.000Z",
       updatedAt: "2026-07-29T00:00:00.000Z",
-    };
+    });
     const sessionRegistry = createDaemonSessionRegistry(harness.sparkHome, {
       daemonId: "install-test",
       daemonCwd: harness.workspace.localPath,
@@ -749,10 +750,9 @@ describe("Spark daemon handleCommand task.start.request", () => {
       await first;
       expect(store.listPendingForSession(sender.sessionId)).toHaveLength(0);
 
-      await sessionRegistry.create({
+      await createDaemonWorkspaceSession(sessionRegistry, {
         sessionId: sender.sessionId,
-        scope: sender.scope,
-        workspaceId: sender.workspaceId,
+        workspaceId: harness.workspace.id,
         cwd: sender.cwd,
       });
       const recordTurnQueued = vi.spyOn(sessionRegistry, "recordTurnQueued");

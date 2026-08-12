@@ -37,7 +37,7 @@ test("runSparkTask can execute through a daemon-native role executor without spa
       projectRef: project.ref,
       title: "Run natively",
       description: "Use the injected executor.",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: {
         objective: "Prove daemon-native executor wiring.",
         contextRefs: [],
@@ -99,7 +99,7 @@ test("runSparkTask can execute through a daemon-native role executor without spa
     assert.equal(run.status, "succeeded");
     assert.equal(run.outcome?.kind, "completed");
     assert.equal(graph.getTask(task.ref).status, "done");
-    assert.deepEqual(seen.slice(0, 2), [builtinRoleRef("worker"), run.ref]);
+    assert.deepEqual(seen.slice(0, 2), [builtinRoleRef("executor"), run.ref]);
     assert.deepEqual(phases, ["implement"]);
     assert.match(seen[2] ?? "", /Use the injected executor/);
     assert.equal(replayed.length, 1);
@@ -115,7 +115,7 @@ test("runSparkTask preserves a structured blocked outcome and its exact reason",
     projectRef: project.ref,
     title: "Blocked natively",
     description: "Report a real blocker.",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     plan: {
       objective: "Preserve a blocked outcome.",
       contextRefs: [],
@@ -172,7 +172,7 @@ test("runSparkTask maps structured cancelled outcomes to cancelled task/run stat
     projectRef: project.ref,
     title: "Cancel natively",
     description: "Report cancellation.",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     plan: {
       objective: "Preserve cancellation.",
       contextRefs: [],
@@ -225,7 +225,7 @@ test("runSparkTask fails closed when a custom executor ignores the required outc
     projectRef: project.ref,
     title: "Require outcome",
     description: "A custom executor must not bypass structured completion.",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     plan: {
       objective: "Reject an ambiguous success.",
       contextRefs: [],
@@ -290,7 +290,7 @@ test("daemon-native role events arrive before the role executor settles", async 
 
     const execution = runRoleInstructionOnly(
       new RoleRegistry(),
-      { roleRef: builtinRoleRef("worker"), instruction: "Stream before completing." },
+      { roleRef: builtinRoleRef("executor"), instruction: "Stream before completing." },
       {
         cwd: dir,
         dryRun: false,

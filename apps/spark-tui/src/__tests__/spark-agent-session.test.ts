@@ -1283,6 +1283,7 @@ test("Spark headless role executor supports forked session runs", async () => {
       role: {
         ref: "role:test",
         id: "test",
+        revision: "test-revision",
         systemPrompt: "You are a test role.",
       },
       instruction: {
@@ -1292,10 +1293,9 @@ test("Spark headless role executor supports forked session runs", async () => {
       record: {
         ref: "run:forked",
         roleRef: "role:test",
+        roleRevision: "test-revision",
         instruction: "continue from parent",
         status: "queued",
-        launch: "forked",
-        forkFromSession: "parent-session",
       },
       cwd,
       timeoutMs: 1_000,
@@ -1304,8 +1304,8 @@ test("Spark headless role executor supports forked session runs", async () => {
     });
 
     assert.equal(result.record.status, "succeeded");
-    assert.equal(result.record.launch, "forked");
-    assert.equal(result.record.forkFromSession, "parent-session");
+    assert.equal("launch" in result.record, false);
+    assert.equal("forkFromSession" in result.record, false);
     assert.equal(roleApprovalMethod, "auto");
     assert.equal(result.stdout, "count:3");
 
@@ -1344,6 +1344,7 @@ test("Spark headless role executor forwards live events through onEvent", async 
       role: {
         ref: "role:test",
         id: "test",
+        revision: "test-revision",
         systemPrompt: "You are a streaming test role.",
       },
       instruction: {
@@ -1353,6 +1354,7 @@ test("Spark headless role executor forwards live events through onEvent", async 
       record: {
         ref: "run:events",
         roleRef: "role:test",
+        roleRevision: "test-revision",
         instruction: "emit events",
         status: "queued",
       },
@@ -1400,6 +1402,7 @@ test("Spark headless role executor routes input control into a follow-up turn", 
       role: {
         ref: "role:test",
         id: "test",
+        revision: "test-revision",
         systemPrompt: "You are a role with follow-up input.",
       },
       instruction: {
@@ -1409,6 +1412,7 @@ test("Spark headless role executor routes input control into a follow-up turn", 
       record: {
         ref: "run:input-control",
         roleRef: "role:test",
+        roleRevision: "test-revision",
         instruction: "start work",
         status: "queued",
       },
@@ -1439,7 +1443,7 @@ test("Spark headless role executor routes input control into a follow-up turn", 
   }
 });
 
-test("daemon native reviewer noSession does not persist session file", async () => {
+test("headless adapter persists a transcript until Supervisor retention closes it", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-headless-role-anon-"));
   try {
     const cwd = join(dir, "repo");
@@ -1453,36 +1457,36 @@ test("daemon native reviewer noSession does not persist session file", async () 
     const before = await listSessionFileNames(services.sessionStore.sessionDir);
 
     const result = await executeRole({
-      role: { ref: "role:builtin-reviewer", id: "reviewer", systemPrompt: "You are a reviewer." },
+      role: {
+        ref: "role:builtin-reviewer",
+        id: "reviewer",
+        revision: "test-revision",
+        systemPrompt: "You are a reviewer.",
+      },
       instruction: { roleRef: "role:builtin-reviewer", instruction: "review anonymously" },
       record: {
         ref: "run:anonymous-reviewer",
         roleRef: "role:builtin-reviewer",
+        roleRevision: "test-revision",
         instruction: "review anonymously",
         status: "queued",
-        noSession: true,
       },
       cwd,
       timeoutMs: 1_000,
-      noSession: true,
     });
 
     const after = await listSessionFileNames(services.sessionStore.sessionDir);
-    assert.deepEqual(after, before);
+    assert.equal(after.length, before.length + 1);
     assert.equal(result.record.status, "succeeded");
-    assert.equal(result.record.noSession, true);
-    assert.equal(result.record.sessionPersistence, "anonymous");
-    assert.equal(result.record.sessionDir, undefined);
-    assert.equal(
-      await services.sessionStore.findById("spark-daemon-run:anonymous-reviewer"),
-      undefined,
-    );
+    assert.equal("sessionLifetime" in result.record, false);
+    assert.equal("sessionDir" in result.record, false);
+    assert.ok(await services.sessionStore.findById("spark-daemon-run:anonymous-reviewer"));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("persistent native role run writes workspace session file", async () => {
+test("headless Role adapter does not leak its transcript path into the receipt", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-headless-role-persistent-"));
   try {
     const cwd = join(dir, "repo");
@@ -1494,11 +1498,17 @@ test("persistent native role run writes workspace session file", async () => {
     });
 
     const result = await executeRole({
-      role: { ref: "role:builtin-worker", id: "worker", systemPrompt: "You are a worker." },
-      instruction: { roleRef: "role:builtin-worker", instruction: "persist role session" },
+      role: {
+        ref: "role:builtin-executor",
+        id: "worker",
+        revision: "test-revision",
+        systemPrompt: "You are a worker.",
+      },
+      instruction: { roleRef: "role:builtin-executor", instruction: "persist role session" },
       record: {
         ref: "run:persistent-worker",
-        roleRef: "role:builtin-worker",
+        roleRef: "role:builtin-executor",
+        roleRevision: "test-revision",
         instruction: "persist role session",
         status: "queued",
       },
@@ -1509,8 +1519,8 @@ test("persistent native role run writes workspace session file", async () => {
     const services = await makeFakeServices({ cwd, sparkHome });
     const persisted = await services.sessionStore.findById("spark-daemon-run:persistent-worker");
     assert.equal(result.record.status, "succeeded");
-    assert.equal(result.record.sessionPersistence, "persistent");
-    assert.equal(result.record.sessionDir, services.sessionStore.sessionDir);
+    assert.equal("sessionLifetime" in result.record, false);
+    assert.equal("sessionDir" in result.record, false);
     assert.equal(persisted?.header.cwd, cwd);
     assert.equal(persisted?.entries.filter((entry) => entry.type === "message").length, 2);
   } finally {
@@ -1518,7 +1528,7 @@ test("persistent native role run writes workspace session file", async () => {
   }
 });
 
-test("anonymous role run is excluded from workspace session selector", async () => {
+test("headless adapter does not infer Session visibility from the Role id", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-headless-role-selector-"));
   try {
     const cwd = join(dir, "repo");
@@ -1530,25 +1540,35 @@ test("anonymous role run is excluded from workspace session selector", async () 
     });
 
     await executeRole({
-      role: { ref: "role:builtin-reviewer", id: "reviewer", systemPrompt: "You are a reviewer." },
+      role: {
+        ref: "role:builtin-reviewer",
+        id: "reviewer",
+        revision: "test-revision",
+        systemPrompt: "You are a reviewer.",
+      },
       instruction: { roleRef: "role:builtin-reviewer", instruction: "anonymous selector" },
       record: {
         ref: "run:selector-anonymous",
         roleRef: "role:builtin-reviewer",
+        roleRevision: "test-revision",
         instruction: "anonymous selector",
         status: "queued",
-        noSession: true,
       },
       cwd,
       timeoutMs: 1_000,
-      noSession: true,
     });
     await executeRole({
-      role: { ref: "role:builtin-worker", id: "worker", systemPrompt: "You are a worker." },
-      instruction: { roleRef: "role:builtin-worker", instruction: "persistent selector" },
+      role: {
+        ref: "role:builtin-executor",
+        id: "worker",
+        revision: "test-revision",
+        systemPrompt: "You are a worker.",
+      },
+      instruction: { roleRef: "role:builtin-executor", instruction: "persistent selector" },
       record: {
         ref: "run:selector-persistent",
-        roleRef: "role:builtin-worker",
+        roleRef: "role:builtin-executor",
+        roleRevision: "test-revision",
         instruction: "persistent selector",
         status: "queued",
       },
@@ -1558,14 +1578,16 @@ test("anonymous role run is excluded from workspace session selector", async () 
 
     const services = await makeFakeServices({ cwd, sparkHome });
     const selectorIds = (await services.sessionStore.list()).map((session) => session.id);
-    assert.deepEqual(selectorIds, ["spark-daemon-run:selector-persistent"]);
-    assert.equal(selectorIds.includes("spark-daemon-run:selector-anonymous"), false);
+    assert.deepEqual(selectorIds, [
+      "spark-daemon-run:selector-persistent",
+      "spark-daemon-run:selector-anonymous",
+    ]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("anonymous role run artifact records sessionPersistence", async () => {
+test("ephemeral role run artifact records its lifetime", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-headless-role-artifact-"));
   try {
     const cwd = join(dir, "repo");
@@ -1577,25 +1599,28 @@ test("anonymous role run artifact records sessionPersistence", async () => {
     });
 
     const result = await executeRole({
-      role: { ref: "role:builtin-reviewer", id: "reviewer", systemPrompt: "You are a reviewer." },
+      role: {
+        ref: "role:builtin-reviewer",
+        id: "reviewer",
+        revision: "test-revision",
+        systemPrompt: "You are a reviewer.",
+      },
       instruction: { roleRef: "role:builtin-reviewer", instruction: "record persistence" },
       record: {
         ref: "run:artifact-anonymous",
         roleRef: "role:builtin-reviewer",
+        roleRevision: "test-revision",
         instruction: "record persistence",
         status: "queued",
-        noSession: true,
       },
       cwd,
       timeoutMs: 1_000,
-      noSession: true,
     });
 
     assert.equal(result.record.status, "succeeded");
-    assert.equal(result.record.sessionPersistence, "anonymous");
-    assert.equal(result.record.noSession, true);
+    assert.equal("sessionLifetime" in result.record, false);
     assert.equal("sessionPath" in result.record, false);
-    assert.equal(result.record.sessionDir, undefined);
+    assert.equal("sessionDir" in result.record, false);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

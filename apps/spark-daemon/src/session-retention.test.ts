@@ -17,20 +17,30 @@ afterEach(async () => {
 describe("inactive Session retention", () => {
   it("archives only inactive unassigned Sessions and makes policy tags searchable", async () => {
     const registry = await tempRegistry();
+    const administrator = await registry.ensureWorkspaceAdministrator("ws_history");
     const stale = await registry.create({
       scope: { kind: "workspace", workspaceId: "ws_history" },
+      supervisorSessionId: administrator.sessionId,
+      placement: "child",
+      roleBinding: { kind: "none" },
       sessionId: "sess_stale",
       sessionPath: "/tmp/sess_stale.jsonl",
       now: new Date("2026-07-01T00:00:00.000Z") as never,
     } as never);
     await registry.create({
       scope: { kind: "workspace", workspaceId: "ws_history" },
+      supervisorSessionId: administrator.sessionId,
+      placement: "child",
       sessionId: "sess_role_owner",
-      role: "Quality Verification",
+      name: "Quality Verification",
+      roleBinding: { kind: "explicit", roleRef: "role:builtin-reviewer" },
       now: new Date("2026-07-01T00:00:00.000Z") as never,
     } as never);
     await registry.create({
       scope: { kind: "workspace", workspaceId: "ws_history" },
+      supervisorSessionId: administrator.sessionId,
+      placement: "child",
+      roleBinding: { kind: "none" },
       sessionId: "sess_recent",
       now: new Date("2026-08-20T00:00:00.000Z") as never,
     } as never);
@@ -42,13 +52,13 @@ describe("inactive Session retention", () => {
       now: new Date("2026-08-31T00:00:00.000Z"),
     });
 
-    expect(result).toMatchObject({ examined: 3, eligible: 1, archived: [stale.sessionId] });
+    expect(result).toMatchObject({ examined: 4, eligible: 1, archived: [stale.sessionId] });
     await expect(
       registry.list({ includeArchived: true, tags: ["policy:inactive-unassigned-30d"] }),
     ).resolves.toEqual([
       expect.objectContaining({
         sessionId: "sess_stale",
-        status: "archived",
+        placement: "archived",
         tags: expect.arrayContaining([
           "archive-source:retention",
           "policy:inactive-unassigned-30d",
@@ -56,15 +66,19 @@ describe("inactive Session retention", () => {
         ]),
       }),
     ]);
-    await expect(registry.get("sess_role_owner")).resolves.toMatchObject({ status: "ready" });
-    await expect(registry.get("sess_recent")).resolves.toMatchObject({ status: "ready" });
+    await expect(registry.get("sess_role_owner")).resolves.toMatchObject({ placement: "active" });
+    await expect(registry.get("sess_recent")).resolves.toMatchObject({ placement: "active" });
   });
 
   it("does not archive a Goal/Repro owner while a daemon Loop remains active", async () => {
     const registry = await tempRegistry();
+    const administrator = await registry.ensureWorkspaceAdministrator("ws_driver");
     await registry.create({
       scope: { kind: "workspace", workspaceId: "ws_driver" },
       sessionId: "sess_loop_owner",
+      supervisorSessionId: administrator.sessionId,
+      placement: "child",
+      roleBinding: { kind: "none" },
       now: new Date("2026-01-01T00:00:00.000Z") as never,
     } as never);
 
@@ -83,12 +97,16 @@ describe("inactive Session retention", () => {
       archived: [],
       skippedActiveLoop: ["sess_loop_owner"],
     });
-    await expect(registry.get("sess_loop_owner")).resolves.toMatchObject({ status: "ready" });
+    await expect(registry.get("sess_loop_owner")).resolves.toMatchObject({ placement: "active" });
   });
   it("does not archive a Session with queued/running invocation truth", async () => {
     const registry = await tempRegistry();
+    const administrator = await registry.ensureWorkspaceAdministrator("ws_invocation");
     await registry.create({
       scope: { kind: "workspace", workspaceId: "ws_invocation" },
+      supervisorSessionId: administrator.sessionId,
+      placement: "child",
+      roleBinding: { kind: "none" },
       sessionId: "sess_invocation_owner",
       now: new Date("2026-01-01T00:00:00.000Z") as never,
     } as never);
@@ -99,7 +117,14 @@ describe("inactive Session retention", () => {
       invocationStore: {
         sessionActivities: () =>
           new Map([
-            ["sess_invocation_owner", { active: true, updatedAt: "2026-01-01T00:00:00.000Z" }],
+            [
+              "sess_invocation_owner",
+              {
+                active: true,
+                activity: "running",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              },
+            ],
           ]),
       },
       now: new Date("2026-08-31T00:00:00.000Z"),
@@ -110,7 +135,9 @@ describe("inactive Session retention", () => {
       archived: [],
       skippedActiveInvocation: ["sess_invocation_owner"],
     });
-    await expect(registry.get("sess_invocation_owner")).resolves.toMatchObject({ status: "ready" });
+    await expect(registry.get("sess_invocation_owner")).resolves.toMatchObject({
+      placement: "active",
+    });
   });
 });
 

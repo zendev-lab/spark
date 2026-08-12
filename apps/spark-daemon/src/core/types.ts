@@ -123,10 +123,6 @@ export interface SparkDaemonSessionRunTask {
   /** Optional presentation owner for internal child Session events. */
   presentationSessionId?: string;
   prompt: string;
-  /** Supervisor-frozen Role prompt for one owned child Session. */
-  roleSystemPrompt?: string;
-  /** Supervisor-frozen tool boundary for one owned child Session. */
-  roleAllowedTools?: string[];
   /** Compatibility RoleRun projection identity; lifecycle remains Session-owned. */
   roleRunRef?: string;
   requireStructuredOutcome?: boolean;
@@ -259,8 +255,6 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
     hiddenExecution: typeof task.hiddenExecution === "boolean" ? task.hiddenExecution : undefined,
     presentationSessionId: nonEmptyString(task.presentationSessionId),
     prompt: task.prompt,
-    roleSystemPrompt: nonEmptyString(task.roleSystemPrompt),
-    roleAllowedTools: optionalStringList(task.roleAllowedTools, "roleAllowedTools"),
     roleRunRef: nonEmptyString(task.roleRunRef),
     requireStructuredOutcome:
       typeof task.requireStructuredOutcome === "boolean"

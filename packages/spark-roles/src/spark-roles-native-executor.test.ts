@@ -18,17 +18,19 @@ import {
 function fakeRequest() {
   return {
     role: {
-      ref: "role:builtin-worker" as const,
+      ref: "role:builtin-executor" as const,
       id: "worker",
+      revision: "test-revision",
       systemPrompt: "work only",
     },
     instruction: {
-      roleRef: "role:builtin-worker" as const,
+      roleRef: "role:builtin-executor" as const,
       instruction: "do work",
     },
     record: {
       ref: "run:test" as const,
-      roleRef: "role:builtin-worker" as const,
+      roleRef: "role:builtin-executor" as const,
+      roleRevision: "test-revision",
       instruction: "do work",
       status: "queued" as const,
     },

@@ -7,12 +7,13 @@ import {
   sessionLoopStorePathV2,
   sessionStateStorePath,
 } from "@zendev-lab/spark-loop";
-import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
+import type { SparkSessionProjection } from "@zendev-lab/spark-protocol";
 import { describe, expect, it } from "vitest";
 import { migrateLegacyLoopState } from "./loop-state-migration.ts";
 import { SparkLoopStore } from "./loops.ts";
 import { SparkInvocationStore } from "./invocations.ts";
 import { migrateSparkDaemonDatabase } from "./schema.ts";
+import { workspaceSessionRecord } from "../../../../test/support/session-fixtures.ts";
 
 describe("legacy autonomous loop migration", () => {
   it("DRV-STARTUP-004 imports legacy cadence once, strips frontend runtime fields, and repairs a missing wake", async () => {
@@ -102,17 +103,14 @@ describe("legacy autonomous loop migration", () => {
   });
 });
 
-function localSession(sessionId: string, cwd: string): SparkSessionRegistryRecord {
-  return {
+function localSession(sessionId: string, cwd: string): SparkSessionProjection {
+  return workspaceSessionRecord({
     sessionId,
-    status: "ready",
     cwd,
-    scope: { kind: "workspace", workspaceId: "workspace-one" },
     workspaceId: "workspace-one",
-    bindings: [],
     createdAt: "2026-07-20T00:00:00.000Z",
     updatedAt: "2026-07-20T00:00:00.000Z",
-  };
+  });
 }
 
 function writeJson(path: string, value: unknown): void {
