@@ -46,6 +46,7 @@ export interface CreateSparkNativeTuiDirectPtyHarnessOptions {
   readonly columns?: number;
   readonly rows?: number;
   readonly terminationTimeoutMs?: number;
+  readonly scenario?: "navigation" | "queue";
   /** Test seam for proving timeout escalation; the fixture still exits on SIGKILL. */
   readonly ignoreHangup?: boolean;
 }
@@ -73,6 +74,7 @@ export async function createSparkNativeTuiDirectPtyHarness(
         NO_COLOR: "1",
         SPARK_HOME: resolve(scratchRoot, "spark-home"),
         SPARK_TUI_DIRECT_PTY_REPORT: reportPath,
+        ...(options.scenario ? { SPARK_TUI_DIRECT_PTY_SCENARIO: options.scenario } : {}),
         ...(options.ignoreHangup ? { SPARK_TUI_DIRECT_PTY_IGNORE_SIGHUP: "1" } : {}),
         TERM: "xterm-256color",
         TERM_PROGRAM: "spark-direct-pty-test",

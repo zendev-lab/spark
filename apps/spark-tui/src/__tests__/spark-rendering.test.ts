@@ -307,6 +307,153 @@ test("SparkNativeSession merges pending and completed tool previews by toolCallI
   assert.match(stripAnsi(app.render(80).join("\n")), /✓ tool:read \[succeeded\] — read ok/);
 });
 
+test("SparkNativeSession updates assistant tool-call rows in place when results arrive", () => {
+  const session = new SparkNativeSession();
+  const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
+  session.addMessageView({
+    version: SPARK_PROTOCOL_VERSION,
+    id: "assistant:tool-batch",
+    role: "assistant",
+    text: "",
+    status: "streaming",
+    parts: [
+      {
+        id: "assistant:tool-batch:find",
+        type: "tool-call",
+        toolCallId: "find-1",
+        toolName: "find",
+        status: "pending",
+        summary: "path=/workspace pattern=*",
+        metadata: {},
+      },
+      {
+        id: "assistant:tool-batch:grep",
+        type: "tool-call",
+        toolCallId: "grep-1",
+        toolName: "grep",
+        status: "pending",
+        summary: "path=/workspace pattern=T",
+        metadata: {},
+      },
+    ],
+    metadata: {},
+  });
+
+  let rendered = stripAnsi(app.render(120).join("\n"));
+  assert.equal(rendered.match(/tool:find/gu)?.length, 1);
+  assert.equal(rendered.match(/tool:grep/gu)?.length, 1);
+  assert.match(rendered, /tool:find \[pending\]/u);
+
+  for (const [toolCallId, toolName, summary] of [
+    ["find-1", "find", "found config.py"],
+    ["grep-1", "grep", "sft_config.py:19"],
+  ] as const) {
+    session.addMessageView({
+      version: SPARK_PROTOCOL_VERSION,
+      id: `tool-call:${toolCallId}`,
+      role: "tool",
+      text: summary,
+      status: "done",
+      toolCallId,
+      toolName,
+      parts: [
+        {
+          id: `tool-call:${toolCallId}:part:0`,
+          type: "tool-result",
+          toolCallId,
+          toolName,
+          status: "complete",
+          summary,
+          metadata: {},
+        },
+      ],
+      metadata: {},
+    });
+  }
+
+  rendered = stripAnsi(app.render(120).join("\n"));
+  assert.equal(rendered.match(/tool:find/gu)?.length, 1);
+  assert.equal(rendered.match(/tool:grep/gu)?.length, 1);
+  assert.doesNotMatch(rendered, /\[pending\]/u);
+  assert.match(rendered, /✓ tool:find \[succeeded\] — found config\.py/u);
+  assert.match(rendered, /✓ tool:grep \[succeeded\] — sft_config\.py:19/u);
+  assert.equal(session.messages.filter((message) => message.role === "tool").length, 0);
+});
+
+test("SparkNativeSession coalesces out-of-order tool results without downgrading terminal state", () => {
+  const session = new SparkNativeSession();
+  const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
+
+  session.addMessageView({
+    version: SPARK_PROTOCOL_VERSION,
+    id: "tool-result:late-call",
+    role: "tool",
+    text: "permission denied",
+    status: "error",
+    toolCallId: "late-call",
+    toolName: "write",
+    parts: [
+      {
+        id: "tool-result:late-call:part:0",
+        type: "tool-result",
+        toolCallId: "late-call",
+        toolName: "write",
+        status: "failed",
+        summary: "permission denied",
+        metadata: {},
+      },
+    ],
+    metadata: {},
+  });
+  session.addMessageView({
+    version: SPARK_PROTOCOL_VERSION,
+    id: "assistant:late-call",
+    role: "assistant",
+    text: "",
+    status: "streaming",
+    parts: [
+      {
+        id: "assistant:late-call:part:0",
+        type: "tool-call",
+        toolCallId: "late-call",
+        toolName: "write",
+        status: "pending",
+        summary: "path=/workspace/config.ts",
+        metadata: {},
+      },
+    ],
+    metadata: {},
+  });
+
+  // A later assistant refresh can still carry stale pending state. It must not
+  // recreate a second row or overwrite the already observed terminal result.
+  session.addMessageView({
+    version: SPARK_PROTOCOL_VERSION,
+    id: "assistant:late-call",
+    role: "assistant",
+    text: "",
+    status: "streaming",
+    parts: [
+      {
+        id: "assistant:late-call:part:0",
+        type: "tool-call",
+        toolCallId: "late-call",
+        toolName: "write",
+        status: "pending",
+        summary: "path=/workspace/config.ts",
+        metadata: {},
+      },
+    ],
+    metadata: {},
+  });
+
+  const rendered = stripAnsi(app.render(120).join("\n"));
+  assert.equal(rendered.match(/tool:write/gu)?.length, 1);
+  assert.match(rendered, /✗ tool:write \[failed\] — permission denied/u);
+  assert.doesNotMatch(rendered, /\[pending\]/u);
+  assert.equal(session.messages.filter((message) => message.role === "tool").length, 0);
+});
+
 test("SparkNativeTuiApp renders session, model, thinking, run, and queue state clearly", async () => {
   const session = new SparkNativeSession(async () => await new Promise<string>(() => undefined));
   const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined, {

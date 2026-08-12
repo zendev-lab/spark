@@ -79,7 +79,7 @@ export async function runNativeSparkTui(input?: string | RunNativeSparkTuiOption
     tui.requestRender(true);
 
     if (options.initialMessage) {
-      queueMicrotask(() => void session.submit(options.initialMessage!));
+      queueMicrotask(() => void app.submitInput(options.initialMessage!));
     }
 
     await done;

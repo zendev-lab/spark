@@ -45,6 +45,23 @@ saved user setting continues to take precedence.
 `/status` prints the complete daemon, current session, active work, usage, and
 turn-queue summary directly. It does not open an action picker.
 
+Bare slash commands enter their final TUI destination directly instead of
+opening an intermediate action bar. For example, `/model` opens the model
+selector, `/settings` shows the settings overview, `/queue` inspects the live
+queue, and bare `/goal`, `/loop`, or `/repro` shows that lifecycle's status.
+`/thinking` opens the final thinking-level selector directly.
+
+The editor's Up and Down keys recall durable `user` prompts from the attached
+session, including prompts that predate the current TUI process. Local slash
+commands are not added to that prompt history. PageUp and PageDown scroll the
+visible transcript; Ctrl+PageUp and Ctrl+PageDown remain available for moving
+through a multiline editor draft. Submitting new input returns the transcript
+to its latest line.
+
+Esc still cancels active work first. When the session is idle and the editor is
+empty, press Esc twice within 500 ms to leave the conversation and open the
+unified session hierarchy.
+
 ## Inspect the current session
 
 Use `/inspect` or Ctrl+K to open the local session inspector:
