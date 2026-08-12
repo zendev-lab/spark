@@ -41,7 +41,7 @@ supported packages.
 | `apps/spark-hub` | Browser presentation and control |
 | `apps/spark-docs` | Public bilingual user documentation |
 | `packages/spark-*` | Shared contracts, capabilities, runtimes, clients, and adapters |
-| `architecture/packages.json` | Machine-readable layer, state authority/role, exception, Pi ownership, composition-root, and package-budget inventory |
+| `architecture/packages.json` | Machine-readable layer, state-writer, exception, Pi ownership, composition-root, and package-budget inventory |
 | `docs/specs` | Normative architecture and behavior contracts for implementers |
 | `docs/operations` | Maintainer-only procedures and validation runbooks |
 | `test` | Root integration and cross-package behavior tests |

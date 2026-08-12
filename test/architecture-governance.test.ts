@@ -14,15 +14,6 @@ const inventory = governance.loadArchitectureInventory(rootDir);
 const rootManifest = governance.readRootManifest(rootDir);
 const manifests = governance.readWorkspaceManifests(rootDir, inventory);
 
-interface CrossStateAuthorityEdge {
-  from: string;
-  to: string;
-  fromPath: string;
-  toPath: string;
-  fromStateAuthority: string;
-  toStateAuthority: string;
-}
-
 interface LayerDecision {
   fromLayer: string;
   toLayer: string;
@@ -38,15 +29,15 @@ interface PiViolation {
 }
 
 describe("architecture inventory governance", () => {
-  test("classifies every workspace with one state authority and role", () => {
+  test("classifies every workspace with the existing state-writer field", () => {
     expect(governance.validateArchitectureGovernance(inventory, manifests, rootManifest)).toEqual(
       [],
     );
     expect(Object.keys(inventory.packages)).toHaveLength(41);
     for (const packageInfo of Object.values(inventory.packages)) {
-      expect(packageInfo).toHaveProperty("stateAuthority");
-      expect(packageInfo).toHaveProperty("stateRole");
-      expect(packageInfo).not.toHaveProperty("stateWriter");
+      expect(packageInfo).toHaveProperty("stateWriter");
+      expect(packageInfo).not.toHaveProperty("stateAuthority");
+      expect(packageInfo).not.toHaveProperty("stateRole");
     }
   });
 
@@ -102,8 +93,7 @@ describe("architecture inventory governance", () => {
           layer,
           owner: "fixture",
           stability: "internal",
-          stateAuthority: "none",
-          stateRole: "stateless",
+          stateWriter: "none",
         };
       }
     }
@@ -362,7 +352,6 @@ describe("architecture inventory governance", () => {
 
     expect(validate(report), JSON.stringify(validate.errors)).toBe(true);
     expect(report.inventory.workspaceCount).toBe(41);
-    expect(report.inventory.stateWriterFieldCount).toBe(0);
     expect(report.layerMatrix.missingDecisionCount).toBe(0);
     expect(report.dependencies.edgeCount).toBe(166);
     expect(report.dependencies.registeredExceptions).toHaveLength(6);
@@ -371,29 +360,12 @@ describe("architecture inventory governance", () => {
       ceiling: 6,
       nonGrowth: true,
     });
-    expect(report.dependencies.crossStateAuthorityEdges).toHaveLength(134);
-    expect(
-      report.dependencies.crossStateAuthorityEdges.every(
-        (edge: CrossStateAuthorityEdge) =>
-          typeof edge.from === "string" &&
-          typeof edge.to === "string" &&
-          typeof edge.fromPath === "string" &&
-          typeof edge.toPath === "string" &&
-          typeof edge.fromStateAuthority === "string" &&
-          typeof edge.toStateAuthority === "string" &&
-          edge.fromStateAuthority !== edge.toStateAuthority &&
-          edge.fromPath === inventory.packages[edge.from].path &&
-          edge.toPath === inventory.packages[edge.to].path &&
-          edge.fromStateAuthority === inventory.packages[edge.from].stateAuthority &&
-          edge.toStateAuthority === inventory.packages[edge.to].stateAuthority,
-      ),
-    ).toBe(true);
     expect(report.dependencies.unregisteredViolations).toEqual([]);
     expect(report.dependencies.stronglyConnectedComponents).toEqual([]);
     expect(report.compositionRoots.unexpected).toEqual([]);
     expect(report.piOwnership.violations).toEqual([]);
     expect(Object.keys(report.workspaces)).toHaveLength(41);
-    expect(compactMarkdown).toContain("crossStateAuthorityEdges: 134");
+    expect(report.workspaces["@zendev-lab/spark-daemon"].stateWriter).toBe("daemon");
     expect(compactMarkdown).toContain("exceptionBudget: 6/6");
     expect(digest).toMatch(/^[0-9a-f]{64}$/);
     // Stable digest for the projected health report body.
@@ -404,14 +376,14 @@ describe("architecture inventory governance", () => {
     );
   });
 
-  test("schema rejects the retired stateWriter field and missing state role", () => {
+  test("schema rejects competing state authority and role fields", () => {
     const schema = JSON.parse(
       readFileSync(path.join(rootDir, "architecture/packages.schema.json"), "utf8"),
     );
     const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
     const candidate = structuredClone(inventory);
-    candidate.packages["@zendev-lab/spark-core"].stateWriter = "none";
-    delete candidate.packages["@zendev-lab/spark-core"].stateRole;
+    candidate.packages["@zendev-lab/spark-core"].stateAuthority = "none";
+    candidate.packages["@zendev-lab/spark-core"].stateRole = "stateless";
     expect(validate(candidate)).toBe(false);
   });
 });

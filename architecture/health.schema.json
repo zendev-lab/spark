@@ -22,14 +22,13 @@
     "inventory": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["workspaceCount", "byLayer", "stateWriterFieldCount"],
+      "required": ["workspaceCount", "byLayer"],
       "properties": {
         "workspaceCount": { "type": "integer", "minimum": 1 },
         "byLayer": {
           "type": "object",
           "additionalProperties": { "type": "integer", "minimum": 0 }
-        },
-        "stateWriterFieldCount": { "type": "integer", "minimum": 0 }
+        }
       }
     },
     "layerMatrix": {
@@ -48,7 +47,6 @@
       "required": [
         "edgeCount",
         "crossOwnerEdges",
-        "crossStateAuthorityEdges",
         "registeredExceptions",
         "unregisteredViolations",
         "stronglyConnectedComponents"
@@ -58,10 +56,6 @@
         "crossOwnerEdges": {
           "type": "array",
           "items": { "$ref": "#/$defs/edge" }
-        },
-        "crossStateAuthorityEdges": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/crossStateAuthorityEdge" }
         },
         "registeredExceptions": {
           "type": "array",
@@ -188,19 +182,6 @@
         "to": { "$ref": "#/$defs/packageName" }
       }
     },
-    "crossStateAuthorityEdge": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["from", "to", "fromPath", "toPath", "fromStateAuthority", "toStateAuthority"],
-      "properties": {
-        "from": { "$ref": "#/$defs/packageName" },
-        "to": { "$ref": "#/$defs/packageName" },
-        "fromPath": { "type": "string" },
-        "toPath": { "type": "string" },
-        "fromStateAuthority": { "type": "string" },
-        "toStateAuthority": { "type": "string" }
-      }
-    },
     "violationEdge": {
       "type": "object",
       "additionalProperties": false,
@@ -218,8 +199,7 @@
         "path",
         "layer",
         "owner",
-        "stateAuthority",
-        "stateRole",
+        "stateWriter",
         "directDependencies",
         "directDependencyCount",
         "fanIn",
@@ -232,8 +212,7 @@
         "path": { "type": "string" },
         "layer": { "type": "string" },
         "owner": { "type": "string" },
-        "stateAuthority": { "type": "string" },
-        "stateRole": { "type": "string" },
+        "stateWriter": { "type": "string" },
         "directDependencies": { "$ref": "#/$defs/packageNames" },
         "directDependencyCount": { "type": "integer", "minimum": 0 },
         "fanIn": { "type": "integer", "minimum": 0 },

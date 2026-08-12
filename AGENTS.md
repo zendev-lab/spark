@@ -22,7 +22,7 @@ direction.
 
 ## Sources of truth
 
-- Package layer, owner, stability, state authority/role, dependency exceptions,
+- Package layer, owner, stability, state-writer metadata, dependency exceptions,
   Pi ownership, and package budget:
   [`architecture/packages.json`](./architecture/packages.json).
 - Package creation and dependency direction:

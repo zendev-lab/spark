@@ -40,9 +40,6 @@ if (!validateHealthReport(report)) {
     ),
   );
 }
-if (report.inventory.stateWriterFieldCount !== 0) {
-  failures.push("Architecture inventory still contains stateWriter fields");
-}
 if (report.layerMatrix.missingDecisionCount !== 0) {
   failures.push("Architecture layer matrix has missing decisions");
 }
@@ -89,7 +86,6 @@ console.log(
     exceptionBudgetCurrent: report.temporaryDependencyExceptionBudget.current,
     exceptionBudgetCeiling: report.temporaryDependencyExceptionBudget.ceiling,
     crossOwnerEdges: report.dependencies.crossOwnerEdges.length,
-    crossStateAuthorityEdges: report.dependencies.crossStateAuthorityEdges.length,
     unregisteredViolations: report.dependencies.unregisteredViolations.length,
     stronglyConnectedComponents: report.dependencies.stronglyConnectedComponents.length,
     piViolations: report.piOwnership.violations.length,

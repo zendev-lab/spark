@@ -461,15 +461,6 @@ function validateArchitectureGovernance(inventory, manifests, rootManifest) {
     if (!Object.hasOwn(layerPolicy.tiers, packageInfo.layer)) {
       failures.push(`${packageName} uses unregistered layer ${packageInfo.layer}`);
     }
-    const isStateless = packageInfo.stateRole === "stateless";
-    if ((packageInfo.stateAuthority === "none") !== isStateless) {
-      failures.push(
-        `${packageName} must pair stateAuthority=none exactly with stateRole=stateless`,
-      );
-    }
-    if (Object.hasOwn(packageInfo, "stateWriter")) {
-      failures.push(`${packageName} retains forbidden competing field stateWriter`);
-    }
   }
 
   const exceptionKeys = new Set();
@@ -613,7 +604,6 @@ function generateArchitectureHealthReport(rootDir, inventory, manifests) {
   const registeredExceptions = [];
   const unregisteredViolations = [];
   const crossOwnerEdges = [];
-  const crossStateAuthorityEdges = [];
   const edgeClassifications = {};
 
   for (const [fromPackage, dependencies] of Object.entries(graph)) {
@@ -632,16 +622,6 @@ function generateArchitectureHealthReport(rootDir, inventory, manifests) {
       if (fromInfo.owner !== toInfo.owner) {
         crossOwnerEdges.push(edge);
       }
-      if (fromInfo.stateAuthority !== toInfo.stateAuthority) {
-        crossStateAuthorityEdges.push({
-          from: fromPackage,
-          to: toPackage,
-          fromPath: fromInfo.path,
-          toPath: toInfo.path,
-          fromStateAuthority: fromInfo.stateAuthority,
-          toStateAuthority: toInfo.stateAuthority,
-        });
-      }
     }
   }
 
@@ -653,8 +633,7 @@ function generateArchitectureHealthReport(rootDir, inventory, manifests) {
       path: packageInfo.path,
       layer: packageInfo.layer,
       owner: packageInfo.owner,
-      stateAuthority: packageInfo.stateAuthority,
-      stateRole: packageInfo.stateRole,
+      stateWriter: packageInfo.stateWriter,
       directDependencies,
       directDependencyCount: directDependencies.length,
       fanIn: fanIn[packageName],
@@ -688,9 +667,6 @@ function generateArchitectureHealthReport(rootDir, inventory, manifests) {
       byLayer: Object.fromEntries(
         Object.entries(byLayer).sort(([left], [right]) => left.localeCompare(right)),
       ),
-      stateWriterFieldCount: Object.values(inventory.packages).filter((entry) =>
-        Object.hasOwn(entry, "stateWriter"),
-      ).length,
     },
     layerMatrix: {
       layerCount: Object.keys(inventory.governance.layerPolicy.tiers).length,
@@ -703,9 +679,6 @@ function generateArchitectureHealthReport(rootDir, inventory, manifests) {
         0,
       ),
       crossOwnerEdges: crossOwnerEdges.sort((left, right) =>
-        `${left.from}:${left.to}`.localeCompare(`${right.from}:${right.to}`),
-      ),
-      crossStateAuthorityEdges: crossStateAuthorityEdges.sort((left, right) =>
         `${left.from}:${left.to}`.localeCompare(`${right.from}:${right.to}`),
       ),
       registeredExceptions: registeredExceptions.sort((left, right) =>
@@ -748,12 +721,10 @@ function formatArchitectureHealthMarkdown(report) {
     `- registeredExceptions: ${report.dependencies.registeredExceptions.length}`,
     `- exceptionBudget: ${report.temporaryDependencyExceptionBudget.current}/${report.temporaryDependencyExceptionBudget.ceiling} (nonGrowth=${report.temporaryDependencyExceptionBudget.nonGrowth})`,
     `- crossOwnerEdges: ${report.dependencies.crossOwnerEdges.length}`,
-    `- crossStateAuthorityEdges: ${report.dependencies.crossStateAuthorityEdges.length}`,
     `- unregisteredViolations: ${report.dependencies.unregisteredViolations.length}`,
     `- stronglyConnectedComponents: ${report.dependencies.stronglyConnectedComponents.length}`,
     `- piViolations: ${report.piOwnership.violations.length}`,
     `- unexpectedCompositionRoots: ${report.compositionRoots.unexpected.length}`,
-    `- stateWriterFieldCount: ${report.inventory.stateWriterFieldCount}`,
   ];
   return `${lines.join("\n")}\n`;
 }

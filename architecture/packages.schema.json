@@ -386,7 +386,7 @@
     "package": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["path", "layer", "owner", "stability", "stateAuthority", "stateRole"],
+      "required": ["path", "layer", "owner", "stability", "stateWriter"],
       "properties": {
         "path": {
           "type": "string",
@@ -402,11 +402,8 @@
         "stability": {
           "enum": ["supported", "internal", "experimental", "private", "retired"]
         },
-        "stateAuthority": {
+        "stateWriter": {
           "enum": ["none", "workspace", "user", "host", "daemon", "hub", "external"]
-        },
-        "stateRole": {
-          "enum": ["authority", "owner", "client", "projection", "stateless"]
         },
         "allowedWorkspaceDependencies": {
           "type": "array",

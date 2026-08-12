@@ -5,8 +5,8 @@ adapter/runtime placement. They do not follow file count alone.
 
 The machine-readable source of truth is
 [`../../architecture/packages.json`](../../architecture/packages.json). Every
-workspace declares a `layer`, `owner`, `stability`, `stateAuthority`, and
-`stateRole`. The same inventory owns the layer matrix, exact temporary
+workspace declares a `layer`, `owner`, `stability`, and `stateWriter`. The same
+inventory owns the layer matrix, exact temporary
 exceptions, Pi manifest ownership, package budget, and expected composition
 roots. `pnpm run check:architecture` rejects an unclassified workspace, an
 undeclared production dependency, a stale export, or a governance violation.
@@ -21,8 +21,8 @@ Generic monorepo mechanics are delegated to maintained open-source tools:
 | dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` | [Syncpack](https://github.com/JoshuaKGoldberg/syncpack) |
 | imports from dependencies missing in the owning workspace manifest | Knip strict unlisted-dependency analysis | [Knip](https://knip.dev/features/monorepos-and-workspaces) |
 | cycles and dependency direction | Dependency Cruiser | [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser) |
-| Spark package identity, explicit workspace dependency restrictions, generated layer direction, state authority/role, exact exceptions, Pi ownership, package budget, export targets, frozen compatibility, and workspace test and package mutation discovery | `architecture/packages.json`, `architecture/dependency-governance.cjs`, and the Spark-owned architecture checks | Spark-owned contract |
-| point-in-time direct dependencies, fan-in/out, cross-owner and cross-state-authority edges, exception budget, SCCs, public exports, violations, and composition roots | `architecture/health.schema.json` plus `pnpm run report:architecture` | gitignored local or CI report |
+| Spark package identity, explicit workspace dependency restrictions, generated layer direction, exact exceptions, Pi ownership, package budget, export targets, frozen compatibility, and workspace test and package mutation discovery | `architecture/packages.json`, `architecture/dependency-governance.cjs`, and the Spark-owned architecture checks | Spark-owned contract |
+| point-in-time direct dependencies, fan-in/out, cross-owner edges, exception budget, SCCs, public exports, violations, and composition roots | `architecture/health.schema.json` plus `pnpm run report:architecture` | gitignored local or CI report |
 
 `pnpm run check:architecture` validates the schemas, runs Syncpack and Knip,
 executes the Spark-specific ratchets, and validates a freshly derived health
@@ -220,22 +220,13 @@ changes extension specifiers and user configuration compatibility.
 | `compatibility` | legacy read or wire compatibility inside a current owner | a second implementation package |
 | `experiment` | isolated, non-default spike with an explicit graduation decision | production startup |
 
-## State authority and participation
+## State writers
 
-`stateAuthority` names where canonical writes are accepted: `workspace`,
-`user`, `host`, `daemon`, `hub`, or `external`; `none` means the package is
-stateless. `stateRole` describes how the package participates:
-
-- `authority` is the executable process that serializes an authority's writes;
-- `owner` defines one domain's state vocabulary and write policy;
-- `client` delegates writes to another authority;
-- `projection` is rebuildable from canonical state;
-- `stateless` owns no persistent state.
-
-`stateAuthority: none` is valid exactly with `stateRole: stateless`. The retired
-`stateWriter` field is rejected so a package cannot claim a competing second
-model. Authority and role are separate: for example, a daemon client names the
-daemon authority but participates only as a client.
+`stateWriter` records the package's existing canonical write boundary:
+`workspace`, `user`, `host`, `daemon`, `hub`, or `external`; `none` means the
+package owns no persistent writes. This phase does not introduce a second
+authority or participation model. Domain ownership remains defined by the
+normative owner specifications and enforced owner APIs.
 
 ## Pi ownership and package budget
 

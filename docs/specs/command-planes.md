@@ -59,8 +59,8 @@ session id and only connection-local active-invocation routing is retained.
   `packages/spark-hub-coordination` and `packages/spark-hub-db` own
   cross-workspace coordination facts, but their projections are never execution
   truth for tasks, runs, artifacts, asks, reviews, or invocations. Their
-  inventory `stateAuthority: hub` with `stateRole: authority` records the
-  canonical storage authority, not a second product owner. See
+  inventory `stateWriter: hub` records the canonical storage boundary, not a
+  second product owner. See
   [`architecture/packages.json`](../../architecture/packages.json) for the
   authoritative inventory.
 - Transports and app adapters translate through owner APIs; they do not

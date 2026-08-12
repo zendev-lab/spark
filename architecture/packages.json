@@ -147,8 +147,7 @@
       "layer": "application",
       "owner": "cli",
       "stability": "supported",
-      "stateAuthority": "none",
-      "stateRole": "stateless",
+      "stateWriter": "none",
       "distribution": "public-npm"
     },
     "@zendev-lab/spark-hub": {
@@ -156,8 +155,7 @@
       "layer": "application",
       "owner": "hub",
       "stability": "supported",
-      "stateAuthority": "hub",
-      "stateRole": "authority",
+      "stateWriter": "hub",
       "distribution": "public-npm"
     },
     "@zendev-lab/spark-daemon": {
@@ -165,8 +163,7 @@
       "layer": "application",
       "owner": "daemon",
       "stability": "supported",
-      "stateAuthority": "daemon",
-      "stateRole": "authority",
+      "stateWriter": "daemon",
       "distribution": "public-npm"
     },
     "@zendev-lab/spark-docs": {
@@ -174,8 +171,7 @@
       "layer": "application",
       "owner": "docs",
       "stability": "supported",
-      "stateAuthority": "none",
-      "stateRole": "stateless",
+      "stateWriter": "none",
       "allowedWorkspaceDependencies": [],
       "distribution": "private"
     },
@@ -184,8 +180,7 @@
       "layer": "application",
       "owner": "tui",
       "stability": "supported",
-      "stateAuthority": "host",
-      "stateRole": "authority",
+      "stateWriter": "host",
       "distribution": "public-npm"
     },
     "@zendev-lab/spark-acp": {
@@ -193,184 +188,161 @@
       "layer": "adapter",
       "owner": "acp",
       "stability": "supported",
-      "stateAuthority": "none",
-      "stateRole": "stateless"
+      "stateWriter": "none"
     },
     "@zendev-lab/spark-ai": {
       "path": "packages/spark-ai",
       "layer": "capability",
       "owner": "ai",
       "stability": "supported",
-      "stateAuthority": "user",
-      "stateRole": "owner"
+      "stateWriter": "user"
     },
     "@zendev-lab/spark-artifacts": {
       "path": "packages/spark-artifacts",
       "layer": "capability",
       "owner": "artifacts",
       "stability": "supported",
-      "stateAuthority": "workspace",
-      "stateRole": "owner"
+      "stateWriter": "workspace"
     },
     "@zendev-lab/spark-ask": {
       "path": "packages/spark-ask",
       "layer": "capability",
       "owner": "interaction",
       "stability": "supported",
-      "stateAuthority": "workspace",
-      "stateRole": "owner"
+      "stateWriter": "workspace"
     },
     "@zendev-lab/spark-channels": {
       "path": "packages/spark-channels",
       "layer": "adapter",
       "owner": "channels",
       "stability": "supported",
-      "stateAuthority": "none",
-      "stateRole": "stateless"
+      "stateWriter": "none"
     },
     "@zendev-lab/spark-hub-coordination": {
       "path": "packages/spark-hub-coordination",
       "layer": "private-adapter",
       "owner": "hub",
       "stability": "private",
-      "stateAuthority": "hub",
-      "stateRole": "owner"
+      "stateWriter": "hub"
     },
     "@zendev-lab/spark-hub-db": {
       "path": "packages/spark-hub-db",
       "layer": "private-adapter",
       "owner": "hub",
       "stability": "private",
-      "stateAuthority": "hub",
-      "stateRole": "owner"
+      "stateWriter": "hub"
     },
     "@zendev-lab/spark-ui": {
       "path": "packages/spark-ui",
       "layer": "private-adapter",
       "owner": "presentation",
       "stability": "private",
-      "stateAuthority": "none",
-      "stateRole": "stateless"
+      "stateWriter": "none"
     },
     "@zendev-lab/spark-core": {
       "path": "packages/spark-core",
       "layer": "foundation",
       "owner": "host-contract",
       "stability": "supported",
-      "stateAuthority": "none",
-      "stateRole": "stateless"
+      "stateWriter": "none"
     },
     "@zendev-lab/spark-cue": {
       "path": "packages/spark-cue",
       "layer": "adapter",
       "owner": "execution-adapters",
       "stability": "supported",
-      "stateAuthority": "external",
-      "stateRole": "client"
+      "stateWriter": "external"
     },
     "@zendev-lab/spark-daemon-client": {
       "path": "packages/spark-daemon-client",
       "layer": "client",
       "owner": "daemon",
       "stability": "internal",
-      "stateAuthority": "daemon",
-      "stateRole": "client"
+      "stateWriter": "none"
     },
     "@zendev-lab/spark-extension": {
       "path": "packages/spark-extension",
       "layer": "composition",
       "owner": "extension-host",
       "stability": "supported",
-      "stateAuthority": "host",
-      "stateRole": "client"
+      "stateWriter": "host"
     },
     "@zendev-lab/spark-files": {
       "path": "packages/spark-files",
       "layer": "capability",
       "owner": "files",
       "stability": "supported",
-      "stateAuthority": "workspace",
-      "stateRole": "owner"
+      "stateWriter": "workspace"
     },
     "@zendev-lab/spark-fusion": {
       "path": "packages/spark-fusion",
       "layer": "capability",
       "owner": "fusion",
       "stability": "internal",
-      "stateAuthority": "none",
-      "stateRole": "stateless"
+      "stateWriter": "none"
     },
     "@zendev-lab/spark-graft": {
       "path": "packages/spark-graft",
       "layer": "adapter",
       "owner": "execution-adapters",
       "stability": "internal",
-      "stateAuthority": "external",
-      "stateRole": "client"
+      "stateWriter": "external"
     },
     "@zendev-lab/spark-host": {
       "path": "packages/spark-host",
       "layer": "runtime",
       "owner": "extension-host",
       "stability": "supported",
-      "stateAuthority": "host",
-      "stateRole": "owner"
+      "stateWriter": "host"
     },
     "@zendev-lab/spark-i18n": {
       "path": "packages/spark-i18n",
       "layer": "foundation",
       "owner": "localization",
       "stability": "supported",
-      "stateAuthority": "none",
-      "stateRole": "stateless"
+      "stateWriter": "none"
     },
     "@zendev-lab/spark-loop": {
       "path": "packages/spark-loop",
       "layer": "capability",
       "owner": "goals",
       "stability": "supported",
-      "stateAuthority": "workspace",
-      "stateRole": "owner"
+      "stateWriter": "workspace"
     },
     "@zendev-lab/spark-lens": {
       "path": "packages/spark-lens",
       "layer": "capability",
       "owner": "lens",
       "stability": "internal",
-      "stateAuthority": "none",
-      "stateRole": "stateless"
+      "stateWriter": "none"
     },
     "@zendev-lab/spark-mcp": {
       "path": "packages/spark-mcp",
       "layer": "adapter",
       "owner": "mcp",
       "stability": "supported",
-      "stateAuthority": "none",
-      "stateRole": "stateless"
+      "stateWriter": "none"
     },
     "@zendev-lab/spark-memory": {
       "path": "packages/spark-memory",
       "layer": "capability",
       "owner": "memory",
       "stability": "supported",
-      "stateAuthority": "workspace",
-      "stateRole": "owner"
+      "stateWriter": "workspace"
     },
     "@zendev-lab/spark-modes": {
       "path": "packages/spark-modes",
       "layer": "capability",
       "owner": "modes",
       "stability": "supported",
-      "stateAuthority": "host",
-      "stateRole": "owner"
+      "stateWriter": "host"
     },
     "@zendev-lab/spark-protocol": {
       "path": "packages/spark-protocol",
       "layer": "contract",
       "owner": "protocol",
       "stability": "supported",
-      "stateAuthority": "none",
-      "stateRole": "stateless",
+      "stateWriter": "none",
       "allowedWorkspaceDependencies": []
     },
     "@zendev-lab/spark-repro": {
@@ -378,48 +350,42 @@
       "layer": "capability",
       "owner": "reproduction",
       "stability": "supported",
-      "stateAuthority": "workspace",
-      "stateRole": "owner"
+      "stateWriter": "workspace"
     },
     "@zendev-lab/spark-retry": {
       "path": "packages/spark-retry",
       "layer": "foundation",
       "owner": "runtime-primitives",
       "stability": "supported",
-      "stateAuthority": "none",
-      "stateRole": "stateless"
+      "stateWriter": "none"
     },
     "@zendev-lab/spark-roles": {
       "path": "packages/spark-roles",
       "layer": "capability",
       "owner": "roles",
       "stability": "supported",
-      "stateAuthority": "host",
-      "stateRole": "owner"
+      "stateWriter": "host"
     },
     "@zendev-lab/spark-runtime": {
       "path": "packages/spark-runtime",
       "layer": "runtime",
       "owner": "task-execution",
       "stability": "supported",
-      "stateAuthority": "workspace",
-      "stateRole": "owner"
+      "stateWriter": "workspace"
     },
     "@zendev-lab/spark-session": {
       "path": "packages/spark-session",
       "layer": "capability",
       "owner": "sessions",
       "stability": "supported",
-      "stateAuthority": "daemon",
-      "stateRole": "client"
+      "stateWriter": "daemon"
     },
     "@zendev-lab/spark-system": {
       "path": "packages/spark-system",
       "layer": "foundation",
       "owner": "system-primitives",
       "stability": "supported",
-      "stateAuthority": "none",
-      "stateRole": "stateless",
+      "stateWriter": "none",
       "allowedWorkspaceDependencies": []
     },
     "@zendev-lab/spark-tasks": {
@@ -427,40 +393,35 @@
       "layer": "capability",
       "owner": "tasks",
       "stability": "supported",
-      "stateAuthority": "workspace",
-      "stateRole": "owner"
+      "stateWriter": "workspace"
     },
     "@zendev-lab/spark-text": {
       "path": "packages/spark-text",
       "layer": "foundation",
       "owner": "presentation-primitives",
       "stability": "supported",
-      "stateAuthority": "none",
-      "stateRole": "stateless"
+      "stateWriter": "none"
     },
     "@zendev-lab/spark-tui-adapter": {
       "path": "packages/spark-tui",
       "layer": "adapter",
       "owner": "presentation",
       "stability": "supported",
-      "stateAuthority": "none",
-      "stateRole": "stateless"
+      "stateWriter": "none"
     },
     "@zendev-lab/spark-turn": {
       "path": "packages/spark-turn",
       "layer": "runtime",
       "owner": "turn-runtime",
       "stability": "supported",
-      "stateAuthority": "none",
-      "stateRole": "stateless"
+      "stateWriter": "none"
     },
     "@zendev-lab/spark-update": {
       "path": "packages/spark-update",
       "layer": "foundation",
       "owner": "deployment",
       "stability": "supported",
-      "stateAuthority": "external",
-      "stateRole": "client",
+      "stateWriter": "external",
       "allowedWorkspaceDependencies": ["@zendev-lab/spark-protocol", "@zendev-lab/spark-system"]
     },
     "@zendev-lab/spark-web": {
@@ -468,16 +429,14 @@
       "layer": "capability",
       "owner": "web",
       "stability": "supported",
-      "stateAuthority": "user",
-      "stateRole": "owner"
+      "stateWriter": "user"
     },
     "@zendev-lab/spark-workflows": {
       "path": "packages/spark-workflows",
       "layer": "capability",
       "owner": "workflows",
       "stability": "supported",
-      "stateAuthority": "workspace",
-      "stateRole": "owner"
+      "stateWriter": "workspace"
     }
   }
 }

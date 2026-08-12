@@ -8,7 +8,7 @@ constraints.
 
 The machine-readable source of truth is
 [`architecture/packages.json`](../architecture/packages.json). Every workspace
-must retain an accurate layer, owner, stability, stateAuthority/stateRole
+must retain an accurate layer, owner, stability, state-writer
 classification, and declared dependency set.
 
 Create a package only when it establishes a hard boundary such as:
