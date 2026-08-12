@@ -5,6 +5,7 @@ import {
   createId,
   mergeSparkConversationToolPart,
   sparkConversationVisibleText,
+  type SparkConversationProjection,
   type SparkConversationToolProjectionPart,
   type SparkMessageView,
   type SparkSessionPendingTurn,
@@ -296,13 +297,18 @@ export class SparkNativeSession {
     this.emitChange();
   }
 
-  private upsertMessage(native: SparkNativeMessage): void {
-    const index = this.findMessageViewIndex(native);
+  private upsertMessage(
+    native: SparkNativeMessage,
+    messages: SparkNativeMessage[] = this.messages,
+  ): void {
+    if (this.mergeNativeToolMessageIntoConversation(native, messages)) return;
+    const index = this.findMessageViewIndex(native, messages);
     if (index >= 0) {
-      this.messages[index] = this.normalizeMessage(native, this.messages[index]);
-      return;
+      messages[index] = this.normalizeMessage(native, messages[index]);
+    } else {
+      messages.push(this.normalizeMessage(native));
     }
-    this.messages.push(this.normalizeMessage(native));
+    this.coalesceStandaloneToolMessages(messages);
   }
 
   private findMessageViewIndex(
@@ -358,16 +364,11 @@ export class SparkNativeSession {
   applySessionView(view: SparkSessionView): void {
     const messages: SparkNativeMessage[] = [];
     for (const projected of view.messages.flatMap(messageViewToNativeMessages)) {
-      const index = this.findMessageViewIndex(projected, messages);
-      if (index >= 0) messages[index] = this.normalizeMessage(projected, messages[index]);
-      else messages.push(this.normalizeMessage(projected));
+      this.upsertMessage(projected, messages);
     }
     for (const tool of view.tools) {
       if (this.mergeToolViewIntoConversation(tool, messages)) continue;
-      const projected = toolViewToNativeMessage(tool);
-      const index = this.findMessageViewIndex(projected, messages);
-      if (index >= 0) messages[index] = this.normalizeMessage(projected, messages[index]);
-      else messages.push(this.normalizeMessage(projected));
+      this.upsertMessage(toolViewToNativeMessage(tool), messages);
     }
     this.messages.splice(0, this.messages.length, ...messages);
     if (view.pendingTurns !== undefined) {
@@ -383,16 +384,9 @@ export class SparkNativeSession {
     tool: SparkToolCallView,
     messages: SparkNativeMessage[] = this.messages,
   ): boolean {
-    for (const [messageIndex, message] of messages.entries()) {
-      const conversation = message.conversation;
-      if (!conversation) continue;
-      const partIndex = conversation.parts.findIndex(
-        (part) => part.type === "tool" && part.toolCallId === tool.id,
-      );
-      const previous = conversation.parts[partIndex];
-      if (partIndex < 0 || previous?.type !== "tool") continue;
-      const summary = toolViewDisplayText(tool);
-      const next: SparkConversationToolProjectionPart = {
+    const summary = toolViewDisplayText(tool);
+    return this.mergeToolProjectionIntoConversation(
+      {
         id: `tool:${tool.id}`,
         type: "tool",
         toolCallId: tool.id,
@@ -402,7 +396,69 @@ export class SparkNativeSession {
         lifecycle: tool.status === "pending" || tool.status === "running" ? "call" : "result",
         sourcePartIds: [`tool:${tool.id}`],
         metadata: tool.metadata,
-      };
+      },
+      messages,
+    );
+  }
+
+  private mergeNativeToolMessageIntoConversation(
+    message: SparkNativeMessage,
+    messages: SparkNativeMessage[] = this.messages,
+  ): boolean {
+    if (message.role !== "tool" || !message.toolCallId) return false;
+    const projected = message.conversation?.parts.find(
+      (part): part is SparkConversationToolProjectionPart =>
+        part.type === "tool" && part.toolCallId === message.toolCallId,
+    );
+    if (projected) return this.mergeToolProjectionIntoConversation(projected, messages);
+    const status = canonicalToolStatus(
+      message.toolStatus ??
+        (message.viewStatus === "pending"
+          ? "pending"
+          : message.viewStatus === "streaming"
+            ? "running"
+            : message.viewStatus === "error"
+              ? "failed"
+              : "succeeded"),
+    );
+    return this.mergeToolProjectionIntoConversation(
+      {
+        id: message.viewId ?? `tool:${message.toolCallId}`,
+        type: "tool",
+        toolCallId: message.toolCallId,
+        toolName: message.toolName ?? "tool",
+        status,
+        ...(message.text.trim() ? { summary: message.text.trim() } : {}),
+        lifecycle: status === "pending" || status === "running" ? "call" : "result",
+        sourcePartIds: [message.viewId ?? `tool:${message.toolCallId}`],
+        metadata: {},
+      },
+      messages,
+    );
+  }
+
+  private coalesceStandaloneToolMessages(messages: SparkNativeMessage[]): void {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (!message || message.role !== "tool" || !message.toolCallId) continue;
+      if (!this.mergeNativeToolMessageIntoConversation(message, messages)) continue;
+      messages.splice(index, 1);
+    }
+  }
+
+  private mergeToolProjectionIntoConversation(
+    next: SparkConversationToolProjectionPart,
+    messages: SparkNativeMessage[],
+  ): boolean {
+    for (const [messageIndex, message] of messages.entries()) {
+      if (message.role === "tool") continue;
+      const conversation = message.conversation;
+      if (!conversation) continue;
+      const partIndex = conversation.parts.findIndex(
+        (part) => part.type === "tool" && part.toolCallId === next.toolCallId,
+      );
+      const previous = conversation.parts[partIndex];
+      if (partIndex < 0 || previous?.type !== "tool") continue;
       const parts = [...conversation.parts];
       parts[partIndex] = mergeSparkConversationToolPart(previous, next);
       const updatedConversation = { ...conversation, parts };
@@ -563,15 +619,48 @@ export class SparkNativeSession {
     message: SparkNativeMessage,
     existing?: SparkNativeMessage,
   ): SparkNativeMessage {
+    const conversation = this.mergeConversationToolState(
+      existing?.conversation,
+      message.conversation,
+    );
     return {
       ...message,
-      text:
-        message.role === "tool" && !message.text && existing?.role === "tool"
+      text: conversation
+        ? sparkConversationVisibleText(conversation, {
+            includeThinking: true,
+            includeTools: true,
+          }) || message.text
+        : message.role === "tool" && !message.text && existing?.role === "tool"
           ? existing.text
           : message.text,
+      conversation,
       createdAt: message.createdAt ?? existing?.createdAt ?? new Date().toISOString(),
       updatedAt: message.updatedAt ?? existing?.updatedAt,
       nativeOrder: existing?.nativeOrder ?? message.nativeOrder ?? ++this.nextNativeMessageOrder,
+    };
+  }
+
+  private mergeConversationToolState(
+    previous: SparkConversationProjection | undefined,
+    next: SparkConversationProjection | undefined,
+  ): SparkConversationProjection | undefined {
+    if (!previous || !next) return next;
+    const previousTools = new Map(
+      previous.parts.flatMap((part) =>
+        part.type === "tool" ? ([[part.toolCallId, part]] as const) : [],
+      ),
+    );
+    const parts = next.parts.map((part) => {
+      if (part.type !== "tool") return part;
+      const previousPart = previousTools.get(part.toolCallId);
+      return previousPart ? mergeSparkConversationToolPart(previousPart, part) : part;
+    });
+    const merged = { ...next, parts };
+    return {
+      ...merged,
+      text:
+        sparkConversationVisibleText(merged, { includeThinking: true, includeTools: true }) ||
+        next.text,
     };
   }
 

@@ -27,6 +27,7 @@ import {
   SPARK_NATIVE_KERNEL_SLASH_COMMANDS,
   createSparkNativeLocalControlSlashCommands,
   createSparkNativeRuntimeSlashCommands,
+  type SparkNativeResponder,
 } from "../native-tui.ts";
 import { catalogSparkNativeCommands } from "../native-tui/command-presentation.ts";
 import { nativeKernelSlashCommandEntries } from "../native-tui/slash-commands.ts";
@@ -160,6 +161,214 @@ test("native TUI invalidates its cached frame when terminal height changes", () 
   assert.ok(tall.length > short.length);
   assert.ok(short.length <= 8);
   assert.match(short.map(stripAnsi).join("\n"), /height-cache-message-19/);
+});
+
+test("native TUI prompt history follows durable user prompts across snapshots and live events", async () => {
+  const harness = createSparkNativeTuiComponentHarness({
+    slashCommands: {
+      status: { description: "Show status", handler: () => "status ok" },
+    },
+  });
+  harness.app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "session.snapshot",
+    session: {
+      version: SPARK_PROTOCOL_VERSION,
+      sessionId: "session:prompt-history",
+      status: "idle",
+      messages: [
+        {
+          version: SPARK_PROTOCOL_VERSION,
+          id: "prompt-old",
+          role: "user",
+          text: "old durable prompt",
+          status: "done",
+          metadata: {},
+        },
+        {
+          version: SPARK_PROTOCOL_VERSION,
+          id: "reply-old",
+          role: "assistant",
+          text: "old reply",
+          status: "done",
+          metadata: {},
+        },
+        {
+          version: SPARK_PROTOCOL_VERSION,
+          id: "prompt-new",
+          role: "user",
+          text: "new durable prompt",
+          status: "done",
+          metadata: {},
+        },
+      ],
+      tools: [],
+      runs: [],
+      tasks: [],
+      artifacts: [],
+      evidence: [],
+      metadata: {},
+    },
+  });
+  harness.app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "session.message",
+    sessionId: "session:prompt-history",
+    message: {
+      version: SPARK_PROTOCOL_VERSION,
+      id: "prompt-live",
+      role: "user",
+      text: "live durable prompt",
+      status: "done",
+      metadata: {},
+    },
+  });
+  // Replayed view events update the transcript without duplicating editor history.
+  harness.app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "session.message",
+    sessionId: "session:prompt-history",
+    message: {
+      version: SPARK_PROTOCOL_VERSION,
+      id: "prompt-live",
+      role: "user",
+      text: "live durable prompt",
+      status: "done",
+      metadata: {},
+    },
+  });
+
+  await harness.submitEditor("/status");
+  await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "live durable prompt");
+  await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "new durable prompt");
+  await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "old durable prompt");
+  await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "old durable prompt");
+  await harness.press("\x1b[B");
+  assert.equal(harness.app.getEditorText(), "new durable prompt");
+});
+
+test("daemon prompt confirmations do not duplicate locally recalled history", async () => {
+  let invocation = 0;
+  const responder = Object.assign(async () => "", {
+    admit: async () => ({
+      invocationId: `inv-history-${++invocation}`,
+      status: "running" as const,
+      acceptedAt: "2026-08-12T00:00:00.000Z",
+    }),
+    observe: async () => "",
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "cancelled" as const,
+      cancelRequested: true,
+    }),
+  }) satisfies SparkNativeResponder;
+  const harness = createSparkNativeTuiComponentHarness({ responder });
+
+  await harness.submit("first queued prompt");
+  await harness.submit("second queued prompt");
+  for (const [id, text] of [
+    ["daemon-prompt-1", "first queued prompt"],
+    ["daemon-prompt-2", "second queued prompt"],
+  ] as const) {
+    harness.app.applyViewModelEvent({
+      version: SPARK_PROTOCOL_VERSION,
+      type: "session.message",
+      sessionId: "session:prompt-history",
+      message: {
+        version: SPARK_PROTOCOL_VERSION,
+        id,
+        role: "user",
+        text,
+        status: "done",
+        metadata: {},
+      },
+    });
+  }
+
+  await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "second queued prompt");
+  await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "first queued prompt");
+  await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "first queued prompt");
+});
+
+test("native TUI PageUp and PageDown scroll the transcript viewport", async () => {
+  const harness = createSparkNativeTuiComponentHarness({ cols: 72, rows: 12 });
+  for (let index = 0; index < 30; index += 1) {
+    harness.session.addSystemMessage(`transcript-scroll-${index}`);
+  }
+
+  const atTail = stripAnsi(harness.render());
+  assert.match(atTail, /transcript-scroll-29/u);
+  assert.doesNotMatch(atTail, /transcript-scroll-0(?:\D|$)/u);
+
+  await harness.press("\x1b[5~");
+  const scrolled = stripAnsi(harness.render());
+  assert.doesNotMatch(scrolled, /transcript-scroll-29/u);
+  assert.match(scrolled, /history .* newer lines below .* PgDn/u);
+
+  await harness.press("\x1b[6~");
+  assert.match(stripAnsi(harness.render()), /transcript-scroll-29/u);
+
+  harness.app.setEditorText(Array.from({ length: 20 }, (_, index) => `draft-${index}`).join("\n"));
+  await harness.press("\x1b[5;5~");
+  const editorPaged = stripAnsi(harness.render());
+  assert.match(editorPaged, /transcript-scroll-29/u);
+  assert.doesNotMatch(editorPaged, /history .* newer lines below/u);
+});
+
+test("native TUI double escape opens the unified session hierarchy for split and batched input", async () => {
+  for (const input of [[ESC, ESC], [`${ESC}${ESC}`]] as const) {
+    let sessionsOpened = 0;
+    const harness = createSparkNativeTuiComponentHarness({
+      slashCommands: {
+        sessions: {
+          description: "Open sessions",
+          handler: (_args, context) => {
+            sessionsOpened += 1;
+            context.exit();
+          },
+        },
+      },
+    });
+
+    for (const data of input) await harness.press(data);
+    assert.equal(sessionsOpened, 1);
+    assert.equal(harness.state.exited, true);
+  }
+});
+
+test("native TUI escape dismisses autocomplete without mutating input or arming navigation", async () => {
+  let sessionsOpened = 0;
+  const harness = createSparkNativeTuiComponentHarness({
+    slashCommands: {
+      sessions: {
+        description: "Open sessions",
+        handler: () => {
+          sessionsOpened += 1;
+        },
+      },
+      status: { description: "Show status", handler: () => "status ok" },
+    },
+  });
+
+  await harness.type("/");
+  assert.equal(harness.app.isShowingAutocomplete(), true);
+  await harness.press(ESC);
+  assert.equal(harness.app.isShowingAutocomplete(), false);
+  assert.equal(harness.app.getEditorText(), "/");
+  assert.equal(sessionsOpened, 0);
+
+  harness.app.setEditorText("");
+  await harness.press(ESC);
+  assert.equal(sessionsOpened, 0);
+  await harness.press(ESC);
+  assert.equal(sessionsOpened, 1);
 });
 
 test("native TUI kernel slash commands are minimal and resource slash is extension-owned", async () => {
@@ -1073,17 +1282,9 @@ test("working native TUI executes local slash commands instead of queueing them"
   assert.equal(harness.session.isProcessing, true);
 
   await submitEditorText(harness, "/model");
-  assert.deepEqual(harness.app.actionBarSnapshot(), {
-    id: "model",
-    selectedActionId: "select-model",
-    focused: false,
-  });
-  assert.equal(harness.session.queuedCount, 0);
-  const modelOverlay = harness.state.overlays.at(-1);
-  assert.ok(modelOverlay);
-  modelOverlay.component.handleInput?.("\r");
-  await harness.flush();
+  assert.equal(harness.app.actionBarSnapshot(), undefined);
   assert.deepEqual(invoked.at(-1), { name: "model", args: "" });
+  assert.equal(harness.session.queuedCount, 0);
   assert.equal(harness.session.isProcessing, true);
   assert.equal(harness.session.queuedCount, 0);
 
@@ -1190,7 +1391,6 @@ test("Spark native TUI routes /model through native slash command and model sele
   harness.app.setEditorText("");
 
   await submitEditorText(harness, "/model");
-  (harness.state.focused as { handleInput?: (input: string) => void }).handleInput?.("\r");
   await harness.flush();
   assert.deepEqual(registry.getActive(), { providerName: "fake", modelId: "model-b" });
   assert.match(stripAnsi(harness.render()), /system> info:Model: fake\/model-b/);
@@ -1514,37 +1714,27 @@ test("TUI action bar dispatches a normal action once even when Enter repeats", a
   await Promise.resolve();
 });
 
-test("bare catalog slash opens a focused bottom action bar without writing transcript", async () => {
+test("bare catalog slash enters its primary destination without an intermediate action bar", async () => {
+  const calls: string[] = [];
   const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
     slashCommands: {
-      settings: { description: "Settings", handler: () => "legacy settings output" },
+      settings: {
+        description: "Settings",
+        handler: (args) => {
+          calls.push(args);
+          return "settings overview";
+        },
+      },
     },
   });
   const messageCount = harness.session.messages.length;
 
   assert.equal(await harness.submit("/settings"), "command");
-  assert.equal(harness.session.messages.length, messageCount);
-  assert.deepEqual(harness.app.actionBarSnapshot(), {
-    id: "settings",
-    selectedActionId: "inspect-settings",
-    focused: false,
-  });
-
-  const overlay = harness.state.overlays.at(-1);
-  assert.ok(overlay);
-  assert.equal(overlay.visible, true);
-  assert.equal(overlay.options?.anchor, "bottom-center");
-  assert.equal(harness.state.focused, overlay.component);
-  assert.match(stripAnsi(overlay.component.render(72).join("\n")), /\[Overview\]/);
-
-  overlay.component.handleInput?.("\x1b[C");
-  assert.equal(harness.app.actionBarSnapshot()?.selectedActionId, "inspect-providers");
-  overlay.component.handleInput?.(ESC);
-  assert.equal(overlay.visible, false);
+  assert.deepEqual(calls, ["inspect"]);
   assert.equal(harness.app.actionBarSnapshot(), undefined);
-  assert.equal(harness.state.focused, harness.app);
-  assert.equal(harness.session.messages.length, messageCount);
+  assert.equal(harness.session.messages.length, messageCount + 1);
+  assert.match(harness.session.messages.at(-1)?.text ?? "", /settings overview/u);
 });
 
 test("bare status and session lifecycle commands enter their host-owned flow without an action bar", async () => {
@@ -1589,95 +1779,33 @@ test("bare status and session lifecycle commands enter their host-owned flow wit
   assert.equal(calls.length, 5);
 });
 
-test("TUI host disables unavailable action-bar operations and enables them from live state", async () => {
-  const harness = createSparkNativeTuiComponentHarness({
-    withOverlay: true,
-    responder: (input) => `ack:${input}`,
-  });
-  let messageCount = harness.session.messages.length;
-
-  await harness.submit("/queue");
-  let overlay = harness.state.overlays.at(-1);
-  assert.ok(overlay);
-  let rendered = stripAnsi(overlay.component.render(100).join("\n"));
-  assert.match(rendered, /Retry unavailable/);
-  assert.match(rendered, /Stop and restore unavailable/);
-  overlay.component.handleInput?.("\x1b[C");
-  overlay.component.handleInput?.("\r");
-  await harness.flush();
-  assert.equal(overlay.visible, true);
-  assert.equal(harness.session.messages.length, messageCount);
-  overlay.component.handleInput?.(ESC);
-
-  await harness.submit("retryable prompt");
-  await harness.flush();
-  await harness.submit("/queue");
-  overlay = harness.state.overlays.at(-1);
-  assert.ok(overlay);
-  overlay.component.handleInput?.("\x1b[C");
-  rendered = stripAnsi(overlay.component.render(100).join("\n"));
-  assert.match(rendered, /\[Retry\]/);
-  assert.doesNotMatch(rendered, /Retry unavailable/);
-  overlay.component.handleInput?.("\r");
-  await harness.flush();
-  assert.match(stripAnsi(harness.render()), /Retrying: retryable prompt/);
-
-  messageCount = harness.session.messages.length;
-  await harness.submit("/workflow-runs");
-  overlay = harness.state.overlays.at(-1);
-  assert.ok(overlay);
-  overlay.component.handleInput?.("\x1b[C");
-  rendered = stripAnsi(overlay.component.render(100).join("\n"));
-  assert.match(rendered, /Inspect selected unavailable/);
-  assert.match(rendered, /\/workflow-inspect is not registered/);
-  overlay.component.handleInput?.("\r");
-  await harness.flush();
-  assert.equal(overlay.visible, true);
-  assert.equal(harness.session.messages.length, messageCount);
-  overlay.component.handleInput?.(ESC);
-
-  await harness.submit("/settings");
-  overlay = harness.state.overlays.at(-1);
-  assert.ok(overlay);
-  rendered = stripAnsi(overlay.component.render(100).join("\n"));
-  assert.match(rendered, /Overview unavailable/);
-  assert.match(rendered, /\/settings is not registered/);
-  overlay.component.handleInput?.("\r");
-  await harness.flush();
-  assert.equal(overlay.visible, true);
-  assert.equal(harness.session.messages.length, messageCount);
-  overlay.component.handleInput?.(ESC);
-
+test("bare queue slash inspects live state without an intermediate action bar", async () => {
   let finishTurn: ((result: string) => void) | undefined;
-  const busyHarness = createSparkNativeTuiComponentHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
     responder: () =>
       new Promise<string>((resolve) => {
         finishTurn = resolve;
       }),
   });
-  await busyHarness.submit("long turn");
-  await busyHarness.submit("/queue");
-  const busyOverlay = busyHarness.state.overlays.at(-1);
-  assert.ok(busyOverlay);
-  busyOverlay.component.handleInput?.("\x1b[C");
-  busyOverlay.component.handleInput?.("\x1b[C");
-  rendered = stripAnsi(busyOverlay.component.render(100).join("\n"));
-  assert.doesNotMatch(rendered, /Stop and restore unavailable/);
-  busyOverlay.component.handleInput?.("\r");
-  assert.equal(busyHarness.session.isProcessing, true);
-  assert.equal(busyOverlay.visible, true);
-  assert.match(stripAnsi(busyOverlay.component.render(100).join("\n")), /Confirm Stop and restore/);
-  busyOverlay.component.handleInput?.("\r");
-  await busyHarness.flush();
-  assert.equal(busyHarness.session.isProcessing, false);
-  assert.equal(busyOverlay.visible, false);
-  finishTurn?.("late response");
-  await busyHarness.flush();
-  assert.doesNotMatch(stripAnsi(busyHarness.render()), /late response/);
+
+  await harness.submit("/queue");
+  assert.equal(harness.app.actionBarSnapshot(), undefined);
+  assert.match(harness.session.messages.at(-1)?.text ?? "", /Turn queue is empty/u);
+
+  await harness.submit("long turn");
+  harness.app.setEditorText("queued follow-up");
+  await harness.press("\u001b\r");
+  await harness.submit("/queue");
+  assert.equal(harness.app.actionBarSnapshot(), undefined);
+  assert.equal(harness.session.isProcessing, true);
+  assert.match(harness.session.messages.at(-1)?.text ?? "", /queued follow-up/u);
+
+  finishTurn?.("done");
+  await harness.flush();
 });
 
-test("action bar executes semantic actions and only explicit inspection emits legacy text", async () => {
+test("bare catalog slashes enter their final destinations in one step", async () => {
   const calls: Array<{ name: string; args: string }> = [];
   const command = (name: string) => ({
     description: name,
@@ -1692,6 +1820,8 @@ test("action bar executes semantic actions and only explicit inspection emits le
       settings: command("settings"),
       model: command("model"),
       goal: command("goal"),
+      loop: command("loop"),
+      repro: command("repro"),
       hotkeys: command("hotkeys"),
       session: command("session"),
       sessions: command("sessions"),
@@ -1713,33 +1843,39 @@ test("action bar executes semantic actions and only explicit inspection emits le
   assert.equal(harness.session.messages.length, messageCount);
 
   await harness.submit("/scoped-models");
-  await pressFocused("\r");
   assert.deepEqual(calls.at(-1), { name: "model", args: "" });
+  assert.equal(harness.app.actionBarSnapshot(), undefined);
   assert.equal(harness.session.messages.length, messageCount);
 
   await harness.submit("/settings");
-  await pressFocused("\r");
   assert.deepEqual(calls.at(-1), { name: "settings", args: "inspect" });
+  assert.equal(harness.app.actionBarSnapshot(), undefined);
   assert.equal(harness.session.messages.length, messageCount + 1);
   assert.match(harness.session.messages.at(-1)?.text ?? "", /legacy:settings:inspect/);
 
   messageCount = harness.session.messages.length;
   await harness.submit("/goal");
-  await pressFocused("\x1b[C");
-  await pressFocused("\r");
-  assert.deepEqual(calls.at(-1), { name: "goal", args: "start" });
-  assert.equal(harness.session.messages.length, messageCount);
-
-  await harness.submit("/goal");
-  await pressFocused("\r");
   assert.deepEqual(calls.at(-1), { name: "goal", args: "status" });
+  assert.equal(harness.app.actionBarSnapshot(), undefined);
   assert.equal(harness.session.messages.length, messageCount + 1);
   assert.match(harness.session.messages.at(-1)?.text ?? "", /legacy:goal:status/);
 
+  await harness.submit("/goal start");
+  assert.deepEqual(calls.at(-1), { name: "goal", args: "start" });
+  assert.equal(harness.app.actionBarSnapshot(), undefined);
+
+  await harness.submit("/loop");
+  assert.deepEqual(calls.at(-1), { name: "loop", args: "status" });
+  assert.equal(harness.app.actionBarSnapshot(), undefined);
+
+  await harness.submit("/repro");
+  assert.deepEqual(calls.at(-1), { name: "repro", args: "status" });
+  assert.equal(harness.app.actionBarSnapshot(), undefined);
+
   messageCount = harness.session.messages.length;
   await harness.submit("/workflow-runs");
-  await pressFocused("\r");
   assert.equal(harness.app.hubSnapshot().activePanel, "runs");
+  assert.equal(harness.app.actionBarSnapshot(), undefined);
   assert.equal(harness.session.messages.length, messageCount);
 
   await harness.submit("/inspect runs");
@@ -1990,10 +2126,25 @@ test("Spark native editor supports multiline and Pi-style busy queue restore key
     /◆ Input queue · local 1[\s\S]*└─ 1\. follow-up · follow-up text/,
   );
 
-  await harness.press("\u001bp");
+  // macOS terminals without Kitty keyboard support commonly encode Option+Up
+  // as an Escape prefix followed by the ordinary Up sequence. ProcessTerminal
+  // delivers those as two adjacent input events.
+  harness.app.handleInput("\u001b");
+  harness.app.handleInput("\u001b[A");
   await harness.flush();
+  assert.equal(harness.session.isProcessing, true);
   assert.match(stripAnsi(harness.render()), /Restored queued input to the editor/);
-  assert.match(stripAnsi(harness.render()), /follow-up text/);
+  assert.equal(harness.app.getEditorText(), "follow-up text");
+
+  harness.app.setEditorText("CSI Alt+Up text");
+  await harness.press("\u001b\r");
+  await harness.press("\u001b[1;3A");
+  assert.equal(harness.app.getEditorText(), "CSI Alt+Up text");
+
+  harness.app.setEditorText("legacy Alt+Up text");
+  await harness.press("\u001b\r");
+  await harness.press("\u001bp");
+  assert.equal(harness.app.getEditorText(), "legacy Alt+Up text");
 
   harness.app.setEditorText("steer then escape");
   await harness.press("\r");

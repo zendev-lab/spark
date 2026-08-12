@@ -3,6 +3,7 @@ import { appendFileSync } from "node:fs";
 import { runNativeSparkTui } from "../native-tui/run.ts";
 
 const reportPath = requiredEnvironmentVariable("SPARK_TUI_DIRECT_PTY_REPORT");
+const scenario = process.env.SPARK_TUI_DIRECT_PTY_SCENARIO;
 
 if (process.env.SPARK_TUI_DIRECT_PTY_IGNORE_SIGHUP === "1") {
   process.on("SIGHUP", () => report("hangup-ignored"));
@@ -38,9 +39,29 @@ async function main(): Promise<void> {
 
   try {
     await runNativeSparkTui({
-      responder: (input) => `direct response: ${input}`,
+      responder: (input) =>
+        scenario === "queue" && input === "hold"
+          ? new Promise<string>(() => undefined)
+          : `direct response: ${input}`,
+      slashCommands:
+        scenario === "navigation"
+          ? {
+              sessions: {
+                description: "Open sessions",
+                handler: (_args, context) => {
+                  report("sessions-opened");
+                  context.exit();
+                },
+              },
+            }
+          : undefined,
       configureApp(_app, session) {
         session.addSystemMessage("direct PTY ready");
+        if (scenario === "navigation") {
+          for (let index = 0; index < 30; index += 1) {
+            session.addSystemMessage(`navigation-history-${index}`);
+          }
+        }
         rawModeProbe = setInterval(() => {
           if (!process.stdin.isRaw) return;
           clearInterval(rawModeProbe);

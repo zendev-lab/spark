@@ -19,6 +19,7 @@ import {
   type SparkConversationProjectionPart,
   type SparkInteractionRequest,
   type SparkInteractionResponse,
+  type SparkMessageView,
   type SparkRunView,
   type SparkSessionView,
   type SparkTaskView,
@@ -94,6 +95,7 @@ import {
 } from "./hub-helpers.ts";
 import {
   compactNativeQueuePreview,
+  displayNativeSubmittedInput,
   parseBangCommand,
   prepareSparkNativeEditorInput,
   runSparkNativeBangCommand,
@@ -155,6 +157,9 @@ interface NativeCustomLifecycle {
 }
 
 const MAX_SETTLED_ASK_LIFECYCLE = 32;
+const DOUBLE_ESCAPE_WINDOW_MS = 500;
+const ESCAPE_PREFIX_WINDOW_MS = 20;
+const ESCAPE_SEQUENCE = "\x1b";
 
 type NativeWidgetFactory = (
   tui: { terminal: { columns: number }; requestRender(): void },
@@ -194,6 +199,10 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private readonly runFooterMetrics = new Map<string, SparkNativeFooterMetrics>();
   private workingSpinnerFrame = 0;
   private workingSpinnerTimer: ReturnType<typeof setInterval> | undefined;
+  private lastEscapeAt = 0;
+  private pendingEscapeTimer: ReturnType<typeof setTimeout> | undefined;
+  private readonly editorPromptHistoryMessageIds = new Set<string>();
+  private readonly pendingDurablePromptHistory: string[] = [];
   private readonly handleSessionChange = () => {
     this.syncWorkingSpinner();
     this.invalidate();
@@ -242,6 +251,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   dispose(): void {
+    this.clearPendingEscape();
     this.closeActionBar();
     this.session.detach();
     if (this.session.onChange === this.handleSessionChange) this.session.onChange = undefined;
@@ -249,10 +259,14 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   setEditorText(text: string): void {
-    if (this.editor.isShowingAutocomplete()) this.editor.handleInput(Key.escape);
+    if (this.editor.isShowingAutocomplete()) this.editor.handleInput(ESCAPE_SEQUENCE);
     this.editor.setText(text);
     this.invalidate();
     this.tui.requestRender();
+  }
+
+  getEditorText(): string {
+    return this.editor.getExpandedText();
   }
 
   async executeSlashCommand(input: string): Promise<void> {
@@ -311,6 +325,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   async submitInput(input: string): Promise<"started" | "queued" | "ignored" | "command"> {
+    this.controller.dispatch({ type: "transcript.tail" });
     return await this.submitPreparedInput(input, { mode: this.primarySubmitMode() });
   }
 
@@ -322,7 +337,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
     input: string,
     options: { mode: SparkNativeQueueMode },
   ): Promise<"started" | "queued" | "ignored" | "command"> {
-    this.editor.addToHistory(input);
+    this.controller.dispatch({ type: "transcript.tail" });
     this.editor.setText("");
     const result = await this.submitPreparedInput(input, options);
     this.invalidate();
@@ -352,6 +367,12 @@ export class SparkNativeTuiApp implements Component, Focusable {
     }
     try {
       const prepared = await prepareSparkNativeEditorInput(input, this.inputBasePath);
+      if (!bang) {
+        this.editor.addToHistory(input);
+        if (this.session.daemonOwnsQueue) {
+          this.pendingDurablePromptHistory.push(displayNativeSubmittedInput(prepared).trim());
+        }
+      }
       return await this.session.submit(prepared, options);
     } catch (error) {
       this.session.addSystemMessage(
@@ -364,28 +385,44 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   handleInput(data: string): void {
+    if (data === `${ESCAPE_SEQUENCE}${ESCAPE_SEQUENCE}`) {
+      this.clearPendingEscape();
+      this.handleEscape();
+      this.handleEscape();
+      return;
+    }
+    const escape = matchesKey(data, Key.escape);
     if (matchesKey(data, Key.alt("enter"))) {
       void this.submitEditorText(this.editor.getExpandedText(), { mode: "followUp" });
       return;
     }
-    if (this.handleHubPanelInput(data)) return;
-    if (matchesKey(data, Key.escape)) {
-      const restoredText = this.session.abort("escape").restoredText;
-      if (restoredText) this.editor.setText(restoredText);
-      this.invalidate();
-      this.tui.requestRender();
+    if (this.handleHubPanelInput(data)) {
+      if (escape) this.lastEscapeAt = 0;
       return;
     }
-    if (matchesKey(data, Key.alt("up"))) {
-      const restoredText = this.session.restoreQueuedText();
-      if (restoredText) {
-        this.editor.setText(restoredText);
-        this.session.addSystemMessage("Restored queued input to the editor.");
-      } else {
-        this.session.addSystemMessage(nativeTuiStrings.noQueuedInputToRestore);
+    if (escape) {
+      this.handleEscapeInput();
+      return;
+    }
+    if (this.consumePendingEscape()) {
+      if (matchesKey(data, Key.up)) {
+        this.lastEscapeAt = 0;
+        this.restoreQueuedInputToEditor();
+        return;
       }
-      this.invalidate();
-      this.tui.requestRender();
+      this.handleEscape();
+    }
+    this.lastEscapeAt = 0;
+    if (matchesKey(data, Key.pageUp)) {
+      this.scrollTranscript(this.transcriptPageSize());
+      return;
+    }
+    if (matchesKey(data, Key.pageDown)) {
+      this.scrollTranscript(-this.transcriptPageSize());
+      return;
+    }
+    if (matchesKey(data, Key.alt("up")) || data === "\u001b\u001b[A" || data === "\u001b\u001bOA") {
+      this.restoreQueuedInputToEditor();
       return;
     }
     if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.ctrl("d"))) {
@@ -404,6 +441,104 @@ export class SparkNativeTuiApp implements Component, Focusable {
     this.editor.handleInput(data);
     this.invalidate();
     this.tui.requestRender();
+  }
+
+  private handleEscapeInput(): void {
+    if (this.editor.isShowingAutocomplete()) {
+      this.clearPendingEscape();
+      this.handleEscape();
+      return;
+    }
+    if (this.consumePendingEscape()) {
+      this.handleEscape();
+      this.handleEscape();
+      return;
+    }
+    this.pendingEscapeTimer = setTimeout(() => {
+      this.pendingEscapeTimer = undefined;
+      this.handleEscape();
+    }, ESCAPE_PREFIX_WINDOW_MS);
+  }
+
+  private consumePendingEscape(): boolean {
+    if (!this.pendingEscapeTimer) return false;
+    clearTimeout(this.pendingEscapeTimer);
+    this.pendingEscapeTimer = undefined;
+    return true;
+  }
+
+  private clearPendingEscape(): void {
+    if (!this.pendingEscapeTimer) return;
+    clearTimeout(this.pendingEscapeTimer);
+    this.pendingEscapeTimer = undefined;
+  }
+
+  private restoreQueuedInputToEditor(): void {
+    const restoredText = this.session.restoreQueuedText();
+    if (restoredText) {
+      this.editor.setText(restoredText);
+      this.session.addSystemMessage("Restored queued input to the editor.");
+    } else {
+      this.session.addSystemMessage(nativeTuiStrings.noQueuedInputToRestore);
+    }
+    this.invalidate();
+    this.tui.requestRender();
+  }
+
+  private handleEscape(): void {
+    if (this.editor.isShowingAutocomplete()) {
+      this.lastEscapeAt = 0;
+      this.editor.handleInput(ESCAPE_SEQUENCE);
+      this.invalidate();
+      this.tui.requestRender();
+      return;
+    }
+
+    const abort = this.session.abort("escape");
+    if (abort.restoredText) this.editor.setText(abort.restoredText);
+    if (abort.aborted || abort.clearedQueued > 0 || this.session.isProcessing) {
+      this.lastEscapeAt = 0;
+      this.invalidate();
+      this.tui.requestRender();
+      return;
+    }
+
+    if (this.editor.getText().trim()) {
+      this.lastEscapeAt = 0;
+      this.editor.handleInput(ESCAPE_SEQUENCE);
+      this.invalidate();
+      this.tui.requestRender();
+      return;
+    }
+
+    const now = Date.now();
+    if (this.lastEscapeAt > 0 && now - this.lastEscapeAt < DOUBLE_ESCAPE_WINDOW_MS) {
+      this.lastEscapeAt = 0;
+      void this.runSlashCommand("/sessions").finally(() => {
+        this.invalidate();
+        this.tui.requestRender();
+      });
+      return;
+    }
+    this.lastEscapeAt = now;
+    this.invalidate();
+    this.tui.requestRender();
+  }
+
+  private scrollTranscript(delta: number): void {
+    const width = Math.max(1, this.tui.terminal.columns);
+    const transcriptLineCount = this.renderTranscript(width).length;
+    const maxOffset = Math.max(0, transcriptLineCount - 1);
+    const current = Math.min(this.controller.viewState.transcriptScrollOffset, maxOffset);
+    const next = Math.max(0, Math.min(maxOffset, current + delta));
+    this.controller.dispatch({ type: "transcript.tail" });
+    if (next > 0) this.controller.dispatch({ type: "transcript.scroll", delta: next });
+    this.invalidate();
+    this.tui.requestRender();
+  }
+
+  private transcriptPageSize(): number {
+    return Math.max(1, this.tui.terminal.rows - 8);
   }
 
   setWorkspaceSession(state: SparkNativeWorkspaceSessionState | undefined): void {
@@ -1036,9 +1171,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
       case "session.snapshot":
         this.recordSessionView(parsed.session);
         this.session.applySessionView(parsed.session);
+        this.hydrateEditorPromptHistory(parsed.session.messages);
         break;
       case "session.message":
         this.session.addMessageView(parsed.message);
+        this.rememberEditorPrompt(parsed.message);
         break;
       case "run.update":
         this.recordRunView(parsed.run);
@@ -1347,15 +1484,21 @@ export class SparkNativeTuiApp implements Component, Focusable {
     const detail = this.renderActiveHubPanel(width);
     const pinnedStatus = [...header, ...context, ...this.renderWidgets("aboveEditor", width)];
     const auxiliary = this.renderPendingAskPresentations(width);
-    const transcript = this.session.messages.flatMap((message) =>
-      this.renderMessage(message, width),
+    const transcript = this.renderTranscript(width);
+    const transcriptScrollOffset = Math.min(
+      this.controller.viewState.transcriptScrollOffset,
+      Math.max(0, transcript.length - 1),
     );
+    const visibleTranscript =
+      transcriptScrollOffset > 0
+        ? transcript.slice(0, transcript.length - transcriptScrollOffset)
+        : transcript;
     const queue = this.renderInputQueue(width);
     const composer = [this.separatorLine(width), ...this.editor.render(width)];
     const footer = [
       ...(this.widgets.has("spark-status") ? [] : this.renderTaskStatus(width)),
       ...this.renderWidgets("belowEditor", width),
-      truncateToWidth(this.renderTheme.fg("muted", this.footerLine()), width),
+      truncateToWidth(this.renderTheme.fg("muted", this.footerLine(transcriptScrollOffset)), width),
     ];
     const runtimeFooter = this.runtimeFooterLines(width);
 
@@ -1370,7 +1513,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
         detail,
         detailActive: detail.length > 0,
         auxiliary,
-        transcript,
+        transcript: visibleTranscript,
         pinnedStatus,
         queue,
         composer,
@@ -1379,6 +1522,27 @@ export class SparkNativeTuiApp implements Component, Focusable {
       },
     });
     return this.cachedLines;
+  }
+
+  private renderTranscript(width: number): string[] {
+    return this.session.messages.flatMap((message) => this.renderMessage(message, width));
+  }
+
+  private hydrateEditorPromptHistory(messages: readonly SparkMessageView[]): void {
+    for (const message of messages) this.rememberEditorPrompt(message);
+  }
+
+  private rememberEditorPrompt(message: SparkMessageView): void {
+    if (message.role !== "user" || this.editorPromptHistoryMessageIds.has(message.id)) return;
+    this.editorPromptHistoryMessageIds.add(message.id);
+    const prompt = displayNativeSubmittedInput(message.text).trim();
+    if (!prompt) return;
+    const pendingIndex = this.pendingDurablePromptHistory.indexOf(prompt);
+    if (pendingIndex >= 0) {
+      this.pendingDurablePromptHistory.splice(pendingIndex, 1);
+      return;
+    }
+    this.editor.addToHistory(prompt);
   }
 
   private renderWorkspaceSessionState(width: number): string[] {
@@ -2004,8 +2168,12 @@ export class SparkNativeTuiApp implements Component, Focusable {
     );
   }
 
-  private footerLine(): string {
-    if (!this.session.isProcessing) return nativeTuiStrings.footer;
+  private footerLine(transcriptScrollOffset = 0): string {
+    const scrollPrefix =
+      transcriptScrollOffset > 0
+        ? `history ↑ ${transcriptScrollOffset} newer lines below • PgDn return • `
+        : "";
+    if (!this.session.isProcessing) return `${scrollPrefix}${nativeTuiStrings.footer}`;
     const footer = nativeTuiStrings.busyFooter(
       this.session.canRestoreQueuedInput,
       this.session.daemonOwnsQueue,
@@ -2014,7 +2182,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
       this.session.daemonOwnsQueue && this.session.canRestoreQueuedInput
         ? " • Alt+Up restore queue"
         : "";
-    return `${this.workingSpinner()} Working... • ${footer}${restoreHint}`;
+    return `${scrollPrefix}${this.workingSpinner()} Working... • ${footer}${restoreHint}`;
   }
 
   private runtimeFooterLines(width: number): string[] {
@@ -2176,7 +2344,17 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
     const actionBar = sparkSlashActionBarForInput(input);
     if (actionBar) {
-      this.openActionBar(actionBar);
+      // Bare slash commands enter their canonical destination in one step.
+      // The thinking-level bar is itself the final selector; every other
+      // catalog bar is presentation metadata whose primary action identifies
+      // the destination that the native TUI should enter directly.
+      if (actionBar.id === "thinking") {
+        this.openActionBar(actionBar);
+        return;
+      }
+      const primaryAction =
+        actionBar.actions.find((action) => action.tone === "primary") ?? actionBar.actions[0];
+      if (primaryAction) await this.executeActionBarAction(primaryAction);
       return;
     }
 

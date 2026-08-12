@@ -213,10 +213,10 @@ fail closed，不能自动 replay。
 /help commands
 ```
 
-`/help` 始终在本地渲染，绝不会作为 agent prompt 提交。Esc 取消 `/model` 是纯
-no-op。`/status`、action bar 和 palette 的普通动作一次 Enter 即执行。TUI 在
-`60x18` 及以上尺寸保留完整逻辑消息；应使用 terminal scrollback，不能把最后一条
-可见行误当成完整消息。
+`/help` 始终在本地渲染，绝不会作为 agent prompt 提交。不带参数的 slash control
+会直接进入最终界面，selector 或 palette 的普通动作一次 Enter 即执行。prompt
+history、对话 viewport 滚动和空闲态双 Esc session navigation 都由 TUI 自身处理；
+当前键盘契约以 [TUI 指南](/zh/guides/tui/) 为准。
 
 这些界面应协同工作：
 

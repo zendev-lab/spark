@@ -43,6 +43,19 @@ spark
 `/status` 会直接输出 daemon、当前 session、活跃工作、用量和输入队列的完整汇总，
 不会先打开 action picker。
 
+不带参数的 slash command 会直接进入最终 TUI 目标，不再先打开中间 action bar。
+例如，`/model` 直接打开模型 selector，`/settings` 显示设置概览，`/queue` 检查
+实时队列，裸 `/goal`、`/loop`、`/repro` 则直接显示对应 lifecycle 的状态；
+`/thinking` 直接打开最终 thinking-level selector。
+
+编辑器的上、下方向键会按当前 session 中持久化的 `user` prompt 回溯，包括本次
+TUI 进程启动之前的 prompt；本地 slash command 不会混入这份 prompt history。
+PageUp、PageDown 用来滚动可见对话记录；Ctrl+PageUp、Ctrl+PageDown 仍用于在
+多行编辑草稿中移动。提交新输入时，对话会回到最新一行。
+
+Esc 仍会优先取消正在执行的工作。session 空闲且编辑器为空时，在 500 ms 内连续
+按两次 Esc，会离开当前对话并打开统一 session hierarchy。
+
 ## 查看当前会话
 
 用 `/inspect` 或 Ctrl+K 打开本地会话检查器：

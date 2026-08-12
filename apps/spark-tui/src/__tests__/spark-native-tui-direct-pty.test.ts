@@ -81,6 +81,67 @@ test("direct PTY resize reaches ProcessTerminal and rerenders at the new width",
   }
 });
 
+test("direct PTY scrolls transcript history and opens sessions on batched double escape", async () => {
+  const harness = await createSparkNativeTuiDirectPtyHarness({
+    columns: 72,
+    rows: 12,
+    scenario: "navigation",
+  });
+  try {
+    await harness.waitForReport((report) => report.event === "ready");
+    await harness.waitForOutput("navigation-history-29");
+
+    let outputOffset = harness.output().length;
+    harness.write(`${ESC}[5~`);
+    const scrolled = await harness.waitForOutputAfter(
+      outputOffset,
+      /history ↑ \d+ newer lines below/gu,
+    );
+    assert.doesNotMatch(visiblePtyOutput(scrolled), /navigation-history-29/u);
+
+    outputOffset = harness.output().length;
+    harness.write(`${ESC}[6~`);
+    await harness.waitForOutputAfter(outputOffset, "navigation-history-29");
+
+    harness.write(`${ESC}${ESC}`);
+    await harness.waitForReport((report) => report.event === "sessions-opened");
+    assert.equal((await harness.waitForExit()).exitCode, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("direct PTY restores queued input from the macOS legacy Alt+Up byte stream", async () => {
+  const harness = await createSparkNativeTuiDirectPtyHarness({
+    columns: 72,
+    rows: 18,
+    scenario: "queue",
+  });
+  try {
+    await harness.waitForReport((report) => report.event === "ready");
+    await harness.waitForOutput("direct PTY ready");
+
+    harness.write("hold\r");
+    await harness.waitForOutput("> hold");
+    harness.write("queued from PTY");
+    harness.write(`${ESC}\r`);
+    await harness.waitForOutput(/Input queue · local 1/gu);
+
+    const outputOffset = harness.output().length;
+    harness.write(`${ESC}${ESC}[A`);
+    const restored = await harness.waitForOutputAfter(
+      outputOffset,
+      "Restored queued input to the editor.",
+    );
+    assert.match(visiblePtyOutput(restored), /queued from PTY/u);
+
+    harness.write(CTRL_D);
+    assert.equal((await harness.waitForExit()).exitCode, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("direct PTY dispose surfaces a termination timeout after confirming forced exit", async () => {
   const harness = await createSparkNativeTuiDirectPtyHarness({
     columns: 60,

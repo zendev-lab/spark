@@ -235,11 +235,11 @@ Inside the TUI, use:
 /help commands
 ```
 
-`/help` is rendered locally and is never submitted as an agent prompt. `/model`
-Esc cancellation is a no-op. `/status`, the action bar, and the palette execute
-normal actions on one Enter. The TUI retains complete logical messages at
-`60x18` and larger; use terminal scrollback instead of assuming only the final
-visible row exists.
+`/help` is rendered locally and is never submitted as an agent prompt. Bare
+slash controls enter their final surface directly, and normal selector or
+palette actions execute on one Enter. The TUI owns prompt history, transcript
+viewport scrolling, and idle double-Esc session navigation; use the [TUI
+guide](/guides/tui/) for the current keyboard contract.
 
 Use these surfaces together:
 
