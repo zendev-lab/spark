@@ -33,6 +33,7 @@
     "typebox": "catalog:"
   },
   "devDependencies": {
+    "jiti": "2.7.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

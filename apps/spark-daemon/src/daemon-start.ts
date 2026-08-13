@@ -10,7 +10,11 @@ import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { resolveSparkUserPaths, writePrivateFile } from "@zendev-lab/spark-system";
 import { resolveWorkflowDefinition } from "@zendev-lab/spark-workflows";
-import { readSparkDaemonConfig, type SparkDaemonConfig } from "./config.js";
+import {
+  readSparkDaemonConfig,
+  resolveSparkDaemonInvocationConcurrency,
+  type SparkDaemonConfig,
+} from "./config.js";
 import {
   getSparkDaemonServerProfile,
   listSparkDaemonServerProfiles,
@@ -1185,7 +1189,8 @@ function createDaemonScheduler(input: {
     completeInvocation: (invocation, task, completion) =>
       completeScheduledInvocation(input, invocation, task, completion),
     emitEvent: (event) => input.eventHub.emit(event),
-    concurrency: options.schedulerConcurrency,
+    concurrency:
+      options.schedulerConcurrency ?? resolveSparkDaemonInvocationConcurrency(options.config),
     taskTimeoutMs: options.invocationTimeoutMs,
     restartRequestedSignal: options.restartSignal,
     initiallyAccepting: false,

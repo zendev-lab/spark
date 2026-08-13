@@ -26,6 +26,7 @@ import {
   ExecutionAttemptSession,
   InProcessExecutionAttemptAdapter,
   type ExecutionAttemptAdapter,
+  type ExecutionAttemptEventIngress,
 } from "../execution/adapter.ts";
 import { createInProcessExecutionCapabilityRegistry } from "../execution/owner-capabilities.ts";
 import type { ExecutionOwnerHandlers } from "../execution/owner-capabilities.ts";
@@ -39,8 +40,13 @@ import {
   type SparkDaemonTaskExecutor,
   type SparkDaemonTokenUsageObservation,
 } from "./types.ts";
+import {
+  DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY,
+  INVOCATION_SCHEDULER_QUESTION_OVERFLOW,
+} from "./invocation-scheduler-policy.ts";
+import { DaemonEventIngress } from "./daemon-event-ingress.ts";
 
-export const DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY = 4;
+export { DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY } from "./invocation-scheduler-policy.ts";
 /**
  * Daemon turns are durable background work, so their default lifetime is
  * bounded by explicit cancellation rather than an arbitrary wall-clock
@@ -49,7 +55,7 @@ export const DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY = 4;
  */
 export const DEFAULT_INVOCATION_TASK_TIMEOUT_MS = 0;
 export const DEFAULT_INVOCATION_ABORT_DRAIN_MS = 1_000;
-const MAX_BLOCKING_QUESTION_OVERFLOW = 1;
+export { INVOCATION_SCHEDULER_QUESTION_OVERFLOW } from "./invocation-scheduler-policy.ts";
 
 interface ActiveInvocation {
   invocation: SparkInvocationRecord;
@@ -73,6 +79,8 @@ export interface SparkInvocationSchedulerOptions {
   executionAttemptGeneration?: number;
   /** Private fault-domain backend; defaults to the existing in-process executor. */
   executionAttemptAdapter?: ExecutionAttemptAdapter;
+  /** Shared daemon ingress for streamed executor event persistence. */
+  executionEventIngress?: ExecutionAttemptEventIngress;
   /**
    * Optional daemon-owned terminal commit. Production uses this to commit the
    * invocation outcome and its channel-delivery intent in one SQLite
@@ -106,6 +114,7 @@ export class SparkInvocationScheduler {
   private readonly executionAttemptStore: ExecutionAttemptStore;
   private readonly executionCapabilityRegistry: ExecutionCapabilityRegistry;
   private readonly executionAttemptGeneration: number;
+  private readonly executionEventIngress: ExecutionAttemptEventIngress;
   private readonly completeInvocation: NonNullable<
     SparkInvocationSchedulerOptions["completeInvocation"]
   >;
@@ -127,6 +136,7 @@ export class SparkInvocationScheduler {
     this.executionAttemptAdapter =
       options.executionAttemptAdapter ?? new InProcessExecutionAttemptAdapter();
     this.executionAttemptStore = options.executionAttemptStore;
+    this.executionEventIngress = options.executionEventIngress ?? new DaemonEventIngress();
     this.executionCapabilityRegistry = createInProcessExecutionCapabilityRegistry({
       currentAttempt: (invocationId) => this.executionAttemptStore.current(invocationId),
       owners: options.executionOwnerHandlers,
@@ -213,7 +223,7 @@ export class SparkInvocationScheduler {
     }
     if (
       this.active.size >= this.concurrency &&
-      this.activeQuestionCount() < MAX_BLOCKING_QUESTION_OVERFLOW
+      this.activeQuestionCount() < INVOCATION_SCHEDULER_QUESTION_OVERFLOW
     ) {
       const question = this.store.claimNext(
         this.workerId,
@@ -586,6 +596,7 @@ export class SparkInvocationScheduler {
           );
         },
         persistUsage: (usage) => recordUsage(usage as SparkDaemonTokenUsageObservation),
+        eventIngress: this.executionEventIngress,
       });
       const context = {
         invocationId: invocation.invocationId,
@@ -715,6 +726,7 @@ export class SparkInvocationScheduler {
       this.settleTokenUsageExecution(rootUsageExecution?.executionId, usageStatus);
     } finally {
       timeout.clear();
+      this.executionEventIngress.release(invocation.invocationId);
     }
   }
 

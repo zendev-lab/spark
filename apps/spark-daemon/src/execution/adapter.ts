@@ -85,8 +85,20 @@ export interface ExecutionAttemptSessionOptions {
   executeInProcess(): Promise<unknown>;
   persistEvent(event: unknown): void;
   persistUsage(usage: unknown): void;
+  eventIngress?: ExecutionAttemptEventIngress;
   now?: () => string;
   wait?: (delayMs: number, signal: AbortSignal) => Promise<void>;
+}
+
+/** Daemon-owner policy applied before an executor event reaches its durable attempt fence. */
+export interface ExecutionAttemptEventIngress {
+  record(
+    invocationId: string,
+    event: SparkJsonValue,
+    persist: (event: SparkJsonValue) => void,
+  ): void;
+  flush(invocationId: string): void;
+  release(invocationId: string): void;
 }
 
 /** One daemon-owned invocation execution, across one or more replacement epochs. */
@@ -94,6 +106,7 @@ export class ExecutionAttemptSession {
   readonly #options: ExecutionAttemptSessionOptions;
   #current: ExecutionAttemptRecord;
   #host: ExecutionAttemptHost;
+  #terminal = false;
 
   constructor(options: ExecutionAttemptSessionOptions) {
     this.#options = options;
@@ -133,6 +146,7 @@ export class ExecutionAttemptSession {
 
   #handleExecutionError(error: unknown): Promise<unknown> {
     if (!(error instanceof ExecutionAttemptCrashedError)) return Promise.reject(error);
+    this.#options.eventIngress?.flush(this.#current.invocationId);
     const crashed = this.#options.store.crash(
       this.#current,
       error.errorCode,
@@ -148,7 +162,7 @@ export class ExecutionAttemptSession {
   }
 
   recordEvent(event: unknown): void {
-    this.#host.recordEvent(event);
+    this.#recordEvent(this.#host, event);
   }
 
   recordUsage(usage: unknown): void {
@@ -168,7 +182,10 @@ export class ExecutionAttemptSession {
         `execution attempt already finished as ${current.status}`,
       );
     }
+    this.#options.eventIngress?.flush(this.#current.invocationId);
     this.#host.terminal(status, result);
+    this.#terminal = true;
+    this.#options.eventIngress?.release(this.#current.invocationId);
   }
 
   #parent(host: ExecutionAttemptHost): ExecutionAttemptParent {
@@ -176,7 +193,7 @@ export class ExecutionAttemptSession {
       signal: this.#options.signal,
       accepted: () => host.accept(),
       running: () => host.running(),
-      recordEvent: (event) => host.recordEvent(event),
+      recordEvent: (event) => this.#recordEvent(host, event),
       recordUsage: (usage) => host.recordUsage(usage),
       dispatchCapability: async (operation, request) =>
         await host.dispatchCapability(operation, request),
@@ -195,6 +212,24 @@ export class ExecutionAttemptSession {
       persistUsage: (usage) => this.#options.persistUsage(usage),
       now: () => this.#now(),
     });
+  }
+
+  #recordEvent(host: ExecutionAttemptHost, event: unknown): void {
+    if (this.#terminal) {
+      throw new ExecutionAttemptProtocolError(
+        "execution_attempt_terminal_committed",
+        "execution attempt already committed its terminal event boundary",
+      );
+    }
+    const serialized = host.prepareEvent(event);
+    const ingress = this.#options.eventIngress;
+    if (!ingress) {
+      host.recordPreparedEvent(serialized);
+      return;
+    }
+    ingress.record(this.#current.invocationId, serialized, (pending) =>
+      host.recordPreparedEvent(pending),
+    );
   }
 
   #waitUntilReady(): Promise<void> | undefined {
@@ -276,9 +311,13 @@ class ExecutionAttemptHost {
     this.#options.store.start(this.#options.attempt, this.#options.now());
   }
 
-  recordEvent(event: unknown): void {
+  prepareEvent(event: unknown): SparkJsonValue {
     this.#assertCurrent();
-    const serialized = cloneExecutionRequest(event) as SparkJsonValue;
+    return cloneExecutionRequest(event) as SparkJsonValue;
+  }
+
+  recordPreparedEvent(serialized: SparkJsonValue): void {
+    this.#assertCurrent();
     this.#eventSequence += 1;
     this.#fence.process(
       this.#envelope("event", {

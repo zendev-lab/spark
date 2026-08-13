@@ -17,7 +17,9 @@ import {
 } from "@zendev-lab/spark-update";
 import {
   defaultSparkDaemonConfig,
+  parseSparkDaemonInvocationConcurrency,
   readSparkDaemonConfig,
+  resolveSparkDaemonInvocationConcurrency,
   writeSparkDaemonConfig,
 } from "./config.js";
 import { createSparkDaemonUplinkControl } from "./daemon.js";
@@ -40,6 +42,7 @@ import { SparkDaemonLeaseTransferBroker } from "./core/lease-transfer.ts";
 import {
   SparkDaemonLifecycle,
   SparkDaemonInvocationRegistry,
+  INVOCATION_SCHEDULER_QUESTION_OVERFLOW,
   acquireSparkDaemonLock,
   legacySparkDaemonQueueRoot,
   type SparkDaemonDrainProgress,
@@ -210,6 +213,7 @@ export async function start(
     ? readSparkDaemonConfig(paths)
     : defaultSparkDaemonConfig();
   if (!existsSync(paths.configFile)) writeSparkDaemonConfig(paths, config);
+  const invocationConcurrency = resolveSparkDaemonInvocationConcurrency(config);
   const reproFormalEvidencePublicKeys = parseReproFormalEvidencePublicKeys(
     config.reproFormalEvidencePublicKeysJson,
   );
@@ -344,6 +348,11 @@ export async function start(
       onUplinkReconfigure: (serverUrl) => uplinkControl.requestReconfigure(serverUrl),
       onRestart: requestSafeRestart,
       getBuildFingerprint: () => runningBuildFingerprint,
+      getExecutionStatus: () => ({
+        backend: "in_process",
+        rootConcurrency: invocationConcurrency,
+        questionOverflow: INVOCATION_SCHEDULER_QUESTION_OVERFLOW,
+      }),
       getLifecycle: () => {
         const snapshot = lifecycle.snapshot();
         return snapshot.state === "draining" && drainProgress
@@ -626,6 +635,8 @@ export async function daemon(
       return 0;
     case "status":
       return await daemonStatus(paths, args, io);
+    case "configure":
+      return configureDaemon(paths, args, io);
     case "start":
       return await start(paths, { explicit: true, managed: false });
     case "stop":
@@ -641,8 +652,59 @@ export async function daemon(
     case "ask":
       return await daemonAsk(paths, args, io);
     default:
-      throw new Error("Usage: spark daemon <status|start|stop|restart|sync|logs|submit|ask>");
+      throw new Error(
+        "Usage: spark daemon <status|configure|start|stop|restart|sync|logs|submit|ask>",
+      );
   }
+}
+
+export function configureDaemon(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  args: string[],
+  io: CliIo,
+): number {
+  const flags = parseFlags(args);
+  const requestedConcurrency = flags["invocation-concurrency"];
+  const unknownFlags = Object.keys(flags).filter(
+    (key) => key !== "invocation-concurrency" && key !== "json",
+  );
+  if (
+    unknownFlags.length > 0 ||
+    positionalArgs(args).length > 0 ||
+    requestedConcurrency === undefined
+  ) {
+    throw new Error(
+      "Usage: spark daemon configure --invocation-concurrency <integer 1..64> [--json]",
+    );
+  }
+
+  const invocationConcurrency = parseSparkDaemonInvocationConcurrency(requestedConcurrency);
+  prepareSparkDaemonState(paths);
+  const current = readSparkDaemonConfig(paths);
+  writeSparkDaemonConfig(paths, { ...current, invocationConcurrency });
+  const restartRequired = readRunningPid(paths) !== null;
+  if (flags.json === "true") {
+    io.stdout.write(
+      `${JSON.stringify(
+        {
+          action: "configure",
+          invocationConcurrency,
+          appliesOn: "next_start",
+          restartRequired,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    return 0;
+  }
+  io.stdout.write(
+    `Configured Spark daemon root invocation concurrency to ${invocationConcurrency}.\n` +
+      (restartRequired
+        ? "Restart required: run `spark daemon restart` to apply this startup-only setting.\n"
+        : "This startup-only setting will apply the next time the daemon starts.\n"),
+  );
+  return 0;
 }
 
 export async function restart(
@@ -1261,6 +1323,9 @@ export async function daemonStatus(
       `  state db         ${status.stateDbPath}\n` +
       `  started          ${status.startedAt}\n` +
       `  registered       ${workspaceCount} workspaces across ${status.servers.length} servers\n` +
+      (status.execution
+        ? `  execution        ${status.execution.backend} · ${status.execution.rootConcurrency} root concurrency · ${status.execution.questionOverflow} question overflow\n`
+        : "") +
       `  invocations      ${status.invocations.queued} queued · ${status.invocations.running} running · ${status.invocations.succeeded} succeeded · ${status.invocations.failed} failed · ${status.invocations.cancelled} cancelled\n`,
   );
   for (const server of status.servers) {
@@ -1437,6 +1502,11 @@ export type DaemonStatus =
         failed: number;
         cancelled: number;
       };
+      execution?: {
+        backend: "in_process";
+        rootConcurrency: number;
+        questionOverflow: 1;
+      };
       lifecycle: SparkDaemonLifecycleSnapshot;
       build: {
         runningFingerprint?: string;
@@ -1484,6 +1554,7 @@ export async function buildDaemonStatus(
       startedAt: statSync(paths.pidFile).mtime.toISOString(),
       servers: status.servers,
       invocations: status.invocations,
+      ...(status.execution ? { execution: status.execution } : {}),
       lifecycle: status.lifecycle,
       build: {
         ...(status.buildFingerprint ? { runningFingerprint: status.buildFingerprint } : {}),

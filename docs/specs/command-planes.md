@@ -59,8 +59,10 @@ session id and only connection-local active-invocation routing is retained.
   `packages/spark-hub-coordination` and `packages/spark-hub-db` own
   cross-workspace coordination facts, but their projections are never execution
   truth for tasks, runs, artifacts, asks, reviews, or invocations. Their
-  `stateWriter: hub` inventory marker records the canonical storage owner, not
-  a second product owner.
+  inventory `stateWriter: hub` records the canonical storage boundary, not a
+  second product owner. See
+  [`architecture/packages.json`](../../architecture/packages.json) for the
+  authoritative inventory.
 - Transports and app adapters translate through owner APIs; they do not
   duplicate execution or policy, and they must not read or write another
   owner's store. Typed oRPC is the primary local control path; the 0.1.x

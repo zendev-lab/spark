@@ -18,6 +18,14 @@ executor through that adapter. A later bounded process backend may replace the
 adapter only if it preserves this contract and the same daemon-owned state
 machine.
 
+The daemon's startup-only `invocationConcurrency` setting bounds concurrent root
+invocations across distinct sessions. Its default is `4` and its valid range is
+`1..64`. One additional `session.question` invocation may run while those root
+slots are full so a blocking question can make progress. Daemon status reports
+the effective backend, root concurrency, and question overflow. This is an
+admission limit, not an operating-system worker count: changing it neither
+creates a persistent worker pool nor relaxes same-session serialization.
+
 ## Identity and envelope
 
 Every message carries:
@@ -88,6 +96,20 @@ frozen terminal from pending to committed. An acknowledgement is issued only aft
 durable owner write returns successfully; a token-usage write failure therefore leaves
 the attempt and invocation non-terminal for daemon recovery instead of treating the
 missing usage sequence as committed. The daemon commits a terminal state once.
+
+The daemon ingress coalesces only complete `daemon.view_event` snapshots whose
+view is a streaming assistant `session.message`. It durably writes the leading
+snapshot immediately and the latest trailing snapshot at intervals no longer
+than 100 milliseconds. The key includes invocation, Session, and message
+identity; replacement text does not need to extend the prior text. Every other
+event remains uncoalesced. Before persisting a tool, lifecycle, Artifact,
+interaction, error, done, cancellation, or other non-coalescible event, the
+daemon synchronously flushes pending snapshots for that invocation. Terminal,
+failure, cancellation, retry replacement, and cooperative restart-yield paths
+also flush and clear pending timers before closing the attempt fence, so no
+timer may append an event after terminal commit. This is daemon-owned ingress
+policy shared by in-process and future process attempts, not a `spark-turn`
+projection rule.
 
 ## Parent capabilities
 

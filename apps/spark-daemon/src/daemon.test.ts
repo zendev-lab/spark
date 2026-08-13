@@ -342,6 +342,93 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
+  it.each([
+    {
+      name: "configured five-slot capacity",
+      invocationConcurrency: 5,
+      schedulerConcurrency: undefined,
+      expected: 5,
+    },
+    {
+      name: "configured eight-slot capacity",
+      invocationConcurrency: 8,
+      schedulerConcurrency: undefined,
+      expected: 8,
+    },
+    {
+      name: "internal override precedence",
+      invocationConcurrency: 5,
+      schedulerConcurrency: 8,
+      expected: 8,
+    },
+  ])(
+    "applies $name at the production scheduler boundary",
+    async ({ invocationConcurrency, schedulerConcurrency, expected }) => {
+      const harness = makeHarness();
+      const shutdown = new AbortController();
+      const release = deferred<void>();
+      const started = new Set<string>();
+      const store = new SparkInvocationStore(harness.db);
+      const invocations = Array.from({ length: expected + 1 }, (_, index) =>
+        store.submit({
+          sessionId: `capacity-session-${index}`,
+          prompt: `capacity ${index}`,
+          task: {
+            type: "session.run",
+            sessionId: `capacity-session-${index}`,
+            prompt: `capacity ${index}`,
+          },
+        }),
+      );
+      let running: Promise<void> | undefined;
+      try {
+        running = startSparkDaemon({
+          paths: harness.paths,
+          sparkHome: harness.sparkHome,
+          db: harness.db,
+          config: {
+            installationId: "capacity-test",
+            displayName: "Capacity test daemon",
+            invocationConcurrency,
+          },
+          signal: shutdown.signal,
+          schedulerPollIntervalMs: 1,
+          ...(schedulerConcurrency !== undefined ? { schedulerConcurrency } : {}),
+          executeInvocation: async (task) => {
+            started.add(task.sessionId);
+            await release.promise;
+            return { assistantText: task.sessionId };
+          },
+        });
+
+        await vi.waitFor(() => expect(started.size).toBe(expected), {
+          timeout: 2_000,
+          interval: 5,
+        });
+        expect(store.counts()).toMatchObject({ running: expected, queued: 1 });
+
+        release.resolve(undefined);
+        await vi.waitFor(
+          () =>
+            expect(
+              invocations.every(
+                (invocation) => store.require(invocation.invocationId).status === "succeeded",
+              ),
+            ).toBe(true),
+          { timeout: 2_000, interval: 5 },
+        );
+        shutdown.abort();
+        await running;
+        running = undefined;
+      } finally {
+        release.resolve(undefined);
+        shutdown.abort();
+        await running?.catch(() => undefined);
+        harness.cleanup();
+      }
+    },
+  );
+
   it("publishes readiness only after startup initialization and cleans up on ready failure", async () => {
     const harness = makeHarness();
     mkdirSync(harness.paths.runtimeDir, { recursive: true });

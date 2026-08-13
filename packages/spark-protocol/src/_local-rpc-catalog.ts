@@ -822,6 +822,13 @@ export const sparkLocalRpcDaemonStatusResultSchema = z.object({
     oldestQueuedAt: isoDateTimeSchema.optional(),
     oldestRunningAt: isoDateTimeSchema.optional(),
   }),
+  execution: z
+    .object({
+      backend: z.literal("in_process"),
+      rootConcurrency: z.number().int().min(1).max(64),
+      questionOverflow: z.literal(1),
+    })
+    .optional(),
   channelDeliveries: z
     .object({
       pending: z.number().int().nonnegative(),
