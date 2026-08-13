@@ -6,6 +6,7 @@ import {
   type SparkNativeResponder,
   type SparkNativeSlashCommandMap,
   type SparkNativeStatusContext,
+  type SparkNativeTuiExitReason,
   type SparkNativeWorkspaceSessionState,
 } from "../native-tui.ts";
 import type { SparkKeybindings } from "../host/keybindings.ts";
@@ -17,6 +18,7 @@ export interface FakeSparkNativeTuiState {
   readonly renderRequests: boolean[];
   focused: unknown;
   exited: boolean;
+  exitReason?: SparkNativeTuiExitReason;
 }
 
 export interface SparkNativeTuiComponentSnapshot {
@@ -62,6 +64,7 @@ export interface SparkNativeTuiComponentHarnessOptions {
   theme?: SparkTheme;
   withOverlay?: boolean;
   workspaceSession?: SparkNativeWorkspaceSessionState;
+  prepareEditorInput?: (input: string, basePath: string) => Promise<string>;
 }
 
 export function createSparkNativeTuiComponentHarness(
@@ -110,8 +113,9 @@ export function createSparkNativeTuiComponentHarness(
   const app = new SparkNativeTuiApp(
     fakeTui,
     session,
-    () => {
+    (reason) => {
       state.exited = true;
+      state.exitReason = reason ?? "exit";
     },
     options,
   );

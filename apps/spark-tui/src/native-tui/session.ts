@@ -222,6 +222,23 @@ export class SparkNativeSession {
     );
   }
 
+  /**
+   * Reload may discard presentation state, but it must never discard a turn
+   * whose daemon admission or retry identity exists only in this process.
+   */
+  get canReloadSafely(): boolean {
+    if (!hasDaemonQueueCapabilities(this.responder)) {
+      return !this.processing && this.queuedFollowUps.length === 0;
+    }
+    return (
+      this.retryAdmissionInFlight === undefined &&
+      this.daemonCancellationRequests.size === 0 &&
+      this.failedAdmissions.length === 0 &&
+      this.lastRejectedDaemonInput === undefined &&
+      this.daemonObservations.every((observation) => observation.admission !== undefined)
+    );
+  }
+
   get queuedCount(): number {
     return this.queuedFollowUps.length + this.daemonQueuedCount();
   }

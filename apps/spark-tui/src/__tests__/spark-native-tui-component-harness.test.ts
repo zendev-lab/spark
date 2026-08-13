@@ -12,6 +12,7 @@ import {
   type SparkLoopStartRequest,
   type SparkInteractionRequest,
   type SparkThinkingLevel,
+  type SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
 import {
   SparkHostRuntime,
@@ -598,7 +599,7 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   assert.match(rendered, /Automation\s+- \/goal — Goal command/);
   assert.match(rendered, /Workflows\s+- \/workflow — Workflow command/);
   assert.match(rendered, /Sessions & context[\s\S]*?- \/sessions — Sessions command/);
-  assert.match(rendered, /\/reload — reload extension-owned slash command state/);
+  assert.match(rendered, /\/reload — restart the TUI process and keep this session/);
   assert.doesNotMatch(rendered, /\/workflow-pause/);
   assert.doesNotMatch(rendered, /\/tasks —/);
   assert.doesNotMatch(rendered, /\/workflows —/);
@@ -652,6 +653,194 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   assert.equal(await harness.submit("/workflow"), "command");
   assert.equal(workflowCalls, 1);
   assert.equal(harness.app.actionBarSnapshot(), undefined);
+});
+
+test("native TUI /reload exits with a process-reload intent", async () => {
+  const reload = createSparkNativeTuiComponentHarness();
+  assert.equal(await reload.submit("/reload"), "command");
+  assert.equal(reload.state.exited, true);
+  assert.equal(reload.state.exitReason, "reload");
+  assert.doesNotMatch(stripAnsi(reload.render()), /Restart Spark TUI to reload/u);
+
+  const exit = createSparkNativeTuiComponentHarness();
+  assert.equal(await exit.submit("/exit"), "command");
+  assert.equal(exit.state.exitReason, "exit");
+});
+
+test("native TUI blocks reload until a daemon admission identity is durable", async () => {
+  let acknowledgeAdmission!: (receipt: SparkTurnSubmitResult) => void;
+  const admission = new Promise<SparkTurnSubmitResult>((resolve) => {
+    acknowledgeAdmission = resolve;
+  });
+  const responder = Object.assign(async () => "", {
+    admit: async () => await admission,
+    observe: async () => await new Promise<string>(() => undefined),
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "cancelled" as const,
+      cancelRequested: true,
+    }),
+  }) satisfies SparkNativeResponder;
+  const harness = createSparkNativeTuiComponentHarness({ responder });
+
+  assert.equal(await harness.submit("prompt awaiting daemon admission"), "started");
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exited, false);
+  assert.match(stripAnsi(harness.render()), /command, submission, or retry is still settling/u);
+
+  acknowledgeAdmission({
+    invocationId: "inv_reload_admitted",
+    status: "running",
+    acceptedAt: "2026-08-12T00:00:00.000Z",
+  });
+  await harness.flush();
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exitReason, "reload");
+});
+
+test("native TUI blocks reload while editor input is still being prepared", async () => {
+  let finishPreparation!: (prepared: string) => void;
+  const preparation = new Promise<string>((resolve) => {
+    finishPreparation = resolve;
+  });
+  const responder = Object.assign(async () => "", {
+    admit: async () => ({
+      invocationId: "inv_reload_prepared",
+      status: "running" as const,
+      acceptedAt: "2026-08-12T00:00:00.000Z",
+    }),
+    observe: async () => await new Promise<string>(() => undefined),
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "cancelled" as const,
+      cancelRequested: true,
+    }),
+  }) satisfies SparkNativeResponder;
+  const harness = createSparkNativeTuiComponentHarness({
+    responder,
+    prepareEditorInput: async (input, basePath) => {
+      assert.equal(input, "@README.md delayed prompt");
+      assert.equal(basePath, process.cwd());
+      return await preparation;
+    },
+  });
+
+  const pendingSubmit = harness.app.submitInput("@README.md delayed prompt");
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exited, false);
+  assert.match(stripAnsi(harness.render()), /command, submission, or retry is still settling/u);
+
+  finishPreparation("expanded delayed prompt");
+  assert.equal(await pendingSubmit, "started");
+  await harness.flush();
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exitReason, "reload");
+});
+
+test("native TUI blocks reload while another slash command is still settling", async () => {
+  let finishCommand!: () => void;
+  const commandSettled = new Promise<void>((resolve) => {
+    finishCommand = resolve;
+  });
+  const harness = createSparkNativeTuiComponentHarness({
+    slashCommands: {
+      slow: {
+        description: "slow command",
+        handler: async () => {
+          await commandSettled;
+          return "slow command settled";
+        },
+      },
+    },
+  });
+
+  // Exercise the public/direct command entry used by workflow panels and
+  // action bars, not only the editor submission path.
+  const pendingCommand = harness.app.executeSlashCommand("/slow");
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exited, false);
+
+  finishCommand();
+  await pendingCommand;
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exitReason, "reload");
+});
+
+test("native TUI blocks reload while an async keybinding is still settling", async () => {
+  let finishKeybinding!: () => void;
+  const keybindingSettled = new Promise<void>((resolve) => {
+    finishKeybinding = resolve;
+  });
+  const keybindings = new SparkKeybindings();
+  keybindings.register({
+    id: "test.reload-delayed-keybinding",
+    defaultKey: "ctrl+y",
+    description: "Delay a host mutation",
+    handler: async () => await keybindingSettled,
+  });
+  const harness = createSparkNativeTuiComponentHarness({ keybindings });
+
+  await harness.press("\u0019");
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exited, false);
+
+  finishKeybinding();
+  await harness.flush();
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exitReason, "reload");
+});
+
+test("native TUI blocks reload through a presentation-owned interaction delivery", async () => {
+  let acknowledgeDelivery!: () => void;
+  const delivered = new Promise<void>((resolve) => {
+    acknowledgeDelivery = resolve;
+  });
+  const harness = createSparkNativeTuiComponentHarness();
+
+  const pendingDelivery = harness.app.withReloadBlocked(async () => await delivered);
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exited, false);
+  assert.match(stripAnsi(harness.render()), /command, submission, or retry is still settling/u);
+
+  acknowledgeDelivery();
+  await pendingDelivery;
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exitReason, "reload");
+});
+
+test("native TUI blocks reload until a daemon cancellation receipt settles", async () => {
+  let finishCancellation!: () => void;
+  const cancellationSettled = new Promise<void>((resolve) => {
+    finishCancellation = resolve;
+  });
+  const responder = Object.assign(async () => "", {
+    admit: async () => ({
+      invocationId: "inv_reload_cancel",
+      status: "running" as const,
+      acceptedAt: "2026-08-12T00:00:00.000Z",
+    }),
+    observe: async () => await new Promise<string>(() => undefined),
+    cancel: async (invocationId: string) => {
+      await cancellationSettled;
+      return {
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      };
+    },
+  }) satisfies SparkNativeResponder;
+  const harness = createSparkNativeTuiComponentHarness({ responder });
+
+  assert.equal(await harness.submit("cancel me before reload"), "started");
+  await harness.flush();
+  assert.equal(await harness.submit("/stop"), "command");
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exited, false);
+
+  finishCancellation();
+  await harness.flush();
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exitReason, "reload");
 });
 
 test("Spark native TUI /inbox reads durable session mail", async () => {
@@ -1561,7 +1750,7 @@ test("Spark native Pi parity slash commands are discoverable and route represent
   }
   assert.match(
     stripAnsi(harness.render()),
-    /\/reload — reload extension-owned slash command state/,
+    /\/reload — restart the TUI process and keep this session/,
   );
   assert.match(stripAnsi(harness.render()), /\/resume \[session-id\|path\] —/u);
   assert.match(stripAnsi(harness.render()), /\/fork —/u);

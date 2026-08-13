@@ -43,12 +43,30 @@ represent:
   exit;
 - input and rendered output cross the PTY master as terminal bytes;
 - PTY resize reaches the child dimensions and causes a full-width redraw;
+- `/reload` returns a process-reload intent only after raw mode is restored;
 - the configured exit chord terminates the child cleanly.
 
 Every fixture run receives a temporary `SPARK_HOME` and report path. Cleanup
 kills only the fixture process when needed and removes only its temporary root.
 The responder is local and deterministic, so this lane neither starts nor
 reuses a Spark daemon.
+
+## Process reload contract
+
+The app-local process test launches the real TUI supervisor and disposable
+workers without a daemon:
+
+```bash
+pnpm exec vp test run --config apps/spark-tui/vitest.config.ts \
+  apps/spark-tui/src/__tests__/spark-tui-process-supervisor.test.ts
+```
+
+It proves that `/reload`-style handoff replaces the worker PID, preserves the
+exact session target and supervisor cwd, requires both the private reload exit
+code and a bounded valid IPC message, exits workers that retain live handles,
+and escalates repeated termination signals without leaving an orphan. The
+component and CLI suites separately cover the slash exit intent, daemon
+admission guard, and lease-release-before-handoff ordering.
 
 ## Full app validation
 

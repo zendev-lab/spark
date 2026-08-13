@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   report("boot");
 
   try {
-    await runNativeSparkTui({
+    const reason = await runNativeSparkTui({
       responder: (input) =>
         scenario === "queue" && input === "hold"
           ? new Promise<string>(() => undefined)
@@ -70,7 +70,7 @@ async function main(): Promise<void> {
         }, 5);
       },
     });
-    report("stopped");
+    report("stopped", { reason });
   } finally {
     if (rawModeProbe) clearInterval(rawModeProbe);
     process.stdout.off("resize", recordResize);

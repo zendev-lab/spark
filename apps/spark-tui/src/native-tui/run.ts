@@ -13,11 +13,12 @@ import type {
   SparkNativeResponder,
   SparkNativeSlashCommandMap,
   SparkNativeStatusContext,
+  SparkNativeTuiExitReason,
   SparkNativeWorkspaceSessionState,
 } from "./types.ts";
 
 export interface SparkNativeSignalSource {
-  once(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
+  on(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
   off(signal: "SIGINT" | "SIGTERM", listener: () => void): unknown;
 }
 
@@ -38,17 +39,19 @@ export interface RunNativeSparkTuiOptions {
   configureApp?: (app: SparkNativeTuiApp, session: SparkNativeSession) => void | Promise<void>;
 }
 
-export async function runNativeSparkTui(input?: string | RunNativeSparkTuiOptions): Promise<void> {
+export async function runNativeSparkTui(
+  input?: string | RunNativeSparkTuiOptions,
+): Promise<SparkNativeTuiExitReason> {
   const options = typeof input === "string" ? { initialMessage: input } : (input ?? {});
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal, true);
   const session = new SparkNativeSession(options.responder);
 
-  let resolveDone: (() => void) | undefined;
-  const done = new Promise<void>((resolve) => {
+  let resolveDone: ((reason: SparkNativeTuiExitReason) => void) | undefined;
+  const done = new Promise<SparkNativeTuiExitReason>((resolve) => {
     resolveDone = resolve;
   });
-  const stop = () => resolveDone?.();
+  const stop = (reason: SparkNativeTuiExitReason = "exit") => resolveDone?.(reason);
 
   const app = new SparkNativeTuiApp(tui, session, stop, {
     slashCommands: options.slashCommands,
@@ -82,7 +85,7 @@ export async function runNativeSparkTui(input?: string | RunNativeSparkTuiOption
       queueMicrotask(() => void app.submitInput(options.initialMessage!));
     }
 
-    await done;
+    return await done;
   } finally {
     unregisterSignals();
     app.dispose();
@@ -100,8 +103,8 @@ export function registerSparkNativeTuiSignalHandlers(
   stop: () => void,
 ): () => void {
   const onSignal = () => stop();
-  source.once("SIGINT", onSignal);
-  source.once("SIGTERM", onSignal);
+  source.on("SIGINT", onSignal);
+  source.on("SIGTERM", onSignal);
   return () => {
     source.off("SIGINT", onSignal);
     source.off("SIGTERM", onSignal);

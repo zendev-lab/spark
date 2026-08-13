@@ -206,6 +206,7 @@ export interface SparkNativeTuiStrings {
   unknownCommand: (name: string) => string;
   commandFailed: (name: string, error: string) => string;
   noTurnRunning: string;
+  reloadBlocked: string;
   noRetryableFailure: string;
   exiting: string;
   hubPanelClosed: string;
@@ -429,6 +430,8 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     unknownCommand: (name) => `Unknown command: /${name}. Type /help for available commands.`,
     commandFailed: (name, error) => `Command /${name} failed: ${error}`,
     noTurnRunning: "No Spark turn is currently running.",
+    reloadBlocked:
+      "Reload was not started because a command, submission, or retry is still settling. Wait for it to finish or receive a durable daemon identity, or restore and resubmit rejected input first.",
     noRetryableFailure: "No retryable failed TUI invocation is available.",
     exiting: "Exiting Spark native TUI.",
     hubPanelClosed: "Local session inspector closed.",
@@ -545,6 +548,8 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     unknownCommand: (name) => `未知命令：/${name}。输入 /help 查看可用命令。`,
     commandFailed: (name, error) => `命令 /${name} 失败：${error}`,
     noTurnRunning: "当前没有运行中的 Spark turn。",
+    reloadBlocked:
+      "尚未开始 reload：有 command、submission 或 retry 仍在处理中。请等待其完成或获得持久 daemon 身份，或先恢复并重新提交被拒绝的输入。",
     noRetryableFailure: "当前没有可重试的失败 TUI invocation。",
     exiting: "正在退出 Spark native TUI。",
     hubPanelClosed: "本地会话检查器已关闭。",
@@ -681,7 +686,7 @@ const PI_PARITY_DESCRIPTIONS = {
   new: "start a new visible Spark transcript",
   compact: "summarize visible Spark transcript and clear older context",
   resume: "list or preview a persisted Spark session for resume",
-  reload: "reload Spark keybindings/settings guidance",
+  reload: "restart the TUI process and keep the current session",
 } as const;
 
 const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
@@ -699,7 +704,7 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
       `Spark trusts this workspace only through explicit config and tool-approval flows. cwd=${cwd}`,
     newTranscript: "Started a new Spark native transcript.",
     reload:
-      "Restart or relaunch the native Spark TUI to reload extensions, providers, skills, prompts, themes, and keybindings from disk.",
+      "Use /reload to replace the native Spark TUI process, reattach the current daemon session, and reload extensions, providers, skills, prompts, themes, and keybindings from disk.",
     settingsUsageThinking: (levels) => `Usage: /settings set thinking <${levels.join("|")}>`,
     thinkingLevelSet: (level) => `Spark thinking level set for this session: ${level}.`,
     settingsUsageTheme: (themes) =>
@@ -736,7 +741,7 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
     trust: (cwd) => `Spark 只通过显式 config 和 tool approval 信任此 workspace。cwd=${cwd}`,
     newTranscript: "已开始新的 Spark native transcript。",
     reload:
-      "重启或重新打开 native Spark TUI 以从磁盘重新加载 extensions/providers/skills/prompts/themes/keybindings。",
+      "使用 /reload 替换 native Spark TUI 进程、重新 attach 当前 daemon session，并从磁盘重新加载 extensions/providers/skills/prompts/themes/keybindings。",
     settingsUsageThinking: (levels) => `用法：/settings set thinking <${levels.join("|")}>`,
     thinkingLevelSet: (level) => `Thinking level 已设为 ${level}。`,
     settingsUsageTheme: (themes) =>

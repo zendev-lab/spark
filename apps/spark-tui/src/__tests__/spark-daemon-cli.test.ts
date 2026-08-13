@@ -36,11 +36,13 @@ import {
   parseSparkDaemonCliArgs,
   runSparkDaemonCliCommand,
   sparkDaemonServiceCliCommand,
+  type LocalTurnStreamResult,
   type ManagedSessionRegistryResult,
   type SparkDaemonClientOptions,
   type SparkDaemonTurnSubmitInput,
 } from "../cli/daemon.ts";
 import { SparkNativeAdmissionError } from "../native-tui.ts";
+import { SPARK_TUI_RELOAD_EXIT_CODE } from "../cli/process-supervisor.ts";
 
 function managedSessionFixture(input: {
   sessionId: string;
@@ -236,7 +238,14 @@ test("native TUI tool approvals are returned to the daemon-owned wait", async ()
     notify: () => undefined,
     client: {
       daemonStatus: async () => runningDaemonStatus(),
-      controlRequest: async (_method, params) => {
+      controlRequest: async (method, params) => {
+        if (method === "human.interaction.list") {
+          return pendingHumanInteractionList(
+            request.requestId,
+            "session-tool-approval",
+            "invocation-tool-approval",
+          );
+        }
         deliveries.push(params as Record<string, unknown>);
         return {
           outcome: "accepted",
@@ -296,7 +305,10 @@ test("native TUI refuses to settle an empty answered Ask as direct-user evidence
     notify: () => undefined,
     client: {
       daemonStatus: async () => runningDaemonStatus(),
-      controlRequest: async (_method, params) => {
+      controlRequest: async (method, params) => {
+        if (method === "human.interaction.list") {
+          return pendingHumanInteractionList(request.requestId, "session-empty");
+        }
         deliveries.push(params as Record<string, unknown>);
         return {
           outcome: "accepted",
@@ -353,7 +365,10 @@ test("a not-found Ask race retries the same answer without reopening the interac
       sleep: async (ms) => {
         sleeps.push(ms);
       },
-      controlRequest: async (_method, params) => {
+      controlRequest: async (method, params) => {
+        if (method === "human.interaction.list") {
+          return pendingHumanInteractionList(request.requestId, "session-race", "invocation-race");
+        }
         rpcAttempts += 1;
         responseIds.push((params as { humanResponseId: string }).humanResponseId);
         if (rpcAttempts === 1) {
@@ -420,7 +435,14 @@ test("a persistently undelivered Ask stays visible and reopens after bounded ret
       sleep: async (ms) => {
         sleeps.push(ms);
       },
-      controlRequest: async (_method, params) => {
+      controlRequest: async (method, params) => {
+        if (method === "human.interaction.list") {
+          return pendingHumanInteractionList(
+            request.requestId,
+            "session-reopen",
+            "invocation-reopen",
+          );
+        }
         rpcAttempts += 1;
         responseIds.push((params as { humanResponseId: string }).humanResponseId);
         if (rpcAttempts <= 4) {
@@ -444,6 +466,113 @@ test("a persistently undelivered Ask stays visible and reopens after bounded ret
   assert.deepEqual(sleeps, [50, 100, 200, 250]);
   assert.equal(new Set(responseIds).size, 1);
   assert.match(notifications[0] ?? "", /keeping it open for retry/u);
+});
+
+test("reattach skips a historical interaction request that the daemon no longer owns", async () => {
+  const request = parseSparkInteractionRequest({
+    requestId: "interaction-settled-before-reattach",
+    kind: "askFlow",
+    title: "Already answered",
+    questions: [{ id: "decision", prompt: "Continue?", options: [] }],
+  });
+  const event = parseSparkDaemonEvent({
+    type: "daemon.interaction.request",
+    source: "daemon",
+    sessionId: "session-settled-before-reattach",
+    invocationId: "invocation-settled-before-reattach",
+    request,
+    metadata: {},
+  });
+  if (event.type !== "daemon.interaction.request") throw new Error("expected interaction event");
+  let presentations = 0;
+  const methods: string[] = [];
+
+  await handleSparkDaemonHumanInteractionRequest(request, event, {
+    currentSessionId: "session-settled-before-reattach",
+    interaction: async () => {
+      presentations += 1;
+      throw new Error("settled historical Ask must not be presented");
+    },
+    notify: () => undefined,
+    client: {
+      daemonStatus: async () => runningDaemonStatus(),
+      controlRequest: async (method) => {
+        methods.push(method);
+        if (method === "human.interaction.list") return { waits: [] };
+        throw new Error(`unexpected mutation: ${method}`);
+      },
+    },
+  });
+
+  assert.equal(presentations, 0);
+  assert.deepEqual(methods, ["human.interaction.list"]);
+});
+
+test("Ask presentation waits for daemon owner recovery instead of replaying or dropping it", async () => {
+  const request = parseSparkInteractionRequest({
+    requestId: "interaction-owner-recovery",
+    kind: "askFlow",
+    title: "Wait for owner",
+    questions: [{ id: "decision", prompt: "Continue?", options: [] }],
+  });
+  const event = parseSparkDaemonEvent({
+    type: "daemon.interaction.request",
+    source: "daemon",
+    sessionId: "session-owner-recovery",
+    invocationId: "invocation-owner-recovery",
+    request,
+    metadata: {},
+  });
+  if (event.type !== "daemon.interaction.request") throw new Error("expected interaction event");
+  let listAttempts = 0;
+  let presentations = 0;
+  const sleeps: number[] = [];
+  const notifications: string[] = [];
+
+  await handleSparkDaemonHumanInteractionRequest(request, event, {
+    currentSessionId: "session-owner-recovery",
+    interaction: async () => {
+      presentations += 1;
+      return {
+        version: 1,
+        kind: "askFlow",
+        requestId: request.requestId,
+        status: "answered",
+        answers: { decision: "continue" },
+        nextAction: "resume",
+        metadata: {},
+      };
+    },
+    notify: (message) => notifications.push(message),
+    client: {
+      daemonStatus: async () => runningDaemonStatus(),
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+      controlRequest: async (method) => {
+        if (method === "human.interaction.list") {
+          listAttempts += 1;
+          if (listAttempts === 1) throw new Error("daemon owner temporarily unavailable");
+          return pendingHumanInteractionList(
+            request.requestId,
+            "session-owner-recovery",
+            "invocation-owner-recovery",
+          );
+        }
+        return {
+          outcome: "accepted",
+          retryable: false,
+          returnedToTool: true,
+          message: "Response accepted.",
+        };
+      },
+    },
+  });
+
+  assert.equal(listAttempts, 2);
+  assert.equal(presentations, 1);
+  assert.deepEqual(sleeps, [250]);
+  assert.match(notifications[0] ?? "", /waiting for daemon ownership/u);
 });
 
 test("parseSparkCliCommand keeps daemon commands outside spark-tui", () => {
@@ -1977,6 +2106,38 @@ function runningDaemonStatus() {
     observedAt: "2026-07-15T00:00:00.000Z",
     servers: [],
     invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
+  };
+}
+
+function pendingHumanInteractionList(
+  interactionRequestId: string,
+  sessionId: string,
+  invocationId = "",
+) {
+  const now = "2026-07-15T00:00:00.000Z";
+  return {
+    waits: [
+      {
+        humanRequestId: `hreq_${interactionRequestId}`,
+        interactionRequestId,
+        sessionId,
+        invocationId,
+        workspaceBindingId: "",
+        workspaceId: "",
+        projectId: "",
+        toolCallId: "",
+        delivery: "blocking",
+        kind: "ask_user",
+        title: "Pending interaction",
+        prompt: "Pending interaction",
+        questions: [],
+        context: {},
+        contextArtifactRefs: [],
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
   };
 }
 
@@ -3744,6 +3905,85 @@ test("attaches the selected workspace instead of launch cwd", async () => {
   }
 });
 
+test("native TUI reload releases leases before handing off the exact session", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-cli-reload-handoff-"));
+  try {
+    const base = createWorkspaceAttachTestDeps(dir, {
+      existingSessionIds: new Set(["same-session"]),
+    });
+    const order: string[] = [];
+    const daemonClient: SparkDaemonClientOptions = {
+      ...base.daemonClient,
+      workspaceClientRelease: async (paths, input) => {
+        order.push("workspace-release");
+        return await base.daemonClient.workspaceClientRelease!(paths, input);
+      },
+    };
+    let initialMessage: string | undefined;
+    let handoff: { sessionId: string; cwd: string; argv: string[] } | undefined;
+
+    const code = await runSparkCli(
+      [
+        "--session-id",
+        "same-session",
+        "--session-dir",
+        ".spark-home",
+        "--no-context-files",
+        "@README.md",
+        "initial",
+        "prompt",
+      ],
+      {
+        daemonClient,
+        createHostServices: base.createHostServices,
+        terminal: { stdinIsTTY: true, stdoutIsTTY: true },
+        launchCwd: dir,
+        attachSessionClient: async (_client, options) => ({
+          lease: {
+            workspaceId: options.workspaceId,
+            clientId: "session-client-reload",
+            sessionId: options.sessionId,
+            leaseFence: "session-fence-reload",
+          },
+          heartbeat: async () => undefined,
+          stop: async () => {
+            order.push("session-heartbeat-stop");
+            return null;
+          },
+        }),
+        runTui: async (input) => {
+          assert.equal(typeof input, "object");
+          assert.notEqual(input, null);
+          initialMessage = (input as Exclude<typeof input, string | undefined>).initialMessage;
+          order.push("tui-return");
+          return "reload";
+        },
+        onReload: (value) => {
+          assert.deepEqual(order, ["tui-return", "session-heartbeat-stop", "workspace-release"]);
+          order.push("handoff");
+          handoff = value;
+        },
+      },
+    );
+
+    assert.equal(code, SPARK_TUI_RELOAD_EXIT_CODE);
+    assert.equal(initialMessage, "initial prompt");
+    assert.deepEqual(order, [
+      "tui-return",
+      "session-heartbeat-stop",
+      "workspace-release",
+      "handoff",
+    ]);
+    assert.deepEqual(handoff, {
+      sessionId: "same-session",
+      cwd: process.cwd(),
+      argv: ["--session-dir", ".spark-home", "--no-context-files", "--session-id", "same-session"],
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("native TUI validates session creation before constructing host services", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-cli-session-create-order-"));
   try {
@@ -5171,6 +5411,124 @@ test("Spark native responder pauses event polling for a visible interaction hand
   await responder("ask me");
   assert.deepEqual(requests, ["ask-visible"]);
   assert.equal(interactionFinished, true);
+});
+
+test("running invocation reattach from cursor zero skips an already settled historical Ask", async () => {
+  const cursors: number[] = [];
+  const controlMethods: string[] = [];
+  let presentations = 0;
+  const client: SparkDaemonClientOptions = {
+    daemonStatus: async () => runningDaemonStatus(),
+    turnStream: async (_paths, input) => {
+      cursors.push(input.after ?? 0);
+      const events: LocalTurnStreamResult["events"] = [
+        {
+          invocationId: input.invocationId,
+          sequence: 1,
+          kind: "daemon.interaction.request",
+          payload: {
+            version: 1,
+            type: "daemon.interaction.request",
+            source: "daemon",
+            sessionId: "native-reattach-session",
+            invocationId: input.invocationId,
+            request: {
+              version: 1,
+              requestId: "ask-settled-before-reattach",
+              kind: "askFlow",
+              title: "Already answered",
+              mode: "decision",
+              questions: [
+                {
+                  id: "path",
+                  prompt: "Which path?",
+                  type: "single",
+                  required: true,
+                  defaultValues: [],
+                  options: [{ value: "a", label: "Path A" }],
+                },
+              ],
+              metadata: {},
+            },
+            metadata: {},
+          },
+          createdAt: "2026-08-12T00:00:00.000Z",
+        },
+        {
+          invocationId: input.invocationId,
+          sequence: 2,
+          kind: "daemon.interaction.response",
+          payload: {
+            version: 1,
+            type: "daemon.interaction.response",
+            source: "daemon",
+            sessionId: "native-reattach-session",
+            invocationId: input.invocationId,
+            response: {
+              version: 1,
+              requestId: "ask-settled-before-reattach",
+              kind: "askFlow",
+              status: "answered",
+              answers: { path: "a" },
+              nextAction: "resume",
+              metadata: {},
+            },
+            metadata: {},
+          },
+          createdAt: "2026-08-12T00:00:01.000Z",
+        },
+      ];
+      return {
+        invocationId: input.invocationId,
+        events,
+        nextCursor: 2,
+        hasMore: false,
+      };
+    },
+    turnStatus: async (_paths, input) => ({
+      invocationId: input.invocationId,
+      sessionId: "native-reattach-session",
+      status: "succeeded" as const,
+      createdAt: "2026-08-12T00:00:00.000Z",
+      updatedAt: "2026-08-12T00:00:01.000Z",
+      finishedAt: "2026-08-12T00:00:01.000Z",
+      eventCursor: 2,
+    }),
+    controlRequest: async (method) => {
+      controlMethods.push(method);
+      if (method === "human.interaction.list") return { waits: [] };
+      throw new Error(`historical Ask must not cause ${method}`);
+    },
+  };
+  const responder = createSparkDaemonNativeResponder(client, {
+    sessionId: "native-reattach-session",
+    waitForCompletion: false,
+    onInteractionRequest: async (request, event, context) => {
+      await handleSparkDaemonHumanInteractionRequest(request, event, {
+        currentSessionId: "native-reattach-session",
+        client,
+        ...(context.signal ? { signal: context.signal } : {}),
+        interaction: async () => {
+          presentations += 1;
+          throw new Error("settled historical Ask must not be presented");
+        },
+        notify: () => undefined,
+      });
+    },
+  });
+
+  await responder.observe(
+    {
+      invocationId: "inv_reattach_historical_ask",
+      status: "running",
+      acceptedAt: "2026-08-12T00:00:00.000Z",
+    },
+    { messages: [] },
+  );
+
+  assert.deepEqual(cursors, [0]);
+  assert.deepEqual(controlMethods, ["human.interaction.list"]);
+  assert.equal(presentations, 0);
 });
 
 test("Spark native responder retries completion status transport failures without resubmitting", async () => {
