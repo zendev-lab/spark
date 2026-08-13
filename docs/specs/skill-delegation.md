@@ -27,10 +27,9 @@ The public request is deliberately small:
   context items.
 - `timeoutMs` is bounded and does not make execution persistent.
 
-The public tool is currently active only in the `implement` operating surface
-because its Agent may execute commands or write files. The operating-mode
-refactor will rename this surface to `execute`; a planning Session must not use
-a write-capable Skill Agent to bypass its write boundary.
+The public tool is currently active only in the `execute` operating mode
+because its Agent may execute commands or write files. A `plan` Session must
+not use a write-capable Skill Agent to bypass its write boundary.
 
 The tool rejects unknown, disabled, `disable-model-invocation`, duplicate, or
 invalidly named Skills before starting an Agent. The combined Skill source is

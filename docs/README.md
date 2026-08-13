@@ -65,7 +65,6 @@ than copying another long list into Markdown.
 - [`operations/mutation-ce.md`](./operations/mutation-ce.md): leaf-package Stryker continuous evaluation, CI artifacts, interpretation, and hygiene.
 - [`operations/acp.md`](./operations/acp.md): ACP adapter ownership, protocol contract, and maintainer validation.
 - [`operations/mcp.md`](./operations/mcp.md): MCP adapter ownership, read-only boundary, and maintainer validation.
-- [`operations/durable-execution-notes.md`](./operations/durable-execution-notes.md): Inngest/Restate step-checkpoint notes mapped to workflows/loop/invocations.
 - [`operations/role-session-v6-migration.md`](./operations/role-session-v6-migration.md): Role/Session registry v6 admission migration, backup, and recovery procedure.
 - [`operations/releases.md`](./operations/releases.md): release artifacts, publication, updater compatibility gates, rollback invariants, and rollout policy.
 
