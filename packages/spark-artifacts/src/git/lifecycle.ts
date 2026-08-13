@@ -925,7 +925,6 @@ export function hardenedGitLifecycleEnvironment(
   const fixedPath = [
     dirname(gitCommand()),
     dirname(ghCommand()),
-    dirname(ghStackCommand()),
     "/usr/bin",
     "/bin",
     "/usr/sbin",
