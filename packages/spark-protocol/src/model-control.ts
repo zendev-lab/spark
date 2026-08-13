@@ -68,8 +68,8 @@ export const sparkSessionModelSelectionSchema = z.object({
 export const sparkModelControlSnapshotSchema = z.object({
   providers: z.array(sparkModelCatalogProviderSchema).default([]),
   defaultModel: sparkModelRefSchema.optional(),
-  /** Resolved user policy. Omitted only by older daemons. */
-  scopedModels: z.array(sparkModelRefSchema).optional(),
+  /** Models resolved from the user's enabledModels policy; absent on older daemons. */
+  enabledModels: z.array(sparkModelRefSchema).optional(),
   session: sparkSessionModelSelectionSchema.optional(),
   diagnostics: z.array(z.string()).default([]),
 });
@@ -87,7 +87,7 @@ export const sparkModelConnectivityFailureReasonSchema = z.enum([
   "timeout",
   "authentication-unavailable",
   "no-model",
-  "model-out-of-scope",
+  "model-not-enabled",
   "model-binding-unavailable",
   "route-unavailable",
   "model-call-failed",

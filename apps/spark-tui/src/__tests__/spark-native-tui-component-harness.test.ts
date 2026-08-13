@@ -1446,7 +1446,7 @@ test("Spark native Pi parity slash commands are discoverable and route represent
   await submitEditorText(harness, "/help commands");
   for (const command of [
     "settings",
-    "scoped-models",
+    "enabled-models",
     "export",
     "import",
     "share",
@@ -1490,7 +1490,7 @@ test("Spark native Pi parity slash commands are discoverable and route represent
   await submitEditorText(harness, "/settings set thinking high");
   assert.match(stripAnsi(harness.render()), /thinking level set.*high/i);
 
-  await submitEditorText(harness, "/scoped-models inspect");
+  await submitEditorText(harness, "/enabled-models inspect");
   assert.match(stripAnsi(harness.render()), /fake/);
   assert.match(stripAnsi(harness.render()), /model-a/);
 
@@ -1842,7 +1842,7 @@ test("bare catalog slashes enter their final destinations in one step", async ()
   assert.deepEqual(calls.at(-1), { name: "settings", args: "set thinking minimal" });
   assert.equal(harness.session.messages.length, messageCount);
 
-  await harness.submit("/scoped-models");
+  await harness.submit("/enabled-models");
   assert.deepEqual(calls.at(-1), { name: "model", args: "" });
   assert.equal(harness.app.actionBarSnapshot(), undefined);
   assert.equal(harness.session.messages.length, messageCount);

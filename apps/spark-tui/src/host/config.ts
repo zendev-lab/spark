@@ -26,9 +26,9 @@ import { dirname } from "node:path";
 
 import {
   DEFAULT_SPARK_PROVIDER_SPECS,
-  DEFAULT_SPARK_SCOPED_MODEL_PATTERNS,
+  DEFAULT_SPARK_ENABLED_MODEL_PATTERNS,
   mergeSparkProviderSpecs,
-  normalizeSparkScopedModelPatterns,
+  normalizeSparkEnabledModelPatterns,
 } from "@zendev-lab/spark-ai/control";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import { DEFAULT_SPARK_THINKING_LEVEL } from "@zendev-lab/spark-protocol";
@@ -99,7 +99,7 @@ export const DEFAULT_SPARK_CONFIG: SparkConfig = {
   extensions: [...DEFAULT_SPARK_EXTENSION_SPECS],
   extensionProfileVersion: CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
   providers: [...DEFAULT_SPARK_PROVIDER_SPECS],
-  enabledModels: [...DEFAULT_SPARK_SCOPED_MODEL_PATTERNS],
+  enabledModels: [...DEFAULT_SPARK_ENABLED_MODEL_PATTERNS],
   skills: [],
   promptTemplates: [],
   themes: [],
@@ -152,7 +152,7 @@ export function mergeWithDefault(raw: unknown): SparkConfig {
     ),
     extensionProfileVersion: CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
     providers: mergeSparkProviderSpecs(stringArray(fields.providers, [])),
-    enabledModels: normalizeSparkScopedModelPatterns(
+    enabledModels: normalizeSparkEnabledModelPatterns(
       stringArray(fields.enabledModels, DEFAULT_SPARK_CONFIG.enabledModels ?? []),
     ),
     skills: stringArray(fields.skills, DEFAULT_SPARK_CONFIG.skills ?? []),

@@ -147,16 +147,16 @@ test("user enabledModels replaces defaults and explicit empty scope permits no m
     const control = createSparkProviderControl({ sparkHome, env: {} });
 
     const selected = await control.snapshot();
-    assert.deepEqual(selected.scopedModelIds, ["openai-codex/gpt-5.6-luna"]);
-    assert.ok(selected.models.length > selected.scopedModelIds.length);
+    assert.deepEqual(selected.enabledModelIds, ["openai-codex/gpt-5.6-luna"]);
+    assert.ok(selected.models.length > selected.enabledModelIds.length);
     await assert.rejects(
       control.setDefaultModel("openai-codex/gpt-5.6-sol"),
-      /outside configured enabledModels/u,
+      /not configured in enabledModels/u,
     );
 
     await writeFile(configPath, `${JSON.stringify({ enabledModels: [] })}\n`);
     const empty = await control.snapshot();
-    assert.deepEqual(empty.scopedModelIds, []);
+    assert.deepEqual(empty.enabledModelIds, []);
     assert.ok(empty.models.length > 0);
   });
 });

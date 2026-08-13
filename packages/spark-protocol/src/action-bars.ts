@@ -163,17 +163,15 @@ const thinkingActionBar = actionBar({
   id: "thinking",
   title: "Thinking level",
   description: "Choose the reasoning effort for subsequent turns.",
-  actions: [
-    ...sparkThinkingLevelOptions.map((thinkingLevel) =>
-      action(
-        `thinking-${thinkingLevel}`,
-        thinkingLevel,
-        "thinking.select",
-        thinkingLevel === DEFAULT_SPARK_THINKING_LEVEL ? "primary" : undefined,
-        { thinkingLevel },
-      ),
+  actions: sparkThinkingLevelOptions.map((thinkingLevel) =>
+    action(
+      `thinking-${thinkingLevel}`,
+      thinkingLevel,
+      "thinking.select",
+      thinkingLevel === DEFAULT_SPARK_THINKING_LEVEL ? "primary" : undefined,
+      { thinkingLevel },
     ),
-  ],
+  ),
 });
 
 const settingsActionBar = actionBar({
@@ -208,8 +206,8 @@ const queueActionBar = actionBar({
   ],
 });
 
-const scopedModelsActionBar = actionBar({
-  id: "scoped-models",
+const enabledModelsActionBar = actionBar({
+  id: "enabled-models",
   title: "Available models",
   actions: [
     action("select-model", "Choose model", "model.select", "primary"),
@@ -291,7 +289,7 @@ export const sparkSlashCommandDescriptors: readonly SparkSlashCommandDescriptor[
   slashCommand("settings", settingsActionBar),
   slashCommand("status", statusActionBar),
   slashCommand("queue", queueActionBar),
-  slashCommand("scoped-models", scopedModelsActionBar),
+  slashCommand("enabled-models", enabledModelsActionBar),
   slashCommand("plan", planModeActionBar),
   slashCommand("execute", executeModeActionBar),
   slashCommand("fleet", fleetModeActionBar),

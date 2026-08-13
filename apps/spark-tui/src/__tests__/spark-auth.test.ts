@@ -290,10 +290,10 @@ test("SparkProviderAuthResolver resolves env and stored API keys without status 
   });
 });
 
-test("native /scoped-models renders the daemon resolved scope instead of local catalog state", async () => {
+test("native /enabled-models renders the daemon resolved scope instead of local catalog state", async () => {
   const snapshot: SparkModelControlSnapshot = {
     defaultModel: { providerName: "provider-a", modelId: "model-a" },
-    scopedModels: [{ providerName: "provider-a", modelId: "model-b" }],
+    enabledModels: [{ providerName: "provider-a", modelId: "model-b" }],
     diagnostics: [],
     providers: [
       {
@@ -319,12 +319,12 @@ test("native /scoped-models renders the daemon resolved scope instead of local c
   };
   const services = {
     modelSelector: {
-      getPickerState: () => assert.fail("daemon-backed /scoped-models must not read local scope"),
+      getPickerState: () => assert.fail("daemon-backed /enabled-models must not read local scope"),
     },
   } as unknown as SparkCliHostServices;
   const commands = createSparkPiParitySlashCommands(services, daemonAuthClient(snapshot));
 
-  const rendered = await commands["scoped-models"]!.handler("", {
+  const rendered = await commands["enabled-models"]!.handler("", {
     app: {} as never,
     session: new SparkNativeSession(),
     exit: () => undefined,
