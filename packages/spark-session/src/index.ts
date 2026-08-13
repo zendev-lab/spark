@@ -5,8 +5,10 @@ export {
   defaultSparkSessionRegistryRoot,
   type ArchiveSparkSessionInput,
   type BindSparkSessionInput,
+  type CloseSparkSessionInput,
   type CreateSparkSessionInput,
   type EnsureSparkSideThreadInput,
+  type EnsureSparkDriverGenerationSessionInput,
   type ResetSparkSideThreadInput,
   type ConfigureSparkSideThreadInput,
   type RecordSparkSessionRunInput,
@@ -18,7 +20,6 @@ export {
   type SparkSessionRegistryOptions,
   type SparkSessionUnboundPolicy,
 } from "./registry.ts";
-export { migrateSparkSessionRecordToV5 } from "./registry.ts";
 export {
   loadSparkSessionMediaChunk,
   loadSparkSessionPromptHistory,
@@ -33,12 +34,12 @@ export {
   type SparkSessionSnapshotTail,
 } from "./snapshot.ts";
 export {
-  executePersistentSessionCall,
+  executeSessionCall,
   executeSparkSessionAction,
   type ExecuteSparkSessionActionInput,
   type SparkSessionAction,
   type SparkSessionActionDeps,
-  type SparkSessionProjection,
+  type SparkSessionToolProjection,
   type SparkSessionSurface,
   type SparkSessionToolContext,
 } from "./action-tool.ts";

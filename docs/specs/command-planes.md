@@ -65,14 +65,28 @@ session id and only connection-local active-invocation routing is retained.
   `packages/spark-hub-coordination` and `packages/spark-hub-db` own
   cross-workspace coordination facts, but their projections are never execution
   truth for tasks, runs, artifacts, asks, reviews, or invocations. Their
-  `stateWriter: hub` inventory marker records the canonical storage owner, not
-  a second product owner.
+  inventory `stateWriter: hub` records the canonical storage boundary, not a
+  second product owner. See
+  [`architecture/packages.json`](../../architecture/packages.json) for the
+  authoritative inventory.
 - Transports and app adapters translate through owner APIs; they do not
   duplicate execution or policy, and they must not read or write another
   owner's store. Typed oRPC is the primary local control path; the 0.1.x
   `daemon.sock` adapter only preserves N-1 wire compatibility and receives no
   new product behavior. Hub may cache or project Spark state, but it must not
   mutate local daemon stores directly.
+- Hub daemon settings select a runtime through the active workspace lease and
+  cross the authenticated runtime WebSocket. Invocation diagnostics must never
+  fall back to a Hub-host `daemon.sock`. Model settings may use Hub's latest
+  daemon projection for first paint; an explicit refresh asks the owning daemon
+  for a new catalog.
+- Provider authentication state means only that a credential reference is
+  configured. A model connectivity check is one bounded, tool-free daemon
+  request with no session or invocation persistence, and returns only a stable,
+  credential-free result code plus latency. It is the explicit proof that the
+  selected model route can answer.
+- `/settings/update` projects the Hub installation's own updater state. It must
+  not imply that connected daemon installations share that updater or handoff.
 - Reusable capability and runtime behavior belongs in `packages/spark-*`;
   executable apps retain bootstrap, presentation, and bounded compatibility
   glue. Boundary regressions are enforced by the dependency-cruiser stage of
@@ -82,7 +96,7 @@ session id and only connection-local active-invocation routing is retained.
 
 | Domain | Authoritative owner | Adapters and projections |
 | --- | --- | --- |
-| persistent sessions, invocations, Side Threads, channel execution | `apps/spark-daemon` using the shared registry/store contracts | local RPC, runtime WebSocket, TUI, Hub, ACP, channel transports |
+| Session registry/lifecycle, Invocations, Side Threads, channel execution | `apps/spark-daemon` using the shared registry/store contracts | local RPC, runtime WebSocket, TUI, Hub, ACP, channel transports |
 | autonomous goal/loop/repro/execute/workflow cadence, retry, and recovery | `apps/spark-daemon`; capability packages provide registered success/retry policy | TUI, Hub, and compatible hosts send controls and render `loop.update` |
 | model/tool turn execution and effect policy | `spark-turn` and `spark-host` | daemon and native host runners provide session context |
 | cross-surface schemas and semantics | `spark-protocol` | each transport performs validation and translation only |
@@ -213,17 +227,12 @@ placement tests are the executable contract for rejected shapes.
 Session identity and channel policy are specified in
 [`sessions-and-channels.md`](./sessions-and-channels.md).
 
-## Workspace main sessions and delegation
+## Workspace Administrator Sessions and delegation
 
-Each active daemon workspace has exactly one protected `workspace_main` session
-binding with a monotonic generation. Registration, daemon restart, and delivery
-admission all ensure the binding idempotently. Ordinary archive operations
-cannot remove it. A recovered binding gets a new generation and is projected to
-Hub; an ordinary session cannot create or settle a delegation by claiming the
-same workspace route.
+Each daemon Workspace has exactly one protected, Workspace-owned persistent Administrator Session. Registration, daemon restart, attach, delivery admission, and Hub delegation all reconcile it idempotently. Archive, close, delete, and retention cannot mutate it. Hub keeps the Workspace in provisioning until the daemon projects the Administrator binding; an ordinary Session cannot create or settle a delegation by claiming the same Workspace route.
 
 All same-Hub workspaces form the v1 routing trust domain. This permits delivery
-only: target main sessions still apply normal daemon tool permissions, Ask
+only: target Administrator Sessions still apply normal daemon tool permissions, Ask
 policy, and external-side-effect policy, and may ask or reject. Cross-Hub
 federation does not inherit same-Hub trust.
 

@@ -10,6 +10,7 @@ export const sparkRoleCapabilityOptions = [
   "exec",
   "net",
   "interact",
+  "manage",
   "spawn",
 ] as const;
 export const sparkRoleCapabilitySchema = z.enum(sparkRoleCapabilityOptions);
@@ -25,8 +26,15 @@ export const sparkRoleModelTypeSchema = z
   .max(64)
   .regex(/^[a-z][a-z0-9._-]*$/u, "modelType must be a lowercase semantic key");
 
-export const sparkRoleInstantiationOptions = ["persistent", "owned"] as const;
-export const sparkRoleInstantiationSchema = z.enum(sparkRoleInstantiationOptions);
+export const sparkRoleToolEffectOptions = [
+  "read",
+  "network_read",
+  "control",
+  "local_write",
+  "external_write",
+  "destructive",
+] as const;
+export const sparkRoleToolEffectSchema = z.enum(sparkRoleToolEffectOptions);
 
 export const sparkRoleOriginSchema = z
   .object({
@@ -34,7 +42,7 @@ export const sparkRoleOriginSchema = z
     sourcePath: z.string().min(1).optional(),
     note: z.string().min(1).optional(),
   })
-  .passthrough();
+  .strict();
 
 /** JSON-friendly reusable role definition shared by every execution surface. */
 export const sparkRoleSpecSchema = z
@@ -42,13 +50,13 @@ export const sparkRoleSpecSchema = z
     ref: z.string().regex(/^role:.+/u),
     id: z.string().trim().min(1),
     source: sparkRoleSourceSchema,
-    revision: z.number().int().positive(),
+    revision: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
     description: z.string().trim().min(1),
     systemPrompt: z.string().trim().min(1),
     capabilities: z.array(sparkRoleCapabilitySchema).max(sparkRoleCapabilityOptions.length),
     allowedTools: z.array(z.string().trim().min(1)).optional(),
+    allowedToolEffects: z.array(sparkRoleToolEffectSchema).optional(),
     modelType: sparkRoleModelTypeSchema,
-    instantiation: sparkRoleInstantiationSchema,
     origin: sparkRoleOriginSchema.optional(),
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,
@@ -62,12 +70,12 @@ export const sparkRoleSpecSchema = z
       });
     }
   })
-  .passthrough();
+  .strict();
 
 export type SparkRoleSource = z.infer<typeof sparkRoleSourceSchema>;
 export type SparkRoleCapability = z.infer<typeof sparkRoleCapabilitySchema>;
 export type SparkRoleModelType = z.infer<typeof sparkRoleModelTypeSchema>;
-export type SparkRoleInstantiation = z.infer<typeof sparkRoleInstantiationSchema>;
+export type SparkRoleToolEffect = z.infer<typeof sparkRoleToolEffectSchema>;
 export type SparkRoleOrigin = z.infer<typeof sparkRoleOriginSchema>;
 export type SparkRoleSpec = z.infer<typeof sparkRoleSpecSchema>;
 

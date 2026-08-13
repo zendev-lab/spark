@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { test } from "vitest";
+import type { ExtensionRoleRunRequest } from "@zendev-lab/spark-core";
 
 import {
   ISOLATED_NATIVE_EXECUTOR_ABORT_MESSAGE,
@@ -14,13 +15,15 @@ import {
   serializeIsolatedExecutorRequest,
 } from "./isolated-native-executor.ts";
 
-function request() {
+function request(): ExtensionRoleRunRequest {
   return {
     role: {
       ref: "role:builtin-reviewer" as const,
       id: "reviewer",
+      revision: "builtin-reviewer-v1",
       systemPrompt: "review",
       allowedTools: ["evidence"],
+      allowedToolEffects: ["read"],
     },
     instruction: {
       roleRef: "role:builtin-reviewer" as const,
@@ -30,6 +33,7 @@ function request() {
     record: {
       ref: "run:isolated-test" as const,
       roleRef: "role:builtin-reviewer" as const,
+      roleRevision: "builtin-reviewer-v1",
       instruction: "review exact revision",
       status: "queued" as const,
     },

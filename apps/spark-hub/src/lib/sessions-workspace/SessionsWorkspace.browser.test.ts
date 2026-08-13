@@ -3,6 +3,7 @@ import { page } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { hubDictionaries } from "@zendev-lab/spark-i18n/hub";
+import { parseSparkSessionProjection } from "@zendev-lab/spark-protocol";
 import SessionDetailsPanel from "./SessionDetailsPanel.svelte";
 import SessionStageHeader from "./SessionStageHeader.svelte";
 import type { SessionConversationHost } from "./conversation-host";
@@ -36,15 +37,27 @@ describe("SessionsWorkspace browser smoke", () => {
 
   it("projects the daemon-owned managed Task execution chain", async () => {
     const screen = await render(SessionDetailsPanel, {
-      selected: {
+      selected: parseSparkSessionProjection({
         sessionId: "sess_task",
-        status: "running",
-        role: "role:builtin-explorer",
+        scope: { kind: "workspace", workspaceId: "ws_repro" },
+        lifecycle: "open",
+        placement: "active",
+        activity: "running",
+        lifetime: "scoped",
+        roleBinding: { kind: "explicit", roleRef: "role:builtin-explorer" },
+        incarnation: 1,
+        stateBinding: { kind: "task", ref: "run:trace-reference-1" },
+        visibility: "owner",
+        retention: "discard_on_close",
+        purpose: "task_execution",
+        bindings: [],
+        tags: [],
+        archiveHistory: [],
         createdAt: "2026-07-29T00:00:00.000Z",
         updatedAt: "2026-07-29T00:00:01.000Z",
-        relation: {
-          kind: "task_execution",
-          ownerSessionId: "sess_owner",
+        owner: {
+          kind: "task_run",
+          supervisorSessionId: "sess_owner",
           projectRef: "proj:repro",
           taskRef: "task:trace-reference",
           subgoalRef: "subgoal:trace-reference",
@@ -54,7 +67,7 @@ describe("SessionsWorkspace browser smoke", () => {
           jobId: "job-trace-reference",
           attempt: 2,
         },
-      },
+      }),
       messages: hubDictionaries.en.sessions,
       statusLabel: (status: string) => status,
       sessionScopeLabel: "Workspace",
@@ -83,10 +96,26 @@ describe("SessionsWorkspace browser smoke", () => {
       render: () => "<div>DETAILS</div>",
     }));
     const host = {
-      selected: {
+      selected: parseSparkSessionProjection({
         sessionId: "session-browser",
-        status: "idle",
-      },
+        scope: { kind: "workspace", workspaceId: "workspace-browser" },
+        lifecycle: "open",
+        placement: "active",
+        activity: "idle",
+        lifetime: "scoped",
+        roleBinding: { kind: "none" },
+        owner: { kind: "session", supervisorSessionId: "session-administrator" },
+        incarnation: 1,
+        stateBinding: { kind: "session", ref: "session-administrator" },
+        visibility: "public",
+        retention: "retain",
+        purpose: "interactive",
+        bindings: [],
+        tags: [],
+        archiveHistory: [],
+        createdAt: "2026-08-04T00:00:00.000Z",
+        updatedAt: "2026-08-04T00:00:00.000Z",
+      }),
       sessionPresentation: () => ({ title: "Browser session", channel: null }),
       sessionScopeLabel: () => "/workspace",
       copy: {

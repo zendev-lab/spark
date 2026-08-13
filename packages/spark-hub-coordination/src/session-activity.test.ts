@@ -49,9 +49,10 @@ function projectRuntimeSession(
 ) {
   db.prepare(
     `INSERT OR IGNORE INTO runtime_session_projections
-      (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id, status,
+      (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
+       lifecycle, placement, activity, lifetime, owner_kind,
        record_json, projected_at)
-     VALUES (?, ?, 'workspace', ?, ?, 'ready', ?, ?)`,
+     VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'scoped', 'session', ?, ?)`,
   ).run(
     input.runtimeId,
     input.sessionId,
@@ -60,10 +61,15 @@ function projectRuntimeSession(
     JSON.stringify({
       sessionId: input.sessionId,
       scope: { kind: "workspace", workspaceId: input.workspaceId },
-      workspaceId: input.workspaceId,
-      title: input.sessionId,
-      status: "ready",
+      name: input.sessionId,
+      lifecycle: "open",
+      placement: "active",
+      lifetime: "scoped",
+      roleBinding: { kind: "none" },
+      owner: { kind: "session", supervisorSessionId: "sess_administrator" },
       bindings: [],
+      tags: [],
+      archiveHistory: [],
       createdAt: input.createdAt,
       updatedAt: input.createdAt,
     }),
@@ -668,9 +674,10 @@ describe("session activity projection", () => {
     const createdAt = "2026-07-09T00:01:00.000Z";
     db.prepare(
       `INSERT INTO runtime_session_projections
-        (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id, status,
+        (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
+         lifecycle, placement, activity, lifetime, owner_kind,
          record_json, projected_at)
-       VALUES (?, ?, 'workspace', ?, ?, 'ready', ?, ?)`,
+       VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'scoped', 'session', ?, ?)`,
     ).run(
       runtimeId,
       sessionId,
@@ -679,10 +686,15 @@ describe("session activity projection", () => {
       JSON.stringify({
         sessionId,
         scope: { kind: "workspace", workspaceId: workspace.id },
-        workspaceId: workspace.id,
-        title: "Direct failure",
-        status: "ready",
+        name: "Direct failure",
+        lifecycle: "open",
+        placement: "active",
+        lifetime: "scoped",
+        roleBinding: { kind: "none" },
+        owner: { kind: "session", supervisorSessionId: "sess_administrator" },
         bindings: [],
+        tags: [],
+        archiveHistory: [],
         createdAt,
         updatedAt: createdAt,
       }),

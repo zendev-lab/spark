@@ -45,6 +45,22 @@ spark daemon status --json
 spark hub
 ```
 
+## Settings and access scope
+
+A Hub owner sees control-plane, active-workspace, and connected-daemon settings
+together in the console. A workspace-scoped browser session sees only that
+workspace's settings; control-plane and daemon-wide settings are omitted.
+
+Daemon settings are routed through the active workspace lease. The Models page
+uses the latest Hub projection for a fast first paint, offers an explicit daemon
+refresh, and labels a provider as connected only when credentials are present.
+Use **Quick test** to send one bounded, tool-free request to the selected model
+and verify that it can actually answer. Invocation diagnostics use the same
+runtime connection and do not require a daemon socket on the Hub host.
+
+**Hub updates** reports only the Hub installation. Each connected daemon is
+updated independently on the machine where it runs.
+
 ## Local and remote access
 
 Loopback use follows the local owner flow. For a non-loopback Hub, prefer an

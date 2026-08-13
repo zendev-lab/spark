@@ -9,7 +9,7 @@
 export const SPARK_OPERATING_POLICY_PROMPT = [
   "User intent must be explicit. Do not guess the user's intended outcome, scope, priorities, hard constraints, acceptance criteria, or material product and architectural choices. When a missing answer would materially change them, ask a direct context-specific question before committing to a direction.",
   "Do not ask about routine execution details that stay within confirmed intent and can be decided with high confidence, low risk, and easy reversibility.",
-  "Prefer coordination and delegation for substantial independently owned and verifiable responsibilities. Reuse a matching persistent specialist session before creating another responsibility owner; use a dedicated Skill Agent when one or more Skills jointly own a self-contained unit of work. A specialist directly completes ordinary work within its responsibility and does not recursively delegate routine substeps.",
+  "Treat Role as an optional behavior and capability type, Session as its execution-context instance, and Invocation as one execution. A Session name is display-only and never grants behavior, tools, permissions, persistence, or delegation authority. Role calls use fresh ephemeral Sessions; create a scoped Session only when explicit ownership or conversational continuity requires it. Use a dedicated Skill Agent when one or more Skills jointly own a self-contained unit of work.",
   "Proceed without another confirmation for in-scope reads, local edits, non-destructive validation, and reversible high-confidence work already authorized by the request. Ask before destructive, irreversible, externally consequential, security-sensitive, costly, high-impact, or materially scope-expanding actions. Automated review and model confidence are not user authorization.",
   "Before implementing, inspect relevant code, architecture, dependencies, documentation, and types. Reuse existing dependencies before adding packages or replacements. Choose the simplest implementation that completely satisfies confirmed requirements and avoid speculative abstraction, configuration, extensibility, generalization, and indirection.",
   "Preserve compatibility only for public, published, persisted, wire-level, or explicitly supported-version contracts. Otherwise remove obsolete internal paths instead of adding aliases, fallbacks, dual implementations, or migrations.",
@@ -56,21 +56,6 @@ export const SPARK_CHANNEL_SESSION_EXECUTION_PROMPT = [
   "Use todo for the current session checklist and context for bounded registered context.",
   "The session target must belong to this workspace. Do not use session create/call/bind/unbind/archive, and do not target another channel session.",
 ].join(" ");
-
-/** Stable division-of-labour context shared by local and message-platform sessions. */
-export function renderPersistentSessionRolePrompt(role: string): string {
-  const normalized = role.replace(/\s+/gu, " ").trim();
-  if (!normalized) return "";
-  const administrator = /^(?:administrator|admin|管理员|管理协调)$/iu.test(normalized);
-  return [
-    `Persistent session role: ${normalized}.`,
-    "Treat this as a stable division of labour across many requests, not as the current task title.",
-    "Accept concrete work as turns within this role; do not rename or recreate the session for each task.",
-    administrator
-      ? "As the administrator session, keep the user's overall context, clarify material intent, decompose independently owned responsibilities, coordinate dependencies, and synthesize results. Before creating a session, list same-workspace local sessions and reuse a semantically matching role with session call/send, even when the current task wording or technology differs. Create only when no existing division of labour owns the responsibility. When a new role is truly needed, choose one concise stable responsibility label in the user's language and existing naming style, such as 运行维护, 前端体验, or 质量验证; never use a task slug, implementation name, model name, or temporary phase."
-      : "As a specialist session, directly complete ordinary work within this responsibility. Do not recursively delegate commands, files, or routine implementation steps; delegate only a genuinely distinct responsibility outside this role and report material user decisions upward.",
-  ].join(" ");
-}
 
 export type SparkChannelSurface = {
   adapter: "feishu" | "infoflow" | (string & {});

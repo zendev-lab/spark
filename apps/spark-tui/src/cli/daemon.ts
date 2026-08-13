@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import type { ChannelNotifySendResult } from "@zendev-lab/spark-channels";
+import type { RoleRef } from "@zendev-lab/spark-core";
 import {
   createId,
   hasNonEmptySparkHumanAnswer,
@@ -36,8 +37,8 @@ import {
   type SparkModelRef,
   type SparkSessionCreateRequest,
   type SparkSessionListRequest,
-  type SparkSessionRegistryRecord,
   type SparkSessionPromptHistory,
+  type SparkSessionProjection,
   type SparkSessionView,
   type SparkViewModelEvent,
   type SparkTurnCancelResult,
@@ -522,7 +523,8 @@ export interface SparkDaemonSessionsCommand extends SparkDaemonCliCommandBase {
     | "bind"
     | "unbind"
     | "archive"
-    | "restore";
+    | "restore"
+    | "close";
   sessionId?: string;
   format?: SparkSessionExportFormat;
   leafId?: string | null;
@@ -537,8 +539,11 @@ export interface SparkDaemonSessionsCommand extends SparkDaemonCliCommandBase {
   messageId?: string;
   all?: boolean;
   workspaceId?: string;
-  title?: string;
-  role?: string;
+  name?: string;
+  roleRef?: RoleRef;
+  inheritRole?: boolean;
+  placement?: "child" | "sibling";
+  supervisorSessionId?: string;
   externalKey?: string;
 }
 
@@ -663,7 +668,7 @@ export interface SparkDaemonSessionsResult {
 export interface ManagedSessionRegistryResult {
   plane: "daemon";
   resource: "session";
-  subcommand: "create" | "bind" | "unbind" | "archive" | "restore" | "list";
+  subcommand: "create" | "bind" | "unbind" | "archive" | "restore" | "close" | "list";
   sessions?: Array<Record<string, unknown>>;
   session?: Record<string, unknown>;
   text: string;
@@ -1085,13 +1090,34 @@ function parseSparkDaemonSessionsCommand(
   if (subcommand === "create") {
     const workspaceId = readStringOption(parsed.options, "workspace")?.trim() || maybeLeaf?.trim();
     if (!workspaceId) throw new Error("spark daemon session create requires --workspace <id>");
+    const supervisorSessionId = readStringOption(parsed.options, "supervisor")?.trim();
+    if (!supervisorSessionId) {
+      throw new Error("spark daemon session create requires --supervisor <session-id>");
+    }
+    const rawRoleRef = readStringOption(parsed.options, "role-ref")?.trim();
+    if (rawRoleRef && !rawRoleRef.startsWith("role:")) {
+      throw new Error("spark daemon session create --role-ref must start with role:");
+    }
+    const inheritRole = readBooleanOption(parsed.options, "inherit-role");
+    if (rawRoleRef && inheritRole) {
+      throw new Error(
+        "spark daemon session create accepts only one of --role-ref and --inherit-role",
+      );
+    }
+    const rawPlacement = readStringOption(parsed.options, "placement")?.trim() ?? "child";
+    if (rawPlacement !== "child" && rawPlacement !== "sibling") {
+      throw new Error("spark daemon session create --placement must be child or sibling");
+    }
     return {
       action: "sessions",
       subcommand,
       json,
       workspaceId,
-      title: readStringOption(parsed.options, "title")?.trim(),
-      role: readStringOption(parsed.options, "role")?.trim(),
+      name: readStringOption(parsed.options, "name")?.trim(),
+      ...(rawRoleRef ? { roleRef: rawRoleRef as RoleRef } : {}),
+      inheritRole,
+      placement: rawPlacement,
+      supervisorSessionId,
       sessionId: readStringOption(parsed.options, "id")?.trim(),
     };
   }
@@ -1109,7 +1135,7 @@ function parseSparkDaemonSessionsCommand(
       externalKey,
     };
   }
-  if (subcommand === "archive" || subcommand === "restore") {
+  if (subcommand === "archive" || subcommand === "restore" || subcommand === "close") {
     const sessionId = readStringOption(parsed.options, "session")?.trim() || maybeLeaf?.trim();
     if (!sessionId) throw new Error(`spark daemon session ${subcommand} requires <session-id>`);
     return { action: "sessions", subcommand, json, sessionId };
@@ -1949,11 +1975,28 @@ async function clientSessions(
   const paths = resolveSparkDaemonClientPaths(client);
   const managedSessions = clientManagedSessions(client);
   if (command.subcommand === "create") {
+    const workspaceId = command.workspaceId!;
+    const supervisorSessionId =
+      command.supervisorSessionId ??
+      (
+        await managedSessions.list({
+          scope: { kind: "workspace", workspaceId },
+          includeArchived: true,
+        })
+      ).find((session) => session.owner.kind === "workspace")?.sessionId;
+    if (!supervisorSessionId) {
+      throw new Error(`workspace ${workspaceId} has no reconciled Administrator Session`);
+    }
     const session = await managedSessions.create({
-      workspaceId: command.workspaceId!,
-      roleRef: daemonSessionRoleRef(command.role),
-      purpose: "interactive",
-      title: command.title,
+      scope: { kind: "workspace", workspaceId },
+      supervisorSessionId,
+      placement: command.placement ?? "child",
+      roleBinding: command.inheritRole
+        ? { kind: "inherit" }
+        : command.roleRef
+          ? { kind: "explicit", roleRef: command.roleRef }
+          : { kind: "none" },
+      ...(command.name ? { name: command.name } : {}),
       sessionId: command.sessionId,
       cwd: process.cwd(),
     });
@@ -1961,6 +2004,18 @@ async function clientSessions(
       plane: "daemon",
       resource: "session",
       subcommand: "create",
+      session,
+      text: renderManagedSession(session),
+      observedAt: observedAt(client),
+    };
+  }
+  if (command.subcommand === "close") {
+    if (!managedSessions.close) throw new Error("Spark daemon Session close is not available.");
+    const session = await managedSessions.close(command.sessionId!);
+    return {
+      plane: "daemon",
+      resource: "session",
+      subcommand: "close",
       session,
       text: renderManagedSession(session),
       observedAt: observedAt(client),
@@ -2047,7 +2102,9 @@ async function clientSessions(
         includeArchived: command.includeArchived,
         query: command.query,
         tags: command.tags,
-        workspaceId: command.workspaceId,
+        ...(command.workspaceId
+          ? { scope: { kind: "workspace" as const, workspaceId: command.workspaceId } }
+          : {}),
       });
       return {
         plane: "daemon",
@@ -2119,50 +2176,38 @@ async function clientSessions(
   };
 }
 
-function daemonSessionRoleRef(role: string | undefined): string {
-  const normalized = role?.trim();
-  if (!normalized) return "role:builtin-administrator";
-  if (normalized === "scout") return "role:builtin-explorer";
-  if (normalized === "worker") return "role:builtin-executor";
-  if (normalized.startsWith("role:")) return normalized;
-  if (["administrator", "explorer", "researcher", "executor", "reviewer"].includes(normalized)) {
-    return `role:builtin-${normalized}`;
-  }
-  return `role:${normalized}`;
-}
-
 export async function clientGetManagedSession(
   sessionId: string,
   client: SparkDaemonClientOptions = {},
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionProjection> {
   return await clientManagedSessions(client).get(sessionId);
 }
 
 export async function clientListManagedSessions(
   options: SparkSessionListRequest = {},
   client: SparkDaemonClientOptions = {},
-): Promise<SparkSessionRegistryRecord[]> {
+): Promise<SparkSessionProjection[]> {
   return await clientManagedSessions(client).list(options);
 }
 
 export async function clientCreateManagedSession(
   input: SparkSessionCreateRequest,
   client: SparkDaemonClientOptions = {},
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionProjection> {
   return await clientManagedSessions(client).create(input);
 }
 
 export async function clientRestoreManagedSession(
   sessionId: string,
   client: SparkDaemonClientOptions = {},
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionProjection> {
   return await restoreManagedSession(clientManagedSessions(client), sessionId);
 }
 
 async function restoreManagedSession(
   managedSessions: SparkDaemonManagedSessionsClient,
   sessionId: string,
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionProjection> {
   if (!managedSessions.restore) throw new Error("Spark daemon Session restore is not available.");
   return await managedSessions.restore(sessionId);
 }
@@ -2193,8 +2238,11 @@ export async function ensureSparkDaemonWorkspaceSession(
   const managedSessions = clientManagedSessions(client);
   const sessions = await managedSessions.list({ includeArchived: true });
   const existing = sessions.find((session) => session.sessionId === input.sessionId);
-  if (existing?.status === "archived") {
+  if (existing?.placement === "archived") {
     throw new Error(`cannot submit to archived session: ${input.sessionId}`);
+  }
+  if (existing && existing.lifecycle !== "open") {
+    throw new Error(`cannot submit to ${existing.lifecycle} session: ${input.sessionId}`);
   }
   if (
     existing &&
@@ -2209,13 +2257,21 @@ export async function ensureSparkDaemonWorkspaceSession(
     );
   }
   if (existing) return;
+  const administrator = sessions.find(
+    (session) =>
+      session.scope.kind === "workspace" &&
+      session.scope.workspaceId === input.workspaceId &&
+      session.owner.kind === "workspace",
+  );
+  if (!administrator) {
+    throw new Error(`workspace ${input.workspaceId} has no reconciled Administrator Session`);
+  }
   await managedSessions.create({
     sessionId: input.sessionId,
     scope: { kind: "workspace", workspaceId: input.workspaceId },
-    workspaceId: input.workspaceId,
+    supervisorSessionId: administrator.sessionId,
+    roleBinding: { kind: "none" },
     cwd: input.cwd,
-    roleRef: "role:builtin-administrator",
-    purpose: "interactive",
   });
 }
 

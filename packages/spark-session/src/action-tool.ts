@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { sessionMailStatus } from "./mail-store.ts";
 import {
-  parseSparkSessionRegistryRecord,
-  parseSparkSessionRegistryRecords,
+  parseSparkSessionProjection,
+  parseSparkSessionProjections,
   sparkSessionInboxResultSchema,
   sparkSessionMailMutationResultSchema,
   sparkSessionSendResultSchema,
@@ -15,7 +15,7 @@ import {
   sparkTurnSubmitResultSchema,
   sparkTurnResultSchema,
   sparkTurnStatusResultSchema,
-  type SparkSessionRegistryRecord,
+  type SparkSessionProjection,
   type SparkTurnSubmitResult,
   type SparkTurnResult,
   type SparkTurnStatusResult,
@@ -39,9 +39,9 @@ type SparkSessionDaemonRequest = SparkDaemonClient["request"];
 const defaultDaemonRequest: SparkSessionDaemonRequest = requestSparkDaemon;
 
 export type SparkSessionSurface = "local" | "channel";
-export type SparkSessionActivity = "idle" | "running";
+export type SparkSessionActivity = "idle" | "queued" | "running";
 
-export type SparkSessionProjection = SparkSessionRegistryRecord & {
+export type SparkSessionToolProjection = SparkSessionProjection & {
   surface: SparkSessionSurface;
   activity: SparkSessionActivity;
   channelAdapters: SparkChannelAdapter[];
@@ -57,6 +57,7 @@ export type SparkSessionAction =
   | "unbind"
   | "archive"
   | "restore"
+  | "close"
   | "send"
   | "inbox"
   | "read"
@@ -110,7 +111,7 @@ export async function executeSparkSessionAction(
   switch (action) {
     case "list": {
       const requestParams = await listRequest(params, ctx, request, signal, channelWorkspaceId);
-      const records = parseSparkSessionRegistryRecords(
+      const records = parseSparkSessionProjections(
         await request("session.list", requestParams, { signal }),
       );
       const requestedSurface = normalizeSessionSurface(params.surface);
@@ -157,15 +158,15 @@ export async function executeSparkSessionAction(
     case "create": {
       const createRequest = await sessionCreateRequest(params, ctx, request, signal);
       const session = projectSession(
-        parseSparkSessionRegistryRecord(await request("session.create", createRequest, { signal })),
+        parseSparkSessionProjection(await request("session.create", createRequest, { signal })),
       );
-      return sessionResult(`Created persistent Spark session.\n${renderSession(session)}`, {
+      return sessionResult(`Created scoped Spark session.\n${renderSession(session)}`, {
         action,
         session,
       });
     }
     case "call":
-      return await executePersistentSessionCall({ params, signal, ctx }, deps);
+      return await executeSessionCall({ params, signal, ctx }, deps);
     case "bind":
     case "unbind": {
       const sessionId = requiredString(params.sessionId, `session ${action} requires sessionId`);
@@ -174,19 +175,19 @@ export async function executeSparkSessionAction(
         `session ${action} requires externalKey`,
       );
       const session = projectSession(
-        parseSparkSessionRegistryRecord(
+        parseSparkSessionProjection(
           await request(`session.${action}`, { sessionId, externalKey }, { signal }),
         ),
       );
       return sessionResult(
-        `${action === "bind" ? "Bound" : "Unbound"} persistent Spark session.\n${renderSession(session)}`,
+        `${action === "bind" ? "Bound" : "Unbound"} Spark Session.\n${renderSession(session)}`,
         { action, session, externalKey },
       );
     }
     case "archive": {
       const sessionId = requiredString(params.sessionId, "session archive requires sessionId");
       const session = projectSession(
-        parseSparkSessionRegistryRecord(
+        parseSparkSessionProjection(
           await request(
             "session.archive",
             {
@@ -202,7 +203,7 @@ export async function executeSparkSessionAction(
           ),
         ),
       );
-      return sessionResult(`Archived persistent Spark session.\n${renderSession(session)}`, {
+      return sessionResult(`Archived Spark Session.\n${renderSession(session)}`, {
         action,
         session,
       });
@@ -210,11 +211,22 @@ export async function executeSparkSessionAction(
     case "restore": {
       const sessionId = requiredString(params.sessionId, "session restore requires sessionId");
       const session = projectSession(
-        parseSparkSessionRegistryRecord(
-          await request("session.restore", { sessionId }, { signal }),
+        parseSparkSessionProjection(await request("session.restore", { sessionId }, { signal })),
+      );
+      return sessionResult(`Restored Spark Session.\n${renderSession(session)}`, {
+        action,
+        session,
+      });
+    }
+    case "close": {
+      const sessionId = requiredString(params.sessionId, "session close requires sessionId");
+      const reason = optionalString(params.reason, "reason");
+      const session = projectSession(
+        parseSparkSessionProjection(
+          await request("session.close", { sessionId, ...(reason ? { reason } : {}) }, { signal }),
         ),
       );
-      return sessionResult(`Restored persistent Spark session.\n${renderSession(session)}`, {
+      return sessionResult(`Closed scoped Spark session.\n${renderSession(session)}`, {
         action,
         session,
       });
@@ -285,8 +297,11 @@ export async function executeSparkSessionAction(
       if (channelWorkspaceId) {
         assertChannelWorkspaceTarget(targetSession, channelWorkspaceId, action);
       }
-      if (kind === "request" && targetSession.status === "archived") {
-        throw new Error(`cannot request archived persistent session: ${toSessionId}`);
+      if (
+        kind === "request" &&
+        (targetSession.placement === "archived" || targetSession.lifecycle !== "open")
+      ) {
+        throw new Error(`cannot request archived Session: ${toSessionId}`);
       }
       if (kind === "request" && projectSession(targetSession).surface !== "local") {
         throw new Error("session request targets must be local sessions");
@@ -428,7 +443,7 @@ export async function executeSparkSessionAction(
   }
 }
 
-export async function executePersistentSessionCall(
+export async function executeSessionCall(
   input: {
     params: Record<string, unknown>;
     signal: AbortSignal;
@@ -461,8 +476,8 @@ export async function executePersistentSessionCall(
   }
   const reset = optionalBooleanValue(input.params.reset, "reset");
   const session = await requestSession(request, sessionId, input.signal);
-  if (session.status === "archived")
-    throw new Error(`cannot call archived persistent session: ${sessionId}`);
+  if (session.placement === "archived" || session.lifecycle !== "open")
+    throw new Error(`cannot call unavailable scoped session: ${sessionId}`);
   const currentSessionId = await requireCurrentSessionId(input.ctx, "call");
   const submitted = parseTurnSubmitResult(
     await request(
@@ -477,12 +492,12 @@ export async function executePersistentSessionCall(
     ),
   );
   return sessionResult(
-    `Queued persistent Spark session call: ${sessionId}; invocation ${submitted.invocationId} was accepted.`,
+    `Queued Spark Session call: ${sessionId}; invocation ${submitted.invocationId} was accepted.`,
     {
       action: "call",
       session: projectSession(session),
       sessionId,
-      sessionPersistence: "persistent",
+      sessionLifetime: session.lifetime,
       submitted,
     },
   );
@@ -511,7 +526,6 @@ async function listRequest(
     }
     return {
       scope: { kind: "workspace", workspaceId: channelWorkspaceId },
-      workspaceId: channelWorkspaceId,
       ...filters,
     };
   }
@@ -521,7 +535,6 @@ async function listRequest(
   const resolvedWorkspaceId = workspaceId ?? (await currentWorkspaceId(ctx, request, signal));
   return {
     scope: { kind: "workspace", workspaceId: resolvedWorkspaceId },
-    workspaceId: resolvedWorkspaceId,
     ...filters,
   };
 }
@@ -534,44 +547,38 @@ async function sessionCreateRequest(
 ): Promise<SparkSessionCreateRequest> {
   const scope = optionalScope(params.scope) ?? "workspace";
   const sessionId = optionalString(params.sessionId, "sessionId");
-  if (params.title !== undefined) {
-    throw new Error("session create names persistent sessions by role; use role instead of title");
+  if (params.title !== undefined || params.role !== undefined || params.status !== undefined) {
+    throw new Error("session create no longer accepts title, role, or status");
   }
-  const roleRef = sessionCreateRoleRef(params.roleRef ?? params.role);
+  const name = optionalString(params.name, "name");
+  const roleBinding = normalizeRoleBinding(params.roleBinding);
+  const placement = normalizeCreatePlacement(params.placement);
+  if (scope === "daemon") {
+    throw new Error("session create supports workspace scope only");
+  }
+  const supervisorSessionId =
+    optionalString(params.supervisorSessionId, "supervisorSessionId") ?? ctx.sessionId?.trim();
+  if (!supervisorSessionId) {
+    throw new Error("session create requires a supervising Session");
+  }
   const cwd = optionalString(params.cwd, "cwd") ?? ctx.cwd;
   const cwdArtifactRef = optionalString(params.cwdArtifactRef, "cwdArtifactRef");
   const common = {
     ...(sessionId ? { sessionId } : {}),
-    roleRef,
-    purpose: optionalString(params.purpose, "purpose") ?? "interactive",
+    ...(name ? { name } : {}),
+    roleBinding,
+    placement,
+    supervisorSessionId,
     ...(cwd ? { cwd } : {}),
     ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
   };
-  if (scope === "daemon") {
-    throw new Error("session create supports workspace scope only");
-  }
   const workspaceId =
     optionalString(params.workspaceId, "workspaceId") ??
     (await currentWorkspaceId(ctx, request, signal));
   return {
     ...common,
     scope: { kind: "workspace", workspaceId },
-    workspaceId,
   };
-}
-
-function sessionCreateRoleRef(value: unknown): string {
-  if (value === undefined || value === null || value === "") {
-    return "role:builtin-administrator";
-  }
-  const normalized = requiredString(value, "session create roleRef must be a non-empty string");
-  if (normalized === "scout") return "role:builtin-explorer";
-  if (normalized === "worker") return "role:builtin-executor";
-  if (normalized.startsWith("role:")) return normalized;
-  if (["administrator", "explorer", "researcher", "executor", "reviewer"].includes(normalized)) {
-    return `role:builtin-${normalized}`;
-  }
-  return `role:${normalized}`;
 }
 
 async function currentWorkspaceId(
@@ -594,8 +601,8 @@ async function requestSession(
   request: SparkSessionDaemonRequest,
   sessionId: string,
   signal: AbortSignal,
-): Promise<SparkSessionRegistryRecord> {
-  return parseSparkSessionRegistryRecord(await request("session.get", { sessionId }, { signal }));
+): Promise<SparkSessionProjection> {
+  return parseSparkSessionProjection(await request("session.get", { sessionId }, { signal }));
 }
 
 function assertChannelActionAllowed(
@@ -623,7 +630,7 @@ async function currentChannelWorkspaceId(
 }
 
 function assertChannelWorkspaceTarget(
-  target: SparkSessionRegistryRecord,
+  target: SparkSessionProjection,
   workspaceId: string,
   action: "get" | "send",
 ): void {
@@ -665,7 +672,7 @@ async function requireCurrentSessionId(
   action: string,
 ): Promise<string> {
   const current = await currentSessionId(ctx);
-  if (!current) throw new Error(`session ${action} requires a current persistent session`);
+  if (!current) throw new Error(`session ${action} requires a current Session`);
   return current;
 }
 
@@ -859,48 +866,68 @@ function requiredString(value: unknown, message: string): string {
   return result;
 }
 
-function projectSession(session: SparkSessionRegistryRecord): SparkSessionProjection {
+function projectSession(session: SparkSessionProjection): SparkSessionToolProjection {
   const channelAdapters = Array.from(new Set(session.bindings.map((binding) => binding.adapter)));
   return {
     ...session,
     surface: channelAdapters.length > 0 ? "channel" : "local",
-    activity: session.status === "running" ? "running" : "idle",
+    activity: session.activity ?? "idle",
     channelAdapters,
     externalKeys: session.bindings.map((binding) => binding.externalKey),
   };
 }
 
 function renderSessionList(
-  sessions: SparkSessionProjection[],
+  sessions: SparkSessionToolProjection[],
   total: number,
   offset: number,
 ): string {
   if (sessions.length === 0) {
     return total > 0
       ? `No sessions at offset ${offset}; remaining=0. Use session list with a lower offset.`
-      : "No persistent Spark sessions found.";
+      : "No Spark Sessions found.";
   }
   const end = offset + sessions.length;
   const remaining = Math.max(0, total - end);
-  const page = `Persistent Spark sessions (${offset + 1}-${end}/${total}):\n${sessions
+  const page = `Spark Sessions (${offset + 1}-${end}/${total}):\n${sessions
     .map(renderSession)
     .join("\n")}`;
   return `${page}\nnext offset=${remaining > 0 ? end : "none"}; remaining=${remaining}; use session get for details.`;
 }
 
-function renderSession(session: SparkSessionProjection): string {
+function renderSession(session: SparkSessionToolProjection): string {
   const scope =
     session.scope.kind === "workspace"
       ? `workspace:${session.scope.workspaceId}`
       : `daemon:${session.scope.daemonId}`;
   const channels = session.channelAdapters.join(",") || "none";
-  return `${session.sessionId} ${session.status} activity=${session.activity} surface=${session.surface} channels=${channels} scope=${scope}${
-    session.role
-      ? ` role=${JSON.stringify(session.role)}`
-      : session.title
-        ? ` role=${JSON.stringify(session.title)}`
-        : ""
-  }`;
+  const role =
+    session.roleBinding.kind === "explicit"
+      ? session.roleBinding.roleRef
+      : session.roleBinding.kind;
+  return `${session.sessionId} lifecycle=${session.lifecycle} placement=${session.placement} activity=${session.activity} lifetime=${session.lifetime} owner=${session.owner.kind} surface=${session.surface} channels=${channels} scope=${scope}${session.name ? ` name=${JSON.stringify(session.name)}` : ""} roleBinding=${JSON.stringify(role)}`;
+}
+
+function normalizeRoleBinding(value: unknown): SparkSessionCreateRequest["roleBinding"] {
+  if (value === undefined || value === null) return { kind: "none" };
+  if (!isRecord(value) || typeof value.kind !== "string") {
+    throw new Error("session roleBinding must be none, inherit, or explicit");
+  }
+  if (value.kind === "none" || value.kind === "inherit") return { kind: value.kind };
+  if (
+    value.kind === "explicit" &&
+    typeof value.roleRef === "string" &&
+    value.roleRef.startsWith("role:")
+  ) {
+    return { kind: "explicit", roleRef: value.roleRef };
+  }
+  throw new Error("session explicit roleBinding requires roleRef");
+}
+
+function normalizeCreatePlacement(value: unknown): "child" | "sibling" {
+  if (value === undefined || value === null) return "child";
+  if (value === "child" || value === "sibling") return value;
+  throw new Error("session placement must be child or sibling");
 }
 
 function withMailStatus(message: SparkSessionMailMessage) {
@@ -1023,7 +1050,7 @@ async function waitForRequestResult(input: {
 function completedRequestResult(input: {
   action: "send";
   sent?: { message: SparkSessionMailMessage; path: string; created: boolean };
-  targetSession?: SparkSessionRegistryRecord;
+  targetSession?: SparkSessionProjection;
   submitted?: SparkTurnSubmitResult;
   invocationId: string;
   timeoutMs: number;

@@ -107,11 +107,10 @@ test("skill_agent runs the complete Skill set in one restricted owned Session", 
     assert.match(captured.role.id, /^skill-agent-[0-9a-f]{12}$/u);
     assert.equal(captured.role.source, "extension");
     assert.equal(captured.role.modelType, "implementation");
-    assert.equal(captured.role.instantiation, "owned");
     assert.deepEqual(captured.role.capabilities, ["read", "write", "exec", "net"]);
-    assert.ok((captured.role.revision ?? 0) > 0);
-    assert.equal(captured.record.launch, "fresh");
-    assert.equal(captured.record.noSession, undefined);
+    assert.match(captured.role.revision, /^sha256:[a-f0-9]{64}$/u);
+    assert.equal("launch" in captured.record, false);
+    assert.equal("sessionLifetime" in captured.record, false);
     assert.equal(captured.model, "fake-provider/fake-model");
     assert.equal(captured.timeoutMs, 30_000);
     assert.equal(countOccurrences(captured.role.systemPrompt, auditBody.trim()), 1);

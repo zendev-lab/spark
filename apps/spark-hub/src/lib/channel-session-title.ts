@@ -54,10 +54,10 @@ export function channelSessionScopeKind(
 
 export function sessionHasChannelBinding(session: {
   bindings?: Array<{ kind?: string }> | null;
-  title?: string | null;
+  name?: string | null;
 }): boolean {
   if (session.bindings?.some((binding) => binding.kind === "channel")) return true;
-  return CHANNEL_TITLE_RE.test(session.title?.trim() ?? "");
+  return CHANNEL_TITLE_RE.test(session.name?.trim() ?? "");
 }
 
 export function formatChannelSessionTitle(
@@ -83,7 +83,7 @@ export function formatChannelSessionTitle(
  */
 export function channelSessionPresentation(
   session: {
-    title?: string | null;
+    name?: string | null;
     bindings?: Array<{
       kind?: string;
       adapter?: string;
@@ -92,7 +92,7 @@ export function channelSessionPresentation(
   },
   options: ChannelSessionPresentationOptions,
 ): ChannelSessionPresentation {
-  const rawTitle = session.title?.trim() ?? "";
+  const rawTitle = session.name?.trim() ?? "";
   const titleIdentity = parseChannelIdentity(rawTitle.replace(/^channel\s+/iu, ""));
   const bindingIdentity = session.bindings
     ?.filter((binding) => !binding.kind || binding.kind === "channel")

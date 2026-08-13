@@ -831,7 +831,7 @@ await agent('check isolation', { isolation: '${isolation}' })`;
 test("spark-workflows graft isolation smoke keeps parallel same-path edits in separate refs", async () => {
   const requests: SparkWorkflowRoleRunRequest[] = [];
   const agent = createSparkWorkflowRoleRunAdapter({
-    roleRef: "role:builtin-worker",
+    roleRef: "role:builtin-executor",
     graftBaseRef: "tree:base-smoke",
     async runRoleInstruction(request) {
       requests.push(request);

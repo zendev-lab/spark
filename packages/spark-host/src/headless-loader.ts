@@ -125,6 +125,42 @@ export interface SparkHeadlessSessionRunInput {
   onEvent?: (event: unknown) => void | Promise<void>;
 }
 
+export interface SparkHeadlessSessionCompactInput {
+  cwd: string;
+  workspaceId?: string;
+  /** Trusted workspace-owned state root; execution cwd may be a worktree. */
+  sparkStateRoot?: string;
+  sessionId: string;
+  /** Daemon-authoritative transcript path for this exact Session generation. */
+  sessionPath: string;
+  operationId: string;
+  customInstructions?: string;
+  model?: string;
+  thinkingLevel?: string;
+  sparkHome?: string;
+  sessionLease?: SparkSessionLeaseIdentity;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+  /**
+   * Daemon-private cancellation fence. Once this synchronous hook returns,
+   * transcript replacement has entered its irreversible commit phase.
+   */
+  beforeTranscriptCommit?: () => void;
+  /** Run the atomic transcript replacement inside the daemon owner's commit boundary. */
+  commitTranscriptReplacement?: (replace: () => Promise<void>) => Promise<void>;
+}
+
+export interface SparkHeadlessSessionCompactResult {
+  sessionId: string;
+  sessionPath: string;
+  succeeded: boolean;
+  replayed: boolean;
+  compactionEntryId?: string;
+  tokensBefore?: number;
+  tokensAfter: number;
+  assistantText: string;
+}
+
 export type SparkHeadlessSessionExecutor = (
   input: SparkHeadlessSessionRunInput,
 ) => Promise<unknown>;
@@ -136,6 +172,15 @@ export type CreateSparkHeadlessSessionExecutorFn = (options?: {
   controlSparkHome?: string;
 }) => SparkHeadlessSessionExecutor;
 
+export type SparkHeadlessSessionCompactor = (
+  input: SparkHeadlessSessionCompactInput,
+) => Promise<SparkHeadlessSessionCompactResult>;
+
+export type CreateSparkHeadlessSessionCompactorFn = (options?: {
+  sparkHome?: string;
+  controlSparkHome?: string;
+}) => SparkHeadlessSessionCompactor;
+
 export type CreateSparkHeadlessRoleExecutorFn = (options?: {
   sparkHome?: string;
   controlSparkHome?: string;
@@ -144,6 +189,7 @@ export type CreateSparkHeadlessRoleExecutorFn = (options?: {
 
 export interface SparkHeadlessSessionModule {
   createSparkHeadlessSessionExecutor: CreateSparkHeadlessSessionExecutorFn;
+  createSparkHeadlessSessionCompactor?: CreateSparkHeadlessSessionCompactorFn;
   createSparkHeadlessRoleExecutor?: CreateSparkHeadlessRoleExecutorFn;
   runSparkHeadlessSession?: unknown;
 }

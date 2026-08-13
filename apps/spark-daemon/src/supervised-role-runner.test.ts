@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -19,7 +19,7 @@ afterEach(async () => {
 
 describe("supervised Role runner", () => {
   it.each(["role_run", "workflow_agent"] as const)(
-    "projects %s compatibility from an owned Session and redacted Invocation",
+    "projects %s compatibility from an ephemeral Session and redacted Invocation",
     async (usageExecutionKind) => {
       const root = await mkdtemp(join(tmpdir(), "spark-supervised-role-"));
       roots.push(root);
@@ -68,11 +68,10 @@ describe("supervised Role runner", () => {
           ref: "role:builtin-executor",
           id: "executor",
           source: "builtin",
-          revision: 3,
+          revision: `sha256:${"3".repeat(64)}`,
           systemPrompt: "Implement the bounded change.",
           capabilities: ["read", "write", "exec"],
           modelType: "implementation",
-          instantiation: "owned",
           allowedTools: ["read", "edit"],
         },
         instruction: {
@@ -82,6 +81,7 @@ describe("supervised Role runner", () => {
         record: {
           ref: "run:supervised-role",
           roleRef: "role:builtin-executor",
+          roleRevision: `sha256:${"3".repeat(64)}`,
           instruction: "Implement one focused change.",
           status: "running",
         },
@@ -96,23 +96,38 @@ describe("supervised Role runner", () => {
           ref: "run:supervised-role",
           status: "succeeded",
           model: "provider/model",
-          noSession: false,
-          sessionLifetime: "owned",
         },
         outcome: { kind: "completed", code: "implementation_complete" },
         stdout: "implemented by child",
       });
-      const sessions = await registry.list({ includeArchived: true, includeSideThreads: true });
-      const child = sessions.find((session) => session.roleRef === "role:builtin-executor");
-      expect(child).toMatchObject({
-        lifecycle: "closed",
-        lifetime: "owned",
-        owner: { kind: "role_call", ref: parent.invocationId },
-        roleRevision: 3,
-        modelType: "implementation",
-        retention: "discard_on_close",
+      const sessions = await registry.list({
+        includeArchived: true,
+        includeClosed: true,
+        includeSideThreads: true,
       });
-      expect(child?.closeReceipts).toEqual([
+      const child = sessions.find(
+        (session) =>
+          session.roleBinding.kind === "explicit" &&
+          session.roleBinding.roleRef === "role:builtin-executor",
+      );
+      expect(child).toBeUndefined();
+      const childInvocation = invocations
+        .listPage({ limit: 100 })
+        .invocations.find((invocation) => invocation.sessionId !== administrator.sessionId)!;
+      const registryFile = JSON.parse(
+        await readFile(join(root, "session-registry", "v1", "registry.json"), "utf8"),
+      ) as { sessions: Array<Record<string, unknown>> };
+      const tombstone = registryFile.sessions.find(
+        (session) => session.sessionId === childInvocation.sessionId,
+      );
+      expect(tombstone).toMatchObject({
+        recordKind: "ephemeral_tombstone",
+        lifecycle: "closed",
+        placement: "archived",
+        owner: { kind: "invocation", supervisorSessionId: administrator.sessionId },
+      });
+      expect(tombstone).not.toHaveProperty("roleBinding");
+      expect(tombstone?.closeReceipts).toEqual([
         expect.objectContaining({
           version: 1,
           source: "structured_outcome",
@@ -123,9 +138,6 @@ describe("supervised Role runner", () => {
           incarnation: 1,
         }),
       ]);
-      const childInvocation = invocations
-        .listPage({ sessionId: child!.sessionId })
-        .invocations.at(0)!;
       expect(childInvocation).toMatchObject({
         status: "succeeded",
         claimClass: "structured",
@@ -135,11 +147,19 @@ describe("supervised Role runner", () => {
           sourceKind: usageExecutionKind === "workflow_agent" ? "workflow_agent" : "role_call",
         },
       });
-      expect(child?.closeReceipts?.[0]?.sourceInvocationIds).toEqual([
-        childInvocation.invocationId,
-      ]);
+      expect(
+        (tombstone?.closeReceipts as Array<{ sourceInvocationIds: string[] }>)[0]
+          ?.sourceInvocationIds,
+      ).toEqual([childInvocation.invocationId]);
       expect(childInvocation.prompt).toBeUndefined();
       expect(childInvocation.result).toBeUndefined();
+      expect(invocations.invocationReceipt(childInvocation.invocationId)).toMatchObject({
+        effectiveRoleRef: "role:builtin-executor",
+        authorizationSource: {
+          kind: "parent_invocation",
+          ref: parent.invocationId,
+        },
+      });
       db.close();
     },
   );

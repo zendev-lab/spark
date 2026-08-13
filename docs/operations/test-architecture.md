@@ -105,6 +105,9 @@ machine-readable contract, or delete the assertion. The same rule applies to pro
 wording: verify structured behavior at the consuming boundary instead of matching text fragments.
 For schemas and transforms, test acceptance, rejection, normalization, or downstream behavior
 instead of proving that a word or field name appears in a serialized schema.
+Hashing the same text does not turn an implementation mirror into a contract test. Assert a fixed
+digest only when the digest itself is the protocol, such as content-addressed identity or an
+integrity/wire digest, or when the test exercises runtime byte integrity rather than copied wording.
 
 ## Golden files
 

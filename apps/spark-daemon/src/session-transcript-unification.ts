@@ -5,7 +5,7 @@ import {
   type SparkSessionEntry,
   type SparkSessionRecord,
 } from "@zendev-lab/spark-host/session-store";
-import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
+import type { SparkSessionState } from "@zendev-lab/spark-protocol";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 
 export interface UnifyDaemonSessionTranscriptsInput {
@@ -44,7 +44,7 @@ export async function unifyDaemonSessionTranscripts(
   const results: UnifiedDaemonSessionTranscript[] = [];
 
   for (const session of sessions) {
-    if (session.relation?.kind === "side_thread" || !session.cwd?.trim()) continue;
+    if (session.owner?.kind === "side_thread" || !session.cwd?.trim()) continue;
     const result = await unifySessionTranscript(input, session);
     if (result) results.push(result);
   }
@@ -54,7 +54,7 @@ export async function unifyDaemonSessionTranscripts(
 
 async function unifySessionTranscript(
   input: UnifyDaemonSessionTranscriptsInput,
-  session: SparkSessionRegistryRecord,
+  session: SparkSessionState,
 ): Promise<UnifiedDaemonSessionTranscript | undefined> {
   const store = new SparkSessionStore({
     cwd: session.cwd!,
@@ -120,7 +120,7 @@ async function unifySessionTranscript(
 
 function validateSourceRecord(
   store: SparkSessionStore,
-  session: SparkSessionRegistryRecord,
+  session: SparkSessionState,
   record: SparkSessionRecord,
 ): SparkSessionRecord {
   const path = resolve(record.path);

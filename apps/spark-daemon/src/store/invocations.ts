@@ -1,4 +1,12 @@
-import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
+import {
+  SPARK_PROTOCOL_VERSION,
+  sparkSessionInvocationReceiptSchema,
+  type SparkModelRef,
+  type SparkSessionInvocationReceipt,
+  type SparkSessionLifetime,
+  type SparkSessionOwner,
+  type SparkThinkingLevel,
+} from "@zendev-lab/spark-protocol";
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
@@ -115,12 +123,29 @@ export interface SparkInvocationSummaryPage {
 
 export interface SparkInvocationSessionActivity {
   active: boolean;
+  activity: "idle" | "queued" | "running";
   updatedAt?: string;
 }
 
 export interface SparkInvocationRetryTarget {
   invocationId: string;
   failedAt: string;
+}
+
+export interface SparkInvocationReceiptContext {
+  lifetime: SparkSessionLifetime;
+  ownerKind: SparkSessionOwner["kind"];
+  effectiveRoleRef?: string;
+  effectiveRoleRevision?: string;
+  model?: SparkModelRef;
+  thinkingLevel?: SparkThinkingLevel;
+  toolPolicyDigest?: string;
+  authorizationSource: {
+    kind: string;
+    ref?: string;
+  };
+  inputRefs?: string[];
+  outputRefs?: string[];
 }
 
 export interface SparkInvocationRetentionPreview {
@@ -620,10 +645,11 @@ export class SparkInvocationStore {
    */
   sessionActivity(sessionId: string): SparkInvocationSessionActivity {
     const normalizedSessionId = sessionId.trim();
-    if (!normalizedSessionId) return { active: false };
+    if (!normalizedSessionId) return { active: false, activity: "idle" };
     return (
       this.sessionActivities([normalizedSessionId]).get(normalizedSessionId) ?? {
         active: false,
+        activity: "idle",
       }
     );
   }
@@ -649,6 +675,15 @@ export class SparkInvocationStore {
                      AND active_invocation.status IN ('queued', 'running')
                 ) AS active,
                 (
+                  SELECT active_status.status
+                    FROM invocations active_status
+                   WHERE active_status.session_id = requested_sessions.session_id
+                     AND active_status.status IN ('queued', 'running')
+                   ORDER BY CASE active_status.status WHEN 'running' THEN 0 ELSE 1 END,
+                            active_status.updated_at DESC
+                   LIMIT 1
+                ) AS activity,
+                (
                   SELECT latest_invocation.updated_at
                     FROM invocations latest_invocation
                    WHERE latest_invocation.session_id = requested_sessions.session_id
@@ -659,6 +694,7 @@ export class SparkInvocationStore {
       )
       .all(JSON.stringify(normalizedSessionIds)) as unknown as Array<{
       active: number;
+      activity: "queued" | "running" | null;
       session_id: string;
       updated_at: string | null;
     }>;
@@ -667,6 +703,7 @@ export class SparkInvocationStore {
         row.session_id,
         {
           active: row.active === 1,
+          activity: row.activity ?? "idle",
           ...(row.updated_at ? { updatedAt: row.updated_at } : {}),
         },
       ]),
@@ -780,6 +817,7 @@ export class SparkInvocationStore {
   ): "cancelled" | "requested" | "terminal" | "not-found" {
     const current = this.getSummary(invocationId);
     if (!current) return "not-found";
+    if (this.hasDurableCommitStarted(invocationId)) return "terminal";
     if (current.status === "queued") {
       this.complete(invocationId, { status: "cancelled", cancelReason: reason, now });
       return "cancelled";
@@ -793,6 +831,55 @@ export class SparkInvocationStore {
       )
       .run(reason, now, invocationId);
     return "requested";
+  }
+
+  markDurableCommitStarted(
+    invocationId: string,
+    now = new Date().toISOString(),
+  ): SparkInvocationEvent {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.require(invocationId);
+      if (current.status !== "running") {
+        throw new Error(`Invocation durable commit conflict: ${invocationId} is ${current.status}`);
+      }
+      if (current.cancelReason) {
+        throw new Error(`Invocation cancellation already requested: ${current.cancelReason}`);
+      }
+      const existing = this.previousEvent(
+        invocationId,
+        Number.MAX_SAFE_INTEGER,
+        "invocation.durable_commit_started",
+      );
+      if (existing) {
+        this.db.exec("COMMIT");
+        return existing;
+      }
+      const event = this.appendEventInTransaction(
+        invocationId,
+        "invocation.durable_commit_started",
+        { phase: "transcript_replace" },
+        now,
+      );
+      this.db.exec("COMMIT");
+      return { ...event, payload: { phase: "transcript_replace" } };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  hasDurableCommitStarted(invocationId: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1
+           FROM invocation_events
+           WHERE invocation_id = ? AND kind = 'invocation.durable_commit_started'
+           LIMIT 1`,
+        )
+        .get(invocationId),
+    );
   }
 
   failInterruptedRunning(now = new Date().toISOString()): number {
@@ -1004,6 +1091,59 @@ export class SparkInvocationStore {
       this.db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  /** Persist the execution profile frozen at Invocation start. Terminal state,
+   * errors, timings, and output refs remain sourced from the Invocation row. */
+  recordReceiptContext(
+    invocationId: string,
+    context: SparkInvocationReceiptContext,
+    now = new Date().toISOString(),
+  ): SparkSessionInvocationReceipt {
+    const invocation = this.require(invocationId);
+    if (!invocation.sessionId) {
+      throw new Error(`Invocation receipt requires a Session: ${invocationId}`);
+    }
+    this.appendEvent(invocationId, "invocation.receipt_context", { ...context }, now);
+    return this.invocationReceipt(invocationId);
+  }
+
+  invocationReceipt(invocationId: string): SparkSessionInvocationReceipt {
+    const invocation = this.require(invocationId);
+    if (!invocation.sessionId) {
+      throw new Error(`Invocation receipt requires a Session: ${invocationId}`);
+    }
+    const row = this.db
+      .prepare(
+        `SELECT payload_json
+         FROM invocation_events
+         WHERE invocation_id = ? AND kind = 'invocation.receipt_context'
+         ORDER BY sequence DESC
+         LIMIT 1`,
+      )
+      .get(invocationId) as { payload_json: string } | undefined;
+    if (!row) throw new Error(`Invocation receipt context is missing: ${invocationId}`);
+    const context = parseJson(row.payload_json) as SparkInvocationReceiptContext;
+    return sparkSessionInvocationReceiptSchema.parse({
+      invocationId,
+      sessionId: invocation.sessionId,
+      lifetime: context.lifetime,
+      ownerKind: context.ownerKind,
+      effectiveRoleRef: context.effectiveRoleRef,
+      effectiveRoleRevision: context.effectiveRoleRevision,
+      model: context.model,
+      thinkingLevel: context.thinkingLevel,
+      toolPolicyDigest: context.toolPolicyDigest,
+      authorizationSource: context.authorizationSource,
+      inputRefs: context.inputRefs ?? [],
+      outputRefs: context.outputRefs ?? invocationOutputRefs(invocation.result),
+      status: invocation.status,
+      errorCode: invocation.errorCode,
+      errorMessage: invocation.errorMessage,
+      createdAt: invocation.createdAt,
+      startedAt: invocation.startedAt,
+      finishedAt: invocation.finishedAt,
+    });
   }
 
   private appendEventInTransaction(
@@ -1350,6 +1490,7 @@ export class SparkInvocationStore {
           continue;
         }
         touchedInvocationIds.push(candidate.id);
+        this.sealReceiptOutputRefsInTransaction(candidate.id);
         const deleted = Number(
           this.db
             .prepare(
@@ -1358,6 +1499,7 @@ export class SparkInvocationStore {
                  SELECT rowid
                  FROM invocation_events
                  WHERE invocation_id = ?
+                   AND kind <> 'invocation.receipt_context'
                  ORDER BY sequence
                  LIMIT ?
                )`,
@@ -1365,12 +1507,17 @@ export class SparkInvocationStore {
             .run(candidate.id, eventLimit - deletedEventCount).changes,
         );
         deletedEventCount += deleted;
-        const hasEvents = Boolean(
+        const hasPrunableEvents = Boolean(
           this.db
-            .prepare("SELECT 1 FROM invocation_events WHERE invocation_id = ? LIMIT 1")
+            .prepare(
+              `SELECT 1
+               FROM invocation_events
+               WHERE invocation_id = ? AND kind <> 'invocation.receipt_context'
+               LIMIT 1`,
+            )
             .get(candidate.id),
         );
-        if (!hasEvents) {
+        if (!hasPrunableEvents) {
           const cleared = this.db
             .prepare(
               `UPDATE invocations
@@ -1503,9 +1650,14 @@ export class SparkInvocationStore {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       for (const row of eligible) {
+        this.sealReceiptOutputRefsInTransaction(row.id);
         deletedEventCount += Number(
-          this.db.prepare("DELETE FROM invocation_events WHERE invocation_id = ?").run(row.id)
-            .changes,
+          this.db
+            .prepare(
+              `DELETE FROM invocation_events
+               WHERE invocation_id = ? AND kind <> 'invocation.receipt_context'`,
+            )
+            .run(row.id).changes,
         );
         const summary = {
           status: row.status,
@@ -1548,6 +1700,25 @@ export class SparkInvocationStore {
       blockedInvocationIds,
       redactedAt,
     };
+  }
+
+  private sealReceiptOutputRefsInTransaction(invocationId: string): void {
+    const row = this.db
+      .prepare(
+        `SELECT rowid, payload_json
+         FROM invocation_events
+         WHERE invocation_id = ? AND kind = 'invocation.receipt_context'
+         ORDER BY sequence DESC
+         LIMIT 1`,
+      )
+      .get(invocationId) as { rowid: number; payload_json: string } | undefined;
+    if (!row) return;
+    const context = parseJson(row.payload_json) as SparkInvocationReceiptContext;
+    if (context.outputRefs) return;
+    const receipt = this.invocationReceipt(invocationId);
+    this.db
+      .prepare("UPDATE invocation_events SET payload_json = ? WHERE rowid = ?")
+      .run(JSON.stringify({ ...context, outputRefs: receipt.outputRefs }), row.rowid);
   }
 
   oldestActive(): { queued?: string; running?: string } {
@@ -2058,6 +2229,30 @@ function parseJson(value: string): unknown {
   }
 }
 
+function invocationOutputRefs(value: unknown): string[] {
+  const refs = new Set<string>();
+  const visit = (current: unknown, depth: number): void => {
+    if (depth > 8 || refs.size >= 128 || current === null || current === undefined) return;
+    if (typeof current === "string") {
+      if (/^(?:artifact|evidence|run|task|proj|subgoal|document):\S+$/u.test(current)) {
+        refs.add(current);
+      }
+      return;
+    }
+    if (Array.isArray(current)) {
+      for (const entry of current) visit(entry, depth + 1);
+      return;
+    }
+    if (typeof current === "object") {
+      for (const entry of Object.values(current as Record<string, unknown>)) {
+        visit(entry, depth + 1);
+      }
+    }
+  };
+  visit(value, 0);
+  return [...refs].sort();
+}
+
 function assertTransition(from: SparkInvocationStatus, to: SparkInvocationStatus): void {
   if (!allowedTransitions[from].includes(to)) {
     throw new Error(`Invalid Spark invocation transition: ${from} -> ${to}`);
@@ -2139,6 +2334,7 @@ function isLoopTickInvocation(invocation: { sourceKind?: string; task?: unknown 
 
 function markTaskForResume(task: unknown): unknown {
   if (!task || typeof task !== "object" || Array.isArray(task)) return task;
+  if ((task as { type?: unknown }).type === "session.compact") return task;
   return { ...(task as Record<string, unknown>), resumeFromInterrupt: true };
 }
 

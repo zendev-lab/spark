@@ -28,6 +28,7 @@ export interface SparkCompactionModelRunnerRequest {
   model: string;
   prompt: string;
   maxTokens: number;
+  signal?: AbortSignal;
 }
 
 export type SparkCompactionModelRunner = (

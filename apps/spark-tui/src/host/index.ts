@@ -51,7 +51,12 @@ export {
   sessionRecordToAgentMessages,
   sessionRecordToPromptItems,
 } from "./agent-session.ts";
-export type { SparkAgentSessionRunOptions, SparkAgentSessionRunResult } from "./agent-session.ts";
+export type {
+  SparkAgentSessionCompactOptions,
+  SparkAgentSessionCompactResult,
+  SparkAgentSessionRunOptions,
+  SparkAgentSessionRunResult,
+} from "./agent-session.ts";
 export {
   SparkKeybindings,
   defaultKeybindingsPath,
@@ -301,6 +306,7 @@ export type {
   SparkSessionMessage,
   SparkSessionMessageEntry,
   SparkSessionRecord,
+  SparkSessionAtomicWriteOptions,
   SparkSessionStoreOptions,
   SparkThinkingLevelChangeEntry,
 } from "./session-store.ts";

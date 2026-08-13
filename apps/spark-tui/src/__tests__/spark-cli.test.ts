@@ -31,9 +31,11 @@ import {
 import {
   SPARK_PROTOCOL_VERSION,
   type SparkInvocationRetryResult,
+  type SparkSessionProjection,
   type SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
 import sparkCliHostExtension from "../spark-host-extension.ts";
+import { workspaceSessionRecord } from "../../../../test/support/session-fixtures.ts";
 
 test("parseSparkCliArgs treats positional args as the initial message", () => {
   assert.deepEqual(parseSparkCliArgs(["hello", "spark"]), {
@@ -136,16 +138,6 @@ function fakeHeadlessDaemonClient(
   submissions: Array<{ sessionId: string; prompt: string; reset?: boolean }> = [],
 ): SparkDaemonClientOptions {
   const now = new Date(0).toISOString();
-  const sessions: Array<{
-    sessionId: string;
-    scope: { kind: "workspace"; workspaceId: string };
-    workspaceId: string;
-    status: "ready" | "archived";
-    bindings: [];
-    createdAt: string;
-    updatedAt: string;
-    cwd?: string;
-  }> = [];
   const workspace = {
     id: "ws_test",
     serverUrl: "http://127.0.0.1:0",
@@ -154,6 +146,15 @@ function fakeHeadlessDaemonClient(
     localPath: process.cwd(),
     status: "active",
   };
+  const sessions: SparkSessionProjection[] = [
+    workspaceSessionRecord({
+      sessionId: "sess_admin_ws_test",
+      workspaceId: workspace.id,
+      administrator: true,
+      createdAt: now,
+      updatedAt: now,
+    }),
+  ];
   const clientLease = {
     id: "client_test",
     workspaceId: workspace.id,
@@ -174,16 +175,17 @@ function fakeHeadlessDaemonClient(
     managedSessions: {
       list: async () => sessions,
       create: async (input) => {
-        const record = {
+        if (input.scope.kind !== "workspace") throw new Error("workspace session required");
+        const record = workspaceSessionRecord({
           sessionId: input.sessionId!,
-          scope: input.scope as { kind: "workspace"; workspaceId: string },
-          workspaceId: input.workspaceId!,
-          status: "ready" as const,
-          bindings: [] as [],
+          workspaceId: input.scope.workspaceId,
+          supervisorSessionId: input.supervisorSessionId,
+          name: input.name,
+          roleBinding: input.roleBinding,
           createdAt: now,
           updatedAt: now,
           ...(input.cwd ? { cwd: input.cwd } : {}),
-        };
+        });
         sessions.push(record);
         return record;
       },
@@ -192,7 +194,17 @@ function fakeHeadlessDaemonClient(
       unbind: async (sessionId) => sessions.find((session) => session.sessionId === sessionId)!,
       archive: async (sessionId) => {
         const index = sessions.findIndex((session) => session.sessionId === sessionId);
-        sessions[index] = { ...sessions[index]!, status: "archived", updatedAt: now };
+        sessions[index] = { ...sessions[index]!, placement: "archived", updatedAt: now };
+        return sessions[index]!;
+      },
+      restore: async (sessionId) => {
+        const index = sessions.findIndex((session) => session.sessionId === sessionId);
+        sessions[index] = { ...sessions[index]!, placement: "active", updatedAt: now };
+        return sessions[index]!;
+      },
+      close: async (sessionId) => {
+        const index = sessions.findIndex((session) => session.sessionId === sessionId);
+        sessions[index] = { ...sessions[index]!, lifecycle: "closed", updatedAt: now };
         return sessions[index]!;
       },
     },

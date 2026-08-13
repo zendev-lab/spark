@@ -69,13 +69,7 @@ export {
 
 export interface SparkRoleRunResult {
   record: RoleRunRecord & {
-    launch?: RoleLaunchMode;
     model?: string;
-    sessionDir?: string;
-    forkFromSession?: string;
-    noSession?: boolean;
-    sessionPersistence?: "anonymous" | "persistent";
-    sessionLifetime?: "persistent" | "owned";
   };
   outcome?: RoleRunCompletionOutcome;
   stdout: string;
@@ -84,7 +78,10 @@ export interface SparkRoleRunResult {
 }
 
 export interface SparkRoleInstructionExecutorInput {
-  role: Pick<RoleSpec, "ref" | "id" | "systemPrompt" | "allowedTools">;
+  role: Pick<
+    RoleSpec,
+    "ref" | "id" | "revision" | "systemPrompt" | "allowedTools" | "allowedToolEffects"
+  >;
   instruction: RoleInstruction;
   record: SparkRoleRunResult["record"];
   cwd: string;
@@ -95,8 +92,6 @@ export interface SparkRoleInstructionExecutorInput {
   launch?: RoleLaunchMode;
   forkFromSession?: string;
   model?: string;
-  noSession?: boolean;
-  sessionPersistence?: "anonymous" | "persistent";
   phase?: "plan" | "implement";
   requireStructuredOutcome?: boolean;
   env?: NodeJS.ProcessEnv;
@@ -167,10 +162,7 @@ export interface RoleRunFailureDiagnostic {
   failureCategory: string;
   executorKind: "daemon-native" | "process";
   modelSelector?: string;
-  launch?: RoleLaunchMode;
   exitOrTimeout: string;
-  sessionPersistence?: "anonymous" | "persistent";
-  sessionLifetime?: "persistent" | "owned";
   nextAction: string;
 }
 
@@ -195,20 +187,11 @@ export function buildRoleRunFailureDiagnostic(input: {
       : "role_run_failed";
   return {
     failureCategory,
-    executorKind:
-      input.executorKind ??
-      (result.record.sessionPersistence || result.record.sessionLifetime
-        ? "daemon-native"
-        : "process"),
+    executorKind: input.executorKind ?? "daemon-native",
     ...((input.modelSelector ?? result.record.model)
       ? { modelSelector: redactDiagnosticText(input.modelSelector ?? result.record.model ?? "") }
       : {}),
-    ...(result.record.launch ? { launch: result.record.launch } : {}),
     exitOrTimeout: redactDiagnosticText(input.exitOrTimeout ?? result.record.status),
-    ...(result.record.sessionPersistence
-      ? { sessionPersistence: result.record.sessionPersistence }
-      : {}),
-    ...(result.record.sessionLifetime ? { sessionLifetime: result.record.sessionLifetime } : {}),
     nextAction: diagnosticNextAction(failureCategory),
   };
 }
@@ -413,7 +396,6 @@ export interface PiRoleCommandInput {
   instruction: string;
   model?: string;
   allowedTools?: string[];
-  noSession?: boolean;
   sessionDir?: string;
   launch?: RoleLaunchMode;
   forkFromSession?: string;
@@ -427,7 +409,6 @@ export function buildRoleRunArgs(input: PiRoleCommandInput): string[] {
     instruction: input.instruction,
     model: input.model,
     allowedTools: input.allowedTools,
-    noSession: input.noSession,
     runGuidance: sparkRoleRunGuidance(),
     sessionDir: input.sessionDir,
     forkFromSession: input.forkFromSession,
@@ -1202,6 +1183,7 @@ export async function runRoleInstructionOnly(
   const baseRecord: RoleRunRecord = {
     ref: runRef,
     roleRef: role.ref,
+    roleRevision: role.revision,
     runName: options.runName?.trim() || createRoleRunName(role.ref, runRef),
 
     instruction: instruction.instruction,
@@ -1273,8 +1255,8 @@ async function runNativeSparkRole(
     projectStore: defaultProjectRoleModelSettingsStore(options.cwd),
     userStore: defaultUserRoleModelSettingsStore(),
   });
-  if (!roleModel) throw new RoleModelTypeUnconfiguredError(role.ref, role.modelType);
-  const model = roleModel.model;
+  const model = options.sessionModel?.trim() || roleModel?.model;
+  if (!model) throw new RoleModelTypeUnconfiguredError(role.ref, role.modelType);
   let streamedEventCount = 0;
   const onEvent = options.onRoleEvent
     ? async (event: unknown) => {
@@ -1285,12 +1267,11 @@ async function runNativeSparkRole(
   const result = await runRole({
     runRef: baseRecord.ref,
     roleRef: role.ref,
-    roleId: role.id,
     roleRevision: role.revision,
+    roleId: role.id,
     roleSource: role.source,
     roleCapabilities: role.capabilities,
     roleModelType: role.modelType,
-    roleInstantiation: "owned",
     systemPrompt: role.systemPrompt,
     instruction: instruction.instruction,
     model,
@@ -1334,7 +1315,7 @@ export function sparkTaskExecutorRoleRef(task: Task, defaultRoleRef?: RoleRef): 
 }
 
 function defaultRoleRefForTaskKind(kind: Task["kind"]): RoleRef {
-  if (kind === "research") return "role:builtin-researcher" as RoleRef;
+  if (kind === "research") return "role:builtin-explorer" as RoleRef;
   if (kind === "review") return "role:builtin-reviewer" as RoleRef;
   return "role:builtin-executor" as RoleRef;
 }

@@ -13,18 +13,16 @@ import {
 } from "../host/index.ts";
 import { buildRoleRunFailureDiagnostic } from "@zendev-lab/spark-runtime";
 
-test("empty-output anonymous role run failure records diagnostic artifact", () => {
+test("empty-output Role Invocation failure records a lifecycle-neutral diagnostic", () => {
   const diagnostic = buildRoleRunFailureDiagnostic({
     result: {
       record: {
         ref: "run:empty-output",
         roleRef: "role:builtin-reviewer",
+        roleRevision: "test-revision",
         instruction: "review",
         status: "failed",
-        launch: "fresh",
         model: "fake/model",
-        noSession: true,
-        sessionPersistence: "anonymous",
       },
       stdout: "",
       stderr: "",
@@ -38,9 +36,8 @@ test("empty-output anonymous role run failure records diagnostic artifact", () =
   assert.equal(diagnostic.failureCategory, "empty_output");
   assert.equal(diagnostic.executorKind, "daemon-native");
   assert.equal(diagnostic.modelSelector, "fake/model");
-  assert.equal(diagnostic.launch, "fresh");
+  assert.equal("launch" in diagnostic, false);
   assert.equal(diagnostic.exitOrTimeout, "exit 1");
-  assert.equal(diagnostic.sessionPersistence, "anonymous");
   assert.match(diagnostic.nextAction, /executor produced no stdout/);
 });
 
@@ -56,18 +53,22 @@ test("native model parity diagnostic reports provider mismatch", async () => {
     });
 
     const result = await executeRole({
-      role: { ref: "role:builtin-reviewer", id: "reviewer", systemPrompt: "You are a reviewer." },
+      role: {
+        ref: "role:builtin-reviewer",
+        id: "reviewer",
+        revision: "test-revision",
+        systemPrompt: "You are a reviewer.",
+      },
       instruction: { roleRef: "role:builtin-reviewer", instruction: "model mismatch" },
       record: {
         ref: "run:model-mismatch",
         roleRef: "role:builtin-reviewer",
+        roleRevision: "test-revision",
         instruction: "model mismatch",
         status: "queued",
-        noSession: true,
       },
       cwd,
       timeoutMs: 1_000,
-      noSession: true,
       model: "openai-codex/gpt-5.5",
     });
 
@@ -87,10 +88,9 @@ test("role-run diagnostic output redacts secrets", () => {
       record: {
         ref: "run:secret",
         roleRef: "role:builtin-reviewer",
+        roleRevision: "test-revision",
         instruction: "review",
         status: "failed",
-        launch: "fresh",
-        sessionPersistence: "anonymous",
       },
       stdout: "",
       stderr: "",
@@ -119,18 +119,22 @@ test("anonymous diagnostics do not add persistent session selector entries", asy
     });
 
     await executeRole({
-      role: { ref: "role:builtin-reviewer", id: "reviewer", systemPrompt: "You are a reviewer." },
+      role: {
+        ref: "role:builtin-reviewer",
+        id: "reviewer",
+        revision: "test-revision",
+        systemPrompt: "You are a reviewer.",
+      },
       instruction: { roleRef: "role:builtin-reviewer", instruction: "diagnostic mismatch" },
       record: {
         ref: "run:diagnostic-anonymous",
         roleRef: "role:builtin-reviewer",
+        roleRevision: "test-revision",
         instruction: "diagnostic mismatch",
         status: "queued",
-        noSession: true,
       },
       cwd,
       timeoutMs: 1_000,
-      noSession: true,
       model: "openai-codex/gpt-5.5",
     });
 

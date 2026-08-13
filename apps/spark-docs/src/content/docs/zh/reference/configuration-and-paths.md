@@ -49,6 +49,21 @@ $XDG_RUNTIME_DIR/spark
 
 某个 XDG 变量没有设置时使用对应的平台默认值。
 
+## Daemon invocation 并发
+
+Daemon 默认最多同时接纳来自不同 session 的 4 个 root invocation。可以把启动值
+设置为 `1` 到 `64`，随后重启 daemon 使其生效：
+
+```bash
+spark daemon configure --invocation-concurrency 8
+spark daemon restart --yes --wait
+spark daemon status --json
+```
+
+有效运行值位于 `execution.rootConcurrency`；status 还会显示 `in_process` backend
+以及为阻塞式问题保留的 1 个 overflow slot。该设置只控制 root invocation 的接纳，
+不会创建操作系统 worker 进程；同一 session 内的工作仍然串行执行。
+
 ## Cockpit 到 Hub 的升级迁移
 
 首次使用默认 Hub 数据库时，Spark 会自动把已退役的 `cockpit.toml`、

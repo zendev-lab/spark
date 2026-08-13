@@ -18,7 +18,7 @@ export function withSparkToolOperationalNotes(toolName: string, description: str
           idempotent:
             "create is idempotent by key; delivery is idempotent by delegation and message sequence",
           prerequisites: [
-            "The caller is a workspace main session or the command is issued by a Hub Owner.",
+            "The caller is a Workspace Administrator Session or the command is issued by a Hub Owner.",
             "The source and target are different active workspaces in the same Hub.",
           ],
         }

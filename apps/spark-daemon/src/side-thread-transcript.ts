@@ -7,7 +7,7 @@ import {
   sparkSideThreadSnapshotSchema,
   sparkSideThreadExchangeSchema,
   type SparkModelRef,
-  type SparkSessionRegistryRecord,
+  type SparkSessionState,
   type SparkSideThreadErrorCode,
   type SparkSideThreadExchange,
   type SparkSideThreadMode,
@@ -59,7 +59,7 @@ interface SideThreadTranscriptIndex {
  */
 export async function createSparkDaemonSideThreadTranscript(
   options: SparkDaemonSessionControlOptions,
-  parent: SparkSessionRegistryRecord,
+  parent: SparkSessionState,
   sessionId: string,
   mode: SparkSideThreadMode,
   generation = 1,
@@ -120,11 +120,11 @@ function createUniqueSideThreadRecord(
 
 export async function projectSparkDaemonSideThreadSnapshot(
   options: SparkDaemonSessionControlOptions,
-  parent: SparkSessionRegistryRecord,
-  child: SparkSessionRegistryRecord,
+  parent: SparkSessionState,
+  child: SparkSessionState,
   page: { beforeExchangeId?: string; limit?: number },
 ): Promise<SparkSideThreadSnapshot> {
-  const relation = requireSideThreadRelation(child);
+  const owner = requireSideThreadOwner(child);
   const exchanges = await loadSparkDaemonSideThreadExchanges(options, child);
   const { end, requestedStart } = projectionWindow(exchanges, page);
   const pendingTurns = pendingSideThreadTurns(options, child);
@@ -133,7 +133,7 @@ export async function projectSparkDaemonSideThreadSnapshot(
   return fitSnapshotProjection({
     parent,
     child,
-    relation,
+    owner,
     exchanges,
     requestedStart,
     visible: initialVisible,
@@ -161,7 +161,7 @@ function projectionWindow(
 
 function pendingSideThreadTurns(
   options: SparkDaemonSessionControlOptions,
-  child: SparkSessionRegistryRecord,
+  child: SparkSessionState,
 ) {
   const pending = new SparkInvocationStore(options.db).listPendingForSession(child.sessionId);
   return pending.map((invocation) => {
@@ -181,8 +181,8 @@ function pendingSideThreadTurns(
 
 async function projectedModelState(
   modelControl: SparkDaemonModelControl | undefined,
-  parent: SparkSessionRegistryRecord,
-  child: SparkSessionRegistryRecord,
+  parent: SparkSessionState,
+  child: SparkSessionState,
 ) {
   const rawModelState = await effectiveModelState(modelControl, parent, child);
   const fallbackReason = rawModelState.fallbackReason
@@ -198,16 +198,16 @@ async function projectedModelState(
 function fitSnapshotProjection({
   parent,
   child,
-  relation,
+  owner,
   exchanges,
   requestedStart,
   visible: initialVisible,
   pendingTurns,
   modelState: projectedModel,
 }: {
-  parent: SparkSessionRegistryRecord;
-  child: SparkSessionRegistryRecord;
-  relation: ReturnType<typeof requireSideThreadRelation>;
+  parent: SparkSessionState;
+  child: SparkSessionState;
+  owner: ReturnType<typeof requireSideThreadOwner>;
   exchanges: readonly SparkSideThreadExchange[];
   requestedStart: number;
   visible: SparkSideThreadExchange[];
@@ -226,8 +226,8 @@ function fitSnapshotProjection({
     const candidate = sparkSideThreadSnapshotSchema.parse({
       parentSessionId: parent.sessionId,
       sessionId: child.sessionId,
-      generation: relation.generation,
-      mode: relation.mode,
+      generation: owner.generation,
+      mode: child.sideThreadMode ?? "contextual",
       status: sideThreadSnapshotStatus(pendingTurns),
       pendingTurns,
       exchanges: visible,
@@ -274,7 +274,7 @@ function sideThreadSnapshotStatus(
 
 export async function loadSparkDaemonSideThreadExchanges(
   options: SparkDaemonSessionControlOptions,
-  child: SparkSessionRegistryRecord,
+  child: SparkSessionState,
 ): Promise<SparkSideThreadExchange[]> {
   const sessionPath = child.sessionPath;
   if (!sessionPath || !child.cwd) {
@@ -292,7 +292,7 @@ export async function loadSparkDaemonSideThreadExchanges(
 
 async function rebuildSideThreadTranscriptIndex(
   options: SparkDaemonSessionControlOptions,
-  child: SparkSessionRegistryRecord,
+  child: SparkSessionState,
   identity: SideThreadTranscriptIndex["identity"],
 ): Promise<SparkSideThreadExchange[]> {
   const sessionPath = child.sessionPath!;
@@ -319,7 +319,7 @@ async function rebuildSideThreadTranscriptIndex(
 
 async function exchangesFromDurableTranscript(
   options: SparkDaemonSessionControlOptions,
-  child: SparkSessionRegistryRecord,
+  child: SparkSessionState,
   identity: SideThreadTranscriptIndex["identity"],
 ): Promise<SparkSideThreadExchange[]> {
   const sessionPath = child.sessionPath!;
@@ -367,13 +367,13 @@ async function exchangesFromDurableTranscript(
  */
 export async function pruneSparkDaemonSideThreadRetiredGenerations(
   options: SparkDaemonSessionControlOptions,
-  parent: SparkSessionRegistryRecord,
-  current: SparkSessionRegistryRecord,
+  parent: SparkSessionState,
+  current: SparkSessionState,
 ): Promise<void> {
-  const relation = requireSideThreadRelation(current);
+  const owner = requireSideThreadOwner(current);
   const currentPath = current.sessionPath;
   if (!currentPath || !current.cwd) return;
-  const retainFromGeneration = Math.max(1, relation.generation - RETAINED_RETIRED_GENERATIONS);
+  const retainFromGeneration = Math.max(1, owner.generation - RETAINED_RETIRED_GENERATIONS);
   const directory = dirname(currentPath);
   let names: string[];
   try {
@@ -410,7 +410,7 @@ export async function pruneSparkDaemonSideThreadRetiredGenerations(
 /** Remove one newly created generation only after rechecking its identity. */
 export async function removeUnreferencedSparkDaemonSideThreadTranscript(
   options: SparkDaemonSessionControlOptions,
-  parent: SparkSessionRegistryRecord,
+  parent: SparkSessionState,
   sessionId: string,
   sessionPath: string,
   generation: number,
@@ -439,14 +439,14 @@ export async function removeUnreferencedSparkDaemonSideThreadTranscript(
 }
 
 function sideThreadTranscriptIdentity(
-  child: SparkSessionRegistryRecord,
+  child: SparkSessionState,
   sessionPath: string,
 ): SideThreadTranscriptIndex["identity"] {
-  const relation = requireSideThreadRelation(child);
+  const owner = requireSideThreadOwner(child);
   return {
-    parentSessionId: relation.parentSessionId,
+    parentSessionId: owner.parentSessionId,
     sessionId: child.sessionId,
-    generation: relation.generation,
+    generation: owner.generation,
     transcriptPath: resolve(sessionPath),
   };
 }
@@ -755,11 +755,11 @@ function isFinalAssistantMessage(message: {
 
 async function effectiveModelState(
   modelControl: SparkDaemonModelControl | undefined,
-  parent: SparkSessionRegistryRecord,
-  child: SparkSessionRegistryRecord,
+  parent: SparkSessionState,
+  child: SparkSessionState,
 ): Promise<{
   effectiveModel?: SparkModelRef;
-  effectiveThinkingLevel?: SparkSessionRegistryRecord["thinkingLevel"];
+  effectiveThinkingLevel?: SparkSessionState["thinkingLevel"];
   fallbackReason?: string;
 }> {
   if (!modelControl) return { fallbackReason: "model control is unavailable" };
@@ -779,11 +779,11 @@ async function effectiveModelState(
   }
 }
 
-function requireSideThreadRelation(child: SparkSessionRegistryRecord) {
-  if (child.relation?.kind !== "side_thread") {
+function requireSideThreadOwner(child: SparkSessionState) {
+  if (child.owner?.kind !== "side_thread") {
     throw transcriptError("side_thread_not_found", `not a side thread: ${child.sessionId}`);
   }
-  return child.relation;
+  return child.owner;
 }
 
 function requireSessionsRoot(options: SparkDaemonSessionControlOptions): string {
