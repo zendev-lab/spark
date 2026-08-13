@@ -48,7 +48,10 @@ When adding or retuning a Baidu model, update all that apply:
 2. `packages/spark-ai/src/baidu-oneapi-compat-extension.test.ts` — `BAIDU_MODEL_IDS` order matches `models[]`
 3. `apps/spark-tui/src/__tests__/spark-provider-registry.test.ts` — window, maxTokens, transport, cost
 4. `packages/spark-ai/README.md` — catalog ids, transport sentence, measured windows
-5. Default `enabledModels` is `baidu-oneapi/*`; no catalog change needed unless scope is an explicit allow-list
+5. Default `enabledModels` is `baidu-oneapi/*`, so a new Baidu model is in
+   product scope. Still add a `scopedModelIds.includes("baidu-oneapi/<id>")`
+   assertion in `packages/spark-ai/src/spark-provider-control.test.ts`. If this
+   repo later uses an explicit allow-list, update that list in the same change.
 
 Pi compat and native adapters share `baidu-oneapi.ts`. Do not fork the catalog
 in the compat extension.

@@ -49,6 +49,9 @@ in `baidu-oneapi.ts`. Do not guess vendor ids, context, or prices.
   are currently 1:1.
 - Adding a model also requires `GATEWAY_MODEL_BY_ID` plus the `models[]` row.
 - Keep grok-4.5 when adding grok-4.6 unless the user asks to remove it.
+- Default product scope is `baidu-oneapi/*`. Still prove the new id is
+  default-enabled with a `scopedModelIds.includes(...)` test. Do not freeze the
+  whole catalog as the scope contract.
 
 ## Metric edits
 
