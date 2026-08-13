@@ -1,6 +1,7 @@
 import { readJsonFileOptional } from "@zendev-lab/spark-core";
 import {
   loadSessionGoal,
+  loadSparkSessionWorkspaceState,
   sessionReproStorePathV2,
   type SparkSessionGoal,
 } from "@zendev-lab/spark-loop";
@@ -24,11 +25,14 @@ import {
   normalizeStoredSparkSessionRepro,
   type SparkSessionRepro,
 } from "@zendev-lab/spark-repro";
+import { projectSparkReproLanesView } from "@zendev-lab/spark-repro/three-lane-projection";
+import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 
 export interface SparkSessionWorkProjectionDiagnostic {
   code:
     | "goal_state_unavailable"
     | "repro_state_unavailable"
+    | "task_graph_unavailable"
     | "token_usage_unavailable"
     | "work_projection_invalid";
   domain: "goal" | "repro" | "work";
@@ -43,6 +47,8 @@ interface ProjectSparkSessionWorkInput {
   tokenUsage?: (scope: SparkReproUsageScope) => SparkTokenUsageAggregate;
   tokenUsageByPersistence?: (scope: SparkReproUsageScope) => SparkTokenUsageByPersistence;
   workbench?: (reproId: string) => SparkSessionReproWorkView["workbench"];
+  /** Daemon-owned pending canonical interactions for this exact Session. */
+  pendingRequestCount?: number;
   onDiagnostic?: (diagnostic: SparkSessionWorkProjectionDiagnostic) => void;
 }
 
@@ -93,7 +99,17 @@ export async function projectSparkSessionWork(
     repro = await readRepro(input.cwd, input.sessionId, input.onDiagnostic);
   }
 
-  const projectedGoal = goal ? projectGoalWork(goal) : undefined;
+  const projectedGoal = goal
+    ? projectGoalWork(
+        goal,
+        await projectGoalReadiness(
+          input.cwd,
+          input.sessionId,
+          input.pendingRequestCount ?? 0,
+          input.onDiagnostic,
+        ),
+      )
+    : undefined;
   const parsedGoal = projectedGoal
     ? sparkSessionGoalWorkViewSchema.safeParse(projectedGoal)
     : undefined;
@@ -143,16 +159,31 @@ export async function projectSparkSessionWork(
   return primaryLoop ? { primary: { loopId: primaryLoop.loopId } } : undefined;
 }
 
-function projectGoalWork(goal: SparkSessionGoal): SparkSessionGoalWorkView {
+interface SparkGoalRuntimeReadiness {
+  readyTaskRefs: string[];
+  readyTaskCount: number;
+  blockedTaskRefs: string[];
+  blockedTaskCount: number;
+  pendingRequestCount: number;
+}
+
+function projectGoalWork(
+  goal: SparkSessionGoal,
+  readiness: SparkGoalRuntimeReadiness,
+): SparkSessionGoalWorkView {
   return {
     goalId: goal.goalId,
     objective: goal.objective,
-    status: goal.status,
+    status:
+      goal.status === "active" && readiness.pendingRequestCount > 0
+        ? "waiting_decision"
+        : goal.status,
     ...(goal.status === "paused" && goal.pauseReason
       ? { reason: goal.pauseReason }
       : goal.status === "complete" && goal.completedReason
         ? { reason: goal.completedReason }
         : {}),
+    readiness,
     updatedAt: goal.updatedAt,
   };
 }
@@ -206,6 +237,7 @@ function projectReproWork(
       stagnationCount: repro.stopGuard.stagnationCount,
       limit: repro.stopGuard.limit,
     },
+    lanes: projectSparkReproLanesView(repro.threeLane),
     ...(latestVerification?.verdict === "Pass"
       ? {
           latestVerification: {
@@ -221,6 +253,51 @@ function projectReproWork(
     ...(workbench ? { workbench } : {}),
     updatedAt: repro.updatedAt,
   };
+}
+
+async function projectGoalReadiness(
+  cwd: string | undefined,
+  sessionId: string,
+  pendingRequestCount: number,
+  onDiagnostic?: ProjectSparkSessionWorkInput["onDiagnostic"],
+): Promise<SparkGoalRuntimeReadiness> {
+  const empty = {
+    readyTaskRefs: [],
+    readyTaskCount: 0,
+    blockedTaskRefs: [],
+    blockedTaskCount: 0,
+    pendingRequestCount: Math.max(0, Math.trunc(pendingRequestCount)),
+  } satisfies SparkGoalRuntimeReadiness;
+  if (!cwd) return empty;
+
+  try {
+    const workspace = await loadSparkSessionWorkspaceState(cwd, { cwd, sessionId });
+    if (!workspace?.projectRef) return empty;
+    const graph = await defaultTaskGraphStore(cwd).load();
+    if (!graph) return empty;
+    const tasks = graph.tasks(workspace.projectRef);
+    const readyTasks = graph.readyTasks(workspace.projectRef);
+    const readyTaskRefs = readyTasks.map((task) => task.ref).sort();
+    const ready = new Set(readyTaskRefs);
+    const blockedTaskRefs = tasks
+      .filter(
+        (task) =>
+          task.status === "blocked" ||
+          ((task.status === "pending" || task.status === "ready") && !ready.has(task.ref)),
+      )
+      .map((task) => task.ref)
+      .sort();
+    return {
+      readyTaskRefs: readyTaskRefs.slice(0, 6),
+      readyTaskCount: readyTaskRefs.length,
+      blockedTaskRefs: blockedTaskRefs.slice(0, 6),
+      blockedTaskCount: blockedTaskRefs.length,
+      pendingRequestCount: empty.pendingRequestCount,
+    };
+  } catch {
+    recordDiagnostic({ sessionId, onDiagnostic }, "task_graph_unavailable", "goal");
+    return empty;
+  }
 }
 
 async function readGoal(

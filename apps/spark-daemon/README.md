@@ -22,6 +22,12 @@ Use `--token -` to read a one-line registration token from stdin. Browser/device
 
 The daemon owns workspace arbitration, the Session registry and Owner-derived lifecycle, Administrator provisioning, channels, SQLite Invocations/receipts, per-Session execution fencing, cancellation, timeout, restart recovery, and the runtime WebSocket uplink. Hub receives projections; it is not execution truth.
 
+Session work projections are rebuilt from owner state on every snapshot. Repro
+lane summaries come from the persisted v8 Repro record; Goal readiness comes
+from the selected TaskGraph project plus daemon-owned pending human requests.
+`waiting_decision` does not remove unrelated ready TaskRefs, and no projection
+parses transcript or rendered text to infer progress.
+
 Daemon SQLite startup uses the static registry under `src/store/migrations/`.
 Each step declares a stable diagnostic ID and its state owner; startup executes
 the registry in source order. Migrations remain idempotent and retain any
