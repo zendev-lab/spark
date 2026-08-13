@@ -1,5 +1,6 @@
 import { mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { setImmediate as yieldToMacrotask } from "node:timers/promises";
 import {
   SPARK_PROTOCOL_VERSION,
   parseSparkDaemonEvent,
@@ -148,6 +149,8 @@ export interface SparkDaemonTaskExecutorOptions {
     bytes: number;
     timestampMs: number;
   }) => void;
+  /** Test seam for the daemon-wide serialized terminal projection lane. */
+  yieldBeforeTerminalProjection?: () => void | Promise<void>;
   modelControl?: Pick<SparkDaemonModelControl, "effectiveModel" | "prepareModel"> &
     Partial<Pick<SparkDaemonModelControl, "generateSessionName">>;
   sessionRegistry?: Pick<
@@ -157,7 +160,11 @@ export interface SparkDaemonTaskExecutorOptions {
     Partial<
       Pick<
         DaemonSessionRegistry,
-        "bindTranscriptPath" | "commitTranscriptReplacement" | "get" | "setNameIfMissing"
+        | "bindTranscriptPath"
+        | "commitTranscriptReplacement"
+        | "get"
+        | "getInvocationVisibilitySnapshot"
+        | "setNameIfMissing"
       >
     >;
   sessionSupervisor?: SessionSupervisor;
@@ -208,11 +215,22 @@ export interface SparkDaemonChannelReplyDeliveryInput {
 
 export { loadSparkHeadlessSessionModule };
 
+/** Load production execution modules before local RPC admission opens. */
+export async function preloadSparkDaemonExecutionRuntime(
+  loadModule: typeof loadSparkHeadlessSessionModule = loadSparkHeadlessSessionModule,
+): Promise<void> {
+  const module = await loadModule();
+  await module.preloadSparkHeadlessSessionRuntime?.();
+}
+
 export function createSparkDaemonTaskExecutor(
   options: SparkDaemonTaskExecutorOptions,
 ): SparkDaemonTaskExecutor {
   let sessionCompactor: SparkHeadlessSessionCompactor | undefined;
   let sessionExecutor: SparkHeadlessSessionExecutor | undefined;
+  const enqueueTerminalProjection = createTerminalProjectionLane(
+    options.yieldBeforeTerminalProjection ?? (() => yieldToMacrotask()),
+  );
 
   const getSessionCompactor = async () => {
     if (sessionCompactor) return sessionCompactor;
@@ -332,6 +350,17 @@ export function createSparkDaemonTaskExecutor(
       }
       const presentationSessionId = sessionTask.presentationSessionId ?? sessionTask.sessionId;
       let projectedFailure = false;
+      let terminalProjectionBundleOpen = false;
+      let terminalProjectionClosing: Promise<void> | undefined;
+      const terminalProjectionDeliveries: Promise<void>[] = [];
+      const extendTerminalProjectionClosing = (delivery: Promise<void>): void => {
+        terminalProjectionClosing = delivery;
+        void delivery
+          .finally(() => {
+            if (terminalProjectionClosing === delivery) terminalProjectionClosing = undefined;
+          })
+          .catch(() => undefined);
+      };
       const trackedContext: SparkDaemonTaskExecutionContext = {
         ...context,
         emitEvent: (event) => {
@@ -341,6 +370,29 @@ export function createSparkDaemonTaskExecutor(
             context.invocationId,
           );
           if (isProjectedSessionFailure(projected, presentationSessionId)) projectedFailure = true;
+          const opensTerminalBundle = opensTerminalProjectionBundle(projected);
+          const closesTerminalBundle = closesTerminalProjectionBundle(projected);
+          terminalProjectionBundleOpen ||= opensTerminalBundle;
+          const followsClosingProjection = terminalProjectionClosing !== undefined;
+          const usesTerminalLane =
+            terminalProjectionBundleOpen || followsClosingProjection || closesTerminalBundle;
+          if (usesTerminalLane && context.emitEvent) {
+            const delivery = enqueueTerminalProjection(() => context.emitEvent!(projected));
+            terminalProjectionDeliveries.push(delivery);
+            context.deferTerminalUntil?.(delivery);
+            if (closesTerminalBundle) {
+              terminalProjectionBundleOpen = false;
+              extendTerminalProjectionClosing(delivery);
+            } else if (followsClosingProjection) {
+              // Fire-and-forget observers may publish the retry's running and
+              // streaming projections before the closing run.update reaches
+              // persistence. Extend the fence through every such queued event
+              // so a later direct projection can never overtake lane work.
+              extendTerminalProjectionClosing(delivery);
+            }
+            return delivery;
+          }
+          if (closesTerminalBundle) terminalProjectionBundleOpen = false;
           return context.emitEvent?.(projected);
         },
       };
@@ -350,10 +402,11 @@ export function createSparkDaemonTaskExecutor(
             release(): void | Promise<void>;
           }
         | undefined;
+      let queuedSession: SparkSessionState | undefined;
       let preserveLoopGenerationForRestart = false;
       try {
         sessionLease = await options.sessionLeaseControl?.acquire(sessionTask, trackedContext);
-        await options.sessionRegistry?.recordTurnQueued(sessionTask.sessionId);
+        queuedSession = await options.sessionRegistry?.recordTurnQueued(sessionTask.sessionId);
         const frozenSessionContext = await sessionContextForTask(
           sessionTask,
           options.sessionRegistry,
@@ -382,13 +435,18 @@ export function createSparkDaemonTaskExecutor(
           },
           loopTask ? loopContextForTask(loopTask, options.loopControl) : undefined,
         );
+        await settleTerminalProjectionDeliveries(terminalProjectionDeliveries);
         const completed = await recordCompletedSessionRun(
           effectiveTask,
           result,
           options.sessionRegistry,
           options.refreshSessionSnapshotIndex ?? refreshSparkSessionSnapshotIndex,
         );
-        await wakeTaskExecutionOwner(loopTask?.ownerSessionId ?? effectiveTask.sessionId, options);
+        await wakeTaskExecutionOwner(
+          loopTask?.ownerSessionId ?? effectiveTask.sessionId,
+          options,
+          loopTask ? undefined : queuedSession,
+        );
         if (completed.indexed && !loopTask) {
           // Naming is a detached post-commit projection, so it must not keep a
           // successful invocation open. It still observes cancellation/drain
@@ -397,6 +455,12 @@ export function createSparkDaemonTaskExecutor(
         }
         return completed.result;
       } catch (error) {
+        try {
+          await settleTerminalProjectionDeliveries(terminalProjectionDeliveries);
+        } catch {
+          // Preserve the execution failure after every accepted terminal
+          // projection has settled; the success path surfaces lane failures.
+        }
         if (isSparkTurnRestartYieldError(error)) {
           preserveLoopGenerationForRestart = true;
           throw error;
@@ -405,7 +469,11 @@ export function createSparkDaemonTaskExecutor(
           await emitSessionFailure(sessionTask, trackedContext, error);
         }
         await settleFailedSessionRun(sessionTask.sessionId, options.sessionRegistry);
-        await wakeTaskExecutionOwner(loopTask?.ownerSessionId ?? sessionTask.sessionId, options);
+        await wakeTaskExecutionOwner(
+          loopTask?.ownerSessionId ?? sessionTask.sessionId,
+          options,
+          loopTask ? undefined : queuedSession,
+        );
         throw error;
       } finally {
         if (!preserveLoopGenerationForRestart) {
@@ -425,6 +493,50 @@ export function createSparkDaemonTaskExecutor(
       `Unsupported Spark daemon invocation task type: ${(task as SparkDaemonTask).type}`,
     );
   };
+}
+
+async function settleTerminalProjectionDeliveries(deliveries: Promise<void>[]): Promise<void> {
+  const results = await Promise.allSettled(deliveries);
+  const failure = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failure) throw failure.reason;
+}
+
+function createTerminalProjectionLane(
+  yieldBeforeProjection: () => void | Promise<void>,
+): (project: () => void | Promise<void>) => Promise<void> {
+  let tail = Promise.resolve();
+  return (project) => {
+    const delivery = tail.then(async () => {
+      await yieldBeforeProjection();
+      await project();
+    });
+    // A failed projection is still returned to its owner, while the shared
+    // daemon lane remains available to later Sessions.
+    tail = delivery.catch(() => undefined);
+    return delivery;
+  };
+}
+
+function opensTerminalProjectionBundle(event: SparkDaemonEvent): boolean {
+  if (event.type !== "daemon.view_event") return false;
+  if (event.view.type !== "session.message") return false;
+  const message = event.view.message;
+  if (isTerminalSessionFailureMessage(message)) return true;
+  return (
+    message.role === "assistant" &&
+    message.status === "done" &&
+    message.metadata.stopReason !== "toolUse"
+  );
+}
+
+function closesTerminalProjectionBundle(event: SparkDaemonEvent): boolean {
+  return (
+    event.type === "daemon.view_event" &&
+    event.view.type === "run.update" &&
+    !["queued", "running"].includes(event.view.run.status)
+  );
 }
 
 function loopTaskSessionLifetime(task: SparkDaemonLoopTickTask): "driver" | "driver_tick" {
@@ -2015,7 +2127,7 @@ function emitHeadlessEvent(
   raw: unknown,
   task: SparkDaemonSessionRunTask,
   context: SparkDaemonTaskExecutionContext,
-): void {
+): void | Promise<void> {
   const artifact = artifactDaemonProjectionEventFromToolResult(raw, {
     ...(task.workspaceId ? { workspaceId: task.workspaceId } : {}),
     ...(task.projectId ? { projectId: task.projectId } : {}),
@@ -2023,10 +2135,17 @@ function emitHeadlessEvent(
     invocationId: context.invocationId,
     metadata: daemonTaskRouteMetadata(task),
   });
-  if (artifact) void context.emitEvent?.(artifact);
-
   const event = daemonEventFromHeadlessEvent(raw, task, context.invocationId);
-  if (event) void context.emitEvent?.(event);
+  if (!context.emitEvent) return;
+  if (artifact) {
+    const artifactDelivery = context.emitEvent(artifact);
+    if (artifactDelivery) {
+      return event
+        ? Promise.resolve(artifactDelivery).then(() => context.emitEvent!(event))
+        : artifactDelivery;
+    }
+  }
+  if (event) return context.emitEvent(event);
 }
 
 function daemonTaskRouteMetadata(task: SparkDaemonTask | undefined): SparkJsonObject {
@@ -2322,11 +2441,18 @@ async function settleSessionRun(
 async function wakeTaskExecutionOwner(
   sessionId: string,
   options: SparkDaemonTaskExecutorOptions,
+  knownSession?: SparkSessionState,
 ): Promise<void> {
-  if (!options.sessionRegistry?.get || !options.loopControl?.wakeOwner) return;
+  if (!options.loopControl?.wakeOwner) return;
+  const readVisibilitySnapshot = options.sessionRegistry?.getInvocationVisibilitySnapshot;
+  if (!knownSession && !readVisibilitySnapshot) return;
   try {
-    const session = await options.sessionRegistry.get(sessionId);
-    if (session?.owner?.kind !== "task_run") return;
+    // Task ownership is immutable after Session creation. Ordinary turns reuse
+    // the authoritative recordTurnQueued result and perform no terminal read.
+    // Loop ticks can target a different owner Session, so they use the last
+    // atomic visibility snapshot without waiting behind unrelated recordRun work.
+    const session = knownSession ?? (await readVisibilitySnapshot!(sessionId));
+    if (session?.owner?.kind !== "task_run" && session?.owner?.kind !== "task_revision") return;
     await options.loopControl.wakeOwner(session.owner.supervisorSessionId, {
       target: "repro",
       reason: `managed Task Session ${sessionId} settled; reconcile ${session.owner.taskRef}`,

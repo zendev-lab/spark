@@ -1,9 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
+import type { DatabaseSync } from "node:sqlite";
 
+import { createSparkProviderControl } from "@zendev-lab/spark-ai/control";
 import {
   createSparkDaemonOrpcClient,
   type SparkDaemonOrpcClientHandle,
@@ -13,19 +16,17 @@ import type {
   SparkLocalRpcMethod,
   SparkLocalRpcOutput,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
 import {
   readSparkDaemonConfig,
   resolveSparkDaemonInvocationConcurrency,
   writeSparkDaemonConfig,
 } from "../../apps/spark-daemon/src/config.ts";
+import { DAEMON_STREAMING_SNAPSHOT_INTERVAL_MS } from "../../apps/spark-daemon/src/core/daemon-event-ingress.ts";
 import { startSparkDaemon } from "../../apps/spark-daemon/src/daemon-start.ts";
-import type {
-  SparkDaemonTask,
-  SparkDaemonTaskExecutionContext,
-} from "../../apps/spark-daemon/src/core/types.ts";
 import { startLocalRpcServer } from "../../apps/spark-daemon/src/local-rpc.ts";
+import { createSparkDaemonModelControl } from "../../apps/spark-daemon/src/model-control.ts";
 import { createDaemonSessionRegistry } from "../../apps/spark-daemon/src/session-registry.ts";
 import { resolveSessionCwdForWorkspaceId } from "../../apps/spark-daemon/src/session-cwd.ts";
 import { openSparkDaemonDatabase } from "../../apps/spark-daemon/src/store/schema.ts";
@@ -35,24 +36,38 @@ import {
   listWorkspaces,
   resolveWorkspaceLocalPath,
 } from "../../apps/spark-daemon/src/store/workspaces.ts";
-import type {
-  DaemonInvocationCounts,
-  DaemonOrpcCapacityProbe,
-  DaemonOrpcCapacityReport,
-  DaemonOrpcCapacityScenario,
-  DaemonOrpcLatencySummary,
+import {
+  DAEMON_ORPC_CAPACITY_CONCURRENCY,
+  DAEMON_ORPC_CAPACITY_MIN_STREAM_SAMPLES,
+  DAEMON_ORPC_CAPACITY_SESSION_COUNT,
+  type DaemonInvocationCounts,
+  type DaemonOrpcCapacityProbe,
+  type DaemonOrpcCapacityReport,
+  type DaemonOrpcCapacityScenario,
+  type DaemonOrpcLatencySummary,
 } from "./daemon-orpc-capacity-contract.ts";
-import { DAEMON_ORPC_CAPACITY_MIN_FIVE_WAY_SAMPLES } from "./daemon-orpc-capacity-contract.ts";
+import {
+  CAPACITY_MODEL_ID,
+  CAPACITY_MODEL_REF,
+  CAPACITY_PROVIDER_ID,
+  capacityProviderController,
+  capacityRequestId,
+  expectedCapacityAnswer,
+} from "./daemon-orpc-capacity-provider.ts";
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, "../..");
+const CAPACITY_PROVIDER_URL = pathToFileURL(
+  resolve(import.meta.dirname, "daemon-orpc-capacity-provider.ts"),
+).href;
 const RPC_TIMEOUT_MS = 5_000;
-const WAIT_TIMEOUT_MS = 15_000;
+const WAIT_TIMEOUT_MS = 30_000;
 const WORKSPACE_COUNT = 80;
-const SESSION_COUNT = 8;
 const EVENT_LOOP_PROBE_INTERVAL_MS = 10;
+const PERSISTENT_PROBE_ROUNDS = 20;
+const FRESH_PROBE_ROUNDS = 10;
 const sourceCommit = gitOutput(["rev-parse", "HEAD"]);
 
-async function runScenario(invocationConcurrency: number): Promise<DaemonOrpcCapacityScenario> {
+async function runScenario(): Promise<DaemonOrpcCapacityScenario> {
   const root = mkdtempSync(
     join(process.platform === "darwin" ? "/tmp" : tmpdir(), "spark-orpc-capacity-"),
   );
@@ -69,30 +84,51 @@ async function runScenario(invocationConcurrency: number): Promise<DaemonOrpcCap
   });
   const db = openSparkDaemonDatabase(paths);
   const shutdown = new AbortController();
-  const executor = new AdmissionBarrierExecutor();
   const serving = deferred<void>();
   let isServing = false;
   let rpcServer: Awaited<ReturnType<typeof startLocalRpcServer>> | undefined;
   let daemonRun: Promise<void> | undefined;
   let persistent: SparkDaemonOrpcClientHandle | undefined;
   let loadedLoopProbe: ReturnType<typeof startEventLoopProbe> | undefined;
-  let administratorSessionId: string | undefined;
 
+  capacityProviderController.configure(DAEMON_ORPC_CAPACITY_SESSION_COUNT);
   try {
     writeSparkDaemonConfig(paths, {
-      installationId: `capacity-${invocationConcurrency}`,
-      displayName: `Capacity ${invocationConcurrency}`,
-      invocationConcurrency,
+      installationId: "capacity-50",
+      displayName: "Capacity 50",
+      invocationConcurrency: DAEMON_ORPC_CAPACITY_CONCURRENCY,
     });
+    mkdirSync(sparkHome, { recursive: true, mode: 0o700 });
+    writeFileSync(
+      resolveSparkUserPaths({ sparkHome }).configFile,
+      `${JSON.stringify(
+        {
+          extensionProfileVersion: 2,
+          extensions: [],
+          providers: [CAPACITY_PROVIDER_URL],
+          enabledModels: [`${CAPACITY_PROVIDER_ID}/*`],
+          activeModelId: CAPACITY_MODEL_REF,
+          skills: [],
+          promptTemplates: [],
+          themes: [],
+          contextFiles: [],
+          trustedWorkspaces: [],
+        },
+        null,
+        2,
+      )}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+
     const config = readSparkDaemonConfig(paths);
     const effectiveConcurrency = resolveSparkDaemonInvocationConcurrency(config);
-    if (effectiveConcurrency !== invocationConcurrency) {
+    if (effectiveConcurrency !== DAEMON_ORPC_CAPACITY_CONCURRENCY) {
       throw new Error(
-        `configured invocation concurrency ${invocationConcurrency} resolved to ${effectiveConcurrency}`,
+        `configured invocation concurrency ${DAEMON_ORPC_CAPACITY_CONCURRENCY} resolved to ${effectiveConcurrency}`,
       );
     }
 
-    const workspace = seedProductionShapedWorkspaces(root, db, invocationConcurrency);
+    const workspace = seedProductionShapedWorkspaces(root, db);
     const sessionRegistry = createDaemonSessionRegistry(sparkHome, {
       daemonId: config.installationId,
       daemonCwd: root,
@@ -100,33 +136,33 @@ async function runScenario(invocationConcurrency: number): Promise<DaemonOrpcCap
       resolveWorkspaceCwd: (workspaceId) => resolveWorkspaceLocalPath(db, workspaceId),
       resolveSessionCwd: (input) => resolveSessionCwdForWorkspaceId(db, input),
     });
+    const userPaths = resolveSparkUserPaths({ sparkHome });
+    const modelControl = createSparkDaemonModelControl({
+      providerControl: createSparkProviderControl({
+        authPath: userPaths.authFile,
+        configPath: userPaths.configFile,
+      }),
+      sessionRegistry,
+    });
 
     daemonRun = startSparkDaemon({
       paths,
       sparkHome,
       config,
       db,
-      sessionRegistry,
       signal: shutdown.signal,
       managePidFile: false,
-      executeInvocation: (task, context) => executor.execute(task, context),
+      sessionRegistry,
+      modelControl,
       onReady: async (runtime) => {
-        if (!runtime.sessionSupervisor) {
-          throw new Error("capacity harness requires the daemon Session supervisor");
-        }
-        const administrator = await runtime.sessionSupervisor.ensureWorkspaceAdministrator(
-          workspace.id,
-        );
-        administratorSessionId = administrator.sessionId;
         rpcServer = await startLocalRpcServer({
           paths,
           sparkHome,
           db,
           sessionRegistry,
+          modelControl,
           ...(runtime.sessionSupervisor ? { sessionSupervisor: runtime.sessionSupervisor } : {}),
-          onInvocationQueued: () => {
-            runtime.processInvocationQueue();
-          },
+          onInvocationQueued: () => runtime.processInvocationQueue(),
           getLifecycle: () => ({ state: isServing ? "running" : "starting" }),
           getBuildFingerprint: () => sourceCommit,
           getExecutionStatus: () => ({
@@ -156,123 +192,139 @@ async function runScenario(invocationConcurrency: number): Promise<DaemonOrpcCap
     if (readyStatus.execution?.rootConcurrency !== effectiveConcurrency) {
       throw new Error("daemon.status did not report the configured root invocation concurrency");
     }
-    if (!administratorSessionId) {
-      throw new Error("daemon did not establish the workspace Administrator Session");
-    }
-
-    const sessionIds: string[] = [];
-    for (let index = 0; index < SESSION_COUNT; index += 1) {
-      const sessionId = `capacity-${invocationConcurrency}-session-${String(index).padStart(2, "0")}`;
-      const created = await rpc(persistent, "session.create", {
-        sessionId,
-        scope: { kind: "workspace", workspaceId: workspace.id },
-        supervisorSessionId: administratorSessionId,
-        cwd: workspace.localPath,
-        name: `Capacity session ${index}`,
-      });
-      sessionIds.push(created.sessionId);
-    }
-
-    const invocationIds: string[] = [];
-    for (const sessionId of sessionIds) {
-      const submitted = await rpc(persistent, "turn.submit", {
-        sessionId,
-        prompt: `Hold invocation for ${sessionId}`,
-        idempotencyKey: `capacity:${invocationConcurrency}:${sessionId}`,
-      });
-      invocationIds.push(submitted.invocationId);
-    }
-
-    await executor.waitForStarted(effectiveConcurrency);
-    const initialCounts = await waitForCounts(persistent, {
-      queued: SESSION_COUNT - effectiveConcurrency,
-      running: effectiveConcurrency,
-      succeeded: 0,
-      failed: 0,
-      cancelled: 0,
-    });
-    // Measure only the admitted, held workload. Workspace seeding and daemon
-    // bootstrap are deliberately outside this control-plane sample.
-    loadedLoopProbe = startEventLoopProbe(EVENT_LOOP_PROBE_INTERVAL_MS);
-    await loadedLoopProbe.waitForSamples(
-      invocationConcurrency === 5 ? DAEMON_ORPC_CAPACITY_MIN_FIVE_WAY_SAMPLES : 2,
+    const catalog = await rpc(persistent, "model.catalog", {});
+    const provider = catalog.providers.find(
+      (candidate) => candidate.providerName === CAPACITY_PROVIDER_ID,
     );
-    const initialTurnStatuses = await readTurnStatuses(persistent, invocationIds);
-
-    const persistentProbeRounds = invocationConcurrency === 5 ? 20 : 4;
-    const freshProbeRounds = invocationConcurrency === 5 ? 10 : 2;
-    const heldInvocationId = executor.activeInvocationIds[0];
-    if (!heldInvocationId) throw new Error("capacity fixture has no held invocation");
-    const heldBeforeProbes = executor.inFlight === effectiveConcurrency;
-    const persistentProbe = await probePersistent(
-      persistent,
-      heldInvocationId,
-      persistentProbeRounds,
+    const model = provider?.models.find(
+      (candidate) => candidate.model.modelId === CAPACITY_MODEL_ID,
     );
-    const freshProbe = await probeFresh(paths, heldInvocationId, freshProbeRounds);
-    const heldAtConfiguredLimit =
-      heldBeforeProbes &&
-      executor.inFlight === effectiveConcurrency &&
-      Object.values(await readTurnStatuses(persistent, executor.activeInvocationIds)).every(
-        (status) => status === "running",
+    const scoped =
+      catalog.scopedModels?.some(
+        (candidate) =>
+          candidate.providerName === CAPACITY_PROVIDER_ID &&
+          candidate.modelId === CAPACITY_MODEL_ID,
+      ) === true;
+    const isDefault =
+      catalog.defaultModel?.providerName === CAPACITY_PROVIDER_ID &&
+      catalog.defaultModel.modelId === CAPACITY_MODEL_ID;
+    if (!provider || !model || !model.available || !scoped || !isDefault) {
+      throw new Error(
+        `capacity model is not active, scoped, and available: ${JSON.stringify(catalog)}`,
       );
-    const loadedLoopMetrics = loadedLoopProbe.stop();
-
-    const transitions: DaemonOrpcCapacityScenario["transitions"] = [];
-    const queuedCount = SESSION_COUNT - effectiveConcurrency;
-    for (let index = 0; index < queuedCount; index += 1) {
-      const releasedInvocationId = executor.activeInvocationIds[0];
-      if (!releasedInvocationId) throw new Error("no active invocation available to release");
-      const expectedStarted = effectiveConcurrency + index + 1;
-      executor.release(releasedInvocationId);
-      await executor.waitForStarted(expectedStarted);
-      const admittedInvocationId = executor.startedInvocationIds[expectedStarted - 1];
-      if (!admittedInvocationId) throw new Error("released slot did not admit a queued invocation");
-      const counts = await waitForCounts(persistent, {
-        queued: queuedCount - index - 1,
-        running: effectiveConcurrency,
-        succeeded: index + 1,
-        failed: 0,
-        cancelled: 0,
-      });
-      transitions.push({ releasedInvocationId, admittedInvocationId, counts });
     }
 
-    executor.releaseAll();
-    const terminalCounts = await waitForCounts(persistent, {
-      queued: 0,
-      running: 0,
-      succeeded: SESSION_COUNT,
-      failed: 0,
-      cancelled: 0,
-    });
+    const administrator = await sessionRegistry.ensureWorkspaceAdministrator(workspace.id);
+    const sessions = await Promise.all(
+      Array.from({ length: DAEMON_ORPC_CAPACITY_SESSION_COUNT }, async (_, index) => {
+        const sessionId = `capacity-session-${String(index).padStart(2, "0")}`;
+        return await rpc(persistent!, "session.create", {
+          sessionId,
+          scope: { kind: "workspace", workspaceId: workspace.id },
+          supervisorSessionId: administrator.sessionId,
+          cwd: workspace.localPath,
+          // A real name also suppresses the optional post-turn session-name leaf call,
+          // keeping provider call cardinality exactly equal to root turns.
+          name: `Capacity session ${index}`,
+        });
+      }),
+    );
+    const requestBySession = new Map(
+      sessions.map((session, index) => [session.sessionId, capacityRequestId(index)]),
+    );
+    const submitted = await Promise.all(
+      sessions.map(async (session, index) => {
+        const requestId = capacityRequestId(index);
+        const turn = await rpc(persistent!, "turn.submit", {
+          sessionId: session.sessionId,
+          prompt: `${requestId} run the deterministic capacity stream`,
+          idempotencyKey: `capacity:${requestId}`,
+        });
+        return { sessionId: session.sessionId, invocationId: turn.invocationId, requestId };
+      }),
+    );
+    const invocationIds = submitted.map((entry) => entry.invocationId);
+
+    await within(
+      capacityProviderController.waitForEntered(AbortSignal.timeout(WAIT_TIMEOUT_MS)),
+      WAIT_TIMEOUT_MS,
+      "all provider requests to enter",
+    );
+    const loadedCounts = await waitForCounts(persistent, counts(0, 50, 0));
+    const loadedTurnStatuses = await readTurnStatuses(persistent, invocationIds);
+    const heldProvider = capacityProviderController.snapshot();
+    if (heldProvider.maxInFlight !== 50 || heldProvider.calls !== 50) {
+      throw new Error(`provider did not hold exactly 50 calls: ${JSON.stringify(heldProvider)}`);
+    }
+
+    const heldProbes = await Promise.all([
+      probePersistent(persistent, invocationIds[0]!, PERSISTENT_PROBE_ROUNDS),
+      probeFresh(paths, invocationIds[0]!, FRESH_PROBE_ROUNDS),
+    ]);
+
+    loadedLoopProbe = startEventLoopProbe(EVENT_LOOP_PROBE_INTERVAL_MS);
+    capacityProviderController.release();
+    const streamingProbesPromise = Promise.all([
+      probePersistent(persistent, invocationIds[0]!, PERSISTENT_PROBE_ROUNDS),
+      probeFresh(paths, invocationIds[0]!, FRESH_PROBE_ROUNDS),
+    ]);
+    const terminalCounts = await waitForCounts(persistent, counts(0, 0, 50));
+    const streamingProbes = await streamingProbesPromise;
+    await loadedLoopProbe.waitForSamples(DAEMON_ORPC_CAPACITY_MIN_STREAM_SAMPLES);
+    // Do not stop on the same turn that observed terminal state. A terminal
+    // persistence stall can leave the interval callback overdue; require one
+    // subsequent tick so that tail latency is always represented in maxGapMs.
+    await loadedLoopProbe.waitForNextSample();
+    const loadedLoopMetrics = loadedLoopProbe.stop();
     const terminalTurnStatuses = await readTurnStatuses(persistent, invocationIds);
+    const providerMetrics = capacityProviderController.snapshot();
+    const persistence = persistenceMetrics(db, requestBySession, providerMetrics.streamWindowMs);
+
     return {
-      configuredConcurrency: invocationConcurrency,
+      configuredConcurrency: DAEMON_ORPC_CAPACITY_CONCURRENCY,
       effectiveConcurrency,
       statusBuildFingerprint: readyStatus.buildFingerprint,
       cardinality: {
         workspaces: listWorkspaces(db).length,
-        sessions: sessionIds.length,
+        sessions: sessions.length,
         turns: invocationIds.length,
       },
-      initialCounts,
-      initialTurnStatuses,
-      transitions,
-      maxInFlight: executor.maxInFlight,
-      startedInvocationIds: [...executor.startedInvocationIds],
+      model: {
+        ref: CAPACITY_MODEL_REF,
+        default: isDefault,
+        scoped,
+        available: model.available,
+        providerAuthKind: provider.auth.kind,
+        providerAuthConfigured: provider.auth.configured,
+        diagnostics: [...catalog.diagnostics],
+      },
+      loadedCounts,
+      loadedTurnStatuses,
       terminalCounts,
       terminalTurnStatuses,
+      provider: {
+        expectedRequests: providerMetrics.expectedRequests,
+        calls: providerMetrics.calls,
+        entered: providerMetrics.entered,
+        completed: providerMetrics.completed,
+        maxInFlight: providerMetrics.maxInFlight,
+        uniqueRequestCount: providerMetrics.uniqueRequestIds.length,
+        chunkCount: providerMetrics.chunkCount,
+        tickMs: providerMetrics.tickMs,
+        emittedTextDeltas: providerMetrics.emittedTextDeltas,
+        streamWindowMs: providerMetrics.streamWindowMs,
+      },
       probes: {
-        persistent: persistentProbe,
-        fresh: freshProbe,
-        heldAtConfiguredLimit,
+        held: { persistent: heldProbes[0], fresh: heldProbes[1] },
+        streaming: { persistent: streamingProbes[0], fresh: streamingProbes[1] },
       },
       eventLoop: loadedLoopMetrics.eventLoop,
+      hostScheduling: loadedLoopMetrics.hostScheduling,
       rssBytes: loadedLoopMetrics.rssBytes,
+      persistence,
     };
   } finally {
-    executor.releaseAll();
+    capacityProviderController.cancel(new Error("capacity scenario completed"));
     loadedLoopProbe?.stop();
     persistent?.close();
     await rpcServer?.close().catch(() => undefined);
@@ -283,18 +335,14 @@ async function runScenario(invocationConcurrency: number): Promise<DaemonOrpcCap
   }
 }
 
-function seedProductionShapedWorkspaces(
-  root: string,
-  db: ReturnType<typeof openSparkDaemonDatabase>,
-  invocationConcurrency: number,
-) {
+function seedProductionShapedWorkspaces(root: string, db: DatabaseSync) {
   let selected: ReturnType<typeof addWorkspace> | undefined;
   for (let index = 0; index < WORKSPACE_COUNT; index += 1) {
     const localPath = join(root, "workspaces", String(index).padStart(3, "0"));
     mkdirSync(localPath, { recursive: true });
     const workspace = addWorkspace(db, {
-      id: `rtwb_capacity_${invocationConcurrency}_${String(index).padStart(3, "0")}`,
-      localWorkspaceKey: `capacity-${invocationConcurrency}-${String(index).padStart(3, "0")}`,
+      id: `rtwb_capacity_${String(index).padStart(3, "0")}`,
+      localWorkspaceKey: `capacity-${String(index).padStart(3, "0")}`,
       displayName: `Capacity workspace ${index}`,
       localPath,
     });
@@ -304,54 +352,106 @@ function seedProductionShapedWorkspaces(
   return selected;
 }
 
-class AdmissionBarrierExecutor {
-  readonly startedInvocationIds: string[] = [];
-  private readonly active = new Map<string, ReturnType<typeof deferred<void>>>();
-  private readonly startWaiters = new Set<() => void>();
-  maxInFlight = 0;
+function persistenceMetrics(
+  db: DatabaseSync,
+  requestBySession: ReadonlyMap<string, string>,
+  streamWindowMs: number,
+): DaemonOrpcCapacityScenario["persistence"] {
+  const invocations = db
+    .prepare(
+      `SELECT id, session_id, status, result_json, event_cursor
+       FROM invocations
+       ORDER BY id`,
+    )
+    .all() as unknown as Array<{
+    id: string;
+    session_id: string;
+    status: string;
+    result_json: string | null;
+    event_cursor: number;
+  }>;
+  const attempts = db
+    .prepare("SELECT invocation_id, status FROM execution_attempts ORDER BY invocation_id")
+    .all() as unknown as Array<{ invocation_id: string; status: string }>;
+  const attemptEventOutputs = Number(
+    (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM execution_attempt_events
+           WHERE kind = 'execution.attempt.event_persisted'`,
+        )
+        .get() as { count: number }
+    ).count,
+  );
+  const eventRows = db
+    .prepare(
+      `SELECT invocation_id, sequence, kind, payload_json
+       FROM invocation_events
+       ORDER BY invocation_id, sequence`,
+    )
+    .all() as unknown as Array<{
+    invocation_id: string;
+    sequence: number;
+    kind: string;
+    payload_json: string;
+  }>;
 
-  get inFlight(): number {
-    return this.active.size;
+  let streamingSnapshots = 0;
+  let terminalAssistantMessages = 0;
+  let lifecycleEvents = 0;
+  let receiptContextEvents = 0;
+  const sequences = new Map<string, number[]>();
+  for (const row of eventRows) {
+    const list = sequences.get(row.invocation_id) ?? [];
+    list.push(Number(row.sequence));
+    sequences.set(row.invocation_id, list);
+    if (row.kind === "daemon.task.lifecycle") lifecycleEvents += 1;
+    if (row.kind === "invocation.receipt_context") receiptContextEvents += 1;
+    const event = JSON.parse(row.payload_json) as {
+      type?: string;
+      view?: {
+        type?: string;
+        message?: { role?: string; status?: string };
+      };
+    };
+    const message = event.type === "daemon.view_event" ? event.view?.message : undefined;
+    if (event.view?.type !== "session.message" || message?.role !== "assistant") continue;
+    if (message.status === "streaming") streamingSnapshots += 1;
+    if (message.status === "done") terminalAssistantMessages += 1;
   }
 
-  get activeInvocationIds(): string[] {
-    return [...this.active.keys()];
+  let exactFinalResults = 0;
+  for (const invocation of invocations) {
+    const requestId = requestBySession.get(invocation.session_id);
+    if (!requestId || !invocation.result_json) continue;
+    const result = JSON.parse(invocation.result_json) as { assistantText?: unknown };
+    if (result.assistantText === expectedCapacityAnswer(requestId)) exactFinalResults += 1;
   }
-
-  async execute(_task: SparkDaemonTask, context: SparkDaemonTaskExecutionContext) {
-    const gate = deferred<void>();
-    this.active.set(context.invocationId, gate);
-    this.startedInvocationIds.push(context.invocationId);
-    this.maxInFlight = Math.max(this.maxInFlight, this.active.size);
-    for (const notify of this.startWaiters) notify();
-    try {
-      await Promise.race([gate.promise, aborted(context.signal)]);
-      return { ok: true, invocationId: context.invocationId };
-    } finally {
-      this.active.delete(context.invocationId);
-    }
-  }
-
-  release(invocationId: string): void {
-    const gate = this.active.get(invocationId);
-    if (!gate) throw new Error(`invocation is not held by the capacity barrier: ${invocationId}`);
-    gate.resolve();
-  }
-
-  releaseAll(): void {
-    for (const gate of this.active.values()) gate.resolve();
-  }
-
-  async waitForStarted(count: number): Promise<void> {
-    await waitUntil(
-      () => this.startedInvocationIds.length >= count,
-      `executor to start ${count} invocations`,
-      (notify) => {
-        this.startWaiters.add(notify);
-        return () => this.startWaiters.delete(notify);
-      },
+  const monotonicEventSequences = invocations.every((invocation) => {
+    const observed = sequences.get(invocation.id) ?? [];
+    return (
+      observed.length === Number(invocation.event_cursor) &&
+      observed.every((sequence, index) => sequence === index + 1)
     );
-  }
+  });
+  const upperBoundPerInvocation =
+    2 + Math.ceil(streamWindowMs / DAEMON_STREAMING_SNAPSHOT_INTERVAL_MS);
+
+  return {
+    invocations: invocations.length,
+    attempts: attempts.length,
+    succeededAttempts: attempts.filter((attempt) => attempt.status === "succeeded").length,
+    attemptEventOutputs,
+    lifecycleEvents,
+    receiptContextEvents,
+    invocationEvents: eventRows.length,
+    streamingSnapshots,
+    streamingSnapshotUpperBound: invocations.length * upperBoundPerInvocation,
+    terminalAssistantMessages,
+    exactFinalResults,
+    monotonicEventSequences,
+  };
 }
 
 async function probePersistent(
@@ -409,10 +509,12 @@ async function readTurnStatuses(
   invocationIds: readonly string[],
 ): Promise<Record<string, string>> {
   const statuses: Record<string, string> = {};
-  for (const invocationId of invocationIds) {
-    const status = await rpc(handle, "turn.status", { invocationId });
-    statuses[invocationId] = status.status;
-  }
+  await Promise.all(
+    invocationIds.map(async (invocationId) => {
+      const status = await rpc(handle, "turn.status", { invocationId });
+      statuses[invocationId] = status.status;
+    }),
+  );
   return statuses;
 }
 
@@ -443,36 +545,121 @@ async function rpc<M extends SparkLocalRpcMethod>(
 
 function startEventLoopProbe(intervalMs: number): {
   waitForSamples(count: number): Promise<void>;
-  stop(): Pick<DaemonOrpcCapacityScenario, "eventLoop" | "rssBytes">;
+  waitForNextSample(): Promise<void>;
+  stop(): Pick<DaemonOrpcCapacityScenario, "eventLoop" | "hostScheduling" | "rssBytes">;
 } {
-  const gaps: number[] = [];
+  const samples: Array<{
+    gapMs: number;
+    atMs: number;
+    processCpuMs: number;
+    processCpuToWallRatio: number;
+    threadCpuMs: number;
+    threadCpuToWallRatio: number;
+    involuntaryContextSwitchesDelta: number;
+  }> = [];
   const rssBefore = process.memoryUsage.rss();
+  const cpuBefore = process.cpuUsage();
+  const threadCpuBefore = process.threadCpuUsage();
+  const resourceBefore = process.resourceUsage();
   let rssPeak = rssBefore;
-  let previous = performance.now();
-  let stopped: Pick<DaemonOrpcCapacityScenario, "eventLoop" | "rssBytes"> | undefined;
+  const started = performance.now();
+  let previous = started;
+  let previousCpu = cpuBefore;
+  let previousThreadCpu = threadCpuBefore;
+  let previousResources = resourceBefore;
+  let stopped:
+    | Pick<DaemonOrpcCapacityScenario, "eventLoop" | "hostScheduling" | "rssBytes">
+    | undefined;
   const timer = setInterval(() => {
     const now = performance.now();
-    gaps.push(Math.max(0, now - previous - intervalMs));
+    const cpu = process.cpuUsage();
+    const threadCpu = process.threadCpuUsage();
+    const resources = process.resourceUsage();
+    const elapsedMs = now - previous;
+    const processCpuMs = (cpu.user - previousCpu.user + cpu.system - previousCpu.system) / 1_000;
+    const threadCpuMs =
+      (threadCpu.user - previousThreadCpu.user + threadCpu.system - previousThreadCpu.system) /
+      1_000;
+    samples.push({
+      gapMs: Math.max(0, elapsedMs - intervalMs),
+      atMs: now - started,
+      processCpuMs,
+      processCpuToWallRatio: elapsedMs > 0 ? processCpuMs / elapsedMs : 0,
+      threadCpuMs,
+      threadCpuToWallRatio: elapsedMs > 0 ? threadCpuMs / elapsedMs : 0,
+      involuntaryContextSwitchesDelta: Math.max(
+        0,
+        resources.involuntaryContextSwitches - previousResources.involuntaryContextSwitches,
+      ),
+    });
     previous = now;
+    previousCpu = cpu;
+    previousThreadCpu = threadCpu;
+    previousResources = resources;
     rssPeak = Math.max(rssPeak, process.memoryUsage.rss());
   }, intervalMs);
   return {
     async waitForSamples(count) {
-      if (!Number.isSafeInteger(count) || count < 1) {
-        throw new RangeError("event-loop probe sample count must be a positive safe integer");
-      }
-      await waitUntil(() => gaps.length >= count, `event-loop probe to collect ${count} samples`);
+      await waitUntil(
+        () => samples.length >= count,
+        `event-loop probe to collect ${count} samples`,
+      );
+    },
+    async waitForNextSample() {
+      const currentCount = samples.length;
+      await waitUntil(
+        () => samples.length > currentCount,
+        "event-loop probe to sample after terminal completion",
+      );
     },
     stop() {
       if (stopped) return stopped;
       clearInterval(timer);
+      const stoppedAt = performance.now();
+      const cpuDelta = process.cpuUsage(cpuBefore);
+      const resourceAfter = process.resourceUsage();
       const rssAfter = process.memoryUsage.rss();
+      const observedWallMs = stoppedAt - started;
+      const processCpuUserMsDelta = cpuDelta.user / 1_000;
+      const processCpuSystemMsDelta = cpuDelta.system / 1_000;
+      const processCpuTotalMsDelta = processCpuUserMsDelta + processCpuSystemMsDelta;
+      const gaps = samples.map((sample) => sample.gapMs);
+      const max = samples.reduce(
+        (highest, sample) => (sample.gapMs > highest.gapMs ? sample : highest),
+        {
+          gapMs: 0,
+          atMs: 0,
+          processCpuMs: 0,
+          processCpuToWallRatio: 0,
+          threadCpuMs: 0,
+          threadCpuToWallRatio: 0,
+          involuntaryContextSwitchesDelta: 0,
+        },
+      );
       stopped = {
         eventLoop: {
           intervalMs,
-          sampleCount: gaps.length,
+          sampleCount: samples.length,
           p95GapMs: percentile(gaps, 0.95),
-          maxGapMs: gaps.length > 0 ? Math.max(...gaps) : 0,
+          maxGapMs: max.gapMs,
+          maxGapAtMs: max.atMs,
+          maxGapProcessCpuMs: max.processCpuMs,
+          maxGapProcessCpuToWallRatio: max.processCpuToWallRatio,
+          maxGapThreadCpuMs: max.threadCpuMs,
+          maxGapThreadCpuToWallRatio: max.threadCpuToWallRatio,
+          maxGapInvoluntaryContextSwitchesDelta: max.involuntaryContextSwitchesDelta,
+        },
+        hostScheduling: {
+          observedWallMs,
+          processCpuUserMsDelta,
+          processCpuSystemMsDelta,
+          processCpuTotalMsDelta,
+          observedProcessCpuToWallRatio:
+            observedWallMs > 0 ? processCpuTotalMsDelta / observedWallMs : 0,
+          involuntaryContextSwitchesDelta: Math.max(
+            0,
+            resourceAfter.involuntaryContextSwitches - resourceBefore.involuntaryContextSwitches,
+          ),
         },
         rssBytes: { before: rssBefore, peak: Math.max(rssPeak, rssAfter), after: rssAfter },
       };
@@ -502,6 +689,10 @@ function percentile(values: number[], quantile: number): number {
   return ordered[Math.min(ordered.length - 1, Math.floor(ordered.length * quantile))] ?? 0;
 }
 
+function counts(queued: number, running: number, succeeded: number): DaemonInvocationCounts {
+  return { queued, running, succeeded, failed: 0, cancelled: 0 };
+}
+
 function sameCounts(left: DaemonInvocationCounts, right: DaemonInvocationCounts): boolean {
   return (
     left.queued === right.queued &&
@@ -515,19 +706,11 @@ function sameCounts(left: DaemonInvocationCounts, right: DaemonInvocationCounts)
 async function waitUntil(
   predicate: () => boolean | Promise<boolean>,
   label: string,
-  subscribe?: (notify: () => void) => () => void,
 ): Promise<void> {
   const deadline = Date.now() + WAIT_TIMEOUT_MS;
-  let wake = deferred<void>();
-  const unsubscribe = subscribe?.(() => wake.resolve());
-  try {
-    while (!(await predicate())) {
-      if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}`);
-      await Promise.race([wake.promise, new Promise((resolve) => setTimeout(resolve, 10))]);
-      wake = deferred<void>();
-    }
-  } finally {
-    unsubscribe?.();
+  while (!(await predicate())) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}`);
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
   }
 }
 
@@ -542,14 +725,6 @@ async function within<T>(promise: Promise<T>, timeoutMs: number, label: string):
       timer.unref();
     }),
   ]);
-}
-
-function aborted(signal: AbortSignal): Promise<never> {
-  return new Promise((_, reject) => {
-    const rejectAbort = () => reject(signal.reason ?? new Error("invocation aborted"));
-    if (signal.aborted) rejectAbort();
-    else signal.addEventListener("abort", rejectAbort, { once: true });
-  });
 }
 
 function deferred<T>() {
@@ -567,7 +742,7 @@ function gitOutput(args: string[]): string {
 }
 
 const report: DaemonOrpcCapacityReport = {
-  version: 1,
+  version: 3,
   environment: {
     platform: process.platform,
     arch: process.arch,
@@ -582,11 +757,7 @@ const report: DaemonOrpcCapacityReport = {
     legacyFallback: false,
     rpcTimeoutMs: RPC_TIMEOUT_MS,
   },
-  scenarios: [],
+  scenario: await runScenario(),
 };
-
-for (const invocationConcurrency of [2, 5]) {
-  report.scenarios.push(await runScenario(invocationConcurrency));
-}
 
 process.stdout.write(`${JSON.stringify(report)}\n`);

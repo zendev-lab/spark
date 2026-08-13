@@ -191,6 +191,8 @@ export interface SparkHeadlessSessionModule {
   createSparkHeadlessSessionExecutor: CreateSparkHeadlessSessionExecutorFn;
   createSparkHeadlessSessionCompactor?: CreateSparkHeadlessSessionCompactorFn;
   createSparkHeadlessRoleExecutor?: CreateSparkHeadlessRoleExecutorFn;
+  /** Load the runtime graph before daemon admission opens. */
+  preloadSparkHeadlessSessionRuntime?: () => Promise<void>;
   runSparkHeadlessSession?: unknown;
 }
 

@@ -98,18 +98,39 @@ the attempt and invocation non-terminal for daemon recovery instead of treating 
 missing usage sequence as committed. The daemon commits a terminal state once.
 
 The daemon ingress coalesces only complete `daemon.view_event` snapshots whose
-view is a streaming assistant `session.message`. It durably writes the leading
-snapshot immediately and the latest trailing snapshot at intervals no longer
-than 100 milliseconds. The key includes invocation, Session, and message
-identity; replacement text does not need to extend the prior text. Every other
-event remains uncoalesced. Before persisting a tool, lifecycle, Artifact,
+view is a streaming assistant `session.message`. It retains the leading
+snapshot and the latest trailing snapshot at intervals no longer than 100
+milliseconds. All streaming snapshots share one daemon-wide cooperative FIFO
+that performs at most one durable write per macrotask. The key includes
+invocation, Session, and message identity; replacement text does not need to
+extend the prior text. Every other event remains uncoalesced. Before persisting a
+tool, lifecycle, Artifact,
 interaction, error, done, cancellation, or other non-coalescible event, the
 daemon synchronously flushes pending snapshots for that invocation. Terminal,
 failure, cancellation, retry replacement, and cooperative restart-yield paths
 also flush and clear pending timers before closing the attempt fence, so no
 timer may append an event after terminal commit. This is daemon-owned ingress
-policy shared by in-process and future process attempts, not a `spark-turn`
+policy shared by in-process and future process attempts. A queued leading
+snapshot is covered by the same fence: terminal commit cannot overtake it merely
+because the cooperative pump has not run yet. This is not a `spark-turn`
 projection rule.
+
+The production daemon loads the headless execution module and its host runtime
+before it binds local RPC and opens scheduler admission. Dynamic module
+compilation and evaluation are therefore startup work, not work performed by
+the first admitted Invocation. This preload does not create a second scheduler,
+store, or execution owner.
+
+An executor registers asynchronous projection delivery with the scheduler
+before the executor settles. The scheduler drains every accepted delivery
+before attempt terminal commit and closes that admission boundary afterward;
+late registration fails explicitly rather than creating an undrained promise
+behind an already committed high-water mark.
+
+Attempt terminal, Invocation terminal, usage settlement, and lifecycle event
+persistence form one ordered terminal bundle. The daemon serializes these
+bundles across Invocations and starts at most one bundle per macrotask so a
+burst of aligned provider completions cannot starve local control-plane I/O.
 
 ## Parent capabilities
 

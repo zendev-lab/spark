@@ -10,6 +10,7 @@ import type {
   SparkSessionScope,
   SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
+import { setImmediate as yieldToMacrotask } from "node:timers/promises";
 import {
   defaultSparkSessionRegistryRoot,
   SparkSessionRegistry,
@@ -37,6 +38,13 @@ export interface DaemonSessionRegistry {
   createSupervised(input: CreateSparkSessionInput): Promise<SparkSessionState>;
   list(options?: DaemonSessionListRequest): Promise<SparkSessionState[]>;
   get(sessionId: string): Promise<SparkSessionState | undefined>;
+  /**
+   * Read the last atomically committed scope/owner snapshot for an existing
+   * invocation's visibility gate. These fields are immutable after Session
+   * creation, so this deliberately does not wait for unrelated registry
+   * mutations such as terminal transcript bookkeeping.
+   */
+  getInvocationVisibilitySnapshot(sessionId: string): Promise<SparkSessionState | undefined>;
   bind(input: SparkSessionBindRequest): Promise<SparkSessionState>;
   unbind(
     sessionId: string,
@@ -128,6 +136,11 @@ export interface CreateDaemonSessionRegistryOptions {
   }) => Promise<{ cwd: string; cwdArtifactRef?: string }>;
 }
 
+export interface SerializeDaemonSessionRegistryOptions {
+  /** Test seam for the cooperative boundary between queued registry mutations. */
+  yieldBetweenMutations?: () => Promise<void>;
+}
+
 /**
  * Serialize complete registry transitions, including resolveBinding's
  * create-and-bind sequence. Reads wait for earlier mutations so callers never
@@ -135,18 +148,26 @@ export interface CreateDaemonSessionRegistryOptions {
  */
 export function createSerializedDaemonSessionRegistry(
   registry: DaemonSessionRegistry,
+  options: SerializeDaemonSessionRegistryOptions = {},
 ): DaemonSessionRegistry {
   let mutationTail: Promise<void> = Promise.resolve();
+  const yieldBetweenMutations =
+    options.yieldBetweenMutations ?? (async () => await yieldToMacrotask());
+  const yieldWithoutPoisoningQueue = async (): Promise<void> => {
+    try {
+      await yieldBetweenMutations();
+    } catch {
+      // The cooperative boundary is not registry state. Preserve the prior
+      // behavior where one failed queue item cannot poison later mutations.
+    }
+  };
   const readAfterMutations = async <T>(read: () => Promise<T>): Promise<T> => {
     await mutationTail;
     return await read();
   };
   const mutate = <T>(operation: () => Promise<T>): Promise<T> => {
     const result = mutationTail.then(operation);
-    mutationTail = result.then(
-      () => undefined,
-      () => undefined,
-    );
+    mutationTail = result.then(yieldWithoutPoisoningQueue, yieldWithoutPoisoningQueue);
     return result;
   };
   return {
@@ -154,6 +175,8 @@ export function createSerializedDaemonSessionRegistry(
     createSupervised: (input) => mutate(() => registry.createSupervised(input)),
     list: (options) => readAfterMutations(() => registry.list(options)),
     get: (sessionId) => readAfterMutations(() => registry.get(sessionId)),
+    getInvocationVisibilitySnapshot: (sessionId) =>
+      registry.getInvocationVisibilitySnapshot(sessionId),
     bind: (input) => mutate(() => registry.bind(input)),
     unbind: (sessionId, externalKey, adapterAccountIdentity) =>
       mutate(() => registry.unbind(sessionId, externalKey, adapterAccountIdentity)),
@@ -199,6 +222,7 @@ export function createDaemonSessionRegistry(
       await registry.create(await resolveRegistryCreateInput(input, options)),
     list: async (request = {}) => await registry.list(resolveListRequest(request, options)),
     get: async (sessionId) => await registry.get(sessionId),
+    getInvocationVisibilitySnapshot: async (sessionId) => await registry.get(sessionId),
     bind: async (input) => await registry.bind(input),
     unbind: async (sessionId, externalKey, adapterAccountIdentity) =>
       await registry.unbind(sessionId, externalKey, adapterAccountIdentity),

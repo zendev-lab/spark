@@ -477,6 +477,79 @@ export class ExecutionAttemptStore {
     payload: unknown,
     now = new Date().toISOString(),
   ): void {
+    this.#recordOutput(identity, kind, outputSequence, payload, now);
+  }
+
+  /**
+   * Atomically records an executor event and the daemon-owned invocation event
+   * derived from it. The callback is deliberately event-specific rather than a
+   * general transaction escape hatch.
+   */
+  recordEventOutput<T>(
+    identity: ExecutionAttemptIdentity,
+    outputSequence: number,
+    payload: unknown,
+    appendInvocationEvent: () => T,
+    now = new Date().toISOString(),
+  ): T {
+    const ownsTransaction = !this.#db.isTransaction;
+    if (ownsTransaction) this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      this.#recordOutput(identity, "event", outputSequence, payload, now);
+      const persisted = appendInvocationEvent();
+      if (ownsTransaction) this.#db.exec("COMMIT");
+      return persisted;
+    } catch (error) {
+      if (ownsTransaction && this.#db.isTransaction) this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  #recordOutput(
+    identity: ExecutionAttemptIdentity,
+    kind: "event" | "usage",
+    outputSequence: number,
+    payload: unknown,
+    now: string,
+  ): void {
+    const eventKind =
+      kind === "event" ? "execution.attempt.event_persisted" : "execution.attempt.usage_persisted";
+    const changes = Number(
+      this.#db
+        .prepare(
+          `INSERT INTO execution_attempt_events (
+             invocation_id, sequence, attempt_epoch, kind, payload_json, created_at
+           )
+           SELECT attempt.invocation_id,
+                  COALESCE((
+                    SELECT MAX(event.sequence)
+                    FROM execution_attempt_events event
+                    WHERE event.invocation_id = attempt.invocation_id
+                  ), 0) + 1,
+                  attempt.attempt_epoch, ?, ?, ?
+           FROM execution_attempts attempt
+           WHERE attempt.invocation_id = ?
+             AND attempt.attempt_epoch = ?
+             AND attempt.daemon_generation = ?
+             AND attempt.status IN ('accepted', 'running')
+             AND NOT EXISTS (
+               SELECT 1
+               FROM execution_attempts successor
+               WHERE successor.invocation_id = attempt.invocation_id
+                 AND successor.attempt_epoch > attempt.attempt_epoch
+             )`,
+        )
+        .run(
+          eventKind,
+          JSON.stringify({ outputSequence, payload }),
+          now,
+          identity.invocationId,
+          identity.attemptEpoch,
+          identity.daemonGeneration,
+        ).changes,
+    );
+    if (changes === 1) return;
+
     const current = this.#assertCurrent(identity);
     if (current.status !== "accepted" && current.status !== "running") {
       throw new ExecutionAttemptStateError(
@@ -484,12 +557,9 @@ export class ExecutionAttemptStore {
         `cannot persist execution attempt ${kind} while ${current.status}`,
       );
     }
-    this.#appendEvent(
-      identity.invocationId,
-      identity.attemptEpoch,
-      kind === "event" ? "execution.attempt.event_persisted" : "execution.attempt.usage_persisted",
-      { outputSequence, payload },
-      now,
+    throw new ExecutionAttemptStateError(
+      "execution_attempt_corrupt_state",
+      `execution attempt ${kind} persistence did not insert exactly one event`,
     );
   }
 

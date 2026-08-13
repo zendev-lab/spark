@@ -74,7 +74,7 @@ export class ExecutionAttemptRetryExhaustedError extends Error {
   }
 }
 
-export interface ExecutionAttemptSessionOptions {
+export interface ExecutionAttemptSessionOptions<PersistedEvent = unknown> {
   store: ExecutionAttemptStore;
   registry: ExecutionCapabilityRegistry;
   adapter: ExecutionAttemptAdapter;
@@ -83,7 +83,9 @@ export interface ExecutionAttemptSessionOptions {
   task: unknown;
   signal: AbortSignal;
   executeInProcess(): Promise<unknown>;
-  persistEvent(event: unknown): void;
+  persistEvent(event: unknown): PersistedEvent;
+  /** Runs only after both durable event rows have committed successfully. */
+  eventCommitted?(event: PersistedEvent): void;
   persistUsage(usage: unknown): void;
   eventIngress?: ExecutionAttemptEventIngress;
   now?: () => string;
@@ -102,13 +104,13 @@ export interface ExecutionAttemptEventIngress {
 }
 
 /** One daemon-owned invocation execution, across one or more replacement epochs. */
-export class ExecutionAttemptSession {
-  readonly #options: ExecutionAttemptSessionOptions;
+export class ExecutionAttemptSession<PersistedEvent = unknown> {
+  readonly #options: ExecutionAttemptSessionOptions<PersistedEvent>;
   #current: ExecutionAttemptRecord;
-  #host: ExecutionAttemptHost;
+  #host: ExecutionAttemptHost<PersistedEvent>;
   #terminal = false;
 
-  constructor(options: ExecutionAttemptSessionOptions) {
+  constructor(options: ExecutionAttemptSessionOptions<PersistedEvent>) {
     this.#options = options;
     const now = options.now?.() ?? new Date().toISOString();
     this.#current = options.store.begin(
@@ -166,7 +168,7 @@ export class ExecutionAttemptSession {
   }
 
   recordUsage(usage: unknown): void {
-    this.#host.recordUsage(usage);
+    this.#recordUsage(this.#host, usage);
   }
 
   dispatchCapability(operation: string, request: unknown): Promise<unknown> {
@@ -188,20 +190,20 @@ export class ExecutionAttemptSession {
     this.#options.eventIngress?.release(this.#current.invocationId);
   }
 
-  #parent(host: ExecutionAttemptHost): ExecutionAttemptParent {
+  #parent(host: ExecutionAttemptHost<PersistedEvent>): ExecutionAttemptParent {
     return {
       signal: this.#options.signal,
       accepted: () => host.accept(),
       running: () => host.running(),
       recordEvent: (event) => this.#recordEvent(host, event),
-      recordUsage: (usage) => host.recordUsage(usage),
+      recordUsage: (usage) => this.#recordUsage(host, usage),
       dispatchCapability: async (operation, request) =>
         await host.dispatchCapability(operation, request),
       executeInProcess: () => this.#options.executeInProcess(),
     };
   }
 
-  #createHost(attempt: ExecutionAttemptRecord): ExecutionAttemptHost {
+  #createHost(attempt: ExecutionAttemptRecord): ExecutionAttemptHost<PersistedEvent> {
     return new ExecutionAttemptHost({
       attempt,
       store: this.#options.store,
@@ -209,27 +211,46 @@ export class ExecutionAttemptSession {
       signal: this.#options.signal,
       task: this.#options.task,
       persistEvent: (event) => this.#options.persistEvent(event),
+      ...(this.#options.eventCommitted
+        ? { eventCommitted: (event) => this.#options.eventCommitted!(event) }
+        : {}),
       persistUsage: (usage) => this.#options.persistUsage(usage),
       now: () => this.#now(),
     });
   }
 
-  #recordEvent(host: ExecutionAttemptHost, event: unknown): void {
-    if (this.#terminal) {
-      throw new ExecutionAttemptProtocolError(
-        "execution_attempt_terminal_committed",
-        "execution attempt already committed its terminal event boundary",
-      );
-    }
+  #recordEvent(host: ExecutionAttemptHost<PersistedEvent>, event: unknown): void {
+    this.#assertHostCurrent(host);
     const serialized = host.prepareEvent(event);
     const ingress = this.#options.eventIngress;
     if (!ingress) {
       host.recordPreparedEvent(serialized);
       return;
     }
-    ingress.record(this.#current.invocationId, serialized, (pending) =>
-      host.recordPreparedEvent(pending),
-    );
+    ingress.record(this.#current.invocationId, serialized, (pending) => {
+      this.#assertHostCurrent(host);
+      host.recordPreparedEvent(pending);
+    });
+  }
+
+  #recordUsage(host: ExecutionAttemptHost<PersistedEvent>, usage: unknown): void {
+    this.#assertHostCurrent(host);
+    host.recordUsage(usage);
+  }
+
+  #assertHostCurrent(host: ExecutionAttemptHost<PersistedEvent>): void {
+    if (this.#terminal) {
+      throw new ExecutionAttemptProtocolError(
+        "execution_attempt_terminal_committed",
+        "execution attempt already committed its terminal event boundary",
+      );
+    }
+    if (host !== this.#host) {
+      throw new ExecutionAttemptStateError(
+        "execution_attempt_stale",
+        "execution attempt is no longer current",
+      );
+    }
   }
 
   #waitUntilReady(): Promise<void> | undefined {
@@ -245,25 +266,26 @@ export class ExecutionAttemptSession {
   }
 }
 
-interface ExecutionAttemptHostOptions {
+interface ExecutionAttemptHostOptions<PersistedEvent> {
   attempt: ExecutionAttemptRecord;
   store: ExecutionAttemptStore;
   registry: ExecutionCapabilityRegistry;
   signal: AbortSignal;
   task: unknown;
-  persistEvent(event: unknown): void;
+  persistEvent(event: unknown): PersistedEvent;
+  eventCommitted?(event: PersistedEvent): void;
   persistUsage(usage: unknown): void;
   now(): string;
 }
 
-class ExecutionAttemptHost {
-  readonly #options: ExecutionAttemptHostOptions;
+class ExecutionAttemptHost<PersistedEvent> {
+  readonly #options: ExecutionAttemptHostOptions<PersistedEvent>;
   readonly #fence: ExecutionAttemptProtocolFence;
   #messageSequence = 1;
   #eventSequence = 0;
   #usageSequence = 0;
 
-  constructor(options: ExecutionAttemptHostOptions) {
+  constructor(options: ExecutionAttemptHostOptions<PersistedEvent>) {
     this.#options = options;
     this.#fence = new ExecutionAttemptProtocolFence(options.attempt, options.attempt.correlationId);
   }
@@ -312,12 +334,10 @@ class ExecutionAttemptHost {
   }
 
   prepareEvent(event: unknown): SparkJsonValue {
-    this.#assertCurrent();
     return cloneExecutionRequest(event) as SparkJsonValue;
   }
 
   recordPreparedEvent(serialized: SparkJsonValue): void {
-    this.#assertCurrent();
     this.#eventSequence += 1;
     this.#fence.process(
       this.#envelope("event", {
@@ -325,19 +345,19 @@ class ExecutionAttemptHost {
         event: serialized,
       }),
     );
-    this.#options.store.recordOutput(
+    const now = this.#options.now();
+    const persisted = this.#options.store.recordEventOutput(
       this.#options.attempt,
-      "event",
       this.#eventSequence,
       serialized,
-      this.#options.now(),
+      () => this.#options.persistEvent(serialized),
+      now,
     );
-    this.#options.persistEvent(serialized);
     this.#fence.acknowledgeEvent(this.#eventSequence);
+    this.#options.eventCommitted?.(persisted);
   }
 
   recordUsage(usage: unknown): void {
-    this.#assertCurrent();
     const serialized = cloneExecutionRequest(usage) as SparkJsonValue;
     this.#usageSequence += 1;
     this.#fence.process(
@@ -385,7 +405,6 @@ class ExecutionAttemptHost {
   }
 
   terminal(status: "succeeded" | "failed" | "cancelled", result?: unknown): void {
-    this.#assertCurrent();
     const serializedResult =
       result === undefined ? undefined : (cloneExecutionRequest(result) as SparkJsonValue);
     const outcome = this.#fence.process(
