@@ -12,11 +12,13 @@ import {
   createId,
   hasNonEmptySparkHumanAnswer,
   isTerminalSparkHumanInteractionDelivery,
+  parseSparkInteractionRequest,
   parseSparkModelValue,
   parseSparkDaemonEvent,
   parseSparkInteractionResponse,
   parseSparkSessionPromptHistory,
   parseSparkSessionView,
+  SPARK_PROTOCOL_VERSION,
   SPARK_SESSION_PROMPT_HISTORY_MAX,
   sparkLocalRpcProcedureSchemas,
   sparkModelValue,
@@ -93,6 +95,7 @@ import {
   type SparkNativeInvocationStatusContext,
   type SparkNativeResponder,
   type SparkNativeResponderContext,
+  type SparkNativeSlashCommandContext,
   type SparkNativeSlashCommandMap,
 } from "../native-tui.ts";
 import {
@@ -1791,10 +1794,157 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+type SparkDaemonPendingHumanWait = SparkLocalRpcOutput<"human.interaction.list">["waits"][number];
+
+const SPARK_NATIVE_PENDING_ASK_SELECTION_ID = "pending-ask";
+
+function nativePendingAskMode(kind: string): "clarification" | "decision" | "approval" | "unblock" {
+  if (kind.includes("decision")) return "decision";
+  if (kind.includes("approval")) return "approval";
+  if (kind.includes("unblock")) return "unblock";
+  return "clarification";
+}
+
+function nativePendingAskRequest(wait: SparkDaemonPendingHumanWait): SparkInteractionRequest {
+  return parseSparkInteractionRequest({
+    version: SPARK_PROTOCOL_VERSION,
+    kind: "askFlow",
+    requestId: wait.interactionRequestId,
+    title: wait.title || "Pending Ask",
+    ...(wait.prompt ? { prompt: wait.prompt } : {}),
+    source: "daemon",
+    metadata: {
+      humanRequestId: wait.humanRequestId,
+      invocationId: wait.invocationId,
+      resumedBy: "spark-tui",
+    },
+    delivery: "async",
+    mode: nativePendingAskMode(wait.kind),
+    questions: wait.questions,
+    ...(wait.evidenceRequest ? { evidenceRequest: wait.evidenceRequest } : {}),
+    createdAt: wait.createdAt,
+  });
+}
+
+function nativePendingAskSelectionRequest(
+  waits: readonly SparkDaemonPendingHumanWait[],
+): SparkInteractionRequest {
+  return parseSparkInteractionRequest({
+    version: SPARK_PROTOCOL_VERSION,
+    kind: "askFlow",
+    requestId: createId("ask"),
+    title: "Pending Ask",
+    prompt: "Select the detached async Ask to answer in Spark TUI.",
+    source: "tui",
+    delivery: "blocking",
+    mode: "decision",
+    questions: [
+      {
+        id: SPARK_NATIVE_PENDING_ASK_SELECTION_ID,
+        type: "single",
+        required: true,
+        prompt: "Which Ask do you want to answer?",
+        options: waits.map((wait) => ({
+          value: wait.interactionRequestId,
+          label: wait.title || wait.interactionRequestId,
+          description: wait.prompt || `Session ${wait.sessionId}`,
+        })),
+      },
+    ],
+  });
+}
+
+function selectedNativePendingAskId(response: SparkInteractionResponse): string | undefined {
+  if (response.kind !== "askFlow" || response.status !== "answered") return undefined;
+  const answer = response.answers[SPARK_NATIVE_PENDING_ASK_SELECTION_ID];
+  if (!isRecord(answer) || !Array.isArray(answer.values)) return undefined;
+  return answer.values.find(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+}
+
+function renderNativePendingAskList(waits: readonly SparkDaemonPendingHumanWait[]): string {
+  if (waits.length === 0) return "No pending async Ask for this Spark TUI session.";
+  return waits
+    .map(
+      (wait) =>
+        `${wait.interactionRequestId}  ${wait.title || "Pending Ask"}\n${wait.prompt || "(no prompt)"}`,
+    )
+    .join("\n\n");
+}
+
+async function handleSparkNativePendingAskCommand(
+  args: string,
+  context: SparkNativeSlashCommandContext,
+  client: SparkDaemonClientOptions,
+  options: SparkDaemonNativeCommandOptions,
+): Promise<string> {
+  const input = args.trim();
+  const response = await requestSparkDaemonControl(
+    "human.interaction.list",
+    options.sessionId ? { sessionId: options.sessionId } : {},
+    client,
+  );
+  const waits = response.waits.filter((wait) => wait.delivery === "async");
+  if (input === "list") return renderNativePendingAskList(waits);
+  if (waits.length === 0) return renderNativePendingAskList(waits);
+
+  let selected = input
+    ? waits.find((wait) => wait.interactionRequestId === input || wait.humanRequestId === input)
+    : undefined;
+  if (input && !selected) {
+    throw new Error(`pending Ask not found for this Spark TUI session: ${input}`);
+  }
+  if (!selected && waits.length > 1) {
+    const pickerResponse = await context.app.handleInteractionRequest(
+      nativePendingAskSelectionRequest(waits),
+    );
+    const selectedId = selectedNativePendingAskId(pickerResponse);
+    if (!selectedId) return "Pending Ask selection cancelled.";
+    selected = waits.find((wait) => wait.interactionRequestId === selectedId);
+  }
+  selected ??= waits[0];
+  if (!selected) return renderNativePendingAskList([]);
+
+  const askResponse = await context.app.handleInteractionRequest(nativePendingAskRequest(selected));
+  if (askResponse.status === "pending") return "Pending Ask remains unanswered.";
+  const result = await clientRespondHumanInteraction(
+    {
+      interactionRequestId: selected.interactionRequestId,
+      sessionId: selected.sessionId,
+      invocationId: selected.invocationId,
+      status: askResponse.status === "answered" ? "answered" : "cancelled",
+      answers: daemonHumanInteractionAnswers(askResponse),
+    },
+    client,
+  );
+  return result.message || `Ask response ${result.outcome}.`;
+}
+
+export interface SparkDaemonNativeCommandOptions {
+  /** Default session whose detached async Ask requests are shown by `/ask`. */
+  sessionId?: string;
+}
+
 export function createSparkDaemonNativeCommands(
   client: SparkDaemonClientOptions = {},
+  options: SparkDaemonNativeCommandOptions = {},
 ): SparkNativeSlashCommandMap {
   return {
+    ask: {
+      description: STRINGS.nativeCommandDescriptions.ask,
+      argumentHint: "[list|interaction-request-id]",
+      metadata: {
+        source: "extension",
+        extensionId: "spark-daemon-native",
+        plane: "daemon",
+        resource: "human-interaction",
+        verbs: ["list", "answer"],
+        canonicalCliTarget: "spark daemon ask",
+      },
+      handler: async (args, context) =>
+        await handleSparkNativePendingAskCommand(args, context, client, options),
+    },
     status: {
       description: STRINGS.nativeCommandDescriptions.status,
       metadata: {

@@ -11,6 +11,20 @@ Start the terminal interface from the workspace where Spark should operate:
 spark
 ```
 
+## Reply to detached async Asks
+
+The Spark TUI can resume a pending asynchronous Ask without opening a second
+terminal. Use `/ask` to open the only pending Ask for the attached session:
+
+```text
+/ask
+```
+
+When several Asks are pending, Spark TUI presents a picker. Use `/ask list` to
+inspect them, or `/ask <interaction-request-id>` to open one directly. The
+answer is sent through the daemon's durable human-interaction path, so the
+TUI does not bypass the Ask receipt or create a local-only answer.
+
 ## Start with the outcome
 
 Ordinary input is the primary interface:

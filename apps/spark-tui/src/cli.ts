@@ -2001,7 +2001,9 @@ function createSparkNativeSlashCommands(
   requestSessionSelector: () => void,
   requestNewSession: () => Promise<void>,
 ): SparkNativeSlashCommandMap {
-  const daemonCommands = createSparkDaemonNativeCommands(daemonClient);
+  const daemonCommands = createSparkDaemonNativeCommands(daemonClient, {
+    sessionId: currentSessionId,
+  });
   const localControlCommands = createSparkNativeLocalControlSlashCommands();
   const piParityCommands = createSparkPiParitySlashCommands(
     services,
