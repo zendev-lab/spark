@@ -195,6 +195,21 @@ export async function writeSparkDefaultModel(path: string, activeModelId: string
   });
 }
 
+/** Persist exact enabled-model ids. An empty list is a valid explicit policy. */
+export async function writeSparkEnabledModels(
+  path: string,
+  enabledModels: readonly string[],
+): Promise<void> {
+  await withPathMutation(path, async () => {
+    const state = await readSparkProviderConfig(path);
+    if (state.loadError) {
+      throw new Error(`Refusing to overwrite unreadable Spark config: ${state.loadError}`);
+    }
+    const next: Record<string, unknown> = { ...state.raw, enabledModels: [...enabledModels] };
+    await persistJson(path, next);
+  });
+}
+
 function readEnabledModels(raw: Record<string, unknown>): {
   patterns: string[];
   error?: string;

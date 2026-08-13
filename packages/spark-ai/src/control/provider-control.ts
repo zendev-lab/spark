@@ -31,6 +31,7 @@ import {
   readSparkProviderConfig,
   resolveSparkEnabledModelIds,
   writeSparkDefaultModel,
+  writeSparkEnabledModels,
   type SparkProviderImporter,
   type SparkProviderLoadOutcome,
 } from "./provider-catalog.ts";
@@ -97,6 +98,7 @@ export interface SparkProviderControlSnapshot {
 export interface SparkProviderControl {
   snapshot(): Promise<SparkProviderControlSnapshot>;
   setDefaultModel(modelRef: string): Promise<void>;
+  setEnabledModels(modelRefs: readonly string[]): Promise<void>;
   setApiKey(providerId: string, apiKey: string): Promise<void>;
   logout(providerId: string): Promise<boolean>;
   startOAuth(providerId: string): Promise<SparkOAuthFlowSnapshot>;
@@ -213,6 +215,19 @@ class LocalSparkProviderControl implements SparkProviderControl {
       throw new Error(`Spark model "${selectedModelId}" is not configured in enabledModels`);
     }
     await writeSparkDefaultModel(this.#configPath, selectedModelId);
+  }
+
+  async setEnabledModels(modelRefs: readonly string[]): Promise<void> {
+    const state = await this.#loadState();
+    if (state.config.loadError) {
+      throw new Error(`Refusing to overwrite unreadable Spark config: ${state.config.loadError}`);
+    }
+    const unique: string[] = [];
+    for (const modelRef of modelRefs) {
+      const selectedModelId = selectionValue(resolveModelSelection(state.registry, modelRef));
+      if (!unique.includes(selectedModelId)) unique.push(selectedModelId);
+    }
+    await writeSparkEnabledModels(this.#configPath, unique);
   }
 
   async setApiKey(providerId: string, apiKey: string): Promise<void> {

@@ -161,6 +161,30 @@ test("user enabledModels replaces defaults and explicit empty scope permits no m
   });
 });
 
+test("provider control persists exact enabledModels ids from a custom policy", async () => {
+  await withSparkHome(async (sparkHome) => {
+    const configPath = join(sparkHome, "config.json");
+    await writeFile(
+      configPath,
+      `${JSON.stringify({ enabledModels: ["openai-codex/gpt-5.6-luna"] })}
+`,
+    );
+    const control = createSparkProviderControl({ sparkHome, env: {} });
+
+    await control.setEnabledModels(["openai-codex/gpt-5.6-sol", "openai-codex/gpt-5.6-luna"]);
+    const updated = await control.snapshot();
+    assert.deepEqual(
+      new Set(updated.enabledModelIds),
+      new Set(["openai-codex/gpt-5.6-sol", "openai-codex/gpt-5.6-luna"]),
+    );
+    const persisted = await readJsonFixture<Record<string, unknown>>(configPath);
+    assert.deepEqual(persisted.enabledModels, [
+      "openai-codex/gpt-5.6-sol",
+      "openai-codex/gpt-5.6-luna",
+    ]);
+  });
+});
+
 test("default enabledModels replace grok-4.5 with grok-4.6 and keep the catalog row", async () => {
   await withSparkHome(async (sparkHome) => {
     const control = createSparkProviderControl({ sparkHome, env: {} });

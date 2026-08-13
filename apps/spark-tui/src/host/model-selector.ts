@@ -40,6 +40,14 @@ export interface SparkModelSelectorItem {
   reasoning: boolean;
 }
 
+export interface SparkEnabledModelEditorItem extends SparkModelSelectorItem {
+  enabled: boolean;
+}
+
+export interface SparkEnabledModelCatalogState {
+  items: SparkEnabledModelEditorItem[];
+}
+
 export interface SparkModelProviderGroup {
   providerName: string;
   providerLabel: string;
@@ -103,6 +111,18 @@ export class SparkModelSelector {
 
   listItems(): SparkModelSelectorItem[] {
     return this.listProviderGroups().flatMap((provider) => provider.models);
+  }
+
+  /** Complete catalog for enabled-model policy editing; never filters by enabledModels. */
+  listCatalogItems(): SparkModelSelectorItem[] {
+    const active = this.registry.getActive();
+    return this.registry
+      .listProviders()
+      .flatMap((provider) =>
+        this.registry
+          .listModelsFor(provider.name)
+          .map((model) => toSelectorItem(provider, model, active)),
+      );
   }
 
   getPickerState(): SparkModelPickerState {

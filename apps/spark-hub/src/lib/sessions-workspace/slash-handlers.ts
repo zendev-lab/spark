@@ -202,9 +202,13 @@ export function createSlashHandlers(deps: SlashHandlerDeps) {
       return;
     }
 
-    if (action.intent === "settings.inspect" || action.intent === "settings.providers") {
+    if (
+      action.intent === "settings.inspect" ||
+      action.intent === "settings.providers" ||
+      action.intent === "settings.enabled-models"
+    ) {
       clearSlashInput(surface);
-      await goto(action.intent === "settings.providers" ? "/settings/models" : "/settings");
+      await goto(action.intent === "settings.inspect" ? "/settings" : "/settings/models");
       return;
     }
 

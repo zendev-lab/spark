@@ -55,6 +55,7 @@ import {
   sparkAuthImportReportSchema,
   sparkAuthFlowSchema,
   sparkDefaultModelSetRequestSchema,
+  sparkEnabledModelsSetRequestSchema,
   sparkModelControlSnapshotSchema,
   sparkPiAuthImportRequestSchema,
 } from "./model-control.ts";
@@ -1685,6 +1686,10 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkDefaultModelSetRequestSchema,
     output: sparkModelControlSnapshotSchema,
   },
+  "model.enabled.set": {
+    input: sparkEnabledModelsSetRequestSchema,
+    output: sparkModelControlSnapshotSchema,
+  },
   "provider.auth.api-key.set": {
     input: z.object({
       providerName: z.string().trim().min(1),
@@ -2197,6 +2202,14 @@ export const sparkLocalRpcOrpcContract = {
         "/model/default/set",
         p["model.default.set"],
         sparkLocalRpcModelSelectionOrpcErrors,
+      ),
+    },
+    enabled: {
+      set: procedure(
+        "POST",
+        "/model/enabled/set",
+        p["model.enabled.set"],
+        sparkLocalRpcModelCatalogOrpcErrors,
       ),
     },
   },

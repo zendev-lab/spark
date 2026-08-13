@@ -481,6 +481,10 @@ class FixtureModelControl implements SparkDaemonModelControl {
     return await this.snapshot();
   }
 
+  async setEnabledModels(_models: readonly SparkModelRef[]): Promise<SparkModelControlSnapshot> {
+    return await this.snapshot();
+  }
+
   async setSessionModel(sessionId: string, selected: SparkModelRef): Promise<SparkSessionState> {
     return await this.registry.setModel(sessionId, selected);
   }

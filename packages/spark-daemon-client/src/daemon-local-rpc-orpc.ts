@@ -584,6 +584,11 @@ const modelProviderHumanInvokers = {
       sparkLocalRpcProcedureSchemas["model.catalog"].output,
       client.model.catalog(input, options),
     ),
+  "model.enabled.set": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["model.enabled.set"].output,
+      client.model.enabled.set(input, options),
+    ),
   "model.default.set": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["model.default.set"].output,
@@ -637,6 +642,7 @@ const modelProviderHumanInvokers = {
 } satisfies Pick<
   SparkDaemonOrpcProcedureInvokerMap,
   | "model.catalog"
+  | "model.enabled.set"
   | "model.default.set"
   | "provider.auth.api-key.set"
   | "provider.auth.import.pi"
