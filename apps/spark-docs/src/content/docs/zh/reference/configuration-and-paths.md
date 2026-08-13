@@ -98,7 +98,8 @@ $XDG_CACHE_HOME/spark/update/
 
 - `.spark/` 保存 workspace 自有的 Spark 运行状态。
 - `~/.agents/{roles,skills,workflows}` 保存用户级可复用定义。
-- `.agents/{roles,skills,workflows}` 保存项目级定义。
+- `.agents/{roles,skills,workflows}` 保存项目级定义，并随仓库版本管理。
+- `.agents/worktrees/` 保存本机 Git worktree，不纳入版本库。
 - `.spark/skills` 保存 workspace 专用的 Spark skills。
 
 不存在 `$SPARK_HOME/skills` 或 `$SPARK_HOME/workflows` 目录。
