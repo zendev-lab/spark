@@ -164,9 +164,12 @@ function assertCapacityReportExceptMaxEventLoopGap(report: DaemonOrpcCapacityRep
   assert.equal(scenario.persistence.attempts, 50);
   assert.equal(scenario.persistence.succeededAttempts, 50);
   assert.equal(scenario.persistence.lifecycleEvents, 100);
+  assert.equal(scenario.persistence.receiptContextEvents, 50);
   assert.equal(
     scenario.persistence.invocationEvents,
-    scenario.persistence.attemptEventOutputs + scenario.persistence.lifecycleEvents,
+    scenario.persistence.attemptEventOutputs +
+      scenario.persistence.lifecycleEvents +
+      scenario.persistence.receiptContextEvents,
   );
   assert.ok(scenario.persistence.streamingSnapshots >= 50);
   assert.ok(

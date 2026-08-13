@@ -112,6 +112,7 @@ export interface DaemonOrpcCapacityScenario {
     succeededAttempts: number;
     attemptEventOutputs: number;
     lifecycleEvents: number;
+    receiptContextEvents: number;
     invocationEvents: number;
     streamingSnapshots: number;
     streamingSnapshotUpperBound: number;

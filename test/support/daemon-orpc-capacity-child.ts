@@ -386,23 +386,28 @@ function persistenceMetrics(
   );
   const eventRows = db
     .prepare(
-      `SELECT invocation_id, sequence, payload_json
+      `SELECT invocation_id, sequence, kind, payload_json
        FROM invocation_events
        ORDER BY invocation_id, sequence`,
     )
     .all() as unknown as Array<{
     invocation_id: string;
     sequence: number;
+    kind: string;
     payload_json: string;
   }>;
 
   let streamingSnapshots = 0;
   let terminalAssistantMessages = 0;
+  let lifecycleEvents = 0;
+  let receiptContextEvents = 0;
   const sequences = new Map<string, number[]>();
   for (const row of eventRows) {
     const list = sequences.get(row.invocation_id) ?? [];
     list.push(Number(row.sequence));
     sequences.set(row.invocation_id, list);
+    if (row.kind === "daemon.task.lifecycle") lifecycleEvents += 1;
+    if (row.kind === "invocation.receipt_context") receiptContextEvents += 1;
     const event = JSON.parse(row.payload_json) as {
       type?: string;
       view?: {
@@ -438,7 +443,8 @@ function persistenceMetrics(
     attempts: attempts.length,
     succeededAttempts: attempts.filter((attempt) => attempt.status === "succeeded").length,
     attemptEventOutputs,
-    lifecycleEvents: eventRows.length - attemptEventOutputs,
+    lifecycleEvents,
+    receiptContextEvents,
     invocationEvents: eventRows.length,
     streamingSnapshots,
     streamingSnapshotUpperBound: invocations.length * upperBoundPerInvocation,
