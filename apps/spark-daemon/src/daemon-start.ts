@@ -892,14 +892,14 @@ async function resolveReproFormalStepState(cwd: string, ownerSessionId: string) 
   const graph = await defaultTaskGraphStore(cwd).load();
   return {
     reproId: repro.reproId,
-    dualLane: {
-      planRevision: repro.dualLane.planRevision,
-      normative: {
-        orderedStepIds: [...repro.dualLane.normative.orderedStepIds],
-        ...(repro.dualLane.normative.currentStepId
-          ? { currentStepId: repro.dualLane.normative.currentStepId }
+    threeLane: {
+      planRevision: repro.threeLane.planRevision,
+      formalize: {
+        orderedStepIds: [...repro.threeLane.formalize.orderedStepIds],
+        ...(repro.threeLane.formalize.currentStepId
+          ? { currentStepId: repro.threeLane.formalize.currentStepId }
           : {}),
-        retiredStepIds: [...repro.dualLane.normative.retiredStepIds],
+        retiredStepIds: [...repro.threeLane.formalize.retiredStepIds],
       },
     },
     subgoals: repro.subgoals.map((subgoal) => ({

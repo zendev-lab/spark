@@ -1,13 +1,14 @@
-# Autonomous dual-lane Repro, ReportModel, and asynchronous evidence
+# Autonomous three-lane Repro, ReportModel, and asynchronous evidence
 
-Normative contract for Spark Goal/Repro autonomy, model-reproduction progress, human evidence requests, deterministic reporting, and Workbench projection.
+Normative contract for Spark Repro autonomy, model-reproduction progress, human evidence requests, deterministic reporting, and Workbench projection. Goal remains a separate single-line runtime over TaskGraph readiness and the shared human-request ledger; it does not acquire Repro lane semantics.
 
 ## Purpose
 
-A reproduction run must expose the end-to-end execution surface as early as possible without weakening formal correctness. Spark therefore maintains two concurrent lanes:
+A reproduction run must expose the end-to-end execution surface as early as possible without weakening exactness or formal correctness. Spark therefore maintains three concurrent runtime lanes:
 
-- **Explore** advances reachability, may execute out of order, and may use reversible bridges, adapters, stubs, fallbacks, or constrained assumptions.
-- **Normative** preserves the authoritative `decompose → establish evidence → converge → harden` order and retires typed steps only after their formal requirements pass.
+- **Implementation Explore** advances reachability, may execute out of order, and may use reversible bridges, adapters, stubs, fallbacks, or constrained assumptions.
+- **Exactness Explore** localizes the first bad boundary, classifies mismatches, and may skip a boundary only when isolation and resynchronization are both evidenced.
+- **Formalize** preserves the authoritative `decompose → establish evidence → converge → harden` order and retires typed steps only after their formal requirements pass.
 
 The primary user view is a stable Document Artifact and its sibling Workbench projections. It must answer, in order:
 
@@ -20,29 +21,33 @@ This contract does not create another scheduler, Task graph, Evidence store, hum
 
 ## Core invariants
 
-1. Explore reachability is not correctness and contributes zero to formal progress.
+1. Implementation Explore reachability and Exactness Explore diagnosis both contribute zero to formal progress.
 2. A shortcut is dispatchable only when it creates or binds a stable unresolved item.
-3. Diagnostic observations and specialist completion are candidates; they cannot retire a Normative step.
-4. Candidate evidence may complete out of order. Normative retirement remains dependency-ordered and cursor-ordered.
-5. Goal/Repro human questions are durable asynchronous evidence requests. They never attach a blocking continuation to the autonomous turn.
+3. Diagnostic observations and specialist completion are candidates; they cannot retire a Formalize step.
+4. Candidate evidence may complete out of order. Formalize retirement remains dependency-ordered and cursor-ordered.
+5. Repro human questions are durable asynchronous evidence requests. Goal may use the same ledger, but Goal remains single-line and never derives Explore/Formalize lanes.
 6. `waiting_decision` is a domain/report status, not a scheduler stop instruction. Independent work continues when ready.
 7. `ReportModel` is built from structured facts. Markdown and A2UI are sibling projections; neither is parsed back into execution state.
 8. Completion requires all formal gates, the frozen technical target, unresolved discharge, required hardening, and reviewer acceptance.
 9. Workspace paths, Spark Evidence refs, and user-visible Artifact refs are distinct namespaces.
 10. A stable per-run Document Artifact is the canonical human report page. A workspace `report.md` is an optional explicit export only.
+11. A `workItemId` is stable within one Repro and survives commit rebases. TaskRef remains the scheduling identity, while one `git_change` Artifact remains the owner of its worktree and native GitHub PR stack.
+12. Forward handoffs move only Implementation → Exactness → Formalize. Typed resolutions move only Formalize → Exactness → Implementation.
 
 ## Ownership
 
 | Domain | Authoritative owner | Owns | Must not own |
 | --- | --- | --- | --- |
-| Repro semantics | `@zendev-lab/spark-repro` | lanes, Profile, gates, progress, numerical frontier, unresolved items, ordered retirement, ReportModel input semantics | scheduling, Artifact persistence, transcript parsing |
+| Repro semantics | `@zendev-lab/spark-repro` | three lanes, stable WorkItems, handoffs/resolutions, Profile, gates, progress, numerical frontier, unresolved items, ordered retirement, ReportModel input semantics | scheduling, Git topology, Artifact persistence, transcript parsing |
 | Task graph | `@zendev-lab/spark-tasks` | Project Tasks, readiness, claims, TaskRun attribution | Repro gate retirement, duplicate frontier state |
 | Autonomous execution | Spark daemon | Loop timing, invocation admission, leases, retry, restart recovery, durable human waits/events | formal correctness inference, frontend-derived state |
 | Product composition | `@zendev-lab/spark-extension` | tool policy, owner adapters, ReportModel composition, evidence validation, Artifact projection request | another Repro store or scheduler |
 | Human interaction | daemon broker + shared protocol; Hub outbox/read model | durable request lifecycle, correlation, answer event, UI projection | synthesized answers, timeout-as-user-decision |
 | User-visible products | Artifact owner; Hub/TUI/A2UI adapters | stable Document content/revision and read-only projections | technical gates, internal Evidence bodies, report-to-state parsing |
 
-Task Sessions, `assign`, and controlled Workflows reuse the daemon scheduler. A specialist may produce an observation or evidence candidate; only the owner session may reconcile it into Normative state.
+Task Sessions, `assign`, and controlled Workflows reuse the daemon scheduler. A specialist may produce an observation or evidence candidate; only the owner session may reconcile it into Formalize state.
+
+Formalize binds one canonical `git_change` Artifact. Its stack-integrator Session is the only writer to that owning worktree. Other specialists are read-only or use distinct candidate GitChanges; Repro never copies raw worktree paths or becomes a writable PR-topology owner.
 
 ## Data flow and single source of truth
 
@@ -76,14 +81,14 @@ An Artifact update failure cannot change technical state. A presentation project
 
 ## Lane model
 
-### Explore lane
+### Implementation Explore lane
 
-`exploreFrontier` records the furthest observed stage/Profile boundary reached by executable work. Explore work may:
+`lanes.implementation.frontier` records the furthest observed stage/Profile boundary reached by executable work. Implementation Explore work may:
 
 - run an official or reference-supported smaller topology;
 - insert a reversible adapter or bridge;
 - stub one unavailable integration boundary;
-- execute a later surface probe before an earlier Normative gate retires;
+- execute a later surface probe before an earlier Formalize gate retires;
 - fan out independent shape, dtype, topology, checkpoint, or UI investigations.
 
 Every shortcut must bind an unresolved item with:
@@ -100,11 +105,22 @@ dischargeStatus: open | discharging | discharged | superseded
 observationRefs / evidenceRefs
 ```
 
-Explore cannot set `technicalGoal.achieved`, accept a gate, finish a Task, or mark the run complete.
+Implementation Explore cannot set `technicalGoal.achieved`, accept a gate, finish a Task, or mark the run complete.
 
-### Normative lane
+### Exactness Explore lane
 
-`normativeCursor` identifies the earliest unretired typed step. Retirement requires:
+Exactness consumes typed `WorkHandoff` records from Implementation. It records the first bad boundary, a classification (`implementation_defect | semantic_difference | intrinsic_numerical | contract_environment | unknown`), confidence, disposition, and Evidence refs. A mismatch disposition of `skip` is invalid unless it also binds:
+
+```text
+isolation: boundary + Evidence refs
+resynchronization: checkpoint + Evidence refs
+```
+
+Exactness may produce a confirmed finding and candidate revision for Formalize. It cannot retire a formal step, update `formalizedTip`, or silently treat a successful post-output replay as native internal evidence.
+
+### Formalize lane
+
+`lanes.formalize.cursor` identifies the earliest unretired typed step. Retirement requires:
 
 - all dependencies retired;
 - a passing typed verifier bound to the current step definition and plan revision;
@@ -113,6 +129,14 @@ Explore cannot set `technicalGoal.achieved`, accept a gate, finish a Task, or ma
 - no required unresolved item still open.
 
 Evidence candidates that arrive for later steps remain in a candidate buffer. If completion timestamps are `S3 < S2 < S1`, the only valid retirement log is `S1 → S2 → S3`.
+
+`formalizedTip` is updated only by an accepted Formalize resolution. It denotes the latest accepted canonical revision and is distinct from the in-progress GitChange stack tip.
+
+### Work handoff and resolution identity
+
+`WorkHandoff` binds `workItemId`, source/target lane, plan revision, source revision, scope, findings, candidate revisions, Evidence, dependencies, and `doneWhen`. Duplicate delivery is idempotent; a reused id with different content or a stale plan/source revision fails closed.
+
+`Resolution` binds the same WorkItem, `resolved | superseded | rejected`, canonical revision, superseded revisions, and Evidence. Exactness → Implementation requires the matching Formalize → Exactness parent resolution. Reconciliation updates the existing TaskGraph through its owner API; it does not create a second task store or mutate Git directly.
 
 ### Numerical frontier
 
@@ -181,8 +205,8 @@ Each row carries Profile, repetitions, verdict, exact scope, command/receipt pat
 
 `status` is derived, never hand-written:
 
-- `active`: incomplete, with no current human decision/approval blocking the Normative cursor.
-- `waiting_decision`: at least one pending durable human request blocks a required Normative retirement or fenced action.
+- `active`: incomplete, with no current human decision/approval blocking the Formalize cursor.
+- `waiting_decision`: at least one pending durable human request blocks a required Formalize retirement or fenced action.
 - `complete`: all completion conditions pass at `delivery`.
 
 ### Scheduler activity
@@ -198,7 +222,7 @@ The normative 3×3 legality matrix groups `running|ready` as progressing:
 
 | Status \ activity class | Progressing (`running|ready`) | Dormant | Sealed |
 | --- | --- | --- | --- |
-| `active` | legal | legal when neither frontier has work | illegal |
+| `active` | legal | legal when no lane has dispatchable work | illegal |
 | `waiting_decision` | legal and preferred when independent work exists | legal only when every remaining action depends on pending evidence | illegal |
 | `complete` | illegal | illegal | required |
 
@@ -206,22 +230,23 @@ The normative 3×3 legality matrix groups `running|ready` as progressing:
 
 ## Typed transitions
 
-- **DL-01 — Explore advance:** a reachable execution observation advances `exploreFrontier`; formal progress and `normativeCursor` remain unchanged.
-- **DL-02 — Shortcut registration:** creating a bridge/adapter/fallback/stub atomically creates an open unresolved item before the shortcut becomes dispatchable.
-- **DL-03 — Candidate arrival:** specialist output enters the candidate buffer with Profile, plan revision, step digest, and provenance; it retires nothing.
-- **DL-04 — Ordered retirement:** the owner verifies the current cursor candidate, dependencies, Evidence refs, and unresolved discharge, then advances exactly one Normative step; consecutive already-verified candidates may retire in order in the same reconciliation.
-- **DL-05 — Async request:** a Goal/Repro ask persists a detached evidence request and returns `pending` immediately; no autonomous tool promise waits for the answer.
-- **DL-06 — Local waiting:** a pending request bound to the cursor derives `status=waiting_decision`; independent Explore/evidence work remains dispatchable and may derive `schedulerActivity=running|ready`.
-- **DL-07 — Answer reconciliation:** one idempotent AnswerEvent is delivered to the owning session; only a matching request id, plan revision, step digest, expected answer kind, and direct-user provenance may create decision Evidence or release the bound retirement.
-- **DL-08 — Stale/duplicate/cancel:** stale, duplicate, cancelled, archived, empty, or synthetic answers remain in history/diagnostics and do not change the cursor, gate, unresolved status, or fenced action count.
-- **DL-09 — Unresolved discharge:** an open item becomes discharged only when its typed discharge criterion and formal evidence pass; an observation or successful Explore run is insufficient.
-- **DL-10 — Completion:** the reviewer derives `complete + sealed` only after all required steps/gates, target Profile, unresolved items, Tasks, hardening/recovery validations, and approvals pass.
-- **DL-11 — Restart:** daemon reconstruction re-derives both frontiers, pending requests, activity, candidate buffer, and idempotency acknowledgements without duplicate dispatch or retirement.
-- **DL-12 — Projection:** ReportModel/Artifact/A2UI revisions may change only after canonical facts change; presentation revision never changes technical gates.
+- **TL-01 — Implementation Explore advance:** a reachable execution observation advances `lanes.implementation.frontier`; formal progress and `lanes.formalize.cursor` remain unchanged.
+- **TL-02 — Implementation handoff:** a revision-fenced WorkHandoff moves one stable WorkItem into Exactness without changing formal progress.
+- **TL-03 — Exactness classification:** Exactness establishes the first bad boundary and typed mismatch disposition; skip requires isolate plus resynchronize evidence.
+- **TL-04 — Ordered retirement:** the owner verifies the current cursor candidate, dependencies, Evidence refs, and unresolved discharge, then advances exactly one Formalize step; consecutive already-verified candidates may retire in order in the same reconciliation.
+- **TL-05 — Async request:** a Goal/Repro ask persists a detached evidence request and returns `pending` immediately; no autonomous tool promise waits for the answer.
+- **TL-06 — Local waiting:** a pending request bound to the cursor derives `status=waiting_decision`; independent Implementation or Exactness work remains dispatchable and may derive `schedulerActivity=running|ready`.
+- **TL-07 — Answer reconciliation:** one idempotent AnswerEvent is delivered to the owning session; only a matching request id, plan revision, step digest, expected answer kind, and direct-user provenance may create decision Evidence or release the bound retirement.
+- **TL-08 — Stale/duplicate/cancel:** stale, duplicate, cancelled, archived, empty, or synthetic answers remain in history/diagnostics and do not change the cursor, gate, unresolved status, or fenced action count.
+- **TL-09 — Unresolved discharge:** an open item becomes discharged only when its typed discharge criterion and formal evidence pass; an observation or successful Implementation Explore run is insufficient.
+- **TL-10 — Completion:** the reviewer derives `complete + sealed` only after all required steps/gates, target Profile, unresolved items, Tasks, hardening/recovery validations, and approvals pass.
+- **TL-11 — Restart:** daemon reconstruction re-derives all three lanes, WorkHandoffs, Resolutions, pending requests, activity, candidate buffer, and idempotency acknowledgements without duplicate dispatch or retirement.
+- **TL-12 — Projection:** ReportModel/Artifact/A2UI revisions may change only after canonical facts change; presentation revision never changes technical gates.
+- **TL-13 — Backward resolution:** an accepted Formalize result resolves or supersedes Exactness work, then Implementation work, through two typed idempotent Resolution records.
 
 ## Asynchronous evidence requests
 
-Goal/Repro use a detached `EvidenceRequest` specialization of the shared human-interaction protocol. It binds:
+Repro uses a detached `EvidenceRequest` specialization of the shared human-interaction protocol. Goal may use the same request contract independently of Repro lanes. It binds:
 
 ```text
 humanRequestId
@@ -262,7 +287,7 @@ Ordinary non-autonomous sessions retain their existing interaction policy.
 | `AE-02` | Active Goal/Repro calls explicit blocking delivery | Same fail-closed result as `AE-01` |
 | `AE-03` | Active Goal/Repro requests `autoAnswer=true` | Same fail-closed result; reviewer fallback is not invoked |
 | `AE-04` | Legacy Ask alias attempts any of `AE-01..03` | Same policy guard and stable error code |
-| `AE-05` | Detached request binds the Normative cursor while independent Explore work is ready/running | `status=waiting_decision` and `schedulerActivity=ready|running`; independent dispatch continues |
+| `AE-05` | Detached request binds the Formalize cursor while independent Implementation Explore work is ready/running | `status=waiting_decision` and `schedulerActivity=ready|running`; independent dispatch continues |
 | `AE-06` | Direct user answer matches request, owner, revision, step digest, and answer kind | Exactly one AnswerEvent and one decision Evidence candidate; owner reconciliation may release only the bound retirement/action |
 | `AE-07` | Same human response is delivered twice | Second delivery is acknowledged as duplicate; no second Evidence, retirement, dispatch, or Artifact revision |
 | `AE-08` | Answer targets an old plan revision or step digest | Preserved as stale diagnostic history; zero technical mutations |
@@ -295,7 +320,7 @@ stageContribution(s) = stageWeight(s) × stageFraction(s)
 formalProgress = Σ stageContribution(s)
 ```
 
-A gate is **formally eligible** when the frozen contract requires that gate at the `minimum_complete` acceptance Profile and the gate declares an exact `validationTopology + strategies[]` match. Eligibility is independent of gate outcome: pending, failed, and accepted required gates all remain in `totalEligibleWeight(s)`. A gate contributes to `acceptedEligibleWeight(s)` only after its accepted status is backed by the required current-plan Evidence. Explore, probe, reduced/full observed Profiles, diagnostic observation, active experiment, child-run terminal status, Task count, and token usage are never formally eligible and contribute zero.
+A gate is **formally eligible** when the frozen contract requires that gate at the `minimum_complete` acceptance Profile and the gate declares an exact `validationTopology + strategies[]` match. Eligibility is independent of gate outcome: pending, failed, and accepted required gates all remain in `totalEligibleWeight(s)`. A gate contributes to `acceptedEligibleWeight(s)` only after its accepted status is backed by the required current-plan Evidence. Implementation Explore, probe, reduced/full observed Profiles, diagnostic observation, active experiment, child-run terminal status, Task count, and token usage are never formally eligible and contribute zero.
 
 The denominator is the frozen inventory of all formally eligible gate weights across every stage, not the subset that has already produced accepted Evidence. If the frozen contract cannot enumerate that complete required inventory or any required gate weight is unknown, `progress.quantified=false` and `percent=null`. Surfaces render `unquantified`, not an estimate disguised as formal precision. A separate explicitly labelled forecast may exist in future but cannot share the formal progress field.
 
@@ -367,7 +392,7 @@ Resource-supported alternatives are autonomous. OOM is not a human decision whil
 format / generatedAt / reproId / run identity / freshness
 strongestClaim
 status / schedulerActivity / stage
-exploreFrontier / normativeCursor / retirementBlocks
+lanes.implementation.frontier / lanes.formalize.cursor / retirementBlocks
 acceptance Profile and formalProgress
 run contract and source/config digests
 formal gates and structured failures
@@ -430,7 +455,7 @@ Historical mixed fields migrate by classification into separate arrays. A migrat
 
 `complete` requires all of:
 
-- Normative cursor past all required steps in dependency order;
+- Formalize cursor past all required steps in dependency order;
 - every required formal gate accepted with current Evidence;
 - acceptance Profile reaches required steps and exact frozen topology/strategies;
 - every completion-required unresolved item discharged;
@@ -439,7 +464,7 @@ Historical mixed fields migrate by classification into separate arrays. A migrat
 - no pending approval for delivery or external publication;
 - completion reviewer verdict `achieved`, with no blockers.
 
-Explore at `delivery`, an exit-zero run, a passing probe, a complete Artifact, or 100% reachability cannot satisfy this gate.
+Implementation Explore at `delivery`, an exit-zero run, a passing probe, a complete Artifact, or 100% reachability cannot satisfy this gate.
 
 ## Versioned migration
 
@@ -487,9 +512,11 @@ Backfill is idempotent per Repro id, source schema, source digest, and migration
 
 Daemon restart reconstructs activity and idempotency from existing owners. No frontend timer reactivates work. Pending evidence requests survive restart and do not by themselves count as semantic stagnation.
 
-A Repro settlement is unchanged only when both ready frontiers are empty, there is no candidate/AnswerEvent to reconcile, and the semantic fingerprint is unchanged. A pending request can coexist with dormant only when every remaining action depends on it.
+A Repro settlement is unchanged only when all three lanes have no ready work, there is no Handoff, Resolution, candidate, or AnswerEvent to reconcile, and the semantic fingerprint is unchanged. A pending request can coexist with dormant only when every remaining action depends on it.
 
-Rollout uses explicit capabilities for dual-lane state, async EvidenceRequest, and ReportModel version. An old reader receives typed read-only/unknown projections; it must not downgrade async interaction to blocking, infer missing Profile fields, invent a percentage, or drop unresolved/request/Artifact bindings.
+`SparkSessionRepro` v7 migrates to v8 by mapping Explore observations into Implementation, creating empty Exactness state, and preserving the ordered Formalize cursor and unresolved identities. `work-summary/v2` migrates to v3 by the same rule. Migration creates no WorkItem, Handoff, Resolution, Exactness finding, or `formalizedTip`, and is idempotent.
+
+Daemon and TUI use one lockstep view-model protocol version and fail closed on mismatch; there is no daemon/host/surface capability negotiation. Bounded cross-version translation, when required, remains in the Hub↔daemon adapter/client and cannot write Repro state.
 
 A kill switch stops admission of new autonomous ticks. It does not delete evidence, requests, unresolved items, or reports, and never changes completion.
 

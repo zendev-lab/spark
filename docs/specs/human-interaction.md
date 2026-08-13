@@ -74,7 +74,7 @@ Cross-session agent-to-agent traffic is **messages** (session inspector tab), no
 ## Autonomous Goal/Repro evidence requests
 
 The autonomous contract is owned by
-[`autonomous-dual-lane.md`](./autonomous-dual-lane.md). Active Goal/Repro turns
+[`autonomous-three-lane.md`](./autonomous-three-lane.md). Active Goal/Repro turns
 must persist detached asynchronous evidence requests and continue independent
 work. Their pending decision status is orthogonal to daemon scheduler activity.
 Omitted/default blocking delivery, explicit blocking delivery, Ask aliases, and
