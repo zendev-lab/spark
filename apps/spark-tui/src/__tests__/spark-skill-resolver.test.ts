@@ -118,11 +118,11 @@ test("SparkSkillResolver discovers builtin, workspace, and user skills with user
 
     assert.deepEqual(result.skills.map((skill) => `${skill.name}:${skill.layer}`).sort(), [
       "builtin-only:builtin",
-      "shared:user",
+      "shared:workspace",
     ]);
     assert.equal(
       result.skills.find((skill) => skill.name === "shared")!.description,
-      "User shared skill",
+      "Workspace shared skill",
     );
     assert.equal(
       result.diagnostics.filter((diagnostic) => diagnostic.type === "collision").length,
@@ -220,10 +220,9 @@ test("SparkSkillResolver discovers cross-harness .agents/skills and ignores thei
     const resolver = new SparkSkillResolver({
       cwd,
       builtinDirs: [join(dir, "none-builtin")],
-      userDir: join(dir, "none-user"),
       userAgentsDir: userAgents,
     });
-    const result = await resolver.resolve();
+    const result = await resolver.resolve({ includeRepository: true });
 
     assert.deepEqual(result.skills.map((skill) => skill.name).sort(), [
       "project-agent",

@@ -180,6 +180,27 @@ migration sources, but they do not affect current path resolution.
 pi-memory Markdown import remains explicit: `memory({ action: "import_legacy",
 apply: false })` then `apply: true` after review.
 
+## Agent resource precedence
+
+Roles, Workflows, and Skills use one discovery contract. Roots are scanned in this
+order, and a later root wins a same-id/name collision:
+
+```text
+builtin -> user -> workspace -> cwd -> configured -> repository
+```
+
+The user root is configurable and replaces the default user root when explicitly
+set. Workspace and cwd roots are project `.agents/<resource>` roots: repository
+ancestors are workspace roots and the current working directory is the cwd root.
+Explicit configured roots are loaded after cwd. Repository-local Skills are not
+injected into the startup catalog; request matching or an explicit Skill Agent
+may progressively focus and load them.
+
+Workflow and Role selectors remain backward-compatible (`builtin`, `workspace`,
+and `user` / `builtin`, `extension`, `project`, and `user`). Their project roots
+share the workspace/project source while preserving the common precedence.
+
+
 ## Inspection invariant
 
 The dispatcher exposes a read-only path-inspection surface that reports effective

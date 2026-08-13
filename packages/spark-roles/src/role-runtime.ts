@@ -10,9 +10,13 @@ import {
   type ToolEffect,
 } from "@zendev-lab/spark-core";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { resolveRoleNativeExecutor } from "./native-executor.ts";
-import { dirname, extname, join, relative, sep } from "node:path";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import {
+  defaultProjectResourceDirs,
+  orderedSparkResourceRoots,
+} from "@zendev-lab/spark-system/resource-paths";
+import { dirname, extname, join, relative, sep } from "node:path";
+import { resolveRoleNativeExecutor } from "./native-executor.ts";
 import {
   sparkRoleModelTypeSchema,
   sparkRoleOriginSchema,
@@ -579,8 +583,14 @@ export class RoleRegistry {
         roleIdFromRef(role.ref) === selection,
     );
     if (matches.length === 0) throw new Error(`no role matches: ${idOrRef}`);
-    if (matches.length > 1) throw new Error(`ambiguous role: ${idOrRef}`);
-    return matches[0];
+    if (matches.length > 1) {
+      const priority: RoleSource[] = ["project", "user", "extension", "builtin"];
+      const bestPriority = Math.min(...matches.map((role) => priority.indexOf(role.source)));
+      const best = matches.filter((role) => priority.indexOf(role.source) === bestPriority);
+      if (best.length === 1) return best[0]!;
+      throw new Error(`ambiguous role: ${idOrRef}`);
+    }
+    return matches[0]!;
   }
 }
 
@@ -942,17 +952,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+export interface RoleHydrationOptions {
+  home?: string;
+  includeUser?: boolean;
+  userRoleDir?: string;
+  projectRoleDirs?: string[];
+  cwdRoleDir?: string;
+  configuredRoleDirs?: string[];
+}
+
 export async function hydrateDefaultRoleRegistry(
   registry: RoleRegistry,
   cwd: string,
-  options: {
-    home?: string;
-    includeUser?: boolean;
-  } = {},
+  options: RoleHydrationOptions = {},
 ): Promise<void> {
   hydrateExtensionRoles(registry);
-  await defaultProjectRoleStore(cwd).hydrate(registry);
-  if (options.includeUser) await defaultUserRoleStore(options.home).hydrate(registry);
+  if (options.includeUser) {
+    const userStore = options.userRoleDir
+      ? new MarkdownRoleStore({ rootDir: options.userRoleDir, source: "user" })
+      : defaultUserRoleStore(options.home);
+    await userStore.hydrate(registry);
+  }
+  const projectDirs = defaultProjectResourceDirs(cwd, "roles");
+  const workspaceDirs = options.projectRoleDirs ?? projectDirs.slice(0, -1);
+  const cwdDir = options.cwdRoleDir ?? projectDirs.at(-1) ?? join(cwd, ".agents", "roles");
+  const roots = orderedSparkResourceRoots({
+    workspace: workspaceDirs,
+    cwd: [cwdDir],
+    configured: options.configuredRoleDirs,
+  });
+  for (const root of roots) {
+    await new MarkdownRoleStore({ rootDir: root.path, source: "project" }).hydrate(registry);
+  }
 }
 
 export function createRoleSpec(proposal: RoleSpecProposal, now = nowIso()): RoleSpec {

@@ -180,7 +180,7 @@ export function createSparkSkillAgentTool(options: SparkSkillAgentToolOptions = 
       const timeoutMs = normalizeTimeout(params.timeoutMs, defaultTimeoutMs);
 
       const resolver = await createSkillResolver(cwd, options);
-      const { skills: resolvedSkills } = await resolver.resolve();
+      const { skills: resolvedSkills } = await resolver.resolve({ includeRepository: true });
       const loaded = await Promise.all(
         skillNames.map((name) => loadSparkSkillByName(resolvedSkills, name)),
       );
