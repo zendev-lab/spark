@@ -22,7 +22,9 @@ package-lock.json
 .spark/
 .pi/
 .cursor/
-.agents/
+# Project .agents/{roles,skills,workflows} are versioned source.
+# Worktrees are machine-local runtime (also ignored by .agents/.gitignore).
+.agents/worktrees/
 .pi-lens/
 **/.pi-lens/
 .learnings/

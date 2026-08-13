@@ -105,7 +105,9 @@ be changed with `spark update configure --interval-hours <hours>`.
 
 - `.spark/` contains workspace-owned Spark runtime state.
 - `~/.agents/{roles,skills,workflows}` contains user-level reusable definitions.
-- `.agents/{roles,skills,workflows}` contains project-level definitions.
+- `.agents/{roles,skills,workflows}` contains project-level definitions and is
+  versioned with the repository.
+- `.agents/worktrees/` contains local Git worktrees and is gitignored.
 - `.spark/skills` contains workspace-specific Spark skills.
 
 There are no `$SPARK_HOME/skills` or `$SPARK_HOME/workflows` directories.

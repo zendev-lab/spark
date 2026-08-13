@@ -1,0 +1,3 @@
+# Machine-local Git worktrees created by Spark / git-workstreams.
+# skills/, roles/, and workflows/ are project source and stay tracked.
+worktrees/

@@ -64,11 +64,12 @@ direction.
   stack; individual stack entries are not separate Artifact refs.
 - Serialized state and compatibility markers change only through an explicit,
   idempotent migration with compatibility tests.
-- Do not commit secrets, `.env` files, `.spark/`, `.spark/memory/`, or legacy
-  `.learnings/` runtime state.
+- Do not commit secrets, `.env` files, `.spark/`, `.spark/memory/`,
+  `.agents/worktrees/`, or legacy `.learnings/` runtime state.
 - Workspace runtime state belongs under `.spark/`. User-level paths resolve
   through explicit `SPARK_HOME` or the standard XDG roots; public agent assets
   remain under `$HOME/.agents/`, and project assets under `.agents/`.
+  Version `.agents/{roles,skills,workflows}`; leave `.agents/worktrees/` local.
 
 ## Change protocol
 
