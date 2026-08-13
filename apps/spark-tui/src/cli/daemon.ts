@@ -149,10 +149,11 @@ export interface SparkDaemonClientPaths {
 export type SparkDaemonControlRequest = <M extends SparkLocalRpcMethod>(
   method: M,
   params: SparkLocalRpcInput<M>,
+  options?: { signal?: AbortSignal },
 ) => Promise<unknown>;
 
 export interface SparkDaemonTurnTransportRetryEvent {
-  operation: "submit" | "read";
+  operation: "submit" | "read" | "retry";
   failureCount: number;
   error: string;
   nextRetryMs: number;
@@ -1505,7 +1506,12 @@ export type SparkDaemonNativeResponderContext = Omit<SparkNativeResponderContext
 };
 
 export type SparkDaemonNativeResponder = SparkNativeResponder &
-  Required<Pick<SparkNativeResponder, "admit" | "observe" | "cancel" | "status">> & {
+  Required<
+    Pick<
+      SparkNativeResponder,
+      "admit" | "observe" | "cancel" | "retry" | "latestRetryableFailure" | "status"
+    >
+  > & {
     sessionId: string;
   } & ((input: string, context?: SparkDaemonNativeResponderContext) => Promise<string>);
 
@@ -1638,6 +1644,18 @@ export function createSparkDaemonNativeResponder(
     observe,
     cancel: async (invocationId: string, reason: string) =>
       await clientCancelTurn({ invocationId, reason }, client),
+    retry: async (invocationId: string, context = {}) =>
+      await retrySparkDaemonInvocation(invocationId, client, context),
+    latestRetryableFailure: async (context = {}) => {
+      await ensureReady();
+      const result = await requestSparkDaemonControl(
+        "session.retry-target",
+        { sessionId: targetSessionId },
+        client,
+        context,
+      );
+      return result.target;
+    },
     status: async (invocationId: string, context: SparkNativeInvocationStatusContext = {}) =>
       await clientTurnStatus({ invocationId }, client, {
         signal: context.signal,
@@ -2820,14 +2838,44 @@ export async function requestSparkDaemonControl<M extends SparkLocalRpcMethod>(
   method: M,
   params: SparkLocalRpcInput<M>,
   client: SparkDaemonClientOptions = {},
+  options: { signal?: AbortSignal } = {},
 ): Promise<SparkLocalRpcOutput<M>> {
   const paths = resolveSparkDaemonClientPaths(client);
   await ensureSparkDaemonClientRunning(client);
   if (client.controlRequest) {
-    const injected = await client.controlRequest(method, params);
+    const injected = options.signal
+      ? await client.controlRequest(method, params, options)
+      : await client.controlRequest(method, params);
     return sparkLocalRpcProcedureSchemas[method].output.parse(injected) as SparkLocalRpcOutput<M>;
   }
-  return await requestSparkDaemon(method, params, daemonRequestOptions(paths));
+  return await requestSparkDaemon(method, params, daemonRequestOptions(paths, options));
+}
+
+async function retrySparkDaemonInvocation(
+  invocationId: string,
+  client: SparkDaemonClientOptions,
+  options: { signal?: AbortSignal } = {},
+): Promise<SparkInvocationRetryResult> {
+  let failureCount = 0;
+  while (true) {
+    try {
+      return await requestSparkDaemonControl("invocation.retry", { invocationId }, client, options);
+    } catch (error) {
+      if (options.signal?.aborted) throw error;
+      if (!isRetryableTurnTransportError(error)) throw error;
+      failureCount += 1;
+      const delayMs = turnTransportRetryDelayMs(failureCount, client.random ?? Math.random);
+      const recovery = await recoverTurnTransportIfDue(error, failureCount, client, undefined);
+      reportTurnTransportRetry(client, {
+        operation: "retry",
+        failureCount,
+        error: turnTransportErrorMessage(error),
+        nextRetryMs: delayMs,
+        ...recovery,
+      });
+      await waitBeforeTurnTransportRetry(delayMs, client, options.signal);
+    }
+  }
 }
 
 export interface SparkDaemonHumanInteractionRespondInput {

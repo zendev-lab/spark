@@ -4648,6 +4648,101 @@ test("Spark native responder persists bounded original editor input separately f
   ]);
 });
 
+test("Spark native responder delegates manual retry to invocation.retry", async () => {
+  const requests: Array<{ method: string; params: unknown }> = [];
+  const responder = createSparkDaemonNativeResponder(
+    {
+      daemonStatus: async () => runningDaemonStatus(),
+      controlRequest: async (method, params) => {
+        requests.push({ method, params });
+        return {
+          invocationId: "inv_retrychild",
+          retryOfInvocationId: "inv_retrysource",
+          status: "queued" as const,
+          acceptedAt: "2026-08-12T00:00:01.000Z",
+        };
+      },
+    },
+    { sessionId: "native-retry" },
+  );
+
+  const result = await responder.retry("inv_retrysource");
+
+  assert.deepEqual(requests, [
+    { method: "invocation.retry", params: { invocationId: "inv_retrysource" } },
+  ]);
+  assert.equal(result.invocationId, "inv_retrychild");
+  assert.equal(result.retryOfInvocationId, "inv_retrysource");
+});
+
+test("Spark native responder reconciles retry ACK loss with the same source invocation", async () => {
+  const requests: Array<{ method: string; params: unknown }> = [];
+  const delays: number[] = [];
+  const responder = createSparkDaemonNativeResponder(
+    {
+      daemonStatus: async () => runningDaemonStatus(),
+      controlRequest: async (method, params) => {
+        requests.push({ method, params });
+        if (requests.length === 1) {
+          throw new SparkDaemonLocalRpcError(
+            "Spark daemon oRPC connection closed before a response.",
+          );
+        }
+        return {
+          invocationId: "inv_retrychild",
+          retryOfInvocationId: "inv_retrysource",
+          status: "queued" as const,
+          acceptedAt: "2026-08-12T00:00:01.000Z",
+        };
+      },
+      random: () => 0,
+      sleep: async (ms) => {
+        delays.push(ms);
+      },
+    },
+    { sessionId: "native-retry-ack-loss" },
+  );
+
+  const result = await responder.retry("inv_retrysource");
+
+  assert.deepEqual(requests, [
+    { method: "invocation.retry", params: { invocationId: "inv_retrysource" } },
+    { method: "invocation.retry", params: { invocationId: "inv_retrysource" } },
+  ]);
+  assert.deepEqual(delays, [50]);
+  assert.equal(result.invocationId, "inv_retrychild");
+});
+
+test("Spark native responder reads the latest typed retry target without transcript inference", async () => {
+  const requests: Array<{ method: string; params: unknown }> = [];
+  const responder = createSparkDaemonNativeResponder(
+    {
+      daemonStatus: async () => runningDaemonStatus(),
+      controlRequest: async (method, params) => {
+        requests.push({ method, params });
+        return {
+          sessionId: "native-retry-target",
+          target: {
+            invocationId: "inv_latestfailed",
+            failedAt: "2026-08-12T00:00:01.000Z",
+          },
+        };
+      },
+    },
+    { sessionId: "native-retry-target" },
+  );
+
+  const result = await responder.latestRetryableFailure();
+
+  assert.deepEqual(requests, [
+    {
+      method: "session.retry-target",
+      params: { sessionId: "native-retry-target" },
+    },
+  ]);
+  assert.equal(result?.invocationId, "inv_latestfailed");
+});
+
 test("Spark native responder observes an admitted invocation without resubmitting it", async () => {
   const submissions: Array<{ prompt: string; idempotencyKey?: string }> = [];
   const responder = createSparkDaemonNativeResponder(

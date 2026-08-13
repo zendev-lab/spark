@@ -45,6 +45,15 @@ saved user setting continues to take precedence.
 `/status` prints the complete daemon, current session, active work, usage, and
 turn-queue summary directly. It does not open an action picker.
 
+If a retryable daemon invocation fails, `/retry` creates one new linked attempt
+through the daemon and observes that invocation. It does not replay the failed
+row or submit the prompt again with the old idempotency key. A model response
+that terminates without visible text or a tool call first uses Spark's bounded
+in-invocation continuation policy; `/retry` remains the explicit recovery after
+that budget is exhausted. An unknown admission outcome is different: Spark
+automatically reconciles the same submit identity so it cannot create a
+duplicate turn.
+
 Bare slash commands enter their final TUI destination directly instead of
 opening an intermediate action bar. For example, `/model` opens the model
 selector, `/settings` shows the settings overview, `/queue` inspects the live

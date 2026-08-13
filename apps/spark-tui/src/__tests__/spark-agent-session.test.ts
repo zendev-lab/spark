@@ -14,6 +14,7 @@ import {
   type SparkConfig,
 } from "../host/index.ts";
 import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
+import { MODEL_EMPTY_RESPONSE_ERROR_CODE } from "@zendev-lab/spark-ai";
 import type { SparkViewModelEvent } from "@zendev-lab/spark-protocol";
 import {
   SPARK_PROMPT_ITEM_METADATA_KEY,
@@ -716,7 +717,14 @@ test("SparkAgentSession continues from a persisted tool receipt after a terminal
               stopReason: "toolUse",
             } as unknown as AssistantMessage;
           }
-          if (providerCalls === 2 || providerCalls === 3) {
+          if (providerCalls === 2) {
+            return {
+              ...assistant(""),
+              content: [],
+              stopReason: "stop",
+            } as unknown as AssistantMessage;
+          }
+          if (providerCalls === 3) {
             return {
               ...assistant(""),
               content: [],
@@ -771,6 +779,16 @@ test("SparkAgentSession continues from a persisted tool receipt after a terminal
       ),
       true,
     );
+    assert.equal(
+      record.entries.some(
+        (entry) =>
+          entry.type === "custom_message" &&
+          entry.customType === "spark-runtime-failure" &&
+          (entry.details as { code?: unknown } | undefined)?.code ===
+            MODEL_EMPTY_RESPONSE_ERROR_CODE,
+      ),
+      true,
+    );
     const assistantViews = viewEvents
       .filter(isSessionMessageViewEvent)
       .filter((event) => event.message.role === "assistant")
@@ -794,6 +812,70 @@ test("SparkAgentSession continues from a persisted tool receipt after a terminal
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("SparkAgentSession automatically retries an empty model response with a bounded continuation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-empty-response-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {
+        streamSimple: () => {
+          providerCalls += 1;
+          return providerCalls === 1
+            ? ({ ...assistant(""), content: [], stopReason: "stop" } as AssistantMessage)
+            : assistant("recovered from empty response");
+        },
+      },
+    );
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "empty-response-session",
+      prompt: "return a visible answer",
+    });
+    assert.equal(result.outcome?.status, "completed");
+    assert.equal(result.assistantText, "recovered from empty response");
+    assert.equal(providerCalls, 2);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentSession exhausts empty-response continuation after three retries", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-empty-response-exhausted-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {
+        streamSimple: () => {
+          providerCalls += 1;
+          return { ...assistant(""), content: [], stopReason: "stop" } as AssistantMessage;
+        },
+      },
+    );
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "empty-response-exhausted-session",
+      prompt: "keep returning an empty response",
+    });
+
+    assert.equal(providerCalls, 4);
+    assert.equal(result.outcome?.status, "failed");
+    assert.equal(
+      result.outcome?.status === "failed" ? result.outcome.errorCode : undefined,
+      MODEL_EMPTY_RESPONSE_ERROR_CODE,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 15_000);
 
 test("SparkAgentSession retries an overloaded provider error instead of surfacing it immediately", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-overload-"));

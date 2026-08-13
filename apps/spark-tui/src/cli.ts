@@ -1627,7 +1627,10 @@ async function runSparkCliTuiSelection(input: {
           // runNativeSparkTui awaits configuration before starting terminal input or
           // submitting the initial prompt, so hydrate daemon-owned history inside
           // that startup barrier instead of racing it in a detached task.
-          const snapshot = await loadSnapshot();
+          const [snapshot] = await Promise.all([
+            loadSnapshot(),
+            session.hydrateRetryableFailure().catch(() => undefined),
+          ]);
           if (snapshot) {
             const durablePrompts =
               snapshot.messages.length > 0

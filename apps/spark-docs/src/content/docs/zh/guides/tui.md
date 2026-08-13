@@ -43,6 +43,13 @@ spark
 `/status` 会直接输出 daemon、当前 session、活跃工作、用量和输入队列的完整汇总，
 不会先打开 action picker。
 
+可重试的 daemon invocation 失败后，`/retry` 会通过 daemon 创建一个带血缘关系的
+新 attempt，并观察新的 invocation；它不会重放失败记录，也不会复用旧 idempotency
+key 再次提交 prompt。若模型正常结束却没有可见文本或 tool call，Spark 会先使用同一
+invocation 内有上限的 continuation 策略；预算耗尽后再由 `/retry` 显式恢复。
+admission 结果未知属于另一类情况：Spark 会自动使用同一提交身份对账，避免产生重复
+turn。
+
 不带参数的 slash command 会直接进入最终 TUI 目标，不再先打开中间 action bar。
 例如，`/model` 直接打开模型 selector，`/settings` 显示设置概览，`/queue` 检查
 实时队列，裸 `/goal`、`/loop`、`/repro` 则直接显示对应 lifecycle 的状态；

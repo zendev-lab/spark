@@ -13,7 +13,10 @@ import type {
 } from "@zendev-lab/spark-ai";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { registerSparkEvidenceTool } from "@zendev-lab/spark-artifacts/extension";
-import { TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE } from "@zendev-lab/spark-ai";
+import {
+  MODEL_EMPTY_RESPONSE_ERROR_CODE,
+  TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
+} from "@zendev-lab/spark-ai";
 import { assertRef } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import type { SparkDaemonEvent, SparkViewModelEvent } from "@zendev-lab/spark-protocol";
@@ -1322,6 +1325,23 @@ test("SparkAgentLoop preserves a stable provider error code on a thrown stream f
   if (outcome.status !== "failed") assert.fail("expected failed outcome");
   assert.equal(outcome.errorCode, TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE);
   assert.equal(outcome.errorMessage, "opaque provider failure");
+});
+
+test("SparkAgentLoop marks an empty terminal response with a stable transient code", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-empty-code" });
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [[{ type: "done", reason: "stop", message: buildAssistant([]) }]],
+    }),
+    getModel: () => TEST_MODEL,
+  });
+
+  const outcome = await loop.submitWithOutcome("empty response code");
+  assert.equal(outcome.status, "failed");
+  if (outcome.status !== "failed") assert.fail("expected failed outcome");
+  assert.equal(outcome.errorCode, MODEL_EMPTY_RESPONSE_ERROR_CODE);
+  assert.match(outcome.errorMessage, /without a displayable response/u);
 });
 
 test("SparkAgentLoop emits exactly one agent_end for terminal outcomes", async () => {

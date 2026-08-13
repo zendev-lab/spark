@@ -49,16 +49,21 @@ describe("side-thread local RPC parsing", () => {
   it("recognizes every protocol-owned method and rejects unknown methods", () => {
     const methods = Object.keys(sparkLocalRpcProcedureSchemas);
     expect(methods.every(isSparkLocalRpcMethod)).toBe(true);
-    expect(sparkLocalRpcOrpcOnlyMethods).toEqual(["session.prompt-history"]);
-    expect(() =>
-      parseLocalRpcRequest(
-        JSON.stringify({
-          id: "orpc-only",
-          method: "session.prompt-history",
-          params: { sessionId: "session-1" },
-        }),
-      ),
-    ).toThrow("Unknown local RPC method: session.prompt-history");
+    expect(sparkLocalRpcOrpcOnlyMethods).toEqual([
+      "session.prompt-history",
+      "session.retry-target",
+    ]);
+    for (const method of sparkLocalRpcOrpcOnlyMethods) {
+      expect(() =>
+        parseLocalRpcRequest(
+          JSON.stringify({
+            id: "orpc-only",
+            method,
+            params: { sessionId: "session-1" },
+          }),
+        ),
+      ).toThrow(`Unknown local RPC method: ${method}`);
+    }
     expect(() =>
       parseLocalRpcRequest(JSON.stringify({ id: "unknown", method: "legacy.unknown", params: {} })),
     ).toThrow("Unknown local RPC method: legacy.unknown");

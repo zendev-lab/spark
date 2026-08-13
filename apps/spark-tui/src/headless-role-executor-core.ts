@@ -950,7 +950,11 @@ function assertSuccessfulHeadlessSessionOutcome(
   }
   if (outcome.status === "completed") return;
   const detail = outcome.status === "aborted" ? outcome.reason.trim() : outcome.errorMessage.trim();
-  throw headlessSessionFailureError(outcome.status, detail);
+  throw headlessSessionFailureError(
+    outcome.status,
+    detail,
+    outcome.status === "failed" ? outcome.errorCode : undefined,
+  );
 }
 
 function assertSuccessfulHeadlessSessionAssistant(
@@ -973,6 +977,7 @@ function assertSuccessfulHeadlessSessionAssistant(
 function headlessSessionFailureError(
   status: "failed" | "aborted",
   detail: string,
+  outcomeCode?: string,
 ): Error & { code?: string } {
   const error = new Error(
     `Spark headless session ${status}${detail ? `: ${detail}` : ""}`,
@@ -981,7 +986,10 @@ function headlessSessionFailureError(
     error.code = "STREAM_IDLE_TIMEOUT";
   } else if (/stream timed out after \d+ms/i.test(detail)) {
     error.code = "STREAM_WALL_TIMEOUT";
-  } else if (classifyProviderFailure(detail).policy.retriable) {
+  } else if (
+    classifyProviderFailure({ message: detail, ...(outcomeCode ? { code: outcomeCode } : {}) })
+      .policy.retriable
+  ) {
     error.code = "EXECUTION_TRANSIENT";
   }
   return error;

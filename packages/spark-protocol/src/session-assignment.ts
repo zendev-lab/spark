@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sparkInvocationIdSchema } from "./invocation-lifecycle.ts";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
 import { isoDateTimeSchema } from "./refs.ts";
 
@@ -777,6 +778,21 @@ export const sparkSessionPendingTurnSchema = z.object({
   startedAt: isoDateTimeSchema.optional(),
 });
 
+export const sparkSessionRetryTargetRequestSchema = z.object({
+  sessionId: z.string().trim().min(1),
+});
+
+/** Daemon-selected explicit retry target for one user-facing TUI Session. */
+export const sparkSessionRetryTargetSchema = z.object({
+  sessionId: z.string().trim().min(1),
+  target: z
+    .object({
+      invocationId: sparkInvocationIdSchema,
+      failedAt: isoDateTimeSchema,
+    })
+    .nullable(),
+});
+
 export const sparkSessionBindRequestSchema = z.object({
   sessionId: z.string().trim().min(1),
   externalKey: z.string().trim().min(1),
@@ -875,6 +891,8 @@ export type SparkSessionPromptHistoryRequest = z.infer<
 export type SparkSessionMediaReadRequest = z.infer<typeof sparkSessionMediaReadRequestSchema>;
 export type SparkSessionMediaReadResult = z.infer<typeof sparkSessionMediaReadResultSchema>;
 export type SparkSessionPendingTurn = z.infer<typeof sparkSessionPendingTurnSchema>;
+export type SparkSessionRetryTargetRequest = z.infer<typeof sparkSessionRetryTargetRequestSchema>;
+export type SparkSessionRetryTarget = z.infer<typeof sparkSessionRetryTargetSchema>;
 export type SparkSessionBindRequest = z.infer<typeof sparkSessionBindRequestSchema>;
 export type SparkSessionUnbindRequest = z.infer<typeof sparkSessionUnbindRequestSchema>;
 export type SparkSessionSetModelRequest = z.infer<typeof sparkSessionSetModelRequestSchema>;

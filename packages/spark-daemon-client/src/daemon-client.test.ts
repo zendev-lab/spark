@@ -138,6 +138,17 @@ describe("protocol-aware Spark daemon client", () => {
     expect(transportMocks.requestLegacy).not.toHaveBeenCalled();
   });
 
+  it("never routes the oRPC-only Session retry target through the legacy transport", async () => {
+    transportMocks.createOrpc.mockRejectedValueOnce(new Error("ENOENT"));
+
+    await expect(
+      requestSparkDaemon("session.retry-target", {
+        sessionId: "session-1",
+      }),
+    ).rejects.toBeInstanceOf(SparkDaemonPreDispatchUnavailableError);
+    expect(transportMocks.requestLegacy).not.toHaveBeenCalled();
+  });
+
   it("does not replay a remote failure after oRPC has connected", async () => {
     const remoteFailure = new ORPCError("CONFLICT", {
       message: "mutation rejected",
