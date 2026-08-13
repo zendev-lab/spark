@@ -6,6 +6,53 @@ import {
 } from "./types.ts";
 
 describe("daemon task validation", () => {
+  it("preserves the stable driver identity and full loop binding", () => {
+    expect(
+      validateSparkDaemonTask({
+        type: "loop.tick",
+        sessionId: "driver-tick",
+        driverSessionId: "driver-stable",
+        loopId: "repro-loop",
+        ownerSessionId: "owner-session",
+        generation: 3,
+        prompt: " continue ",
+        cwd: "/workspace",
+        binding: {
+          goalId: "goal-1",
+          workflowRunId: "workflow-run-1",
+          workflowSelector: "builtin:repro",
+          reproId: "repro-1",
+        },
+      }),
+    ).toMatchObject({
+      type: "loop.tick",
+      sessionId: "driver-tick",
+      driverSessionId: "driver-stable",
+      loopId: "repro-loop",
+      ownerSessionId: "owner-session",
+      generation: 3,
+      binding: {
+        goalId: "goal-1",
+        workflowRunId: "workflow-run-1",
+        workflowSelector: "builtin:repro",
+        reproId: "repro-1",
+      },
+    });
+
+    expect(
+      validateSparkDaemonTask({
+        type: "loop.tick",
+        sessionId: "legacy-driver",
+        loopId: "legacy-loop",
+        ownerSessionId: "owner-session",
+        generation: 1,
+        prompt: "continue",
+        cwd: "/workspace",
+        binding: { reproId: "repro-legacy" },
+      }),
+    ).toMatchObject({ driverSessionId: "legacy-driver" });
+  });
+
   it("validates daemon-owned session compaction tasks", () => {
     const task = validateSparkDaemonTask({
       type: "session.compact",

@@ -41,6 +41,7 @@ import {
   sparkReproTopologyDigest,
   type SparkReproProfile,
 } from "@zendev-lab/spark-repro/work-summary";
+import { mergeWithDefault as mergeSparkConfigWithDefault } from "@zendev-lab/spark-tui";
 
 import { runSparkProcess, type SparkProcessTarget } from "../support/spark-process-harness.ts";
 
@@ -48,7 +49,7 @@ const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const fixtureRoot = resolve(root, "test/fixtures/repro/minimal-alignment");
 const providerPlugin = resolve(root, "test/fixtures/repro/scripted-provider-plugin.ts");
-const forgeShim = resolve(root, "test/fixtures/repro/forge-shim.mjs");
+const forgeArtifactsExtension = resolve(root, "test/fixtures/repro/forge-artifacts-extension.ts");
 const reproId = "repro:golden-journey-source-process";
 const formalVerifierId = "golden-journey-validator";
 const formalVerifierVersion = "2026.08";
@@ -77,6 +78,14 @@ const requiredMilestoneNames = [
   "report.synced",
   "repro.completed",
   "workbench.sealed",
+] as const;
+const requiredDriverToolApprovalCallIds = [
+  "git_change.created",
+  "validation.reference",
+  "validation.failed_before_fix",
+  "validation.passed_after_fix",
+  "validation.target-scale",
+  "git_change.committed",
 ] as const;
 
 interface ScriptedRound {
@@ -191,6 +200,33 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       ).stdout,
     );
     const initialInvocationId = stringField(submitted, "invocationId");
+    const activationApproval = await waitForToolApproval(
+      fixture.target,
+      sessionId,
+      initialInvocationId,
+      { toolName: "repro", toolCallId: "repro.start" },
+    );
+    const activationApprovalRequestId = stringField(activationApproval, "interactionRequestId");
+    const activationApprovalResult = jsonObject(
+      (
+        await runSparkProcess(fixture.target, [
+          "daemon",
+          "ask",
+          "answer",
+          activationApprovalRequestId,
+          "--session",
+          sessionId,
+          "--invocation",
+          initialInvocationId,
+          "--answers",
+          JSON.stringify({ approval: { values: ["approve"], labels: ["Approve"] } }),
+          "--json",
+        ])
+      ).stdout,
+    );
+    assert.equal(activationApprovalResult.outcome, "accepted");
+    assert.equal(activationApprovalResult.returnedToTool, true);
+    const activationApprovalReceipt = stringField(activationApprovalResult, "winnerResponseId");
     await waitForInvocation(fixture.target, initialInvocationId, "succeeded");
 
     const pendingBefore = await waitForSinglePendingAsk(fixture.target, sessionId);
@@ -281,7 +317,7 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     const reproPath = sessionReproStorePathV2(fixture.workspace, { sessionId });
     const completed = await waitForReproCompleteWithApprovals(reproPath, fixture.target, sessionId);
     const repro = completed.repro;
-    assert.equal(completed.toolApprovalCount, 0);
+    assert.deepEqual(completed.toolApprovalCallIds, [...requiredDriverToolApprovalCallIds]);
     assert.equal(repro.reproId, reproId);
     assert.equal(repro.status, "complete");
     const resumedLedger = await waitFor(
@@ -300,14 +336,14 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     assert.equal(
       resumedLedger.auxiliaryRequests?.filter(
         (request) => request.label === "auxiliary.tool-approval.outcome",
-      ).length,
-      1,
+      ).length ?? 0,
+      0,
     );
     assert.equal(
       resumedLedger.auxiliaryRequests?.filter(
         (request) => request.label === "auxiliary.tool-approval.verdict",
-      ).length,
-      1,
+      ).length ?? 0,
+      0,
     );
     assert.equal(
       resumedLedger.auxiliaryRequests?.filter(
@@ -345,7 +381,7 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     const terminal = await waitForTerminalOwnerState(fixture.daemonDbPath, reproId);
     assert.equal(terminal.pendingAskCount, 0);
     assert.equal(terminal.canonicalDecisionRequestCount, 1);
-    assert.equal(terminal.toolApprovalRequestCount, 0);
+    assert.equal(terminal.toolApprovalRequestCount, requiredDriverToolApprovalCallIds.length + 1);
     assert.equal(terminal.activeInvocationCount, 0);
     assert.equal(terminal.workbenchLifecycle, "sealed");
     assert.equal(terminal.writableWorkbenchCount, 0);
@@ -399,7 +435,12 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       providerRoundsAtWait,
       providerRoundsAtAnswer,
       resumeCount,
-      toolApprovalCount: completed.toolApprovalCount,
+      toolApprovalCount: completed.toolApprovalCallIds.length + 1,
+      driverToolApprovalCallIds: completed.toolApprovalCallIds,
+      activationApproval: {
+        interactionRequestId: activationApprovalRequestId,
+        answerReceipt: activationApprovalReceipt,
+      },
       interaction: {
         beforeRestart: {
           interactionRequestId: stringField(pendingBefore, "interactionRequestId"),
@@ -489,17 +530,14 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
   );
   await chmod(temporary, 0o700);
   const workspace = resolve(temporary, "ws");
-  const sourceRepo = resolve(workspace, "fixture-repo");
+  const sourceRepo = workspace;
   const sparkHome = resolve(temporary, "spark-home");
-  const binDir = resolve(temporary, "bin");
   const providerLedgerPath = resolve(temporary, "provider-ledger.json");
   const forgeLedgerPath = resolve(temporary, "forge-ledger.json");
   await Promise.all([
     mkdir(workspace, { recursive: true }),
-    mkdir(sourceRepo, { recursive: true }),
     mkdir(sparkHome, { recursive: true }),
     mkdir(resolve(sparkHome, "apps/daemon"), { recursive: true }),
-    mkdir(binDir, { recursive: true }),
     mkdir(resolve(temporary, "home"), { recursive: true }),
     mkdir(resolve(temporary, "xdg/run/cue-shell"), { recursive: true, mode: 0o700 }),
   ]);
@@ -531,9 +569,6 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     "https://github.com/acme/minimal-alignment.git",
   ]);
 
-  const ghPath = resolve(binDir, "gh");
-  await cp(forgeShim, ghPath);
-  await chmod(ghPath, 0o755);
   await writeFile(
     forgeLedgerPath,
     `${JSON.stringify(
@@ -574,10 +609,17 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     )}\n`,
     { mode: 0o600 },
   );
+  const defaultConfig = mergeSparkConfigWithDefault({});
   await writeFile(
     resolve(sparkHome, "config.json"),
     `${JSON.stringify(
       {
+        extensions: defaultConfig.extensions.map((specifier) =>
+          specifier === "@zendev-lab/spark-artifacts/extension"
+            ? forgeArtifactsExtension
+            : specifier,
+        ),
+        extensionProfileVersion: defaultConfig.extensionProfileVersion,
         providers: [providerPlugin],
         enabledModels: ["spark-scripted/spark-scripted-provider"],
         activeModelId: "spark-scripted/spark-scripted-provider",
@@ -607,6 +649,9 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
   const env = {
     ...process.env,
     HOME: resolve(temporary, "home"),
+    COREPACK_HOME:
+      process.env.COREPACK_HOME ??
+      (process.env.HOME ? resolve(process.env.HOME, ".cache/node/corepack") : undefined),
     SPARK_HOME: sparkHome,
     XDG_CONFIG_HOME: resolve(temporary, "xdg/config"),
     XDG_STATE_HOME: resolve(temporary, "xdg/state"),
@@ -616,7 +661,6 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     SPARK_HEADLESS_EXECUTOR_MODULE: resolve(root, "apps/spark-tui/src/headless-role-executor.ts"),
     SPARK_REPRO_SCRIPTED_PROVIDER_LEDGER: providerLedgerPath,
     SPARK_REPRO_FORGE_LEDGER: forgeLedgerPath,
-    PATH: `${binDir}:${process.env.PATH ?? ""}`,
     HOST: "127.0.0.1",
     PORT: String(port),
     SPARK_HUB_PUBLIC_URL: `http://127.0.0.1:${port}`,
@@ -807,7 +851,6 @@ function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }
 
   tool("git_change.created", "git", {
     action: "init",
-    repositoryPath: "${SOURCE_REPO}",
     branch: "fix/minimal-normalization",
     trunk: "main",
     title: "Fix minimal normalization alignment",
@@ -1427,19 +1470,48 @@ async function waitForSinglePendingAsk(
   );
 }
 
+async function waitForToolApproval(
+  target: SparkProcessTarget,
+  sessionId: string,
+  invocationId: string,
+  expected: { toolName: string; toolCallId: string },
+): Promise<Record<string, unknown>> {
+  return await waitFor(
+    async () => {
+      const value = jsonObject(
+        (await runSparkProcess(target, ["daemon", "ask", "list", "--session", sessionId, "--json"]))
+          .stdout,
+      );
+      return arrayField(value, "waits").find((wait) => {
+        if (wait.invocationId !== invocationId) return false;
+        const context = objectField(wait, "context");
+        if (context.interactionKind !== "toolApproval") return false;
+        const toolApproval = objectField(context, "toolApproval");
+        return (
+          toolApproval.toolName === expected.toolName &&
+          toolApproval.toolCallId === expected.toolCallId
+        );
+      });
+    },
+    90_000,
+    `tool approval for ${expected.toolCallId}`,
+  );
+}
+
 async function waitForReproCompleteWithApprovals(
   path: string,
   target: SparkProcessTarget,
   sessionId: string,
-): Promise<{ repro: Record<string, unknown>; toolApprovalCount: number }> {
+): Promise<{ repro: Record<string, unknown>; toolApprovalCallIds: string[] }> {
   const answered = new Set<string>();
+  const toolApprovalCallIds: string[] = [];
   return await waitFor(
     async () => {
       try {
         const snapshot = jsonObject(await readFile(path, "utf8"));
         const repro = objectField(snapshot, "repro");
         if (repro.status === "complete") {
-          return { repro, toolApprovalCount: answered.size };
+          return { repro, toolApprovalCallIds };
         }
       } catch {
         // The Repro snapshot may not exist until the first owner write commits.
@@ -1452,6 +1524,7 @@ async function waitForReproCompleteWithApprovals(
         const requestId = stringField(wait, "interactionRequestId");
         const context = objectField(wait, "context");
         if (context.interactionKind !== "toolApproval" || answered.has(requestId)) continue;
+        const toolCallId = stringField(objectField(context, "toolApproval"), "toolCallId");
         const result = jsonObject(
           (
             await runSparkProcess(target, [
@@ -1469,6 +1542,7 @@ async function waitForReproCompleteWithApprovals(
         );
         assert.equal(result.outcome, "accepted");
         answered.add(requestId);
+        toolApprovalCallIds.push(toolCallId);
       }
       return undefined;
     },

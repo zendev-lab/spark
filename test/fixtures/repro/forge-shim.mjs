@@ -55,6 +55,8 @@ if (argv[0] === "stack" && argv[1] === "submit") {
       labels: [],
       headRefName: branch,
       baseRefName: ledger.trunk,
+      headRepositoryOwner: { login: "acme" },
+      isCrossRepository: false,
       isDraft: !ready,
       statusCheckRollup: [{ name: "journey", state: "SUCCESS" }],
     };
@@ -67,9 +69,13 @@ if (argv[0] === "stack" && argv[1] === "submit") {
   process.exit(0);
 }
 
-if (argv[0] === "pr" && argv[1] === "view") {
-  if (!ledger.pullRequest) process.exit(1);
-  process.stdout.write(`${JSON.stringify(ledger.pullRequest)}\n`);
+if (argv[0] === "pr" && argv[1] === "list") {
+  const head = option("--head");
+  const pullRequests =
+    ledger.pullRequest && (!head || ledger.pullRequest.headRefName === head)
+      ? [ledger.pullRequest]
+      : [];
+  process.stdout.write(`${JSON.stringify(pullRequests)}\n`);
   process.exit(0);
 }
 

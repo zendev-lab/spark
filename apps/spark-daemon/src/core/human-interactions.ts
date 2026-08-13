@@ -530,7 +530,14 @@ function resolveHumanInteractionRoute(
   const localReference = context.workspaceBindingId ?? context.workspaceId;
   const localRoute = localReference ? findLocalWorkspaceRoute(db, localReference) : null;
   if (localRoute?.workspaceId) {
-    if (context.workspaceBindingId && context.workspaceId !== localRoute.workspaceId) return null;
+    if (
+      context.workspaceBindingId &&
+      context.workspaceId &&
+      context.workspaceId !== context.workspaceBindingId &&
+      context.workspaceId !== localRoute.workspaceId
+    ) {
+      return null;
+    }
     return {
       workspaceBindingId: localRoute.workspaceBindingId,
       workspaceId: localRoute.workspaceId,

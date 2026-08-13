@@ -97,15 +97,17 @@ requests, such as compaction, are recorded separately and do not advance the
 Journey cursor.
 
 The first Ask opens asynchronously so the daemon can restart while the durable
-request is pending. The test answers it through `spark daemon ask answer`, then
-replays the same response over public local RPC to prove idempotency. A blocking
+request is pending. Before that decision, the test explicitly approves the
+manual Repro activation through its typed `toolApproval`, then answers the
+decision through `spark daemon ask answer` and replays the same response over
+public local RPC to prove idempotency. A blocking
 replay with the same owning Session and stable `toolCallId` reattaches to the
 settled request and records the canonical Ask Evidence; mutable `flow` text is
-not replay identity and no second decision row is inserted. The isolated
-reviewer model setting routes Git external-write review through the same
-scripted provider, which returns a valid structured approval without advancing
-the main Journey cursor or creating a second human request. The test fails
-closed if a tool-approval Ask appears.
+not replay identity and no second decision row is inserted. The test answers
+the exact required local execution and commit approvals by typed `toolCallId`
+and fails closed on a missing or unexpected approval. Draft PR submission runs
+under the active Repro driver's bounded authority and must not create another
+human approval or reviewer request.
 
 Local Git remains real. The forge shim replaces only `gh stack`/GitHub network
 operations and records exactly one Draft PR. The typed summary is compared with

@@ -772,6 +772,43 @@ describe("SparkDaemonHumanInteractionBroker", () => {
     }
   });
 
+  it("maps loop tasks that carry the same local workspace id in both route fields", async () => {
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    seedHumanRoute(db);
+    const waits = new SparkDaemonHumanWaitRegistry(db);
+    const broker = new SparkDaemonHumanInteractionBroker({
+      db,
+      waits,
+      getRuntimeId: primaryRuntimeId,
+    });
+
+    try {
+      const response = await broker.interact(askRequest("interaction-loop-route", "async"), {
+        sessionId: "session-loop-route",
+        invocationId: "invocation-loop-route",
+        workspaceBindingId: WORKSPACE_BINDING_ID,
+        workspaceId: WORKSPACE_BINDING_ID,
+      });
+
+      expect(response).toMatchObject({
+        kind: "askFlow",
+        requestId: "interaction-loop-route",
+        status: "pending",
+      });
+      if (response.kind !== "askFlow" || !response.humanRequestId) {
+        throw new Error("expected a mapped loop ask response");
+      }
+      expect(waits.get(response.humanRequestId)).toMatchObject({
+        workspaceBindingId: WORKSPACE_BINDING_ID,
+        workspaceId: WORKSPACE_ID,
+      });
+      humanRequestCreatedEnvelopeSchema.parse(waits.listPendingOutbox()[0]?.envelope);
+    } finally {
+      db.close();
+    }
+  });
+
   it("selects the runtime identity from each workspace's Hub server route", async () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);

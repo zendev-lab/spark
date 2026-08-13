@@ -917,6 +917,30 @@ describe("git_change lifecycle", () => {
       });
     }
   });
+
+  it("uses an explicitly injected runner at the extension boundary", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-git-extension-runner-"));
+    const calls: string[][] = [];
+    let tool: ToolConfig | undefined;
+    registerGitLifecycleTool(
+      { registerTool: (config) => (tool = config) },
+      { runner: stackRunner(calls) },
+    );
+    if (!tool) throw new Error("git tool was not registered");
+
+    try {
+      await tool.execute(
+        "inspect-with-runner",
+        { action: "inspect", worktreePath: cwd },
+        new AbortController().signal,
+        () => undefined,
+        { cwd },
+      );
+      expect(calls).toContainEqual(["gh", "stack", "view", "--json"]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
 });
 
 interface StackRunnerOptions {

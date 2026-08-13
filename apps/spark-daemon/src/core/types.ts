@@ -433,9 +433,11 @@ function validateSparkDaemonLoopTickTask(
   }
   const sessionId = nonEmptyString(task.executionSessionId) ?? nonEmptyString(task.sessionId);
   if (!sessionId) throw new Error("loop.tick task requires a child sessionId");
+  const driverSessionId = nonEmptyString(task.driverSessionId) ?? sessionId;
   return {
     type: "loop.tick",
     sessionId,
+    driverSessionId,
     loopId,
     binding,
     ownerSessionId,
@@ -462,7 +464,7 @@ function parseLoopBinding(value: unknown): SparkLoopBinding {
   }
   const input = value as Record<string, unknown>;
   const binding: SparkLoopBinding = {};
-  for (const key of ["goalId", "workflowRunId", "reproId"] as const) {
+  for (const key of ["goalId", "workflowRunId", "workflowSelector", "reproId"] as const) {
     if (input[key] === undefined) continue;
     const ref = nonEmptyString(input[key]);
     if (!ref) throw new Error(`loop.tick task binding.${key} must be a non-empty string`);

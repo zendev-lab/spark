@@ -14,11 +14,21 @@ import {
   type ArtifactRef,
   type GitChangeArtifactBody,
 } from "../artifact/index.ts";
-import { GitLifecycleError, GitLifecycleService, type GitLifecycleAction } from "./lifecycle.ts";
+import {
+  GitLifecycleError,
+  GitLifecycleService,
+  type GitCommandRunner,
+  type GitLifecycleAction,
+} from "./lifecycle.ts";
 import { gitChangeReviewState } from "./review-state.ts";
 
 export interface GitLifecycleExtensionApi {
   registerTool(config: ToolConfig): void;
+}
+
+export interface GitLifecycleExtensionOptions {
+  /** Explicit transport seam for deterministic host tests. Production hosts use the hardened runner. */
+  runner?: GitCommandRunner;
 }
 
 class ToolCallText implements ToolRenderComponent {
@@ -46,7 +56,10 @@ const GIT_ACTIONS = [
   "cleanup",
 ] as const satisfies readonly GitLifecycleAction[];
 
-export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
+export function registerGitLifecycleTool(
+  pi: GitLifecycleExtensionApi,
+  options: GitLifecycleExtensionOptions = {},
+): void {
   pi.registerTool({
     name: "git",
     label: "Git",
@@ -191,6 +204,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
         cwd,
         workspaceRoot,
         store,
+        runner: options.runner,
         ...(driverDraftMutation
           ? {
               beforeDraftExternalWrite: async (target: SparkGitDraftTarget) => {

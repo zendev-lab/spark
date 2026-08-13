@@ -353,7 +353,7 @@ describe("architecture inventory governance", () => {
     expect(validate(report), JSON.stringify(validate.errors)).toBe(true);
     expect(report.inventory.workspaceCount).toBe(41);
     expect(report.layerMatrix.missingDecisionCount).toBe(0);
-    expect(report.dependencies.edgeCount).toBe(166);
+    expect(report.dependencies.edgeCount).toBe(167);
     expect(report.dependencies.registeredExceptions).toHaveLength(6);
     expect(report.temporaryDependencyExceptionBudget).toEqual({
       current: 6,
