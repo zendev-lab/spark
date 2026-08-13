@@ -41,10 +41,11 @@ surface instead of `SparkHostAPI`.
 `@zendev-lab/spark-ai/baidu-oneapi-provider` is the bundled standalone
 `baidu-oneapi` provider plugin for Spark's native model runtime. It exposes local
 adaptive-friendly model ids (`claude-opus-4.6`, `claude-opus-5`,
-`deepseek-v4-flash`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`, `grok-4.5`)
-with provider-specific prices in USD per million tokens, while rewriting outbound
-payloads back to the gateway-required model ids (`Claude Opus 4.6`, `Opus 5`,
-`deepseek-v4-flash-0731-internal`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`, `grok-4.5`).
+`deepseek-v4-flash`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`,
+`grok-4.5`, `grok-4.6`) with provider-specific prices in USD per million tokens,
+while rewriting outbound payloads back to the gateway-required model ids
+(`Claude Opus 4.6`, `Opus 5`, `deepseek-v4-flash-0731-internal`, `gpt-5.6-sol`,
+`gpt-5.6-luna`, `gpt-5.6-terra`, `grok-4.5`, `grok-4.6`).
 
 The root Pi compatibility profile loads the separate
 `@zendev-lab/spark-ai/baidu-oneapi-compat-extension` adapter. Only that entrypoint
@@ -52,8 +53,9 @@ imports Pi's temporary `compat` API factories; the native provider uses modern
 public `pi-ai` API subpaths. Both adapters share the model catalog, payload
 rewrites, normalization, and bounded retry behavior from `baidu-oneapi.ts`.
 
-Claude and DeepSeek V4 Flash use Anthropic Messages. GPT-5.6 and Grok 4.5 use
-OpenAI Responses (DeepSeek's Responses path is not implemented on this gateway).
+Claude and DeepSeek V4 Flash use Anthropic Messages. GPT-5.6, Grok 4.5, and
+Grok 4.6 use OpenAI Responses (DeepSeek's Responses path is not implemented on
+this gateway).
 Measured gateway `contextWindow` values (provider input is authoritative):
 
 - `deepseek-v4-flash`: **768k** (not 1M). Ok ~663k; hard-fail near
@@ -64,6 +66,11 @@ Measured gateway `contextWindow` values (provider input is authoritative):
   `context_length_exceeded`.
 - `grok-4.5`: **500k** (unchanged). Ok ~467k; gateway rejects above max prompt
   length 500000.
+- `grok-4.6`: **500k**. xAI documents 500k context, `$2/$6` per 1M tokens under
+  200k prompt tokens, cached input `$0.50`, and `xhigh` reasoning. Spark cost
+  uses those headline rates; long-context (`≥200k`) 2× pricing is not modeled.
+  Output budget stays 32,768 (xAI lists no text output cap). Same gateway
+  ceiling as measured grok-4.5.
 
 These ceilings drive Spark compact/preflight so sessions do not sit past the
 real provider limit.
