@@ -286,6 +286,7 @@ export interface SparkNativeWidget {
 
 export const SPARK_HUB_PANELS: readonly SparkNativeHubPanel[] = [
   "overview",
+  "repro",
   "workflows",
   "runs",
   "tasks",

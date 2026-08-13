@@ -4,12 +4,14 @@ import type {
   SparkEvidenceView,
   SparkInteractionRequest,
   SparkRunView,
+  SparkSessionReproWorkView,
   SparkSessionView,
   SparkTaskView,
 } from "@zendev-lab/spark-protocol";
 
 export type SparkNativeHubPanel =
   | "overview"
+  | "repro"
   | "workflows"
   | "runs"
   | "tasks"
@@ -33,6 +35,11 @@ export interface SparkNativeHubState {
   model?: SparkSessionView["model"];
   thinkingLevel?: SparkSessionView["thinkingLevel"];
   selectedWorkflowRunId?: string;
+  repro?: SparkSessionReproWorkView;
+  reproProjectionStatus: "current" | "stale" | "unavailable";
+  selectedReproLane: "implementation" | "exactness" | "formalize";
+  selectedReproWorkItemId?: string;
+  reproDetailExpanded: boolean;
   readonly workflows: Map<string, SparkNativeWorkflowOption>;
   readonly runs: Map<string, SparkRunView>;
   readonly tasks: Map<string, SparkTaskView>;
@@ -57,6 +64,11 @@ export interface SparkNativeHubSnapshot {
   activePanel?: SparkNativeHubPanel;
   sessionId?: string;
   sessionStatus?: SparkSessionView["status"];
+  reproId?: string;
+  reproProjectionStatus: "current" | "stale" | "unavailable";
+  selectedReproLane: "implementation" | "exactness" | "formalize";
+  selectedReproWorkItemId?: string;
+  reproDetailExpanded: boolean;
   workflows: number;
   workflowRuns: number;
   roleRuns: number;

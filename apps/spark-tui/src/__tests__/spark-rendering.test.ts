@@ -788,6 +788,9 @@ test("SparkNativeTuiApp records protocol hub state and renders Spark panels", as
     activePanel: undefined,
     sessionId: "native-hub-session",
     sessionStatus: "idle",
+    reproProjectionStatus: "unavailable",
+    selectedReproLane: "implementation",
+    reproDetailExpanded: false,
     workflows: 1,
     workflowRuns: 1,
     roleRuns: 1,
@@ -1015,7 +1018,7 @@ test("SparkNativeTuiApp handles local slash commands without submitting to respo
   assert.doesNotMatch(rendered, /\/hub —/);
   assert.match(
     rendered,
-    /\/inspect \[overview\|workflows\|runs\|tasks\|artifacts\|reviews\|graft\|off\]/,
+    /\/inspect \[overview\|repro\|workflows\|runs\|tasks\|artifacts\|reviews\|graft\|off\]/,
   );
   assert.match(rendered, /daemon: running/);
 });

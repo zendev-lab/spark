@@ -103,6 +103,42 @@ test("direct PTY reload intent restores raw mode before the worker exits", async
   }
 });
 
+test("direct PTY renders and navigates the daemon-projected Repro inspector", async () => {
+  const harness = await createSparkNativeTuiDirectPtyHarness({
+    columns: 80,
+    rows: 24,
+    scenario: "repro",
+  });
+  try {
+    await harness.waitForReport((report) => report.event === "ready");
+    await harness.waitForOutput("Repro · I2 !1 H1 · E2 H1 R1 · F1 R1");
+
+    harness.write("/inspect repro\r");
+    await harness.waitForOutput("Session inspector: repro");
+    harness.write("2");
+    await harness.waitForOutput("▸─ 2 Exactness [active]");
+    harness.write("j");
+    await harness.waitForOutput("▸─ work:exactness-resync [open]");
+    harness.write("k\r");
+    await harness.waitForOutput("Run run:exactness [running] Verify RMSNorm boundary");
+
+    harness.write(ESC);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const panelOffset = harness.output().length;
+    harness.write(ESC);
+    const transcript = await harness.waitForOutputAfter(
+      panelOffset,
+      "latest daemon-projected answer",
+    );
+    assert.doesNotMatch(visiblePtyOutput(transcript), /Session inspector: repro/u);
+
+    harness.write(CTRL_D);
+    assert.equal((await harness.waitForExit()).exitCode, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("direct PTY scrolls transcript history and opens sessions on batched double escape", async () => {
   const harness = await createSparkNativeTuiDirectPtyHarness({
     columns: 72,

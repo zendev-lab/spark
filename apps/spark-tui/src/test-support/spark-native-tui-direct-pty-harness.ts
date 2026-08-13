@@ -47,7 +47,7 @@ export interface CreateSparkNativeTuiDirectPtyHarnessOptions {
   readonly columns?: number;
   readonly rows?: number;
   readonly terminationTimeoutMs?: number;
-  readonly scenario?: "navigation" | "queue" | "reload";
+  readonly scenario?: "navigation" | "queue" | "reload" | "repro";
   /** Test seam for proving timeout escalation; the fixture still exits on SIGKILL. */
   readonly ignoreHangup?: boolean;
 }
