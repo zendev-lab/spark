@@ -359,6 +359,24 @@ export async function runSparkHeadlessSession(
   let abortFromSignal: (() => void) | undefined;
   let unsubscribe: () => void = () => undefined;
   let unsubscribeDaemon: () => void = () => undefined;
+  const pendingEventDeliveries = new Set<Promise<void>>();
+  let eventDeliveryFailure: unknown;
+  let eventDeliveryFailed = false;
+  const trackEventDelivery = (delivery: void | Promise<void>) => {
+    if (!delivery) return;
+    const tracked = Promise.resolve(delivery).catch((error: unknown) => {
+      if (!eventDeliveryFailed) eventDeliveryFailure = error;
+      eventDeliveryFailed = true;
+    });
+    pendingEventDeliveries.add(tracked);
+    void tracked.then(() => pendingEventDeliveries.delete(tracked));
+  };
+  const drainEventDeliveries = async () => {
+    while (pendingEventDeliveries.size > 0) {
+      await Promise.all([...pendingEventDeliveries]);
+    }
+    if (eventDeliveryFailed) throw eventDeliveryFailure;
+  };
   try {
     // Service bootstrap can be asynchronous (provider discovery, extension
     // loading, session-store setup). A cancellation that wins during bootstrap
@@ -381,7 +399,12 @@ export async function runSparkHeadlessSession(
 
     const recordEvent = (event: unknown) => {
       if (!input.onEvent) jsonEvents.push(event);
-      void input.onEvent?.(event);
+      if (!input.onEvent) return;
+      try {
+        trackEventDelivery(input.onEvent(event));
+      } catch (error) {
+        trackEventDelivery(Promise.reject(error));
+      }
     };
     const observeTokenUsage = createHeadlessTokenUsageObserver(input.tokenUsage);
     unsubscribe = services.agentLoop.onEvent((event) => {
@@ -418,6 +441,7 @@ export async function runSparkHeadlessSession(
       input.timeoutMs,
       abort,
     );
+    await drainEventDeliveries();
     assertSuccessfulHeadlessSessionOutcome(result.outcome, result.assistant, input.signal);
     return {
       sessionId: result.sessionId,
@@ -431,6 +455,12 @@ export async function runSparkHeadlessSession(
     };
   } catch (error) {
     primaryError = error;
+    try {
+      await drainEventDeliveries();
+    } catch {
+      // Preserve the execution failure, but do not let teardown or a scheduler
+      // terminal boundary overtake an already accepted event delivery.
+    }
     throw error;
   } finally {
     if (abortFromSignal) input.signal?.removeEventListener("abort", abortFromSignal);

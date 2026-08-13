@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { DatabaseSync } from "node:sqlite";
+import { constants as sqliteConstants, DatabaseSync } from "node:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import { parseSparkDaemonEvent } from "@zendev-lab/spark-protocol";
 import { describe, expect, it } from "vitest";
 import { migrateSparkDaemonDatabase } from "./schema.ts";
 import {
+  MAX_INVOCATION_DELIVERY_PAGE_LIMIT,
   MAX_INVOCATION_EVENT_PAGE_LIMIT,
   MAX_PERSISTED_INVOCATION_EVENT_BYTES,
   MAX_PERSISTED_INVOCATION_RESULT_BYTES,
@@ -19,6 +20,35 @@ function createStore(): { db: DatabaseSync; store: SparkInvocationStore } {
   const db = new DatabaseSync(":memory:");
   migrateSparkDaemonDatabase(db);
   return { db, store: new SparkInvocationStore(db) };
+}
+
+type PendingDeliveryPage = ReturnType<SparkInvocationStore["pendingDeliveryPage"]>;
+
+function drainPendingDeliveryPages(
+  store: SparkInvocationStore,
+  destination: string,
+  workspaceBindingIds: readonly string[],
+  limit = 64,
+): {
+  deliveries: PendingDeliveryPage["deliveries"];
+  pages: PendingDeliveryPage[];
+} {
+  const deliveries: PendingDeliveryPage["deliveries"] = [];
+  const pages: PendingDeliveryPage[] = [];
+  for (let pageIndex = 0; pageIndex < 1_000; pageIndex += 1) {
+    const page = store.pendingDeliveryPage(destination, limit, workspaceBindingIds);
+    pages.push(page);
+    if (page.deliveries.length === 0) {
+      if (page.hasMore) throw new Error("delivery page made no progress");
+      return { deliveries, pages };
+    }
+    deliveries.push(...page.deliveries);
+    for (const delivery of page.deliveries) {
+      store.acknowledgeKnownDelivery(destination, delivery.event);
+    }
+    if (!page.hasMore) return { deliveries, pages };
+  }
+  throw new Error("delivery pages did not drain within the iteration bound");
 }
 
 describe("SparkInvocationStore", () => {
@@ -336,6 +366,514 @@ describe("SparkInvocationStore", () => {
       ]);
       store.acknowledgeDelivery("hub:runtime-a", invocation.invocationId, 3);
       expect(store.pendingDeliveries("hub:runtime-a")).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("pages every event from one bound invocation in bounded batches", () => {
+    const { db, store } = createStore();
+    try {
+      const workspace = registerWorkspace(db, {
+        serverUrl: "https://hub.example",
+        serverBindingId: "rtwb_delivery_page",
+        serverWorkspaceId: "ws_delivery_page",
+        localWorkspaceKey: "delivery-page",
+        displayName: "Delivery page",
+        localPath: process.cwd(),
+      });
+      const invocation = store.submit({
+        workspaceBindingId: workspace.id,
+        sessionId: "session-delivery-page",
+        prompt: "page all events",
+      });
+      for (let index = 0; index < 600; index += 1) {
+        store.appendEvent(
+          invocation.invocationId,
+          "daemon.view_event",
+          { index },
+          "2026-07-15T00:00:00.000Z",
+        );
+      }
+
+      const delivered: number[] = [];
+      const pageSizes: number[] = [];
+      const hasMore: boolean[] = [];
+      for (;;) {
+        const page = store.pendingDeliveryPage(
+          "hub:paged-backlog",
+          MAX_INVOCATION_DELIVERY_PAGE_LIMIT + 100,
+          [workspace.id],
+        );
+        pageSizes.push(page.deliveries.length);
+        hasMore.push(page.hasMore);
+        delivered.push(...page.deliveries.map(({ event }) => event.sequence));
+        const last = page.deliveries.at(-1);
+        if (!last) break;
+        store.acknowledgeKnownDelivery("hub:paged-backlog", last.event);
+        if (!page.hasMore) break;
+      }
+
+      expect(pageSizes).toEqual([256, 256, 88]);
+      expect(hasMore).toEqual([true, true, false]);
+      expect(delivered).toEqual(Array.from({ length: 600 }, (_, index) => index + 1));
+      expect(store.pendingDeliveryPage("hub:paged-backlog", 256, [workspace.id])).toEqual({
+        deliveries: [],
+        hasMore: false,
+      });
+      expect(
+        db
+          .prepare(
+            `SELECT COUNT(*) AS count
+             FROM invocation_event_delivery_consumers
+             WHERE destination = ?`,
+          )
+          .get("hub:paged-backlog"),
+      ).toEqual({ count: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("pages interleaved bound invocations without violating per-invocation sequence", () => {
+    const { db, store } = createStore();
+    try {
+      const workspace = registerWorkspace(db, {
+        serverUrl: "https://hub.example",
+        serverBindingId: "rtwb_delivery_order",
+        serverWorkspaceId: "ws_delivery_order",
+        localWorkspaceKey: "delivery-order",
+        displayName: "Delivery order",
+        localPath: process.cwd(),
+      });
+      const first = store.submit({
+        workspaceBindingId: workspace.id,
+        sessionId: "session-delivery-order-first",
+        prompt: "first",
+      });
+      const second = store.submit({
+        workspaceBindingId: workspace.id,
+        sessionId: "session-delivery-order-second",
+        prompt: "second",
+      });
+      store.appendEvent(
+        first.invocationId,
+        "daemon.view_event",
+        { index: 0 },
+        "2026-07-15T00:00:03.000Z",
+      );
+      store.appendEvent(
+        first.invocationId,
+        "daemon.view_event",
+        { index: 1 },
+        "2026-07-15T00:00:01.000Z",
+      );
+      store.appendEvent(
+        second.invocationId,
+        "daemon.view_event",
+        { index: 2 },
+        "2026-07-15T00:00:02.000Z",
+      );
+      store.appendEvent(
+        second.invocationId,
+        "daemon.view_event",
+        { index: 3 },
+        "2026-07-15T00:00:01.000Z",
+      );
+
+      const page = store.pendingDeliveryPage("hub:paged-order", 4, [workspace.id]);
+      expect(page.hasMore).toBe(false);
+      expect(page.deliveries.map(({ event }) => [event.invocationId, event.sequence])).toEqual([
+        [second.invocationId, 1],
+        [second.invocationId, 2],
+        [first.invocationId, 1],
+        [first.invocationId, 2],
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("drains later bound invocations after one invocation fills a candidate page", () => {
+    const { db, store } = createStore();
+    try {
+      const workspace = registerWorkspace(db, {
+        serverUrl: "https://hub.example",
+        serverBindingId: "rtwb_delivery_bound_window",
+        serverWorkspaceId: "ws_delivery_bound_window",
+        localWorkspaceKey: "delivery-bound-window",
+        displayName: "Delivery bound window",
+        localPath: process.cwd(),
+      });
+      const candidateOrderAt = "2026-07-15T00:02:00.000Z";
+      const heavy = store.submit({
+        invocationId: "inv_delivery_bound_window_000",
+        workspaceBindingId: workspace.id,
+        sessionId: "session-delivery-bound-window-000",
+        prompt: "fill the first page",
+        now: candidateOrderAt,
+      });
+      for (let sequence = 1; sequence <= 70; sequence += 1) {
+        store.appendEvent(
+          heavy.invocationId,
+          "daemon.view_event",
+          { sequence },
+          "2026-07-15T00:00:00.000Z",
+        );
+      }
+
+      const invocationIds = [heavy.invocationId];
+      for (let index = 1; index < 70; index += 1) {
+        const invocationId = `inv_delivery_bound_window_${String(index).padStart(3, "0")}`;
+        invocationIds.push(invocationId);
+        store.submit({
+          invocationId,
+          workspaceBindingId: workspace.id,
+          sessionId: `session-delivery-bound-window-${index}`,
+          prompt: "deliver after the full page",
+          now: candidateOrderAt,
+        });
+        store.appendEvent(invocationId, "daemon.view_event", { index }, "2026-07-15T00:01:00.000Z");
+      }
+      db.prepare(
+        `UPDATE invocations
+         SET updated_at = ?
+         WHERE workspace_binding_id = ?`,
+      ).run(candidateOrderAt, workspace.id);
+
+      const drained = drainPendingDeliveryPages(
+        store,
+        "hub:bound-candidate-window",
+        [workspace.id],
+        64,
+      );
+      expect(drained.pages.map((page) => page.deliveries.length)).toEqual([64, 64, 11]);
+      expect(drained.pages.every((page) => page.deliveries.length <= 64)).toBe(true);
+      expect(
+        drained.pages[0]?.deliveries.map(({ event }) => [event.invocationId, event.sequence]),
+      ).toEqual(Array.from({ length: 64 }, (_, index) => [heavy.invocationId, index + 1]));
+
+      const keys = drained.deliveries.map(({ event }) => `${event.invocationId}:${event.sequence}`);
+      expect(keys).toHaveLength(139);
+      expect(new Set(keys).size).toBe(keys.length);
+      expect(
+        drained.deliveries
+          .filter(({ event }) => event.invocationId === heavy.invocationId)
+          .map(({ event }) => event.sequence),
+      ).toEqual(Array.from({ length: 70 }, (_, index) => index + 1));
+      for (const invocationId of invocationIds.slice(1)) {
+        expect(
+          drained.deliveries
+            .filter(({ event }) => event.invocationId === invocationId)
+            .map(({ event }) => event.sequence),
+        ).toEqual([1]);
+      }
+      expect(
+        drained.deliveries.some(({ event }) => event.invocationId === invocationIds.at(-1)),
+      ).toBe(true);
+      expect(store.pendingDeliveryPage("hub:bound-candidate-window", 64, [workspace.id])).toEqual({
+        deliveries: [],
+        hasMore: false,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("drains more than one candidate window of legacy unbound invocations", () => {
+    const { db, store } = createStore();
+    try {
+      const workspace = registerWorkspace(db, {
+        serverUrl: "https://hub.example",
+        serverBindingId: "rtwb_delivery_legacy_window",
+        serverWorkspaceId: "ws_delivery_legacy_window",
+        localWorkspaceKey: "delivery-legacy-window",
+        displayName: "Delivery legacy window",
+        localPath: process.cwd(),
+      });
+      const invocationIds: string[] = [];
+      for (let index = 0; index < 70; index += 1) {
+        const invocationId = `inv_delivery_legacy_window_${String(index).padStart(3, "0")}`;
+        invocationIds.push(invocationId);
+        store.submit({
+          invocationId,
+          sessionId: `session-delivery-legacy-window-${index}`,
+          prompt: "deliver through the unique workspace",
+          task: {
+            type: "session.run",
+            sessionId: `session-delivery-legacy-window-${index}`,
+            prompt: "deliver through the unique workspace",
+            workspaceId: "ws_delivery_legacy_window",
+          },
+          now: "2026-07-15T01:00:00.000Z",
+        });
+        store.appendEvent(invocationId, "daemon.view_event", { index }, "2026-07-15T01:01:00.000Z");
+      }
+
+      const drained = drainPendingDeliveryPages(
+        store,
+        "hub:legacy-candidate-window",
+        [workspace.id],
+        64,
+      );
+      expect(drained.pages.map((page) => page.deliveries.length)).toEqual([64, 6]);
+      expect(drained.pages.every((page) => page.deliveries.length <= 64)).toBe(true);
+      expect(drained.deliveries).toHaveLength(invocationIds.length);
+      expect(
+        new Set(drained.deliveries.map(({ event }) => `${event.invocationId}:${event.sequence}`))
+          .size,
+      ).toBe(invocationIds.length);
+      expect(drained.deliveries.map(({ workspaceBindingId }) => workspaceBindingId)).toEqual(
+        Array.from({ length: invocationIds.length }, () => workspace.id),
+      );
+      for (const invocationId of invocationIds) {
+        expect(
+          drained.deliveries
+            .filter(({ event }) => event.invocationId === invocationId)
+            .map(({ event }) => event.sequence),
+        ).toEqual([1]);
+      }
+      expect(store.pendingDeliveryPage("hub:legacy-candidate-window", 64, [workspace.id])).toEqual({
+        deliveries: [],
+        hasMore: false,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("stably drains mixed bound and legacy candidate windows with regressing timestamps", () => {
+    const { db, store } = createStore();
+    try {
+      const workspace = registerWorkspace(db, {
+        serverUrl: "https://hub.example",
+        serverBindingId: "rtwb_delivery_mixed_window",
+        serverWorkspaceId: "ws_delivery_mixed_window",
+        localWorkspaceKey: "delivery-mixed-window",
+        displayName: "Delivery mixed window",
+        localPath: process.cwd(),
+      });
+      const boundIds: string[] = [];
+      const regressing = store.submit({
+        invocationId: "inv_delivery_mixed_bound_000",
+        workspaceBindingId: workspace.id,
+        sessionId: "session-delivery-mixed-bound-000",
+        prompt: "preserve sequence over timestamps",
+        now: "2026-07-15T02:00:00.000Z",
+      });
+      boundIds.push(regressing.invocationId);
+      for (const [sequence, createdAt] of [
+        [1, "2026-07-15T02:00:03.000Z"],
+        [2, "2026-07-15T02:00:01.000Z"],
+        [3, "2026-07-15T02:00:02.000Z"],
+      ] as const) {
+        store.appendEvent(regressing.invocationId, "daemon.view_event", { sequence }, createdAt);
+      }
+      for (let index = 1; index < 66; index += 1) {
+        const invocationId = `inv_delivery_mixed_bound_${String(index).padStart(3, "0")}`;
+        boundIds.push(invocationId);
+        store.submit({
+          invocationId,
+          workspaceBindingId: workspace.id,
+          sessionId: `session-delivery-mixed-bound-${index}`,
+          prompt: "deliver bound event",
+          now: "2026-07-15T02:00:00.000Z",
+        });
+        store.appendEvent(invocationId, "daemon.view_event", { index }, "2026-07-15T02:00:05.000Z");
+      }
+      db.prepare(
+        `UPDATE invocations
+         SET updated_at = ?
+         WHERE workspace_binding_id = ?`,
+      ).run("2026-07-15T02:01:00.000Z", workspace.id);
+
+      const legacyIds: string[] = [];
+      for (let index = 0; index < 66; index += 1) {
+        const invocationId = `inv_delivery_mixed_legacy_${String(index).padStart(3, "0")}`;
+        legacyIds.push(invocationId);
+        store.submit({
+          invocationId,
+          sessionId: `session-delivery-mixed-legacy-${index}`,
+          prompt: "deliver legacy event",
+          task: {
+            type: "session.run",
+            sessionId: `session-delivery-mixed-legacy-${index}`,
+            prompt: "deliver legacy event",
+            workspaceId: "ws_delivery_mixed_window",
+          },
+          now: "2026-07-15T02:00:00.000Z",
+        });
+        store.appendEvent(invocationId, "daemon.view_event", { index }, "2026-07-15T02:00:06.000Z");
+      }
+
+      const destination = "hub:mixed-candidate-window";
+      const preview = store.pendingDeliveryPage(destination, 64, [workspace.id]);
+      const repeatedPreview = store.pendingDeliveryPage(destination, 64, [workspace.id]);
+      const previewOrder = preview.deliveries.map(({ event }) => [
+        event.invocationId,
+        event.sequence,
+        event.createdAt,
+      ]);
+      expect(
+        repeatedPreview.deliveries.map(({ event }) => [
+          event.invocationId,
+          event.sequence,
+          event.createdAt,
+        ]),
+      ).toEqual(previewOrder);
+      expect(preview.deliveries).toHaveLength(64);
+
+      const drained = drainPendingDeliveryPages(store, destination, [workspace.id], 64);
+      expect(drained.pages.map((page) => page.deliveries.length)).toEqual([64, 64, 6]);
+      expect(drained.pages.every((page) => page.deliveries.length <= 64)).toBe(true);
+      expect(drained.deliveries).toHaveLength(134);
+      const keys = drained.deliveries.map(({ event }) => `${event.invocationId}:${event.sequence}`);
+      expect(new Set(keys).size).toBe(keys.length);
+      expect(
+        drained.deliveries
+          .filter(({ event }) => event.invocationId === regressing.invocationId)
+          .map(({ event }) => [event.sequence, event.createdAt]),
+      ).toEqual([
+        [1, "2026-07-15T02:00:03.000Z"],
+        [2, "2026-07-15T02:00:01.000Z"],
+        [3, "2026-07-15T02:00:02.000Z"],
+      ]);
+      for (const invocationId of [...boundIds.slice(1), ...legacyIds]) {
+        expect(
+          drained.deliveries
+            .filter(({ event }) => event.invocationId === invocationId)
+            .map(({ event }) => event.sequence),
+        ).toEqual([1]);
+      }
+      expect(
+        drained.deliveries.every(({ workspaceBindingId }) => workspaceBindingId === workspace.id),
+      ).toBe(true);
+      expect(store.pendingDeliveryPage(destination, 64, [workspace.id])).toEqual({
+        deliveries: [],
+        hasMore: false,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("uses binding and per-invocation cursor indexes for paged delivery", () => {
+    const { db, store } = createStore();
+    try {
+      store.ensureDeliveryConsumer("hub:paged-explain", "2026-07-15T00:00:00.000Z");
+      store.ensureDeliveryConsumer(" hub:paged-explain ", "2026-07-15T00:00:01.000Z");
+      expect(
+        db
+          .prepare(
+            `SELECT registered_at AS registeredAt
+             FROM invocation_event_delivery_consumers
+             WHERE destination = ?`,
+          )
+          .get("hub:paged-explain"),
+      ).toEqual({ registeredAt: "2026-07-15T00:00:00.000Z" });
+
+      const plan = db
+        .prepare(
+          `EXPLAIN QUERY PLAN
+           SELECT i.id
+           FROM invocations i INDEXED BY invocations_workspace_updated_idx
+           LEFT JOIN invocation_event_deliveries delivery
+             ON delivery.destination = ? AND delivery.invocation_id = i.id
+           WHERE i.workspace_binding_id IN (?)
+             AND i.event_cursor > COALESCE(delivery.sequence, 0)`,
+        )
+        .all("hub:paged-explain", "rtwb_paged_explain") as Array<{ detail: string }>;
+      const details = plan.map(({ detail }) => detail).join("\n");
+      expect(details).toContain("invocations_workspace_updated_idx");
+      expect(details).toMatch(/SEARCH .*delivery/u);
+
+      const invocation = store.submit({ prompt: "known delivery acknowledgement" });
+      const event = store.appendEvent(invocation.invocationId, "daemon.view_event", { ok: true });
+      let invocationReads = 0;
+      let eventReads = 0;
+      db.setAuthorizer((actionCode, tableName) => {
+        if (actionCode === sqliteConstants.SQLITE_READ && tableName === "invocations") {
+          invocationReads += 1;
+        }
+        if (actionCode === sqliteConstants.SQLITE_READ && tableName === "invocation_events") {
+          eventReads += 1;
+        }
+        return sqliteConstants.SQLITE_OK;
+      });
+      try {
+        store.acknowledgeKnownDelivery("hub:paged-explain", event);
+        // The first cursor INSERT performs one parent-key read for the SQLite
+        // foreign-key constraint, but never hydrates the invocation payload.
+        expect(invocationReads).toBe(1);
+        expect(eventReads).toBe(0);
+        store.previousKnownEvent(event.invocationId, event.sequence + 1);
+      } finally {
+        db.setAuthorizer(null);
+      }
+      expect(invocationReads).toBe(1);
+      expect(eventReads).toBeGreaterThan(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("does not hydrate a large bound invocation payload while paging delivery", () => {
+    const { db, store } = createStore();
+    try {
+      const workspace = registerWorkspace(db, {
+        serverUrl: "https://hub.example",
+        serverBindingId: "rtwb_delivery_lean",
+        serverWorkspaceId: "ws_delivery_lean",
+        localWorkspaceKey: "delivery-lean",
+        displayName: "Delivery lean",
+        localPath: process.cwd(),
+      });
+      const invocation = store.submit({
+        workspaceBindingId: workspace.id,
+        sessionId: "session-delivery-lean",
+        task: { attachment: "x".repeat(12 * 1024 * 1024) },
+      });
+      const event = store.appendEvent(invocation.invocationId, "daemon.view_event", { ok: true });
+      let fatColumnAuthorizations = 0;
+      db.setAuthorizer((actionCode, tableName, columnName) => {
+        if (
+          actionCode === sqliteConstants.SQLITE_READ &&
+          tableName === "invocations" &&
+          (columnName === "task_json" || columnName === "result_json" || columnName === "prompt")
+        ) {
+          fatColumnAuthorizations += 1;
+        }
+        return sqliteConstants.SQLITE_OK;
+      });
+      let page;
+      try {
+        page = store.pendingDeliveryPage("hub:paged-lean", 64, [workspace.id]);
+      } finally {
+        db.setAuthorizer(null);
+      }
+      // SQLite authorizes the task_json expression references while
+      // compiling the legacy candidate statement. INDEXED BY below guarantees
+      // that the payload itself is served from the expression index rather
+      // than hydrated from the multi-megabyte invocation row.
+      expect(fatColumnAuthorizations).toBeGreaterThan(0);
+      const legacyPlan = db
+        .prepare(
+          `EXPLAIN QUERY PLAN
+           SELECT i.id, i.event_cursor, i.status,
+                  json_extract(i.task_json, '$.workspaceId')
+           FROM invocations i INDEXED BY invocations_legacy_workspace_delivery_idx
+           WHERE i.workspace_binding_id IS NULL
+             AND json_extract(i.task_json, '$.workspaceId') IN (?)`,
+        )
+        .all("ws_delivery_lean") as Array<{ detail: string }>;
+      expect(legacyPlan.map(({ detail }) => detail).join("\n")).toContain(
+        "invocations_legacy_workspace_delivery_idx",
+      );
+      expect(page).toEqual({
+        deliveries: [{ event, workspaceBindingId: workspace.id }],
+        hasMore: false,
+      });
+      expect(page?.deliveries[0]).not.toHaveProperty("invocation");
     } finally {
       db.close();
     }

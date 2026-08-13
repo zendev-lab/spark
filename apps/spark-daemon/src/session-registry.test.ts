@@ -1,8 +1,12 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createDaemonSessionRegistry } from "./session-registry.ts";
+import {
+  createDaemonSessionRegistry,
+  createSerializedDaemonSessionRegistry,
+} from "./session-registry.ts";
 
 const roots: string[] = [];
 
@@ -133,6 +137,88 @@ describe("daemon Session registry", () => {
     await expect(compact).resolves.toMatchObject({ placement: "active" });
     await expect(archive).resolves.toMatchObject({ placement: "archived" });
     expect(order).toEqual(["replacement-started", "replacement-finished", "archive-finished"]);
+  });
+
+  it("keeps ordinary reads ordered while invocation visibility bypasses unrelated mutations", async () => {
+    const sparkHome = await mkdtemp(join(tmpdir(), "spark-daemon-session-visibility-"));
+    roots.push(sparkHome);
+    const backing = createDaemonSessionRegistry(sparkHome);
+    const administrator = await backing.ensureWorkspaceAdministrator("ws_visibility");
+    const createInput = {
+      scope: { kind: "workspace" as const, workspaceId: "ws_visibility" },
+      supervisorSessionId: administrator.sessionId,
+      roleBinding: { kind: "none" as const },
+    };
+    await backing.create({
+      ...createInput,
+      sessionId: "visibility_first",
+    });
+    await backing.create({
+      ...createInput,
+      sessionId: "visibility_second",
+    });
+
+    const startedMutations: string[] = [];
+    let releaseYield!: () => void;
+    const yieldGate = new Promise<void>((resolve) => {
+      releaseYield = resolve;
+    });
+    let markYieldStarted!: () => void;
+    const yieldStarted = new Promise<void>((resolve) => {
+      markYieldStarted = resolve;
+    });
+    let yieldCount = 0;
+    const registry = createSerializedDaemonSessionRegistry(
+      {
+        ...backing,
+        recordRun: async (input) => {
+          startedMutations.push(input.sessionId);
+          return await backing.recordRun(input);
+        },
+      },
+      {
+        yieldBetweenMutations: async () => {
+          yieldCount += 1;
+          markYieldStarted();
+          await yieldGate;
+          if (yieldCount === 1) throw new Error("injected cooperative yield failure");
+        },
+      },
+    );
+
+    const firstMutation = registry.recordRun({
+      sessionId: "visibility_first",
+      sessionPath: join(sparkHome, "visibility-first.jsonl"),
+    });
+    const secondMutation = registry.recordRun({
+      sessionId: "visibility_second",
+      sessionPath: join(sparkHome, "visibility-second.jsonl"),
+    });
+    await firstMutation;
+    await yieldStarted;
+    expect(startedMutations).toEqual(["visibility_first"]);
+
+    let ordinaryReadSettled = false;
+    const ordinaryRead = registry.get("visibility_second").then((session) => {
+      ordinaryReadSettled = true;
+      return session;
+    });
+    await expect(
+      registry.getInvocationVisibilitySnapshot("visibility_second"),
+    ).resolves.toMatchObject({
+      sessionId: "visibility_second",
+      scope: { kind: "workspace", workspaceId: "ws_visibility" },
+    });
+    await delay(0);
+    expect(ordinaryReadSettled).toBe(false);
+
+    releaseYield();
+    await secondMutation;
+    await expect(ordinaryRead).resolves.toMatchObject({
+      sessionId: "visibility_second",
+      sessionPath: join(sparkHome, "visibility-second.jsonl"),
+    });
+    expect(startedMutations).toEqual(["visibility_first", "visibility_second"]);
   });
 });
 
