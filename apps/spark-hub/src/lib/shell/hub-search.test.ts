@@ -1,22 +1,44 @@
 import { describe, expect, it } from "vitest";
 import { getHubDictionary } from "@zendev-lab/spark-i18n/hub";
+import { parseSparkSessionProjection } from "@zendev-lab/spark-protocol";
 import { buildHubSearchResults } from "./hub-search";
+import { workspaceSessionRecord } from "../../../../../test/support/session-fixtures.ts";
 
 const baseInput = {
   sessions: [
     {
-      sessionId: "sess_workspace",
-      workspaceId: "ws_spore",
-      title: "Effect handlers",
-      status: "ready",
+      ...workspaceSessionRecord({
+        sessionId: "sess_workspace",
+        workspaceId: "ws_spore",
+        name: "Effect handlers",
+      }),
       activityStatus: "running",
     },
-    {
+    parseSparkSessionProjection({
       sessionId: "sess_daemon",
-      scope: { kind: "daemon" as const, daemonId: "local", daemonLabel: "Local daemon" },
-      title: "Global chat",
-      status: "ready",
-    },
+      scope: { kind: "daemon", daemonId: "local" },
+      name: "Global chat",
+      lifecycle: "closed",
+      placement: "archived",
+      activity: "idle",
+      lifetime: "ephemeral",
+      roleBinding: { kind: "none" },
+      owner: {
+        kind: "invocation",
+        invocationId: "inv_legacy_daemon_audit",
+        supervisorSessionId: "sess_legacy_daemon_audit",
+      },
+      incarnation: 1,
+      stateBinding: { kind: "session", ref: "sess_legacy_daemon_audit" },
+      visibility: "internal",
+      retention: "audit",
+      purpose: "migration_closed_daemon_audit",
+      bindings: [],
+      tags: ["legacy-daemon-audit"],
+      archiveHistory: [],
+      createdAt: "2026-07-01T00:00:00.000Z",
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    }),
   ],
   workspaces: [{ id: "ws_spore", slug: "spore", name: "Spore" }],
   untitledConversationLabel: "Untitled",

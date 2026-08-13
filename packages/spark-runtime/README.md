@@ -7,7 +7,7 @@ Runtime resolves reusable `RoleSpec`s from `@zendev-lab/spark-roles` and adapts 
 Responsibilities:
 
 - run one ready task through a `RoleRegistry`
-- adapt Spark tasks to `@zendev-lab/spark-roles` `fresh | forked` launch helpers
+- adapt Spark tasks to the daemon-supervised Role Invocation port
 - choose a concrete executor role for a single run when the caller did not assign one
 - create a `role-run` task claim for the concrete run
 - enforce run timeout/lease defaults
@@ -26,10 +26,9 @@ Non-responsibilities:
 - does not schedule ready task waves or own `.spark/workflow-runs.json` (`@zendev-lab/spark-workflows`)
 - does not provide generic Pi tools (`pi-*` packages)
 
-Default launch mode:
-
-- Spark task execution should use fresh role runs by default: the assigned role selects the reusable role, while the task description and input Evidence provide explicit context.
-- Forked runs require an explicit parent session/context source and should be used only when that parent context is intentionally shared and cannot reasonably be materialized as Evidence first.
+Session lifecycle and continuity are not RoleRun fields. The daemon
+`SessionSupervisor` derives them from the typed Owner; compatibility executor
+arguments must not be persisted into RoleRun or Evidence projections.
 
 Timeout semantics:
 

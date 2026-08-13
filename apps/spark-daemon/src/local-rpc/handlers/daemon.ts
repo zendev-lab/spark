@@ -26,6 +26,7 @@ export async function handleDaemonRequest(
           ...(oldestActive.queued ? { oldestQueuedAt: oldestActive.queued } : {}),
           ...(oldestActive.running ? { oldestRunningAt: oldestActive.running } : {}),
         },
+        ...(options.getExecutionStatus ? { execution: options.getExecutionStatus() } : {}),
         channelDeliveries: new SparkChannelDeliveryStore(db).summary(),
         lifecycle: options.getLifecycle?.() ?? { state: "running" },
         ...(options.getBuildFingerprint ? { buildFingerprint: options.getBuildFingerprint() } : {}),

@@ -4,6 +4,7 @@ import { parseSparkSessionView, runtimeProtocolVersion } from "@zendev-lab/spark
 import { describe, expect, it, vi } from "vitest";
 
 import { controlReproWorkbenchForHub, loadProjectedReproWorkbench } from "./repro-workbench.ts";
+import { workspaceSessionRecord } from "../../../../../test/support/session-fixtures.ts";
 
 type FixtureBinding = {
   artifactRef: `artifact:${string}`;
@@ -130,16 +131,14 @@ function setup() {
     runtimeWorkspaceBindingId: runtimeBindingId,
     createdAt: now,
   });
-  const session = {
+  const session = workspaceSessionRecord({
     sessionId,
-    scope: { kind: "workspace" as const, workspaceId: workspace.id },
     workspaceId: workspace.id,
-    title: "Repro",
-    status: "ready" as const,
-    bindings: [],
+    name: "Repro",
+    activity: "idle",
     createdAt: now,
     updatedAt: now,
-  };
+  });
   const snapshot = parseSparkSessionView({
     sessionId,
     status: "idle",
@@ -168,9 +167,10 @@ function setup() {
   });
   db.prepare(
     `INSERT INTO runtime_session_projections
-      (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id, status,
+      (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
+       lifecycle, placement, activity, lifetime, owner_kind,
        record_json, snapshot_json, projected_at)
-     VALUES (?, ?, 'workspace', ?, ?, 'ready', ?, ?, ?)`,
+     VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'scoped', 'session', ?, ?, ?)`,
   ).run(
     runtimeId,
     sessionId,

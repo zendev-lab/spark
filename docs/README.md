@@ -41,8 +41,8 @@ than copying another long list into Markdown.
 - [`specs/tools.md`](./specs/tools.md): internal tool ownership, effect policy, activation, and cross-tool invariants.
 - [`specs/agent-operating-model.md`](./specs/agent-operating-model.md): model-facing prompt ownership, Session modes, continuation drivers, multi-Skill Agents, authority, and PR delivery lifecycle.
 - [`specs/agent-tracing.md`](./specs/agent-tracing.md): privacy-safe Agent run, model, Skill, and Tool lifecycle facts; completed-trace validation; and downstream CI/CE evaluation boundaries.
-- [`specs/skill-delegation.md`](./specs/skill-delegation.md): dedicated anonymous multi-Skill Agents, invocation, prompt composition, lifecycle, and authority boundaries.
-- [`specs/sessions-and-channels.md`](./specs/sessions-and-channels.md): persistent sessions, daemon-owned Side Threads, origins, mail, and channel policy.
+- [`specs/skill-delegation.md`](./specs/skill-delegation.md): dedicated ephemeral multi-Skill Agents, invocation, prompt composition, lifecycle, and authority boundaries.
+- [`specs/sessions-and-channels.md`](./specs/sessions-and-channels.md): Role/Session/Invocation ownership and lifecycle, Administrator provisioning, Side Threads, mail, and channel policy.
 - [`specs/daemon-autonomous-loops.md`](./specs/daemon-autonomous-loops.md): daemon-owned Loop cadence, bindings, retry, recovery, and fresh-continuity boundaries.
 - [`specs/execution-attempts.md`](./specs/execution-attempts.md): private invocation attempt identity, fencing, durable crash recovery, capability allowlist, and worker import boundary.
 - [`specs/human-interaction.md`](./specs/human-interaction.md): ask/approval waits, status vocabulary, and correlation.
@@ -65,7 +65,8 @@ than copying another long list into Markdown.
 - [`operations/mutation-ce.md`](./operations/mutation-ce.md): leaf-package Stryker continuous evaluation, CI artifacts, interpretation, and hygiene.
 - [`operations/acp.md`](./operations/acp.md): ACP adapter ownership, protocol contract, and maintainer validation.
 - [`operations/mcp.md`](./operations/mcp.md): MCP adapter ownership, read-only boundary, and maintainer validation.
-- [`operations/container.md`](./operations/container.md): containerized Hub build, release, health, persistence, and rollback.
+- [`operations/durable-execution-notes.md`](./operations/durable-execution-notes.md): Inngest/Restate step-checkpoint notes mapped to workflows/loop/invocations.
+- [`operations/role-session-v6-migration.md`](./operations/role-session-v6-migration.md): Role/Session registry v6 admission migration, backup, and recovery procedure.
 - [`operations/releases.md`](./operations/releases.md): release artifacts, publication, updater compatibility gates, rollback invariants, and rollout policy.
 
 ## Terminology: three “runtime” meanings

@@ -10,6 +10,7 @@ import {
   cancelRoleRun,
   defaultProjectRoleModelSettingsStore,
   listActiveRoleRuns,
+  roleRevision,
 } from "@zendev-lab/spark-roles";
 import { EvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
@@ -285,7 +286,7 @@ async function assertRunSparkTaskSucceedsWithChildOutput(
       projectRef: project.ref,
       title: testCase.taskTitle,
       description: testCase.taskDescription,
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan(testCase.planObjective),
     });
     const evidenceStore = new EvidenceStore({
@@ -355,7 +356,7 @@ test("task graph store persists task plan items without an active sidecar", asyn
       projectRef: project.ref,
       title: "Plan",
       description: "plan",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       todos: [{ content: "Read inputs" }, { content: "Draft plan" }],
     });
     await store.save(graph);
@@ -558,7 +559,7 @@ test("task graph store migrates v1 evidence fields once without losing record da
       ref: "run:migration" as RunRef,
       projectRef: project.ref,
       taskRef: task.ref,
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       runName: "migration-run",
       status: "succeeded",
       outputEvidenceRefs: ["evidence:already-output" as never],
@@ -1025,7 +1026,7 @@ test("todo ops can initialize an empty task and use stable ids", () => {
     projectRef: project.ref,
     title: "Plan",
     description: "plan",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     plan: executionReadyPlan("Plan"),
   });
 
@@ -1077,7 +1078,7 @@ test("task plan readiness distinguishes minimal and execution-ready plans", () =
     projectRef: project.ref,
     title: "Minimal",
     description: "minimal task",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
   });
   const minimalReadiness = graph.taskPlanReadiness(minimal.ref);
   assert.equal(minimalReadiness.ready, false);
@@ -1108,7 +1109,7 @@ test("task plan readiness distinguishes minimal and execution-ready plans", () =
     projectRef: project.ref,
     title: "Warning-only questions",
     description: "task with non-blocking questions",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     plan: {
       objective: "Resolve task with scratch questions",
       contextRefs: [],
@@ -1141,7 +1142,7 @@ test("task plan readiness distinguishes minimal and execution-ready plans", () =
     projectRef: project.ref,
     title: "Ready",
     description: "ready task",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     plan: {
       objective: "Execute ready task with validated output and recorded evidence.",
       contextRefs: [],
@@ -1469,7 +1470,7 @@ test("ready tasks require completed dependencies and execution-ready plan, not s
     projectRef: project.ref,
     title: "Dependent",
     description: "dependent",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     plan: {
       objective: "Complete dependent task with validated dependency gating and recorded evidence.",
       contextRefs: [],
@@ -1913,7 +1914,7 @@ test("task graph blocks claim and assignment until dependencies are done", () =>
   graph.addDependency(dependent.ref, prerequisite.ref);
 
   assert.throws(
-    () => graph.bindRole(dependent.ref, builtinRoleRef("worker")),
+    () => graph.bindRole(dependent.ref, builtinRoleRef("executor")),
     /unmet dependencies/,
   );
   assert.throws(
@@ -1928,8 +1929,8 @@ test("task graph blocks claim and assignment until dependencies are done", () =>
   );
 
   graph.setTaskStatus(prerequisite.ref, "done");
-  const assigned = graph.bindRole(dependent.ref, builtinRoleRef("worker"));
-  assert.equal(assigned.roleRef, builtinRoleRef("worker"));
+  const assigned = graph.bindRole(dependent.ref, builtinRoleRef("executor"));
+  assert.equal(assigned.roleRef, builtinRoleRef("executor"));
   const claimed = graph.claimTask(dependent.ref, {
     kind: "main",
     claimedBy: "session:a",
@@ -1953,7 +1954,7 @@ test("task graph blocks role-run claims until task plan is execution-ready", () 
       graph.claimTask(task.ref, {
         kind: "role-run",
         claimedBy: "run:worker",
-        roleRef: builtinRoleRef("worker"),
+        roleRef: builtinRoleRef("executor"),
         sessionId: "session:a",
         runName: "worker",
         leaseMs: 60_000,
@@ -2261,7 +2262,7 @@ test("legacy agent-shaped role fields are rejected at task graph load boundaries
       ref: runRef,
       projectRef: project.ref,
       taskRef: task.ref,
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       runName: "worker-current",
       status: "running",
       outputEvidenceRefs: [],
@@ -2288,7 +2289,7 @@ test("legacy agent-shaped role fields are rejected at task graph load boundaries
   claimSnapshot.snapshot.tasks[0]!.claim = {
     kind: "subagent",
     claimedBy: "session:legacy+worker-legacy",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     runName: "worker-legacy",
     sessionId: "session:legacy",
     runRef: claimSnapshot.runRef,
@@ -2381,7 +2382,7 @@ test("expired claim sweeper persists retryable stale claims", async () => {
       ref: runRef,
       projectRef: project.ref,
       taskRef: task.ref,
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       status: "running",
       startedAt: "2026-05-18T00:00:00.000Z",
       outputEvidenceRefs: [],
@@ -2389,7 +2390,7 @@ test("expired claim sweeper persists retryable stale claims", async () => {
     graph.claimTask(task.ref, {
       kind: "role-run",
       claimedBy: "role:worker",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       runName: "worker-1",
       sessionId: "session:parent",
       runRef,
@@ -2447,7 +2448,7 @@ test("role-run claim sweeper never expires daemon-owned main claims", async () =
 
 test("role run names and role-run claim ids are stable and attributable", () => {
   assert.equal(
-    createRoleRunName(builtinRoleRef("worker"), newRef("run", "abcdef123456")),
+    createRoleRunName(builtinRoleRef("executor"), newRef("run", "abcdef123456")),
     "executor-abcdef12",
   );
   assert.equal(
@@ -2491,16 +2492,16 @@ test("Spark runtime exposes one executor role assignment contract", () => {
     roleRef: builtinRoleRef("reviewer"),
   });
 
-  assert.equal(sparkTaskExecutorRoleRef(research), builtinRoleRef("researcher"));
-  assert.equal(sparkTaskExecutorRoleRef(plan), builtinRoleRef("worker"));
+  assert.equal(sparkTaskExecutorRoleRef(research), builtinRoleRef("explorer"));
+  assert.equal(sparkTaskExecutorRoleRef(plan), builtinRoleRef("executor"));
   assert.equal(sparkTaskExecutorRoleRef(review), builtinRoleRef("reviewer"));
-  assert.equal(sparkTaskExecutorRoleRef(implementation), builtinRoleRef("worker"));
+  assert.equal(sparkTaskExecutorRoleRef(implementation), builtinRoleRef("executor"));
   assert.equal(
-    sparkTaskExecutorRoleRef(implementation, builtinRoleRef("scout")),
-    builtinRoleRef("scout"),
+    sparkTaskExecutorRoleRef(implementation, builtinRoleRef("explorer")),
+    builtinRoleRef("explorer"),
   );
   assert.equal(
-    sparkTaskExecutorRoleRef(explicit, builtinRoleRef("scout")),
+    sparkTaskExecutorRoleRef(explicit, builtinRoleRef("explorer")),
     builtinRoleRef("reviewer"),
   );
 });
@@ -2512,7 +2513,7 @@ test("resumable background role-runs include owned stale claims", () => {
     projectRef: project.ref,
     title: "Owned background",
     description: "owned",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     status: "running",
     plan: executionReadyPlan("Owned background"),
   });
@@ -2520,7 +2521,7 @@ test("resumable background role-runs include owned stale claims", () => {
     kind: "role-run",
     claimedBy: "worker-run",
     runName: "worker-run",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     sessionId: "session:parent",
     now: "2026-05-18T00:00:00.000Z",
     leaseMs: 1_000,
@@ -2551,7 +2552,7 @@ test("resumable background role-runs include owned stale claims", () => {
 
 test("Spark runtime Pi command args use current CLI flags and explicit session directory", () => {
   const args = buildRoleRunArgs({
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     systemPrompt: "You are a worker.",
     instruction: "Implement the task.",
     sessionDir: "/tmp/sessions",
@@ -2566,12 +2567,12 @@ test("Spark runtime Pi command args use current CLI flags and explicit session d
   ]);
   assert.equal(args.includes("--prompt"), false);
   assert.equal(args.includes("--fork"), false);
-  assert.equal(args.includes("role:builtin-worker"), false);
+  assert.equal(args.includes("role:builtin-executor"), false);
   assert.equal(args.at(-2), "You are a worker.");
   assert.throws(
     () =>
       buildRoleRunArgs({
-        roleRef: builtinRoleRef("worker"),
+        roleRef: builtinRoleRef("executor"),
         systemPrompt: "You are a worker.",
         instruction: "Implement the task.",
         launch: "forked",
@@ -2589,7 +2590,7 @@ test("runSparkTask marks native role timeout failed and clears the task claim", 
       projectRef: project.ref,
       title: "Plan",
       description: "plan",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("Plan"),
     });
     const registry = new RoleRegistry();
@@ -2633,7 +2634,7 @@ test("runSparkTask fails loudly when claim heartbeat persistence fails", async (
       projectRef: project.ref,
       title: "Plan",
       description: "plan",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("Plan"),
     });
     let heartbeatAttempts = 0;
@@ -2681,7 +2682,7 @@ test("timed-out native Spark role run is cleaned up after task failure", async (
     projectRef: project.ref,
     title: "Plan",
     description: "plan",
-    roleRef: builtinRoleRef("worker"),
+    roleRef: builtinRoleRef("executor"),
     plan: executionReadyPlan("Plan"),
   });
   const dir = await mkdtemp(join(tmpdir(), "spark-kill-pi-"));
@@ -2722,7 +2723,7 @@ test("background cleanup does not cancel role-runs without an owned task graph",
       projectRef: project.ref,
       title: "Plan",
       description: "plan",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("Plan"),
     });
 
@@ -2788,7 +2789,7 @@ test("background resume persists plan items through the task graph without a TOD
       projectRef: project.ref,
       title: "Plan",
       description: "plan",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("Plan"),
     });
     graph.claimTask(task.ref, {
@@ -2796,7 +2797,7 @@ test("background resume persists plan items through the task graph without a TOD
       claimedBy,
       sessionId: ownerSessionId,
       runName,
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       leaseMs: 60_000,
     });
     await defaultTaskGraphStore(dir).save(graph);
@@ -2856,7 +2857,7 @@ test("Spark DAG manager reports widget refresh failures without failing complete
       projectRef: project.ref,
       title: "Refresh should not fail DAG",
       description: "complete work even if widget refresh fails",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       status: "pending",
       plan: executionReadyPlan("Refresh should not fail DAG"),
     });
@@ -3699,7 +3700,7 @@ test("Spark DAG run reconcile keeps DAG running when a scheduled task has an act
       projectRef: project.ref,
       title: "Still running elsewhere",
       description: "active child process is still running",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       status: "pending",
       plan: executionReadyPlan("Still running elsewhere"),
     });
@@ -3715,7 +3716,7 @@ test("Spark DAG run reconcile keeps DAG running when a scheduled task has an act
     graph.claimTask(task.ref, {
       kind: "role-run",
       claimedBy: "session:parent+worker",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       runName: "worker-active",
       sessionId: "session:parent",
       runRef: childRunRef,
@@ -3747,7 +3748,7 @@ test("Spark DAG run reconcile revives stale records when a scheduled task still 
       projectRef: project.ref,
       title: "Still running after stale mark",
       description: "active child process is still running after stale reconciliation",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       status: "pending",
       plan: executionReadyPlan("Still running after stale mark"),
     });
@@ -3776,7 +3777,7 @@ test("Spark DAG run reconcile revives stale records when a scheduled task still 
     graph.claimTask(task.ref, {
       kind: "role-run",
       claimedBy: "session:parent+worker",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       runName: "worker-active",
       sessionId: "session:parent",
       runRef: childRunRef,
@@ -3873,7 +3874,7 @@ test("runReadyTasks assigns default roles and schedules DAG waves with maxConcur
     assert.ok(firstWave.every((task) => graph.getTask(task.ref).roleRef === undefined));
     assert.ok(
       firstWave.every(
-        (task) => graph.getTask(task.ref).finishedBy?.roleRef === builtinRoleRef("worker"),
+        (task) => graph.getTask(task.ref).finishedBy?.roleRef === builtinRoleRef("executor"),
       ),
     );
     assert.equal(graph.getTask(secondWave.ref).finishedBy?.roleRef, builtinRoleRef("reviewer"));
@@ -3915,7 +3916,7 @@ test("runReadyTasks uses daemon-native role executor when provided", async () =>
       projectRef: project.ref,
       title: "Run ready natively",
       description: "Use daemon-native executor for ready task assignment.",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("Run ready natively"),
     });
     const seen: string[] = [];
@@ -3949,7 +3950,7 @@ test("runReadyTasks uses daemon-native role executor when provided", async () =>
     assert.equal(result.succeeded, 1);
     assert.equal(result.failed, 0);
     assert.equal(graph.getTask(task.ref).status, "done");
-    assert.deepEqual(seen.slice(0, 2), [builtinRoleRef("worker"), result.runs[0]?.ref]);
+    assert.deepEqual(seen.slice(0, 2), [builtinRoleRef("executor"), result.runs[0]?.ref]);
     assert.match(seen[2] ?? "", /Use daemon-native executor/);
     assert.equal(
       listActiveSparkRoleRunProcesses().some((process) => process.cwd === dir),
@@ -4105,7 +4106,7 @@ test("runReadyTasks reports failed child runs in aggregate result", async () => 
       projectRef: project.ref,
       title: "No output",
       description: "ok",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("No output"),
     });
     const result = await runReadyTasks({
@@ -4147,7 +4148,7 @@ test("runReadyTasks and workflow storage preserve blocked child aggregation", as
       projectRef: project.ref,
       title: "Await authorization",
       description: "Report the authorization blocker.",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("Await authorization"),
     });
     const outcome: RoleRunCompletionOutcome = {
@@ -4207,7 +4208,7 @@ test("runReadyTasks returns the recorded failed run when child launch fails", as
       projectRef: project.ref,
       title: "Launch child",
       description: "launch child",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("Launch child"),
     });
 
@@ -4275,7 +4276,7 @@ test("runReadyTasks treats timeoutMs as a foreground wait budget", async () => {
       projectRef: project.ref,
       title: "Slow task",
       description: "slow",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("Slow task"),
     });
     const pendingTask = graph.createTask({
@@ -4289,7 +4290,7 @@ test("runReadyTasks treats timeoutMs as a foreground wait budget", async () => {
       graph,
       runTask: async ({ graph: runningGraph, taskRef, claim }) => {
         const task = runningGraph.getTask(taskRef);
-        const roleRef = task.roleRef ?? builtinRoleRef("worker");
+        const roleRef = task.roleRef ?? builtinRoleRef("executor");
         const runRef = newRef("run");
         const runName = createRoleRunName(roleRef, runRef);
         runningGraph.claimTask(taskRef, {
@@ -4363,7 +4364,7 @@ test("runSparkTask does not complete real tasks when the role run never starts",
       projectRef: project.ref,
       title: "Plan",
       description: "plan",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("Plan"),
     });
     const evidenceStore = new EvidenceStore({
@@ -4402,7 +4403,7 @@ test("runSparkTask does not complete real tasks when the role run never starts",
     assert.equal(body.schemaVersion, 1);
     assert.equal(body.runRef, run.ref);
     assert.equal(body.taskRef, task.ref);
-    assert.equal(body.roleRef, builtinRoleRef("worker"));
+    assert.equal(body.roleRef, builtinRoleRef("executor"));
     assert.equal(body.status, "not_started");
     assert.equal(body.record?.status, "not_started");
     assert.equal(body.record?.instruction, undefined);
@@ -4485,7 +4486,7 @@ test("runSparkTask summarizes final assistant text instead of raw Pi control JSO
       projectRef: project.ref,
       title: "Summary output task",
       description: "final assistant summary should drive completion summary",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("Summary output task"),
     });
     const evidenceStore = new EvidenceStore({
@@ -4537,7 +4538,7 @@ test("runSparkTask writes compact role-run Evidence for large output", async () 
       projectRef: project.ref,
       title: "Large output task",
       description: "produce large output",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("Large output task"),
     });
     const evidenceStore = new EvidenceStore({
@@ -4596,7 +4597,7 @@ test("runSparkTask writes compact role-run Evidence for large output", async () 
     assert.equal(body.schemaVersion, 1);
     assert.equal(body.runRef, run.ref);
     assert.equal(body.taskRef, task.ref);
-    assert.equal(body.roleRef, builtinRoleRef("worker"));
+    assert.equal(body.roleRef, builtinRoleRef("executor"));
     assert.equal(body.status, "succeeded");
     assert.equal(body.record?.instruction, undefined);
     assert.ok((body.stdout?.bytes ?? 0) > 250_000);
@@ -4651,7 +4652,7 @@ test("runSparkTask dry-run records validation without completing the task", asyn
     assert.equal(artifact.provenance.projectRef, project.ref);
     assert.equal(artifact.provenance.taskRef, task.ref);
     assert.equal(graph.getTask(task.ref).roleRef, undefined);
-    assert.equal(artifact.provenance.roleRef, builtinRoleRef("worker"));
+    assert.equal(artifact.provenance.roleRef, builtinRoleRef("executor"));
     assert.equal(artifact.provenance.runRef, run.ref);
     assert.match(artifact.provenance.note ?? "", /^runName=executor-/);
     const body = artifact.body as {
@@ -4669,7 +4670,7 @@ test("runSparkTask dry-run records validation without completing the task", asyn
     assert.equal(body.schemaVersion, 1);
     assert.equal(body.runRef, run.ref);
     assert.equal(body.taskRef, task.ref);
-    assert.equal(body.roleRef, builtinRoleRef("worker"));
+    assert.equal(body.roleRef, builtinRoleRef("executor"));
     assert.equal(body.status, "not_started");
     assert.equal(body.record?.ref, run.ref);
     assert.equal(body.record?.runName, run.runName);
@@ -4752,14 +4753,21 @@ test("runSparkTask attributes real project role spec run claims and completion",
     const registry = new RoleRegistry();
     registry.add({
       ref: roleRef,
+      revision: roleRevision({
+        id: "test-worker",
+        description: "Project test worker",
+        systemPrompt: "You are a project test worker.",
+        capabilities: ["read", "write", "exec"],
+        modelType: "implementation",
+        allowedTools: undefined,
+        allowedToolEffects: undefined,
+      }),
       id: "test-worker",
       source: "project",
-      revision: 1,
       description: "Project test worker",
       systemPrompt: "You are a project test worker.",
       capabilities: ["read", "write", "exec"],
       modelType: "implementation",
-      instantiation: "owned",
       createdAt: "2026-05-20T00:00:00.000Z",
       updatedAt: "2026-05-20T00:00:00.000Z",
     });

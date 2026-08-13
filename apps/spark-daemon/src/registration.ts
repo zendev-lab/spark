@@ -671,6 +671,9 @@ async function persistSparkDaemonCredentials(
   writeSparkDaemonConfig(paths, {
     installationId: input.installationId,
     displayName: input.displayName,
+    ...(current.invocationConcurrency !== undefined
+      ? { invocationConcurrency: current.invocationConcurrency }
+      : {}),
     ...(current.reproFormalEvidencePublicKeysJson
       ? { reproFormalEvidencePublicKeysJson: current.reproFormalEvidencePublicKeysJson }
       : {}),

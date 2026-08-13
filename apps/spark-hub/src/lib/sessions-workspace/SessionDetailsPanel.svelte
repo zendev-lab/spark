@@ -35,9 +35,12 @@
     instanceId,
   }: Props = $props();
 
-  let displayedSessionStatus = $derived(visibleSessionStatus(selected.status));
-  let taskExecution = $derived(
-    selected.relation?.kind === "task_execution" ? selected.relation : null,
+  let displayedSessionStatus = $derived(
+    visibleSessionStatus(selected.placement === "archived" ? "archived" : (selected.activity ?? "idle")),
+  );
+  let taskExecution = $derived(selected.owner.kind === "task_run" ? selected.owner : null);
+  let explicitRoleRef = $derived(
+    selected.roleBinding.kind === "explicit" ? selected.roleBinding.roleRef : null,
   );
 </script>
 
@@ -66,10 +69,10 @@
         {/if}
       </dd>
     </div>
-    {#if selected.role}
+    {#if explicitRoleRef}
       <div>
         <dt>{messages.roleLabel}</dt>
-        <dd>{selected.role}</dd>
+        <dd>{explicitRoleRef}</dd>
       </div>
     {/if}
     {#if taskExecution}

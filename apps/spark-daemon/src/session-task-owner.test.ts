@@ -6,12 +6,9 @@ describe("Task Session owner validity", () => {
   it("accepts only the active run bound to the exact Session", async () => {
     const run = taskRun();
     const subject = {
-      owner: { kind: "task_run", ref: run.ref } as const,
-      workspaceId: "ws-test",
-      sessionId: run.execution!.sessionId!,
-      relation: {
-        kind: "task_execution" as const,
-        ownerSessionId: "session-owner",
+      owner: {
+        kind: "task_run",
+        supervisorSessionId: "session-owner",
         projectRef: run.projectRef,
         taskRef: run.taskRef,
         runRef: run.ref,
@@ -19,7 +16,9 @@ describe("Task Session owner validity", () => {
         roleRef: "role:executor",
         jobId: run.execution!.jobId,
         attempt: 1,
-      },
+      } as const,
+      workspaceId: "ws-test",
+      sessionId: run.execution!.sessionId!,
     };
     const options = {
       resolveWorkspaceCwd: () => "/workspace",
@@ -40,21 +39,20 @@ describe("Task Session owner validity", () => {
   it("keeps a revision Session only while its Task remains unfinished", async () => {
     const run = taskRun({ sessionLifetime: "task_revision", status: "succeeded" });
     const subject = {
-      owner: { kind: "task_revision", ref: run.execution!.jobId } as const,
-      workspaceId: "ws-test",
-      sessionId: run.execution!.sessionId!,
-      relation: {
-        kind: "task_execution" as const,
-        ownerSessionId: "session-owner",
+      owner: {
+        kind: "task_revision",
+        supervisorSessionId: "session-owner",
         projectRef: run.projectRef,
         taskRef: run.taskRef,
-        runRef: run.ref,
+        revisionRef: run.execution!.jobId,
+        originatingRunRef: run.ref,
         sessionGoalId: run.execution!.sessionGoalId,
         roleRef: "role:executor",
-        sessionLifetime: "task_revision" as const,
         jobId: run.execution!.jobId,
         attempt: 1,
-      },
+      } as const,
+      workspaceId: "ws-test",
+      sessionId: run.execution!.sessionId!,
     };
     const options = {
       resolveWorkspaceCwd: () => "/workspace",

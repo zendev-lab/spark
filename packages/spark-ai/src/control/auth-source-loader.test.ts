@@ -22,7 +22,7 @@ test("Spark auth loads through Pi extension module aliases", async () => {
     },
   });
   const authModule = (await jiti.import(
-    fileURLToPath(new URL("../../../../packages/spark-ai/src/control/auth.ts", import.meta.url)),
+    fileURLToPath(new URL("./auth.ts", import.meta.url)),
   )) as SparkAuthModule;
 
   assert.deepEqual(

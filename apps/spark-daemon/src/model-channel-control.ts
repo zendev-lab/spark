@@ -8,8 +8,10 @@ import {
 import {
   parseSparkChannelControlSnapshot,
   parseSparkDefaultModelSetRequest,
+  sparkModelConnectivityTestRequestSchema,
   parseSparkSessionSetModelRequest,
   parseSparkSessionSetThinkingRequest,
+  projectSparkSessionState,
   sparkProtocolJsonObjectSchema,
   type RuntimeCommandProjectionKind,
   type RuntimeEphemeralSecretRequestPayload,
@@ -19,7 +21,7 @@ import {
   type SparkChannelControlSnapshot,
   type SparkModelControlSnapshot,
   type SparkProtocolJsonValue,
-  type SparkSessionRegistryRecord,
+  type SparkSessionState,
 } from "@zendev-lab/spark-protocol";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import { loadDaemonChannelsConfig } from "./channels/ingress.ts";
@@ -30,6 +32,7 @@ export type SparkDaemonModelChannelPublicKind =
   | "session.model.set.request"
   | "session.thinking.set.request"
   | "model.catalog.request"
+  | "model.connectivity.test.request"
   | "model.default.set.request"
   | "provider.auth.logout.request"
   | "provider.auth.login.start.request"
@@ -61,6 +64,7 @@ export interface SparkDaemonModelChannelControlOptions {
     | "cancelQqbotQrAuth"
   >;
   sessionRegistry?: DaemonSessionRegistry;
+  sessionActivity?: (sessionId: string) => "idle" | "queued" | "running";
   sparkHome?: string;
 }
 
@@ -71,6 +75,7 @@ export function isSparkDaemonModelChannelPublicKind(
     kind === "session.model.set.request" ||
     kind === "session.thinking.set.request" ||
     kind === "model.catalog.request" ||
+    kind === "model.connectivity.test.request" ||
     kind === "model.default.set.request" ||
     kind === "provider.auth.logout.request" ||
     kind === "provider.auth.login.start.request" ||
@@ -101,7 +106,7 @@ export async function executeSparkDaemonModelChannelPublicControl(
         request.sessionId,
         request.model,
       );
-      return sessionResult(session);
+      return sessionResult(session, options.sessionActivity?.(session.sessionId));
     }
     case "session.thinking.set.request": {
       const request = parseSparkSessionSetThinkingRequest(input.payload);
@@ -110,7 +115,7 @@ export async function executeSparkDaemonModelChannelPublicControl(
         request.sessionId,
         request.thinkingLevel,
       );
-      return sessionResult(session);
+      return sessionResult(session, options.sessionActivity?.(session.sessionId));
     }
     case "model.catalog.request": {
       const sessionId = optionalString(input.payload.sessionId);
@@ -122,6 +127,13 @@ export async function executeSparkDaemonModelChannelPublicControl(
       return {
         result: { snapshot: data },
         projection: { kind: "model.catalog", data },
+      };
+    }
+    case "model.connectivity.test.request": {
+      const request = sparkModelConnectivityTestRequestSchema.parse(input.payload);
+      const control = requireModelControl(options);
+      return {
+        result: { test: publicObject(await control.testModel(request.model)) },
       };
     }
     case "model.default.set.request": {
@@ -408,8 +420,11 @@ async function mergePrivateChannelConfig(
   return parseChannelsConfig({ ...incoming, adapters });
 }
 
-function sessionResult(session: SparkSessionRegistryRecord): SparkDaemonModelChannelPublicResult {
-  const projected = publicObject(session);
+function sessionResult(
+  session: SparkSessionState,
+  activity: "idle" | "queued" | "running" = "idle",
+): SparkDaemonModelChannelPublicResult {
+  const projected = publicObject(projectSparkSessionState(session, activity));
   return {
     result: { session: projected },
     projection: { kind: "session.detail", data: { session: projected } },

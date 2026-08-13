@@ -701,7 +701,7 @@ export function registerSparkWorkflowRunsTool(
               runRef: target.runRef,
               type: "waiting_for_user",
               at: now,
-              message: "main session delivered a reply to this visible role-run",
+              message: "owner Session delivered a reply to this visible Role Invocation",
               messageRole: "system",
               evidenceRefs: [evidence.ref],
             });

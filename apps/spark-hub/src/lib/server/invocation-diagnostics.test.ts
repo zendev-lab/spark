@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { SparkDaemonUnavailableError } from "@zendev-lab/spark-daemon-client";
 import { loadInvocationDiagnosticsForHub } from "./invocation-diagnostics";
 
 const NOW = "2026-07-15T12:00:00.000Z";
@@ -46,7 +45,7 @@ describe("Hub invocation diagnostics", () => {
   it("degrades to an empty bounded projection when the daemon is unavailable", async () => {
     const client = diagnosticsClient();
     client.daemonStatus = vi.fn(async () => {
-      throw new SparkDaemonUnavailableError("daemon unavailable");
+      throw new Error("daemon unavailable");
     });
 
     await expect(

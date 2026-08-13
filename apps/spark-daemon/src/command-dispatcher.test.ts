@@ -28,6 +28,17 @@ describe("Spark daemon command dispatcher", () => {
       payload: { sessionId: "session-a", prompt: "continue" },
       transport: { kind: "local-rpc", method: "turn.submit", requestId: "rpc_submit" },
     });
+    expect(
+      sparkCommandFromLocalRpcRequest({
+        id: "rpc_compact",
+        method: "session.compact",
+        params: { sessionId: "session-a", customInstructions: "preserve decisions" },
+      }),
+    ).toMatchObject({
+      kind: "session.compact.request",
+      route: { sessionId: "session-a" },
+      payload: { sessionId: "session-a", customInstructions: "preserve decisions" },
+    });
 
     const status = sparkCommandFromLocalRpcRequest({
       id: "turn_status",

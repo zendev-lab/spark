@@ -22,7 +22,6 @@ import {
   ROLE_RUN_DEPTH_ENV,
   RoleRegistry,
   resolveRoleModelSetting,
-  RoleModelSettingsMigrationConflictError,
   RoleModelSettingsStoreFormatError,
   RoleModelTypeUnconfiguredError,
   RoleRunCancelledError,
@@ -64,7 +63,7 @@ test("spark-roles builds fresh JSON Pi role args without accidental fork session
 
 test("spark-roles includes resolved user model in JSON Pi role args", () => {
   const args = buildRoleRunArgs({
-    roleRef: "role:builtin-worker",
+    roleRef: "role:builtin-executor",
     launch: "fresh",
     systemPrompt: "You are a worker.",
     model: "openai/gpt-5.5",
@@ -76,7 +75,7 @@ test("spark-roles includes resolved user model in JSON Pi role args", () => {
 
 test("spark-roles can pass a role tool allowlist", () => {
   const args = buildRoleRunArgs({
-    roleRef: "role:builtin-worker",
+    roleRef: "role:builtin-executor",
     launch: "fresh",
     systemPrompt: "You are a worker.",
     instruction: "Create a patch.",
@@ -88,37 +87,23 @@ test("spark-roles can pass a role tool allowlist", () => {
   assert.equal(args[index + 1], "graft_read,graft_write,graft_validate");
 });
 
-test("spark-roles can launch ephemeral no-session role runs", () => {
+test("spark-roles command projection does not encode Session lifetime", () => {
   const args = buildRoleRunArgs({
     roleRef: "role:builtin-reviewer",
     launch: "fresh",
     systemPrompt: "You are a reviewer.",
-    instruction: "Review without saving child session state.",
-    noSession: true,
+    instruction: "Review through the supervising daemon.",
     sessionDir: "/Users/example/sessions",
   });
 
-  assert.deepEqual(args.slice(0, 7), [
+  assert.equal(args.includes("--no-session"), false);
+  assert.deepEqual(args.slice(0, 5), [
     "--print",
     "--mode",
     "json",
-    "--no-session",
     "--session-dir",
     "/Users/example/sessions",
-    "--append-system-prompt",
   ]);
-  assert.throws(
-    () =>
-      buildRoleRunArgs({
-        roleRef: "role:builtin-reviewer",
-        launch: "forked",
-        systemPrompt: "You are a reviewer.",
-        instruction: "Invalid forked no-session run.",
-        noSession: true,
-        forkFromSession: "session-parent.json",
-      }),
-    /noSession role runs cannot use forked launch/,
-  );
 });
 
 test("spark-roles builds forked JSON Pi role args only when forked launch is explicit", () => {
@@ -147,7 +132,7 @@ test("spark-roles requires fork source for forked launch", () => {
   assert.throws(
     () =>
       buildRoleRunArgs({
-        roleRef: "role:builtin-worker",
+        roleRef: "role:builtin-executor",
         launch: "forked",
         systemPrompt: "You are a worker.",
         instruction: "Implement.",
@@ -232,7 +217,8 @@ test("spark-roles resolves role model settings with project and user precedence"
 
     assert.deepEqual(
       await resolveRoleModelSetting({
-        roleRef: "role:builtin-worker",
+        roleRef: "role:builtin-executor",
+        modelType: "implementation",
         projectStore,
         userStore,
       }),
@@ -240,12 +226,12 @@ test("spark-roles resolves role model settings with project and user precedence"
         model: "project-model",
         source: "project",
         modelType: "implementation",
-        selector: "implementation",
       },
     );
     assert.deepEqual(
       await resolveRoleModelSetting({
         roleRef: "role:builtin-reviewer",
+        modelType: "verification",
         roleName: "reviewer",
         projectStore,
         userStore,
@@ -254,12 +240,12 @@ test("spark-roles resolves role model settings with project and user precedence"
         model: "user-reviewer-model",
         source: "user",
         modelType: "verification",
-        selector: "verification",
       },
     );
     assert.equal(
       await resolveRoleModelSetting({
-        roleRef: "role:builtin-scout",
+        roleRef: "role:builtin-explorer",
+        modelType: "exploration",
         projectStore,
         userStore,
       }),
@@ -268,7 +254,7 @@ test("spark-roles resolves role model settings with project and user precedence"
     assert.deepEqual(
       await resolveRoleModelSetting({
         explicitModel: "explicit-model",
-        roleRef: "role:builtin-worker",
+        roleRef: "role:builtin-executor",
         projectStore,
         userStore,
       }),
@@ -310,19 +296,25 @@ test("spark runtime role dispatch rejects missing Model Type configuration", asy
     const registry = new RoleRegistry();
     let launches = 0;
     await assert.rejects(
-      runRoleInstructionOnly(
-        registry,
-        { roleRef: "role:builtin-worker", instruction: "Run without a model setting." },
-        {
-          dryRun: false,
-          cwd: dir,
-          timeoutMs: 5_000,
-          roleExecutor: async () => {
-            launches += 1;
-            throw new Error("must not launch");
+      () =>
+        runRoleInstructionOnly(
+          registry,
+          { roleRef: "role:builtin-executor", instruction: "Run without a model setting." },
+          {
+            dryRun: false,
+            cwd: dir,
+            timeoutMs: 5_000,
+            roleExecutor: async (input) => {
+              launches += 1;
+              return {
+                record: { ...input.record, status: "succeeded" as const },
+                stdout: "native role ok",
+                stderr: "",
+                jsonEvents: [],
+              };
+            },
           },
-        },
-      ),
+        ),
       (error) =>
         error instanceof RoleModelTypeUnconfiguredError &&
         error.code === "role_model_type_unconfigured",
@@ -344,7 +336,7 @@ test("spark runtime role dispatch times out hanging native executors", async () 
       () =>
         runRoleInstructionOnly(
           new RoleRegistry(),
-          { roleRef: "role:builtin-worker", instruction: "Hang until timeout." },
+          { roleRef: "role:builtin-executor", instruction: "Hang until timeout." },
           {
             dryRun: false,
             cwd: dir,
@@ -378,7 +370,7 @@ test("runSparkTask records native timeout failure and leaves no active role-run"
       projectRef: project.ref,
       title: "Timeout child",
       description: "Run a role execution that must be timed out.",
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       plan: {
         objective: "Verify runtime timeout cleanup for a nonresponsive role-run.",
         contextRefs: [],
@@ -423,32 +415,38 @@ test("runSparkTask records native timeout failure and leaves no active role-run"
   }
 });
 
-test("spark runtime role dispatch does not inherit the parent Session model", async () => {
+test("spark runtime role dispatch honors explicit Session model configuration", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-runtime-session-model-"));
   const previousHome = process.env.SPARK_HOME;
   process.env.SPARK_HOME = join(dir, "home");
   try {
     const registry = new RoleRegistry();
-    let launches = 0;
-    await assert.rejects(
-      runRoleInstructionOnly(
-        registry,
-        { roleRef: "role:builtin-worker", instruction: "Run with the session model." },
-        {
-          dryRun: false,
-          cwd: dir,
-          timeoutMs: 15_000,
-          sessionModel: "test/model",
-          roleExecutor: async () => {
-            launches += 1;
-            throw new Error("must not launch");
-          },
-        },
-      ),
-      (error) =>
-        error instanceof RoleModelTypeUnconfiguredError && error.modelType === "implementation",
+    const result = await runRoleInstructionOnly(
+      registry,
+      { roleRef: "role:builtin-executor", instruction: "Run with the session model." },
+      {
+        dryRun: false,
+        cwd: dir,
+        timeoutMs: 15_000,
+        sessionModel: "test/model",
+        roleExecutor: async (input) => ({
+          record: { ...input.record, status: "succeeded", finishedAt: "2026-06-22T00:00:00.000Z" },
+          stdout: "Runtime session model result.",
+          stderr: "",
+          jsonEvents: [
+            {
+              type: "message_end",
+              message: {
+                role: "assistant",
+                content: [{ type: "text", text: "Runtime session model result." }],
+              },
+            },
+          ],
+        }),
+      },
     );
-    assert.equal(launches, 0);
+    assert.equal(result.record.model, "test/model");
+    assert.equal(result.record.status, "succeeded");
   } finally {
     if (previousHome === undefined) delete process.env.SPARK_HOME;
     else process.env.SPARK_HOME = previousHome;
@@ -466,7 +464,7 @@ test("spark runtime role dispatch passes per-run env and tool policy to injected
     let seenAllowedTools: string[] | undefined;
     const result = await runRoleInstructionOnly(
       new RoleRegistry(),
-      { roleRef: "role:builtin-worker", instruction: "Run with env/tool policy." },
+      { roleRef: "role:builtin-executor", instruction: "Run with env/tool policy." },
       {
         dryRun: false,
         cwd: dir,
@@ -516,7 +514,7 @@ test("spark runtime role dispatch passes per-run env and tool policy to injected
     let seenAllowedTools: string[] | undefined;
     const result = await runRoleInstructionOnly(
       new RoleRegistry(),
-      { roleRef: "role:builtin-worker", instruction: "Run injected with env/tool policy." },
+      { roleRef: "role:builtin-executor", instruction: "Run injected with env/tool policy." },
       {
         dryRun: false,
         cwd: dir,
@@ -578,7 +576,7 @@ test("spark-roles rejects malformed role model settings stores", async () => {
       (error) =>
         error instanceof RoleModelSettingsStoreFormatError &&
         error.filePath === store.filePath &&
-        /roleModels must be an object/.test(error.message),
+        /runtime requires strict version 2/.test(error.message),
     );
 
     await writeFile(
@@ -591,14 +589,14 @@ test("spark-roles rejects malformed role model settings stores", async () => {
       (error) =>
         error instanceof RoleModelSettingsStoreFormatError &&
         error.filePath === store.filePath &&
-        /roleModels\.worker must be a non-empty string/.test(error.message),
+        /runtime requires strict version 2/.test(error.message),
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("spark-roles migrates v1 roleModels to semantic Model Types and blocks conflicts", async () => {
+test("spark-roles runtime rejects v1 and reads strict v2 Model Types", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-model-settings-migration-"));
   try {
     const store = defaultProjectRoleModelSettingsStore(dir);
@@ -606,10 +604,10 @@ test("spark-roles migrates v1 roleModels to semantic Model Types and blocks conf
     await writeFile(
       store.filePath,
       `${JSON.stringify({
-        version: 1,
-        roleModels: {
-          "role:builtin-worker": "provider/implementation",
-          reviewer: "provider/verification",
+        version: 2,
+        modelTypes: {
+          implementation: "provider/implementation",
+          verification: "provider/verification",
         },
       })}\n`,
       "utf8",
@@ -633,9 +631,8 @@ test("spark-roles migrates v1 roleModels to semantic Model Types and blocks conf
     await assert.rejects(
       () => store.loadAll(),
       (error) =>
-        error instanceof RoleModelSettingsMigrationConflictError &&
-        error.code === "role_model_type_migration_conflict" &&
-        error.modelType === "implementation",
+        error instanceof RoleModelSettingsStoreFormatError &&
+        /runtime requires strict version 2/.test(error.message),
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -673,7 +670,7 @@ test("spark-roles runs daemon-native executor and records run metadata", async (
   try {
     const result = await runRole({
       runRef: "run:launcher-test",
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       systemPrompt: "You are a worker.",
       instruction: "Implement.",
       cwd: dir,
@@ -688,8 +685,8 @@ test("spark-roles runs daemon-native executor and records run metadata", async (
     });
 
     assert.equal(result.record.ref, "run:launcher-test");
-    assert.equal(result.record.roleRef, "role:builtin-worker");
-    assert.equal(result.record.launch, "fresh");
+    assert.equal(result.record.roleRef, "role:builtin-executor");
+    assert.equal("launch" in result.record, false);
     assert.equal(result.record.status, "succeeded");
     assert.equal(result.record.startedAt, "2026-05-21T00:00:00.000Z");
     assert.equal(result.record.finishedAt, "2026-05-21T00:00:00.000Z");
@@ -701,11 +698,10 @@ test("spark-roles runs daemon-native executor and records run metadata", async (
   }
 });
 
-test("runRole forwards noSession to native executor", async () => {
+test("runRole does not expose Session lifecycle through RoleRun", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-no-session-native-"));
   try {
-    let seenNoSession: boolean | undefined;
-    let seenSessionPersistence: string | undefined;
+    let sawSessionLifetime = false;
     const result = await runRole({
       runRef: "run:no-session-native",
       roleRef: "role:builtin-reviewer",
@@ -713,16 +709,13 @@ test("runRole forwards noSession to native executor", async () => {
       instruction: "Review anonymously.",
       cwd: dir,
       sessionDir: join(dir, "sessions"),
-      noSession: true,
       nativeExecutor: async (input) => {
-        seenNoSession = input.noSession;
-        seenSessionPersistence = input.sessionPersistence;
+        sawSessionLifetime = "sessionLifetime" in input || "sessionLifetime" in input.record;
         return {
           record: {
             ...input.record,
             status: "succeeded",
             finishedAt: "2026-05-21T00:00:00.000Z",
-            sessionPersistence: input.sessionPersistence,
           },
           stdout: "approved",
           stderr: "",
@@ -731,11 +724,8 @@ test("runRole forwards noSession to native executor", async () => {
       },
     });
 
-    assert.equal(seenNoSession, true);
-    assert.equal(seenSessionPersistence, "anonymous");
-    assert.equal(result.record.noSession, true);
-    assert.equal(result.record.sessionPersistence, "anonymous");
-    assert.equal(result.record.sessionDir, undefined);
+    assert.equal(sawSessionLifetime, false);
+    assert.equal("sessionLifetime" in result.record, false);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -772,7 +762,7 @@ test("spark-roles preserves daemon-native stdout and JSONL results", async () =>
   try {
     const result = await runRole({
       runRef: "run:tail-capture-test",
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       systemPrompt: "You are a worker.",
       instruction: "Report after large output.",
       cwd: dir,
@@ -817,7 +807,7 @@ test("spark-roles decrements role run depth for daemon-native runs", async () =>
 
     const defaultDepth = await runRole({
       runRef: "run:default-depth-test",
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       systemPrompt: "You are a worker.",
       instruction: "Report depth.",
       cwd: dir,
@@ -828,7 +818,7 @@ test("spark-roles decrements role run depth for daemon-native runs", async () =>
 
     const explicitDepth = await runRole({
       runRef: "run:explicit-depth-test",
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       systemPrompt: "You are a worker.",
       instruction: "Report depth.",
       cwd: dir,
@@ -845,7 +835,7 @@ test("spark-roles refuses to spawn when role run depth is exhausted", async () =
   await assert.rejects(
     runRole({
       runRef: "run:depth-exhausted-test",
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       systemPrompt: "You are a worker.",
       instruction: "Should not spawn.",
       cwd: process.cwd(),
@@ -857,7 +847,7 @@ test("spark-roles refuses to spawn when role run depth is exhausted", async () =
   await assert.rejects(
     runRole({
       runRef: "run:negative-depth-test",
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       systemPrompt: "You are a worker.",
       instruction: "Should not spawn.",
       cwd: process.cwd(),
@@ -872,7 +862,7 @@ test("spark-roles tracks and cancels active daemon-native runs", async () => {
   try {
     const run = runRole({
       runRef: "run:cancel-test",
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       systemPrompt: "You are a worker.",
       instruction: "Wait.",
       cwd: dir,
@@ -908,7 +898,7 @@ test("spark-roles delivers input through native role-run controller", async () =
   try {
     const run = runRole({
       runRef: "run:native-input-test",
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       systemPrompt: "You are a worker.",
       instruction: "Wait for input.",
       cwd: dir,
@@ -957,7 +947,7 @@ test("spark-roles enforces timeout control for daemon-native runs", async () => 
     await assert.rejects(
       runRole({
         runRef: "run:timeout-test",
-        roleRef: "role:builtin-worker",
+        roleRef: "role:builtin-executor",
         systemPrompt: "You are a worker.",
         instruction: "Wait.",
         cwd: dir,

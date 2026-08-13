@@ -16,7 +16,7 @@ import {
 } from "@zendev-lab/spark-daemon-client";
 import {
   createId,
-  parseSparkSessionRegistryRecord,
+  parseSparkSessionProjection,
   sparkDaemonEventSchema,
   sparkTurnCancelResultSchema,
   sparkTurnResultSchema,
@@ -25,6 +25,8 @@ import {
   sparkTurnSubmitResultSchema,
   type SparkDaemonEvent,
   type SparkInvocationStatus,
+  type SparkLocalRpcInput,
+  type SparkLocalRpcMethod,
   type SparkTurnStreamPage,
 } from "@zendev-lab/spark-protocol";
 
@@ -50,7 +52,7 @@ export interface SparkAcpDaemon {
     cwd: string;
     workspaceId: string;
     cwdArtifactRef?: string;
-    title?: string;
+    name?: string;
   }): Promise<{ sessionId: string; createdAt: string }>;
   submitTurn(input: {
     sessionId: string;
@@ -69,7 +71,7 @@ export interface SparkAcpDaemon {
     error?: { message: string } | undefined;
   }>;
   cancelTurn(input: { invocationId: string; reason: string }): Promise<void>;
-  respondHuman(input: Record<string, unknown>): Promise<void>;
+  respondHuman(input: SparkLocalRpcInput<"human.interaction.respond">): Promise<void>;
   close(): void;
 }
 
@@ -115,7 +117,7 @@ export function createSparkAcpAgent(options: SparkAcpAgentOptions = {}): SparkAc
         cwd: workspace.cwd,
         workspaceId: workspace.id,
         ...(workspace.cwdArtifactRef ? { cwdArtifactRef: workspace.cwdArtifactRef } : {}),
-        title: "ACP session",
+        name: "ACP session",
       });
       const record: SparkAcpSessionRecord = {
         sparkSessionId: created.sessionId,
@@ -430,7 +432,7 @@ async function createOrpcDaemon(): Promise<SparkAcpDaemon> {
 }
 
 function orpcDaemon(handle: SparkDaemonOrpcClientHandle): SparkAcpDaemon {
-  const invoke = (method: Parameters<typeof invokeSparkDaemonOrpcLiveMethod>[1], params: unknown) =>
+  const invoke = <M extends SparkLocalRpcMethod>(method: M, params: SparkLocalRpcInput<M>) =>
     invokeSparkDaemonOrpcLiveMethod(handle.client, method, params);
   return {
     async resolveWorkspace(input) {
@@ -456,15 +458,22 @@ function orpcDaemon(handle: SparkDaemonOrpcClientHandle): SparkAcpDaemon {
       };
     },
     async createSession(input) {
-      const session = parseSparkSessionRegistryRecord(
+      const sessions = await invoke("session.list", {
+        scope: { kind: "workspace", workspaceId: input.workspaceId },
+        includeArchived: true,
+      });
+      const administrator = sessions.find((candidate) => candidate.owner.kind === "workspace");
+      if (!administrator) {
+        throw new Error(`Spark workspace ${input.workspaceId} has no Administrator Session`);
+      }
+      const session = parseSparkSessionProjection(
         await invoke("session.create", {
           scope: { kind: "workspace", workspaceId: input.workspaceId },
-          workspaceId: input.workspaceId,
+          supervisorSessionId: administrator.sessionId,
+          roleBinding: { kind: "none" },
           cwd: input.cwd,
           ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
-          roleRef: "role:builtin-administrator",
-          purpose: "acp_interactive",
-          title: input.title,
+          name: input.name,
         }),
       );
       return { sessionId: session.sessionId, createdAt: session.createdAt };

@@ -79,6 +79,12 @@ Each tool owner declares one canonical policy with:
 - applicable domains/phases;
 - approval requirements.
 
+`read` is host-local observation. `network_read` permits non-mutating external
+retrieval and is kept distinct so a Role may browse without receiving local or
+external write authority. `control` is reserved for host-internal execution
+receipts such as a supervised Role's terminal outcome; it grants no workspace
+or external mutation. External mutation remains `external_write`.
+
 An owner may refine that conservative registration envelope with argument-aware
 `resolvePolicy`. Unknown, malformed, or conflicting policy fails closed to an
 unknown effect, sequential execution, and required approval.
@@ -137,8 +143,9 @@ when optional fields are absent, and a target with multiple `in_progress`
 items fails before mutation. Event-style checklist verbs are decoder-only
 compatibility and are absent from the model schema.
 
-Task execution policy uses `sessionLifetime=task_run | task_revision` and may
-constrain isolation, comparison side,
+Direct Role Invocations and Session calls do not create Task attribution.
+
+Task execution policy may constrain continuity, isolation, comparison side,
 GPU count/memory/topology, exclusivity, concurrency keys, timeout, and bounded
 attempts. Legacy `continuity` is decode/projection-only. Resource leases are
 scheduler-owned durable state reconstructed from
@@ -227,6 +234,14 @@ a projected snapshot is never a write precondition.
 Task and Goal state may adopt the same pattern only after their multi-session
 write paths expose revision, lease, or equivalent conflict validation.
 
+## Role and Session invariants
+
+- `role` manages reusable definitions/model settings. A call instantiates an explicit-Role ephemeral Session, invokes it once, closes it, and retains only its receipt. It does not accept Session lifecycle, persistence, mail, or identity inputs.
+- `session` manages Owner-derived scoped lifecycle, role binding, calls, bindings, and mail. List/get expose Owner, lifetime, lifecycle, placement, Invocation activity, adapters, and external keys. The Workspace Administrator is provisioned separately and is protected from lifecycle mutation.
+- `send kind=request` asynchronously submits the exact body to an unarchived local session. Default `wait=accepted` returns after acceptance; when the target reaches a terminal status the daemon submits one completion-summary turn on the sender so it can synthesize immediately. `wait=completed` polls for a bounded terminal result without a second wake and without cancelling execution on wait timeout.
+
+Both call paths share `SessionRuntime.instantiate -> invoke -> close`; only lifetime and continuity differ. Full policy is in [`sessions-and-channels.md`](./sessions-and-channels.md).
+
 ## Artifact and evidence invariants
 
 `artifact` and `evidence` are intentionally separate:
@@ -269,19 +284,20 @@ fields.
 ## Role, Skill Worker, and Session invariants
 
 `role` must not accept lifecycle, mail, or a `sessionId`; the daemon
-`SessionSupervisor` instantiates the owned child and closes it after the call.
+`SessionSupervisor` instantiates an Invocation-owned ephemeral Session and
+closes it after the call.
 `session` is the only conversation lifecycle surface.
 
 Current builtin Role names and Model Types are `administrator → coordination`,
-`explorer → exploration`, `researcher → research`, `executor → implementation`,
-and `reviewer → verification`. Model Types are open semantic routing keys, not
-model tiers. `scout` and `worker` remain decode-only aliases for `explorer` and
-`executor`; new configuration and listings must not expose them.
+`explorer → exploration`, `executor → implementation`, and
+`reviewer → verification`. Model Types are open semantic routing keys, not
+model tiers. Legacy `scout/researcher/worker` selectors are accepted only by
+the v6 migration and are rejected by live Role selection after admission.
 
 A Skill Agent receives the selected Skill instructions plus an explicit,
 self-contained delegation packet rather than the parent transcript. Its direct
-work profile is bounded and cannot recurse into Roles/Skills, manage persistent
-Sessions, mutate Tasks, or publish Git/Artifact/Evidence state.
+work profile is bounded and cannot recurse into Roles/Skills, manage Sessions,
+mutate Tasks, or publish Git/Artifact/Evidence state.
 
 Side Threads are daemon-owned Sessions with a read-only effect boundary. TUI and
 Hub may control/project them but do not own their lifecycle, generation,

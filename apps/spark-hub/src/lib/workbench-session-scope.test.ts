@@ -9,19 +9,28 @@ import {
 
 describe("workbench session scope", () => {
   it("shows only sessions scoped to the active workspace and hides daemon-scoped ones", () => {
-    expect(isSessionVisibleInWorkbenchRail({ workspaceId: "ws_spore" }, "ws_spore")).toBe(true);
-    expect(isSessionVisibleInWorkbenchRail({ workspaceId: "spark" }, "ws_spore")).toBe(false);
     expect(
       isSessionVisibleInWorkbenchRail(
-        { workspaceId: "legacy", scope: { kind: "daemon", daemonId: "daemon-a" } },
+        { scope: { kind: "workspace", workspaceId: "ws_spore" } },
+        "ws_spore",
+      ),
+    ).toBe(true);
+    expect(
+      isSessionVisibleInWorkbenchRail(
+        { scope: { kind: "workspace", workspaceId: "spark" } },
+        "ws_spore",
+      ),
+    ).toBe(false);
+    expect(
+      isSessionVisibleInWorkbenchRail(
+        { scope: { kind: "daemon", daemonId: "daemon-a" } },
         "ws_spore",
       ),
     ).toBe(false);
   });
 
-  it("prefers canonical workspace scope over the legacy compatibility field", () => {
+  it("uses the canonical workspace scope", () => {
     const session = {
-      workspaceId: "legacy-workspace",
       scope: { kind: "workspace" as const, workspaceId: "ws_current" },
     };
 
@@ -70,27 +79,26 @@ describe("workbench session scope", () => {
   });
 
   it("builds adjacent parent and Side Thread rows without promoting orphans", () => {
-    const parentA = { sessionId: "parent-a", status: "ready" };
-    const parentB = { sessionId: "parent-b", status: "ready" };
+    const parentA = { sessionId: "parent-a", placement: "active" };
+    const parentB = { sessionId: "parent-b", placement: "active" };
     const child = {
       sessionId: "child-a",
-      status: "ready",
-      relation: {
+      placement: "active",
+      owner: {
         kind: "side_thread",
         parentSessionId: parentA.sessionId,
         generation: 2,
-        mode: "contextual",
       },
     };
     const archived = {
       ...child,
       sessionId: "child-archived",
-      status: "archived",
+      placement: "archived",
     };
     const orphan = {
       ...child,
       sessionId: "child-orphan",
-      relation: { ...child.relation, parentSessionId: "missing-parent" },
+      owner: { ...child.owner, parentSessionId: "missing-parent" },
     };
 
     expect(buildSessionRailTree([parentA, child, parentB, archived, orphan])).toEqual([

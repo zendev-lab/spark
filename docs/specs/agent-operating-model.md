@@ -12,7 +12,8 @@ lower layer.
 
 - Keep model-facing instructions in one language and one semantic source.
 - Separate how a Session works from what causes it to continue.
-- Prefer stable specialist responsibility over one large generalist Session.
+- Keep Role binding optional and explicit; default Sessions add no Role prompt
+  or Role capability ceiling.
 - Compile one or more Skills into one dedicated autonomous Agent invocation.
 - Keep prompt layers narrow enough that later prompts cannot silently override
   global intent, authority, or artifact policy.
@@ -27,8 +28,8 @@ lower layer.
 | **Continuation driver** | Who owns whether and when the Session receives another turn | `manual`, `goal`, `loop`, `repro` |
 | **Stage** | An ordered step inside a domain protocol or Workflow | Repro contract/baseline/alignment; Workflow stages |
 | **Status** | Lifecycle state of a durable object or run | `running`, `paused`, `complete`, `failed` |
-| **Role** | Stable division of labour | Runtime Operations, Quality Verification |
-| **Agent form** | The execution identity and authority envelope of one model invocation | persistent specialist, Role Agent, Skill Agent, Workflow child, leaf |
+| **Role** | Optional typed behavior and capability overlay | Administrator, Explorer, Executor, Reviewer |
+| **Agent form** | The execution identity and authority envelope of one model invocation | scoped Session, Role Invocation, Skill Agent, Workflow child, leaf |
 | **WorkflowRun** | A bounded orchestration program execution | saved or generated Workflow |
 
 `phase` is not the canonical term for `plan | execute`. Those values are
@@ -83,7 +84,7 @@ The mode answers **how this turn may work**:
   explicit failed/blocked Task, continue unrelated work, control the mode, or
   ask the user. Direct Role, Skill Agent, Workflow, Goal, Loop, Repro, and
   workspace-delegation dispatch is unavailable;
-- workers run in daemon-owned persistent Sessions keyed by owner Session,
+- workers run in daemon-owned scoped Sessions keyed by owner Session,
   Project, Role, primary GitChange, and the exact sorted writable GitChange
   set. One lane runs one Task at a time and reuses its Session after a terminal
   TaskRun. `continuity: "fresh"` creates a new worker Session;
@@ -164,8 +165,8 @@ Prompt layers have these owners:
 3. **Continuation driver**
    - only Goal, Loop, or Repro continuation and completion semantics.
 4. **Agent identity**
-   - persistent Role, owned Role call, Skill Agent, Workflow child, reviewer, or
-     leaf responsibility and authority.
+   - Session Role binding, ephemeral Role call, Skill Agent, Workflow child,
+     reviewer, or leaf responsibility and authority.
 5. **Tool guidance**
    - only tool-specific invocation constraints.
 6. **Dynamic context**
@@ -187,7 +188,7 @@ The coordinating Session owns:
 - clarifying material intent;
 - defining boundaries and success criteria;
 - decomposing independently owned responsibilities;
-- selecting persistent specialist Sessions, Role Agents, Skill Agents, or
+- selecting named scoped Sessions, Role Invocations, Skill Agents, or
   WorkflowRuns;
 - managing dependencies and unresolved decisions;
 - integrating results and presenting the user-facing outcome.
@@ -195,16 +196,14 @@ The coordinating Session owns:
 Substantial work should be delegated by independent responsibility, not by
 individual command, file, or mechanical step.
 
-A persistent specialist Session represents a stable division of labour across
-many requests. Reuse the closest existing responsibility before creating a new
-Session. A specialist directly completes ordinary work within its responsibility
-and does not recursively delegate routine substeps.
+A named scoped Session may represent a stable responsibility while its Owner
+remains active. Reuse it only when its explicit context and Owner still match;
+the Workspace Administrator is the only persistent Session.
 
-An owned Role Session is appropriate for one bounded invocation of a stable
-Role without conversation continuity. The daemon closes it when its owner
-settles; `RoleRun` remains a compatibility query projection. The compatibility
-projection reports `sessionLifetime=owned` rather than claiming persistent
-continuity. Workflow-agent calls remain owned by their active parent Invocation;
+An Invocation-owned ephemeral Role Session is appropriate for one bounded
+Invocation of a stable Role without conversation continuity. The daemon closes
+it when its Invocation settles; `RoleRun` remains a compatibility query
+projection and carries no lifecycle fields. Workflow-agent calls remain owned by their active parent Invocation;
 a display run name is not lifecycle authority. The projection is computed before
 close, then its structured outcome and final assistant result become the Session
 close candidate. The sealed close receipt is Session metadata and is never copied

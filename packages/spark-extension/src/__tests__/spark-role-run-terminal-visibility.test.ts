@@ -21,7 +21,7 @@ import {
 
 const projectRef = "proj:terminal-role-tui" as ProjectRef;
 const taskRef = "task:terminal-role-tui" as TaskRef;
-const roleRef = "role:builtin-worker" as RoleRef;
+const roleRef = "role:builtin-executor" as RoleRef;
 
 function graphWithRun(run: TaskRun): TaskGraph {
   const now = "2026-06-17T00:00:00.000Z";

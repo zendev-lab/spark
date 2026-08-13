@@ -64,7 +64,7 @@ export function registerSparkGoalTool(
     name: "goal",
     label: "Spark Goal",
     description:
-      "Manage the current Pi session's durable goal state. Actions: status, set, start, pause, resume, clear, edit, complete. Active goals are autonomous foreground loops that prefer the main session for scheduling. Asks wait for the user first and reviewer fallback may resolve material decisions only after timeout; when blocked by a problem the user can unblock, call ask instead of guessing or spawning subagents. Final goal completion remains reviewer-gated (main session requests, reviewer audits, Spark applies approved transition). Autonomous pause is rejected; blockers must be asked about or resolved instead of pausing.",
+      "Manage the current Session's durable Goal state. Actions: status, set, start, pause, resume, clear, edit, complete. Active Goals are autonomous foreground loops that keep scheduling and reconciliation on the owner Session. Asks wait for the user first and reviewer fallback may resolve material decisions only after timeout; when blocked by a problem the user can unblock, call ask instead of guessing or spawning subagents. Final Goal completion remains reviewer-gated (owner Session requests, Reviewer audits, Spark applies the approved transition). Autonomous pause is rejected; blockers must be asked about or resolved instead of pausing.",
     policy: {
       effect: "local_write",
       executionMode: "sequential",
@@ -1013,7 +1013,7 @@ function renderGoalStatus(
   if (relationship.recommendedAction)
     lines.push(`Recommended next action: ${relationship.recommendedAction}`);
   lines.push(
-    'Actions: goal({ action: "status" }), goal({ action: "resume" }), goal({ action: "edit", objective, reason }), goal({ action: "complete" }), goal({ action: "clear" }), goal({ action: "start" }); active goal asks wait for the user first and use reviewer fallback only after timeout, completion is reviewer-gated (main session requests, reviewer audits, Spark applies approved state), and autonomous pause is forbidden.',
+    'Actions: goal({ action: "status" }), goal({ action: "resume" }), goal({ action: "edit", objective, reason }), goal({ action: "complete" }), goal({ action: "clear" }), goal({ action: "start" }); active Goal asks wait for the user first and use Reviewer fallback only after timeout, completion is reviewer-gated (owner Session requests, Reviewer audits, Spark applies approved state), and autonomous pause is forbidden.',
   );
   return lines.join("\n");
 }

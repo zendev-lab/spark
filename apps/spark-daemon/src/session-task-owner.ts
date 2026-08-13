@@ -1,7 +1,4 @@
-import type {
-  SparkSessionOwner,
-  SparkTaskExecutionSessionRelation,
-} from "@zendev-lab/spark-protocol/session-assignment";
+import type { SparkSessionOwner } from "@zendev-lab/spark-protocol/session-assignment";
 import type { TaskRun } from "@zendev-lab/spark-core";
 import { defaultTaskGraphStore, isUnfinishedTaskStatus } from "@zendev-lab/spark-tasks";
 
@@ -14,7 +11,6 @@ export interface TaskSessionOwnerSubject {
   owner: SparkSessionOwner;
   workspaceId: string;
   sessionId: string;
-  relation: SparkTaskExecutionSessionRelation;
 }
 
 export interface TaskSessionOwnerValidationOptions {
@@ -28,26 +24,22 @@ export async function isTaskSessionOwnerValid(
   options: TaskSessionOwnerValidationOptions,
 ): Promise<boolean> {
   if (subject.owner.kind !== "task_run" && subject.owner.kind !== "task_revision") return false;
-  if (
-    (subject.owner.kind === "task_run" && subject.owner.ref !== subject.relation.runRef) ||
-    (subject.owner.kind === "task_revision" && subject.owner.ref !== subject.relation.jobId)
-  )
-    return false;
+  const owner = subject.owner;
   const cwd = options.resolveWorkspaceCwd(subject.workspaceId)?.trim();
   if (!cwd) return false;
   const graph = await (options.loadGraph ?? loadTaskGraph)(cwd);
   if (!graph) return false;
   const run = graph
-    .runs(subject.relation.projectRef)
+    .runs(owner.projectRef)
     .find((candidate) =>
-      subject.owner.kind === "task_run"
-        ? candidate.ref === subject.owner.ref
-        : candidate.execution?.jobId === subject.owner.ref,
+      owner.kind === "task_run"
+        ? candidate.ref === owner.runRef
+        : candidate.ref === owner.originatingRunRef && candidate.execution?.jobId === owner.jobId,
     );
-  if (!run || run.taskRef !== subject.relation.taskRef) return false;
+  if (!run || run.taskRef !== owner.taskRef) return false;
   const executionSessionId = run.execution?.sessionId ?? run.execution?.executionSessionId;
   if (executionSessionId !== subject.sessionId) return false;
-  if (subject.owner.kind === "task_run") {
+  if (owner.kind === "task_run") {
     return run.status === "queued" || run.status === "running";
   }
   try {

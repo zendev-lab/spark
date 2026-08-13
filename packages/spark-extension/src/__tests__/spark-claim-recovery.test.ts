@@ -86,7 +86,7 @@ test("stale claim recovery refuses while an active role-run process exists", asy
   });
   const activeProcess: ActiveSparkRoleRunProcess = {
     runRef: "run:active" as RunRef,
-    roleRef: "role:builtin-worker" as RoleRef,
+    roleRef: "role:builtin-executor" as RoleRef,
     runName: "worker-active",
     cwd: process.cwd(),
     startedAt: "2026-06-17T00:00:00.000Z",

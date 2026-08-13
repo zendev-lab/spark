@@ -1,5 +1,5 @@
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
+import type { SparkSessionState } from "@zendev-lab/spark-protocol";
 
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
@@ -42,7 +42,7 @@ interface CompletionNotificationCandidate {
 }
 
 interface CompletionNotificationSender {
-  session: SparkSessionRegistryRecord;
+  session: SparkSessionState;
   cwd: string;
   model: Awaited<ReturnType<SparkDaemonModelControl["effectiveModel"]>> | undefined;
   thinkingLevel: Awaited<ReturnType<SparkDaemonModelControl["effectiveThinkingLevel"]>> | undefined;
@@ -241,7 +241,7 @@ async function completionNotificationSender(
 ): Promise<CompletionNotificationSender | SessionRequestCompletionNotifyResult> {
   const session = await deps.sessionRegistry.get(fromSessionId);
   if (!session) return skipped("sender_missing");
-  if (session.status === "archived") return skipped("sender_archived");
+  if (session.placement === "archived") return skipped("sender_archived");
   const cwd = sessionExecutionCwd(session, deps.resolveWorkspaceCwd);
   if (!cwd) return skipped("sender_cwd_unavailable");
   const model = deps.modelControl
@@ -415,7 +415,7 @@ function trimmedString(value: unknown): string | undefined {
 }
 
 function sessionExecutionCwd(
-  session: SparkSessionRegistryRecord,
+  session: SparkSessionState,
   resolveWorkspaceCwd: SessionRequestCompletionNotifyDependencies["resolveWorkspaceCwd"],
 ): string | undefined {
   const sessionCwd = session.cwd?.trim();

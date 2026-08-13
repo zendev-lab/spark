@@ -258,6 +258,12 @@ async function applyLocalRelocation(
   const identityConfig: SparkDaemonConfig = {
     installationId: current.installationId,
     displayName: current.displayName,
+    ...(current.invocationConcurrency !== undefined
+      ? { invocationConcurrency: current.invocationConcurrency }
+      : {}),
+    ...(current.reproFormalEvidencePublicKeysJson
+      ? { reproFormalEvidencePublicKeysJson: current.reproFormalEvidencePublicKeysJson }
+      : {}),
   };
   let targetProfileWritten = false;
   let configWritten = false;

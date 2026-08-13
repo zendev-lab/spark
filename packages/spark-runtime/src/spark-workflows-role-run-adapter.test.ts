@@ -12,7 +12,7 @@ test("spark-workflows role-run adapter sends model agents through model runner h
   const roleRequests: unknown[] = [];
   const modelRequests: unknown[] = [];
   const agent = createSparkWorkflowRoleRunAdapter({
-    roleRef: "role:builtin-worker",
+    roleRef: "role:builtin-executor",
     async runRoleInstruction(request) {
       roleRequests.push(request);
       return { text: "role result" };
@@ -59,7 +59,7 @@ test("spark-workflows role-run adapter sends model agents through model runner h
 test("spark-workflows role-run adapter honors an explicit reusable roleRef", async () => {
   let selectedRoleRef: string | undefined;
   const agent = createSparkWorkflowRoleRunAdapter({
-    roleRef: "role:builtin-worker",
+    roleRef: "role:builtin-executor",
     async runRoleInstruction(request) {
       selectedRoleRef = request.roleRef;
       return { text: "specialist result" };
@@ -78,7 +78,7 @@ test("spark-workflows role-run adapter honors an explicit reusable roleRef", asy
 test("spark-workflows role-run adapter forwards child usage telemetry", async () => {
   const reported: unknown[] = [];
   const agent = createSparkWorkflowRoleRunAdapter({
-    roleRef: "role:builtin-worker",
+    roleRef: "role:builtin-executor",
     async runRoleInstruction() {
       return {
         text: "role result",
@@ -107,7 +107,7 @@ test("spark-workflows role-run adapter forwards child usage telemetry", async ()
 
 test("spark-workflows role-run adapter fails model agents when model hook is missing", async () => {
   const agent = createSparkWorkflowRoleRunAdapter({
-    roleRef: "role:builtin-worker",
+    roleRef: "role:builtin-executor",
     async runRoleInstruction() {
       return { text: "role result" };
     },
@@ -127,7 +127,7 @@ test("spark-workflows role-run adapter maps workflow agents to Spark dependency 
   const requests: unknown[] = [];
   const telemetryReports: unknown[] = [];
   const agent = createSparkWorkflowRoleRunAdapter({
-    roleRef: "role:builtin-worker",
+    roleRef: "role:builtin-executor",
     graftBaseRef: "tree:isolated",
     async runRoleInstruction(request) {
       requests.push(request);
@@ -187,7 +187,7 @@ test("spark-workflows role-run adapter maps workflow agents to Spark dependency 
 
 test("Spark workflow role-run adapter refuses graft isolation without a base", async () => {
   const agent = createSparkWorkflowRoleRunAdapter({
-    roleRef: "role:builtin-worker",
+    roleRef: "role:builtin-executor",
     async runRoleInstruction() {
       return { text: "should not run" };
     },

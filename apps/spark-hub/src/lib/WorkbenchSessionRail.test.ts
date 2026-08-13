@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import WorkbenchSessionRail from "./WorkbenchSessionRail.svelte";
 import { getDictionary } from "./i18n";
+import { workspaceSessionRecord } from "../../../../test/support/session-fixtures.ts";
 
 const dictionary = getDictionary("en");
 const sessionMessages = dictionary.sessions;
@@ -20,6 +21,7 @@ const messages = {
   channelLabels: sessionMessages.channelLabels,
   sessionTypes: sessionMessages.sessionTypes,
   archiveSubmit: sessionMessages.archiveSubmit,
+  closeSubmit: sessionMessages.closeSubmit,
   showArchived: sessionMessages.showArchived,
   hideArchived: sessionMessages.hideArchived,
   archivedLabel: sessionMessages.archivedLabel,
@@ -29,32 +31,28 @@ const messages = {
 const workspaces = [{ id: "workspace-1", slug: "spark", name: "Spark" }];
 const now = "2026-07-30T12:00:00.000Z";
 const sessions = [
-  {
+  workspaceSessionRecord({
     sessionId: "regular-session",
     workspaceId: "workspace-1",
-    scope: { kind: "workspace" as const, workspaceId: "workspace-1" },
-    title: "Regular conversation",
-    status: "idle",
+    name: "Regular conversation",
     createdAt: now,
     updatedAt: now,
-  },
-  {
+  }),
+  workspaceSessionRecord({
     sessionId: "channel-session",
     workspaceId: "workspace-1",
-    scope: { kind: "workspace" as const, workspaceId: "workspace-1" },
-    title: "channel qqbot:group:reviewers",
-    status: "idle",
+    name: "channel qqbot:group:reviewers",
     bindings: [{ kind: "channel", adapter: "qqbot", externalKey: "qqbot:group:reviewers" }],
     createdAt: now,
     updatedAt: now,
-  },
+  }),
 ];
 
 const hierarchySessions = [
-  { ...sessions[0]!, sessionId: "parent-alpha", title: "Parent Alpha", status: "ready" },
+  { ...sessions[0]!, sessionId: "parent-alpha", name: "Parent Alpha" },
   sideThread("alpha-context", "parent-alpha", 1, "contextual"),
   sideThread("alpha-tangent", "parent-alpha", 2, "tangent"),
-  { ...sessions[0]!, sessionId: "parent-beta", title: "Parent Beta", status: "ready" },
+  { ...sessions[0]!, sessionId: "parent-beta", name: "Parent Beta" },
   sideThread("beta-context", "parent-beta", 1, "contextual"),
   sideThread("alpha-archived", "parent-alpha", 3, "contextual", "archived"),
 ];
@@ -64,14 +62,15 @@ function sideThread(
   parentSessionId: string,
   generation: number,
   mode: "contextual" | "tangent",
-  status = "ready",
+  placement: "active" | "archived" = "active",
 ) {
   return {
     ...sessions[0]!,
     sessionId,
-    title: `${mode} ${generation}`,
-    status,
-    relation: { kind: "side_thread" as const, parentSessionId, generation, mode },
+    name: `${mode} ${generation}`,
+    placement,
+    owner: { kind: "side_thread" as const, parentSessionId, generation },
+    sideThreadMode: mode,
   };
 }
 
@@ -126,6 +125,27 @@ describe("WorkbenchSessionRail component contract", () => {
     expect(channel).not.toContain('action="/spark/sessions?/archiveSession"');
   });
 
+  it("pins the Administrator in its own group without lifecycle actions", () => {
+    const administrator = workspaceSessionRecord({
+      sessionId: "sess_admin_workspace_1",
+      workspaceId: "workspace-1",
+      administrator: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const body = renderRail({
+      sessions: [sessions[0], administrator],
+      selectedSessionId: administrator.sessionId,
+    });
+
+    expect(body.indexOf(messages.sessionTypes.administrator)).toBeLessThan(
+      body.indexOf(messages.sessionTypes.workspace),
+    );
+    expect(body).toContain('href="/spark/sessions/sess_admin_workspace_1"');
+    expect(body).not.toContain('action="/spark/sessions?/archiveSession"');
+    expect(body).not.toContain('action="/spark/sessions?/closeSession"');
+  });
+
   it("keeps cached conversations searchable while mutation control is offline", () => {
     const body = renderRail({ sessionControlAvailable: false });
 
@@ -164,7 +184,7 @@ describe("WorkbenchSessionRail component contract", () => {
     expect(body.indexOf('data-session-id="parent-beta"')).toBeLessThan(
       body.indexOf('data-session-id="beta-context"'),
     );
-    expect(body).toContain("mode=contextual • generation=1 • status=ready");
+    expect(body).toContain("generation=1 • lifecycle=open • activity=idle");
     expect(body).toContain('href="/spark/sessions/parent-alpha"');
     expect(body).not.toContain('data-session-id="alpha-archived"');
     expect(body).toContain(`${messages.showArchived} (1)`);

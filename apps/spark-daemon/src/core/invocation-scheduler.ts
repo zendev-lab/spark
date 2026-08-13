@@ -39,8 +39,12 @@ import {
   type SparkDaemonTaskExecutor,
   type SparkDaemonTokenUsageObservation,
 } from "./types.ts";
+import {
+  DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY,
+  INVOCATION_SCHEDULER_QUESTION_OVERFLOW,
+} from "./invocation-scheduler-policy.ts";
 
-export const DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY = 4;
+export { DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY } from "./invocation-scheduler-policy.ts";
 /**
  * Daemon turns are durable background work, so their default lifetime is
  * bounded by explicit cancellation rather than an arbitrary wall-clock
@@ -49,12 +53,17 @@ export const DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY = 4;
  */
 export const DEFAULT_INVOCATION_TASK_TIMEOUT_MS = 0;
 export const DEFAULT_INVOCATION_ABORT_DRAIN_MS = 1_000;
-const MAX_BLOCKING_QUESTION_OVERFLOW = 1;
+export { INVOCATION_SCHEDULER_QUESTION_OVERFLOW } from "./invocation-scheduler-policy.ts";
 
 interface ActiveInvocation {
   invocation: SparkInvocationRecord;
   controller: AbortController;
+  commitState: InvocationCommitState;
   settled: Promise<void>;
+}
+
+interface InvocationCommitState {
+  started: boolean;
 }
 
 export interface SparkInvocationSchedulerOptions {
@@ -157,13 +166,28 @@ export class SparkInvocationScheduler {
       const running = this.store.listPage({ status: "running", limit: 100 }).invocations;
       if (running.length === 0) return recovered;
       for (const invocation of running) {
+        let task: SparkDaemonTask;
         try {
-          validateSparkDaemonTask(invocation.task);
+          task = validateSparkDaemonTask(invocation.task);
         } catch {
           this.store.complete(invocation.invocationId, {
             status: "failed",
             errorCode: SPARK_INVOCATION_INTERRUPTED_ERROR_CODE,
             errorMessage: SPARK_INVOCATION_INTERRUPTED_ERROR_MESSAGE,
+            ...(now ? { now } : {}),
+          });
+          recovered += 1;
+          continue;
+        }
+        if (
+          this.store.hasDurableCommitStarted(invocation.invocationId) &&
+          task.type !== "session.compact"
+        ) {
+          this.store.complete(invocation.invocationId, {
+            status: "failed",
+            errorCode: "DURABLE_COMMIT_OUTCOME_UNKNOWN",
+            errorMessage:
+              "The daemon exited after this invocation entered its durable commit phase; inspect the operation result before retrying.",
             ...(now ? { now } : {}),
           });
           recovered += 1;
@@ -193,7 +217,7 @@ export class SparkInvocationScheduler {
     }
     if (
       this.active.size >= this.concurrency &&
-      this.activeQuestionCount() < MAX_BLOCKING_QUESTION_OVERFLOW
+      this.activeQuestionCount() < INVOCATION_SCHEDULER_QUESTION_OVERFLOW
     ) {
       const question = this.store.claimNext(
         this.workerId,
@@ -214,9 +238,12 @@ export class SparkInvocationScheduler {
   }
 
   cancel(invocationId: string, reason = "cancel requested"): boolean {
-    const outcome = this.store.requestCancellation(invocationId, reason);
     const active = this.active.get(invocationId) ?? this.structuredActive.get(invocationId);
-    if (active) active.controller.abort(new InvocationCancelledError(reason));
+    if (active?.commitState.started) return false;
+    const outcome = this.store.requestCancellation(invocationId, reason);
+    if (active && outcome === "requested") {
+      active.controller.abort(new InvocationCancelledError(reason));
+    }
     return outcome === "cancelled" || outcome === "requested";
   }
 
@@ -243,6 +270,7 @@ export class SparkInvocationScheduler {
 
   stop(reason = "Spark daemon scheduler stopped"): void {
     for (const active of [...this.active.values(), ...this.structuredActive.values()]) {
+      if (active.commitState.started) continue;
       active.controller.abort(new InvocationCancelledError(reason));
     }
   }
@@ -277,14 +305,17 @@ export class SparkInvocationScheduler {
       return this.store.require(invocationId);
     }
     const controller = new AbortController();
+    const commitState: InvocationCommitState = {
+      started: this.store.hasDurableCommitStarted(invocationId),
+    };
     let executorSettled: Promise<unknown> | undefined;
-    const settled = this.run(invocation, task, controller, (promise) => {
+    const settled = this.run(invocation, task, controller, commitState, (promise) => {
       executorSettled = promise;
     }).finally(() => {
       this.structuredActive.delete(invocationId);
       if (executorSettled) void executorSettled.catch(() => undefined);
     });
-    this.structuredActive.set(invocationId, { invocation, controller, settled });
+    this.structuredActive.set(invocationId, { invocation, controller, commitState, settled });
     await settled;
     return this.store.require(invocationId);
   }
@@ -297,6 +328,7 @@ export class SparkInvocationScheduler {
 
   private applyCancellationRequests(): void {
     for (const active of [...this.active.values(), ...this.structuredActive.values()]) {
+      if (active.commitState.started) continue;
       const persisted = this.store.getSummary(active.invocation.invocationId);
       if (persisted?.status === "running" && persisted.cancelReason) {
         active.controller.abort(new InvocationCancelledError(persisted.cancelReason));
@@ -335,10 +367,13 @@ export class SparkInvocationScheduler {
       throw new Error("restartCheckpoint is daemon-internal and lacks a durable checkpoint event");
     }
     const controller = new AbortController();
+    const commitState: InvocationCommitState = {
+      started: this.store.hasDurableCommitStarted(invocation.invocationId),
+    };
     const sessionId = getSparkDaemonTaskSessionId(task);
     let executorSettled: Promise<unknown> | undefined;
     if (sessionId) this.activeSessions.add(sessionId);
-    const settled = this.run(invocation, task, controller, (promise) => {
+    const settled = this.run(invocation, task, controller, commitState, (promise) => {
       executorSettled = promise;
     }).finally(() => {
       this.active.delete(invocation.invocationId);
@@ -347,18 +382,20 @@ export class SparkInvocationScheduler {
       if (executorSettled) void executorSettled.then(releaseSession, releaseSession);
       else releaseSession();
     });
-    this.active.set(invocation.invocationId, { invocation, controller, settled });
+    this.active.set(invocation.invocationId, { invocation, controller, commitState, settled });
   }
 
   private async run(
     invocation: SparkInvocationRecord,
     task: SparkDaemonTask,
     controller: AbortController,
+    commitState: InvocationCommitState,
     trackExecutorSettlement: (promise: Promise<unknown>) => void,
   ): Promise<void> {
     this.emit(lifecycleEvent(invocation.invocationId, task, "running"));
     const timeout = new InvocationTimeoutController(this.taskTimeoutMs, controller);
-    timeout.start();
+    if (commitState.started) timeout.disable();
+    else timeout.start();
     let executorSettled: Promise<unknown> | undefined;
     let attemptSession: ExecutionAttemptSession | undefined;
     let streamedEventCount = 0;
@@ -370,7 +407,7 @@ export class SparkInvocationScheduler {
           ? "anonymous"
           : task.type === "loop.tick"
             ? "anonymous"
-            : task.hiddenExecution
+            : task.type === "session.run" && task.hiddenExecution
               ? "anonymous"
               : "persistent";
     let rootUsageExecution: ReturnType<SparkTokenUsageStore["registerExecution"]> | undefined;
@@ -558,6 +595,26 @@ export class SparkInvocationScheduler {
         invocationId: invocation.invocationId,
         signal: controller.signal,
         timeoutMs: this.taskTimeoutMs,
+        beginDurableCommit: () => {
+          if (commitState.started) return;
+          if (controller.signal.aborted) {
+            throw abortReason(controller.signal, new Error("invocation aborted before commit"));
+          }
+          const persisted = this.store.require(invocation.invocationId);
+          if (persisted.status !== "running") {
+            throw new Error(
+              `Invocation ${invocation.invocationId} is ${persisted.status} before durable commit`,
+            );
+          }
+          if (persisted.cancelReason) {
+            const error = new InvocationCancelledError(persisted.cancelReason);
+            controller.abort(error);
+            throw error;
+          }
+          this.store.markDurableCommitStarted(invocation.invocationId);
+          commitState.started = true;
+          timeout.disable();
+        },
         withPausedTimeout: async <T>(operation: () => Promise<T>) =>
           await timeout.runPaused(operation),
         yieldForRestartIfRequested: (checkpoint: SparkTurnResumeCheckpoint) => {
@@ -586,7 +643,10 @@ export class SparkInvocationScheduler {
       executeInProcess = () => this.executeTask(task, context);
       executorSettled = attemptSession.execute();
       trackExecutorSettlement(executorSettled);
-      const result = await Promise.race([executorSettled, abortPromise(controller.signal)]);
+      const result = await Promise.race([
+        executorSettled,
+        abortPromise(controller.signal, () => commitState.started),
+      ]);
       await bindLateReproUsageScope();
       if (streamedEventCount === 0) {
         for (const event of daemonEventsFromTaskResult(result, task, invocation.invocationId)) {
@@ -603,7 +663,11 @@ export class SparkInvocationScheduler {
         await bindLateReproUsageScope();
         return;
       }
-      const reason = abortReason(controller.signal, error);
+      const reason = commitState.started
+        ? error instanceof Error
+          ? error
+          : new Error(String(error))
+        : abortReason(controller.signal, error);
       const usageStatus =
         reason instanceof InvocationCancelledError ? ("cancelled" as const) : ("failed" as const);
       const attemptStatus =
@@ -810,6 +874,7 @@ class InvocationTimeoutController {
   private remainingMs: number;
   private startedAt: number | undefined;
   private pauseDepth = 0;
+  private disabled = false;
 
   constructor(timeoutMs: number, controller: AbortController) {
     this.timeoutMs = timeoutMs;
@@ -818,7 +883,7 @@ class InvocationTimeoutController {
   }
 
   start(): void {
-    if (this.timeoutMs > 0) this.arm();
+    if (this.timeoutMs > 0 && !this.disabled) this.arm();
   }
 
   async runPaused<T>(operation: () => Promise<T>): Promise<T> {
@@ -828,7 +893,7 @@ class InvocationTimeoutController {
       return await operation();
     } finally {
       this.pauseDepth -= 1;
-      if (this.pauseDepth === 0 && !this.controller.signal.aborted) this.arm();
+      if (this.pauseDepth === 0 && !this.controller.signal.aborted && !this.disabled) this.arm();
     }
   }
 
@@ -838,8 +903,14 @@ class InvocationTimeoutController {
     this.startedAt = undefined;
   }
 
+  disable(): void {
+    this.disabled = true;
+    this.clear();
+  }
+
   private arm(): void {
-    if (this.timeoutMs <= 0 || this.timer || this.controller.signal.aborted) return;
+    if (this.timeoutMs <= 0 || this.timer || this.controller.signal.aborted || this.disabled)
+      return;
     this.startedAt = Date.now();
     this.timer = setTimeout(() => {
       this.timer = undefined;
@@ -861,9 +932,12 @@ class InvocationTimeoutController {
   }
 }
 
-function abortPromise(signal: AbortSignal): Promise<never> {
+function abortPromise(signal: AbortSignal, commitStarted: () => boolean): Promise<never> {
   return new Promise((_, reject) => {
-    const rejectAbort = () => reject(abortReason(signal, new Error("invocation aborted")));
+    const rejectAbort = () => {
+      if (commitStarted()) return;
+      reject(abortReason(signal, new Error("invocation aborted")));
+    };
     if (signal.aborted) rejectAbort();
     else signal.addEventListener("abort", rejectAbort, { once: true });
   });

@@ -111,7 +111,13 @@ export interface ShortcutConfig {
 }
 
 /** Observable side-effect class used by Spark host execution policy. */
-export type ToolEffect = "read" | "local_write" | "external_write" | "destructive";
+export type ToolEffect =
+  | "read"
+  | "network_read"
+  | "control"
+  | "local_write"
+  | "external_write"
+  | "destructive";
 
 /**
  * Static effect declaration for an extension lifecycle hook. A host with an
@@ -353,6 +359,8 @@ function isOptionalToolEffect(value: unknown): value is ToolEffect | undefined {
   return (
     value === undefined ||
     value === "read" ||
+    value === "network_read" ||
+    value === "control" ||
     value === "local_write" ||
     value === "external_write" ||
     value === "destructive"
@@ -760,13 +768,13 @@ export interface ExtensionRoleRunRequest {
   role: {
     ref: RoleRef;
     id: string;
+    revision: string;
     systemPrompt: string;
-    revision?: number;
     source?: "builtin" | "extension" | "project" | "user";
-    capabilities?: Array<"read" | "write" | "exec" | "net" | "interact" | "spawn">;
+    capabilities?: Array<"read" | "write" | "exec" | "net" | "interact" | "manage" | "spawn">;
     modelType?: string;
-    instantiation?: "persistent" | "owned";
     allowedTools?: string[];
+    allowedToolEffects?: ToolEffect[];
   };
   instruction: {
     roleRef: RoleRef;
@@ -776,19 +784,14 @@ export interface ExtensionRoleRunRequest {
   record: {
     ref: RunRef;
     roleRef: RoleRef;
+    /** Role definition revision frozen when the Invocation started. */
+    roleRevision: string;
     runName?: string;
     instruction: string;
     status: ExtensionRoleRunStatus;
     startedAt?: string;
     finishedAt?: string;
-    launch?: ExtensionRoleLaunchMode;
     model?: string;
-    sessionDir?: string;
-    forkFromSession?: string;
-    noSession?: boolean;
-    sessionPersistence?: "anonymous" | "persistent";
-    /** Canonical daemon lifecycle; owned Sessions are closed with their caller. */
-    sessionLifetime?: "persistent" | "owned";
     outcome?: RoleRunCompletionOutcome;
   };
   cwd: string;
@@ -801,8 +804,6 @@ export interface ExtensionRoleRunRequest {
   launch?: ExtensionRoleLaunchMode;
   forkFromSession?: string;
   model?: string;
-  noSession?: boolean;
-  sessionPersistence?: "anonymous" | "persistent";
   /**
    * Reviewer-only compatibility authority. Hosts may emit the stable native
    * compatibility outcome only for this exact marker and only when no event

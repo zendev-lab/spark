@@ -23,11 +23,9 @@
     startWorkspaceOccupancyHeartbeat,
   } from "$lib/workspace-occupancy-client";
 
-  interface SessionRecord extends HubSearchSession {
+  type SessionRecord = HubSearchSession & {
     activityUpdatedAt?: string;
-    createdAt: string;
-    updatedAt: string;
-  }
+  };
 
   let { data, children } = $props();
 
@@ -166,6 +164,7 @@
         channelLabels: data.messages.sessions.channelLabels,
         sessionTypes: data.messages.sessions.sessionTypes,
         archiveSubmit: data.messages.sessions.archiveSubmit,
+        closeSubmit: data.messages.sessions.closeSubmit,
         showArchived: data.messages.sessions.showArchived,
         hideArchived: data.messages.sessions.hideArchived,
         archivedLabel: data.messages.sessions.archivedLabel,

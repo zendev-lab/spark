@@ -27,6 +27,7 @@
 
   function invocationHref(invocationId: string) {
     const query = new URLSearchParams();
+    if (data.filters.workspace) query.set("workspace", data.filters.workspace);
     query.set("status", data.filters.status);
     if (data.filters.sessionId) query.set("session", data.filters.sessionId);
     if (data.filters.offset > 0) query.set("offset", String(data.filters.offset));
@@ -36,6 +37,7 @@
 
   function pageHref(offset: number) {
     const query = new URLSearchParams();
+    if (data.filters.workspace) query.set("workspace", data.filters.workspace);
     query.set("status", data.filters.status);
     if (data.filters.sessionId) query.set("session", data.filters.sessionId);
     if (offset > 0) query.set("offset", String(offset));
@@ -77,6 +79,7 @@
   {/if}
 
   <form class="filters" method="GET">
+    {#if data.filters.workspace}<input type="hidden" name="workspace" value={data.filters.workspace} />{/if}
     <label>
       <span>{copy.statusFilter}</span>
       <select name="status" value={data.filters.status}>

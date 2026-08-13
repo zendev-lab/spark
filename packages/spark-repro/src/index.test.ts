@@ -127,7 +127,7 @@ describe("spark-repro", () => {
         return {
           ...definition,
           goalId: completed.reproId,
-          roleRef: "role:builtin-scout" as RoleRef,
+          roleRef: "role:builtin-explorer" as RoleRef,
           taskRefs: index < 2 ? [sharedTaskRef] : index === 2 ? [uniqueTaskRef] : [],
           ...(index === 2
             ? {

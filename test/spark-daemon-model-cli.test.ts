@@ -7,6 +7,7 @@ import {
   type SparkDaemonClientOptions,
 } from "../apps/spark-tui/src/cli/daemon.ts";
 import type { SparkModelControlSnapshot } from "@zendev-lab/spark-protocol";
+import { workspaceSessionRecord } from "./support/session-fixtures.ts";
 
 const snapshot: SparkModelControlSnapshot = {
   providers: [
@@ -57,15 +58,15 @@ function fakeClient(
     controlRequest: async (method, params) => {
       requests.push({ method, params });
       if (method === "session.model.set") {
-        return {
+        return workspaceSessionRecord({
           sessionId: "sess_demo",
-          scope: { kind: "workspace", workspaceId: "ws_demo" },
-          bindings: [],
-          status: "ready",
-          model: (params as { model: unknown }).model,
+          workspaceId: "ws_demo",
+          supervisorSessionId: "sess_administrator",
+          model: (params as { model: NonNullable<SparkModelControlSnapshot["defaultModel"]> })
+            .model,
           createdAt: "2026-07-31T00:00:00.000Z",
           updatedAt: "2026-07-31T00:00:00.000Z",
-        };
+        });
       }
       return snapshot;
     },

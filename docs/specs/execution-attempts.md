@@ -18,6 +18,14 @@ executor through that adapter. A later bounded process backend may replace the
 adapter only if it preserves this contract and the same daemon-owned state
 machine.
 
+The daemon's startup-only `invocationConcurrency` setting bounds concurrent root
+invocations across distinct sessions. Its default is `4` and its valid range is
+`1..64`. One additional `session.question` invocation may run while those root
+slots are full so a blocking question can make progress. Daemon status reports
+the effective backend, root concurrency, and question overflow. This is an
+admission limit, not an operating-system worker count: changing it neither
+creates a persistent worker pool nor relaxes same-session serialization.
+
 ## Identity and envelope
 
 Every message carries:

@@ -11,7 +11,7 @@ import { isTaskStatus } from "@zendev-lab/spark-core";
 import {
   createId,
   SPARK_PROTOCOL_VERSION,
-  type SparkSessionRegistryRecord,
+  type SparkSessionProjection,
   type SparkSessionView,
   type SparkTaskView,
   type SparkThinkingLevel,
@@ -103,7 +103,6 @@ export interface SparkCliRuntimeOptions {
   sessionId?: string;
   sessionDir?: string;
   sparkSessionKey?: string;
-  noSession?: boolean;
   wait?: boolean;
   name?: string;
   extensions?: string[];
@@ -293,9 +292,6 @@ function parseSparkNativeOptions(argv: string[]): ParsedSparkNativeOptions {
       case "--spark-session-key":
         options.sparkSessionKey = readRequired(argv, ++index, arg);
         break;
-      case "--no-session":
-        options.noSession = true;
-        break;
       case "--wait":
       case "-w":
         options.wait = true;
@@ -392,7 +388,7 @@ interface SparkCliLegacySessionTarget {
 
 interface SparkCliControlPlaneSelection {
   workspace?: SparkSessionSelectorWorkspace;
-  session?: SparkSessionRegistryRecord;
+  session?: SparkSessionProjection;
   legacySession?: SparkCliLegacySessionTarget;
   create?: boolean;
   cancelled?: boolean;
@@ -424,15 +420,19 @@ async function selectSparkCliWorkspaceSession(
       if (session.scope.kind !== "workspace") {
         throw new Error(`Spark TUI session has no workspace owner: ${target}`);
       }
+      if (session.lifecycle !== "open") {
+        throw new Error(`Spark TUI session is ${session.lifecycle}: ${target}`);
+      }
       const activeSession =
-        session.status === "archived"
+        session.placement === "archived"
           ? await clientRestoreManagedSession(session.sessionId, daemonClient)
           : session;
       if (
         activeSession.sessionId !== session.sessionId ||
         activeSession.scope.kind !== "workspace" ||
         activeSession.scope.workspaceId !== session.scope.workspaceId ||
-        activeSession.status === "archived"
+        activeSession.lifecycle !== "open" ||
+        activeSession.placement === "archived"
       ) {
         throw new Error(`Spark TUI session restore returned an invalid record: ${target}`);
       }
@@ -485,14 +485,18 @@ async function selectSparkCliWorkspaceSession(
       `Selected Spark session workspace mismatch: ${sessionWorkspace.canonicalId} != ${workspace.canonicalId}`,
     );
   }
-  if (session.status !== "archived") return { workspace, session };
+  if (session.lifecycle !== "open") {
+    throw new Error(`Selected Spark session is ${session.lifecycle}: ${selection.sessionId}`);
+  }
+  if (session.placement !== "archived") return { workspace, session };
 
   const activeSession = await clientRestoreManagedSession(session.sessionId, daemonClient);
   if (
     activeSession.sessionId !== session.sessionId ||
     activeSession.scope.kind !== "workspace" ||
     activeSession.scope.workspaceId !== sessionWorkspaceId ||
-    activeSession.status === "archived"
+    activeSession.lifecycle !== "open" ||
+    activeSession.placement === "archived"
   ) {
     throw new Error(
       `Selected Spark session restore returned an invalid record: ${selection.sessionId}`,
@@ -586,9 +590,9 @@ function requireSelectorWorkspace(
 }
 
 function requireSelectedManagedSession(
-  sessions: SparkSessionRegistryRecord[],
+  sessions: SparkSessionProjection[],
   sessionId: string,
-): SparkSessionRegistryRecord {
+): SparkSessionProjection {
   const session = sessions.find((candidate) => candidate.sessionId === sessionId);
   if (!session) throw new Error(`Selected Spark session is no longer available: ${sessionId}`);
   return session;
@@ -597,7 +601,7 @@ function requireSelectedManagedSession(
 function attachResolutionForManagedSession(
   baseState: Omit<SparkNativeWorkspaceSessionState, "mode">,
   sessionId: string,
-  session: SparkSessionRegistryRecord | undefined,
+  session: SparkSessionProjection | undefined,
   controlPlaneWorkspaceId: string,
 ): SparkCliSessionAttachResolution {
   const workspaceDir = baseState.workspaceDir;
@@ -642,11 +646,11 @@ function requestedSparkCliSessionTarget(
 }
 
 async function resolveExplicitManagedSessionTarget(
-  sessions: SparkSessionRegistryRecord[],
+  sessions: SparkSessionProjection[],
   target: string,
   launchCwd: string,
   daemonClient: SparkDaemonClientOptions,
-): Promise<SparkSessionRegistryRecord | undefined> {
+): Promise<SparkSessionProjection | undefined> {
   const candidateIds = explicitSessionIdCandidates(target);
   for (const candidateId of candidateIds) {
     const listed = sessions.find((session) => session.sessionId === candidateId);
@@ -775,13 +779,24 @@ async function ensureLegacyManagedSession(
   workspaceId: string,
   cwd: string,
   daemonClient: SparkDaemonClientOptions,
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionProjection> {
+  const sessions = await clientListManagedSessions({ includeArchived: true }, daemonClient);
+  const administrator = sessions.find(
+    (session) =>
+      session.scope.kind === "workspace" &&
+      session.scope.workspaceId === workspaceId &&
+      session.owner.kind === "workspace",
+  );
+  if (!administrator) {
+    throw new Error(`workspace ${workspaceId} has no reconciled Administrator Session`);
+  }
   try {
     return await clientCreateManagedSession(
       {
         sessionId: legacy.sessionId,
         scope: { kind: "workspace", workspaceId },
-        workspaceId,
+        supervisorSessionId: administrator.sessionId,
+        roleBinding: { kind: "none" },
         cwd,
         sessionPath: legacy.sessionPath,
       },
@@ -792,8 +807,11 @@ async function ensureLegacyManagedSession(
       () => undefined,
     );
     if (!existing) throw createError;
-    if (existing.status === "archived") {
+    if (existing.placement === "archived") {
       throw new Error(`Spark TUI session is archived: ${legacy.sessionId}`);
+    }
+    if (existing.lifecycle !== "open") {
+      throw new Error(`Spark TUI session is ${existing.lifecycle}: ${legacy.sessionId}`);
     }
     if (existing.scope.kind !== "workspace" || existing.scope.workspaceId !== workspaceId) {
       throw new Error(`Spark TUI legacy session id belongs to another scope: ${legacy.sessionId}`);
@@ -1182,7 +1200,6 @@ export async function runSparkCli(
               !command.options.model.includes("/")
                 ? `${command.options.provider}/${command.options.model}`
                 : command.options?.model,
-            reset: command.options?.noSession,
           },
           daemonClient,
         );
@@ -1333,17 +1350,33 @@ async function runSparkCliTuiSelection(input: {
       : undefined;
     if (selection.create && !cwdSelection) return { cancelled: true };
     let selectedManagedSession = selection.create
-      ? await clientCreateManagedSession(
-          {
-            scope: { kind: "workspace", workspaceId: lease.workspace.id },
-            workspaceId: lease.workspace.id,
-            ...(cwdSelection?.cwd ? { cwd: cwdSelection.cwd } : {}),
-            ...(cwdSelection?.cwdArtifactRef
-              ? { cwdArtifactRef: cwdSelection.cwdArtifactRef }
-              : {}),
-          },
-          daemonClient,
-        )
+      ? await (async () => {
+          const administrator = (
+            await clientListManagedSessions({ includeArchived: true }, daemonClient)
+          ).find(
+            (session) =>
+              session.scope.kind === "workspace" &&
+              session.scope.workspaceId === lease.workspace.id &&
+              session.owner.kind === "workspace",
+          );
+          if (!administrator) {
+            throw new Error(
+              `workspace ${lease.workspace.id} has no reconciled Administrator Session`,
+            );
+          }
+          return await clientCreateManagedSession(
+            {
+              scope: { kind: "workspace", workspaceId: lease.workspace.id },
+              supervisorSessionId: administrator.sessionId,
+              roleBinding: { kind: "none" },
+              ...(cwdSelection?.cwd ? { cwd: cwdSelection.cwd } : {}),
+              ...(cwdSelection?.cwdArtifactRef
+                ? { cwdArtifactRef: cwdSelection.cwdArtifactRef }
+                : {}),
+            },
+            daemonClient,
+          );
+        })()
       : selection.legacySession
         ? await ensureLegacyManagedSession(
             selection.legacySession,
@@ -1533,7 +1566,8 @@ async function runSparkCliTuiSelection(input: {
             const session = await clientCreateManagedSession(
               {
                 scope: { kind: "workspace", workspaceId: lease.workspace.id },
-                workspaceId: lease.workspace.id,
+                supervisorSessionId: selectedManagedSession.sessionId,
+                roleBinding: { kind: "none" },
                 cwd: sessionCwd,
                 ...(selectedManagedSession.cwdArtifactRef
                   ? { cwdArtifactRef: selectedManagedSession.cwdArtifactRef }
@@ -1941,31 +1975,53 @@ function createSparkNativeSlashCommands(
 ): SparkNativeSlashCommandMap {
   const daemonCommands = createSparkDaemonNativeCommands(daemonClient);
   const localControlCommands = createSparkNativeLocalControlSlashCommands();
-  const piParityCommands = createSparkPiParitySlashCommands(services, modelControl, {
-    currentSessionId,
-    list: async (sessionId) => {
-      await ensureCurrentSession();
-      return (
-        await requestSparkDaemonControl(
-          "session.inbox",
-          { sessionId, includeAcked: false },
-          daemonClient,
-        )
-      ).messages;
+  const piParityCommands = createSparkPiParitySlashCommands(
+    services,
+    modelControl,
+    {
+      currentSessionId,
+      list: async (sessionId) => {
+        await ensureCurrentSession();
+        return (
+          await requestSparkDaemonControl(
+            "session.inbox",
+            { sessionId, includeAcked: false },
+            daemonClient,
+          )
+        ).messages;
+      },
+      read: async (sessionId, messageId) => {
+        await ensureCurrentSession();
+        return (
+          await requestSparkDaemonControl(
+            "session.mail.read",
+            { sessionId, messageId },
+            daemonClient,
+          )
+        ).message;
+      },
+      ack: async (sessionId, messageId) => {
+        await ensureCurrentSession();
+        return (
+          await requestSparkDaemonControl(
+            "session.mail.ack",
+            { sessionId, messageId },
+            daemonClient,
+          )
+        ).message;
+      },
     },
-    read: async (sessionId, messageId) => {
-      await ensureCurrentSession();
-      return (
-        await requestSparkDaemonControl("session.mail.read", { sessionId, messageId }, daemonClient)
-      ).message;
+    {
+      currentSessionId,
+      compact: async (input) => {
+        await ensureCurrentSession();
+        return await requestSparkDaemonControl("session.compact", input, daemonClient);
+      },
+      waitForTerminal: async (invocationId) =>
+        await waitForInvocationTerminal(invocationId, daemonClient),
+      snapshot: async (sessionId) => await clientGetManagedSessionSnapshot(sessionId, daemonClient),
     },
-    ack: async (sessionId, messageId) => {
-      await ensureCurrentSession();
-      return (
-        await requestSparkDaemonControl("session.mail.ack", { sessionId, messageId }, daemonClient)
-      ).message;
-    },
-  });
+  );
   const sideThreadCommands = createSparkNativeSideThreadSlashCommands({
     parentSessionId: () => currentSessionId,
     client: {

@@ -15,7 +15,10 @@ import {
   sparkDaemonServerStatusSummaries,
 } from "./store/workspaces.ts";
 import type { MessageContext, ServerSocket } from "./daemon-runtime-contract.ts";
-import { getWorkspaceMainSession } from "./workspace-main-session.ts";
+import {
+  getWorkspaceAdministratorProvisioning,
+  getWorkspaceAdministratorSession,
+} from "./workspace-administrator-session.ts";
 
 export function commandRoute(
   runtimeId: string,
@@ -58,7 +61,8 @@ export function workspaceSnapshotPayloadForDaemon(
   workspace: NonNullable<ReturnType<typeof getWorkspaceById>>,
 ): Parameters<typeof workspaceSnapshot>[0] {
   const mutationBlocked = isMutationBlockingBorrowedWorkspace(db, workspace.id);
-  const mainSession = getWorkspaceMainSession(db, workspace.id);
+  const administratorSession = getWorkspaceAdministratorSession(db, workspace.id);
+  const administratorProvisioning = getWorkspaceAdministratorProvisioning(db, workspace.id);
   return {
     displayName: workspace.displayName,
     status: workspace.status,
@@ -69,9 +73,14 @@ export function workspaceSnapshotPayloadForDaemon(
     ...(workspace.borrowed ? { borrowed: workspace.borrowed } : {}),
     workspaceClients: workspace.workspaceClients ?? [],
     ...(workspace.executor ? { executor: workspace.executor } : {}),
-    ...(mainSession
-      ? { mainSession: { sessionId: mainSession.sessionId, generation: mainSession.generation } }
+    ...(administratorSession
+      ? { administratorSession: { sessionId: administratorSession.sessionId } }
       : {}),
+    administratorProvisioning: {
+      state: administratorProvisioning.state,
+      ...(administratorProvisioning.error ? { error: administratorProvisioning.error } : {}),
+      retryCount: administratorProvisioning.retryCount,
+    },
     control: {
       mode: mutationBlocked ? "snapshot_only" : "full",
       ...(mutationBlocked ? { reason: "borrowed" } : {}),
