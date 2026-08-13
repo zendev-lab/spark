@@ -734,6 +734,22 @@ describe("SparkInvocationScheduler", () => {
     expect(isSparkTurnResumeCheckpointPersistable(transientCheckpoint)).toBe(false);
     const { db, store, scheduler } = harness(
       async (_task, context) => {
+        void context.emitEvent?.(
+          streamingAssistantMessage(
+            context.invocationId,
+            "checkpoint-session",
+            "restart-message",
+            "before restart",
+          ),
+        );
+        void context.emitEvent?.(
+          streamingAssistantMessage(
+            context.invocationId,
+            "checkpoint-session",
+            "restart-message",
+            "latest before restart",
+          ),
+        );
         context.yieldForRestartIfRequested?.(checkpoint);
         throw new Error("restart checkpoint did not yield");
       },
@@ -766,6 +782,10 @@ describe("SparkInvocationScheduler", () => {
           .eventPage(invocation.invocationId)
           .events.some((event) => event.kind === "invocation.restart_checkpoint_queued"),
       ).toBe(true);
+      expect(streamingMessageTexts(store, invocation.invocationId)).toEqual([
+        "before restart",
+        "latest before restart",
+      ]);
 
       const resumedTasks: unknown[] = [];
       const successor = new SparkInvocationScheduler({
@@ -791,6 +811,11 @@ describe("SparkInvocationScheduler", () => {
         attemptCount: 2,
         result: { resumed: true },
       });
+      await delay(150);
+      expect(streamingMessageTexts(store, invocation.invocationId)).toEqual([
+        "before restart",
+        "latest before restart",
+      ]);
     } finally {
       db.close();
     }
@@ -1027,6 +1052,82 @@ describe("SparkInvocationScheduler", () => {
       }
     },
   );
+
+  it("applies assistant snapshot coalescing to the in-process execution ingress", async () => {
+    const sessionId = "session-coalesced";
+    const { db, store, scheduler } = harness(async (_task, context) => {
+      for (let index = 0; index < 200; index += 1) {
+        void context.emitEvent?.({
+          version: 1,
+          type: "daemon.view_event",
+          source: "daemon",
+          invocationId: context.invocationId,
+          sessionId,
+          metadata: {},
+          view: {
+            version: 1,
+            type: "session.message",
+            sessionId,
+            message: {
+              version: 1,
+              id: "message-coalesced",
+              role: "assistant",
+              text: `partial-${index}`,
+              status: "streaming",
+              metadata: {},
+            },
+          },
+        });
+      }
+      void context.emitEvent?.({
+        version: 1,
+        type: "daemon.view_event",
+        source: "daemon",
+        invocationId: context.invocationId,
+        sessionId,
+        metadata: {},
+        view: {
+          version: 1,
+          type: "session.message",
+          sessionId,
+          message: {
+            version: 1,
+            id: "message-coalesced",
+            role: "assistant",
+            text: "partial-199",
+            status: "done",
+            metadata: {},
+          },
+        },
+      });
+      return { eventsStreamed: true };
+    });
+    try {
+      const invocation = store.submit({
+        sessionId,
+        prompt: "stream",
+        task: { type: "session.run", sessionId, prompt: "stream" },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait();
+
+      const messages = store
+        .eventPage(invocation.invocationId)
+        .events.filter((event) => event.kind === "daemon.view_event")
+        .map((event) => event.payload)
+        .map((payload) => {
+          const view = payload.view as { message?: { status?: unknown; text?: unknown } };
+          return { status: view.message?.status, text: view.message?.text };
+        });
+      expect(messages).toEqual([
+        { status: "streaming", text: "partial-0" },
+        { status: "streaming", text: "partial-199" },
+        { status: "done", text: "partial-199" },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
 
   it("serializes the same session while allowing bounded unrelated work", async () => {
     const gate = deferred<void>();
@@ -1439,6 +1540,49 @@ function usageEvent(responseId: string, input: number, output: number) {
       timestamp: Date.parse("2026-08-03T00:00:02.000Z"),
     },
   };
+}
+
+function streamingAssistantMessage(
+  invocationId: string,
+  sessionId: string,
+  messageId: string,
+  text: string,
+) {
+  return {
+    version: 1 as const,
+    type: "daemon.view_event" as const,
+    source: "daemon" as const,
+    invocationId,
+    sessionId,
+    metadata: {},
+    view: {
+      version: 1 as const,
+      type: "session.message" as const,
+      sessionId,
+      message: {
+        version: 1 as const,
+        id: messageId,
+        role: "assistant" as const,
+        text,
+        status: "streaming" as const,
+        metadata: {},
+      },
+    },
+  };
+}
+
+function streamingMessageTexts(store: SparkInvocationStore, invocationId: string): string[] {
+  return store
+    .eventPage(invocationId, 0, 500)
+    .events.filter((event) => event.kind === "daemon.view_event")
+    .flatMap((event) => {
+      const view = event.payload.view;
+      if (!view || typeof view !== "object" || Array.isArray(view)) return [];
+      const message = (view as { message?: unknown }).message;
+      if (!message || typeof message !== "object" || Array.isArray(message)) return [];
+      const text = (message as { text?: unknown }).text;
+      return typeof text === "string" ? [text] : [];
+    });
 }
 
 async function eventually(predicate: () => boolean, timeoutMs = 500): Promise<void> {
