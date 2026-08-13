@@ -99,6 +99,8 @@ export const localRpcServiceHandlerMethodGroups = {
     "session.list",
     "session.get",
     "session.snapshot",
+    "session.prompt-history",
+    "session.retry-target",
     "session.create",
     "session.bind",
     "session.unbind",

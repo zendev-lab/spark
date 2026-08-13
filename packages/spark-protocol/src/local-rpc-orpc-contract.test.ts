@@ -12,6 +12,7 @@ import {
   sparkLocalRpcOrpcContract,
   sparkLocalRpcOrpcLiveMethods,
   sparkLocalRpcOrpcMethodPaths,
+  sparkLocalRpcOrpcOnlyMethods,
   sparkLocalRpcProcedureSchemas,
   sparkLocalRpcReadinessOrpcErrors,
   sparkLocalRpcSessionOrpcErrors,
@@ -33,6 +34,11 @@ import {
   sparkWorkspaceRpcErrorCodeOptions,
 } from "./daemon-rpc-errors.ts";
 import { sparkLoopScheduleRequestSchema } from "./loop.ts";
+import {
+  SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES,
+  SPARK_SESSION_SUBMITTED_INPUT_MAX_BYTES,
+  sparkSessionSubmittedInputSchema,
+} from "./session-assignment.ts";
 import { sparkSessionRegistryErrorCodeOptions } from "./session-errors.ts";
 import { sparkSideThreadErrorCodeOptions } from "./side-thread.ts";
 
@@ -114,6 +120,18 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "import",
       "pi",
     ]);
+    expect(sparkLocalRpcOrpcMethodPaths["session.prompt-history"]).toEqual([
+      "session",
+      "promptHistory",
+    ]);
+    expect(sparkLocalRpcOrpcMethodPaths["session.retry-target"]).toEqual([
+      "session",
+      "retryTarget",
+    ]);
+    expect(sparkLocalRpcOrpcOnlyMethods).toEqual([
+      "session.prompt-history",
+      "session.retry-target",
+    ]);
   });
 
   it("marks every contracted method as live", () => {
@@ -123,6 +141,80 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     for (const method of sparkLocalRpcOrpcLiveMethods) {
       expect(sparkLocalRpcOrpcMethodPaths[method as SparkLocalRpcOrpcMethod]).toBeTruthy();
     }
+  });
+
+  it("bounds the oRPC-only prompt history contract to durable user messages", () => {
+    const procedure = sparkLocalRpcProcedureSchemas["session.prompt-history"];
+    expect(procedure.input.parse({ sessionId: "session-1" })).toEqual({
+      sessionId: "session-1",
+      limit: 100,
+    });
+    expect(() => procedure.input.parse({ sessionId: "session-1", limit: 101 })).toThrow();
+    expect(
+      procedure.output.parse({
+        sessionId: "session-1",
+        prompts: [{ messageId: "prompt-1", text: "@README.md" }],
+        totalPrompts: 1,
+        truncated: false,
+      }),
+    ).toMatchObject({ prompts: [{ messageId: "prompt-1", text: "@README.md" }] });
+    expect(
+      procedure.output.safeParse({
+        sessionId: "session-1",
+        prompts: [
+          {
+            id: "prompt-1",
+            role: "assistant",
+            text: "not a user prompt",
+            status: "done",
+          },
+        ],
+        totalPrompts: 1,
+        truncated: false,
+      }).success,
+    ).toBe(false);
+    const maxText = "x".repeat(SPARK_SESSION_SUBMITTED_INPUT_MAX_BYTES);
+    expect(sparkSessionSubmittedInputSchema.safeParse({ text: maxText }).success).toBe(true);
+    expect(sparkSessionSubmittedInputSchema.safeParse({ text: `${maxText}x` }).success).toBe(false);
+    const oversized = {
+      sessionId: "session-1",
+      prompts: Array.from({ length: 17 }, (_, index) => ({
+        messageId: `prompt-${index}`,
+        text: maxText,
+      })),
+      totalPrompts: 17,
+      truncated: false,
+    };
+    expect(new TextEncoder().encode(JSON.stringify(oversized)).byteLength).toBeGreaterThan(
+      SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES,
+    );
+    expect(procedure.output.safeParse(oversized).success).toBe(false);
+  });
+
+  it("keeps the oRPC-only retry target narrow and daemon-owned", () => {
+    const procedure = sparkLocalRpcProcedureSchemas["session.retry-target"];
+    expect(procedure.input.parse({ sessionId: "session-1" })).toEqual({
+      sessionId: "session-1",
+    });
+    expect(procedure.output.parse({ sessionId: "session-1", target: null })).toEqual({
+      sessionId: "session-1",
+      target: null,
+    });
+    expect(
+      procedure.output.parse({
+        sessionId: "session-1",
+        target: {
+          invocationId: "inv_retrytarget",
+          failedAt: "2026-08-12T00:00:00.000Z",
+        },
+      }),
+    ).toEqual({
+      sessionId: "session-1",
+      target: {
+        invocationId: "inv_retrytarget",
+        failedAt: "2026-08-12T00:00:00.000Z",
+      },
+    });
   });
 
   it("keeps spike leaves for daemon/workspace/uplink/model", () => {
@@ -322,12 +414,20 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["session.snapshot", "invalid_session_snapshot"],
       ["session.snapshot", "session_snapshot_mismatch"],
       ["session.snapshot", "session_snapshot_cursor_not_found"],
+      ["session.prompt-history", "invalid_session_snapshot"],
+      ["session.retry-target", "session_not_found"],
       ["turn.submit", "side_thread_direct_submit_forbidden"],
       ["turn.submit", "session_cwd_unavailable"],
     ] as const;
     for (const [method, code] of declaredCases) {
       expect(isSparkLocalRpcOrpcErrorCodeForMethod(method, code), `${method}: ${code}`).toBe(true);
     }
+    expect(
+      isSparkLocalRpcOrpcErrorCodeForMethod(
+        "session.prompt-history",
+        "session_snapshot_cursor_not_found",
+      ),
+    ).toBe(false);
 
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("loop.start", "session_not_found")).toBe(false);
     expect(
@@ -371,8 +471,8 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["human.interaction.respond", "human_wait_registry_unavailable"],
       ["session.notification.deliver", "channel_delivery_not_sent"],
       ["session.model.set", "model_control_unavailable"],
-      ["session.model.set", "model_out_of_scope"],
-      ["model.default.set", "model_out_of_scope"],
+      ["session.model.set", "model_not_enabled"],
+      ["model.default.set", "model_not_enabled"],
     ] as const;
     for (const [method, code] of declaredCases) {
       expect(isSparkLocalRpcOrpcErrorCodeForMethod(method, code), `${method}: ${code}`).toBe(true);

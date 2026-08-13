@@ -51,6 +51,7 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@zendev-lab/spark-ai";
+import { MODEL_EMPTY_RESPONSE_ERROR_CODE } from "@zendev-lab/spark-ai";
 
 export type {
   AssistantMessage,
@@ -1133,7 +1134,7 @@ export class SparkAgentLoop {
         if (!assistant) {
           const message = "stream produced no assistant message";
           this.publish({ type: "error", message });
-          return fail(message);
+          return fail(Object.assign(new Error(message), { code: MODEL_EMPTY_RESPONSE_ERROR_CODE }));
         }
 
         const toolCalls = collectToolCalls(assistant);
@@ -1145,7 +1146,7 @@ export class SparkAgentLoop {
         ) {
           const message = "model completed without a displayable response";
           this.publish({ type: "error", message });
-          return fail(message);
+          return fail(Object.assign(new Error(message), { code: MODEL_EMPTY_RESPONSE_ERROR_CODE }));
         }
 
         this.promptItems.push(asProviderMessageItem(assistant));

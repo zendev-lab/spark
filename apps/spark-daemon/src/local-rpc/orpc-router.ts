@@ -240,6 +240,12 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       snapshot: os.session.snapshot.handler(async ({ input: params }) =>
         invoke("session.snapshot", params),
       ),
+      promptHistory: os.session.promptHistory.handler(async ({ input: params }) =>
+        invoke("session.prompt-history", params),
+      ),
+      retryTarget: os.session.retryTarget.handler(async ({ input: params }) =>
+        invoke("session.retry-target", params),
+      ),
       create: os.session.create.handler(async ({ input: params }) =>
         invoke("session.create", params),
       ),

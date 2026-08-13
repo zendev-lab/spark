@@ -297,6 +297,55 @@ test("daemon prompt confirmations do not duplicate locally recalled history", as
   assert.equal(harness.app.getEditorText(), "first queued prompt");
 });
 
+test("native TUI carries exact file and image editor input through daemon admission", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "spark-native-original-editor-input-"));
+  try {
+    await writeFile(join(cwd, "README.md"), "expanded file contents\n", "utf8");
+    await writeFile(
+      join(cwd, "pixel.png"),
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    );
+    const admissions: Array<{ prompt: string; submittedInput?: string }> = [];
+    const responder = Object.assign(async () => "", {
+      admit: async (prompt: string, context: { submittedInput?: string }) => {
+        admissions.push({ prompt, submittedInput: context.submittedInput });
+        return {
+          invocationId: `inv-original-${admissions.length}`,
+          status: "queued" as const,
+          acceptedAt: "2026-08-12T00:00:00.000Z",
+        };
+      },
+      observe: async () => "",
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      }),
+    }) satisfies SparkNativeResponder;
+    const harness = createSparkNativeTuiComponentHarness({
+      responder,
+      autocompleteBasePath: cwd,
+    });
+
+    await harness.submit("@README.md explain this");
+    await harness.flush();
+    await harness.submit("./pixel.png identify this");
+    await harness.flush();
+
+    assert.equal(admissions[0]?.submittedInput, "@README.md explain this");
+    assert.match(admissions[0]?.prompt ?? "", /<file name=.*README\.md/u);
+    assert.match(admissions[0]?.prompt ?? "", /expanded file contents/u);
+    assert.equal(admissions[1]?.submittedInput, "./pixel.png identify this");
+    assert.match(admissions[1]?.prompt ?? "", /<image name=.*pixel\.png/u);
+    assert.match(admissions[1]?.prompt ?? "", /data:image\/png;base64/u);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("native TUI PageUp and PageDown scroll the transcript viewport", async () => {
   const harness = createSparkNativeTuiComponentHarness({ cols: 72, rows: 12 });
   for (let index = 0; index < 30; index += 1) {
@@ -387,6 +436,12 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   assert.equal(local.review?.metadata?.canonicalCliTarget, "spark hub review list");
   assert.equal(local.run?.metadata?.canonicalCliTarget, "spark daemon run list");
   assert.equal(local.stop?.metadata?.canonicalCliTarget, "spark daemon run cancel <run>");
+  assert.equal(local.retry?.metadata?.plane, "daemon");
+  assert.equal(local.retry?.metadata?.resource, "invocation");
+  assert.equal(
+    local.retry?.metadata?.canonicalCliTarget,
+    "spark daemon invocation retry <invocation-id>",
+  );
   assert.equal(local.tasks?.metadata?.deprecatedAliasFor, "/task list");
   assert.equal(local.artifacts?.metadata?.deprecatedAliasFor, "/artifact list");
   assert.equal(local.runs?.metadata?.deprecatedAliasFor, "/run list");
@@ -674,7 +729,7 @@ test("Spark native TUI harness submits input and drives exit keys without a real
   assert.equal(harness.state.renderRequests.length > 0, true);
 });
 
-test("Spark native TUI keeps one submission identity across an ACK-loss retry", async () => {
+test("Spark native TUI manual retry uses a fresh submission identity", async () => {
   const seen: Array<{ input: string; submissionId?: string }> = [];
   let failFirst = true;
   const harness = createSparkNativeTuiComponentHarness({
@@ -696,12 +751,49 @@ test("Spark native TUI keeps one submission identity across an ACK-loss retry", 
   await harness.flush();
 
   assert.match(seen[0]?.submissionId ?? "", /^idem_[a-f0-9]{32}$/u);
-  assert.equal(seen[1]?.submissionId, seen[0]?.submissionId);
+  assert.notEqual(seen[1]?.submissionId, seen[0]?.submissionId);
   assert.notEqual(seen[2]?.submissionId, seen[0]?.submissionId);
   assert.deepEqual(
     seen.map(({ input }) => input),
     ["retry-safe prompt", "retry-safe prompt", "fresh prompt"],
   );
+});
+
+test("Spark native TUI awaits and renders canonical retry RPC failures", async () => {
+  const responder = Object.assign(async () => "compatibility path", {
+    admit: async () => ({
+      invocationId: "inv_retryerror",
+      status: "running" as const,
+      acceptedAt: "2026-08-12T00:00:00.000Z",
+    }),
+    observe: async () => {
+      throw new Error("stream ended");
+    },
+    status: async (invocationId: string) => ({
+      invocationId,
+      status: "failed" as const,
+      createdAt: "2026-08-12T00:00:00.000Z",
+      updatedAt: "2026-08-12T00:00:01.000Z",
+      finishedAt: "2026-08-12T00:00:01.000Z",
+      error: { code: "EXECUTION_TRANSIENT", message: "empty response" },
+      eventCursor: 1,
+    }),
+    retry: async () => {
+      throw new Error("retry RPC unavailable");
+    },
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "failed" as const,
+      cancelRequested: false,
+    }),
+  }) satisfies SparkNativeResponder;
+  const harness = createSparkNativeTuiComponentHarness({ responder });
+
+  assert.equal(await harness.submit("fail with retryable status"), "started");
+  await harness.flush();
+  assert.equal(await harness.submit("/retry"), "command");
+
+  assert.match(stripAnsi(harness.render()), /Command \/retry failed: retry RPC unavailable/u);
 });
 
 test("native TUI defaults to workspace session selector when no session target is provided", () => {
@@ -1446,7 +1538,7 @@ test("Spark native Pi parity slash commands are discoverable and route represent
   await submitEditorText(harness, "/help commands");
   for (const command of [
     "settings",
-    "scoped-models",
+    "enabled-models",
     "export",
     "import",
     "share",
@@ -1490,7 +1582,7 @@ test("Spark native Pi parity slash commands are discoverable and route represent
   await submitEditorText(harness, "/settings set thinking high");
   assert.match(stripAnsi(harness.render()), /thinking level set.*high/i);
 
-  await submitEditorText(harness, "/scoped-models inspect");
+  await submitEditorText(harness, "/enabled-models inspect");
   assert.match(stripAnsi(harness.render()), /fake/);
   assert.match(stripAnsi(harness.render()), /model-a/);
 
@@ -1714,7 +1806,7 @@ test("TUI action bar dispatches a normal action once even when Enter repeats", a
   await Promise.resolve();
 });
 
-test("bare catalog slash enters its primary destination without an intermediate action bar", async () => {
+test("bare catalog slash enters its protocol default destination without an intermediate action bar", async () => {
   const calls: string[] = [];
   const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
@@ -1842,7 +1934,7 @@ test("bare catalog slashes enter their final destinations in one step", async ()
   assert.deepEqual(calls.at(-1), { name: "settings", args: "set thinking minimal" });
   assert.equal(harness.session.messages.length, messageCount);
 
-  await harness.submit("/scoped-models");
+  await harness.submit("/enabled-models");
   assert.deepEqual(calls.at(-1), { name: "model", args: "" });
   assert.equal(harness.app.actionBarSnapshot(), undefined);
   assert.equal(harness.session.messages.length, messageCount);
@@ -1970,7 +2062,7 @@ test("Spark native TUI surfaces command availability, queued work, stop, and tur
   await harness.flush();
   assert.match(
     stripAnsi(harness.render()),
-    /system> Spark turn failed: daemon unavailable\. Use \/retry to resubmit or \/status to inspect the\s+daemon\./,
+    /system> Spark turn failed: daemon unavailable\. If the daemon marks it retryable, use \/retry to\s+create a linked attempt; use \/status to inspect the daemon\./,
   );
 });
 

@@ -121,6 +121,20 @@ describe("daemon migration registry", () => {
           )
           .get(),
       ).toEqual({ name: "invocations_workspace_updated_idx" });
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'invocations_legacy_workspace_delivery_idx'",
+          )
+          .get(),
+      ).toEqual({ name: "invocations_legacy_workspace_delivery_idx" });
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'invocation_events_delivery_head_idx'",
+          )
+          .get(),
+      ).toEqual({ name: "invocation_events_delivery_head_idx" });
     } finally {
       db.close();
     }

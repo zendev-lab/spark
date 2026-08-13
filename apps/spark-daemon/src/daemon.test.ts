@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync 
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { WebSocketServer } from "ws";
+import { WebSocketServer, type WebSocket } from "ws";
 import { describe, expect, it, vi } from "vitest";
 import {
   type SparkSessionProjection,
@@ -1013,6 +1013,8 @@ describe("Spark daemon handleCommand task.start.request", () => {
     const terminalEventReceived = deferred<void>();
     const runtimeEventTypes: string[] = [];
     const invocationSequences: number[] = [];
+    const pendingDeliveryPage = vi.spyOn(SparkInvocationStore.prototype, "pendingDeliveryPage");
+    let helloSocket: WebSocket | undefined;
 
     try {
       await once(server, "listening");
@@ -1057,20 +1059,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
             };
           };
           if (message.type === "runtime.hello") {
-            socket.send(
-              JSON.stringify({
-                protocolVersion: runtimeProtocolVersion,
-                messageId: createId("msg"),
-                type: "server.hello_ack",
-                sentAt: new Date().toISOString(),
-                payload: {
-                  runtimeSessionId: createId("rtsn"),
-                  acceptedFeatures: ["ws-control-v1"],
-                  heartbeatIntervalMs: 15_000,
-                  serverTime: new Date().toISOString(),
-                },
-              }),
-            );
+            helloSocket = socket;
             helloReceived.resolve(undefined);
             return;
           }
@@ -1179,7 +1168,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
       });
 
       await helloReceived.promise;
-      store.submit({
+      const submitted = store.submit({
         sessionId: "queued-ws-session",
         workspaceBindingId: routedWorkspace.id,
         prompt: "hello over ws",
@@ -1191,6 +1180,24 @@ describe("Spark daemon handleCommand task.start.request", () => {
           workspaceId: serverWorkspaceId,
         },
       });
+      await vi.waitFor(() => {
+        expect(store.require(submitted.invocationId).status).toBe("succeeded");
+      });
+      if (!helloSocket) throw new Error("runtime hello socket was not captured");
+      helloSocket.send(
+        JSON.stringify({
+          protocolVersion: runtimeProtocolVersion,
+          messageId: createId("msg"),
+          type: "server.hello_ack",
+          sentAt: new Date().toISOString(),
+          payload: {
+            runtimeSessionId: createId("rtsn"),
+            acceptedFeatures: ["ws-control-v1"],
+            heartbeatIntervalMs: 15_000,
+            serverTime: new Date().toISOString(),
+          },
+        }),
+      );
       await viewEventReceived.promise;
       await interactionEventReceived.promise;
       await terminalEventReceived.promise;
@@ -1204,7 +1211,9 @@ describe("Spark daemon handleCommand task.start.request", () => {
         "invocation.updated",
       ]);
       expect(invocationSequences).toEqual([1, 2, 4]);
+      expect(pendingDeliveryPage).toHaveBeenCalledTimes(1);
     } finally {
+      pendingDeliveryPage.mockRestore();
       shutdown.abort();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       harness.cleanup();

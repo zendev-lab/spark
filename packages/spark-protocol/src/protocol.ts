@@ -5,7 +5,12 @@ import {
   type SparkEvidenceExpectedAnswerKind,
 } from "./human-interaction.ts";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
-import { sparkSessionPendingTurnSchema } from "./session-assignment.ts";
+import {
+  SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES,
+  SPARK_SESSION_PROMPT_HISTORY_MAX,
+  sparkSessionPendingTurnSchema,
+  sparkSessionSubmittedInputTextSchema,
+} from "./session-assignment.ts";
 import { sparkLoopViewSchema } from "./loop.ts";
 import {
   sparkTokenUsageAggregateSchema,
@@ -731,6 +736,42 @@ export const sparkSessionSnapshotPageSchema = z
     }
   });
 
+/** Daemon-owned durable prompt recall projection, separate from the rendered transcript. */
+export const sparkSessionPromptHistoryEntrySchema = z.object({
+  messageId: z.string().min(1),
+  text: sparkSessionSubmittedInputTextSchema,
+});
+
+export const sparkSessionPromptHistorySchema = z
+  .object({
+    sessionId: z.string().min(1),
+    prompts: z.array(sparkSessionPromptHistoryEntrySchema).max(SPARK_SESSION_PROMPT_HISTORY_MAX),
+    totalPrompts: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .superRefine((history, context) => {
+    if (history.prompts.length > history.totalPrompts) {
+      context.addIssue({
+        code: "custom",
+        path: ["totalPrompts"],
+        message: "prompt history total cannot be smaller than its projection",
+      });
+    }
+    if (history.truncated !== history.totalPrompts > history.prompts.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["truncated"],
+        message: "prompt history truncation flag does not match its total",
+      });
+    }
+    if (utf8ByteLength(JSON.stringify(history)) > SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES) {
+      context.addIssue({
+        code: "custom",
+        message: `prompt history exceeds ${SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES} bytes`,
+      });
+    }
+  });
+
 export const sparkAskOptionViewSchema = z.object({
   value: z.string().min(1),
   label: z.string().min(1),
@@ -1155,6 +1196,8 @@ export type SparkSessionWorkView = z.infer<typeof sparkSessionWorkViewSchema>;
 export type SparkSessionView = z.infer<typeof sparkSessionViewSchema>;
 export type SparkSessionSnapshotHistory = z.infer<typeof sparkSessionSnapshotHistorySchema>;
 export type SparkSessionSnapshotPage = z.infer<typeof sparkSessionSnapshotPageSchema>;
+export type SparkSessionPromptHistoryEntry = z.infer<typeof sparkSessionPromptHistoryEntrySchema>;
+export type SparkSessionPromptHistory = z.infer<typeof sparkSessionPromptHistorySchema>;
 export type SparkAskQuestionView = z.infer<typeof sparkAskQuestionViewSchema>;
 export type SparkAskAcknowledgement = z.infer<typeof sparkAskAcknowledgementSchema>;
 export type SparkInteractionCapabilities = z.infer<typeof sparkInteractionCapabilitiesSchema>;
@@ -1199,6 +1242,10 @@ export function parseSparkInteractionResponse(value: unknown): SparkInteractionR
 
 export function parseSparkSessionView(value: unknown): SparkSessionView {
   return sparkSessionViewSchema.parse(value);
+}
+
+export function parseSparkSessionPromptHistory(value: unknown): SparkSessionPromptHistory {
+  return sparkSessionPromptHistorySchema.parse(value);
 }
 
 export function parseSparkViewModelEvent(value: unknown): SparkViewModelEvent {

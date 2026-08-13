@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseSparkSlashInput,
   resolveSparkSlashEditorInput,
+  sparkActionBarDefaultAction,
   sparkActionBarViewSchema,
   sparkActionViewSchema,
   sparkSlashActionBarCatalog,
@@ -17,7 +18,7 @@ describe("Spark action-bar protocol", () => {
       "settings",
       "status",
       "queue",
-      "scoped-models",
+      "enabled-models",
       "plan",
       "execute",
       "fleet",
@@ -150,6 +151,52 @@ describe("Spark action-bar protocol", () => {
     );
   });
 
+  it("resolves explicit default actions independently from presentation tone", () => {
+    const view = sparkActionBarViewSchema.parse({
+      id: "style-independent",
+      title: "Style independent",
+      defaultActionId: "inspect",
+      actions: [
+        { id: "inspect", label: "Inspect", intent: "status.inspect", payload: {} },
+        {
+          id: "emphasized",
+          label: "Emphasized",
+          intent: "queue.inspect",
+          payload: {},
+          tone: "primary",
+        },
+      ],
+    });
+    expect(sparkActionBarDefaultAction(view)?.id).toBe("inspect");
+
+    const restyled = sparkActionBarViewSchema.parse({
+      ...view,
+      actions: [
+        { ...view.actions[0], tone: "primary" },
+        { ...view.actions[1], tone: "default" },
+      ],
+    });
+    expect(sparkActionBarDefaultAction(restyled)?.id).toBe("inspect");
+  });
+
+  it("treats an omitted default as an action-bar destination and rejects dangling defaults", () => {
+    const thinking = sparkSlashActionBarForInput("/thinking");
+    expect(thinking).toBeDefined();
+    expect(sparkActionBarDefaultAction(thinking!)).toBeUndefined();
+    expect(sparkActionBarDefaultAction(sparkSlashActionBarForInput("/settings")!)?.id).toBe(
+      "inspect-settings",
+    );
+
+    expect(
+      sparkActionBarViewSchema.safeParse({
+        id: "dangling-default",
+        title: "Dangling default",
+        defaultActionId: "missing",
+        actions: [{ id: "present", label: "Present", intent: "status.inspect", payload: {} }],
+      }).success,
+    ).toBe(false);
+  });
+
   it("does not synthesize action bars for direct session lifecycle commands", () => {
     expect(sparkSlashActionBarForInput("/session")).toBeUndefined();
     expect(sparkSlashActionBarForInput("/sessions")).toBeUndefined();
@@ -198,8 +245,8 @@ describe("Spark action-bar protocol", () => {
       command: "workflow:review",
       args: "run:123",
     });
-    expect(parseSparkSlashInput("/scoped-models")).toEqual({
-      command: "scoped-models",
+    expect(parseSparkSlashInput("/enabled-models")).toEqual({
+      command: "enabled-models",
       args: "",
     });
     expect(parseSparkSlashInput("//escaped")).toBeUndefined();

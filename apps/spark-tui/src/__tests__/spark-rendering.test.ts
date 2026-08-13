@@ -145,6 +145,7 @@ test("SparkNativeSession merges a daemon user projection into its optimistic inp
 
   assert.equal(session.messages.filter((message) => message.role === "user").length, 1);
   assert.equal((stripAnsi(app.render(100).join("\n")).match(/> render once/gu) ?? []).length, 1);
+  await waitUntil(() => releaseObservation !== undefined);
   releaseObservation?.();
   await waitUntil(() => !session.isProcessing);
 });

@@ -29,7 +29,7 @@ import {
   defaultSparkProviderConfigPath,
   loadSparkProviderCatalog,
   readSparkProviderConfig,
-  resolveSparkScopedModelIds,
+  resolveSparkEnabledModelIds,
   writeSparkDefaultModel,
   type SparkProviderImporter,
   type SparkProviderLoadOutcome,
@@ -86,9 +86,9 @@ export interface SparkProviderControlSnapshot {
   configuredModelId?: string;
   configError?: string;
   providers: SparkProviderControlProviderSnapshot[];
-  /** Canonical provider/model ids permitted by the user's resolved scope policy. */
-  scopedModelIds: string[];
-  /** Complete provider capability catalog; scope never removes catalog entries. */
+  /** Canonical provider/model ids permitted by the user's enabledModels policy. */
+  enabledModelIds: string[];
+  /** Complete provider capability catalog; enabled filtering never removes catalog entries. */
   models: SparkProviderControlModelSnapshot[];
   oauthProviders: Array<{ id: string; name: string; configured: boolean }>;
   loadOutcomes: SparkProviderLoadOutcome[];
@@ -185,13 +185,13 @@ class LocalSparkProviderControl implements SparkProviderControl {
           ),
         ),
       );
-    const scopedModelIds = resolveSparkScopedModelIds(state.registry, state.config.enabledModels);
+    const enabledModelIds = resolveSparkEnabledModelIds(state.registry, state.config.enabledModels);
     return {
       ...(activeModelId ? { activeModelId } : {}),
       ...(state.config.activeModelId ? { configuredModelId: state.config.activeModelId } : {}),
       ...(state.config.loadError ? { configError: state.config.loadError } : {}),
       providers,
-      scopedModelIds,
+      enabledModelIds,
       models,
       oauthProviders: listOAuthProviderSummaries().map((provider) => ({
         ...provider,
@@ -208,9 +208,9 @@ class LocalSparkProviderControl implements SparkProviderControl {
     }
     const selection = resolveModelSelection(state.registry, modelRef);
     const selectedModelId = selectionValue(selection);
-    const scopedModelIds = resolveSparkScopedModelIds(state.registry, state.config.enabledModels);
-    if (!scopedModelIds.includes(selectedModelId)) {
-      throw new Error(`Spark model "${selectedModelId}" is outside configured enabledModels`);
+    const enabledModelIds = resolveSparkEnabledModelIds(state.registry, state.config.enabledModels);
+    if (!enabledModelIds.includes(selectedModelId)) {
+      throw new Error(`Spark model "${selectedModelId}" is not configured in enabledModels`);
     }
     await writeSparkDefaultModel(this.#configPath, selectedModelId);
   }

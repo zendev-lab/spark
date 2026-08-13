@@ -218,14 +218,14 @@ class DaemonModelControl implements SparkDaemonModelControl {
     if (!entry) return result({ status: "unreachable", reasonCode: "no-model" });
     canonical = entry.model;
     if (
-      snapshot.scopedModels &&
-      !snapshot.scopedModels.some(
+      snapshot.enabledModels !== undefined &&
+      !snapshot.enabledModels.some(
         (candidate) =>
           candidate.providerName === canonical.providerName &&
           candidate.modelId === canonical.modelId,
       )
     ) {
-      return result({ status: "unreachable", reasonCode: "model-out-of-scope" });
+      return result({ status: "unreachable", reasonCode: "model-not-enabled" });
     }
     if (!entry.available) {
       return result({ status: "unreachable", reasonCode: "model-binding-unavailable" });
@@ -358,14 +358,14 @@ function modelControlSnapshot(
   const defaultModel = control.activeModelId
     ? modelRefFromValue(control.activeModelId, control)
     : undefined;
-  const scopedModels = control.scopedModelIds.flatMap((value) => {
+  const enabledModels = control.enabledModelIds.flatMap((value) => {
     const model = modelRefFromValue(value, control);
     return model ? [model] : [];
   });
   return parseSparkModelControlSnapshot({
     providers,
     ...(defaultModel ? { defaultModel } : {}),
-    scopedModels,
+    enabledModels,
     ...(sessionId
       ? {
           session: {
@@ -452,14 +452,15 @@ function requireAvailableModel(
     );
   }
   if (
-    !snapshot.scopedModels?.some(
+    snapshot.enabledModels !== undefined &&
+    !snapshot.enabledModels.some(
       (model) =>
         model.providerName === entry.model.providerName && model.modelId === entry.model.modelId,
     )
   ) {
     throw new SparkDaemonControlError(
-      "model_out_of_scope",
-      `Spark model ${modelValue(entry.model)} is outside the user configured scoped models.`,
+      "model_not_enabled",
+      `Spark model ${modelValue(entry.model)} is not configured in enabledModels.`,
     );
   }
   if (!entry.available) {

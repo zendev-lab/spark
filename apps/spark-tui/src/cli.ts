@@ -11,6 +11,9 @@ import { isTaskStatus } from "@zendev-lab/spark-core";
 import {
   createId,
   SPARK_PROTOCOL_VERSION,
+  SPARK_SESSION_PROMPT_HISTORY_MAX,
+  type SparkMessageView,
+  type SparkSessionPromptHistoryEntry,
   type SparkSessionProjection,
   type SparkSessionView,
   type SparkTaskView,
@@ -24,6 +27,7 @@ import {
   clientCancelTurn,
   clientCreateManagedSession,
   clientGetManagedSession,
+  clientGetManagedSessionPromptHistory,
   clientGetManagedSessionSnapshot,
   clientListDaemonWorkspaces,
   clientListManagedSessions,
@@ -631,6 +635,22 @@ async function managedSessionSnapshotIfAvailable(
     return await clientGetManagedSessionSnapshot(sessionId, daemonClient);
   } catch {
     return undefined;
+  }
+}
+
+async function loadManagedSessionPromptHistory(
+  sessionId: string,
+  daemonClient: SparkDaemonClientOptions,
+): Promise<SparkSessionPromptHistoryEntry[]> {
+  try {
+    const history = await clientGetManagedSessionPromptHistory(
+      sessionId,
+      daemonClient,
+      SPARK_SESSION_PROMPT_HISTORY_MAX,
+    );
+    return history.prompts;
+  } catch {
+    return [];
   }
 }
 
@@ -1604,8 +1624,19 @@ async function runSparkCliTuiSelection(input: {
           pendingNativeUiTransport = createSparkNativeUiTransport(app, session);
           services.runtime.setUiTransport(pendingNativeUiTransport);
           app.setWorkspaceSession(workspaceSession.state);
-          void loadSnapshot().then((snapshot) => {
-            if (!snapshot || session.hasSubmittedInput) return;
+          // runNativeSparkTui awaits configuration before starting terminal input or
+          // submitting the initial prompt, so hydrate daemon-owned history inside
+          // that startup barrier instead of racing it in a detached task.
+          const [snapshot] = await Promise.all([
+            loadSnapshot(),
+            session.hydrateRetryableFailure().catch(() => undefined),
+          ]);
+          if (snapshot) {
+            const durablePrompts =
+              snapshot.messages.length > 0
+                ? await loadManagedSessionPromptHistory(currentSessionId, daemonClient)
+                : [];
+            app.hydratePromptHistory(durablePrompts);
             sessionStatusModel = modelRefToSelection(snapshot.model) ?? sessionStatusModel;
             sessionStatusThinkingLevel = snapshot.thinkingLevel ?? sessionStatusThinkingLevel;
             app.applyViewModelEvent({
@@ -1613,7 +1644,7 @@ async function runSparkCliTuiSelection(input: {
               type: "session.snapshot",
               session: snapshot,
             });
-          });
+          }
           if (workspaceSession.attachMatchesControlPlane) {
             await hydrateNativeHubFromTaskRead(services, app, workspaceSession.state);
           }

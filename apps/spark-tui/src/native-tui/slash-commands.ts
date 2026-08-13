@@ -70,17 +70,19 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
       },
     },
     retry: {
-      description: "run the previous request again",
+      description: "retry the latest failed daemon invocation",
       metadata: {
         source: "extension",
         extensionId: SPARK_NATIVE_LOCAL_CONTROL_EXTENSION_ID,
-        plane: "tui",
-        resource: "session",
+        plane: "daemon",
+        resource: "invocation",
         verbs: ["retry"],
-        canonicalCliTarget: "spark tui retry",
+        canonicalCliTarget: "spark daemon invocation retry <invocation-id>",
       },
-      handler: (_args, ctx) => {
-        void ctx.session.retryLast();
+      handler: async (_args, ctx) => {
+        return (await ctx.session.retryLast()) === "ignored"
+          ? nativeTuiStrings.noRetryableFailure
+          : undefined;
       },
     },
     thinking: {

@@ -203,6 +203,71 @@ describe("daemon session control admission", () => {
     }
   });
 
+  it("keeps invocation status behind immutable Session scope and owner visibility", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-session-invocation-visibility-"));
+    const db = openMemoryDatabase();
+    migrateSparkDaemonDatabase(db);
+    const paths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const sessionRegistry = createDaemonSessionRegistry(join(root, ".spark"));
+    try {
+      const ordinary = await createDaemonWorkspaceSession(sessionRegistry, {
+        sessionId: "visibility-ordinary",
+        workspaceId: "workspace-visible",
+      });
+      const parent = await createDaemonWorkspaceSession(sessionRegistry, {
+        sessionId: "visibility-parent",
+        workspaceId: "workspace-visible",
+      });
+      const sideThread = await sessionRegistry.ensureSideThread({
+        parentSessionId: parent.sessionId,
+        sessionId: "visibility-side-thread",
+        mode: "contextual",
+      });
+      // Invocations become reachable only after their owning Sessions are
+      // durably created; the visibility fast path relies on this ordering.
+      const store = new SparkInvocationStore(db);
+      const ordinaryInvocation = store.submit({
+        sessionId: ordinary.sessionId,
+        prompt: "status",
+        task: { type: "session.run", sessionId: ordinary.sessionId, prompt: "status" },
+      });
+      const sideThreadInvocation = store.submit({
+        sessionId: sideThread.sessionId,
+        prompt: "status",
+        task: { type: "session.run", sessionId: sideThread.sessionId, prompt: "status" },
+      });
+      const ordinaryGet = vi
+        .spyOn(sessionRegistry, "get")
+        .mockRejectedValue(new Error("invocation visibility must not wait for ordinary get"));
+
+      await expect(
+        executeSparkDaemonSessionControl(
+          { paths, db, sessionRegistry, actor: "spark-daemon-runtime-ws" },
+          {
+            kind: "turn.status.request",
+            scope: "workspace",
+            workspaceId: "workspace-other",
+            payload: { invocationId: ordinaryInvocation.invocationId },
+          },
+        ),
+      ).rejects.toMatchObject({ code: "session_scope_mismatch" });
+      await expect(
+        executeSparkDaemonSessionControl(
+          { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
+          {
+            kind: "turn.status.request",
+            scope: "any",
+            payload: { invocationId: sideThreadInvocation.invocationId },
+          },
+        ),
+      ).rejects.toMatchObject({ code: "side_thread_not_found" });
+      expect(ordinaryGet).not.toHaveBeenCalled();
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("creates ordinary UI conversations as Administrator children of one workspace root", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-admin-root-"));
     const db = openMemoryDatabase();

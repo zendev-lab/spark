@@ -12,6 +12,7 @@ import {
   createBlockedInteractionResponse,
   parseSparkInteractionResponse,
   parseSparkViewModelEvent,
+  sparkActionBarDefaultAction,
   sparkSlashActionBarForInput,
   type SparkActionBarView,
   type SparkActionView,
@@ -21,6 +22,7 @@ import {
   type SparkInteractionResponse,
   type SparkMessageView,
   type SparkRunView,
+  type SparkSessionPromptHistoryEntry,
   type SparkSessionView,
   type SparkTaskView,
   type SparkViewModelEvent,
@@ -269,6 +271,15 @@ export class SparkNativeTuiApp implements Component, Focusable {
     return this.editor.getExpandedText();
   }
 
+  /** Seed durable prompt recall without replacing the bounded transcript projection. */
+  hydratePromptHistory(entries: readonly SparkSessionPromptHistoryEntry[]): void {
+    for (const entry of entries) {
+      if (this.editorPromptHistoryMessageIds.has(entry.messageId)) continue;
+      this.editorPromptHistoryMessageIds.add(entry.messageId);
+      this.editor.addToHistory(entry.text);
+    }
+  }
+
   async executeSlashCommand(input: string): Promise<void> {
     await this.runSlashCommand(input);
   }
@@ -373,7 +384,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
           this.pendingDurablePromptHistory.push(displayNativeSubmittedInput(prepared).trim());
         }
       }
-      return await this.session.submit(prepared, options);
+      return await this.session.submit(prepared, { ...options, submittedInput: input });
     } catch (error) {
       this.session.addSystemMessage(
         nativeTuiStrings.inputPreparationFailed(
@@ -2345,16 +2356,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
     const actionBar = sparkSlashActionBarForInput(input);
     if (actionBar) {
       // Bare slash commands enter their canonical destination in one step.
-      // The thinking-level bar is itself the final selector; every other
-      // catalog bar is presentation metadata whose primary action identifies
-      // the destination that the native TUI should enter directly.
-      if (actionBar.id === "thinking") {
-        this.openActionBar(actionBar);
-        return;
-      }
-      const primaryAction =
-        actionBar.actions.find((action) => action.tone === "primary") ?? actionBar.actions[0];
-      if (primaryAction) await this.executeActionBarAction(primaryAction);
+      // A protocol-owned default identifies shorthand behavior; bars without
+      // one (such as the thinking selector) are themselves the destination.
+      const defaultAction = sparkActionBarDefaultAction(actionBar);
+      if (defaultAction) await this.executeActionBarAction(defaultAction);
+      else this.openActionBar(actionBar);
       return;
     }
 
@@ -2406,9 +2412,6 @@ export class SparkNativeTuiApp implements Component, Focusable {
           ? `Restored ${result.clearedQueued} queued input(s) to the editor.`
           : nativeTuiStrings.noTurnRunning;
       }
-      case "retry":
-        void this.session.retryLast();
-        return false;
       case "inspect":
       case "hub":
         return this.openHubPanelFromArgs(_args);

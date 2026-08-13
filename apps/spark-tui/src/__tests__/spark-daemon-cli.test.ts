@@ -38,6 +38,7 @@ import {
   sparkDaemonServiceCliCommand,
   type ManagedSessionRegistryResult,
   type SparkDaemonClientOptions,
+  type SparkDaemonTurnSubmitInput,
 } from "../cli/daemon.ts";
 import { SparkNativeAdmissionError } from "../native-tui.ts";
 
@@ -2848,7 +2849,7 @@ test("Spark TUI and headless print attach and release workspace clients", async 
     assert.equal(Boolean(slashCommands?.session), false, "retired /session command stays removed");
     for (const command of [
       "settings",
-      "scoped-models",
+      "enabled-models",
       "export",
       "import",
       "share",
@@ -2971,7 +2972,7 @@ test("native TUI session gate exits without creating an implicit session", async
   }
 });
 
-test("native TUI selects a History Session, restores it, and loads its snapshot", async () => {
+test("native TUI hydrates a delayed History Session snapshot before its initial prompt", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-cli-session-select-"));
   try {
     const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
@@ -3030,6 +3031,15 @@ test("native TUI selects a History Session, restores it, and loads its snapshot"
           messages: [
             {
               version: 1,
+              id: "message-history-prompt",
+              role: "user",
+              text: "Earlier durable prompt",
+              status: "done",
+              createdAt: now,
+              metadata: {},
+            },
+            {
+              version: 1,
               id: "message-1",
               role: "assistant",
               text: "Restored from daemon",
@@ -3050,7 +3060,7 @@ test("native TUI selects a History Session, restores it, and loads its snapshot"
     let rendered = "";
 
     assert.equal(
-      await runSparkCli([], {
+      await runSparkCli(["fast initial prompt"], {
         daemonClient,
         createHostServices: base.createHostServices,
         terminal: { stdinIsTTY: true, stdoutIsTTY: true },
@@ -3066,20 +3076,34 @@ test("native TUI selects a History Session, restores it, and loads its snapshot"
           assert.equal(typeof input, "object");
           assert.notEqual(input, null);
           const options = input as Exclude<typeof input, string | undefined>;
+          assert.equal(options.initialMessage, "fast initial prompt");
           assert.equal(options.workspaceSession?.attachTarget, existing.sessionId);
           assert.equal(snapshotRequested, false);
           assert.equal(options.statusContext?.activeProvider?.(), undefined);
           const harness = createSparkNativeTuiComponentHarness({
             workspaceSession: options.workspaceSession,
           });
-          await options.configureApp?.(harness.app, harness.session);
-          assert.equal(snapshotRequested, true);
-          snapshotGate.resolve();
+          let configured = false;
+          const configure = Promise.resolve(
+            options.configureApp?.(harness.app, harness.session),
+          ).then(() => {
+            configured = true;
+          });
           await new Promise((resolve) => setImmediate(resolve));
+          assert.equal(snapshotRequested, true);
+          assert.equal(configured, false);
+          snapshotGate.resolve();
+          await configure;
+          assert.equal(configured, true);
           assert.equal(options.statusContext?.activeProvider?.(), "session-provider");
           assert.equal(options.statusContext?.activeModel?.(), "session-model");
           assert.equal(options.statusContext?.thinkingLevel?.(), "xhigh");
+          assert.equal(await harness.submit(options.initialMessage ?? ""), "started");
           rendered = harness.render(140);
+          await harness.press("\x1b[A");
+          assert.equal(harness.app.getEditorText(), "fast initial prompt");
+          await harness.press("\x1b[A");
+          assert.equal(harness.app.getEditorText(), "Earlier durable prompt");
         },
       }),
       0,
@@ -3091,7 +3115,128 @@ test("native TUI selects a History Session, restores it, and loads its snapshot"
     );
     assert.equal(restoreCalls, 1);
     assert.match(rendered, /Restored from daemon/u);
+    assert.match(rendered, /Earlier durable prompt/u);
+    assert.match(rendered, /fast initial prompt/u);
     assert.match(rendered, /Existing conversation/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("native TUI recalls durable user prompts older than the bounded transcript snapshot", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-cli-prompt-history-pages-"));
+  try {
+    const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
+    const now = "2026-08-12T00:00:00.000Z";
+    const sessionId = "durable-prompt-history";
+    const workspaceId = "workspace-current";
+    const managedSession = managedSessionFixture({
+      sessionId,
+      workspaceId,
+      cwd: dir,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const archivedManagedSession = managedSessionFixture({
+      sessionId,
+      workspaceId,
+      cwd: dir,
+      placement: "archived",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const messages = Array.from({ length: 240 }, (_, index) => ({
+      version: 1 as const,
+      id: `history-message-${index}`,
+      role: (index % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      text: `${index % 2 === 0 ? "durable prompt" : "non-user reply"} ${Math.floor(index / 2)}`,
+      status: "done" as const,
+      createdAt: now,
+      metadata: {},
+    }));
+    const latestMessages = messages.slice(-32);
+    let promptHistoryRequests = 0;
+    const daemonClient: SparkDaemonClientOptions = {
+      ...base.daemonClient,
+      managedSessions: {
+        list: async () => [managedSession],
+        create: async () => {
+          throw new Error("existing selection must not create a session");
+        },
+        get: async () => managedSession,
+        bind: async () => managedSession,
+        unbind: async () => managedSession,
+        archive: async () => archivedManagedSession,
+      },
+      controlRequest: async (method, params) => {
+        if (method === "session.snapshot") {
+          assert.deepEqual(params, { sessionId });
+          return {
+            version: 1,
+            sessionId,
+            status: "idle",
+            cwd: dir,
+            messages: latestMessages,
+            tools: [],
+            runs: [],
+            tasks: [],
+            artifacts: [],
+            metadata: {},
+          };
+        }
+        if (method === "session.prompt-history") {
+          promptHistoryRequests += 1;
+          assert.deepEqual(params, { sessionId, limit: 100 });
+          const prompts = messages
+            .filter((message) => message.role === "user")
+            .slice(-100)
+            .map((message) => ({ messageId: message.id, text: message.text }));
+          return {
+            sessionId,
+            prompts,
+            totalPrompts: 120,
+            truncated: true,
+          };
+        }
+        throw new Error(`unexpected history control method: ${method}`);
+      },
+    };
+    let rendered = "";
+    let recalledOldest = "";
+
+    assert.equal(
+      await runSparkCli([], {
+        daemonClient,
+        createHostServices: base.createHostServices,
+        terminal: { stdinIsTTY: true, stdoutIsTTY: true },
+        selectSession: async () => ({
+          kind: "session",
+          sessionId,
+          workspaceId,
+        }),
+        runTui: async (input) => {
+          assert.equal(typeof input, "object");
+          assert.notEqual(input, null);
+          const options = input as Exclude<typeof input, string | undefined>;
+          const harness = createSparkNativeTuiComponentHarness({
+            workspaceSession: options.workspaceSession,
+          });
+          await options.configureApp?.(harness.app, harness.session);
+          await new Promise((resolve) => setImmediate(resolve));
+          rendered = harness.render(140);
+          for (let index = 0; index < 100; index += 1) harness.app.handleInput("\x1b[A");
+          await harness.flush();
+          recalledOldest = harness.app.getEditorText();
+        },
+      }),
+      0,
+    );
+
+    assert.equal(recalledOldest, "durable prompt 20");
+    assert.equal(promptHistoryRequests, 1);
+    assert.match(rendered, /durable prompt 119/u);
+    assert.doesNotMatch(rendered, /durable prompt 20/u);
+    assert.doesNotMatch(recalledOldest, /non-user reply/u);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -4461,6 +4606,141 @@ test("Spark native responder retries an ACK loss with the same idempotency key",
   assert.equal(submissions.length, 2);
   assert.deepEqual(submissions[0], submissions[1]);
   assert.equal(submissions[0]?.idempotencyKey, "idem_native_submit_1");
+});
+
+test("Spark native responder persists bounded original editor input separately from prompt", async () => {
+  const submissions: SparkDaemonTurnSubmitInput[] = [];
+  const responder = createSparkDaemonNativeResponder(
+    {
+      startService: () => ({ kind: "detached" as const, alreadyRunning: false, detail: "started" }),
+      daemonStatus: async () => ({
+        observedAt: "2026-08-12T00:00:00.000Z",
+        servers: [],
+        invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
+      }),
+      turnSubmit: async (_paths, input) => {
+        submissions.push(input);
+        return {
+          invocationId: "inv_original_input",
+          status: "queued" as const,
+          acceptedAt: "2026-08-12T00:00:00.000Z",
+        };
+      },
+    },
+    { sessionId: "native-original-input", waitForCompletion: false },
+  );
+
+  await responder.admit('<file name="README.md">expanded contents</file>', {
+    submissionId: "idem_original_input",
+    submittedInput: "@README.md",
+  });
+
+  assert.deepEqual(submissions, [
+    {
+      sessionId: "native-original-input",
+      prompt: '<file name="README.md">expanded contents</file>',
+      idempotencyKey: "idem_original_input",
+      messageMetadata: {
+        origin: { kind: "user", host: "tui", surface: "local" },
+        submittedInput: { text: "@README.md" },
+      },
+    },
+  ]);
+});
+
+test("Spark native responder delegates manual retry to invocation.retry", async () => {
+  const requests: Array<{ method: string; params: unknown }> = [];
+  const responder = createSparkDaemonNativeResponder(
+    {
+      daemonStatus: async () => runningDaemonStatus(),
+      controlRequest: async (method, params) => {
+        requests.push({ method, params });
+        return {
+          invocationId: "inv_retrychild",
+          retryOfInvocationId: "inv_retrysource",
+          status: "queued" as const,
+          acceptedAt: "2026-08-12T00:00:01.000Z",
+        };
+      },
+    },
+    { sessionId: "native-retry" },
+  );
+
+  const result = await responder.retry("inv_retrysource");
+
+  assert.deepEqual(requests, [
+    { method: "invocation.retry", params: { invocationId: "inv_retrysource" } },
+  ]);
+  assert.equal(result.invocationId, "inv_retrychild");
+  assert.equal(result.retryOfInvocationId, "inv_retrysource");
+});
+
+test("Spark native responder reconciles retry ACK loss with the same source invocation", async () => {
+  const requests: Array<{ method: string; params: unknown }> = [];
+  const delays: number[] = [];
+  const responder = createSparkDaemonNativeResponder(
+    {
+      daemonStatus: async () => runningDaemonStatus(),
+      controlRequest: async (method, params) => {
+        requests.push({ method, params });
+        if (requests.length === 1) {
+          throw new SparkDaemonLocalRpcError(
+            "Spark daemon oRPC connection closed before a response.",
+          );
+        }
+        return {
+          invocationId: "inv_retrychild",
+          retryOfInvocationId: "inv_retrysource",
+          status: "queued" as const,
+          acceptedAt: "2026-08-12T00:00:01.000Z",
+        };
+      },
+      random: () => 0,
+      sleep: async (ms) => {
+        delays.push(ms);
+      },
+    },
+    { sessionId: "native-retry-ack-loss" },
+  );
+
+  const result = await responder.retry("inv_retrysource");
+
+  assert.deepEqual(requests, [
+    { method: "invocation.retry", params: { invocationId: "inv_retrysource" } },
+    { method: "invocation.retry", params: { invocationId: "inv_retrysource" } },
+  ]);
+  assert.deepEqual(delays, [50]);
+  assert.equal(result.invocationId, "inv_retrychild");
+});
+
+test("Spark native responder reads the latest typed retry target without transcript inference", async () => {
+  const requests: Array<{ method: string; params: unknown }> = [];
+  const responder = createSparkDaemonNativeResponder(
+    {
+      daemonStatus: async () => runningDaemonStatus(),
+      controlRequest: async (method, params) => {
+        requests.push({ method, params });
+        return {
+          sessionId: "native-retry-target",
+          target: {
+            invocationId: "inv_latestfailed",
+            failedAt: "2026-08-12T00:00:01.000Z",
+          },
+        };
+      },
+    },
+    { sessionId: "native-retry-target" },
+  );
+
+  const result = await responder.latestRetryableFailure();
+
+  assert.deepEqual(requests, [
+    {
+      method: "session.retry-target",
+      params: { sessionId: "native-retry-target" },
+    },
+  ]);
+  assert.equal(result?.invocationId, "inv_latestfailed");
 });
 
 test("Spark native responder observes an admitted invocation without resubmitting it", async () => {

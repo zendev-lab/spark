@@ -97,6 +97,7 @@ import {
 } from "./build-reload.ts";
 import { createRepeatedErrorReporter } from "./repeated-error-reporter.ts";
 import type { SessionSupervisor } from "./session-supervisor.ts";
+import { preloadSparkDaemonExecutionRuntime } from "./spark/session-run.ts";
 import { closeDaemonLensBroker, prepareDaemonLensBroker } from "./lens/broker-lifecycle.ts";
 import { closeDaemonLensToolService } from "./lens/tool.ts";
 import {
@@ -408,6 +409,10 @@ export async function start(
         `[spark-daemon] unified ${migratedSessions.length} session transcripts; backup: ${transcriptMigration.backupRoot}`,
       );
     }
+    // The headless host is intentionally loaded through a dynamic owner seam.
+    // Resolve that graph before the local socket binds so the first concurrent
+    // turn cannot stall oRPC admission with module compilation and evaluation.
+    await preloadSparkDaemonExecutionRuntime();
     await startSparkDaemon({
       paths,
       ...(process.env.SPARK_HOME?.trim() ? { sparkHome: process.env.SPARK_HOME.trim() } : {}),

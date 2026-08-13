@@ -10,14 +10,14 @@
   let copy = $derived(data.messages.modelSettings);
   let snapshot = $derived(data.control.snapshot);
   let flow = $derived(data.flow);
-  let scopedModelValues = $derived(
-    new Set((snapshot.scopedModels ?? []).map((model) => modelValue(model))),
+  let enabledModelValues = $derived(
+    new Set((snapshot.enabledModels ?? []).map((model) => modelValue(model))),
   );
   let availableModels = $derived(
     snapshot.providers.flatMap((provider: SparkModelCatalogProvider) =>
       provider.models.filter(
         (entry) =>
-          entry.available && scopedModelValues.has(modelValue(entry.model)),
+          entry.available && enabledModelValues.has(modelValue(entry.model)),
       ),
     ),
   );
@@ -88,7 +88,7 @@
       options: provider.models
         .filter(
           (entry) =>
-            entry.available && scopedModelValues.has(modelValue(entry.model)),
+            entry.available && enabledModelValues.has(modelValue(entry.model)),
         )
         .map((entry) => ({
           value: modelValue(entry.model),
@@ -149,7 +149,7 @@
     if (reasonCode === "timeout") return copy.connectivityReasons.timeout;
     if (reasonCode === "authentication-unavailable") return copy.connectivityReasons.authenticationUnavailable;
     if (reasonCode === "no-model") return copy.connectivityReasons.noModel;
-    if (reasonCode === "model-out-of-scope") return copy.connectivityReasons.modelOutOfScope;
+    if (reasonCode === "model-not-enabled") return copy.connectivityReasons.modelOutOfScope;
     if (reasonCode === "model-binding-unavailable") return copy.connectivityReasons.modelBindingUnavailable;
     if (reasonCode === "route-unavailable") return copy.connectivityReasons.routeUnavailable;
     if (reasonCode === "host-unsupported") return copy.connectivityReasons.hostUnsupported;

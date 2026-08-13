@@ -78,6 +78,9 @@ import {
   sparkSessionCreateRequestSchema,
   sparkSessionGetRequestSchema,
   sparkSessionListRequestSchema,
+  sparkSessionPromptHistoryRequestSchema,
+  sparkSessionRetryTargetRequestSchema,
+  sparkSessionRetryTargetSchema,
   sparkSessionProjectionSchema,
   sparkSessionSetModelRequestSchema,
   sparkSessionSetThinkingRequestSchema,
@@ -123,7 +126,7 @@ import {
   sparkReproFormalEvidenceRecordRequestSchema,
   sparkReproFormalEvidenceRecordResultSchema,
 } from "./repro-formal-evidence.ts";
-import { sparkSessionViewSchema } from "./protocol.ts";
+import { sparkSessionPromptHistorySchema, sparkSessionViewSchema } from "./protocol.ts";
 import { SPARK_PROTOCOL_VERSION } from "./version.ts";
 import {
   workspaceDelegationExecuteRequestSchema,
@@ -286,7 +289,7 @@ export const sparkLocalRpcModelOrpcErrors = {
   model_control_unavailable: { status: 503 },
   role_model_type_unconfigured: { status: 422 },
   model_not_found: { status: 404 },
-  model_out_of_scope: { status: 422 },
+  model_not_enabled: { status: 422 },
   model_unavailable: { status: 422 },
   provider_not_found: { status: 404 },
   provider_auth_method_unsupported: { status: 422 },
@@ -398,6 +401,13 @@ const sparkLocalRpcSessionSnapshotOrpcErrors = {
   invalid_session_snapshot: sparkLocalRpcSessionOrpcErrors.invalid_session_snapshot,
   session_snapshot_cursor_not_found:
     sparkLocalRpcSessionOrpcErrors.session_snapshot_cursor_not_found,
+  session_snapshot_mismatch: sparkLocalRpcSessionOrpcErrors.session_snapshot_mismatch,
+  session_storage_unavailable: sparkLocalRpcSessionOrpcErrors.session_storage_unavailable,
+} as const;
+
+const sparkLocalRpcSessionPromptHistoryOrpcErrors = {
+  ...sparkLocalRpcSessionGetOrpcErrors,
+  invalid_session_snapshot: sparkLocalRpcSessionOrpcErrors.invalid_session_snapshot,
   session_snapshot_mismatch: sparkLocalRpcSessionOrpcErrors.session_snapshot_mismatch,
   session_storage_unavailable: sparkLocalRpcSessionOrpcErrors.session_storage_unavailable,
 } as const;
@@ -594,7 +604,7 @@ const sparkLocalRpcReadinessSessionModelOrpcErrors = {
   side_thread_mutation_forbidden: sparkLocalRpcSessionOrpcErrors.side_thread_mutation_forbidden,
   model_control_unavailable: sparkLocalRpcModelOrpcErrors.model_control_unavailable,
   model_not_found: sparkLocalRpcModelOrpcErrors.model_not_found,
-  model_out_of_scope: sparkLocalRpcModelOrpcErrors.model_out_of_scope,
+  model_not_enabled: sparkLocalRpcModelOrpcErrors.model_not_enabled,
   model_unavailable: sparkLocalRpcModelOrpcErrors.model_unavailable,
 } as const;
 
@@ -623,7 +633,7 @@ const sparkLocalRpcModelCatalogOrpcErrors = {
 const sparkLocalRpcModelSelectionOrpcErrors = {
   ...sparkLocalRpcModelCatalogOrpcErrors,
   model_not_found: sparkLocalRpcModelOrpcErrors.model_not_found,
-  model_out_of_scope: sparkLocalRpcModelOrpcErrors.model_out_of_scope,
+  model_not_enabled: sparkLocalRpcModelOrpcErrors.model_not_enabled,
   model_unavailable: sparkLocalRpcModelOrpcErrors.model_unavailable,
 } as const;
 
@@ -1581,6 +1591,14 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkSessionSnapshotRequestSchema,
     output: z.lazy(() => sparkSessionViewSchema),
   },
+  "session.prompt-history": {
+    input: sparkSessionPromptHistoryRequestSchema,
+    output: z.lazy(() => sparkSessionPromptHistorySchema),
+  },
+  "session.retry-target": {
+    input: sparkSessionRetryTargetRequestSchema,
+    output: sparkSessionRetryTargetSchema,
+  },
   "session.create": {
     input: sparkSessionCreateRequestSchema,
     output: sparkSessionProjectionSchema,
@@ -1720,6 +1738,12 @@ export const sparkLocalRpcOrpcMethodPaths = Object.fromEntries(
 export const sparkLocalRpcOrpcLiveMethods = Object.keys(
   sparkLocalRpcProcedureSchemas,
 ) as SparkLocalRpcMethod[];
+
+/** New procedures intentionally excluded from the frozen 0.1.x NDJSON surface. */
+export const sparkLocalRpcOrpcOnlyMethods = [
+  "session.prompt-history",
+  "session.retry-target",
+] as const satisfies readonly SparkLocalRpcMethod[];
 
 export type SparkLocalRpcInput<M extends SparkLocalRpcMethod> = z.input<
   (typeof sparkLocalRpcProcedureSchemas)[M]["input"]
@@ -2048,6 +2072,18 @@ export const sparkLocalRpcOrpcContract = {
       "/session/snapshot",
       p["session.snapshot"],
       sparkLocalRpcSessionSnapshotOrpcErrors,
+    ),
+    promptHistory: procedure(
+      "GET",
+      "/session/prompt-history",
+      p["session.prompt-history"],
+      sparkLocalRpcSessionPromptHistoryOrpcErrors,
+    ),
+    retryTarget: procedure(
+      "GET",
+      "/session/retry-target",
+      p["session.retry-target"],
+      sparkLocalRpcSessionGetOrpcErrors,
     ),
     create: procedure(
       "POST",

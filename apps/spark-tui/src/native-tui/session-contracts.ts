@@ -50,7 +50,7 @@ export interface SparkNativeSessionContract {
   abort(reason: string): SparkNativeAbortContract;
   addSystemMessage(text: string): void;
   clearTranscript(note?: string): void;
-  retryLast(): unknown;
+  retryLast(): Promise<"started" | "queued" | "ignored">;
   restoreQueuedText(): string | undefined;
   submit(
     input: string,
