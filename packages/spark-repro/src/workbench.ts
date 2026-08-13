@@ -3,12 +3,14 @@ import { createHash } from "node:crypto";
 import type { ArtifactRef } from "@zendev-lab/spark-core";
 import type { SparkGoalContract } from "@zendev-lab/spark-loop";
 import type {
+  SparkSessionReproLaneSummaryView,
   SparkLoopView,
   SparkTokenUsageAggregate,
   SparkWorkbenchActionId,
 } from "@zendev-lab/spark-protocol";
 
-import { SPARK_REPRO_WORK_STAGES, type SparkReproWorkSummary } from "./work-summary.ts";
+import { projectSparkReproWorkSummaryLanesView } from "./three-lane-projection.ts";
+import type { SparkReproWorkSummaryV3 } from "./three-lane-work-summary.ts";
 
 const BASIC_CATALOG = "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json";
 
@@ -18,16 +20,16 @@ export type SparkReproWorkbenchCheckpointKind = "stage" | "final" | "manual";
 export interface SparkReproWorkbenchCheckpoint {
   checkpointId: string;
   kind: SparkReproWorkbenchCheckpointKind;
-  stage: SparkReproWorkSummary["stage"];
+  stage: SparkReproWorkSummaryV3["stage"];
   artifactRef: ArtifactRef;
   revision: number;
   hash: string;
   createdAt: string;
-  work: SparkReproWorkSummary;
+  work: SparkReproWorkSummaryV3;
 }
 
 export interface SparkReproWorkbenchProjectionInput {
-  work: SparkReproWorkSummary;
+  work: SparkReproWorkSummaryV3;
   goalContract: SparkGoalContract;
   loop: SparkLoopView;
   artifactRef: ArtifactRef;
@@ -77,7 +79,7 @@ export function renderSparkReproWorkbenchA2ui(input: SparkReproWorkbenchProjecti
       component: "Tabs",
       tabs: [
         { title: "Overview", child: "overview" },
-        { title: "Plan", child: "plan" },
+        { title: "Lanes", child: "lanes" },
         { title: "Experiments / Coverage", child: "coverage" },
         { title: "History / Compare", child: "history" },
         { title: "Delivery", child: "delivery" },
@@ -85,8 +87,46 @@ export function renderSparkReproWorkbenchA2ui(input: SparkReproWorkbenchProjecti
     },
     { id: "overview", component: "Card", child: "overview-text" },
     { id: "overview-text", component: "Text", text: overviewMarkdown(input) },
-    { id: "plan", component: "Card", child: "plan-text" },
-    { id: "plan-text", component: "Text", text: planMarkdown(input) },
+    {
+      id: "lanes",
+      component: "Column",
+      children: ["lane-cards", "lane-transitions", "lane-formalized"],
+    },
+    {
+      id: "lane-cards",
+      component: "Row",
+      children: ["lane-implementation", "lane-exactness", "lane-formalize"],
+    },
+    { id: "lane-implementation", component: "Card", child: "lane-implementation-text" },
+    {
+      id: "lane-implementation-text",
+      component: "Text",
+      text: laneMarkdown(input, "implementation"),
+    },
+    { id: "lane-exactness", component: "Card", child: "lane-exactness-text" },
+    {
+      id: "lane-exactness-text",
+      component: "Text",
+      text: laneMarkdown(input, "exactness"),
+    },
+    { id: "lane-formalize", component: "Card", child: "lane-formalize-text" },
+    {
+      id: "lane-formalize-text",
+      component: "Text",
+      text: laneMarkdown(input, "formalize"),
+    },
+    { id: "lane-transitions", component: "Card", child: "lane-transitions-text" },
+    {
+      id: "lane-transitions-text",
+      component: "Text",
+      text: laneTransitionsMarkdown(input),
+    },
+    { id: "lane-formalized", component: "Card", child: "lane-formalized-text" },
+    {
+      id: "lane-formalized-text",
+      component: "Text",
+      text: laneFormalizedMarkdown(input),
+    },
     { id: "coverage", component: "Card", child: "coverage-text" },
     { id: "coverage-text", component: "Text", text: coverageMarkdown(input) },
     { id: "history", component: "Card", child: "history-text" },
@@ -190,21 +230,71 @@ function overviewMarkdown(input: SparkReproWorkbenchProjectionInput): string {
   ].join("\n");
 }
 
-function planMarkdown(input: SparkReproWorkbenchProjectionInput): string {
-  const currentIndex = SPARK_REPRO_WORK_STAGES.indexOf(input.work.stage);
-  const stages = SPARK_REPRO_WORK_STAGES.map((stage, index) => {
-    const state = index < currentIndex ? "done" : index === currentIndex ? "current" : "pending";
-    return `- ${stage}: ${state}`;
-  });
-  const tasks = input.work.tasks.map(
-    (task) => `- [${task.status === "done" ? "x" : " "}] ${task.title} (${task.status})`,
-  );
+function laneMarkdown(
+  input: SparkReproWorkbenchProjectionInput,
+  lane: "implementation" | "exactness" | "formalize",
+): string {
+  const view = projectSparkReproWorkSummaryLanesView(input.work)[lane];
+  const title = {
+    implementation: "Implementation Explore",
+    exactness: "Exactness Explore",
+    formalize: "Formalize",
+  }[lane];
   return [
-    "## Workflow stages",
-    ...stages,
+    `## ${title}`,
+    `- Status: ${view.status}`,
+    `- Work: ${view.totalCount} total · ${view.openCount} open · ${view.blockedCount} blocked · ${view.completedCount} completed`,
+    `- Pending handoffs: ${view.pendingHandoffCount} · Resolutions: ${view.resolutionCount}`,
     "",
-    "## Tasks",
-    ...(tasks.length ? tasks : ["- none"]),
+    ...laneItemsMarkdown(view),
+  ].join("\n");
+}
+
+function laneItemsMarkdown(view: SparkSessionReproLaneSummaryView): string[] {
+  if (view.items.length === 0) return ["_No work items._"];
+  return view.items.flatMap((item) => {
+    const refs = [item.taskRef, item.runRef, item.gitChangeRef]
+      .filter((ref): ref is string => Boolean(ref))
+      .map((ref) => `\`${inlineCode(ref)}\``);
+    const evidenceRefs = item.evidenceRefs.map((ref) => `\`${inlineCode(ref)}\``);
+    return [
+      `- \`${inlineCode(item.workItemId)}\` · ${item.status} · ${escapeMarkdown(item.title)}`,
+      `  - Links: ${refs.length ? refs.join(", ") : "none"}`,
+      `  - Evidence: ${evidenceRefs.length ? evidenceRefs.join(", ") : "none"} · Handoffs ${item.handoffCount} · Resolutions ${item.resolutionCount}`,
+    ];
+  });
+}
+
+function laneTransitionsMarkdown(input: SparkReproWorkbenchProjectionInput): string {
+  const handoffs = input.work.handoffs
+    .slice(0, 6)
+    .map(
+      (handoff) =>
+        `- \`${inlineCode(handoff.handoffId)}\` · ${handoff.from} → ${handoff.to} · ${handoff.status} · \`${inlineCode(handoff.workItemId)}\``,
+    );
+  const resolutions = input.work.resolutions
+    .slice(0, 6)
+    .map(
+      (resolution) =>
+        `- \`${inlineCode(resolution.resolutionId)}\` · ${resolution.from} → ${resolution.to} · ${resolution.status} · \`${inlineCode(resolution.workItemId)}\``,
+    );
+  return [
+    "## Forward handoffs",
+    `- Total: ${input.work.handoffs.length}`,
+    ...(handoffs.length ? handoffs : ["_No handoffs._"]),
+    "",
+    "## Backward resolutions",
+    `- Total: ${input.work.resolutions.length}`,
+    ...(resolutions.length ? resolutions : ["_No resolutions._"]),
+  ].join("\n");
+}
+
+function laneFormalizedMarkdown(input: SparkReproWorkbenchProjectionInput): string {
+  return [
+    "## Formalized state",
+    `- Formalized tip: ${input.work.lanes.formalize.formalizedTip ? `\`${inlineCode(input.work.lanes.formalize.formalizedTip)}\`` : "none"}`,
+    `- Retired steps: ${input.work.lanes.formalize.cursor.retiredStepIds.length}/${input.work.lanes.formalize.cursor.orderedStepIds.length}`,
+    "- Implementation and Exactness activity does not advance formal progress.",
   ].join("\n");
 }
 
@@ -274,8 +364,19 @@ function assertProjectionBinding(input: SparkReproWorkbenchProjectionInput): voi
   }
 }
 
-function formatProgress(progress: SparkReproWorkSummary["progress"]): string {
+function formatProgress(progress: SparkReproWorkSummaryV3["progress"]): string {
   return progress.quantified ? `${progress.percent}%` : "unquantified";
+}
+
+function inlineCode(value: string): string {
+  return value.replaceAll("`", "\\`").slice(0, 256);
+}
+
+function escapeMarkdown(value: string): string {
+  return value
+    .replace(/[\\`*_{}[\]<>()#+\-.!|]/gu, "\\$&")
+    .replace(/\s+/gu, " ")
+    .slice(0, 160);
 }
 
 function actionLabel(action: SparkWorkbenchActionId): string {

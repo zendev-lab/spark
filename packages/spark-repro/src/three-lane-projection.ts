@@ -7,9 +7,12 @@ import {
 
 import type {
   SparkReproLane,
+  SparkReproResolution,
   SparkReproThreeLaneSessionState,
+  SparkReproWorkHandoff,
   SparkReproWorkItem,
 } from "./three-lane.ts";
+import type { SparkReproWorkSummaryV3 } from "./three-lane-work-summary.ts";
 
 const STATUS_PRIORITY: Record<SparkReproWorkItem["status"], number> = {
   blocked: 0,
@@ -26,29 +29,63 @@ const STATUS_PRIORITY: Record<SparkReproWorkItem["status"], number> = {
 export function projectSparkReproLanesView(
   state: SparkReproThreeLaneSessionState,
 ): SparkSessionReproLanesView {
-  const projection = {
-    implementation: projectLane(state, "implementation"),
-    exactness: projectLane(state, "exactness"),
-    formalize: projectLane(state, "formalize"),
-    ...(state.formalize.formalizedTip
-      ? { formalizedTip: state.formalize.formalizedTip.slice(0, 256) }
+  return projectLanesView({
+    workItemIds: {
+      implementation: state.implementation.workItemIds,
+      exactness: state.exactness.workItemIds,
+      formalize: state.formalize.workItemIds,
+    },
+    workItems: state.workItems,
+    handoffs: state.handoffs,
+    resolutions: state.resolutions,
+    ...(state.formalize.formalizedTip ? { formalizedTip: state.formalize.formalizedTip } : {}),
+  });
+}
+
+/** Project persisted work-summary/v3 facts through the same display-safe lane boundary. */
+export function projectSparkReproWorkSummaryLanesView(
+  summary: SparkReproWorkSummaryV3,
+): SparkSessionReproLanesView {
+  return projectLanesView({
+    workItemIds: {
+      implementation: summary.lanes.implementation.workItemIds,
+      exactness: summary.lanes.exactness.workItemIds,
+      formalize: summary.lanes.formalize.workItemIds,
+    },
+    workItems: summary.workItems,
+    handoffs: summary.handoffs,
+    resolutions: summary.resolutions,
+    ...(summary.lanes.formalize.formalizedTip
+      ? { formalizedTip: summary.lanes.formalize.formalizedTip }
       : {}),
+  });
+}
+
+interface SparkReproLaneProjectionSource {
+  workItemIds: Record<SparkReproLane, string[]>;
+  workItems: SparkReproWorkItem[];
+  handoffs: SparkReproWorkHandoff[];
+  resolutions: SparkReproResolution[];
+  formalizedTip?: string;
+}
+
+function projectLanesView(source: SparkReproLaneProjectionSource): SparkSessionReproLanesView {
+  const projection = {
+    implementation: projectLane(source, "implementation"),
+    exactness: projectLane(source, "exactness"),
+    formalize: projectLane(source, "formalize"),
+    ...(source.formalizedTip ? { formalizedTip: source.formalizedTip.slice(0, 256) } : {}),
   } satisfies SparkSessionReproLanesView;
   return sparkSessionReproLanesViewSchema.parse(projection);
 }
 
 function projectLane(
-  state: SparkReproThreeLaneSessionState,
+  source: SparkReproLaneProjectionSource,
   lane: SparkReproLane,
 ): SparkSessionReproLaneSummaryView {
-  const workItemIds =
-    lane === "implementation"
-      ? state.implementation.workItemIds
-      : lane === "exactness"
-        ? state.exactness.workItemIds
-        : state.formalize.workItemIds;
+  const workItemIds = source.workItemIds[lane];
   const workItemIdSet = new Set(workItemIds);
-  const workItems = state.workItems
+  const workItems = source.workItems
     .filter((item) => workItemIdSet.has(item.workItemId))
     .sort(
       (left, right) =>
@@ -76,10 +113,10 @@ function projectLane(
     blockedCount: counts.blocked,
     completedCount: counts.completed,
     supersededCount: counts.superseded,
-    pendingHandoffCount: state.handoffs.filter(
+    pendingHandoffCount: source.handoffs.filter(
       (handoff) => workItemIdSet.has(handoff.workItemId) && handoff.status === "pending",
     ).length,
-    resolutionCount: state.resolutions.filter((resolution) =>
+    resolutionCount: source.resolutions.filter((resolution) =>
       workItemIdSet.has(resolution.workItemId),
     ).length,
     items: workItems.slice(0, SPARK_SESSION_REPRO_LANE_ITEM_LIMIT).map((item) => ({
@@ -90,9 +127,9 @@ function projectLane(
       ...(item.runRef ? { runRef: item.runRef } : {}),
       ...(item.gitChangeRef ? { gitChangeRef: item.gitChangeRef } : {}),
       evidenceRefs: item.evidenceRefs.slice(0, SPARK_SESSION_REPRO_LANE_ITEM_LIMIT),
-      handoffCount: state.handoffs.filter((handoff) => handoff.workItemId === item.workItemId)
+      handoffCount: source.handoffs.filter((handoff) => handoff.workItemId === item.workItemId)
         .length,
-      resolutionCount: state.resolutions.filter(
+      resolutionCount: source.resolutions.filter(
         (resolution) => resolution.workItemId === item.workItemId,
       ).length,
     })),

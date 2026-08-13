@@ -1,12 +1,17 @@
 import { normalizeSparkA2uiDocument } from "@zendev-lab/spark-protocol/a2ui";
+import type { EvidenceRef } from "@zendev-lab/spark-core";
 import { describe, expect, it } from "vitest";
 
+import {
+  migrateSparkReproWorkSummaryV2,
+  normalizeSparkReproWorkSummaryV3,
+} from "./three-lane-work-summary.ts";
 import { buildSparkReproWorkSummary } from "./work-summary.ts";
 import { renderSparkReproWorkbenchA2ui, sparkReproWorkbenchProjectionDigest } from "./workbench.ts";
 
 describe("Repro A2UI Workbench projection", () => {
   it("projects typed facts and revision-bound closed Loop actions", () => {
-    const work = buildSparkReproWorkSummary({
+    const workV2 = buildSparkReproWorkSummary({
       reproId: "repro-1",
       title: "Align model",
       stage: "contract",
@@ -41,6 +46,84 @@ describe("Repro A2UI Workbench projection", () => {
       })),
       reportArtifactRef: "artifact:report",
     });
+    const planRevision = workV2.normativeCursor.planRevision;
+    const evidenceRef = "evidence:workbench" as EvidenceRef;
+    const workItem = {
+      workItemId: "work:rmsnorm",
+      title: "Localize RMSNorm divergence",
+      scope: "internal scope is not projected",
+      planRevision,
+      sourceRevision: "commit:candidate",
+      status: "open" as const,
+      taskRef: "task:rmsnorm" as const,
+      evidenceRefs: [evidenceRef],
+      unresolvedIds: [],
+    };
+    const migrated = migrateSparkReproWorkSummaryV2(workV2);
+    const work = normalizeSparkReproWorkSummaryV3({
+      ...migrated,
+      lanes: {
+        ...migrated.lanes,
+        implementation: {
+          ...migrated.lanes.implementation,
+          workItemIds: [workItem.workItemId],
+        },
+        exactness: {
+          ...migrated.lanes.exactness,
+          workItemIds: [workItem.workItemId],
+        },
+        formalize: {
+          ...migrated.lanes.formalize,
+          workItemIds: [workItem.workItemId],
+          formalizedTip: "commit:canonical",
+        },
+      },
+      workItems: [workItem],
+      handoffs: [
+        {
+          handoffId: "handoff:implementation-exactness",
+          workItemId: workItem.workItemId,
+          from: "implementation",
+          to: "exactness",
+          planRevision,
+          sourceRevision: workItem.sourceRevision,
+          scope: workItem.scope,
+          findingIds: [],
+          evidenceRefs: [evidenceRef],
+          candidateRevisions: [workItem.sourceRevision],
+          dependsOnHandoffIds: [],
+          doneWhen: ["Classify the boundary"],
+          status: "accepted",
+        },
+        {
+          handoffId: "handoff:exactness-formalize",
+          workItemId: workItem.workItemId,
+          from: "exactness",
+          to: "formalize",
+          planRevision,
+          sourceRevision: workItem.sourceRevision,
+          scope: workItem.scope,
+          findingIds: [],
+          evidenceRefs: [evidenceRef],
+          candidateRevisions: [workItem.sourceRevision],
+          dependsOnHandoffIds: ["handoff:implementation-exactness"],
+          doneWhen: ["Accept one stack entry"],
+          status: "accepted",
+        },
+      ],
+      resolutions: [
+        {
+          resolutionId: "resolution:formalize-exactness",
+          workItemId: workItem.workItemId,
+          from: "formalize",
+          to: "exactness",
+          status: "resolved",
+          canonicalRevision: "commit:canonical",
+          supersededRevisions: [workItem.sourceRevision],
+          evidenceRefs: [evidenceRef],
+        },
+      ],
+    });
     const input = {
       work,
       goalContract: {
@@ -71,7 +154,7 @@ describe("Repro A2UI Workbench projection", () => {
         binding: {
           goalId: "goal-1",
           workflowSelector: "builtin:repro" as const,
-          reproId: "repro-1",
+          reproId: work.reproId,
         },
         policy: {
           cadenceMs: 30_000,
@@ -111,6 +194,16 @@ describe("Repro A2UI Workbench projection", () => {
       event: { context: { confirm: true } },
     });
     expect(content).toContain("Goal Contract");
+    expect(content).toContain('"title": "Lanes"');
+    expect(content).not.toContain('"title": "Plan"');
+    expect(content).toContain("Implementation Explore");
+    expect(content).toContain("Exactness Explore");
+    expect(content).toContain("Formalized tip: `commit:canonical`");
+    expect(content).toContain("`task:rmsnorm`");
+    expect(content).toContain("`evidence:workbench`");
+    expect(content).toContain("implementation → exactness");
+    expect(content).toContain("formalize → exactness");
+    expect(content).not.toContain(workItem.scope);
     expect(sparkReproWorkbenchProjectionDigest(input)).toHaveLength(64);
 
     const unquantifiedProgress = {

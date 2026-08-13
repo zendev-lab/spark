@@ -102,6 +102,32 @@
     return isRecord(value) && typeof value.path === "string" ? value.path : null;
   }
 
+  function navigateTabs(
+    event: KeyboardEvent & { currentTarget: HTMLButtonElement },
+    tabs: Array<{ title: string; child: string }>,
+    currentChild: string,
+  ) {
+    const currentIndex = tabs.findIndex((tab) => tab.child === currentChild);
+    if (currentIndex < 0) return;
+    const nextIndex =
+      event.key === "ArrowRight" || event.key === "ArrowDown"
+        ? (currentIndex + 1) % tabs.length
+        : event.key === "ArrowLeft" || event.key === "ArrowUp"
+          ? (currentIndex - 1 + tabs.length) % tabs.length
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? tabs.length - 1
+              : null;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    const tablist = event.currentTarget.parentElement;
+    activeTab = tabs[nextIndex]?.child ?? null;
+    queueMicrotask(() => {
+      tablist?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[nextIndex]?.focus();
+    });
+  }
+
   function updateField(node: SparkA2uiComponent, value: SparkProtocolJsonValue) {
     const path = fieldPath(node);
     if (path) dataModel = updateSparkA2uiDataModel(dataModel, path, value);
@@ -197,11 +223,14 @@
         <div class="a2ui-tablist" role="tablist" aria-label="Repro Workbench views">
           {#each tabs as tab (tab.child)}
             <button
+              id={`a2ui-tab-${tab.child}`}
               type="button"
               role="tab"
               aria-selected={selected === tab.child}
               aria-controls={`a2ui-panel-${tab.child}`}
+              tabindex={selected === tab.child ? 0 : -1}
               onclick={() => (activeTab = tab.child)}
+              onkeydown={(event) => navigateTabs(event, tabs, tab.child)}
             >{tab.title}</button>
           {/each}
         </div>
@@ -210,6 +239,7 @@
             id={`a2ui-panel-${tab.child}`}
             class="a2ui-tabpanel"
             role="tabpanel"
+            aria-labelledby={`a2ui-tab-${tab.child}`}
             hidden={selected !== tab.child}
           >
             {@render renderNode(tab.child, nextAncestors)}

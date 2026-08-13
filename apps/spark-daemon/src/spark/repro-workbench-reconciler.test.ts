@@ -98,12 +98,18 @@ describe("Repro Workbench Artifact reconciliation", () => {
       }),
     ).toThrow("WORKBENCH_BINDING_IDENTITY_CONFLICT");
     expect(bindings.listCheckpoints(binding.bindingId)).toHaveLength(1);
-    expect(
-      await defaultArtifactStore(workspaceCwd).get(sparkReproWorkbenchArtifactRef("repro-1")),
-    ).toMatchObject({
+    const projectedArtifact = await defaultArtifactStore(workspaceCwd).get(
+      sparkReproWorkbenchArtifactRef("repro-1"),
+    );
+    expect(projectedArtifact).toMatchObject({
       kind: "document",
       body: { revision: 1, management: { authority: "daemon", lifecycle: "live" } },
     });
+    if (projectedArtifact.body.kind !== "document") {
+      throw new Error("expected Workbench Document");
+    }
+    expect(projectedArtifact.body.content).toContain('"title": "Lanes"');
+    expect(projectedArtifact.body.content).not.toContain('"title": "Plan"');
 
     expect(await reconcile()).toMatchObject({
       projected: 0,
