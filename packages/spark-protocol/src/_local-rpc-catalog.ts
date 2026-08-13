@@ -289,7 +289,7 @@ export const sparkLocalRpcModelOrpcErrors = {
   model_control_unavailable: { status: 503 },
   role_model_type_unconfigured: { status: 422 },
   model_not_found: { status: 404 },
-  model_out_of_scope: { status: 422 },
+  model_not_enabled: { status: 422 },
   model_unavailable: { status: 422 },
   provider_not_found: { status: 404 },
   provider_auth_method_unsupported: { status: 422 },
@@ -604,7 +604,7 @@ const sparkLocalRpcReadinessSessionModelOrpcErrors = {
   side_thread_mutation_forbidden: sparkLocalRpcSessionOrpcErrors.side_thread_mutation_forbidden,
   model_control_unavailable: sparkLocalRpcModelOrpcErrors.model_control_unavailable,
   model_not_found: sparkLocalRpcModelOrpcErrors.model_not_found,
-  model_out_of_scope: sparkLocalRpcModelOrpcErrors.model_out_of_scope,
+  model_not_enabled: sparkLocalRpcModelOrpcErrors.model_not_enabled,
   model_unavailable: sparkLocalRpcModelOrpcErrors.model_unavailable,
 } as const;
 
@@ -633,7 +633,7 @@ const sparkLocalRpcModelCatalogOrpcErrors = {
 const sparkLocalRpcModelSelectionOrpcErrors = {
   ...sparkLocalRpcModelCatalogOrpcErrors,
   model_not_found: sparkLocalRpcModelOrpcErrors.model_not_found,
-  model_out_of_scope: sparkLocalRpcModelOrpcErrors.model_out_of_scope,
+  model_not_enabled: sparkLocalRpcModelOrpcErrors.model_not_enabled,
   model_unavailable: sparkLocalRpcModelOrpcErrors.model_unavailable,
 } as const;
 

@@ -6,7 +6,7 @@ const firstModel = { providerName: "openai", modelId: "gpt-5" };
 const secondModel = { providerName: "openai", modelId: "gpt-5-mini" };
 
 function snapshot(
-  scopedModels?: SparkModelControlSnapshot["scopedModels"],
+  enabledModels?: SparkModelControlSnapshot["enabledModels"],
 ): SparkModelControlSnapshot {
   return {
     providers: [
@@ -31,19 +31,19 @@ function snapshot(
       },
     ],
     diagnostics: [],
-    ...(scopedModels === undefined ? {} : { scopedModels }),
+    ...(enabledModels === undefined ? {} : { enabledModels }),
   };
 }
 
 describe("Hub runtime model channel compatibility", () => {
   it("projects the full catalog as scope for an older daemon snapshot", () => {
-    expect(adaptLegacyDaemonModelControlSnapshot(snapshot()).scopedModels).toEqual([
+    expect(adaptLegacyDaemonModelControlSnapshot(snapshot()).enabledModels).toEqual([
       firstModel,
       secondModel,
     ]);
   });
 
-  it("preserves the current daemon's explicit scope, including an empty scope", () => {
+  it("preserves the current daemon's explicit enabled models, including an empty list", () => {
     const explicit = snapshot([secondModel]);
     const empty = snapshot([]);
 

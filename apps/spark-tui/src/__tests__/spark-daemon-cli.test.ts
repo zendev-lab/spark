@@ -3010,7 +3010,7 @@ test("Spark TUI and headless print attach and release workspace clients", async 
     assert.equal(Boolean(slashCommands?.session), false, "retired /session command stays removed");
     for (const command of [
       "settings",
-      "scoped-models",
+      "enabled-models",
       "export",
       "import",
       "share",

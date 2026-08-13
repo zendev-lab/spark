@@ -32,12 +32,14 @@ const GATEWAY_MODEL_BY_ID: Record<string, string> = {
   "gpt-5.6-sol": "gpt-5.6-sol",
   "gpt-5.6-terra": "gpt-5.6-terra",
   "grok-4.5": "grok-4.5",
+  "grok-4.6": "grok-4.6",
 };
 const BAIDU_ONEAPI_OPENAI_RESPONSES_MODEL_IDS = new Set([
   "gpt-5.6-luna",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "grok-4.5",
+  "grok-4.6",
 ]);
 
 function gatewayModelId(modelId: string): string {
@@ -112,6 +114,12 @@ const GROK_4_5_COST = {
   input: 2,
   output: 6,
   cacheRead: 0.3,
+  cacheWrite: 2,
+};
+const GROK_4_6_COST = {
+  input: 2,
+  output: 6,
+  cacheRead: 0.5,
   cacheWrite: 2,
 };
 
@@ -599,6 +607,21 @@ function registerBaiduOneApiProvider(
         input: ["text", "image"],
         cost: GROK_4_5_COST,
         // Measured: ok ~467k provider input; gateway rejects above max prompt length 500000.
+        contextWindow: 500_000,
+        maxTokens: 32_768,
+      },
+      {
+        id: "grok-4.6",
+        name: "Grok 4.6",
+        baseUrl: process.env.BAIDU_ONEAPI_OPENAI_BASE_URL ?? BAIDU_ONEAPI_OPENAI_BASE_URL,
+        transportApi: "openai-responses",
+        transportModelId: gatewayModelId("grok-4.6"),
+        reasoning: true,
+        thinkingLevelMap: GPT_THINKING_LEVEL_MAP,
+        input: ["text", "image"],
+        cost: GROK_4_6_COST,
+        // xAI: 500k context, no text output cap. Headline $2/$6, cacheRead $0.50.
+        // Same Baidu gateway ceiling as measured grok-4.5 (reject >500000).
         contextWindow: 500_000,
         maxTokens: 32_768,
       },

@@ -70,9 +70,10 @@ function isSparkDaemonModelControlMethod(method: string): method is SparkDaemonM
 export function daemonSnapshotToPickerState(
   snapshot: SparkModelControlSnapshot,
 ): SparkModelPickerState {
-  const scopedModelValues = snapshot.scopedModels
-    ? new Set(snapshot.scopedModels.map(sparkModelValue))
-    : undefined;
+  const enabledModelValues =
+    snapshot.enabledModels === undefined
+      ? undefined
+      : new Set(snapshot.enabledModels.map(sparkModelValue));
   const effectiveModel = snapshot.session?.model ?? snapshot.defaultModel;
   const effectiveEntry = effectiveModel
     ? snapshot.providers
@@ -80,7 +81,7 @@ export function daemonSnapshotToPickerState(
         .find(
           (entry) =>
             modelEquals(entry.model, effectiveModel) &&
-            (!scopedModelValues || scopedModelValues.has(sparkModelValue(entry.model))),
+            (!enabledModelValues || enabledModelValues.has(sparkModelValue(entry.model))),
         )
     : undefined;
   const active =
@@ -92,7 +93,7 @@ export function daemonSnapshotToPickerState(
       active: active?.providerName === provider.providerName,
       models: provider.models
         .filter(
-          (entry) => !scopedModelValues || scopedModelValues.has(sparkModelValue(entry.model)),
+          (entry) => !enabledModelValues || enabledModelValues.has(sparkModelValue(entry.model)),
         )
         .map((entry) => ({
           value: sparkModelValue(entry.model),

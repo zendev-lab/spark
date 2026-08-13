@@ -91,7 +91,7 @@ test("daemon model picker displays unavailable models without making them select
 test("daemon model picker exposes only the resolved scoped models", () => {
   const scoped = daemonSnapshotToPickerState({
     ...snapshot,
-    scopedModels: [{ providerName: "provider-b", modelId: "model-a" }],
+    enabledModels: [{ providerName: "provider-b", modelId: "model-a" }],
   });
   assert.deepEqual(
     scoped.items.map((item) => item.value),
@@ -99,7 +99,7 @@ test("daemon model picker exposes only the resolved scoped models", () => {
   );
   assert.equal(scoped.activeModelId, undefined);
 
-  const empty = daemonSnapshotToPickerState({ ...snapshot, scopedModels: [] });
+  const empty = daemonSnapshotToPickerState({ ...snapshot, enabledModels: [] });
   assert.deepEqual(empty.items, []);
 });
 

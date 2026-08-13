@@ -61,7 +61,7 @@ export interface SparkSessionCompactClient {
 
 const PI_COMMANDS = [
   "settings",
-  "scoped-models",
+  "enabled-models",
   "export",
   "import",
   "share",
@@ -96,9 +96,9 @@ export function createSparkPiParitySlashCommands(
       getArgumentCompletions: (prefix) => settingsCompletions(prefix),
       handler: async (args) => handleSettingsCommand(services, args, modelAuthClient),
     },
-    "scoped-models": {
-      description: STRINGS.descriptions.scopedModels,
-      handler: async () => renderScopedModels(services, modelAuthClient),
+    "enabled-models": {
+      description: STRINGS.descriptions.enabledModels,
+      handler: async () => renderEnabledModels(services, modelAuthClient),
     },
     export: {
       description: STRINGS.descriptions.export,
@@ -351,7 +351,7 @@ function isThinkingLevel(value: string | undefined): value is SparkThinkingLevel
   return (THINKING_LEVELS as readonly string[]).includes(value ?? "");
 }
 
-async function renderScopedModels(
+async function renderEnabledModels(
   services: SparkCliHostServices,
   modelAuthClient?: SparkDaemonModelAuthClient,
 ): Promise<string> {

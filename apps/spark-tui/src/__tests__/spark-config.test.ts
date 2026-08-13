@@ -31,7 +31,10 @@ test("default Spark providers include shared Baidu OneAPI and OpenAI Codex adapt
   assert.equal(DEFAULT_SPARK_CONFIG.activeThinkingLevel, "high");
   assert.deepEqual(DEFAULT_SPARK_CONFIG.enabledModels, [
     "openai-codex/gpt-5.6-*",
-    "baidu-oneapi/*",
+    "baidu-oneapi/claude-opus-5",
+    "baidu-oneapi/deepseek-v4-flash",
+    "baidu-oneapi/gpt-5.6-*",
+    "baidu-oneapi/grok-4.6",
   ]);
 });
 
@@ -47,11 +50,27 @@ test("bundled legacy model defaults migrate without re-enabling compatibility mo
         "baidu-oneapi/gpt-5.6-terra",
       ],
     }).enabledModels,
-    ["openai-codex/gpt-5.6-*", "baidu-oneapi/*"],
+    DEFAULT_SPARK_CONFIG.enabledModels,
+  );
+  assert.deepEqual(
+    mergeSparkConfigWithDefault({
+      enabledModels: [
+        "openai-codex/gpt-5.6-*",
+        "baidu-oneapi/claude-opus-5",
+        "baidu-oneapi/deepseek-v4-flash",
+        "baidu-oneapi/gpt-5.6-*",
+        "baidu-oneapi/grok-4.5",
+      ],
+    }).enabledModels,
+    DEFAULT_SPARK_CONFIG.enabledModels,
   );
   assert.deepEqual(
     mergeSparkConfigWithDefault({ enabledModels: ["openai-codex/*"] }).enabledModels,
     ["openai-codex/*"],
+  );
+  assert.deepEqual(
+    mergeSparkConfigWithDefault({ enabledModels: ["baidu-oneapi/*"] }).enabledModels,
+    ["baidu-oneapi/*"],
   );
   assert.deepEqual(mergeSparkConfigWithDefault({ enabledModels: [] }).enabledModels, []);
 });
