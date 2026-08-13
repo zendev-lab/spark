@@ -10,6 +10,20 @@ slug: zh/0.2/guides/tui
 spark
 ```
 
+## 在 TUI 中回复异步 Ask
+
+Spark TUI 可以直接恢复当前 Session 的异步 pending Ask，不需要另开终端。
+只有一个 pending Ask 时输入：
+
+```text
+/ask
+```
+
+如果有多个 pending Ask，TUI 会先显示选择器。也可以使用 `/ask list` 查看，或
+使用 `/ask <interaction-request-id>` 直接打开指定 Ask。回复仍然通过 daemon 的
+持久化 human-interaction 路径提交，不会绕过 Ask receipt，也不会生成只存在于
+TUI 本地的答案。
+
 ## 从结果开始
 
 普通输入是主要交互方式：

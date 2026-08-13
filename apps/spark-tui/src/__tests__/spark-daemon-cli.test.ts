@@ -15,6 +15,7 @@ import { SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
 import {
   parseSparkDaemonEvent,
   parseSparkInteractionRequest,
+  type SparkInteractionRequest,
   type SparkViewModelEvent,
   type SparkSessionProjection,
 } from "@zendev-lab/spark-protocol";
@@ -29,6 +30,7 @@ import { createSparkNativeTuiComponentHarness } from "../test-support/spark-nati
 import {
   attachSparkWorkspaceClient,
   clientRespondHumanInteraction,
+  createSparkDaemonNativeCommands,
   createSparkDaemonNativeResponder,
   ensureSparkDaemonClientRunning,
   handleSparkDaemonHumanInteractionRequest,
@@ -1090,6 +1092,86 @@ test("daemon sessions plural alias routes to live list", () => {
     registry: false,
     includeArchived: false,
     workspaceId: undefined,
+  });
+});
+
+test("native /ask resumes one detached async Ask inside Spark TUI", async () => {
+  const requests: Array<{ method: string; params: unknown }> = [];
+  const interactions: SparkInteractionRequest[] = [];
+  const wait = {
+    humanRequestId: "hreq_async_tui",
+    interactionRequestId: "ask_async_tui",
+    sessionId: "session-a",
+    invocationId: "inv_async_tui",
+    workspaceBindingId: "rtwb_async_tui",
+    workspaceId: "ws_async_tui",
+    projectId: "project_async_tui",
+    toolCallId: "tool_async_tui",
+    delivery: "async" as const,
+    kind: "decision",
+    title: "Choose baseline",
+    prompt: "Select a baseline.",
+    questions: [
+      {
+        id: "baseline-strategy",
+        type: "single",
+        required: true,
+        prompt: "Which baseline?",
+        options: [{ value: "reuse", label: "Reuse frozen baseline" }],
+      },
+    ],
+    context: {},
+    contextArtifactRefs: [],
+    status: "pending" as const,
+    createdAt: "2026-08-13T00:00:00.000Z",
+    updatedAt: "2026-08-13T00:00:00.000Z",
+  };
+  const commands = createSparkDaemonNativeCommands(
+    {
+      controlRequest: async (method, params) => {
+        requests.push({ method, params });
+        if (method === "human.interaction.list") return { waits: [wait] };
+        if (method === "human.interaction.respond") {
+          return {
+            outcome: "accepted",
+            retryable: false,
+            returnedToTool: true,
+            message: "Ask answer accepted.",
+          };
+        }
+        throw new Error(`unexpected method: ${method}`);
+      },
+    },
+    { sessionId: "session-a" },
+  );
+
+  const result = await commands.ask!.handler("", {
+    app: {
+      handleInteractionRequest: async (request: SparkInteractionRequest) => {
+        interactions.push(request);
+        return {
+          version: 1,
+          kind: "askFlow",
+          requestId: request.requestId,
+          status: "answered",
+          answers: {
+            "baseline-strategy": { values: ["reuse"], labels: ["Reuse frozen baseline"] },
+          },
+        } as never;
+      },
+    } as never,
+    session: {} as never,
+    exit: () => undefined,
+  });
+
+  assert.equal(result, "Ask answer accepted.");
+  assert.equal(interactions.length, 1);
+  assert.equal(interactions[0]?.requestId, "ask_async_tui");
+  assert.equal(interactions[0]?.source, "daemon");
+  assert.equal(requests[0]?.method, "human.interaction.list");
+  assert.equal(requests[1]?.method, "human.interaction.respond");
+  assert.deepEqual((requests[1]?.params as { answers: unknown }).answers, {
+    "baseline-strategy": { values: ["reuse"], labels: ["Reuse frozen baseline"] },
   });
 });
 

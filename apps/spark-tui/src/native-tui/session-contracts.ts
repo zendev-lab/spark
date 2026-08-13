@@ -1,4 +1,6 @@
 import type {
+  SparkInteractionRequest,
+  SparkInteractionResponse,
   SparkMessageView,
   SparkToolCallView,
   SparkViewModelEvent,
@@ -36,6 +38,7 @@ interface SparkNativeAbortContract {
 
 export interface SparkNativeAppContract {
   applyViewModelEvent(event: SparkViewModelEvent): void;
+  handleInteractionRequest(request: SparkInteractionRequest): Promise<SparkInteractionResponse>;
   executeSlashCommand(input: string): Promise<void> | void;
   openHubPanel(panel: SparkNativeHubPanel): string | false;
   openHubPanelFromArgs(args: string): string | false;

@@ -615,6 +615,7 @@ export interface SparkDaemonCliStrings {
   queuedSession: (sessionId: string, invocationId: string) => string;
   completedSession: (sessionId: string, invocationId: string) => string;
   nativeCommandDescriptions: {
+    ask: string;
     status: string;
     start: string;
   };
@@ -784,6 +785,7 @@ const DAEMON_STRINGS: Record<SparkLanguage, SparkDaemonCliStrings> = {
     completedSession: (sessionId, invocationId) =>
       `Spark daemon completed session ${sessionId}: ${invocationId}`,
     nativeCommandDescriptions: {
+      ask: "answer a detached pending Ask in Spark TUI",
       status: "show Spark daemon status",
       start: "start or wake the Spark daemon, then show status",
     },
@@ -822,6 +824,7 @@ const DAEMON_STRINGS: Record<SparkLanguage, SparkDaemonCliStrings> = {
     completedSession: (sessionId, invocationId) =>
       `Spark daemon 已完成 session ${sessionId}：${invocationId}`,
     nativeCommandDescriptions: {
+      ask: "在 Spark TUI 中回复异步 pending Ask",
       status: "显示 Spark daemon 状态",
       start: "启动或唤醒 Spark daemon，然后显示状态",
     },
