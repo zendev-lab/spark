@@ -1,10 +1,14 @@
 /** Host-neutral Skill discovery and prompt rendering. */
 
-import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import {
+  defaultProjectResourceDirs,
+  orderedSparkResourceRoots,
+  type SparkResourceLayer,
+} from "@zendev-lab/spark-system/resource-paths";
 import {
   defaultBuiltinSkillsDir,
   defaultSparkCueSkillsDir,
@@ -15,7 +19,7 @@ import {
 export { defaultBuiltinSkillsDir, defaultSparkCueSkillsDir, parseSkillFrontmatter };
 export type { SparkSkillFrontmatter };
 
-export type SparkSkillLayer = "builtin" | "workspace" | "user";
+export type SparkSkillLayer = SparkResourceLayer;
 
 export interface SparkSkill {
   name: string;
@@ -52,9 +56,16 @@ export interface SparkSkillResolverOptions {
   builtinDirs?: string[];
   workspaceDir?: string;
   workspaceAgentsDirs?: string[];
+  cwdDir?: string;
   userDir?: string;
   userAgentsDir?: string;
   skillDirs?: string[];
+  /** Repository roots are opt-in for progressive agent focus. */
+  repositorySkillDirs?: string[];
+}
+
+export interface SparkSkillResolveOptions {
+  includeRepository?: boolean;
 }
 
 export interface SparkSkillResolveResult {
@@ -76,10 +87,12 @@ export class SparkSkillResolver {
   readonly builtinDirs: string[];
   readonly workspaceDir: string;
   readonly workspaceAgentsDirs: string[];
+  readonly cwdDir: string;
   readonly userDir: string;
   readonly userDirConfigured: boolean;
   readonly userAgentsDir: string;
   readonly configuredSkillDirs: string[];
+  readonly repositorySkillDirs: string[];
 
   constructor(options: SparkSkillResolverOptions) {
     this.cwd = resolve(options.cwd);
@@ -91,9 +104,13 @@ export class SparkSkillResolver {
       options.workspaceDir ?? join(this.cwd, ".spark", "skills"),
       this.cwd,
     );
+    const projectDirs = defaultProjectAgentsSkillsDirs(this.cwd);
     this.workspaceAgentsDirs =
-      options.workspaceAgentsDirs?.map((dir) => resolvePath(dir, this.cwd)) ??
-      defaultProjectAgentsSkillsDirs(this.cwd);
+      options.workspaceAgentsDirs?.map((dir) => resolvePath(dir, this.cwd)) ?? [];
+    this.cwdDir = resolvePath(
+      options.cwdDir ?? projectDirs.at(-1) ?? join(this.cwd, ".agents", "skills"),
+      this.cwd,
+    );
     this.userDir = resolvePath(options.userDir ?? defaultUserAgentsSkillsDir(), this.cwd);
     this.userDirConfigured = options.userDir !== undefined;
     this.userAgentsDir = resolvePath(
@@ -101,14 +118,17 @@ export class SparkSkillResolver {
       this.cwd,
     );
     this.configuredSkillDirs = options.skillDirs?.map((dir) => resolvePath(dir, this.cwd)) ?? [];
+    this.repositorySkillDirs =
+      options.repositorySkillDirs?.map((dir) => resolvePath(dir, this.cwd)) ??
+      projectDirs.slice(0, -1);
   }
 
-  async resolve(): Promise<SparkSkillResolveResult> {
+  async resolve(options: SparkSkillResolveOptions = {}): Promise<SparkSkillResolveResult> {
     const diagnostics: SparkSkillDiagnostic[] = [];
     const skillsByName = new Map<string, SparkSkill>();
     const scannedDirs = new Set<string>();
 
-    for (const layer of skillLayerSpecs(this)) {
+    for (const layer of skillLayerSpecs(this, options)) {
       for (const entry of layer.dirs) {
         const dir = resolve(entry.path);
         if (scannedDirs.has(dir)) continue;
@@ -143,12 +163,12 @@ export class SparkSkillResolver {
   }
 
   async loadMatchingSkillsForPrompt(request: string, limit = 3): Promise<SparkSkillPromptMatch[]> {
-    const { skills } = await this.resolve();
+    const { skills } = await this.resolve({ includeRepository: true });
     return matchSparkSkillsForPrompt(skills, request, limit);
   }
 
   async loadSkill(name: string): Promise<SparkLoadedSkill | undefined> {
-    const { skills } = await this.resolve();
+    const { skills } = await this.resolve({ includeRepository: true });
     return loadSparkSkillByName(skills, name);
   }
 }
@@ -172,16 +192,7 @@ export function defaultUserAgentsSkillsDir(): string {
  * the directory closest to `cwd` win name collisions.
  */
 export function defaultProjectAgentsSkillsDirs(cwd: string): string[] {
-  const dirs: string[] = [];
-  let current = resolve(cwd);
-  while (true) {
-    dirs.push(join(current, ".agents", "skills"));
-    if (existsSync(join(current, ".git"))) break;
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
-  }
-  return dirs.reverse();
+  return defaultProjectResourceDirs(cwd, "skills");
 }
 
 export async function loadSkillsFromDir(
@@ -553,30 +564,32 @@ interface SkillDirSpec {
 
 function skillLayerSpecs(
   resolver: SparkSkillResolver,
+  options: SparkSkillResolveOptions,
 ): Array<{ layer: SparkSkillLayer; dirs: SkillDirSpec[] }> {
-  return [
-    {
-      layer: "builtin",
-      dirs: resolver.builtinDirs.map((path) => ({ path, rootMarkdownAsSkill: true })),
-    },
-    {
-      layer: "workspace",
-      dirs: [
-        ...resolver.workspaceAgentsDirs.map((path) => ({ path, rootMarkdownAsSkill: false })),
-        { path: resolver.workspaceDir, rootMarkdownAsSkill: true },
-        ...resolver.configuredSkillDirs.map((path) => ({ path, rootMarkdownAsSkill: true })),
-      ],
-    },
-    {
-      layer: "user",
-      dirs: [
-        { path: resolver.userAgentsDir, rootMarkdownAsSkill: false },
-        ...(resolver.userDirConfigured && resolver.userDir !== resolver.userAgentsDir
-          ? [{ path: resolver.userDir, rootMarkdownAsSkill: true }]
-          : []),
-      ],
-    },
-  ];
+  const userDirs = resolver.userDirConfigured
+    ? [{ path: resolver.userDir, rootMarkdownAsSkill: true }]
+    : [{ path: resolver.userAgentsDir, rootMarkdownAsSkill: false }];
+  const roots = orderedSparkResourceRoots({
+    builtin: resolver.builtinDirs,
+    user: userDirs.map((entry) => entry.path),
+    workspace: [resolver.workspaceDir, ...resolver.workspaceAgentsDirs],
+    cwd: [resolver.cwdDir],
+    configured: resolver.configuredSkillDirs,
+    repository: options.includeRepository ? resolver.repositorySkillDirs : [],
+  });
+  const rootMarkdownAsSkill = new Map<string, boolean>([
+    ...resolver.builtinDirs.map((path) => [path, true] as const),
+    ...userDirs.map((entry) => [entry.path, entry.rootMarkdownAsSkill] as const),
+    [resolver.workspaceDir, true],
+    ...resolver.workspaceAgentsDirs.map((path) => [path, false] as const),
+    [resolver.cwdDir, false],
+    ...resolver.configuredSkillDirs.map((path) => [path, true] as const),
+    ...resolver.repositorySkillDirs.map((path) => [path, false] as const),
+  ]);
+  return roots.map(({ layer, path }) => ({
+    layer,
+    dirs: [{ path, rootMarkdownAsSkill: rootMarkdownAsSkill.get(path) ?? false }],
+  }));
 }
 
 async function isFileLike(

@@ -103,9 +103,24 @@ be changed with `spark update configure --interval-hours <hours>`.
 
 ## Workspace and agent definitions
 
+Roles, Workflows, and Skills share this precedence (later roots override earlier
+same-name resources):
+
+```text
+builtin -> user -> workspace -> cwd -> configured -> repository
+```
+
 - `.spark/` contains workspace-owned Spark runtime state.
 - `~/.agents/{roles,skills,workflows}` contains user-level reusable definitions.
-- `.agents/{roles,skills,workflows}` contains project-level definitions.
-- `.spark/skills` contains workspace-specific Spark skills.
+- `.agents/{roles,skills,workflows}` contains repository and cwd definitions; the
+  repository ancestors are scanned before the cwd root.
+- An explicitly configured user root replaces the default user root.
+- Explicit configured Skill directories are scanned after cwd.
+- Repository Skills are focused progressively by request matching or an explicit
+  Skill Agent; they are not injected into the startup catalog.
+
+Workflow and Role selectors keep their existing source names; their project roots
+share the same precedence contract. `.spark/skills` contains workspace-specific
+Spark skills.
 
 There are no `$SPARK_HOME/skills` or `$SPARK_HOME/workflows` directories.

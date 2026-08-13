@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -8,6 +9,10 @@ import {
   type SparkLoopPolicyInput,
 } from "@zendev-lab/spark-protocol";
 import { parseDocument } from "yaml";
+import {
+  defaultProjectResourceDirs,
+  orderedSparkResourceRoots,
+} from "@zendev-lab/spark-system/resource-paths";
 
 import { getBuiltinWorkflowDefinition, listBuiltinWorkflows } from "./builtins.ts";
 import { parseWorkflowScript } from "./metadata.ts";
@@ -89,7 +94,10 @@ export interface WorkflowDefinitionRegistryListing {
 export interface WorkflowDefinitionOptions {
   includeUser?: boolean;
   workspaceWorkflowDir?: string;
+  workspaceWorkflowDirs?: string[];
   userWorkflowDir?: string;
+  cwdWorkflowDir?: string;
+  configuredWorkflowDirs?: string[];
 }
 
 interface RawWorkflowStage {
@@ -115,6 +123,7 @@ interface WorkflowDefinitionResolverContext {
   cwd: string;
   includeUser: boolean;
   workspaceRoot: string;
+  workspaceRoots: string[];
   userRoot: string;
   chain: WorkflowSelector[];
 }
@@ -151,12 +160,22 @@ export async function resolveWorkflowDefinition(input: {
   selector: string;
   includeUser?: boolean;
   workspaceWorkflowDir?: string;
+  workspaceWorkflowDirs?: string[];
   userWorkflowDir?: string;
+  cwdWorkflowDir?: string;
+  configuredWorkflowDirs?: string[];
 }): Promise<WorkflowDefinition> {
+  const workspaceRoots = workflowRoots(input.cwd, {
+    workspaceWorkflowDir: input.workspaceWorkflowDir,
+    workspaceWorkflowDirs: input.workspaceWorkflowDirs,
+    cwdWorkflowDir: input.cwdWorkflowDir,
+    configuredWorkflowDirs: input.configuredWorkflowDirs,
+  });
   const context: WorkflowDefinitionResolverContext = {
     cwd: input.cwd,
     includeUser: input.includeUser ?? true,
-    workspaceRoot: input.workspaceWorkflowDir ?? workspaceWorkflowDir(input.cwd),
+    workspaceRoot: workspaceRoots.at(-1) ?? workspaceWorkflowDir(input.cwd),
+    workspaceRoots,
     userRoot: input.userWorkflowDir ?? userWorkflowDir(),
     chain: [],
   };
@@ -168,7 +187,8 @@ export async function listWorkflowDefinitions(
   options: WorkflowDefinitionOptions = {},
 ): Promise<WorkflowDefinitionRegistryListing> {
   const includeUser = options.includeUser ?? true;
-  const workspaceRoot = options.workspaceWorkflowDir ?? workspaceWorkflowDir(cwd);
+  const workspaceRoots = workflowRoots(cwd, options);
+  const workspaceRoot = workspaceRoots.at(-1) ?? workspaceWorkflowDir(cwd);
   const userRoot = options.userWorkflowDir ?? userWorkflowDir();
   const selectors: Array<{ source: WorkflowSource; selector: WorkflowSelector; path: string }> =
     listBuiltinWorkflows().map((definition) => ({
@@ -177,7 +197,16 @@ export async function listWorkflowDefinitions(
       path: workflowSelector("builtin", definition.id),
     }));
   const errors: WorkflowDefinitionRegistryError[] = [];
-  selectors.push(...(await discoverDefinitionSelectors("workspace", workspaceRoot, errors)));
+  const workspaceSelectors = new Map<
+    string,
+    { source: WorkflowSource; selector: WorkflowSelector; path: string }
+  >();
+  for (const root of workspaceRoots) {
+    for (const candidate of await discoverDefinitionSelectors("workspace", root, errors)) {
+      workspaceSelectors.set(candidate.selector, candidate);
+    }
+  }
+  selectors.push(...workspaceSelectors.values());
   if (includeUser) {
     selectors.push(...(await discoverDefinitionSelectors("user", userRoot, errors)));
   }
@@ -189,6 +218,7 @@ export async function listWorkflowDefinitions(
         selector: candidate.selector,
         includeUser,
         workspaceWorkflowDir: workspaceRoot,
+        workspaceWorkflowDirs: workspaceRoots,
         userWorkflowDir: userRoot,
       });
       workflows.push(workflowDefinitionDescriptor(definition));
@@ -316,7 +346,12 @@ async function fileWorkflowDefinition(
   path: string;
   handlers: WorkflowStageDefinition[];
 }> {
-  const root = source === "workspace" ? context.workspaceRoot : context.userRoot;
+  const root =
+    source === "workspace"
+      ? (context.workspaceRoots.findLast((candidate) =>
+          existsSync(join(candidate, id, "WORKFLOW.md")),
+        ) ?? context.workspaceRoot)
+      : context.userRoot;
   const workflowDir = resolve(root, id);
   try {
     await assertDirectoryNotSymlink(workflowDir);
@@ -553,6 +588,21 @@ function mergeStages(
     ids.add(stage.id);
   }
   return [...parent, ...own];
+}
+
+function workflowRoots(cwd: string, options: WorkflowDefinitionOptions): string[] {
+  const projectRoots = defaultProjectResourceDirs(cwd, "workflows");
+  const workspaceRoots =
+    options.workspaceWorkflowDirs ??
+    (options.workspaceWorkflowDir ? [options.workspaceWorkflowDir] : projectRoots.slice(0, -1));
+  const cwdRoot =
+    options.cwdWorkflowDir ?? projectRoots.at(-1) ?? join(cwd, ".agents", "workflows");
+  const roots = orderedSparkResourceRoots({
+    workspace: workspaceRoots,
+    cwd: [cwdRoot],
+    configured: options.configuredWorkflowDirs,
+  }).map((root) => resolve(root.path));
+  return [...new Set(roots)];
 }
 
 async function discoverDefinitionSelectors(

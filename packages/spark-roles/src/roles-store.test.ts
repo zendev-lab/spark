@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
@@ -14,6 +14,7 @@ import {
   createExtensionRoleSpec,
   createRoleSpec,
   createBuiltinRoles,
+  hydrateDefaultRoleRegistry,
   builtinRoleIds,
   hydrateExtensionRoles,
   listExtensionRoles,
@@ -230,6 +231,28 @@ test("markdown role store still rejects Pi role specs with model frontmatter", a
       () => store.loadAll(),
       /role spec model fields are not supported; use role model settings/,
     );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("default role hydration applies workspace then cwd precedence", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-role-precedence-"));
+  try {
+    const repo = join(dir, "repo");
+    const cwd = join(repo, "nested");
+    await mkdir(join(repo, ".git"), { recursive: true });
+    await mkdir(join(repo, ".agents", "roles"), { recursive: true });
+    await mkdir(join(cwd, ".agents", "roles"), { recursive: true });
+    const markdown = (description: string) =>
+      `---\nid: shared\ndescription: ${description}\ncapabilities:\n  - read\nmodelType: implementation\n---\nUse this role.\n`;
+    await writeFile(join(repo, ".agents", "roles", "shared.md"), markdown("workspace"), "utf8");
+    await writeFile(join(cwd, ".agents", "roles", "shared.md"), markdown("cwd"), "utf8");
+
+    const registry = new RoleRegistry([]);
+    await hydrateDefaultRoleRegistry(registry, cwd, { includeUser: false });
+
+    assert.equal(registry.select("shared").description, "cwd");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

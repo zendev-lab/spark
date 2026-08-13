@@ -1308,3 +1308,34 @@ return 'stale'`;
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("workflow discovery uses the closest cwd root after repository roots", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-workflow-precedence-"));
+  try {
+    const repo = join(dir, "repo");
+    const cwd = join(repo, "nested");
+    const writeWorkflow = async (root: string, description: string) => {
+      const workflowDir = join(root, "workflows", "shared");
+      await mkdir(workflowDir, { recursive: true });
+      await writeFile(
+        join(workflowDir, "WORKFLOW.md"),
+        `---\nid: shared\ntitle: Shared\ndescription: ${description}\n---\nUse this workflow.\n`,
+        "utf8",
+      );
+    };
+    await mkdir(join(repo, ".git"), { recursive: true });
+    await writeWorkflow(join(repo, ".agents"), "workspace");
+    await writeWorkflow(cwd, "cwd");
+
+    const listing = await listSavedWorkflows(cwd, {
+      includeUser: false,
+      workspaceWorkflowDirs: [join(repo, ".agents", "workflows")],
+      cwdWorkflowDir: join(cwd, "workflows"),
+    });
+    const shared = listing.workflows.find((workflow) => workflow.selector === "workspace:shared");
+
+    assert.equal(shared?.description, "cwd");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
