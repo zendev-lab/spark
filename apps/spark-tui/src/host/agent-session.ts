@@ -894,7 +894,7 @@ function restartCheckpointForTurn(
     throw new Error("Spark restart checkpoint has no transient prompt delta");
   }
   const promptItems = structuredClone(
-    checkpoint.promptItems.slice(beforeCount),
+    checkpoint.promptItems.slice(beforeCount).filter((item) => item.persistence === "session"),
   ) as SparkPromptItem[];
   const toolCalls = structuredClone(checkpoint.toolCalls) as ToolCall[];
   const resumeCheckpoint: SparkTurnResumeCheckpoint = {
