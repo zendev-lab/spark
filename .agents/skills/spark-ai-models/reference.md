@@ -48,10 +48,16 @@ When adding or retuning a Baidu model, update all that apply:
 2. `packages/spark-ai/src/baidu-oneapi-compat-extension.test.ts` — `BAIDU_MODEL_IDS` order matches `models[]`
 3. `apps/spark-tui/src/__tests__/spark-provider-registry.test.ts` — window, maxTokens, transport, cost
 4. `packages/spark-ai/README.md` — catalog ids, transport sentence, measured windows
-5. Default `enabledModels` is `baidu-oneapi/*`, so a new Baidu model is in
-   product scope. Still add a `scopedModelIds.includes("baidu-oneapi/<id>")`
-   assertion in `packages/spark-ai/src/spark-provider-control.test.ts`. If this
-   repo later uses an explicit allow-list, update that list in the same change.
+5. Default enable lives in `DEFAULT_SPARK_SCOPED_MODEL_PATTERNS`
+   (`packages/spark-ai/src/control/provider-catalog.ts`). Catalog rows are not
+   automatically enabled. For a successor model:
+   - add the new id (or current-family glob such as `baidu-oneapi/gpt-5.6-*`)
+   - remove the predecessor from the default list (grok-4.5 → grok-4.6)
+   - keep the predecessor catalog row unless the user asked to delete it
+   - add the previous bundled default as a legacy migration set
+   - assert `scopedModelIds.includes("baidu-oneapi/<new>")` and
+     `!scopedModelIds.includes("baidu-oneapi/<old>")` in
+     `packages/spark-ai/src/spark-provider-control.test.ts`
 
 Pi compat and native adapters share `baidu-oneapi.ts`. Do not fork the catalog
 in the compat extension.
@@ -68,8 +74,8 @@ section; they are out of scope unless the user asked for a new provider.
 From the repo root (narrowest first):
 
 ```text
-pnpm --filter @zendev-lab/spark-ai test src/baidu-oneapi-compat-extension.test.ts
-pnpm --filter @zendev-lab/spark-tui test src/__tests__/spark-provider-registry.test.ts
+pnpm --filter @zendev-lab/spark-ai test src/baidu-oneapi-compat-extension.test.ts src/control/provider-catalog.test.ts src/spark-provider-control.test.ts
+pnpm --filter @zendev-lab/spark-tui test src/__tests__/spark-provider-registry.test.ts src/__tests__/spark-config.test.ts
 ```
 
 Then the package or repo gate required by `CONTRIBUTING.md`.

@@ -16,26 +16,33 @@ export const DEFAULT_SPARK_PROVIDER_SPECS = [
 /** Initial user policy for daemon-selectable models. Config `enabledModels` replaces this list. */
 export const DEFAULT_SPARK_SCOPED_MODEL_PATTERNS = [
   "openai-codex/gpt-5.6-*",
-  "baidu-oneapi/*",
+  "baidu-oneapi/claude-opus-4.6",
+  "baidu-oneapi/claude-opus-5",
+  "baidu-oneapi/deepseek-v4-flash",
+  "baidu-oneapi/gpt-5.6-*",
+  "baidu-oneapi/grok-4.6",
 ] as const;
 
-const LEGACY_SPARK_SCOPED_MODEL_PATTERNS = [
-  "openai-codex/gpt-5.6-luna",
-  "openai-codex/gpt-5.6-sol",
-  "openai-codex/gpt-5.6-terra",
-  "baidu-oneapi/gpt-5.6-luna",
-  "baidu-oneapi/gpt-5.6-sol",
-  "baidu-oneapi/gpt-5.6-terra",
-] as const;
+const LEGACY_SPARK_SCOPED_MODEL_PATTERN_SETS: readonly (readonly string[])[] = [
+  [
+    "openai-codex/gpt-5.6-luna",
+    "openai-codex/gpt-5.6-sol",
+    "openai-codex/gpt-5.6-terra",
+    "baidu-oneapi/gpt-5.6-luna",
+    "baidu-oneapi/gpt-5.6-sol",
+    "baidu-oneapi/gpt-5.6-terra",
+  ],
+  ["openai-codex/gpt-5.6-*", "baidu-oneapi/*"],
+];
 
 /**
  * Migrate bundled defaults from earlier releases without rewriting a user's
- * explicit custom scope. The provider catalog may retain compatibility models,
- * but only the current frontier Codex family is enabled by default.
+ * explicit custom scope. The provider catalog may retain predecessor and
+ * compatibility models; default enable is the current frontier only.
  */
 export function normalizeSparkScopedModelPatterns(patterns: readonly string[]): string[] {
   const normalized = patterns.map((pattern) => pattern.trim()).filter(Boolean);
-  if (sameStringSet(normalized, LEGACY_SPARK_SCOPED_MODEL_PATTERNS)) {
+  if (LEGACY_SPARK_SCOPED_MODEL_PATTERN_SETS.some((legacy) => sameStringSet(normalized, legacy))) {
     return [...DEFAULT_SPARK_SCOPED_MODEL_PATTERNS];
   }
   return normalized;

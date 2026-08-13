@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import { SparkProviderRegistry } from "../provider-registry.ts";
-import { resolveSparkScopedModelIds } from "./provider-catalog.ts";
+import {
+  DEFAULT_SPARK_SCOPED_MODEL_PATTERNS,
+  normalizeSparkScopedModelPatterns,
+  resolveSparkScopedModelIds,
+} from "./provider-catalog.ts";
 
 const fakeProvider = {
   name: "fake-provider",
@@ -42,4 +46,27 @@ test("scope resolution can retain compatibility catalog entries without enabling
     "fake-provider/gpt-5.3-compat",
     "fake-provider/gpt-5.6-frontier",
   ]);
+});
+
+test("bundled enabledModels migrate onto the current frontier and keep custom scopes", () => {
+  assert.deepEqual(
+    normalizeSparkScopedModelPatterns([
+      "openai-codex/gpt-5.6-luna",
+      "openai-codex/gpt-5.6-sol",
+      "openai-codex/gpt-5.6-terra",
+      "baidu-oneapi/gpt-5.6-luna",
+      "baidu-oneapi/gpt-5.6-sol",
+      "baidu-oneapi/gpt-5.6-terra",
+    ]),
+    [...DEFAULT_SPARK_SCOPED_MODEL_PATTERNS],
+  );
+  assert.deepEqual(
+    normalizeSparkScopedModelPatterns(["openai-codex/gpt-5.6-*", "baidu-oneapi/*"]),
+    [...DEFAULT_SPARK_SCOPED_MODEL_PATTERNS],
+  );
+  assert.deepEqual(normalizeSparkScopedModelPatterns(["baidu-oneapi/*"]), ["baidu-oneapi/*"]);
+  const defaults: readonly string[] = DEFAULT_SPARK_SCOPED_MODEL_PATTERNS;
+  assert.equal(defaults.includes("baidu-oneapi/grok-4.6"), true);
+  assert.equal(defaults.includes("baidu-oneapi/grok-4.5"), false);
+  assert.equal(defaults.includes("baidu-oneapi/*"), false);
 });

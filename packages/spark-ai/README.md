@@ -46,6 +46,8 @@ adaptive-friendly model ids (`claude-opus-4.6`, `claude-opus-5`,
 while rewriting outbound payloads back to the gateway-required model ids
 (`Claude Opus 4.6`, `Opus 5`, `deepseek-v4-flash-0731-internal`, `gpt-5.6-sol`,
 `gpt-5.6-luna`, `gpt-5.6-terra`, `grok-4.5`, `grok-4.6`).
+Default `enabledModels` is the current frontier (`grok-4.6`, not `grok-4.5`);
+the predecessor stays in the catalog for explicit opt-in.
 
 The root Pi compatibility profile loads the separate
 `@zendev-lab/spark-ai/baidu-oneapi-compat-extension` adapter. Only that entrypoint
