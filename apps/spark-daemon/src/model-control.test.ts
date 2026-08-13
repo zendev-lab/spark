@@ -41,7 +41,7 @@ describe("daemon model control", () => {
 
     const initial = await control.snapshot("sess_demo");
     expect(initial.defaultModel).toMatchObject(model);
-    expect(initial.scopedModels).toMatchObject([model, selectedModel]);
+    expect(initial.enabledModels).toMatchObject([model, selectedModel]);
     expect(initial.providers.map((provider) => provider.providerName)).toEqual([
       "baidu-oneapi",
       "openai-codex",
@@ -159,11 +159,11 @@ describe("daemon model control", () => {
       sessionRegistry,
     });
     await expect(restrictedControl.setDefaultModel(selectedModel)).rejects.toMatchObject({
-      code: "model_out_of_scope",
+      code: "model_not_enabled",
     });
     await expect(
       restrictedControl.setSessionModel("sess_missing", selectedModel),
-    ).rejects.toMatchObject({ code: "model_out_of_scope" });
+    ).rejects.toMatchObject({ code: "model_not_enabled" });
 
     const unavailableProviderControl = fakeProviderControl();
     const unavailableSnapshot = await unavailableProviderControl.snapshot();
@@ -338,7 +338,7 @@ describe("daemon model control", () => {
 
     await expect(control.testModel(selectedModel)).resolves.toMatchObject({
       status: "unreachable",
-      reasonCode: "model-out-of-scope",
+      reasonCode: "model-not-enabled",
       model: selectedModel,
     });
     expect(prepareModel).not.toHaveBeenCalled();
@@ -352,7 +352,7 @@ function fakeProviderControl(
     degraded: true,
     text: "",
   }),
-  scopedModelIds: string[] = ["baidu-oneapi/ernie-4.5", "baidu-oneapi/ernie-4.6"],
+  enabledModelIds: string[] = ["baidu-oneapi/ernie-4.5", "baidu-oneapi/ernie-4.6"],
 ): SparkProviderControl {
   const snapshot: SparkProviderControlSnapshot = {
     activeModelId: "baidu-oneapi/ernie-4.5",
@@ -371,7 +371,7 @@ function fakeProviderControl(
         modelCount: 2,
       },
     ],
-    scopedModelIds,
+    enabledModelIds,
     models: [
       {
         id: "baidu-oneapi/ernie-4.5",

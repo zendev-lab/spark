@@ -128,17 +128,17 @@ export interface HubRuntimeModelCatalogInput {
 }
 
 /**
- * Adjacent-version compatibility for daemons that predate model-scope projections.
+ * Adjacent-version compatibility for daemons that predate enabled-model projections.
  * Keep this translation at the Hub-to-daemon boundary so browser surfaces only
  * consume one current snapshot shape.
  */
 export function adaptLegacyDaemonModelControlSnapshot(
   snapshot: SparkModelControlSnapshot,
 ): SparkModelControlSnapshot {
-  if (snapshot.scopedModels !== undefined) return snapshot;
+  if (snapshot.enabledModels !== undefined) return snapshot;
   return {
     ...snapshot,
-    scopedModels: snapshot.providers.flatMap((provider) =>
+    enabledModels: snapshot.providers.flatMap((provider) =>
       provider.models.map((entry) => entry.model),
     ),
   };

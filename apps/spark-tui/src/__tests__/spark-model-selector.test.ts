@@ -86,7 +86,7 @@ test("SparkModelSelector cycles next/prev across Spark model ids with wraparound
   );
 });
 
-test("SparkModelSelector and /scoped-models share configured scope, including empty scope", async () => {
+test("SparkModelSelector and /enabled-models share configured scope, including empty scope", async () => {
   const registry = registryWithModels();
   const config = { ...configSeed(), enabledModels: ["fake/model-b", "other/model-z"] };
   const selector = new SparkModelSelector({ registry, config, saveConfig: () => {} });
@@ -97,7 +97,7 @@ test("SparkModelSelector and /scoped-models share configured scope, including em
   );
   await assert.rejects(
     () => selector.select({ providerName: "fake", modelId: "model-a" }),
-    /outside the configured enabledModels scope/u,
+    /not configured in enabledModels/u,
   );
   assert.deepEqual(await selector.cycle("next"), {
     providerName: "fake",

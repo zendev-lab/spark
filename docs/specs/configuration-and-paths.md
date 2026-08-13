@@ -79,11 +79,14 @@ $HOME/.agents/workflows/
 
 There is no `$SPARK_HOME/skills` or `$SPARK_HOME/workflows`. Project role,
 skill, and workflow definitions remain under project
-`.agents/{roles,skills,workflows}`; Spark retains only a workspace-specific
-`.spark/skills` definition layer. `.spark/workflows` is retired and is not
-discovered; move existing saved scripts to `.agents/workflows`. Workspace-owned
-Spark state remains under the workspace `.spark/`. Memory-related workspace
-state lives under `.spark/memory/`:
+`.agents/{roles,skills,workflows}` and are versioned with the repository.
+`.agents/worktrees/` is machine-local Git worktree runtime and must stay
+untracked; the root `.gitignore` and nested `.agents/.gitignore` both exclude
+it. Spark retains only a workspace-specific `.spark/skills` definition layer.
+`.spark/workflows` is retired and is not discovered; move existing saved
+scripts to `.agents/workflows`. Workspace-owned Spark state remains under the
+workspace `.spark/`. Memory-related workspace state lives under
+`.spark/memory/`:
 
 ```text
 .spark/memory/
