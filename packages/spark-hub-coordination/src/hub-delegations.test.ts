@@ -35,15 +35,15 @@ function setup(input: { online?: boolean } = {}) {
      VALUES (?, 'owner@example.test', 'Owner', 'owner', 'active', ?, ?)`,
   ).run(ownerUserId, now, now);
 
-  const source = addWorkspace(db, "source", "sess_source_main", now, input.online ?? true);
-  const target = addWorkspace(db, "target", "sess_target_main", now, input.online ?? true);
+  const source = addWorkspace(db, "source", "sess_source_administrator", now, input.online ?? true);
+  const target = addWorkspace(db, "target", "sess_target_administrator", now, input.online ?? true);
   return { db, now, ownerUserId, source, target };
 }
 
 function addWorkspace(
   db: ReturnType<typeof openMemoryDatabase>,
   name: string,
-  mainSessionId: string,
+  administratorSessionId: string,
   now: string,
   online: boolean,
 ) {
@@ -73,16 +73,26 @@ function addWorkspace(
   db.prepare(
     `INSERT INTO runtime_workspace_bindings
       (id, runtime_id, local_workspace_key, display_name, status, capabilities_json,
-       diagnostics_json, main_session_id, main_session_generation, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'available', '{}', '{}', ?, 1, ?, ?)`,
-  ).run(bindingId, runtimeId, `${name}-local`, `${name} workspace`, mainSessionId, now, now);
+       diagnostics_json, administrator_session_id, administrator_provisioning_state,
+       created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'available', '{}', '{}', ?, 'active', ?, ?)`,
+  ).run(
+    bindingId,
+    runtimeId,
+    `${name}-local`,
+    `${name} workspace`,
+    administratorSessionId,
+    now,
+    now,
+  );
   const workspace = createWorkspaceWithLease(db, {
     slug: name,
     name: `${name} workspace`,
     runtimeWorkspaceBindingId: bindingId,
     createdAt: now,
   });
-  return { workspaceId: workspace.id, runtimeId, bindingId, mainSessionId };
+  db.prepare("UPDATE workspaces SET provisioning_state = 'active' WHERE id = ?").run(workspace.id);
+  return { workspaceId: workspace.id, runtimeId, bindingId, administratorSessionId };
 }
 
 function ownerRequest(h: ReturnType<typeof setup>) {
@@ -125,8 +135,7 @@ function deliverySucceeded(
     result: {
       delegationId,
       messageSequence: sequence,
-      mainSessionId: input.sessionId,
-      mainSessionGeneration: 1,
+      administratorSessionId: input.sessionId,
       invocationId: input.invocationId,
       status: "running",
     },
@@ -215,11 +224,12 @@ describe("Hub workspace delegations", () => {
       .prepare(
         `INSERT INTO runtime_workspace_bindings
         (id, runtime_id, local_workspace_key, display_name, status, capabilities_json,
-         diagnostics_json, main_session_id, main_session_generation, created_at, updated_at)
+         diagnostics_json, administrator_session_id, administrator_provisioning_state,
+         created_at, updated_at)
        VALUES (?, ?, 'target-local-replacement', 'Replacement target', 'available', '{}', '{}',
-               ?, 2, ?, ?)`,
+               ?, 'active', ?, ?)`,
       )
-      .run(replacementBindingId, h.target.runtimeId, h.target.mainSessionId, h.now, h.now);
+      .run(replacementBindingId, h.target.runtimeId, h.target.administratorSessionId, h.now, h.now);
     h.db
       .prepare(
         "UPDATE workspace_leases SET ended_at = ? WHERE workspace_id = ? AND ended_at IS NULL",
@@ -255,7 +265,7 @@ describe("Hub workspace delegations", () => {
     expect(created.status).toBe("delivering");
     const targetInvocationId = createId("inv");
     deliverySucceeded(h.db, request.delegationId, 1, {
-      sessionId: h.target.mainSessionId,
+      sessionId: h.target.administratorSessionId,
       invocationId: targetInvocationId,
     });
     expect(requireHubWorkspaceDelegation(h.db, request.delegationId).status).toBe("running");
@@ -266,7 +276,7 @@ describe("Hub workspace delegations", () => {
       responseEvent({
         type: "daemon.delegation.responded",
         workspaceId: h.target.workspaceId,
-        sessionId: h.target.mainSessionId,
+        sessionId: h.target.administratorSessionId,
         invocationId: targetInvocationId,
         delegationId: request.delegationId,
         action: "ask",
@@ -285,7 +295,7 @@ describe("Hub workspace delegations", () => {
     });
     const resumedInvocationId = createId("inv");
     deliverySucceeded(h.db, request.delegationId, 3, {
-      sessionId: h.target.mainSessionId,
+      sessionId: h.target.administratorSessionId,
       invocationId: resumedInvocationId,
     });
 
@@ -310,7 +320,7 @@ describe("Hub workspace delegations", () => {
       responseEvent({
         type: "daemon.delegation.responded",
         workspaceId: h.target.workspaceId,
-        sessionId: h.target.mainSessionId,
+        sessionId: h.target.administratorSessionId,
         invocationId: resumedInvocationId,
         delegationId: request.delegationId,
         action: "complete",
@@ -335,7 +345,7 @@ describe("Hub workspace delegations", () => {
     expect(sourceView[0]).not.toHaveProperty("targetSessionId");
     expect(sourceView[0]?.request).not.toHaveProperty("actor");
     expect(sourceView[0]?.request).not.toHaveProperty("idempotencyKey");
-    expect(targetView[0]?.targetSessionId).toBe(h.target.mainSessionId);
+    expect(targetView[0]?.targetSessionId).toBe(h.target.administratorSessionId);
     expect(JSON.stringify(sourceView)).not.toContain("evidence:");
     h.db.close();
   });
@@ -346,7 +356,7 @@ describe("Hub workspace delegations", () => {
     createHubWorkspaceDelegation(h.db, request);
     const invocationId = createId("inv");
     deliverySucceeded(h.db, request.delegationId, 1, {
-      sessionId: h.target.mainSessionId,
+      sessionId: h.target.administratorSessionId,
       invocationId,
     });
     expect(() =>
@@ -369,7 +379,7 @@ describe("Hub workspace delegations", () => {
           },
         }),
       ),
-    ).toThrow(/not the projected main session/u);
+    ).toThrow(/not the projected Administrator Session/u);
     expect(() =>
       recordHubWorkspaceDelegationDaemonEvent(
         h.db,
@@ -377,7 +387,7 @@ describe("Hub workspace delegations", () => {
         responseEvent({
           type: "daemon.delegation.responded",
           workspaceId: h.target.workspaceId,
-          sessionId: h.target.mainSessionId,
+          sessionId: h.target.administratorSessionId,
           invocationId,
           delegationId: request.delegationId,
           action: "complete",
@@ -395,7 +405,7 @@ describe("Hub workspace delegations", () => {
     h.db.close();
   });
 
-  it("rejects a Hub Owner request whose source has no active main-session binding", () => {
+  it("rejects a Hub Owner request whose source has no active Administrator binding", () => {
     const h = setup();
     h.db
       .prepare(
@@ -404,7 +414,7 @@ describe("Hub workspace delegations", () => {
       .run("2026-08-03T00:00:02.000Z", h.source.workspaceId);
 
     expect(() => createHubWorkspaceDelegation(h.db, ownerRequest(h))).toThrow(
-      /no active runtime binding with a main session/u,
+      /no active runtime binding with an Administrator Session/u,
     );
     h.db.close();
   });

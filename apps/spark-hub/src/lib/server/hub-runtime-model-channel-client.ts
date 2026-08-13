@@ -16,15 +16,17 @@ import {
   parseSparkAuthFlow,
   parseSparkChannelControlSnapshot,
   parseSparkModelControlSnapshot,
+  parseSparkModelConnectivityTestResult,
   parseSparkQqbotQrAuthFlow,
-  parseSparkSessionRegistryRecord,
+  parseSparkSessionProjection,
   type ServerCommandPayload,
   type SparkAuthFlow,
   type SparkChannelControlSnapshot,
   type SparkModelControlSnapshot,
+  type SparkModelConnectivityTestResult,
   type SparkModelRef,
   type SparkQqbotQrAuthFlow,
-  type SparkSessionRegistryRecord,
+  type SparkSessionProjection,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
 import type { ChannelsConfig } from "@zendev-lab/spark-channels";
@@ -35,6 +37,7 @@ export interface HubRuntimeModelChannelClient {
   projectedCatalog(input?: HubRuntimeModelCatalogInput): SparkModelControlSnapshot | null;
   setDefault(input: {
     runtimeId?: string;
+    workspaceId?: string;
     model: SparkModelRef;
     requestedByUserId?: string;
   }): Promise<SparkModelControlSnapshot>;
@@ -42,19 +45,21 @@ export interface HubRuntimeModelChannelClient {
     sessionId: string;
     model: SparkModelRef;
     requestedByUserId?: string;
-  }): Promise<SparkSessionRegistryRecord>;
+  }): Promise<SparkSessionProjection>;
   setSessionThinking(input: {
     sessionId: string;
     thinkingLevel: SparkThinkingLevel;
     requestedByUserId?: string;
-  }): Promise<SparkSessionRegistryRecord>;
+  }): Promise<SparkSessionProjection>;
   logoutProvider(input: {
     runtimeId?: string;
+    workspaceId?: string;
     providerName: string;
     requestedByUserId?: string;
   }): Promise<{ removed: boolean; snapshot: SparkModelControlSnapshot }>;
   setProviderApiKey(input: {
     runtimeId?: string;
+    workspaceId?: string;
     providerName: string;
     apiKey: string;
     context: RuntimeEphemeralSecretRequestContext;
@@ -62,12 +67,18 @@ export interface HubRuntimeModelChannelClient {
   }): Promise<SparkModelControlSnapshot>;
   startOAuth(input: {
     runtimeId?: string;
+    workspaceId?: string;
     providerName: string;
     requestedByUserId?: string;
   }): Promise<SparkAuthFlow>;
-  oauthStatus(input: { runtimeId?: string; flowId: string }): Promise<SparkAuthFlow>;
+  oauthStatus(input: {
+    runtimeId?: string;
+    workspaceId?: string;
+    flowId: string;
+  }): Promise<SparkAuthFlow>;
   respondOAuth(input: {
     runtimeId?: string;
+    workspaceId?: string;
     flowId: string;
     promptId: string;
     value: string;
@@ -76,9 +87,16 @@ export interface HubRuntimeModelChannelClient {
   }): Promise<SparkAuthFlow>;
   cancelOAuth(input: {
     runtimeId?: string;
+    workspaceId?: string;
     flowId: string;
     requestedByUserId?: string;
   }): Promise<SparkAuthFlow>;
+  testModel(input: {
+    runtimeId?: string;
+    workspaceId?: string;
+    model: SparkModelRef;
+    requestedByUserId?: string;
+  }): Promise<SparkModelConnectivityTestResult>;
   channelStatus(workspaceId: string): Promise<SparkChannelControlSnapshot>;
   configureChannel(input: {
     workspaceId: string;
@@ -106,6 +124,24 @@ export interface HubRuntimeModelCatalogInput {
   runtimeId?: string;
   sessionId?: string;
   workspaceId?: string;
+  timeoutMs?: number;
+}
+
+/**
+ * Adjacent-version compatibility for daemons that predate model-scope projections.
+ * Keep this translation at the Hub-to-daemon boundary so browser surfaces only
+ * consume one current snapshot shape.
+ */
+export function adaptLegacyDaemonModelControlSnapshot(
+  snapshot: SparkModelControlSnapshot,
+): SparkModelControlSnapshot {
+  if (snapshot.scopedModels !== undefined) return snapshot;
+  return {
+    ...snapshot,
+    scopedModels: snapshot.providers.flatMap((provider) =>
+      provider.models.map((entry) => entry.model),
+    ),
+  };
 }
 
 export function createHubRuntimeModelChannelClient(
@@ -124,6 +160,7 @@ export function createHubRuntimeModelChannelClient(
     oauthStatus: async (input) => await oauthStatus(database(), input),
     respondOAuth: async (input) => await respondOAuth(database(), input),
     cancelOAuth: async (input) => await cancelOAuth(database(), input),
+    testModel: async (input) => await testModel(database(), input),
     channelStatus: async (workspaceId) => await channelStatus(database(), workspaceId),
     configureChannel: async (input) => await configureChannel(database(), input),
     reloadChannel: async (input) => await reloadChannel(database(), input),
@@ -145,19 +182,23 @@ async function catalog(
       kind: "model.catalog.request",
       payload: input.sessionId ? { sessionId: input.sessionId } : {},
     },
+    timeoutMs: input.timeoutMs,
   });
   // Prefer the live command result. Cached projection is offline fallback only;
   // a truthy empty projection must not hide a successful catalog response.
   const live = parseSparkModelControlSnapshot(result.snapshot);
-  if (live.providers.length > 0) return live;
-  return getRuntimeModelControlProjection(db, route.runtimeId) ?? live;
+  if (live.providers.length > 0) return adaptLegacyDaemonModelControlSnapshot(live);
+  return adaptLegacyDaemonModelControlSnapshot(
+    getRuntimeModelControlProjection(db, route.runtimeId) ?? live,
+  );
 }
 
 function projectedCatalog(
   db: DatabaseSync,
   input: HubRuntimeModelCatalogInput,
 ): SparkModelControlSnapshot | null {
-  return getRuntimeModelControlProjection(db, modelCatalogRoute(db, input).runtimeId);
+  const projected = getRuntimeModelControlProjection(db, modelCatalogRoute(db, input).runtimeId);
+  return projected ? adaptLegacyDaemonModelControlSnapshot(projected) : null;
 }
 
 function modelCatalogRoute(db: DatabaseSync, input: HubRuntimeModelCatalogInput) {
@@ -168,24 +209,29 @@ function modelCatalogRoute(db: DatabaseSync, input: HubRuntimeModelCatalogInput)
 
 async function setDefault(
   db: DatabaseSync,
-  input: { runtimeId?: string; model: SparkModelRef; requestedByUserId?: string },
+  input: {
+    runtimeId?: string;
+    workspaceId?: string;
+    model: SparkModelRef;
+    requestedByUserId?: string;
+  },
 ): Promise<SparkModelControlSnapshot> {
-  const route = runtimeModelRouteForRuntime(resolveRuntimeId(db, input.runtimeId));
+  const route = daemonModelRoute(db, input);
   const result = await runRuntimeModelChannelControlCommand(db, {
     route,
     requestedByUserId: input.requestedByUserId,
     payload: { kind: "model.default.set.request", payload: publicRuntimeObject(input) },
   });
-  return (
+  return adaptLegacyDaemonModelControlSnapshot(
     getRuntimeModelControlProjection(db, route.runtimeId) ??
-    parseSparkModelControlSnapshot(result.snapshot)
+      parseSparkModelControlSnapshot(result.snapshot),
   );
 }
 
 async function setSessionModel(
   db: DatabaseSync,
   input: { sessionId: string; model: SparkModelRef; requestedByUserId?: string },
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionProjection> {
   const route = runtimeModelRouteForSession(db, input.sessionId);
   const result = await runRuntimeModelChannelControlCommand(db, {
     route,
@@ -196,7 +242,7 @@ async function setSessionModel(
       payload: publicRuntimeObject({ sessionId: input.sessionId, model: input.model }),
     },
   });
-  return parseSparkSessionRegistryRecord(result.session);
+  return parseSparkSessionProjection(result.session);
 }
 
 async function setSessionThinking(
@@ -206,7 +252,7 @@ async function setSessionThinking(
     thinkingLevel: SparkThinkingLevel;
     requestedByUserId?: string;
   },
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionProjection> {
   const route = runtimeModelRouteForSession(db, input.sessionId);
   const result = await runRuntimeModelChannelControlCommand(db, {
     route,
@@ -220,14 +266,19 @@ async function setSessionThinking(
       }),
     },
   });
-  return parseSparkSessionRegistryRecord(result.session);
+  return parseSparkSessionProjection(result.session);
 }
 
 async function logoutProvider(
   db: DatabaseSync,
-  input: { runtimeId?: string; providerName: string; requestedByUserId?: string },
+  input: {
+    runtimeId?: string;
+    workspaceId?: string;
+    providerName: string;
+    requestedByUserId?: string;
+  },
 ): Promise<{ removed: boolean; snapshot: SparkModelControlSnapshot }> {
-  const route = runtimeModelRouteForRuntime(resolveRuntimeId(db, input.runtimeId));
+  const route = daemonModelRoute(db, input);
   const result = await runRuntimeModelChannelControlCommand(db, {
     route,
     requestedByUserId: input.requestedByUserId,
@@ -238,9 +289,10 @@ async function logoutProvider(
   });
   return {
     removed: result.removed === true,
-    snapshot:
+    snapshot: adaptLegacyDaemonModelControlSnapshot(
       getRuntimeModelControlProjection(db, route.runtimeId) ??
-      parseSparkModelControlSnapshot(result.snapshot),
+        parseSparkModelControlSnapshot(result.snapshot),
+    ),
   };
 }
 
@@ -248,13 +300,14 @@ async function setProviderApiKey(
   db: DatabaseSync,
   input: {
     runtimeId?: string;
+    workspaceId?: string;
     providerName: string;
     apiKey: string;
     context: RuntimeEphemeralSecretRequestContext;
     requestId?: string;
   },
 ): Promise<SparkModelControlSnapshot> {
-  const runtimeId = resolveRuntimeId(db, input.runtimeId);
+  const runtimeId = daemonModelRoute(db, input).runtimeId;
   const result = await runRuntimeEphemeralSecretRequest(db, {
     route: runtimeModelRouteForRuntime(runtimeId),
     request: {
@@ -265,15 +318,21 @@ async function setProviderApiKey(
     context: input.context,
     requestId: input.requestId,
   });
-  return parseSparkModelControlSnapshot(result.result);
+  return adaptLegacyDaemonModelControlSnapshot(parseSparkModelControlSnapshot(result.result));
 }
 
 async function startOAuth(
   db: DatabaseSync,
-  input: { runtimeId?: string; providerName: string; requestedByUserId?: string },
+  input: {
+    runtimeId?: string;
+    workspaceId?: string;
+    providerName: string;
+    requestedByUserId?: string;
+  },
 ): Promise<SparkAuthFlow> {
   return await runOAuthPublicCommand(db, {
     runtimeId: input.runtimeId,
+    workspaceId: input.workspaceId,
     requestedByUserId: input.requestedByUserId,
     payload: {
       kind: "provider.auth.login.start.request",
@@ -284,10 +343,11 @@ async function startOAuth(
 
 async function oauthStatus(
   db: DatabaseSync,
-  input: { runtimeId?: string; flowId: string },
+  input: { runtimeId?: string; workspaceId?: string; flowId: string },
 ): Promise<SparkAuthFlow> {
   return await runOAuthPublicCommand(db, {
     runtimeId: input.runtimeId,
+    workspaceId: input.workspaceId,
     payload: { kind: "provider.auth.login.status.request", payload: { flowId: input.flowId } },
   });
 }
@@ -296,6 +356,7 @@ async function respondOAuth(
   db: DatabaseSync,
   input: {
     runtimeId?: string;
+    workspaceId?: string;
     flowId: string;
     promptId: string;
     value: string;
@@ -304,7 +365,7 @@ async function respondOAuth(
   },
 ): Promise<SparkAuthFlow> {
   const result = await runRuntimeEphemeralSecretRequest(db, {
-    route: runtimeModelRouteForRuntime(resolveRuntimeId(db, input.runtimeId)),
+    route: daemonModelRoute(db, input),
     request: {
       operation: "provider.auth.login.respond",
       flowId: input.flowId,
@@ -319,10 +380,16 @@ async function respondOAuth(
 
 async function cancelOAuth(
   db: DatabaseSync,
-  input: { runtimeId?: string; flowId: string; requestedByUserId?: string },
+  input: {
+    runtimeId?: string;
+    workspaceId?: string;
+    flowId: string;
+    requestedByUserId?: string;
+  },
 ): Promise<SparkAuthFlow> {
   return await runOAuthPublicCommand(db, {
     runtimeId: input.runtimeId,
+    workspaceId: input.workspaceId,
     requestedByUserId: input.requestedByUserId,
     payload: { kind: "provider.auth.login.cancel.request", payload: { flowId: input.flowId } },
   });
@@ -332,16 +399,38 @@ async function runOAuthPublicCommand(
   db: DatabaseSync,
   input: {
     runtimeId?: string;
+    workspaceId?: string;
     requestedByUserId?: string;
     payload: ServerCommandPayload;
   },
 ): Promise<SparkAuthFlow> {
   const result = await runRuntimeModelChannelControlCommand(db, {
-    route: runtimeModelRouteForRuntime(resolveRuntimeId(db, input.runtimeId)),
+    route: daemonModelRoute(db, input),
     requestedByUserId: input.requestedByUserId,
     payload: input.payload,
   });
   return parseSparkAuthFlow(result.flow);
+}
+
+async function testModel(
+  db: DatabaseSync,
+  input: {
+    runtimeId?: string;
+    workspaceId?: string;
+    model: SparkModelRef;
+    requestedByUserId?: string;
+  },
+): Promise<SparkModelConnectivityTestResult> {
+  const result = await runRuntimeModelChannelControlCommand(db, {
+    route: daemonModelRoute(db, input),
+    requestedByUserId: input.requestedByUserId,
+    timeoutMs: 20_000,
+    payload: {
+      kind: "model.connectivity.test.request",
+      payload: publicRuntimeObject({ model: input.model }),
+    },
+  });
+  return parseSparkModelConnectivityTestResult(result.test);
 }
 
 async function channelStatus(
@@ -479,4 +568,12 @@ function resolveRuntimeId(db: DatabaseSync, requested?: string): string {
     );
   }
   return rows[0]!.runtimeId;
+}
+
+function daemonModelRoute(db: DatabaseSync, input: { runtimeId?: string; workspaceId?: string }) {
+  const workspaceId = input.workspaceId?.trim();
+  const runtimeId = workspaceId
+    ? runtimeModelRouteForWorkspace(db, workspaceId).runtimeId
+    : resolveRuntimeId(db, input.runtimeId);
+  return runtimeModelRouteForRuntime(runtimeId);
 }

@@ -35,6 +35,10 @@ it("creates, lists, and shows a durable Hub delegation through canonical CLI com
   );
   insertWorkspace.run(sourceWorkspaceId, "source", "Source", now, now);
   insertWorkspace.run(targetWorkspaceId, "target", "Target", now, now);
+  db.prepare("UPDATE workspaces SET provisioning_state = 'active' WHERE id IN (?, ?)").run(
+    sourceWorkspaceId,
+    targetWorkspaceId,
+  );
   const sourceRuntimeId = createId("rt");
   const sourceBindingId = createId("rtwb");
   db.prepare(
@@ -46,9 +50,10 @@ it("creates, lists, and shows a durable Hub delegation through canonical CLI com
   db.prepare(
     `INSERT INTO runtime_workspace_bindings
       (id, runtime_id, local_workspace_key, display_name, status, capabilities_json,
-       diagnostics_json, main_session_id, main_session_generation, created_at, updated_at)
+       diagnostics_json, administrator_session_id, administrator_provisioning_state,
+       created_at, updated_at)
      VALUES (?, ?, 'source-local', 'Source', 'available', '{}', '{}',
-             'sess_source_main', 1, ?, ?)`,
+             'sess_source_administrator', 'active', ?, ?)`,
   ).run(sourceBindingId, sourceRuntimeId, now, now);
   db.prepare(
     `INSERT INTO workspace_leases
@@ -76,8 +81,8 @@ it("creates, lists, and shows a durable Hub delegation through canonical CLI com
     { write: (text) => createdOutput.push(text) },
     { write: (text) => errors.push(text) },
   );
-  expect(code).toBe(0);
   expect(errors).toEqual([]);
+  expect(code).toBe(0);
   const created = JSON.parse(createdOutput.join("\n")) as {
     delegation: { request: { delegationId: string }; status: string };
   };

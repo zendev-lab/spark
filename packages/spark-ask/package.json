@@ -27,10 +27,5 @@
     "@zendev-lab/spark-text": "workspace:^",
     "@zendev-lab/spark-tui-adapter": "workspace:^",
     "typebox": "catalog:"
-  },
-  "pi": {
-    "extensions": [
-      "./src/extension-entry.ts"
-    ]
   }
 }

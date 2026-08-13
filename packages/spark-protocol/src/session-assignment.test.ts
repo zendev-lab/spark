@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseSparkSessionRegistryRecord,
+  parseSparkSessionProjection,
+  parseSparkSessionState,
+  sparkSessionLifetimeForOwner,
   SPARK_SESSION_CLOSE_RECEIPT_HISTORY_LIMIT,
   SPARK_SESSION_CLOSE_RECEIPT_MAX_BYTES,
+  SPARK_SESSION_COMPACT_CUSTOM_INSTRUCTIONS_MAX_LENGTH,
   sparkSessionArchiveRequestSchema,
   sparkSessionBindRequestSchema,
   sparkSessionCloseReceiptSchema,
+  sparkSessionCompactRequestSchema,
   sparkSessionCreateRequestSchema,
   sparkSessionListRequestSchema,
   sparkSessionUnbindRequestSchema,
@@ -16,57 +20,174 @@ const timestamps = {
   updatedAt: "2026-07-10T06:00:01.000Z",
 };
 
+function workspaceRecord(owner: Record<string, unknown>, extra: Record<string, unknown> = {}) {
+  return {
+    sessionId: "sess_test",
+    scope: { kind: "workspace", workspaceId: "ws_test" },
+    lifecycle: "open",
+    placement: "active",
+    activity: "idle",
+    lifetime: sparkSessionLifetimeForOwner(owner as never),
+    roleBinding:
+      owner.kind === "workspace"
+        ? { kind: "explicit", roleRef: "role:builtin-administrator" }
+        : { kind: "none" },
+    owner,
+    incarnation: 1,
+    stateBinding: { kind: "session", ref: "sess_test" },
+    visibility: owner.kind === "invocation" ? "internal" : "public",
+    retention: owner.kind === "workspace" ? "audit" : "retain",
+    purpose: "protocol test",
+    bindings: [],
+    ...timestamps,
+    ...extra,
+  };
+}
+
 describe("session ownership protocol", () => {
-  it("normalizes legacy workspaceId-only records into canonical workspace scope", () => {
-    expect(
-      parseSparkSessionRegistryRecord({
-        sessionId: "sess_legacy",
-        workspaceId: "ws_legacy",
-        ...timestamps,
+  it.each([
+    [{ kind: "workspace", workspaceId: "ws_test" }, "persistent"],
+    [{ kind: "session", supervisorSessionId: "sess_admin" }, "scoped"],
+    [{ kind: "side_thread", parentSessionId: "sess_parent", generation: 2 }, "scoped"],
+    [
+      {
+        kind: "task_run",
+        supervisorSessionId: "sess_admin",
+        projectRef: "proj:repro",
+        taskRef: "task:trace",
+        runRef: "run:trace-1",
+        sessionGoalId: "goal-trace-1",
+        roleRef: "role:builtin-explorer",
+        jobId: "task-job:trace",
+        attempt: 1,
+      },
+      "scoped",
+    ],
+    [
+      {
+        kind: "driver",
+        driverId: "driver-1",
+        generation: 3,
+        supervisorSessionId: "sess_admin",
+      },
+      "scoped",
+    ],
+    [
+      {
+        kind: "invocation",
+        invocationId: "inv-1",
+        supervisorSessionId: "sess_admin",
+      },
+      "ephemeral",
+    ],
+  ] as const)("derives %s owner lifetime as %s and round-trips it", (owner, lifetime) => {
+    const record = parseSparkSessionProjection(workspaceRecord(owner));
+    expect(record.lifetime).toBe(lifetime);
+    expect(parseSparkSessionProjection(record)).toEqual(record);
+    expect(() =>
+      parseSparkSessionProjection({
+        ...record,
+        lifetime: lifetime === "persistent" ? "ephemeral" : "persistent",
       }),
-    ).toMatchObject({
-      sessionId: "sess_legacy",
-      scope: { kind: "workspace", workspaceId: "ws_legacy" },
-      workspaceId: "ws_legacy",
-    });
+    ).toThrow(/lifetime must be/u);
   });
 
-  it("represents daemon-global records without a synthetic workspace", () => {
-    const record = parseSparkSessionRegistryRecord({
-      sessionId: "sess_global",
+  it("normalizes bounded manual compaction instructions", () => {
+    expect(
+      sparkSessionCompactRequestSchema.parse({
+        sessionId: " session-compact ",
+        customInstructions: " preserve exact identifiers ",
+        idempotencyKey: " compact-once ",
+      }),
+    ).toEqual({
+      sessionId: "session-compact",
+      customInstructions: "preserve exact identifiers",
+      idempotencyKey: "compact-once",
+    });
+    expect(() =>
+      sparkSessionCompactRequestSchema.parse({
+        sessionId: "session-compact",
+        customInstructions: "x".repeat(SPARK_SESSION_COMPACT_CUSTOM_INSTRUCTIONS_MAX_LENGTH + 1),
+      }),
+    ).toThrow();
+  });
+
+  it("hard-rejects retired writable role, relation, status, and workspaceId fields", () => {
+    const canonical = workspaceRecord({ kind: "session", supervisorSessionId: "sess_admin" });
+    for (const retired of [
+      { workspaceId: "ws_test" },
+      { role: "explorer" },
+      { title: "Explorer" },
+      { status: "ready" },
+      { authority: { kind: "administrator" } },
+      { relation: { kind: "side_thread", parentSessionId: "sess_parent", generation: 1 } },
+    ]) {
+      expect(() => parseSparkSessionProjection({ ...canonical, ...retired })).toThrow();
+    }
+  });
+
+  it("requires the workspace-owned Administrator projection to remain audit-retained", () => {
+    const administrator = workspaceRecord({ kind: "workspace", workspaceId: "ws_test" });
+    expect(() => parseSparkSessionProjection({ ...administrator, retention: "retain" })).toThrow(
+      /audit-retained/u,
+    );
+  });
+
+  it("keeps derived fields out of strict stored state", () => {
+    const projection = workspaceRecord({ kind: "session", supervisorSessionId: "sess_admin" });
+    const { activity: _activity, lifetime: _lifetime, ...state } = projection;
+    expect(parseSparkSessionState(state)).not.toHaveProperty("activity");
+    expect(() => parseSparkSessionState(projection)).toThrow(/unrecognized_/u);
+  });
+
+  it("represents legacy daemon-global state only as a closed audit record", () => {
+    const audit = parseSparkSessionProjection({
+      sessionId: "sess_global_audit",
       scope: { kind: "daemon", daemonId: "spark-daemon-install-test" },
+      lifecycle: "closed",
+      placement: "active",
+      activity: "idle",
+      lifetime: "ephemeral",
+      roleBinding: { kind: "none" },
+      owner: {
+        kind: "invocation",
+        invocationId: "inv_legacy_audit",
+        supervisorSessionId: "sess_legacy_audit",
+      },
+      incarnation: 1,
+      stateBinding: { kind: "session", ref: "sess_global_audit" },
+      visibility: "internal",
+      retention: "audit",
+      purpose: "legacy daemon audit",
+      bindings: [],
       ...timestamps,
     });
-    expect(record.scope).toEqual({
-      kind: "daemon",
-      daemonId: "spark-daemon-install-test",
-    });
-    expect(record).not.toHaveProperty("workspaceId");
+    expect(audit).toMatchObject({ lifecycle: "closed", lifetime: "ephemeral" });
+    expect(() => parseSparkSessionProjection({ ...audit, lifecycle: "open" })).toThrow(
+      /closed audit records only/u,
+    );
   });
 
   it("preserves configured and stable account identities on channel bindings", () => {
-    expect(
-      parseSparkSessionRegistryRecord({
-        sessionId: "sess_channel",
-        scope: { kind: "workspace", workspaceId: "ws_channel" },
-        bindings: [
-          {
-            kind: "channel",
-            adapter: "infoflow",
-            adapterId: "info-main",
-            adapterAccountIdentity: "channel-account:infoflow:account-a",
-            externalKey: "infoflow:user:alice",
-          },
-        ],
-        ...timestamps,
-      }),
-    ).toMatchObject({
-      bindings: [
+    const record = parseSparkSessionProjection(
+      workspaceRecord(
+        { kind: "session", supervisorSessionId: "sess_admin" },
         {
-          adapterId: "info-main",
-          adapterAccountIdentity: "channel-account:infoflow:account-a",
+          bindings: [
+            {
+              kind: "channel",
+              adapter: "infoflow",
+              adapterId: "info-main",
+              adapterAccountIdentity: "channel-account:infoflow:account-a",
+              externalKey: "infoflow:user:alice",
+            },
+          ],
         },
-      ],
+      ),
+    );
+    expect(record.bindings[0]).toMatchObject({
+      adapterId: "info-main",
+      adapterAccountIdentity: "channel-account:infoflow:account-a",
     });
     expect(
       sparkSessionBindRequestSchema.parse({
@@ -85,271 +206,48 @@ describe("session ownership protocol", () => {
     ).toMatchObject({ adapterAccountIdentity: "channel-account:infoflow:account-a" });
   });
 
-  it("lets clients request daemon scope but rejects a client-supplied daemonId", () => {
-    expect(sparkSessionCreateRequestSchema.parse({ scope: { kind: "daemon" } })).toEqual({
-      scope: { kind: "daemon" },
+  it("hard-cuts Session create to scoped child or sibling requests", () => {
+    expect(
+      sparkSessionCreateRequestSchema.parse({
+        scope: { kind: "workspace", workspaceId: "ws_test" },
+        supervisorSessionId: "sess_admin",
+        placement: "child",
+        name: "Investigation",
+        roleBinding: { kind: "none" },
+      }),
+    ).toEqual({
+      scope: { kind: "workspace", workspaceId: "ws_test" },
+      supervisorSessionId: "sess_admin",
+      placement: "child",
+      name: "Investigation",
+      roleBinding: { kind: "none" },
     });
+    for (const retired of [
+      { workspaceId: "ws_test" },
+      { title: "Investigation" },
+      { role: "explorer" },
+      { status: "ready" },
+      { relation: { kind: "side_thread", parentSessionId: "sess_parent", generation: 1 } },
+    ]) {
+      expect(() =>
+        sparkSessionCreateRequestSchema.parse({
+          scope: { kind: "workspace", workspaceId: "ws_test" },
+          supervisorSessionId: "sess_admin",
+          ...retired,
+        }),
+      ).toThrow();
+    }
     expect(() =>
       sparkSessionCreateRequestSchema.parse({
         scope: { kind: "daemon", daemonId: "spoofed-installation" },
       }),
     ).toThrow();
-    expect(
-      sparkSessionListRequestSchema.parse({
-        scope: { kind: "daemon" },
-        cursor: "sess_cursor",
-        limit: 100,
-      }),
-    ).toEqual({
-      scope: { kind: "daemon" },
-      cursor: "sess_cursor",
-      limit: 100,
-    });
-    expect(() =>
-      sparkSessionListRequestSchema.parse({ scope: { kind: "daemon" }, limit: 101 }),
-    ).toThrow();
   });
 
-  it("preserves daemon-emitted side-thread relations without accepting them on create", () => {
-    expect(
-      parseSparkSessionRegistryRecord({
-        sessionId: "sess_side",
-        scope: { kind: "workspace", workspaceId: "ws_side" },
-        relation: {
-          kind: "side_thread",
-          parentSessionId: "sess_parent",
-          generation: 3,
-          mode: "tangent",
-        },
-        ...timestamps,
-      }),
-    ).toMatchObject({
-      relation: {
-        kind: "side_thread",
-        parentSessionId: "sess_parent",
-        generation: 3,
-        mode: "tangent",
-      },
-    });
-
-    expect(
-      sparkSessionCreateRequestSchema.parse({
-        scope: { kind: "workspace", workspaceId: "ws_side" },
-        relation: {
-          kind: "side_thread",
-          parentSessionId: "sess_parent",
-          generation: 1,
-          mode: "contextual",
-        },
-      }),
-    ).not.toHaveProperty("relation");
-
-    expect(sparkSessionListRequestSchema.parse({ includeSideThreads: true })).not.toHaveProperty(
-      "includeSideThreads",
-    );
-  });
-
-  it("preserves the complete managed Task execution chain", () => {
-    expect(
-      parseSparkSessionRegistryRecord({
-        sessionId: "sess_task",
-        scope: { kind: "workspace", workspaceId: "ws_task" },
-        relation: {
-          kind: "task_execution",
-          ownerSessionId: "sess_owner",
-          projectRef: "proj:repro",
-          taskRef: "task:trace",
-          subgoalRef: "subgoal:trace",
-          runRef: "run:trace-1",
-          sessionGoalId: "goal-trace-1",
-          roleRef: "role:builtin-explorer",
-          planRevision: 2,
-          definitionDigest: "digest",
-          jobId: "job",
-          attempt: 1,
-        },
-        ...timestamps,
-      }),
-    ).toMatchObject({
-      relation: {
-        kind: "task_execution",
-        projectRef: "proj:repro",
-        taskRef: "task:trace",
-        subgoalRef: "subgoal:trace",
-        runRef: "run:trace-1",
-        sessionGoalId: "goal-trace-1",
-        attempt: 1,
-      },
-    });
-  });
-
-  it("accepts canonical Role/Session ownership fields on records and create requests", () => {
-    expect(
-      parseSparkSessionRegistryRecord({
-        sessionId: "sess_role",
-        scope: { kind: "workspace", workspaceId: "ws_role" },
-        lifecycle: "open",
-        incarnation: 2,
-        lifetime: "owned",
-        owner: { kind: "role_call", ref: "inv_role" },
-        roleRef: "role:builtin-explorer",
-        roleRevision: 3,
-        modelType: "exploration",
-        authority: { kind: "role", ref: "role:builtin-explorer" },
-        stateBinding: { kind: "session", ref: "sess_parent" },
-        visibility: "owner",
-        retention: "discard_on_close",
-        purpose: "Inspect the current repository.",
-        transcriptRef: "transcript:sess_role:2",
-        ...timestamps,
-      }),
-    ).toMatchObject({
-      lifecycle: "open",
-      lifetime: "owned",
-      owner: { kind: "role_call", ref: "inv_role" },
-      retention: "discard_on_close",
-    });
-
-    expect(
-      sparkSessionCreateRequestSchema.parse({
-        scope: { kind: "workspace", workspaceId: "ws_role" },
-        roleRef: "role:builtin-explorer",
-        parentSessionId: "sess_parent",
-        purpose: "Inspect the current repository.",
-      }),
-    ).toMatchObject({
-      roleRef: "role:builtin-explorer",
-      parentSessionId: "sess_parent",
-      purpose: "Inspect the current repository.",
-    });
-  });
-
-  it("round-trips a bounded close candidate and daemon-sealed receipt", () => {
-    const completion = {
-      source: "structured_outcome",
-      status: "completed",
-      code: "implementation_complete",
-      summary: "Implemented and verified the requested change.",
-      nextAction: "Review the retained Evidence refs.",
-      evidenceRefs: ["evidence:verification"],
-      artifactRefs: ["artifact:git-change"],
-      sourceInvocationIds: ["inv_role"],
-    } as const;
-    expect(sparkSessionArchiveRequestSchema.parse({ sessionId: "sess_role", completion })).toEqual({
-      sessionId: "sess_role",
-      completion,
-    });
-
-    const receipt = sparkSessionCloseReceiptSchema.parse({
-      version: 1,
-      ...completion,
-      quality: "semantic",
-      incarnation: 2,
-      createdAt: timestamps.updatedAt,
-    });
-    expect(
-      parseSparkSessionRegistryRecord({
-        sessionId: "sess_role",
-        scope: { kind: "workspace", workspaceId: "ws_role" },
-        closeReceipts: [receipt],
-        ...timestamps,
-      }).closeReceipts,
-    ).toEqual([receipt]);
-  });
-
-  it("rejects forged, duplicate, oversized, or contradictory close metadata", () => {
-    const completion = {
-      source: "domain_completion",
-      status: "blocked",
-      code: "task_blocked",
-      summary: "The task requires a user decision.",
-      evidenceRefs: ["evidence:blocker"],
-      artifactRefs: [],
-      sourceInvocationIds: ["inv_task"],
-    } as const;
-    expect(() =>
-      sparkSessionArchiveRequestSchema.parse({
-        sessionId: "sess_task",
-        completion: { ...completion, unexpected: true },
-      }),
-    ).toThrow();
-    expect(() =>
-      sparkSessionArchiveRequestSchema.parse({
-        sessionId: "sess_task",
-        completion: {
-          ...completion,
-          evidenceRefs: ["evidence:blocker", "evidence:blocker"],
-        },
-      }),
-    ).toThrow(/unique/u);
-    expect(() =>
-      sparkSessionArchiveRequestSchema.parse({
-        sessionId: "sess_task",
-        completion: { ...completion, artifactRefs: ["evidence:not-an-artifact"] },
-      }),
-    ).toThrow(/artifact/u);
-    expect(() =>
-      sparkSessionCloseReceiptSchema.parse({
-        version: 1,
-        ...completion,
-        source: "deterministic_fallback",
-        quality: "semantic",
-        incarnation: 1,
-        createdAt: timestamps.updatedAt,
-      }),
-    ).toThrow(/fallback quality/u);
-    expect(
-      sparkSessionCloseReceiptSchema.parse({
-        version: 1,
-        source: "deterministic_fallback",
-        quality: "fallback",
-        status: "cancelled",
-        code: "session_closed_without_invocation",
-        summary: "The owned Session closed before starting an invocation.",
-        evidenceRefs: [],
-        artifactRefs: [],
-        sourceInvocationIds: [],
-        incarnation: 1,
-        createdAt: timestamps.updatedAt,
-      }).sourceInvocationIds,
-    ).toEqual([]);
-    expect(() =>
-      sparkSessionCloseReceiptSchema.parse({
-        version: 1,
-        ...completion,
-        summary: "x".repeat(4_096),
-        nextAction: "y".repeat(2_048),
-        evidenceRefs: Array.from(
-          { length: 20 },
-          (_, index) => `evidence:${index}:${"z".repeat(500)}`,
-        ),
-        quality: "semantic",
-        incarnation: 1,
-        createdAt: timestamps.updatedAt,
-      }),
-    ).toThrow(new RegExp(String(SPARK_SESSION_CLOSE_RECEIPT_MAX_BYTES), "u"));
-    expect(() =>
-      parseSparkSessionRegistryRecord({
-        sessionId: "sess_history",
-        scope: { kind: "workspace", workspaceId: "ws_history" },
-        closeReceipts: Array.from(
-          { length: SPARK_SESSION_CLOSE_RECEIPT_HISTORY_LIMIT + 1 },
-          () => ({
-            version: 1,
-            ...completion,
-            quality: "semantic",
-            incarnation: 1,
-            createdAt: timestamps.updatedAt,
-          }),
-        ),
-        ...timestamps,
-      }),
-    ).toThrow();
-  });
-
-  it("accepts an internal task-execution binding and preserves only daemon-emitted relation", () => {
+  it("accepts the internal TaskRun binding with a supervisor and no relation alias", () => {
     const taskExecution = {
-      ownerSessionId: "sess_owner",
+      ownerKind: "task_run" as const,
+      supervisorSessionId: "sess_owner",
       projectRef: "proj:model-repro",
       taskRef: "task:trace-reference",
       subgoalRef: "subgoal:trace-reference",
@@ -364,30 +262,25 @@ describe("session ownership protocol", () => {
     expect(
       sparkSessionCreateRequestSchema.parse({
         scope: { kind: "workspace", workspaceId: "ws_repro" },
+        roleBinding: { kind: "explicit", roleRef: "role:builtin-explorer" },
         taskExecution,
       }),
     ).toMatchObject({ taskExecution });
-    expect(
-      parseSparkSessionRegistryRecord({
-        sessionId: "sess_task",
-        scope: { kind: "workspace", workspaceId: "ws_repro" },
-        relation: { kind: "task_execution", ...taskExecution },
-        ...timestamps,
-      }),
-    ).toMatchObject({ relation: { kind: "task_execution", ...taskExecution } });
-    expect(
-      sparkSessionCreateRequestSchema.parse({
-        scope: { kind: "workspace", workspaceId: "ws_repro" },
-        relation: { kind: "task_execution", ...taskExecution },
-      }),
-    ).not.toHaveProperty("relation");
+
+    const { ownerKind: _ownerKind, ...taskRunOwner } = taskExecution;
+    const record = parseSparkSessionProjection({
+      ...workspaceRecord({ kind: "task_run", ...taskRunOwner }),
+      roleBinding: { kind: "explicit", roleRef: "role:builtin-explorer" },
+    });
+    expect(record.owner).toEqual({ kind: "task_run", ...taskRunOwner });
+    expect(record).not.toHaveProperty("relation");
   });
 
-  it("validates the stable Fleet worker lane relation and internal create binding", () => {
+  it("validates the stable Fleet worker lane binding without reviving relation", () => {
     const fleetWorker = {
       ownerSessionId: "sess_owner",
       projectRef: "proj:fleet",
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       laneKey: "lane:owner:project:worker:primary:targets",
       primaryArtifactRef: "artifact:primary",
       writableArtifactRefs: ["artifact:primary", "artifact:secondary"],
@@ -395,21 +288,30 @@ describe("session ownership protocol", () => {
     expect(
       sparkSessionCreateRequestSchema.parse({
         scope: { kind: "workspace", workspaceId: "ws_fleet" },
+        supervisorSessionId: "sess_owner",
+        roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
         fleetWorker,
       }),
     ).toMatchObject({ fleetWorker });
     expect(
-      parseSparkSessionRegistryRecord({
-        sessionId: "sess_fleet_worker",
-        scope: { kind: "workspace", workspaceId: "ws_fleet" },
-        relation: { kind: "fleet_worker", ...fleetWorker },
-        ...timestamps,
-      }),
-    ).toMatchObject({ relation: { kind: "fleet_worker", ...fleetWorker } });
+      parseSparkSessionProjection(
+        workspaceRecord(
+          { kind: "session", supervisorSessionId: "sess_owner" },
+          {
+            sessionId: "sess_fleet_worker",
+            scope: { kind: "workspace", workspaceId: "ws_fleet" },
+            roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+            fleetWorker,
+          },
+        ),
+      ),
+    ).toMatchObject({ fleetWorker });
 
     expect(() =>
       sparkSessionCreateRequestSchema.parse({
         scope: { kind: "workspace", workspaceId: "ws_fleet" },
+        supervisorSessionId: "sess_owner",
+        roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
         fleetWorker: {
           ...fleetWorker,
           writableArtifactRefs: ["artifact:secondary"],
@@ -419,13 +321,16 @@ describe("session ownership protocol", () => {
     expect(() =>
       sparkSessionCreateRequestSchema.parse({
         scope: { kind: "workspace", workspaceId: "ws_fleet" },
+        supervisorSessionId: "sess_owner",
+        roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
         taskExecution: {
-          ownerSessionId: "sess_owner",
+          ownerKind: "task_run",
+          supervisorSessionId: "sess_owner",
           projectRef: "proj:fleet",
           taskRef: "task:one",
           runRef: "run:one",
           sessionGoalId: "goal-one",
-          roleRef: "role:builtin-worker",
+          roleRef: "role:builtin-executor",
           jobId: "job-one",
           attempt: 1,
         },
@@ -434,28 +339,19 @@ describe("session ownership protocol", () => {
     ).toThrow(/mutually exclusive/u);
   });
 
-  it("rejects mismatched workspace ids and normalizes list legacy workspaceId", () => {
-    expect(() =>
-      parseSparkSessionRegistryRecord({
-        sessionId: "sess_mismatch",
-        scope: { kind: "workspace", workspaceId: "ws_a" },
-        workspaceId: "ws_b",
-        createdAt: "2026-07-10T06:00:00.000Z",
-        updatedAt: "2026-07-10T06:00:01.000Z",
-      }),
-    ).toThrow(/workspaceId must match scope.workspaceId/u);
-
+  it("keeps list scope explicit and rejects legacy workspaceId", () => {
     expect(
       sparkSessionListRequestSchema.parse({
-        workspaceId: "ws_legacy_list",
+        scope: { kind: "workspace", workspaceId: "ws_test" },
+        includeArchived: true,
         limit: 10,
       }),
     ).toMatchObject({
-      scope: { kind: "workspace", workspaceId: "ws_legacy_list" },
-      workspaceId: "ws_legacy_list",
+      scope: { kind: "workspace", workspaceId: "ws_test" },
+      includeArchived: true,
       limit: 10,
     });
-
+    expect(() => sparkSessionListRequestSchema.parse({ workspaceId: "ws_legacy" })).toThrow();
     expect(() => sparkSessionListRequestSchema.parse(null)).toThrow();
     expect(() => sparkSessionListRequestSchema.parse([])).toThrow();
   });

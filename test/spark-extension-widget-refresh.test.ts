@@ -230,7 +230,7 @@ test("Spark extension widget reconciles stale DAG records when an owned child ru
       projectRef: project.ref,
       title: "Long running widget task",
       description: "Keep the child process active while the widget refreshes.",
-      roleRef: builtinRoleRef("worker"),
+      roleRef: builtinRoleRef("executor"),
       plan: executionReadyPlan("Keep the widget DAG active"),
     });
     const graphStore = defaultTaskGraphStore(dir);

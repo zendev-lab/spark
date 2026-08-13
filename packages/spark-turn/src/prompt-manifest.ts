@@ -4,6 +4,8 @@ export const SPARK_PROMPT_MANIFEST_VERSION = 4 as const;
 
 export type SparkPromptManifestToolEffect =
   | "read"
+  | "network_read"
+  | "control"
   | "local_write"
   | "external_write"
   | "destructive"
@@ -159,6 +161,8 @@ function guidanceHash(values: readonly string[] | undefined): string | undefined
 function normalizeEffect(value: string | undefined): SparkPromptManifestToolEffect {
   if (
     value === "read" ||
+    value === "network_read" ||
+    value === "control" ||
     value === "local_write" ||
     value === "external_write" ||
     value === "destructive"

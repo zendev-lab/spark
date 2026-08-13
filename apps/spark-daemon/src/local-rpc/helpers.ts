@@ -3,7 +3,6 @@ import { ChannelDeliveryError, channelDeliveryFailureCertainty } from "@zendev-l
 import {
   parseSparkSessionView,
   sparkInvocationListRequestSchema,
-  sparkInvocationListResultSchema,
   sparkTurnResultSchema,
   type SparkInvocationStatus,
   type SparkSessionMailChannelDeliveryView,
@@ -24,6 +23,7 @@ import {
 import { RegistrationGrantRefusedError } from "../registration.js";
 import type { DaemonSessionRegistry } from "../session-registry.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";
+import { invocationListControlResult } from "../session-control.ts";
 import {
   SparkDaemonHumanWaitLookupError,
   type SparkDaemonHumanWaitRegistry,
@@ -253,18 +253,7 @@ export function invocationListResult(
   store: SparkInvocationStore,
   params: ReturnType<typeof sparkInvocationListRequestSchema.parse>,
 ): LocalInvocationListResult {
-  const page = store.listSummaryPage(params);
-  return sparkInvocationListResultSchema.parse({
-    invocations: page.invocations.map((invocation) => ({
-      ...invocation,
-      errorMessage: invocation.errorMessage?.slice(0, 500),
-      retryable: isRetryableInvocationError(invocation.errorCode),
-    })),
-    total: page.total,
-    limit: page.limit,
-    offset: page.offset,
-    observedAt: new Date().toISOString(),
-  });
+  return invocationListControlResult(store, params);
 }
 
 export function isTerminalInvocationStatus(status: SparkInvocationStatus): boolean {

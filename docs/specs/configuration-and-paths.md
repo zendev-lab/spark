@@ -112,9 +112,11 @@ Explicit API path overrides remain available for embedded hosts and tests.
 
 Role model settings use schema v2 and bind open semantic `modelTypes` to model
 identifiers. Workspace `.spark/role-model-settings.json` entries override the
-user-level file. Spark read-migrates v1 `roleModels` through the canonical role
-to Model Type mapping. If distinct legacy role entries map to one Model Type but
-select different models, migration fails closed rather than choosing one.
+user-level file. Before opening daemon service, admission migrates v1
+`roleModels` through the canonical role-to-Model-Type mapping and writes strict
+v2; runtime accepts only v2 `modelTypes`. If distinct legacy role entries map to
+one Model Type but select different models, migration fails closed rather than
+choosing one.
 
 ## Migration
 

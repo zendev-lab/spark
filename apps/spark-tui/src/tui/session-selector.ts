@@ -1,4 +1,4 @@
-import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
+import type { SparkSessionProjection } from "@zendev-lab/spark-protocol";
 import {
   Key,
   ProcessTerminal,
@@ -22,19 +22,25 @@ const UNTITLED_SESSION_LABEL = "New conversation";
 const ORPHAN_GROUP_KEY = "diagnostic:orphan-side-threads";
 
 /** Native selection exposes active workspace sessions only. */
-export function isSelectableSparkSession(session: SparkSessionRegistryRecord): boolean {
-  return session.status !== "archived" && isUserFacingWorkspaceSession(session);
+export function isSelectableSparkSession(session: SparkSessionProjection): boolean {
+  return session.placement !== "archived" && isUserFacingWorkspaceSession(session);
 }
 
-function isUserFacingWorkspaceSession(session: SparkSessionRegistryRecord): boolean {
+function isUserFacingWorkspaceSession(session: SparkSessionProjection): boolean {
+  const legacy = session as SparkSessionProjection & {
+    role?: unknown;
+    relation?: unknown;
+    status?: unknown;
+  };
   return (
+    legacy.role === undefined &&
+    legacy.relation === undefined &&
+    legacy.status === undefined &&
     session.scope.kind === "workspace" &&
-    session.relation?.kind !== "task_execution" &&
-    session.relation?.kind !== "fleet_worker" &&
-    session.role?.trim() !== "role:builtin-worker" &&
-    session.role?.trim() !== "role:builtin-executor" &&
-    session.title?.trim() !== "role:builtin-worker" &&
-    session.title?.trim() !== "role:builtin-executor"
+    session.visibility === "public" &&
+    (session.owner.kind === "workspace" ||
+      session.owner.kind === "session" ||
+      session.owner.kind === "side_thread")
   );
 }
 
@@ -63,7 +69,7 @@ export type SparkSessionSelectorSelection =
   | { kind: "create"; workspaceId: string };
 
 export interface SparkSessionSelectorOptions {
-  sessions: SparkSessionRegistryRecord[];
+  sessions: SparkSessionProjection[];
   workspaces: SparkSessionSelectorWorkspace[];
   /** Launch cwd is only a visual/default suggestion; rendering never registers it. */
   suggestedWorkspaceId?: string;
@@ -337,7 +343,8 @@ function sessionSelectionGroups(
 
   const visibleSessions = options.sessions.filter(
     (session) =>
-      isUserFacingWorkspaceSession(session) && (includeArchived || session.status !== "archived"),
+      isUserFacingWorkspaceSession(session) &&
+      (includeArchived || session.placement !== "archived"),
   );
   const orphans: SparkSessionSelectionItem[] = [];
   for (const workspace of workspaces) {
@@ -349,18 +356,18 @@ function sessionSelectionGroups(
     );
     const byId = new Map(workspaceSessions.map((session) => [session.sessionId, session]));
     const roots = workspaceSessions
-      .filter((session) => session.relation?.kind !== "side_thread")
+      .filter((session) => session.owner?.kind !== "side_thread")
       .sort(compareSessions);
-    const children = new Map<string, SparkSessionRegistryRecord[]>();
+    const children = new Map<string, SparkSessionProjection[]>();
     for (const session of workspaceSessions) {
-      if (session.relation?.kind !== "side_thread") continue;
-      if (!byId.has(session.relation.parentSessionId)) {
+      if (session.owner?.kind !== "side_thread") continue;
+      if (!byId.has(session.owner.parentSessionId)) {
         orphans.push(sessionSelectionItem(session, true));
         continue;
       }
-      const siblings = children.get(session.relation.parentSessionId) ?? [];
+      const siblings = children.get(session.owner.parentSessionId) ?? [];
       siblings.push(session);
-      children.set(session.relation.parentSessionId, siblings);
+      children.set(session.owner.parentSessionId, siblings);
     }
     for (const root of roots) {
       group.items.push(sessionSelectionItem(root, false));
@@ -427,20 +434,20 @@ function isCreateSelection(selection: SparkSessionSelectorSelection): boolean {
 
 function archivedSessionCount(options: SparkSessionSelectorOptions): number {
   return options.sessions.filter(
-    (session) => isUserFacingWorkspaceSession(session) && session.status === "archived",
+    (session) => isUserFacingWorkspaceSession(session) && session.placement === "archived",
   ).length;
 }
 
 function sessionSelectionItem(
-  session: SparkSessionRegistryRecord,
+  session: SparkSessionProjection,
   orphan: boolean,
 ): SparkSessionSelectionItem {
   if (session.scope.kind !== "workspace") {
     throw new Error(`Session selector cannot render daemon session ${session.sessionId}.`);
   }
   const channel = session.bindings[0];
-  const sideThread = session.relation?.kind === "side_thread" ? session.relation : undefined;
-  const archived = session.status === "archived" ? " [archived]" : "";
+  const sideThread = session.owner?.kind === "side_thread" ? session.owner : undefined;
+  const archived = session.placement === "archived" ? " [archived]" : "";
   return {
     value: session.sessionId,
     selection: {
@@ -451,26 +458,27 @@ function sessionSelectionItem(
     label: `${sideThread ? "  └─ " : ""}${sessionDisplayTitle(session)}${archived}`,
     description: [
       sideThread ? `parent=${sideThread.parentSessionId}` : undefined,
-      sideThread ? `mode=${sideThread.mode}` : undefined,
+      sideThread && session.sideThreadMode ? `mode=${session.sideThreadMode}` : undefined,
       sideThread ? `generation=${sideThread.generation}` : undefined,
-      `status=${session.status}`,
       orphan ? "orphan=missing-parent" : undefined,
       session.sessionId,
       channel ? channel.adapter : undefined,
       session.model ? `${session.model.providerName}/${session.model.modelId}` : undefined,
       session.thinkingLevel ? `thinking=${session.thinkingLevel}` : undefined,
-      `updated=${session.updatedAt}`,
+      `lifecycle=${session.lifecycle}`,
+      `activity=${session.activity ?? "idle"}`,
+      sideThread ? undefined : `updated=${session.updatedAt}`,
     ]
       .filter(Boolean)
       .join(" • "),
   };
 }
 
-function sessionDisplayTitle(session: SparkSessionRegistryRecord): string {
-  const title = session.title?.trim();
+function sessionDisplayTitle(session: SparkSessionProjection): string {
+  const title = session.name?.trim();
   if (!title) return UNTITLED_SESSION_LABEL;
   if (!title.startsWith("role:")) return title;
-  const roleRef = session.role?.trim() || title;
+  const roleRef = session.roleBinding.kind === "explicit" ? session.roleBinding.roleRef : title;
   const role = humanizeTechnicalRole(roleRef);
   return `${role} session`;
 }
@@ -484,20 +492,14 @@ function humanizeTechnicalRole(roleRef: string): string {
   return words.map((word) => `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`).join(" ");
 }
 
-function compareSessions(
-  left: SparkSessionRegistryRecord,
-  right: SparkSessionRegistryRecord,
-): number {
+function compareSessions(left: SparkSessionProjection, right: SparkSessionProjection): number {
   return (
     right.updatedAt.localeCompare(left.updatedAt) || left.sessionId.localeCompare(right.sessionId)
   );
 }
 
-function compareSideThreads(
-  left: SparkSessionRegistryRecord,
-  right: SparkSessionRegistryRecord,
-): number {
-  const leftGeneration = left.relation?.kind === "side_thread" ? left.relation.generation : 0;
-  const rightGeneration = right.relation?.kind === "side_thread" ? right.relation.generation : 0;
+function compareSideThreads(left: SparkSessionProjection, right: SparkSessionProjection): number {
+  const leftGeneration = left.owner?.kind === "side_thread" ? left.owner.generation : 0;
+  const rightGeneration = right.owner?.kind === "side_thread" ? right.owner.generation : 0;
   return leftGeneration - rightGeneration || compareSessions(left, right);
 }

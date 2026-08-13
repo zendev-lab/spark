@@ -92,6 +92,8 @@ describe("SparkCommand vocabulary", () => {
       "session.unbind",
       "session.archive",
       "session.restore",
+      "session.close",
+      "session.compact",
       "session.send",
       "session.inbox",
       "session.mail.read",
@@ -141,6 +143,8 @@ describe("SparkCommand vocabulary", () => {
     expect(sparkCommandKindForLocalRpcMethod("session.prompt-history")).toBe(
       "session.snapshot.request",
     );
+    expect(sparkCommandKindForLocalRpcMethod("session.compact")).toBe("session.compact.request");
+    expect(sparkCommandKindForRuntimeServerCommand("session.compact.request")).toBeNull();
     expect(sparkCommandKindForLocalRpcMethod("session.model.set")).toBe(
       "session.model.set.request",
     );
@@ -183,10 +187,12 @@ describe("SparkCommand vocabulary", () => {
       "session.unbind.request",
       "session.archive.request",
       "session.restore.request",
+      "session.close.request",
       "turn.submit.request",
       "turn.cancel.request",
       "turn.status.request",
       "turn.stream.subscribe",
+      "invocation.list.request",
       "loop.control.request",
       "session.model.set.request",
       "session.mode.set.request",
@@ -198,6 +204,7 @@ describe("SparkCommand vocabulary", () => {
       "side-thread.configure.request",
       "side-thread.handoff.request",
       "model.catalog.request",
+      "model.connectivity.test.request",
       "model.default.set.request",
       "provider.auth.import.pi.request",
       "provider.auth.logout.request",

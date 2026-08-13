@@ -3,12 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
-  SparkSessionRegistryRecord,
+  SparkSessionProjection,
   SparkSessionSendRequest,
   SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
 import { executeSparkSessionAction } from "./action-tool.ts";
 import { SparkSessionMailStore } from "./mail-store.ts";
+import { workspaceSessionRecord } from "../../../test/support/session-fixtures.ts";
 
 const roots: string[] = [];
 
@@ -25,7 +26,7 @@ async function createMailStore(): Promise<SparkSessionMailStore> {
 async function sessionSendRpc(
   mailStore: SparkSessionMailStore,
   params: SparkSessionSendRequest,
-  target: SparkSessionRegistryRecord,
+  target: SparkSessionProjection,
   submitted?: SparkTurnSubmitResult,
 ) {
   const sent = await mailStore.send({
@@ -56,25 +57,23 @@ async function sessionSendRpc(
 
 function session(
   sessionId: string,
-  bindings: SparkSessionRegistryRecord["bindings"] = [],
-): SparkSessionRegistryRecord {
-  return {
+  bindings: SparkSessionProjection["bindings"] = [],
+): SparkSessionProjection {
+  return workspaceSessionRecord({
     sessionId,
-    scope: { kind: "workspace", workspaceId: "workspace-routing" },
     workspaceId: "workspace-routing",
-    status: "ready",
     bindings,
     createdAt: "2026-07-15T00:00:00.000Z",
     updatedAt: "2026-07-15T00:00:00.000Z",
-  };
+  });
 }
 
 describe("session list and inbox progressive disclosure", () => {
   it("pages whole compact session records with an explicit continuation", async () => {
     const longTitle = "x".repeat(600);
     const records = [
-      { ...session("sess_first"), title: longTitle, updatedAt: "2026-07-15T02:00:00.000Z" },
-      { ...session("sess_second"), title: "Second", updatedAt: "2026-07-15T01:00:00.000Z" },
+      { ...session("sess_first"), name: longTitle, updatedAt: "2026-07-15T02:00:00.000Z" },
+      { ...session("sess_second"), name: "Second", updatedAt: "2026-07-15T01:00:00.000Z" },
     ];
     const request = vi.fn(async (method: string) => {
       if (method === "session.list") return records;
@@ -92,7 +91,7 @@ describe("session list and inbox progressive disclosure", () => {
       { request: request as never },
     );
     const firstText = first.content[0]!.text;
-    expect(firstText).toContain(`role=${JSON.stringify(longTitle)}`);
+    expect(firstText).toContain(`name=${JSON.stringify(longTitle)}`);
     expect(firstText).toContain("next offset=1; remaining=1; use session get for details.");
     expect(first.details).toMatchObject({ offset: 0, limit: 1, total: 2 });
 
@@ -128,7 +127,7 @@ describe("session list and inbox progressive disclosure", () => {
     ).rejects.toThrow(/workspace scope only/u);
     await expect(
       executeSparkSessionAction(
-        { ...base, action: "create", params: { scope: "daemon", role: "Quality" } },
+        { ...base, action: "create", params: { scope: "daemon" } },
         { request: request as never },
       ),
     ).rejects.toThrow(/workspace scope only/u);

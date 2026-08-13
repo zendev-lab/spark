@@ -192,6 +192,33 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     expect(sparkLocalRpcOrpcContract.model.catalog).toBeDefined();
   });
 
+  it("adds effective execution capacity to daemon status without rejecting older payloads", () => {
+    const schema = sparkLocalRpcProcedureSchemas["daemon.status"].output;
+    const legacyStatus = {
+      servers: [],
+      invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
+      invocationHealth: {},
+      lifecycle: { state: "running" as const },
+      observedAt: "2026-08-12T00:00:00.000Z",
+    };
+
+    expect(schema.parse(legacyStatus)).not.toHaveProperty("execution");
+    expect(
+      schema.parse({
+        ...legacyStatus,
+        execution: { backend: "in_process", rootConcurrency: 8, questionOverflow: 1 },
+      }),
+    ).toMatchObject({
+      execution: { backend: "in_process", rootConcurrency: 8, questionOverflow: 1 },
+    });
+    expect(() =>
+      schema.parse({
+        ...legacyStatus,
+        execution: { backend: "in_process", rootConcurrency: 65, questionOverflow: 1 },
+      }),
+    ).toThrow();
+  });
+
   it("parses session-bound workspace client procedures through their oRPC schemas", () => {
     const attach = sparkLocalRpcOrpcContract.workspace.client.attach["~orpc"];
     const heartbeat = sparkLocalRpcOrpcContract.workspace.client.heartbeat["~orpc"];
@@ -327,6 +354,13 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ),
     ).toBe(true);
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("session.get", "session_not_found")).toBe(true);
+    expect(isSparkLocalRpcOrpcErrorCodeForMethod("session.compact", "session_archived")).toBe(true);
+    expect(
+      sparkLocalRpcProcedureSchemas["session.compact"].input.parse({
+        sessionId: "session-compact",
+        customInstructions: "keep decisions",
+      }),
+    ).toEqual({ sessionId: "session-compact", customInstructions: "keep decisions" });
     expect(
       isSparkLocalRpcOrpcErrorCodeForMethod("session.restore", "session_restore_forbidden"),
     ).toBe(true);

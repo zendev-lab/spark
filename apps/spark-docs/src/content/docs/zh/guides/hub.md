@@ -39,6 +39,20 @@ spark daemon status --json
 spark hub
 ```
 
+## 设置与访问范围
+
+Hub owner 会在控制台中同时看到控制面、当前 workspace 和已连接 daemon 的设置。
+只持有 workspace 浏览器会话的用户仅看到该 workspace 的设置；控制面和 daemon
+级设置不会显示。
+
+Daemon 设置通过当前 workspace 的租约路由。模型页先使用 Hub 最近一次保存的
+daemon 投影快速显示，再提供显式的 daemon 刷新；“已连接”只表示凭据存在。
+使用**快速测试**会向所选模型发送一次受限、无工具的请求，以确认模型确实能够
+响应。调用诊断复用同一条 runtime 连接，不要求 Hub 主机存在 daemon socket。
+
+**Hub 更新**只报告 Hub 安装自身的状态；每个已连接 daemon 仍在其所在机器上独立
+更新。
+
 ## 本地与远程访问
 
 Loopback 使用本地 owner flow。对于非 loopback Hub，优先使用 Tailscale、

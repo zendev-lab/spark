@@ -10,11 +10,18 @@ import {
 } from "./workbench-session-order";
 import { workbenchSessionScope, type WorkbenchSessionScopeLike } from "./workbench-session-scope";
 
-export type WorkbenchSessionType = "workspace" | "private" | "group" | "channel" | "conversation";
+export type WorkbenchSessionType =
+  | "administrator"
+  | "workspace"
+  | "private"
+  | "group"
+  | "channel"
+  | "conversation";
 
 export type WorkbenchSessionGroupLike = WorkbenchSessionOrderLike &
   WorkbenchSessionScopeLike & {
-    title?: string | null;
+    name?: string | null;
+    owner?: { kind?: string } | null;
     bindings?: Array<{
       kind?: string;
       adapter?: string;
@@ -29,6 +36,7 @@ export type WorkbenchSessionGroup<T extends WorkbenchSessionGroupLike> = {
 };
 
 export const workbenchSessionTypeOrder: readonly WorkbenchSessionType[] = [
+  "administrator",
   "workspace",
   "private",
   "group",
@@ -40,6 +48,7 @@ export function workbenchSessionType(
   session: WorkbenchSessionGroupLike,
   options: { channelLabels: ChannelSessionLabels; fallback: string },
 ): WorkbenchSessionType | null {
+  if (session.owner?.kind === "workspace") return "administrator";
   const presentation = channelSessionPresentation(session, {
     labels: options.channelLabels,
     fallback: options.fallback,
@@ -56,7 +65,9 @@ export function groupWorkbenchSessionsByType<T extends WorkbenchSessionGroupLike
   options: {
     channelLabels: ChannelSessionLabels;
     fallback: string;
-    labels: Record<WorkbenchSessionType, string>;
+    labels: Record<Exclude<WorkbenchSessionType, "administrator">, string> & {
+      administrator?: string;
+    };
   },
 ): WorkbenchSessionGroup<T>[] {
   const groups = new Map<WorkbenchSessionType, T[]>();
@@ -74,7 +85,10 @@ export function groupWorkbenchSessionsByType<T extends WorkbenchSessionGroupLike
       ? [
           {
             key,
-            label: options.labels[key],
+            label:
+              key === "administrator"
+                ? (options.labels.administrator ?? "Administrator")
+                : options.labels[key],
             sessions: orderWorkbenchSessionsByAttention(groupSessions),
           },
         ]

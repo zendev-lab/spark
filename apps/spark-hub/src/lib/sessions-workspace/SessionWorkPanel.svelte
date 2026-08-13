@@ -197,7 +197,7 @@
               breakdown: host.copy.tokenBreakdown,
               executionKinds: host.copy.executionKinds,
               models: host.copy.models,
-              persistence: host.copy.sessionPersistence,
+              persistence: host.copy.executionPersistence,
               anonymousSessions: host.copy.anonymousSessions,
               persistentSessions: host.copy.persistentSessions,
               responses: host.copy.responses,

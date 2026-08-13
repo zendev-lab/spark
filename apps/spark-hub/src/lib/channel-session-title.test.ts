@@ -78,7 +78,7 @@ describe("channelSessionPresentation", () => {
     expect(
       channelSessionPresentation(
         {
-          title: "channel qqbot:c2c:398418FB5E7F1C597DFFD117597D6500",
+          name: "channel qqbot:c2c:398418FB5E7F1C597DFFD117597D6500",
           bindings: [
             {
               kind: "channel",
@@ -104,7 +104,7 @@ describe("channelSessionPresentation", () => {
     expect(
       channelSessionPresentation(
         {
-          title: "运维飞书群",
+          name: "运维飞书群",
           bindings: [{ kind: "channel", adapter: "feishu", externalKey: "feishu:chat:oc_ops" }],
         },
         { labels: zhLabels, fallback: "未命名" },
@@ -118,7 +118,7 @@ describe("channelSessionPresentation", () => {
   it("leaves ordinary conversation titles unchanged", () => {
     expect(
       channelSessionPresentation(
-        { title: "修复登录问题", bindings: [] },
+        { name: "修复登录问题", bindings: [] },
         { labels: zhLabels, fallback: "未命名" },
       ),
     ).toEqual({ title: "修复登录问题", channel: null });
@@ -130,16 +130,16 @@ describe("sessionHasChannelBinding", () => {
     expect(
       sessionHasChannelBinding({
         bindings: [{ kind: "channel" }],
-        title: "Ops",
+        name: "Ops",
       }),
     ).toBe(true);
     expect(
       sessionHasChannelBinding({
         bindings: [],
-        title: "channel infoflow:user:alice",
+        name: "channel infoflow:user:alice",
       }),
     ).toBe(true);
-    expect(sessionHasChannelBinding({ bindings: [], title: "Local chat" })).toBe(false);
+    expect(sessionHasChannelBinding({ bindings: [], name: "Local chat" })).toBe(false);
   });
 });
 

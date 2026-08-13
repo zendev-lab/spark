@@ -2535,6 +2535,33 @@ describe("Spark daemon CLI", () => {
     });
   });
 
+  it("atomically raises startup-only root invocation concurrency without losing config", async () => {
+    await withTempSparkEnv(async () => {
+      const paths = resolveSparkPaths({ app: "daemon" });
+      writeSparkDaemonConfig(
+        paths,
+        testSparkDaemonConfig({ invocationConcurrency: 5, runtimeToken: "secret-to-preserve" }),
+      );
+      const capture = createCliIo();
+
+      await expect(
+        main(["daemon", "configure", "--invocation-concurrency", "8", "--json"], capture.io),
+      ).resolves.toBe(0);
+
+      expect(JSON.parse(capture.stdout())).toEqual({
+        action: "configure",
+        invocationConcurrency: 8,
+        appliesOn: "next_start",
+        restartRequired: false,
+      });
+      expect(readSparkDaemonConfig(paths)).toMatchObject({
+        invocationConcurrency: 8,
+        runtimeToken: "secret-to-preserve",
+      });
+      expect(capture.stderr()).toBe("");
+    });
+  });
+
   it("projects an armed durable restart while the daemon pid is temporarily absent", async () => {
     await withTempSparkEnv(async () => {
       const paths = resolveSparkPaths({ app: "daemon" });
@@ -2637,6 +2664,11 @@ describe("Spark daemon CLI", () => {
         ],
         invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
         invocationHealth: {},
+        execution: {
+          backend: "in_process" as const,
+          rootConcurrency: 8,
+          questionOverflow: 1 as const,
+        },
         lifecycle: { state: "running" as const },
       }));
 
@@ -2647,6 +2679,7 @@ describe("Spark daemon CLI", () => {
         pid: number;
         stateDbPath: string;
         servers: Array<{ url: string; workspaceCount: number; wsConnected: boolean }>;
+        execution: { backend: string; rootConcurrency: number; questionOverflow: number };
       };
       expect(status).toMatchObject({
         running: true,
@@ -2659,11 +2692,15 @@ describe("Spark daemon CLI", () => {
             wsConnected: false,
           },
         ],
+        execution: { backend: "in_process", rootConcurrency: 8, questionOverflow: 1 },
       });
 
       const textCapture = createCliIo({ daemonStatusFromService });
       await expect(main(["daemon", "status"], textCapture.io)).resolves.toBe(0);
       expect(textCapture.stdout()).toContain("running");
+      expect(textCapture.stdout()).toContain(
+        "in_process · 8 root concurrency · 1 question overflow",
+      );
       expect(textCapture.stdout()).toContain("registered       1 workspaces across 1 servers");
     });
   });

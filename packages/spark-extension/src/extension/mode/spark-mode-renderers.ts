@@ -14,9 +14,9 @@ export const ASK_BEFORE_GUESSING = `Do not guess user intent. Unless the user ex
 export const MUST_ASK_ON_PROBLEMS =
   "When blocked by a missing user decision, ambiguous requirement, unclear success criterion, conflicting evidence, or any problem the user can unblock, call ask immediately with a concrete, context-specific question. Do not guess, invent defaults that change scope, or end the turn with only a prose blocker report when ask can resolve it.";
 
-/** Goal/repro: keep orchestration on the main session unless the user explicitly wants fan-out. */
+/** Goal/Repro: keep orchestration on the owner Session unless the user explicitly wants fan-out. */
 export const MAIN_SESSION_SCHEDULING_FIRST =
-  'Prefer the main session for scheduling and execution. Do not default to role({ action: "call" }), session({ action: "call"|"send" }), assign, or workflow action=run for ordinary goal/repro ticks. Use those only when the user explicitly requests multi-agent/workflow fan-out, or when a clearly parallelizable slice cannot be done safely in the main session.';
+  'Keep scheduling and reconciliation on the owner Session. Do not default to role({ action: "call" }), session({ action: "call"|"send" }), assign, or workflow action=run for ordinary Goal/Repro ticks. Use those only when the user explicitly requests multi-agent/workflow fan-out, or when a clearly parallelizable slice requires a separately owned execution context.';
 
 const DURABLE_PLANNING_RULES =
   'Use task_write({ action: "plan" }) only for concrete executable/review/validation/research work with high-bar, objectively verifiable success criteria and concrete evidence expectations. Every planned task must set a substantive outcome, each success/evidence/plan item must be checkable, and low-threshold wording such as basic/minimal/quick/best-effort/if possible/smoke-only is not acceptable. Never create standalone design/planning tasks; discuss design in conversation first, then embed the chosen design, rationale, constraints, alternatives, and success evidence inside each concrete task.plan.';

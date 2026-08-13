@@ -24,6 +24,7 @@ export {
 } from "./types.ts";
 export {
   SparkSessionStore,
+  type SparkSessionAtomicWriteOptions,
   defaultSparkSessionsRoot,
   defaultSparkHome,
   workspaceSessionHash,

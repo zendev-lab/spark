@@ -17,7 +17,7 @@ export const workspaceDelegationStatusOptions = [
 export const workspaceDelegationStatusSchema = z.enum(workspaceDelegationStatusOptions);
 
 export const workspaceDelegationActorSchema = z.object({
-  kind: z.enum(["hub_owner", "workspace_main_session"]),
+  kind: z.enum(["hub_owner", "workspace_administrator_session"]),
   id: z.string().trim().min(1),
   sessionId: z.string().trim().min(1).optional(),
 });

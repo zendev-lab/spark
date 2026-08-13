@@ -1,10 +1,7 @@
 import { z } from "zod";
 import { sparkProtocolJsonObjectSchema, sparkProtocolJsonValueSchema } from "./command-events.ts";
 import { sparkTurnSubmitResultSchema } from "./invocation-lifecycle.ts";
-import {
-  sparkChannelAdapterSchema,
-  sparkSessionRegistryRecordSchema,
-} from "./session-assignment.ts";
+import { sparkChannelAdapterSchema, sparkSessionProjectionSchema } from "./session-assignment.ts";
 
 export const sparkSessionMailKindSchema = z.enum(["request", "notification"]);
 export const sparkSessionMailVisibilitySchema = z.enum(["internal", "user"]);
@@ -101,7 +98,7 @@ export const sparkSessionSendResultSchema = z
     filePath: z.string().min(1),
     created: z.boolean(),
     executionTriggered: z.boolean(),
-    target: sparkSessionRegistryRecordSchema,
+    target: sparkSessionProjectionSchema,
     submitted: sparkTurnSubmitResultSchema.optional(),
   })
   .superRefine((result, context) => {

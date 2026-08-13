@@ -85,7 +85,6 @@ export async function ensureRoleModelSettingsForProject(input: {
           model: entry.model,
           source: entry.source,
           modelType: entry.modelType,
-          selector: entry.modelType,
         },
       });
       input.ctx.ui?.notify?.(`Saved model setting for Spark role ${role.id}: ${model}`, "success");

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { ensureDaemonSessionTranscript } from "./session-transcript-control.ts";
 import { unifyDaemonSessionTranscripts } from "./session-transcript-unification.ts";
+import { createDaemonWorkspaceSession } from "../../../test/support/session-fixtures.ts";
 
 const roots: string[] = [];
 
@@ -16,7 +17,7 @@ afterEach(async () => {
 describe("daemon session transcript ownership", () => {
   it("preallocates and binds one stable transcript before execution", async () => {
     const harness = await createHarness("preallocate");
-    const session = await harness.registry.create({
+    const session = await createDaemonWorkspaceSession(harness.registry, {
       sessionId: "sess_stable",
       workspaceId: "workspace",
     });
@@ -34,13 +35,13 @@ describe("daemon session transcript ownership", () => {
     });
     await expect(harness.registry.get(session.sessionId)).resolves.toMatchObject({
       sessionPath: path,
-      status: "ready",
+      lifecycle: "open",
     });
   });
 
   it("fails closed when an unbound session already has multiple fragments", async () => {
     const harness = await createHarness("fragment-conflict");
-    const session = await harness.registry.create({
+    const session = await createDaemonWorkspaceSession(harness.registry, {
       sessionId: "sess_fragmented",
       workspaceId: "workspace",
     });
@@ -68,7 +69,7 @@ describe("daemon session transcript ownership", () => {
 
   it("backs up and chains fragments before relocating the registry path", async () => {
     const harness = await createHarness("unify");
-    const session = await harness.registry.create({
+    const session = await createDaemonWorkspaceSession(harness.registry, {
       sessionId: "sess_unify",
       workspaceId: "workspace",
     });

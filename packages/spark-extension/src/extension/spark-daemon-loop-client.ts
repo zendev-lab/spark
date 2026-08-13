@@ -57,7 +57,7 @@ export async function prepareSparkDaemonLoopOwner(
   const piSessionId = sparkDaemonLoopOwnerSessionId(ctx);
   if (!ctx.sessionManager?.getSessionFile?.()) {
     throw new Error(
-      "Spark goal/repro requires a persistent Pi session; --no-session is unsupported.",
+      "Spark goal/repro requires a durable scoped host Session; ephemeral execution is unsupported.",
     );
   }
   if (!loopControl.ensureOwnerSession) {
@@ -76,18 +76,31 @@ async function ensureSparkDaemonOwnerSession(input: {
     localPath: input.cwd,
   });
   const workspaceId = workspace.id;
+  const sessions = await requestSparkDaemon("session.list", {
+    scope: { kind: "workspace", workspaceId },
+    includeArchived: true,
+  });
+  const administrator = sessions.find((candidate) => candidate.owner.kind === "workspace");
+  if (!administrator) {
+    throw new Error(`Spark workspace ${workspaceId} has no reconciled Administrator Session`);
+  }
   try {
     await requestSparkDaemon("session.create", {
       sessionId: input.sessionId,
       scope: { kind: "workspace", workspaceId },
+      supervisorSessionId: administrator.sessionId,
+      roleBinding: { kind: "none" },
       cwd: input.cwd,
     });
   } catch (error) {
     if (!isSessionAlreadyExists(error)) throw error;
   }
   const session = await requestSparkDaemon("session.get", { sessionId: input.sessionId });
-  if (session.status === "archived") {
+  if (session.placement === "archived") {
     throw new Error(`Spark daemon session is archived: ${input.sessionId}`);
+  }
+  if (session.lifecycle !== "open") {
+    throw new Error(`Spark daemon session is ${session.lifecycle}: ${input.sessionId}`);
   }
   if (session.scope.kind !== "workspace" || session.scope.workspaceId !== workspaceId) {
     throw new Error(`Spark daemon session ${input.sessionId} belongs to another workspace`);

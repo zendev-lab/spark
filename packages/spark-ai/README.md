@@ -54,6 +54,19 @@ rewrites, normalization, and bounded retry behavior from `baidu-oneapi.ts`.
 
 Claude and DeepSeek V4 Flash use Anthropic Messages. GPT-5.6 and Grok 4.5 use
 OpenAI Responses (DeepSeek's Responses path is not implemented on this gateway).
+Measured gateway `contextWindow` values (provider input is authoritative):
+
+- `deepseek-v4-flash`: **768k** (not 1M). Ok ~663k; hard-fail near
+  `usage.input=767994` with `stopReason=length` and zero output.
+- `gpt-5.6-sol` / `gpt-5.6-luna` / `gpt-5.6-terra`: **384k** (was 258k).
+  Ok ~359k; fail by ~400k with explicit context overflow.
+- `claude-opus-5`: **384k** (was 300k). Ok ~360k; fail by ~400k with
+  `context_length_exceeded`.
+- `grok-4.5`: **500k** (unchanged). Ok ~467k; gateway rejects above max prompt
+  length 500000.
+
+These ceilings drive Spark compact/preflight so sessions do not sit past the
+real provider limit.
 The GPT/Grok Responses adapter follows the OpenAI Codex prompt contract: the
 complete caller `systemPrompt` is sent once as top-level `instructions` and is
 not duplicated as a developer input item. Malformed gateway JSON is retried

@@ -27,13 +27,15 @@ const sessionRegistry = createDaemonSessionRegistry(sparkHome, {
   daemonCwd: root,
 });
 const sessionId = "sess_hub_acceptance";
+const administrator = await sessionRegistry.ensureWorkspaceAdministrator("ws_hub_acceptance");
 
 await sessionRegistry.create({
   sessionId,
-  workspaceId: "ws_hub_acceptance",
   scope: { kind: "workspace", workspaceId: "ws_hub_acceptance" },
+  supervisorSessionId: administrator.sessionId,
+  roleBinding: { kind: "none" },
   cwd: root,
-  title: "Hub acceptance",
+  name: "Hub acceptance",
 });
 const server = await startLocalRpcServer({ paths, sparkHome, db, sessionRegistry });
 

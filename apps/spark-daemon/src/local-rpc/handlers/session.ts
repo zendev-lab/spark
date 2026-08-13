@@ -1,6 +1,7 @@
 import {
-  parseSparkSessionRegistryRecord,
+  parseSparkSessionProjection,
   parseSparkSessionView,
+  projectSparkSessionState,
   sparkSessionInboxResultSchema,
   sparkSessionMailMutationResultSchema,
   sparkSessionSendResultSchema,
@@ -16,6 +17,7 @@ import {
 import { SparkLoopStore } from "../../store/loops.ts";
 import { WorkbenchArtifactBindingStore } from "../../store/workbench-artifact-bindings.ts";
 import { SparkTokenUsageStore } from "../../store/token-usage.ts";
+import { SparkInvocationStore } from "../../store/invocations.ts";
 import { projectSparkSessionWork } from "../../session-work-projection.ts";
 import {
   deliverSessionNotificationFromLocalRpc,
@@ -44,6 +46,8 @@ type SessionRequest = Extract<
       | "session.unbind"
       | "session.archive"
       | "session.restore"
+      | "session.close"
+      | "session.compact"
       | "session.send"
       | "session.inbox"
       | "session.mail.read"
@@ -172,20 +176,22 @@ export async function handleSessionRequest(
       return parseLocalRpcServiceOutput(request.method, executed.result.session);
     }
     case "session.archive": {
-      if (options.sessionSupervisor) {
-        return parseLocalRpcServiceOutput(
-          request.method,
-          await options.sessionSupervisor.close({
-            sessionId: request.params.sessionId,
-            ...(request.params.completion ? { completion: request.params.completion } : {}),
-            ...(request.params.reason ? { reason: request.params.reason } : {}),
-          }),
-        );
-      }
       const executed = await executeSparkDaemonSessionControl(
         sessionControlOptions(paths, db, options),
         {
           kind: "session.archive.request",
+          scope: "any",
+          sessionId: request.params.sessionId,
+          payload: { ...request.params },
+        },
+      );
+      return parseLocalRpcServiceOutput(request.method, executed.result.session);
+    }
+    case "session.close": {
+      const executed = await executeSparkDaemonSessionControl(
+        sessionControlOptions(paths, db, options),
+        {
+          kind: "session.close.request",
           scope: "any",
           sessionId: request.params.sessionId,
           payload: { ...request.params },
@@ -210,6 +216,19 @@ export async function handleSessionRequest(
         },
       );
       return parseLocalRpcServiceOutput(request.method, executed.result.session);
+    }
+    case "session.compact": {
+      const executed = await executeSparkDaemonSessionControl(
+        sessionControlOptions(paths, db, options),
+        {
+          kind: "session.compact.request",
+          scope: "any",
+          sessionId: request.params.sessionId,
+          idempotencyKey: request.params.idempotencyKey,
+          payload: { ...request.params },
+        },
+      );
+      return parseLocalRpcServiceOutput(request.method, executed.result);
     }
     case "session.bind":
     case "session.unbind": {
@@ -268,7 +287,11 @@ export async function handleSessionRequest(
         request.params.sessionId,
         request.params.model,
       );
-      return session;
+      return projectSparkSessionState(
+        session,
+        new SparkInvocationStore(db).sessionActivities([session.sessionId]).get(session.sessionId)
+          ?.activity ?? "idle",
+      );
     }
     case "session.mode.set": {
       const executed = await executeSparkDaemonSessionControl(
@@ -287,7 +310,11 @@ export async function handleSessionRequest(
         request.params.sessionId,
         request.params.thinkingLevel,
       );
-      return session;
+      return projectSparkSessionState(
+        session,
+        new SparkInvocationStore(db).sessionActivities([session.sessionId]).get(session.sessionId)
+          ?.activity ?? "idle",
+      );
     }
   }
 }
@@ -316,7 +343,7 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
       payload: { sessionId: params.toSessionId },
     },
   );
-  const target = parseSparkSessionRegistryRecord(targetExecuted.result.session);
+  const target = parseSparkSessionProjection(targetExecuted.result.session);
   if (params.origin.surface === "channel") {
     if (!params.originBinding) {
       throw new SparkSessionRegistryError(
@@ -335,7 +362,7 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
     }
   }
   if (params.kind === "request") {
-    if (target.status === "archived") {
+    if (target.placement === "archived") {
       throw new SparkSessionRegistryError(
         "session_mail_target_archived",
         `cannot request archived persistent session: ${params.toSessionId}`,

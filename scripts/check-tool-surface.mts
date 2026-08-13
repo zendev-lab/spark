@@ -15,6 +15,8 @@ const DEFAULT_PROFILE = "spark-native-default";
 const TOOL_SURFACE_KINDS = ["action", "capability", "compatibility"] as const;
 const CONTRACT_EFFECTS = [
   "read",
+  "network_read",
+  "control",
   "local_write",
   "external_write",
   "destructive",

@@ -7,6 +7,7 @@ import {
   recordInvocationUpdate,
 } from "@zendev-lab/spark-hub-coordination/projection-services";
 import { conversationActivityStatus, loadConversationSummaries } from "./conversation-summaries";
+import { workspaceSessionRecord } from "../../../../../test/support/session-fixtures.ts";
 
 describe("conversation summaries", () => {
   it("does not let a stale Hub invocation override settled daemon truth", () => {
@@ -62,15 +63,12 @@ describe("conversation summaries", () => {
       .get(command.id) as { updatedAt: string };
 
     const [summary] = loadConversationSummaries(db, [
-      {
+      workspaceSessionRecord({
         sessionId: "sess_visible",
-        scope: { kind: "workspace", workspaceId },
         workspaceId,
-        status: "ready",
-        bindings: [],
         createdAt: now,
         updatedAt: now,
-      },
+      }),
     ]);
 
     expect(summary).toMatchObject({
@@ -148,15 +146,12 @@ describe("conversation summaries", () => {
     }
 
     const [summary] = loadConversationSummaries(db, [
-      {
+      workspaceSessionRecord({
         sessionId: "sess_visible",
-        scope: { kind: "workspace", workspaceId: workspace.id },
         workspaceId: workspace.id,
-        status: "ready",
-        bindings: [],
         createdAt: now,
         updatedAt: now,
-      },
+      }),
     ]);
 
     expect(summary).toMatchObject({
@@ -213,15 +208,13 @@ describe("conversation summaries", () => {
     });
 
     const [summary] = loadConversationSummaries(db, [
-      {
+      workspaceSessionRecord({
         sessionId: "sess_unified",
-        scope: { kind: "workspace", workspaceId: workspace.id },
         workspaceId: workspace.id,
-        status: "running",
-        bindings: [],
+        activity: "running",
         createdAt: now,
         updatedAt: "2099-07-10T00:10:00.000Z",
-      },
+      }),
     ]);
 
     expect(summary).toMatchObject({

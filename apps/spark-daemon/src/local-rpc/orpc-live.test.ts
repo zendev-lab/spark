@@ -24,6 +24,7 @@ import { handleLocalRpcLine } from "./dispatch.ts";
 import { startLocalRpcOrpcServer } from "./orpc-server.ts";
 import { startLocalRpcServer } from "./transport.ts";
 import type { LocalRpcHandlerOptions } from "./types.ts";
+import { createDaemonWorkspaceSession } from "../../../../test/support/session-fixtures.ts";
 
 describe("local-rpc direct oRPC service", () => {
   const dirs: string[] = [];
@@ -57,6 +58,11 @@ describe("local-rpc direct oRPC service", () => {
       db,
       handlerOptions: {
         getLifecycle: () => ({ state: "running" as const }),
+        getExecutionStatus: () => ({
+          backend: "in_process" as const,
+          rootConcurrency: 8,
+          questionOverflow: 1 as const,
+        }),
       },
     });
     closers.push(() => server.close());
@@ -68,6 +74,7 @@ describe("local-rpc direct oRPC service", () => {
 
     await expect(handle.client.daemon.status({})).resolves.toMatchObject({
       lifecycle: { state: "running" },
+      execution: { backend: "in_process", rootConcurrency: 8, questionOverflow: 1 },
     });
     await expect(handle.client.workspace.list({})).resolves.toMatchObject({
       workspaces: [expect.objectContaining({ localPath: join(dir, "workspace") })],
@@ -135,9 +142,8 @@ describe("local-rpc direct oRPC service", () => {
         .map((entry) => JSON.stringify(entry))
         .join("\n")}\n`,
     );
-    await sessionRegistry.create({
+    await createDaemonWorkspaceSession(sessionRegistry, {
       sessionId,
-      scope: { kind: "workspace", workspaceId: "workspace-prompt-history" },
       workspaceId: "workspace-prompt-history",
       cwd: dir,
       sessionPath: transcriptPath,
@@ -329,10 +335,6 @@ describe("local-rpc direct oRPC service", () => {
       sessionId: "missing-daemon-identity",
       scope: { kind: "daemon" as const },
     };
-    const createError = await rejectionOf(
-      invokeSparkDaemonOrpcLiveMethod(handle.client, "session.create", createInput),
-    );
-    expect(createError).toMatchObject({ code: "invalid_scope" });
     await expect(
       handleLocalRpcLine(
         JSON.stringify({ id: "legacy-create", method: "session.create", params: createInput }),
@@ -346,9 +348,8 @@ describe("local-rpc direct oRPC service", () => {
       error: { code: "invalid_scope" },
     });
 
-    await sessionRegistry.create({
+    await createDaemonWorkspaceSession(sessionRegistry, {
       sessionId: "parent-session",
-      scope: { kind: "workspace", workspaceId: "workspace-errors" },
       workspaceId: "workspace-errors",
       cwd: dir,
     });
@@ -407,9 +408,8 @@ describe("local-rpc direct oRPC service", () => {
         timestamp: "2026-07-27T12:00:00.000Z",
       })}\n`,
     );
-    await sessionRegistry.create({
+    await createDaemonWorkspaceSession(sessionRegistry, {
       sessionId: "snapshot-mismatch",
-      scope: { kind: "workspace", workspaceId: "workspace-errors" },
       workspaceId: "workspace-errors",
       cwd: dir,
       sessionPath: mismatchPath,
@@ -438,9 +438,8 @@ describe("local-rpc direct oRPC service", () => {
 
     const invalidPath = join(dir, "invalid-session.jsonl");
     writeFileSync(invalidPath, `${JSON.stringify({ type: "invalid" })}\n`);
-    await sessionRegistry.create({
+    await createDaemonWorkspaceSession(sessionRegistry, {
       sessionId: "snapshot-invalid",
-      scope: { kind: "workspace", workspaceId: "workspace-errors" },
       workspaceId: "workspace-errors",
       cwd: dir,
       sessionPath: invalidPath,
@@ -517,6 +516,7 @@ describe("local-rpc direct oRPC service", () => {
       effectiveModel: unusedModelControlMethod,
       effectiveThinkingLevel: unusedModelControlMethod,
       prepareModel: unusedModelControlMethod,
+      testModel: unusedModelControlMethod,
     };
     const channelStatus = {
       plane: "daemon" as const,
@@ -719,6 +719,7 @@ describe("local-rpc direct oRPC service", () => {
       effectiveModel: crossDomainFailure,
       effectiveThinkingLevel: crossDomainFailure,
       prepareModel: crossDomainFailure,
+      testModel: crossDomainFailure,
     };
     const handlerOptions: LocalRpcHandlerOptions = { modelControl };
     const server = await startLocalRpcOrpcServer({ paths, db, handlerOptions });

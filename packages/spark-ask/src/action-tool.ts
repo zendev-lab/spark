@@ -132,6 +132,13 @@ export function registerSparkAskActionTool(
       "Use freeform questions for notes/context; do not create business options named Other or Type your own.",
       "Do not set autoAnswer unless the active host policy explicitly asks for reviewer fallback after the user wait expires.",
     ],
+    policy: {
+      effect: "external_write",
+      executionMode: "sequential",
+      domains: ["interaction", "human-decision"],
+      modes: ["plan", "execute", "fleet"],
+      approval: "none",
+    },
     parameters: Type.Object({
       action: Type.Optional(Type.String({ description: "ask | flow. Defaults to ask." })),
       autoAnswer: Type.Optional(

@@ -15,7 +15,7 @@ export async function handleDelegationRequest(
 ): Promise<LocalRpcServiceOutput<DelegationRequest>> {
   if (!ctx.options.sessionRegistry) {
     throw new SparkDaemonControlError(
-      "workspace_main_session_required",
+      "workspace_administrator_session_required",
       "Spark daemon session registry is unavailable",
     );
   }

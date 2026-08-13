@@ -196,6 +196,7 @@ export interface RoleRunEvidenceRetentionCandidate {
   taskRef?: string;
   runRef?: string;
   roleRef?: string;
+  roleRevision?: string;
   runName?: string;
   status?: string;
   bytes: number;
@@ -339,6 +340,7 @@ export async function collectRoleRunEvidenceRetentionPlan(
       taskRef: bodyInfo.taskRef,
       runRef: bodyInfo.runRef,
       roleRef: bodyInfo.roleRef,
+      roleRevision: bodyInfo.roleRevision,
       runName: bodyInfo.runName,
       status: bodyInfo.status,
       bytes,
@@ -441,6 +443,7 @@ function compactRoleRunRetentionBody(
     record: {
       ref: runRef,
       roleRef,
+      roleRevision: candidate.roleRevision ?? "legacy-unrecorded",
       runName: candidate.runName,
       status: (candidate.status ?? "unknown") as RoleRunEvidenceBody["status"],
       startedAt: roleRunDateFromRaw(raw, "startedAt"),
@@ -499,6 +502,7 @@ function extractRoleRunEvidenceBodyInfo(raw: Record<string, unknown>): {
   runRef?: string;
   taskRef?: string;
   roleRef?: string;
+  roleRevision?: string;
   runName?: string;
   status?: string;
 } {
@@ -516,6 +520,9 @@ function extractRoleRunEvidenceBodyInfo(raw: Record<string, unknown>): {
       roleRef:
         roleRunRetentionString(bodyRecord.roleRef) ??
         roleRunRetentionProvenanceString(provenance, "roleRef"),
+      roleRevision:
+        roleRunRetentionString(nestedRecord?.roleRevision) ??
+        roleRunRetentionProvenanceString(provenance, "roleRevision"),
       runName:
         roleRunRetentionString(bodyRecord.runName) ?? roleRunRetentionString(nestedRecord?.runName),
       status:
@@ -529,6 +536,9 @@ function extractRoleRunEvidenceBodyInfo(raw: Record<string, unknown>): {
     roleRef:
       extractJsonStringField(preview, "roleRef") ??
       roleRunRetentionProvenanceString(provenance, "roleRef"),
+    roleRevision:
+      extractJsonStringField(preview, "roleRevision") ??
+      roleRunRetentionProvenanceString(provenance, "roleRevision"),
     runName: extractJsonStringField(preview, "runName"),
     status: extractJsonStringField(preview, "status"),
   };
@@ -646,7 +656,7 @@ function roleRunRetentionString(value: unknown): string | undefined {
 
 function roleRunRetentionProvenanceString(
   provenance: Record<string, unknown> | undefined,
-  key: "runRef" | "taskRef" | "roleRef",
+  key: "runRef" | "taskRef" | "roleRef" | "roleRevision",
 ): string | undefined {
   return roleRunRetentionString(provenance?.[key]);
 }

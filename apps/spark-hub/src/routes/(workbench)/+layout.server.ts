@@ -139,7 +139,6 @@ async function loadWorkbenchManagedSessions(workspaceId: string) {
   if (projected.sessions.length > 0) return projected;
   const live = await listManagedSessionsForHub({
     scope: { kind: "workspace", workspaceId },
-    workspaceId,
     includeArchived: true,
     related: true,
     timeoutMs: WORKBENCH_SESSION_LIST_TIMEOUT_MS,

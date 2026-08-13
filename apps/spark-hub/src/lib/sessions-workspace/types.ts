@@ -4,32 +4,14 @@ import type {
   SessionActivityQueuedTurn,
   SessionActivityReport,
 } from "@zendev-lab/spark-hub-coordination/session-activity";
-import type { SparkModelControlSnapshot, SparkSessionRelation } from "@zendev-lab/spark-protocol";
+import type { SparkModelControlSnapshot, SparkSessionProjection } from "@zendev-lab/spark-protocol";
 import type { HubMessages } from "@zendev-lab/spark-i18n/hub";
 
 /** Canonical session activity projection; UI previously re-declared a near-isomorphic subset. */
 export type SessionActivity = SessionActivityProjection;
 export type { SessionActivityCommand, SessionActivityQueuedTurn, SessionActivityReport };
 
-export type SessionRecord = {
-  sessionId: string;
-  workspaceId?: string;
-  scope?:
-    | { kind: "workspace"; workspaceId: string }
-    | { kind: "daemon"; daemonId?: string; daemonLabel?: string };
-  title?: string;
-  status: string;
-  role?: string;
-  relation?: SparkSessionRelation;
-  bindings?: Array<{
-    kind: string;
-    adapter?: string;
-    externalKey?: string;
-    boundAt?: string;
-  }>;
-  createdAt: string;
-  updatedAt: string;
-};
+export type SessionRecord = SparkSessionProjection;
 
 export type WorkspaceOption = {
   id: string;

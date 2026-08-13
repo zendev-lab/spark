@@ -2,6 +2,7 @@ export {
   DEFAULT_INVOCATION_ABORT_DRAIN_MS,
   DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY,
   DEFAULT_INVOCATION_TASK_TIMEOUT_MS,
+  INVOCATION_SCHEDULER_QUESTION_OVERFLOW,
   InvocationCancelledError,
   InvocationTimeoutError,
   SparkInvocationScheduler,
@@ -43,12 +44,17 @@ export {
 export type { SparkDaemonPathOptions } from "./paths.ts";
 export { createSparkDaemonSignals } from "./signals.ts";
 export type { SparkDaemonSignals } from "./signals.ts";
-export { getSparkDaemonTaskSessionId, validateSparkDaemonTask } from "./types.ts";
+export {
+  getSparkDaemonTaskSessionId,
+  SPARK_SESSION_COMPACT_PROMPT,
+  validateSparkDaemonTask,
+} from "./types.ts";
 export type {
   SparkDaemonEventSink,
   SparkDaemonLoopEvaluationResult,
   SparkDaemonLoopEvaluationTask,
   SparkDaemonLoopTickTask,
+  SparkDaemonSessionCompactTask,
   SparkDaemonSessionRunTask,
   SparkDaemonTask,
   SparkDaemonTaskExecutionContext,

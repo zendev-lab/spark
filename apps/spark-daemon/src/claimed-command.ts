@@ -48,6 +48,7 @@ import {
 import { executeWorkspaceDelegationDelivery } from "./workspace-delegation-control.ts";
 import { executeTrustedWorkbenchLoopControl } from "./workbench-loop-control.ts";
 import { SparkDaemonControlError } from "./control-error.ts";
+import { SparkInvocationStore } from "./store/invocations.ts";
 
 type ClaimedCommand = ReturnType<typeof serverCommandEnvelopeSchema.parse>;
 
@@ -321,6 +322,9 @@ async function handleModelChannelCommand(input: ClaimedCommandExecution): Promis
       modelControl: context.modelControl,
       channelIngress: context.channelIngress,
       sessionRegistry: context.sessionRegistry,
+      sessionActivity: (sessionId) =>
+        new SparkInvocationStore(context.db).sessionActivities([sessionId]).get(sessionId)
+          ?.activity ?? "idle",
       sparkHome: context.sparkHome,
     },
     {
@@ -781,7 +785,8 @@ function isRuntimeSessionControlKind(
     kind === "turn.submit.request" ||
     kind === "turn.cancel.request" ||
     kind === "turn.status.request" ||
-    kind === "turn.stream.subscribe"
+    kind === "turn.stream.subscribe" ||
+    kind === "invocation.list.request"
   );
 }
 

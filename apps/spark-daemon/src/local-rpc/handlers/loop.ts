@@ -29,7 +29,7 @@ export async function handleLoopRequest(
           `Loop owner session was not found: ${request.params.ownerSessionId}`,
         );
       }
-      if (session?.status === "archived") {
+      if (session?.placement === "archived" || session?.lifecycle !== "open") {
         throw new SparkDaemonControlError(
           "loop_owner_archived",
           `Loop owner session is archived: ${request.params.ownerSessionId}`,

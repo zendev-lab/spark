@@ -21,12 +21,29 @@ const ownerInput = { sessionId: "pi-session", cwd: "/workspace/demo" };
 const ownerSession = {
   sessionId: ownerInput.sessionId,
   scope: { kind: "workspace" as const, workspaceId: "workspace-1" },
-  workspaceId: "workspace-1",
+  lifecycle: "open" as const,
+  placement: "active" as const,
+  lifetime: "scoped" as const,
+  roleBinding: { kind: "none" as const },
+  owner: { kind: "session" as const, supervisorSessionId: "sess_administrator" },
   cwd: ownerInput.cwd,
-  status: "ready" as const,
   bindings: [],
+  tags: [],
+  archiveHistory: [],
   createdAt: "2026-07-27T00:00:00.000Z",
   updatedAt: "2026-07-27T00:00:00.000Z",
+};
+
+const administratorSession = {
+  ...ownerSession,
+  sessionId: "sess_administrator",
+  name: "Administrator",
+  lifetime: "persistent" as const,
+  roleBinding: {
+    kind: "explicit" as const,
+    roleRef: "role:builtin-administrator" as const,
+  },
+  owner: { kind: "workspace" as const, workspaceId: "workspace-1" },
 };
 
 describe("Spark daemon Pi owner compatibility", () => {
@@ -38,6 +55,7 @@ describe("Spark daemon Pi owner compatibility", () => {
   it("accepts the facade remote-error class for an existing persistent session", async () => {
     requestSparkDaemonMock.mockImplementation(async (method: string) => {
       if (method === "workspace.ensure-local") return { id: "workspace-1" };
+      if (method === "session.list") return [administratorSession, ownerSession];
       if (method === "session.create") {
         throw new SparkDaemonRemoteError("session_exists", { code: "session_exists" });
       }
@@ -49,6 +67,7 @@ describe("Spark daemon Pi owner compatibility", () => {
     expect(ensureSparkDaemonRunningMock).toHaveBeenCalledOnce();
     expect(requestSparkDaemonMock.mock.calls.map(([method]) => method)).toEqual([
       "workspace.ensure-local",
+      "session.list",
       "session.create",
       "session.get",
     ]);

@@ -70,7 +70,7 @@
           {/if}
           {#if delegation.targetSessionId && (!authorizedWorkspaceId || authorizedWorkspaceId === delegation.request.targetWorkspaceId)}
             <a class="session-link" href={`/${encodeURIComponent(workspaceSlug(delegation.request.targetWorkspaceId))}/sessions/${encodeURIComponent(delegation.targetSessionId)}`}>
-              {messages.openMainSession}
+              {messages.openAdministratorSession}
             </a>
           {/if}
         </article>
