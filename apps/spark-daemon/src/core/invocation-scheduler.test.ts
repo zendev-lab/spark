@@ -1528,6 +1528,62 @@ describe("SparkInvocationScheduler", () => {
     }
   });
 
+  it("serializes aligned terminal bundles across cooperative macrotask boundaries", async () => {
+    const completionGate = deferred<void>();
+    const terminalGates = [deferred<void>(), deferred<void>()];
+    let terminalYieldCalls = 0;
+    const { db, store, scheduler } = harness(
+      async (task) => {
+        await completionGate.promise;
+        return { prompt: task.prompt };
+      },
+      {
+        concurrency: 2,
+        yieldBeforeTerminalCommit: async () => {
+          const gate = terminalGates[terminalYieldCalls++];
+          if (!gate) throw new Error("unexpected terminal commit");
+          await gate.promise;
+        },
+      },
+    );
+    try {
+      const invocations = ["first", "second"].map((prompt) =>
+        store.submit({
+          sessionId: `session-${prompt}`,
+          prompt,
+          task: { type: "session.run", sessionId: `session-${prompt}`, prompt },
+        }),
+      );
+
+      expect(scheduler.processBatch()).toBe(true);
+      completionGate.resolve();
+      await eventually(() => terminalYieldCalls === 1);
+      expect(
+        invocations.map((invocation) => store.require(invocation.invocationId).status),
+      ).toEqual(["running", "running"]);
+
+      terminalGates[0]!.resolve();
+      await eventually(
+        () =>
+          terminalYieldCalls === 2 &&
+          invocations.filter(
+            (invocation) => store.require(invocation.invocationId).status === "succeeded",
+          ).length === 1,
+      );
+
+      terminalGates[1]!.resolve();
+      await scheduler.wait({ timeoutMs: 500 });
+      expect(
+        invocations.map((invocation) => store.require(invocation.invocationId).status),
+      ).toEqual(["succeeded", "succeeded"]);
+    } finally {
+      completionGate.resolve();
+      for (const gate of terminalGates) gate.resolve();
+      scheduler.stop();
+      db.close();
+    }
+  });
+
   it("reserves one overflow slot for blocking session questions", async () => {
     const regularGate = deferred<void>();
     const firstQuestionGate = deferred<void>();
@@ -1572,8 +1628,11 @@ describe("SparkInvocationScheduler", () => {
       expect(scheduler.processBatch()).toBe(false);
 
       firstQuestionGate.resolve();
-      await eventually(() => store.require(firstQuestion.invocationId).status === "succeeded");
-      expect(scheduler.processBatch()).toBe(true);
+      await eventually(
+        () =>
+          store.require(firstQuestion.invocationId).status === "succeeded" &&
+          scheduler.processBatch(),
+      );
       expect(store.require(secondQuestion.invocationId).status).toBe("running");
       expect(scheduler.snapshot()).toHaveLength(2);
 
@@ -1585,6 +1644,7 @@ describe("SparkInvocationScheduler", () => {
       regularGate.resolve();
       firstQuestionGate.resolve();
       secondQuestionGate.resolve();
+      scheduler.stop();
       db.close();
     }
   });

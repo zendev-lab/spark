@@ -127,6 +127,11 @@ before attempt terminal commit and closes that admission boundary afterward;
 late registration fails explicitly rather than creating an undrained promise
 behind an already committed high-water mark.
 
+Attempt terminal, Invocation terminal, usage settlement, and lifecycle event
+persistence form one ordered terminal bundle. The daemon serializes these
+bundles across Invocations and starts at most one bundle per macrotask so a
+burst of aligned provider completions cannot starve local control-plane I/O.
+
 ## Parent capabilities
 
 A future isolated attempt may request only the closed daemon-owner registry:
