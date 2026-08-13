@@ -77,6 +77,10 @@ The autonomous contract is owned by
 [`autonomous-dual-lane.md`](./autonomous-dual-lane.md). Active Goal/Repro turns
 must persist detached asynchronous evidence requests and continue independent
 work. Their pending decision status is orthogonal to daemon scheduler activity.
+A blocking human wait still occupies a scheduler slot, but a requested daemon
+restart must yield the last persistable ask-only checkpoint instead of holding
+drain forever. Mixed batches that already executed non-replayable tools fail
+closed rather than replaying those tools after replacement.
 Omitted/default blocking delivery, explicit blocking delivery, Ask aliases, and
 `autoAnswer=true` must fail at the execution boundary before creating an
 in-turn UI wait or durable blocking continuation. Each detached EvidenceRequest

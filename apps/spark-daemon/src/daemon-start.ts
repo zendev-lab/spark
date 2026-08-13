@@ -564,11 +564,12 @@ function createRestartDrainController(input: {
     const progress: SparkDaemonDrainProgress = {
       observedAt: new Date().toISOString(),
       stage: drainStage,
-      scheduler: (scheduler?.snapshot() ?? []).map((invocation) => ({
+      scheduler: (scheduler?.drainSnapshot() ?? []).map(({ invocation, pauseState }) => ({
         invocationId: invocation.invocationId,
         kind: invocation.sourceKind ?? "scheduled",
         startedAt: invocation.startedAt ?? invocation.claimedAt ?? invocation.createdAt,
         ...(invocation.sessionId ? { sessionId: invocation.sessionId } : {}),
+        pauseState,
       })),
       direct: invocationRegistry.snapshot().map((invocation) => ({
         invocationId: invocation.invocationId,

@@ -1380,6 +1380,7 @@ async function runSparkCliTuiSelection(input: {
           daemonClient,
           modelControl,
           currentSessionId,
+          sessionWorkspaceId,
           ensureCurrentSession,
           () => {
             sessionSelectorRequested = true;
@@ -1810,12 +1811,14 @@ function createSparkNativeSlashCommands(
   daemonClient: SparkDaemonClientOptions,
   modelControl: SparkDaemonModelAuthClient,
   currentSessionId: string,
+  sessionWorkspaceId: string,
   ensureCurrentSession: () => Promise<void>,
   requestSessionSelector: () => void,
   requestNewSession: () => Promise<void>,
 ): SparkNativeSlashCommandMap {
   const daemonCommands = createSparkDaemonNativeCommands(daemonClient, {
     sessionId: currentSessionId,
+    workspaceId: sessionWorkspaceId,
   });
   const localControlCommands = createSparkNativeLocalControlSlashCommands();
   const piParityCommands = createSparkPiParitySlashCommands(

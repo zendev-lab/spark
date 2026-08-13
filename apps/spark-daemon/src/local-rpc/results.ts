@@ -221,7 +221,10 @@ export function daemonDrainProgress(value: unknown): SparkDaemonLifecycleSnapsho
       typeof entry.startedAt !== "string" ||
       entry.startedAt.length === 0 ||
       (entry.sessionId !== undefined &&
-        (typeof entry.sessionId !== "string" || entry.sessionId.length === 0))
+        (typeof entry.sessionId !== "string" || entry.sessionId.length === 0)) ||
+      (entry.pauseState !== undefined &&
+        entry.pauseState !== "busy" &&
+        entry.pauseState !== "human-wait")
     ) {
       throw new Error("Invalid local RPC daemon drain work item.");
     }
@@ -230,6 +233,9 @@ export function daemonDrainProgress(value: unknown): SparkDaemonLifecycleSnapsho
       kind: entry.kind,
       startedAt: entry.startedAt,
       ...(typeof entry.sessionId === "string" ? { sessionId: entry.sessionId } : {}),
+      ...(entry.pauseState === "busy" || entry.pauseState === "human-wait"
+        ? { pauseState: entry.pauseState }
+        : {}),
     };
   };
   return {

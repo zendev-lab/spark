@@ -1211,10 +1211,14 @@ function formatRestartDrainBlockers(lifecycle: SparkDaemonLifecycleSnapshot | un
   if (blockers.length === 0) return `; drain stage ${stage}; blockers 0`;
   const ids = blockers
     .slice(0, 3)
-    .map((entry) => entry.invocationId)
+    .map((entry) =>
+      entry.pauseState ? `${entry.invocationId}:${entry.pauseState}` : entry.invocationId,
+    )
     .join(",");
+  const waiting = blockers.filter((entry) => entry.pauseState === "human-wait").length;
   return (
     `; drain stage ${stage}; blockers scheduler=${scheduled.length} direct=${direct.length}` +
+    `${waiting > 0 ? ` human-wait=${waiting}` : ""}` +
     ` ids=${ids}${blockers.length > 3 ? ",…" : ""}`
   );
 }

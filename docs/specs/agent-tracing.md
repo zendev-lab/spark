@@ -16,7 +16,9 @@ Spark already records useful fragments:
 - `SparkAgentLoopEvent` exposes prompt manifests, Tool results, turn completion, run outcomes, aborts, and errors;
 - daemon invocation events provide durable sequence ordering, cursors, replay, retention, and Hub projection;
 - Evidence stores large diagnostic content outside bounded event envelopes;
-- restart checkpoints preserve pending assistant Tool calls across daemon replacement.
+- restart checkpoints preserve pending assistant Tool calls across daemon replacement;
+- a requested restart must yield at the next persistable model-to-tool boundary, or fail closed if that checkpoint cannot be stored;
+- a blocking human wait yields the last persistable ask-only checkpoint instead of holding the drain slot.
 
 Those fragments do not yet form one causal trace. In particular, a Tool result alone cannot prove when the call began, how long approval or execution took, where it failed, whether a missing result is a crash or omission, or which model response caused it.
 

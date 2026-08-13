@@ -12,11 +12,15 @@ export type SparkDaemonLifecyclePhase =
 
 export type SparkDaemonDrainStage = "active-work" | "channel-ingress";
 
+export type SparkDaemonDrainPauseState = "busy" | "human-wait";
+
 export interface SparkDaemonDrainWork {
   invocationId: string;
   kind: string;
   startedAt: string;
   sessionId?: string;
+  /** Process-local wait class for restart drain. Human waits should yield. */
+  pauseState?: SparkDaemonDrainPauseState;
 }
 
 /** Process-local execution fences that must settle before a restart can hand off ownership. */
