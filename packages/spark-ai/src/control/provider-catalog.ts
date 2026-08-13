@@ -19,7 +19,7 @@ export const DEFAULT_SPARK_ENABLED_MODEL_PATTERNS = [
   "baidu-oneapi/claude-opus-5",
   "baidu-oneapi/deepseek-v4-flash",
   "baidu-oneapi/gpt-5.6-*",
-  "baidu-oneapi/grok-4.5",
+  "baidu-oneapi/grok-4.6",
 ] as const;
 
 const LEGACY_SPARK_ENABLED_MODEL_PATTERN_SETS = [
@@ -32,6 +32,13 @@ const LEGACY_SPARK_ENABLED_MODEL_PATTERN_SETS = [
     "baidu-oneapi/gpt-5.6-terra",
   ],
   ["openai-codex/gpt-5.6-*", "baidu-oneapi/*"],
+  [
+    "openai-codex/gpt-5.6-*",
+    "baidu-oneapi/claude-opus-5",
+    "baidu-oneapi/deepseek-v4-flash",
+    "baidu-oneapi/gpt-5.6-*",
+    "baidu-oneapi/grok-4.5",
+  ],
 ] as const;
 
 /** Migrate bundled defaults without rewriting an explicit custom policy. */

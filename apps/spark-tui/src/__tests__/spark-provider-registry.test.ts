@@ -474,6 +474,20 @@ test("SparkProviderRegistry exposes routed Claude and GPT models from baidu-onea
   assert.equal(grokProfile.routes[0]?.transportApi, "openai-responses");
   assert.equal(grokProfile.routes[0]?.transportModelId, "grok-4.5");
   assert.equal(grokProfile.routes[0]?.baseUrl, "https://oneapi-comate.baidu-int.com/v1");
+
+  const grok46Model = registry.buildModel("baidu-oneapi", "grok-4.6");
+  assert.equal(grok46Model.contextWindow, 500_000);
+  assert.equal(grok46Model.maxTokens, 32_768);
+  const grok46Profile = registry.buildProfile("baidu-oneapi", "grok-4.6");
+  assert.deepEqual(grok46Profile.cost, {
+    input: 2,
+    output: 6,
+    cacheRead: 0.5,
+    cacheWrite: 2,
+  });
+  assert.equal(grok46Profile.routes[0]?.transportApi, "openai-responses");
+  assert.equal(grok46Profile.routes[0]?.transportModelId, "grok-4.6");
+  assert.equal(grok46Profile.routes[0]?.baseUrl, "https://oneapi-comate.baidu-int.com/v1");
 });
 
 test("SparkProviderRegistry adapts pi-ai's production OpenAI Codex provider", () => {
