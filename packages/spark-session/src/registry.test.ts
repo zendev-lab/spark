@@ -129,10 +129,16 @@ describe("SparkSessionRegistry v6 ownership", () => {
         owner: { kind: "session", supervisorSessionId: otherAdmin.sessionId },
       }),
     ).rejects.toMatchObject({ code: "session_owner_scope_mismatch" });
+    const parent = await registry.create({
+      sessionId: "sess_scope_parent",
+      scope: admin.scope,
+      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      cwd: "/repo",
+    });
     await expect(
       registry.create({
         scope: admin.scope,
-        owner: { kind: "session", supervisorSessionId: admin.sessionId },
+        owner: { kind: "session", supervisorSessionId: parent.sessionId },
         cwd: "/outside",
       }),
     ).rejects.toMatchObject({ code: "session_owner_scope_mismatch" });
@@ -405,6 +411,23 @@ describe("SparkSessionRegistry v6 migration", () => {
     expect(
       (await readdir(registry.rootDir)).filter((entry) => entry.startsWith("migration-")),
     ).toHaveLength(1);
+  });
+
+  it("allows a workspace Administrator to supervise an isolated GitChange root", async () => {
+    const registry = await tempRegistry();
+    const admin = await administrator(registry, "ws_git_change", "/repo");
+    const child = await registry.create({
+      sessionId: "sess_git_change_root",
+      scope: admin.scope,
+      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      cwd: "/Users/example/.agents/worktrees/project/change",
+      cwdArtifactRef: "artifact:change",
+    });
+
+    expect(child.cwdArtifactRef).toBe("artifact:change");
+    await expect(registry.get(child.sessionId)).resolves.toMatchObject({
+      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+    });
   });
 
   it("preserves canonical v5 owners while enriching records for v6", async () => {

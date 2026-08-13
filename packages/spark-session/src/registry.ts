@@ -2034,13 +2034,19 @@ function validateRegistryOwnership(sessions: SparkSessionState[]): void {
       if (!sameSessionScope(session.scope, supervisor.scope)) {
         throw new Error(`Session owner scope mismatch: ${session.sessionId}`);
       }
+      const supervisorIsWorkspaceAdministrator = supervisor.owner.kind === "workspace";
       // A Workspace Administrator has no GitChange boundary, so its direct
       // child may narrow into one. Once an ancestor establishes a boundary,
       // every descendant must retain that exact ArtifactRef.
-      if (supervisor.cwdArtifactRef && session.cwdArtifactRef !== supervisor.cwdArtifactRef) {
+      if (
+        !supervisorIsWorkspaceAdministrator &&
+        supervisor.cwdArtifactRef &&
+        session.cwdArtifactRef !== supervisor.cwdArtifactRef
+      ) {
         throw new Error(`Session GitChange boundary widened: ${session.sessionId}`);
       }
       if (
+        !supervisorIsWorkspaceAdministrator &&
         session.cwd &&
         supervisor.cwd &&
         !isPathWithin(resolve(session.cwd), resolve(supervisor.cwd))
@@ -2128,13 +2134,23 @@ function assertOwnerWithinScope(
       `Session owner ${supervisorId} belongs to a different scope`,
     );
   }
-  if (supervisor.cwdArtifactRef && cwdArtifactRef !== supervisor.cwdArtifactRef) {
+  const supervisorIsWorkspaceAdministrator = supervisor.owner.kind === "workspace";
+  if (
+    !supervisorIsWorkspaceAdministrator &&
+    supervisor.cwdArtifactRef &&
+    cwdArtifactRef !== supervisor.cwdArtifactRef
+  ) {
     throw new SparkSessionRegistryError(
       "session_owner_scope_mismatch",
       "child Session cannot change its owner's GitChange boundary",
     );
   }
-  if (cwd && supervisor.cwd && !isPathWithin(resolve(cwd), resolve(supervisor.cwd))) {
+  if (
+    !supervisorIsWorkspaceAdministrator &&
+    cwd &&
+    supervisor.cwd &&
+    !isPathWithin(resolve(cwd), resolve(supervisor.cwd))
+  ) {
     throw new SparkSessionRegistryError(
       "session_owner_scope_mismatch",
       `child cwd must remain inside owner cwd ${supervisor.cwd}`,

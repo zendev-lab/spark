@@ -202,10 +202,41 @@ export type SparkAgentMode = "plan" | "execute" | "fleet";
 export type SparkAgentLifecycleSource = "agentLoop" | "triggerTurn" | "restartResume";
 
 export const SPARK_TURN_RESTART_YIELD_ERROR_CODE = "SPARK_TURN_RESTART_YIELD";
+export const SPARK_TURN_CONTINUATION_TAIL_ERROR_CODE = "SPARK_TURN_CONTINUATION_TAIL";
 export const SPARK_TOOL_OUTCOME_UNKNOWN_ERROR_CODE = "SPARK_TOOL_OUTCOME_UNKNOWN";
 export const SPARK_TOOL_NOT_SENT_RETRY_EXHAUSTED_ERROR_CODE = "SPARK_TOOL_NOT_SENT_RETRY_EXHAUSTED";
 export const SPARK_TOOL_RETRY_NOT_AUTHORIZED_ERROR_CODE = "SPARK_TOOL_RETRY_NOT_AUTHORIZED";
 const MAX_SPARK_TOOL_RECOVERY_ATTEMPTS = 2;
+
+export class SparkContinuationTailError extends Error {
+  readonly code = SPARK_TURN_CONTINUATION_TAIL_ERROR_CODE;
+
+  constructor(item: SparkPromptItem | undefined) {
+    const role = item?.content.kind === "provider_message" ? item.content.message.role : "runtime";
+    super(`SparkAgentLoop.continueWithOutcome refused: invalid continuation tail (${role}).`);
+    this.name = "SparkContinuationTailError";
+  }
+}
+
+function isRetriableAssistantTail(item: SparkPromptItem | undefined): boolean {
+  if (item?.content.kind !== "provider_message" || item.authority !== "assistant") return false;
+  const message = item.content.message;
+  return message.stopReason === "error" || message.stopReason === "length";
+}
+
+function isSparkContinuationTail(item: SparkPromptItem | undefined): boolean {
+  if (!item) return false;
+  if (item.content.kind === "runtime") return true;
+  return item.authority === "tool" || item.authority === "user";
+}
+
+export function isSparkContinuationTailError(error: unknown): error is SparkContinuationTailError {
+  return (
+    error instanceof SparkContinuationTailError ||
+    (error instanceof Error &&
+      (error as Error & { code?: unknown }).code === SPARK_TURN_CONTINUATION_TAIL_ERROR_CODE)
+  );
+}
 
 /**
  * Internal control-flow signal used after a daemon has durably requeued a turn
@@ -894,6 +925,13 @@ export class SparkAgentLoop {
         `SparkAgentLoop.continueWithOutcome refused: agent is not idle (state=${this.state}).`,
       );
     }
+    const tail = this.promptItems.at(-1);
+    const shouldRemoveRetriableAssistantTail = isRetriableAssistantTail(tail);
+    const continuationTail = shouldRemoveRetriableAssistantTail ? this.promptItems.at(-2) : tail;
+    if (!isSparkContinuationTail(continuationTail)) {
+      throw new SparkContinuationTailError(continuationTail);
+    }
+    if (shouldRemoveRetriableAssistantTail) this.promptItems.pop();
     this.lastOutcome = undefined;
     this.lastPromptManifest = undefined;
     this.startViewRun("compaction resume");

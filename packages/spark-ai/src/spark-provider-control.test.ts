@@ -137,6 +137,59 @@ test("provider control lists auth safely and patches only the default model fiel
   });
 });
 
+test("legacy provider config still exposes the bundled OpenAI Codex catalog", async () => {
+  await withSparkHome(async (sparkHome) => {
+    await writeFile(
+      join(sparkHome, "config.json"),
+      `${JSON.stringify({
+        providers: ["@zendev-lab/spark-ai/baidu-oneapi-provider"],
+        activeModelId: "baidu-oneapi/gpt-5.5",
+      })}\n`,
+    );
+    const control = createSparkProviderControl({ sparkHome, env: {} });
+
+    const snapshot = await control.snapshot();
+    const codex = snapshot.providers.find((provider) => provider.id === "openai-codex");
+    assert.equal(codex?.name, "OpenAI Codex");
+    assert.equal(codex?.modelCount, 7);
+    assert.equal(codex?.auth.kind, "oauth");
+    assert.equal(codex?.auth.configured, false);
+    assert.equal(snapshot.models.filter((model) => model.providerId === "openai-codex").length, 7);
+    assert.equal(
+      snapshot.models.some(
+        (model) => model.providerId === "openai-codex" && model.modelId === "gpt-5.3-codex-spark",
+      ),
+      true,
+    );
+    assert.equal(
+      snapshot.models
+        .filter((model) => model.providerId === "openai-codex")
+        .every((model) => !model.available),
+      true,
+    );
+    assert.equal(
+      snapshot.loadOutcomes.find(
+        (outcome) => outcome.specifier === "@zendev-lab/spark-ai/openai-codex-provider",
+      )?.ok,
+      true,
+    );
+    assert.deepEqual(
+      snapshot.enabledModelIds.toSorted((a, b) => a.localeCompare(b)),
+      [
+        "baidu-oneapi/claude-opus-5",
+        "baidu-oneapi/deepseek-v4-flash",
+        "baidu-oneapi/gpt-5.6-luna",
+        "baidu-oneapi/gpt-5.6-sol",
+        "baidu-oneapi/gpt-5.6-terra",
+        "baidu-oneapi/grok-4.6",
+        "openai-codex/gpt-5.6-luna",
+        "openai-codex/gpt-5.6-sol",
+        "openai-codex/gpt-5.6-terra",
+      ],
+    );
+  });
+});
+
 test("user enabledModels replaces defaults and explicit empty scope permits no models", async () => {
   await withSparkHome(async (sparkHome) => {
     const configPath = join(sparkHome, "config.json");
