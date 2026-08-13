@@ -89,12 +89,27 @@ Use `/inspect` or Ctrl+K to open the local session inspector:
 /inspect
 /inspect tasks
 /inspect artifacts
+/inspect repro
 /inspect off
 ```
 
 It shows projections already published to this TUI. It is not Hub Web and does
 not create another execution owner. Run `spark hub` in another
 terminal for cross-session and workspace supervision.
+
+When the daemon projects an active Repro, the transcript keeps a compact
+Implementation / Exactness / Formalize summary with counts, blockers, pending
+handoffs, and the last `formalizedTip`. Ctrl+K opens the Repro panel first;
+Shift+Ctrl+K cycles inspector panels. In the Repro panel, press 1, 2, or 3 to
+select a lane, use the arrow keys or J/K to select a bounded work item, and
+press Enter to open its existing Task, Run, Git Change, and Evidence
+projections. Esc returns from detail to panel, then from panel to transcript.
+
+The TUI never derives lane state from transcript text, prompts, or elapsed
+time. Narrow terminals preserve the newest transcript content and composer
+before inspector detail. After `/reload`, panel focus and selection reset while
+the new worker reprojects the same daemon-owned Session and Repro state; settled
+Asks are not replayed.
 
 The older `/hub` spelling remains executable as a compatibility alias but
 is hidden from normal completion.

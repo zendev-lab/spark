@@ -19,8 +19,12 @@ A user can:
 4. answer through a supported product surface;
 5. let the same Repro resume and repair a deterministic defect;
 6. receive a validated `git_change` Artifact and Draft PR;
-7. receive a stable Repro report Document with durable Evidence;
-8. observe the Repro complete and its Workbench seal.
+7. hand one stable work item through Implementation Explore, Exactness Explore,
+   and Formalize, then receive idempotent backward resolutions;
+8. restart the daemon after completion and recover the same bounded three-lane
+   projection;
+9. receive a stable Repro report Document with durable Evidence;
+10. observe the Repro complete and its Workbench seal.
 
 The complete path must run without live model tokens or a real GitHub repository.
 It uses production code for Spark-owned behavior and deterministic substitutes only
@@ -40,10 +44,15 @@ user objective
   -> a managed git worktree is changed and validated
   -> Evidence records the failing baseline and passing repair
   -> git_change is committed and submitted as one Draft PR
+  -> Implementation hands the stable work item to Exactness
+  -> Exactness records the first bad boundary and hands it to Formalize
+  -> Formalize accepts one canonical revision and resolves temporary work backward
+  -> duplicate resolution delivery is a no-op
   -> typed Repro summary and Markdown report are projected
   -> the stable report Artifact is synchronized
   -> trusted completion evaluation closes the Repro
   -> Workbench lifecycle becomes sealed
+  -> daemon restarts again and reprojects the same three-lane state
 ```
 
 ## Deterministic boundaries
@@ -53,6 +62,7 @@ The process journey must retain real implementations for:
 - daemon process and SQLite persistence;
 - local RPC and protocol decoding;
 - Session, Goal, Repro, Loop, and InvocationScheduler state;
+- Repro v8 work items, handoffs, findings, resolutions, and revision fences;
 - AgentLoop and tool dispatch;
 - Ask persistence and answer settlement;
 - file edits, Git repository, worktree, and commit;
@@ -107,6 +117,13 @@ scripted provider, which returns a valid structured approval without advancing
 the main Journey cursor or creating a second human request. The test fails
 closed if a tool-approval Ask appears.
 
+After delivery, the provider registers one stable work item, records both
+forward handoffs, classifies the first bad boundary, binds the native Git Change
+stack to Formalize, and sends two backward resolutions. Replaying the first
+resolution is required to remain a no-op. After terminal completion, the test
+restarts the daemon again and compares persisted Repro state with the bounded
+`session.snapshot` lane projection; scope text must not cross that projection.
+
 Local Git remains real. The forge shim replaces only `gh stack`/GitHub network
 operations and records exactly one Draft PR. The typed summary is compared with
 the canonical JSON embedded in the Markdown projection, every accepted formal
@@ -157,10 +174,16 @@ validation.failed_before_fix
 validation.passed_after_fix
 git_change.committed
 pull_request.submitted
+implementation.work_registered
+handoff.implementation_exactness
+exactness.finding_recorded
+handoff.exactness_formalize
+formalize.resolved
 report.projected
 report.synced
 repro.completed
 workbench.sealed
+three_lane.recovered
 ```
 
 Each milestone must:
@@ -183,11 +206,24 @@ The completed Golden Journey must prove all of the following:
 - verification fails before the repair and passes afterward;
 - one commit and one Draft PR are created;
 - recovery cannot create a duplicate commit or PR;
+- one stable work item appears in all three lanes, with two forward handoffs and
+  two backward resolutions;
+- duplicate resolution delivery has no side effects, and `formalizedTip` records
+  the accepted retirement rather than the changing stack tip;
+- daemon restart reconstructs the v8 owner state and the bounded v2 Session
+  projection without leaking scope text, paths, credentials, or full bodies;
+- the v3 work summary contains the same work item, finding, handoffs,
+  resolutions, and `formalizedTip` as the owner state;
 - accepted formal gates reference durable Evidence;
 - `outputs/spark-summary.json` and `outputs/report.md` agree;
 - the stable report Artifact ref is unchanged across idempotent synchronization;
 - trusted evaluation, not model narration, completes the Repro;
 - no invocation, pending decision, or writable Workbench remains after completion.
+
+Focused Repro owner tests remain responsible for v7/v2 migration determinism,
+repeat migration, stale revision rejection, skip-without-resync rejection, and
+all invalid handoff or resolution directions. The process Journey proves that
+their accepted state survives real daemon process replacement.
 
 ## CI position
 

@@ -15,8 +15,12 @@ provides:
 - **Resources** for repositories, documents, links, and tools.
 
 Inside a conversation, the inspector separates Summary, Artifacts, Changes,
-and Tasks. Summary shows status and counts first; working directory, model,
-session ID, and timestamps remain under Technical details.
+Tasks, and Lanes. For an active Repro, Lanes renders three bounded cards for
+Implementation, Exactness, and Formalize, plus forward handoffs, backward
+resolutions, and `formalizedTip`. The document comes from the daemon's existing
+A2UI projection; Hub does not keep a second Repro store or schedule lane work.
+Summary shows status and counts first; working directory, model, session ID,
+and timestamps remain under Technical details.
 
 The TUI `/inspect` panel is only the current terminal session's local
 projection. Hub Web is the browser control surface across sessions and
