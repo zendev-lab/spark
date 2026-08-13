@@ -59,7 +59,7 @@ daemon to apply it:
 
 ```bash
 spark daemon configure --invocation-concurrency 8
-spark daemon restart --yes --wait
+spark daemon restart --yes
 spark daemon status --json
 ```
 

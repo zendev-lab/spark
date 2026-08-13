@@ -575,11 +575,14 @@ export async function runSparkDaemonRestartSuccessor(
           })
         : false);
   const configuredReadinessTimeoutMs = options.replacementReadinessTimeoutMs;
+  // Keep successor kill-and-retry aligned with CLI waitForDaemonReady (120s).
+  // Cold starts with large local state routinely exceed the old 30s budget and
+  // previously thrashed exactly-owned children that were still bootstrapping.
   const replacementReadinessTimeoutMs =
     typeof configuredReadinessTimeoutMs === "number" &&
     Number.isFinite(configuredReadinessTimeoutMs)
       ? Math.max(1, Math.floor(configuredReadinessTimeoutMs))
-      : 30_000;
+      : 120_000;
   const startedServiceAlive = options.startedServiceAlive ?? sparkDaemonRestartStartedServiceAlive;
   const reportRetryFailure = (failure: SparkDaemonRestartRetryFailure) => {
     if (options.onRetryFailure) {
@@ -1599,6 +1602,19 @@ function startDetachedSparkDaemon(
       pid: runningPid,
     };
   }
+  // Bootstrap writes daemon.lock before the pidfile. Treat a live lock owner as
+  // already starting so concurrent `spark daemon start` callers (TUI ensure,
+  // repair loops, manual restarts) do not thrash duplicate children.
+  const startingPid = readLiveDaemonLockPid(paths);
+  if (startingPid) {
+    return {
+      kind: "detached",
+      alreadyRunning: true,
+      detail: `Spark daemon is already starting as process ${startingPid}.`,
+      ownership: "observed",
+      pid: startingPid,
+    };
+  }
 
   mkdirSync(paths.logDir, { recursive: true, mode: 0o700 });
   rotateSparkDaemonServiceLogs(paths);
@@ -1609,6 +1625,9 @@ function startDetachedSparkDaemon(
     detached: true,
     env: {
       ...process.env,
+      // Large local SQLite/state cold starts routinely exceed Node's default
+      // ~4GiB old-space during RoleRef sqlite migration backups.
+      NODE_OPTIONS: mergeNodeMaxOldSpaceSize(process.env.NODE_OPTIONS, 16384),
       ...(expectedRestartId ? { SPARK_DAEMON_EXPECTED_RESTART_ID: expectedRestartId } : {}),
     },
     stdio: ["ignore", stdout, stderr],
@@ -1691,6 +1710,19 @@ export function readRunningPid(paths: SparkPaths): number | null {
     return pid;
   }
   return isProcessAlive(pid) ? pid : null;
+}
+
+function readLiveDaemonLockPid(paths: SparkPaths): number | null {
+  const lockPath = join(paths.runtimeDir, "daemon.lock");
+  if (!existsSync(lockPath)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(lockPath, "utf8")) as { pid?: unknown };
+    const pid = typeof parsed.pid === "number" ? parsed.pid : Number.NaN;
+    if (!Number.isInteger(pid) || pid <= 0) return null;
+    return isProcessAlive(pid) ? pid : null;
+  } catch {
+    return null;
+  }
 }
 
 function sparkDaemonStartCommand(): string[] {
@@ -1783,6 +1815,18 @@ function isProcessAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+function mergeNodeMaxOldSpaceSize(existing: string | undefined, minimumMiB: number): string {
+  const floor = Math.max(1, Math.floor(minimumMiB));
+  const flag = `--max-old-space-size=${floor}`;
+  const current = existing?.trim() ?? "";
+  if (!current) return flag;
+  const match = current.match(/--max-old-space-size=(\d+)/u);
+  if (!match) return `${current} ${flag}`;
+  const configured = Number(match[1]);
+  if (Number.isFinite(configured) && configured >= floor) return current;
+  return current.replace(/--max-old-space-size=\d+/u, flag);
 }
 
 function xmlEscape(value: string): string {

@@ -163,18 +163,22 @@ export async function start(
       `Spark daemon successor build ${runningBuildFingerprint} does not match fenced target ${successorContext.targetBuildFingerprint}.`,
     );
   }
+  console.error("[spark-daemon] opening database and preparing process ownership");
   const db = openSparkDaemonDatabase(paths);
   const userPaths = resolveSparkUserPaths();
   const sparkHome = userPaths.dataRoot;
   try {
     // The daemon process lock is held and the registry owner does not exist yet,
     // so the migration has exclusive mutation authority over registry.json.
+    console.error("[spark-daemon] migrating session registry ownership");
     await migrateSessionRegistryOwnership({ sparkHome });
+    console.error("[spark-daemon] migrating role session sqlite data");
     await migrateRoleSessionSqliteData({
       db,
       databasePath: paths.databasePath,
       backupRoot: join(sparkHome, "migrations"),
     });
+    console.error("[spark-daemon] migrating role session structured data");
     await migrateRoleSessionStructuredData({
       sparkHome,
       userRoleModelSettingsFile: userPaths.roleModelSettingsFile,
@@ -183,6 +187,7 @@ export async function start(
         rootDir: workspace.localPath,
       })),
     });
+    console.error("[spark-daemon] preparing lens broker");
     await prepareDaemonLensBroker(db);
   } catch (error) {
     await closeDaemonLensBroker(db);
@@ -392,6 +397,7 @@ export async function start(
       ...(respondHumanInteraction ? { respondHumanInteraction } : {}),
     });
   try {
+    console.error("[spark-daemon] unifying session transcripts");
     const transcriptMigration = await unifyDaemonSessionTranscripts({
       registry: sessionRegistry,
       transcriptSparkHome: paths.piAgentDir ?? join(paths.dataDir, "pi-agent"),
@@ -412,7 +418,9 @@ export async function start(
     // The headless host is intentionally loaded through a dynamic owner seam.
     // Resolve that graph before the local socket binds so the first concurrent
     // turn cannot stall oRPC admission with module compilation and evaluation.
+    console.error("[spark-daemon] preloading execution runtime");
     await preloadSparkDaemonExecutionRuntime();
+    console.error("[spark-daemon] starting runtime admission and local RPC");
     await startSparkDaemon({
       paths,
       ...(process.env.SPARK_HOME?.trim() ? { sparkHome: process.env.SPARK_HOME.trim() } : {}),
@@ -440,7 +448,9 @@ export async function start(
         // Bind status/stop while startup admission remains closed. Binding a
         // socket is not successor readiness: the Claimed fence remains active
         // until every daemon admission loop is live below.
+        console.error("[spark-daemon] binding local RPC socket");
         localRpc = await startLocalControl();
+        console.error(`[spark-daemon] local RPC listening on ${localRpc.socketPath}`);
       },
       onServing: () => {
         // Admission loops are live before this synchronous callback. Publish
@@ -448,6 +458,7 @@ export async function start(
         // event-loop turn. If an explicit stop won the durable CAS, roll the
         // unobservable lifecycle transition back and shut this successor down.
         lifecycle.activate();
+        console.error("[spark-daemon] serving; restart fence completed when applicable");
         if (!completeSparkDaemonRestartSuccessor(paths, lifecycle.processIdentity)) {
           lifecycle.deactivate();
           stopRequested = true;
@@ -500,8 +511,12 @@ export async function startCommand(
   const flags = parseFlags(args);
   clearSparkDaemonRestartFenceForExplicitStart(paths);
   const service = startSparkDaemonProcess(paths, io);
-  const waitForReadiness = flags.json === "true" || shouldWaitForDaemon(flags);
-  if (waitForReadiness && !service.alreadyRunning) {
+  const waitForReadiness =
+    flags.json === "true" || shouldWaitForDaemon(flags, { defaultWait: true });
+  // Wait even when another caller already owns bootstrap ("already starting"):
+  // spawn is not readiness, and operators expect `start`/`restart` to exit only
+  // after the local RPC identity is serving.
+  if (waitForReadiness) {
     const readyPid = await waitForDaemonReady(paths, null, io);
     if (flags.json !== "true") {
       io.stdout.write(`${service.detail}\nSpark daemon is ready as process ${readyPid}.\n`);
@@ -545,7 +560,9 @@ export async function stop(
     }
     exitCode = stopUnreachableDaemon(paths, pid, io);
   }
-  if (exitCode !== 0 || !shouldWaitForDaemon(flags)) return exitCode;
+  // Stop stays async by default: many operator/test flows only need the stop
+  // request accepted. Pass --wait when the caller needs process exit observed.
+  if (exitCode !== 0 || !shouldWaitForDaemon(flags, { defaultWait: false })) return exitCode;
 
   if (await waitForDaemonStoppedOrReplaced(paths, pid, ownership)) return 0;
   io.stderr.write(`Spark daemon process ${pid} did not stop before timeout.\n`);
@@ -745,7 +762,7 @@ export async function daemonSync(
     io.stdout.write(
       `Spark daemon restart ${status.restart.restartId} is already ${status.restart.state}.\n`,
     );
-    if (shouldWaitForDaemon(flags)) {
+    if (shouldWaitForDaemon(flags, { defaultWait: true })) {
       const replacementPid = await waitForDaemonReady(paths, status.restart.previousPid, io, {
         restartId: status.restart.restartId,
         targetInstanceId: status.restart.targetInstanceId,
@@ -771,7 +788,13 @@ export async function daemonSync(
       ? `Spark daemon build changed (${shortBuildFingerprint(status.build.runningFingerprint)} -> ${shortBuildFingerprint(status.build.availableFingerprint)}); requesting a safe drain restart.\n`
       : "Spark daemon is running but unreachable; repairing it with the deployed build.\n",
   );
-  return await restart(paths, ["--yes", ...(shouldWaitForDaemon(flags) ? ["--wait"] : [])], io);
+  // Preserve explicit async intent: without this, restart would wait by default
+  // even when the outer sync was invoked with --no-wait.
+  return await restart(
+    paths,
+    ["--yes", ...(shouldWaitForDaemon(flags, { defaultWait: true }) ? ["--wait"] : ["--no-wait"])],
+    io,
+  );
 }
 
 async function requestDrainRestart(
@@ -824,15 +847,23 @@ async function restartWithoutDrainSupport(
   clearSparkDaemonRestartFenceForExplicitStart(paths);
   const service = startSparkDaemonProcess(paths, io);
   io.stdout.write(`${service.detail}\n`);
-  if (flags.wait === "true" && flags["no-wait"] !== "true") {
+  if (shouldWaitForDaemon(flags, { defaultWait: true })) {
     const replacementPid = await waitForDaemonReady(paths, previousPid, io);
     io.stdout.write(`Spark daemon restarted as process ${replacementPid}.\n`);
   }
   return 0;
 }
 
-function shouldWaitForDaemon(flags: Record<string, string>): boolean {
-  return flags.wait === "true" && flags["no-wait"] !== "true";
+function shouldWaitForDaemon(
+  flags: Record<string, string>,
+  options: { defaultWait: boolean },
+): boolean {
+  // Explicit flags always win. Restart/start/sync default to waiting so spawn is
+  // not mistaken for readiness; stop defaults to async acceptance. Daemon-hosted
+  // callers that would wait on their own drain must pass --no-wait.
+  if (flags["no-wait"] === "true") return false;
+  if (flags.wait === "true") return true;
+  return options.defaultWait;
 }
 
 async function startStoppedDaemon(
@@ -843,7 +874,7 @@ async function startStoppedDaemon(
   clearSparkDaemonRestartFenceForExplicitStart(paths);
   const service = startSparkDaemonProcess(paths, io);
   io.stdout.write(`${service.detail}\n`);
-  if (shouldWaitForDaemon(flags)) {
+  if (shouldWaitForDaemon(flags, { defaultWait: true })) {
     const readyPid = await waitForDaemonReady(paths, null, io);
     io.stdout.write(`Spark daemon is ready as process ${readyPid}.\n`);
   }
@@ -860,9 +891,10 @@ async function reportRequestedDaemonRestart(
   io.stdout.write(
     `Spark daemon restart requested at ${requested.requestedAt}; draining active invocations.\n`,
   );
-  // Async is the safe default for daemon-hosted callers: waiting for the
-  // replacement from inside an active invocation would deadlock the drain.
-  if (!shouldWaitForDaemon(flags)) {
+  // Daemon-hosted callers must pass --no-wait: waiting for the replacement
+  // from inside an active invocation would deadlock the drain. External shells
+  // wait by default so `restart --yes` only exits after the successor is ready.
+  if (!shouldWaitForDaemon(flags, { defaultWait: true })) {
     io.stdout.write("Replacement will start after active work finishes.\n");
     return 0;
   }

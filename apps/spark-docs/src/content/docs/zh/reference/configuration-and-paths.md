@@ -56,7 +56,7 @@ Daemon 默认最多同时接纳来自不同 session 的 4 个 root invocation。
 
 ```bash
 spark daemon configure --invocation-concurrency 8
-spark daemon restart --yes --wait
+spark daemon restart --yes
 spark daemon status --json
 ```
 
