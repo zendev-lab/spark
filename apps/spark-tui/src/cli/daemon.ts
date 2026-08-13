@@ -3279,9 +3279,17 @@ export async function ensureSparkDaemonClientRunning(
       if (!isDaemonUnavailableTransportError(error)) throw error;
       if (hasRecentDaemonProcessIdentity(paths, pid, client.now ?? Date.now)) throw error;
       await repairUnreachableSparkDaemon(client, error);
-      await waitForDaemonRpc(paths, client);
+      await waitForDaemonRpc(paths, client, { startupTimeoutMs: 120_000 });
       return;
     }
+  }
+  // A live daemon.lock means bootstrap already owns the exclusive start path
+  // (before the pidfile exists). Wait for that owner instead of thrashing
+  // additional `spark daemon start` children from every TUI ensure-running call.
+  const startingPid = readLiveDaemonLockPid(paths.runtimeDir);
+  if (startingPid && isProcessAlive(startingPid)) {
+    await waitForDaemonRpc(paths, client, { startupTimeoutMs: 120_000 });
+    return;
   }
   const service = sparkDaemonServiceCliCommand();
   // Keep channel/SDK diagnostics: stdio:"ignore" sent everything to /dev/null and
@@ -3301,7 +3309,7 @@ export async function ensureSparkDaemonClientRunning(
     closeSync(stdout);
     closeSync(stderr);
   }
-  await waitForDaemonRpc(paths, client);
+  await waitForDaemonRpc(paths, client, { startupTimeoutMs: 120_000 });
 }
 
 async function repairUnreachableSparkDaemon(
@@ -3395,11 +3403,15 @@ function buildSourceDaemonApp(daemonAppDir: string, env: NodeJS.ProcessEnv): num
 async function waitForDaemonRpc(
   paths: SparkDaemonClientPaths,
   client: SparkDaemonClientOptions,
+  options: { startupTimeoutMs?: number } = {},
 ): Promise<void> {
   const now = client.now ?? Date.now;
   const sleep =
     client.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-  const deadline = now() + 2_000;
+  // Existing pid/RPC probes stay short so healthy daemons remain snappy. Cold
+  // starts and repair paths pass a longer budget because large local state can
+  // take tens of seconds before daemon.sock appears.
+  const deadline = now() + (options.startupTimeoutMs ?? 2_000);
   let lastError: unknown;
   let startingError: SparkDaemonRemoteError | undefined;
   while (now() <= deadline) {
@@ -3585,6 +3597,19 @@ function isNativeDaemonServer(value: unknown): value is {
     typeof (value as { workspaceCount?: unknown }).workspaceCount === "number" &&
     typeof (value as { wsConnected?: unknown }).wsConnected === "boolean"
   );
+}
+
+function readLiveDaemonLockPid(runtimeDir: string): number | null {
+  const lockPath = join(runtimeDir, "daemon.lock");
+  if (!existsSync(lockPath)) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(lockPath, "utf8")) as { pid?: unknown };
+    const pid = typeof parsed.pid === "number" ? parsed.pid : Number.NaN;
+    if (!Number.isInteger(pid) || pid <= 0) return null;
+    return pid;
+  } catch {
+    return null;
+  }
 }
 
 function readPidFile(path: string): number | null {

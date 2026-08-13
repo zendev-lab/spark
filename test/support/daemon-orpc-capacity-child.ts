@@ -200,7 +200,7 @@ async function runScenario(): Promise<DaemonOrpcCapacityScenario> {
       (candidate) => candidate.model.modelId === CAPACITY_MODEL_ID,
     );
     const scoped =
-      catalog.scopedModels?.some(
+      catalog.enabledModels?.some(
         (candidate) =>
           candidate.providerName === CAPACITY_PROVIDER_ID &&
           candidate.modelId === CAPACITY_MODEL_ID,
@@ -210,7 +210,7 @@ async function runScenario(): Promise<DaemonOrpcCapacityScenario> {
       catalog.defaultModel.modelId === CAPACITY_MODEL_ID;
     if (!provider || !model || !model.available || !scoped || !isDefault) {
       throw new Error(
-        `capacity model is not active, scoped, and available: ${JSON.stringify(catalog)}`,
+        `capacity model is not active, enabled, and available: ${JSON.stringify(catalog)}`,
       );
     }
 

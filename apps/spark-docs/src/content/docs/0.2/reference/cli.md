@@ -108,7 +108,7 @@ modified.
 spark daemon status [--json]
 spark daemon start
 spark daemon stop
-spark daemon restart [--yes] [--wait]
+spark daemon restart [--yes] [--no-wait]
 spark daemon logs [--follow] [--lines <n>]
 ```
 
