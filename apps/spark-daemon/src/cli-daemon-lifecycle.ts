@@ -31,7 +31,6 @@ import {
   parseReproFormalEvidencePublicKeys,
 } from "./repro-formal-evidence-verifier.ts";
 import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
-import { reconcileClosingSessionLifecycles } from "./session-control.ts";
 import { migrateSessionRegistryOwnership } from "./session-registry-migration.ts";
 import { migrateRoleSessionStructuredData } from "./role-session-data-migration.ts";
 import { migrateRoleSessionSqliteData } from "./role-session-sqlite-migration.ts";
@@ -241,7 +240,6 @@ export async function start(
   for (const workspace of listWorkspaces(db, { includeInactive: true })) {
     await ensureWorkspaceAdministratorSession(db, sessionRegistry, workspace.id);
   }
-  await reconcileClosingSessionLifecycles({ db, sessionRegistry });
   const modelControl = createSparkDaemonModelControl({
     providerControl: createSparkProviderControl({
       authPath: userPaths.authFile,

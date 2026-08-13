@@ -432,11 +432,11 @@ export async function executeSparkDaemonSessionControl(
       }
 
       const model = await effectiveTurnModel(options, parsed.sessionId);
-      await options.sessionRegistry?.recordTurnQueued(parsed.sessionId);
       let submitted;
       let raced: ReturnType<typeof store.findByIdempotencyKey>;
       try {
-        submitted = submitInvocationTask(
+        submitted = await submitInvocationTask(
+          options.sessionRegistry,
           options.db,
           {
             type: "session.compact",
@@ -560,11 +560,11 @@ export async function executeSparkDaemonSessionControl(
       // change can manufacture an idempotency conflict.
       const model = await effectiveTurnModel(options, parsed.sessionId, parsed.model);
       const thinkingLevel = await effectiveTurnThinkingLevel(options, parsed.sessionId);
-      await options.sessionRegistry?.recordTurnQueued(parsed.sessionId);
       let submitted;
       let raced: ReturnType<typeof store.findByIdempotencyKey>;
       try {
-        submitted = submitInvocationTask(
+        submitted = await submitInvocationTask(
+          options.sessionRegistry,
           options.db,
           {
             type: "session.run",
@@ -751,65 +751,33 @@ export async function readSparkDaemonSessionRetryTarget(
   });
 }
 
-/**
- * Cancel work owned by closing Session trees and finalize only after every
- * queued/running Invocation in the tree has settled. Safe to repeat at startup
- * and on every list/get reconciliation.
- */
+/** Route closing recovery through the daemon's single lifecycle owner. */
 export async function reconcileClosingSessionLifecycles(
-  options: Pick<SparkDaemonSessionControlOptions, "db" | "sessionRegistry">,
+  options: Pick<SparkDaemonSessionControlOptions, "sessionSupervisor">,
 ): Promise<void> {
-  const registry = options.sessionRegistry;
-  if (!registry) return;
-  const sessions = await registry.list({
+  const supervisor = options.sessionSupervisor;
+  if (!supervisor) return;
+  const sessions = await supervisor.registry.list({
     includeArchived: true,
-    includeClosed: true,
     includeSideThreads: true,
   });
-  const byId = new Map(sessions.map((session) => [session.sessionId, session]));
-  const closing = sessions.filter((session) => session.lifecycle === "closing");
-  const closingIds = new Set(closing.map((session) => session.sessionId));
-  const roots = closing.filter((session) => {
+  const closingIds = new Set(
+    sessions
+      .filter((session) => session.lifecycle === "closing")
+      .map((session) => session.sessionId),
+  );
+  const roots = sessions.filter((session) => {
+    if (session.lifecycle !== "closing") return false;
     const parentId = sessionOwnerSessionId(session.owner);
     return !parentId || !closingIds.has(parentId);
   });
-  const store = new SparkInvocationStore(options.db);
   for (const root of roots) {
-    const tree = sessions.filter(
-      (candidate) =>
-        candidate.sessionId === root.sessionId ||
-        sessionDescendsFrom(candidate, root.sessionId, byId),
-    );
-    for (const session of tree) {
-      for (const invocation of store.listPendingForSession(session.sessionId)) {
-        store.requestCancellation(
-          invocation.invocationId,
-          `Owning Session ${root.sessionId} is closing.`,
-        );
-      }
-    }
-    const stillPending = tree.some(
-      (session) => store.listPendingForSession(session.sessionId).length > 0,
-    );
-    if (!stillPending) await registry.finalizeClose(root.sessionId);
+    await supervisor.close({
+      sessionId: root.sessionId,
+      reason: "closing lifecycle reconcile",
+      settleTimeoutMs: 0,
+    });
   }
-}
-
-function sessionDescendsFrom(
-  session: SparkSessionState,
-  ancestorSessionId: string,
-  byId: ReadonlyMap<string, SparkSessionState>,
-): boolean {
-  const visited = new Set<string>();
-  let parentId = sessionOwnerSessionId(session.owner);
-  while (parentId) {
-    if (parentId === ancestorSessionId) return true;
-    if (visited.has(parentId)) return false;
-    visited.add(parentId);
-    const parent = byId.get(parentId);
-    parentId = parent ? sessionOwnerSessionId(parent.owner) : undefined;
-  }
-  return false;
 }
 
 function sessionOwnerSessionId(owner: SparkSessionState["owner"]): string | undefined {
@@ -1383,7 +1351,8 @@ function assertOriginBindingRoute(
   }
 }
 
-function submitInvocationTask(
+async function submitInvocationTask(
+  registry: DaemonSessionRegistry | undefined,
   db: DatabaseSync,
   task: SparkDaemonSessionRunTask | SparkDaemonSessionCompactTask,
   idempotencyKey?: string,
@@ -1399,8 +1368,11 @@ function submitInvocationTask(
     ...(source ? { sourceKind: source.kind, sourceRef: source.ref } : {}),
     ...(source?.parentInvocationId ? { parentInvocationId: source.parentInvocationId } : {}),
   };
-  const invocation =
+  const admit = () =>
     source?.kind === "session.question" ? store.submitIfSessionIdle(input) : store.submit(input);
+  const invocation = registry
+    ? await registry.commitInvocationAdmission(task.sessionId, admit)
+    : admit();
   return turnSubmitResultForInvocation(invocation);
 }
 

@@ -96,8 +96,15 @@ export interface SessionSupervisorReconcileResult {
 export interface SessionSupervisorOptions {
   registry: DaemonSessionRegistry;
   invocations: SparkInvocationStore;
-  scheduler?: Pick<SparkInvocationScheduler, "cancel" | "executeStructured">;
+  scheduler?: Pick<
+    SparkInvocationScheduler,
+    "cancel" | "executeStructured" | "isSessionActive" | "waitForSessionIdle"
+  >;
   deleteTranscript?: (path: string) => Promise<void>;
+  quiesceOwnedLoops?: (
+    session: SparkSessionState,
+    reason: string,
+  ) => { invocationSessionIds: string[] } | Promise<{ invocationSessionIds: string[] }>;
   ownerExists?: (owner: SparkSessionOwner, session: SparkSessionState) => Promise<boolean>;
   resolveWorkspaceBindingId?: (workspaceId: string) => string | undefined;
 }
@@ -111,15 +118,26 @@ export class SessionSupervisor {
   readonly invocations: SparkInvocationStore;
   private scheduler?: SessionSupervisorOptions["scheduler"];
   private readonly deleteTranscript: NonNullable<SessionSupervisorOptions["deleteTranscript"]>;
+  private readonly quiesceOwnedLoops?: SessionSupervisorOptions["quiesceOwnedLoops"];
   private readonly ownerExists?: SessionSupervisorOptions["ownerExists"];
   private readonly resolveWorkspaceBindingId?: SessionSupervisorOptions["resolveWorkspaceBindingId"];
   private readonly reservedInvocationOwners = new Set<string>();
+  private readonly inFlightCloses = new Map<
+    string,
+    { input: CloseSupervisedSessionInput; promise: Promise<SparkSessionState> }
+  >();
+  private readonly pendingCloseCompletions = new Map<string, SparkSessionCloseCandidate>();
+  private readonly pendingCleanupSessionIds = new Set<string>();
+  private cleanupRetryWorker: Promise<void> | undefined;
+  private readonly idleCleanupWaits = new Map<string, Promise<void>>();
+  private closedRepairTail: Promise<void> = Promise.resolve();
 
   constructor(options: SessionSupervisorOptions) {
     this.registry = options.registry;
     this.invocations = options.invocations;
     this.scheduler = options.scheduler;
     this.deleteTranscript = options.deleteTranscript ?? deleteTranscriptArtifacts;
+    this.quiesceOwnedLoops = options.quiesceOwnedLoops;
     this.ownerExists = options.ownerExists;
     this.resolveWorkspaceBindingId = options.resolveWorkspaceBindingId;
   }
@@ -232,65 +250,72 @@ export class SessionSupervisor {
   }
 
   async invoke(input: InvokeSupervisedSessionInput): Promise<SparkInvocationRecord> {
-    const session = await this.requireOpen(input.sessionId);
     const prompt = required(input.prompt, "prompt");
     const structured = input.structured === true;
-    const workspaceId = session.scope.kind === "workspace" ? session.scope.workspaceId : undefined;
-    const workspaceBindingId = workspaceId
-      ? this.resolveWorkspaceBindingId?.(workspaceId)
-      : undefined;
+    const scheduler = this.scheduler;
     if (structured && !input.parentInvocationId) {
       throw new Error("structured Session invocation requires parentInvocationId");
     }
-    const invocation = this.invocations.submit({
-      ...(input.invocationId ? { invocationId: input.invocationId } : {}),
-      sessionId: session.sessionId,
-      ...(workspaceBindingId ? { workspaceBindingId } : {}),
-      prompt,
-      task: {
-        type: "session.run",
-        sessionId: session.sessionId,
-        prompt,
-        ...(workspaceId
-          ? {
-              workspaceId,
-              ...(workspaceBindingId ? { workspaceBindingId } : {}),
-            }
-          : {}),
-        ...(session.cwd ? { cwd: session.cwd } : {}),
-        ...(input.model ? { model: input.model } : {}),
-        ...(input.roleRunRef ? { roleRunRef: input.roleRunRef } : {}),
-        ...(input.requireStructuredOutcome !== undefined
-          ? { requireStructuredOutcome: input.requireStructuredOutcome }
-          : {}),
-        reset: true,
-      },
-      ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
-      sourceKind: input.sourceKind ?? "session.supervised",
-      sourceRef:
-        input.sourceRef ??
-        (session.roleBinding.kind === "explicit"
-          ? session.roleBinding.roleRef
-          : ownerIdentity(session.owner)),
-      ...(input.parentInvocationId ? { parentInvocationId: input.parentInvocationId } : {}),
-      claimClass: structured ? "structured" : "root",
-      ...(input.now ? { now: input.now } : {}),
-    });
-    if (input.receiptProfile) {
-      this.invocations.recordReceiptContext(
-        invocation.invocationId,
-        {
-          lifetime: sparkSessionLifetimeForOwner(session.owner),
-          ownerKind: session.owner.kind,
-          ...input.receiptProfile,
-        },
-        input.now,
-      );
+    if (structured && !scheduler) {
+      throw new Error("structured Session scheduler is unavailable");
     }
+    const invocation = await this.registry.commitInvocationAdmission(input.sessionId, (session) => {
+      const workspaceId =
+        session.scope.kind === "workspace" ? session.scope.workspaceId : undefined;
+      const workspaceBindingId = workspaceId
+        ? this.resolveWorkspaceBindingId?.(workspaceId)
+        : undefined;
+      const admitted = this.invocations.submit({
+        ...(input.invocationId ? { invocationId: input.invocationId } : {}),
+        sessionId: session.sessionId,
+        ...(workspaceBindingId ? { workspaceBindingId } : {}),
+        prompt,
+        task: {
+          type: "session.run",
+          sessionId: session.sessionId,
+          prompt,
+          ...(workspaceId
+            ? {
+                workspaceId,
+                ...(workspaceBindingId ? { workspaceBindingId } : {}),
+              }
+            : {}),
+          ...(session.cwd ? { cwd: session.cwd } : {}),
+          ...(input.model ? { model: input.model } : {}),
+          ...(input.roleRunRef ? { roleRunRef: input.roleRunRef } : {}),
+          ...(input.requireStructuredOutcome !== undefined
+            ? { requireStructuredOutcome: input.requireStructuredOutcome }
+            : {}),
+          reset: true,
+        },
+        ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+        sourceKind: input.sourceKind ?? "session.supervised",
+        sourceRef:
+          input.sourceRef ??
+          (session.roleBinding.kind === "explicit"
+            ? session.roleBinding.roleRef
+            : ownerIdentity(session.owner)),
+        ...(input.parentInvocationId ? { parentInvocationId: input.parentInvocationId } : {}),
+        claimClass: structured ? "structured" : "root",
+        ...(input.now ? { now: input.now } : {}),
+      });
+      if (input.receiptProfile) {
+        this.invocations.recordReceiptContext(
+          admitted.invocationId,
+          {
+            lifetime: sparkSessionLifetimeForOwner(session.owner),
+            ownerKind: session.owner.kind,
+            ...input.receiptProfile,
+          },
+          input.now,
+        );
+      }
+      return admitted;
+    });
     if (!structured) return invocation;
-    if (!this.scheduler) throw new Error("structured Session scheduler is unavailable");
+    if (!scheduler) throw new Error("structured Session scheduler is unavailable");
     const cancelFromSignal = () =>
-      this.scheduler?.cancel(invocation.invocationId, "structured Role caller cancelled");
+      scheduler.cancel(invocation.invocationId, "structured Role caller cancelled");
     if (input.signal?.aborted) {
       cancelFromSignal();
       return this.invocations.require(invocation.invocationId);
@@ -298,7 +323,7 @@ export class SessionSupervisor {
     input.signal?.addEventListener("abort", cancelFromSignal, { once: true });
     if (invocation.status === "queued") {
       try {
-        return await this.scheduler.executeStructured(invocation.invocationId);
+        return await scheduler.executeStructured(invocation.invocationId);
       } finally {
         input.signal?.removeEventListener("abort", cancelFromSignal);
       }
@@ -323,7 +348,7 @@ export class SessionSupervisor {
         existing.lifecycle === "open" &&
         existing.scope.kind === "workspace" &&
         existing.scope.workspaceId === parent.scope.workspaceId &&
-        ownerIdentity(existing.owner) === ownerIdentity(input.owner) &&
+        sameOwnedContextOwner(existing.owner, input.owner) &&
         existing.stateBinding.kind === input.stateBinding.kind &&
         existing.stateBinding.ref === input.stateBinding.ref
       ) {
@@ -353,7 +378,7 @@ export class SessionSupervisor {
   }
 
   async close(input: CloseSupervisedSessionInput): Promise<SparkSessionState> {
-    return await this.closeRecursive(input, new Set<string>());
+    return await this.closeCoalesced(input, new Set<string>());
   }
 
   async restore(sessionId: string, now = new Date()): Promise<SparkSessionState> {
@@ -390,14 +415,19 @@ export class SessionSupervisor {
     }
     const sessions = await this.registry.list({
       includeArchived: true,
+      includeClosed: true,
       includeSideThreads: true,
     });
     const closedSessionIds: string[] = [];
     const closingSessionIds: string[] = [];
     const openSessionIds: string[] = [];
-    for (const session of sessions) {
+    for (const snapshot of sessions) {
+      const session = await this.registry.get(snapshot.sessionId);
+      // A parent close can archive or tombstone descendants that were present
+      // in the startup snapshot. Re-read before acting on each entry.
+      if (!session) continue;
       if (session.lifecycle === "closed") {
-        closedSessionIds.push(session.sessionId);
+        await this.repairClosedSessionContent(session, input.now);
         continue;
       }
       if (session.lifecycle === "closing") {
@@ -432,7 +462,32 @@ export class SessionSupervisor {
     return { ensuredWorkspaceIds, closedSessionIds, closingSessionIds, openSessionIds };
   }
 
-  private async closeRecursive(
+  /** Retry lifecycle-owned cleanup when an Invocation settles or is delivered. */
+  async repairClosedContentForInvocation(invocationId: string, now?: Date): Promise<void> {
+    const repair = this.closedRepairTail.then(async () => {
+      const invocation = this.invocations.get(invocationId);
+      if (!invocation) return;
+      for (const sessionId of closedRepairSessionIds(invocation)) {
+        const session = await this.registry.get(sessionId);
+        if (session?.lifecycle === "closed") {
+          await this.repairClosedSessionContent(session, now);
+          continue;
+        }
+        if (session?.lifecycle === "closing") {
+          await this.close({
+            sessionId: session.sessionId,
+            reason: "closing lifecycle delivery reconcile",
+            settleTimeoutMs: 0,
+            ...(now ? { now } : {}),
+          });
+        }
+      }
+    });
+    this.closedRepairTail = repair.catch(() => undefined);
+    await repair;
+  }
+
+  private closeCoalesced(
     input: CloseSupervisedSessionInput,
     visited: Set<string>,
   ): Promise<SparkSessionState> {
@@ -442,7 +497,45 @@ export class SessionSupervisor {
         `cyclic Session ownership at ${input.sessionId}`,
       );
     }
-    visited.add(input.sessionId);
+    if (input.completion && !this.pendingCloseCompletions.has(input.sessionId)) {
+      this.pendingCloseCompletions.set(input.sessionId, input.completion);
+    }
+    const pendingCompletion = this.pendingCloseCompletions.get(input.sessionId);
+    const inFlight = this.inFlightCloses.get(input.sessionId);
+    if (inFlight) {
+      if (!inFlight.input.completion && pendingCompletion) {
+        inFlight.input.completion = pendingCompletion;
+      }
+      return inFlight.promise;
+    }
+    const nextVisited = new Set(visited);
+    nextVisited.add(input.sessionId);
+    const sharedInput = {
+      ...input,
+      ...(pendingCompletion ? { completion: pendingCompletion } : {}),
+    };
+    let close!: Promise<SparkSessionState>;
+    close = Promise.resolve()
+      .then(async () => await this.closeRecursive(sharedInput, nextVisited))
+      .then((session) => {
+        if (session.lifecycle === "closed") {
+          this.pendingCloseCompletions.delete(input.sessionId);
+        }
+        return session;
+      })
+      .finally(() => {
+        if (this.inFlightCloses.get(input.sessionId)?.promise === close) {
+          this.inFlightCloses.delete(input.sessionId);
+        }
+      });
+    this.inFlightCloses.set(input.sessionId, { input: sharedInput, promise: close });
+    return close;
+  }
+
+  private async closeRecursive(
+    input: CloseSupervisedSessionInput,
+    visited: Set<string>,
+  ): Promise<SparkSessionState> {
     const current = await this.require(input.sessionId);
     if (current.lifecycle === "closed") return current;
     if (current.owner.kind === "workspace") {
@@ -451,11 +544,18 @@ export class SessionSupervisor {
         `workspace Administrator ${current.sessionId} cannot be closed`,
       );
     }
-    await this.registry.markClosing({
+    const closing = await this.registry.markClosing({
       sessionId: current.sessionId,
       ...(current.lifecycle === "open" ? { expectedLifecycle: "open" } : {}),
       ...(input.now ? { now: input.now } : {}),
     });
+    const quiesced = await this.quiesceOwnedLoops?.(
+      closing,
+      input.reason ?? `owning Session ${closing.sessionId} closed`,
+    );
+    const invocationSessionIds = [
+      ...new Set([closing.sessionId, ...(quiesced?.invocationSessionIds ?? [])]),
+    ];
     const all = await this.registry.list({ includeArchived: false, includeSideThreads: true });
     const children = all.filter(
       (session) =>
@@ -463,7 +563,7 @@ export class SessionSupervisor {
         ownerSupervisorSessionId(session.owner) === current.sessionId,
     );
     for (const child of children) {
-      const closedChild = await this.closeRecursive(
+      const closedChild = await this.closeCoalesced(
         {
           sessionId: child.sessionId,
           ...(input.reason ? { reason: input.reason } : {}),
@@ -477,27 +577,40 @@ export class SessionSupervisor {
       if (closedChild.lifecycle !== "closed") return await this.require(current.sessionId);
     }
 
-    await this.cancelPending(current.sessionId);
-    await this.waitForIdle(current.sessionId, input.settleTimeoutMs ?? 5_000);
-    if (this.invocations.sessionActivity(current.sessionId).active) {
+    for (const sessionId of invocationSessionIds) await this.cancelPending(sessionId);
+    await this.waitForIdle(invocationSessionIds, input.settleTimeoutMs ?? 5_000);
+    if (this.anySessionActive(invocationSessionIds)) {
+      this.retryCleanupAfterProcessIdle(current.sessionId, invocationSessionIds);
       return await this.require(current.sessionId);
     }
-    const redaction = await this.prepareContentDiscard(current, input);
+    // Invocation completion may bind the transcript while close waits for the
+    // durable execution owner to settle. Refresh before redaction so
+    // discard-on-close cannot orphan a transcript that was absent above.
+    const settled = await this.require(current.sessionId);
+    const redaction = await this.prepareContentDiscard(
+      settled,
+      input,
+      invocationSessionIds.filter((sessionId) => sessionId !== settled.sessionId),
+    );
     if (redaction?.blockedInvocationIds.length) return await this.require(current.sessionId);
     const archiveInput: Parameters<DaemonSessionRegistry["archiveOwned"]>[0] = {
-      sessionId: current.sessionId,
+      sessionId: settled.sessionId,
       source: "manual",
       reason: input.reason ?? "closed by SessionSupervisor",
-      tags: ["lifecycle:closed", `owner:${current.owner?.kind ?? "unknown"}`],
-      discardTranscript: current.retention === "discard_on_close",
+      tags: ["lifecycle:closed", `owner:${settled.owner?.kind ?? "unknown"}`],
+      discardTranscript: settled.retention === "discard_on_close",
       ...(input.now ? { now: input.now } : {}),
     };
-    return await this.registry.archiveOwned(archiveInput);
+    const closed = await this.registry.archiveOwned(archiveInput);
+    const parentSessionId = ownerSupervisorSessionId(settled.owner);
+    if (parentSessionId) this.queueCleanupRetry(parentSessionId);
+    return closed;
   }
 
   private async prepareContentDiscard(
     session: SparkSessionState,
     input: CloseSupervisedSessionInput,
+    supplementalSessionIds: string[] = [],
   ): Promise<SparkInvocationPayloadRedactionResult | undefined> {
     const now = input.now ?? new Date();
     const receipt = this.createCloseReceipt(session, input.completion, now);
@@ -508,20 +621,155 @@ export class SessionSupervisor {
       receipt,
       now,
     });
-    if (session.retention !== "discard_on_close") return undefined;
-    let redaction = this.invocations.redactSessionPayloads(session.sessionId, {
-      now: now.toISOString(),
-    });
+    const redactionSessionIds = [
+      ...new Set([
+        ...(session.retention === "discard_on_close" ? [session.sessionId] : []),
+        ...supplementalSessionIds,
+      ]),
+    ];
+    if (redactionSessionIds.length === 0) return undefined;
+    let redaction = this.redactSessionPayloads(redactionSessionIds, now.toISOString());
     const deliveryDeadline = Date.now() + Math.max(0, input.settleTimeoutMs ?? 5_000);
     while (redaction.blockedInvocationIds.length && Date.now() < deliveryDeadline) {
       await delay(10);
-      redaction = this.invocations.redactSessionPayloads(session.sessionId);
+      redaction = this.redactSessionPayloads(redactionSessionIds);
     }
-    const transcript = session.transcriptRef ?? session.sessionPath;
-    if (redaction.blockedInvocationIds.length === 0 && transcript) {
-      await this.deleteTranscript(transcript);
+    if (redaction.blockedInvocationIds.length === 0 && session.retention === "discard_on_close") {
+      for (const transcriptPath of sessionTranscriptPaths(session)) {
+        await this.deleteTranscript(transcriptPath);
+      }
     }
     return redaction;
+  }
+
+  /** Repair content left by daemon versions that finalized close outside the Supervisor. */
+  private async repairClosedSessionContent(
+    session: SparkSessionState,
+    now: Date | undefined,
+  ): Promise<void> {
+    const repairedAt = now ?? new Date();
+    const quiesced = await this.quiesceOwnedLoops?.(
+      session,
+      `closed Session ${session.sessionId} recovery`,
+    );
+    const invocationSessionIds = [
+      ...new Set([session.sessionId, ...(quiesced?.invocationSessionIds ?? [])]),
+    ];
+    for (const sessionId of invocationSessionIds) await this.cancelPending(sessionId);
+    await this.waitForIdle(invocationSessionIds, 0);
+    if (this.anySessionActive(invocationSessionIds)) {
+      this.retryCleanupAfterProcessIdle(session.sessionId, invocationSessionIds);
+      return;
+    }
+    let repaired = session;
+    const incarnation = repaired.incarnation ?? 1;
+    if (!repaired.closeReceipts?.some((receipt) => receipt.incarnation === incarnation)) {
+      repaired = await this.registry.sealCloseReceipt({
+        sessionId: repaired.sessionId,
+        expectedIncarnation: incarnation,
+        expectedLifecycle: "closed",
+        receipt: this.createCloseReceipt(repaired, undefined, repairedAt),
+        now: repairedAt,
+      });
+    }
+    const redactionSessionIds = [
+      ...new Set([
+        ...(repaired.retention === "discard_on_close" ? [repaired.sessionId] : []),
+        ...invocationSessionIds.filter((sessionId) => sessionId !== repaired.sessionId),
+      ]),
+    ];
+    const redaction =
+      redactionSessionIds.length > 0
+        ? this.redactSessionPayloads(redactionSessionIds, repairedAt.toISOString())
+        : undefined;
+    if (redaction?.blockedInvocationIds.length) return;
+    if (repaired.retention !== "discard_on_close") return;
+    const transcriptPaths = sessionTranscriptPaths(repaired);
+    await this.registry.commitClosedTranscriptDiscard(
+      {
+        sessionId: repaired.sessionId,
+        expectedIncarnation: repaired.incarnation ?? 1,
+        ...(repaired.sessionPath ? { expectedSessionPath: repaired.sessionPath } : {}),
+        ...(repaired.transcriptRef ? { expectedTranscriptRef: repaired.transcriptRef } : {}),
+        now: repairedAt,
+      },
+      async () => {
+        for (const transcriptPath of transcriptPaths) await this.deleteTranscript(transcriptPath);
+      },
+    );
+  }
+
+  private retryCleanupAfterProcessIdle(sessionId: string, invocationSessionIds: string[]): void {
+    const scheduler = this.scheduler;
+    if (!scheduler || this.idleCleanupWaits.has(sessionId)) return;
+    const activeSessionIds = invocationSessionIds.filter((candidate) =>
+      scheduler.isSessionActive(candidate),
+    );
+    if (activeSessionIds.length === 0) return;
+    const wait = Promise.all(
+      activeSessionIds.map(async (candidate) => await scheduler.waitForSessionIdle(candidate)),
+    )
+      .then(() => this.queueCleanupRetry(sessionId))
+      .catch((error: unknown) => {
+        console.error(`[spark-daemon] failed waiting to resume Session close ${sessionId}`, error);
+      })
+      .finally(() => {
+        if (this.idleCleanupWaits.get(sessionId) === wait) this.idleCleanupWaits.delete(sessionId);
+      });
+    this.idleCleanupWaits.set(sessionId, wait);
+  }
+
+  private queueCleanupRetry(sessionId: string): void {
+    this.pendingCleanupSessionIds.add(sessionId);
+    this.startCleanupRetryWorker();
+  }
+
+  private startCleanupRetryWorker(): void {
+    if (this.cleanupRetryWorker || this.pendingCleanupSessionIds.size === 0) return;
+    const worker = (async () => {
+      while (this.pendingCleanupSessionIds.size > 0) {
+        const sessionId = this.pendingCleanupSessionIds.values().next().value;
+        if (sessionId === undefined) return;
+        this.pendingCleanupSessionIds.delete(sessionId);
+        try {
+          const session = await this.registry.get(sessionId);
+          if (session?.lifecycle === "closing") {
+            await this.close({
+              sessionId,
+              reason: "resume interrupted Session close",
+              settleTimeoutMs: 0,
+            });
+          } else if (session?.lifecycle === "closed") {
+            await this.repairClosedSessionContent(session, undefined);
+          }
+        } catch (error) {
+          console.error(`[spark-daemon] failed to resume Session close ${sessionId}`, error);
+        }
+      }
+    })().finally(() => {
+      if (this.cleanupRetryWorker === worker) this.cleanupRetryWorker = undefined;
+      this.startCleanupRetryWorker();
+    });
+    this.cleanupRetryWorker = worker;
+    void worker;
+  }
+
+  private redactSessionPayloads(
+    sessionIds: string[],
+    now?: string,
+  ): SparkInvocationPayloadRedactionResult {
+    const results = sessionIds.map((sessionId) =>
+      this.invocations.redactSessionPayloads(sessionId, now ? { now } : {}),
+    );
+    return {
+      sessionId: sessionIds[0]!,
+      redactedInvocationIds: [
+        ...new Set(results.flatMap((result) => result.redactedInvocationIds)),
+      ],
+      deletedEventCount: results.reduce((total, result) => total + result.deletedEventCount, 0),
+      blockedInvocationIds: [...new Set(results.flatMap((result) => result.blockedInvocationIds))],
+      redactedAt: results[0]!.redactedAt,
+    };
   }
 
   private createCloseReceipt(
@@ -602,11 +850,19 @@ export class SessionSupervisor {
     }
   }
 
-  private async waitForIdle(sessionId: string, timeoutMs: number): Promise<void> {
+  private async waitForIdle(sessionIds: string[], timeoutMs: number): Promise<void> {
     const deadline = Date.now() + Math.max(0, timeoutMs);
-    while (this.invocations.sessionActivity(sessionId).active && Date.now() < deadline) {
+    while (this.anySessionActive(sessionIds) && Date.now() < deadline) {
       await delay(10);
     }
+  }
+
+  private anySessionActive(sessionIds: string[]): boolean {
+    const activity = this.invocations.sessionActivities(sessionIds);
+    return sessionIds.some(
+      (sessionId) =>
+        activity.get(sessionId)?.active === true || this.scheduler?.isSessionActive(sessionId),
+    );
   }
 
   private async isOwnerValid(session: SparkSessionState): Promise<boolean> {
@@ -727,6 +983,42 @@ function ownerIdentity(owner: SparkSessionOwner): string {
     case "driver_tick":
       return `driver_tick:${owner.driverId}:${owner.generation}:${owner.tickInvocationId}`;
   }
+}
+
+function sameOwnedContextOwner(
+  persisted: SparkSessionOwner,
+  requested: SparkSessionOwner,
+): boolean {
+  if (persisted.kind === "driver" && requested.kind === "driver") {
+    return (
+      persisted.driverId === requested.driverId &&
+      persisted.supervisorSessionId === requested.supervisorSessionId
+    );
+  }
+  return ownerIdentity(persisted) === ownerIdentity(requested);
+}
+
+function closedRepairSessionIds(invocation: SparkInvocationRecord): string[] {
+  const sessionIds = new Set<string>();
+  if (invocation.sessionId) sessionIds.add(invocation.sessionId);
+  if (invocation.task && typeof invocation.task === "object" && !Array.isArray(invocation.task)) {
+    const task = invocation.task as {
+      ownerSessionId?: unknown;
+      stateOwnerSessionId?: unknown;
+    };
+    for (const candidate of [task.ownerSessionId, task.stateOwnerSessionId]) {
+      if (typeof candidate === "string" && candidate.trim()) sessionIds.add(candidate.trim());
+    }
+  }
+  return [...sessionIds];
+}
+
+function sessionTranscriptPaths(session: SparkSessionState): string[] {
+  return [...new Set([session.transcriptRef, session.sessionPath].filter(isPresentString))];
+}
+
+function isPresentString(value: string | undefined): value is string {
+  return typeof value === "string" && value.length > 0;
 }
 
 function isTerminalInvocation(invocation: SparkInvocationRecord): boolean {

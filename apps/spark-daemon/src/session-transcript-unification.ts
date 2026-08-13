@@ -44,7 +44,16 @@ export async function unifyDaemonSessionTranscripts(
   const results: UnifiedDaemonSessionTranscript[] = [];
 
   for (const session of sessions) {
-    if (session.owner?.kind === "side_thread" || !session.cwd?.trim()) continue;
+    // Closing Sessions are completed by SessionSupervisor. Copying a
+    // discard-on-close transcript into the migration backup before that owner
+    // runs would turn ephemeral content into a permanent retained artifact.
+    if (
+      (session.lifecycle !== "open" && session.retention === "discard_on_close") ||
+      session.owner?.kind === "side_thread" ||
+      !session.cwd?.trim()
+    ) {
+      continue;
+    }
     const result = await unifySessionTranscript(input, session);
     if (result) results.push(result);
   }

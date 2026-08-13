@@ -15,14 +15,93 @@ import type { SparkDaemonModelControl } from "./model-control.ts";
 import { SPARK_SESSION_COMPACT_PROMPT } from "./core/types.ts";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { channelReplyDeliveryForCompletion } from "./spark/session-run.ts";
+import { quiesceLoopsForClosingSession } from "./loop-session-lifecycle.ts";
 import { executeSparkDaemonSessionControl } from "./session-control.ts";
 import { SessionSupervisor } from "./session-supervisor.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
+import { SparkLoopStore } from "./store/loops.ts";
 import { migrateSparkDaemonDatabase } from "./store/schema.ts";
 import { registerWorkspace } from "./store/workspaces.ts";
 import { createDaemonWorkspaceSession } from "../../../test/support/session-fixtures.ts";
 
 describe("daemon session control admission", () => {
+  it("reconciles closing Session content through the lifecycle owner", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-session-closing-reconcile-"));
+    const db = openMemoryDatabase();
+    migrateSparkDaemonDatabase(db);
+    const paths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const sessionRegistry = createDaemonSessionRegistry(join(root, ".spark"), {
+      resolveWorkspaceCwd: () => root,
+    });
+    const invocations = new SparkInvocationStore(db);
+    const loops = new SparkLoopStore(db, invocations);
+    const administrator = await sessionRegistry.ensureWorkspaceAdministrator("ws-reconcile");
+    const owner = await sessionRegistry.createSupervised({
+      sessionId: "session-closing-reconcile",
+      scope: { kind: "workspace", workspaceId: "ws-reconcile" },
+      cwd: root,
+      owner: { kind: "session", supervisorSessionId: administrator.sessionId },
+      stateBinding: { kind: "session", ref: administrator.sessionId },
+      visibility: "internal",
+      retention: "discard_on_close",
+      purpose: "task_run",
+    });
+    loops.start({
+      loopId: "closing-reconcile-loop",
+      ownerSessionId: owner.sessionId,
+      sessionLifetime: "driver_tick",
+      cwd: root,
+      prompt: "private Loop payload",
+      dueAt: "2026-08-13T00:00:00.000Z",
+    });
+    const invocation = (await loops.materializeDue("2026-08-13T00:00:00.000Z"))?.invocation;
+    if (!invocation?.sessionId) throw new Error("test Loop invocation has no Session route");
+    await sessionRegistry.markClosing({ sessionId: owner.sessionId });
+    const supervisor = new SessionSupervisor({
+      registry: sessionRegistry,
+      invocations,
+      quiesceOwnedLoops: (session, reason) =>
+        quiesceLoopsForClosingSession(loops, invocations, session, reason),
+    });
+
+    try {
+      await executeSparkDaemonSessionControl(
+        { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
+        { kind: "session.list.request", scope: "any", payload: {} },
+      );
+      await expect(sessionRegistry.get(owner.sessionId)).resolves.toMatchObject({
+        lifecycle: "closing",
+      });
+      expect(loops.require("closing-reconcile-loop")).toMatchObject({ status: "running" });
+
+      await executeSparkDaemonSessionControl(
+        {
+          paths,
+          db,
+          sessionRegistry,
+          sessionSupervisor: supervisor,
+          actor: "spark-daemon-local-rpc",
+        },
+        { kind: "session.list.request", scope: "any", payload: {} },
+      );
+
+      await expect(sessionRegistry.get(owner.sessionId)).resolves.toMatchObject({
+        lifecycle: "closed",
+        placement: "archived",
+      });
+      expect(loops.require("closing-reconcile-loop")).toMatchObject({ status: "stopped" });
+      expect(invocations.require(invocation.invocationId)).toMatchObject({
+        status: "cancelled",
+        payloadRedactedAt: expect.any(String),
+      });
+      expect(invocations.require(invocation.invocationId)).not.toHaveProperty("prompt");
+      expect(invocations.require(invocation.invocationId)).not.toHaveProperty("task");
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects a turn cancellation after durable transcript commit begins", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-cancel-commit-"));
     const db = openMemoryDatabase();
@@ -41,7 +120,12 @@ describe("daemon session control admission", () => {
     const supervisor = new SessionSupervisor({
       registry: sessionRegistry,
       invocations,
-      scheduler: { cancel, executeStructured: vi.fn() },
+      scheduler: {
+        cancel,
+        executeStructured: vi.fn(),
+        isSessionActive: () => false,
+        waitForSessionIdle: async () => undefined,
+      },
     });
     try {
       await createDaemonWorkspaceSession(sessionRegistry, {
@@ -262,6 +346,67 @@ describe("daemon session control admission", () => {
         ),
       ).rejects.toMatchObject({ code: "side_thread_not_found" });
       expect(ordinaryGet).not.toHaveBeenCalled();
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    {
+      name: "turn",
+      request: (sessionId: string) => ({
+        kind: "turn.submit.request" as const,
+        scope: "any" as const,
+        sessionId,
+        payload: { sessionId, prompt: "must lose to closing" },
+      }),
+    },
+    {
+      name: "compaction",
+      request: (sessionId: string) => ({
+        kind: "session.compact.request" as const,
+        scope: "any" as const,
+        sessionId,
+        payload: { sessionId },
+      }),
+    },
+  ])("does not admit a $name after Session closing wins", async ({ name, request }) => {
+    const root = mkdtempSync(join(tmpdir(), `spark-session-${name}-closing-`));
+    const db = openMemoryDatabase();
+    migrateSparkDaemonDatabase(db);
+    const paths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const sessionRegistry = createDaemonSessionRegistry(join(root, ".spark"), {
+      resolveWorkspaceCwd: () => root,
+    });
+    const sessionId = `session-${name}-closing`;
+    await createDaemonWorkspaceSession(sessionRegistry, {
+      sessionId,
+      workspaceId: "workspace-closing-admission",
+      cwd: root,
+    });
+    const closingRegistry = {
+      ...sessionRegistry,
+      commitInvocationAdmission: async (
+        ...input: Parameters<typeof sessionRegistry.commitInvocationAdmission>
+      ) => {
+        await sessionRegistry.markClosing({ sessionId });
+        return await sessionRegistry.commitInvocationAdmission(...input);
+      },
+    };
+    try {
+      await expect(
+        executeSparkDaemonSessionControl(
+          {
+            paths,
+            db,
+            sessionRegistry: closingRegistry,
+            actor: "spark-daemon-local-rpc",
+          },
+          request(sessionId),
+        ),
+      ).rejects.toMatchObject({ code: "session_closing" });
+      expect(new SparkInvocationStore(db).list()).toHaveLength(0);
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });

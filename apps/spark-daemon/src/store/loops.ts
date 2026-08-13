@@ -168,6 +168,11 @@ export interface SparkLoopAdvanceResult {
   invocation?: SparkInvocationRecord;
 }
 
+export type SparkLoopInvocationAdmission = (
+  ownerSessionId: string,
+  admit: () => SparkInvocationRecord,
+) => Promise<SparkInvocationRecord | undefined>;
+
 export class SparkLoopStore {
   readonly #db: DatabaseSync;
   readonly #invocations: SparkInvocationStore;
@@ -206,6 +211,7 @@ export class SparkLoopStore {
       const driverSessionId =
         sessionLifetime === "driver" &&
         existing?.sessionLifetime === "driver" &&
+        existing.ownerSessionId === ownerSessionId &&
         existing.status !== "completed" &&
         existing.status !== "stopped"
           ? existing.driverSessionId
@@ -576,12 +582,21 @@ export class SparkLoopStore {
   async materializeDue(
     now = new Date().toISOString(),
     signal?: AbortSignal,
+    admitInvocation?: SparkLoopInvocationAdmission,
   ): Promise<SparkLoopAdvanceResult | undefined> {
     let record = this.claimDueCheckpoint(now);
     if (!record) return undefined;
     if (record.cycleStep === "after_tick") {
-      const invocation = this.materializeEvaluation(record, now);
-      return { loop: this.require(record.loopId), invocation };
+      const evaluationRecord = record;
+      const invocation = admitInvocation
+        ? await admitInvocation(evaluationRecord.ownerSessionId, () =>
+            this.materializeEvaluation(evaluationRecord, now),
+          )
+        : this.materializeEvaluation(evaluationRecord, now);
+      if (!invocation) {
+        return { loop: this.rejectClaimedInvocationAdmission(evaluationRecord, now) };
+      }
+      return { loop: this.require(evaluationRecord.loopId), invocation };
     }
     const checkpoint = record.checkpoint;
     if (!checkpoint || checkpoint.step !== "before_tick") {
@@ -609,8 +624,32 @@ export class SparkLoopStore {
       if (rule.then.action === "proceed") break;
       return this.settleBeforeTick(record, rule.then, receipt, receipts, now);
     }
-    const invocation = this.materializeTick(record, receipts, now);
+    const invocation = admitInvocation
+      ? await admitInvocation(record.ownerSessionId, () =>
+          this.materializeTick(record, receipts, now),
+        )
+      : this.materializeTick(record, receipts, now);
+    if (!invocation) {
+      return { loop: this.rejectClaimedInvocationAdmission(record, now) };
+    }
     return { loop: this.require(record.loopId), invocation };
+  }
+
+  private rejectClaimedInvocationAdmission(record: SparkLoopRecord, now: string): SparkLoopRecord {
+    const cycleStep = record.cycleStep;
+    if (cycleStep !== "before_tick" && cycleStep !== "after_tick") {
+      throw new Error(`LOOP_ADMISSION_REJECTION_INVALID: ${record.loopId}`);
+    }
+    this.#db
+      .prepare(
+        `UPDATE loop_wakeups
+         SET status = 'stopped', generation = generation + 1, cycle_step = NULL,
+             due_at = NULL, reason = 'owning Session rejected Loop Invocation admission',
+             error = NULL, updated_at = ?
+         WHERE loop_id = ? AND generation = ? AND status = 'running' AND cycle_step = ?`,
+      )
+      .run(now, record.loopId, record.generation, cycleStep);
+    return this.require(record.loopId);
   }
 
   /** Resolve a bound Workflow exactly once for a newly claimed before_tick

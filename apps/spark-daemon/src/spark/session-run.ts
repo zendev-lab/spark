@@ -439,6 +439,7 @@ export function createSparkDaemonTaskExecutor(
         const completed = await recordCompletedSessionRun(
           effectiveTask,
           result,
+          frozenSessionContext,
           options.sessionRegistry,
           options.refreshSessionSnapshotIndex ?? refreshSparkSessionSnapshotIndex,
         );
@@ -1802,6 +1803,11 @@ export function sessionSourceForTask(
 
 interface SessionInvocationContext {
   session?: SparkSessionState;
+  /** Session lifecycle generation frozen before the executor may write. */
+  sessionMutationFence?: {
+    incarnation: number;
+    lifecycle: "open";
+  };
   surface?: "local" | "channel";
   role?: RoleSpec;
   sideThread?: boolean;
@@ -1829,6 +1835,16 @@ async function sessionContextForTask(
   sparkHome: string | undefined,
 ): Promise<SessionInvocationContext> {
   const session = await registry?.get?.(task.executionSessionId ?? task.sessionId);
+  if (session && (session.lifecycle !== "open" || session.placement !== "active")) {
+    throw new SparkSessionRegistryError(
+      session.lifecycle === "closing"
+        ? "session_closing"
+        : session.lifecycle === "closed"
+          ? "session_closed"
+          : "session_archived",
+      `cannot execute ${session.lifecycle} Session ${session.sessionId}`,
+    );
+  }
   const role = session
     ? await resolveInvocationRole(registry, session, session.cwd ?? task.cwd ?? process.cwd())
     : undefined;
@@ -1838,12 +1854,22 @@ async function sessionContextForTask(
           session,
           sparkHome,
           registry: { bindTranscriptPath: registry.bindTranscriptPath },
+          expectedIncarnation: session.incarnation ?? 1,
+          expectedLifecycle: "open",
         })
       : session?.sessionPath;
   if (task.channelReply) {
     return {
       surface: "channel",
       ...(session ? { session } : {}),
+      ...(session
+        ? {
+            sessionMutationFence: {
+              incarnation: session.incarnation ?? 1,
+              lifecycle: "open" as const,
+            },
+          }
+        : {}),
       ...(session?.cwd ? { cwd: session.cwd } : {}),
       ...(session?.scope?.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
       ...(session?.cwdArtifactRef ? { cwdArtifactRef: session.cwdArtifactRef } : {}),
@@ -1854,6 +1880,10 @@ async function sessionContextForTask(
   if (!session) return {};
   return {
     session,
+    sessionMutationFence: {
+      incarnation: session.incarnation ?? 1,
+      lifecycle: "open" as const,
+    },
     surface: session.bindings.length > 0 ? "channel" : "local",
     ...(session.cwd ? { cwd: session.cwd } : {}),
     ...(session.scope?.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
@@ -2301,6 +2331,7 @@ async function recordCompletedSessionCompaction(
 async function recordCompletedSessionRun(
   task: SparkDaemonSessionRunTask,
   result: unknown,
+  sessionContext: SessionInvocationContext,
   registry: Pick<DaemonSessionRegistry, "recordRun" | "recordTurnSettled"> | undefined,
   refreshSessionSnapshotIndex: typeof refreshSparkSessionSnapshotIndex,
 ): Promise<{ result: unknown; indexed: boolean }> {
@@ -2324,7 +2355,16 @@ async function recordCompletedSessionRun(
     };
   }
   try {
-    await registry.recordRun({ sessionId: task.sessionId, sessionPath });
+    await registry.recordRun({
+      sessionId: task.sessionId,
+      sessionPath,
+      ...(sessionContext.sessionMutationFence
+        ? {
+            expectedIncarnation: sessionContext.sessionMutationFence.incarnation,
+            expectedLifecycle: sessionContext.sessionMutationFence.lifecycle,
+          }
+        : {}),
+    });
     try {
       await refreshSessionSnapshotIndex({ sessionId: task.sessionId, sessionPath });
     } catch (error) {

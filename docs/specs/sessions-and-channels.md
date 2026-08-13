@@ -70,6 +70,8 @@ Every archive operation appends a durable `archiveHistory` event and searchable 
 
 Close is irreversible. `open -> closing` rejects new Invocations; daemon-owned reconciliation cancels or settles active Invocations, recursively closes scoped descendants, seals a bounded receipt, applies the Session retention policy, then commits `closed + archived`. `retain` keeps content, `discard_on_close` removes transcript and Invocation payload content, and `audit` retains the protected audit record; Evidence and receipts are never deleted by Session close. Close is idempotent. Archiving a parent also closes scoped descendants before moving the parent; restore does not revive them.
 
+Startup and delivery reconciliation resume interrupted close through the same Session Supervisor. Delivery-protected payload remains until its durable consumer acknowledges the terminal event; that acknowledgement retries retention in the running daemon. Upgrade repair for legacy already-closed records likewise seals any missing receipt, removes discard-on-close content, and clears stale transcript references without reopening the Session.
+
 Message-platform settings own channel routing policy, technical identity, credentials, and retirement. Their binding remains an alias on an Administrator-owned scoped Session; it does not change Session ownership.
 
 ## Registry projection

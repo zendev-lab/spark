@@ -71,12 +71,14 @@ export async function handleTurnRequest(
       const retryKey = `invocation.retry:${request.params.invocationId}`;
       const existing = store.findByIdempotencyKey(retryKey);
       const original = store.require(request.params.invocationId);
-      if (!existing && original.sessionId) {
-        await options.sessionRegistry?.recordTurnQueued(original.sessionId);
-      }
       let retried;
       try {
-        retried = store.retry(request.params.invocationId);
+        retried =
+          !existing && original.sessionId && options.sessionRegistry
+            ? await options.sessionRegistry.commitInvocationAdmission(original.sessionId, () =>
+                store.retry(request.params.invocationId),
+              )
+            : store.retry(request.params.invocationId);
       } catch (error) {
         if (!existing && original.sessionId) {
           await settleManagedSessionTurn(options.sessionRegistry, original.sessionId);

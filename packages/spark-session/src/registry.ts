@@ -88,7 +88,8 @@ export interface TransitionSparkSessionLifecycleInput {
 export interface SealSparkSessionCloseReceiptInput {
   sessionId: string;
   expectedIncarnation: number;
-  expectedLifecycle: "closing";
+  /** Closed is accepted only for daemon upgrade repair of legacy finalized records. */
+  expectedLifecycle: "closing" | "closed";
   receipt: SparkSessionCloseReceipt;
   now?: Date;
 }
@@ -813,7 +814,42 @@ export class SparkSessionRegistry {
         `managed close requires a scoped or ephemeral Session: ${input.sessionId}`,
       );
     }
-    if (current.lifecycle === "closed") return current;
+    if (current.lifecycle === "closed") {
+      const discardTranscript =
+        input.discardTranscript === true || current.retention === "discard_on_close";
+      const needsTranscriptCleanup =
+        discardTranscript &&
+        (current.sessionPath !== undefined || current.transcriptRef !== undefined);
+      const needsEphemeralTombstone = current.owner.kind === "invocation";
+      if (!needsTranscriptCleanup && !needsEphemeralTombstone) return current;
+      const now = input.now ?? new Date();
+      const repaired: SparkSessionState = {
+        ...current,
+        updatedAt: now.toISOString() > current.updatedAt ? now.toISOString() : current.updatedAt,
+      };
+      if (discardTranscript) {
+        delete repaired.sessionPath;
+        delete repaired.transcriptRef;
+      }
+      if (current.owner.kind === "invocation") {
+        file.sessions.splice(index, 1);
+        file.tombstones.push({
+          recordKind: "ephemeral_tombstone",
+          sessionId: current.sessionId,
+          scope: current.scope,
+          owner: current.owner,
+          lifecycle: "closed",
+          placement: "archived",
+          closeReceipts: repaired.closeReceipts ?? [],
+          createdAt: current.createdAt,
+          updatedAt: repaired.updatedAt,
+        });
+      } else {
+        file.sessions[index] = repaired;
+      }
+      await this.saveFile(file);
+      return repaired;
+    }
     const now = input.now ?? new Date();
     const archiveEvent = createArchiveEvent(current, input, now);
     const updated: SparkSessionState = {
