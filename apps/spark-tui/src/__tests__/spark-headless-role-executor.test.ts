@@ -13,6 +13,7 @@ import {
 } from "@zendev-lab/spark-host/headless-loader";
 import { SparkHostRuntime } from "../host/runtime.ts";
 import {
+  preloadSparkHeadlessSessionRuntime,
   runSparkHeadlessRoleInstruction,
   runSparkHeadlessSession,
   type SparkHeadlessRoleInstructionInput,
@@ -25,6 +26,8 @@ test("daemon headless loader resolves the real worker module and provider depend
   assert.equal(typeof headless.createSparkHeadlessRoleExecutor, "function");
   assert.equal(typeof headless.createSparkHeadlessSessionExecutor, "function");
   assert.equal(typeof headless.createSparkHeadlessSessionCompactor, "function");
+  assert.equal(typeof headless.preloadSparkHeadlessSessionRuntime, "function");
+  await preloadSparkHeadlessSessionRuntime();
 });
 
 test("runSparkHeadlessSession retains the control root for nested daemon-native roles", async () => {

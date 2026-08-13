@@ -215,6 +215,14 @@ export interface SparkDaemonChannelReplyDeliveryInput {
 
 export { loadSparkHeadlessSessionModule };
 
+/** Load production execution modules before local RPC admission opens. */
+export async function preloadSparkDaemonExecutionRuntime(
+  loadModule: typeof loadSparkHeadlessSessionModule = loadSparkHeadlessSessionModule,
+): Promise<void> {
+  const module = await loadModule();
+  await module.preloadSparkHeadlessSessionRuntime?.();
+}
+
 export function createSparkDaemonTaskExecutor(
   options: SparkDaemonTaskExecutorOptions,
 ): SparkDaemonTaskExecutor {

@@ -41,12 +41,26 @@ import {
   createSparkDaemonTaskExecutor,
   executeSparkDaemonSessionCompactTask,
   executeSparkDaemonSessionRunTask,
+  preloadSparkDaemonExecutionRuntime,
 } from "./session-run.ts";
 import { workspaceSessionRecord } from "../../../../test/support/session-fixtures.ts";
 
 const paths = resolveSparkPaths({
   app: "daemon",
   env: { HOME: "/tmp/spark-daemon-session-run-test" },
+});
+
+it("preloads the headless module runtime before execution admission", async () => {
+  const preload = vi.fn(async () => undefined);
+  const loadModule = vi.fn(async () => ({
+    createSparkHeadlessSessionExecutor: vi.fn() as never,
+    preloadSparkHeadlessSessionRuntime: preload,
+  }));
+
+  await preloadSparkDaemonExecutionRuntime(loadModule);
+
+  expect(loadModule).toHaveBeenCalledOnce();
+  expect(preload).toHaveBeenCalledOnce();
 });
 
 function context(

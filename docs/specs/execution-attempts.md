@@ -115,6 +115,12 @@ snapshot is covered by the same fence: terminal commit cannot overtake it merely
 because the cooperative pump has not run yet. This is not a `spark-turn`
 projection rule.
 
+The production daemon loads the headless execution module and its host runtime
+before it binds local RPC and opens scheduler admission. Dynamic module
+compilation and evaluation are therefore startup work, not work performed by
+the first admitted Invocation. This preload does not create a second scheduler,
+store, or execution owner.
+
 ## Parent capabilities
 
 A future isolated attempt may request only the closed daemon-owner registry:
