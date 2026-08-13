@@ -297,6 +297,55 @@ test("daemon prompt confirmations do not duplicate locally recalled history", as
   assert.equal(harness.app.getEditorText(), "first queued prompt");
 });
 
+test("native TUI carries exact file and image editor input through daemon admission", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "spark-native-original-editor-input-"));
+  try {
+    await writeFile(join(cwd, "README.md"), "expanded file contents\n", "utf8");
+    await writeFile(
+      join(cwd, "pixel.png"),
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    );
+    const admissions: Array<{ prompt: string; submittedInput?: string }> = [];
+    const responder = Object.assign(async () => "", {
+      admit: async (prompt: string, context: { submittedInput?: string }) => {
+        admissions.push({ prompt, submittedInput: context.submittedInput });
+        return {
+          invocationId: `inv-original-${admissions.length}`,
+          status: "queued" as const,
+          acceptedAt: "2026-08-12T00:00:00.000Z",
+        };
+      },
+      observe: async () => "",
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      }),
+    }) satisfies SparkNativeResponder;
+    const harness = createSparkNativeTuiComponentHarness({
+      responder,
+      autocompleteBasePath: cwd,
+    });
+
+    await harness.submit("@README.md explain this");
+    await harness.flush();
+    await harness.submit("./pixel.png identify this");
+    await harness.flush();
+
+    assert.equal(admissions[0]?.submittedInput, "@README.md explain this");
+    assert.match(admissions[0]?.prompt ?? "", /<file name=.*README\.md/u);
+    assert.match(admissions[0]?.prompt ?? "", /expanded file contents/u);
+    assert.equal(admissions[1]?.submittedInput, "./pixel.png identify this");
+    assert.match(admissions[1]?.prompt ?? "", /<image name=.*pixel\.png/u);
+    assert.match(admissions[1]?.prompt ?? "", /data:image\/png;base64/u);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("native TUI PageUp and PageDown scroll the transcript viewport", async () => {
   const harness = createSparkNativeTuiComponentHarness({ cols: 72, rows: 12 });
   for (let index = 0; index < 30; index += 1) {

@@ -428,6 +428,11 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.snapshot"].output,
       client.session.snapshot(input, options),
     ),
+  "session.prompt-history": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.prompt-history"].output,
+      client.session.promptHistory(input, options),
+    ),
   "session.create": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.create"].output,
@@ -508,6 +513,7 @@ const sessionInvokers = {
   | "session.list"
   | "session.get"
   | "session.snapshot"
+  | "session.prompt-history"
   | "session.create"
   | "session.bind"
   | "session.unbind"

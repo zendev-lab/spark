@@ -85,6 +85,8 @@ export interface SparkNativeResponderContext {
 export interface SparkNativeAdmissionContext {
   /** Stable daemon admission identity. */
   readonly submissionId?: string;
+  /** Exact pre-expansion editor input, retained only as bounded prompt-recall metadata. */
+  readonly submittedInput?: string;
   /** Used by the compatibility callable; durable busy admission omits it. */
   readonly signal?: AbortSignal;
 }
@@ -134,6 +136,7 @@ export interface SparkNativeQueuedInput {
 export interface SparkNativeSubmitOptions {
   mode?: SparkNativeQueueMode;
   submissionId?: string;
+  submittedInput?: string;
 }
 
 export interface SparkNativeQueueSummary {
