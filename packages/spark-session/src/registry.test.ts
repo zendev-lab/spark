@@ -89,6 +89,36 @@ describe("SparkSessionRegistry v6 ownership", () => {
     expect(child).not.toHaveProperty("workspaceId");
   });
 
+  it("allows an administrator child to establish a GitChange boundary", async () => {
+    const registry = await tempRegistry();
+    const admin = await administrator(registry, "ws_a", "/repo");
+    const artifactRef = "artifact:git-change";
+    const child = await registry.create({
+      sessionId: "sess_git_change",
+      scope: admin.scope,
+      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      cwd: "/repo/.agents/worktrees/change",
+      cwdArtifactRef: artifactRef,
+    });
+
+    await expect(registry.list()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: child.sessionId,
+          cwdArtifactRef: artifactRef,
+        }),
+      ]),
+    );
+    await expect(
+      registry.create({
+        scope: admin.scope,
+        owner: { kind: "session", supervisorSessionId: child.sessionId },
+        cwd: "/repo/.agents/worktrees/change/nested",
+        cwdArtifactRef: "artifact:other-change",
+      }),
+    ).rejects.toMatchObject({ code: "session_owner_scope_mismatch" });
+  });
+
   it("rejects owner scope and cwd widening", async () => {
     const registry = await tempRegistry();
     const admin = await administrator(registry, "ws_a", "/repo");
