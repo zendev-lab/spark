@@ -19,6 +19,7 @@ import type { SparkViewModelEvent } from "@zendev-lab/spark-protocol";
 import {
   SPARK_PROMPT_ITEM_METADATA_KEY,
   SparkTurnRestartYieldError,
+  isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
 } from "@zendev-lab/spark-turn";
 import { assistantMessageToFinalAnswerText } from "../host/agent-session.ts";
@@ -554,6 +555,15 @@ test("SparkAgentSession restores a restart checkpoint without replaying its prom
 
     const predecessorServices = await makeFakeServices({ cwd, sparkHome }, fake);
     registerTool(predecessorServices);
+    predecessorServices.runtime.on("before_agent_start", () => ({
+      message: {
+        customType: "restart-regenerated-context",
+        content: "regenerate this transient context after restart",
+        display: false,
+        authority: "runtime_control",
+        trust: "trusted",
+      },
+    }));
     let checkpoint: SparkTurnResumeCheckpoint | undefined;
     await assert.rejects(
       new SparkAgentSession(predecessorServices).run({
@@ -568,6 +578,12 @@ test("SparkAgentSession restores a restart checkpoint without replaying its prom
       (error: unknown) => error instanceof SparkTurnRestartYieldError,
     );
     assert.ok(checkpoint);
+    assert.equal(isSparkTurnResumeCheckpointPersistable(checkpoint), true);
+    assert.equal(
+      checkpoint.promptItems.every((item) => item.persistence === "session"),
+      true,
+    );
+    assert.doesNotMatch(JSON.stringify(checkpoint), /restart-regenerated-context/u);
     assert.equal(toolExecutions, 0);
     assert.equal(providerCalls, 1);
 
