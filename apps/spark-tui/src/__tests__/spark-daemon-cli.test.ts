@@ -2971,7 +2971,7 @@ test("native TUI session gate exits without creating an implicit session", async
   }
 });
 
-test("native TUI selects a History Session, restores it, and loads its snapshot", async () => {
+test("native TUI hydrates a delayed History Session snapshot before its initial prompt", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-cli-session-select-"));
   try {
     const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
@@ -3030,6 +3030,15 @@ test("native TUI selects a History Session, restores it, and loads its snapshot"
           messages: [
             {
               version: 1,
+              id: "message-history-prompt",
+              role: "user",
+              text: "Earlier durable prompt",
+              status: "done",
+              createdAt: now,
+              metadata: {},
+            },
+            {
+              version: 1,
               id: "message-1",
               role: "assistant",
               text: "Restored from daemon",
@@ -3050,7 +3059,7 @@ test("native TUI selects a History Session, restores it, and loads its snapshot"
     let rendered = "";
 
     assert.equal(
-      await runSparkCli([], {
+      await runSparkCli(["fast initial prompt"], {
         daemonClient,
         createHostServices: base.createHostServices,
         terminal: { stdinIsTTY: true, stdoutIsTTY: true },
@@ -3066,20 +3075,34 @@ test("native TUI selects a History Session, restores it, and loads its snapshot"
           assert.equal(typeof input, "object");
           assert.notEqual(input, null);
           const options = input as Exclude<typeof input, string | undefined>;
+          assert.equal(options.initialMessage, "fast initial prompt");
           assert.equal(options.workspaceSession?.attachTarget, existing.sessionId);
           assert.equal(snapshotRequested, false);
           assert.equal(options.statusContext?.activeProvider?.(), undefined);
           const harness = createSparkNativeTuiComponentHarness({
             workspaceSession: options.workspaceSession,
           });
-          await options.configureApp?.(harness.app, harness.session);
-          assert.equal(snapshotRequested, true);
-          snapshotGate.resolve();
+          let configured = false;
+          const configure = Promise.resolve(
+            options.configureApp?.(harness.app, harness.session),
+          ).then(() => {
+            configured = true;
+          });
           await new Promise((resolve) => setImmediate(resolve));
+          assert.equal(snapshotRequested, true);
+          assert.equal(configured, false);
+          snapshotGate.resolve();
+          await configure;
+          assert.equal(configured, true);
           assert.equal(options.statusContext?.activeProvider?.(), "session-provider");
           assert.equal(options.statusContext?.activeModel?.(), "session-model");
           assert.equal(options.statusContext?.thinkingLevel?.(), "xhigh");
+          assert.equal(await harness.submit(options.initialMessage ?? ""), "started");
           rendered = harness.render(140);
+          await harness.press("\x1b[A");
+          assert.equal(harness.app.getEditorText(), "fast initial prompt");
+          await harness.press("\x1b[A");
+          assert.equal(harness.app.getEditorText(), "Earlier durable prompt");
         },
       }),
       0,
@@ -3091,6 +3114,8 @@ test("native TUI selects a History Session, restores it, and loads its snapshot"
     );
     assert.equal(restoreCalls, 1);
     assert.match(rendered, /Restored from daemon/u);
+    assert.match(rendered, /Earlier durable prompt/u);
+    assert.match(rendered, /fast initial prompt/u);
     assert.match(rendered, /Existing conversation/u);
   } finally {
     await rm(dir, { recursive: true, force: true });
