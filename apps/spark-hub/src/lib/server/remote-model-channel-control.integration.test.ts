@@ -20,7 +20,7 @@ import {
   type SparkAuthImportReport,
   type SparkModelControlSnapshot,
   type SparkModelRef,
-  type SparkSessionRegistryRecord,
+  type SparkSessionState,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
 import { resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
@@ -135,6 +135,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
       daemonCwd: root,
       resolveWorkspaceCwd: (workspaceId) => (workspaceId === hubWorkspace.id ? root : undefined),
     });
+    const administrator = await registry.ensureWorkspaceAdministrator(hubWorkspace.id);
     const credentialTargets = {
       provider: join(daemonHome, "credentials", "provider.key"),
       oauth: join(daemonHome, "credentials", "oauth.response"),
@@ -244,8 +245,8 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
     await createHubRuntimeSessionClient(hubDb).create({
       sessionId: workspaceSessionId,
       scope: { kind: "workspace", workspaceId: hubWorkspace.id },
-      workspaceId: hubWorkspace.id,
-      title: "Remote model session",
+      supervisorSessionId: administrator.sessionId,
+      name: "Remote model session",
     });
     const action = async (payload: Record<string, unknown>) =>
       await httpsJson(`${origin}/control`, payload, {
@@ -254,6 +255,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
       });
 
     await action({ action: "catalog" });
+    const connectivity = (await action({ action: "testModel" })) as { status: string };
     await action({ action: "setDefault" });
     await action({ action: "setSessionModel", sessionId: workspaceSessionId });
     await action({ action: "setThinking", sessionId: workspaceSessionId });
@@ -280,6 +282,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
     };
     const finalSession = await registry.get(workspaceSessionId);
     assert.equal(finalCatalog.defaultModel?.modelId, model.modelId);
+    assert.equal(connectivity.status, "reachable");
     assert.equal(finalCatalog.providers[0]?.auth.configured, true);
     assert.equal(finalSession?.model?.modelId, model.modelId);
     assert.equal(finalSession?.thinkingLevel, "high");
@@ -350,6 +353,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
           modelsPage: {
             path: "/settings/models",
             catalogLoaded: true,
+            connectivityTested: true,
             defaultModelSet: true,
             sessionModelSet: true,
             thinkingLevelSet: true,
@@ -373,6 +377,7 @@ test("HTTPS Hub controls models and channels over WSS without a daemon socket", 
         },
         exercisedActions: [
           "catalog",
+          "testModel",
           "setDefault",
           "setSessionModel",
           "setThinking",
@@ -476,17 +481,14 @@ class FixtureModelControl implements SparkDaemonModelControl {
     return await this.snapshot();
   }
 
-  async setSessionModel(
-    sessionId: string,
-    selected: SparkModelRef,
-  ): Promise<SparkSessionRegistryRecord> {
+  async setSessionModel(sessionId: string, selected: SparkModelRef): Promise<SparkSessionState> {
     return await this.registry.setModel(sessionId, selected);
   }
 
   async setSessionThinkingLevel(
     sessionId: string,
     thinkingLevel: SparkThinkingLevel,
-  ): Promise<SparkSessionRegistryRecord> {
+  ): Promise<SparkSessionState> {
     return await this.registry.setThinkingLevel(sessionId, thinkingLevel);
   }
 
@@ -573,6 +575,15 @@ class FixtureModelControl implements SparkDaemonModelControl {
 
   async prepareModel(): Promise<void> {}
 
+  async testModel(selected: SparkModelRef) {
+    return {
+      status: "reachable" as const,
+      model: selected,
+      latencyMs: 1,
+      checkedAt: now,
+    };
+  }
+
   private requireFlow(flowId: string): SparkAuthFlow {
     const flow = this.flows.get(flowId);
     if (!flow) throw new Error("unknown flow");
@@ -646,6 +657,8 @@ async function runControlAction(
       return await client.catalog({ runtimeId: route.runtimeId });
     case "setDefault":
       return await client.setDefault({ runtimeId: route.runtimeId, model });
+    case "testModel":
+      return await client.testModel({ workspaceId: route.workspaceId, model });
     case "setSessionModel":
       return await client.setSessionModel({ sessionId: String(input.sessionId), model });
     case "setThinking":

@@ -57,7 +57,7 @@ try {
   assertEqual(list.status, 200, "legacy list response status");
   assertEqual(
     list.finalUrl,
-    `${baseUrl}/${workspaceSlug}/sessions?workspace=${workspaceSlug}`,
+    `${baseUrl}/${workspaceSlug}/sessions/${encodeURIComponent(sessionId)}`,
     "legacy list final URL",
   );
 
@@ -135,8 +135,9 @@ function restoreEnvironment(name: "SPARK_HOME" | "HOME", value: string | undefin
 function seedDatabase(db: DatabaseSync): void {
   migrate(db);
   db.prepare(
-    `INSERT INTO workspaces (id, slug, name, status, settings_json, created_at, updated_at)
-     VALUES (?, ?, ?, 'active', '{}', ?, ?)`,
+    `INSERT INTO workspaces
+      (id, slug, name, status, provisioning_state, settings_json, created_at, updated_at)
+     VALUES (?, ?, ?, 'active', 'active', '{}', ?, ?)`,
   ).run(workspaceId, workspaceSlug, "Route Proof", now, now);
   createHubAccessToken(db, { createdAt: now, ttlMs: 3_600_000 });
   createWorkspaceAccessToken(db, { workspaceId, createdAt: now, ttlMs: 3_600_000 });
@@ -154,9 +155,10 @@ function seedDatabase(db: DatabaseSync): void {
   ).run(runtimeId, now, now);
   db.prepare(
     `INSERT INTO runtime_workspace_bindings
-      (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
-     VALUES (?, ?, 'route-proof', 'Route Proof', 'available', '{}', '{}', ?, ?)`,
-  ).run(bindingId, runtimeId, now, now);
+      (id, runtime_id, local_workspace_key, display_name, status, administrator_session_id,
+       administrator_provisioning_state, capabilities_json, diagnostics_json, created_at, updated_at)
+     VALUES (?, ?, 'route-proof', 'Route Proof', 'available', ?, 'active', '{}', '{}', ?, ?)`,
+  ).run(bindingId, runtimeId, sessionId, now, now);
   db.prepare(
     `INSERT INTO workspace_leases
       (id, workspace_id, runtime_workspace_binding_id, owner_mode, started_at, created_at)
@@ -164,8 +166,9 @@ function seedDatabase(db: DatabaseSync): void {
   ).run(workspaceId, bindingId, now, now);
   db.prepare(
     `INSERT INTO runtime_session_projections
-      (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id, status, record_json, projected_at)
-     VALUES (?, ?, 'workspace', ?, ?, 'ready', ?, ?)`,
+      (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
+       lifecycle, placement, activity, lifetime, owner_kind, record_json, projected_at)
+     VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'persistent', 'workspace', ?, ?)`,
   ).run(
     runtimeId,
     sessionId,
@@ -174,10 +177,21 @@ function seedDatabase(db: DatabaseSync): void {
     JSON.stringify({
       sessionId,
       scope: { kind: "workspace", workspaceId },
-      workspaceId,
-      title: "Route proof",
-      status: "ready",
+      name: "Administrator",
+      lifecycle: "open",
+      placement: "active",
+      activity: "idle",
+      lifetime: "persistent",
+      owner: { kind: "workspace", workspaceId },
+      roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
+      incarnation: 1,
+      stateBinding: { kind: "session", ref: sessionId },
+      visibility: "public",
+      retention: "audit",
+      purpose: "workspace_administrator",
       bindings: [],
+      tags: [],
+      archiveHistory: [],
       createdAt: now,
       updatedAt: now,
     }),

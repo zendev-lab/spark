@@ -19,5 +19,6 @@ export const load: LayoutServerLoad = ({ cookies, locals, url }) => {
     // Control-plane pages only (create workspace, browser access) — not
     // workspace daemon settings such as models / invocations.
     isGlobalConsole: isControlPlanePath(url.pathname),
+    hasControlPlaneAccess: locals.hasControlPlaneAccess,
   };
 };

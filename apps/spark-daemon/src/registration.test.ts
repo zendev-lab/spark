@@ -558,6 +558,7 @@ describe("Spark daemon workspace registration", () => {
     writeSparkDaemonConfig(paths, {
       installationId: "install-test",
       displayName: "Test daemon",
+      invocationConcurrency: 8,
     });
     await upsertSparkDaemonServerProfile(paths, {
       serverUrl: "https://first.example.test",
@@ -603,6 +604,7 @@ describe("Spark daemon workspace registration", () => {
       expect(readSparkDaemonConfig(paths)).toEqual({
         installationId: "install-test",
         displayName: "Test daemon",
+        invocationConcurrency: 8,
       });
     } finally {
       rmSync(root, { recursive: true, force: true });

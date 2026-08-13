@@ -47,6 +47,7 @@ export async function startLocalRpcServer(options: {
   onUplinkReconfigure?: (serverUrl?: string) => void;
   getLifecycle?: () => SparkDaemonLifecycleSnapshot;
   getBuildFingerprint?: () => string;
+  getExecutionStatus?: LocalRpcHandlerOptions["getExecutionStatus"];
   isReady?: () => boolean;
   eventBus?: SparkDaemonLocalEventBus;
   channelIngress?: DaemonChannelIngressRuntime;
@@ -126,6 +127,7 @@ export async function startLocalRpcServer(options: {
     ...(options.onUplinkReconfigure ? { onUplinkReconfigure: options.onUplinkReconfigure } : {}),
     ...(options.getLifecycle ? { getLifecycle: options.getLifecycle } : {}),
     ...(options.getBuildFingerprint ? { getBuildFingerprint: options.getBuildFingerprint } : {}),
+    ...(options.getExecutionStatus ? { getExecutionStatus: options.getExecutionStatus } : {}),
     ...(options.isReady ? { isReady: options.isReady } : {}),
   };
   const server = createServer((socket) => {

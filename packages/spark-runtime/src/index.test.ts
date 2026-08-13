@@ -9,9 +9,9 @@ describe("RoleRun failure diagnostics", () => {
           record: {
             ref: "run:owned",
             roleRef: "role:executor",
+            roleRevision: `sha256:${"a".repeat(64)}`,
             instruction: "run owned role",
             status: "failed",
-            sessionLifetime: "owned",
           },
           stdout: "",
           stderr: "owned role failed",
@@ -20,7 +20,6 @@ describe("RoleRun failure diagnostics", () => {
       }),
     ).toMatchObject({
       executorKind: "daemon-native",
-      sessionLifetime: "owned",
     });
   });
 });

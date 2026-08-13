@@ -88,11 +88,6 @@ interface ReservedTaskSessionRun {
   goal: string;
   evidenceRequired: string[];
   executionPolicy: TaskExecutionPolicy;
-  relation: {
-    subgoalRef?: SubgoalRef;
-    planRevision?: number;
-    definitionDigest?: string;
-  };
 }
 
 export async function dispatchManagedTaskSessions(
@@ -171,6 +166,23 @@ export async function dispatchManagedTaskSessions(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (reservation.run.execution) {
+        try {
+          const failedSessionId = reservation.run.execution.executionSessionId;
+          if (!failedSessionId) throw new Error("TaskRun execution Session id is missing");
+          await daemonRequest("session.close", {
+            sessionId: failedSessionId,
+            reason: `TaskRun dispatch failed: ${message}`,
+          });
+        } catch (closeError) {
+          if (!isSessionAlreadyClosed(closeError) && !isSessionNotFound(closeError)) {
+            console.error(
+              `[spark] failed to close TaskRun Session ${reservation.run.execution.executionSessionId}`,
+              closeError,
+            );
+          }
+        }
+      }
       await updateReservedRun(stateCwd, reservation.run.ref, reservation.run.taskRef, (run) => ({
         ...run,
         status: "failed",
@@ -381,8 +393,9 @@ export async function reconcileManagedTaskSessions(input: {
     await Promise.all(
       [...new Map(closeRequests.map((request) => [request.sessionId, request])).values()].map(
         async ({ sessionId, completion }) =>
-          await daemonRequest("session.archive", {
+          await daemonRequest("session.close", {
             sessionId,
+            reason: `Task execution owner settled in project ${input.projectRef}`,
             ...(completion ? { completion } : {}),
           }),
       ),
@@ -594,15 +607,6 @@ function reserveTaskSessionRuns(
       goal: subgoal?.goal ?? task.plan?.objective ?? task.description,
       evidenceRequired: subgoal?.evidenceRequired ?? task.plan?.evidenceRequired ?? [],
       executionPolicy: task.executionPolicy!,
-      relation: {
-        ...(subgoal
-          ? {
-              subgoalRef: subgoal.ref,
-              planRevision: subgoal.planRevision,
-              definitionDigest,
-            }
-          : {}),
-      },
     });
   }
   return reservations;
@@ -626,16 +630,17 @@ async function ensureTaskExecutionSession(input: {
   const owner = await input.daemonRequest("session.get", {
     sessionId: input.execution.ownerSessionId,
   });
+  if (owner.scope.kind !== "workspace") {
+    throw new Error("TaskRun Sessions require a Workspace-owned supervisor");
+  }
   try {
     await input.daemonRequest("session.create", {
       sessionId,
-      scope:
-        owner.scope.kind === "workspace"
-          ? { kind: "workspace", workspaceId: owner.scope.workspaceId }
-          : { kind: "daemon" },
-      role: input.roleRef,
+      scope: { kind: "workspace", workspaceId: owner.scope.workspaceId },
+      roleBinding: { kind: "explicit", roleRef: input.roleRef },
       ...(input.fleetTarget
         ? {
+            supervisorSessionId: input.execution.ownerSessionId,
             cwd: input.fleetTarget.primaryRoot,
             cwdArtifactRef: input.fleetTarget.primaryArtifactRef,
           }
@@ -656,16 +661,22 @@ async function ensureTaskExecutionSession(input: {
           }
         : {
             taskExecution: {
-              ownerSessionId: input.execution.ownerSessionId,
+              ...(input.execution.sessionLifetime === "task_revision"
+                ? {
+                    ownerKind: "task_revision" as const,
+                    revisionRef: input.execution.jobId,
+                    originatingRunRef: input.runRef,
+                  }
+                : {
+                    ownerKind: "task_run" as const,
+                    runRef: input.runRef,
+                  }),
+              supervisorSessionId: input.execution.ownerSessionId,
               projectRef: input.projectRef,
               taskRef: input.taskRef,
-              runRef: input.runRef,
               sessionGoalId: input.execution.sessionGoalId,
               ...(input.execution.subgoalRef ? { subgoalRef: input.execution.subgoalRef } : {}),
               roleRef: input.roleRef,
-              roleRevision: input.role.revision,
-              modelType: input.role.modelType,
-              sessionLifetime: input.execution.sessionLifetime,
               ...(input.execution.planRevision
                 ? { planRevision: input.execution.planRevision }
                 : {}),
@@ -682,20 +693,30 @@ async function ensureTaskExecutionSession(input: {
     const existing = await input.daemonRequest("session.get", {
       sessionId,
     });
-    const relationMatches = input.fleetTarget
-      ? existing.relation?.kind === "fleet_worker" &&
-        existing.relation.ownerSessionId === input.execution.ownerSessionId &&
-        existing.relation.projectRef === input.projectRef &&
-        existing.relation.roleRef === input.roleRef &&
-        existing.relation.laneKey === input.execution.workerLaneKey &&
-        existing.relation.primaryArtifactRef === input.fleetTarget.primaryArtifactRef &&
-        sameStrings(existing.relation.writableArtifactRefs, input.fleetTarget.writableArtifactRefs)
-      : existing.relation?.kind === "task_execution" &&
-        existing.relation.jobId === input.execution.jobId &&
-        existing.relation.taskRef === input.taskRef &&
-        existing.relation.sessionGoalId === input.execution.sessionGoalId;
-    if (!relationMatches) {
-      throw new Error(`managed session ${sessionId} has a conflicting relation`);
+    const bindingMatches = input.fleetTarget
+      ? existing.owner.kind === "session" &&
+        existing.owner.supervisorSessionId === input.execution.ownerSessionId &&
+        existing.roleBinding.kind === "explicit" &&
+        existing.roleBinding.roleRef === input.roleRef &&
+        existing.fleetWorker?.ownerSessionId === input.execution.ownerSessionId &&
+        existing.fleetWorker.projectRef === input.projectRef &&
+        existing.fleetWorker.roleRef === input.roleRef &&
+        existing.fleetWorker.laneKey === input.execution.workerLaneKey &&
+        existing.fleetWorker.primaryArtifactRef === input.fleetTarget.primaryArtifactRef &&
+        sameStrings(
+          existing.fleetWorker.writableArtifactRefs,
+          input.fleetTarget.writableArtifactRefs,
+        )
+      : (existing.owner.kind === "task_run" || existing.owner.kind === "task_revision") &&
+        existing.owner.kind ===
+          (input.execution.sessionLifetime === "task_revision" ? "task_revision" : "task_run") &&
+        existing.owner.jobId === input.execution.jobId &&
+        existing.owner.taskRef === input.taskRef &&
+        existing.owner.sessionGoalId === input.execution.sessionGoalId &&
+        existing.roleBinding.kind === "explicit" &&
+        existing.roleBinding.roleRef === input.roleRef;
+    if (!bindingMatches) {
+      throw new Error(`managed session ${sessionId} has a conflicting owner or execution binding`);
     }
   }
   if (input.fleetTarget) return;
@@ -934,6 +955,22 @@ function isSessionAlreadyExists(error: unknown): boolean {
     error instanceof SparkDaemonRemoteError &&
     isRecord(error.payload) &&
     error.payload.code === "session_exists"
+  );
+}
+
+function isSessionAlreadyClosed(error: unknown): boolean {
+  return (
+    error instanceof SparkDaemonRemoteError &&
+    isRecord(error.payload) &&
+    (error.payload.code === "session_closed" || error.payload.code === "session_closing")
+  );
+}
+
+function isSessionNotFound(error: unknown): boolean {
+  return (
+    error instanceof SparkDaemonRemoteError &&
+    isRecord(error.payload) &&
+    error.payload.code === "session_not_found"
   );
 }
 

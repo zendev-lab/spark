@@ -53,6 +53,7 @@ import type {
 
 export interface SparkAgentSessionRunOptions {
   sessionId: string;
+  lifetime?: "persistent";
   /** Daemon-authoritative transcript path; avoids guessing between generations. */
   sessionPath?: string;
   prompt: UserMessage["content"];
@@ -112,7 +113,31 @@ export interface SparkAgentSessionRunResult {
   assistantText: string;
   assistant?: AssistantMessage;
   outcome?: SparkRunOutcome;
-  sessionPersistence?: "persistent" | "anonymous";
+  sessionLifetime: "persistent";
+}
+
+export interface SparkAgentSessionCompactOptions {
+  sessionId: string;
+  /** Daemon-authoritative transcript path for this exact Session generation. */
+  sessionPath?: string;
+  customInstructions?: string;
+  /** Stable durable operation identity retained across daemon restart replay. */
+  operationId?: string;
+  signal?: AbortSignal;
+  /** Synchronous daemon cancellation fence reached immediately before transcript commit. */
+  beforeTranscriptCommit?: () => void;
+  /** Run transcript replacement while the daemon owner retains its commit boundary. */
+  commitTranscriptReplacement?: (replace: () => Promise<void>) => Promise<void>;
+}
+
+export interface SparkAgentSessionCompactResult {
+  sessionId: string;
+  sessionPath: string;
+  succeeded: boolean;
+  replayed: boolean;
+  compactionEntry?: SparkCompactionEntry;
+  tokensBefore?: number;
+  tokensAfter: number;
 }
 
 export class SparkAgentSession {
@@ -120,6 +145,65 @@ export class SparkAgentSession {
 
   constructor(services: SparkCliHostServices) {
     this.services = services;
+  }
+
+  async compact(options: SparkAgentSessionCompactOptions): Promise<SparkAgentSessionCompactResult> {
+    throwIfCompactionAborted(options.signal);
+    const record = options.sessionPath
+      ? await this.loadOrCreateRecord(
+          { sessionId: options.sessionId, sessionPath: options.sessionPath, prompt: "" },
+          true,
+        )
+      : await this.services.sessionStore.findById(options.sessionId);
+    if (!record) throw new Error(`Unknown Spark session: ${options.sessionId}`);
+    this.services.runtime.setSessionId(record.header.id);
+    this.services.agentLoop.setViewSessionId(record.header.id);
+
+    const operationId = options.operationId?.trim();
+    const replayedEntry = operationId
+      ? record.entries.find(
+          (entry): entry is SparkCompactionEntry =>
+            entry.type === "compaction" && entry.metadata?.operationId === operationId,
+        )
+      : undefined;
+    if (replayedEntry) {
+      return {
+        sessionId: record.header.id,
+        sessionPath: record.path,
+        succeeded: true,
+        replayed: true,
+        compactionEntry: replayedEntry,
+        tokensBefore: replayedEntry.tokensBefore,
+        tokensAfter: meterSparkContextTokens({
+          messages: activeSessionReplayMessages(record),
+        }).tokens,
+      };
+    }
+
+    const settings = this.services.config.compact ?? DEFAULT_SPARK_COMPACTION_SETTINGS;
+    const entry = await this.compactRecord(record, "manual", false, true, settings, {
+      ...(options.customInstructions?.trim()
+        ? { customInstructions: options.customInstructions.trim() }
+        : {}),
+      ...(operationId ? { operationId } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.beforeTranscriptCommit
+        ? { beforeTranscriptCommit: options.beforeTranscriptCommit }
+        : {}),
+      ...(options.commitTranscriptReplacement
+        ? { commitTranscriptReplacement: options.commitTranscriptReplacement }
+        : {}),
+    });
+    return {
+      sessionId: record.header.id,
+      sessionPath: record.path,
+      succeeded: Boolean(entry),
+      replayed: false,
+      ...(entry ? { compactionEntry: entry, tokensBefore: entry.tokensBefore } : {}),
+      tokensAfter: meterSparkContextTokens({
+        messages: activeSessionReplayMessages(record),
+      }).tokens,
+    };
   }
 
   async run(options: SparkAgentSessionRunOptions): Promise<SparkAgentSessionRunResult> {
@@ -189,7 +273,11 @@ export class SparkAgentSession {
         compactAttempt < MAX_CONTEXT_OVERFLOW_COMPACTIONS
       ) {
         await delay(CONTEXT_OVERFLOW_COMPACT_BACKOFF_MS[compactAttempt] ?? 10_000);
-        const recovery = await this.tryCompactAfterOverflow(record, beforeCount);
+        const recovery = await this.tryCompactAfterOverflow(
+          record,
+          beforeCount,
+          turnContinuationPersisted,
+        );
         if (!recovery) break;
         compactAttempt += 1;
         if (recovery === "continue") turnContinuationPersisted = true;
@@ -346,7 +434,7 @@ export class SparkAgentSession {
       assistantText: assistantMessageToFinalAnswerText(assistant),
       assistant,
       outcome,
-      sessionPersistence: "persistent",
+      sessionLifetime: "persistent",
     };
   }
 
@@ -549,6 +637,7 @@ export class SparkAgentSession {
   private async tryCompactAfterOverflow(
     record: SparkSessionRecord,
     beforeCount: number,
+    turnContinuationPersisted: boolean,
   ): Promise<"continue" | "resubmit" | false> {
     const transientItems = this.services.agentLoop
       .getPromptItems()
@@ -558,7 +647,9 @@ export class SparkAgentSession {
       (item) => item.authority === "assistant" || item.authority === "tool",
     );
     if (!hasCompletedTurnContext) {
-      return (await this.tryCompact(record, "context_overflow", true, true)) ? "resubmit" : false;
+      const compacted = await this.tryCompact(record, "context_overflow", true, true);
+      if (!compacted) return false;
+      return turnContinuationPersisted ? "continue" : "resubmit";
     }
 
     // Compact a checkpoint rather than replaying the live turn. A micro pass is
@@ -614,12 +705,14 @@ export class SparkAgentSession {
     settings?: SparkCompactionSettings,
   ): Promise<boolean> {
     try {
-      return await this.compact(
-        record,
-        reason,
-        willRetry,
-        force,
-        settings ?? this.services.config.compact ?? DEFAULT_SPARK_COMPACTION_SETTINGS,
+      return Boolean(
+        await this.compactRecord(
+          record,
+          reason,
+          willRetry,
+          force,
+          settings ?? this.services.config.compact ?? DEFAULT_SPARK_COMPACTION_SETTINGS,
+        ),
       );
     } catch {
       // Keep the original provider outcome if compaction itself cannot be
@@ -628,15 +721,24 @@ export class SparkAgentSession {
     }
   }
 
-  private async compact(
+  private async compactRecord(
     record: SparkSessionRecord,
-    reason: "auto" | "context_overflow",
+    reason: "manual" | "auto" | "context_overflow",
     willRetry: boolean,
     force: boolean,
     settings: SparkCompactionSettings,
-  ): Promise<boolean> {
+    options: {
+      customInstructions?: string;
+      operationId?: string;
+      signal?: AbortSignal;
+      beforeTranscriptCommit?: () => void;
+      commitTranscriptReplacement?: (replace: () => Promise<void>) => Promise<void>;
+    } = {},
+  ): Promise<SparkCompactionEntry | undefined> {
     const initialPreparation = prepareForAutomaticCompaction(record, force, settings);
-    if (!initialPreparation || initialPreparation.messagesToSummarize.length === 0) return false;
+    if (!initialPreparation || initialPreparation.messagesToSummarize.length === 0)
+      return undefined;
+    const repeatedCompaction = isRepeatedCompactionPreparation(initialPreparation);
 
     let compactionEntry: SparkCompactionEntry | undefined;
     let compactionSucceeded = false;
@@ -646,11 +748,17 @@ export class SparkAgentSession {
       const results = await this.services.runtime.emit("session_before_compact", {
         reason,
         willRetry,
+        ...(options.customInstructions ? { customInstructions: options.customInstructions } : {}),
         consumeMessage: true,
       });
       appendCompactionCheckpointMessages(this.services, record, results);
-      const preparation = prepareForAutomaticCompaction(record, force, settings);
-      if (!preparation || preparation.messagesToSummarize.length === 0) return false;
+      // A Memory checkpoint appended by session_before_compact is post-summary
+      // context. Keep it in replay, but do not let it turn a repeated
+      // compaction-leaf pass into an ordinary Previous-summary pass.
+      const preparation = repeatedCompaction
+        ? initialPreparation
+        : prepareForAutomaticCompaction(record, force, settings);
+      if (!preparation || preparation.messagesToSummarize.length === 0) return undefined;
       const replayBefore = activeSessionReplayMessages(record);
       const beforeMeter = meterSparkContextTokens({
         messages: replayBefore,
@@ -667,40 +775,51 @@ export class SparkAgentSession {
           ? async ({ model, preparation: input }) =>
               await this.services.runCompactionModel!({
                 model,
-                prompt: renderSparkSmartCompactionPrompt(input),
+                prompt: renderSparkSmartCompactionPrompt(input, options.customInstructions),
                 maxTokens: smartCompactionMaxTokens(input),
+                ...(options.signal ? { signal: options.signal } : {}),
               })
           : undefined,
+        ...(options.customInstructions ? { customInstructions: options.customInstructions } : {}),
       });
       compactionEntry = await compactSparkSessionRecord(record, preparation, () => attempt.result, {
         tokenSource: beforeMeter.tokenSource,
         measuredReductionRatio: 0,
+        ...(options.operationId ? { operationId: options.operationId } : {}),
         ...(attempt.fallbackReason ? { fallbackReason: attempt.fallbackReason } : {}),
       });
+      throwIfCompactionAborted(options.signal);
       const estimatedTokensAfter = meterSparkContextTokens({
         messages: activeSessionReplayMessages(record),
       }).tokens;
-      const repeatedCompaction =
-        preparation.messagesToSummarize.length === 1 &&
-        preparation.messagesToSummarize[0]?.role === "compactionSummary";
       const reductionRatio = measuredReductionRatio(estimatedTokensBefore, estimatedTokensAfter);
       if (repeatedCompaction && reductionRatio < settings.minUsefulReduction) {
         if (record.entries.at(-1)?.id === compactionEntry.id) record.entries.pop();
         compactionEntry = undefined;
-        return false;
+        return undefined;
       }
       if (compactionEntry.metadata) {
         compactionEntry.metadata.measuredReductionRatio = reductionRatio;
       }
-      await this.services.sessionStore.save(record);
+      throwIfCompactionAborted(options.signal);
+      await this.services.sessionStore.save(record, {
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.beforeTranscriptCommit ? { beforeCommit: options.beforeTranscriptCommit } : {}),
+        ...(options.commitTranscriptReplacement
+          ? { commitTranscriptReplacement: options.commitTranscriptReplacement }
+          : {}),
+      });
       compactionSucceeded = true;
-      return true;
+      return compactionEntry;
     } finally {
       if (lifecycleStarted) {
         try {
           await this.services.runtime.emit("session_compact", {
             reason,
             willRetry,
+            ...(options.customInstructions
+              ? { customInstructions: options.customInstructions }
+              : {}),
             sessionId: record.header.id,
             compactType: "full",
             succeeded: compactionSucceeded,
@@ -715,6 +834,16 @@ export class SparkAgentSession {
       }
     }
   }
+}
+
+function throwIfCompactionAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  if (signal.reason instanceof Error) throw signal.reason;
+  const error = new Error(
+    typeof signal.reason === "string" ? signal.reason : "Session compaction was aborted.",
+  );
+  error.name = "AbortError";
+  throw error;
 }
 
 function isProviderErrorPromptItem(item: SparkPromptItem): boolean {
@@ -835,9 +964,7 @@ function activeSparkModelId(services: SparkCliHostServices): string | undefined 
 }
 
 function smartCompactionMaxTokens(preparation: SparkCompactionPreparation): number {
-  const repeated =
-    preparation.messagesToSummarize.length === 1 &&
-    preparation.messagesToSummarize[0]?.role === "compactionSummary";
+  const repeated = isRepeatedCompactionPreparation(preparation);
   if (!repeated) return 4096;
   return Math.max(
     256,
@@ -845,6 +972,14 @@ function smartCompactionMaxTokens(preparation: SparkCompactionPreparation): numb
       4096,
       Math.floor(preparation.tokensBefore * (1 - preparation.settings.targetReduction)),
     ),
+  );
+}
+
+function isRepeatedCompactionPreparation(preparation: SparkCompactionPreparation): boolean {
+  return (
+    preparation.previousSummary === undefined &&
+    preparation.messagesToSummarize.length === 1 &&
+    preparation.messagesToSummarize[0]?.role === "compactionSummary"
   );
 }
 
@@ -1063,7 +1198,11 @@ export function sessionEntriesToPromptItems(entries: SparkSessionEntry[]): Spark
   for (let index = 0; index < latestCompactionIndex; index += 1) {
     const entry = pathEntries[index]!;
     if (entry.id === compaction.firstKeptEntryId) foundFirstKept = true;
-    if (foundFirstKept) appendEntryPromptItem(items, entry);
+    // Usage on a protected assistant message was measured against the prefix
+    // before this compaction. Keep the message itself, but strip that stale
+    // provider counter so final-envelope metering cannot resurrect the
+    // discarded history. Messages produced after the compaction retain usage.
+    if (foundFirstKept) appendEntryPromptItem(items, entry, { stripAssistantUsage: true });
   }
   for (let index = latestCompactionIndex + 1; index < pathEntries.length; index += 1)
     appendEntryPromptItem(items, pathEntries[index]!);
@@ -1089,9 +1228,24 @@ function entriesToPromptItems(entries: SparkSessionEntry[]): SparkPromptItem[] {
   return items;
 }
 
-function appendEntryPromptItem(items: SparkPromptItem[], entry: SparkSessionEntry): void {
+function appendEntryPromptItem(
+  items: SparkPromptItem[],
+  entry: SparkSessionEntry,
+  options: { stripAssistantUsage?: boolean } = {},
+): void {
   const item = entryToPromptItem(entry);
-  if (item) items.push(item);
+  if (!item) return;
+  if (
+    options.stripAssistantUsage === true &&
+    item.authority === "assistant" &&
+    item.content.kind === "provider_message"
+  ) {
+    const message = { ...item.content.message };
+    delete message.usage;
+    items.push({ ...item, content: { kind: "provider_message", message } });
+    return;
+  }
+  items.push(item);
 }
 
 function entryToPromptItem(entry: SparkSessionEntry): SparkPromptItem | undefined {

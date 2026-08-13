@@ -109,12 +109,72 @@ const CUE_SCOPE_ACTIONS = [
   "status",
 ] as const;
 const SCRIPT_LANGUAGES = ["cue-shell", "python"] as const;
+const SAFE_EXEC_COMMANDS = new Set([
+  "basename",
+  "cat",
+  "dirname",
+  "file",
+  "grep",
+  "head",
+  "ls",
+  "pwd",
+  "readlink",
+  "rg",
+  "stat",
+  "tail",
+  "wc",
+  "which",
+]);
+const UNSAFE_SAFE_EXEC_ARGUMENTS = new Set([
+  "--files-from",
+  "--path-separator",
+  "--pre",
+  "--pre-glob",
+  "--replace",
+]);
 
 function isFileOp(command: string): boolean {
   const firstWord = command.trim().split(/\s+/)[0];
   if (!firstWord) return false;
   const base = firstWord.split("/").pop() ?? firstWord;
   return SHORT_TIMEOUT_COMMANDS.has(base);
+}
+
+/**
+ * Classify only a deliberately small direct-exec subset as read-only. Any
+ * parse ambiguity, composition operator, background job, PTY, resource need,
+ * alternate binary path, or executable callback remains external_write and is
+ * therefore denied by Explorer/Reviewer effect ceilings.
+ */
+export function resolveCueExecPolicy(args: Readonly<Record<string, unknown>>) {
+  if (args.background === true || args.pty === true || args.needs !== undefined) {
+    return CUE_EXECUTION_TOOL_POLICY;
+  }
+  const command = typeof args.command === "string" ? args.command.trim() : "";
+  if (!command || /[\n\r|&;`$()<>~'"\\]/u.test(command)) return CUE_EXECUTION_TOOL_POLICY;
+  const tokens = command.split(/\s+/u);
+  const executable = tokens[0];
+  if (!executable || executable.includes("/") || !SAFE_EXEC_COMMANDS.has(executable)) {
+    return CUE_EXECUTION_TOOL_POLICY;
+  }
+  if (
+    tokens
+      .slice(1)
+      .some((token) =>
+        [...UNSAFE_SAFE_EXEC_ARGUMENTS].some(
+          (argument) => token === argument || token.startsWith(`${argument}=`),
+        ),
+      )
+  ) {
+    return CUE_EXECUTION_TOOL_POLICY;
+  }
+  return {
+    effect: "read",
+    executionMode: "sequential",
+    domains: ["cue", "safe-exec"],
+    phases: ["plan", "implement"],
+    approval: "none",
+  } as const;
 }
 
 function statusLabel(status: JobStatus): string {
@@ -1027,6 +1087,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
     name: "cue_exec",
     label: "Run Command",
     policy: CUE_EXECUTION_TOOL_POLICY,
+    resolvePolicy: resolveCueExecPolicy,
     description:
       "Execute a command in cue-shell using the active cue-client transport profile (Unix socket or SSH gateway). " +
       "SSH profiles connect through the configured remote `cued gateway --stdio`; spark-cue does not auto-start remote daemons. " +

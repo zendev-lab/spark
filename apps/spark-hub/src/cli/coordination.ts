@@ -688,8 +688,11 @@ async function hubAssign(
   if (!goal) throw new Error("spark hub assign requires --goal <text>");
 
   const session = await getManagedSession(sessionId, options.daemonClient);
-  if (session.status === "archived") {
+  if (session.placement === "archived") {
     throw new Error(`cannot assign to archived session: ${sessionId}`);
+  }
+  if (session.lifecycle !== "open") {
+    throw new Error(`cannot assign to ${session.lifecycle} session: ${sessionId}`);
   }
 
   const role = command.role?.trim();
@@ -699,7 +702,9 @@ async function hubAssign(
     target: {
       sessionId,
       ...(role ? { role } : {}),
-      workspaceId: command.workspaceId?.trim() || session.workspaceId,
+      workspaceId:
+        command.workspaceId?.trim() ||
+        (session.scope.kind === "workspace" ? session.scope.workspaceId : undefined),
     },
     constraints: [],
     evidence: [],

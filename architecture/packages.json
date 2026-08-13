@@ -1,6 +1,146 @@
 {
   "$schema": "./packages.schema.json",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "governance": {
+    "layerPolicy": {
+      "tiers": {
+        "application": 5,
+        "composition": 4,
+        "adapter": 3,
+        "client": 3,
+        "runtime": 3,
+        "private-adapter": 3,
+        "capability": 2,
+        "contract": 1,
+        "foundation": 1,
+        "compatibility": 1,
+        "experiment": 5
+      },
+      "peerLayerGroups": [
+        ["adapter", "client", "runtime"],
+        ["contract", "foundation", "compatibility"]
+      ],
+      "denySameLayerDependencies": ["application", "experiment"],
+      "targetRestrictions": [
+        {
+          "targetLayer": "private-adapter",
+          "allowedFromLayers": ["private-adapter"],
+          "allowedFromPackages": ["@zendev-lab/spark-hub"]
+        },
+        {
+          "targetLayer": "experiment",
+          "allowedFromLayers": ["experiment"],
+          "allowedFromPackages": []
+        }
+      ]
+    },
+    "temporaryDependencyExceptions": [
+      {
+        "from": "@zendev-lab/spark-artifacts",
+        "to": "@zendev-lab/spark-daemon-client",
+        "toLayer": "client",
+        "reason": "Artifact persistence still reaches the daemon transport before the daemon-client port inversion.",
+        "owner": "artifacts",
+        "exitTask": "task:6a9bde44-5cfe-4e78-9a0e-ead159701b55",
+        "nonGrowth": true
+      },
+      {
+        "from": "@zendev-lab/spark-files",
+        "to": "@zendev-lab/spark-daemon-client",
+        "toLayer": "client",
+        "reason": "File capability persistence still reaches the daemon transport before the daemon-client port inversion.",
+        "owner": "files",
+        "exitTask": "task:6a9bde44-5cfe-4e78-9a0e-ead159701b55",
+        "nonGrowth": true
+      },
+      {
+        "from": "@zendev-lab/spark-session",
+        "to": "@zendev-lab/spark-daemon-client",
+        "toLayer": "client",
+        "reason": "Session compatibility actions still call the daemon client until the session port is inverted.",
+        "owner": "sessions",
+        "exitTask": "task:6a9bde44-5cfe-4e78-9a0e-ead159701b55",
+        "nonGrowth": true
+      },
+      {
+        "from": "@zendev-lab/spark-ask",
+        "to": "@zendev-lab/spark-tui-adapter",
+        "toLayer": "adapter",
+        "reason": "Ask rendering still imports TUI primitives until the presentation port is inverted.",
+        "owner": "interaction",
+        "exitTask": "task:8eccaf5a-cb45-4993-8268-9e2aba1987a2",
+        "nonGrowth": true
+      },
+      {
+        "from": "@zendev-lab/spark-roles",
+        "to": "@zendev-lab/spark-host",
+        "toLayer": "runtime",
+        "reason": "Role execution still imports host runtime services until the presentation and host ports are inverted.",
+        "owner": "roles",
+        "exitTask": "task:8eccaf5a-cb45-4993-8268-9e2aba1987a2",
+        "nonGrowth": true
+      },
+      {
+        "from": "@zendev-lab/spark-roles",
+        "to": "@zendev-lab/spark-tui-adapter",
+        "toLayer": "adapter",
+        "reason": "Role rendering still imports TUI primitives until the presentation port is inverted.",
+        "owner": "roles",
+        "exitTask": "task:8eccaf5a-cb45-4993-8268-9e2aba1987a2",
+        "nonGrowth": true
+      }
+    ],
+    "temporaryDependencyExceptionBudget": {
+      "current": 6,
+      "ceiling": 6,
+      "nonGrowth": true
+    },
+    "piOwnership": {
+      "productManifestOwner": "@zendev-lab/pi-spark",
+      "temporaryProductManifestExceptions": [
+        {
+          "manifest": "package.json",
+          "reason": "The root compatibility manifest remains frozen until Pi manifest ownership is cut over.",
+          "owner": "extension-host",
+          "exitTask": "task:3dc06113-d8d3-4f55-8cd2-a92cfadb955b",
+          "nonGrowth": true
+        }
+      ],
+      "sdkDependencies": [
+        {
+          "dependency": "@earendil-works/pi-ai",
+          "owner": "@zendev-lab/spark-ai"
+        },
+        {
+          "dependency": "@earendil-works/pi-tui",
+          "owner": "@zendev-lab/spark-tui-adapter"
+        },
+        {
+          "dependency": "@earendil-works/pi-coding-agent",
+          "owner": "@zendev-lab/pi-spark"
+        }
+      ],
+      "temporaryDependencyExceptions": [
+        {
+          "package": "@zendev-lab/spark-text",
+          "dependency": "@earendil-works/pi-tui",
+          "reason": "Shared text helpers still re-export Pi width primitives until Pi manifest ownership is cut over.",
+          "owner": "presentation",
+          "exitTask": "task:3dc06113-d8d3-4f55-8cd2-a92cfadb955b",
+          "nonGrowth": true
+        }
+      ]
+    },
+    "packageBudget": {
+      "current": 41,
+      "approvedNext": 42,
+      "approvedPackage": "@zendev-lab/pi-spark",
+      "approvedPath": "packages/pi-spark",
+      "reason": "The dedicated Pi composition package is the next approved hard product boundary.",
+      "exitTask": "task:9e656c39-41c1-475d-8a77-cbce4fa9b174"
+    },
+    "compositionRoots": ["@zendev-lab/spark-extension"]
+  },
   "packages": {
     "@zendev-lab/spark-cli": {
       "path": "apps/spark-cli",

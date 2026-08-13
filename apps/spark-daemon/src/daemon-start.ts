@@ -10,7 +10,11 @@ import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { resolveSparkUserPaths, writePrivateFile } from "@zendev-lab/spark-system";
 import { resolveWorkflowDefinition } from "@zendev-lab/spark-workflows";
-import { readSparkDaemonConfig, type SparkDaemonConfig } from "./config.js";
+import {
+  readSparkDaemonConfig,
+  resolveSparkDaemonInvocationConcurrency,
+  type SparkDaemonConfig,
+} from "./config.js";
 import {
   getSparkDaemonServerProfile,
   listSparkDaemonServerProfiles,
@@ -374,7 +378,7 @@ async function createPreparedDaemonRuntime(
           resolveWorkspaceBindingId(options.db, workspaceId),
         ownerExists: async (owner, session) => {
           if (owner.kind === "driver") {
-            const loop = loopStore.get(owner.ref);
+            const loop = loopStore.get(owner.driverId);
             return Boolean(
               loop &&
               loop.driverSessionId === session.sessionId &&
@@ -383,7 +387,7 @@ async function createPreparedDaemonRuntime(
             );
           }
           if (owner.kind === "driver_tick") {
-            const invocation = invocationStore.getSummary(owner.ref);
+            const invocation = invocationStore.getSummary(owner.tickInvocationId);
             return Boolean(
               invocation &&
               invocation.sessionId === session.sessionId &&
@@ -392,7 +396,6 @@ async function createPreparedDaemonRuntime(
           }
           if (
             (owner.kind === "task_run" || owner.kind === "task_revision") &&
-            session.relation?.kind === "task_execution" &&
             session.scope.kind === "workspace"
           ) {
             return await isTaskSessionOwnerValid(
@@ -400,7 +403,6 @@ async function createPreparedDaemonRuntime(
                 owner,
                 workspaceId: session.scope.workspaceId,
                 sessionId: session.sessionId,
-                relation: session.relation,
               },
               {
                 resolveWorkspaceCwd: (workspaceId) =>
@@ -710,9 +712,9 @@ function canOpenDaemonAdmission(runtime: PreparedDaemonRuntime): boolean {
 async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<void> {
   runtime.scheduler?.recover();
   await runtime.sessionSupervisor?.reconcile({
-    workspaceIds: listWorkspaces(runtime.options.db)
-      .filter((workspace) => workspace.status !== "archived")
-      .map((workspace) => workspace.id),
+    workspaceIds: listWorkspaces(runtime.options.db, { includeInactive: true }).map(
+      (workspace) => workspace.id,
+    ),
   });
   runtime.loopStore.reconcileTerminalTicks();
   await reconcileLoopGoalSettlements(runtime.loopStore, { retryErrors: true });
@@ -1079,6 +1081,7 @@ function createDaemonScheduler(input: {
         channelsSparkHome: input.channelsSparkHome,
         loopEvaluators: input.loopEvaluators,
         ...(options.modelControl ? { modelControl: options.modelControl } : {}),
+        invocationStore: input.invocationStore,
         ...(sessionRegistry
           ? {
               sessionRegistry,
@@ -1174,7 +1177,8 @@ function createDaemonScheduler(input: {
     completeInvocation: (invocation, task, completion) =>
       completeScheduledInvocation(input, invocation, task, completion),
     emitEvent: (event) => input.eventHub.emit(event),
-    concurrency: options.schedulerConcurrency,
+    concurrency:
+      options.schedulerConcurrency ?? resolveSparkDaemonInvocationConcurrency(options.config),
     taskTimeoutMs: options.invocationTimeoutMs,
     restartRequestedSignal: options.restartSignal,
     initiallyAccepting: false,

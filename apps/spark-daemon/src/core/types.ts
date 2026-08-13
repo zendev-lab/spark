@@ -2,6 +2,7 @@
 
 import {
   parseSparkAssignment,
+  SPARK_SESSION_COMPACT_CUSTOM_INSTRUCTIONS_MAX_LENGTH,
   sparkLoopCycleCheckpointSchema,
   sparkLoopPolicySchema,
   sparkLoopViewSchema,
@@ -39,8 +40,28 @@ import type {
 
 export type SparkDaemonTask =
   | SparkDaemonSessionRunTask
+  | SparkDaemonSessionCompactTask
   | SparkDaemonLoopTickTask
   | SparkDaemonLoopEvaluationTask;
+
+export const SPARK_SESSION_COMPACT_PROMPT = "Compact session context";
+
+export interface SparkDaemonSessionCompactTask {
+  type: "session.compact";
+  sessionId: string;
+  /** Registry generation frozen at admission; stale generations may not mutate a transcript. */
+  sessionIncarnation: number;
+  prompt: typeof SPARK_SESSION_COMPACT_PROMPT;
+  operationId: string;
+  customInstructions?: string;
+  /** Canonical provider/model frozen when compaction is enqueued. */
+  model?: string;
+  /** Execution directory frozen from the durable session owner at enqueue time. */
+  cwd?: string;
+  workspaceBindingId?: string;
+  workspaceId?: string;
+  projectId?: string;
+}
 
 export interface SparkDaemonLoopTickTask extends Omit<
   SparkDaemonSessionRunTask,
@@ -123,10 +144,6 @@ export interface SparkDaemonSessionRunTask {
   /** Optional presentation owner for internal child Session events. */
   presentationSessionId?: string;
   prompt: string;
-  /** Supervisor-frozen Role prompt for one owned child Session. */
-  roleSystemPrompt?: string;
-  /** Supervisor-frozen tool boundary for one owned child Session. */
-  roleAllowedTools?: string[];
   /** Compatibility RoleRun projection identity; lifecycle remains Session-owned. */
   roleRunRef?: string;
   requireStructuredOutcome?: boolean;
@@ -194,6 +211,12 @@ export interface SparkDaemonTaskExecutionContext {
   invocationId: string;
   signal: AbortSignal;
   timeoutMs?: number;
+  /**
+   * Cross the task's irreversible persistence boundary. This throws when a
+   * cancellation already won; after it returns, the scheduler drains the
+   * executor to its real success/failure instead of publishing cancellation.
+   */
+  beginDurableCommit?(): void;
   /** Pause the task wall-clock timeout while waiting on an explicit human decision. */
   withPausedTimeout?<T>(operation: () => Promise<T>): Promise<T>;
   /**
@@ -216,7 +239,9 @@ export type SparkDaemonTaskExecutor = (
 ) => Promise<unknown>;
 
 export function getSparkDaemonTaskSessionId(task: SparkDaemonTask): string | null {
-  return task.type === "session.run" ? task.sessionId : task.ownerSessionId;
+  return task.type === "session.run" || task.type === "session.compact"
+    ? task.sessionId
+    : task.ownerSessionId;
 }
 
 export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
@@ -224,13 +249,19 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
     throw new Error("daemon task must be an object");
   }
   const task = value as Partial<
-    SparkDaemonSessionRunTask | SparkDaemonLoopTickTask | SparkDaemonLoopEvaluationTask
+    | SparkDaemonSessionRunTask
+    | SparkDaemonSessionCompactTask
+    | SparkDaemonLoopTickTask
+    | SparkDaemonLoopEvaluationTask
   >;
   if (task.type === "loop.tick") {
     return validateSparkDaemonLoopTickTask(task);
   }
   if (task.type === "loop.evaluate") {
     return validateSparkDaemonLoopEvaluationTask(task);
+  }
+  if (task.type === "session.compact") {
+    return validateSparkDaemonSessionCompactTask(task);
   }
   if (task.type !== "session.run") {
     throw new Error(`unsupported daemon task type: ${String((value as { type?: unknown }).type)}`);
@@ -259,8 +290,6 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
     hiddenExecution: typeof task.hiddenExecution === "boolean" ? task.hiddenExecution : undefined,
     presentationSessionId: nonEmptyString(task.presentationSessionId),
     prompt: task.prompt,
-    roleSystemPrompt: nonEmptyString(task.roleSystemPrompt),
-    roleAllowedTools: optionalStringList(task.roleAllowedTools, "roleAllowedTools"),
     roleRunRef: nonEmptyString(task.roleRunRef),
     requireStructuredOutcome:
       typeof task.requireStructuredOutcome === "boolean"
@@ -290,6 +319,46 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
     ...(parseChannelContext(task.channelContext)
       ? { channelContext: parseChannelContext(task.channelContext) }
       : {}),
+  };
+}
+
+function validateSparkDaemonSessionCompactTask(
+  task: Partial<SparkDaemonSessionCompactTask>,
+): SparkDaemonSessionCompactTask {
+  const sessionId = nonEmptyString(task.sessionId)?.trim();
+  const operationId = nonEmptyString(task.operationId)?.trim();
+  const cwd = nonEmptyString(task.cwd)?.trim();
+  if (!sessionId) throw new Error("session.compact task requires sessionId");
+  if (!Number.isInteger(task.sessionIncarnation) || Number(task.sessionIncarnation) <= 0) {
+    throw new Error("session.compact task requires a positive sessionIncarnation");
+  }
+  if (task.prompt !== SPARK_SESSION_COMPACT_PROMPT) {
+    throw new Error(`session.compact task prompt must be ${SPARK_SESSION_COMPACT_PROMPT}`);
+  }
+  if (!operationId) throw new Error("session.compact task requires operationId");
+  const customInstructions = nonEmptyString(task.customInstructions)?.trim();
+  if (
+    customInstructions &&
+    customInstructions.length > SPARK_SESSION_COMPACT_CUSTOM_INSTRUCTIONS_MAX_LENGTH
+  ) {
+    throw new Error(
+      `session.compact task customInstructions must not exceed ${SPARK_SESSION_COMPACT_CUSTOM_INSTRUCTIONS_MAX_LENGTH} characters`,
+    );
+  }
+  return {
+    type: "session.compact",
+    sessionId,
+    sessionIncarnation: Number(task.sessionIncarnation),
+    prompt: SPARK_SESSION_COMPACT_PROMPT,
+    operationId,
+    ...(customInstructions ? { customInstructions } : {}),
+    ...(nonEmptyString(task.model) ? { model: nonEmptyString(task.model)! } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(nonEmptyString(task.workspaceBindingId)
+      ? { workspaceBindingId: nonEmptyString(task.workspaceBindingId)! }
+      : {}),
+    ...(nonEmptyString(task.workspaceId) ? { workspaceId: nonEmptyString(task.workspaceId)! } : {}),
+    ...(nonEmptyString(task.projectId) ? { projectId: nonEmptyString(task.projectId)! } : {}),
   };
 }
 

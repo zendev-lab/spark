@@ -45,7 +45,7 @@ import {
   type SparkMemoryFeedbackReceipt,
   type SparkMessageView,
   type SparkQqbotQrAuthFlow,
-  type SparkSessionRegistryRecord,
+  type SparkSessionState,
 } from "@zendev-lab/spark-protocol";
 import { loadSparkSessionSnapshot } from "@zendev-lab/spark-session";
 import { resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
@@ -370,7 +370,7 @@ export function createChannelIngressController(input: {
   sparkHome: string;
   config: ChannelsConfig;
   hooks: ChannelIngressHooks;
-  sessionRegistry?: Pick<DaemonSessionRegistry, "resolveBinding"> &
+  sessionRegistry?: Pick<DaemonSessionRegistry, "ensureWorkspaceAdministrator" | "resolveBinding"> &
     Partial<Pick<DaemonSessionRegistry, "get" | "recordTurnQueued" | "recordTurnSettled">>;
   workspaceId: string;
   createTransport?: ChannelRegistryOptions["createTransport"];
@@ -459,8 +459,15 @@ export function createChannelIngressController(input: {
         : {}),
       onUnbound: input.config.ingress?.on_unbound ?? "create",
       create: {
-        workspaceId: input.workspaceId,
-        title: channelSessionTitle(message),
+        scope: { kind: "workspace", workspaceId: input.workspaceId },
+        name: channelSessionTitle(message),
+        owner: {
+          kind: "session",
+          supervisorSessionId: (
+            await sessionRegistry.ensureWorkspaceAdministrator(input.workspaceId)
+          ).sessionId,
+        },
+        roleBinding: { kind: "none" },
       },
     });
     const enrichedMessage = await enrichInboundMessageReferenceFromSession({
@@ -843,8 +850,8 @@ function channelContextFromIncoming(message: IncomingMessage): SparkDaemonChanne
 
 export async function enrichInboundMessageReferenceFromSession(input: {
   message: IncomingMessage;
-  session: SparkSessionRegistryRecord;
-  getSession?: (sessionId: string) => Promise<SparkSessionRegistryRecord | undefined>;
+  session: SparkSessionState;
+  getSession?: (sessionId: string) => Promise<SparkSessionState | undefined>;
   sparkHome: string;
 }): Promise<IncomingMessage> {
   const reference = normalizeChannelMessageReference(input.message.messageReference);
@@ -956,7 +963,7 @@ type WorkspaceSlot = {
 export function createDaemonChannelIngressRuntime(input: {
   sparkHome: string;
   hooks: ChannelIngressHooks;
-  sessionRegistry?: Pick<DaemonSessionRegistry, "resolveBinding"> &
+  sessionRegistry?: Pick<DaemonSessionRegistry, "ensureWorkspaceAdministrator" | "resolveBinding"> &
     Partial<Pick<DaemonSessionRegistry, "get">>;
   /** @deprecated Ignored; pass workspaceId to status/configure/reload/notify. */
   workspaceId?: string;

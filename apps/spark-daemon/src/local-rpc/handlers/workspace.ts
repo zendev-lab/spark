@@ -15,7 +15,7 @@ import {
 import { SparkDaemonControlError } from "../../control-error.ts";
 import { resolveSessionCwdOwner, SessionCwdResolutionError } from "../../session-cwd.ts";
 import { relocateSparkDaemonHub } from "../../relocation.ts";
-import { ensureWorkspaceMainSession } from "../../workspace-main-session.ts";
+import { ensureWorkspaceAdministratorSession } from "../../workspace-administrator-session.ts";
 import { workspaceClientResult } from "../helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
 import {
@@ -69,7 +69,7 @@ export async function handleWorkspaceRequest(
       // Compatibility method name: resolve/re-attach an explicit registration only.
       const workspace = ensureLocalWorkspace(db, request.params);
       if (options.sessionRegistry) {
-        await ensureWorkspaceMainSession(db, options.sessionRegistry, workspace.id);
+        await ensureWorkspaceAdministratorSession(db, options.sessionRegistry, workspace.id);
       }
       return parseLocalRpcServiceOutput(request.method, workspace);
     }
@@ -198,7 +198,7 @@ export async function handleWorkspaceRequest(
       }
       options.onUplinkReconfigure?.(workspace.serverUrl);
       if (options.sessionRegistry) {
-        await ensureWorkspaceMainSession(db, options.sessionRegistry, workspace.id);
+        await ensureWorkspaceAdministratorSession(db, options.sessionRegistry, workspace.id);
       }
       return parseLocalRpcServiceOutput(request.method, {
         ...workspace,
@@ -211,7 +211,7 @@ export async function handleWorkspaceRequest(
       const workspace = attachWorkspace(db, { id: request.params.id });
       options.onUplinkReconfigure?.(workspace.serverUrl);
       if (options.sessionRegistry) {
-        await ensureWorkspaceMainSession(db, options.sessionRegistry, workspace.id);
+        await ensureWorkspaceAdministratorSession(db, options.sessionRegistry, workspace.id);
       }
       return parseLocalRpcServiceOutput(request.method, workspace);
     }

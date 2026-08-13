@@ -6,6 +6,7 @@ import { test } from "vitest";
 import type { ExtensionRoleRunner } from "@zendev-lab/spark-core";
 
 import { registerSparkRolesTools } from "./extension.ts";
+import { createDefaultRoleRegistry, RoleModelTypeUnconfiguredError } from "./role-runtime.ts";
 
 const DEFAULT_TEST_CWD = "/tmp/spark-roles-tool-default-cwd";
 
@@ -135,13 +136,13 @@ test("role action tool dispatches canonical list, get, and create actions", asyn
           "role",
           {
             action: "call",
-            role: "worker",
+            role: "executor",
             sessionId: "session:persistent",
             instruction: "Do not accept persistent session targets here.",
           },
           dir,
         ),
-      /role does not manage persistent sessions/u,
+      /Role calls are ephemeral/u,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -160,7 +161,7 @@ test("role action tool manages role model settings", async () => {
       "role",
       {
         action: "model_set",
-        role: "worker",
+        role: "executor",
         model: "test/model",
         source: "project",
       },
@@ -171,10 +172,15 @@ test("role action tool manages role model settings", async () => {
       /Saved project model setting for type implementation/,
     );
 
-    const got = await executeRoleTool(tools, "role", { action: "model_get", role: "worker" }, dir);
+    const got = await executeRoleTool(
+      tools,
+      "role",
+      { action: "model_get", role: "executor" },
+      dir,
+    );
     assert.match(got.content[0]?.text ?? "", /test\/model source=project/);
     assert.equal(
-      (got.details?.model as { selector?: string } | undefined)?.selector,
+      (got.details?.model as { modelType?: string } | undefined)?.modelType,
       "implementation",
     );
 
@@ -191,8 +197,8 @@ test("role action tool manages role model settings", async () => {
       "role",
       {
         action: "call",
-        role: "worker",
-        instruction: "Run with the saved project role model setting.",
+        role: "executor",
+        instruction: "Run with the saved Role Model Type setting.",
         timeoutMs: 5_000,
       },
       dir,
@@ -204,7 +210,7 @@ test("role action tool manages role model settings", async () => {
     const deleted = await executeRoleTool(
       tools,
       "role",
-      { action: "model_delete", role: "worker", source: "project" },
+      { action: "model_delete", role: "executor", source: "project" },
       dir,
     );
     assert.match(deleted.content[0]?.text ?? "", /Deleted project model setting/);
@@ -212,7 +218,7 @@ test("role action tool manages role model settings", async () => {
     const afterDelete = await executeRoleTool(
       tools,
       "role",
-      { action: "model_get", role: "worker" },
+      { action: "model_get", role: "executor" },
       dir,
     );
     assert.match(afterDelete.content[0]?.text ?? "", /No model setting for type implementation/);
@@ -223,7 +229,7 @@ test("role action tool manages role model settings", async () => {
         "role",
         {
           action: "model_set",
-          role: "worker",
+          role: "executor",
           model: "missing/model",
           source: "project",
         },
@@ -238,6 +244,23 @@ test("role action tool manages role model settings", async () => {
   }
 });
 
+test("direct-call role parameters stay host-neutral", () => {
+  const tools = registerRoleToolsForTest();
+  const roleToolParameters = tools.get("role")?.parameters as
+    | { properties?: Record<string, { description?: string }> }
+    | undefined;
+  assert.equal(roleToolParameters?.properties?.piCommand, undefined);
+
+  const roles = createDefaultRoleRegistry({ now: "2026-01-01T00:00:00.000Z" }).list({
+    source: "builtin",
+  });
+  assert.deepEqual(
+    roles.map((role) => role.id),
+    ["administrator", "executor", "explorer", "reviewer"],
+  );
+  assert.ok(roles.every((role) => role.source === "builtin" && role.revision.length > 0));
+});
+
 test("role spec tools keep patch presets out of builtin role lookup", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-no-patcher-"));
   try {
@@ -245,7 +268,7 @@ test("role spec tools keep patch presets out of builtin role lookup", async () =
     const listed = await executeRoleTool(tools, "list_roles", { source: "builtin" }, dir);
     const roleIds = ((listed.details?.roles ?? []) as Array<{ id: string }>).map((role) => role.id);
 
-    assert.deepEqual(roleIds, ["administrator", "executor", "explorer", "researcher", "reviewer"]);
+    assert.deepEqual(roleIds, ["administrator", "executor", "explorer", "reviewer"]);
     assert.doesNotMatch(listed.content[0]?.text ?? "", /\bpatcher?\b/);
     await assert.rejects(
       executeRoleTool(tools, "get_role", { role: "patch" }, dir),
@@ -260,7 +283,7 @@ test("role spec tools keep patch presets out of builtin role lookup", async () =
   }
 });
 
-test("call_role launches fresh owned Role Sessions", async () => {
+test("call_role launches an ephemeral Role Session without lifecycle parameters", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-tool-"));
   const previousBindingHome = process.env.SPARK_HOME;
   process.env.SPARK_HOME = dir;
@@ -270,9 +293,8 @@ test("call_role launches fresh owned Role Sessions", async () => {
     const result = await executeCallRole(
       tools,
       {
-        role: "worker",
-        instruction: "Run the fake worker.",
-        launch: "fresh",
+        role: "executor",
+        instruction: "Run the fake executor.",
         model: "test/model",
         timeoutMs: 5_000,
       },
@@ -286,29 +308,24 @@ test("call_role launches fresh owned Role Sessions", async () => {
     );
 
     assert.match(result.content[0]?.text ?? "", /Role call succeeded: executor/);
-    assert.match(
-      result.content[0]?.text ?? "",
-      /runRef=run:[^\n]+ · launch=fresh · model=test\/model/,
-    );
+    assert.match(result.content[0]?.text ?? "", /runRef=run:[^\n]+ · model=test\/model/);
     assert.match(result.content[0]?.text ?? "", /result:\nFake worker result\./);
     assert.doesNotMatch(result.content[0]?.text ?? "", /lastJsonEvent/);
     assert.doesNotMatch(result.content[0]?.text ?? "", /stdout:\n\{"type":"message_end"/);
     const details = result.details as {
-      record?: { status?: string; launch?: string };
+      record?: { status?: string };
       jsonEventCount?: number;
       delivery?: { status?: string; hasFinalAssistantText?: boolean };
     };
     assert.equal(details.record?.status, "succeeded");
-    assert.equal(details.record?.launch, "fresh");
+    assert.equal("launch" in (details.record ?? {}), false);
     assert.equal(details.jsonEventCount, 1);
     assert.equal(capturedNativeInput?.role.id, "executor");
     assert.ok(capturedNativeInput?.role.allowedTools?.includes("edit"));
-    assert.equal(capturedNativeInput?.instruction.instruction, "Run the fake worker.");
+    assert.equal(capturedNativeInput?.instruction.instruction, "Run the fake executor.");
     assert.equal(capturedNativeInput?.launch, "fresh");
-    assert.equal(capturedNativeInput?.noSession, undefined);
-    assert.equal(capturedNativeInput?.record.noSession, undefined);
-    assert.equal(capturedNativeInput?.role.modelType, "implementation");
-    assert.equal(capturedNativeInput?.role.instantiation, "owned");
+    assert.equal("sessionLifetime" in (capturedNativeInput ?? {}), false);
+    assert.equal("sessionLifetime" in (capturedNativeInput?.record ?? {}), false);
     assert.equal(capturedNativeInput?.model, "test/model");
     assert.equal(capturedNativeInput?.timeoutMs, 5_000);
     assert.equal(capturedNativeInput?.cwd, dir);
@@ -320,9 +337,8 @@ test("call_role launches fresh owned Role Sessions", async () => {
       "role",
       {
         action: "call",
-        role: "worker",
-        instruction: "Run the fake worker through the canonical role tool.",
-        launch: "fresh",
+        role: "executor",
+        instruction: "Run the fake executor through the canonical role tool.",
         model: "test/model",
         timeoutMs: 5_000,
       },
@@ -344,22 +360,22 @@ test("call_role rejects an unconfigured Model Type instead of inheriting the ses
     const tools = registerRoleToolsForTest();
 
     await assert.rejects(
-      executeRoleTool(
-        tools,
-        "role",
-        {
-          action: "call",
-          role: "worker",
-          instruction: "Do not inherit the active session model.",
-          timeoutMs: 5_000,
-        },
-        dir,
-        { model: { provider: "test", id: "model", api: "openai-responses" } },
-      ),
-      (error: unknown) =>
-        error instanceof Error &&
-        error.name === "RoleModelTypeUnconfiguredError" &&
-        (error as Error & { code?: string }).code === "role_model_type_unconfigured",
+      () =>
+        executeRoleTool(
+          tools,
+          "role",
+          {
+            action: "call",
+            role: "executor",
+            instruction: "Do not inherit the supervisor Session model.",
+            timeoutMs: 5_000,
+          },
+          dir,
+          { model: { provider: "test", id: "model", api: "openai-responses" } },
+        ),
+      (error) =>
+        error instanceof RoleModelTypeUnconfiguredError &&
+        error.code === "role_model_type_unconfigured",
     );
   } finally {
     if (previousBindingHome === undefined) delete process.env.SPARK_HOME;
@@ -377,7 +393,7 @@ test("call_role does not expose raw JSON protocol fragments as output", async ()
     const result = await executeCallRole(
       tools,
       {
-        role: "worker",
+        role: "executor",
         instruction: "Run protocol fragment.",
         model: "test/model",
       },
@@ -405,7 +421,7 @@ test("call_role exposes empty delivery when JSON events have no final assistant 
     const result = await executeCallRole(
       tools,
       {
-        role: "worker",
+        role: "executor",
         instruction: "Run without final message.",
         model: "test/model",
       },
@@ -434,7 +450,7 @@ test("call_role exposes empty delivery when JSON events have no final assistant 
   }
 });
 
-test("call_role directs persistent continuity to the session tool", async () => {
+test("call_role rejects removed launch parameters", async () => {
   const tools = registerRoleToolsForTest();
   await assert.rejects(
     executeCallRole(tools, {
@@ -442,19 +458,19 @@ test("call_role directs persistent continuity to the session tool", async () => 
       instruction: "Review with context.",
       launch: "forked",
     }),
-    /forked launch is not public; use the session tool for continuity/,
+    /launch was removed; Role calls use ephemeral Sessions/,
   );
 });
 
-test("call_role rejects unknown launches instead of falling back to fresh", async () => {
+test("call_role rejects unknown legacy launches instead of interpreting them", async () => {
   const tools = registerRoleToolsForTest();
   await assert.rejects(
     executeCallRole(tools, {
-      role: "worker",
+      role: "executor",
       instruction: "Run with an invalid launch.",
       launch: "legacy-mode",
     }),
-    /unsupported role launch mode/,
+    /launch was removed; Role calls use ephemeral Sessions/,
   );
 });
 
@@ -466,7 +482,7 @@ test("spark-roles tools require ctx cwd unless call_role cwd is explicit", async
     /list_roles requires ctx\.cwd/,
   );
   await assert.rejects(
-    executeRoleToolWithoutCwd(tools, "get_role", { role: "worker" }),
+    executeRoleToolWithoutCwd(tools, "get_role", { role: "executor" }),
     /get_role requires ctx\.cwd/,
   );
   await assert.rejects(
@@ -481,7 +497,7 @@ test("spark-roles tools require ctx cwd unless call_role cwd is explicit", async
   );
   await assert.rejects(
     executeRoleToolWithoutCwd(tools, "call_role", {
-      role: "worker",
+      role: "executor",
       instruction: "Run without cwd.",
     }),
     /call_role requires ctx\.cwd/,
@@ -495,7 +511,7 @@ test("spark-roles tools require ctx cwd unless call_role cwd is explicit", async
       tools,
       "call_role",
       {
-        role: "worker",
+        role: "executor",
         instruction: "Run with explicit cwd.",
         cwd: dir,
         model: "test/model",
@@ -621,14 +637,14 @@ test("spark-roles tools reject invalid explicit parameters instead of using defa
   );
   await assert.rejects(
     executeCallRole(tools, {
-      role: "worker",
+      role: "executor",
       instruction: 42,
     }),
     /call_role instruction must be a string/,
   );
   await assert.rejects(
     executeCallRole(tools, {
-      role: "worker",
+      role: "executor",
       instruction: "Run with an invalid timeout.",
       timeoutMs: "5000",
     }),
@@ -636,7 +652,7 @@ test("spark-roles tools reject invalid explicit parameters instead of using defa
   );
   await assert.rejects(
     executeCallRole(tools, {
-      role: "worker",
+      role: "executor",
       instruction: "Run with removed dryRun flag.",
       dryRun: true,
     }),
@@ -644,7 +660,7 @@ test("spark-roles tools reject invalid explicit parameters instead of using defa
   );
   await assert.rejects(
     executeCallRole(tools, {
-      role: "worker",
+      role: "executor",
       instruction: "Run with a removed pi command parameter.",
       piCommand: "custom-pi",
     }),
@@ -652,15 +668,15 @@ test("spark-roles tools reject invalid explicit parameters instead of using defa
   );
   await assert.rejects(
     executeCallRole(tools, {
-      role: "worker",
+      role: "executor",
       instruction: "Run with an invalid session directory.",
       sessionDir: 42,
     }),
-    /call_role sessionDir is not supported for anonymous role calls/,
+    /call_role sessionDir is not supported for ephemeral Role calls/,
   );
   await assert.rejects(
     executeCallRole(tools, {
-      role: "worker",
+      role: "executor",
       instruction: "Run with a persistent-only reset option.",
       reset: true,
     }),
@@ -673,7 +689,7 @@ test("spark-roles tools reject invalid explicit parameters instead of using defa
       launch: "forked",
       forkFromSession: 42,
     }),
-    /call_role forked launch is not public|call_role forkFromSession is not public/,
+    /call_role launch was removed/,
   );
 });
 

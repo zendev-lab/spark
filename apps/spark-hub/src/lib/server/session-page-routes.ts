@@ -17,10 +17,12 @@ import { requireWorkspaceByRouteId } from "$lib/server/workspace-routing";
 import { conversationStartSessionId } from "$lib/server/conversation-submission";
 import {
   archiveManagedSessionForHub,
+  closeManagedSessionForHub,
   createManagedSessionForHub,
   getManagedSessionForHub,
   getProjectedManagedSessionForHub,
   setManagedSessionModeForHub,
+  listProjectedManagedSessionsForHub,
 } from "$lib/server/managed-sessions";
 import {
   loadModelControlForHub,
@@ -65,6 +67,15 @@ export async function loadSessionsPage(
   }
   if (url?.pathname === "/sessions" && parentData.activeWorkspace) {
     redirect(303, `${workspaceSessionsPath(parentData.activeWorkspace)}${url.search}`);
+  }
+  const administrator = parentData.sessions.find(
+    (session: { owner?: { kind?: string } }) => session.owner?.kind === "workspace",
+  );
+  if (!url.searchParams.has("new") && administrator && parentData.activeWorkspace) {
+    redirect(
+      303,
+      `${workspaceSessionsPath(parentData.activeWorkspace)}/${encodeURIComponent(administrator.sessionId)}`,
+    );
   }
   const workspaceId = parentData.activeWorkspace?.id ?? null;
   const modelControl = workspaceId
@@ -195,13 +206,22 @@ export const actions = {
     const cwdContext = cwdArtifactRef || cwd ? JSON.stringify([cwdArtifactRef, cwd]) : "";
     try {
       deterministicSessionId = conversationStartSessionId(workspaceId, submissionId, cwdContext);
+      const administrator = listProjectedManagedSessionsForHub({
+        workspaceId,
+        includeArchived: true,
+        related: true,
+      }).sessions.find((candidate) => candidate.owner.kind === "workspace");
+      if (!administrator) {
+        throw new Error(`Workspace ${workspaceId} Administrator Session is still provisioning.`);
+      }
       session = await createManagedSessionForHub({
         scope: { kind: "workspace", workspaceId },
-        workspaceId,
+        supervisorSessionId: administrator.sessionId,
+        placement: "child",
+        roleBinding: { kind: "none" },
+        name: titleFromPrompt(message),
         ...(cwd ? { cwd } : {}),
         ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
-        roleRef: "role:builtin-administrator",
-        purpose: "hub_interactive",
         ...(deterministicSessionId ? { sessionId: deterministicSessionId } : {}),
         idempotencyKey: hubSubmissionIdempotencyKey(submissionId, "session.create", cwdContext),
       });
@@ -210,7 +230,7 @@ export const actions = {
         const existing = await getManagedSessionForHub(deterministicSessionId);
         if (
           existing &&
-          existing.status !== "archived" &&
+          existing.placement !== "archived" &&
           workspaceIdForWorkbenchSession(existing) === workspaceId &&
           (existing.cwdArtifactRef ?? "") === cwdArtifactRef
         ) {
@@ -363,7 +383,7 @@ export const actions = {
       });
     }
     assertRouteWorkspace(params, workspaceId, "Session not found.");
-    if (session.status === "archived") {
+    if (session.placement === "archived") {
       return fail(400, {
         intent: "sendMessage",
         success: false,
@@ -471,7 +491,7 @@ export const actions = {
       });
     }
     assertRouteWorkspace(params, workspaceId, "Session not found.");
-    if (session.status === "archived") {
+    if (session.placement === "archived") {
       return fail(400, {
         intent,
         success: false,
@@ -705,6 +725,42 @@ export const actions = {
       return fail(400, {
         intent: "archiveSession",
         message: caught instanceof Error ? caught.message : t.archiveFailed,
+      });
+    }
+
+    redirect(303, workbenchSessionsPathFromPathname(url?.pathname ?? "") ?? "/sessions");
+  },
+
+  closeSession: async ({ cookies, params, request, url }: SessionActionEvent) => {
+    const t = getRequestDictionary({
+      cookieLocale: cookies.get(localeCookieName),
+      acceptLanguage: request.headers.get("accept-language"),
+    }).sessions;
+    const formData = await request.formData();
+    const sessionId = formText(formData, "sessionId").trim();
+
+    if (!sessionId) {
+      return fail(400, {
+        intent: "closeSession",
+        message: t.closeSessionRequired,
+      });
+    }
+
+    try {
+      const session = await getManagedSessionForHub(sessionId);
+      const workspaceId = session ? workspaceIdForWorkbenchSession(session) : null;
+      if (!session || !workspaceId) {
+        return fail(400, {
+          intent: "closeSession",
+          message: t.closeSessionRequired,
+        });
+      }
+      assertRouteWorkspace(params, workspaceId, "Session not found.");
+      await closeManagedSessionForHub(sessionId);
+    } catch (caught) {
+      return fail(400, {
+        intent: "closeSession",
+        message: caught instanceof Error ? caught.message : t.closeFailed,
       });
     }
 

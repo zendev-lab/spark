@@ -24,12 +24,11 @@ export function registerSparkSessionTool(
     name: "session",
     label: "Session",
     description:
-      "Canonical persistent session capability for long-lived staff roles (daemon-local session registry). This is NOT the Hub conversation list at /{workspace}/sessions — do not archive or create registry sessions to tidy Hub UI conversations. Reuse sessions by stable division of labour, manage lifecycle and bindings, submit tasks, or send durable requests and notifications.",
+      "Canonical scoped Session capability. A Session is an owned execution context; Role binding is an optional behavior type, and the Workspace Administrator is the only persistent Session.",
     promptGuidelines: [
-      "A persistent session represents a long-lived division of labour, never one task. Before create, you MUST list same-workspace local sessions and compare roles semantically; reuse the closest owner with session call/send even when task wording, technology, or language differs.",
-      "Hub workspace conversations (browser UI under /{workspace}/sessions) are a separate projection. session list/archive only touches the Spark session registry; they will not remove or rename Hub chat rows. To clean Hub chats, use the page archive control or the runtime session-control API with that page's session IDs.",
-      "Use session create only when no existing division of labour owns the responsibility. role must be one concise stable responsibility label in the user's language and existing naming style, such as 运行维护, 前端体验, 质量验证, or Messaging Platforms. Put the concrete task only in session call/send; never use a task slug, implementation name, model name, deliverable, or temporary phase as the role.",
-      "session list is paginated and labels each surface as local or channel plus activity as idle or running; use surface, activity, adapter, query, and tags filters, then continue with offset when total exceeds the returned page. Archived sessions remain searchable with includeArchived=true and can be restored without losing their lifecycle tags.",
+      "Use session create to instantiate a scoped child or sibling under an existing supervising Session. Give it an independent name and choose roleBinding=none, inherit, or an explicit RoleRef; none is the default and adds no Role prompt or Role capability ceiling.",
+      "The Workspace Administrator is persistent and protected. Never attempt to archive, close, or replace it. Administrator delegates execution; it is not an executor.",
+      "session list is paginated and labels lifecycle, placement, owner-derived lifetime, Role binding, surface, and Invocation-derived activity. Archived Sessions remain searchable with includeArchived=true and can be restored; closed Sessions are terminal.",
       "session send kind=notification persists without triggering the target session; it is the default and cannot wait for completion.",
       "session send kind=request persists and submits one turn to an idle or running local target. wait=accepted is asynchronous and is the default; when the target finishes, the daemon wakes the sender session with a completion summary turn so it can synthesize immediately. wait=completed polls the durable invocation through restart and returns its terminal response without a second wake. After a completed wait times out, call send again with kind=request, wait=completed, and only invocationId/timeoutMs to continue waiting without resubmitting or writing mail.",
       "Message-platform sessions may use only list/get/send/inbox/read/ack. Their list/get/send targets are restricted to the current workspace, and sends require local targets.",
@@ -45,19 +44,19 @@ export function registerSparkSessionTool(
     parameters: Type.Object({
       action: Type.String({
         description:
-          "list | get | create | call | bind | unbind | archive | restore | send | inbox | read | ack",
+          "list | get | create | call | bind | unbind | archive | restore | close | send | inbox | read | ack",
       }),
       sessionId: Type.Optional(
         Type.String({
           description:
-            "Persistent target for get/call/bind/unbind/archive/restore/inbox/read/ack, or requested id for create.",
+            "Target for get/call/bind/unbind/archive/restore/close/inbox/read/ack, or requested id for create.",
         }),
       ),
       instruction: Type.Optional(
-        Type.String({ description: "Instruction for an explicit persistent session call." }),
+        Type.String({ description: "Instruction for an explicit Session call." }),
       ),
       reset: Type.Optional(
-        Type.Boolean({ description: "Persistent call only; reset before submitting the turn." }),
+        Type.Boolean({ description: "Session call only; reset before submitting the turn." }),
       ),
       workspaceId: Type.Optional(
         Type.String({
@@ -89,16 +88,18 @@ export function registerSparkSessionTool(
       ),
       limit: Type.Optional(Type.Number({ description: "Maximum rows. Defaults to 20." })),
       offset: Type.Optional(Type.Number({ description: "List offset. Defaults to 0." })),
-      role: Type.Optional(
-        Type.String({
-          description:
-            "Deprecated create alias for roleRef. Builtin names resolve to role:builtin-<name>.",
+      name: Type.Optional(Type.String({ description: "Independent display name for create." })),
+      roleBinding: Type.Optional(
+        Type.Any({
+          description: "Create binding: {kind:'none'|'inherit'} or {kind:'explicit', roleRef}.",
         }),
       ),
-      roleRef: Type.Optional(
+      placement: Type.Optional(
+        Type.String({ description: "Create placement: child (default) or sibling." }),
+      ),
+      supervisorSessionId: Type.Optional(
         Type.String({
-          description:
-            "RoleSpec ref for create. Defaults to role:builtin-administrator for an ordinary conversation.",
+          description: "Supervising Session for create; defaults to current Session.",
         }),
       ),
       cwd: Type.Optional(Type.String({ description: "Optional working directory for create." })),
@@ -216,6 +217,7 @@ function normalizeSessionAction(value: unknown): SparkSessionAction {
     value === "unbind" ||
     value === "archive" ||
     value === "restore" ||
+    value === "close" ||
     value === "send" ||
     value === "inbox" ||
     value === "read" ||
@@ -223,7 +225,7 @@ function normalizeSessionAction(value: unknown): SparkSessionAction {
   )
     return value;
   throw new Error(
-    "session.action must be list, get, create, call, bind, unbind, archive, restore, send, inbox, read, or ack",
+    "session.action must be list, get, create, call, bind, unbind, archive, restore, close, send, inbox, read, or ack",
   );
 }
 

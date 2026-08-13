@@ -212,6 +212,7 @@ export async function createSparkCliHostServices(
       model: request.model,
       metadata: { purpose: "session_compaction" },
       maxTokens: request.maxTokens,
+      ...(request.signal ? { signal: request.signal } : {}),
     });
     return response.structured ?? response.text;
   };
@@ -281,6 +282,28 @@ export async function createSparkCliHostServices(
       return model as Model<string>;
     },
     getReasoning: () => config.activeThinkingLevel,
+    beforeProviderRequest: ({ model, estimate, requestedOutputTokens }) => {
+      const contextWindow = positiveFiniteInteger(model.contextWindow);
+      if (!contextWindow) return;
+      const estimatedRequestTokens = estimate.tokens + requestedOutputTokens;
+      // The earlier session preflight owns the configurable reserve and early
+      // compaction thresholds. This final assembled-envelope guard is the hard
+      // provider boundary. SparkAgentLoop has already clamped the configured
+      // output budget, so this validates the exact envelope sent downstream.
+      if (
+        sparkProviderRequestFitsContextWindow(estimate.tokens, requestedOutputTokens, contextWindow)
+      ) {
+        return;
+      }
+      const error = new Error(
+        `Spark provider request preflight estimated ${estimatedRequestTokens} tokens ` +
+          `(messages=${estimate.messageTokens}, system=${estimate.systemPromptTokens}, ` +
+          `tools=${estimate.toolTokens}, output=${requestedOutputTokens}), exceeding ` +
+          `context window ${contextWindow}.`,
+      ) as Error & { code?: string };
+      error.code = "SPARK_CONTEXT_OVERFLOW_PREFLIGHT";
+      throw error;
+    },
     systemPrompt: initialPromptState.systemPrompt,
     streamTimeoutMs: options.streamTimeoutMs,
     streamIdleTimeoutMs: options.streamIdleTimeoutMs,
@@ -536,6 +559,21 @@ function formatProviderLoadError(providerLoadResult: LoadResult): string | undef
   return failures
     .map((outcome) => `${outcome.specifier}: ${outcome.error ?? "unknown error"}`)
     .join("; ");
+}
+
+function positiveFiniteInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : undefined;
+}
+
+/** The assembled request and its configured output budget must fit together. */
+export function sparkProviderRequestFitsContextWindow(
+  estimatedInputTokens: number,
+  requestedOutputTokens: number,
+  contextWindow: number,
+): boolean {
+  return estimatedInputTokens + requestedOutputTokens <= contextWindow;
 }
 
 export function selectInitialModel(

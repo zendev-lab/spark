@@ -119,7 +119,8 @@ test("Spark workflow_run extracts provider usage from role-run JSON events", () 
   const roleResult: SparkRoleRunResult = {
     record: {
       ref: "run:child-json" as `run:${string}`,
-      roleRef: "role:builtin-worker" as `role:${string}`,
+      roleRef: "role:builtin-executor" as `role:${string}`,
+      roleRevision: "test-revision",
       runName: "usage child",
       instruction: "report usage",
       status: "succeeded",
@@ -175,7 +176,7 @@ stage('Edit', { status: 'success' })
 return result`;
   const events: WorkflowRunEvent[] = [];
   const agent = createSparkWorkflowRoleRunAdapter({
-    roleRef: "role:builtin-worker",
+    roleRef: "role:builtin-executor",
     graftBaseRef: "tree:base",
     async runRoleInstruction() {
       return {
@@ -1192,7 +1193,7 @@ test("Spark workflow_run approval resolves selected role tool policies", async (
           "tool-call",
           {
             script: `export const meta = { name: 'role approval', description: 'role policy smoke' }
-return await agent('bounded work', { roleRef: 'role:builtin-worker' })`,
+return await agent('bounded work', { roleRef: 'role:builtin-executor' })`,
           },
           new AbortController().signal,
           () => undefined,
@@ -1200,7 +1201,7 @@ return await agent('bounded work', { roleRef: 'role:builtin-worker' })`,
         ),
       /workflow_run approval denied: test inspected role policy/,
     );
-    assert.deepEqual(observed?.roles, ["role:builtin-worker"]);
+    assert.deepEqual(observed?.roles, ["role:builtin-executor"]);
     assert.ok(observed?.tools.includes("cue_exec"));
     assert.ok(observed?.tools.includes("write"));
     assert.deepEqual(observed?.riskFlags, ["role_policies", "shell_tools", "write_tools"]);

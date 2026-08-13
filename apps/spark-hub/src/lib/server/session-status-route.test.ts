@@ -27,7 +27,9 @@ describe("session status route scope", () => {
     mocks.get.mockResolvedValue({
       sessionId: "sess_workspace",
       scope: { kind: "workspace", workspaceId: "ws_current" },
-      status: "ready",
+      lifecycle: "open",
+      placement: "active",
+      activity: "idle",
       updatedAt: "2026-07-15T00:00:00.000Z",
     });
 
@@ -36,7 +38,7 @@ describe("session status route scope", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       sessionId: "sess_workspace",
-      status: "ready",
+      status: "idle",
     });
   });
 
@@ -44,7 +46,9 @@ describe("session status route scope", () => {
     mocks.projected.mockReturnValue({
       sessionId: "sess_workspace",
       scope: { kind: "workspace", workspaceId: "ws_current" },
-      status: "ready",
+      lifecycle: "open",
+      placement: "active",
+      activity: "idle",
       updatedAt: "2026-07-15T00:00:00.000Z",
     });
 
@@ -53,7 +57,7 @@ describe("session status route scope", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       sessionId: "sess_workspace",
-      status: "ready",
+      status: "idle",
     });
     expect(mocks.get).not.toHaveBeenCalled();
   });
@@ -62,13 +66,17 @@ describe("session status route scope", () => {
     mocks.projected.mockReturnValue({
       sessionId: "sess_workspace",
       scope: { kind: "workspace", workspaceId: "ws_current" },
-      status: "running",
+      lifecycle: "open",
+      placement: "active",
+      activity: "running",
       updatedAt: "2026-07-15T00:00:00.000Z",
     });
     mocks.get.mockResolvedValue({
       sessionId: "sess_workspace",
       scope: { kind: "workspace", workspaceId: "ws_current" },
-      status: "ready",
+      lifecycle: "open",
+      placement: "active",
+      activity: "idle",
       updatedAt: "2026-07-15T00:00:01.000Z",
     });
 
@@ -77,7 +85,7 @@ describe("session status route scope", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       sessionId: "sess_workspace",
-      status: "ready",
+      status: "idle",
     });
     expect(mocks.get).toHaveBeenCalledWith("sess_workspace");
   });
@@ -86,7 +94,9 @@ describe("session status route scope", () => {
     mocks.get.mockResolvedValue({
       sessionId: "sess_daemon",
       scope: { kind: "daemon", daemonId: "daemon-local" },
-      status: "ready",
+      lifecycle: "closed",
+      placement: "active",
+      activity: "idle",
       updatedAt: "2026-07-15T00:00:00.000Z",
     });
 

@@ -16,6 +16,7 @@ import {
   parseSparkDaemonEvent,
   parseSparkInteractionRequest,
   type SparkViewModelEvent,
+  type SparkSessionProjection,
 } from "@zendev-lab/spark-protocol";
 
 import { handleSparkRpcLine, parseSparkCliCommand, runSparkCli } from "../cli.ts";
@@ -39,6 +40,73 @@ import {
   type SparkDaemonClientOptions,
 } from "../cli/daemon.ts";
 import { SparkNativeAdmissionError } from "../native-tui.ts";
+
+function managedSessionFixture(input: {
+  sessionId: string;
+  workspaceId: string;
+  name?: string;
+  cwd?: string;
+  cwdArtifactRef?: string;
+  sessionPath?: string;
+  placement?: "active" | "archived";
+  tags?: string[];
+  archiveHistory?: SparkSessionProjection["archiveHistory"];
+  bindings?: SparkSessionProjection["bindings"];
+  model?: SparkSessionProjection["model"];
+  thinkingLevel?: SparkSessionProjection["thinkingLevel"];
+  createdAt?: string;
+  updatedAt?: string;
+}): SparkSessionProjection {
+  const createdAt = input.createdAt ?? "2026-07-10T00:00:00.000Z";
+  return {
+    sessionId: input.sessionId,
+    scope: { kind: "workspace", workspaceId: input.workspaceId },
+    lifecycle: "open",
+    placement: input.placement ?? "active",
+    activity: "idle",
+    roleBinding: { kind: "none" },
+    incarnation: 1,
+    owner: { kind: "session", supervisorSessionId: `administrator:${input.workspaceId}` },
+    stateBinding: { kind: "session", ref: `administrator:${input.workspaceId}` },
+    visibility: "public",
+    retention: "retain",
+    purpose: "interactive",
+    lifetime: "scoped",
+    bindings: input.bindings ?? [],
+    createdAt,
+    updatedAt: input.updatedAt ?? createdAt,
+    ...(input.name ? { name: input.name } : {}),
+    ...(input.cwd ? { cwd: input.cwd } : {}),
+    ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
+    ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
+    ...(input.tags ? { tags: input.tags } : {}),
+    ...(input.archiveHistory ? { archiveHistory: input.archiveHistory } : {}),
+    ...(input.model ? { model: input.model } : {}),
+    ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
+  };
+}
+
+function administratorSessionFixture(workspaceId: string): SparkSessionProjection {
+  return {
+    sessionId: `administrator:${workspaceId}`,
+    scope: { kind: "workspace", workspaceId },
+    name: "Administrator",
+    lifecycle: "open",
+    placement: "active",
+    activity: "idle",
+    roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
+    incarnation: 1,
+    owner: { kind: "workspace", workspaceId },
+    stateBinding: { kind: "session", ref: `administrator:${workspaceId}` },
+    visibility: "public",
+    retention: "audit",
+    purpose: "workspace_administrator",
+    lifetime: "persistent",
+    bindings: [],
+    createdAt: "2026-07-10T00:00:00.000Z",
+    updatedAt: "2026-07-10T00:00:00.000Z",
+  };
+}
 
 test("source daemon service artifacts are rebuilt before execution", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-daemon-source-artifact-"));
@@ -464,28 +532,19 @@ test("daemon channel reload is an explicit daemon local RPC operation", async ()
 
 test("daemon managed session commands wait for the daemon-owned RPC client", async () => {
   const calls: string[] = [];
-  const session = {
+  const session = managedSessionFixture({
     sessionId: "sess_rpc",
-    scope: { kind: "workspace" as const, workspaceId: "ws_rpc" },
     workspaceId: "ws_rpc",
-    title: "RPC session",
-    status: "ready" as const,
-    bindings: [],
-    createdAt: "2026-07-10T00:00:00.000Z",
-    updatedAt: "2026-07-10T00:00:00.000Z",
-  };
+    name: "RPC session",
+  });
   const managedSessions: NonNullable<SparkDaemonClientOptions["managedSessions"]> = {
     create: async (input) => {
-      calls.push(`create:${input.workspaceId}`);
+      calls.push(`create:${input.scope.kind === "workspace" ? input.scope.workspaceId : "daemon"}`);
       return session;
     },
     list: async (options) => {
       const workspaceId =
-        options?.scope?.kind === "workspace"
-          ? options.scope.workspaceId
-          : options && "workspaceId" in options
-            ? options.workspaceId
-            : undefined;
+        options?.scope?.kind === "workspace" ? options.scope.workspaceId : undefined;
       calls.push(`list:${workspaceId ?? "all"}`);
       return [session];
     },
@@ -503,7 +562,7 @@ test("daemon managed session commands wait for the daemon-owned RPC client", asy
     },
     archive: async (sessionId) => {
       calls.push(`archive:${sessionId}`);
-      return { ...session, status: "archived" };
+      return { ...session, placement: "archived" };
     },
   };
   const client = { managedSessions } satisfies SparkDaemonClientOptions;
@@ -515,6 +574,8 @@ test("daemon managed session commands wait for the daemon-owned RPC client", asy
       json: true,
       workspaceId: "ws_rpc",
       sessionId: "sess_rpc",
+      supervisorSessionId: "administrator:ws_rpc",
+      placement: "child",
     },
     client,
   );
@@ -564,7 +625,7 @@ test("daemon managed session mutation fails explicitly when daemon RPC is unavai
     create: async () => {
       throw new Error("Spark daemon is offline");
     },
-    list: async () => [],
+    list: async () => [administratorSessionFixture("ws_rpc")],
     get: async () => {
       throw new Error("Spark daemon is offline");
     },
@@ -2408,7 +2469,7 @@ test("native TUI creation binds a GitChange subdirectory while keeping workspace
         cwdArtifactRef: "artifact:git:cwd",
       }),
       managedSessions: {
-        list: async () => [],
+        list: async () => [administratorSessionFixture(workspace.id)],
         create: async (input) => {
           if (input.scope?.kind !== "workspace") {
             throw new Error("expected workspace session create");
@@ -2417,17 +2478,14 @@ test("native TUI creation binds a GitChange subdirectory while keeping workspace
             ...(input.cwd ? { cwd: input.cwd } : {}),
             ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
           });
-          return {
+          return managedSessionFixture({
             sessionId: "cwd-session",
-            scope: input.scope,
             workspaceId: workspace.id,
             cwd: worktreeCwd,
             cwdArtifactRef: "artifact:git:cwd",
-            status: "ready" as const,
-            bindings: [],
             createdAt: now,
             updatedAt: now,
-          };
+          });
         },
         get: async () => {
           throw new Error("not used");
@@ -2505,16 +2563,9 @@ test("Spark TUI and headless print attach and release workspace clients", async 
       workspaceId: string;
       cwd?: string;
     }> = [];
-    const managedSessionRecords: Array<{
-      sessionId: string;
-      scope: { kind: "workspace"; workspaceId: string };
-      workspaceId: string;
-      status: "ready";
-      bindings: [];
-      createdAt: string;
-      updatedAt: string;
-      cwd?: string;
-    }> = [];
+    const managedSessionRecords: SparkSessionProjection[] = [
+      administratorSessionFixture(workspace.id),
+    ];
     const daemonClient: SparkDaemonClientOptions = {
       paths,
       startService: () => ({ kind: "detached" as const, alreadyRunning: false, detail: "started" }),
@@ -2570,22 +2621,19 @@ test("Spark TUI and headless print attach and release workspace clients", async 
           assert.equal(input.scope?.kind, "workspace");
           if (input.scope?.kind !== "workspace") throw new Error("expected workspace session");
           const scope = input.scope;
-          const sessionId = input.sessionId ?? `generated-${managedSessionRecords.length + 1}`;
+          const sessionId = input.sessionId ?? `generated-${managedSessionRecords.length}`;
           registeredSessions.push({
             sessionId,
             workspaceId: scope.workspaceId,
             cwd: input.cwd,
           });
-          const record = {
+          const record = managedSessionFixture({
             sessionId,
-            scope,
             workspaceId: scope.workspaceId,
-            status: "ready" as const,
-            bindings: [] as [],
             createdAt: "2026-06-19T00:00:00.000Z",
             updatedAt: "2026-06-19T00:00:00.000Z",
             ...(input.cwd ? { cwd: input.cwd } : {}),
-          };
+          });
           managedSessionRecords.push(record);
           return record;
         },
@@ -2757,7 +2805,11 @@ test("Spark TUI and headless print attach and release workspace clients", async 
               ?.localPath,
             dir,
           );
-          assert.equal(options.sessions.length, 2);
+          assert.equal(options.sessions.length, 3);
+          assert.equal(
+            options.sessions.filter((session) => session.owner.kind === "workspace").length,
+            1,
+          );
           return { kind: "create", workspaceId: workspace.id };
         },
         runTui: async (input) => {
@@ -2924,12 +2976,11 @@ test("native TUI hydrates a delayed History Session snapshot before its initial 
   try {
     const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
     const now = "2026-07-13T00:00:00.000Z";
-    const existing = {
+    const existing = managedSessionFixture({
       sessionId: "daemon-session-1",
-      title: "Existing conversation",
-      scope: { kind: "workspace" as const, workspaceId: "workspace-current" },
+      name: "Existing conversation",
       workspaceId: "workspace-current",
-      status: "archived" as const,
+      placement: "archived",
       tags: ["policy:inactive-unassigned-30d"],
       archiveHistory: [
         {
@@ -2938,11 +2989,10 @@ test("native TUI hydrates a delayed History Session snapshot before its initial 
           tags: ["policy:inactive-unassigned-30d"],
         },
       ],
-      bindings: [],
       createdAt: now,
       updatedAt: now,
       cwd: dir,
-    };
+    });
     let restoreCalls = 0;
     const snapshotGate = Promise.withResolvers<void>();
     let snapshotRequested = false;
@@ -2960,7 +3010,7 @@ test("native TUI hydrates a delayed History Session snapshot before its initial 
         restore: async (sessionId) => {
           assert.equal(sessionId, existing.sessionId);
           restoreCalls += 1;
-          return { ...existing, status: "ready" as const };
+          return { ...existing, placement: "active" as const };
         },
       },
       controlRequest: async (method, params) => {
@@ -2971,7 +3021,7 @@ test("native TUI hydrates a delayed History Session snapshot before its initial 
         return {
           version: 1,
           sessionId: existing.sessionId,
-          title: existing.title,
+          title: existing.name,
           status: "idle",
           cwd: dir,
           gitBranch: "main",
@@ -3018,7 +3068,7 @@ test("native TUI hydrates a delayed History Session snapshot before its initial 
           return {
             kind: "session",
             sessionId: existing.sessionId,
-            workspaceId: existing.scope.workspaceId,
+            workspaceId: "workspace-current",
           };
         },
         runTui: async (input) => {
@@ -3078,29 +3128,24 @@ test("native status is unified while new, resume, and sessions keep their direct
     const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
     const now = "2026-07-13T00:00:00.000Z";
     const sessions = [
-      {
+      managedSessionFixture({
         sessionId: "session-first",
-        title: "First conversation",
-        scope: { kind: "workspace" as const, workspaceId: "workspace-current" },
+        name: "First conversation",
         workspaceId: "workspace-current",
         cwd: dir,
         cwdArtifactRef: "artifact:git:current",
-        status: "ready" as const,
         bindings: [],
         createdAt: now,
         updatedAt: now,
-      },
-      {
+      }),
+      managedSessionFixture({
         sessionId: "session-second",
-        title: "Second conversation",
-        scope: { kind: "workspace" as const, workspaceId: "workspace-current" },
+        name: "Second conversation",
         workspaceId: "workspace-current",
         cwd: dir,
-        status: "ready" as const,
-        bindings: [],
         createdAt: now,
         updatedAt: now,
-      },
+      }),
     ];
     const createRequests: Array<{
       workspaceId: string;
@@ -3118,18 +3163,15 @@ test("native status is unified while new, resume, and sessions keep their direct
             cwd: input.cwd,
             cwdArtifactRef: input.cwdArtifactRef,
           });
-          const created = {
+          const created = managedSessionFixture({
             sessionId: "session-new",
-            title: "New conversation",
-            scope: input.scope,
+            name: "New conversation",
             workspaceId: input.scope.workspaceId,
             cwd: input.cwd ?? dir,
             ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
-            status: "ready" as const,
-            bindings: [],
             createdAt: now,
             updatedAt: now,
-          };
+          });
           sessions.push(created);
           return created;
         },
@@ -3140,7 +3182,7 @@ test("native status is unified while new, resume, and sessions keep their direct
         },
         bind: async () => sessions[0]!,
         unbind: async () => sessions[0]!,
-        archive: async () => ({ ...sessions[0]!, status: "archived" as const }),
+        archive: async () => ({ ...sessions[0]!, placement: "archived" as const }),
       },
       controlRequest: async (method, params) => {
         assert.equal(method, "session.snapshot");
@@ -3150,7 +3192,7 @@ test("native status is unified while new, resume, and sessions keep their direct
         return {
           version: 1,
           sessionId: selected.sessionId,
-          title: selected.title,
+          title: selected.name,
           status: "idle",
           cwd: selected.cwd,
           messages: [],
@@ -3184,7 +3226,7 @@ test("native status is unified while new, resume, and sessions keep their direct
           return {
             kind: "session",
             sessionId: selected.sessionId,
-            workspaceId: selected.scope.workspaceId,
+            workspaceId: "workspace-current",
           };
         },
         runTui: async (input) => {
@@ -3258,30 +3300,25 @@ test("native TUI lists all daemon sessions and routes a cross-workspace selectio
     const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
     const now = "2026-07-13T00:00:00.000Z";
     const otherDir = join(dir, "other-workspace");
-    const current = {
+    const current = managedSessionFixture({
       sessionId: "session-current",
-      title: "Current workspace",
-      scope: { kind: "workspace" as const, workspaceId: "workspace-current" },
+      name: "Current workspace",
       workspaceId: "workspace-current",
       cwd: dir,
-      status: "ready" as const,
-      bindings: [],
       createdAt: now,
       updatedAt: now,
-    };
-    const other = {
+    });
+    const other = managedSessionFixture({
       sessionId: "session-other",
-      title: "Other workspace channel",
-      scope: { kind: "workspace" as const, workspaceId: "workspace-other" },
+      name: "Other workspace channel",
       workspaceId: "workspace-other",
       cwd: otherDir,
-      status: "ready" as const,
       bindings: [
         { kind: "channel" as const, adapter: "feishu" as const, externalKey: "feishu:chat:other" },
       ],
       createdAt: now,
       updatedAt: now,
-    };
+    });
     const otherWorkspace = {
       id: "workspace-other-binding",
       serverWorkspaceId: "workspace-other",
@@ -3305,7 +3342,7 @@ test("native TUI lists all daemon sessions and routes a cross-workspace selectio
         get: async (sessionId) => (sessionId === other.sessionId ? other : current),
         bind: async () => other,
         unbind: async () => other,
-        archive: async () => ({ ...other, status: "archived" as const }),
+        archive: async () => ({ ...other, placement: "archived" as const }),
       },
       workspaceList: async () => ({
         workspaces: [
@@ -3336,7 +3373,7 @@ test("native TUI lists all daemon sessions and routes a cross-workspace selectio
         return {
           version: 1,
           sessionId: other.sessionId,
-          title: other.title,
+          title: other.name,
           status: "idle",
           messages: [],
           tools: [],
@@ -3371,7 +3408,7 @@ test("native TUI lists all daemon sessions and routes a cross-workspace selectio
           return {
             kind: "session",
             sessionId: other.sessionId,
-            workspaceId: other.scope.workspaceId,
+            workspaceId: "workspace-other",
           };
         },
         runTui: async (input) => {
@@ -3395,15 +3432,12 @@ test("native TUI lists all daemon sessions and routes a cross-workspace selectio
 
 test("does not ensure the launch cwd before session selection", async () => {
   const sessions = [
-    {
+    managedSessionFixture({
       sessionId: "existing-session",
-      scope: { kind: "workspace" as const, workspaceId: "registered-workspace" },
       workspaceId: "registered-workspace",
-      status: "ready" as const,
-      bindings: [] as [],
       createdAt: "2026-07-31T00:00:00.000Z",
       updatedAt: "2026-07-31T00:00:00.000Z",
-    },
+    }),
   ];
   let ensureCount = 0;
   let attachCount = 0;
@@ -3416,7 +3450,7 @@ test("does not ensure the launch cwd before session selection", async () => {
       get: async () => sessions[0]!,
       bind: async () => sessions[0]!,
       unbind: async () => sessions[0]!,
-      archive: async () => ({ ...sessions[0]!, status: "archived" as const }),
+      archive: async () => ({ ...sessions[0]!, placement: "archived" as const }),
     },
     workspaceList: async () => ({
       workspaces: [
@@ -3482,16 +3516,13 @@ test("attaches the selected workspace instead of launch cwd", async () => {
       localPath: targetDir,
       status: "active" as const,
     };
-    const targetSession = {
+    const targetSession = managedSessionFixture({
       sessionId: "target-session",
-      scope: { kind: "workspace" as const, workspaceId: targetWorkspace.id },
       workspaceId: targetWorkspace.id,
       cwd: targetDir,
-      status: "ready" as const,
-      bindings: [] as [],
       createdAt: now,
       updatedAt: now,
-    };
+    });
     let ensureCount = 0;
     const attaches: Array<{ workspaceId: string; sessionId?: string }> = [];
     const daemonClient: SparkDaemonClientOptions = {
@@ -3524,7 +3555,7 @@ test("attaches the selected workspace instead of launch cwd", async () => {
         get: async () => targetSession,
         bind: async () => targetSession,
         unbind: async () => targetSession,
-        archive: async () => ({ ...targetSession, status: "archived" as const }),
+        archive: async () => ({ ...targetSession, placement: "archived" as const }),
       },
     };
     let hostCwd: string | undefined;
@@ -3570,7 +3601,10 @@ test("attaches the selected workspace instead of launch cwd", async () => {
       [targetWorkspace.id, targetWorkspace.id],
     );
     assert.equal(attaches[1]?.sessionId, "session:target-session");
-    assert.equal(targetSession.scope.workspaceId, targetWorkspace.id);
+    assert.equal(
+      targetSession.scope.kind === "workspace" ? targetSession.scope.workspaceId : undefined,
+      targetWorkspace.id,
+    );
 
     const attachCount = attaches.length;
     await assert.rejects(
@@ -3820,16 +3854,13 @@ function createDurableSessionAttachTestDeps(dir: string, stateRoot: string) {
     localPath: dir,
     status: "active",
   };
-  const managedSession = {
+  const managedSession = managedSessionFixture({
     sessionId: "durable-session",
-    scope: { kind: "workspace" as const, workspaceId: workspace.id },
     workspaceId: workspace.id,
     cwd: dir,
-    status: "ready" as const,
-    bindings: [] as [],
     createdAt: now,
     updatedAt: now,
-  };
+  });
   const daemonClient = {
     daemonStatus: async () => ({
       observedAt: now,
@@ -4007,17 +4038,19 @@ function createWorkspaceAttachTestDeps(
   >();
   const managedSessionIds = new Set(options.existingSessionIds);
   if (options.pathSession) managedSessionIds.add(options.pathSession.id);
-  const managedSessionRecords = [...managedSessionIds].map((sessionId) => ({
-    sessionId,
-    scope: { kind: "workspace" as const, workspaceId: workspace.id },
-    workspaceId: workspace.id,
-    cwd: dir,
-    ...(options.pathSession?.id === sessionId ? { sessionPath: options.pathSession.path } : {}),
-    status: "ready" as const,
-    bindings: [] as [],
-    createdAt: now,
-    updatedAt: now,
-  }));
+  const managedSessionRecords: SparkSessionProjection[] = [
+    administratorSessionFixture(workspace.id),
+    ...[...managedSessionIds].map((sessionId) =>
+      managedSessionFixture({
+        sessionId,
+        workspaceId: workspace.id,
+        cwd: dir,
+        ...(options.pathSession?.id === sessionId ? { sessionPath: options.pathSession.path } : {}),
+        createdAt: now,
+        updatedAt: now,
+      }),
+    ),
+  ];
   const daemonClient = {
     daemonStatus: async () => ({
       observedAt: now,
@@ -4218,18 +4251,9 @@ test("native TUI model selection and following turn share one managed session", 
     const base = createWorkspaceAttachTestDeps(dir, {
       existingSessionIds: new Set(),
     });
-    const managedSessions: Array<{
-      sessionId: string;
-      scope: { kind: "workspace"; workspaceId: string };
-      workspaceId: string;
-      status: "ready";
-      bindings: [];
-      createdAt: string;
-      updatedAt: string;
-      cwd?: string;
-      sessionPath?: string;
-      model?: { providerName: string; modelId: string };
-    }> = [];
+    const managedSessions: SparkSessionProjection[] = [
+      administratorSessionFixture("workspace-current"),
+    ];
     const controlCalls: Array<{ method: string; params: unknown }> = [];
     let defaultModel = { providerName: "provider-a", modelId: "model-a" };
     const submitted: Array<{
@@ -4245,17 +4269,14 @@ test("native TUI model selection and following turn share one managed session", 
             kind: "workspace",
             workspaceId: "workspace-current",
           });
-          const record = {
+          const record = managedSessionFixture({
             sessionId: input.sessionId!,
-            scope: input.scope as { kind: "workspace"; workspaceId: string },
             workspaceId: "workspace-current",
-            status: "ready" as const,
-            bindings: [] as [],
             createdAt: "2026-07-13T00:00:00.000Z",
             updatedAt: "2026-07-13T00:00:00.000Z",
             ...(input.cwd ? { cwd: input.cwd } : {}),
             ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
-          };
+          });
           managedSessions.push(record);
           return record;
         },
@@ -4266,12 +4287,14 @@ test("native TUI model selection and following turn share one managed session", 
         },
         bind: async () => managedSessions[0]!,
         unbind: async () => managedSessions[0]!,
-        archive: async () => ({ ...managedSessions[0]!, status: "archived" as const }),
+        archive: async () => ({ ...managedSessions[0]!, placement: "archived" as const }),
       },
       controlRequest: async (method, params) => {
         controlCalls.push({ method, params });
         if (method === "model.catalog") {
-          const session = managedSessions[0];
+          const session = managedSessions.find(
+            (candidate) => candidate.sessionId === "same-session",
+          );
           return {
             providers: [
               {
@@ -4312,12 +4335,16 @@ test("native TUI model selection and following turn share one managed session", 
             model: { providerName: string; modelId: string };
           };
           assert.equal(request.sessionId, "same-session");
-          managedSessions[0] = {
-            ...managedSessions[0]!,
+          const sessionIndex = managedSessions.findIndex(
+            (candidate) => candidate.sessionId === request.sessionId,
+          );
+          assert.notEqual(sessionIndex, -1);
+          managedSessions[sessionIndex] = {
+            ...managedSessions[sessionIndex]!,
             model: request.model,
             updatedAt: "2026-07-13T00:01:00.000Z",
           };
-          return managedSessions[0]!;
+          return managedSessions[sessionIndex]!;
         }
         throw new Error(`unexpected model control method: ${method}`);
       },
@@ -4383,12 +4410,15 @@ test("native TUI model selection and following turn share one managed session", 
       0,
     );
 
-    assert.equal(managedSessions.length, 1);
-    assert.equal(managedSessions[0]?.sessionId, "same-session");
-    const importedSessionPath = managedSessions[0]?.sessionPath;
+    assert.equal(managedSessions.length, 2);
+    const importedSession = managedSessions.find(
+      (candidate) => candidate.sessionId === "same-session",
+    );
+    assert.ok(importedSession);
+    const importedSessionPath = importedSession.sessionPath;
     assert.ok(importedSessionPath);
     assert.equal(realpathSync(importedSessionPath), realpathSync(sessionPath));
-    assert.deepEqual(managedSessions[0]?.model, {
+    assert.deepEqual(importedSession.model, {
       providerName: "provider-a",
       modelId: "model-b",
     });
@@ -4567,17 +4597,14 @@ test("production TUI Shift+Tab overrides extension shortcut and updates session 
     const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
     const sessionId = "thinking-session";
     let thinkingLevel: "high" | "xhigh" = "high";
-    const managedSession = {
+    const managedSession = managedSessionFixture({
       sessionId,
-      scope: { kind: "workspace" as const, workspaceId: "workspace-current" },
       workspaceId: "workspace-current",
       cwd: dir,
-      status: "ready" as const,
-      bindings: [],
       createdAt: "2026-07-17T00:00:00.000Z",
       updatedAt: "2026-07-17T00:00:00.000Z",
       thinkingLevel: thinkingLevel as "high" | "xhigh",
-    };
+    });
     const controlCalls: Array<{ method: string; params: unknown }> = [];
     const daemonClient: SparkDaemonClientOptions = {
       ...base.daemonClient,
@@ -4592,7 +4619,7 @@ test("production TUI Shift+Tab overrides extension shortcut and updates session 
         },
         bind: async () => managedSession,
         unbind: async () => managedSession,
-        archive: async () => ({ ...managedSession, status: "archived" as const }),
+        archive: async () => ({ ...managedSession, placement: "archived" as const }),
       },
       controlRequest: async (method, params) => {
         controlCalls.push({ method, params });
@@ -4658,7 +4685,7 @@ test("production TUI Shift+Tab overrides extension shortcut and updates session 
         selectSession: async () => ({
           kind: "session",
           sessionId,
-          workspaceId: managedSession.scope.workspaceId,
+          workspaceId: "workspace-current",
         }),
         runTui: async (input) => {
           assert.equal(typeof input, "object");
@@ -5489,16 +5516,7 @@ test("Spark native responder drains 10,000 bounded invocation events without sta
 
 test("Spark native responder ensures its workspace session once before submission", async () => {
   const calls: string[] = [];
-  const sessions: Array<{
-    sessionId: string;
-    scope: { kind: "workspace"; workspaceId: string };
-    workspaceId: string;
-    status: "ready";
-    bindings: [];
-    createdAt: string;
-    updatedAt: string;
-    cwd?: string;
-  }> = [];
+  const sessions: SparkSessionProjection[] = [administratorSessionFixture("ws-native")];
   const responder = createSparkDaemonNativeResponder(
     {
       startService: () => ({ kind: "detached" as const, alreadyRunning: false, detail: "started" }),
@@ -5516,23 +5534,20 @@ test("Spark native responder ensures its workspace session once before submissio
           assert.deepEqual(input.scope, { kind: "workspace", workspaceId: "ws-native" });
           assert.equal(input.cwd, "/workspace/native");
           calls.push(`create:${input.sessionId}`);
-          const record = {
+          const record = managedSessionFixture({
             sessionId: input.sessionId!,
-            scope: input.scope as { kind: "workspace"; workspaceId: string },
             workspaceId: "ws-native",
-            status: "ready" as const,
-            bindings: [] as [],
             createdAt: "2026-06-19T00:00:00.000Z",
             updatedAt: "2026-06-19T00:00:00.000Z",
             cwd: input.cwd,
-          };
+          });
           sessions.push(record);
           return record;
         },
         get: async () => sessions[0]!,
         bind: async () => sessions[0]!,
         unbind: async () => sessions[0]!,
-        archive: async () => ({ ...sessions[0]!, status: "archived" as const }),
+        archive: async () => ({ ...sessions[0]!, placement: "archived" as const }),
       },
       turnSubmit: async (_paths, input) => {
         calls.push(`submit:${input.sessionId}:${input.prompt}`);

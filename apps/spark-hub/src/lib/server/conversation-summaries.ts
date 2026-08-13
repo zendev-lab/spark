@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
+import type { SparkSessionProjection } from "@zendev-lab/spark-protocol";
 import {
   conversationActivityStatus,
   type ConversationActivityStatus,
@@ -15,7 +15,7 @@ interface ConversationCommandRow {
   updatedAt: string;
 }
 
-export type HubConversationSummary = SparkSessionRegistryRecord & {
+export type HubConversationSummary = SparkSessionProjection & {
   activityStatus: ConversationActivityStatus;
   activityUpdatedAt: string;
 };
@@ -27,7 +27,7 @@ export type HubConversationSummary = SparkSessionRegistryRecord & {
  */
 export function loadConversationSummaries(
   db: DatabaseSync,
-  sessions: SparkSessionRegistryRecord[],
+  sessions: SparkSessionProjection[],
 ): HubConversationSummary[] {
   if (sessions.length === 0) return [];
 
@@ -110,7 +110,7 @@ export function loadConversationSummaries(
 
   return sessions.map((session) => {
     const latest = latestBySession.get(session.sessionId);
-    const daemonStatus = sessionFallbackStatus(session.status);
+    const daemonStatus = sessionFallbackStatus(session.activity);
     // Active execution is daemon-owned. A delayed Hub mirror may still say
     // queued/running after the daemon invocation has reached a terminal state;
     // never let that optional projection resurrect a settled conversation.
@@ -133,8 +133,10 @@ export function loadConversationSummaries(
   });
 }
 
-function sessionFallbackStatus(status: string): ConversationActivityStatus {
-  const normalized = status.trim().toLowerCase();
+function sessionFallbackStatus(
+  activity: SparkSessionProjection["activity"],
+): ConversationActivityStatus {
+  const normalized = activity ?? "idle";
   if (["failed", "error"].includes(normalized)) return "failed";
   if (normalized === "running") return "running";
   return "ready";

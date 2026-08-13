@@ -1,23 +1,25 @@
 import {
-  parseSparkSessionRegistryRecord,
-  parseSparkSessionRegistryRecords,
+  parseSparkSessionProjection,
+  parseSparkSessionProjections,
   type SparkSessionBindRequest,
+  type SparkSessionCloseRequest,
   type SparkSessionCreateRequest,
   type SparkSessionListRequest,
-  type SparkSessionRegistryRecord,
+  type SparkSessionProjection,
   type SparkSessionUnbindRequest,
   type SparkLocalRpcInput,
 } from "@zendev-lab/spark-protocol";
 import { requestSparkDaemon, type SparkDaemonClientOptions } from "@zendev-lab/spark-daemon-client";
 
 export interface SparkDaemonManagedSessionsClient {
-  create(input: SparkSessionCreateRequest): Promise<SparkSessionRegistryRecord>;
-  list(options?: SparkSessionListRequest): Promise<SparkSessionRegistryRecord[]>;
-  get(sessionId: string): Promise<SparkSessionRegistryRecord>;
-  bind(sessionId: string, externalKey: string): Promise<SparkSessionRegistryRecord>;
-  unbind(sessionId: string, externalKey: string): Promise<SparkSessionRegistryRecord>;
-  archive(sessionId: string): Promise<SparkSessionRegistryRecord>;
-  restore?(sessionId: string): Promise<SparkSessionRegistryRecord>;
+  create(input: SparkSessionCreateRequest): Promise<SparkSessionProjection>;
+  list(options?: SparkSessionListRequest): Promise<SparkSessionProjection[]>;
+  get(sessionId: string): Promise<SparkSessionProjection>;
+  bind(sessionId: string, externalKey: string): Promise<SparkSessionProjection>;
+  unbind(sessionId: string, externalKey: string): Promise<SparkSessionProjection>;
+  archive(sessionId: string): Promise<SparkSessionProjection>;
+  restore?(sessionId: string): Promise<SparkSessionProjection>;
+  close?(sessionId: string): Promise<SparkSessionProjection>;
 }
 
 /** Client-side adapter only. Session persistence and mutation stay behind the
@@ -32,15 +34,16 @@ export function createDaemonManagedSessionsClient(
       | "session.bind"
       | "session.unbind"
       | "session.archive"
-      | "session.restore",
+      | "session.restore"
+      | "session.close",
   >(
     method: M,
     params: SparkLocalRpcInput<M>,
-  ) => parseSparkSessionRegistryRecord(await requestSparkDaemon(method, params, options));
+  ) => parseSparkSessionProjection(await requestSparkDaemon(method, params, options));
   return {
     create: async (input) => await requestRecord("session.create", input),
     list: async (params = {}) =>
-      parseSparkSessionRegistryRecords(await requestSparkDaemon("session.list", params, options)),
+      parseSparkSessionProjections(await requestSparkDaemon("session.list", params, options)),
     get: async (sessionId) => await requestRecord("session.get", { sessionId }),
     bind: async (sessionId, externalKey) =>
       await requestRecord("session.bind", {
@@ -54,16 +57,18 @@ export function createDaemonManagedSessionsClient(
       } satisfies SparkSessionUnbindRequest),
     archive: async (sessionId) => await requestRecord("session.archive", { sessionId }),
     restore: async (sessionId) => await requestRecord("session.restore", { sessionId }),
+    close: async (sessionId) =>
+      await requestRecord("session.close", { sessionId } satisfies SparkSessionCloseRequest),
   };
 }
 
-export function renderManagedSession(record: SparkSessionRegistryRecord): string {
+export function renderManagedSession(record: SparkSessionProjection): string {
   const bindings =
     record.bindings.length === 0
       ? "none"
       : record.bindings.map((binding) => binding.externalKey).join(", ");
   const tags = record.tags?.length ? ` tags=${JSON.stringify(record.tags)}` : "";
-  return `${record.sessionId} ${record.status} workspace=${record.workspaceId} bindings=${bindings}${
-    record.title ? ` title=${JSON.stringify(record.title)}` : ""
+  return `${record.sessionId} ${record.lifecycle}/${record.placement}/${record.activity ?? "idle"} workspace=${record.scope.kind === "workspace" ? record.scope.workspaceId : "daemon"} owner=${record.owner.kind} bindings=${bindings}${
+    record.name ? ` name=${JSON.stringify(record.name)}` : ""
   }${tags}\n`;
 }

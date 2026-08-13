@@ -43,6 +43,7 @@ const profile = {
 function pageData(overrides: Partial<PageData> = {}): PageData {
   return {
     locale: "en",
+    hasControlPlaneAccess: true,
     messages: getDictionary("en"),
     activeWorkspace: {
       id: "workspace-active",

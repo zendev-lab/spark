@@ -150,7 +150,6 @@ describe("workbench session layout scope", () => {
 
     expect(mocks.list).toHaveBeenCalledWith({
       scope: { kind: "workspace", workspaceId: workspace.id },
-      workspaceId: workspace.id,
       includeArchived: true,
       related: true,
       timeoutMs: 800,

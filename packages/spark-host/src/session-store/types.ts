@@ -57,6 +57,8 @@ export interface SparkCompactionOutcomeMetadata {
   summaryVersion: number;
   tokenSource: "reported" | "tokenizer" | "estimated";
   measuredReductionRatio: number;
+  /** Durable daemon operation identity used to replay manual compact idempotently. */
+  operationId?: string;
   fallbackReason?:
     | "model_unavailable"
     | "model_error"

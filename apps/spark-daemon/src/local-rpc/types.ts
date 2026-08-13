@@ -85,6 +85,11 @@ export interface LocalDaemonStatusResult {
   }>;
   invocations: Record<"queued" | "running" | "succeeded" | "failed" | "cancelled", number>;
   invocationHealth: { oldestQueuedAt?: string; oldestRunningAt?: string };
+  execution?: {
+    backend: "in_process";
+    rootConcurrency: number;
+    questionOverflow: 1;
+  };
   channelDeliveries?: SparkChannelDeliverySummary;
   lifecycle: SparkDaemonLifecycleSnapshot;
   buildFingerprint?: string;
@@ -188,6 +193,7 @@ export interface LocalRpcHandlerOptions {
   onUplinkReconfigure?: (serverUrl?: string) => void;
   getLifecycle?: () => SparkDaemonLifecycleSnapshot;
   getBuildFingerprint?: () => string;
+  getExecutionStatus?: () => NonNullable<LocalDaemonStatusResult["execution"]>;
   /** Startup fence: before this opens, only readiness/status and stop are admitted. */
   isReady?: () => boolean;
   eventBus?: SparkDaemonLocalEventBus;

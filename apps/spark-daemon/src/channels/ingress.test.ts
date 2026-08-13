@@ -12,6 +12,7 @@ import {
 } from "@zendev-lab/spark-channels";
 import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
 import { defaultSparkSessionRegistryRoot, SparkSessionRegistry } from "@zendev-lab/spark-session";
+import { workspaceSessionRecord } from "../../../../test/support/session-fixtures.ts";
 import {
   CHANNEL_INGRESS_FAILURE_REPLY,
   channelIngressIdempotencyKey,
@@ -27,6 +28,38 @@ import {
 } from "./ingress.ts";
 
 const roots: string[] = [];
+
+async function createRegistryWorkspaceSession(
+  registry: SparkSessionRegistry,
+  workspaceId: string,
+  name: string,
+) {
+  const administrator = await registry.ensureWorkspaceAdministrator({ workspaceId });
+  return await registry.create({
+    scope: { kind: "workspace", workspaceId },
+    owner: { kind: "session", supervisorSessionId: administrator.sessionId },
+    name,
+  });
+}
+
+function ingressRegistry(registry: SparkSessionRegistry) {
+  return {
+    ensureWorkspaceAdministrator: async (workspaceId: string) =>
+      await registry.ensureWorkspaceAdministrator({ workspaceId }),
+    resolveBinding: registry.resolveBinding.bind(registry),
+    get: registry.get.bind(registry),
+    recordTurnQueued: registry.recordTurnQueued.bind(registry),
+    recordTurnSettled: registry.recordTurnSettled.bind(registry),
+  };
+}
+
+function mockAdministrator(workspaceId: string) {
+  return workspaceSessionRecord({
+    sessionId: `sess_admin_${workspaceId}`,
+    workspaceId,
+    administrator: true,
+  });
+}
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -58,6 +91,7 @@ describe("channel ingress", () => {
         onTextAskReply,
       },
       sessionRegistry: {
+        ensureWorkspaceAdministrator: async () => mockAdministrator("ws_text_ask"),
         resolveBinding: async () => ({ sessionId: "sess_text_ask" }) as never,
       },
       workspaceId: "ws_text_ask",
@@ -118,6 +152,7 @@ describe("channel ingress", () => {
         },
       },
       sessionRegistry: {
+        ensureWorkspaceAdministrator: async () => mockAdministrator("ws_rejected"),
         resolveBinding: async () => ({ sessionId: "sess_rejected" }) as never,
         recordTurnQueued: recordTurnQueued as never,
         recordTurnSettled: recordTurnSettled as never,
@@ -179,6 +214,7 @@ describe("channel ingress", () => {
         onRejectedReply,
       },
       sessionRegistry: {
+        ensureWorkspaceAdministrator: async () => mockAdministrator("ws_rejected_outbox"),
         resolveBinding: async () => ({ sessionId: "sess_rejected_outbox" }) as never,
       },
       workspaceId: "ws_rejected_outbox",
@@ -311,6 +347,7 @@ describe("channel ingress", () => {
       }),
       hooks: { onAssignment: async () => "duplicate" },
       sessionRegistry: {
+        ensureWorkspaceAdministrator: async () => mockAdministrator("ws_duplicate"),
         resolveBinding: async () => ({ sessionId: "sess_duplicate" }) as never,
         recordTurnQueued: recordTurnQueued as never,
         recordTurnSettled: recordTurnSettled as never,
@@ -364,10 +401,7 @@ describe("channel ingress", () => {
     const registry = new SparkSessionRegistry({
       rootDir: defaultSparkSessionRegistryRoot(sparkHome),
     });
-    const session = await registry.create({
-      workspaceId: "ws_demo",
-      title: "Ops",
-    });
+    const session = await createRegistryWorkspaceSession(registry, "ws_demo", "Ops");
     await registry.bind({
       sessionId: session.sessionId,
       externalKey: "feishu:chat:oc_demo",
@@ -430,7 +464,7 @@ describe("channel ingress", () => {
         },
       },
     ]);
-    await expect(registry.get(session.sessionId)).resolves.toMatchObject({ status: "running" });
+    await expect(registry.get(session.sessionId)).resolves.toMatchObject({ lifecycle: "open" });
     expect(controller.status().configured).toBe(true);
   });
 
@@ -440,7 +474,7 @@ describe("channel ingress", () => {
     const registry = new SparkSessionRegistry({
       rootDir: defaultSparkSessionRegistryRoot(sparkHome),
     });
-    const session = await registry.create({ workspaceId: "ws_direct", title: "Direct" });
+    const session = await createRegistryWorkspaceSession(registry, "ws_direct", "Direct");
     await registry.bind({
       sessionId: session.sessionId,
       externalKey: "feishu:chat:oc_direct",
@@ -459,7 +493,7 @@ describe("channel ingress", () => {
           assignments.push(assignment);
         },
       },
-      sessionRegistry: registry,
+      sessionRegistry: ingressRegistry(registry),
       workspaceId: "ws_direct",
       createTransport: () => transport,
     });
@@ -495,7 +529,7 @@ describe("channel ingress", () => {
       const registry = new SparkSessionRegistry({
         rootDir: defaultSparkSessionRegistryRoot(sparkHome),
       });
-      const session = await registry.create({ workspaceId: "ws_feedback", title: "Feedback" });
+      const session = await createRegistryWorkspaceSession(registry, "ws_feedback", "Feedback");
       await registry.bind({
         sessionId: session.sessionId,
         externalKey: `feishu:chat:oc_feedback_${name}`,
@@ -529,7 +563,7 @@ describe("channel ingress", () => {
             assignments.push(assignment);
           },
         },
-        sessionRegistry: registry,
+        sessionRegistry: ingressRegistry(registry),
         workspaceId: "ws_feedback",
         createTransport: () => transport,
         memoryDirectIntentAuthority: injectedAuthority,
@@ -581,7 +615,7 @@ describe("channel ingress", () => {
     const registry = new SparkSessionRegistry({
       rootDir: defaultSparkSessionRegistryRoot(sparkHome),
     });
-    const session = await registry.create({ workspaceId: "ws_direct", title: "Direct" });
+    const session = await createRegistryWorkspaceSession(registry, "ws_direct", "Direct");
     await registry.bind({
       sessionId: session.sessionId,
       externalKey: `feishu:chat:oc_${name}`,
@@ -622,7 +656,7 @@ describe("channel ingress", () => {
           assignments.push(assignment);
         },
       },
-      sessionRegistry: registry,
+      sessionRegistry: ingressRegistry(registry),
       workspaceId: "ws_direct",
       createTransport: () => transport,
       memoryDirectIntentAuthority: injectedAuthority,
@@ -669,7 +703,7 @@ describe("channel ingress", () => {
     const registry = new SparkSessionRegistry({
       rootDir: defaultSparkSessionRegistryRoot(sparkHome),
     });
-    const session = await registry.create({ workspaceId: "ws_drain", title: "Drain" });
+    const session = await createRegistryWorkspaceSession(registry, "ws_drain", "Drain");
     await registry.bind({
       sessionId: session.sessionId,
       externalKey: "feishu:chat:oc_drain",
@@ -766,15 +800,13 @@ describe("channel ingress", () => {
     const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-session-owner-"));
     roots.push(sparkHome);
     const assignments: ChannelIngressAssignment[] = [];
-    const resolveBinding = vi.fn(async () => ({
-      sessionId: "session_owned",
-      scope: { kind: "workspace" as const, workspaceId: "ws_owned" },
-      workspaceId: "ws_owned",
-      status: "ready" as const,
-      bindings: [],
-      createdAt: "2026-07-10T00:00:00.000Z",
-      updatedAt: "2026-07-10T00:00:00.000Z",
-    }));
+    const resolveBinding = vi.fn(async () =>
+      workspaceSessionRecord({
+        sessionId: "session_owned",
+        workspaceId: "ws_owned",
+        createdAt: "2026-07-10T00:00:00.000Z",
+      }),
+    );
     const transport = new FakeChannelTransport();
     const controller = createChannelIngressController({
       sparkHome,
@@ -788,7 +820,10 @@ describe("channel ingress", () => {
           assignments.push(input);
         },
       },
-      sessionRegistry: { resolveBinding },
+      sessionRegistry: {
+        ensureWorkspaceAdministrator: async () => mockAdministrator("ws_owned"),
+        resolveBinding,
+      },
       workspaceId: "ws_owned",
       createTransport: () => transport,
     });
@@ -811,7 +846,15 @@ describe("channel ingress", () => {
       adapterAccountIdentity: channelAdapterAccountIdentity({ type: "infoflow" }),
       allowLegacyAccountClaim: true,
       onUnbound: "create",
-      create: { workspaceId: "ws_owned", title: "channel infoflow:user:u_owned" },
+      create: {
+        scope: { kind: "workspace", workspaceId: "ws_owned" },
+        name: "channel infoflow:user:u_owned",
+        owner: {
+          kind: "session",
+          supervisorSessionId: "sess_admin_ws_owned",
+        },
+        roleBinding: { kind: "none" },
+      },
     });
     await expect(
       readFile(join(defaultSparkSessionRegistryRoot(sparkHome), "registry.json"), "utf8"),
@@ -1040,16 +1083,13 @@ describe("channel quote enrichment", () => {
   });
 
   it("enriches inbound messageReference preview from session history", async () => {
-    const session = {
+    const session = workspaceSessionRecord({
       sessionId: "sess_quote",
-      status: "ready" as const,
+      workspaceId: "ws",
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
-      scope: { kind: "workspace" as const, workspaceId: "ws" },
-      workspaceId: "ws",
-      bindings: [],
       sessionPath: "/tmp/does-not-exist-for-enrich.jsonl",
-    };
+    });
     const enriched = await enrichInboundMessageReferenceFromSession({
       message: {
         adapter: "qqbot",

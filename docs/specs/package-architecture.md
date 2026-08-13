@@ -5,10 +5,11 @@ adapter/runtime placement. They do not follow file count alone.
 
 The machine-readable source of truth is
 [`../../architecture/packages.json`](../../architecture/packages.json). Every
-workspace declares a `layer`, `owner`, `stability`, and authoritative
-`stateWriter`. `pnpm run check:architecture` rejects an unclassified workspace,
-an undeclared production dependency, a stale export, or a violation of an
-explicit Spark-specific dependency or compatibility boundary.
+workspace declares a `layer`, `owner`, `stability`, and `stateWriter`. The same
+inventory owns the layer matrix, exact temporary
+exceptions, Pi manifest ownership, package budget, and expected composition
+roots. `pnpm run check:architecture` rejects an unclassified workspace, an
+undeclared production dependency, a stale export, or a governance violation.
 
 ## Governance tooling
 
@@ -20,12 +21,16 @@ Generic monorepo mechanics are delegated to maintained open-source tools:
 | dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` | [Syncpack](https://github.com/JoshuaKGoldberg/syncpack) |
 | imports from dependencies missing in the owning workspace manifest | Knip strict unlisted-dependency analysis | [Knip](https://knip.dev/features/monorepos-and-workspaces) |
 | cycles and dependency direction | Dependency Cruiser | [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser) |
-| Spark package identity, explicit workspace dependency restrictions, export targets, and workspace test and package mutation discovery | `architecture/packages.json` plus `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |
+| Spark package identity, explicit workspace dependency restrictions, generated layer direction, exact exceptions, Pi ownership, package budget, export targets, frozen compatibility, and workspace test and package mutation discovery | `architecture/packages.json`, `architecture/dependency-governance.cjs`, and the Spark-owned architecture checks | Spark-owned contract |
+| point-in-time direct dependencies, fan-in/out, cross-owner edges, exception budget, SCCs, public exports, violations, and composition roots | `architecture/health.schema.json` plus `pnpm run report:architecture` | gitignored local or CI report |
 
-`pnpm run check:architecture` validates the schema, runs Syncpack and Knip, and
-then executes the Spark-specific ratchets. `pnpm run check:boundaries` runs
-Dependency Cruiser. The custom checker does not duplicate schema validation,
-dependency-version consistency, or generic manifest/import analysis.
+`pnpm run check:architecture` validates the schemas, runs Syncpack and Knip,
+executes the Spark-specific ratchets, and validates a freshly derived health
+projection. `pnpm run check:boundaries` runs Dependency Cruiser with its layer
+rules generated from the inventory. `pnpm run report:architecture` writes the
+same validated projection to `reports/architecture/health.json`; the report is
+run evidence, not another source of truth. The custom checker does not duplicate
+dependency-version consistency or generic manifest/import analysis.
 
 Test and mutation discovery follow the same rule. Vitest configs define the
 root, process, browser, and capability suites; the root unit lane runs every app
@@ -72,20 +77,40 @@ than reduce the governance surface.
 ## Dependency direction
 
 ```text
-apps (CLI / TUI / daemon / Hub)
+application
   ↓
-composition + clients (spark-extension / spark-daemon-client)
+composition
   ↓
-capabilities + runtimes (tasks / sessions / workflows / host / turn / ...)
+adapter / client / runtime
   ↓
-contracts + foundations (spark-protocol / spark-core / spark-system / ...)
+capability
+  ↓
+contract / foundation / compatibility
 ```
 
-Adapters point inward. Foundations never point at apps or product-private
-adapters. Hub-private packages may be used by Hub, but not by the daemon or
-shared Spark packages. The daemon is the authoritative writer for invocation,
-session registry, session mail, channel delivery, and execution state; Hub owns
-its coordination database and rebuildable projections.
+Dependencies point inward. Same-tier peer groups are explicit: adapters,
+clients, and runtimes may collaborate through their declared boundaries, while
+contracts, foundations, and compatibility decoders may share dependency-light
+primitives. Application-to-application dependencies are denied. A
+`private-adapter` is reachable only from inventory-declared private peers or
+exact product consumers, and an `experiment` is isolated from production.
+
+A temporary reverse edge is not a layer-wide allowance. It must name one exact
+`from` package, `to` package and target layer, plus a reason, owner, existing
+exit task, and `nonGrowth: true`. Snapshot schema and semantic validation require `current`, `ceiling`, and the
+exact `temporaryDependencyExceptions` ledger length to be equal and no greater
+than 6. Cross-revision monotonicity is enforced separately by
+`pnpm run check:architecture-transition -- --base-ref <git-ref>`: every current
+exact `from->to` exception key must exist in the base inventory, its target
+layer, reason, owner, exit task, and `nonGrowth` metadata must remain byte-for-byte
+identical, and neither budget number may increase. A `6/6` to `5/5` reduction is
+valid only when the ledger shrinks with it; later metadata edits, restoration,
+replacement, or revival of an edge fail the transition gate even when the new
+snapshot is internally valid. CI compares pull requests and merge-group commits
+with `origin/main`. Protected `main` is PR-only, so every accepted inventory
+transition crosses that gate before merge rather than relying on a post-merge
+push check. The current exception ledger is read directly from the inventory
+rather than copied into this specification.
 
 ## Naming rules
 
@@ -195,6 +220,30 @@ changes extension specifiers and user configuration compatibility.
 | `compatibility` | legacy read or wire compatibility inside a current owner | a second implementation package |
 | `experiment` | isolated, non-default spike with an explicit graduation decision | production startup |
 
+## State writers
+
+`stateWriter` records the package's existing canonical write boundary:
+`workspace`, `user`, `host`, `daemon`, `hub`, or `external`; `none` means the
+package owns no persistent writes. This phase does not introduce a second
+authority or participation model. Domain ownership remains defined by the
+normative owner specifications and enforced owner APIs.
+
+## Pi ownership and package budget
+
+The inventory assigns `package.json#pi` to the dedicated `pi-spark` product
+manifest owner. It also assigns each Pi SDK dependency (`pi-ai`, `pi-tui`, and
+`pi-coding-agent`) to one workspace manifest owner. The root compatibility
+manifest remains one frozen, exact product-manifest exception until the Pi
+manifest cutover task. Existing migration debt may appear only as an exact
+non-growing exception with an exit task; a new direct Pi manifest dependency
+anywhere else fails architecture validation.
+
+The current package budget is 41. The only pre-approved forty-second workspace
+is `@zendev-lab/pi-spark` at `packages/pi-spark`, bound to its inventory exit
+task. Another package at 42 or any package at 43 fails closed. Raising or
+replacing this budget requires an explicit architecture decision in the
+inventory rather than a new constant in a checker.
+
 ## Deliberate boundaries
 
 - `spark-protocol` is a pure wire-contract package. It has no production
@@ -261,8 +310,8 @@ The design borrows three useful patterns without adopting their toolchains:
   daemon-owned execution truth.
 - [Backstage package roles](https://backstage.io/docs/tutorials/package-role-migration/)
   make package purpose machine-readable so repository tooling can select the
-  right treatment. Spark records role-like layer, owner, stability, and writer
-  metadata in one inventory.
+  right treatment. Spark records layer, owner, stability, state authority,
+  state role, and exception metadata in one inventory.
 - [Nx module boundaries](https://nx.dev/docs/features/enforce-module-boundaries)
   enforce dependency constraints from project tags, including multiple
   dimensions. Spark uses the same principle through the inventory,

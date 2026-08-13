@@ -21,6 +21,7 @@ import {
   type SparkTurnResumeCheckpoint,
 } from "@zendev-lab/spark-turn";
 import { assistantMessageToFinalAnswerText } from "../host/agent-session.ts";
+import { sparkProviderRequestFitsContextWindow } from "../host/bootstrap.ts";
 import { createSparkHeadlessRoleExecutor } from "../headless-role-executor.ts";
 import {
   SparkNativeSession,
@@ -29,9 +30,12 @@ import {
 } from "../native-tui.ts";
 import type { TUI } from "../tui/pi-tui-adapter.ts";
 
-type FakeStreamSimple = (context: {
-  messages?: unknown[];
-}) => AssistantMessage | Promise<AssistantMessage>;
+type FakeStreamSimple = (
+  context: {
+    messages?: unknown[];
+  },
+  options?: { maxTokens?: number },
+) => AssistantMessage | Promise<AssistantMessage>;
 type FakeProviderOptions = {
   streamSimple?: FakeStreamSimple;
   contextWindow?: number;
@@ -95,6 +99,13 @@ function fakeTui(): TUI {
     setFocus: () => undefined,
   } as unknown as TUI;
 }
+
+test("provider request preflight includes the requested output budget", () => {
+  assert.equal(sparkProviderRequestFitsContextWindow(4_000, 4_000, 8_000), true);
+  assert.equal(sparkProviderRequestFitsContextWindow(4_001, 4_000, 8_000), false);
+  assert.equal(sparkProviderRequestFitsContextWindow(7_999, 1, 8_000), true);
+  assert.equal(sparkProviderRequestFitsContextWindow(8_000, 1, 8_000), false);
+});
 
 test("channel-facing assistant text excludes thinking, tool arguments, and commentary", () => {
   assert.equal(
@@ -245,6 +256,151 @@ test("SparkAgentSession persists and resumes JSONL sessions", async () => {
     assert.equal(
       viewEvents.some((event) => event.type === "run.update" && event.run.status === "succeeded"),
       true,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentSession manual compact mutates the canonical record idempotently", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-manual-compact-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {},
+      { compactKeepRecentTokens: 100 },
+    );
+    const record = services.sessionStore.createSession({ id: "manual-compact-session" });
+    for (let index = 0; index < 8; index += 1) {
+      services.sessionStore.appendMessage(record, {
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `${index}:${"canonical history ".repeat(100)}`,
+      });
+    }
+    await services.sessionStore.save(record);
+    const session = new SparkAgentSession(services);
+    const filesBefore = await listSessionFileNames(services.sessionStore.sessionDir);
+
+    const first = await session.compact({
+      sessionId: record.header.id,
+      sessionPath: record.path,
+      operationId: "compact-operation-1",
+      customInstructions: "preserve canonical decisions",
+    });
+    const replay = await session.compact({
+      sessionId: record.header.id,
+      sessionPath: record.path,
+      operationId: "compact-operation-1",
+      customInstructions: "preserve canonical decisions",
+    });
+
+    assert.equal(first.succeeded, true);
+    assert.equal(first.replayed, false);
+    assert.equal(replay.succeeded, true);
+    assert.equal(replay.replayed, true);
+    assert.equal(replay.compactionEntry?.id, first.compactionEntry?.id);
+    const saved = await services.sessionStore.load(record.path);
+    const compactions = saved.entries.filter((entry) => entry.type === "compaction");
+    assert.equal(compactions.length, 1);
+    assert.equal(compactions[0]?.metadata?.operationId, "compact-operation-1");
+    assert.match(compactions[0]?.summary ?? "", /preserve canonical decisions/u);
+    assert.deepEqual(await listSessionFileNames(services.sessionStore.sessionDir), filesBefore);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentSession discards a measured low-yield repeated compact with a Memory checkpoint", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-low-yield-compact-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let modelCalls = 0;
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {},
+      {
+        compactKeepRecentTokens: 100,
+        runCompactionModel: async () => {
+          modelCalls += 1;
+          return {
+            version: 1,
+            objective: "low yield summary ".repeat(5_000),
+            completed: [],
+            inProgress: [],
+            decisions: [],
+            changedFiles: [],
+            commands: [],
+            failures: [],
+            preservedFacts: [],
+            unresolved: [],
+            memoryRefs: [],
+          };
+        },
+      },
+    );
+    services.config.compact!.minUsefulReduction = 0.99;
+    const lifecycle: Array<{ succeeded?: boolean }> = [];
+    services.runtime.on("session_before_compact", () => ({
+      message: {
+        customType: "spark-memory-checkpoint",
+        content: "Memory checkpoint appended after preparation.",
+        display: false,
+      },
+    }));
+    services.runtime.on("session_compact", (event) => {
+      if (event && typeof event === "object") {
+        lifecycle.push(event as { succeeded?: boolean });
+      }
+    });
+    const record = services.sessionStore.createSession({ id: "low-yield-compact-session" });
+    const firstKeptEntryId = services.sessionStore.appendMessage(record, {
+      role: "user",
+      content: "canonical history ".repeat(4_000),
+    });
+    services.sessionStore.appendMessage(record, {
+      role: "assistant",
+      content: "canonical answer ".repeat(4_000),
+    });
+    record.entries.push({
+      type: "compaction",
+      id: "existing-compaction",
+      parentId: record.entries.at(-1)?.id ?? null,
+      timestamp: new Date().toISOString(),
+      summary: "existing compacted facts ".repeat(200),
+      firstKeptEntryId,
+      tokensBefore: 40_000,
+    });
+    await services.sessionStore.save(record);
+
+    const result = await new SparkAgentSession(services).compact({
+      sessionId: record.header.id,
+      sessionPath: record.path,
+      operationId: "low-yield-operation",
+    });
+
+    assert.equal(modelCalls, 1);
+    assert.equal(result.succeeded, false);
+    assert.equal(result.compactionEntry, undefined);
+    assert.deepEqual(
+      lifecycle.map((event) => event.succeeded),
+      [false],
+    );
+    const saved = await services.sessionStore.load(record.path);
+    assert.deepEqual(
+      saved.entries.filter((entry) => entry.type === "compaction").map((entry) => entry.id),
+      ["existing-compaction"],
+    );
+    assert.equal(
+      saved.entries.some(
+        (entry) =>
+          entry.type === "custom_message" && entry.customType === "spark-memory-checkpoint",
+      ),
+      false,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -802,14 +958,112 @@ test("SparkAgentSession checkpoints transient tool output before overflow recove
     assert.equal(result.outcome?.status, "completed");
     assert.equal(result.assistantText, "continued without replaying the tool");
     const saved = await services.sessionStore.load(result.sessionPath);
-    assert.equal(saved.entries.filter((entry) => entry.type === "compaction").length, 1);
+    // Overflow recovery compacts the durable tool checkpoint; the assembled
+    // system/tool envelope then proves that leaf still needs one more pass.
+    assert.equal(saved.entries.filter((entry) => entry.type === "compaction").length, 2);
     assert.equal(JSON.stringify(saved.entries).includes(overflow), false);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("SparkAgentSession compacts a compacted leaf again after repeated context overflow", async () => {
+test("SparkAgentSession repeats canonical compact without replaying tool side effects", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-exact-repeated-overflow-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    let toolExecutions = 0;
+    const exactOverflow =
+      'OpenAI API error (400): {"message":"invalid-argument: This model\'s maximum prompt length is 500000 but the request contains 500522 tokens. (request id: 2000010100000000000000000000000)","type":"api_error","param":"","code":null}';
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {
+        contextWindow: 1_000_000,
+        maxTokens: 4_096,
+        streamSimple: ({ messages }) => {
+          providerCalls += 1;
+          if (providerCalls === 1) {
+            return {
+              ...assistant(""),
+              content: [
+                {
+                  type: "toolCall",
+                  id: "once-only-tool-call",
+                  name: "once_only_read",
+                  arguments: {},
+                },
+              ],
+              stopReason: "toolUse",
+            } as unknown as AssistantMessage;
+          }
+          if (providerCalls === 2 || providerCalls === 3) throw new Error(exactOverflow);
+          const finalContext = JSON.stringify(messages);
+          assert.match(finalContext, /authoritative tool receipt/u);
+          assert.match(finalContext, /execute the read once and continue/u);
+          assert.match(finalContext, /Memory checkpoint retained after repeated compaction/u);
+          return assistant("recovered after two exact overflows");
+        },
+      },
+      { compactKeepRecentTokens: 100 },
+    );
+    services.runtime.registerTool({
+      name: "once_only_read",
+      description: "read one receipt",
+      parameters: { type: "object" },
+      async execute() {
+        toolExecutions += 1;
+        return { content: [{ type: "text", text: "authoritative tool receipt" }] };
+      },
+    });
+    services.runtime.setActiveTools([
+      ...new Set([...services.runtime.getActiveTools(), "once_only_read"]),
+    ]);
+    services.runtime.on("session_before_compact", () => ({
+      message: {
+        customType: "spark-memory-checkpoint",
+        content: "Memory checkpoint retained after repeated compaction.",
+        display: false,
+      },
+    }));
+    const record = services.sessionStore.createSession({ id: "exact-repeated-overflow-session" });
+    for (let index = 0; index < 16; index += 1) {
+      services.sessionStore.appendMessage(record, {
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `${index}:${"older canonical history ".repeat(120)}`,
+      });
+    }
+    await services.sessionStore.save(record);
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: record.header.id,
+      prompt: "execute the read once and continue",
+    });
+
+    assert.equal(result.outcome?.status, "completed");
+    assert.equal(providerCalls, 4);
+    assert.equal(toolExecutions, 1);
+    const saved = await services.sessionStore.load(record.path);
+    const compactions = saved.entries.filter((entry) => entry.type === "compaction");
+    assert.equal(compactions.length, 2);
+    assert.equal((compactions.at(-1)?.summary.length ?? Number.POSITIVE_INFINITY) < 2_000, true);
+    assert.equal(
+      saved.entries.filter(
+        (entry) =>
+          entry.type === "message" &&
+          entry.message.role === "user" &&
+          entry.message.content === "execute the read once and continue",
+      ).length,
+      1,
+    );
+    assert.equal(JSON.stringify(saved.entries).includes(exactOverflow), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentSession resubmits one prompt across repeated overflow compactions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-repeated-overflow-"));
   try {
     const cwd = join(dir, "repo");
@@ -847,12 +1101,7 @@ test("SparkAgentSession compacts a compacted leaf again after repeated context o
     assert.equal(providerCalls, 3);
     assert.equal(result.outcome?.status, "completed");
     const saved = await services.sessionStore.load(record.path);
-    const savedCompactions = saved.entries.filter((entry) => entry.type === "compaction");
-    assert.equal(savedCompactions.length, 2);
-    const latestSummary = savedCompactions.at(-1)?.summary;
-    assert.equal(typeof latestSummary, "string");
-    assert.equal(latestSummary?.includes("Previous summary:"), false);
-    assert.equal((latestSummary?.length ?? Number.POSITIVE_INFINITY) < 2_000, true);
+    assert.equal(saved.entries.filter((entry) => entry.type === "compaction").length, 2);
     const persistedMessages = saved.entries.filter((entry) => entry.type === "message");
     assert.equal(
       persistedMessages.filter(
@@ -999,6 +1248,101 @@ test("restricted SparkAgentSession runs declared reads but skips unclassified li
   }
 });
 
+test("SparkAgentSession preflights the final system and tool request envelope", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-final-envelope-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    const services = await makeFakeServices(
+      { cwd, sparkHome, systemPrompt: "request scoped system ".repeat(1_800) },
+      {
+        contextWindow: 20_000,
+        maxTokens: 1,
+        streamSimple: () => {
+          providerCalls += 1;
+          return assistant("provider saw the compacted final envelope");
+        },
+      },
+      { compactKeepRecentTokens: 1_000 },
+    );
+    services.runtime.registerTool({
+      name: "final_envelope_probe",
+      description: "provider-visible schema ".repeat(200),
+      parameters: { type: "object" },
+      async execute() {
+        return { content: [{ type: "text", text: "unused" }] };
+      },
+    });
+    services.runtime.setActiveTools([
+      ...new Set([...services.runtime.getActiveTools(), "final_envelope_probe"]),
+    ]);
+    const record = services.sessionStore.createSession({ id: "final-envelope-session" });
+    for (let index = 0; index < 12; index += 1) {
+      services.sessionStore.appendMessage(record, {
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `${index}:${"persisted replay ".repeat(180)}`,
+      });
+    }
+    await services.sessionStore.save(record);
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: record.header.id,
+      prompt: "continue with final envelope accounting",
+    });
+
+    assert.equal(result.outcome?.status, "completed");
+    // The first oversized attempt is rejected by Spark before streamSimple.
+    assert.equal(providerCalls, 1);
+    const saved = await services.sessionStore.load(record.path);
+    assert.equal(
+      saved.entries.some((entry) => entry.type === "compaction"),
+      true,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentSession explicitly clamps the provider output budget", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-output-clamp-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerMaxTokens: number | undefined;
+    const services = await makeFakeServices(
+      { cwd, sparkHome, systemPrompt: "s".repeat(18_000) },
+      {
+        contextWindow: 8_000,
+        maxTokens: 4_000,
+        streamSimple: (_context, options) => {
+          providerMaxTokens = options?.maxTokens;
+          return assistant("Spark clamped the output budget");
+        },
+      },
+    );
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "output-clamp-session",
+      prompt: "continue",
+    });
+
+    assert.equal(result.outcome?.status, "completed");
+    assert.notEqual(providerMaxTokens, undefined);
+    assert.ok(providerMaxTokens! > 0);
+    assert.ok(providerMaxTokens! < 4_000);
+    const saved = await services.sessionStore.load(result.sessionPath);
+    assert.equal(
+      saved.entries.some((entry) => entry.type === "compaction"),
+      false,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("SparkAgentSession persists and consumes a micro pass without forcing full compaction", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-micro-"));
   try {
@@ -1063,7 +1407,7 @@ test("SparkAgentSession persists and consumes a micro pass without forcing full 
   }
 });
 
-test("SparkAgentSession full escalation summarizes the persisted micro replay once", async () => {
+test("SparkAgentSession full escalation summarizes the persisted micro replay", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-micro-full-"));
   try {
     const cwd = join(dir, "repo");
@@ -1111,7 +1455,6 @@ test("SparkAgentSession full escalation summarizes the persisted micro replay on
     assert.equal(result.outcome?.status, "completed");
     assert.doesNotMatch(providerReplay, /same log line\\nsame log line/u);
     const saved = await services.sessionStore.load(record.path);
-    assert.equal(saved.entries.filter((entry) => entry.type === "compaction").length, 1);
     assert.equal(
       saved.entries.filter(
         (entry) => entry.type === "custom" && entry.customType === "spark-compaction-micro",
@@ -1119,6 +1462,7 @@ test("SparkAgentSession full escalation summarizes the persisted micro replay on
       1,
     );
     const full = saved.entries.find((entry) => entry.type === "compaction");
+    assert.ok(full);
     assert.doesNotMatch(
       full?.type === "compaction" ? full.summary : "",
       /same log line\nsame log line/u,
@@ -1231,6 +1575,66 @@ test("SparkAgentSession meters only the compacted replay on the active branch", 
   }
 });
 
+test("session replay strips stale usage before a compaction but retains later usage", () => {
+  const usage = (totalTokens: number) => ({
+    input: totalTokens,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  });
+  const items = sessionEntriesToPromptItems([
+    {
+      type: "message",
+      id: "kept-user",
+      parentId: null,
+      timestamp: "2026-07-17T00:00:00.000Z",
+      message: { role: "user", content: "protected request" },
+    },
+    {
+      type: "message",
+      id: "kept-assistant",
+      parentId: "kept-user",
+      timestamp: "2026-07-17T00:00:01.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "protected answer" }],
+        usage: usage(500_000),
+      },
+    },
+    {
+      type: "compaction",
+      id: "compaction-boundary",
+      parentId: "kept-assistant",
+      timestamp: "2026-07-17T00:00:02.000Z",
+      summary: "compacted prefix",
+      firstKeptEntryId: "kept-user",
+      tokensBefore: 500_000,
+    },
+    {
+      type: "message",
+      id: "later-assistant",
+      parentId: "compaction-boundary",
+      timestamp: "2026-07-17T00:00:03.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "later answer" }],
+        usage: usage(321),
+      },
+    },
+  ]);
+  const assistantMessages = items.flatMap((item) =>
+    item.content.kind === "provider_message" && item.authority === "assistant"
+      ? [item.content.message]
+      : [],
+  );
+
+  assert.equal(assistantMessages.length, 2);
+  assert.equal(assistantMessages[0]?.usage, undefined);
+  assert.deepEqual(assistantMessages[1]?.usage, usage(321));
+});
+
 test("SparkAgentSession projects loop view events into native TUI transport", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-native-ui-"));
   try {
@@ -1283,6 +1687,7 @@ test("Spark headless role executor supports forked session runs", async () => {
       role: {
         ref: "role:test",
         id: "test",
+        revision: "test-revision",
         systemPrompt: "You are a test role.",
       },
       instruction: {
@@ -1292,10 +1697,9 @@ test("Spark headless role executor supports forked session runs", async () => {
       record: {
         ref: "run:forked",
         roleRef: "role:test",
+        roleRevision: "test-revision",
         instruction: "continue from parent",
         status: "queued",
-        launch: "forked",
-        forkFromSession: "parent-session",
       },
       cwd,
       timeoutMs: 1_000,
@@ -1304,8 +1708,8 @@ test("Spark headless role executor supports forked session runs", async () => {
     });
 
     assert.equal(result.record.status, "succeeded");
-    assert.equal(result.record.launch, "forked");
-    assert.equal(result.record.forkFromSession, "parent-session");
+    assert.equal("launch" in result.record, false);
+    assert.equal("forkFromSession" in result.record, false);
     assert.equal(roleApprovalMethod, "auto");
     assert.equal(result.stdout, "count:3");
 
@@ -1344,6 +1748,7 @@ test("Spark headless role executor forwards live events through onEvent", async 
       role: {
         ref: "role:test",
         id: "test",
+        revision: "test-revision",
         systemPrompt: "You are a streaming test role.",
       },
       instruction: {
@@ -1353,6 +1758,7 @@ test("Spark headless role executor forwards live events through onEvent", async 
       record: {
         ref: "run:events",
         roleRef: "role:test",
+        roleRevision: "test-revision",
         instruction: "emit events",
         status: "queued",
       },
@@ -1400,6 +1806,7 @@ test("Spark headless role executor routes input control into a follow-up turn", 
       role: {
         ref: "role:test",
         id: "test",
+        revision: "test-revision",
         systemPrompt: "You are a role with follow-up input.",
       },
       instruction: {
@@ -1409,6 +1816,7 @@ test("Spark headless role executor routes input control into a follow-up turn", 
       record: {
         ref: "run:input-control",
         roleRef: "role:test",
+        roleRevision: "test-revision",
         instruction: "start work",
         status: "queued",
       },
@@ -1439,7 +1847,7 @@ test("Spark headless role executor routes input control into a follow-up turn", 
   }
 });
 
-test("daemon native reviewer noSession does not persist session file", async () => {
+test("headless adapter persists a transcript until Supervisor retention closes it", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-headless-role-anon-"));
   try {
     const cwd = join(dir, "repo");
@@ -1453,36 +1861,36 @@ test("daemon native reviewer noSession does not persist session file", async () 
     const before = await listSessionFileNames(services.sessionStore.sessionDir);
 
     const result = await executeRole({
-      role: { ref: "role:builtin-reviewer", id: "reviewer", systemPrompt: "You are a reviewer." },
+      role: {
+        ref: "role:builtin-reviewer",
+        id: "reviewer",
+        revision: "test-revision",
+        systemPrompt: "You are a reviewer.",
+      },
       instruction: { roleRef: "role:builtin-reviewer", instruction: "review anonymously" },
       record: {
         ref: "run:anonymous-reviewer",
         roleRef: "role:builtin-reviewer",
+        roleRevision: "test-revision",
         instruction: "review anonymously",
         status: "queued",
-        noSession: true,
       },
       cwd,
       timeoutMs: 1_000,
-      noSession: true,
     });
 
     const after = await listSessionFileNames(services.sessionStore.sessionDir);
-    assert.deepEqual(after, before);
+    assert.equal(after.length, before.length + 1);
     assert.equal(result.record.status, "succeeded");
-    assert.equal(result.record.noSession, true);
-    assert.equal(result.record.sessionPersistence, "anonymous");
-    assert.equal(result.record.sessionDir, undefined);
-    assert.equal(
-      await services.sessionStore.findById("spark-daemon-run:anonymous-reviewer"),
-      undefined,
-    );
+    assert.equal("sessionLifetime" in result.record, false);
+    assert.equal("sessionDir" in result.record, false);
+    assert.ok(await services.sessionStore.findById("spark-daemon-run:anonymous-reviewer"));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("persistent native role run writes workspace session file", async () => {
+test("headless Role adapter does not leak its transcript path into the receipt", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-headless-role-persistent-"));
   try {
     const cwd = join(dir, "repo");
@@ -1494,11 +1902,17 @@ test("persistent native role run writes workspace session file", async () => {
     });
 
     const result = await executeRole({
-      role: { ref: "role:builtin-worker", id: "worker", systemPrompt: "You are a worker." },
-      instruction: { roleRef: "role:builtin-worker", instruction: "persist role session" },
+      role: {
+        ref: "role:builtin-executor",
+        id: "worker",
+        revision: "test-revision",
+        systemPrompt: "You are a worker.",
+      },
+      instruction: { roleRef: "role:builtin-executor", instruction: "persist role session" },
       record: {
         ref: "run:persistent-worker",
-        roleRef: "role:builtin-worker",
+        roleRef: "role:builtin-executor",
+        roleRevision: "test-revision",
         instruction: "persist role session",
         status: "queued",
       },
@@ -1509,8 +1923,8 @@ test("persistent native role run writes workspace session file", async () => {
     const services = await makeFakeServices({ cwd, sparkHome });
     const persisted = await services.sessionStore.findById("spark-daemon-run:persistent-worker");
     assert.equal(result.record.status, "succeeded");
-    assert.equal(result.record.sessionPersistence, "persistent");
-    assert.equal(result.record.sessionDir, services.sessionStore.sessionDir);
+    assert.equal("sessionLifetime" in result.record, false);
+    assert.equal("sessionDir" in result.record, false);
     assert.equal(persisted?.header.cwd, cwd);
     assert.equal(persisted?.entries.filter((entry) => entry.type === "message").length, 2);
   } finally {
@@ -1518,7 +1932,7 @@ test("persistent native role run writes workspace session file", async () => {
   }
 });
 
-test("anonymous role run is excluded from workspace session selector", async () => {
+test("headless adapter does not infer Session visibility from the Role id", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-headless-role-selector-"));
   try {
     const cwd = join(dir, "repo");
@@ -1530,25 +1944,35 @@ test("anonymous role run is excluded from workspace session selector", async () 
     });
 
     await executeRole({
-      role: { ref: "role:builtin-reviewer", id: "reviewer", systemPrompt: "You are a reviewer." },
+      role: {
+        ref: "role:builtin-reviewer",
+        id: "reviewer",
+        revision: "test-revision",
+        systemPrompt: "You are a reviewer.",
+      },
       instruction: { roleRef: "role:builtin-reviewer", instruction: "anonymous selector" },
       record: {
         ref: "run:selector-anonymous",
         roleRef: "role:builtin-reviewer",
+        roleRevision: "test-revision",
         instruction: "anonymous selector",
         status: "queued",
-        noSession: true,
       },
       cwd,
       timeoutMs: 1_000,
-      noSession: true,
     });
     await executeRole({
-      role: { ref: "role:builtin-worker", id: "worker", systemPrompt: "You are a worker." },
-      instruction: { roleRef: "role:builtin-worker", instruction: "persistent selector" },
+      role: {
+        ref: "role:builtin-executor",
+        id: "worker",
+        revision: "test-revision",
+        systemPrompt: "You are a worker.",
+      },
+      instruction: { roleRef: "role:builtin-executor", instruction: "persistent selector" },
       record: {
         ref: "run:selector-persistent",
-        roleRef: "role:builtin-worker",
+        roleRef: "role:builtin-executor",
+        roleRevision: "test-revision",
         instruction: "persistent selector",
         status: "queued",
       },
@@ -1558,14 +1982,16 @@ test("anonymous role run is excluded from workspace session selector", async () 
 
     const services = await makeFakeServices({ cwd, sparkHome });
     const selectorIds = (await services.sessionStore.list()).map((session) => session.id);
-    assert.deepEqual(selectorIds, ["spark-daemon-run:selector-persistent"]);
-    assert.equal(selectorIds.includes("spark-daemon-run:selector-anonymous"), false);
+    assert.deepEqual(selectorIds, [
+      "spark-daemon-run:selector-persistent",
+      "spark-daemon-run:selector-anonymous",
+    ]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("anonymous role run artifact records sessionPersistence", async () => {
+test("ephemeral role run artifact records its lifetime", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-headless-role-artifact-"));
   try {
     const cwd = join(dir, "repo");
@@ -1577,25 +2003,28 @@ test("anonymous role run artifact records sessionPersistence", async () => {
     });
 
     const result = await executeRole({
-      role: { ref: "role:builtin-reviewer", id: "reviewer", systemPrompt: "You are a reviewer." },
+      role: {
+        ref: "role:builtin-reviewer",
+        id: "reviewer",
+        revision: "test-revision",
+        systemPrompt: "You are a reviewer.",
+      },
       instruction: { roleRef: "role:builtin-reviewer", instruction: "record persistence" },
       record: {
         ref: "run:artifact-anonymous",
         roleRef: "role:builtin-reviewer",
+        roleRevision: "test-revision",
         instruction: "record persistence",
         status: "queued",
-        noSession: true,
       },
       cwd,
       timeoutMs: 1_000,
-      noSession: true,
     });
 
     assert.equal(result.record.status, "succeeded");
-    assert.equal(result.record.sessionPersistence, "anonymous");
-    assert.equal(result.record.noSession, true);
+    assert.equal("sessionLifetime" in result.record, false);
     assert.equal("sessionPath" in result.record, false);
-    assert.equal(result.record.sessionDir, undefined);
+    assert.equal("sessionDir" in result.record, false);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1660,11 +2089,16 @@ function fakeProviderModule(fake: FakeProviderOptions = {}) {
         name: "Fake Provider",
         baseUrl: "https://fake.test",
         api: "openai-completions",
-        streamSimple: (_model: unknown, context: { messages?: unknown[] }) => {
+        streamSimple: (
+          _model: unknown,
+          context: { messages?: unknown[] },
+          options?: { maxTokens?: number },
+        ) => {
           let messagePromise: Promise<AssistantMessage> | undefined;
           const resolveMessage = async () => {
             messagePromise ??= Promise.resolve(
-              fake.streamSimple?.(context) ?? assistant(`count:${context.messages?.length ?? 0}`),
+              fake.streamSimple?.(context, options) ??
+                assistant(`count:${context.messages?.length ?? 0}`),
             );
             return await messagePromise;
           };

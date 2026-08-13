@@ -33,7 +33,6 @@ export interface ReproStageBlueprint {
 }
 
 const explorer = "role:builtin-explorer" as RoleRef;
-const researcher = "role:builtin-researcher" as RoleRef;
 const executor = "role:builtin-executor" as RoleRef;
 const reviewer = "role:builtin-reviewer" as RoleRef;
 const distributedRunner = "role:extension-repro-distributed-runner" as RoleRef;
@@ -294,7 +293,7 @@ const setup: ReproStageBlueprint = {
       },
     ),
     task("map-model-novel-components", "architecture", "Map model novel components", {
-      roleRef: researcher,
+      roleRef: explorer,
       dependsOn: ["trace-reference-architecture", "trace-target-existing-path"],
       doneWhen: ["Every model component is classified as reuse, adapt, or new with cited reasons."],
       evidenceRequired: [
@@ -315,7 +314,7 @@ const setup: ReproStageBlueprint = {
       "architecture",
       "Research reusable implementation boundaries",
       {
-        roleRef: researcher,
+        roleRef: explorer,
         dependsOn: ["map-model-novel-components"],
         doneWhen: [
           "Reusable modules and rejected alternatives cite concrete APIs and constraints.",
@@ -330,7 +329,7 @@ const setup: ReproStageBlueprint = {
       "architecture",
       "Research prior art and diagnostic categories",
       {
-        roleRef: researcher,
+        roleRef: explorer,
         dependsOn: ["map-model-novel-components"],
         doneWhen: [
           "Three to five highest-relevance primary sources are deeply reviewed and classified.",
@@ -372,7 +371,7 @@ const setup: ReproStageBlueprint = {
       ],
     }),
     task("design-topology-qualification-dag", "resources", "Produce topology qualification DAG", {
-      roleRef: researcher,
+      roleRef: explorer,
       dependsOn: ["derive-pfit-and-ptarget", "research-prior-art-and-known-diffs"],
       doneWhen: ["Every candidate topology changes one axis from an accepted parent."],
       evidenceRequired: [
@@ -380,7 +379,7 @@ const setup: ReproStageBlueprint = {
       ],
     }),
     task("define-determinism-contract", "observability", "Define same-side determinism contract", {
-      roleRef: researcher,
+      roleRef: explorer,
       dependsOn: ["define-data-tokenizer-contract"],
       doneWhen: [
         "Inputs, parameters, loss, optimizer, RNG, scheduler, scaler, and cursor comparisons are specified.",
@@ -394,7 +393,7 @@ const setup: ReproStageBlueprint = {
       "observability",
       "Define symmetric observability and checker contract",
       {
-        roleRef: researcher,
+        roleRef: explorer,
         dependsOn: ["trace-reference-architecture", "trace-target-existing-path"],
         doneWhen: [
           "Tensor naming, boundary hashing, checkpoint schema, and first-divergence projections are symmetric.",

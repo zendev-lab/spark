@@ -17,7 +17,8 @@ import {
   type SparkConversationPart,
   type SparkJsonObject,
   type SparkMessageView,
-  type SparkSessionRegistryRecord,
+  type SparkSessionState,
+  type SparkSessionActivity,
   type SparkSessionMediaReadRequest,
   type SparkSessionMediaReadResult,
   type SparkSessionUsage,
@@ -92,7 +93,9 @@ const providerFailureFallback = "The provider request failed without additional 
 
 export interface LoadSparkSessionSnapshotInput {
   sessionsRoot: string;
-  session: SparkSessionRegistryRecord;
+  session: SparkSessionState;
+  /** Invocation-derived activity; registry records never store this projection. */
+  activity?: SparkSessionActivity;
   resolveGitBranch?: (cwd: string) => Promise<string | undefined>;
 }
 
@@ -190,7 +193,6 @@ export async function loadSparkSessionSnapshotTail(
       },
     };
   }
-
   const loaded = await loadSparkSessionSnapshotIndex(path, input.session.sessionId);
   let index = loaded.index;
   let indexStatus: SparkSessionSnapshotReadStats["indexStatus"] = "hit";
@@ -237,7 +239,10 @@ async function projectSparkSessionSnapshotIndexTail(
   const lastMessage = index.lastMessage
     ? candidates.find((entry) => entry.id === index.lastMessage?.id)
     : undefined;
-  const interrupted = interruptedTurnMessage(lastMessage ? [lastMessage] : [], input.session);
+  const interrupted = interruptedTurnMessage(
+    lastMessage ? [lastMessage] : [],
+    input.activity ?? "idle",
+  );
   const selectedEntries = interrupted ? candidates.slice(1) : candidates;
   return await projectSparkSessionSnapshot(input, {
     header: index.header,
@@ -269,7 +274,7 @@ async function projectSparkSessionSnapshot(
 ): Promise<SparkSessionSnapshotTail> {
   const interrupted = interruptedTurnMessage(
     projection.lastMessage ? [projection.lastMessage] : [],
-    input.session,
+    input.activity ?? "idle",
   );
   const toolOutcomes = collectToolOutcomes(projection.selectedEntries);
   const projectedMessages = projection.selectedEntries.flatMap((entry) => {
@@ -283,7 +288,9 @@ async function projectSparkSessionSnapshot(
     ...(input.session.scope.kind === "workspace"
       ? { workspaceId: input.session.scope.workspaceId }
       : {}),
-    registryStatus: input.session.status,
+    sessionLifecycle: input.session.lifecycle,
+    sessionPlacement: input.session.placement,
+    sessionActivity: input.activity ?? "idle",
   };
   const cwd = projection.header.cwd ?? input.session.cwd;
   const gitBranch = cwd
@@ -291,10 +298,10 @@ async function projectSparkSessionSnapshot(
     : undefined;
   const snapshot = parseSparkSessionView({
     sessionId: input.session.sessionId,
-    ...(input.session.title ? { title: input.session.title } : {}),
+    ...(input.session.name ? { title: input.session.name } : {}),
     ...(cwd ? { cwd } : {}),
     ...(projection.activeLeafId ? { activeLeafId: projection.activeLeafId } : {}),
-    status: input.session.status === "running" ? "running" : "idle",
+    status: input.activity === "running" || input.activity === "queued" ? "running" : "idle",
     ...(input.session.model ? { model: input.session.model } : {}),
     ...(input.session.thinkingLevel ? { thinkingLevel: input.session.thinkingLevel } : {}),
     ...(gitBranch ? { gitBranch } : {}),
@@ -318,7 +325,7 @@ async function projectSparkSessionSnapshot(
 export async function loadSparkSessionMediaChunk(
   input: {
     sessionsRoot: string;
-    session: SparkSessionRegistryRecord;
+    session: SparkSessionState;
   } & Omit<SparkSessionMediaReadRequest, "sessionId">,
 ): Promise<SparkSessionMediaReadResult> {
   const request = sparkSessionMediaReadRequestSchema.parse({
@@ -380,14 +387,14 @@ export async function loadSparkSessionMediaChunk(
 }
 
 function emptySessionSnapshot(
-  session: SparkSessionRegistryRecord,
+  session: SparkSessionState,
   gitBranch: string | undefined,
 ): SparkSessionView {
   return parseSparkSessionView({
     sessionId: session.sessionId,
-    ...(session.title ? { title: session.title } : {}),
+    ...(session.name ? { title: session.name } : {}),
     ...(session.cwd ? { cwd: session.cwd } : {}),
-    status: session.status === "running" ? "running" : "idle",
+    status: "idle",
     ...(session.model ? { model: session.model } : {}),
     ...(session.thinkingLevel ? { thinkingLevel: session.thinkingLevel } : {}),
     ...(gitBranch ? { gitBranch } : {}),
@@ -397,7 +404,9 @@ function emptySessionSnapshot(
     metadata: {
       sessionScope: session.scope,
       ...(session.scope.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
-      registryStatus: session.status,
+      sessionLifecycle: session.lifecycle,
+      sessionPlacement: session.placement,
+      sessionActivity: "idle",
     },
   });
 }
@@ -926,9 +935,9 @@ function messageView(
 
 function interruptedTurnMessage(
   activeEntriesNewestFirst: readonly NativeSessionEntry[],
-  session: SparkSessionRegistryRecord,
+  activity: SparkSessionActivity,
 ): SparkMessageView | undefined {
-  if (session.status === "running") return undefined;
+  if (activity === "running" || activity === "queued") return undefined;
   const lastEntry = activeEntriesNewestFirst.find(
     (entry) => entry.type === "message" && Boolean(entry.message),
   );
