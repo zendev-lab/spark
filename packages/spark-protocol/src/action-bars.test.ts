@@ -18,7 +18,7 @@ describe("Spark action-bar protocol", () => {
       "settings",
       "status",
       "queue",
-      "scoped-models",
+      "enabled-models",
       "plan",
       "execute",
       "fleet",
@@ -245,8 +245,8 @@ describe("Spark action-bar protocol", () => {
       command: "workflow:review",
       args: "run:123",
     });
-    expect(parseSparkSlashInput("/scoped-models")).toEqual({
-      command: "scoped-models",
+    expect(parseSparkSlashInput("/enabled-models")).toEqual({
+      command: "enabled-models",
       args: "",
     });
     expect(parseSparkSlashInput("//escaped")).toBeUndefined();

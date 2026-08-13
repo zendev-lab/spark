@@ -663,7 +663,7 @@ const RESOURCE_STRINGS: Record<SparkLanguage, SparkTuiResourceStrings> = {
 
 const PI_PARITY_DESCRIPTIONS = {
   settings: "show Spark settings and provider/session configuration",
-  scopedModels: "show models enabled for Spark model selection/cycling",
+  enabledModels: "show models enabled for Spark model selection/cycling",
   export: "export visible Spark transcript or a persisted session",
   import: "import a Spark/Pi JSONL session and show resume guidance",
   share: "write a share-safe local HTML transcript export (no secret upload)",

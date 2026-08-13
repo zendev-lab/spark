@@ -239,6 +239,9 @@ an archived release.
   material.
 - `.spark/`, including `.spark/memory/`, is local runtime state and must remain
   uncommitted unless explicitly exported for a reviewed purpose.
+- Project `.agents/{roles,skills,workflows}` definitions are source and should
+  be committed. `.agents/worktrees/` is machine-local Git worktree runtime and
+  must remain uncommitted.
 - Legacy `.learnings/` directories are runtime state and must not be added.
 - Do not commit generated documentation output, packed tarballs, or local
   reports unless a workflow explicitly defines them as source artifacts.

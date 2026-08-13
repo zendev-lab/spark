@@ -45,6 +45,19 @@ test("parseSkillFrontmatter reads multiline block descriptions", () => {
   assert.equal(parsed.frontmatter.disabled, false);
 });
 
+test("checked-in spark-ai-models skill is parseable and model-invocable", async () => {
+  const raw = await readFile(
+    join(process.cwd(), ".agents/skills/spark-ai-models/SKILL.md"),
+    "utf8",
+  );
+  const parsed = parseSkillFrontmatter(raw);
+  assert.equal(parsed.frontmatter.name, "spark-ai-models");
+  assert.equal(typeof parsed.frontmatter.description, "string");
+  assert.ok(String(parsed.frontmatter.description).length > 0);
+  assert.equal(parsed.frontmatter["disable-model-invocation"], undefined);
+  assert.ok(parsed.body.trim().length > 0);
+});
+
 test("loadBuiltinSkills exposes parsed metadata and a non-empty body", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-builtin-skills-fulltext-"));
   try {

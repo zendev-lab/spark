@@ -447,7 +447,7 @@ function publicModelSnapshot(snapshot: SparkModelControlSnapshot): SparkModelCon
   return {
     providers: snapshot.providers,
     ...(snapshot.defaultModel ? { defaultModel: snapshot.defaultModel } : {}),
-    ...(snapshot.scopedModels ? { scopedModels: snapshot.scopedModels } : {}),
+    enabledModels: snapshot.enabledModels,
     ...(snapshot.session ? { session: snapshot.session } : {}),
     diagnostics:
       snapshot.diagnostics.length > 0 ? ["Provider diagnostics are available on the daemon."] : [],
