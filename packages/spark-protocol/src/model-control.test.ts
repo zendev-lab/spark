@@ -44,12 +44,12 @@ describe("Spark model-control protocol", () => {
         },
       ],
       defaultModel: model,
-      scopedModels: [model],
+      enabledModels: [model],
       session: { sessionId: "sess_demo", model },
     });
 
     expect(snapshot.providers[0]?.auth.reference).toBe("openai-codex");
-    expect(snapshot.scopedModels).toEqual([model]);
+    expect(snapshot.enabledModels).toEqual([model]);
     expect(snapshot.session?.model).toEqual(model);
     expect(snapshot.diagnostics).toEqual([]);
   });
@@ -114,7 +114,7 @@ describe("Spark model-control protocol", () => {
         model,
         latencyMs: 250,
         checkedAt: "2026-07-10T06:00:01.000Z",
-        reasonCode: "model-out-of-scope",
+        reasonCode: "model-not-enabled",
         providerMessage: "secret upstream detail",
       }),
     ).toEqual({
@@ -122,7 +122,7 @@ describe("Spark model-control protocol", () => {
       model,
       latencyMs: 250,
       checkedAt: "2026-07-10T06:00:01.000Z",
-      reasonCode: "model-out-of-scope",
+      reasonCode: "model-not-enabled",
     });
   });
 });

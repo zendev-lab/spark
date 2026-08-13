@@ -7,7 +7,7 @@ import type { PageData } from "./$types";
 
 const model = { providerName: "openai", modelId: "gpt-5", modelLabel: "GPT-5" };
 
-function pageData(scopedModels?: (typeof model)[]): PageData {
+function pageData(enabledModels?: (typeof model)[]): PageData {
   return {
     locale: "en",
     messages: getHubDictionary("en"),
@@ -41,7 +41,7 @@ function pageData(scopedModels?: (typeof model)[]): PageData {
           },
         ],
         diagnostics: [],
-        ...(scopedModels === undefined ? {} : { scopedModels }),
+        ...(enabledModels === undefined ? {} : { enabledModels }),
       },
     },
     flow: null,
@@ -52,7 +52,7 @@ function pageData(scopedModels?: (typeof model)[]): PageData {
 }
 
 describe("model settings scope rendering", () => {
-  it("fails closed when a browser projection omits scopedModels", async () => {
+  it("fails closed when a browser projection omits enabledModels", async () => {
     const messages = getHubDictionary("en");
     const screen = await render(Page, { data: pageData(), form: null });
 
@@ -61,7 +61,7 @@ describe("model settings scope rendering", () => {
     await screen.unmount();
   });
 
-  it("renders only a model admitted by the explicit scope", async () => {
+  it("renders only a model admitted by enabledModels", async () => {
     const screen = await render(Page, { data: pageData([model]), form: null });
 
     expect(screen.container.querySelector('form[action="?/setDefaultModel"]')).not.toBeNull();

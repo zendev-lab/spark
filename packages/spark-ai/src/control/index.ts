@@ -53,13 +53,13 @@ export type {
 export {
   DEFAULT_SPARK_PROVIDER_SPECS,
   createSparkProviderImporter,
-  DEFAULT_SPARK_SCOPED_MODEL_PATTERNS,
+  DEFAULT_SPARK_ENABLED_MODEL_PATTERNS,
   defaultSparkProviderConfigPath,
   loadSparkProviderCatalog,
   mergeSparkProviderSpecs,
-  normalizeSparkScopedModelPatterns,
+  normalizeSparkEnabledModelPatterns,
   readSparkProviderConfig,
-  resolveSparkScopedModelIds,
+  resolveSparkEnabledModelIds,
   writeSparkDefaultModel,
 } from "./provider-catalog.ts";
 export type {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import { SparkProviderRegistry } from "../provider-registry.ts";
-import { resolveSparkScopedModelIds } from "./provider-catalog.ts";
+import { resolveSparkEnabledModelIds } from "./provider-catalog.ts";
 
 const fakeProvider = {
   name: "fake-provider",
@@ -35,10 +35,10 @@ test("scope resolution can retain compatibility catalog entries without enabling
   const registry = new SparkProviderRegistry();
   registry.registerProvider("fake-provider", fakeProvider);
 
-  assert.deepEqual(resolveSparkScopedModelIds(registry, ["fake-provider/gpt-5.6-*"]), [
+  assert.deepEqual(resolveSparkEnabledModelIds(registry, ["fake-provider/gpt-5.6-*"]), [
     "fake-provider/gpt-5.6-frontier",
   ]);
-  assert.deepEqual(resolveSparkScopedModelIds(registry, ["fake-provider/*"]), [
+  assert.deepEqual(resolveSparkEnabledModelIds(registry, ["fake-provider/*"]), [
     "fake-provider/gpt-5.3-compat",
     "fake-provider/gpt-5.6-frontier",
   ]);

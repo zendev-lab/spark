@@ -82,7 +82,7 @@ test("runtime model control rejects sessions outside the explicit route scope", 
 test("runtime model catalog and default-set responses preserve resolved scoped models", async () => {
   const snapshot: SparkModelControlSnapshot = {
     providers: [],
-    scopedModels: [model],
+    enabledModels: [model],
     diagnostics: [],
   };
   const modelControl = {
@@ -107,10 +107,10 @@ test("runtime model catalog and default-set responses preserve resolved scoped m
     },
   );
 
-  assert.deepEqual((catalog.result.snapshot as { scopedModels: SparkModelRef[] }).scopedModels, [
+  assert.deepEqual((catalog.result.snapshot as { enabledModels: SparkModelRef[] }).enabledModels, [
     model,
   ]);
-  assert.deepEqual((selected.result.snapshot as { scopedModels: SparkModelRef[] }).scopedModels, [
+  assert.deepEqual((selected.result.snapshot as { enabledModels: SparkModelRef[] }).enabledModels, [
     model,
   ]);
 });

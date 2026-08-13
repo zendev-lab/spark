@@ -13,30 +13,32 @@ export const DEFAULT_SPARK_PROVIDER_SPECS = [
   "@zendev-lab/spark-ai/openai-codex-provider",
 ] as const;
 
-/** Initial user policy for daemon-selectable models. Config `enabledModels` replaces this list. */
-export const DEFAULT_SPARK_SCOPED_MODEL_PATTERNS = [
+/** Initial enabled-model policy for daemon-selectable models. */
+export const DEFAULT_SPARK_ENABLED_MODEL_PATTERNS = [
   "openai-codex/gpt-5.6-*",
-  "baidu-oneapi/*",
+  "baidu-oneapi/claude-opus-5",
+  "baidu-oneapi/deepseek-v4-flash",
+  "baidu-oneapi/gpt-5.6-*",
+  "baidu-oneapi/grok-4.5",
 ] as const;
 
-const LEGACY_SPARK_SCOPED_MODEL_PATTERNS = [
-  "openai-codex/gpt-5.6-luna",
-  "openai-codex/gpt-5.6-sol",
-  "openai-codex/gpt-5.6-terra",
-  "baidu-oneapi/gpt-5.6-luna",
-  "baidu-oneapi/gpt-5.6-sol",
-  "baidu-oneapi/gpt-5.6-terra",
+const LEGACY_SPARK_ENABLED_MODEL_PATTERN_SETS = [
+  [
+    "openai-codex/gpt-5.6-luna",
+    "openai-codex/gpt-5.6-sol",
+    "openai-codex/gpt-5.6-terra",
+    "baidu-oneapi/gpt-5.6-luna",
+    "baidu-oneapi/gpt-5.6-sol",
+    "baidu-oneapi/gpt-5.6-terra",
+  ],
+  ["openai-codex/gpt-5.6-*", "baidu-oneapi/*"],
 ] as const;
 
-/**
- * Migrate bundled defaults from earlier releases without rewriting a user's
- * explicit custom scope. The provider catalog may retain compatibility models,
- * but only the current frontier Codex family is enabled by default.
- */
-export function normalizeSparkScopedModelPatterns(patterns: readonly string[]): string[] {
+/** Migrate bundled defaults without rewriting an explicit custom policy. */
+export function normalizeSparkEnabledModelPatterns(patterns: readonly string[]): string[] {
   const normalized = patterns.map((pattern) => pattern.trim()).filter(Boolean);
-  if (sameStringSet(normalized, LEGACY_SPARK_SCOPED_MODEL_PATTERNS)) {
-    return [...DEFAULT_SPARK_SCOPED_MODEL_PATTERNS];
+  if (LEGACY_SPARK_ENABLED_MODEL_PATTERN_SETS.some((legacy) => sameStringSet(normalized, legacy))) {
+    return [...DEFAULT_SPARK_ENABLED_MODEL_PATTERNS];
   }
   return normalized;
 }
@@ -147,12 +149,12 @@ export function mergeSparkProviderSpecs(configured: readonly string[] | undefine
   return [...new Set([...DEFAULT_SPARK_PROVIDER_SPECS, ...(configured ?? [])])];
 }
 
-/** Resolve user scope patterns against the complete provider capability catalog. */
-export function resolveSparkScopedModelIds(
+/** Resolve enabled-model patterns against the complete provider capability catalog. */
+export function resolveSparkEnabledModelIds(
   registry: SparkProviderRegistry,
   patterns: readonly string[],
 ): string[] {
-  const scoped: string[] = [];
+  const enabled: string[] = [];
   for (const provider of registry.listProviders()) {
     for (const model of provider.models) {
       const modelRef = `${provider.name}/${model.id}`;
@@ -166,11 +168,11 @@ export function resolveSparkScopedModelIds(
           ),
         )
       ) {
-        scoped.push(modelRef);
+        enabled.push(modelRef);
       }
     }
   }
-  return scoped;
+  return enabled;
 }
 
 export async function writeSparkDefaultModel(path: string, activeModelId: string): Promise<void> {
@@ -191,7 +193,7 @@ function readEnabledModels(raw: Record<string, unknown>): {
   error?: string;
 } {
   if (!("enabledModels" in raw)) {
-    return { patterns: [...DEFAULT_SPARK_SCOPED_MODEL_PATTERNS] };
+    return { patterns: [...DEFAULT_SPARK_ENABLED_MODEL_PATTERNS] };
   }
   if (!Array.isArray(raw.enabledModels)) {
     return {
@@ -201,7 +203,7 @@ function readEnabledModels(raw: Record<string, unknown>): {
   }
   const patterns = stringArray(raw.enabledModels);
   if (patterns && patterns.length === raw.enabledModels.length) {
-    return { patterns: normalizeSparkScopedModelPatterns(patterns) };
+    return { patterns: normalizeSparkEnabledModelPatterns(patterns) };
   }
   return {
     patterns: [],
