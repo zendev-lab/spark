@@ -14,6 +14,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./three-lane": "./src/three-lane.ts",
+    "./three-lane-projection": "./src/three-lane-projection.ts",
     "./three-lane-work-summary": "./src/three-lane-work-summary.ts",
     "./work-summary": "./src/work-summary.ts",
     "./workbench": "./src/workbench.ts"

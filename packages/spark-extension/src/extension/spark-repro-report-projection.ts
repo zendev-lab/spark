@@ -4,10 +4,14 @@ import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { writeTextFileAtomic } from "@zendev-lab/spark-core";
 import {
   buildSparkReproWorkSummary,
-  type SparkReproWorkSummary,
   type SparkReproWorkSummaryInput,
 } from "@zendev-lab/spark-repro/work-summary";
 import type { SparkSessionRepro } from "@zendev-lab/spark-repro";
+import {
+  migrateSparkReproWorkSummaryV2,
+  projectSparkReproWorkSummaryV3,
+  type SparkReproWorkSummaryV3,
+} from "@zendev-lab/spark-repro/three-lane-work-summary";
 
 import {
   composeSparkReproReportSummary,
@@ -34,7 +38,7 @@ export interface SparkReproReportProjectionResult {
   path: typeof SPARK_REPRO_REPORT_SUMMARY_PATH;
   reportPath: typeof SPARK_REPRO_REPORT_SOURCE_PATH;
   summary: SparkReproReportSummary;
-  work: SparkReproWorkSummary;
+  work: SparkReproWorkSummaryV3;
   usageIncluded: boolean;
   warning?: string;
 }
@@ -71,27 +75,30 @@ export async function projectSparkReproReportSummary(input: {
     );
   }
 
-  const work = buildSparkReproWorkSummary({
+  const formalWork = buildSparkReproWorkSummary({
     ...(input.workSummaryInput as unknown as SparkReproWorkSummaryInput),
     reportArtifactRef,
   });
-  if (work.reproId !== currentReproId) {
+  if (formalWork.reproId !== currentReproId) {
     throw new Error(
-      `work summary reproId ${work.reproId} does not match current Repro run ${currentReproId}`,
+      `work summary reproId ${formalWork.reproId} does not match current Repro run ${currentReproId}`,
     );
   }
 
   const evidenceLookup = input.evidenceLookup ?? defaultEvidenceStore(input.cwd);
-  await resolveAcceptedFormalEvidence(work, evidenceLookup);
+  await resolveAcceptedFormalEvidence(formalWork, evidenceLookup);
   await verifyCurrentReproReportAuthority({
     cwd: input.cwd,
-    work,
+    work: formalWork,
     repro: input.reproState,
     taskStatusByRef: input.taskStatusByRef,
     evidenceLookup,
     control: input.formalEvidenceControl,
     signal: input.signal,
   });
+  const work = input.reproState
+    ? projectSparkReproWorkSummaryV3({ work: formalWork, state: input.reproState.threeLane })
+    : migrateSparkReproWorkSummaryV2(formalWork);
 
   let tokenUsage: Awaited<ReturnType<SparkDaemonUsageControl["summary"]>> | undefined;
   let warning: string | undefined;

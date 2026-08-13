@@ -12,7 +12,10 @@ import {
   type DocumentArtifactBody,
 } from "@zendev-lab/spark-artifacts";
 import type { SparkSessionRepro } from "@zendev-lab/spark-repro";
-import type { SparkReproWorkSummary } from "@zendev-lab/spark-repro/work-summary";
+import {
+  sparkReproWorkSummaryV3Base,
+  type SparkReproWorkSummaryV3,
+} from "@zendev-lab/spark-repro/three-lane-work-summary";
 
 import {
   parseSparkReproReportSummary,
@@ -68,7 +71,7 @@ export function renderSparkReproReportMarkdown(summary: SparkReproReportSummary)
 export interface SparkReproReportSyncResult {
   artifact: Artifact<DocumentArtifactBody>;
   reportArtifactRef: ArtifactRef;
-  work: SparkReproWorkSummary;
+  work: SparkReproWorkSummaryV3;
   changed: boolean;
   created: boolean;
 }
@@ -125,7 +128,7 @@ async function readCanonicalReportWork(
     formalEvidenceControl?: SparkDaemonReproFormalEvidenceControl;
     signal?: AbortSignal;
   },
-): Promise<SparkReproWorkSummary> {
+): Promise<SparkReproWorkSummaryV3> {
   const path = resolve(cwd, SPARK_REPRO_REPORT_SUMMARY_PATH);
   const raw = await readJsonFileOptional<Record<string, unknown>>(path);
   if (!raw) {
@@ -153,10 +156,11 @@ async function readCanonicalReportWork(
     );
   }
   const evidenceLookup = defaultEvidenceStore(cwd);
-  await resolveAcceptedFormalEvidence(summary.work, evidenceLookup);
+  const formalWork = sparkReproWorkSummaryV3Base(summary.work);
+  await resolveAcceptedFormalEvidence(formalWork, evidenceLookup);
   await verifyCurrentReproReportAuthority({
     cwd,
-    work: summary.work,
+    work: formalWork,
     repro: options.reproState,
     taskStatusByRef: options.taskStatusByRef,
     evidenceLookup,

@@ -444,7 +444,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -629,7 +629,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );

@@ -333,7 +333,7 @@ setInterval(() => {}, 1000);
           pid: 202,
           instanceId: "target-instance",
           generation: "target-generation",
-          protocolVersion: 1,
+          protocolVersion: 2,
           acceptedRestartId: "restart-1",
         },
       },
@@ -379,7 +379,7 @@ setInterval(() => {}, 1000);
         {
           lifecycle: {
             ...status.lifecycle,
-            process: { ...status.lifecycle.process, protocolVersion: 2 },
+            process: { ...status.lifecycle.process, protocolVersion: 1 },
           },
         },
         expected,
@@ -791,7 +791,7 @@ setInterval(() => {}, 1000);
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestedAt: "2026-07-15T00:01:00.000Z",
         supervisorManaged: false,
       }),
@@ -877,7 +877,7 @@ setInterval(() => {}, 1000);
         previousProcessStartToken: "test:new",
         targetInstanceId: "target-new",
         targetGeneration: "target-generation-new",
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -919,7 +919,7 @@ setInterval(() => {}, 1000);
         previousProcessStartToken: "linux:definitely-not-this-process",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -956,7 +956,7 @@ setInterval(() => {}, 1000);
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -989,7 +989,7 @@ setInterval(() => {}, 1000);
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -1054,7 +1054,7 @@ setInterval(() => {}, 1000);
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -1334,7 +1334,7 @@ setInterval(() => {}, 1000);
       previousProcessStartToken: "test:old",
       targetInstanceId: "old-target-instance",
       targetGeneration: "old-target-generation",
-      protocolVersion: 1,
+      protocolVersion: 2,
       requestedAt: "2026-07-15T00:01:00.000Z",
     };
     writeFileSync(
@@ -1397,7 +1397,7 @@ setInterval(() => {}, 1000);
       previousProcessStartToken: "test:old",
       targetInstanceId: "new-instance",
       targetGeneration: "new-generation",
-      protocolVersion: 1,
+      protocolVersion: 2,
       requestedAt: "2026-07-17T00:01:00.000Z",
     };
     writeFileSync(

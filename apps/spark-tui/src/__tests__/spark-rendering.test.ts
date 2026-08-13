@@ -12,7 +12,7 @@ import {
 const projectionFixture = JSON.parse(
   readFileSync(
     new URL(
-      "../../../../packages/spark-protocol/src/fixtures/conversation-v1/projection.json",
+      "../../../../packages/spark-protocol/src/fixtures/conversation-v2/projection.json",
       import.meta.url,
     ),
     "utf8",

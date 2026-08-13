@@ -18,6 +18,12 @@ import {
   type SparkReproCurrentStepAuthority,
   type SparkReproWorkSummary,
 } from "@zendev-lab/spark-repro/work-summary";
+import {
+  normalizeSparkReproWorkSummaryV3,
+  sparkReproWorkSummaryV3Base,
+  SPARK_REPRO_THREE_LANE_WORK_SUMMARY_SCHEMA,
+  type SparkReproWorkSummaryV3,
+} from "@zendev-lab/spark-repro/three-lane-work-summary";
 import { canonicalReproFormalEvidenceWorkspaceCwd } from "../store/repro-formal-evidence.ts";
 import type {
   SparkLoopEvaluationContext,
@@ -355,10 +361,17 @@ async function readBoundReproWork(
   }
   const stored = raw.work;
   const legacyWork = stored.schema === SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA;
-  const work = normalizeSparkReproWorkSummary(stored);
+  const projected =
+    stored.schema === SPARK_REPRO_THREE_LANE_WORK_SUMMARY_SCHEMA
+      ? normalizeSparkReproWorkSummaryV3(stored as unknown as SparkReproWorkSummaryV3)
+      : undefined;
+  const work = projected
+    ? sparkReproWorkSummaryV3Base(projected)
+    : normalizeSparkReproWorkSummary(stored);
+  const canonicalStored = projected ?? work;
   if (!legacyWork) {
     for (const field of ["schema", "status", "progress", "technicalGoal"] as const) {
-      if (!isDeepStrictEqual(stored[field], work[field])) {
+      if (!isDeepStrictEqual(stored[field], canonicalStored[field])) {
         throw new Error(`${REPRO_SUMMARY_PATH} work.${field} does not match canonical facts`);
       }
     }

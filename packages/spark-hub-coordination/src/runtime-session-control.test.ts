@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
 import {
+  SPARK_PROTOCOL_VERSION,
   createId,
   parseSparkSessionProjection,
   runtimeProtocolVersion,
@@ -271,12 +272,12 @@ describe("runtime session projections", () => {
         kind: "session.snapshot",
         data: {
           snapshot: {
-            version: 1,
+            version: SPARK_PROTOCOL_VERSION,
             sessionId: session.sessionId,
             status: "idle",
             messages: [
               {
-                version: 1,
+                version: SPARK_PROTOCOL_VERSION,
                 id: "message-one",
                 role: "user",
                 text: "bounded",
@@ -431,7 +432,7 @@ describe("runtime session projections", () => {
           kind: "session.snapshot",
           data: {
             snapshot: {
-              version: 1,
+              version: SPARK_PROTOCOL_VERSION,
               sessionId: session.sessionId,
               status: "idle",
               messages: [],
@@ -449,12 +450,12 @@ describe("runtime session projections", () => {
     }
 
     const incompatibleSnapshot = {
-      version: 1,
+      version: SPARK_PROTOCOL_VERSION,
       sessionId: newer.sessionId,
       status: "idle",
       messages: [
         {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           id: "future-message",
           role: "user",
           text: "",
@@ -525,12 +526,12 @@ describe("runtime session projections", () => {
         kind: "session.snapshot",
         data: {
           snapshot: {
-            version: 1,
+            version: SPARK_PROTOCOL_VERSION,
             sessionId: session.sessionId,
             status: "idle",
             messages: [
               {
-                version: 1,
+                version: SPARK_PROTOCOL_VERSION,
                 id: "latest-message",
                 role: "user",
                 text: "latest",
@@ -576,12 +577,12 @@ describe("runtime session projections", () => {
         kind: "session.snapshot",
         data: {
           snapshot: {
-            version: 1,
+            version: SPARK_PROTOCOL_VERSION,
             sessionId: session.sessionId,
             status: "idle",
             messages: [
               {
-                version: 1,
+                version: SPARK_PROTOCOL_VERSION,
                 id: "older-message",
                 role: "user",
                 text: "older",

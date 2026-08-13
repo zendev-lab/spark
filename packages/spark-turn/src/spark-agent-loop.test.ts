@@ -19,7 +19,11 @@ import {
 } from "@zendev-lab/spark-ai";
 import { assertRef } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
-import type { SparkDaemonEvent, SparkViewModelEvent } from "@zendev-lab/spark-protocol";
+import {
+  SPARK_PROTOCOL_VERSION,
+  type SparkDaemonEvent,
+  type SparkViewModelEvent,
+} from "@zendev-lab/spark-protocol";
 
 import {
   SparkAgentLoop,
@@ -3153,7 +3157,7 @@ test("SparkAgentLoop blocks approval-required tools without explicit approval", 
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "blocked",
@@ -3230,7 +3234,7 @@ test("SparkAgentLoop skip approvalMethod executes requiresApproval tools without
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "blocked",
@@ -3291,7 +3295,7 @@ test("SparkAgentLoop auto approvalMethod executes when reviewer approves", async
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "blocked",
@@ -3359,7 +3363,7 @@ test("SparkAgentLoop auto approvalMethod escalates to ask when reviewer rejects"
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "answered",
@@ -3421,7 +3425,7 @@ test("SparkAgentLoop auto approvalMethod can deny without ask", async () => {
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "answered",
