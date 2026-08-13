@@ -5230,7 +5230,7 @@ test("canonical assign rejects a mixed frontier before creating any identities",
       description: "Must not be dispatched when another requested Task is exhausted.",
       kind: "implement",
       status: "ready",
-      roleRef: "role:builtin-worker" as RoleRef,
+      roleRef: "role:builtin-executor" as RoleRef,
       executionPolicy: {
         sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
@@ -5249,7 +5249,7 @@ test("canonical assign rejects a mixed frontier before creating any identities",
       description: "Canonical assign must fail closed before durable dispatch identities exist.",
       kind: "implement",
       status: "ready",
-      roleRef: "role:builtin-worker" as RoleRef,
+      roleRef: "role:builtin-executor" as RoleRef,
       executionPolicy: {
         sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
@@ -5266,7 +5266,7 @@ test("canonical assign rejects a mixed frontier before creating any identities",
         ref: `run:attempt-exhausted-${attempt}` as RunRef,
         projectRef: project.ref,
         taskRef: task.ref,
-        roleRef: "role:builtin-worker" as RoleRef,
+        roleRef: "role:builtin-executor" as RoleRef,
         runName: `${task.name}-attempt-${attempt}`,
         ownerSessionId: "session:historical-owner",
         status: "failed",
@@ -6527,7 +6527,7 @@ test("repro tool reports driver startup failure and clears new active state", as
   }
 });
 
-test("native Pi ephemeral sessions cannot start durable goal or repro loops", async () => {
+test("native ephemeral Sessions cannot start durable goal or repro loops", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-native-pi-ephemeral-"));
   try {
     await writeEmptySparkProject(dir);
@@ -6542,14 +6542,14 @@ test("native Pi ephemeral sessions cannot start durable goal or repro loops", as
         action: "start",
         objective: "Must remain durable",
       }),
-      /persistent Pi session/u,
+      /durable scoped host Session/u,
     );
     await assert.rejects(
       executeSparkTool(run.tools, "repro", ctx, {
         action: "start",
         objective: "Must remain durable",
       }),
-      /persistent Pi session/u,
+      /durable scoped host Session/u,
     );
     assert.deepEqual(run.loopControl.ensuredOwners, []);
     assert.equal(await loadSessionGoal(dir, ctx), undefined);
@@ -9204,7 +9204,7 @@ test("impl_status reconciles DAG runs with current workspace active children onl
       title: "Other child",
       description: "Keep an unrelated role-run active in another workspace.",
       kind: "implement",
-      roleRef: "role:builtin-worker" as RoleRef,
+      roleRef: "role:builtin-executor" as RoleRef,
       status: "pending",
       plan: executionReadyPlan("Other child"),
     });
@@ -9286,7 +9286,7 @@ test("impl_workflow_runs kill_active only targets current workspace role-runs", 
       title: "Other child",
       description: "Keep an unrelated role-run active in another workspace.",
       kind: "implement",
-      roleRef: "role:builtin-worker" as RoleRef,
+      roleRef: "role:builtin-executor" as RoleRef,
       status: "pending",
       plan: executionReadyPlan("Other child"),
     });
@@ -9821,14 +9821,14 @@ test("impl_workflow_runs reply and steer require one active visible role-run", a
         description: "Pretend a role is waiting but has no active process.",
         kind: "implement",
         status: "running",
-        roleRef: "role:builtin-worker" as RoleRef,
+        roleRef: "role:builtin-executor" as RoleRef,
         plan: executionReadyPlan("Waiting role"),
       });
       graph.recordRun({
         ref: "run:waiting-role" as RunRef,
         projectRef: project.ref,
         taskRef: task.ref,
-        roleRef: "role:builtin-worker" as RoleRef,
+        roleRef: "role:builtin-executor" as RoleRef,
         runName: "worker-waiting",
         ownerSessionId: "session:parent",
         status: "running",
@@ -9993,7 +9993,7 @@ test("impl_workflow_runs reply records failed delivery without successful activi
       description: "Run a long-lived fake role-run without an input control channel.",
       kind: "implement",
       status: "pending",
-      roleRef: "role:builtin-worker" as RoleRef,
+      roleRef: "role:builtin-executor" as RoleRef,
       plan: executionReadyPlan("No input-control child task"),
     });
     await store.save(graph);
@@ -10116,7 +10116,7 @@ test("impl_workflow_runs reply delivers through native role-run input control", 
       description: "Run a long-lived daemon-native role-run with an input control channel.",
       kind: "implement",
       status: "pending",
-      roleRef: "role:builtin-worker" as RoleRef,
+      roleRef: "role:builtin-executor" as RoleRef,
       plan: executionReadyPlan("Native input-control child task"),
     });
     await store.save(graph);
@@ -10233,7 +10233,7 @@ test("impl_workflow_runs reports failed workflow run with stuck child as attenti
       title: "Failed stuck child",
       description: "Timeout child process that stays alive after runtime failure.",
       kind: "implement",
-      roleRef: "role:builtin-worker" as RoleRef,
+      roleRef: "role:builtin-executor" as RoleRef,
       status: "pending",
       plan: executionReadyPlan("Failed stuck child"),
     });
@@ -10377,7 +10377,7 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
       plan: executionReadyPlan("Compact succeeded role-run task"),
     });
     const now = new Date().toISOString();
-    const roleRef = "role:builtin-worker" as RoleRef;
+    const roleRef = "role:builtin-executor" as RoleRef;
     const failedRunRef = "run:compact-failed-role-run" as RunRef;
     const succeededRunRef = "run:compact-succeeded-role-run" as RunRef;
     const transcript = await defaultEvidenceStore(dir).put({
@@ -10612,7 +10612,7 @@ test("impl_workflow_runs inspect keeps legacy large role-run Evidence behind ref
     });
     const now = new Date().toISOString();
     const runRef = "run:legacy-large-background-role-run" as RunRef;
-    const roleRef = "role:builtin-worker" as RoleRef;
+    const roleRef = "role:builtin-executor" as RoleRef;
     graph.recordRun({
       ref: runRef,
       projectRef: project.ref,
@@ -10804,7 +10804,7 @@ test("impl_status renders legacy large role-run Evidence by refs without loading
     });
     const now = new Date().toISOString();
     const runRef = "run:legacy-large-role-run" as RunRef;
-    const roleRef = "role:builtin-worker" as RoleRef;
+    const roleRef = "role:builtin-executor" as RoleRef;
     graph.recordRun({
       ref: runRef,
       projectRef: project.ref,
@@ -10909,7 +10909,7 @@ test("task status projects managed Session Goal and TaskRun evidence bindings", 
       title: "Managed execution projection",
       description: "Expose the daemon-owned Task to Session Goal execution binding.",
       kind: "research",
-      roleRef: "role:builtin-researcher" as RoleRef,
+      roleRef: "role:builtin-explorer" as RoleRef,
       status: "running",
       plan: executionReadyPlan("Expose managed execution projection"),
     });
@@ -10919,7 +10919,7 @@ test("task status projects managed Session Goal and TaskRun evidence bindings", 
       ref: runRef,
       projectRef: project.ref,
       taskRef: task.ref,
-      roleRef: "role:builtin-researcher" as RoleRef,
+      roleRef: "role:builtin-explorer" as RoleRef,
       runName: "managed-execution-attempt-2",
       status: "running",
       execution: {
@@ -10965,7 +10965,7 @@ test("task status projects managed Session Goal and TaskRun evidence bindings", 
     assert.deepEqual(taskRun, {
       runRef,
       status: "running",
-      roleRef: "role:builtin-researcher",
+      roleRef: "role:builtin-explorer",
       executionSessionId: "sess_task_projection",
       sessionGoalId: "goal-managed-projection",
       subgoalRef: "subgoal:managed-projection",
@@ -11807,7 +11807,7 @@ test("impl_state role_run_evidence_compact dry-run lists large role-run candidat
         producer: "task",
         projectRef: "proj:retention-dry-run" as ProjectRef,
         taskRef: "task:retention-dry-run" as TaskRef,
-        roleRef: "role:builtin-worker" as RoleRef,
+        roleRef: "role:builtin-executor" as RoleRef,
       },
     });
     const research = await store.put({
@@ -11895,7 +11895,7 @@ test("impl_state role_run_evidence_compact skips blob paths outside Evidence roo
         producer: "task",
         projectRef: "proj:retention-boundary" as ProjectRef,
         taskRef: "task:retention-boundary" as TaskRef,
-        roleRef: "role:builtin-worker" as RoleRef,
+        roleRef: "role:builtin-executor" as RoleRef,
       },
     });
     const metadataPath = store.pathFor(roleRun.ref);
@@ -11980,7 +11980,7 @@ test("impl_state role_run_evidence_compact apply writes replacement summary befo
         producer: "task",
         projectRef: "proj:retention-apply" as ProjectRef,
         taskRef: "task:retention-apply" as TaskRef,
-        roleRef: "role:builtin-worker" as RoleRef,
+        roleRef: "role:builtin-executor" as RoleRef,
       },
     });
     const before = JSON.parse(await readFile(store.pathFor(roleRun.ref), "utf8")) as {
@@ -13520,7 +13520,7 @@ function largeLegacyRoleRunBody(runRef: RunRef, runName: string, paddingBytes: n
   return {
     record: {
       ref: runRef,
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       runName,
       instruction: "legacy instruction that should not be preserved in replacement metadata",
       status: "succeeded",

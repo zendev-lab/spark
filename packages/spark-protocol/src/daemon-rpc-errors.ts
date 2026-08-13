@@ -115,7 +115,7 @@ export const sparkHumanRpcErrorCodeOptions = [
 ] as const;
 
 export const sparkDelegationRpcErrorCodeOptions = [
-  "workspace_main_session_required",
+  "workspace_administrator_session_required",
   "delegation_action_invalid",
   "delegation_not_found",
   "delegation_state_conflict",

@@ -1514,6 +1514,11 @@ describe("runtime WebSocket handling", () => {
         projects: [{ projectId, title: "MVP", status: "running" }],
         unresolvedInboxCount: 1,
         activeInvocationCount: 1,
+        administratorProvisioning: {
+          state: "failed",
+          error: "registry unavailable",
+          retryCount: 2,
+        },
         latestArtifactIds: [],
       },
     });
@@ -1629,9 +1634,26 @@ describe("runtime WebSocket handling", () => {
 
     const binding = db
       .prepare(
-        "SELECT display_name AS displayName, last_snapshot_at AS lastSnapshotAt FROM runtime_workspace_bindings WHERE id = ?",
+        `SELECT display_name AS displayName, last_snapshot_at AS lastSnapshotAt,
+                administrator_provisioning_state AS provisioningState,
+                administrator_provisioning_error AS provisioningError,
+                administrator_provisioning_retry_count AS provisioningRetryCount
+         FROM runtime_workspace_bindings WHERE id = ?`,
       )
-      .get(workspaceBindingId) as { displayName: string; lastSnapshotAt: string | null };
+      .get(workspaceBindingId) as {
+      displayName: string;
+      lastSnapshotAt: string | null;
+      provisioningState: string;
+      provisioningError: string | null;
+      provisioningRetryCount: number;
+    };
+    const workspaceProvisioning = db
+      .prepare(
+        `SELECT provisioning_state AS state, provisioning_error AS error,
+                provisioning_retry_count AS retryCount
+         FROM workspaces WHERE id = ?`,
+      )
+      .get(workspace.id);
     const inboxCount = db.prepare("SELECT COUNT(*) AS count FROM inbox_items").get() as {
       count: number;
     };
@@ -1647,6 +1669,16 @@ describe("runtime WebSocket handling", () => {
 
     expect(binding.displayName).toBe("local-default");
     expect(binding.lastSnapshotAt).not.toBeNull();
+    expect(binding).toMatchObject({
+      provisioningState: "failed",
+      provisioningError: "registry unavailable",
+      provisioningRetryCount: 2,
+    });
+    expect(workspaceProvisioning).toEqual({
+      state: "failed",
+      error: "registry unavailable",
+      retryCount: 2,
+    });
     expect(inboxCount.count).toBe(1);
     expect(taskCount.count).toBe(1);
     expect(logCount.count).toBe(1);

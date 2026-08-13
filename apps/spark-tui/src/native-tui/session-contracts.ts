@@ -1,4 +1,8 @@
-import type { SparkMessageView, SparkToolCallView } from "@zendev-lab/spark-protocol";
+import type {
+  SparkMessageView,
+  SparkToolCallView,
+  SparkViewModelEvent,
+} from "@zendev-lab/spark-protocol";
 import type { SparkNativeHubPanel } from "./hub-types.ts";
 
 interface SparkNativeSessionMessageContract {
@@ -31,6 +35,7 @@ interface SparkNativeAbortContract {
 }
 
 export interface SparkNativeAppContract {
+  applyViewModelEvent(event: SparkViewModelEvent): void;
   executeSlashCommand(input: string): Promise<void> | void;
   openHubPanel(panel: SparkNativeHubPanel): string | false;
   openHubPanelFromArgs(args: string): string | false;

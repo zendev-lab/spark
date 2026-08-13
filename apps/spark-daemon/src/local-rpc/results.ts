@@ -71,12 +71,31 @@ export function daemonStatus(value: unknown): LocalDaemonStatusResult {
     servers: value.servers.map(daemonServerSummary),
     invocations: invocationCountsResult(value.invocations),
     invocationHealth: invocationHealthResult(value.invocationHealth),
+    ...(value.execution !== undefined ? { execution: daemonExecutionStatus(value.execution) } : {}),
     channelDeliveries: channelDeliverySummary(value.channelDeliveries),
     lifecycle: parseSparkDaemonLifecycleSnapshot(value.lifecycle),
     ...(typeof value.buildFingerprint === "string"
       ? { buildFingerprint: value.buildFingerprint }
       : {}),
     observedAt: typeof value.observedAt === "string" ? value.observedAt : new Date().toISOString(),
+  };
+}
+
+function daemonExecutionStatus(value: unknown): NonNullable<LocalDaemonStatusResult["execution"]> {
+  if (
+    !isRecord(value) ||
+    value.backend !== "in_process" ||
+    !Number.isSafeInteger(value.rootConcurrency) ||
+    Number(value.rootConcurrency) < 1 ||
+    Number(value.rootConcurrency) > 64 ||
+    value.questionOverflow !== 1
+  ) {
+    throw new Error("Invalid local RPC daemon execution status.");
+  }
+  return {
+    backend: "in_process",
+    rootConcurrency: Number(value.rootConcurrency),
+    questionOverflow: 1,
   };
 }
 

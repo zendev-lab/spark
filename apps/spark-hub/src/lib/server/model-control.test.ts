@@ -6,8 +6,10 @@ import {
   parseModelValue,
   setSessionModelForHub,
   startProviderOAuthForHub,
+  testModelForHub,
   type HubModelControlClient,
 } from "./model-control";
+import { workspaceSessionRecord } from "../../../../../test/support/session-fixtures.ts";
 
 const model = { providerName: "baidu-oneapi", modelId: "ernie-4.5" };
 
@@ -18,13 +20,14 @@ describe("Hub model control adapter", () => {
       async request(method, params) {
         calls.push({ method, params });
         if (method === "session.model.set") {
-          return {
+          return workspaceSessionRecord({
             sessionId: "sess_demo",
             workspaceId: "ws_demo",
+            supervisorSessionId: "sess_administrator",
             model,
             createdAt: "2026-07-10T00:00:00.000Z",
             updatedAt: "2026-07-10T00:01:00.000Z",
-          };
+          });
         }
         return {
           providers: [],
@@ -47,17 +50,21 @@ describe("Hub model control adapter", () => {
   });
 
   it("parses only the non-sensitive OAuth projection", async () => {
-    const flow = await startProviderOAuthForHub("openai-codex", {
-      request: async () => ({
-        id: "flow_1",
-        providerName: "openai-codex",
-        status: "pending",
-        createdAt: "2026-07-10T00:00:00.000Z",
-        updatedAt: "2026-07-10T00:00:00.000Z",
-        progress: [],
-        accessToken: "must-not-survive",
-      }),
-    });
+    const flow = await startProviderOAuthForHub(
+      "openai-codex",
+      {},
+      {
+        request: async () => ({
+          id: "flow_1",
+          providerName: "openai-codex",
+          status: "pending",
+          createdAt: "2026-07-10T00:00:00.000Z",
+          updatedAt: "2026-07-10T00:00:00.000Z",
+          progress: [],
+          accessToken: "must-not-survive",
+        }),
+      },
+    );
 
     expect(flow).not.toHaveProperty("accessToken");
   });
@@ -102,5 +109,32 @@ describe("Hub model control adapter", () => {
       loadProjectedModelControlForHub({ workspaceId: "ws_active" }, client),
     ).resolves.toMatchObject({ available: true, snapshot: { defaultModel: model } });
     expect(calls).toEqual([{ workspaceId: "ws_active" }, { workspaceId: "ws_active" }]);
+  });
+
+  it("routes quick tests through the selected workspace and parses stable results", async () => {
+    const calls: Array<{ method: string; params?: unknown }> = [];
+    const result = await testModelForHub(
+      model,
+      { workspaceId: "ws_active" },
+      {
+        request: async (method, params) => {
+          calls.push({ method, params });
+          return {
+            status: "reachable",
+            model,
+            latencyMs: 42,
+            checkedAt: "2026-08-09T00:00:00.000Z",
+          };
+        },
+      },
+    );
+
+    expect(result).toMatchObject({ status: "reachable", latencyMs: 42 });
+    expect(calls).toEqual([
+      {
+        method: "model.connectivity.test",
+        params: { workspaceId: "ws_active", model },
+      },
+    ]);
   });
 });

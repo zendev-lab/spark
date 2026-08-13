@@ -138,7 +138,7 @@ export function registerSparkClaimTaskTool(
       roleRef: Type.Optional(
         Type.String({
           description:
-            'Optional builtin/extension/project/user role spec id or ref from role({ action: "list" }), e.g. explorer, researcher, reviewer, or executor. This is a preferred executor hint; assign({ taskRefs: [...] }) dispatches through the host policy.',
+            'Optional builtin/extension/project/user RoleSpec id or ref from role({ action: "list" }), e.g. explorer, reviewer, or executor. This is a preferred executor hint; assign({ taskRefs: [...] }) dispatches through the host policy.',
         }),
       ),
     }),

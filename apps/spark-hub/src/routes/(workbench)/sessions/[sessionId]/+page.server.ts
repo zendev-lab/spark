@@ -9,7 +9,7 @@ import type { PageServerLoad } from "./$types";
 export const load: PageServerLoad = ({ params, url }) => {
   const session = getProjectedManagedSessionForHub(params.sessionId);
   const workspaceId = session ? workspaceIdForWorkbenchSession(session) : null;
-  if (!session || !workspaceId || session.status === "archived") {
+  if (!session || !workspaceId || session.placement === "archived") {
     throw error(404, "Session not found");
   }
   const workspace = loadWorkspaceByRouteId(getDatabase(), workspaceId);

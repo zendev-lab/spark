@@ -229,6 +229,164 @@ export function isSparkTurnRestartYieldError(error: unknown): error is SparkTurn
   );
 }
 
+export interface SparkProviderContextTokenEstimate {
+  /** Estimated tokens in the exact Context passed to the provider adapter. */
+  tokens: number;
+  messageTokens: number;
+  systemPromptTokens: number;
+  toolTokens: number;
+  /** A provider-reported prefix can be more accurate than chars/4. */
+  reportedPrefixTokens: number;
+}
+
+const SPARK_ESTIMATED_CHARS_PER_TOKEN = 4;
+const SPARK_ESTIMATED_IMAGE_CHARS = 4_800;
+
+/**
+ * Meter the provider-facing Context, including the current system prompt and
+ * active tool schemas. This intentionally runs after request-scoped prompt and
+ * lifecycle injection; UI visibility is not a provider-exclusion boundary.
+ */
+export function estimateSparkProviderContextTokens(
+  context: Context,
+): SparkProviderContextTokenEstimate {
+  const systemPromptTokens = estimateProviderTextTokens(context.systemPrompt ?? "");
+  const toolTokens = context.tools?.length
+    ? estimateProviderTextTokens(safeProviderJson(context.tools))
+    : 0;
+  let messageTokens = 0;
+  let reportedPrefixTokens = 0;
+  let reportedPrefixIndex = -1;
+  for (const [index, message] of context.messages.entries()) {
+    messageTokens += estimateProviderMessageTokens(message);
+    if (isSparkCompactionSummaryMessage(message)) {
+      reportedPrefixTokens = 0;
+      reportedPrefixIndex = -1;
+      continue;
+    }
+    if (message.role !== "assistant" || message.stopReason === "error") continue;
+    const reported = providerUsageTokens(message.usage);
+    if (reported > 0) {
+      reportedPrefixTokens = reported;
+      reportedPrefixIndex = index;
+    }
+  }
+  let usageBasedTokens = 0;
+  if (reportedPrefixIndex >= 0) {
+    usageBasedTokens = reportedPrefixTokens;
+    for (let index = reportedPrefixIndex + 1; index < context.messages.length; index += 1) {
+      usageBasedTokens += estimateProviderMessageTokens(context.messages[index]!);
+    }
+  }
+  const estimatedHistoryTokens = Math.max(messageTokens, usageBasedTokens);
+  return {
+    // Reported usage belongs to the prior provider prefix. Always add the
+    // current request's system prompt and active tool schemas so changing the
+    // selected skill/tool profile cannot make a stale prefix undercount them.
+    tokens: systemPromptTokens + toolTokens + estimatedHistoryTokens,
+    messageTokens,
+    systemPromptTokens,
+    toolTokens,
+    reportedPrefixTokens,
+  };
+}
+
+/**
+ * Clamp Spark's configured output budget to the assembled provider envelope.
+ * Keep one token so the final owner guard can reject an input-only overflow
+ * before a provider request is opened.
+ */
+export function resolveSparkProviderOutputTokens(
+  estimatedInputTokens: number,
+  contextWindow: number,
+  configuredOutputTokens: number,
+): number {
+  const configured = Math.max(1, positiveTokenCount(configuredOutputTokens));
+  const window = positiveTokenCount(contextWindow);
+  const input = positiveTokenCount(estimatedInputTokens);
+  if (window === 0) return configured;
+  return Math.min(configured, Math.max(1, window - input));
+}
+
+function isSparkCompactionSummaryMessage(message: Message): boolean {
+  return (
+    message.role === "user" &&
+    typeof message.content === "string" &&
+    /^<spark_runtime_data\b[^>]*\bcustom_type="spark-compaction-summary"/u.test(message.content)
+  );
+}
+
+function estimateProviderMessageTokens(message: Message): number {
+  if (message.role === "user" || message.role === "toolResult") {
+    return estimateProviderContentTokens(message.content);
+  }
+  let chars = 0;
+  for (const block of message.content) {
+    if (block.type === "text") chars += block.text.length;
+    else if (block.type === "thinking") chars += block.thinking.length;
+    else chars += block.name.length + safeProviderJson(block.arguments).length;
+  }
+  return Math.ceil(chars / SPARK_ESTIMATED_CHARS_PER_TOKEN);
+}
+
+function estimateProviderContentTokens(content: unknown): number {
+  if (typeof content === "string") return estimateProviderTextTokens(content);
+  if (!Array.isArray(content)) return estimateProviderTextTokens(safeProviderJson(content));
+  let chars = 0;
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue;
+    const value = part as { type?: unknown; text?: unknown };
+    chars +=
+      value.type === "text" && typeof value.text === "string"
+        ? value.text.length
+        : SPARK_ESTIMATED_IMAGE_CHARS;
+  }
+  return Math.ceil(chars / SPARK_ESTIMATED_CHARS_PER_TOKEN);
+}
+
+function estimateProviderTextTokens(text: string): number {
+  return Math.ceil(text.length / SPARK_ESTIMATED_CHARS_PER_TOKEN);
+}
+
+function safeProviderJson(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "undefined";
+  } catch {
+    return "[unserializable]";
+  }
+}
+
+function providerUsageTokens(value: unknown): number {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
+  const usage = value as {
+    totalTokens?: unknown;
+    input?: unknown;
+    output?: unknown;
+    cacheRead?: unknown;
+    cacheWrite?: unknown;
+  };
+  const total = positiveTokenCount(usage.totalTokens);
+  if (total > 0) return total;
+  return (
+    positiveTokenCount(usage.input) +
+    positiveTokenCount(usage.output) +
+    positiveTokenCount(usage.cacheRead) +
+    positiveTokenCount(usage.cacheWrite)
+  );
+}
+
+function positiveTokenCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+export interface SparkBeforeProviderRequest {
+  model: Model<string>;
+  context: Context;
+  requestedOutputTokens: number;
+  estimate: SparkProviderContextTokenEstimate;
+  roundtrips: number;
+}
+
 export interface SparkBeforeToolCallsCheckpoint {
   toolCalls: readonly ToolCall[];
   promptItems: readonly SparkPromptItem[];
@@ -436,6 +594,12 @@ export interface SparkAgentLoopOptions {
    * When set, forwarded as `options.reasoning` (including `"off"`).
    */
   getReasoning?: () => "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined;
+  /**
+   * Final host guard after lifecycle/skill/tool assembly and before opening the
+   * provider stream. Throwing returns the normal typed failed outcome, allowing
+   * the Session owner to compact and retry without sending an oversized request.
+   */
+  beforeProviderRequest?: (request: SparkBeforeProviderRequest) => void | Promise<void>;
 }
 
 /**
@@ -479,6 +643,9 @@ export class SparkAgentLoop {
     | undefined;
   private readonly getReasoning:
     | (() => "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined)
+    | undefined;
+  private readonly beforeProviderRequest:
+    | ((request: SparkBeforeProviderRequest) => void | Promise<void>)
     | undefined;
   private systemPrompt: string;
   private readonly promptCacheOptions: SparkPromptCacheOptions;
@@ -537,6 +704,7 @@ export class SparkAgentLoop {
     this.approvalRejectAction = normalizeApprovalRejectAction(options.approvalRejectAction);
     this.reviewToolApproval = options.reviewToolApproval;
     this.getReasoning = options.getReasoning;
+    this.beforeProviderRequest = options.beforeProviderRequest;
     this.host.setSessionId?.(this.viewSessionId);
     this.host.setTriggerTurnHandler(() => this.triggerNextTurn());
   }
@@ -918,8 +1086,22 @@ export class SparkAgentLoop {
           });
           this.lastPromptManifest = manifest;
           this.publish({ type: "prompt_manifest", manifest });
+          const estimate = estimateSparkProviderContextTokens(context);
+          const requestedOutputTokens = resolveSparkProviderOutputTokens(
+            estimate.tokens,
+            model.contextWindow,
+            model.maxTokens,
+          );
+          await this.beforeProviderRequest?.({
+            model,
+            context,
+            requestedOutputTokens,
+            estimate,
+            roundtrips,
+          });
           const stream = this.streamFunction(model, context, {
             signal: abortController.signal,
+            maxTokens: requestedOutputTokens,
             promptCacheKey: promptCache.promptCacheKey,
             prompt_cache_key: promptCache.promptCacheKey,
             ...(reasoning !== undefined ? { reasoning } : {}),

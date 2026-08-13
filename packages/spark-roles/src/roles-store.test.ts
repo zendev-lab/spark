@@ -10,6 +10,7 @@ import {
   RoleRegistry,
   MarkdownRoleStore,
   builtinRoleAllowedTools,
+  builtinRoleAllowedToolEffects,
   createExtensionRoleSpec,
   createRoleSpec,
   createBuiltinRoles,
@@ -20,59 +21,15 @@ import {
   validateBuiltinRoleProfiles,
 } from "@zendev-lab/spark-roles";
 
-test("builtin Pi roles expose audited capability profiles", () => {
-  const roles = createBuiltinRoles("2026-06-04T00:00:00.000Z");
-  assert.deepEqual(
-    roles.map((role) => role.id),
-    [...builtinRoleIds],
-  );
-  assert.deepEqual(
-    [...ROLE_CAPABILITY_VOCAB],
-    ["read", "write", "exec", "net", "interact", "spawn"],
-  );
-  assert.equal(ROLE_CAPABILITY_VOCAB.includes("record" as never), false);
-  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.administrator, [
-    "read",
-    "net",
-    "exec",
-    "write",
-    "interact",
-    "spawn",
-  ]);
-  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.explorer, ["read", "exec"]);
-  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.researcher, ["read", "net"]);
-  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.reviewer, ["read", "net"]);
-  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.executor, ["read", "net", "exec", "write"]);
-
-  const profileIncludes = (roleId: keyof typeof BUILTIN_ROLE_CAPABILITY_PROFILES, value: string) =>
-    (BUILTIN_ROLE_CAPABILITY_PROFILES[roleId] as readonly string[]).includes(value);
-  for (const roleId of builtinRoleIds) {
-    if (roleId === "administrator") continue;
-    assert.equal(profileIncludes(roleId, "interact"), false);
-    assert.equal(profileIncludes(roleId, "spawn"), false);
-    assert.equal(profileIncludes(roleId, "record"), false);
-  }
-
-  const byId = new Map(roles.map((role) => [role.id, role]));
-
-  assert.deepEqual(byId.get("reviewer")?.allowedTools, builtinRoleAllowedTools("reviewer"));
-  assert.deepEqual(byId.get("researcher")?.allowedTools, builtinRoleAllowedTools("researcher"));
-
-  assert.deepEqual(byId.get("explorer")?.allowedTools, [
-    "read",
-    "grep",
-    "find",
-    "context",
-    "cue_exec",
-    "cue_run",
-    "cue_script",
-    "script_run",
-    "script_eval",
-    "cue_jobs",
-  ]);
-
-  assert.deepEqual(byId.get("executor")?.allowedTools, [
-    ...builtinRoleAllowedTools("reviewer"),
+test("builtin Administrator coordinates and delegates without execution tools", () => {
+  const roles = createBuiltinRoles();
+  const administrator = roles.find((role) => role.id === "administrator");
+  assert.ok(administrator);
+  assert.deepEqual(administrator.allowedToolEffects, ["read", "local_write", "external_write"]);
+  assert.equal(administrator.allowedTools?.includes("session"), true);
+  assert.equal(administrator.allowedTools?.includes("role"), true);
+  assert.equal(administrator.allowedTools?.includes("repro"), true);
+  for (const forbidden of [
     "cue_exec",
     "cue_run",
     "cue_script",
@@ -81,6 +38,78 @@ test("builtin Pi roles expose audited capability profiles", () => {
     "cue_jobs",
     "edit",
     "write",
+    "web_search",
+  ]) {
+    assert.equal(administrator?.allowedTools?.includes(forbidden), false);
+  }
+});
+
+test("builtin Pi roles expose audited capability profiles", () => {
+  const roles = createBuiltinRoles("2026-06-04T00:00:00.000Z");
+  assert.deepEqual(
+    roles.map((role) => role.id),
+    [...builtinRoleIds],
+  );
+  assert.deepEqual(
+    [...ROLE_CAPABILITY_VOCAB],
+    ["read", "write", "exec", "net", "interact", "manage", "spawn"],
+  );
+  assert.equal(ROLE_CAPABILITY_VOCAB.includes("record" as never), false);
+  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.administrator, [
+    "read",
+    "interact",
+    "manage",
+    "spawn",
+  ]);
+  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.explorer, ["read", "net"]);
+  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.reviewer, ["read", "net"]);
+  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.executor, ["read", "net", "exec", "write"]);
+
+  const profileIncludes = (roleId: keyof typeof BUILTIN_ROLE_CAPABILITY_PROFILES, value: string) =>
+    (BUILTIN_ROLE_CAPABILITY_PROFILES[roleId] as readonly string[]).includes(value);
+  for (const roleId of builtinRoleIds) {
+    if (roleId !== "administrator") {
+      assert.equal(profileIncludes(roleId, "interact"), false);
+      assert.equal(profileIncludes(roleId, "spawn"), false);
+    }
+    assert.equal(profileIncludes(roleId, "record"), false);
+  }
+
+  const byId = new Map(roles.map((role) => [role.id, role]));
+
+  assert.deepEqual(byId.get("reviewer")?.allowedTools, builtinRoleAllowedTools("reviewer"));
+
+  assert.deepEqual(byId.get("explorer")?.allowedTools, builtinRoleAllowedTools("explorer"));
+
+  assert.deepEqual(byId.get("executor")?.allowedTools, builtinRoleAllowedTools("executor"));
+  assert.deepEqual(byId.get("administrator")?.allowedTools, [
+    "read",
+    "grep",
+    "find",
+    "context",
+    "ask",
+    "session",
+    "task_read",
+    "task_write",
+    "goal",
+    "workflow",
+    "repro",
+    "role",
+    "assign",
+    "delegation",
+  ]);
+  assert.deepEqual(builtinRoleAllowedToolEffects("administrator"), [
+    "read",
+    "local_write",
+    "external_write",
+  ]);
+  assert.deepEqual(builtinRoleAllowedToolEffects("explorer"), ["read", "network_read"]);
+  assert.deepEqual(builtinRoleAllowedToolEffects("reviewer"), ["read", "network_read"]);
+  assert.deepEqual(builtinRoleAllowedToolEffects("executor"), [
+    "read",
+    "network_read",
+    "local_write",
+    "external_write",
   ]);
 
   const forbiddenTools = new Set([
@@ -96,19 +125,18 @@ test("builtin Pi roles expose audited capability profiles", () => {
     "workflow",
     "graft_patch",
   ]);
-  for (const role of roles) {
-    if (role.id === "administrator") continue;
+  for (const role of roles.filter((candidate) => candidate.id !== "administrator")) {
     for (const tool of role.allowedTools ?? []) assert.equal(forbiddenTools.has(tool), false);
   }
   validateBuiltinRoleProfiles(roles);
 });
 
-test("legacy builtin role aliases resolve to canonical definitions", () => {
+test("retired builtin role aliases fail closed after registry v6", () => {
   const registry = new RoleRegistry(createBuiltinRoles());
-  assert.equal(registry.select("scout").ref, "role:builtin-explorer");
-  assert.equal(registry.select("role:builtin-scout").ref, "role:builtin-explorer");
-  assert.equal(registry.select("worker").ref, "role:builtin-executor");
-  assert.equal(registry.select("role:builtin-worker").ref, "role:builtin-executor");
+  assert.throws(() => registry.select("builtin-scout"), /retired builtin role ref/u);
+  assert.throws(() => registry.select("role:builtin-scout"), /retired builtin role ref/u);
+  assert.throws(() => registry.select("builtin-worker"), /retired builtin role ref/u);
+  assert.throws(() => registry.select("role:builtin-worker"), /retired builtin role ref/u);
   assert.equal(
     registry.list().some((role) => role.id === "scout" || role.id === "worker"),
     false,

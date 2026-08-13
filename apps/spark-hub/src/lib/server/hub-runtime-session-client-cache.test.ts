@@ -11,6 +11,7 @@ import {
   getProjectedManagedSessionForHub,
   getProjectedManagedSessionSnapshotForHub,
 } from "./managed-sessions";
+import { workspaceSessionRecord } from "../../../../../test/support/session-fixtures.ts";
 
 describe("hub runtime session cache", () => {
   it("retains control only for explicit response timeouts with a stale projection", () => {
@@ -55,20 +56,19 @@ describe("hub runtime session cache", () => {
       runtimeWorkspaceBindingId: bindingId,
       createdAt: now,
     });
-    const session = {
+    const session = workspaceSessionRecord({
       sessionId: createId("sess"),
-      scope: { kind: "workspace" as const, workspaceId: workspace.id },
       workspaceId: workspace.id,
-      title: "Cached conversation",
-      status: "ready" as const,
-      bindings: [],
+      supervisorSessionId: "sess_administrator",
+      name: "Cached conversation",
+      activity: "idle",
       createdAt: now,
       updatedAt: now,
-    };
+    });
     const snapshot = {
       version: 1 as const,
       sessionId: session.sessionId,
-      title: session.title,
+      title: session.name,
       status: "idle" as const,
       messages: [
         {
@@ -89,10 +89,12 @@ describe("hub runtime session cache", () => {
     };
     db.prepare(
       `INSERT INTO runtime_session_projections
-        (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id, status,
+        (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
+         lifecycle, placement, activity, lifetime, owner_kind,
          record_json, snapshot_json, snapshot_total_messages, snapshot_loaded_messages,
          snapshot_hidden_messages, projected_at)
-       VALUES (?, ?, 'workspace', ?, ?, 'ready', ?, ?, 1, 1, 0, ?)`,
+       VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'scoped', 'session',
+               ?, ?, 1, 1, 0, ?)`,
     ).run(
       runtimeId,
       session.sessionId,
@@ -107,7 +109,6 @@ describe("hub runtime session cache", () => {
       const client = createHubRuntimeSessionClient(db);
       const request = {
         scope: { kind: "workspace" as const, workspaceId: workspace.id },
-        workspaceId: workspace.id,
       };
 
       await expect(client.listWithControlState(request)).resolves.toEqual({
@@ -157,26 +158,32 @@ describe("hub runtime session cache", () => {
       createdAt: now,
     });
     const child = {
-      sessionId: createId("sess"),
-      scope: { kind: "workspace" as const, workspaceId: workspace.id },
-      workspaceId: workspace.id,
-      title: "Context Side Thread",
-      status: "ready" as const,
-      bindings: [],
-      relation: {
+      ...workspaceSessionRecord({
+        sessionId: createId("sess"),
+        workspaceId: workspace.id,
+        supervisorSessionId: "sess_administrator",
+        name: "Context Side Thread",
+        activity: "idle",
+        createdAt: now,
+        updatedAt: now,
+      }),
+      roleBinding: { kind: "inherit" as const },
+      owner: {
         kind: "side_thread" as const,
         parentSessionId: "sess_parent",
         generation: 1,
-        mode: "contextual" as const,
       },
-      createdAt: now,
-      updatedAt: now,
+      visibility: "internal" as const,
+      retention: "discard_on_close" as const,
+      purpose: "side_thread",
+      sideThreadMode: "contextual" as const,
     };
     db.prepare(
       `INSERT INTO runtime_session_projections
-        (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id, status,
+        (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
+         lifecycle, placement, activity, lifetime, owner_kind,
          record_json, projected_at)
-       VALUES (?, ?, 'workspace', ?, ?, 'ready', ?, ?)`,
+       VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'scoped', 'side_thread', ?, ?)`,
     ).run(runtimeId, child.sessionId, workspace.id, bindingId, JSON.stringify(child), now);
 
     try {

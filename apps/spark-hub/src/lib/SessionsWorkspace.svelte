@@ -242,7 +242,7 @@
   let sessionMessages = $derived(live.liveSessionView?.messages ?? []);
   let sessionActivityState = $derived(
     resolveSessionActivityState({
-      registryStatus: selected?.status,
+      registryStatus: selected?.activity,
       session: live.liveSessionView,
       projectedTurns: activity?.queuedTurns ?? [],
       liveActiveTurnId: live.liveEventState?.activeTurnId,

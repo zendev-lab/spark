@@ -12,7 +12,7 @@ import {
   type SparkCommandKind,
   type SparkModelRef,
   type SparkProtocolJsonValue,
-  type SparkSessionRegistryRecord,
+  type SparkSessionState,
   type SparkSideThreadErrorCode,
   type SparkSideThreadMode,
 } from "@zendev-lab/spark-protocol";
@@ -87,6 +87,14 @@ export async function executeSparkDaemonSideThreadControl(
             sessionId,
             sessionPath,
           });
+        } else if (child.lifecycle === "closed" || child.placement === "archived") {
+          child = await resetSideThreadGeneration(
+            options,
+            parent,
+            child,
+            requireSideThreadOwner(child).generation,
+            parsed.mode ?? requireSideThreadMode(child),
+          );
         }
         return result(await projectSparkDaemonSideThreadSnapshot(options, parent, child, {}));
       });
@@ -211,20 +219,20 @@ export async function executeSparkDaemonSideThreadControl(
         const idempotencyKey = sideThreadHandoffIdempotencyKey(parsed);
         const replay = store.findByIdempotencyKey(idempotencyKey);
         if (replay) {
-          assertHandoffReplay(replay, child.sessionId, parsed);
-          if (child.relation?.kind === "side_thread") {
-            if (child.relation.generation === parsed.expectedGeneration) {
+          assertHandoffReplay(replay, parsed);
+          if (child.owner?.kind === "side_thread") {
+            if (child.owner.generation === parsed.expectedGeneration) {
               child = await resetSideThreadGeneration(
                 options,
                 parent,
                 child,
                 parsed.expectedGeneration,
-                child.relation.mode,
+                requireSideThreadMode(child),
               );
-            } else if (child.relation.generation < parsed.expectedGeneration) {
+            } else if (child.owner.generation < parsed.expectedGeneration) {
               throw sideThreadError(
                 "side_thread_generation_conflict",
-                `expected generation ${parsed.expectedGeneration}, found ${child.relation.generation}`,
+                `expected generation ${parsed.expectedGeneration}, found ${child.owner.generation}`,
               );
             }
           }
@@ -238,7 +246,7 @@ export async function executeSparkDaemonSideThreadControl(
           );
         }
 
-        if (child.status === "archived" || child.lifecycle === "closed") {
+        if (child.placement === "archived" || child.lifecycle === "closed") {
           throw sideThreadError(
             "side_thread_not_found",
             `no active side thread exists for parent ${parent.sessionId}`,
@@ -279,7 +287,7 @@ export async function executeSparkDaemonSideThreadControl(
           },
         });
         const acceptedAt = requiredString(submitted.result.acceptedAt, "acceptedAt");
-        if (child.relation?.kind !== "side_thread") {
+        if (child.owner?.kind !== "side_thread") {
           throw sideThreadError("side_thread_not_found", `not a side thread: ${child.sessionId}`);
         }
         child = await resetSideThreadGeneration(
@@ -287,7 +295,7 @@ export async function executeSparkDaemonSideThreadControl(
           parent,
           child,
           parsed.expectedGeneration,
-          child.relation.mode,
+          requireSideThreadMode(child),
         );
         return result(
           sparkSideThreadHandoffResultSchema.parse({
@@ -306,7 +314,7 @@ async function requireParent(
   options: SparkDaemonSessionControlOptions,
   request: SparkDaemonSideThreadControlRequest,
   parentSessionId: string,
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionState> {
   if (request.scope && request.scope !== "any") {
     try {
       await executeSparkDaemonSessionControl(options, {
@@ -340,13 +348,13 @@ async function requireParent(
       `unknown side-thread parent: ${parentSessionId}`,
     );
   }
-  if (parent.relation?.kind === "side_thread") {
+  if (parent.owner?.kind === "side_thread") {
     throw sideThreadError(
       "side_thread_nesting_forbidden",
       `side threads cannot be nested under ${parentSessionId}`,
     );
   }
-  if (parent.status === "archived") {
+  if (parent.placement === "archived") {
     throw sideThreadError(
       "side_thread_parent_archived",
       `side-thread parent is archived: ${parentSessionId}`,
@@ -358,24 +366,29 @@ async function requireParent(
 async function findSideThread(
   registry: DaemonSessionRegistry | undefined,
   parentSessionId: string,
-): Promise<SparkSessionRegistryRecord | undefined> {
+): Promise<SparkSessionState | undefined> {
   const sessions = await requireRegistryValue(registry).list({
     includeArchived: true,
+    includeClosed: true,
     includeSideThreads: true,
   });
-  return sessions.find(
-    (session) =>
-      session.relation?.kind === "side_thread" &&
-      session.relation.parentSessionId === parentSessionId,
-  );
+  return sessions
+    .filter(
+      (session) =>
+        session.owner?.kind === "side_thread" && session.owner.parentSessionId === parentSessionId,
+    )
+    .sort(
+      (left, right) =>
+        requireSideThreadOwner(right).generation - requireSideThreadOwner(left).generation,
+    )[0];
 }
 
 async function requireSideThread(
   registry: DaemonSessionRegistry | undefined,
   parentSessionId: string,
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionState> {
   const child = await findSideThread(registry, parentSessionId);
-  if (!child || child.status === "archived") {
+  if (!child || child.placement === "archived") {
     throw sideThreadError(
       "side_thread_not_found",
       `no active side thread exists for parent ${parentSessionId}`,
@@ -386,11 +399,11 @@ async function requireSideThread(
 
 async function resetSideThreadGeneration(
   options: SparkDaemonSessionControlOptions,
-  parent: SparkSessionRegistryRecord,
-  child: SparkSessionRegistryRecord,
+  parent: SparkSessionState,
+  child: SparkSessionState,
   expectedGeneration: number,
   mode: SparkSideThreadMode,
-): Promise<SparkSessionRegistryRecord> {
+): Promise<SparkSessionState> {
   assertGeneration(child, expectedGeneration);
   const store = new SparkInvocationStore(options.db);
   const pending = store.listPendingForSession(child.sessionId);
@@ -411,14 +424,15 @@ async function resetSideThreadGeneration(
     );
   }
   if (queuedCancelled) await requireRegistry(options).recordTurnSettled(child.sessionId);
+  const nextSessionId = sideThreadSessionId(parent.sessionId, expectedGeneration + 1);
   const sessionPath = await createSparkDaemonSideThreadTranscript(
     options,
     parent,
-    child.sessionId,
+    nextSessionId,
     mode,
     expectedGeneration + 1,
   );
-  let reset: SparkSessionRegistryRecord;
+  let reset: SparkSessionState;
   try {
     if (!options.sessionSupervisor) {
       throw sideThreadError(
@@ -441,6 +455,7 @@ async function resetSideThreadGeneration(
     }
     reset = await requireRegistry(options).resetSideThread({
       sessionId: child.sessionId,
+      nextSessionId,
       expectedGeneration,
       sessionPath,
       mode,
@@ -449,7 +464,7 @@ async function resetSideThreadGeneration(
     await cleanupFailedSideThreadReset(
       options,
       parent,
-      child.sessionId,
+      nextSessionId,
       sessionPath,
       expectedGeneration + 1,
     );
@@ -461,7 +476,7 @@ async function resetSideThreadGeneration(
 
 async function cleanupFailedSideThreadReset(
   options: SparkDaemonSessionControlOptions,
-  parent: SparkSessionRegistryRecord,
+  parent: SparkSessionState,
   sessionId: string,
   sessionPath: string,
   generation: number,
@@ -490,20 +505,30 @@ function assertSideThreadIdle(store: SparkInvocationStore, sessionId: string): v
   );
 }
 
-function assertGeneration(child: SparkSessionRegistryRecord, expectedGeneration: number): void {
-  const relation = requireSideThreadRelation(child);
-  if (relation.generation === expectedGeneration) return;
+function assertGeneration(child: SparkSessionState, expectedGeneration: number): void {
+  const owner = requireSideThreadOwner(child);
+  if (owner.generation === expectedGeneration) return;
   throw sideThreadError(
     "side_thread_generation_conflict",
-    `expected generation ${expectedGeneration}, found ${relation.generation}`,
+    `expected generation ${expectedGeneration}, found ${owner.generation}`,
   );
 }
 
-function requireSideThreadRelation(child: SparkSessionRegistryRecord) {
-  if (child.relation?.kind !== "side_thread") {
+function requireSideThreadOwner(child: SparkSessionState) {
+  if (child.owner?.kind !== "side_thread") {
     throw sideThreadError("side_thread_not_found", `not a side thread: ${child.sessionId}`);
   }
-  return child.relation;
+  return child.owner;
+}
+
+function requireSideThreadMode(child: SparkSessionState): SparkSideThreadMode {
+  if (!child.sideThreadMode) {
+    throw sideThreadError(
+      "side_thread_not_found",
+      `side thread ${child.sessionId} has no mode configuration`,
+    );
+  }
+  return child.sideThreadMode;
 }
 
 async function assertAvailableModel(
@@ -530,25 +555,22 @@ async function assertAvailableModel(
   await modelControl.prepareModel(entry.model);
 }
 
-function sideThreadMessageMetadata(
-  parent: SparkSessionRegistryRecord,
-  child: SparkSessionRegistryRecord,
-) {
-  const relation = requireSideThreadRelation(child);
+function sideThreadMessageMetadata(parent: SparkSessionState, child: SparkSessionState) {
+  const owner = requireSideThreadOwner(child);
   return {
     origin: {
       kind: "side_thread",
       host: "daemon",
       surface: "local",
       parentSessionId: parent.sessionId,
-      generation: relation.generation,
+      generation: owner.generation,
     },
   };
 }
 
 function handoffMessageMetadata(
-  parent: SparkSessionRegistryRecord,
-  child: SparkSessionRegistryRecord,
+  parent: SparkSessionState,
+  child: SparkSessionState,
   request: ReturnType<typeof sparkSideThreadHandoffRequestSchema.parse>,
 ) {
   return {
@@ -585,7 +607,6 @@ function assertSubmitReplay(
 
 function assertHandoffReplay(
   invocation: SparkInvocationRecord,
-  childSessionId: string,
   request: ReturnType<typeof sparkSideThreadHandoffRequestSchema.parse>,
 ): void {
   const task = validateSparkDaemonTask(invocation.task);
@@ -598,7 +619,7 @@ function assertHandoffReplay(
   const handoff = recordValue(task.messageMetadata?.sideThreadHandoff);
   if (
     task.sessionId !== request.parentSessionId ||
-    handoff?.sideThreadSessionId !== childSessionId ||
+    typeof handoff?.sideThreadSessionId !== "string" ||
     handoff.generation !== request.expectedGeneration ||
     handoff.headExchangeId !== request.expectedHeadExchangeId ||
     handoff.kind !== request.kind ||
@@ -611,8 +632,9 @@ function assertHandoffReplay(
   }
 }
 
-function sideThreadSessionId(parentSessionId: string): string {
-  return `side_${hashValue(parentSessionId).slice(0, 24)}`;
+function sideThreadSessionId(parentSessionId: string, generation = 1): string {
+  const identity = generation === 1 ? parentSessionId : `${parentSessionId}:${generation}`;
+  return `side_${hashValue(identity).slice(0, 24)}`;
 }
 
 function sideThreadSubmitIdempotencyKey(

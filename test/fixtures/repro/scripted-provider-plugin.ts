@@ -20,6 +20,14 @@ interface ScriptedRound {
   toolCalls?: ScriptedToolCall[];
 }
 
+const REPRO_JOURNEY_SCRIPTED_PROVIDER_MODEL = {
+  ...SPARK_SCRIPTED_PROVIDER_MODEL,
+  // The Journey exercises the complete Spark system and tool surface. Keep its
+  // deterministic provider large enough for that envelope while the shared
+  // scripted model remains a small-context test fixture.
+  contextWindow: 128_000,
+};
+
 export interface ScriptedProviderLedger {
   schema: "spark.repro.scripted-provider-ledger/v1";
   cursor: number;
@@ -41,11 +49,11 @@ export interface ScriptedProviderLedger {
 export default function registerScriptedJourneyProvider(api: {
   registerProvider(name: string, config: Record<string, unknown>): void;
 }): void {
-  api.registerProvider(SPARK_SCRIPTED_PROVIDER_MODEL.provider, {
+  api.registerProvider(REPRO_JOURNEY_SCRIPTED_PROVIDER_MODEL.provider, {
     name: "Spark Repro Journey Script",
-    api: SPARK_SCRIPTED_PROVIDER_MODEL.api,
-    baseUrl: SPARK_SCRIPTED_PROVIDER_MODEL.baseUrl,
-    models: [SPARK_SCRIPTED_PROVIDER_MODEL],
+    api: REPRO_JOURNEY_SCRIPTED_PROVIDER_MODEL.api,
+    baseUrl: REPRO_JOURNEY_SCRIPTED_PROVIDER_MODEL.baseUrl,
+    models: [REPRO_JOURNEY_SCRIPTED_PROVIDER_MODEL],
     streamSimple(model: unknown, context: unknown, options?: unknown) {
       const path = requiredLedgerPath();
       return updateScriptedProviderLedger(path, (ledger) => {

@@ -23,6 +23,8 @@ import type { SparkDaemonEvent, SparkViewModelEvent } from "@zendev-lab/spark-pr
 
 import {
   SparkAgentLoop,
+  estimateSparkProviderContextTokens,
+  resolveSparkProviderOutputTokens,
   resolveSparkPromptCache,
   SparkTurnRestartYieldError,
   splitSparkSystemPrompt,
@@ -111,6 +113,204 @@ test("Spark prompt IR retains runtime authority until provider lowering", () => 
   });
   const loweredDeveloper = lowerSparkPromptItem(replayedDeveloper);
   assert.equal(loweredDeveloper.role, "user");
+});
+
+test("provider Context meter includes current system prompt and active tool schemas", () => {
+  const estimate = estimateSparkProviderContextTokens({
+    systemPrompt: "s".repeat(400),
+    messages: [{ role: "user", content: "u".repeat(400), timestamp: Date.now() }],
+    tools: [
+      {
+        name: "large_schema",
+        description: "d".repeat(400),
+        parameters: { type: "object", properties: { value: { type: "string" } } },
+      },
+    ],
+  } as Context);
+
+  assert.equal(estimate.systemPromptTokens, 100);
+  assert.equal(estimate.messageTokens, 100);
+  assert.ok(estimate.toolTokens > 100);
+  assert.equal(
+    estimate.tokens,
+    estimate.systemPromptTokens + estimate.messageTokens + estimate.toolTokens,
+  );
+});
+
+test("provider Context meter adds current system and tools to a reported history prefix", () => {
+  const estimate = estimateSparkProviderContextTokens({
+    systemPrompt: "s".repeat(400),
+    messages: [
+      {
+        ...buildAssistant([{ type: "text", text: "short" }]),
+        usage: {
+          input: 700,
+          output: 100,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 800,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+      },
+    ],
+    tools: [{ name: "probe", description: "d".repeat(400), parameters: { type: "object" } }],
+  } as Context);
+
+  assert.equal(estimate.reportedPrefixTokens, 800);
+  assert.equal(estimate.tokens, 800 + estimate.systemPromptTokens + estimate.toolTokens);
+});
+
+test("provider Context meter resets reported prefix usage at a compaction summary", () => {
+  const estimate = estimateSparkProviderContextTokens({
+    systemPrompt: "system",
+    messages: [
+      {
+        ...buildAssistant([{ type: "text", text: "pre-compaction answer" }]),
+        usage: {
+          input: 499_000,
+          output: 1_000,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 500_000,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+      },
+      {
+        role: "user",
+        content:
+          '<spark_runtime_data trust="untrusted" custom_type="spark-compaction-summary">\nsummary\n</spark_runtime_data>',
+      },
+      {
+        ...buildAssistant([{ type: "text", text: "kept answer" }]),
+      },
+      { role: "user", content: "current prompt" },
+    ],
+    tools: [],
+  } as Context);
+
+  assert.equal(estimate.reportedPrefixTokens, 0);
+  assert.ok(estimate.tokens < 1_000);
+});
+
+test("provider Context meter accepts usage from a turn completed after compaction", () => {
+  const estimate = estimateSparkProviderContextTokens({
+    systemPrompt: "system",
+    messages: [
+      {
+        role: "user",
+        content:
+          '<spark_runtime_data trust="untrusted" custom_type="spark-compaction-summary">\nsummary\n</spark_runtime_data>',
+        timestamp: 2_000,
+      },
+      {
+        ...buildAssistant([{ type: "text", text: "fresh answer" }]),
+        timestamp: 3_000,
+        usage: {
+          input: 300,
+          output: 21,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 321,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+      },
+      { role: "user", content: "current prompt", timestamp: 4_000 },
+    ],
+    tools: [],
+  } as Context);
+
+  assert.equal(estimate.reportedPrefixTokens, 321);
+  assert.ok(estimate.tokens >= 321);
+});
+
+test("provider output budget clamps to the assembled context boundary", () => {
+  assert.equal(resolveSparkProviderOutputTokens(4_000, 8_000, 4_000), 4_000);
+  assert.equal(resolveSparkProviderOutputTokens(4_001, 8_000, 4_000), 3_999);
+  assert.equal(resolveSparkProviderOutputTokens(7_999, 8_000, 4_000), 1);
+  assert.equal(resolveSparkProviderOutputTokens(8_000, 8_000, 4_000), 1);
+  assert.equal(resolveSparkProviderOutputTokens(9_000, 8_000, 4_000), 1);
+});
+
+test("SparkAgentLoop sends the effective output budget to its hook and provider", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-provider-output-budget" });
+  const model = { ...TEST_MODEL, contextWindow: 64, maxTokens: 40 };
+  let hookBudget: number | undefined;
+  let estimatedInputTokens: number | undefined;
+  let providerBudget: number | undefined;
+  const finalAssistant = buildAssistant([{ type: "text", text: "done" }]);
+  const loop = new SparkAgentLoop({
+    host,
+    getModel: () => model,
+    systemPrompt: "s".repeat(160),
+    beforeProviderRequest: ({ estimate, requestedOutputTokens }) => {
+      estimatedInputTokens = estimate.tokens;
+      hookBudget = requestedOutputTokens;
+    },
+    streamFunction: (streamModel, context, options) => {
+      providerBudget = options?.maxTokens;
+      return makeFakeStream({
+        rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
+      })(streamModel, context, options);
+    },
+  });
+
+  const outcome = await loop.submitWithOutcome("u".repeat(40));
+
+  assert.equal(outcome.status, "completed");
+  assert.notEqual(estimatedInputTokens, undefined);
+  assert.equal(
+    hookBudget,
+    resolveSparkProviderOutputTokens(estimatedInputTokens!, model.contextWindow, model.maxTokens),
+  );
+  assert.equal(providerBudget, hookBudget);
+  assert.ok((providerBudget ?? 0) > 0);
+  assert.ok((providerBudget ?? model.maxTokens) < model.maxTokens);
+});
+
+test("SparkAgentLoop runs final provider preflight after tool and prompt assembly", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-provider-preflight" });
+  host.registerTool({
+    name: "preflight_probe",
+    description: "schema visible to final preflight",
+    parameters: { type: "object" },
+    async execute() {
+      return { content: [{ type: "text", text: "unused" }] };
+    },
+  });
+  host.setActiveTools(["preflight_probe"]);
+  const requestScopedSystemPrompt = ["request", "scoped", "system", "prompt"].join("-");
+  let streamCalls = 0;
+  let observed:
+    | {
+        systemPrompt?: string;
+        tools?: Array<{ name: string }>;
+        messages: Array<{ role: string }>;
+      }
+    | undefined;
+  const loop = new SparkAgentLoop({
+    host,
+    getModel: () => TEST_MODEL,
+    systemPrompt: requestScopedSystemPrompt,
+    streamFunction: (...args) => {
+      streamCalls += 1;
+      return makeFakeStream({ rounds: [] })(...args);
+    },
+    beforeProviderRequest: ({ context }) => {
+      observed = context;
+      throw new Error("preflight context window overflow");
+    },
+  });
+
+  const outcome = await loop.submitWithOutcome("current user prompt");
+
+  assert.equal(outcome.status, "failed");
+  assert.equal(streamCalls, 0);
+  assert.equal(observed?.systemPrompt, requestScopedSystemPrompt);
+  assert.deepEqual(
+    observed?.tools?.map((tool) => tool.name),
+    ["preflight_probe"],
+  );
+  assert.equal(observed?.messages.at(-1)?.role, "user");
 });
 
 interface FakeStreamPlan {
@@ -285,9 +485,34 @@ test("Spark prompt cache splits stable/dynamic prompt sections and honors disabl
     checkpoint: "manual refresh",
     env: {},
   });
-  assert.match(enabled.promptCacheKey ?? "", /^spark:[0-9a-f]{16}:[0-9a-f]{16}:manual-refresh$/);
+  const repeated = resolveSparkPromptCache({
+    systemPrompt: [split.stablePrompt, split.dynamicPrompt].join("\n\n"),
+    sessionId: "session:abc",
+    checkpoint: "manual refresh",
+    env: {},
+  });
+  assert.equal(typeof enabled.promptCacheKey, "string");
+  assert.equal(repeated.promptCacheKey, enabled.promptCacheKey);
   assert.ok((enabled.promptCacheKey?.length ?? Infinity) <= 64);
   assert.equal(enabled.disabledReason, undefined);
+
+  const changedStablePrompt = resolveSparkPromptCache({
+    systemPrompt: ["Changed stable operating rules.", split.dynamicPrompt].join("\n\n"),
+    sessionId: "session:abc",
+    checkpoint: "manual refresh",
+    env: {},
+  });
+  const changedDynamicPrompt = resolveSparkPromptCache({
+    systemPrompt: [
+      split.stablePrompt,
+      "Current date: 2026-07-04\nCurrent working directory: /other-repo",
+    ].join("\n\n"),
+    sessionId: "session:abc",
+    checkpoint: "manual refresh",
+    env: {},
+  });
+  assert.notEqual(changedStablePrompt.promptCacheKey, enabled.promptCacheKey);
+  assert.equal(changedDynamicPrompt.promptCacheKey, enabled.promptCacheKey);
 
   const disabled = resolveSparkPromptCache({
     systemPrompt: split.stablePrompt,
@@ -298,7 +523,7 @@ test("Spark prompt cache splits stable/dynamic prompt sections and honors disabl
   assert.equal(disabled.disabledReason, "env");
 });
 
-test("Spark prompt cache hashes long session ids without losing the stable fingerprint", () => {
+test("Spark prompt cache keeps long session identities distinct within the provider limit", () => {
   const systemPrompt = "Stable Spark operating rules.";
   const sharedSessionPrefix = `session:${"shared-segment-".repeat(20)}`;
   const first = resolveSparkPromptCache({
@@ -315,11 +540,8 @@ test("Spark prompt cache hashes long session ids without losing the stable finge
   });
 
   for (const snapshot of [first, second]) {
+    assert.equal(typeof snapshot.promptCacheKey, "string");
     assert.ok((snapshot.promptCacheKey?.length ?? Infinity) <= 64);
-    assert.match(
-      snapshot.promptCacheKey ?? "",
-      new RegExp(`^spark:[0-9a-f]{16}:${snapshot.stableHash.slice(0, 16)}:manual-refresh$`),
-    );
   }
   assert.notEqual(first.promptCacheKey, second.promptCacheKey);
 });
@@ -399,7 +621,7 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
 
   const outcome = await loop.submitWithOutcome("use cache");
 
-  assert.match(calls[0]?.contextPromptCacheKey ?? "", /^spark:[0-9a-f]{16}:[0-9a-f]{16}:/);
+  assert.equal(typeof calls[0]?.contextPromptCacheKey, "string");
   assert.ok((calls[0]?.contextPromptCacheKey?.length ?? Infinity) <= 64);
   assert.equal(calls[0]?.contextSystemPromptStable, "Stable Spark operating rules.");
   assert.equal(calls[0]?.optionPromptCacheKeyCompat, calls[0]?.contextPromptCacheKey);

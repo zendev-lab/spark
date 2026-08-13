@@ -20,6 +20,7 @@ import { SessionSupervisor } from "./session-supervisor.ts";
 import { executeSparkDaemonSideThreadControl } from "./side-thread-control.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { migrateSparkDaemonDatabase } from "./store/schema.ts";
+import { createDaemonWorkspaceSession } from "../../../test/support/session-fixtures.ts";
 
 const roots: string[] = [];
 
@@ -63,18 +64,35 @@ describe("daemon Side Thread control", () => {
         purpose: "side_thread",
       });
 
-      expect(await fixture.sessionRegistry.list()).toHaveLength(1);
+      expect(await fixture.sessionRegistry.list()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ sessionId: fixture.parentSessionId }),
+          expect.objectContaining({
+            owner: { kind: "workspace", workspaceId: "workspace-side-thread" },
+          }),
+        ]),
+      );
       expect(await fixture.sessionRegistry.list({ includeSideThreads: true })).toEqual(
         expect.arrayContaining([expect.objectContaining({ sessionId: ensured.sessionId })]),
       );
       const ordinaryList = await executeSparkDaemonSessionControl(fixture.options, {
         kind: "session.list.request",
         scope: "any",
-        payload: { includeSideThreads: true },
+        payload: {
+          scope: { kind: "workspace", workspaceId: "workspace-side-thread" },
+        },
       });
-      expect(ordinaryList.result.sessions).toEqual([
-        expect.objectContaining({ sessionId: fixture.parentSessionId }),
-      ]);
+      expect(ordinaryList.result.sessions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ sessionId: fixture.parentSessionId }),
+          expect.objectContaining({
+            owner: { kind: "workspace", workspaceId: "workspace-side-thread" },
+          }),
+        ]),
+      );
+      expect(ordinaryList.result.sessions).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ sessionId: ensured.sessionId })]),
+      );
       await expect(
         executeSparkDaemonSessionControl(fixture.options, {
           kind: "session.get.request",
@@ -355,7 +373,7 @@ describe("daemon Side Thread control", () => {
       );
       await expect(fixture.sessionRegistry.get(ensured.sessionId)).resolves.toMatchObject({
         lifecycle: "closed",
-        relation: { generation: 1 },
+        owner: { kind: "side_thread", generation: 1 },
         closeReceipts: [expect.objectContaining({ incarnation: 1 })],
       });
 
@@ -554,7 +572,25 @@ describe("daemon Side Thread control", () => {
         false,
         false,
       ]);
-      expect((await fixture.sessionRegistry.get(ensured.sessionId))?.closeReceipts).toHaveLength(4);
+      const generations = await fixture.sessionRegistry.list({
+        includeArchived: true,
+        includeClosed: true,
+        includeSideThreads: true,
+      });
+      const sideThreadGenerations = generations.filter(
+        (session) => session.owner.kind === "side_thread",
+      );
+      expect(
+        sideThreadGenerations.filter((session) => session.lifecycle === "closed"),
+      ).toHaveLength(4);
+      expect(
+        sideThreadGenerations
+          .filter((session) => session.lifecycle === "closed")
+          .every((session) => session.closeReceipts?.length === 1),
+      ).toBe(true);
+      expect(sideThreadGenerations.filter((session) => session.lifecycle === "open")).toMatchObject(
+        [expect.objectContaining({ closeReceipts: [] })],
+      );
     } finally {
       fixture.close();
     }
@@ -592,11 +628,11 @@ describe("daemon Side Thread control", () => {
       );
 
       expect(reset.generation).toBe(2);
-      const persisted = await fixture.sessionRegistry.get(child.sessionId);
-      expect(persisted).toMatchObject({
-        lifecycle: "open",
-        incarnation: 2,
-        relation: { kind: "side_thread", generation: 2 },
+      const retired = await fixture.sessionRegistry.get(child.sessionId);
+      expect(retired).toMatchObject({
+        lifecycle: "closed",
+        incarnation: 1,
+        owner: { kind: "side_thread", generation: 1 },
         closeReceipts: [
           expect.objectContaining({
             source: "terminal_result",
@@ -606,6 +642,13 @@ describe("daemon Side Thread control", () => {
             sourceInvocationIds: [invocation.invocationId],
           }),
         ],
+      });
+      const persisted = await fixture.sessionRegistry.get(reset.sessionId);
+      expect(persisted).toMatchObject({
+        lifecycle: "open",
+        incarnation: 1,
+        owner: { kind: "side_thread", generation: 2 },
+        closeReceipts: [],
       });
       expect(existsSync(oldPath)).toBe(false);
       expect(existsSync(persisted?.sessionPath ?? "")).toBe(true);
@@ -634,7 +677,7 @@ describe("daemon Side Thread control", () => {
       await expect(fixture.sessionRegistry.get(child.sessionId)).resolves.toMatchObject({
         lifecycle: "open",
         incarnation: 1,
-        relation: { generation: 1 },
+        owner: { kind: "side_thread", generation: 1 },
         closeReceipts: [],
       });
       expect(existsSync(child.sessionPath ?? "")).toBe(true);
@@ -663,7 +706,7 @@ describe("daemon Side Thread control", () => {
       expect(existsSync(oldPath)).toBe(false);
       await expect(fixture.sessionRegistry.get(ensured.sessionId)).resolves.toMatchObject({
         lifecycle: "closed",
-        status: "archived",
+        placement: "archived",
         closeReceipts: [expect.objectContaining({ incarnation: 1 })],
       });
     } finally {
@@ -798,9 +841,8 @@ async function createFixture() {
     daemonId: "side-thread-test",
     daemonCwd: root,
   });
-  await sessionRegistry.create({
+  await createDaemonWorkspaceSession(sessionRegistry, {
     sessionId: parentSessionId,
-    scope: { kind: "workspace", workspaceId: "workspace-side-thread" },
     workspaceId: "workspace-side-thread",
     cwd: root,
   });

@@ -23,7 +23,6 @@
     "test": "vp test run --config vitest.config.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.84.0",
     "@zendev-lab/spark-ai": "workspace:^",
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-ask": "workspace:^",
@@ -54,7 +53,6 @@
     "@lydell/node-pty": "1.2.0-beta.15",
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
-    "jiti": "2.7.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

@@ -754,6 +754,10 @@ function handleWorkspaceSnapshot(
   payload: ReturnType<typeof workspaceSnapshotEnvelopeSchema.parse>["payload"],
 ): void {
   const now = new Date().toISOString();
+  const administratorProvisioning = payload.administratorProvisioning ?? {
+    state: payload.administratorSession ? ("active" as const) : ("provisioning" as const),
+    retryCount: 0,
+  };
 
   context.db.exec("BEGIN");
   try {
@@ -775,7 +779,10 @@ function handleWorkspaceSnapshot(
       .prepare(
         `UPDATE runtime_workspace_bindings
          SET display_name = ?, status = ?, last_snapshot_at = ?, updated_at = ?,
-             main_session_id = ?, main_session_generation = ?
+             administrator_session_id = ?,
+             administrator_provisioning_state = ?,
+             administrator_provisioning_error = ?,
+             administrator_provisioning_retry_count = ?
          WHERE id = ? AND runtime_id = ?`,
       )
       .run(
@@ -783,10 +790,26 @@ function handleWorkspaceSnapshot(
         payload.status,
         now,
         now,
-        payload.mainSession?.sessionId ?? null,
-        payload.mainSession?.generation ?? null,
+        payload.administratorSession?.sessionId ?? null,
+        administratorProvisioning.state,
+        administratorProvisioning.error ?? null,
+        administratorProvisioning.retryCount,
         runtimeWorkspaceBindingId,
         context.runtimeId,
+      );
+    context.db
+      .prepare(
+        `UPDATE workspaces
+         SET provisioning_state = ?, provisioning_error = ?,
+             provisioning_retry_count = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        administratorProvisioning.state,
+        administratorProvisioning.error ?? null,
+        administratorProvisioning.retryCount,
+        now,
+        workspaceId,
       );
     syncWorkspaceIdentityFromLocalPath(context.db, workspaceId, binding?.localPath, now);
 

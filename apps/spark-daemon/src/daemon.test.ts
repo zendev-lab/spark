@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { WebSocketServer } from "ws";
 import { describe, expect, it, vi } from "vitest";
 import {
-  type SparkSessionRegistryRecord,
+  type SparkSessionProjection,
   SPARK_PROTOCOL_VERSION,
   createId,
   runtimeProtocolVersion,
@@ -32,6 +32,10 @@ import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { SessionRequestCompletionDeliveryStore } from "./store/session-request-completion-deliveries.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
+import {
+  createDaemonWorkspaceSession,
+  workspaceSessionRecord,
+} from "../../../test/support/session-fixtures.ts";
 import {
   addWorkspace,
   attachWorkspaceClient,
@@ -337,6 +341,93 @@ describe("Spark daemon handleCommand task.start.request", () => {
       harness.cleanup();
     }
   });
+
+  it.each([
+    {
+      name: "configured five-slot capacity",
+      invocationConcurrency: 5,
+      schedulerConcurrency: undefined,
+      expected: 5,
+    },
+    {
+      name: "configured eight-slot capacity",
+      invocationConcurrency: 8,
+      schedulerConcurrency: undefined,
+      expected: 8,
+    },
+    {
+      name: "internal override precedence",
+      invocationConcurrency: 5,
+      schedulerConcurrency: 8,
+      expected: 8,
+    },
+  ])(
+    "applies $name at the production scheduler boundary",
+    async ({ invocationConcurrency, schedulerConcurrency, expected }) => {
+      const harness = makeHarness();
+      const shutdown = new AbortController();
+      const release = deferred<void>();
+      const started = new Set<string>();
+      const store = new SparkInvocationStore(harness.db);
+      const invocations = Array.from({ length: expected + 1 }, (_, index) =>
+        store.submit({
+          sessionId: `capacity-session-${index}`,
+          prompt: `capacity ${index}`,
+          task: {
+            type: "session.run",
+            sessionId: `capacity-session-${index}`,
+            prompt: `capacity ${index}`,
+          },
+        }),
+      );
+      let running: Promise<void> | undefined;
+      try {
+        running = startSparkDaemon({
+          paths: harness.paths,
+          sparkHome: harness.sparkHome,
+          db: harness.db,
+          config: {
+            installationId: "capacity-test",
+            displayName: "Capacity test daemon",
+            invocationConcurrency,
+          },
+          signal: shutdown.signal,
+          schedulerPollIntervalMs: 1,
+          ...(schedulerConcurrency !== undefined ? { schedulerConcurrency } : {}),
+          executeInvocation: async (task) => {
+            started.add(task.sessionId);
+            await release.promise;
+            return { assistantText: task.sessionId };
+          },
+        });
+
+        await vi.waitFor(() => expect(started.size).toBe(expected), {
+          timeout: 2_000,
+          interval: 5,
+        });
+        expect(store.counts()).toMatchObject({ running: expected, queued: 1 });
+
+        release.resolve(undefined);
+        await vi.waitFor(
+          () =>
+            expect(
+              invocations.every(
+                (invocation) => store.require(invocation.invocationId).status === "succeeded",
+              ),
+            ).toBe(true),
+          { timeout: 2_000, interval: 5 },
+        );
+        shutdown.abort();
+        await running;
+        running = undefined;
+      } finally {
+        release.resolve(undefined);
+        shutdown.abort();
+        await running?.catch(() => undefined);
+        harness.cleanup();
+      }
+    },
+  );
 
   it("publishes readiness only after startup initialization and cleans up on ready failure", async () => {
     const harness = makeHarness();
@@ -715,16 +806,13 @@ describe("Spark daemon handleCommand task.start.request", () => {
       result: { assistantText: "recovered result" },
     });
     deliveries.enqueue(source.invocationId);
-    const sender: SparkSessionRegistryRecord = {
+    const sender = workspaceSessionRecord({
       sessionId: "sender-session-restart",
-      scope: { kind: "workspace", workspaceId: harness.workspace.id },
       workspaceId: harness.workspace.id,
       cwd: harness.workspace.localPath,
-      status: "ready",
-      bindings: [],
       createdAt: "2026-07-29T00:00:00.000Z",
       updatedAt: "2026-07-29T00:00:00.000Z",
-    };
+    });
     const sessionRegistry = createDaemonSessionRegistry(harness.sparkHome, {
       daemonId: "install-test",
       daemonCwd: harness.workspace.localPath,
@@ -749,10 +837,9 @@ describe("Spark daemon handleCommand task.start.request", () => {
       await first;
       expect(store.listPendingForSession(sender.sessionId)).toHaveLength(0);
 
-      await sessionRegistry.create({
+      await createDaemonWorkspaceSession(sessionRegistry, {
         sessionId: sender.sessionId,
-        scope: sender.scope,
-        workspaceId: sender.workspaceId,
+        workspaceId: harness.workspace.id,
         cwd: sender.cwd,
       });
       const recordTurnQueued = vi.spyOn(sessionRegistry, "recordTurnQueued");

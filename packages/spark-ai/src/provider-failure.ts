@@ -76,7 +76,7 @@ function chooseFailureClass(input: NormalizedProviderFailure): FailureClass {
   }
   if (/mismatched api:/u.test(text)) return "provider_mismatch";
   if (
-    /context[_ -]?(window|length|overflow)|maximum context|prompt is too long|too many tokens|context window is full|请精简对话历史|缩小工具\/?文件输出/u.test(
+    /context[_ -]?(window|length|overflow)|maximum (?:context|prompt length)|prompt is too long|too many tokens|context window is full|请精简对话历史|缩小工具\/?文件输出/u.test(
       text,
     )
   ) {

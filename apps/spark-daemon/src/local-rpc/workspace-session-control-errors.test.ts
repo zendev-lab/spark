@@ -8,6 +8,7 @@ import { SparkDaemonLeaseTransferBroker } from "../core/lease-transfer.ts";
 import { createDaemonSessionRegistry } from "../session-registry.ts";
 import { openSparkDaemonDatabase } from "../store/schema.ts";
 import { handleLocalRpcLine } from "./dispatch.ts";
+import { createDaemonWorkspaceSession } from "../../../../test/support/session-fixtures.ts";
 
 describe("workspace and session local RPC control errors", () => {
   const roots: string[] = [];
@@ -139,9 +140,8 @@ describe("workspace and session local RPC control errors", () => {
         ["session-archived", "workspace-a"],
         ["session-bound", "workspace-a"],
       ] as const) {
-        await sessionRegistry.create({
+        await createDaemonWorkspaceSession(sessionRegistry, {
           sessionId,
-          scope: { kind: "workspace", workspaceId },
           workspaceId,
         });
       }

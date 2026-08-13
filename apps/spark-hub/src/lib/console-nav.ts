@@ -37,6 +37,9 @@ export function isControlPlanePath(pathname: string): boolean {
   if (pathname === "/settings/access" || pathname.startsWith("/settings/access/")) {
     return true;
   }
+  if (pathname === "/settings/update" || pathname.startsWith("/settings/update/")) {
+    return true;
+  }
   return false;
 }
 
@@ -51,11 +54,14 @@ export function buildConsoleNavGroups(input: {
   nav: ConsoleNavCopy;
   groups: ConsoleNavGroupCopy;
   workspaceHrefPrefix: string | null;
+  workspaceSlug?: string | null;
   includeControlPlaneNav?: boolean;
   includeWorkspaceNav?: boolean;
+  includeDaemonNav?: boolean;
 }): ConsoleNavGroup[] {
   const includeControlPlaneNav = input.includeControlPlaneNav ?? true;
   const includeWorkspaceNav = input.includeWorkspaceNav ?? true;
+  const includeDaemonNav = input.includeDaemonNav ?? true;
   const groups: ConsoleNavGroup[] = [];
 
   if (includeControlPlaneNav) {
@@ -65,6 +71,7 @@ export function buildConsoleNavGroups(input: {
       items: [
         { href: "/workspaces/new", label: input.nav.createWorkspace, icon: "plus" },
         { href: HUB_SETTINGS_HREF, label: input.nav.webAccess, icon: "user" },
+        { href: "/settings/update", label: input.nav.updateStatus, icon: "retry" },
       ],
     });
   }
@@ -80,17 +87,24 @@ export function buildConsoleNavGroups(input: {
         { href: `${prefix}/settings/registration`, label: input.nav.registration, icon: "play" },
       ],
     });
+  }
+
+  if (includeDaemonNav && input.workspaceSlug) {
+    const workspaceQuery = `?workspace=${encodeURIComponent(input.workspaceSlug)}`;
     groups.push({
       id: "daemon",
       label: input.groups.daemon,
       items: [
-        { href: "/settings/models", label: input.nav.modelsProviders, icon: "spark" },
         {
-          href: "/settings/invocations",
+          href: `/settings/models${workspaceQuery}`,
+          label: input.nav.modelsProviders,
+          icon: "spark",
+        },
+        {
+          href: `/settings/invocations${workspaceQuery}`,
           label: input.nav.invocationDiagnostics,
           icon: "activity",
         },
-        { href: "/settings/update", label: input.nav.updateStatus, icon: "retry" },
       ],
     });
   }
@@ -100,42 +114,43 @@ export function buildConsoleNavGroups(input: {
 
 export function isConsoleNavItemActive(input: { pathname: string; href: string }): boolean {
   if (!input.href) return false;
+  const href = input.href.split("?", 1)[0]!;
 
-  if (input.href === "/settings") {
+  if (href === "/settings") {
     return input.pathname === "/settings";
   }
 
-  if (input.href === "/settings/access") {
-    return input.pathname === input.href || input.pathname.startsWith(`${input.href}/`);
+  if (href === "/settings/access") {
+    return input.pathname === href || input.pathname.startsWith(`${href}/`);
   }
 
-  if (input.href.endsWith("/settings/channels") || input.href === "/settings/channels") {
+  if (href.endsWith("/settings/channels") || href === "/settings/channels") {
     return (
-      input.pathname === input.href ||
-      input.pathname.startsWith(`${input.href}/`) ||
+      input.pathname === href ||
+      input.pathname.startsWith(`${href}/`) ||
       input.pathname === "/settings/channels" ||
       input.pathname.startsWith("/settings/channels/")
     );
   }
 
-  if (input.href === "/workspaces/new") {
+  if (href === "/workspaces/new") {
     return input.pathname === "/workspaces/new";
   }
 
-  if (input.href.endsWith("/settings/registration")) {
-    return input.pathname === input.href || input.pathname.startsWith(`${input.href}/`);
+  if (href.endsWith("/settings/registration")) {
+    return input.pathname === href || input.pathname.startsWith(`${href}/`);
   }
 
-  if (input.href.endsWith("/settings")) {
+  if (href.endsWith("/settings")) {
     return (
-      input.pathname === input.href ||
-      (input.pathname.startsWith(`${input.href}/`) &&
-        !input.pathname.startsWith(`${input.href}/registration`) &&
-        !input.pathname.startsWith(`${input.href}/channels`))
+      input.pathname === href ||
+      (input.pathname.startsWith(`${href}/`) &&
+        !input.pathname.startsWith(`${href}/registration`) &&
+        !input.pathname.startsWith(`${href}/channels`))
     );
   }
 
-  return input.pathname === input.href || input.pathname.startsWith(`${input.href}/`);
+  return input.pathname === href || input.pathname.startsWith(`${href}/`);
 }
 
 export function currentConsolePageLabel(input: {

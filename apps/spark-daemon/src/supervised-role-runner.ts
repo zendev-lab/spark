@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import type {
   ExtensionRoleRunner,
   ExtensionRoleRunRequest,
@@ -36,29 +37,31 @@ async function runSupervisedRole(
     ref: request.role.ref,
     id: request.role.id,
     source: request.role.source ?? sourceFromRoleRef(request.role.ref),
-    revision: request.role.revision ?? 1,
+    revision: request.role.revision,
     description: `Supervised ${request.role.id} Role`,
     systemPrompt: request.role.systemPrompt,
     capabilities: request.role.capabilities ?? [],
     ...(request.role.allowedTools ? { allowedTools: request.role.allowedTools } : {}),
+    ...(request.role.allowedToolEffects
+      ? { allowedToolEffects: request.role.allowedToolEffects }
+      : {}),
     modelType: required(request.role.modelType, "supervised Role modelType"),
-    instantiation: "owned",
     createdAt: startedAt,
     updatedAt: startedAt,
   });
   const model = required(request.model, `model for ${role.modelType}`);
-  const owner = { kind: "role_call", ref: options.parentInvocationId } as const;
+  const invocationId = `inv_${randomUUID().replaceAll("-", "")}`;
   const purpose =
     request.usageExecutionKind === "workflow_agent"
       ? "workflow_agent"
       : role.id.startsWith("skill-agent-")
         ? "skill_agent"
         : "role_call";
-  const session = await options.supervisor.instantiate({
+  const session = await options.supervisor.instantiateInvocationSession({
     workspaceId: options.workspaceId,
     role,
+    invocationId,
     parentSessionId: options.parentSessionId,
-    owner,
     cwd: request.cwd || options.cwd,
     purpose,
     visibility: "internal",
@@ -69,18 +72,28 @@ async function runSupervisedRole(
   let result: ExtensionRoleRunResult | undefined;
   try {
     invocation = await options.supervisor.invoke({
+      invocationId,
       sessionId: session.sessionId,
       prompt: request.instruction.instruction,
       parentInvocationId: options.parentInvocationId,
       structured: true,
       model,
-      roleSystemPrompt: role.systemPrompt,
-      roleAllowedTools: request.role.allowedTools,
       roleRunRef: request.record.ref,
       requireStructuredOutcome: request.requireStructuredOutcome,
       sourceKind: purpose,
       sourceRef: request.record.ref,
       signal: request.signal,
+      receiptProfile: {
+        effectiveRoleRef: role.ref,
+        effectiveRoleRevision: role.revision,
+        model: modelRef(model),
+        toolPolicyDigest: roleToolPolicyDigest(role),
+        inputRefs: [],
+        authorizationSource: {
+          kind: "parent_invocation",
+          ref: options.parentInvocationId,
+        },
+      },
     });
     result = compatibilityRoleRunResult(request, invocation, startedAt, model);
     return result;
@@ -97,6 +110,23 @@ async function runSupervisedRole(
       throw new Error(`supervised Role Session ${session.sessionId} did not close`);
     }
   }
+}
+
+function roleToolPolicyDigest(role: ReturnType<typeof parseSparkRoleSpec>): string {
+  const canonical = JSON.stringify({
+    capabilities: role.capabilities,
+    allowedTools: role.allowedTools ?? [],
+    allowedToolEffects: role.allowedToolEffects ?? [],
+  });
+  return `sha256:${createHash("sha256").update(canonical).digest("hex")}`;
+}
+
+function modelRef(value: string): { providerName: string; modelId: string } {
+  const separator = value.indexOf("/");
+  if (separator <= 0 || separator === value.length - 1) {
+    throw new Error(`supervised Role model must use provider/model syntax: ${value}`);
+  }
+  return { providerName: value.slice(0, separator), modelId: value.slice(separator + 1) };
 }
 
 function roleCloseCompletion(
@@ -161,8 +191,6 @@ function compatibilityRoleRunResult(
       startedAt,
       finishedAt: invocation.finishedAt ?? new Date().toISOString(),
       model,
-      noSession: false,
-      sessionLifetime: "owned",
       outcome,
     },
     outcome,

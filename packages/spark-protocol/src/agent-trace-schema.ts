@@ -42,6 +42,8 @@ export const sparkAgentTraceOutcomeSchema = z.enum(SPARK_AGENT_TRACE_OUTCOMES);
 
 export const SPARK_AGENT_TOOL_EFFECTS = [
   "read",
+  "network_read",
+  "control",
   "local_write",
   "external_write",
   "destructive",

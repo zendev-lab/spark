@@ -1,10 +1,12 @@
+import { resolve } from "node:path";
+
 import type {
   SparkSessionGetRequest,
   SparkSessionBindRequest,
   SparkSessionCreateRequest,
   SparkSessionListRequest,
   SparkModelRef,
-  SparkSessionRegistryRecord,
+  SparkSessionState,
   SparkSessionScope,
   SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
@@ -13,10 +15,13 @@ import {
   SparkSessionRegistry,
   SparkSessionRegistryError,
   type ArchiveSparkSessionInput,
+  type CloseSparkSessionInput,
   type ConfigureSparkSideThreadInput,
   type CreateSparkSessionInput,
   type EnsureSparkSideThreadInput,
+  type EnsureSparkDriverGenerationSessionInput,
   type ResetSparkSideThreadInput,
+  type RecordSparkSessionRunInput,
   type ResolveBindingInput,
   type SealSparkSessionCloseReceiptInput,
   type TransitionSparkSessionLifecycleInput,
@@ -28,60 +33,79 @@ import {
  * read-modify-write owner inside the process.
  */
 export interface DaemonSessionRegistry {
-  create(input: SparkSessionCreateRequest): Promise<SparkSessionRegistryRecord>;
-  createSupervised(input: CreateSparkSessionInput): Promise<SparkSessionRegistryRecord>;
-  list(options?: DaemonSessionListRequest): Promise<SparkSessionRegistryRecord[]>;
-  get(sessionId: string): Promise<SparkSessionRegistryRecord | undefined>;
-  bind(input: SparkSessionBindRequest): Promise<SparkSessionRegistryRecord>;
+  create(input: SparkSessionCreateRequest): Promise<SparkSessionState>;
+  createSupervised(input: CreateSparkSessionInput): Promise<SparkSessionState>;
+  list(options?: DaemonSessionListRequest): Promise<SparkSessionState[]>;
+  get(sessionId: string): Promise<SparkSessionState | undefined>;
+  bind(input: SparkSessionBindRequest): Promise<SparkSessionState>;
   unbind(
     sessionId: string,
     externalKey: string,
     adapterAccountIdentity?: string,
-  ): Promise<SparkSessionRegistryRecord>;
-  archive(input: string | ArchiveSparkSessionInput): Promise<SparkSessionRegistryRecord>;
+  ): Promise<SparkSessionState>;
+  archive(input: string | ArchiveSparkSessionInput): Promise<SparkSessionState>;
   /** Supervisor-only close for owned relation Sessions such as Side Threads. */
-  archiveOwned(input: ArchiveSparkSessionInput): Promise<SparkSessionRegistryRecord>;
-  markClosing(input: TransitionSparkSessionLifecycleInput): Promise<SparkSessionRegistryRecord>;
-  sealCloseReceipt(input: SealSparkSessionCloseReceiptInput): Promise<SparkSessionRegistryRecord>;
-  restore?(
-    sessionId: SparkSessionGetRequest["sessionId"],
-    now?: Date,
-  ): Promise<SparkSessionRegistryRecord>;
-  ensureWorkspaceMain(workspaceId: string): Promise<SparkSessionRegistryRecord>;
-  setRoleIfMissing?(sessionId: string, role: string): Promise<SparkSessionRegistryRecord>;
-  /** @deprecated Compatibility alias for older daemon collaborators. */
-  setTitleIfMissing?(sessionId: string, title: string): Promise<SparkSessionRegistryRecord>;
-  setModel(sessionId: string, model: SparkModelRef): Promise<SparkSessionRegistryRecord>;
+  archiveOwned(input: ArchiveSparkSessionInput): Promise<SparkSessionState>;
+  markClosing(input: TransitionSparkSessionLifecycleInput): Promise<SparkSessionState>;
+  sealCloseReceipt(input: SealSparkSessionCloseReceiptInput): Promise<SparkSessionState>;
+  restore(sessionId: SparkSessionGetRequest["sessionId"], now?: Date): Promise<SparkSessionState>;
+  close(input: CloseSparkSessionInput): Promise<SparkSessionState>;
+  finalizeClose(sessionId: string, now?: Date): Promise<SparkSessionState>;
+  ensureWorkspaceAdministrator(workspaceId: string): Promise<SparkSessionState>;
+  setNameIfMissing(sessionId: string, name: string): Promise<SparkSessionState>;
+  setModel(sessionId: string, model: SparkModelRef): Promise<SparkSessionState>;
   setThinkingLevel(
     sessionId: string,
     thinkingLevel: SparkThinkingLevel,
-  ): Promise<SparkSessionRegistryRecord>;
-  recordTurnQueued(sessionId: string, now?: Date): Promise<SparkSessionRegistryRecord>;
-  recordTurnSettled(sessionId: string, now?: Date): Promise<SparkSessionRegistryRecord>;
+  ): Promise<SparkSessionState>;
+  recordTurnQueued(sessionId: string, now?: Date): Promise<SparkSessionState>;
+  recordTurnSettled(sessionId: string, now?: Date): Promise<SparkSessionState>;
   recordRun(input: {
     sessionId: string;
     sessionPath: string;
+    expectedIncarnation?: number;
+    expectedLifecycle?: "open";
     now?: Date;
-  }): Promise<SparkSessionRegistryRecord>;
+  }): Promise<SparkSessionState>;
+  /**
+   * Linearize the final transcript replacement with every Session registry
+   * mutation. The registry fence is checked before the replacement callback
+   * may rename the canonical JSONL.
+   */
+  commitTranscriptReplacement(
+    input: CommitDaemonSessionTranscriptReplacementInput,
+    replace: () => Promise<void>,
+  ): Promise<SparkSessionState>;
   bindTranscriptPath(input: {
     sessionId: string;
     sessionPath: string;
+    expectedIncarnation?: number;
+    expectedLifecycle?: "open";
     now?: Date;
-  }): Promise<SparkSessionRegistryRecord>;
+  }): Promise<SparkSessionState>;
   relocateTranscriptPath(input: {
     sessionId: string;
     expectedSessionPath?: string;
     sessionPath: string;
     now?: Date;
-  }): Promise<SparkSessionRegistryRecord>;
-  ensureSideThread(input: EnsureSparkSideThreadInput): Promise<SparkSessionRegistryRecord>;
-  resetSideThread(input: ResetSparkSideThreadInput): Promise<SparkSessionRegistryRecord>;
-  configureSideThread(input: ConfigureSparkSideThreadInput): Promise<SparkSessionRegistryRecord>;
-  resolveBinding(input: ResolveBindingInput): Promise<SparkSessionRegistryRecord>;
+  }): Promise<SparkSessionState>;
+  ensureSideThread(input: EnsureSparkSideThreadInput): Promise<SparkSessionState>;
+  ensureDriverGeneration(
+    input: EnsureSparkDriverGenerationSessionInput,
+  ): Promise<SparkSessionState>;
+  resetSideThread(input: ResetSparkSideThreadInput): Promise<SparkSessionState>;
+  configureSideThread(input: ConfigureSparkSideThreadInput): Promise<SparkSessionState>;
+  resolveBinding(input: ResolveBindingInput): Promise<SparkSessionState>;
+}
+
+export interface CommitDaemonSessionTranscriptReplacementInput extends RecordSparkSessionRunInput {
+  expectedIncarnation: number;
+  expectedLifecycle: "open";
 }
 
 /** Diagnostic child visibility is daemon-internal and absent from the wire schema. */
 export type DaemonSessionListRequest = SparkSessionListRequest & {
+  includeClosed?: boolean;
   includeSideThreads?: boolean;
 };
 
@@ -137,34 +161,24 @@ export function createSerializedDaemonSessionRegistry(
     archiveOwned: (input) => mutate(() => registry.archiveOwned(input)),
     markClosing: (input) => mutate(() => registry.markClosing(input)),
     sealCloseReceipt: (input) => mutate(() => registry.sealCloseReceipt(input)),
-    ...(registry.restore
-      ? {
-          restore: (sessionId: string, now?: Date) =>
-            mutate(() => registry.restore!(sessionId, now)),
-        }
-      : {}),
-    ensureWorkspaceMain: (workspaceId) => mutate(() => registry.ensureWorkspaceMain(workspaceId)),
-    ...(registry.setRoleIfMissing
-      ? {
-          setRoleIfMissing: (sessionId: string, role: string) =>
-            mutate(() => registry.setRoleIfMissing!(sessionId, role)),
-        }
-      : {}),
-    ...(registry.setTitleIfMissing
-      ? {
-          setTitleIfMissing: (sessionId: string, title: string) =>
-            mutate(() => registry.setTitleIfMissing!(sessionId, title)),
-        }
-      : {}),
+    restore: (sessionId, now) => mutate(() => registry.restore(sessionId, now)),
+    close: (input) => mutate(() => registry.close(input)),
+    finalizeClose: (sessionId, now) => mutate(() => registry.finalizeClose(sessionId, now)),
+    ensureWorkspaceAdministrator: (workspaceId) =>
+      mutate(() => registry.ensureWorkspaceAdministrator(workspaceId)),
+    setNameIfMissing: (sessionId, name) => mutate(() => registry.setNameIfMissing(sessionId, name)),
     setModel: (sessionId, model) => mutate(() => registry.setModel(sessionId, model)),
     setThinkingLevel: (sessionId, thinkingLevel) =>
       mutate(() => registry.setThinkingLevel(sessionId, thinkingLevel)),
     recordTurnQueued: (sessionId, now) => mutate(() => registry.recordTurnQueued(sessionId, now)),
     recordTurnSettled: (sessionId, now) => mutate(() => registry.recordTurnSettled(sessionId, now)),
     recordRun: (input) => mutate(() => registry.recordRun(input)),
+    commitTranscriptReplacement: (input, replace) =>
+      mutate(() => registry.commitTranscriptReplacement(input, replace)),
     bindTranscriptPath: (input) => mutate(() => registry.bindTranscriptPath(input)),
     relocateTranscriptPath: (input) => mutate(() => registry.relocateTranscriptPath(input)),
     ensureSideThread: (input) => mutate(() => registry.ensureSideThread(input)),
+    ensureDriverGeneration: (input) => mutate(() => registry.ensureDriverGeneration(input)),
     resetSideThread: (input) => mutate(() => registry.resetSideThread(input)),
     configureSideThread: (input) => mutate(() => registry.configureSideThread(input)),
     resolveBinding: (input) => mutate(() => registry.resolveBinding(input)),
@@ -179,7 +193,8 @@ export function createDaemonSessionRegistry(
     rootDir: defaultSparkSessionRegistryRoot(sparkHome),
   });
   const ownedRegistry: DaemonSessionRegistry = {
-    create: async (input) => await registry.create(await resolveCreateRequest(input, options)),
+    create: async (input) =>
+      await registry.create(await resolveCreateRequest(registry, input, options)),
     createSupervised: async (input) =>
       await registry.create(await resolveRegistryCreateInput(input, options)),
     list: async (request = {}) => await registry.list(resolveListRequest(request, options)),
@@ -192,7 +207,9 @@ export function createDaemonSessionRegistry(
     markClosing: async (input) => await registry.markClosing(input),
     sealCloseReceipt: async (input) => await registry.sealCloseReceipt(input),
     restore: async (sessionId, now) => await registry.restore(sessionId, now),
-    ensureWorkspaceMain: async (workspaceId) => {
+    close: async (input) => await registry.close(input),
+    finalizeClose: async (sessionId, now) => await registry.finalizeClose(sessionId, now),
+    ensureWorkspaceAdministrator: async (workspaceId) => {
       const cwd = options.resolveWorkspaceCwd?.(workspaceId)?.trim();
       if (options.resolveWorkspaceCwd && !cwd) {
         throw new SparkSessionRegistryError(
@@ -200,21 +217,28 @@ export function createDaemonSessionRegistry(
           `workspace ${workspaceId} has no daemon-local execution directory`,
         );
       }
-      return await registry.ensureWorkspaceMain({ workspaceId, ...(cwd ? { cwd } : {}) });
+      return await registry.ensureWorkspaceAdministrator({
+        workspaceId,
+        ...(cwd ? { cwd } : {}),
+      });
     },
-    setRoleIfMissing: async (sessionId, role) =>
-      await convergeRoleOwner(registry, options, sessionId, role),
-    setTitleIfMissing: async (sessionId, title) =>
-      await registry.setTitleIfMissing(sessionId, title),
+    setNameIfMissing: async (sessionId, name) => await registry.setNameIfMissing(sessionId, name),
     setModel: async (sessionId, model) => await registry.setModel(sessionId, model),
     setThinkingLevel: async (sessionId, thinkingLevel) =>
       await registry.setThinkingLevel(sessionId, thinkingLevel),
     recordTurnQueued: async (sessionId, now) => await registry.recordTurnQueued(sessionId, now),
     recordTurnSettled: async (sessionId, now) => await registry.recordTurnSettled(sessionId, now),
     recordRun: async (input) => await registry.recordRun(input),
+    commitTranscriptReplacement: async (input, replace) => {
+      const session = await registry.get(input.sessionId);
+      assertTranscriptReplacementFence(session, input);
+      await replace();
+      return session!;
+    },
     bindTranscriptPath: async (input) => await registry.bindTranscriptPath(input),
     relocateTranscriptPath: async (input) => await registry.relocateTranscriptPath(input),
     ensureSideThread: async (input) => await registry.ensureSideThread(input),
+    ensureDriverGeneration: async (input) => await registry.ensureDriverGeneration(input),
     resetSideThread: async (input) => await registry.resetSideThread(input),
     configureSideThread: async (input) => await registry.configureSideThread(input),
     resolveBinding: async (input) => {
@@ -222,7 +246,7 @@ export function createDaemonSessionRegistry(
         ? await resolveRegistryCreateInput(input.create, options)
         : undefined;
       if (create?.scope?.kind === "workspace") {
-        const root = await registry.ensureWorkspaceMain({
+        const root = await registry.ensureWorkspaceAdministrator({
           workspaceId: create.scope.workspaceId,
           ...(options.resolveWorkspaceCwd?.(create.scope.workspaceId)
             ? { cwd: options.resolveWorkspaceCwd(create.scope.workspaceId) }
@@ -230,12 +254,8 @@ export function createDaemonSessionRegistry(
         });
         create = {
           ...create,
-          lifetime: "persistent",
-          owner: { kind: "session", ref: root.sessionId },
-          roleRef: "role:builtin-administrator",
-          roleRevision: 1,
-          modelType: "coordination",
-          authority: { kind: "channel", ref: input.externalKey },
+          owner: { kind: "session", supervisorSessionId: root.sessionId },
+          roleBinding: { kind: "none" },
           stateBinding: { kind: "channel", ref: input.externalKey },
           visibility: "public",
           retention: "retain",
@@ -251,64 +271,29 @@ export function createDaemonSessionRegistry(
   return createSerializedDaemonSessionRegistry(ownedRegistry);
 }
 
-async function convergeRoleOwner(
-  registry: SparkSessionRegistry,
-  options: CreateDaemonSessionRegistryOptions,
-  sessionId: string,
-  role: string,
-): Promise<SparkSessionRegistryRecord> {
-  const target = await registry.get(sessionId);
-  const owner = target ? await findRoleOwner(registry, options, target, role) : undefined;
-  if (owner && owner.sessionId !== sessionId) {
-    if (await options.isSessionRoleOwnerProtected?.(owner.sessionId)) {
-      throw new SparkSessionRegistryError(
-        "session_role_conflict",
-        `session role ${JSON.stringify(role.trim())} already belongs to ${owner.sessionId}; reuse that session or archive it first`,
-      );
-    }
-    await registry.archive({
-      sessionId: owner.sessionId,
-      source: "role-convergence",
-      reason: `role owner superseded by ${sessionId}`,
-      tags: ["policy:stable-role-reuse", `superseded-by:${sessionId}`],
-    });
+function assertTranscriptReplacementFence(
+  session: SparkSessionState | undefined,
+  input: CommitDaemonSessionTranscriptReplacementInput,
+): asserts session is SparkSessionState {
+  const pathMatches =
+    session?.sessionPath !== undefined &&
+    resolve(session.sessionPath) === resolve(input.sessionPath);
+  if (
+    !session ||
+    (session.incarnation ?? 1) !== input.expectedIncarnation ||
+    session.lifecycle !== input.expectedLifecycle ||
+    session.placement !== "active" ||
+    !pathMatches
+  ) {
+    throw new SparkSessionRegistryError(
+      "session_transcript_cas_failed",
+      `session ${input.sessionId} changed before transcript replacement`,
+    );
   }
-  return await registry.setRoleIfMissing(sessionId, role);
-}
-
-async function findRoleOwner(
-  registry: SparkSessionRegistry,
-  options: CreateDaemonSessionRegistryOptions,
-  target: SparkSessionRegistryRecord,
-  role: string,
-): Promise<SparkSessionRegistryRecord | undefined> {
-  const normalizedRole = normalizeRole(role);
-  if (!normalizedRole || target.scope.kind !== "workspace") return undefined;
-  const canonicalTarget =
-    options.canonicalWorkspaceId?.(target.scope.workspaceId) ?? target.scope.workspaceId;
-  const sessions = await registry.list({ includeArchived: false });
-  return sessions.find((session) => {
-    if (
-      session.sessionId === target.sessionId ||
-      session.status !== "ready" ||
-      session.relation ||
-      session.bindings.length > 0
-    ) {
-      return false;
-    }
-    if (session.scope.kind !== "workspace") return false;
-    const canonicalSession =
-      options.canonicalWorkspaceId?.(session.scope.workspaceId) ?? session.scope.workspaceId;
-    return canonicalSession === canonicalTarget && normalizeRole(session.role) === normalizedRole;
-  });
-}
-
-function normalizeRole(value: string | undefined): string | undefined {
-  const normalized = value?.replace(/\s+/gu, " ").trim();
-  return normalized || undefined;
 }
 
 async function resolveCreateRequest(
+  registry: SparkSessionRegistry,
   input: SparkSessionCreateRequest,
   options: CreateDaemonSessionRegistryOptions,
 ): Promise<CreateSparkSessionInput> {
@@ -317,6 +302,8 @@ async function resolveCreateRequest(
   const {
     taskExecution: _taskExecution,
     fleetWorker: _fleetWorker,
+    placement,
+    supervisorSessionId,
     scope,
     ...ordinaryInput
   } = input as SparkSessionCreateRequest & {
@@ -325,7 +312,7 @@ async function resolveCreateRequest(
   };
   if (taskExecution && fleetWorker) {
     throw new SparkSessionRegistryError(
-      "invalid_session_relation",
+      "session_owner_invalid",
       "taskExecution and fleetWorker are mutually exclusive",
     );
   }
@@ -333,46 +320,65 @@ async function resolveCreateRequest(
     ...ordinaryInput,
     ...(taskExecution
       ? {
-          relation: { kind: "task_execution", ...taskExecution },
-          lifetime: "owned" as const,
-          owner:
-            taskExecution.sessionLifetime === "task_revision"
-              ? ({ kind: "task_revision", ref: taskExecution.jobId } as const)
-              : ({ kind: "task_run", ref: taskExecution.runRef } as const),
-          authority: { kind: "task", ref: taskExecution.taskRef } as const,
           stateBinding: { kind: "task", ref: taskExecution.taskRef } as const,
           visibility: "internal" as const,
           retention: "discard_on_close" as const,
-          purpose: taskExecution.sessionLifetime ?? "task_run",
-          roleRef: taskExecution.roleRef,
-          ...(taskExecution.roleRevision ? { roleRevision: taskExecution.roleRevision } : {}),
-          ...(taskExecution.modelType ? { modelType: taskExecution.modelType } : {}),
+          purpose: taskExecution.ownerKind,
+          roleBinding: { kind: "explicit", roleRef: taskExecution.roleRef } as const,
         }
       : fleetWorker
         ? {
-            relation: { kind: "fleet_worker", ...fleetWorker },
-            lifetime: "persistent" as const,
-            owner: { kind: "session", ref: fleetWorker.ownerSessionId } as const,
-            authority: { kind: "role", ref: fleetWorker.roleRef } as const,
             visibility: "internal" as const,
             retention: "retain" as const,
             purpose: "fleet_worker",
-            roleRef: fleetWorker.roleRef,
+            roleBinding: { kind: "explicit", roleRef: fleetWorker.roleRef } as const,
+            fleetWorker,
           }
         : {}),
   };
-  if (!scope) return await resolveRegistryCreateInput(createInput, options);
-  if (scope.kind === "daemon") {
+  if (!scope) {
     throw new SparkSessionRegistryError(
       "invalid_scope",
-      "New top-level sessions must belong to a workspace.",
+      "session create requires an explicit workspace scope",
     );
+  }
+  let owner: CreateSparkSessionInput["owner"];
+  if (taskExecution) {
+    const { ownerKind, ...ownerFields } = taskExecution;
+    owner = { kind: ownerKind, ...ownerFields } as CreateSparkSessionInput["owner"];
+  } else {
+    const supervisorId = fleetWorker?.ownerSessionId ?? supervisorSessionId?.trim();
+    if (!supervisorId) {
+      throw new SparkSessionRegistryError(
+        "session_owner_not_found",
+        "session create requires supervisorSessionId",
+      );
+    }
+    const supervisor = await registry.get(supervisorId);
+    if (!supervisor) {
+      throw new SparkSessionRegistryError(
+        "session_owner_not_found",
+        `unknown supervising Session: ${supervisorId}`,
+      );
+    }
+    if (placement === "sibling") {
+      if (supervisor.owner.kind === "workspace") {
+        throw new SparkSessionRegistryError(
+          "workspace_administrator_session_mutation_forbidden",
+          "the Workspace Administrator has no persistent sibling owner",
+        );
+      }
+      owner = supervisor.owner;
+    } else {
+      owner = { kind: "session", supervisorSessionId: supervisorId };
+    }
   }
   return await resolveRegistryCreateInput(
     {
-      ...createInput,
+      ...ordinaryInput,
       scope,
-      workspaceId: scope.workspaceId,
+      owner,
+      placement: "active",
     },
     options,
   );
@@ -382,12 +388,7 @@ async function resolveRegistryCreateInput(
   input: CreateSparkSessionInput,
   options: CreateDaemonSessionRegistryOptions,
 ): Promise<CreateSparkSessionInput> {
-  const scope =
-    input.scope ??
-    (input.workspaceId
-      ? ({ kind: "workspace", workspaceId: input.workspaceId } as const)
-      : undefined);
-  if (!scope) return input;
+  const scope = input.scope;
   if (scope.kind === "daemon") {
     throw new SparkSessionRegistryError(
       "invalid_scope",
@@ -412,7 +413,6 @@ async function resolveRegistryCreateInput(
     return {
       ...input,
       scope,
-      workspaceId: scope.workspaceId,
       cwd: resolved.cwd,
       ...(resolved.cwdArtifactRef ? { cwdArtifactRef: resolved.cwdArtifactRef } : {}),
     };
@@ -443,7 +443,6 @@ async function resolveRegistryCreateInput(
   return {
     ...input,
     scope,
-    workspaceId: scope.workspaceId,
     ...(cwd ? { cwd } : {}),
   };
 }
@@ -453,16 +452,17 @@ function resolveListRequest(
   options: CreateDaemonSessionRegistryOptions,
 ): {
   includeArchived?: boolean;
+  includeClosed?: boolean;
   includeSideThreads?: boolean;
   query?: string;
   tags?: string[];
   scope?: SparkSessionScope;
-  workspaceId?: string;
 } {
   if (!input.scope) return input;
   if (input.scope.kind === "workspace") {
     return {
       ...(input.includeArchived !== undefined ? { includeArchived: input.includeArchived } : {}),
+      ...(input.includeClosed !== undefined ? { includeClosed: input.includeClosed } : {}),
       ...(input.includeSideThreads !== undefined
         ? { includeSideThreads: input.includeSideThreads }
         : {}),
@@ -480,6 +480,7 @@ function resolveListRequest(
   }
   return {
     ...(input.includeArchived !== undefined ? { includeArchived: input.includeArchived } : {}),
+    ...(input.includeClosed !== undefined ? { includeClosed: input.includeClosed } : {}),
     ...(input.includeSideThreads !== undefined
       ? { includeSideThreads: input.includeSideThreads }
       : {}),

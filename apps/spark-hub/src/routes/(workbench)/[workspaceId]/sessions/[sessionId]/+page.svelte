@@ -6,7 +6,7 @@
 </script>
 
 <svelte:head>
-  <title>{data.selectedSession?.title ?? data.selectedSessionId} · {t.headTitle}</title>
+  <title>{data.selectedSession?.name ?? data.selectedSessionId} · {t.headTitle}</title>
 </svelte:head>
 
 <SessionsWorkspace

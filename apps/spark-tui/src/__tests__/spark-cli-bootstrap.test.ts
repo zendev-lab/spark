@@ -89,6 +89,7 @@ function fakeProviderModule(
     modelId?: string;
     userPrompt?: string;
     streamCalls?: number;
+    streamSignal?: AbortSignal;
   } = {},
 ) {
   return {
@@ -106,6 +107,7 @@ function fakeProviderModule(
             systemPromptDynamic?: string;
             tools?: Array<{ name?: string }>;
           },
+          options?: { signal?: AbortSignal },
         ) => {
           captured.streamCalls = (captured.streamCalls ?? 0) + 1;
           if (captured.streamError) throw captured.streamError;
@@ -124,6 +126,7 @@ function fakeProviderModule(
           );
           captured.modelId = (_model as { id?: string }).id;
           captured.userPrompt = messageContentText(context.messages?.at(-1)?.content);
+          captured.streamSignal = options?.signal;
           const message =
             captured.assistantMessages?.[captured.streamCalls - 1] ??
             assistant(`boot ok:${context.messages?.length ?? 0}`);
@@ -822,7 +825,12 @@ test("provider registry workflow model runner completes in-process without role 
     const cwd = join(dir, "repo");
     const sparkHome = join(dir, ".spark");
     await mkdir(sparkHome, { recursive: true });
-    const captured: { systemPrompt?: string; modelId?: string; userPrompt?: string } = {};
+    const captured: {
+      systemPrompt?: string;
+      modelId?: string;
+      userPrompt?: string;
+      streamSignal?: AbortSignal;
+    } = {};
     const services = await createSparkCliHostServices({
       cwd,
       sparkHome,
@@ -838,16 +846,19 @@ test("provider registry workflow model runner completes in-process without role 
       now: () => 1_700_000_000_123,
       observeProviderAttempt: (observation) => attempts.push(observation),
     });
+    const controller = new AbortController();
     const result = await runModel({
       prompt: "Compare model answers",
       label: "panel 1",
       model: "fake-provider/fake-model",
       metadata: { workflowAgent: true, agentType: "model" },
+      signal: controller.signal,
     });
 
     assert.equal(result.text, "boot ok:1");
     assert.equal(captured.modelId, "fake-model");
     assert.equal(captured.userPrompt, "Compare model answers");
+    assert.equal(captured.streamSignal, controller.signal);
     assert.equal(result.metadata?.providerName, "fake-provider");
     assert.equal(result.metadata?.modelId, "fake-model");
     assert.equal(attempts.length, 1);

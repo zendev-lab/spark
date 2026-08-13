@@ -13,6 +13,8 @@ import registerBaiduOneApiProvider from "./baidu-oneapi-provider.ts";
 import {
   type BaiduOneApiStream,
   createBaiduOneApiProviderAdapter,
+  isNormalizedBaiduContextOverflow,
+  normalizeBaiduOneApiMessage,
   silenceOpenAiSdkTransportLogs,
 } from "./baidu-oneapi.ts";
 import { SparkProviderRegistry } from "./provider-registry.ts";
@@ -92,6 +94,18 @@ async function consume(stream: BaiduOneApiStream): Promise<void> {
   await stream.result();
 }
 
+test("Baidu adapter normalizes the exact maximum prompt length provider error", () => {
+  const model = testModel("grok-4.5");
+  const message = normalizeBaiduOneApiMessage(
+    providerErrorMessage(
+      model,
+      'OpenAI API error (400): {"message":"invalid-argument: This model\'s maximum prompt length is 500000 but the request contains 500522 tokens."}',
+    ),
+  );
+
+  expect(isNormalizedBaiduContextOverflow(message)).toBe(true);
+});
+
 test("Pi compatibility and Spark-native adapters expose the same Baidu model catalog", () => {
   const piRegistry = new SparkProviderRegistry();
   const nativeRegistry = new SparkProviderRegistry();
@@ -157,8 +171,12 @@ test("Baidu Responses retries thrown transient transport failures before any out
       attempts += 1;
       if (attempts > 1) return terminalStream(input);
       return {
-        async *[Symbol.asyncIterator]() {
-          throw new Error("ECONNRESET socket hang up");
+        [Symbol.asyncIterator]() {
+          return {
+            async next(): Promise<IteratorResult<AssistantMessageEvent>> {
+              throw new Error("ECONNRESET socket hang up");
+            },
+          };
         },
         async result(): Promise<AssistantMessage> {
           throw new Error("ECONNRESET socket hang up");

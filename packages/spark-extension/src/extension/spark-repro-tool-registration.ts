@@ -153,7 +153,7 @@ export function registerSparkReproTool(
       "Use repro action=plan to set difficulty (1-10), revise the Goal Contract, or append/update stage-scoped subgoals. Split each stage by its objective, experiment risk, dependencies, and required evidence; every subgoal needs a stable id, explicit doneWhen/evidenceRequired, and authority.",
       "Use repro action=step to update one step. A done step requires existing evidence that passes a typed StepVerifier; safe_local steps require spark.repro.step-proof/v1, while ask_decision/ask_approval steps require a current bound canonical Ask receipt.",
       "In the contract stage, first verify whether the named reference implementation is runnable. If it is unavailable, ask how to construct or obtain it before any baseline probe; do not invent a substitute.",
-      "The main session owns repro planning and reconciliation; use canonical assign to dispatch the independent safe_local ready task frontier in parallel, while ask_decision and ask_approval tasks stay with the owner and are never dispatched.",
+      "The owner Session owns Repro planning and reconciliation; use canonical assign to dispatch the independent safe_local ready Task frontier in parallel, while ask_decision and ask_approval Tasks stay with the owner and are never dispatched.",
       "When an external Bench manifest supplies a run_id, bind it at first start with reproId so the Repro, token ledger, child executions, report summary, and Artifact share one identity.",
       "Only create a waiting decision for a frozen-contract change, ambiguous reference ownership, scope expansion, exhausted reference-supported resource/topology options, a framework-global behavior change, or an approval-gated external publish. A failed experiment, ordinary ambiguity, or OOM with another reference-supported topology remains active and must be handled autonomously.",
       "Use repro action=record with requirementId and a matching evidence, decision, or validation proof.",
@@ -1582,7 +1582,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     "",
     "Repro requirements:",
     `- Operate in the selected phase (${repro.currentPhase}); use its tool policy for plan or implement work.`,
-    "- The main session owns planning and reconciliation; use assign only for the independent safe_local ready frontier, while ask_decision and ask_approval remain owner-only.",
+    "- The owner Session owns planning and reconciliation; use assign only for the independent safe_local ready frontier, while ask_decision and ask_approval remain owner-only.",
     "- When blocked by a missing user decision, ambiguous requirement, unclear baseline/source, conflicting evidence, failing validation whose next step is unclear, or any problem the user can unblock, call ask immediately with a concrete question. Do not guess, invent substitutes, or end the turn with only a prose blocker report when ask can resolve it.",
     "- Advance milestones with repro record/evaluate/advance. Never treat prose, an unverified ref, or a bare boolean as proof.",
     "- Keep the deliverable report a live dashboard, not an append-only log: current status and one blocker card first, quantified gates next, long history behind progressive disclosure. Fold or rewrite stale sections instead of only appending, so low-signal detail cannot crowd out the current frontier.",
@@ -1609,13 +1609,13 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
       "- Run a focused probe for validation uncertainty only after baseline availability or construction strategy is settled; record the command and result evidence.",
       "- Use a recommended default for reversible low-risk choices and record it in the research evidence.",
       "- Ask exactly one material user decision at a time with canonical ask and recordAsEvidence=true; do not use reviewer auto-answer for that decision.",
-      "- Keep research and decision-making in the main session; do not spawn owned role calls for ordinary contract research.",
+      "- Keep research and decision-making in the owner Session; do not spawn Role Invocations for ordinary contract research.",
     );
   } else {
     lines.push(
       "",
       "Implement-phase guidance:",
-      "- Execute the planned tasks in the main session: write code, run tests, and fix failures.",
+      "- Execute planned Tasks through the authority available to the owner Session; write code, run tests, and fix failures only when its Role and effect policy allow them.",
       "- If a failure, missing credential, unclear expected behavior, or ambiguous fix path needs a user decision, call ask before inventing a workaround.",
       "- Record the matching evidence-backed requirement proof before advancing.",
     );

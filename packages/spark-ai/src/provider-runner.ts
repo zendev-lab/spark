@@ -64,6 +64,7 @@ export interface SparkWorkflowModelRunRequest {
   model?: string;
   maxTokens?: number;
   metadata?: Record<string, unknown>;
+  signal?: AbortSignal;
 }
 
 export interface SparkWorkflowModelRunResponse {
@@ -252,6 +253,7 @@ export function createProviderRegistryWorkflowModelRunner(
       context,
       {
         maxTokens: positiveInteger(request.maxTokens) ?? 4096,
+        ...(request.signal ? { signal: request.signal } : {}),
       },
       runnerOptions,
       runnerOptions,

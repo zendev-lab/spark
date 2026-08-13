@@ -40,6 +40,9 @@ export function normalizeSparkCompactionOutcomeMetadata(
     summaryVersion: positiveInteger(input.summaryVersion, CURRENT_SPARK_COMPACTION_SUMMARY_VERSION),
     tokenSource: validTokenSource(input.tokenSource),
     measuredReductionRatio: unitRatio(input.measuredReductionRatio, 0),
+    ...(typeof input.operationId === "string" && input.operationId.trim()
+      ? { operationId: input.operationId.trim() }
+      : {}),
     ...(fallbackReason ? { fallbackReason } : {}),
   };
 }
@@ -267,11 +270,16 @@ export interface SparkSmartCompactionAttempt {
 
 export async function smartSparkCompactionSummaryWithFallback(
   preparation: SparkCompactionPreparation,
-  options: { model?: string; currentModel?: string; runModel?: SparkSmartCompactionModelRunner },
+  options: {
+    model?: string;
+    currentModel?: string;
+    runModel?: SparkSmartCompactionModelRunner;
+    customInstructions?: string;
+  },
 ): Promise<SparkSmartCompactionAttempt> {
   if (!options.runModel || !options.currentModel) {
     return {
-      result: deterministicSparkCompactionSummary(preparation),
+      result: deterministicSparkCompactionSummary(preparation, options.customInstructions),
       fallbackReason: "model_unavailable",
     };
   }
@@ -284,12 +292,20 @@ export async function smartSparkCompactionSummaryWithFallback(
       }),
     };
   } catch (error) {
+    if (isAbortError(error)) throw error;
     const fallbackReason =
       error instanceof Error && /invalid fixed summary structure/u.test(error.message)
         ? "invalid_summary"
         : "model_error";
-    return { result: deterministicSparkCompactionSummary(preparation), fallbackReason };
+    return {
+      result: deterministicSparkCompactionSummary(preparation, options.customInstructions),
+      fallbackReason,
+    };
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 export type SparkCompactionPassType = "micro" | "full";
@@ -574,13 +590,26 @@ export function prepareSparkCompaction(
     ) {
       return undefined;
     }
+    // A repeated pass replaces the previous summary but must retain the same
+    // protected recent-history boundary. Pointing at the compaction entry
+    // itself would drop every entry that the previous pass intentionally kept,
+    // because compaction entries are not lowered into provider messages.
+    const retainedBoundaryIndex = pathEntries.findIndex(
+      (entry) => entry.id === leaf.firstKeptEntryId && entry.id !== leaf.id,
+    );
+    const retainedBoundaryExists = retainedBoundaryIndex >= 0;
+    const activeReplayMessages = [
+      summaryMessage,
+      ...(retainedBoundaryExists
+        ? entriesToMessages(pathEntries.slice(retainedBoundaryIndex, -1))
+        : []),
+    ];
     return {
-      firstKeptEntryId: leaf.id,
+      firstKeptEntryId: retainedBoundaryExists ? leaf.firstKeptEntryId : leaf.id,
       messagesToSummarize: replayMessages,
       turnPrefixMessages: [],
       isSplitTurn: false,
-      tokensBefore: estimateSparkContextTokens([...entriesToMessages(pathEntries), summaryMessage])
-        .tokens,
+      tokensBefore: estimateSparkContextTokens(activeReplayMessages).tokens,
       previousSummary: undefined,
       settings,
     };

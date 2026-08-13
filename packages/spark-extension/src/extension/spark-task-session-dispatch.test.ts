@@ -13,10 +13,7 @@ import type {
   TaskRun,
 } from "@zendev-lab/spark-core";
 import { loadSessionGoal } from "@zendev-lab/spark-loop";
-import type {
-  SparkFleetWorkerSessionRelation,
-  SparkTaskExecutionSessionRelation,
-} from "@zendev-lab/spark-protocol";
+import type { SparkFleetWorkerBinding, SparkSessionOwner } from "@zendev-lab/spark-protocol";
 import { createSparkSessionRepro } from "@zendev-lab/spark-repro";
 import { RoleRegistry } from "@zendev-lab/spark-roles";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";
@@ -24,6 +21,7 @@ import {
   dispatchManagedTaskSessions,
   reconcileManagedTaskSessions,
 } from "./spark-task-session-dispatch.ts";
+import { workspaceSessionRecord } from "../../../../test/support/session-fixtures.ts";
 
 const roots: string[] = [];
 
@@ -66,7 +64,7 @@ describe("managed Task Session dispatch", () => {
         title,
         description: title,
         kind: "implement",
-        roleRef: "role:builtin-worker",
+        roleRef: "role:builtin-executor",
         artifactRefs: [artifactRef],
         executionPolicy: {
           sessionLifetime: continuity === "fresh" ? "task_run" : "task_revision",
@@ -103,22 +101,26 @@ describe("managed Task Session dispatch", () => {
     for (const item of [firstTask, secondTask, freshTask]) graph.setTaskStatus(item.ref, "ready");
     await defaultTaskGraphStore(cwd).save(graph);
 
-    const sessions = new Map<string, SparkFleetWorkerSessionRelation>();
+    const sessions = new Map<string, SparkFleetWorkerBinding>();
     const sends: Array<Record<string, unknown>> = [];
     let invocation = 0;
     const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
       if (method === "session.get") {
         const sessionId = String(input.sessionId);
+        const fleetWorker = sessions.get(sessionId);
         return {
-          sessionId,
-          scope: { kind: "workspace", workspaceId: "ws_fleet" },
-          workspaceId: "ws_fleet",
-          status: "ready",
-          cwd: sessionId === "sess_owner" ? cwd : worktree,
-          relation: sessions.get(sessionId),
-          bindings: [],
-          createdAt: "2026-08-11T00:00:00.000Z",
-          updatedAt: "2026-08-11T00:00:00.000Z",
+          ...workspaceSessionRecord({
+            sessionId,
+            workspaceId: "ws_fleet",
+            supervisorSessionId: "sess_owner",
+            roleBinding: fleetWorker
+              ? { kind: "explicit", roleRef: fleetWorker.roleRef }
+              : { kind: "none" },
+            cwd: sessionId === "sess_owner" ? cwd : worktree,
+            createdAt: "2026-08-11T00:00:00.000Z",
+            updatedAt: "2026-08-11T00:00:00.000Z",
+          }),
+          ...(fleetWorker ? { fleetWorker } : {}),
         };
       }
       if (method === "session.create") {
@@ -126,22 +128,20 @@ describe("managed Task Session dispatch", () => {
         if (sessions.has(sessionId)) {
           throw new SparkDaemonRemoteError("session exists", { code: "session_exists" });
         }
-        const relation = {
-          kind: "fleet_worker" as const,
-          ...(input.fleetWorker as Omit<SparkFleetWorkerSessionRelation, "kind">),
-        };
-        sessions.set(sessionId, relation);
+        const fleetWorker = input.fleetWorker as SparkFleetWorkerBinding;
+        sessions.set(sessionId, fleetWorker);
         return {
-          sessionId,
-          scope: { kind: "workspace", workspaceId: "ws_fleet" },
-          workspaceId: "ws_fleet",
-          status: "ready",
-          cwd: worktree,
-          cwdArtifactRef: artifactRef,
-          relation,
-          bindings: [],
-          createdAt: "2026-08-11T00:00:00.000Z",
-          updatedAt: "2026-08-11T00:00:00.000Z",
+          ...workspaceSessionRecord({
+            sessionId,
+            workspaceId: "ws_fleet",
+            supervisorSessionId: "sess_owner",
+            roleBinding: input.roleBinding as { kind: "explicit"; roleRef: `role:${string}` },
+            cwd: worktree,
+            cwdArtifactRef: artifactRef,
+            createdAt: "2026-08-11T00:00:00.000Z",
+            updatedAt: "2026-08-11T00:00:00.000Z",
+          }),
+          fleetWorker,
         };
       }
       if (method === "session.send") {
@@ -276,33 +276,25 @@ describe("managed Task Session dispatch", () => {
     const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
       calls.push({ method, input });
       if (method === "session.get") {
-        return {
+        return workspaceSessionRecord({
           sessionId: String(input.sessionId),
-          scope: { kind: "workspace", workspaceId: "ws_repro" },
           workspaceId: "ws_repro",
-          status: "ready",
           cwd,
-          bindings: [],
           createdAt: "2026-07-29T00:00:00.000Z",
           updatedAt: "2026-07-29T00:00:00.000Z",
-        };
+        });
       }
       if (method === "session.create") {
         return {
+          ...workspaceSessionRecord({
+            sessionId: String(input.sessionId),
+            workspaceId: "ws_repro",
+            cwd,
+            createdAt: "2026-07-29T00:00:00.000Z",
+            updatedAt: "2026-07-29T00:00:00.000Z",
+          }),
           sessionId: String(input.sessionId),
-          scope: { kind: "workspace", workspaceId: "ws_repro" },
-          workspaceId: "ws_repro",
-          status: "ready",
-          cwd,
-          role: String(input.role),
-          title: String(input.role),
-          relation: {
-            kind: "task_execution",
-            ...(input.taskExecution as Record<string, unknown>),
-          },
-          bindings: [],
-          createdAt: "2026-07-29T00:00:00.000Z",
-          updatedAt: "2026-07-29T00:00:00.000Z",
+          owner: { kind: "task_run", ...(input.taskExecution as Record<string, unknown>) },
         };
       }
       if (method === "turn.submit") {
@@ -320,7 +312,7 @@ describe("managed Task Session dispatch", () => {
           completedAt: "2026-07-29T00:01:00.000Z",
         };
       }
-      if (method === "session.archive") {
+      if (method === "session.close") {
         return {
           sessionId: String(input.sessionId),
           lifecycle: "closed",
@@ -376,9 +368,11 @@ describe("managed Task Session dispatch", () => {
       .filter((candidate) => candidate.method === "session.create")
       .entries()) {
       expect(call.input.taskExecution).toMatchObject({
+        ownerKind: "task_revision",
         projectRef: project.ref,
         taskRef: tasks[index]!.ref,
-        runRef: records[index]!.runRef,
+        revisionRef: records[index]!.jobId,
+        originatingRunRef: records[index]!.runRef,
         sessionGoalId: records[index]!.goalId,
         subgoalRef: safeSubgoals[index]!.ref,
         attempt: 1,
@@ -421,10 +415,10 @@ describe("managed Task Session dispatch", () => {
     expect(succeededRun?.completionSummary?.summary).toContain(
       "Subgoal still requires verifier promotion",
     );
-    const archiveCalls = calls.filter((call) => call.method === "session.archive");
-    expect(archiveCalls).toHaveLength(1);
+    const closeCalls = calls.filter((call) => call.method === "session.close");
+    expect(closeCalls).toHaveLength(1);
     expect(
-      archiveCalls.find((call) => call.input.sessionId === records[0]!.sessionId)?.input.completion,
+      closeCalls.find((call) => call.input.sessionId === records[0]!.sessionId)?.input.completion,
     ).toMatchObject({
       source: "domain_completion",
       status: "completed",
@@ -434,7 +428,7 @@ describe("managed Task Session dispatch", () => {
       artifactRefs: [],
       sourceInvocationIds: [records[0]!.invocationId],
     });
-    expect(archiveCalls.some((call) => call.input.sessionId === records[1]!.sessionId)).toBe(false);
+    expect(closeCalls.some((call) => call.input.sessionId === records[1]!.sessionId)).toBe(false);
     expect(safeSubgoals.every((subgoal) => subgoal.status !== "done")).toBe(true);
     await expect(
       reconcileManagedTaskSessions({
@@ -454,6 +448,7 @@ describe("managed Task Session dispatch", () => {
       cancelled: 0,
       superseded: 0,
     });
+    expect(calls.filter((call) => call.method === "session.close")).toHaveLength(1);
   });
 
   it.each([
@@ -502,22 +497,28 @@ describe("managed Task Session dispatch", () => {
         exclusiveNode: false,
         allocatedAt: "2026-07-29T00:00:00.000Z",
       };
-      const sessions = new Map<string, SparkTaskExecutionSessionRelation>();
-      const archiveInputs: Record<string, unknown>[] = [];
+      const sessions = new Map<
+        string,
+        Extract<SparkSessionOwner, { kind: "task_run" | "task_revision" }>
+      >();
+      const closeInputs: Record<string, unknown>[] = [];
       let invocation = 0;
       const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
         if (method === "session.get") {
           const sessionId = String(input.sessionId);
           return {
+            ...workspaceSessionRecord({
+              sessionId,
+              workspaceId: "ws_repro",
+              roleBinding: sessions.has(sessionId)
+                ? { kind: "explicit", roleRef: "role:builtin-explorer" }
+                : { kind: "none" },
+              cwd,
+              createdAt: "2026-07-29T00:00:00.000Z",
+              updatedAt: "2026-07-29T00:00:00.000Z",
+            }),
             sessionId,
-            scope: { kind: "workspace", workspaceId: "ws_repro" },
-            workspaceId: "ws_repro",
-            status: "ready",
-            cwd,
-            relation: sessions.get(sessionId),
-            bindings: [],
-            createdAt: "2026-07-29T00:00:00.000Z",
-            updatedAt: "2026-07-29T00:00:00.000Z",
+            ...(sessions.has(sessionId) ? { owner: sessions.get(sessionId)! } : {}),
           };
         }
         if (method === "session.create") {
@@ -525,20 +526,29 @@ describe("managed Task Session dispatch", () => {
           if (sessions.has(sessionId)) {
             throw new SparkDaemonRemoteError("session exists", { code: "session_exists" });
           }
-          sessions.set(sessionId, {
-            kind: "task_execution",
-            ...(input.taskExecution as Omit<SparkTaskExecutionSessionRelation, "kind">),
-          });
+          const taskExecution = input.taskExecution as Record<string, unknown> & {
+            ownerKind: "task_run" | "task_revision";
+          };
+          const { ownerKind, kind: _legacyKind, ...fields } = taskExecution;
+          const owner = { kind: ownerKind, ...fields } as Extract<
+            SparkSessionOwner,
+            { kind: "task_run" | "task_revision" }
+          >;
+          sessions.set(sessionId, owner);
           return {
+            ...workspaceSessionRecord({
+              sessionId,
+              workspaceId: "ws_repro",
+              roleBinding: input.roleBinding as {
+                kind: "explicit";
+                roleRef: `role:${string}`;
+              },
+              cwd,
+              createdAt: "2026-07-29T00:00:00.000Z",
+              updatedAt: "2026-07-29T00:00:00.000Z",
+            }),
             sessionId,
-            scope: { kind: "workspace", workspaceId: "ws_repro" },
-            workspaceId: "ws_repro",
-            status: "ready",
-            cwd,
-            relation: sessions.get(sessionId),
-            bindings: [],
-            createdAt: "2026-07-29T00:00:00.000Z",
-            updatedAt: "2026-07-29T00:00:00.000Z",
+            owner,
           };
         }
         if (method === "turn.submit") {
@@ -557,8 +567,8 @@ describe("managed Task Session dispatch", () => {
             completedAt: "2026-07-29T00:01:00.000Z",
           };
         }
-        if (method === "session.archive") {
-          archiveInputs.push(input);
+        if (method === "session.close") {
+          closeInputs.push(input);
           return {
             sessionId: String(input.sessionId),
             lifecycle: "closed",
@@ -624,8 +634,8 @@ describe("managed Task Session dispatch", () => {
         projectRef: project.ref,
         daemonRequest,
       });
-      expect(archiveInputs).toHaveLength(1);
-      expect(archiveInputs[0]?.completion).toMatchObject({
+      expect(closeInputs).toHaveLength(1);
+      expect(closeInputs[0]?.completion).toMatchObject({
         source: "domain_completion",
         status: "completed",
         evidenceRefs: [completionEvidence],
@@ -645,7 +655,7 @@ describe("managed Task Session dispatch", () => {
       title: "Recovered task",
       description: "Recovered task",
       kind: "implement",
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       executionPolicy: {
         sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
@@ -672,7 +682,7 @@ describe("managed Task Session dispatch", () => {
         ref: ("run:history-" + attempt) as TaskRun["ref"],
         projectRef: project.ref,
         taskRef: task.ref,
-        roleRef: "role:builtin-worker",
+        roleRef: "role:builtin-executor",
         runName: task.name + "-attempt-" + attempt,
         ownerSessionId: "sess_owner",
         execution: {
@@ -704,38 +714,43 @@ describe("managed Task Session dispatch", () => {
     });
     await defaultTaskGraphStore(cwd).save(graph);
 
-    const sessions = new Map<string, SparkTaskExecutionSessionRelation>();
+    const sessions = new Map<
+      string,
+      Extract<SparkSessionOwner, { kind: "task_run" | "task_revision" }>
+    >();
     const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
       if (method === "session.get") {
         const sessionId = String(input.sessionId);
         return {
-          sessionId,
-          scope: { kind: "workspace", workspaceId: "ws_recovery" },
-          workspaceId: "ws_recovery",
-          status: "ready",
-          cwd,
-          relation: sessions.get(sessionId),
-          bindings: [],
-          createdAt: "2026-07-29T00:00:00.000Z",
-          updatedAt: "2026-07-29T00:00:00.000Z",
+          ...workspaceSessionRecord({
+            sessionId,
+            workspaceId: "ws_recovery",
+            cwd,
+            createdAt: "2026-07-29T00:00:00.000Z",
+            updatedAt: "2026-07-29T00:00:00.000Z",
+          }),
+          owner: sessions.get(sessionId),
         };
       }
       if (method === "session.create") {
         const sessionId = String(input.sessionId);
-        sessions.set(sessionId, {
-          kind: "task_execution",
-          ...(input.taskExecution as Omit<SparkTaskExecutionSessionRelation, "kind">),
-        });
+        const taskExecution = input.taskExecution as Record<string, unknown> & {
+          ownerKind: "task_run" | "task_revision";
+        };
+        const { ownerKind, kind: _legacyKind, ...fields } = taskExecution;
+        sessions.set(sessionId, { kind: ownerKind, ...fields } as Extract<
+          SparkSessionOwner,
+          { kind: "task_run" | "task_revision" }
+        >);
         return {
-          sessionId,
-          scope: { kind: "workspace", workspaceId: "ws_recovery" },
-          workspaceId: "ws_recovery",
-          status: "ready",
-          cwd,
-          relation: sessions.get(sessionId),
-          bindings: [],
-          createdAt: "2026-07-29T00:00:00.000Z",
-          updatedAt: "2026-07-29T00:00:00.000Z",
+          ...workspaceSessionRecord({
+            sessionId,
+            workspaceId: "ws_recovery",
+            cwd,
+            createdAt: "2026-07-29T00:00:00.000Z",
+            updatedAt: "2026-07-29T00:00:00.000Z",
+          }),
+          owner: sessions.get(sessionId),
         };
       }
       if (method === "turn.submit") {
@@ -798,7 +813,7 @@ describe("managed Task Session dispatch", () => {
       title: "Runnable task",
       description: "Must not receive an identity before batch attempt preflight completes.",
       kind: "implement",
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       executionPolicy: {
         sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
@@ -824,7 +839,7 @@ describe("managed Task Session dispatch", () => {
       title: "Exhausted task",
       description: "Exhausted task",
       kind: "implement",
-      roleRef: "role:builtin-worker",
+      roleRef: "role:builtin-executor",
       executionPolicy: {
         sessionLifetime: "task_revision",
         continuity: "reuse_within_revision",
@@ -850,7 +865,7 @@ describe("managed Task Session dispatch", () => {
         ref: ("run:exhausted-" + attempt) as TaskRun["ref"],
         projectRef: project.ref,
         taskRef: task.ref,
-        roleRef: "role:builtin-worker",
+        roleRef: "role:builtin-executor",
         runName: task.name + "-attempt-" + attempt,
         ownerSessionId: "sess_owner",
         execution: {
@@ -960,33 +975,28 @@ describe("managed Task Session dispatch", () => {
     await defaultTaskGraphStore(cwd).save(graph);
     let invocationStatus: "running" | "cancelled" = "running";
     let cancelCalls = 0;
+    let closeCalls = 0;
     const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
       if (method === "session.get") {
-        return {
+        return workspaceSessionRecord({
           sessionId: String(input.sessionId),
-          scope: { kind: "workspace", workspaceId: "ws_repro" },
           workspaceId: "ws_repro",
-          status: "ready",
           cwd,
-          bindings: [],
           createdAt: "2026-07-29T00:00:00.000Z",
           updatedAt: "2026-07-29T00:00:00.000Z",
-        };
+        });
       }
       if (method === "session.create") {
         return {
+          ...workspaceSessionRecord({
+            sessionId: String(input.sessionId),
+            workspaceId: "ws_repro",
+            cwd,
+            createdAt: "2026-07-29T00:00:00.000Z",
+            updatedAt: "2026-07-29T00:00:00.000Z",
+          }),
           sessionId: String(input.sessionId),
-          scope: { kind: "workspace", workspaceId: "ws_repro" },
-          workspaceId: "ws_repro",
-          status: "ready",
-          cwd,
-          relation: {
-            kind: "task_execution",
-            ...(input.taskExecution as Record<string, unknown>),
-          },
-          bindings: [],
-          createdAt: "2026-07-29T00:00:00.000Z",
-          updatedAt: "2026-07-29T00:00:00.000Z",
+          owner: { kind: "task_run", ...(input.taskExecution as Record<string, unknown>) },
         };
       }
       if (method === "turn.submit") {
@@ -1011,7 +1021,8 @@ describe("managed Task Session dispatch", () => {
           cancelRequested: true,
         };
       }
-      if (method === "session.archive") {
+      if (method === "session.close") {
+        closeCalls += 1;
         return {
           sessionId: String(input.sessionId),
           lifecycle: "closed",
@@ -1065,5 +1076,6 @@ describe("managed Task Session dispatch", () => {
       failureKind: "runtime_timeout",
     });
     expect(persisted?.getTask(task.ref).status).toBe("failed");
+    expect(closeCalls).toBe(1);
   });
 });

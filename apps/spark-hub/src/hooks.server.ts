@@ -33,6 +33,7 @@ import { remoteAccessDecision } from "$lib/server/remote-access";
 export const handle: Handle = async ({ event, resolve }) => {
   migrateLegacyHubCookies(event);
   event.locals.requestId = createId("msg");
+  event.locals.hasControlPlaneAccess = false;
   let databasePinned = false;
   try {
     pinDatabase();
@@ -71,6 +72,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
     const clientAddress = getClientAddress(event);
     const decision = remoteAccessDecision({ url: event.url, clientAddress });
+    event.locals.hasControlPlaneAccess = !decision.required || Boolean(hubSession);
     if (decision.required && !hubSession && !workspaceSession) {
       return remoteAccessRequiredResponse(event, "hub");
     }

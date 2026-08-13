@@ -35,7 +35,12 @@ test("session registry bind + channel inbound share one sessionId", async () => 
   const registry = new SparkSessionRegistry({
     rootDir: defaultSparkSessionRegistryRoot(sparkHome),
   });
-  const session = await registry.create({ workspaceId: "ws_a", title: "Shared" });
+  const administrator = await registry.ensureWorkspaceAdministrator({ workspaceId: "ws_a" });
+  const session = await registry.create({
+    scope: { kind: "workspace", workspaceId: "ws_a" },
+    owner: { kind: "session", supervisorSessionId: administrator.sessionId },
+    name: "Shared",
+  });
   const externalKey = normalizeChannelExternalKey("infoflow:user:alice");
   await registry.bind({ sessionId: session.sessionId, externalKey });
 

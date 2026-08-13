@@ -11,7 +11,7 @@ function summary(status: TaskRunCompletionSummary["status"]): TaskRunCompletionS
   return {
     runRef: "run:14d81710-fce7-4c1a-a261-b9d598b32043",
     taskRef: "task:historical",
-    roleRef: "role:builtin-worker",
+    roleRef: "role:builtin-executor",
     runName: "worker-14d81710",
     status,
     summary: "role run finished with status failed",
@@ -25,7 +25,7 @@ function run(ownerSessionId = "session:current"): TaskRun {
     ref: "run:14d81710-fce7-4c1a-a261-b9d598b32043",
     projectRef: "proj:demo",
     taskRef: "task:historical",
-    roleRef: "role:builtin-worker",
+    roleRef: "role:builtin-executor",
     runName: "worker-14d81710",
     ownerSessionId,
     status: "failed",

@@ -59,6 +59,14 @@ const cases: Array<{
     expected: "context_overflow",
   },
   {
+    name: "maximum prompt length provider envelope maps to context_overflow",
+    input: {
+      errorMessage:
+        'OpenAI API error (400): {"message":"invalid-argument: This model\'s maximum prompt length is 500000 but the request contains 500522 tokens. (request id: 2000010100000000000000000000000)","type":"api_error","param":"","code":null}',
+    },
+    expected: "context_overflow",
+  },
+  {
     name: "Chinese context overflow maps to context_overflow",
     input: {
       errorMessage:

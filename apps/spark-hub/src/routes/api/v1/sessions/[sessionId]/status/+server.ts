@@ -18,7 +18,7 @@ import type { RequestHandler } from "./$types";
 export const GET: RequestHandler = async ({ locals, params }) => {
   const projected = getProjectedManagedSessionForHub(params.sessionId);
   const session =
-    projected && projected.status !== "running"
+    projected && projected.activity !== "running"
       ? projected
       : ((await getManagedSessionForHub(params.sessionId)) ?? projected);
   const workspaceId = session ? workspaceIdForWorkbenchSession(session) : null;
@@ -30,7 +30,12 @@ export const GET: RequestHandler = async ({ locals, params }) => {
   }
   return json({
     sessionId: session.sessionId,
-    status: session.status,
+    status:
+      session.lifecycle !== "open"
+        ? session.lifecycle
+        : session.placement === "archived"
+          ? "archived"
+          : (session.activity ?? "idle"),
     updatedAt: session.updatedAt,
   });
 };

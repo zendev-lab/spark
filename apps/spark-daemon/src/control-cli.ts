@@ -213,13 +213,33 @@ async function sessionCommand(paths: SparkPaths, parsed: ParsedArgs, io: CliIo):
     case "create": {
       const workspaceId = option(parsed, "workspace") ?? sessionArgument;
       if (!workspaceId) throw new Error("spark daemon session create requires --workspace <id>");
+      const supervisorSessionId = option(parsed, "supervisor");
+      if (!supervisorSessionId) {
+        throw new Error("spark daemon session create requires --supervisor <session-id>");
+      }
+      const roleRef = option(parsed, "role-ref");
+      if (roleRef && !roleRef.startsWith("role:")) {
+        throw new Error("spark daemon session create --role-ref must start with role:");
+      }
+      if (roleRef && flag(parsed, "inherit-role")) {
+        throw new Error("spark daemon session create accepts only one role binding");
+      }
+      const placement = option(parsed, "placement") ?? "child";
+      if (placement !== "child" && placement !== "sibling") {
+        throw new Error("spark daemon session create --placement must be child or sibling");
+      }
       result = await localRpcRequest(paths, "session.create", {
         scope: { kind: "workspace", workspaceId },
-        workspaceId,
+        supervisorSessionId,
+        placement,
+        roleBinding: roleRef
+          ? { kind: "explicit", roleRef }
+          : flag(parsed, "inherit-role")
+            ? { kind: "inherit" }
+            : { kind: "none" },
         cwd: process.cwd(),
         ...(option(parsed, "id") ? { sessionId: option(parsed, "id") } : {}),
-        ...(option(parsed, "title") ? { title: option(parsed, "title") } : {}),
-        ...(option(parsed, "role") ? { role: option(parsed, "role") } : {}),
+        ...(option(parsed, "name") ? { name: option(parsed, "name") } : {}),
       });
       break;
     }
@@ -239,6 +259,13 @@ async function sessionCommand(paths: SparkPaths, parsed: ParsedArgs, io: CliIo):
       const sessionId = option(parsed, "session") ?? sessionArgument;
       if (!sessionId) throw new Error("spark daemon session archive requires <session-id>");
       result = await localRpcRequest(paths, "session.archive", { sessionId });
+      break;
+    }
+    case "restore":
+    case "close": {
+      const sessionId = option(parsed, "session") ?? sessionArgument;
+      if (!sessionId) throw new Error(`spark daemon session ${action} requires <session-id>`);
+      result = await localRpcRequest(paths, `session.${action}`, { sessionId });
       break;
     }
     case "inbox": {
@@ -379,7 +406,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   return { positionals, options };
 }
 
-const BOOLEAN_OPTIONS = new Set(["all", "default", "include-archived", "json"]);
+const BOOLEAN_OPTIONS = new Set(["all", "default", "include-archived", "inherit-role", "json"]);
 
 function option(parsed: ParsedArgs, name: string): string | undefined {
   const value = parsed.options[name];
