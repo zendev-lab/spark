@@ -263,6 +263,40 @@ describe("SparkInvocationScheduler", () => {
     }
   });
 
+  it("rejects a terminal deferral registered after the executor output boundary closes", async () => {
+    const lateRegistration = deferred<unknown>();
+    const { db, store, scheduler } = harness(async (_task, context) => {
+      setImmediate(() => {
+        try {
+          context.deferTerminalUntil?.(Promise.resolve());
+          lateRegistration.resolve(undefined);
+        } catch (error) {
+          lateRegistration.resolve(error);
+        }
+      });
+      return { ok: true };
+    });
+    try {
+      const invocation = store.submit({
+        sessionId: "terminal-deferral-late",
+        prompt: "late deferral",
+        task: {
+          type: "session.run",
+          sessionId: "terminal-deferral-late",
+          prompt: "late deferral",
+        },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+
+      expect(store.require(invocation.invocationId).status).toBe("succeeded");
+      await expect(lateRegistration.promise).resolves.toBeInstanceOf(Error);
+    } finally {
+      scheduler.stop();
+      db.close();
+    }
+  });
+
   it("rolls back attempt output and suppresses the sink when invocation append fails", async () => {
     const emittedKinds: string[] = [];
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);

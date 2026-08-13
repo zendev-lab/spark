@@ -457,6 +457,40 @@ describe("daemon streaming event ingress", () => {
     ).not.toThrow();
     expect(persistedB.at(-1)).toMatchObject({ type: "daemon.task.lifecycle", status: "running" });
   });
+
+  it("compacts a large stale ready queue without losing the next live snapshot", () => {
+    const macrotasks = fakeMacrotaskScheduler();
+    const ingress = new DaemonEventIngress({ scheduleMacrotask: macrotasks.schedule });
+    const persisted: SparkJsonValue[] = [];
+
+    for (let index = 0; index < 2_048; index += 1) {
+      const invocationId = `released-${index}`;
+      ingress.record(
+        invocationId,
+        messageEvent(invocationId, invocationId, "message", "stale"),
+        (event) => persisted.push(event),
+      );
+      ingress.release(invocationId);
+    }
+    ingress.record(
+      "live-1",
+      messageEvent("live-1", "session-live-1", "message", "first live"),
+      (event) => persisted.push(event),
+    );
+
+    expect(macrotasks.pending()).toBe(1);
+    macrotasks.runNext();
+    expect(messageTexts(persisted)).toEqual(["first live"]);
+    expect(macrotasks.pending()).toBe(0);
+
+    ingress.record(
+      "live-2",
+      messageEvent("live-2", "session-live-2", "message", "second live"),
+      (event) => persisted.push(event),
+    );
+    macrotasks.runNext();
+    expect(messageTexts(persisted)).toEqual(["first live", "second live"]);
+  });
 });
 
 function fakeMacrotaskScheduler() {

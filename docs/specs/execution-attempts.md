@@ -121,6 +121,12 @@ compilation and evaluation are therefore startup work, not work performed by
 the first admitted Invocation. This preload does not create a second scheduler,
 store, or execution owner.
 
+An executor registers asynchronous projection delivery with the scheduler
+before the executor settles. The scheduler drains every accepted delivery
+before attempt terminal commit and closes that admission boundary afterward;
+late registration fails explicitly rather than creating an undrained promise
+behind an already committed high-water mark.
+
 ## Parent capabilities
 
 A future isolated attempt may request only the closed daemon-owner registry:

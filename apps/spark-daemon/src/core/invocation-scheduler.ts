@@ -417,7 +417,13 @@ export class SparkInvocationScheduler {
     let streamedEventCount = 0;
     let restartYieldCommitted = false;
     const terminalDeferrals = new Set<Promise<TerminalDeferralResult>>();
+    let terminalDeferralsClosed = false;
     const deferTerminalUntil = (delivery: PromiseLike<unknown>): void => {
+      if (terminalDeferralsClosed) {
+        throw new Error(
+          `Invocation ${invocation.invocationId} accepted a terminal deferral after its output boundary closed`,
+        );
+      }
       const tracked = Promise.resolve(delivery).then(
         (): TerminalDeferralResult => ({ status: "fulfilled" }),
         (reason: unknown): TerminalDeferralResult => ({ status: "rejected", reason }),
@@ -437,6 +443,7 @@ export class SparkInvocationScheduler {
           failed = true;
         }
       }
+      terminalDeferralsClosed = true;
       if (failed) throw firstFailure;
     };
     const rootUsagePersistence =

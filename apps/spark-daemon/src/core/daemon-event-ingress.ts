@@ -48,6 +48,7 @@ export class DaemonEventIngress implements ExecutionAttemptEventIngress {
   readonly #keysByInvocation = new Map<string, Set<string>>();
   readonly #failures = new Map<string, unknown>();
   readonly #readyQueue: ReadySnapshot[] = [];
+  #readyQueueHead = 0;
   #nextOrder = 0;
   #pumpScheduled = false;
 
@@ -191,15 +192,15 @@ export class DaemonEventIngress implements ExecutionAttemptEventIngress {
   }
 
   #schedulePump(): void {
-    if (this.#pumpScheduled || this.#readyQueue.length === 0) return;
+    if (this.#pumpScheduled || this.#readyQueueHead >= this.#readyQueue.length) return;
     this.#pumpScheduled = true;
     this.#scheduleMacrotask(() => this.#pumpOne());
   }
 
   #pumpOne(): void {
     this.#pumpScheduled = false;
-    while (this.#readyQueue.length > 0) {
-      const queued = this.#readyQueue.shift()!;
+    while (this.#readyQueueHead < this.#readyQueue.length) {
+      const queued = this.#readyQueue[this.#readyQueueHead++]!;
       const stream = this.#streams.get(queued.key);
       if (!stream || stream.ready !== queued.snapshot) continue;
       stream.ready = undefined;
@@ -214,8 +215,17 @@ export class DaemonEventIngress implements ExecutionAttemptEventIngress {
       // Whether persistence succeeds or fails, one cooperative macrotask owns
       // at most one real write attempt. Stale queue entries are free to skip.
       this.#schedulePump();
+      this.#compactReadyQueue();
       return;
     }
+    this.#compactReadyQueue();
+  }
+
+  #compactReadyQueue(): void {
+    if (this.#readyQueueHead === 0) return;
+    if (this.#readyQueueHead < this.#readyQueue.length && this.#readyQueueHead < 1_024) return;
+    this.#readyQueue.splice(0, this.#readyQueueHead);
+    this.#readyQueueHead = 0;
   }
 
   #releaseStreams(invocationId: string): void {
