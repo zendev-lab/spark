@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, test } from "vitest";
 
-import { requestSparkDaemonLocalRpc } from "@zendev-lab/spark-daemon-client/local-rpc";
+import { requestSparkDaemonLocalRpc } from "@zendev-lab/spark-daemon-client";
 import { reproStageBlueprint } from "@zendev-lab/spark-extension/repro-test-support";
 import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-db";
 import { createRuntimeEnrollmentToken } from "@zendev-lab/spark-hub-coordination/runtime-registration";

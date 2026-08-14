@@ -13,7 +13,7 @@ import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-system";
 import {
   createSparkDaemonOrpcClient,
   invokeSparkDaemonOrpcLiveMethod,
-} from "@zendev-lab/spark-daemon-client/orpc";
+} from "@zendev-lab/spark-daemon-client";
 import { createDaemonSessionRegistry } from "../session-registry.ts";
 import { SparkDaemonControlError } from "../control-error.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";

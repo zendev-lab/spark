@@ -11,9 +11,7 @@
   ],
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./local-rpc": "./src/daemon-local-rpc.ts",
-    "./orpc": "./src/daemon-local-rpc-orpc.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
