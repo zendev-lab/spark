@@ -1895,9 +1895,7 @@ describe("SparkInvocationScheduler", () => {
         },
       });
       expect(scheduler.processBatch()).toBe(true);
-      await eventually(
-        () => scheduler.drainSnapshot()[0]?.pauseState === "human-wait",
-      );
+      await eventually(() => scheduler.drainSnapshot()[0]?.pauseState === "human-wait");
       expect(store.require(invocation.invocationId).status).toBe("running");
       restart.abort(new Error("planned restart"));
       await scheduler.wait();

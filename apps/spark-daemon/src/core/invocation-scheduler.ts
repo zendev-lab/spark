@@ -750,13 +750,9 @@ export class SparkInvocationScheduler {
           if (entry) entry.pauseState = "human-wait";
           const humanWait = new AbortController();
           try {
-            this.yieldHumanWaitForRestartIfRequested(
-              invocation.invocationId,
-              controller,
-              () => {
-                restartYieldCommitted = true;
-              },
-            );
+            this.yieldHumanWaitForRestartIfRequested(invocation.invocationId, controller, () => {
+              restartYieldCommitted = true;
+            });
             return await Promise.race([
               timeout.runPaused(operation),
               this.waitForRestartThenYieldHumanWait(
