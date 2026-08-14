@@ -153,6 +153,9 @@ export function registerSparkProjectTools(
       project: Type.Optional(
         Type.String({ description: "Existing project ref or title/title prefix to use." }),
       ),
+      projectRef: Type.Optional(
+        Type.String({ description: "Existing project ref/title. Canonical task_write alias." }),
+      ),
       title: Type.Optional(
         Type.String({
           description: "Title to use when creating/selecting a project if project is omitted.",
@@ -178,7 +181,10 @@ export function registerSparkProjectTools(
       const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
       let graph = await loadSparkGraph(cwd, ctx);
       graph ??= new TaskGraph();
-      const input = normalizeSparkNewProjectInput(params);
+      const input = normalizeSparkNewProjectInput({
+        ...params,
+        project: params.project ?? params.projectRef,
+      });
       if (input.kind) requireKnownSparkProjectKind(input.kind);
       let project = resolveSparkProject(graph, input.project);
       let created = false;

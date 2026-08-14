@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { launchctlCommand, type SparkPaths } from "@zendev-lab/spark-system";
@@ -1842,7 +1842,12 @@ function sparkDaemonStartCommand(): string[] {
 function sparkDaemonCliCommand(): string[] {
   const stableLauncher = process.env.SPARK_STABLE_LAUNCHER?.trim();
   if (stableLauncher) return [stableLauncher, "daemon"];
-  return [process.execPath, sparkDaemonEntrypointPath()];
+  const entrypoint = sparkDaemonEntrypointPath();
+  if (entrypoint.endsWith(".ts") || entrypoint.endsWith(".tsx")) {
+    const tsx = join(dirname(entrypoint), "../../../node_modules/.bin/tsx");
+    if (existsSync(tsx)) return [tsx, entrypoint];
+  }
+  return [process.execPath, entrypoint];
 }
 
 export function rotateSparkDaemonServiceLogs(

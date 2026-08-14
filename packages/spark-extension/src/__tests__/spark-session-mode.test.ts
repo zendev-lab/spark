@@ -147,6 +147,29 @@ test("unknown session-state versions fail closed", async () => {
   });
 });
 
+test("project and mode state stay bound to the invoking Session, not its state owner", async () => {
+  await withTempDir(async (dir) => {
+    const adminContext = { sparkStateRoot: dir, sessionId: "sess_workspace_admin" };
+    const childContext = { sparkStateRoot: dir, sessionId: "sess_execute_child" };
+    const projectRef = "proj:session-owned-project" as ProjectRef;
+
+    await saveSparkMode(dir, adminContext, { mode: "fleet", projectRef });
+    await saveSparkMode(dir, childContext, { mode: "execute", projectRef });
+
+    assert.deepEqual(await loadSparkMode(dir, adminContext), { mode: "fleet" });
+    assert.deepEqual(await loadSparkMode(dir, childContext), { mode: "execute" });
+    assert.deepEqual(await loadCurrentProjectState(dir, adminContext), {
+      version: 3,
+      projectRef,
+      mode: "fleet",
+    });
+    assert.deepEqual(await loadCurrentProjectState(dir, childContext), {
+      version: 3,
+      projectRef,
+      mode: "execute",
+    });
+  });
+});
 test("nextSparkSessionMode walks the canonical cycle", () => {
   assert.deepEqual(SPARK_SESSION_MODES, ["plan", "execute", "fleet"]);
   assert.equal(nextSparkSessionMode("plan"), "execute");
