@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
+import type { DatabaseSync } from "node:sqlite";
 import type { IncomingMessage } from "@zendev-lab/spark-channels";
 import type { SparkDaemonSessionRunTask } from "../core/types.ts";
 import { SparkInvocationStore, type SparkInvocationRecord } from "../store/invocations.ts";
+import { resolveWorkspaceIdentity, type WorkspaceIdentityResolution } from "../store/workspaces.ts";
 import type { ChannelIngressAssignment } from "./ingress.ts";
 
 const CHANNEL_INBOUND_IDEMPOTENCY_VERSION = "v2";
@@ -135,10 +137,69 @@ export function findChannelInboundInvocation(
   return legacy && legacyInvocationMatchesAccount(legacy, assignment) ? legacy : undefined;
 }
 
+export type ChannelWorkspaceIdentityAdmission =
+  | {
+      state: "resolved";
+      workspaceBindingId: string;
+      workspaceId: string;
+      serverWorkspaceId?: string;
+      reasonCode?: undefined;
+    }
+  | {
+      state: "unknown" | "ambiguous" | "unregistered";
+      reasonCode:
+        | "workspace_identity_unknown"
+        | "workspace_identity_ambiguous"
+        | "workspace_identity_unregistered";
+      workspaceBindingId?: undefined;
+    };
+
+/**
+ * Resolve admission workspace identity before durable invocation submit.
+ * Permanent identity failures never enter retry_wait delivery paths.
+ */
+export function admitChannelWorkspaceIdentity(
+  db: DatabaseSync,
+  workspaceIdentity: string,
+): ChannelWorkspaceIdentityAdmission {
+  const resolved = resolveWorkspaceIdentity(db, workspaceIdentity);
+  return toChannelWorkspaceIdentityAdmission(resolved);
+}
+
+export function toChannelWorkspaceIdentityAdmission(
+  resolved: WorkspaceIdentityResolution,
+): ChannelWorkspaceIdentityAdmission {
+  if (resolved.state === "resolved") {
+    return {
+      state: "resolved",
+      workspaceBindingId: resolved.serverBindingId,
+      workspaceId: resolved.workspaceId,
+      ...(resolved.serverWorkspaceId ? { serverWorkspaceId: resolved.serverWorkspaceId } : {}),
+    };
+  }
+  return {
+    state: resolved.state,
+    reasonCode: resolved.reasonCode,
+  };
+}
+
+export function isPermanentWorkspaceIdentityFailure(
+  admission: ChannelWorkspaceIdentityAdmission,
+): admission is Extract<
+  ChannelWorkspaceIdentityAdmission,
+  { state: "unknown" | "ambiguous" | "unregistered" }
+> {
+  return admission.state !== "resolved";
+}
+
 /**
  * The single durable admission boundary used by daemon channel runtimes.
  * SparkInvocationStore's unique idempotency index fences overlapping daemon
  * processes; a replay returns the original invocation record.
+ *
+ * Callers must resolve workspace identity first and only submit when the
+ * admission result is `resolved`; permanent identity failures are typed and
+ * must not create invocations or retry_wait deliveries.
  */
 export function submitChannelInboundInvocation(
   store: SparkInvocationStore,

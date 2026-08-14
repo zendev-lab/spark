@@ -33,6 +33,7 @@ import {
   releaseWorkspaceClient,
   requireFencedSessionWorkspaceClient,
   resolveWorkspaceBindingId,
+  resolveWorkspaceIdentity,
   resolveWorkspaceLocalPath,
   sparkDaemonServerStatusSummaries,
   stopWorkspace,
@@ -1389,6 +1390,83 @@ describe("Spark daemon workspace store", () => {
         "rtwb_11111111111141111111111111111111",
       );
       expect(listWorkspaces(db)).toHaveLength(1);
+    });
+  });
+
+  it("resolves ws_* to the unique owning rtwb_* and classifies permanent identity failures", () => {
+    withSparkDaemonWorkspaceStore(({ db, root }) => {
+      const firstPath = join(root, "first");
+      const secondPath = join(root, "second");
+      const thirdPath = join(root, "third");
+      const retiredPath = join(root, "retired");
+      mkdirSync(firstPath);
+      mkdirSync(secondPath);
+      mkdirSync(thirdPath);
+      mkdirSync(retiredPath);
+
+      const unique = registerWorkspace(db, {
+        serverUrl: "https://hub.example/",
+        localPath: firstPath,
+        displayName: "unique",
+        serverBindingId: "rtwb_11111111111141111111111111111111",
+        serverWorkspaceId: "ws_11111111111141111111111111111111",
+      });
+      registerWorkspace(db, {
+        serverUrl: "https://hub.example/",
+        localPath: secondPath,
+        displayName: "ambiguous-a",
+        serverBindingId: "rtwb_22222222222242222222222222222222",
+        serverWorkspaceId: "ws_shared_ambiguous",
+      });
+      registerWorkspace(db, {
+        serverUrl: "https://hub.example/",
+        localPath: thirdPath,
+        displayName: "ambiguous-b",
+        serverBindingId: "rtwb_33333333333343333333333333333333",
+        serverWorkspaceId: "ws_shared_ambiguous",
+      });
+      const retired = registerWorkspace(db, {
+        serverUrl: "https://hub.example/",
+        localPath: retiredPath,
+        displayName: "retired",
+        serverBindingId: "rtwb_44444444444444444444444444444444",
+        serverWorkspaceId: "ws_unregistered_owner",
+      });
+      applyWorkspaceLifecycleMutation(db, {
+        action: "unregister",
+        workspaceId: retired.id,
+      });
+
+      expect(resolveWorkspaceIdentity(db, "ws_11111111111141111111111111111111")).toEqual({
+        state: "resolved",
+        workspaceId: unique.id,
+        serverBindingId: "rtwb_11111111111141111111111111111111",
+        serverWorkspaceId: "ws_11111111111141111111111111111111",
+      });
+      // rtwb_* stays as-is and never performs a server-id lookup.
+      expect(resolveWorkspaceIdentity(db, "rtwb_11111111111141111111111111111111")).toEqual({
+        state: "resolved",
+        workspaceId: unique.id,
+        serverBindingId: "rtwb_11111111111141111111111111111111",
+        serverWorkspaceId: "ws_11111111111141111111111111111111",
+      });
+      expect(resolveWorkspaceIdentity(db, "ws_shared_ambiguous")).toEqual({
+        state: "ambiguous",
+        reasonCode: "workspace_identity_ambiguous",
+        matchCount: 2,
+      });
+      expect(resolveWorkspaceIdentity(db, "ws_missing_owner")).toEqual({
+        state: "unknown",
+        reasonCode: "workspace_identity_unknown",
+      });
+      expect(resolveWorkspaceIdentity(db, "ws_unregistered_owner")).toEqual({
+        state: "unregistered",
+        reasonCode: "workspace_identity_unregistered",
+      });
+      expect(resolveWorkspaceIdentity(db, retired.id)).toEqual({
+        state: "unregistered",
+        reasonCode: "workspace_identity_unregistered",
+      });
     });
   });
 
