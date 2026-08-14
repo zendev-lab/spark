@@ -53,6 +53,7 @@ import {
   SparkDaemonHumanInteractionBroker,
   legacySparkDaemonQueueRoot,
   type SparkDaemonDrainProgress,
+  type SparkDaemonDrainWork,
   type SparkDaemonHumanInteractionOpened,
   type SparkDaemonHumanInteractionResponder,
   type SparkDaemonTask,
@@ -564,13 +565,16 @@ function createRestartDrainController(input: {
     const progress: SparkDaemonDrainProgress = {
       observedAt: new Date().toISOString(),
       stage: drainStage,
-      scheduler: (scheduler?.drainSnapshot() ?? []).map(({ invocation, pauseState }) => ({
-        invocationId: invocation.invocationId,
-        kind: invocation.sourceKind ?? "scheduled",
-        startedAt: invocation.startedAt ?? invocation.claimedAt ?? invocation.createdAt,
-        ...(invocation.sessionId ? { sessionId: invocation.sessionId } : {}),
-        pauseState,
-      })),
+      scheduler: (scheduler?.drainSnapshot() ?? []).map(({ invocation, pauseState }) => {
+        const work: SparkDaemonDrainWork = {
+          invocationId: invocation.invocationId,
+          kind: invocation.sourceKind ?? "scheduled",
+          startedAt: invocation.startedAt ?? invocation.claimedAt ?? invocation.createdAt,
+          ...(invocation.sessionId ? { sessionId: invocation.sessionId } : {}),
+          pauseState,
+        };
+        return work;
+      }),
       direct: invocationRegistry.snapshot().map((invocation) => ({
         invocationId: invocation.invocationId,
         kind: invocation.kind,

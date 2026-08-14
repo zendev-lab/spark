@@ -1,6 +1,10 @@
 import { SPARK_PROTOCOL_VERSION, sparkTurnSubmitResultSchema } from "@zendev-lab/spark-protocol";
 import type { DaemonChannelIngressStatus } from "../channels/ingress.ts";
-import type { SparkDaemonLifecycleSnapshot } from "../core/index.ts";
+import type {
+  SparkDaemonDrainPauseState,
+  SparkDaemonDrainWork,
+  SparkDaemonLifecycleSnapshot,
+} from "../core/index.ts";
 import type { SparkChannelDeliverySummary } from "../store/channel-deliveries.ts";
 import { SparkDaemonControlError } from "../control-error.ts";
 import { RegistrationGrantRefusedError } from "../registration.js";
@@ -211,7 +215,7 @@ export function daemonDrainProgress(value: unknown): SparkDaemonLifecycleSnapsho
   ) {
     throw new Error("Invalid local RPC daemon drain progress.");
   }
-  const work = (entry: unknown) => {
+  const work = (entry: unknown): SparkDaemonDrainWork => {
     if (
       !isRecord(entry) ||
       typeof entry.invocationId !== "string" ||
@@ -228,14 +232,16 @@ export function daemonDrainProgress(value: unknown): SparkDaemonLifecycleSnapsho
     ) {
       throw new Error("Invalid local RPC daemon drain work item.");
     }
+    const pauseState: SparkDaemonDrainPauseState | undefined =
+      entry.pauseState === "busy" || entry.pauseState === "human-wait"
+        ? entry.pauseState
+        : undefined;
     return {
       invocationId: entry.invocationId,
       kind: entry.kind,
       startedAt: entry.startedAt,
       ...(typeof entry.sessionId === "string" ? { sessionId: entry.sessionId } : {}),
-      ...(entry.pauseState === "busy" || entry.pauseState === "human-wait"
-        ? { pauseState: entry.pauseState }
-        : {}),
+      ...(pauseState ? { pauseState } : {}),
     };
   };
   return {
