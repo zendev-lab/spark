@@ -42,8 +42,11 @@ and generated npm product from drifting while keeping failures attributable to d
 architecture, dependency, documentation, formatting, lint, and type checks. Runtime CI runs the
 complete source and process suites on the Ubuntu/macOS matrix, the Repro Golden Journey on Ubuntu
 with a pinned compatible cue-shell source build, plus the browser suite for pull requests and
-`merge_group`. CI workflows do not run on branch pushes. These jobs are advisory and there is no
-aggregate required test job.
+`merge_group`. CI workflows do not run on branch pushes. The core jobs are direct merge gates:
+`Pre-commit Checks`, `Project Checks`, `Documentation Checks`, both `Source Tests` jobs,
+both `Process Tests` jobs, `Repro Golden Journey (Ubuntu)`, and `Browser Tests`. They remain
+fully parallel; there is no aggregate required job or static-to-runtime dependency chain.
+Benchmark, Mutation CE, Capability CE, and Dependency Audit jobs remain advisory.
 
 `prek` is the local fast-fix boundary: use native pre-commit integrations for file-format and
 workflow checks, plus the repository's `spark-check-fix` hook. Actionlint parses workflow syntax
