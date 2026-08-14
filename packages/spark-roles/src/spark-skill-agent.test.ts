@@ -5,11 +5,11 @@ import { join } from "node:path";
 import type { ExtensionRoleRunRequest, SparkHostAPI, ToolConfig } from "@zendev-lab/spark-core";
 import { test } from "vitest";
 import sparkRolesExtension from "./extension-entry.ts";
-import { SKILL_AGENT_ALLOWED_TOOLS, createSparkSkillAgentTool } from "./skill-extension.ts";
 import {
-  RoleModelTypeUnconfiguredError,
-  defaultProjectRoleModelSettingsStore,
-} from "./role-runtime.ts";
+  SKILL_AGENT_ALLOWED_TOOL_EFFECTS,
+  SKILL_AGENT_ALLOWED_TOOLS,
+  createSparkSkillAgentTool,
+} from "./skill-extension.ts";
 
 async function writeSkill(
   root: string,
@@ -49,6 +49,27 @@ function testTool(options: { builtinDirs: string[]; maxCombinedSkillChars?: numb
   });
 }
 
+function delegationEnvelope(
+  input: {
+    activeTools?: string[];
+    allowedToolEffects?: Array<
+      "read" | "network_read" | "control" | "local_write" | "external_write" | "destructive"
+    >;
+    thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  } = {},
+) {
+  return {
+    model: { provider: "parent-provider", id: "parent-model", api: "test-api" },
+    thinking: input.thinking ?? ("medium" as const),
+    activeTools: input.activeTools ?? [...SKILL_AGENT_ALLOWED_TOOLS, "role", "skill_agent"],
+    allowedToolEffects: input.allowedToolEffects ?? [
+      ...SKILL_AGENT_ALLOWED_TOOL_EFFECTS,
+      "control",
+      "destructive",
+    ],
+  };
+}
+
 test("skill_agent runs the complete Skill set in one restricted owned Session", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-skill-agent-"));
   try {
@@ -59,10 +80,6 @@ test("skill_agent runs the complete Skill set in one restricted owned Session", 
       "# GitHub publish\n\nPublish only after PUBLISH_READY_SENTINEL verification passes.\n";
     const auditPath = await writeSkill(skillsDir, "release-audit", auditBody);
     const publishPath = await writeSkill(skillsDir, "github-publish", publishBody);
-    await defaultProjectRoleModelSettingsStore(dir).save(
-      "implementation",
-      "fake-provider/fake-model",
-    );
     const tool = testTool({ builtinDirs: [skillsDir] });
     assert.deepEqual(tool.policy?.modes, ["execute"]);
     let captured: ExtensionRoleRunRequest | undefined;
@@ -79,7 +96,7 @@ test("skill_agent runs the complete Skill set in one restricted owned Session", 
       () => undefined,
       {
         cwd: dir,
-        model: { provider: "fake-provider", id: "fake-model" },
+        delegation: delegationEnvelope(),
         runRole: async (request) => {
           captured = request;
           return {
@@ -106,12 +123,13 @@ test("skill_agent runs the complete Skill set in one restricted owned Session", 
     assert.match(captured.role.ref, /^role:skill-agent-[0-9a-f]{12}$/u);
     assert.match(captured.role.id, /^skill-agent-[0-9a-f]{12}$/u);
     assert.equal(captured.role.source, "extension");
-    assert.equal(captured.role.modelType, "implementation");
+    assert.equal(captured.role.modelType, "skill-agent");
     assert.deepEqual(captured.role.capabilities, ["read", "write", "exec", "net"]);
     assert.match(captured.role.revision, /^sha256:[a-f0-9]{64}$/u);
     assert.equal("launch" in captured.record, false);
     assert.equal("sessionLifetime" in captured.record, false);
-    assert.equal(captured.model, "fake-provider/fake-model");
+    assert.equal(captured.model, "parent-provider/parent-model");
+    assert.equal(captured.thinking, "medium");
     assert.equal(captured.timeoutMs, 30_000);
     assert.equal(countOccurrences(captured.role.systemPrompt, auditBody.trim()), 1);
     assert.equal(countOccurrences(captured.role.systemPrompt, publishBody.trim()), 1);
@@ -129,6 +147,7 @@ test("skill_agent runs the complete Skill set in one restricted owned Session", 
       ].join("\n"),
     );
     assert.deepEqual(captured.role.allowedTools, [...SKILL_AGENT_ALLOWED_TOOLS]);
+    assert.deepEqual(captured.role.allowedToolEffects, [...SKILL_AGENT_ALLOWED_TOOL_EFFECTS]);
     const allowedTools = new Set<string>(captured.role.allowedTools);
     for (const forbidden of [
       "skill_agent",
@@ -161,28 +180,92 @@ test("skill_agent runs the complete Skill set in one restricted owned Session", 
   }
 });
 
-test("skill_agent refuses parent-model fallback when implementation is unconfigured", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-skill-agent-model-type-"));
+test("skill_agent accepts explicit model and thinking while narrowing tools and effects", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-skill-agent-narrowing-"));
   try {
     const skillsDir = join(dir, "skills");
     await writeSkill(skillsDir, "visible-skill", "# Visible\n");
     const tool = testTool({ builtinDirs: [skillsDir] });
-    await assert.rejects(
+    let captured: ExtensionRoleRunRequest | undefined;
+    await tool.execute(
+      "skill-call-narrowing",
+      {
+        skills: ["visible-skill"],
+        instruction: "Run it",
+        model: "override-provider/override-model",
+        thinking: "xhigh",
+        allowedTools: ["read", "edit"],
+        allowedToolEffects: ["read", "local_write"],
+      },
+      new AbortController().signal,
+      () => undefined,
+      {
+        cwd: dir,
+        delegation: delegationEnvelope(),
+        runRole: async (request) => {
+          captured = request;
+          return {
+            record: { ...request.record, status: "succeeded" },
+            stdout: "done",
+            stderr: "",
+            jsonEvents: [],
+          };
+        },
+      },
+    );
+    assert.ok(captured);
+    assert.equal(captured.model, "override-provider/override-model");
+    assert.equal(captured.thinking, "xhigh");
+    assert.deepEqual(captured.role.allowedTools, ["read", "edit"]);
+    assert.deepEqual(captured.role.allowedToolEffects, ["read", "local_write"]);
+    assert.deepEqual(captured.role.capabilities, ["read", "write"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("skill_agent rejects missing or widening delegation authority", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-skill-agent-authority-"));
+  try {
+    const skillsDir = join(dir, "skills");
+    await writeSkill(skillsDir, "visible-skill", "# Visible\n");
+    const tool = testTool({ builtinDirs: [skillsDir] });
+    const execute = (
+      params: Record<string, unknown>,
+      delegation?: ReturnType<typeof delegationEnvelope>,
+    ) =>
       tool.execute(
-        "skill-call-model",
-        { skills: ["visible-skill"], instruction: "Run it" },
+        "skill-call-authority",
+        { skills: ["visible-skill"], instruction: "Run it", ...params },
         new AbortController().signal,
         () => undefined,
         {
           cwd: dir,
-          model: { provider: "parent-provider", id: "parent-model" },
-          runRole: async () => assert.fail("unconfigured Skill Agent must not launch"),
+          ...(delegation ? { delegation } : {}),
+          runRole: async () => assert.fail("invalid delegation must not launch"),
         },
-      ),
-      (error) =>
-        error instanceof RoleModelTypeUnconfiguredError &&
-        error.code === "role_model_type_unconfigured" &&
-        error.modelType === "implementation",
+      );
+
+    await assert.rejects(execute({}), /exact current-Session delegation envelope/);
+    const readOnly = delegationEnvelope({
+      activeTools: ["read", "skill_agent"],
+      allowedToolEffects: ["read"],
+    });
+    await assert.rejects(
+      execute({ allowedTools: ["skill_agent"] }, readOnly),
+      /fixed-forbidden tool skill_agent/,
+    );
+    await assert.rejects(
+      execute({ allowedTools: ["write"] }, readOnly),
+      /parent-inactive tool write/,
+    );
+    await assert.rejects(
+      execute({ allowedToolEffects: ["destructive"] }, readOnly),
+      /fixed-forbidden effect destructive/,
+    );
+    await assert.rejects(
+      execute({ allowedToolEffects: ["local_write"] }, readOnly),
+      /parent-forbidden effect local_write/,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -204,7 +287,7 @@ test("skill_agent rejects invalid Skill sets before launching an Agent", async (
     let launches = 0;
     const ctx = {
       cwd: dir,
-      model: { provider: "fake-provider", id: "fake-model" },
+      delegation: delegationEnvelope(),
       runRole: async (_request: ExtensionRoleRunRequest) => {
         launches += 1;
         throw new Error("must not launch");
@@ -297,7 +380,7 @@ test("skill_agent enforces one aggregate Skill source budget", async () => {
         () => undefined,
         {
           cwd: dir,
-          model: { provider: "fake-provider", id: "fake-model" },
+          delegation: delegationEnvelope(),
           runRole: async (_request: ExtensionRoleRunRequest) => {
             launches += 1;
             throw new Error("must not launch");

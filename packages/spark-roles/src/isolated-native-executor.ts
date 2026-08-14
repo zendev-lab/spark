@@ -26,6 +26,7 @@ interface IsolatedExecutorRequest {
   launch?: ExtensionRoleRunRequest["launch"];
   forkFromSession?: string;
   model?: string;
+  thinking?: ExtensionRoleRunRequest["thinking"];
   nativeCompatibilityRecovery?: "reviewer";
 }
 
@@ -200,6 +201,7 @@ export function serializeIsolatedExecutorRequest(
     launch: request.launch,
     forkFromSession: request.forkFromSession,
     model: request.model,
+    thinking: request.thinking,
     nativeCompatibilityRecovery: request.nativeCompatibilityRecovery,
   };
 }

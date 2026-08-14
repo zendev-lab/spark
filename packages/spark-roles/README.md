@@ -15,13 +15,15 @@ The persisted settings schema is strict v2 and keys `modelTypes` by open semanti
 - `role({ action: "list" | "get" | "create" })` manages reusable definitions.
 - `role({ action: "call" })` instantiates one fresh Invocation-owned ephemeral Session, invokes it, and closes it. It never enters Session list/mail/bind/archive/restore/resume surfaces.
 - `role({ action: "model_list" | "model_get" | "model_set" | "model_delete" })` manages model settings.
-- `skill_agent({ skills, instruction, inputs? })` runs an ad-hoc, self-contained capability with exact model-invocable Skills when no predefined Role owns the responsibility.
+- `skill_agent({ skills, instruction, inputs?, timeoutMs?, model?, thinking?, allowedTools?, allowedToolEffects? })` runs an ad-hoc, self-contained capability with exact model-invocable Skills when no predefined Role owns the responsibility.
 
 A Skill Agent receives the selected Skill bodies and the explicit delegation
-packet, not the parent transcript. It currently selects a model through its
-semantic Model Type; a missing binding fails instead of falling back. The child receives a fixed direct-work tool profile. It
-cannot call Roles or Sessions, delegate another Skill Agent, mutate Task state,
-or publish Git, Artifact, or Evidence state. The parent Session remains
+packet, not the parent transcript. It defaults to the parent Session's exact
+model, thinking level, active tools, and allowed effects. Callers may override
+model and thinking, but tools and effects can only narrow both the parent
+envelope and Spark's fixed safety cap; older hosts without an exact envelope
+fail closed. The child cannot call Roles or Sessions, delegate another Skill
+Agent, mutate Task state, or publish Git, Artifact, or Evidence state. The parent Session remains
 responsible for decomposition, durable coordination, verification of
 consequential claims, and user-facing synthesis.
 

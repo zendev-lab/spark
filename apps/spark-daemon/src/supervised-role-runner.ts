@@ -79,6 +79,7 @@ async function runSupervisedRole(
       parentInvocationId: options.parentInvocationId,
       structured: true,
       model,
+      ...(request.thinking ? { thinkingLevel: request.thinking } : {}),
       roleRunRef: request.record.ref,
       requireStructuredOutcome: request.requireStructuredOutcome,
       sourceKind: purpose,

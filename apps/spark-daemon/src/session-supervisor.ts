@@ -55,6 +55,7 @@ export interface InvokeSupervisedSessionInput {
   parentInvocationId?: string;
   structured?: boolean;
   model?: string;
+  thinkingLevel?: string;
   roleRunRef?: string;
   requireStructuredOutcome?: boolean;
   signal?: AbortSignal;
@@ -282,6 +283,7 @@ export class SessionSupervisor {
             : {}),
           ...(session.cwd ? { cwd: session.cwd } : {}),
           ...(input.model ? { model: input.model } : {}),
+          ...(input.thinkingLevel ? { thinkingLevel: input.thinkingLevel } : {}),
           ...(input.roleRunRef ? { roleRunRef: input.roleRunRef } : {}),
           ...(input.requireStructuredOutcome !== undefined
             ? { requireStructuredOutcome: input.requireStructuredOutcome }
