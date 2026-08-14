@@ -119,6 +119,80 @@ test("Spark prompt IR retains runtime authority until provider lowering", () => 
   assert.equal(loweredDeveloper.role, "user");
 });
 
+test("SparkAgentLoop continues after removing a retriable assistant failure tail", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-retriable-continuation" });
+  const finalAssistant = buildAssistant([{ type: "text", text: "continued" }]);
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
+    }),
+    getModel: () => TEST_MODEL,
+  });
+  loop.replacePromptItems([
+    sparkPromptItemFromProviderMessage({ role: "user", content: "original" }),
+    sparkPromptItemFromProviderMessage({
+      role: "assistant",
+      content: [],
+      stopReason: "error",
+    }),
+  ]);
+
+  const outcome = await loop.continueWithOutcome();
+
+  assert.equal(outcome.status, "completed");
+  assert.equal(loop.getMessages().at(-1)?.role, "assistant");
+});
+
+test("SparkAgentLoop continues after removing a retriable assistant length tail", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-length-continuation" });
+  const finalAssistant = buildAssistant([{ type: "text", text: "continued after length" }]);
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
+    }),
+    getModel: () => TEST_MODEL,
+  });
+  loop.replacePromptItems([
+    sparkPromptItemFromProviderMessage({ role: "user", content: "original" }),
+    sparkPromptItemFromProviderMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "truncated" }],
+      stopReason: "length",
+    }),
+  ]);
+
+  const outcome = await loop.continueWithOutcome();
+
+  assert.equal(outcome.status, "completed");
+  assert.equal(loop.getMessages().at(-1)?.role, "assistant");
+});
+test("SparkAgentLoop refuses continuation from a completed assistant message", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-invalid-continuation" });
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({ rounds: [] }),
+    getModel: () => TEST_MODEL,
+  });
+  loop.replacePromptItems([
+    sparkPromptItemFromProviderMessage({ role: "user", content: "original" }),
+    sparkPromptItemFromProviderMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "done" }],
+      stopReason: "stop",
+    }),
+  ]);
+
+  await assert.rejects(
+    loop.continueWithOutcome(),
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as Error & { code?: unknown }).code === "SPARK_TURN_CONTINUATION_TAIL",
+  );
+  assert.equal(loop.getMessages().at(-1)?.role, "assistant");
+});
+
 test("provider Context meter includes current system prompt and active tool schemas", () => {
   const estimate = estimateSparkProviderContextTokens({
     systemPrompt: "s".repeat(400),

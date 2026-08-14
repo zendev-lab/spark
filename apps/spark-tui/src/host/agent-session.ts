@@ -861,7 +861,10 @@ function throwIfCompactionAborted(signal: AbortSignal | undefined): void {
 function isProviderErrorPromptItem(item: SparkPromptItem): boolean {
   if (item.content.kind !== "provider_message") return false;
   const message = item.content.message;
-  return message.role === "assistant" && message.stopReason === "error";
+  return (
+    message.role === "assistant" &&
+    (message.stopReason === "error" || message.stopReason === "length")
+  );
 }
 
 function classifyRunOutcome(
