@@ -54,9 +54,11 @@ describe("parent production completion recovery regression", () => {
           completion: { status: "succeeded", result: { assistantText: "delegated result" } },
         },
       );
-      const completionMailCount = (await new SparkSessionMailStore({ sparkHome: harness.cwd })
-        .list(sender.sessionId, { includeAcked: true }))
-        .filter((mail) => mail.correlationId === source.invocationId).length;
+      const completionMailCount = (
+        await new SparkSessionMailStore({ sparkHome: harness.cwd }).list(sender.sessionId, {
+          includeAcked: true,
+        })
+      ).filter((mail) => mail.correlationId === source.invocationId).length;
       const senderWakeCount = restartedStore.listPendingForSession(sender.sessionId).length;
       expect(completionMailCount).toBe(1);
       expect(senderWakeCount).toBe(1);
