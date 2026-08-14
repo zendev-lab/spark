@@ -10,9 +10,9 @@ import {
   defaultSparkMemoryStore,
   renderSparkMemoryCheckpoint,
   renderSparkMemoryPolicy,
-} from "@zendev-lab/spark-memory";
-import { createLegacyMemoryFixturePermit } from "@zendev-lab/spark-memory/legacy-fixture";
-import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
+} from "./index.ts";
+import { createLegacyMemoryFixturePermit } from "./legacy-fixture.ts";
+import sparkMemoryExtension from "./extension.ts";
 import type { ToolConfig } from "@zendev-lab/spark-core";
 
 test("spark memory stores, searches, and forgets explicit scoped entries", async () => {

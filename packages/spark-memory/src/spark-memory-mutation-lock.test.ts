@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { test } from "vitest";
 
-import { withFileMutationLock } from "@zendev-lab/spark-memory/mutation-lock";
+import { withFileMutationLock } from "./mutation-lock.ts";
 
 test("a long-running owner is never reclaimed by age or PID liveness", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-memory-lock-"));
