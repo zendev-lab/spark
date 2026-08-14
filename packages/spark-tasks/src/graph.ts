@@ -266,7 +266,10 @@ export class TaskGraph {
     const task = this.getTask(taskRef);
     if (status === "cancelled") this.assertTaskCanBeCancelled(task);
     const now = nowIso();
-    if (status === "pending" && (task.status === "failed" || task.status === "blocked" || task.status === "cancelled")) {
+    if (
+      status === "pending" &&
+      (task.status === "failed" || task.status === "blocked" || task.status === "cancelled")
+    ) {
       this.resetTaskRunAttempts(taskRef, now);
     }
     const cancellation =
@@ -427,8 +430,16 @@ export class TaskGraph {
   resetTaskRunAttempts(taskRef: TaskRef, now = nowIso()): void {
     for (const run of this.#runs.values()) {
       if (run.taskRef !== taskRef || run.dryRun) continue;
-      if (run.status === "failed" || run.status === "blocked" || run.status === "cancelled" || run.status === "stale") {
-        this.#runs.set(run.ref, normalizeTaskRun({ ...run, attemptConsumed: false, updatedAt: now }));
+      if (
+        run.status === "failed" ||
+        run.status === "blocked" ||
+        run.status === "cancelled" ||
+        run.status === "stale"
+      ) {
+        this.#runs.set(
+          run.ref,
+          normalizeTaskRun({ ...run, attemptConsumed: false, updatedAt: now }),
+        );
       }
     }
   }

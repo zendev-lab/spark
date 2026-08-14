@@ -1551,7 +1551,14 @@ export type TaskRunFailureKind =
   | "claim_stale"
   | "blocked"
   | "provider_failure";
-export type TaskRunStatus = "queued" | "running" | "succeeded" | "blocked" | "failed" | "cancelled" | "stale";
+export type TaskRunStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "blocked"
+  | "failed"
+  | "cancelled"
+  | "stale";
 
 export interface TaskRunCompletionSummary {
   runRef: RunRef;

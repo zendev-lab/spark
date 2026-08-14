@@ -188,7 +188,11 @@ export class TaskGraphStore {
             if (run.status !== "queued" && run.status !== "running") continue;
             result.inspected += 1;
             const updatedMs = Date.parse(run.updatedAt ?? run.startedAt ?? "");
-            if (!Number.isFinite(nowMs) || !Number.isFinite(updatedMs) || nowMs - updatedMs < staleAfterMs)
+            if (
+              !Number.isFinite(nowMs) ||
+              !Number.isFinite(updatedMs) ||
+              nowMs - updatedMs < staleAfterMs
+            )
               continue;
             graph.recordRun({
               ...run,
@@ -202,7 +206,8 @@ export class TaskGraphStore {
             });
             const task = graph.getTask(run.taskRef);
             if (task.claim?.runRef === run.ref) graph.releaseTaskClaim(task.ref);
-            if (task.status === "running" || task.status === "failed") graph.setTaskStatus(task.ref, "pending");
+            if (task.status === "running" || task.status === "failed")
+              graph.setTaskStatus(task.ref, "pending");
             result.stale += 1;
             result.taskRefs.push(task.ref);
           }

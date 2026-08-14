@@ -62,15 +62,15 @@ export async function resolveFleetTaskTarget(input: {
       if (artifact?.body.kind === "git_change") linkedGitChanges.push(ref);
     }
     if (linkedGitChanges.length === 0 && readonly) {
-        const resultsRoot = await resolveResultsRoot(input.workspaceCwd, isolation, input.jobId);
-        return {
-          primaryArtifactRef: "artifact:readonly" as ArtifactRef,
-          primaryRoot: input.workspaceCwd,
-          writableArtifactRefs: [],
-          writableRoots: [],
-          concurrencyKeys: [],
-          ...(resultsRoot ? { resultsRoot } : {}),
-        };
+      const resultsRoot = await resolveResultsRoot(input.workspaceCwd, isolation, input.jobId);
+      return {
+        primaryArtifactRef: "artifact:readonly" as ArtifactRef,
+        primaryRoot: input.workspaceCwd,
+        writableArtifactRefs: [],
+        writableRoots: [],
+        concurrencyKeys: [],
+        ...(resultsRoot ? { resultsRoot } : {}),
+      };
     }
     if (linkedGitChanges.length !== 1) {
       throw new Error(

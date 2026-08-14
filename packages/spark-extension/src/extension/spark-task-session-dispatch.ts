@@ -630,7 +630,9 @@ async function ensureTaskExecutionSession(input: {
 }): Promise<void> {
   const sessionId = taskExecutionSessionId(input.execution);
   const fleetWorkerTarget =
-    input.fleetTarget && input.fleetTarget.writableArtifactRefs.length > 0 ? input.fleetTarget : undefined;
+    input.fleetTarget && input.fleetTarget.writableArtifactRefs.length > 0
+      ? input.fleetTarget
+      : undefined;
   const owner = await input.daemonRequest("session.get", {
     sessionId: input.execution.ownerSessionId,
   });
