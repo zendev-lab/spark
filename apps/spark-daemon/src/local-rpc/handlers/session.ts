@@ -155,6 +155,10 @@ export async function handleSessionRequest(
               }
             : undefined;
         },
+        pendingRequestCount:
+          options.humanWaits
+            ?.listPending()
+            .filter((wait) => wait.sessionId === request.params.sessionId).length ?? 0,
       });
       const withLoops = parseSparkSessionView({
         ...snapshot,

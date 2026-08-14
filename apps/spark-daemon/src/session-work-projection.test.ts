@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { EvidenceRef } from "@zendev-lab/spark-core";
-import { sessionGoalStorePathV2, sessionReproStorePathV2 } from "@zendev-lab/spark-loop";
+import {
+  sessionGoalStorePathV2,
+  sessionReproStorePathV2,
+  writeSparkSessionWorkspaceState,
+} from "@zendev-lab/spark-loop";
 import {
   sparkLoopCountersSchema,
   sparkLoopPolicySchema,
@@ -15,14 +19,19 @@ import type {
 } from "@zendev-lab/spark-protocol/token-usage";
 import {
   createSparkSessionRepro,
+  recordSparkReproResolution,
+  recordSparkReproWorkHandoff,
+  registerSparkReproWorkItem,
   stepDefinitionDigest,
   updateReproStep,
   verifyReproStepPass,
 } from "@zendev-lab/spark-repro";
+import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   projectSparkSessionWork,
+  readSessionReproForDaemon,
   resolveActiveSessionReproUsageScope,
   selectPrimarySessionLoop,
   type SparkSessionWorkProjectionDiagnostic,
@@ -212,6 +221,164 @@ describe("session work projection", () => {
     expect(work?.repro?.tokenUsageByPersistence).toEqual(tokenUsageByPersistence);
   });
 
+  it("derives Goal readiness from the selected TaskGraph without blocking independent work", async () => {
+    const cwd = await tempCwd();
+    const timestamp = "2026-08-13T00:00:00.000Z";
+    await writeJson(sessionGoalStorePathV2(cwd, context), {
+      version: 1,
+      goal: {
+        version: 1,
+        goalId: "goal-readiness",
+        sessionKey: `session:${sessionId}`,
+        originalObjective: "Keep independent work running while a decision is pending",
+        objective: "Keep independent work running while a decision is pending",
+        status: "active",
+        source: "explicit",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    });
+    const graph = new TaskGraph();
+    const project = graph.createProject({
+      title: "Goal readiness",
+      description: "Exercise TaskGraph-derived ready and blocked work",
+    });
+    const independent = graph.createTask({
+      projectRef: project.ref,
+      title: "Run independent validation",
+      description: "Run a validation that does not depend on the pending decision.",
+      status: "pending",
+      plan: executionReadyPlan("independent validation"),
+    });
+    const prerequisite = graph.createTask({
+      projectRef: project.ref,
+      title: "Await the canonical decision",
+      description: "Keep the decision prerequisite active until the user answers.",
+      status: "running",
+      plan: executionReadyPlan("canonical decision"),
+    });
+    const dependent = graph.createTask({
+      projectRef: project.ref,
+      title: "Apply the selected decision",
+      description: "Apply the decision after its prerequisite completes.",
+      status: "pending",
+      plan: executionReadyPlan("decision application"),
+    });
+    graph.addDependency(dependent.ref, prerequisite.ref);
+    await defaultTaskGraphStore(cwd).save(graph);
+    await writeSparkSessionWorkspaceState(cwd, context, {
+      version: 3,
+      projectRef: project.ref,
+    });
+
+    const work = await projectSparkSessionWork({
+      cwd,
+      sessionId,
+      loops: [driver("goal-readiness", "goal", "blocked")],
+      pendingRequestCount: 1,
+    });
+
+    expect(work?.goal).toMatchObject({
+      status: "waiting_decision",
+      readiness: {
+        readyTaskRefs: [independent.ref],
+        readyTaskCount: 1,
+        blockedTaskRefs: [dependent.ref],
+        blockedTaskCount: 1,
+        pendingRequestCount: 1,
+      },
+    });
+  });
+
+  it("rebuilds lane, handoff, resolution, and formalized tip projections after restart", async () => {
+    const cwd = await tempCwd();
+    let repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
+      objective: "Recover three-lane work",
+      reproId: "repro-restart",
+    });
+    let threeLane = registerSparkReproWorkItem(repro.threeLane, "implementation", {
+      workItemId: "work:restart-boundary",
+      title: "Recover the first bad boundary",
+      scope: "/private/repro/candidate",
+      planRevision: repro.plan.currentRevision,
+      sourceRevision: "commit:candidate",
+      status: "open",
+      evidenceRefs: [],
+      unresolvedIds: [],
+    });
+    threeLane = recordSparkReproWorkHandoff(threeLane, {
+      handoffId: "handoff:implementation-exactness",
+      workItemId: "work:restart-boundary",
+      from: "implementation",
+      to: "exactness",
+      planRevision: repro.plan.currentRevision,
+      sourceRevision: "commit:candidate",
+      scope: "Verify the candidate at the first bad boundary",
+      findingIds: [],
+      evidenceRefs: ["evidence:implementation" as EvidenceRef],
+      candidateRevisions: ["commit:candidate"],
+      dependsOnHandoffIds: [],
+      doneWhen: ["The first bad boundary is classified"],
+      status: "accepted",
+    });
+    threeLane = recordSparkReproWorkHandoff(threeLane, {
+      handoffId: "handoff:exactness-formalize",
+      workItemId: "work:restart-boundary",
+      from: "exactness",
+      to: "formalize",
+      planRevision: repro.plan.currentRevision,
+      sourceRevision: "commit:candidate",
+      scope: "Retire the verified candidate",
+      findingIds: [],
+      evidenceRefs: ["evidence:exactness" as EvidenceRef],
+      candidateRevisions: ["commit:candidate"],
+      dependsOnHandoffIds: ["handoff:implementation-exactness"],
+      doneWhen: ["The normative entry is accepted"],
+      status: "accepted",
+    });
+    threeLane = recordSparkReproResolution(threeLane, {
+      resolutionId: "resolution:formalize-exactness",
+      workItemId: "work:restart-boundary",
+      from: "formalize",
+      to: "exactness",
+      status: "resolved",
+      canonicalRevision: "commit:formalized",
+      supersededRevisions: ["commit:candidate"],
+      evidenceRefs: ["evidence:formalized" as EvidenceRef],
+    });
+    threeLane = recordSparkReproResolution(threeLane, {
+      resolutionId: "resolution:exactness-implementation",
+      workItemId: "work:restart-boundary",
+      from: "exactness",
+      to: "implementation",
+      status: "superseded",
+      canonicalRevision: "commit:formalized",
+      supersededRevisions: ["commit:candidate"],
+      evidenceRefs: ["evidence:superseded" as EvidenceRef],
+      parentResolutionId: "resolution:formalize-exactness",
+    });
+    repro = { ...repro, threeLane };
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 8, repro });
+
+    const beforeRestart = await projectSparkSessionWork({ cwd, sessionId, loops: [] });
+    const recovered = await readSessionReproForDaemon(cwd, sessionId);
+    const afterRestart = await projectSparkSessionWork({ cwd, sessionId, loops: [] });
+
+    expect(recovered?.threeLane.handoffs).toHaveLength(2);
+    expect(recovered?.threeLane.resolutions).toHaveLength(2);
+    expect(afterRestart?.repro?.lanes).toEqual(beforeRestart?.repro?.lanes);
+    expect(afterRestart?.repro?.lanes).toMatchObject({
+      implementation: {
+        totalCount: 1,
+        items: [{ workItemId: "work:restart-boundary", handoffCount: 2, resolutionCount: 2 }],
+      },
+      exactness: { totalCount: 1 },
+      formalize: { totalCount: 1 },
+      formalizedTip: "commit:formalized",
+    });
+    expect(JSON.stringify(afterRestart?.repro?.lanes)).not.toContain("/private/repro/candidate");
+  });
+
   it("keeps Repro work available when token usage aggregation fails", async () => {
     const cwd = await tempCwd();
     const repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
@@ -329,5 +496,20 @@ function breakdown(totalTokens: number) {
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
     totalTokens,
+  };
+}
+
+function executionReadyPlan(subject: string) {
+  return {
+    objective: `Validate ${subject}`,
+    contextRefs: [],
+    constraints: [],
+    nonGoals: [],
+    successCriteria: [`The ${subject} check exits successfully with no validation failures.`],
+    evidenceRequired: [`Evidence records the ${subject} command, output, and exit code.`],
+    steps: [`Run the ${subject} check and record its result.`],
+    riskLevel: "normal" as const,
+    openQuestions: [],
+    askRefs: [],
   };
 }
