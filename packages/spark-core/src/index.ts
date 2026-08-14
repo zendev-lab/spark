@@ -1551,7 +1551,7 @@ export type TaskRunFailureKind =
   | "claim_stale"
   | "blocked"
   | "provider_failure";
-export type TaskRunStatus = "queued" | "running" | "succeeded" | "blocked" | "failed" | "cancelled";
+export type TaskRunStatus = "queued" | "running" | "succeeded" | "blocked" | "failed" | "cancelled" | "stale";
 
 export interface TaskRunCompletionSummary {
   runRef: RunRef;
@@ -1607,6 +1607,10 @@ export interface TaskRun {
   outcome?: RoleRunCompletionOutcome;
   startedAt?: string;
   finishedAt?: string;
+  /** Last durable state transition used by liveness reconciliation. */
+  updatedAt?: string;
+  /** Recovery can explicitly make a prior failed attempt non-consuming. */
+  attemptConsumed?: boolean;
   outputEvidenceRefs: EvidenceRef[];
   completionSummary?: TaskRunCompletionSummary;
 }
