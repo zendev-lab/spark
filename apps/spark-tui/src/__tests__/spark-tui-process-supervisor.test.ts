@@ -15,6 +15,10 @@ interface FixtureEvent {
   generation?: number;
   cwd?: string;
   sessionId?: string;
+  reproId?: string;
+  activeHubPanel?: string;
+  selectedReproLane?: string;
+  reproDetailExpanded?: boolean;
 }
 
 async function runFixture(argv: string[]): Promise<{ events: FixtureEvent[]; stderr: string }> {
@@ -62,6 +66,34 @@ test("Spark TUI supervisor replaces the worker process and preserves session and
   assert.deepEqual(
     workers.map((event) => event.sessionId),
     ["session-same", "session-same", "session-same"],
+  );
+  assert.deepEqual(
+    workers.map((event) => ({
+      reproId: event.reproId,
+      activeHubPanel: event.activeHubPanel,
+      selectedReproLane: event.selectedReproLane,
+      reproDetailExpanded: event.reproDetailExpanded,
+    })),
+    [
+      {
+        reproId: "repro:three-lane",
+        activeHubPanel: "repro",
+        selectedReproLane: "exactness",
+        reproDetailExpanded: true,
+      },
+      {
+        reproId: "repro:three-lane",
+        activeHubPanel: undefined,
+        selectedReproLane: "implementation",
+        reproDetailExpanded: false,
+      },
+      {
+        reproId: "repro:three-lane",
+        activeHubPanel: undefined,
+        selectedReproLane: "implementation",
+        reproDetailExpanded: false,
+      },
+    ],
   );
   for (const worker of workers) {
     assert.throws(() => process.kill(worker.pid, 0), /ESRCH/u);

@@ -135,7 +135,7 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
     },
     inspect: {
       description: "show the local session inspector",
-      argumentHint: "[overview|workflows|runs|tasks|artifacts|reviews|graft|off]",
+      argumentHint: "[overview|repro|workflows|runs|tasks|artifacts|reviews|graft|off]",
       metadata: {
         source: "extension",
         extensionId: SPARK_NATIVE_LOCAL_CONTROL_EXTENSION_ID,
@@ -144,14 +144,14 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
         verbs: ["inspect"],
       },
       getArgumentCompletions: (prefix) =>
-        ["overview", "workflows", "runs", "tasks", "artifacts", "reviews", "graft", "off"]
+        ["overview", "repro", "workflows", "runs", "tasks", "artifacts", "reviews", "graft", "off"]
           .filter((value) => value.startsWith(prefix.toLowerCase()))
           .map((value) => ({ value, label: value })),
       handler: (args, ctx) => ctx.app.openHubPanelFromArgs(args) || undefined,
     },
     hub: {
       description: "show the local session inspector",
-      argumentHint: "[overview|workflows|runs|tasks|artifacts|reviews|graft|off]",
+      argumentHint: "[overview|repro|workflows|runs|tasks|artifacts|reviews|graft|off]",
       metadata: {
         source: "extension",
         extensionId: SPARK_NATIVE_LOCAL_CONTROL_EXTENSION_ID,
@@ -161,7 +161,7 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
         deprecatedAliasFor: "/inspect",
       },
       getArgumentCompletions: (prefix) =>
-        ["overview", "workflows", "runs", "tasks", "artifacts", "reviews", "graft", "off"]
+        ["overview", "repro", "workflows", "runs", "tasks", "artifacts", "reviews", "graft", "off"]
           .filter((value) => value.startsWith(prefix.toLowerCase()))
           .map((value) => ({ value, label: value })),
       handler: (args, ctx) => ctx.app.openHubPanelFromArgs(args) || undefined,
