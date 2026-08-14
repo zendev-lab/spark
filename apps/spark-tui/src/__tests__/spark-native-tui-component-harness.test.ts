@@ -31,6 +31,7 @@ import {
   type SparkNativeResponder,
 } from "../native-tui.ts";
 import { catalogSparkNativeCommands } from "../native-tui/command-presentation.ts";
+import { nativeAskFlowRequest } from "../native-tui/ask-helpers.ts";
 import { nativeKernelSlashCommandEntries } from "../native-tui/slash-commands.ts";
 import { createSparkPiParitySlashCommands } from "../cli/pi-parity-commands.ts";
 import type { SparkDaemonModelAuthClient } from "../cli/model-control.ts";
@@ -1214,6 +1215,42 @@ test("native ask lifecycle cache bounds replay and transcript dedup together", a
         "ask-bounded-0",
   );
   assert.equal(markers.length, 2);
+});
+
+test("native ask overlay opens a freeform wait that omitted options arrays", async () => {
+  const omitted = {
+    id: "archive",
+    prompt: "Where is the frozen archive?",
+    type: "freeform" as const,
+    required: true,
+  };
+  assert.equal(
+    nativeAskFlowRequest({
+      version: SPARK_PROTOCOL_VERSION,
+      requestId: "ask-freeform-raw",
+      kind: "askFlow",
+      title: "Archive",
+      mode: "decision",
+      questions: [omitted as never],
+      metadata: {},
+    }).questions[0]?.options.length,
+    0,
+  );
+  const harness = createSparkNativeTuiComponentHarness({ withOverlay: true });
+  const request = nativeAskRequest("ask-freeform-omitted-options", {
+    questions: [omitted as never],
+  });
+  assert.equal(nativeAskFlowRequest(request).questions[0]?.type, "freeform");
+  const promise = harness.app.handleInteractionRequest(request);
+  await harness.flush();
+  const overlay = harness.state.overlays.at(-1);
+  assert.ok(overlay);
+  assert.equal(overlay.visible, true);
+  overlay.component.handleInput?.("x");
+  overlay.component.handleInput?.("\r");
+  overlay.component.handleInput?.("\r");
+  const response = await promise;
+  assert.equal(response.status, "answered");
 });
 
 test("native ask overlay geometry fits terminal variants and renders within its width", async () => {

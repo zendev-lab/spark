@@ -14,19 +14,20 @@ export function nativeAskFlowRequest(
     ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
     mode: request.mode,
     questions: request.questions.map((question) => {
-      // The protocol permits choice-shaped questions with no business options.
-      // The native Ask controller always owns a custom reply affordance, so
-      // normalize those questions to freeform instead of rejecting the whole
-      // interaction before the user can answer it.
-      const customOnly = question.type !== "freeform" && question.options.length === 0;
+      // Protocol waits and live events often omit options/defaultValues. Treat
+      // missing arrays as empty so a freeform or custom-only question still
+      // opens the overlay instead of throwing before presentAskFlow mounts.
+      const options = question.options ?? [];
+      const defaultValues = question.defaultValues ?? [];
+      const customOnly = question.type !== "freeform" && options.length === 0;
       return {
         id: question.id,
         prompt: question.prompt,
         ...(question.header ? { header: question.header } : {}),
         type: customOnly ? "freeform" : question.type,
         required: question.required,
-        defaultValues: customOnly ? [] : [...question.defaultValues],
-        options: question.options.map((option) => ({
+        defaultValues: customOnly ? [] : [...defaultValues],
+        options: options.map((option) => ({
           value: option.value,
           label: option.label,
           ...(option.description ? { description: option.description } : {}),
