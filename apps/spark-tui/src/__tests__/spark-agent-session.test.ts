@@ -315,6 +315,94 @@ test("SparkAgentSession manual compact mutates the canonical record idempotently
   }
 });
 
+test("SparkAgentSession auto compaction fires before the provider when reported usage undercounts", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-underreport-ambiguous-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    // Small window (8192) and modest output budget (512) so a handful of
+    // oversized tool results push the char-based estimate past the window
+    // while the provider-reported usage stays far below it. Two distinct user
+    // turns keep the compaction cut summarizable: with a single turn there is
+    // no history prefix before the last turn to summarize.
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      { contextWindow: 8_192, maxTokens: 512 },
+      { compactKeepRecentTokens: 100 },
+    );
+    const compactEvents: Array<{ reason?: unknown }> = [];
+    services.runtime.on("session_compact", (event) => {
+      if (event && typeof event === "object") compactEvents.push(event as { reason?: unknown });
+    });
+
+    const record = services.sessionStore.createSession({ id: "preflight-underreport" });
+    services.sessionStore.appendMessage(record, { role: "user", content: "start" });
+    // The only provider report in the transcript is far below the char/4
+    // estimate of the whole replay (three 20k-char tool results below).
+    services.sessionStore.appendMessage(record, {
+      role: "assistant",
+      content: [{ type: "text", text: "ok" }],
+      usage: { input: 1_000, output: 50, cacheRead: 1_000, cacheWrite: 0 },
+    });
+    for (const toolCallId of ["read-call-0", "read-call-1"]) {
+      services.sessionStore.appendMessage(record, {
+        role: "toolResult",
+        toolCallId,
+        toolName: "read",
+        content: [{ type: "text", text: "x".repeat(20_000) }],
+      });
+    }
+    // A second user turn makes the full-compaction cut have summarizable
+    // history before it; a lone single-turn transcript cannot be compacted
+    // by the branch-cut algorithm.
+    services.sessionStore.appendMessage(record, { role: "user", content: "mid" });
+    services.sessionStore.appendMessage(record, {
+      role: "toolResult",
+      toolCallId: "read-call-2",
+      toolName: "read",
+      content: [{ type: "text", text: "x".repeat(20_000) }],
+    });
+    services.sessionStore.appendMessage(record, {
+      role: "assistant",
+      content: [{ type: "text", text: "next" }],
+    });
+    await services.sessionStore.save(record);
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: record.header.id,
+      prompt: "continue",
+    });
+
+    // The run succeeds without hitting the hard provider preflight guard…
+    assert.ok(result.outcome, "run must produce an outcome");
+    assert.equal(result.outcome.status, "completed");
+    // …because auto compaction fired BEFORE the provider request (reason "auto"
+    // as the first session_compact event), never a failure-driven
+    // "context_overflow" pass.
+    assert.equal(compactEvents[0]?.reason, "auto");
+    assert.equal(
+      compactEvents.some((event) => event.reason === "context_overflow"),
+      false,
+      "auto compaction must trigger before the hard preflight rejects",
+    );
+
+    const saved = await services.sessionStore.load(record.path);
+    assert.ok(
+      saved.entries.some((entry) => entry.type === "compaction"),
+      "preflight compaction must leave a durable compaction entry",
+    );
+    assert.equal(
+      saved.entries.some(
+        (entry) => entry.type === "custom_message" && entry.customType === "spark-runtime-failure",
+      ),
+      false,
+      "no provider runtime failure may be persisted when auto compaction covers the turn",
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 test("SparkAgentSession discards a measured low-yield repeated compact with a Memory checkpoint", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-low-yield-compact-"));
   try {
