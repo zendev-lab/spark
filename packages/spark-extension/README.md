@@ -33,3 +33,12 @@ An external benchmark must start the durable run with
 ledger, causal child executions, canonical summary, Bench run, and stable report
 Artifact share one identity; an already-active run rejects a different requested
 identifier.
+
+The same canonical `repro({ action })` surface composes the Repro-owned
+three-lane lifecycle. `work_register`, `work_rematerialize`, `finding_record`,
+`mismatch_record`, `handoff_record`, `formalize_bind`, and `resolution_record`
+delegate semantics to `spark-repro`, resolve Evidence and GitChange Artifacts
+through their stores, and reconcile temporary work through the TaskGraph owner.
+Formalize mutations require the current Session to own one attached native
+`gh-stack` GitChange. The extension does not create another scheduler, progress
+store, Git topology, or public alias.
