@@ -3998,7 +3998,7 @@ test("ignores a stale resolved workspace suggestion without consulting local dae
         throw new Error("cancelled selector must not archive a session");
       },
     },
-    workspaceList: async () => ({
+    workspaceList: async (_paths) => ({
       workspaces: [registeredWorkspace],
       observedAt: "2026-07-31T00:00:00.000Z",
     }),
