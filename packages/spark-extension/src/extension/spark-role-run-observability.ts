@@ -229,6 +229,9 @@ export function roleRunObservedStatus(run: TaskRun): SparkRoleRunObservedStatus 
       return "blocked";
     case "failed":
     case "cancelled":
+      return run.status;
+    case "stale":
+      return "stale";
     case "queued":
     case "running":
       return run.status;

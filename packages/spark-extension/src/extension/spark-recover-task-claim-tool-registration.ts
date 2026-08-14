@@ -102,6 +102,7 @@ export function registerSparkRecoverTaskClaimTool(
       if (recovered.result.decision.reason === "terminal_without_claim") {
         await store.update(
           (mutableGraph) => {
+            mutableGraph.resetTaskRunAttempts(recoverableTask.ref);
             mutableGraph.setTaskStatus(recoverableTask.ref, "pending");
           },
           { createIfMissing: false },
