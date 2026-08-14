@@ -73,6 +73,32 @@ export interface RecordSparkChannelDeliveryFailureOptions {
   outcome: "not_sent" | "unknown";
   /** Whether replaying the same durable identity is provider-deduplicated. */
   replaySafety: "deduplicated" | "unsafe";
+  /**
+   * Permanent route / identity failures must never enter retry_wait.
+   * Transient transport failures remain retryable when outcome/replay allow it.
+   */
+  failureClass?: "transient" | "permanent";
+  /** Stable reason code for permanent route failures (identity / routing). */
+  reasonCode?: string;
+}
+
+/** Permanent workspace identity route failures that must not retry. */
+export const permanentWorkspaceIdentityReasonCodes = [
+  "workspace_identity_unknown",
+  "workspace_identity_ambiguous",
+  "workspace_identity_unregistered",
+] as const;
+export type PermanentWorkspaceIdentityReasonCode =
+  (typeof permanentWorkspaceIdentityReasonCodes)[number];
+
+export function isPermanentWorkspaceIdentityReasonCode(
+  reasonCode: string | undefined,
+): reasonCode is PermanentWorkspaceIdentityReasonCode {
+  return (
+    reasonCode === "workspace_identity_unknown" ||
+    reasonCode === "workspace_identity_ambiguous" ||
+    reasonCode === "workspace_identity_unregistered"
+  );
 }
 
 export interface SparkChannelDeliveryStoreOptions {
@@ -317,15 +343,23 @@ export class SparkChannelDeliveryStore {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const leased = this.requireActiveLease(deliveryId, leaseToken, now);
+      // Permanent identity/route failures are terminal even when the adapter
+      // reports not_sent; only transient transport classes may retry_wait.
+      const permanentRouteFailure =
+        options.failureClass === "permanent" ||
+        isPermanentWorkspaceIdentityReasonCode(options.reasonCode);
       const retryable =
-        leased.kind === "inbound" ||
-        options.outcome === "not_sent" ||
-        options.replaySafety === "deduplicated";
+        !permanentRouteFailure &&
+        (leased.kind === "inbound" ||
+          options.outcome === "not_sent" ||
+          options.replaySafety === "deduplicated");
       const nextAttemptAt = retryable
         ? new Date(
             Date.parse(now) + channelDeliveryRetryDelayMs(leased.attemptCount, this.random),
           ).toISOString()
         : now;
+      const lastError =
+        permanentRouteFailure && options.reasonCode ? `${options.reasonCode}: ${error}` : error;
       const result = this.db
         .prepare(
           `UPDATE channel_deliveries
@@ -340,7 +374,7 @@ export class SparkChannelDeliveryStore {
           retryable ? "retry_wait" : "uncertain",
           nextAttemptAt,
           retryable ? 1 : 0,
-          error,
+          lastError,
           now,
           deliveryId,
           leaseToken,
@@ -418,7 +452,7 @@ function channelDeliveryRecord(row: ChannelDeliveryRow): SparkChannelDeliveryRec
     deliveryId: row.id,
     kind: row.kind,
     idempotencyKey: row.idempotency_key,
-    payload: JSON.parse(row.payload_json) as unknown,
+    payload: parseJson(row.payload_json, "channel delivery payload"),
     status: row.status,
     attemptCount: Number(row.attempt_count),
     nextAttemptAt: row.next_attempt_at,
@@ -428,7 +462,9 @@ function channelDeliveryRecord(row: ChannelDeliveryRow): SparkChannelDeliveryRec
     ...(row.claimed_at ? { claimedAt: row.claimed_at } : {}),
     ...(row.dispatched_at ? { dispatchedAt: row.dispatched_at } : {}),
     ...(row.last_error ? { lastError: row.last_error } : {}),
-    ...(row.receipt_json ? { receipt: JSON.parse(row.receipt_json) as unknown } : {}),
+    ...(row.receipt_json
+      ? { receipt: parseJson(row.receipt_json, "channel delivery receipt") }
+      : {}),
     ...(row.delivered_at ? { deliveredAt: row.delivered_at } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -457,6 +493,14 @@ function serializeJson(value: unknown, label: string): string {
   const serialized = JSON.stringify(value);
   if (serialized === undefined) throw new Error(`${label} must be JSON-serializable`);
   return serialized;
+}
+
+function parseJson(value: string, label: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch (error) {
+    throw new Error(`Invalid persisted ${label}`, { cause: error });
+  }
 }
 
 function assertNonEmpty(value: string, label: string): void {
