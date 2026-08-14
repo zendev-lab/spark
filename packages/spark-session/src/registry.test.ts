@@ -100,12 +100,23 @@ describe("SparkSessionRegistry v6 ownership", () => {
       cwd: "/repo/.agents/worktrees/change",
       cwdArtifactRef: artifactRef,
     });
+    const attachedWorktree = await registry.create({
+      sessionId: "sess_attached_worktree",
+      scope: admin.scope,
+      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      cwd: "/Users/agent/.agents/worktrees/change",
+      cwdArtifactRef: "artifact:attached-worktree",
+    });
 
     await expect(registry.list()).resolves.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           sessionId: child.sessionId,
           cwdArtifactRef: artifactRef,
+        }),
+        expect.objectContaining({
+          sessionId: attachedWorktree.sessionId,
+          cwdArtifactRef: "artifact:attached-worktree",
         }),
       ]),
     );
