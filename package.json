@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Spark monorepo: daemon-first agent orchestration across TUI, Hub, and channels, with Pi retained only as an SDK kernel.",
   "keywords": [
@@ -144,7 +144,10 @@
   },
   "sparkRelease": {
     "minimumUpdaterVersion": "0.2.0",
-    "rollbackCompatibility": ">=0.2.0 <0.3.0",
+    "rollbackCompatibility": "<0.0.0",
+    "nMinusOneMigrationExemptions": {
+      "0.4.0": "One-time coordinated hard cut for view-model protocol v2; mixed 0.3.x and 0.4.0 processes are unsupported."
+    },
     "migrationMode": "expand-only"
   }
 }

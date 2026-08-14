@@ -24,9 +24,9 @@ must match it exactly (`vX.Y.Z`).
 
 `.github/workflows/cd-publish.yml` assumes the source commit has already passed
 the ordinary CI checks and validates only release-specific surfaces: the docs
-deployment dry run, Hub container build/smoke, exact generated tarballs, and N-1
-migration compatibility. It does not rerun the repository source/unit/process or
-Hub browser suites owned by CI.
+deployment dry run, Hub container build/smoke, exact generated tarballs, and the
+declared N-1 migration policy. It does not rerun the repository
+source/unit/process or Hub browser suites owned by CI.
 
 For release compatibility, the gate queries the canonical npm registry, selects
 the newest published stable `@zendev-lab/spark` version strictly older than the
@@ -42,6 +42,22 @@ published N-1 artifact. `pnpm run release:pack` builds once and writes:
 - `dist/release/*-release-manifest.json`
 - `dist/release/release-manifest.json`
 - `dist/release/SHA256SUMS`
+
+### One-time 0.4.0 compatibility exemption
+
+`0.4.0` is a coordinated hard cut for view-model protocol v2. The root
+`sparkRelease.nMinusOneMigrationExemptions` map is the machine-readable source
+for this single exception. The release workflow still verifies exact package
+identity, `publint`, installation smoke, same-version daemon/TUI/Hub operation,
+artifact hashes, and cleanup, but it does not run the mixed `0.3.x` ↔ `0.4.0`
+IPC or migration matrix.
+
+Mixed old/new processes are unsupported. Before applying `0.4.0`, stop all
+`0.3.x` Hub, daemon, and TUI processes and capture a verified backup of their
+state. The release manifest deliberately declares no executable rollback range;
+returning to `0.3.x` requires stopping `0.4.0` and restoring the pre-cutover
+backup. The exemption must not be copied to `0.4.1` or any later release; remove
+its manifest entry on `main` when advancing beyond the published `0.4.0` line.
 
 The root manifest remains the managed updater contract; the bounded companion
 manifests bind each app package to the same version, Git SHA, npm integrity,
@@ -89,22 +105,24 @@ fingerprint before health is accepted. Three matching health checks are
 required. Failure switches back to the rollback version and quarantines the
 candidate; retry requires explicit operator intent or a newer version.
 
-Database migrations eligible for automatic update must be expand-only and
-readable by N-1. Destructive migrations require manual confirmation. Rollback
-switches executable versions; it never restores an old database snapshot or
-discards daemon sessions/messages.
+Outside an explicitly declared release exemption, database migrations eligible
+for automatic update must be expand-only and readable by N-1. Destructive
+migrations require manual confirmation. Ordinary same-line rollback switches
+executable versions; it never restores an old database snapshot or discards
+daemon sessions/messages. The one-time `0.4.0` hard cut instead follows the
+stop, backup, and restore procedure above.
 
 ## Rollout order
 
 Keep the pre-1.0 rollout deliberately gated:
 
-1. Land build fingerprints and target-fenced daemon restart.
-2. Publish the reviewed `v0.3.0` five-package set and matching GitHub Release.
-3. Exercise managed install plus manual apply/rollback on macOS.
+1. Stop every `0.3.x` process and capture verified daemon and Hub state backups.
+2. Publish the reviewed `v0.4.0` five-package set and matching GitHub Release.
+3. Exercise managed install plus restore-based rollback on macOS.
 4. Enable the `notify` launchd job by default; keep `auto` opt-in.
-5. Open `auto` only after three real upgrades and one failed-candidate rollback
-   preserve the daemon database, sessions, transcripts, Hub reconnection,
-   and exact successor build identity.
+5. Open `auto` only after three real same-minor upgrades and one failed-candidate
+   rollback have preserved the daemon database, sessions, transcripts, Hub
+   reconnection, and exact successor build identity.
 
 Linux uses the same launcher, layout, lock, transaction, and CLI contracts.
 Automated systemd installation is intentionally deferred.

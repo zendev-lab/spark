@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-extension",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Spark-native extension composition and policy boundary.",
   "license": "MIT",

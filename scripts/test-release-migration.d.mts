@@ -24,6 +24,11 @@ export function selectPublishedBaselineVersion(
   explicitVersion?: string,
 ): string | undefined;
 
+export function resolveReleaseMigrationExemption(
+  sparkRelease: unknown,
+  candidateVersion: string,
+): { candidateVersion: string; reason: string } | undefined;
+
 export function resolvePublishedHubProbe(
   baselineRoot: string,
   dependencies?: { exists?: (path: string) => boolean | Promise<boolean> },
