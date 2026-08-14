@@ -373,6 +373,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
     // Host controls must bypass SparkNativeSession.submit: an active turn may queue prompts,
     // but it must never queue or swallow slash commands such as /model and /plan.
     if (isSlashCommand) {
+      this.editor.addToHistory(input);
       await this.runSlashCommand(text);
       this.invalidate();
       this.tui.requestRender();
