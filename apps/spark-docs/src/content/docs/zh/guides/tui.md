@@ -78,11 +78,22 @@ Esc 仍会优先取消正在执行的工作。session 空闲且编辑器为空�
 /inspect
 /inspect tasks
 /inspect artifacts
+/inspect repro
 /inspect off
 ```
 
 这里只展示已经发布到当前 TUI 的投影，不是 Hub Web，也不会创建新的执行
 所有者。需要跨会话和工作空间监督时，在另一个终端运行 `spark hub`。
+
+daemon 投影活跃 Repro 时，transcript 顶部会常驻一行紧凑的 Implementation / Exactness /
+Formalize 摘要，显示计数、阻塞、待交接和最近的 `formalizedTip`。Ctrl+K 会先打开
+Repro panel；Shift+Ctrl+K 循环 inspector panel。在 Repro panel 中，用 1、2、3 选择
+lane，用方向键或 J/K 选择有界 work item，按 Enter 打开已有 Task、Run、Git Change
+和 Evidence 投影组成的详情。Esc 按“详情 → panel → transcript”返回。
+
+TUI 不会从 transcript 文本、prompt 或经过时间推断 lane 状态。窄终端优先保留最新
+对话和 composer，再显示 inspector 详情。`/reload` 后 panel 焦点和选择会重置，新
+worker 会重新投影同一份 daemon 所有的 Session 与 Repro 状态；已完成 Ask 不会重放。
 
 旧的 `/hub` 拼写仍可作为兼容别名执行，但不会出现在普通补全中。
 

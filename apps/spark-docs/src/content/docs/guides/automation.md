@@ -29,6 +29,10 @@ start work or create a fifth automation mode.
 A goal keeps working toward one durable outcome and stops when it completes,
 fails, or needs your input.
 
+Goal remains one runtime line. Its `active`, `waiting_decision`, `paused`, and
+`complete` presentation is derived from the TaskGraph; a pending decision does
+not prevent unrelated ready Tasks from continuing.
+
 ```text
 /goal start <objective>
 /goal status
@@ -58,9 +62,18 @@ receiving either receipt as a transcript message.
 
 ## Repro
 
-Repro guides evidence-gated work through setup, scaffold, reproduce, scale,
-and deliver. It pauses instead of guessing when a baseline, authority decision,
-or approval is missing.
+Repro organizes evidence-gated work into Implementation Explore, Exactness
+Explore, and Formalize. The two Explore lanes may proceed independently but do
+not advance normative progress. Only an accepted Formalize retirement updates
+`formalizedTip`; that value is distinct from the current Git Change stack tip.
+
+Implementation hands candidates forward to Exactness, and Exactness hands
+verified candidates to Formalize. Resolutions flow backward to retire temporary
+work. An Exactness mismatch records the first bad boundary, classification,
+confidence, and disposition; skipping a check requires both isolation and a
+resynchronization point. Repro pauses instead of guessing when a baseline,
+authority decision, or approval is missing. Use `/inspect repro` to inspect the
+bounded daemon projection in the TUI.
 
 ```text
 /repro start <objective>

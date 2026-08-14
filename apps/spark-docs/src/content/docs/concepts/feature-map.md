@@ -86,6 +86,11 @@ Goal, Loop, Repro, and Workflow add daemon-owned continuation for work
 that must persist or repeat. `/automate` is only a picker for those existing
 modes.
 
+Repro owns three lanes: Implementation Explore, Exactness Explore, and
+Formalize. Explore work can proceed in parallel without advancing normative
+progress; only Formalize can update the accepted `formalizedTip`. Goal remains
+a single TaskGraph-derived runtime projection rather than adopting those lanes.
+
 Start with [plan and implement](/guides/plan-and-execute/), then read
 [long-running automation](/guides/automation/).
 

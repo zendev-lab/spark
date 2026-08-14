@@ -73,10 +73,16 @@ const requiredMilestoneNames = [
   "validation.passed_after_fix",
   "git_change.committed",
   "pull_request.submitted",
+  "implementation.work_registered",
+  "handoff.implementation_exactness",
+  "exactness.finding_recorded",
+  "handoff.exactness_formalize",
+  "formalize.resolved",
   "report.projected",
   "report.synced",
   "repro.completed",
   "workbench.sealed",
+  "three_lane.recovered",
 ] as const;
 
 interface ScriptedRound {
@@ -132,6 +138,7 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
   retainedFailureFixture = fixture.temporary;
   let daemonPid = 0;
   let restartedDaemonPid = 0;
+  let laneRecoveryDaemonPid = 0;
   let hubPid = 0;
   try {
     const referenceValidation = await runFixtureVerification(fixture.sourceRepo, "reference");
@@ -318,10 +325,34 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     assert.deepEqual(await sessionToolErrorIds(fixture.sparkHome, sessionId), []);
     await assertClosedDriverRetention(fixture.sparkHome, fixture.daemonDbPath);
 
+    assertThreeLaneRecoveryState(repro);
+    await runSparkProcess(fixture.target, ["daemon", "restart", "--yes", "--wait"]);
+    const laneRecoveryStatus = jsonObject(
+      (await runSparkProcess(fixture.target, ["daemon", "status", "--json"])).stdout,
+    );
+    const laneRecoveryDaemon = objectField(laneRecoveryStatus, "daemon");
+    laneRecoveryDaemonPid = numberField(laneRecoveryDaemon, "pid");
+    assert.notEqual(laneRecoveryDaemonPid, restartedDaemonPid);
+    assert.equal(readProcessOwnership(fixture.daemonDbPath).pid, laneRecoveryDaemonPid);
+
+    const recoveredSnapshot = await requestSparkDaemonLocalRpc<Record<string, unknown>>(
+      "session.snapshot",
+      { sessionId },
+      { socketPath: fixture.daemonSocketPath },
+    );
+    const recoveredWork = objectField(recoveredSnapshot, "work");
+    const recoveredRepro = objectField(recoveredWork, "repro");
+    assertThreeLaneProjection(objectField(recoveredRepro, "lanes"));
+    assertThreeLaneRecoveryState(
+      objectField(jsonObject(await readFile(reproPath, "utf8")), "repro"),
+    );
+
     const report = await waitForJsonFile(resolve(fixture.workspace, "outputs/spark-summary.json"));
     const reportMarkdown = await readFile(resolve(fixture.workspace, "outputs/report.md"), "utf8");
     const reportWork = objectField(report, "work");
     assert.equal(stringField(reportWork, "reproId"), reproId);
+    assert.equal(stringField(reportWork, "schema"), "spark.repro.work-summary/v3");
+    assertThreeLaneWorkSummary(reportWork);
     const reportArtifactRef = stringField(reportWork, "reportArtifactRef");
     const reportArtifactRefs = stringArrayField(reportWork, "artifactRefs");
     assert.equal(reportArtifactRefs.filter((ref) => ref === reportArtifactRef).length, 1);
@@ -425,6 +456,10 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
           generation: generationAfter,
           processStartToken: ownershipAfter.processStartToken,
         },
+        laneRecovery: {
+          pid: laneRecoveryDaemonPid,
+          processStartToken: readProcessOwnership(fixture.daemonDbPath).processStartToken,
+        },
         sqlitePath: fixture.daemonDbPath,
       },
       validation: {
@@ -459,15 +494,22 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       },
       terminalOwner: terminal,
     };
-    await stopProcesses(fixture.target, [daemonPid, restartedDaemonPid, hubPid]);
+    await stopProcesses(fixture.target, [
+      daemonPid,
+      restartedDaemonPid,
+      laneRecoveryDaemonPid,
+      hubPid,
+    ]);
     const teardown = {
       daemonBeforeAlive: isProcessAlive(daemonPid),
       daemonAfterAlive: isProcessAlive(restartedDaemonPid),
+      laneRecoveryDaemonAlive: isProcessAlive(laneRecoveryDaemonPid),
       hubAlive: isProcessAlive(hubPid),
     };
     assert.deepEqual(teardown, {
       daemonBeforeAlive: false,
       daemonAfterAlive: false,
+      laneRecoveryDaemonAlive: false,
       hubAlive: false,
     });
     process.stdout.write(
@@ -476,9 +518,12 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     retainedFailureFixture = undefined;
     await rm(fixture.temporary, { recursive: true, force: true });
   } catch (error) {
-    await stopProcesses(fixture.target, [daemonPid, restartedDaemonPid, hubPid]).catch(
-      () => undefined,
-    );
+    await stopProcesses(fixture.target, [
+      daemonPid,
+      restartedDaemonPid,
+      laneRecoveryDaemonPid,
+      hubPid,
+    ]).catch(() => undefined);
     throw error;
   }
 }, 300_000);
@@ -954,6 +999,111 @@ function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }
     });
   }
 
+  const laneEvidenceRef = formalEvidenceRefs[3]!;
+  const laneWorkItemId = "work:minimal-normalization";
+  const candidateRevision = "commit:candidate-minimal-normalization";
+  const canonicalRevision = "commit:formalized-minimal-normalization";
+  tool("three-lane.work.registered", "repro", {
+    action: "work_register",
+    laneInput: {
+      lane: "implementation",
+      workItemId: laneWorkItemId,
+      title: "Align the minimal normalization boundary",
+      scope: "target normalization boundary",
+      planRevision: 8,
+      sourceRevision: candidateRevision,
+      status: "completed",
+      gitChangeRef: "${ARTIFACT_REF_1}",
+      evidenceRefs: [laneEvidenceRef],
+    },
+  });
+  tool("three-lane.handoff.implementation-exactness", "repro", {
+    action: "handoff_record",
+    laneInput: {
+      handoffId: "handoff:minimal-implementation-exactness",
+      workItemId: laneWorkItemId,
+      from: "implementation",
+      to: "exactness",
+      planRevision: 8,
+      sourceRevision: candidateRevision,
+      scope: "Classify the first failing normalization boundary",
+      evidenceRefs: [laneEvidenceRef],
+      candidateRevisions: [candidateRevision],
+      doneWhen: ["The first bad boundary is confirmed"],
+      status: "accepted",
+    },
+  });
+  tool("three-lane.finding.recorded", "repro", {
+    action: "finding_record",
+    laneInput: {
+      findingId: "finding:minimal-normalization-boundary",
+      workItemId: laneWorkItemId,
+      firstBadBoundary: "target.normalize.output",
+      classification: "implementation_defect",
+      disposition: "fix",
+      confidence: "confirmed",
+      evidenceRefs: [laneEvidenceRef],
+    },
+  });
+  tool("three-lane.formalize.bound", "repro", {
+    action: "formalize_bind",
+    laneInput: { gitChangeRef: "${ARTIFACT_REF_1}" },
+  });
+  tool("three-lane.handoff.exactness-formalize", "repro", {
+    action: "handoff_record",
+    laneInput: {
+      handoffId: "handoff:minimal-exactness-formalize",
+      workItemId: laneWorkItemId,
+      from: "exactness",
+      to: "formalize",
+      planRevision: 8,
+      sourceRevision: candidateRevision,
+      scope: "Accept the verified normalization repair",
+      findingIds: ["finding:minimal-normalization-boundary"],
+      evidenceRefs: [laneEvidenceRef],
+      candidateRevisions: [candidateRevision],
+      dependsOnHandoffIds: ["handoff:minimal-implementation-exactness"],
+      doneWhen: ["The canonical stack accepts the repair"],
+      status: "accepted",
+    },
+  });
+  const formalResolution = {
+    resolutionId: "resolution:minimal-formalize-exactness",
+    workItemId: laneWorkItemId,
+    from: "formalize",
+    to: "exactness",
+    status: "resolved",
+    canonicalRevision,
+    supersededRevisions: [candidateRevision],
+    evidenceRefs: [laneEvidenceRef],
+  };
+  tool("three-lane.resolution.formalize-exactness", "repro", {
+    action: "resolution_record",
+    laneInput: formalResolution,
+  });
+  tool("three-lane.resolution.formalize-exactness.duplicate", "repro", {
+    action: "resolution_record",
+    laneInput: formalResolution,
+  });
+  tool("three-lane.resolution.exactness-implementation", "repro", {
+    action: "resolution_record",
+    laneInput: {
+      resolutionId: "resolution:minimal-exactness-implementation",
+      workItemId: laneWorkItemId,
+      from: "exactness",
+      to: "implementation",
+      status: "superseded",
+      canonicalRevision,
+      supersededRevisions: [candidateRevision],
+      evidenceRefs: [laneEvidenceRef],
+      parentResolutionId: formalResolution.resolutionId,
+    },
+  });
+  tool("three-lane.resolution.replayed-idempotently", "repro", {
+    action: "resolution_record",
+    laneInput: formalResolution,
+  });
+
   tool("report.projected", "repro", {
     action: "project_report",
     workSummary: completeWorkSummary({
@@ -1273,6 +1423,62 @@ function completeWorkSummary(input: {
       },
     ],
   };
+}
+
+function assertThreeLaneRecoveryState(repro: Record<string, unknown>): void {
+  assert.equal(numberField(repro, "version"), 8);
+  const threeLane = objectField(repro, "threeLane");
+  assert.equal(stringField(threeLane, "schema"), "spark.repro.three-lane-session/v1");
+  assert.deepEqual(
+    arrayField(threeLane, "workItems").map((item) => stringField(item, "workItemId")),
+    ["work:minimal-normalization"],
+  );
+  assert.deepEqual(
+    arrayField(threeLane, "handoffs").map((handoff) => stringField(handoff, "handoffId")),
+    ["handoff:minimal-implementation-exactness", "handoff:minimal-exactness-formalize"],
+  );
+  assert.deepEqual(
+    arrayField(threeLane, "resolutions").map((resolution) =>
+      stringField(resolution, "resolutionId"),
+    ),
+    ["resolution:minimal-formalize-exactness", "resolution:minimal-exactness-implementation"],
+  );
+  assert.equal(
+    stringField(objectField(threeLane, "formalize"), "formalizedTip"),
+    "commit:formalized-minimal-normalization",
+  );
+}
+
+function assertThreeLaneProjection(lanes: Record<string, unknown>): void {
+  for (const lane of ["implementation", "exactness", "formalize"] as const) {
+    const projected = objectField(lanes, lane);
+    assert.equal(stringField(projected, "status"), "complete");
+    assert.equal(numberField(projected, "totalCount"), 1);
+    assert.equal(arrayField(projected, "items").length, 1);
+  }
+  assert.equal(stringField(lanes, "formalizedTip"), "commit:formalized-minimal-normalization");
+  assert.ok(!JSON.stringify(lanes).includes("target normalization boundary"));
+}
+
+function assertThreeLaneWorkSummary(work: Record<string, unknown>): void {
+  const lanes = objectField(work, "lanes");
+  assert.deepEqual(stringArrayField(objectField(lanes, "implementation"), "workItemIds"), [
+    "work:minimal-normalization",
+  ]);
+  assert.deepEqual(stringArrayField(objectField(lanes, "exactness"), "workItemIds"), [
+    "work:minimal-normalization",
+  ]);
+  assert.deepEqual(stringArrayField(objectField(lanes, "formalize"), "workItemIds"), [
+    "work:minimal-normalization",
+  ]);
+  assert.equal(
+    stringField(objectField(lanes, "formalize"), "formalizedTip"),
+    "commit:formalized-minimal-normalization",
+  );
+  assert.equal(arrayField(work, "workItems").length, 1);
+  assert.equal(arrayField(work, "findings").length, 1);
+  assert.equal(arrayField(work, "handoffs").length, 2);
+  assert.equal(arrayField(work, "resolutions").length, 2);
 }
 
 async function sessionToolErrorIds(sparkHome: string, sessionId: string): Promise<string[]> {

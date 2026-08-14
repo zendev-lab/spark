@@ -78,6 +78,10 @@ Project → Task plan → claim 或 assign → Run → Artifact → Review
 Workflow 为需要持续或重复的
 工作提供 daemon 所有的续跑能力。`/automate` 只是这些已有模式的选择器。
 
+Repro 拥有三条 lane：Implementation Explore、Exactness Explore 和 Formalize。
+Explore 工作可以并行，但不会推进正式进度；只有 Formalize 能更新已接受的
+`formalizedTip`。Goal 仍是由 TaskGraph 推导的单线 runtime 投影，不采用这三条 lane。
+
 先读[规划并实现一个修改](/zh/guides/plan-and-execute/)，需要长期工作时再读
 [长期自动推进](/zh/guides/automation/)。
 
