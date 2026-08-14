@@ -183,7 +183,7 @@ test("legacy provider config still exposes the bundled OpenAI Codex catalog", as
         "baidu-oneapi/gpt-5.6-luna",
         "baidu-oneapi/gpt-5.6-sol",
         "baidu-oneapi/gpt-5.6-terra",
-        "baidu-oneapi/grok-4.5",
+        "baidu-oneapi/grok-4.6",
         "openai-codex/gpt-5.6-luna",
         "openai-codex/gpt-5.6-sol",
         "openai-codex/gpt-5.6-terra",
