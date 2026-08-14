@@ -1233,7 +1233,7 @@ test("native ask overlay opens a freeform wait that omitted options arrays", asy
       mode: "decision",
       questions: [omitted as never],
       metadata: {},
-    }).questions[0]?.options.length,
+    }).questions[0]?.options?.length,
     0,
   );
   const harness = createSparkNativeTuiComponentHarness({ withOverlay: true });
@@ -1245,10 +1245,12 @@ test("native ask overlay opens a freeform wait that omitted options arrays", asy
   await harness.flush();
   const overlay = harness.state.overlays.at(-1);
   assert.ok(overlay);
+  const overlayComponent = overlay.component;
+  assert.ok(overlayComponent);
   assert.equal(overlay.visible, true);
-  overlay.component.handleInput?.("x");
-  overlay.component.handleInput?.("\r");
-  overlay.component.handleInput?.("\r");
+  overlayComponent.handleInput?.("x");
+  overlayComponent.handleInput?.("\r");
+  overlayComponent.handleInput?.("\r");
   const response = await promise;
   assert.equal(response.status, "answered");
 });

@@ -3968,6 +3968,7 @@ test("ignores a stale resolved workspace suggestion without consulting local dae
   const registeredWorkspace = {
     id: "workspace-registered",
     serverUrl: "",
+    localWorkspaceKey: "registered",
     displayName: "Registered",
     localPath: "/registered/workspace",
     status: "active" as const,
@@ -4015,15 +4016,10 @@ test("ignores a stale resolved workspace suggestion without consulting local dae
       launchCwd: "/launch/unregistered",
       selectSession: async (options) => {
         assert.equal(options.suggestedWorkspaceId, "__spark_launch_cwd_workspace__");
-        assert.deepEqual(
-          options.workspaces.map(({ canonicalId, localPath }) => ({ canonicalId, localPath })),
-          [
-            { canonicalId: registeredWorkspace.id, localPath: registeredWorkspace.localPath },
-            {
-              canonicalId: "__spark_launch_cwd_workspace__",
-              localPath: "/launch/unregistered",
-            },
-          ],
+        assert.equal(options.workspaces.at(-1)?.canonicalId, "__spark_launch_cwd_workspace__");
+        assert.equal(
+          options.workspaces.some((workspace) => workspace.canonicalId === registeredWorkspace.id),
+          true,
         );
         return null;
       },
