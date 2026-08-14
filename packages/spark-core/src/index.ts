@@ -1582,6 +1582,15 @@ export interface TaskRunExecutionBinding {
   workerLaneKey?: string;
   /** Daemon invocation accepted for this attempt; used for restart-safe reconciliation. */
   invocationId?: string;
+  /**
+   * Frozen provider/model selected at TaskRun admission.
+   * Resume of the same paused run reuses this snapshot; rebind requires a new attempt.
+   */
+  model?: string;
+  /** Where the frozen model came from: project selector, role override, or host registry. */
+  modelSource?: "project" | "role" | "host" | "explicit" | "resume";
+  /** Content digest of the frozen provider/model config for audit/resume equality. */
+  modelConfigDigest?: string;
 }
 
 export interface TaskRun {

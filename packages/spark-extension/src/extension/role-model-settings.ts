@@ -66,50 +66,44 @@ export async function ensureRoleModelSettingsForProject(input: {
       resolvedModels.push({ roleRef, model: existing });
       continue;
     }
-    const selected = await input.ctx.ui?.input?.(`Choose Pi model for Spark role ${role.id}`);
-    const model = selected?.trim();
-    if (!model) {
-      missingRoleRefs.push(roleRef);
-      continue;
-    }
-    try {
-      if (!modelCatalog) {
-        throw new Error("Spark model catalog is unavailable in this host context");
+
+    // Fail closed without model_set / ask / UI picker. Host session model may
+    // cover admission only when it is already a concrete provider/model string.
+    const hostModel =
+      typeof input.ctx.model?.provider === "string" && typeof input.ctx.model?.id === "string"
+        ? `${input.ctx.model.provider.trim()}/${input.ctx.model.id.trim()}`
+        : undefined;
+    if (hostModel && hostModel.includes("/")) {
+      try {
+        if (modelCatalog) await validateRoleModel({ catalog: modelCatalog, model: hostModel });
+        boundRoleRefs.push(roleRef);
+        inheritedRoleRefs.push(roleRef);
+        resolvedModels.push({
+          roleRef,
+          model: {
+            model: hostModel,
+            source: "explicit",
+            modelType: role.modelType,
+          },
+        });
+        continue;
+      } catch {
+        // fall through to missing
       }
-      await validateRoleModel({ catalog: modelCatalog, model });
-      const entry = await userStore.save(role.modelType, model);
-      boundRoleRefs.push(roleRef);
-      resolvedModels.push({
-        roleRef,
-        model: {
-          model: entry.model,
-          source: entry.source,
-          modelType: entry.modelType,
-        },
-      });
-      input.ctx.ui?.notify?.(`Saved model setting for Spark role ${role.id}: ${model}`, "success");
-    } catch (error) {
-      return {
-        ready: false,
-        message: `Model validation failed for ${role.id} (${roleRef}): ${error instanceof Error ? error.message : String(error)}`,
-        checkedRoleRefs: roleRefs,
-        boundRoleRefs,
-        missingRoleRefs: [roleRef],
-        error: "model_validation_failed",
-      };
     }
+    missingRoleRefs.push(roleRef);
   }
   if (missingRoleRefs.length > 0) {
     const visibleMissingRoleRefs = missingRoleRefs.slice(0, 8);
     const hiddenMissingRoleRefs = missingRoleRefs.length - visibleMissingRoleRefs.length;
     return {
       ready: false,
-      message: `Spark Role Model Type is unconfigured before dispatch: ${visibleMissingRoleRefs.join(", ")}${hiddenMissingRoleRefs > 0 ? `, … ${hiddenMissingRoleRefs} more` : ""}. Save a concrete model with role({ action: "model_set" }) for each required Model Type.`,
+      message: `MODEL_RESOLUTION_UNAVAILABLE: Spark Role Model Type is unconfigured before dispatch: ${visibleMissingRoleRefs.join(", ")}${hiddenMissingRoleRefs > 0 ? `, … ${hiddenMissingRoleRefs} more` : ""}. Configure project/role/host model settings before assign; dispatch never prompts for model_set, ask, or picker.`,
       checkedRoleRefs: roleRefs,
       boundRoleRefs,
       missingRoleRefs,
       inheritedRoleRefs,
-      error: "role_model_type_unconfigured",
+      error: "MODEL_RESOLUTION_UNAVAILABLE",
     };
   }
   return {

@@ -25,8 +25,14 @@ import {
 } from "@zendev-lab/spark-loop";
 import type { SparkSessionCloseCandidate } from "@zendev-lab/spark-protocol/session-assignment";
 import type { RoleRegistry, RoleSpec } from "@zendev-lab/spark-roles";
-import { sparkTaskExecutorRoleRef } from "@zendev-lab/spark-runtime";
+import {
+  isModelResolutionUnavailableError,
+  resolveExecutorModel,
+  sparkTaskExecutorRoleRef,
+  type ExecutorModelSnapshot,
+} from "@zendev-lab/spark-runtime";
 import { defaultTaskGraphStore, type TaskGraph } from "@zendev-lab/spark-tasks";
+import { sessionModelName } from "./session-model.ts";
 import type { SparkReproSubgoal } from "./spark-session-repro.ts";
 import {
   fleetLaneKey,
@@ -45,6 +51,10 @@ export interface ManagedTaskSessionDispatchInput {
   registry: RoleRegistry;
   subgoals?: readonly SparkReproSubgoal[];
   resourceAllocations?: Partial<Record<TaskRef, TaskResourceAllocation>>;
+  /** Project implementation model selector (provider/model or bare id). */
+  projectModelSelector?: string;
+  /** Host model registry for bare-id normalization and availability checks. */
+  modelRegistry?: unknown;
   /** Fleet uses stable target lanes and completion mail instead of per-Task Sessions. */
   fleet?: boolean;
   daemonRequest?: typeof requestSparkDaemon;
@@ -101,8 +111,72 @@ export async function dispatchManagedTaskSessions(
   const fleetTargets = input.fleet
     ? await resolveFleetTargets(stateCwd, store, uniqueTaskRefs)
     : undefined;
+
+  // Fail closed on attempt limits before model resolution so recovery refusals
+  // keep their attempt_limit reason and never partially claim other tasks.
+  const graphForResolution = await store.load();
+  if (!graphForResolution) throw new Error("Spark task graph is unavailable");
+  const projectRuns = graphForResolution.runs(input.projectRef);
+  for (const taskRef of uniqueTaskRefs) {
+    const task = graphForResolution.getTask(taskRef);
+    if (task.projectRef !== input.projectRef) {
+      throw new Error(`task ${taskRef} does not belong to project ${input.projectRef}`);
+    }
+    const historicalRuns = projectRuns.filter((run) => run.taskRef === taskRef && !run.dryRun);
+    const attempt = historicalRuns.length + 1;
+    const maxAttempts = task.executionPolicy?.maxAttempts ?? 2;
+    if (attempt > maxAttempts) {
+      throw new ManagedTaskSessionDispatchRefusal(
+        `task ${taskRef} reached maxAttempts=${maxAttempts}; immutable run history requires attempt=${attempt}`,
+        "attempt_limit",
+      );
+    }
+  }
+
+  // Resolve executor models before any TaskRun claim/spawn. Fail closed with
+  // MODEL_RESOLUTION_UNAVAILABLE so no partial claim side effects remain.
+  const ctxModel = (
+    input.ctx as { model?: { provider?: string; id?: string }; modelRegistry?: unknown }
+  ).model;
+  const hostModel = sessionModelName(ctxModel);
+  const modelRegistry =
+    input.modelRegistry ?? (input.ctx as { modelRegistry?: unknown }).modelRegistry;
+  const modelSnapshots = new Map<TaskRef, ExecutorModelSnapshot>();
+  for (const taskRef of uniqueTaskRefs) {
+    const task = graphForResolution.getTask(taskRef);
+    // Same task_revision continuity reuses the frozen admission snapshot instead of
+    // silently re-resolving a different provider/model.
+    const priorExecution =
+      task.executionPolicy?.sessionLifetime === "task_revision"
+        ? graphForResolution
+            .runs(input.projectRef)
+            .filter((run) => run.taskRef === taskRef && !run.dryRun && run.execution?.model)
+            .sort((left, right) => (left.startedAt ?? "").localeCompare(right.startedAt ?? ""))
+            .at(-1)?.execution
+        : undefined;
+    const resumeSnapshot =
+      priorExecution?.model && priorExecution.modelConfigDigest
+        ? {
+            model: priorExecution.model,
+            source: (priorExecution.modelSource ?? "resume") as ExecutorModelSnapshot["source"],
+            configDigest: priorExecution.modelConfigDigest,
+          }
+        : undefined;
+    const snapshot = await resolveExecutorModel({
+      cwd: input.cwd,
+      task,
+      registry: input.registry,
+      projectSelector: input.projectModelSelector,
+      hostModel,
+      modelRegistry,
+      resumeSnapshot,
+      failClosed: true,
+    });
+    modelSnapshots.set(taskRef, snapshot);
+  }
+
   const reserved = await store.update(
-    (graph) => reserveTaskSessionRuns(graph, input, uniqueTaskRefs, fleetTargets),
+    (graph) => reserveTaskSessionRuns(graph, input, uniqueTaskRefs, fleetTargets, modelSnapshots),
     { createIfMissing: false },
   );
   if (!reserved.graph) throw new Error("Spark task graph is unavailable");
@@ -477,6 +551,7 @@ function reserveTaskSessionRuns(
   input: ManagedTaskSessionDispatchInput,
   taskRefs: TaskRef[],
   fleetTargets?: Map<TaskRef, ResolvedFleetTarget>,
+  modelSnapshots: Map<TaskRef, ExecutorModelSnapshot> = new Map(),
 ): ReservedTaskSessionRun[] {
   const ready = new Set(graph.readyTasks(input.projectRef).map((task) => task.ref));
   const projectRuns = graph.runs(input.projectRef);
@@ -563,6 +638,10 @@ function reserveTaskSessionRuns(
       : ((reusableExecution ? taskExecutionSessionId(reusableExecution) : undefined) ??
         `sess_task_${stableId(`${input.projectRef}:${taskRef}:${jobId}:attempt:${attempt}`)}`);
     const sessionGoalId = reusableExecution?.sessionGoalId ?? randomUUID();
+    const modelSnapshot = modelSnapshots.get(taskRef);
+    if (!modelSnapshot) {
+      throw new Error(`MODEL_RESOLUTION_UNAVAILABLE: missing admission snapshot for ${taskRef}`);
+    }
     const execution: TaskRunExecutionBinding = {
       ownerSessionId: input.ownerSessionId,
       sessionId,
@@ -574,6 +653,9 @@ function reserveTaskSessionRuns(
       jobId,
       attempt,
       ...(workerLaneKey ? { workerLaneKey } : {}),
+      model: modelSnapshot.model,
+      modelSource: modelSnapshot.source,
+      modelConfigDigest: modelSnapshot.configDigest,
     };
     const runRef = newRef("run");
     const runName = `${task.name}-attempt-${attempt}`;

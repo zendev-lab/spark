@@ -5067,7 +5067,9 @@ test("split task tools dispatch read, write, and assign actions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "task-tool-canonical-"));
   try {
     await writeEmptySparkProject(dir);
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     const ctx = testSparkContext(dir, "main");
+    ctx.model = { provider: "test", id: "model" };
     const { tools } = registerSparkToolsForTest();
     assert.equal(tools.has("task"), false, "old task multiplexer must not be public");
     assert.ok(tools.has("task_read"), "missing task_read tool");
@@ -10984,7 +10986,10 @@ test("workflow-run manager preflights role models through the host catalog witho
     process.env.SPARK_HOME = dir;
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
-    ctx.inputValue = "test/model";
+    // Fail-closed admission never prompts model_set/ask/picker; configure the
+    // role model setting and host catalog up front.
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
+    ctx.model = { provider: "test", id: "model" };
     ctx.modelRegistry = {
       getAll: () => [{ provider: "test", id: "model" }],
       getAvailable: () => [{ provider: "test", id: "model" }],
@@ -11022,7 +11027,7 @@ test("workflow-run manager preflights role models through the host catalog witho
 
     assert.equal(result.continuePolling, false);
     const settingsFile = JSON.parse(
-      await readFile(join(dir, "role-model-settings.json"), "utf8"),
+      await readFile(join(dir, ".spark", "role-model-settings.json"), "utf8"),
     ) as { version: number; modelTypes: Record<string, string> };
     assert.equal(settingsFile.version, 2);
     assert.deepEqual(settingsFile.modelTypes, { implementation: "test/model" });

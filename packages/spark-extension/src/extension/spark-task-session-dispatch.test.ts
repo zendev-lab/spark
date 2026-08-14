@@ -15,7 +15,7 @@ import type {
 import { loadSessionGoal } from "@zendev-lab/spark-loop";
 import type { SparkFleetWorkerBinding, SparkSessionOwner } from "@zendev-lab/spark-protocol";
 import { createSparkSessionRepro } from "@zendev-lab/spark-repro";
-import { RoleRegistry } from "@zendev-lab/spark-roles";
+import { defaultProjectRoleModelSettingsStore, RoleRegistry } from "@zendev-lab/spark-roles";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   dispatchManagedTaskSessions,
@@ -25,6 +25,19 @@ import { workspaceSessionRecord } from "../../../../test/support/session-fixture
 
 const roots: string[] = [];
 
+async function seedExecutorModel(cwd: string): Promise<void> {
+  await defaultProjectRoleModelSettingsStore(cwd).save("implementation", "test/model");
+  await defaultProjectRoleModelSettingsStore(cwd).save("exploration", "test/model");
+  await defaultProjectRoleModelSettingsStore(cwd).save("verification", "test/model");
+}
+
+function dispatchCtx(sessionId: string) {
+  return {
+    sessionId,
+    model: { provider: "test", id: "model" },
+  };
+}
+
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -33,6 +46,7 @@ describe("managed Task Session dispatch", () => {
   it("serializes one Fleet lane, reuses its Session, and honors fresh continuity", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-fleet-"));
     roots.push(cwd);
+    await seedExecutorModel(cwd);
     const worktree = join(cwd, "worktree");
     await mkdir(worktree);
     const artifactRef = "artifact:fleet-worktree" as ArtifactRef;
@@ -238,6 +252,9 @@ describe("managed Task Session dispatch", () => {
   it("creates one daemon Session Goal and execution binding per allowlisted Task", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-dispatch-"));
     roots.push(cwd);
+    await seedExecutorModel(cwd);
+    roots.push(cwd);
+    await seedExecutorModel(cwd);
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Repro", description: "Repro" });
     const tasks = ["Trace reference", "Probe resource envelope"].map((title) =>
@@ -459,6 +476,7 @@ describe("managed Task Session dispatch", () => {
     async ({ continuity, reusesSession }) => {
       const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-continuity-"));
       roots.push(cwd);
+      await seedExecutorModel(cwd);
       const graph = new TaskGraph();
       const project = graph.createProject({ title: "Retry", description: "Retry" });
       const task = graph.createTask({
@@ -648,6 +666,7 @@ describe("managed Task Session dispatch", () => {
   it("continues attempt ordinal after terminal_without_claim recovery", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-recovery-lineage-"));
     roots.push(cwd);
+    await seedExecutorModel(cwd);
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Recovery", description: "Recovery" });
     const task = graph.createTask({
@@ -806,6 +825,7 @@ describe("managed Task Session dispatch", () => {
   it("rejects recovery assignment beyond maxAttempts without durable identities", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-recovery-exhausted-"));
     roots.push(cwd);
+    await seedExecutorModel(cwd);
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Exhausted", description: "Exhausted" });
     const runnable = graph.createTask({
@@ -942,6 +962,7 @@ describe("managed Task Session dispatch", () => {
   it("requests timeout cancellation before releasing a managed resource lease", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-timeout-"));
     roots.push(cwd);
+    await seedExecutorModel(cwd);
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Timeout", description: "Timeout" });
     const task = graph.createTask({

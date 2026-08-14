@@ -260,6 +260,12 @@ export function registerSparkRunReadyTasksTool(
             taskRefs: packing.scheduled.map((packed) => packed.taskRef),
             registry,
             resourceAllocations,
+            // Host registry enables bare-id normalization (e.g. dsv4flash) and
+            // fail-closed availability checks before any TaskRun claim/spawn.
+            modelRegistry: (ctx as { modelRegistry?: unknown }).modelRegistry,
+            projectModelSelector: sessionModelName(
+              (ctx as { model?: { provider?: string; id?: string } }).model,
+            ),
             ...(orchestration && repro ? { subgoals: repro.subgoals } : {}),
             ...(fleet ? { fleet: true } : {}),
           } satisfies ManagedTaskSessionDispatchInput);

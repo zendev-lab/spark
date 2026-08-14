@@ -1,4 +1,16 @@
 export * from "./workflow-role-run-adapter.ts";
+import { resolveExecutorModel } from "./executor-model-resolution.ts";
+export {
+  MODEL_RESOLUTION_UNAVAILABLE,
+  ModelResolutionUnavailableError,
+  executorModelConfigDigest,
+  isModelResolutionUnavailableError,
+  normalizeExecutorModelSelector,
+  resolveExecutorModel,
+  type ExecutorModelSnapshot,
+  type ExecutorModelSource,
+  type ResolveExecutorModelInput,
+} from "./executor-model-resolution.ts";
 
 import {
   buildRoleRunArgs as buildGenericRoleRunArgs,
@@ -451,6 +463,16 @@ export interface SparkTaskRunOptions {
   launch?: RoleLaunchMode;
   forkFromSession?: string;
   sessionModel?: string;
+  /** Project implementation selector; highest non-resume precedence for model resolution. */
+  projectModelSelector?: string;
+  /** Host model registry used to normalize bare ids and check availability. */
+  modelRegistry?: unknown;
+  /** Frozen snapshot from a previous paused attempt; resume must not silently swap models. */
+  resumeModelSnapshot?: {
+    model: string;
+    source: "project" | "role" | "host" | "explicit" | "resume";
+    configDigest: string;
+  };
   env?: NodeJS.ProcessEnv;
   resourceAllocation?: TaskResourceAllocation;
   allowedTools?: string[];
@@ -530,8 +552,24 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
     );
   if (unmet.length > 0) throw new DependencyError(`task has unmet dependencies: ${task.ref}`);
 
-  const runRef = newRef("run");
+  // Model resolution is admission-time and fail-closed for real runs: never claim
+  // or spawn when the executor model cannot be resolved. Dry-run may proceed without
+  // a frozen snapshot so readiness checks do not require model configuration.
   const dryRun = input.dryRun ?? true;
+  const modelSnapshot = dryRun
+    ? undefined
+    : await resolveExecutorModel({
+        cwd: input.cwd ?? process.cwd(),
+        task,
+        registry: input.registry,
+        projectSelector: input.projectModelSelector,
+        hostModel: input.sessionModel,
+        modelRegistry: input.modelRegistry,
+        resumeSnapshot: input.resumeModelSnapshot,
+        failClosed: true,
+      });
+
+  const runRef = newRef("run");
   const originalStatus = task.status;
   const roleSpec = input.registry.get(taskRoleRef);
   const runName =
@@ -554,6 +592,8 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
     });
   }
 
+  const frozenSessionId =
+    input.claim?.sessionId?.trim() || ownerSessionId || `sess_run_${refId(runRef)}`;
   const run: TaskRun = {
     ref: runRef,
     projectRef: task.projectRef,
@@ -563,6 +603,23 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
     runName,
     ownerSessionId,
     resourceAllocation: input.resourceAllocation,
+    // Freeze admission model onto the TaskRun execution binding so resume/audit
+    // reuse the same provider/model/config digest without re-resolution.
+    ...(modelSnapshot
+      ? {
+          execution: {
+            ownerSessionId: ownerSessionId ?? frozenSessionId,
+            sessionId: frozenSessionId,
+            executionSessionId: frozenSessionId,
+            sessionGoalId: runRef,
+            jobId: runRef,
+            attempt: 1,
+            model: modelSnapshot.model,
+            modelSource: modelSnapshot.source,
+            modelConfigDigest: modelSnapshot.configDigest,
+          },
+        }
+      : {}),
     status: "running",
     startedAt: nowIso(),
     outputEvidenceRefs: [],
@@ -609,7 +666,8 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
         runName,
         launch: input.launch,
         forkFromSession: input.forkFromSession,
-        sessionModel: input.sessionModel,
+        // Prefer the frozen admission snapshot; dry-run may fall back to host model.
+        sessionModel: modelSnapshot?.model ?? input.sessionModel,
         env: input.env,
         allowedTools: input.allowedTools,
         phase: "implement",
