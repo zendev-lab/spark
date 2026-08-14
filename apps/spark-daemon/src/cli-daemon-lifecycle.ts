@@ -72,6 +72,7 @@ import { getWorkspaceById, listWorkspaces, resolveWorkspaceLocalPath } from "./s
 import { ensureWorkspaceAdministratorSession } from "./workspace-administrator-session.ts";
 import {
   cancelSparkDaemonRestartSuccessor,
+  clearSparkDaemonStartMarker,
   clearSparkDaemonRestartFenceForExplicitStart,
   completeSparkDaemonRestartSuccessor,
   isSparkDaemonRestartHelperDefinitelyDead,
@@ -185,10 +186,12 @@ export async function start(
         workspaceId: workspace.id,
         rootDir: workspace.localPath,
       })),
+      onWarning: (message) => console.error(`[spark-daemon] migration warning: ${message}`),
     });
     console.error("[spark-daemon] preparing lens broker");
     await prepareDaemonLensBroker(db);
   } catch (error) {
+    clearSparkDaemonStartMarker(paths);
     await closeDaemonLensBroker(db);
     db.close();
     await lock.release();
@@ -458,12 +461,14 @@ export async function start(
         lifecycle.activate();
         console.error("[spark-daemon] serving; restart fence completed when applicable");
         if (!completeSparkDaemonRestartSuccessor(paths, lifecycle.processIdentity)) {
+          clearSparkDaemonStartMarker(paths);
           lifecycle.deactivate();
           stopRequested = true;
           stopIntent.abort(new Error("Spark daemon restart was cancelled before readiness."));
           shutdown.abort();
           return;
         }
+        clearSparkDaemonStartMarker(paths);
         stopBuildWatcher = watchSparkDaemonBuild({
           entrypoint: deployedEntrypoint,
           initialFingerprint: runningBuildFingerprint,

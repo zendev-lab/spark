@@ -981,8 +981,20 @@ function previewBody(serializedBody: string, previewChars: number): string {
 }
 
 function serializeEvidenceBody(format: EvidenceFormat, body: JsonValue | string): string {
+  if (format === "json") {
+    // JSON Evidence is content-addressed and must always contain valid JSON.
+    // Accept legacy callers that passed pre-serialized JSON, while converting
+    // ordinary strings into a valid JSON string instead of writing raw bytes.
+    if (typeof body === "string") {
+      try {
+        return JSON.stringify(JSON.parse(body), null, 2);
+      } catch {
+        return JSON.stringify(body, null, 2);
+      }
+    }
+    return JSON.stringify(body, null, 2);
+  }
   if (typeof body === "string") return body;
-  if (format === "json") return JSON.stringify(body, null, 2);
   return JSON.stringify(body, null, 2);
 }
 
