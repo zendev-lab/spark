@@ -92,6 +92,11 @@ Formalize；resolution 反向流动，用来消除临时工作。Exactness misma
 空的 `/workflow` 会打开选择器。`/workflows`、`/workflow-runs` 和
 `/workflow-pause` 等旧命令仍可作为兼容别名执行，但不会出现在普通命令目录中。
 
+仓库自带的 `workspace:repo-change` 工作流依次执行 owner 范围确认、在当前 owning
+worktree 中实现、独立审查和交付验证；涉及 `.agents` 知识时会额外加入独立 curator
+审查。该工作流只返回结构化的 accepted 或 rejected 证据，不会创建、推送、合并或
+发布 pull request。
+
 ## 监督执行，而不是背诵状态
 
 使用 `/help` 查看最短日常路径，使用 `/help commands` 查看分组命令；只有诊断别名或

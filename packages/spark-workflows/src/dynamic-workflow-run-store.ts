@@ -71,6 +71,12 @@ export interface SparkDynamicWorkflowRunSavedWorkflow {
   scope?: SparkDynamicWorkflowSaveScope;
 }
 
+export interface SparkDynamicWorkflowApprovedRoleBinding {
+  selector?: string;
+  roleRef: string;
+  roleRevision: string;
+}
+
 export interface SparkDynamicWorkflowRunApproval {
   status: "approved";
   method: "dependency" | "reviewer" | "ui";
@@ -95,6 +101,8 @@ export interface SparkDynamicWorkflowRunApproval {
     };
     tools: string[];
     roles: string[];
+    /** Exact selector resolutions frozen into this approval and run record. */
+    roleBindings?: SparkDynamicWorkflowApprovedRoleBinding[];
     isolation: string[];
     base?: SparkDynamicWorkflowRunBaseMetadata;
   };
@@ -679,12 +687,25 @@ function normalizeWorkflowApproval(value: unknown): SparkDynamicWorkflowRunAppro
         : { stageCount: 0, phaseCount: 0, agentCallSites: 0, timeoutMs: [] },
       tools: stringArray(summary.tools),
       roles: stringArray(summary.roles),
+      roleBindings: normalizeApprovedRoleBindings(summary.roleBindings),
       isolation: stringArray(summary.isolation),
       ...(isRecord(summary.base)
         ? { base: summary.base as unknown as SparkDynamicWorkflowRunBaseMetadata }
         : {}),
     },
   };
+}
+
+function normalizeApprovedRoleBindings(value: unknown): SparkDynamicWorkflowApprovedRoleBinding[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const roleRef = typeof entry.roleRef === "string" ? entry.roleRef.trim() : "";
+    const roleRevision = typeof entry.roleRevision === "string" ? entry.roleRevision.trim() : "";
+    const selector = typeof entry.selector === "string" ? entry.selector.trim() : "";
+    if (!roleRef || !roleRevision) return [];
+    return [{ ...(selector ? { selector } : {}), roleRef, roleRevision }];
+  });
 }
 
 function normalizeAgentTelemetryArray(value: unknown): SparkDynamicWorkflowAgentTelemetry[] {

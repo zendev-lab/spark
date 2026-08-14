@@ -87,6 +87,11 @@ Evidence.
 The parent Session remains responsible for decomposition, durable coordination,
 verification of consequential claims, and user-facing synthesis.
 
+Workflow child calls accept either a `role` selector or an exact `roleRef`, not
+both. Before approval, Spark resolves a selector to one exact Role ref and
+revision and records that binding in approval and run provenance. A changed or
+unresolvable binding fails closed before the child Role starts.
+
 ## Task and Workflow ownership
 
 `task_read` is read-only. Its `run_status` action accepts only `status`, `list`,
