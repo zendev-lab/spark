@@ -15,6 +15,8 @@ direction.
 - A more specific `AGENTS.md`, when present in a subtree, augments or overrides
   this file for that subtree.
 - Follow the user's explicit task and preserve unrelated work.
+- Do not edit implementation or code in the main/default-branch worktree; use a
+  dedicated worktree for changes.
 - Before changing behavior, read the nearest tests and the specification owned
   by that domain.
 - Machine-readable inventories and enforced contracts are authoritative over
