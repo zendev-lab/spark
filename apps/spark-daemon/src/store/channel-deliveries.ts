@@ -452,7 +452,7 @@ function channelDeliveryRecord(row: ChannelDeliveryRow): SparkChannelDeliveryRec
     deliveryId: row.id,
     kind: row.kind,
     idempotencyKey: row.idempotency_key,
-    payload: JSON.parse(row.payload_json) as unknown,
+    payload: parseJson(row.payload_json, "channel delivery payload"),
     status: row.status,
     attemptCount: Number(row.attempt_count),
     nextAttemptAt: row.next_attempt_at,
@@ -462,7 +462,9 @@ function channelDeliveryRecord(row: ChannelDeliveryRow): SparkChannelDeliveryRec
     ...(row.claimed_at ? { claimedAt: row.claimed_at } : {}),
     ...(row.dispatched_at ? { dispatchedAt: row.dispatched_at } : {}),
     ...(row.last_error ? { lastError: row.last_error } : {}),
-    ...(row.receipt_json ? { receipt: JSON.parse(row.receipt_json) as unknown } : {}),
+    ...(row.receipt_json
+      ? { receipt: parseJson(row.receipt_json, "channel delivery receipt") }
+      : {}),
     ...(row.delivered_at ? { deliveredAt: row.delivered_at } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -491,6 +493,14 @@ function serializeJson(value: unknown, label: string): string {
   const serialized = JSON.stringify(value);
   if (serialized === undefined) throw new Error(`${label} must be JSON-serializable`);
   return serialized;
+}
+
+function parseJson(value: string, label: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch (error) {
+    throw new Error(`Invalid persisted ${label}`, { cause: error });
+  }
 }
 
 function assertNonEmpty(value: string, label: string): void {
