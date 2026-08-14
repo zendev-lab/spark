@@ -73,6 +73,32 @@ export interface RecordSparkChannelDeliveryFailureOptions {
   outcome: "not_sent" | "unknown";
   /** Whether replaying the same durable identity is provider-deduplicated. */
   replaySafety: "deduplicated" | "unsafe";
+  /**
+   * Permanent route / identity failures must never enter retry_wait.
+   * Transient transport failures remain retryable when outcome/replay allow it.
+   */
+  failureClass?: "transient" | "permanent";
+  /** Stable reason code for permanent route failures (identity / routing). */
+  reasonCode?: string;
+}
+
+/** Permanent workspace identity route failures that must not retry. */
+export const permanentWorkspaceIdentityReasonCodes = [
+  "workspace_identity_unknown",
+  "workspace_identity_ambiguous",
+  "workspace_identity_unregistered",
+] as const;
+export type PermanentWorkspaceIdentityReasonCode =
+  (typeof permanentWorkspaceIdentityReasonCodes)[number];
+
+export function isPermanentWorkspaceIdentityReasonCode(
+  reasonCode: string | undefined,
+): reasonCode is PermanentWorkspaceIdentityReasonCode {
+  return (
+    reasonCode === "workspace_identity_unknown" ||
+    reasonCode === "workspace_identity_ambiguous" ||
+    reasonCode === "workspace_identity_unregistered"
+  );
 }
 
 export interface SparkChannelDeliveryStoreOptions {
@@ -317,15 +343,23 @@ export class SparkChannelDeliveryStore {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const leased = this.requireActiveLease(deliveryId, leaseToken, now);
+      // Permanent identity/route failures are terminal even when the adapter
+      // reports not_sent; only transient transport classes may retry_wait.
+      const permanentRouteFailure =
+        options.failureClass === "permanent" ||
+        isPermanentWorkspaceIdentityReasonCode(options.reasonCode);
       const retryable =
-        leased.kind === "inbound" ||
-        options.outcome === "not_sent" ||
-        options.replaySafety === "deduplicated";
+        !permanentRouteFailure &&
+        (leased.kind === "inbound" ||
+          options.outcome === "not_sent" ||
+          options.replaySafety === "deduplicated");
       const nextAttemptAt = retryable
         ? new Date(
             Date.parse(now) + channelDeliveryRetryDelayMs(leased.attemptCount, this.random),
           ).toISOString()
         : now;
+      const lastError =
+        permanentRouteFailure && options.reasonCode ? `${options.reasonCode}: ${error}` : error;
       const result = this.db
         .prepare(
           `UPDATE channel_deliveries
@@ -340,7 +374,7 @@ export class SparkChannelDeliveryStore {
           retryable ? "retry_wait" : "uncertain",
           nextAttemptAt,
           retryable ? 1 : 0,
-          error,
+          lastError,
           now,
           deliveryId,
           leaseToken,

@@ -268,6 +268,85 @@ describe("SparkChannelDeliveryStore", () => {
     }
   });
 
+  it.each([
+    "workspace_identity_unknown",
+    "workspace_identity_ambiguous",
+    "workspace_identity_unregistered",
+  ] as const)(
+    "marks permanent route failure %s as uncertain and never claimDue again",
+    (reasonCode) => {
+      let now = "2026-07-15T00:00:00.000Z";
+      const { db, store } = createStore({ now: () => now });
+      try {
+        store.enqueue({
+          deliveryId: `delivery-${reasonCode}`,
+          kind: "notification",
+          idempotencyKey: `permanent-${reasonCode}`,
+          payload: { reasonCode },
+        });
+        const claimed = store.claimDue("worker-a", { leaseMs: 10_000 });
+        expect(
+          store.recordFailure(
+            `delivery-${reasonCode}`,
+            claimed!.leaseToken!,
+            "workspace identity cannot be routed",
+            {
+              outcome: "not_sent",
+              replaySafety: "deduplicated",
+              failureClass: "permanent",
+              reasonCode,
+            },
+          ),
+        ).toMatchObject({
+          status: "uncertain",
+          attemptCount: 1,
+          lastError: `${reasonCode}: workspace identity cannot be routed`,
+        });
+        now = "2026-07-16T00:00:00.000Z";
+        expect(store.claimDue("worker-b")).toBeUndefined();
+        expect(store.summary()).toMatchObject({
+          pending: 0,
+          retrying: 0,
+          uncertain: 1,
+        });
+      } finally {
+        db.close();
+      }
+    },
+  );
+
+  it("still retries transient not_sent transport failures", () => {
+    let now = "2026-07-15T00:00:00.000Z";
+    const { db, store } = createStore({ now: () => now, random: () => 1 });
+    try {
+      store.enqueue({
+        deliveryId: "delivery-transient",
+        kind: "notification",
+        idempotencyKey: "transient-not-sent",
+        payload: { text: "retry me" },
+      });
+      const claimed = store.claimDue("worker-a", { leaseMs: 10_000 });
+      expect(
+        store.recordFailure("delivery-transient", claimed!.leaseToken!, "socket reset", {
+          outcome: "not_sent",
+          replaySafety: "unsafe",
+          failureClass: "transient",
+        }),
+      ).toMatchObject({
+        status: "retry_wait",
+        attemptCount: 1,
+        lastError: "socket reset",
+      });
+      now = "2026-07-15T00:00:01.000Z";
+      expect(store.claimDue("worker-b", { leaseMs: 10_000 })).toMatchObject({
+        deliveryId: "delivery-transient",
+        attemptCount: 2,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   it("quarantines an unknown unsafe outcome and never leases it again", () => {
     let now = "2026-07-15T00:00:00.000Z";
     const { db, store } = createStore({ now: () => now });

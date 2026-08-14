@@ -29,7 +29,9 @@ import {
   type DaemonChannelIngressRuntime,
 } from "./channels/ingress.ts";
 import {
+  admitChannelWorkspaceIdentity,
   findChannelInboundInvocation,
+  isPermanentWorkspaceIdentityFailure,
   submitChannelInboundInvocation,
 } from "./channels/admission.ts";
 import {
@@ -1653,12 +1655,16 @@ function prepareChannelIngress(
               `channel session ${assignment.sessionId} has no daemon-local execution directory`,
             );
           }
-          const workspaceBindingId = resolveWorkspaceBindingId(options.db, workspaceId);
-          if (!workspaceBindingId) {
+          // Identity resolution is the durable admission contract: ws_* must map
+          // to a unique owning rtwb_*, while unknown/ambiguous/unregistered are
+          // permanent route failures (never retry_wait).
+          const identityAdmission = admitChannelWorkspaceIdentity(options.db, workspaceId);
+          if (isPermanentWorkspaceIdentityFailure(identityAdmission)) {
             throw new Error(
-              `channel session ${assignment.sessionId} has no runtime workspace binding`,
+              `channel session ${assignment.sessionId} permanent workspace route failure: ${identityAdmission.reasonCode}`,
             );
           }
+          const workspaceBindingId = identityAdmission.workspaceBindingId;
           const task = {
             type: "session.run" as const,
             sessionId: assignment.sessionId,
@@ -1666,7 +1672,7 @@ function prepareChannelIngress(
             ...(model ? { model: `${model.providerName}/${model.modelId}` } : {}),
             ...(thinkingLevel ? { thinkingLevel } : {}),
             assignment: assignment.assignment,
-            workspaceId,
+            workspaceId: identityAdmission.workspaceId,
             workspaceBindingId,
             cwd,
             channelReply: {
