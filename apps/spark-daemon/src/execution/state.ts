@@ -287,6 +287,29 @@ export class ExecutionAttemptStore {
     return row ? attemptRecord(row) : undefined;
   }
 
+  /**
+   * Latest attempt row per invocation that is not yet terminal.
+   * Used by startup/periodic execution reconciliation before admission opens.
+   */
+  listNonTerminalAttempts(limit = 1_000): ExecutionAttemptRecord[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT attempt.*
+         FROM execution_attempts attempt
+         WHERE attempt.status IN ('queued', 'accepted', 'running')
+           AND NOT EXISTS (
+             SELECT 1
+             FROM execution_attempts successor
+             WHERE successor.invocation_id = attempt.invocation_id
+               AND successor.attempt_epoch > attempt.attempt_epoch
+           )
+         ORDER BY attempt.updated_at ASC, attempt.invocation_id ASC
+         LIMIT ?`,
+      )
+      .all(Math.max(1, Math.floor(limit))) as unknown as AttemptRow[];
+    return rows.map(attemptRecord);
+  }
+
   accept(
     identity: ExecutionAttemptIdentity,
     now = new Date().toISOString(),
