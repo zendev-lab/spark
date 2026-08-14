@@ -1,3 +1,4 @@
+import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-svelte";
 import { describe, expect, it, vi } from "vitest";
 import { GitChangePreview } from "@zendev-lab/spark-ui/git-change";
@@ -190,8 +191,23 @@ describe("A2UI Workbench browser contract", () => {
     });
 
     await expect.element(screen.getByRole("heading", { name: "Repro Workbench" })).toBeVisible();
-    await screen.getByRole("tab", { name: "Plan" }).click();
-    await expect.element(screen.getByText("Plan content")).toBeVisible();
+    const lanes = screen.getByRole("tab", { name: "Lanes" });
+    await lanes.click();
+    await expect
+      .element(screen.getByRole("heading", { name: "Implementation Explore" }))
+      .toBeVisible();
+    await expect.element(screen.getByRole("heading", { name: "Exactness Explore" })).toBeVisible();
+    await expect.element(screen.getByRole("heading", { name: "Formalize" })).toBeVisible();
+    expect(
+      [...screen.container.querySelectorAll("em")].filter(
+        (element) => element.textContent === "No work items.",
+      ),
+    ).toHaveLength(3);
+
+    await userEvent.keyboard("{ArrowRight}");
+    const coverage = screen.getByRole("tab", { name: "Experiments / Coverage" });
+    await expect.element(coverage).toHaveAttribute("aria-selected", "true");
+    await expect.element(coverage).toHaveFocus();
     await screen.getByRole("button", { name: "Pause" }).click();
 
     expect(onAction).toHaveBeenCalledOnce();
@@ -337,11 +353,35 @@ function workbenchA2ui(): string {
               component: "Tabs",
               tabs: [
                 { title: "Overview", child: "overview" },
-                { title: "Plan", child: "plan" },
+                { title: "Lanes", child: "lanes" },
+                { title: "Experiments / Coverage", child: "coverage" },
               ],
             },
             { id: "overview", component: "Text", text: "Overview content" },
-            { id: "plan", component: "Text", text: "Plan content" },
+            {
+              id: "lanes",
+              component: "Row",
+              children: ["implementation", "exactness", "formalize"],
+            },
+            { id: "implementation", component: "Card", child: "implementation-text" },
+            {
+              id: "implementation-text",
+              component: "Text",
+              text: "## Implementation Explore\n\n_No work items._",
+            },
+            { id: "exactness", component: "Card", child: "exactness-text" },
+            {
+              id: "exactness-text",
+              component: "Text",
+              text: "## Exactness Explore\n\n_No work items._",
+            },
+            { id: "formalize", component: "Card", child: "formalize-text" },
+            {
+              id: "formalize-text",
+              component: "Text",
+              text: "## Formalize\n\n_No work items._",
+            },
+            { id: "coverage", component: "Text", text: "Coverage content" },
           ],
         },
       },
