@@ -11,7 +11,7 @@ Spark supplies the generic state, scheduling, and evidence boundaries.
 
 The normative three-lane, asynchronous-evidence, Profile/progress, numerical
 frontier, ReportModel, and completion semantics are defined in
-[`../../docs/specs/autonomous-three-lane.md`](../../docs/specs/autonomous-three-lane.md).
+[`../../.agents/notes/contracts/autonomous-three-lane.md`](../../.agents/notes/contracts/autonomous-three-lane.md).
 `SparkSessionRepro` v8 implements that contract as structured state, while the
 `./three-lane-work-summary` entrypoint defines the pure
 `spark.repro.work-summary/v2 -> v3` migration used by projection adopters.

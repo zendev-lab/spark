@@ -26,6 +26,7 @@ describe("supervised Role runner", () => {
       const db = new DatabaseSync(":memory:");
       migrateSparkDaemonDatabase(db);
       const invocations = new SparkInvocationStore(db);
+      let executedTask: unknown;
       const scheduler = new SparkInvocationScheduler({
         store: invocations,
         executionAttemptStore: new ExecutionAttemptStore(db),
@@ -35,14 +36,17 @@ describe("supervised Role runner", () => {
           loopSchedule: async () => ({}),
           loopStop: async () => ({}),
         },
-        executeTask: async () => ({
-          assistantText: "implemented by child",
-          roleOutcome: {
-            kind: "completed",
-            code: "implementation_complete",
-            reason: "focused change verified",
-          },
-        }),
+        executeTask: async (task) => {
+          executedTask = task;
+          return {
+            assistantText: "implemented by child",
+            roleOutcome: {
+              kind: "completed",
+              code: "implementation_complete",
+              reason: "focused change verified",
+            },
+          };
+        },
       });
       const registry = createDaemonSessionRegistry(root, { resolveWorkspaceCwd: () => root });
       const supervisor = new SessionSupervisor({ registry, invocations, scheduler });
@@ -88,6 +92,7 @@ describe("supervised Role runner", () => {
         cwd: root,
         timeoutMs: 5_000,
         model: "provider/model",
+        thinking: "xhigh",
         requireStructuredOutcome: true,
       });
 
@@ -99,6 +104,11 @@ describe("supervised Role runner", () => {
         },
         outcome: { kind: "completed", code: "implementation_complete" },
         stdout: "implemented by child",
+      });
+      expect(executedTask).toMatchObject({
+        type: "session.run",
+        model: "provider/model",
+        thinkingLevel: "xhigh",
       });
       const sessions = await registry.list({
         includeArchived: true,

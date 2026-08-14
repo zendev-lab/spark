@@ -55,6 +55,12 @@ export interface WorkflowDefinition {
   phase?: WorkflowDefinitionPhase;
   skills: string[];
   roles: string[];
+  /** One body-only handler that owns stage order and handoffs. */
+  handler?: {
+    path: string;
+    digest: string;
+    content: string;
+  };
   stages: WorkflowStageDefinition[];
   loop: SparkLoopPolicy;
   workbench: WorkflowWorkbenchPolicy;
@@ -113,6 +119,7 @@ export interface RawWorkflowDefinition {
   extends?: WorkflowSelector;
   skills: string[];
   roles: string[];
+  handler?: string;
   stages: RawWorkflowStage[];
   loop?: Record<string, unknown>;
   workbench?: WorkflowWorkbenchPolicy;
@@ -284,6 +291,7 @@ function builtinWorkflowDefinition(id: string): {
   phase?: WorkflowDefinitionPhase;
   builtinScript: string;
   handlers: WorkflowStageDefinition[];
+  orchestrationHandler?: WorkflowDefinition["handler"];
 } {
   const builtin = getBuiltinWorkflowDefinition(id);
   if (!builtin) throw new Error(`unknown builtin workflow: ${id}`);
@@ -306,6 +314,7 @@ function builtinWorkflowDefinition(id: string): {
       description: meta.description,
       skills: [],
       roles: [],
+      handler: undefined,
       stages,
       loop: isRepro
         ? {
@@ -345,6 +354,7 @@ async function fileWorkflowDefinition(
   source: WorkflowSource;
   path: string;
   handlers: WorkflowStageDefinition[];
+  orchestrationHandler?: WorkflowDefinition["handler"];
 }> {
   const root =
     source === "workspace"
@@ -375,28 +385,28 @@ async function fileWorkflowDefinition(
   await assertRegularFileNotSymlink(path);
   const markdown = await readFile(path, "utf8");
   const raw = parseWorkflowMarkdown(markdown, { expectedId: id, path });
+  if (raw.handler && raw.stages.some((stage) => stage.handler)) {
+    throw new Error(`${path} cannot combine a top-level handler with stage handlers`);
+  }
+  const orchestrationHandler = raw.handler
+    ? await loadWorkflowHandler(workflowDir, raw.handler, "workflow orchestration handler")
+    : undefined;
   const handlers = await Promise.all(
     raw.stages.map(async (stage): Promise<WorkflowStageDefinition> => {
       if (!stage.handler) return { id: stage.id, title: stage.title };
-      const handlerPath = await resolveHandlerPath(workflowDir, stage.handler);
-      const content = await readFile(handlerPath, "utf8");
-      if (/^\s*export\s+const\s+meta\b/mu.test(content)) {
-        throw new Error(
-          `workflow stage handler ${stage.handler} must be a body-only handler, not a top-level workflow script`,
-        );
-      }
+      const loaded = await loadWorkflowHandler(
+        workflowDir,
+        stage.handler,
+        `workflow stage handler ${stage.handler}`,
+      );
       return {
         id: stage.id,
         title: stage.title,
-        handler: {
-          path: handlerPath,
-          digest: sha256(content),
-          content,
-        },
+        handler: loaded,
       };
     }),
   );
-  return { raw, source, path, handlers };
+  return { raw, source, path, handlers, orchestrationHandler };
 }
 
 export function parseWorkflowMarkdown(
@@ -420,7 +430,18 @@ export function parseWorkflowMarkdown(
   const frontmatter = requireRecord(value, `${path} frontmatter`);
   assertKnownKeys(
     frontmatter,
-    ["id", "title", "description", "extends", "skills", "roles", "stages", "loop", "workbench"],
+    [
+      "id",
+      "title",
+      "description",
+      "extends",
+      "skills",
+      "roles",
+      "handler",
+      "stages",
+      "loop",
+      "workbench",
+    ],
     `${path} frontmatter`,
   );
   const id = normalizeWorkflowId(requiredString(frontmatter.id, `${path} id`));
@@ -439,6 +460,7 @@ export function parseWorkflowMarkdown(
     extends: optionalSelector(frontmatter.extends, `${path} extends`),
     skills: stringArray(frontmatter.skills, `${path} skills`),
     roles: stringArray(frontmatter.roles, `${path} roles`),
+    handler: optionalString(frontmatter.handler, `${path} handler`),
     stages: workflowStages(frontmatter.stages, `${path} stages`),
     loop:
       frontmatter.loop === undefined ? undefined : requireRecord(frontmatter.loop, `${path} loop`),
@@ -454,6 +476,7 @@ function finalizeWorkflowDefinition(input: {
   phase?: WorkflowDefinitionPhase;
   builtinScript?: string;
   handlers: WorkflowStageDefinition[];
+  orchestrationHandler?: WorkflowDefinition["handler"];
   selector: WorkflowSelector;
   parent?: WorkflowDefinition;
 }): WorkflowDefinition {
@@ -466,6 +489,12 @@ function finalizeWorkflowDefinition(input: {
   const workbench = raw.workbench ?? parent?.workbench ?? "none";
   if (reproDerived) assertReproDefinition(stages, loop, workbench, input.selector);
   const instructions = [parent?.instructions, raw.instructions].filter(Boolean).join("\n\n");
+  const handler = input.orchestrationHandler ?? parent?.handler;
+  if (handler && stages.some((stage) => stage.handler)) {
+    throw new Error(
+      `${input.selector} cannot combine a top-level handler with inherited or local stage handlers`,
+    );
+  }
   const merged = {
     schema: SPARK_WORKFLOW_DEFINITION_SCHEMA,
     selector: input.selector,
@@ -479,6 +508,7 @@ function finalizeWorkflowDefinition(input: {
     phase: input.phase ?? parent?.phase,
     skills: unique([...(parent?.skills ?? []), ...raw.skills]),
     roles: unique([...(parent?.roles ?? []), ...raw.roles]),
+    handler,
     stages,
     loop,
     workbench,
@@ -504,6 +534,10 @@ export function compileWorkflowDefinitionScript(
     `export const meta = ${JSON.stringify(meta, null, 2)}`,
     `const workflowInstructions = ${JSON.stringify(definition.instructions)}`,
   ];
+  if (definition.handler) {
+    chunks.push(`return await (async () => {\n${definition.handler.content}\n})()`);
+    return `${chunks.join("\n\n")}\n`;
+  }
   const hasHandlers = definition.stages.some((stage) => stage.handler);
   if (hasHandlers) chunks.push("let workflowResult");
   for (const stage of definition.stages) {
@@ -687,6 +721,23 @@ async function resolveHandlerPath(workflowDir: string, handler: string): Promise
     throw new Error(`workflow stage handler resolves outside its workflow directory: ${handler}`);
   }
   return canonicalPath;
+}
+
+async function loadWorkflowHandler(
+  workflowDir: string,
+  handler: string,
+  label: string,
+): Promise<NonNullable<WorkflowDefinition["handler"]>> {
+  const handlerPath = await resolveHandlerPath(workflowDir, handler);
+  const content = await readFile(handlerPath, "utf8");
+  if (/^\s*export\s+const\s+meta\b/mu.test(content)) {
+    throw new Error(`${label} must be a body-only handler, not a top-level workflow script`);
+  }
+  return {
+    path: handlerPath,
+    digest: sha256(content),
+    content,
+  };
 }
 
 async function assertDirectoryNotSymlink(path: string): Promise<void> {

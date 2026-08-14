@@ -52,20 +52,32 @@ status 变更。未知或歧义 selector、已取消或跨 Project 的前置 Tas
 
 ## Role、Session 与 Skill Agent
 
-- Role 定义类型化能力与责任叠加，包括语义 Model Type；它不决定
-  Session 生命周期。
+- Role 定义类型化能力与责任叠加，包括语义 Model Type。它可以声明最多八个有序
+  Skill；Spark 在创建子 Session 前解析并预载完整指令正文。Role 不决定 Session
+  生命周期。
 - Session 是拥有 continuity、binding、call 和 mail 的运行实例。唯一
   Owner 推导出 `persistent | scoped | ephemeral` 生命周期。
-- `skill_agent({ skills, instruction, inputs? })` 按精确名称解析一到八个 Skill，
-  在一个全新的 owned 子 Session 中各加载一次。它只接收显式 packet，不继承父
-  transcript，也不能递归调用 Role 或 Skill Agent，或管理其他 Session。
+- `skill_agent({ skills, instruction, inputs?, timeoutMs?, model?, thinking?, allowedTools?, allowedToolEffects? })`
+  按精确名称解析一到八个 Skill，在一个全新的 owned 子 Session 中各加载一次。
+  它只接收显式 packet，不继承父 transcript，也不能递归调用 Role 或 Skill Agent，
+  或管理其他 Session。
 
-Role 与 Skill Agent 子 Session 通过语义 Model Type 选择模型。缺少绑定时返回
-`role_model_type_unconfigured`，不会回退到父 Session 模型。Owned 子 Session 关闭时
-会先封存一份有界 receipt，再删除完整 transcript 和 Invocation 内容载荷。该 receipt
-是 Session 运维元数据，不是 Evidence。
+预定义 Role 在同一个 Session 中直接遵循预载 Skill，不会为它们调用
+`skill_agent`。Definition revision 包含 Skill 名称，执行时的 composition revision
+还会冻结 Skill source digest。
+
+Role 子 Session 通过语义 Model Type 选择模型。Skill Agent 则默认继承父 Session
+精确的 model、thinking level、active tools 与 allowed effects。调用方可以覆盖 model
+和 thinking，但 tools 与 effects 只能同时收窄父包络与固定的 Skill Agent 安全上限；
+旧宿主若不提供精确 delegation envelope 会直接拒绝。Owned 子 Session 关闭时会先
+封存一份有界 receipt，再删除完整 transcript 和 Invocation 内容载荷。该 receipt 是
+Session 运维元数据，不是 Evidence。
 
 父 Session 仍负责拆解、持久协调、验证重要结论和面向用户的综合。
+
+Workflow 子调用可以提供 `role` selector 或精确 `roleRef`，但不能同时提供。Spark
+会在审批前把 selector 解析为唯一的 Role ref 与 revision，并将该绑定写入审批与运行
+溯源。如果绑定无法解析或在子 Role 启动前发生变化，执行会 fail closed。
 
 ## Task 与 Workflow 所有权
 

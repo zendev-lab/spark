@@ -43,7 +43,9 @@ export function taskAttemptLimitDeferrals(
 ): DeferredTaskResource[] {
   return tasks.flatMap((task) => {
     const policy = effectiveTaskExecutionPolicy(task);
-    const attempts = runs.filter((run) => run.taskRef === task.ref && !run.dryRun).length;
+    const attempts = runs.filter(
+      (run) => run.taskRef === task.ref && !run.dryRun && run.attemptConsumed !== false,
+    ).length;
     return attempts >= policy.maxAttempts
       ? [
           {
@@ -102,7 +104,9 @@ export function packTaskResourceFrontier(input: {
       continue;
     }
     const policy = effectiveTaskExecutionPolicy(task);
-    const attempts = input.runs.filter((run) => run.taskRef === task.ref && !run.dryRun).length;
+    const attempts = input.runs.filter(
+      (run) => run.taskRef === task.ref && !run.dryRun && run.attemptConsumed !== false,
+    ).length;
 
     const conflictingKey = policy.concurrencyKeys.find((key) => usedConcurrencyKeys.has(key));
     if (conflictingKey) {

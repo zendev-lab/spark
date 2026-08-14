@@ -2,7 +2,7 @@
 
 This specification owns path precedence, exact persistence layout, and migration
 invariants. User-facing path inspection and configuration guidance belong in
-[`apps/spark-docs/src/content/docs/reference/configuration-and-paths.md`](../../apps/spark-docs/src/content/docs/reference/configuration-and-paths.md).
+[`apps/spark-docs/src/content/docs/reference/configuration-and-paths.md`](../../../apps/spark-docs/src/content/docs/reference/configuration-and-paths.md).
 
 ## Path roots
 

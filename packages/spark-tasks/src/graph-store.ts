@@ -33,6 +33,14 @@ export interface TaskGraphStoreUpdateResult<T> {
   result: T;
 }
 
+export interface TaskRunReconcileResult {
+  inspected: number;
+  stale: number;
+  taskRefs: TaskRef[];
+}
+
+const DEFAULT_TASK_RUN_STALE_AFTER_MS = 30 * 60 * 1_000;
+
 export class TaskGraphStoreConflictError extends Error {
   readonly filePath: string;
 
@@ -164,6 +172,50 @@ export class TaskGraphStore {
       await this.saveUnlocked(graph, options);
       return { graph, result };
     }, options);
+  }
+
+  async reconcileStaleTaskRuns(
+    input: { now?: string; staleAfterMs?: number; projectRef?: ProjectRef } = {},
+  ): Promise<TaskRunReconcileResult> {
+    const now = input.now ?? nowIso();
+    const staleAfterMs = input.staleAfterMs ?? DEFAULT_TASK_RUN_STALE_AFTER_MS;
+    const nowMs = Date.parse(now);
+    return (
+      await this.update(
+        (graph): TaskRunReconcileResult => {
+          const result: TaskRunReconcileResult = { inspected: 0, stale: 0, taskRefs: [] };
+          for (const run of graph.runs(input.projectRef)) {
+            if (run.status !== "queued" && run.status !== "running") continue;
+            result.inspected += 1;
+            const updatedMs = Date.parse(run.updatedAt ?? run.startedAt ?? "");
+            if (
+              !Number.isFinite(nowMs) ||
+              !Number.isFinite(updatedMs) ||
+              nowMs - updatedMs < staleAfterMs
+            )
+              continue;
+            graph.recordRun({
+              ...run,
+              status: "stale",
+              failureKind: "claim_stale",
+              errorMessage: `TaskRun became stale after ${staleAfterMs}ms without a durable update.`,
+              finishedAt: now,
+              updatedAt: now,
+              attemptConsumed: false,
+              resourceAllocation: undefined,
+            });
+            const task = graph.getTask(run.taskRef);
+            if (task.claim?.runRef === run.ref) graph.releaseTaskClaim(task.ref);
+            if (task.status === "running" || task.status === "failed")
+              graph.setTaskStatus(task.ref, "pending");
+            result.stale += 1;
+            result.taskRefs.push(task.ref);
+          }
+          return result;
+        },
+        { createIfMissing: false },
+      )
+    ).result;
   }
 
   private async assertGraphNotStale(graph: TaskGraph): Promise<void> {

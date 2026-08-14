@@ -11,6 +11,7 @@ import {
   runWorkflowScript,
   type WorkflowAgentReportedTelemetry,
   type WorkflowAgentRunner,
+  type SparkDynamicWorkflowApprovedRoleBinding,
   type WorkflowEvidenceRecordInput,
   type WorkflowFetchContentInput,
   type WorkflowRunResult,
@@ -66,6 +67,7 @@ export interface SparkWorkflowRunApprovalSummary {
   };
   tools: string[];
   roles: string[];
+  roleBindings: SparkDynamicWorkflowApprovedRoleBinding[];
   isolation: string[];
   base?: SparkDynamicWorkflowRunBaseMetadata;
 }
@@ -99,6 +101,7 @@ export interface SparkWorkflowRunToolDeps {
     ctx: SparkToolContext;
     signal: AbortSignal;
     base?: SparkDynamicWorkflowRunBaseMetadata;
+    approvedRoleBindings?: SparkDynamicWorkflowApprovedRoleBinding[];
   }) => Promise<WorkflowAgentRunner> | WorkflowAgentRunner;
   evidenceRecord?: (input: {
     cwd: string;
@@ -250,6 +253,7 @@ export function registerSparkWorkflowRunTool(
           ctx,
           signal: abortController.signal,
           base,
+          approvedRoleBindings: approval?.summary.roleBindings,
         });
         const webSearchAdapter =
           deps.webSearch ??
@@ -456,8 +460,21 @@ async function buildWorkflowApprovalSummary(input: {
   base?: SparkDynamicWorkflowRunBaseMetadata;
 }): Promise<SparkWorkflowRunApprovalSummary> {
   const scriptHash = hashWorkflowScript(input.script);
-  const roles = extractWorkflowRoleRefs(input.script);
-  const rolePolicies = await resolveWorkflowRolePolicies(input.cwd, roles);
+  const roleRefs = extractWorkflowRoleRefs(input.script);
+  const roleSelectors = extractWorkflowRoleSelectors(input.script);
+  const rolePolicies = await resolveWorkflowRolePolicies(input.cwd, roleRefs, roleSelectors);
+  const roles = uniqueStrings(rolePolicies.map((policy) => policy.roleRef));
+  const roleBindings = rolePolicies.flatMap((policy) =>
+    policy.resolved && policy.roleRevision
+      ? [
+          {
+            ...(policy.selector ? { selector: policy.selector } : {}),
+            roleRef: policy.roleRef,
+            roleRevision: policy.roleRevision,
+          },
+        ]
+      : [],
+  );
   const allowedTools = uniqueStrings([
     ...extractWorkflowAllowedTools(input.script),
     ...rolePolicies.flatMap((policy) => policy.allowedTools),
@@ -480,13 +497,15 @@ async function buildWorkflowApprovalSummary(input: {
     riskFlags.push("web_or_fetch");
     reasons.push("script can call workflow webSearch/fetchContent adapters");
   }
-  if (roles.length > 0) {
+  if (rolePolicies.length > 0) {
     riskFlags.push("role_policies");
-    reasons.push(`script selects role policy/policies: ${roles.join(", ")}`);
+    reasons.push(
+      `script selects role policy/policies: ${rolePolicies.map((policy) => policy.selector ?? policy.roleRef).join(", ")}`,
+    );
   }
   const unresolvedRoles = rolePolicies
     .filter((policy) => !policy.resolved)
-    .map((policy) => policy.roleRef);
+    .map((policy) => policy.selector ?? policy.roleRef);
   if (unresolvedRoles.length > 0) {
     riskFlags.push("unknown_roles");
     reasons.push(`script selects unresolved role policy/policies: ${unresolvedRoles.join(", ")}`);
@@ -537,6 +556,7 @@ async function buildWorkflowApprovalSummary(input: {
     },
     tools: allowedTools,
     roles,
+    roleBindings,
     isolation,
     ...(input.base ? { base: input.base } : {}),
   };
@@ -639,6 +659,7 @@ function approvalRecordSummary(
     resources: summary.resources,
     tools: summary.tools,
     roles: summary.roles,
+    roleBindings: summary.roleBindings,
     isolation: summary.isolation,
     ...(summary.base ? { base: summary.base } : {}),
   };
@@ -662,6 +683,9 @@ function formatWorkflowApprovalSummary(summary: SparkWorkflowRunApprovalSummary)
       : undefined,
     summary.tools.length ? `Allowed tools: ${compactList(summary.tools)}` : undefined,
     summary.roles.length ? `Selected roles: ${compactList(summary.roles)}` : undefined,
+    summary.roleBindings.length
+      ? `Frozen role bindings: ${compactList(summary.roleBindings.map((binding) => `${binding.selector ? `${binding.selector} => ` : ""}${binding.roleRef}@${binding.roleRevision.slice(0, 12)}`))}`
+      : undefined,
     summary.isolation.length ? `Isolation: ${compactList(summary.isolation)}` : undefined,
     summary.base?.baseRef
       ? `Base: ref=${summary.base.baseRef} state=${summary.base.baseState ?? "unknown"} tree=${summary.base.baseTree ?? "unknown"}`
@@ -698,23 +722,55 @@ function extractWorkflowRoleRefs(script: string): string[] {
   );
 }
 
+function extractWorkflowRoleSelectors(script: string): string[] {
+  return uniqueStrings(
+    Array.from(script.matchAll(/\brole\s*:\s*["']([^"']+)["']/gu), (match) => match[1] ?? ""),
+  );
+}
+
 async function resolveWorkflowRolePolicies(
   cwd: string,
-  roles: string[],
-): Promise<Array<{ roleRef: string; resolved: boolean; allowedTools: string[] }>> {
-  if (roles.length === 0) return [];
+  roleRefs: string[],
+  roleSelectors: string[],
+): Promise<
+  Array<{
+    selector?: string;
+    roleRef: string;
+    roleRevision?: string;
+    resolved: boolean;
+    allowedTools: string[];
+  }>
+> {
+  if (roleRefs.length === 0 && roleSelectors.length === 0) return [];
   const registry = await createSparkRoleRegistry(cwd);
-  return roles.map((roleRef) => {
+  const exact = roleRefs.map((roleRef) => {
     try {
+      const role = registry.get(roleRef);
       return {
-        roleRef,
+        roleRef: role.ref,
+        roleRevision: role.revision,
         resolved: true,
-        allowedTools: registry.get(roleRef).allowedTools ?? [],
+        allowedTools: role.allowedTools ?? [],
       };
     } catch {
       return { roleRef, resolved: false, allowedTools: [] };
     }
   });
+  const selected = roleSelectors.map((selector) => {
+    try {
+      const role = registry.select(selector);
+      return {
+        selector,
+        roleRef: role.ref,
+        roleRevision: role.revision,
+        resolved: true,
+        allowedTools: role.allowedTools ?? [],
+      };
+    } catch {
+      return { selector, roleRef: selector, resolved: false, allowedTools: [] };
+    }
+  });
+  return [...exact, ...selected];
 }
 
 function extractWorkflowTimeoutMs(script: string): number[] {
@@ -782,9 +838,14 @@ async function createSparkWorkflowAgentRunner(input: {
   ctx: SparkToolContext;
   signal: AbortSignal;
   base?: SparkDynamicWorkflowRunBaseMetadata;
+  approvedRoleBindings?: SparkDynamicWorkflowApprovedRoleBinding[];
 }): Promise<WorkflowAgentRunner> {
   const registry = await createSparkRoleRegistry(sparkStateCwd(input.cwd, input.ctx));
   const runRole = async (request: SparkWorkflowRoleRunRequest) => {
+    const selectedRole = registry.get(request.roleRef);
+    if (request.roleRevision && selectedRole.revision !== request.roleRevision) {
+      throw new Error(`workflow Role revision changed before child launch: ${request.roleRef}`);
+    }
     const roleResult = await runRoleInstructionOnly(
       registry,
       { roleRef: request.roleRef, instruction: request.instruction },
@@ -842,6 +903,17 @@ async function createSparkWorkflowAgentRunner(input: {
   };
   return createSparkWorkflowRoleRunAdapter({
     roleRef: DEFAULT_WORKFLOW_ROLE_REF,
+    resolveRole: (selector) => {
+      const approved = input.approvedRoleBindings?.find((binding) => binding.selector === selector);
+      if (!approved) {
+        throw new Error(`workflow role selector was not frozen in approval: ${selector}`);
+      }
+      const role = registry.select(selector);
+      if (role.ref !== approved.roleRef || role.revision !== approved.roleRevision) {
+        throw new Error(`workflow role selector changed after approval: ${selector}`);
+      }
+      return { roleRef: role.ref, roleRevision: role.revision };
+    },
     graftBaseRef: workflowGraftBaseRef(input.base),
     runRoleInstruction: runRole,
     runModelInstruction: runModel,

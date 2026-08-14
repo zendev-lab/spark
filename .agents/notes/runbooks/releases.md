@@ -2,9 +2,9 @@
 
 This runbook owns **release engineering and updater compatibility gates**.
 User-facing installation/update commands and path guidance live in the public
-[`CLI reference`](../../apps/spark-docs/src/content/docs/reference/cli.md#managed-installation-and-updates)
+[`CLI reference`](../../../apps/spark-docs/src/content/docs/reference/cli.md#managed-installation-and-updates)
 and
-[`configuration reference`](../../apps/spark-docs/src/content/docs/reference/configuration-and-paths.md#managed-installation-paths).
+[`configuration reference`](../../../apps/spark-docs/src/content/docs/reference/configuration-and-paths.md#managed-installation-paths).
 Do not maintain a second user command/path catalog here.
 
 Spark production releases use one immutable source:

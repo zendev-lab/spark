@@ -3,7 +3,7 @@
 This specification owns **internal tool semantics and authority boundaries**.
 The public tool catalog, availability guidance, and user-facing descriptions
 live in
-[`apps/spark-docs/src/content/docs/reference/tools.md`](../../apps/spark-docs/src/content/docs/reference/tools.md).
+[`apps/spark-docs/src/content/docs/reference/tools.md`](../../../apps/spark-docs/src/content/docs/reference/tools.md).
 Do not maintain a second public catalog here.
 
 Schemas and result types live with their owning packages and are authoritative
@@ -333,6 +333,6 @@ part of the default Git workflow.
 
 User-facing tool availability, names, purposes, and setup belong only in the
 public reference:
-[`reference/tools.md`](../../apps/spark-docs/src/content/docs/reference/tools.md).
-Internal specs should link there instead of copying usage tables or command
+[`reference/tools.md`](../../../apps/spark-docs/src/content/docs/reference/tools.md).
+Internal contracts should link there instead of copying usage tables or command
 examples.

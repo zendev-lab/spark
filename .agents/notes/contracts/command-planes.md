@@ -19,7 +19,7 @@ complete `@zendev-lab/spark` installation supplies exact-version app packages;
 a companion may also be installed directly for a single-process deployment.
 
 User-facing command syntax and examples are owned by
-[`apps/spark-docs/src/content/docs/reference/cli.md`](../../apps/spark-docs/src/content/docs/reference/cli.md).
+[`apps/spark-docs/src/content/docs/reference/cli.md`](../../../apps/spark-docs/src/content/docs/reference/cli.md).
 This specification defines placement and ownership only; it must not maintain a
 second CLI catalog.
 
@@ -67,7 +67,7 @@ session id and only connection-local active-invocation routing is retained.
   truth for tasks, runs, artifacts, asks, reviews, or invocations. Their
   inventory `stateWriter: hub` records the canonical storage boundary, not a
   second product owner. See
-  [`architecture/packages.json`](../../architecture/packages.json) for the
+  [`architecture/packages.json`](../../../architecture/packages.json) for the
   authoritative inventory.
 - Transports and app adapters translate through owner APIs; they do not
   duplicate execution or policy, and they must not read or write another

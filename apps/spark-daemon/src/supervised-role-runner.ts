@@ -41,6 +41,7 @@ async function runSupervisedRole(
     description: `Supervised ${request.role.id} Role`,
     systemPrompt: request.role.systemPrompt,
     capabilities: request.role.capabilities ?? [],
+    ...(request.role.skills ? { skills: request.role.skills } : {}),
     ...(request.role.allowedTools ? { allowedTools: request.role.allowedTools } : {}),
     ...(request.role.allowedToolEffects
       ? { allowedToolEffects: request.role.allowedToolEffects }
@@ -78,6 +79,7 @@ async function runSupervisedRole(
       parentInvocationId: options.parentInvocationId,
       structured: true,
       model,
+      ...(request.thinking ? { thinkingLevel: request.thinking } : {}),
       roleRunRef: request.record.ref,
       requireStructuredOutcome: request.requireStructuredOutcome,
       sourceKind: purpose,

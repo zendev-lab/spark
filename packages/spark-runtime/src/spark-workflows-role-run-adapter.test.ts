@@ -75,6 +75,76 @@ test("spark-workflows role-run adapter honors an explicit reusable roleRef", asy
   assert.equal(selectedRoleRef, "role:extension-repro-numerical-auditor");
 });
 
+test("spark-workflows role-run adapter resolves a role selector to an exact revision", async () => {
+  const requests: SparkWorkflowRoleRunRequest[] = [];
+  const telemetry: unknown[] = [];
+  const revision = `sha256:${"a".repeat(64)}`;
+  const agent = createSparkWorkflowRoleRunAdapter({
+    roleRef: "role:builtin-executor",
+    resolveRole(selector) {
+      assert.equal(selector, "spark-architecture-guardian");
+      return {
+        roleRef: "role:project-spark-architecture-guardian",
+        roleRevision: revision,
+      };
+    },
+    async runRoleInstruction(request) {
+      requests.push(request);
+      return { text: "approved" };
+    },
+  });
+
+  const result = await agent("Review boundaries", {
+    index: 0,
+    role: "spark-architecture-guardian",
+    reportTelemetry: (value) => telemetry.push(value),
+  });
+
+  assert.equal(result, "approved");
+  assert.equal(requests[0]?.roleRef, "role:project-spark-architecture-guardian");
+  assert.equal(requests[0]?.roleRevision, revision);
+  assert.deepEqual(requests[0]?.metadata, {
+    workflowAgent: true,
+    label: "workflow-agent-1",
+    stage: undefined,
+    phase: undefined,
+    model: undefined,
+    agentType: undefined,
+    isolation: undefined,
+    timeoutMs: undefined,
+    evidenceRef: undefined,
+    envKeys: undefined,
+    allowedTools: undefined,
+    roleSelector: "spark-architecture-guardian",
+    roleRef: "role:project-spark-architecture-guardian",
+    roleRevision: revision,
+    index: 0,
+  });
+  assert.deepEqual(telemetry, [
+    {
+      metadata: {
+        roleSelector: "spark-architecture-guardian",
+        roleRef: "role:project-spark-architecture-guardian",
+        roleRevision: revision,
+      },
+    },
+  ]);
+});
+
+test("spark-workflows role-run adapter rejects selectors without a host resolver", async () => {
+  const agent = createSparkWorkflowRoleRunAdapter({
+    roleRef: "role:builtin-executor",
+    async runRoleInstruction() {
+      return { text: "should not run" };
+    },
+  });
+
+  await assert.rejects(
+    () => agent("Review boundaries", { index: 0, role: "spark-architecture-guardian" }),
+    /role selector requires a host role resolver/,
+  );
+});
+
 test("spark-workflows role-run adapter forwards child usage telemetry", async () => {
   const reported: unknown[] = [];
   const agent = createSparkWorkflowRoleRunAdapter({
@@ -100,7 +170,7 @@ test("spark-workflows role-run adapter forwards child usage telemetry", async ()
     {
       runRef: "run:child-telemetry",
       usage: { inputTokens: 12, outputTokens: 3, totalTokens: 15, costUsd: 0.004 },
-      metadata: {},
+      metadata: { roleRef: "role:builtin-executor" },
     },
   ]);
 });
@@ -158,6 +228,7 @@ test("spark-workflows role-run adapter maps workflow agents to Spark dependency 
   assert.deepEqual(telemetryReports, [
     {
       metadata: {
+        roleRef: "role:builtin-executor",
         graftRefs: {
           scratchRefs: ["scratch:abc"],
           candidateRefs: ["candidate:def"],

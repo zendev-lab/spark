@@ -27,6 +27,8 @@ export {
 export {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
+  DEFAULT_READ_MAX_BYTES,
+  DEFAULT_READ_MAX_LINES,
   GREP_MAX_LINE_LENGTH,
   formatSize,
   truncateHead,

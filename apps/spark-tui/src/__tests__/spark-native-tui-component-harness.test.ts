@@ -243,6 +243,8 @@ test("native TUI prompt history follows durable user prompts across snapshots an
 
   await harness.submitEditor("/status");
   await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "/status");
+  await harness.press("\x1b[A");
   assert.equal(harness.app.getEditorText(), "live durable prompt");
   await harness.press("\x1b[A");
   assert.equal(harness.app.getEditorText(), "new durable prompt");
@@ -252,6 +254,32 @@ test("native TUI prompt history follows durable user prompts across snapshots an
   assert.equal(harness.app.getEditorText(), "old durable prompt");
   await harness.press("\x1b[B");
   assert.equal(harness.app.getEditorText(), "new durable prompt");
+});
+
+test("native TUI recalls successful and failing slash command input in process history", async () => {
+  const submittedPrompts: string[] = [];
+  const responder = (async (prompt: string) => {
+    submittedPrompts.push(prompt);
+    return "done";
+  }) satisfies SparkNativeResponder;
+  const harness = createSparkNativeTuiComponentHarness({
+    responder,
+    slashCommands: {
+      status: { description: "Show status", handler: () => "status ok" },
+    },
+  });
+
+  await harness.submitEditor("  /status  inspect  ");
+  await harness.submitEditor("/missing");
+  await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "/missing");
+  await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "/status  inspect");
+  await harness.press("\x1b[B");
+  assert.equal(harness.app.getEditorText(), "/missing");
+
+  assert.equal(await harness.submit("//literal prompt"), "started");
+  assert.deepEqual(submittedPrompts, ["//literal prompt"]);
 });
 
 test("daemon prompt confirmations do not duplicate locally recalled history", async () => {

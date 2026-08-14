@@ -39,6 +39,7 @@ function request(): ExtensionRoleRunRequest {
     },
     cwd: process.cwd(),
     timeoutMs: 5_000,
+    thinking: "high",
     nativeCompatibilityRecovery: "reviewer" as const,
     env: {
       PI_ROLE_DEPTH: "1",
@@ -262,6 +263,7 @@ test("isolated request serialization excludes daemon-owned callbacks and control
   assert.equal("onEvent" in serialized, false);
   assert.equal("inputControl" in serialized, false);
   assert.equal("env" in serialized, false);
+  assert.equal(serialized.thinking, "high");
   assert.equal(JSON.stringify(serialized).includes("must-not-cross"), false);
   assert.doesNotThrow(() => structuredClone(serialized));
 });

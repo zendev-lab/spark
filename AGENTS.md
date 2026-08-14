@@ -7,7 +7,9 @@ ownership, and pull-request conventions are maintained in
 [`CONTRIBUTING.md`](./CONTRIBUTING.md). Do not duplicate them here. Read
 [`README.md`](./README.md) for the public product overview and
 [`SPARK.md`](./SPARK.md) for project intent, goals, non-goals, and current
-direction.
+direction. This file is self-contained standing orders. Project Roles, Skills,
+Workflows, and Notes may add task methods, but they must not supply prerequisites
+for interpreting this file.
 
 ## Scope and precedence
 
@@ -21,19 +23,14 @@ direction.
   by that domain.
 - Machine-readable inventories and enforced contracts are authoritative over
   copied prose.
+- Keep facts in one authoritative home and link to them instead of copying.
 
 ## Sources of truth
 
 - Package layer, owner, stability, state-writer metadata, dependency exceptions,
   Pi ownership, and package budget:
   [`architecture/packages.json`](./architecture/packages.json).
-- Package creation and dependency direction:
-  [`docs/specs/package-architecture.md`](./docs/specs/package-architecture.md).
-- Command placement and state ownership:
-  [`docs/specs/command-planes.md`](./docs/specs/command-planes.md).
 - Public behavior and current commands: [`apps/spark-docs`](./apps/spark-docs).
-- Internal contracts and operator procedures:
-  [`docs/README.md`](./docs/README.md).
 - Project intent and open design direction: [`SPARK.md`](./SPARK.md).
 
 ## Repository-wide invariants
@@ -102,12 +99,6 @@ or experimental-lifecycle boundary. Otherwise add a module to the existing
 owner. Any workspace addition, removal, rename, or ownership change must update
 `architecture/packages.json`.
 
-Hub-private packages use physical `spark-hub-*` names. They may be used by Hub
-but not by the daemon or shared Spark packages. Compatibility reads for retired
-Cockpit state remain inside the current Hub owner and receive no new behavior.
-Shared packages must not import concrete internals from `apps/spark-cli`,
-`apps/spark-tui`, `apps/spark-daemon`, or `apps/spark-hub`.
-
 Compatibility adapters require explicit exit criteria and receive no new
 product behavior. Do not introduce an overlapping framework or service unless
 an isolated, default-disabled experiment proves the current owner cannot meet a
@@ -116,14 +107,17 @@ measured requirement.
 ## Documentation discipline
 
 Use the ownership table in
-[`CONTRIBUTING.md`](./CONTRIBUTING.md#documentation-ownership). In particular:
+[`CONTRIBUTING.md`](./CONTRIBUTING.md#documentation-ownership):
 
 - keep `README.md` stable and user-oriented;
 - keep exhaustive commands and workflows in `apps/spark-docs`;
-- keep normative behavior in `docs/specs`;
-- keep operator procedures in `docs/operations`;
+- keep internal contracts in `.agents/notes/contracts`;
+- keep maintainer procedures in `.agents/notes/runbooks`;
+- keep dated engineering decisions in `.agents/notes/decisions`;
 - keep temporary migration status and open design direction in `SPARK.md`;
-- keep this file limited to stable coding-agent constraints.
+- keep this file limited to stable, self-contained standing orders;
+- place reusable agent methods or orchestration in their Role, Skill, Workflow,
+  or Note owner without making this file depend on those assets.
 
 When changing public documentation, update English and Chinese pages together.
 Do not modify archived versions unless the task explicitly targets an archive.

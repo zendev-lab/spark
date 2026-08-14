@@ -91,10 +91,10 @@ browser / future app ──────────► spark-hub ◄────
 | `spark-acp` | Stateless protocol translation | Sessions or invocations |
 
 The detailed ownership and command grammar are specified in
-[`docs/specs/command-planes.md`](./docs/specs/command-planes.md). Package
+[`.agents/notes/contracts/command-planes.md`](./.agents/notes/contracts/command-planes.md). Package
 dependency direction and state writers are defined by
 [`architecture/packages.json`](./architecture/packages.json) and the
-[package architecture specification](./docs/specs/package-architecture.md).
+[package architecture specification](./.agents/notes/contracts/package-architecture.md).
 
 ## Typical workflow
 
@@ -132,8 +132,10 @@ maintained in the [user documentation][cli-reference].
   troubleshooting.
 - [`SPARK.md`](./SPARK.md) — project intent, goals, non-goals, and open
   questions.
-- [`docs/README.md`](./docs/README.md) — internal contracts and operator
-  procedures.
+- [`.agents/notes`](./.agents/notes) — on-demand internal contracts, decisions,
+  and maintainer runbooks.
+- [`.agents/AGENTS.md`](./.agents/AGENTS.md) — agent knowledge placement and
+  progressive-disclosure rules.
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md) — source setup, repository workflow,
   validation, documentation ownership, and pull requests.
 - [`AGENTS.md`](./AGENTS.md) — repository-wide constraints for coding agents.
