@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { chmod, copyFile, mkdir, readdir, rm } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -7,6 +7,9 @@ import { build } from "esbuild";
 const hubDbEntry = realpathSync(fileURLToPath(import.meta.resolve("@zendev-lab/spark-hub-db")));
 const migrationsSource = join(dirname(hubDbEntry), "migrations");
 const migrationsDestination = fileURLToPath(new URL("../dist/migrations/", import.meta.url));
+
+const distCli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
+const temporaryCli = `${distCli}.${process.pid}.${Date.now()}.tmp`;
 
 await build({
   banner: {
@@ -28,12 +31,13 @@ const require = __sparkCreateRequire(import.meta.url);`,
     "lodash.merge",
   ],
   format: "esm",
-  outfile: "dist/cli.js",
+  outfile: temporaryCli,
   platform: "node",
   target: "node26",
 });
 
-await chmod("dist/cli.js", 0o755);
+await chmod(temporaryCli, 0o755);
+await rename(temporaryCli, distCli);
 await mkdir(migrationsDestination, { recursive: true });
 
 const migrationNames = await readdir(migrationsSource);

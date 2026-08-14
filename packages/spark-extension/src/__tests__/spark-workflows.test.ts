@@ -1168,6 +1168,11 @@ test("Spark workflow_run approval resolves selected role tool policies", async (
           riskFlags: string[];
           tools: string[];
           roles: string[];
+          roleBindings: Array<{
+            selector?: string;
+            roleRef: string;
+            roleRevision: string;
+          }>;
         }
       | undefined;
     registerSparkWorkflowRunTool(
@@ -1178,6 +1183,7 @@ test("Spark workflow_run approval resolves selected role tool policies", async (
             riskFlags: summary.riskFlags,
             tools: summary.tools,
             roles: summary.roles,
+            roleBindings: summary.roleBindings,
           };
           return { approved: false, reason: "test inspected role policy" };
         },
@@ -1193,7 +1199,7 @@ test("Spark workflow_run approval resolves selected role tool policies", async (
           "tool-call",
           {
             script: `export const meta = { name: 'role approval', description: 'role policy smoke' }
-return await agent('bounded work', { roleRef: 'role:builtin-executor' })`,
+return await agent('bounded work', { role: 'executor' })`,
           },
           new AbortController().signal,
           () => undefined,
@@ -1202,6 +1208,9 @@ return await agent('bounded work', { roleRef: 'role:builtin-executor' })`,
       /workflow_run approval denied: test inspected role policy/,
     );
     assert.deepEqual(observed?.roles, ["role:builtin-executor"]);
+    assert.equal(observed?.roleBindings[0]?.selector, "executor");
+    assert.equal(observed?.roleBindings[0]?.roleRef, "role:builtin-executor");
+    assert.match(observed?.roleBindings[0]?.roleRevision ?? "", /^sha256:[a-f0-9]{64}$/u);
     assert.ok(observed?.tools.includes("cue_exec"));
     assert.ok(observed?.tools.includes("write"));
     assert.deepEqual(observed?.riskFlags, ["role_policies", "shell_tools", "write_tools"]);
@@ -1227,18 +1236,21 @@ test("Spark workflow_run records scoped approval provenance for risky workflows"
     };
     const tools = new Map<string, TestWorkflowRunTool>();
     let approvalSource = "";
+    let approvedRoleBindings:
+      | Array<{ selector?: string; roleRef: string; roleRevision: string }>
+      | undefined;
     registerSparkWorkflowRunTool(
       (config) => tools.set(config.name, config as unknown as TestWorkflowRunTool),
       {
         approveRun: ({ summary }) => {
           approvalSource = summary.source;
-          assert.deepEqual(summary.riskFlags, ["web_or_fetch"]);
+          assert.deepEqual(summary.riskFlags, ["role_policies", "shell_tools", "write_tools"]);
+          approvedRoleBindings = summary.roleBindings;
           assert.equal(summary.resources.stageCount, 0);
           assert.equal(summary.resources.phaseCount, 0);
-          return { approved: true, method: "reviewer", reason: "safe bounded web lookup" };
+          return { approved: true, method: "reviewer", reason: "bounded executor delegation" };
         },
         createAgentRunner: () => async () => "agent output",
-        webSearch: ({ request }) => ({ searched: request.query, url: "https://example.test" }),
         now: () => "2026-06-22T12:00:00.000Z",
       },
     );
@@ -1248,9 +1260,8 @@ test("Spark workflow_run records scoped approval provenance for risky workflows"
     const result = await tool.execute(
       "tool-call",
       {
-        script: `export const meta = { name: 'approved web', description: 'web workflow' }
-return await webSearch({ query: args.query })`,
-        args: { query: "approval smoke" },
+        script: `export const meta = { name: 'approved role', description: 'role workflow' }
+return await agent('bounded work', { role: 'executor' })`,
         wait: true,
       },
       new AbortController().signal,
@@ -1264,9 +1275,20 @@ return await webSearch({ query: args.query })`,
     assert.ok(stored);
     assert.equal(stored.approval?.status, "approved");
     assert.equal(stored.approval?.method, "reviewer");
-    assert.equal(stored.approval?.reason, "safe bounded web lookup");
-    assert.deepEqual(stored.approval?.summary.riskFlags, ["web_or_fetch"]);
-    assert.match(formatSparkDynamicWorkflowRunLine(stored), /approval=reviewer:web_or_fetch/);
+    assert.equal(stored.approval?.reason, "bounded executor delegation");
+    assert.deepEqual(stored.approval?.summary.riskFlags, [
+      "role_policies",
+      "shell_tools",
+      "write_tools",
+    ]);
+    assert.deepEqual(stored.approval?.summary.roleBindings, approvedRoleBindings);
+    assert.equal(stored.approval?.summary.roleBindings?.[0]?.selector, "executor");
+    assert.equal(stored.approval?.summary.roleBindings?.[0]?.roleRef, "role:builtin-executor");
+    assert.match(
+      stored.approval?.summary.roleBindings?.[0]?.roleRevision ?? "",
+      /^sha256:[a-f0-9]{64}$/u,
+    );
+    assert.match(formatSparkDynamicWorkflowRunLine(stored), /approval=reviewer:role_policies/u);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

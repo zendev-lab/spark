@@ -33,7 +33,7 @@ TUI 与 Hub 也可作为独立 app package 安装。其他源码 workspace 仍�
 | `spark-protocol`、`spark-core`、`spark-runtime`、`spark-system`、`spark-tui-adapter` | 跨表面契约与低依赖基础层 |
 | `packages/spark-hub-*` | Hub 私有数据库、协调与本地化实现 |
 
-贡献者可查看 `docs/specs/package-architecture.md` 的依赖规则，以及
+贡献者可查看 `.agents/notes/contracts/package-architecture.md` 的依赖规则，以及
 `architecture/packages.json` 的完整 owner/stability 清单。普通用户不必记住各个
 workspace package。
 

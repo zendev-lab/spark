@@ -17,7 +17,7 @@ import {
   MODEL_EMPTY_RESPONSE_ERROR_CODE,
   TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
 } from "@zendev-lab/spark-ai";
-import { assertRef } from "@zendev-lab/spark-core";
+import { assertRef, type SparkHostDelegationEnvelope } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import {
   SPARK_PROTOCOL_VERSION,
@@ -1043,6 +1043,65 @@ test("SparkAgentLoop forwards getReasoning into stream options.reasoning", async
   await loop.submit("think carefully");
 
   assert.equal(reasoningValues[0], "high");
+});
+
+test("SparkAgentLoop supplies tools with the exact current delegation envelope", async () => {
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-delegation-envelope-test",
+    allowedToolEffects: ["read"],
+  });
+  let delegation: SparkHostDelegationEnvelope | undefined;
+  host.registerTool({
+    name: "delegation_probe",
+    description: "capture the current delegation envelope",
+    parameters: { type: "object" },
+    policy: { effect: "read", executionMode: "parallel", approval: "none" },
+    async execute(_id, _args, _signal, _onUpdate, ctx) {
+      delegation = ctx.delegation;
+      return { content: [{ type: "text", text: "captured" }] };
+    },
+  });
+  host.registerTool({
+    name: "blocked_write",
+    description: "inactive under the host effect ceiling",
+    parameters: { type: "object" },
+    policy: { effect: "local_write", executionMode: "sequential", approval: "none" },
+    async execute() {
+      return { content: [{ type: "text", text: "must not run" }] };
+    },
+  });
+  const call: ToolCall = {
+    type: "toolCall",
+    id: "delegation-probe-call",
+    name: "delegation_probe",
+    arguments: {},
+  };
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [
+        [{ type: "done", reason: "toolUse", message: buildAssistant([call], "toolUse") }],
+        [
+          {
+            type: "done",
+            reason: "stop",
+            message: buildAssistant([{ type: "text", text: "done" }]),
+          },
+        ],
+      ],
+    }),
+    getModel: () => TEST_MODEL,
+    getReasoning: () => "high",
+  });
+
+  await loop.submit("capture delegation authority");
+
+  assert.deepEqual(delegation, {
+    model: { provider: "openai", id: "test-model", api: "openai-completions" },
+    thinking: "high",
+    activeTools: ["delegation_probe"],
+    allowedToolEffects: ["read"],
+  });
 });
 
 test("SparkAgentLoop runs a single-turn stop with one streamed text chunk", async () => {

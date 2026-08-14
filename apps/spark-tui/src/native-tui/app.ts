@@ -373,6 +373,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
     // Host controls must bypass SparkNativeSession.submit: an active turn may queue prompts,
     // but it must never queue or swallow slash commands such as /model and /plan.
     if (isSlashCommand) {
+      this.editor.addToHistory(input);
       await this.runSlashCommand(text);
       this.invalidate();
       this.tui.requestRender();
@@ -1151,10 +1152,26 @@ export class SparkNativeTuiApp implements Component, Focusable {
       });
     }
     const flowRequest = nativeAskFlowRequest(request);
-    const controller = new SparkAskFlowController({
-      request: flowRequest,
-      language: nativeAskLanguage(),
-    });
+    let controller: SparkAskFlowController;
+    try {
+      controller = new SparkAskFlowController({
+        request: flowRequest,
+        language: nativeAskLanguage(),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.session.addSystemMessage(`Ask overlay failed to open: ${message}`);
+      return {
+        version: SPARK_PROTOCOL_VERSION,
+        kind: "askFlow",
+        requestId: request.requestId,
+        status: "blocked",
+        answers: {},
+        nextAction: "block",
+        message,
+        metadata: { surface: "native-tui" },
+      };
+    }
     let timedOut = false;
     const resultPromise = this.custom<SparkAskFlowResult>(
       (tui, theme, _keybindings, done) => {
@@ -2676,6 +2693,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
       "execute",
       "fleet",
       "workflow",
+      "ask",
       "enabled-models",
       "enabled",
     ].includes(parsed.name)

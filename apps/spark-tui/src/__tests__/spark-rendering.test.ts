@@ -648,6 +648,18 @@ test("SparkNativeTuiApp renders native setStatus and setWidget surfaces", () => 
   assert.doesNotMatch(rendered, /◆ Role runs/);
 });
 
+test("SparkNativeTuiApp replaces a widget with the same key instead of stacking it", () => {
+  const session = new SparkNativeSession();
+  const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
+
+  app.setWidget("spark-status", ["◆ Repro(old)"], { placement: "belowEditor" });
+  app.setWidget("spark-status", ["◆ Repro(new)"], { placement: "belowEditor" });
+
+  const rendered = app.render(100).join("\n");
+  assert.doesNotMatch(rendered, /Repro\(old\)/u);
+  assert.equal(rendered.match(/Repro\(new\)/gu)?.length, 1);
+});
+
 test("Spark native UI transport bridges notify, status, widget, and custom", async () => {
   const session = new SparkNativeSession();
   const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);

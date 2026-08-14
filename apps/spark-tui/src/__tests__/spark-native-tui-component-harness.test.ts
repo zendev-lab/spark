@@ -31,6 +31,7 @@ import {
   type SparkNativeResponder,
 } from "../native-tui.ts";
 import { catalogSparkNativeCommands } from "../native-tui/command-presentation.ts";
+import { nativeAskFlowRequest } from "../native-tui/ask-helpers.ts";
 import { nativeKernelSlashCommandEntries } from "../native-tui/slash-commands.ts";
 import { createSparkPiParitySlashCommands } from "../cli/pi-parity-commands.ts";
 import type { SparkDaemonModelAuthClient } from "../cli/model-control.ts";
@@ -242,6 +243,8 @@ test("native TUI prompt history follows durable user prompts across snapshots an
 
   await harness.submitEditor("/status");
   await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "/status");
+  await harness.press("\x1b[A");
   assert.equal(harness.app.getEditorText(), "live durable prompt");
   await harness.press("\x1b[A");
   assert.equal(harness.app.getEditorText(), "new durable prompt");
@@ -251,6 +254,32 @@ test("native TUI prompt history follows durable user prompts across snapshots an
   assert.equal(harness.app.getEditorText(), "old durable prompt");
   await harness.press("\x1b[B");
   assert.equal(harness.app.getEditorText(), "new durable prompt");
+});
+
+test("native TUI recalls successful and failing slash command input in process history", async () => {
+  const submittedPrompts: string[] = [];
+  const responder = (async (prompt: string) => {
+    submittedPrompts.push(prompt);
+    return "done";
+  }) satisfies SparkNativeResponder;
+  const harness = createSparkNativeTuiComponentHarness({
+    responder,
+    slashCommands: {
+      status: { description: "Show status", handler: () => "status ok" },
+    },
+  });
+
+  await harness.submitEditor("  /status  inspect  ");
+  await harness.submitEditor("/missing");
+  await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "/missing");
+  await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "/status  inspect");
+  await harness.press("\x1b[B");
+  assert.equal(harness.app.getEditorText(), "/missing");
+
+  assert.equal(await harness.submit("//literal prompt"), "started");
+  assert.deepEqual(submittedPrompts, ["//literal prompt"]);
 });
 
 test("daemon prompt confirmations do not duplicate locally recalled history", async () => {
@@ -1214,6 +1243,44 @@ test("native ask lifecycle cache bounds replay and transcript dedup together", a
         "ask-bounded-0",
   );
   assert.equal(markers.length, 2);
+});
+
+test("native ask overlay opens a freeform wait that omitted options arrays", async () => {
+  const omitted = {
+    id: "archive",
+    prompt: "Where is the frozen archive?",
+    type: "freeform" as const,
+    required: true,
+  };
+  assert.equal(
+    nativeAskFlowRequest({
+      version: SPARK_PROTOCOL_VERSION,
+      requestId: "ask-freeform-raw",
+      kind: "askFlow",
+      title: "Archive",
+      mode: "decision",
+      questions: [omitted as never],
+      metadata: {},
+    }).questions[0]?.options?.length,
+    0,
+  );
+  const harness = createSparkNativeTuiComponentHarness({ withOverlay: true });
+  const request = nativeAskRequest("ask-freeform-omitted-options", {
+    questions: [omitted as never],
+  });
+  assert.equal(nativeAskFlowRequest(request).questions[0]?.type, "freeform");
+  const promise = harness.app.handleInteractionRequest(request);
+  await harness.flush();
+  const overlay = harness.state.overlays.at(-1);
+  assert.ok(overlay);
+  const overlayComponent = overlay.component;
+  assert.ok(overlayComponent);
+  assert.equal(overlay.visible, true);
+  overlayComponent.handleInput?.("x");
+  overlayComponent.handleInput?.("\r");
+  overlayComponent.handleInput?.("\r");
+  const response = await promise;
+  assert.equal(response.status, "answered");
 });
 
 test("native ask overlay geometry fits terminal variants and renders within its width", async () => {

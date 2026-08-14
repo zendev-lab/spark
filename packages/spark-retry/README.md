@@ -22,4 +22,4 @@ pnpm --filter @zendev-lab/spark-retry test
 pnpm --filter @zendev-lab/spark-retry exec stryker run
 ```
 
-The package Stryker config is part of the leaf-package mutation CE suite (`retry` / `protocol` / `db` / `system`). Run all configured packages with `pnpm run test:mutation`. Mutation is not part of the default `pnpm run check` gate; CI runs it weekly via `.github/workflows/ce-mutation.yml`. Timing and scoring notes live in [`docs/operations/mutation-ce.md`](../../docs/operations/mutation-ce.md).
+The package Stryker config is part of the leaf-package mutation CE suite (`retry` / `protocol` / `db` / `system`). Run all configured packages with `pnpm run test:mutation`. Mutation is not part of the default `pnpm run check` gate; CI runs it weekly via `.github/workflows/ce-mutation.yml`. Timing and scoring notes live in [`.agents/notes/runbooks/mutation-ce.md`](../../.agents/notes/runbooks/mutation-ce.md).

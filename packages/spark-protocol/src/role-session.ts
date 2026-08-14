@@ -36,6 +36,13 @@ export const sparkRoleToolEffectOptions = [
 ] as const;
 export const sparkRoleToolEffectSchema = z.enum(sparkRoleToolEffectOptions);
 
+export const sparkRoleSkillNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u, "skill names must use lowercase kebab-case");
+
 export const sparkRoleOriginSchema = z
   .object({
     kind: z.enum(["manual", "generated", "builtin", "extension"]),
@@ -54,6 +61,7 @@ export const sparkRoleSpecSchema = z
     description: z.string().trim().min(1),
     systemPrompt: z.string().trim().min(1),
     capabilities: z.array(sparkRoleCapabilitySchema).max(sparkRoleCapabilityOptions.length),
+    skills: z.array(sparkRoleSkillNameSchema).min(1).max(8).optional(),
     allowedTools: z.array(z.string().trim().min(1)).optional(),
     allowedToolEffects: z.array(sparkRoleToolEffectSchema).optional(),
     modelType: sparkRoleModelTypeSchema,
@@ -67,6 +75,13 @@ export const sparkRoleSpecSchema = z
         code: "custom",
         path: ["capabilities"],
         message: "role capabilities must be unique",
+      });
+    }
+    if (role.skills && new Set(role.skills).size !== role.skills.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["skills"],
+        message: "role skills must be unique",
       });
     }
   })

@@ -42,15 +42,17 @@ supported packages.
 | `apps/spark-docs` | Public bilingual user documentation |
 | `packages/spark-*` | Shared contracts, capabilities, runtimes, clients, and adapters |
 | `architecture/packages.json` | Machine-readable layer, state-writer, exception, Pi ownership, composition-root, and package-budget inventory |
-| `docs/specs` | Normative architecture and behavior contracts for implementers |
-| `docs/operations` | Maintainer-only procedures and validation runbooks |
+| `.agents/notes/contracts` | Normative architecture and behavior contracts for implementers |
+| `.agents/notes/runbooks` | Maintainer-only procedures and validation runbooks |
+| `.agents/notes/decisions` | Dated engineering decisions and durable rationale |
+| `.agents/{roles,skills,workflows}` | Versioned agent identities, task procedures, and orchestration |
 | `test` | Root integration and cross-package behavior tests |
 | `scripts` | Repository checks, packaging, migration, and validation tooling |
 
 For the current package dependency model, read
-[`docs/specs/package-architecture.md`](./docs/specs/package-architecture.md).
+[`.agents/notes/contracts/package-architecture.md`](./.agents/notes/contracts/package-architecture.md).
 For command and state ownership, read
-[`docs/specs/command-planes.md`](./docs/specs/command-planes.md).
+[`.agents/notes/contracts/command-planes.md`](./.agents/notes/contracts/command-planes.md).
 
 ## Choose the owner before changing code
 
@@ -108,6 +110,7 @@ the change:
 | Complete Repro Golden Journey | `pnpm run test:journey:repro` (requires cue-shell IPC v2 with `session-handshake-required`) |
 | Hub and shared Svelte UI browser interactions | `pnpm run test:browser` |
 | User documentation | `pnpm run check:docs && pnpm run build:docs` |
+| Agent knowledge budgets, routing descriptions, paths, and links | `pnpm run check:agent-knowledge` |
 | Architecture inventory, package ratchets, and health projection | `pnpm run check:architecture` |
 | Architecture exception non-growth against a Git revision | `pnpm run check:architecture-transition -- --base-ref <git-ref>` |
 | Package dependency boundaries | `pnpm run check:boundaries` |
@@ -141,7 +144,7 @@ anything that could not be executed.
   itself part of the contract.
 
 More detailed test ownership and golden-file policy live in
-[`docs/operations/test-architecture.md`](./docs/operations/test-architecture.md).
+[`.agents/notes/contracts/test-architecture.md`](./.agents/notes/contracts/test-architecture.md).
 
 ## Architecture changes
 
@@ -181,9 +184,10 @@ The boundary is based on the question being answered, not merely the directory
 name:
 
 ```text
-apps/spark-docs → How do I use Spark?
-docs/specs      → What must Spark guarantee?
-docs/operations → How do maintainers validate, migrate, deploy, or release it?
+apps/spark-docs              → How do I use Spark?
+.agents/notes/contracts      → What must Spark guarantee?
+.agents/notes/runbooks       → How do maintainers validate, migrate, deploy, or release it?
+.agents/notes/decisions      → Why did this dated engineering decision change?
 ```
 
 | Document | Owns |
@@ -193,14 +197,16 @@ docs/operations → How do maintainers validate, migrate, deploy, or release it?
 | `AGENTS.md` | Stable repository-wide constraints for coding agents |
 | `SPARK.md` | Project intent, goals, non-goals, open questions, and current direction |
 | `apps/spark-docs` | Public installation, workflows, command/tool references, user-visible configuration/paths, client setup, and troubleshooting |
-| `docs/specs` | Normative ownership, state-machine, protocol, persistence, and compatibility invariants |
-| `docs/operations` | Maintainer procedures, release/deployment gates, migration execution, incident handling, and validation runbooks |
+| `.agents/notes/contracts` | Normative ownership, state-machine, protocol, persistence, and compatibility invariants |
+| `.agents/notes/runbooks` | Maintainer procedures, release/deployment gates, migration execution, incident handling, and validation runbooks |
+| `.agents/notes/decisions` | Dated engineering decisions and their durable rationale |
+| `.agents/AGENTS.md` | Agent knowledge classification and progressive-disclosure rules |
 | Package READMEs | Package-local purpose, API, and implementation guidance |
 
 Do not maintain the same catalog in two documentation surfaces. Public command
 syntax/examples, agent-tool catalogs, user-visible path guidance, and ACP/MCP
 client setup belong in `apps/spark-docs`. Specs may mention those names only as
-part of an invariant; operations may invoke them only as steps in a maintainer
+part of an invariant; runbooks may invoke them only as steps in a maintainer
 procedure. Link to the public owner instead of copying a second usage section.
 
 Conversely, public docs should describe observable behavior rather than copying
@@ -214,13 +220,13 @@ inventories, migration histories, or operator procedures in `README.md` or
 `AGENTS.md`. Behavioral changes should update the public guide, normative
 contract, or operation that owns the behavior.
 
-Pull-request sequencing, issue status, dated delivery notes, completed-work
-recaps, and active backlogs belong in the PR, issue tracker, or Spark runtime
-state—not in specs, operations, or package READMEs. Keep only durable rationale,
-invariants, and unresolved project-level direction in source documentation.
+Pull-request sequencing, issue status, delivery notes, completed-work recaps,
+and active backlogs belong in the PR, issue tracker, or Spark runtime state—not
+in Agent Notes or package READMEs. Dated decisions retain only durable rationale;
+unresolved project-level direction remains in `SPARK.md`.
 
 Local timings, mutation scores, current readiness output, and other run results
-belong in CI artifacts or gitignored local reports. Operations document how to
+belong in CI artifacts or gitignored local reports. Runbooks document how to
 run and interpret the check. Likewise, exact command and tool inventories are
 owned by runtime help and active schemas; public docs teach discovery and stable
 semantics instead of maintaining a second exhaustive catalog.

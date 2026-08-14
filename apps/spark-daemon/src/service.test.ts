@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import {
   cancelSparkDaemonRestartSuccessor,
+  clearSparkDaemonStartMarker,
   clearSparkDaemonProcessOwnership,
   completeSparkDaemonRestartSuccessor,
   isSparkDaemonGuiDomainAvailable,
@@ -66,6 +67,53 @@ describe("Spark daemon service logs", () => {
       expect(readFileSync(`${stderrPath}.1`, "utf8")).toBe("6789");
       expect(readFileSync(`${stderrPath}.2`, "utf8")).toBe("older");
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Spark daemon start ownership", () => {
+  it("coalesces detached starts before the daemon publishes its lock and pidfile", () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-service-start-marker-"));
+    const launcher = join(root, "fake-daemon.mjs");
+    const startPaths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: { runtimeDir: join(root, "run"), stateDir: join(root, "state") },
+    });
+    writeFileSync(
+      launcher,
+      `#!/usr/bin/env node
+setInterval(() => {}, 1000);
+`,
+      { mode: 0o700 },
+    );
+    chmodSync(launcher, 0o700);
+    const previousLauncher = process.env.SPARK_STABLE_LAUNCHER;
+    process.env.SPARK_STABLE_LAUNCHER = launcher;
+    let spawnedPid: number | undefined;
+    try {
+      const first = startSparkDaemonService(startPaths, { serviceMode: "detached" });
+      spawnedPid = first.pid;
+      expect(first).toMatchObject({
+        kind: "detached",
+        alreadyRunning: false,
+        ownership: "spawned",
+      });
+      expect(spawnedPid).toEqual(expect.any(Number));
+
+      const second = startSparkDaemonService(startPaths, { serviceMode: "detached" });
+      expect(second).toMatchObject({
+        kind: "detached",
+        alreadyRunning: true,
+        ownership: "observed",
+        pid: spawnedPid,
+      });
+    } finally {
+      if (spawnedPid) process.kill(spawnedPid, "SIGTERM");
+      clearSparkDaemonStartMarker(startPaths);
+      if (previousLauncher === undefined) delete process.env.SPARK_STABLE_LAUNCHER;
+      else process.env.SPARK_STABLE_LAUNCHER = previousLauncher;
       rmSync(root, { recursive: true, force: true });
     }
   });

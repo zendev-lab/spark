@@ -10,4 +10,4 @@ Channel hosts expose only same-workspace coordination actions. Sends require a l
 
 Ephemeral one-Invocation calls belong to `role`; scoped continuity belongs to `session`. Both reuse the same headless host and `SparkAgentSession`.
 
-See [`../../docs/specs/sessions-and-channels.md`](../../docs/specs/sessions-and-channels.md).
+See [`../../.agents/notes/contracts/sessions-and-channels.md`](../../.agents/notes/contracts/sessions-and-channels.md).

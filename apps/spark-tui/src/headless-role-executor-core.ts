@@ -53,6 +53,7 @@ export interface SparkHeadlessRoleInstructionInput {
     id: string;
     revision: string;
     systemPrompt: string;
+    skills?: string[];
     allowedTools?: string[];
     allowedToolEffects?: ToolEffect[];
   };
@@ -65,6 +66,9 @@ export interface SparkHeadlessRoleInstructionInput {
     ref: RunRef;
     roleRef: RoleRef;
     roleRevision: string;
+    definitionRevision?: string;
+    compositionRevision?: string;
+    skillDigests?: Array<{ name: string; digest: string }>;
     runName?: string;
     instruction: string;
     status: SparkHeadlessRoleRunStatus;
@@ -83,6 +87,7 @@ export interface SparkHeadlessRoleInstructionInput {
   launch?: "fresh" | "forked";
   forkFromSession?: string;
   model?: string;
+  thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   nativeCompatibilityRecovery?: "reviewer";
   onEvent?: (event: unknown) => void | Promise<void>;
   inputControl?: ExtensionRoleRunInputControl;
@@ -553,6 +558,7 @@ export async function runSparkHeadlessRoleInstruction(
         return result;
       }
     }
+    if (input.thinking) services.config.activeThinkingLevel = input.thinking;
     const observeTokenUsage = createHeadlessTokenUsageObserver(options.tokenUsage);
     const unsubscribe = services.agentLoop.onEvent((event) => {
       const serialized = serializeLoopEvent(event);

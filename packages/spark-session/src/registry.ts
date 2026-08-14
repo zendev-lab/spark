@@ -2034,21 +2034,16 @@ function validateRegistryOwnership(sessions: SparkSessionState[]): void {
       if (!sameSessionScope(session.scope, supervisor.scope)) {
         throw new Error(`Session owner scope mismatch: ${session.sessionId}`);
       }
-      const supervisorIsWorkspaceAdministrator = supervisor.owner.kind === "workspace";
       // A Workspace Administrator has no GitChange boundary, so its direct
       // child may narrow into one. Once an ancestor establishes a boundary,
       // every descendant must retain that exact ArtifactRef.
-      if (
-        !supervisorIsWorkspaceAdministrator &&
-        supervisor.cwdArtifactRef &&
-        session.cwdArtifactRef !== supervisor.cwdArtifactRef
-      ) {
+      if (supervisor.cwdArtifactRef && session.cwdArtifactRef !== supervisor.cwdArtifactRef) {
         throw new Error(`Session GitChange boundary widened: ${session.sessionId}`);
       }
       if (
-        !supervisorIsWorkspaceAdministrator &&
         session.cwd &&
         supervisor.cwd &&
+        !(supervisor.owner.kind === "workspace" && session.cwdArtifactRef) &&
         !isPathWithin(resolve(session.cwd), resolve(supervisor.cwd))
       ) {
         throw new Error(`Session cwd boundary widened: ${session.sessionId}`);
@@ -2134,21 +2129,16 @@ function assertOwnerWithinScope(
       `Session owner ${supervisorId} belongs to a different scope`,
     );
   }
-  const supervisorIsWorkspaceAdministrator = supervisor.owner.kind === "workspace";
-  if (
-    !supervisorIsWorkspaceAdministrator &&
-    supervisor.cwdArtifactRef &&
-    cwdArtifactRef !== supervisor.cwdArtifactRef
-  ) {
+  if (supervisor.cwdArtifactRef && cwdArtifactRef !== supervisor.cwdArtifactRef) {
     throw new SparkSessionRegistryError(
       "session_owner_scope_mismatch",
       "child Session cannot change its owner's GitChange boundary",
     );
   }
   if (
-    !supervisorIsWorkspaceAdministrator &&
     cwd &&
     supervisor.cwd &&
+    !(supervisor.owner.kind === "workspace" && cwdArtifactRef) &&
     !isPathWithin(resolve(cwd), resolve(supervisor.cwd))
   ) {
     throw new SparkSessionRegistryError(

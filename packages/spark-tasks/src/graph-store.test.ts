@@ -98,3 +98,60 @@ test("project-tree storage rejects malformed records at their owning file", asyn
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test("reconciles stale TaskRuns, releases their lease, and returns tasks to pending", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "spark-task-stale-reconcile-"));
+  try {
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Liveness", description: "liveness" });
+    const task = graph.createTask({
+      projectRef: project.ref,
+      title: "Stale task",
+      description: "stale task",
+      status: "running",
+    });
+    graph.claimTask(task.ref, {
+      kind: "main",
+      claimedBy: "sess:stale",
+      sessionId: "sess:stale",
+      runRef: "run:stale" as RunRef,
+      leaseMs: 600_000,
+      now: "2026-08-14T00:00:00.000Z",
+    });
+    graph.recordRun({
+      ref: "run:stale" as RunRef,
+      projectRef: project.ref,
+      taskRef: task.ref,
+      status: "running",
+      startedAt: "2026-08-14T00:00:00.000Z",
+      updatedAt: "2026-08-14T00:00:00.000Z",
+      resourceAllocation: {
+        leaseId: "resource:stale",
+        nodeId: "node-1",
+        groups: [],
+        gpuIds: [],
+        concurrencyKeys: ["worktree:stale"],
+        exclusiveNode: false,
+        allocatedAt: "2026-08-14T00:00:00.000Z",
+      },
+      outputEvidenceRefs: [],
+    });
+    const store = defaultTaskGraphStore(cwd);
+    await store.save(graph);
+    const result = await store.reconcileStaleTaskRuns({
+      projectRef: project.ref,
+      now: "2026-08-14T00:31:00.000Z",
+      staleAfterMs: 30 * 60 * 1_000,
+    });
+    const reconciled = await store.load();
+    const run = reconciled?.runs(project.ref)[0];
+    assert.deepEqual(result, { inspected: 1, stale: 1, taskRefs: [task.ref] });
+    assert.equal(run?.status, "stale");
+    assert.equal(run?.resourceAllocation, undefined);
+    assert.equal(run?.attemptConsumed, false);
+    assert.equal(reconciled?.getTask(task.ref).status, "pending");
+    assert.equal(reconciled?.getTask(task.ref).claim, undefined);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

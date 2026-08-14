@@ -104,6 +104,12 @@ The empty `/workflow` command opens the picker. Existing commands such as
 `/workflows`, `/workflow-runs`, and `/workflow-pause` remain executable as
 compatibility aliases but are hidden from the normal command catalog.
 
+The repository-owned `workspace:repo-change` workflow runs owner scoping,
+implementation in the current owning worktree, independent review, and delivery
+verification. Changes to `.agents` knowledge add an independent curator review.
+The workflow returns structured accepted or rejected evidence; it never creates,
+pushes, merges, or publishes a pull request.
+
 ## Supervise instead of memorizing states
 
 Use `/help` for the short everyday path, `/help commands` for grouped commands,

@@ -32,6 +32,22 @@ describe("role session protocol", () => {
     expect(() => sparkRoleModelTypeSchema.parse("Tier 1")).toThrow();
   });
 
+  it("accepts ordered unique Role Skills and rejects invalid compositions", () => {
+    expect(
+      parseSparkRoleSpec({ ...role, skills: ["spark-change-scope", "spark-code-review"] }),
+    ).toMatchObject({ skills: ["spark-change-scope", "spark-code-review"] });
+    expect(() =>
+      parseSparkRoleSpec({ ...role, skills: ["spark-code-review", "spark-code-review"] }),
+    ).toThrow(/unique/u);
+    expect(() => parseSparkRoleSpec({ ...role, skills: ["Not A Skill"] })).toThrow(/kebab-case/u);
+    expect(() =>
+      parseSparkRoleSpec({
+        ...role,
+        skills: Array.from({ length: 9 }, (_value, index) => `skill-${index}`),
+      }),
+    ).toThrow();
+  });
+
   it("rejects incomplete and contradictory RoleSpecs", () => {
     expect(() => parseSparkRoleSpec({ ...role, revision: "sha256:invalid" })).toThrow();
     expect(() => parseSparkRoleSpec({ ...role, capabilities: ["read", "read"] })).toThrow(

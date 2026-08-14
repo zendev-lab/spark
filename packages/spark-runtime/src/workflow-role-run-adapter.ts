@@ -21,6 +21,8 @@ export interface SparkWorkflowGraftAgentResult {
 
 export interface SparkWorkflowRoleRunRequest {
   roleRef: RoleRef;
+  /** Exact definition revision frozen when a selector was resolved. */
+  roleRevision?: string;
   instruction: string;
   label: string;
   stage?: string;
@@ -40,6 +42,9 @@ export interface SparkWorkflowRoleRunRequest {
     evidenceRef?: string;
     envKeys?: string[];
     allowedTools?: string[];
+    roleSelector?: string;
+    roleRef?: RoleRef;
+    roleRevision?: string;
     index: number;
   };
   env?: NodeJS.ProcessEnv;
@@ -81,6 +86,11 @@ export interface SparkWorkflowModelRunRequest {
 
 export interface SparkWorkflowRoleRunAdapterDeps {
   roleRef: RoleRef;
+  resolveRole?: (
+    selector: string,
+  ) =>
+    | Promise<{ roleRef: RoleRef; roleRevision: string }>
+    | { roleRef: RoleRef; roleRevision: string };
   graftBaseRef?: string;
   graftIsolationAllowedTools?: string[];
   runRoleInstruction: (
@@ -131,8 +141,10 @@ export function createSparkWorkflowRoleRunAdapter(
       return result;
     }
     const stage = effectiveOptions.stage ?? effectiveOptions.phase;
+    const role = await resolveWorkflowRoleBinding(effectiveOptions, deps);
     const request: SparkWorkflowRoleRunRequest = {
-      roleRef: (effectiveOptions.roleRef?.trim() as RoleRef | undefined) ?? deps.roleRef,
+      roleRef: role.roleRef,
+      ...(role.roleRevision ? { roleRevision: role.roleRevision } : {}),
       instruction: renderSparkWorkflowAgentInstruction(prompt, effectiveOptions, label),
       label,
       stage,
@@ -150,6 +162,9 @@ export function createSparkWorkflowRoleRunAdapter(
         evidenceRef: effectiveOptions.evidenceRef,
         envKeys: workflowEnvKeys(effectiveOptions.env),
         allowedTools: effectiveOptions.allowedTools,
+        roleSelector: role.roleSelector,
+        roleRef: role.roleRef,
+        roleRevision: role.roleRevision,
         index: effectiveOptions.index,
       },
       env: effectiveOptions.env,
@@ -157,8 +172,38 @@ export function createSparkWorkflowRoleRunAdapter(
     };
     const response = await deps.runRoleInstruction(request);
     const result = workflowAgentResult(response, Boolean(isolationPolicy));
-    reportWorkflowAgentTelemetry(options, response, graftRefsFromResult(result));
+    reportWorkflowAgentTelemetry(options, response, graftRefsFromResult(result), role);
     return result;
+  };
+}
+
+interface SparkWorkflowRoleBinding {
+  roleSelector?: string;
+  roleRef: RoleRef;
+  roleRevision?: string;
+}
+
+async function resolveWorkflowRoleBinding(
+  options: WorkflowAgentOptions,
+  deps: SparkWorkflowRoleRunAdapterDeps,
+): Promise<SparkWorkflowRoleBinding> {
+  const selector = options.role?.trim();
+  if (selector) {
+    if (!deps.resolveRole) {
+      throw new Error("workflow agent role selector requires a host role resolver");
+    }
+    const resolved = await deps.resolveRole(selector);
+    if (!resolved.roleRef?.trim() || !resolved.roleRevision?.trim()) {
+      throw new Error(`workflow agent role selector resolved incompletely: ${selector}`);
+    }
+    return {
+      roleSelector: selector,
+      roleRef: resolved.roleRef,
+      roleRevision: resolved.roleRevision,
+    };
+  }
+  return {
+    roleRef: (options.roleRef?.trim() as RoleRef | undefined) ?? deps.roleRef,
   };
 }
 
@@ -184,6 +229,7 @@ export function renderSparkWorkflowAgentInstruction(
   const stage = options.stage ?? options.phase;
   if (stage) lines.push("- Stage: " + stage);
   if (options.model) lines.push("- Requested model: " + options.model);
+  if (options.role) lines.push("- Requested role selector: " + options.role);
   if (options.roleRef) lines.push("- Requested role: " + options.roleRef);
   if (options.agentType) lines.push("- Agent type: " + options.agentType);
   if (options.isolation) lines.push("- Isolation: " + options.isolation);
@@ -245,6 +291,7 @@ function reportWorkflowAgentTelemetry(
   options: { reportTelemetry?: (telemetry: WorkflowAgentReportedTelemetry) => void },
   response: SparkWorkflowRoleRunResponse,
   graftRefs?: SparkWorkflowGraftRefs,
+  role?: SparkWorkflowRoleBinding,
 ): void {
   const hasGraftRefs = Boolean(
     graftRefs &&
@@ -252,11 +299,18 @@ function reportWorkflowAgentTelemetry(
       graftRefs.candidateRefs.length > 0 ||
       graftRefs.patchRefs.length > 0),
   );
-  if (!response.telemetry && !hasGraftRefs) return;
+  if (!response.telemetry && !hasGraftRefs && !role) return;
   options.reportTelemetry?.({
     ...response.telemetry,
     metadata: {
       ...response.telemetry?.metadata,
+      ...(role
+        ? {
+            ...(role.roleSelector ? { roleSelector: role.roleSelector } : {}),
+            roleRef: role.roleRef,
+            ...(role.roleRevision ? { roleRevision: role.roleRevision } : {}),
+          }
+        : {}),
       ...(hasGraftRefs ? { graftRefs } : {}),
     },
   });

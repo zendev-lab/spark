@@ -87,7 +87,9 @@ export function collectBackgroundChildRuns(input: {
     if (input.targetTaskRef && task?.ref !== input.targetTaskRef) return [];
     const status: SparkBackgroundChildStatus = activeProcess
       ? "active"
-      : (taskRun?.status ?? (task?.status === "running" ? "running" : "unknown"));
+      : taskRun?.status === "stale"
+        ? "unknown"
+        : (taskRun?.status ?? (task?.status === "running" ? "running" : "unknown"));
     const view: SparkBackgroundChildRunView = {
       runRef,
       workflowRunRef: workflowRunRefByChild.get(runRef),

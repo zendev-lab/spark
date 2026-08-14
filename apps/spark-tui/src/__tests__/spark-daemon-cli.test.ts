@@ -32,6 +32,7 @@ import {
   clientRespondHumanInteraction,
   createSparkDaemonNativeCommands,
   createSparkDaemonNativeResponder,
+  formatSparkDaemonTransportRetry,
   ensureSparkDaemonClientRunning,
   handleSparkDaemonHumanInteractionRequest,
   handleSparkDaemonCliCommand,
@@ -45,6 +46,23 @@ import {
 } from "../cli/daemon.ts";
 import { SparkNativeAdmissionError } from "../native-tui.ts";
 import { SPARK_TUI_RELOAD_EXIT_CODE } from "../cli/process-supervisor.ts";
+
+test("formats transport retry status as one terminal-safe line", () => {
+  const line = formatSparkDaemonTransportRetry({
+    operation: "submit",
+    failureCount: 2,
+    error: "Spark daemon is still starting;\nretry after readiness.",
+    nextRetryMs: 100,
+    recoveryAttempted: true,
+    recoveryError: "socket\nclosed",
+  });
+
+  assert.equal(
+    line,
+    "[spark] submit transport retry 2; retrying in 100ms: Spark daemon is still starting; retry after readiness.; recovery failed: socket closed",
+  );
+  assert.equal(line.includes("\n"), false);
+});
 
 function managedSessionFixture(input: {
   sessionId: string;
@@ -1175,6 +1193,79 @@ test("native /ask resumes one detached async Ask inside Spark TUI", async () => 
   });
 });
 
+test("native /ask opens a blocking workspace Ask when the current session has none", async () => {
+  const requests: Array<{ method: string; params: unknown }> = [];
+  const interactions: SparkInteractionRequest[] = [];
+  const blockingWait = {
+    humanRequestId: "hreq_block_tui",
+    interactionRequestId: "ask_block_tui",
+    sessionId: "session-other",
+    invocationId: "inv_block_tui",
+    workspaceBindingId: "rtwb_block_tui",
+    workspaceId: "ws_block_tui",
+    projectId: "project_block_tui",
+    toolCallId: "tool_block_tui",
+    delivery: "blocking" as const,
+    kind: "ask_user",
+    title: "Provide frozen archive",
+    prompt: "Where is the archive?",
+    questions: [
+      {
+        id: "archive",
+        type: "freeform",
+        required: true,
+        prompt: "Absolute path?",
+      },
+    ],
+    context: {},
+    contextArtifactRefs: [],
+    status: "pending" as const,
+    createdAt: "2026-08-13T00:00:00.000Z",
+    updatedAt: "2026-08-13T00:00:00.000Z",
+  };
+  const commands = createSparkDaemonNativeCommands(
+    {
+      controlRequest: async (method, params) => {
+        requests.push({ method, params });
+        if (method === "human.interaction.list") return { waits: [blockingWait] };
+        if (method === "human.interaction.respond") {
+          return {
+            outcome: "accepted",
+            retryable: false,
+            returnedToTool: true,
+            message: "Ask answer accepted.",
+          };
+        }
+        throw new Error(`unexpected method: ${method}`);
+      },
+    },
+    { sessionId: "session-a", workspaceId: "ws_block_tui" },
+  );
+
+  const result = await commands.ask!.handler("", {
+    app: {
+      handleInteractionRequest: async (request: SparkInteractionRequest) => {
+        interactions.push(request);
+        return {
+          version: 1,
+          kind: "askFlow",
+          requestId: request.requestId,
+          status: "answered",
+          answers: { archive: { values: [], customText: "/tmp/archive" } },
+        } as never;
+      },
+    } as never,
+    session: {} as never,
+    exit: () => undefined,
+  });
+
+  assert.equal(result, "Ask answer accepted.");
+  assert.equal(interactions.length, 1);
+  assert.equal(interactions[0]?.requestId, "ask_block_tui");
+  assert.equal((interactions[0] as { delivery?: string } | undefined)?.delivery, "blocking");
+  assert.deepEqual(requests[0]?.params, {});
+});
+
 test("daemon session list history flag preserves persisted session listing", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-daemon-plane-sessions-"));
   const sparkHome = join(dir, "spark-home");
@@ -1954,6 +2045,7 @@ test("turn submit periodically recovers daemon service without changing the requ
     nextRetryMs: number;
   }> = [];
   let submitAttempts = 0;
+  let transportReady = 0;
   let serviceStarts = 0;
   try {
     const result = await handleSparkDaemonCliCommand(
@@ -1980,6 +2072,9 @@ test("turn submit periodically recovers daemon service without changing the requ
         sleep: async () => undefined,
         turnTransportRecoveryInterval: 4,
         onTurnTransportRetry: (event) => retryEvents.push(event),
+        onTurnTransportReady: () => {
+          transportReady += 1;
+        },
       },
     );
 
@@ -1987,6 +2082,7 @@ test("turn submit periodically recovers daemon service without changing the requ
     assert.equal(result.result.invocationId, "inv_recovered_service");
     assert.equal(serviceStarts, 2, "initial ensure plus periodic recovery");
     assert.equal(submitAttempts, 5);
+    assert.equal(transportReady, 1);
     assert.equal(new Set(inputs.map((input) => input.idempotencyKey)).size, 1);
     assert.deepEqual(
       retryEvents.map(({ failureCount, recoveryAttempted, nextRetryMs }) => ({
@@ -2269,6 +2365,43 @@ test("daemon client repairs a live pid whose local RPC socket is unreachable", a
     ]);
   } finally {
     await closeLocalRpcServer(server);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("daemon client coalesces concurrent ensure-running attempts per runtime", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-daemon-ensure-coalescing-"));
+  const paths = testDaemonPaths(dir);
+  let starts = 0;
+  let statuses = 0;
+  let releaseStatus!: () => void;
+  const statusReady = new Promise<void>((resolve) => {
+    releaseStatus = resolve;
+  });
+  const client: SparkDaemonClientOptions = {
+    paths,
+    startService: () => {
+      starts += 1;
+      return { kind: "detached", alreadyRunning: false, detail: "started" };
+    },
+    daemonStatus: async () => {
+      statuses += 1;
+      await statusReady;
+      return runningDaemonStatus();
+    },
+  };
+  try {
+    const first = ensureSparkDaemonClientRunning(client);
+    const second = ensureSparkDaemonClientRunning(client);
+    assert.equal(starts, 1);
+    assert.equal(statuses, 1);
+    releaseStatus();
+    await Promise.all([first, second]);
+
+    await ensureSparkDaemonClientRunning(client);
+    assert.equal(starts, 2);
+    assert.equal(statuses, 2);
+  } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -3832,6 +3965,9 @@ test("does not ensure the launch cwd before session selection", async () => {
       ensureCount += 1;
       throw new Error("launch cwd was ensured before selection");
     },
+    workspaceResolveSessionCwd: async () => {
+      throw new Error("launch cwd is not registered in this fixture");
+    },
     workspaceClientAttach: async () => {
       attachCount += 1;
       throw new Error("workspace lease was attached before selection");
@@ -3864,6 +4000,77 @@ test("does not ensure the launch cwd before session selection", async () => {
   assert.equal(attachCount, 0);
 });
 
+test("ignores a stale resolved workspace suggestion without consulting local daemon state", async () => {
+  const sessions: SparkSessionProjection[] = [];
+  const registeredWorkspace = {
+    id: "workspace-registered",
+    serverUrl: "",
+    localWorkspaceKey: "registered",
+    displayName: "Registered",
+    localPath: "/registered/workspace",
+    status: "active" as const,
+  };
+  const staleWorkspace = {
+    ...registeredWorkspace,
+    id: "workspace-stale",
+    localWorkspaceKey: "stale",
+    displayName: "Stale",
+    localPath: "/stale/workspace",
+  };
+  const daemonClient: SparkDaemonClientOptions = {
+    managedSessions: {
+      list: async () => sessions,
+      create: async () => {
+        throw new Error("cancelled selector must not create a session");
+      },
+      get: async () => {
+        throw new Error("cancelled selector must not read a session");
+      },
+      bind: async () => {
+        throw new Error("cancelled selector must not bind a session");
+      },
+      unbind: async () => {
+        throw new Error("cancelled selector must not unbind a session");
+      },
+      archive: async () => {
+        throw new Error("cancelled selector must not archive a session");
+      },
+    },
+    workspaceList: async (_paths) => ({
+      workspaces: [registeredWorkspace],
+      observedAt: "2026-07-31T00:00:00.000Z",
+    }),
+    workspaceResolveSessionCwd: async (_paths, input) => ({
+      workspace: staleWorkspace,
+      cwd: input.cwd,
+    }),
+  };
+
+  assert.equal(
+    await runSparkCli([], {
+      daemonClient,
+      terminal: { stdinIsTTY: true, stdoutIsTTY: true },
+      launchCwd: "/launch/unregistered",
+      selectSession: async (options) => {
+        assert.equal(options.suggestedWorkspaceId, "__spark_launch_cwd_workspace__");
+        assert.equal(options.workspaces.at(-1)?.canonicalId, "__spark_launch_cwd_workspace__");
+        assert.equal(
+          options.workspaces.some((workspace) => workspace.canonicalId === registeredWorkspace.id),
+          true,
+        );
+        return null;
+      },
+      createHostServices: async () => {
+        throw new Error("cancelled selector must not construct host services");
+      },
+      runTui: async () => {
+        throw new Error("cancelled selector must not launch TUI");
+      },
+    }),
+    0,
+  );
+});
+
 test("attaches the selected workspace instead of launch cwd", async () => {
   const launchDir = await mkdtemp(join(tmpdir(), "spark-cli-control-plane-first-"));
   const targetDir = join(launchDir, "selected-workspace");
@@ -3893,6 +4100,10 @@ test("attaches the selected workspace instead of launch cwd", async () => {
       workspaceList: async () => ({
         workspaces: [targetWorkspace],
         observedAt: now,
+      }),
+      workspaceResolveSessionCwd: async () => ({
+        workspace: targetWorkspace,
+        cwd: targetDir,
       }),
       workspaceEnsureLocal: async () => {
         ensureCount += 1;
@@ -4310,6 +4521,10 @@ function createDurableSessionAttachTestDeps(dir: string, stateRoot: string) {
       invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
     }),
     workspaceList: async () => ({ workspaces: [workspace], observedAt: now }),
+    workspaceResolveSessionCwd: async (_paths, input) => ({
+      workspace,
+      cwd: input.cwd,
+    }),
     workspaceEnsureLocal: async () => workspace,
     workspaceClientAttach: async (_paths, input) => ({
       client: {
@@ -4501,6 +4716,10 @@ function createWorkspaceAttachTestDeps(
     }),
     workspaceList: async () => ({ workspaces: [workspace], observedAt: now }),
     workspaceEnsureLocal: async () => workspace,
+    workspaceResolveSessionCwd: async (_paths, input) => ({
+      workspace,
+      cwd: input.cwd,
+    }),
     workspaceClientAttach: async (_paths, input) => {
       if (!input.sessionId) {
         return {
