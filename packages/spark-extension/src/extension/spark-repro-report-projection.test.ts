@@ -401,9 +401,9 @@ function strictWorkInput(): SparkReproWorkSummaryInput {
 function strictReproState(): SparkSessionRepro {
   return {
     reproId: "repro-verified",
-    dualLane: {
+    threeLane: {
       planRevision: 1,
-      normative: {
+      formalize: {
         orderedStepIds: ["S1"],
         currentStepId: "S1",
         retiredStepIds: [],

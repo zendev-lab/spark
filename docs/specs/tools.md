@@ -273,7 +273,7 @@ A Task may link/unlink Artifact refs, but that does not create another
 Workstream aggregate or duplicate Artifact ownership.
 
 Repro reporting and Workbench projections follow
-[`autonomous-dual-lane.md`](./autonomous-dual-lane.md): structured facts build one
+[`autonomous-three-lane.md`](./autonomous-three-lane.md): structured facts build one
 versioned ReportModel, which directly updates one stable per-run Markdown
 Document Artifact and feeds sibling A2UI/Hub/TUI projections. A workspace
 `report.md` is an optional byte-identical export only. Tools and adapters must

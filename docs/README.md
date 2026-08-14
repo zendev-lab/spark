@@ -46,7 +46,7 @@ than copying another long list into Markdown.
 - [`specs/daemon-autonomous-loops.md`](./specs/daemon-autonomous-loops.md): daemon-owned Loop cadence, bindings, retry, recovery, and fresh-continuity boundaries.
 - [`specs/execution-attempts.md`](./specs/execution-attempts.md): private invocation attempt identity, fencing, durable crash recovery, capability allowlist, and worker import boundary.
 - [`specs/human-interaction.md`](./specs/human-interaction.md): ask/approval waits, status vocabulary, and correlation.
-- [`specs/autonomous-dual-lane.md`](./specs/autonomous-dual-lane.md): dual-lane Goal/Repro autonomy, async evidence requests, Profile/progress semantics, ReportModel, and Artifact/Workbench projections.
+- [`specs/autonomous-three-lane.md`](./specs/autonomous-three-lane.md): three-lane Repro autonomy, Goal's single-line boundary, async evidence requests, Profile/progress semantics, ReportModel, and Artifact/Workbench projections.
 - [`specs/hub-product-design.md`](./specs/hub-product-design.md): daemon-truth, Work-first session hierarchy, interaction boundaries, and reachable-state UI verification.
 - [`specs/turn.md`](./specs/turn.md): daemon command and event vocabulary.
 - [`specs/spark-runtime-integration.md`](./specs/spark-runtime-integration.md): `spark run --json` integration contract.

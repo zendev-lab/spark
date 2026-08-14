@@ -9,13 +9,15 @@ Spark supplies the generic state, scheduling, and evidence boundaries.
 
 ## Autonomous vNext contract
 
-The normative dual-lane, asynchronous-evidence, Profile/progress, numerical
+The normative three-lane, asynchronous-evidence, Profile/progress, numerical
 frontier, ReportModel, and completion semantics are defined in
-[`../../docs/specs/autonomous-dual-lane.md`](../../docs/specs/autonomous-dual-lane.md).
-The `spark.repro.work-summary/v2` and `SparkSessionRepro` v7 adapters implement
-that contract as structured state. Legacy work-summary/v1 and session v1-v6
-records migrate only through explicit structured adapters; callers must not
-emulate vNext by parsing reports or adding another scheduler/store.
+[`../../docs/specs/autonomous-three-lane.md`](../../docs/specs/autonomous-three-lane.md).
+`SparkSessionRepro` v8 implements that contract as structured state, while the
+`./three-lane-work-summary` entrypoint defines the pure
+`spark.repro.work-summary/v2 -> v3` migration used by projection adopters.
+Legacy work-summary/v1-v2 and session v1-v7 records migrate only through
+explicit structured adapters; callers must not emulate vNext by parsing reports
+or adding another scheduler/store.
 
 ## Canonical work summary
 
@@ -30,20 +32,21 @@ derived independently:
 
 - a decision/approval retirement block produces `waiting_decision`, while
   independent work may remain `running` or `ready`;
-- no human retirement block and unfinished Normative work produces `active`;
-- all formal gates, ordered Normative retirement, completion-required unresolved
+- no human retirement block and unfinished Formalize work produces `active`;
+- all formal gates, ordered Formalize retirement, completion-required unresolved
   discharge, terminal tasks, and the technical target produce `complete + sealed`
   at `delivery`.
 
-`exploreFrontier` records reversible reachability only. `normativeCursor` owns
-ordered retirement; out-of-order candidates remain buffered until dependencies,
+Implementation records reversible reachability only. Exactness owns first-bad
+localization and mismatch classification. Formalize owns ordered retirement;
+out-of-order candidates remain buffered until dependencies,
 current plan revision, step-definition digest, Evidence, and unresolved discharge
 all pass. Every bridge, adapter, fallback, stub, assumption, or mismatch binds a
 stable typed unresolved item before use.
 
 Only accepted `entrypoint` rows in the Validation Matrix at the frozen
 `minimum_complete` acceptance Profile contribute progress. Probe,
-reduced/full observed Profile, diagnostic, Explore, Task, token-usage, and
+reduced/full observed Profile, diagnostic, Implementation/Exactness, Task, token-usage, and
 active-experiment work remains visible but contributes zero. Unknown required
 gate denominators serialize as `quantified=false` and `percent=null`.
 
@@ -68,10 +71,10 @@ intermediate.
 ## Versioned session protocol
 
 The package root remains the compatibility execution and persistence model for
-session snapshots. SparkSessionRepro v7 adds a versioned dual-lane binding over
-the existing five-stage plan/subgoal protocol. Migrating v6 creates empty Explore
-observations, candidates, and unresolved bindings and does not promote legacy
-proof into Normative retirement. A later plan revision preserves observation and
+session snapshots. SparkSessionRepro v8 adds a versioned three-lane binding over
+the existing five-stage plan/subgoal protocol. Migrating v7 maps Explore
+observations into Implementation, creates empty Exactness state, and does not
+promote legacy proof into Formalize retirement. A later plan revision preserves observation and
 unresolved identities, but resets revision-bound candidates and retirement rather
 than inferring them from legacy `done` status.
 
@@ -111,10 +114,10 @@ the next tick; three unchanged settlements stop automatic continuation and
 require one concrete canonical Ask. Safe transient execution retry/backoff
 remains daemon-owned and is deliberately separate from semantic stagnation.
 
-Stored v1-v6 snapshots migrate to v7. Invalid legacy proof is removed,
+Stored v1-v7 snapshots migrate to v8. Invalid legacy proof is removed,
 affected contracts/steps/gates reopen, and no legacy boolean or proof is promoted
-into a user decision, passing validation, Explore observation, candidate,
-unresolved discharge, or Normative retirement.
+into a user decision, passing validation, Implementation observation, Exactness
+finding, candidate, unresolved discharge, or Formalize retirement.
 
 The setup stage first verifies whether the reference implementation named in
 the contract is runnable. An unavailable reference is a blocking user decision:

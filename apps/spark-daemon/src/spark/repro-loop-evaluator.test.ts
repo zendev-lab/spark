@@ -432,9 +432,9 @@ function completionEvaluator(
     },
     async (cwd) => ({
       reproId: "repro-1",
-      dualLane: {
+      threeLane: {
         planRevision: options.currentRevision ?? 1,
-        normative: {
+        formalize: {
           orderedStepIds: options.includeS2 ? ["S1", "S2"] : ["S1"],
           retiredStepIds: options.includeS2 ? ["S1", "S2"] : ["S1"],
         },
