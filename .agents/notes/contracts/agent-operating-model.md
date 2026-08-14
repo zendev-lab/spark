@@ -140,6 +140,20 @@ Workflow remains an orchestration capability, not a continuation driver. Its
 ordered units are Stages. Deprecated Workflow `phase` aliases should be removed
 when no supported persisted or wire contract requires them.
 
+A saved Workflow may use one relative body-only orchestration handler to own
+stage order, structured handoffs, parallel review, and completion conditions,
+or use body-only per-stage handlers, but never both. A Workflow Agent can bind
+with either a `role` selector or an exact `roleRef`; providing both is invalid.
+The host resolves selectors before approval and writes the exact Role ref and
+revision to the approval summary and run record. Execution fails closed if the
+binding changes before the child Role starts.
+
+The repository `workspace:repo-change` Workflow scopes with the architecture
+guardian, implements through the builtin executor in the owning worktree,
+reviews independently (adding the knowledge curator for `.agents` changes), and
+verifies delivery evidence. It returns accepted or rejected structured evidence
+and never creates, pushes, merges, or publishes a pull request.
+
 ## Prompt ownership
 
 Model-facing prompts are authored in English. User-visible copy may be

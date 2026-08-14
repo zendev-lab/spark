@@ -75,6 +75,10 @@ Session 运维元数据，不是 Evidence。
 
 父 Session 仍负责拆解、持久协调、验证重要结论和面向用户的综合。
 
+Workflow 子调用可以提供 `role` selector 或精确 `roleRef`，但不能同时提供。Spark
+会在审批前把 selector 解析为唯一的 Role ref 与 revision，并将该绑定写入审批与运行
+溯源。如果绑定无法解析或在子 Role 启动前发生变化，执行会 fail closed。
+
 ## Task 与 Workflow 所有权
 
 `task_read` 严格只读；其 `run_status` 只接受 `status`、`list` 和 `inspect`。
