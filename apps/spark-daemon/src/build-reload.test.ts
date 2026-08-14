@@ -6,6 +6,7 @@ import {
   createSparkDaemonBuildChangeProbe,
   sparkDaemonDeploymentEntrypointPath,
   sparkDaemonEntrypointFingerprint,
+  sparkDaemonSourceFingerprint,
 } from "./build-reload.ts";
 
 const tempRoots: string[] = [];
@@ -23,6 +24,61 @@ describe("Spark daemon build reload", () => {
     const first = sparkDaemonEntrypointFingerprint(entrypoint);
     writeFileSync(entrypoint, "second");
     expect(sparkDaemonEntrypointFingerprint(entrypoint)).not.toBe(first);
+  });
+
+  it("fingerprints source runtime dependencies, not just the daemon entrypoint", () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-source-build-"));
+    tempRoots.push(root);
+    writeFileSync(join(root, "pnpm-workspace.yaml"), "packages: []\n");
+    writeFileSync(join(root, "package.json"), "{}\n");
+    writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
+    mkdirSync(join(root, "apps/spark-daemon/src"), { recursive: true });
+    mkdirSync(join(root, "packages/spark-ai/src/control"), { recursive: true });
+    writeFileSync(
+      join(root, "apps/spark-daemon/package.json"),
+      JSON.stringify({ dependencies: { "@zendev-lab/spark-ai": "workspace:*" } }),
+    );
+    writeFileSync(
+      join(root, "packages/spark-ai/package.json"),
+      JSON.stringify({ name: "@zendev-lab/spark-ai" }),
+    );
+    const entrypoint = join(root, "apps/spark-daemon/src/cli.ts");
+    const providerCatalog = join(root, "packages/spark-ai/src/control/index.ts");
+    writeFileSync(entrypoint, "export {}\n");
+    writeFileSync(providerCatalog, "export const oldName = true\n");
+
+    const first = sparkDaemonSourceFingerprint(root);
+    writeFileSync(providerCatalog, "export const newName = true\n");
+
+    expect(sparkDaemonEntrypointFingerprint(entrypoint)).not.toBe(first);
+  });
+
+  it("ignores source tests when computing the runtime fingerprint", () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-source-test-build-"));
+    tempRoots.push(root);
+    writeFileSync(join(root, "pnpm-workspace.yaml"), "packages: []\n");
+    writeFileSync(join(root, "package.json"), "{}\n");
+    writeFileSync(join(root, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
+    mkdirSync(join(root, "apps/spark-daemon/src"), { recursive: true });
+    writeFileSync(join(root, "apps/spark-daemon/package.json"), "{}\n");
+    writeFileSync(join(root, "apps/spark-daemon/src/cli.ts"), "export {}\n");
+    const first = sparkDaemonSourceFingerprint(root);
+    writeFileSync(join(root, "apps/spark-daemon/src/cli.test.ts"), "changed\n");
+
+    expect(sparkDaemonSourceFingerprint(root)).toBe(first);
+  });
+  it("maps the control CLI to the daemon source for source checkouts", () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-source-target-"));
+    tempRoots.push(root);
+    writeFileSync(join(root, "pnpm-workspace.yaml"), "packages: []\n");
+    mkdirSync(join(root, "apps/spark-cli/src"), { recursive: true });
+    mkdirSync(join(root, "apps/spark-daemon/src"), { recursive: true });
+    const controlEntrypoint = join(root, "apps/spark-cli/src/cli.ts");
+    const daemonEntrypoint = join(root, "apps/spark-daemon/src/cli.ts");
+    writeFileSync(controlEntrypoint, "export {}\n");
+    writeFileSync(daemonEntrypoint, "export {}\n");
+
+    expect(sparkDaemonDeploymentEntrypointPath(["node", controlEntrypoint])).toBe(daemonEntrypoint);
   });
 
   it("keeps the deployment path so an atomic symlink switch remains observable", () => {

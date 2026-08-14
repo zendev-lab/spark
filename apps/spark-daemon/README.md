@@ -47,3 +47,9 @@ closed while invocations or clients are active and require confirmation unless
 Keep source/package updates outside the daemon. An updater should build or install into a staging location, atomically replace the deployed package, then run `spark daemon sync`. `sync` starts a stopped daemon, leaves an already-current daemon alone, and requests the same fenced drain restart when the running build fingerprint differs; it waits for readiness by default (pass `--no-wait` only for fire-and-forget). A running daemon also watches its deployed entrypoint and automatically requests that safe restart after a changed fingerprint remains stable. On macOS the launchd service remains the process supervisor; the daemon never pulls Git or overwrites its own installation.
 
 An unplanned daemon exit resumes durable invocations that were left `running`: the successor requeues them with `invocation.resume` and a resume notice for the model session. Invalid task payloads still fail closed with `DAEMON_EXECUTION_INTERRUPTED`. Invocations that were still `queued` remain eligible for the next daemon generation.
+
+In a source checkout, the daemon also fingerprints the runtime source graph of
+its daemon/TUI headless dependencies and workspace manifests. A renamed
+workspace export therefore requests the same safe drain restart as a deployed
+build replacement. Tests, docs, declarations, and generated output do not
+trigger this source watcher.
