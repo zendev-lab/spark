@@ -52,13 +52,18 @@ status 变更。未知或歧义 selector、已取消或跨 Project 的前置 Tas
 
 ## Role、Session 与 Skill Agent
 
-- Role 定义类型化能力与责任叠加，包括语义 Model Type；它不决定
-  Session 生命周期。
+- Role 定义类型化能力与责任叠加，包括语义 Model Type。它可以声明最多八个有序
+  Skill；Spark 在创建子 Session 前解析并预载完整指令正文。Role 不决定 Session
+  生命周期。
 - Session 是拥有 continuity、binding、call 和 mail 的运行实例。唯一
   Owner 推导出 `persistent | scoped | ephemeral` 生命周期。
 - `skill_agent({ skills, instruction, inputs? })` 按精确名称解析一到八个 Skill，
   在一个全新的 owned 子 Session 中各加载一次。它只接收显式 packet，不继承父
   transcript，也不能递归调用 Role 或 Skill Agent，或管理其他 Session。
+
+预定义 Role 在同一个 Session 中直接遵循预载 Skill，不会为它们调用
+`skill_agent`。Definition revision 包含 Skill 名称，执行时的 composition revision
+还会冻结 Skill source digest。
 
 Role 与 Skill Agent 子 Session 通过语义 Model Type 选择模型。缺少绑定时返回
 `role_model_type_unconfigured`，不会回退到父 Session 模型。Owned 子 Session 关闭时

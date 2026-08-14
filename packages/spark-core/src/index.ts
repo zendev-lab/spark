@@ -772,6 +772,7 @@ export interface ExtensionRoleRunRequest {
     systemPrompt: string;
     source?: "builtin" | "extension" | "project" | "user";
     capabilities?: Array<"read" | "write" | "exec" | "net" | "interact" | "manage" | "spawn">;
+    skills?: string[];
     modelType?: string;
     allowedTools?: string[];
     allowedToolEffects?: ToolEffect[];
@@ -784,8 +785,11 @@ export interface ExtensionRoleRunRequest {
   record: {
     ref: RunRef;
     roleRef: RoleRef;
-    /** Role definition revision frozen when the Invocation started. */
+    /** Effective Role revision frozen when the Invocation started. */
     roleRevision: string;
+    definitionRevision?: string;
+    compositionRevision?: string;
+    skillDigests?: Array<{ name: string; digest: string }>;
     runName?: string;
     instruction: string;
     status: ExtensionRoleRunStatus;

@@ -53,6 +53,7 @@ export interface SparkHeadlessRoleInstructionInput {
     id: string;
     revision: string;
     systemPrompt: string;
+    skills?: string[];
     allowedTools?: string[];
     allowedToolEffects?: ToolEffect[];
   };
@@ -65,6 +66,9 @@ export interface SparkHeadlessRoleInstructionInput {
     ref: RunRef;
     roleRef: RoleRef;
     roleRevision: string;
+    definitionRevision?: string;
+    compositionRevision?: string;
+    skillDigests?: Array<{ name: string; digest: string }>;
     runName?: string;
     instruction: string;
     status: SparkHeadlessRoleRunStatus;
