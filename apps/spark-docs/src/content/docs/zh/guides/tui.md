@@ -62,10 +62,14 @@ Spark 时传入的 prompt 不会被重放。编辑器草稿、overlay、滚动�
 实时队列，裸 `/goal`、`/loop`、`/repro` 则直接显示对应 lifecycle 的状态；
 `/thinking` 直接打开最终 thinking-level selector。
 
-编辑器的上、下方向键会按当前 session 中持久化的 `user` prompt 回溯，包括本次
-TUI 进程启动之前的 prompt；本地 slash command 不会混入这份 prompt history。
-PageUp、PageDown 用来滚动可见对话记录；Ctrl+PageUp、Ctrl+PageDown 仍用于在
-多行编辑草稿中移动。提交新输入时，对话会回到最新一行。
+编辑器的上、下方向键会回溯 editor history；它会从当前 session 中持久化的
+`user` prompt 恢复，因此也包含本次 TUI 进程启动之前的 prompt。非空的本地
+slash command 输入会在分发前加入 history，无论执行成功还是报错都可再次
+召回；但这些 command entry 只存在于当前 TUI 进程，不会写入 transcript、daemon
+prompt history 或用户文件，`/reload` 后也不会保留。以 `//` 开头的输入仍作为
+普通 prompt 处理。PageUp、PageDown 用来滚动可见对话记录；
+Ctrl+PageUp、Ctrl+PageDown 仍用于在多行编辑草稿中移动。提交新输入时，对话会
+回到最新一行。
 
 Esc 仍会优先取消正在执行的工作。session 空闲且编辑器为空时，在 500 ms 内连续
 按两次 Esc，会离开当前对话并打开统一 session hierarchy。
