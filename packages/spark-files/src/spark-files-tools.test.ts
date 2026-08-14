@@ -25,8 +25,9 @@ import piFilesExtension, {
   applyEditsToNormalizedContent,
   generateDiffString,
   walkTree,
-  DEFAULT_MAX_LINES,
   DEFAULT_MAX_BYTES,
+  DEFAULT_READ_MAX_LINES,
+  DEFAULT_READ_MAX_BYTES,
   registerSparkFilesTools,
 } from "./index.ts";
 import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
@@ -56,6 +57,8 @@ function collectTools(
   register({ registerTool: (config) => tools.set(config.name, config as ToolConfig) });
   return tools;
 }
+
+const idleSignal = new AbortController().signal;
 
 const noop = () => {};
 const text = (result: ToolResult): string => result.content.map((c) => c.text).join("\n");
@@ -696,11 +699,12 @@ test("read rejects invalid UTF-8 instead of returning replacement characters", a
 test("read truncates by line limit with a continuation notice", async () => {
   await withTempDir(async (dir) => {
     const read = collectTools(piFilesExtension).get("read")!;
-    const total = DEFAULT_MAX_LINES + 50;
+    const total = DEFAULT_READ_MAX_LINES + 50;
     const content = Array.from({ length: total }, (_, i) => `L${i + 1}`).join("\n");
     await writeFile(join(dir, "big.txt"), content, "utf-8");
     const result = await read.execute("c", { path: "big.txt" }, undefined, noop, { cwd: dir });
-    assert.match(text(result), new RegExp(`Showing lines 1-${DEFAULT_MAX_LINES} of ${total}`));
+    assert.match(text(result), new RegExp(`Showing lines 1-${DEFAULT_READ_MAX_LINES} of ${total}`));
+    assert.match(text(result), /Use offset=\d+ to continue\./u);
     assert.equal((result.details?.truncation as { truncated?: boolean })?.truncated, true);
   });
 });
@@ -723,13 +727,148 @@ test("read applies the byte limit to the final anchored output", async () => {
     );
     const truncation = result.details?.truncation as { truncatedBy?: string } | undefined;
 
-    assert.ok(Buffer.byteLength(text(result), "utf8") <= DEFAULT_MAX_BYTES);
-    assert.match(text(result), /50\.0KB output limit/u);
+    assert.ok(Buffer.byteLength(text(result), "utf8") <= DEFAULT_READ_MAX_BYTES);
+    assert.match(text(result), /16\.0KB output limit/u);
     assert.equal(truncation?.truncatedBy, "bytes");
     assert.ok(readDetails(result).window.anchors.length < lines.length);
     assert.equal(
       readDetails(result).window.nextOffset,
       readDetails(result).window.anchors.length + 1,
+    );
+  });
+});
+
+test("read truncates over-limit files by default with a resumable hint", async () => {
+  await withTempDir(async (dir) => {
+    const read = collectTools(piFilesExtension).get("read")!;
+    const lines = Array.from({ length: 1_200 }, (_, index) => `L${index + 1} ${"x".repeat(30)}`);
+    await writeFile(join(dir, "large.txt"), lines.join("\n"), "utf-8");
+
+    const result = await read.execute("c", { path: "large.txt" }, undefined, noop, { cwd: dir });
+    const textOut = text(result);
+    const details = readDetails(result);
+
+    assert.ok(Buffer.byteLength(textOut, "utf8") <= DEFAULT_READ_MAX_BYTES);
+    assert.match(textOut, /16\.0KB output limit/u);
+    assert.match(textOut, /Use offset=\d+ to continue\./u);
+    assert.equal((result.details?.truncation as { truncated?: boolean })?.truncated, true);
+    assert.equal(result.details?.maxBytes, DEFAULT_READ_MAX_BYTES);
+    assert.equal(result.details?.maxLines, DEFAULT_READ_MAX_LINES);
+    assert.ok(details.window.anchors.length > 0);
+    assert.equal(details.window.nextOffset, details.window.anchors.length + 1);
+
+    // The advertised offset resumes the read at the next line.
+    const continued = await read.execute(
+      "c-continued",
+      { path: "large.txt", offset: details.window.nextOffset },
+      undefined,
+      noop,
+      { cwd: dir },
+    );
+    const continuedDetails = readDetails(continued);
+    assert.equal(continuedDetails.window.startLine, details.window.nextOffset);
+    assert.equal(continuedDetails.window.anchors[0]?.text, lines[details.window.nextOffset! - 1]);
+  });
+});
+
+test("read maxBytes overrides the default output cap in both directions", async () => {
+  await withTempDir(async (dir) => {
+    const read = createReadToolConfig();
+    const lines = Array.from(
+      { length: 1_200 },
+      (_, index) => `line ${index + 1} ${"x".repeat(30)}`,
+    );
+    await writeFile(join(dir, "override.txt"), lines.join("\n"), "utf-8");
+
+    // Raising the caps returns the whole file instead of truncating at 16KB.
+    const full = await read.execute(
+      "c-full",
+      { path: "override.txt", maxBytes: 256 * 1024, maxLines: 1_200 },
+      idleSignal,
+      noop,
+      { cwd: dir },
+    );
+    assert.equal(
+      (full.details?.truncation as { truncated?: boolean } | undefined)?.truncated,
+      undefined,
+    );
+    assert.equal(readDetails(full).window.anchors.length, lines.length);
+    assert.equal(full.details?.maxBytes, 256 * 1024);
+
+    // Lowering the cap hardens the budget for one call.
+    const lowered = await read.execute(
+      "c-small",
+      { path: "override.txt", maxBytes: 4 * 1024 },
+      idleSignal,
+      noop,
+      { cwd: dir },
+    );
+    assert.ok(Buffer.byteLength(text(lowered), "utf8") <= 4 * 1024);
+    assert.match(text(lowered), /4\.0KB output limit/u);
+    assert.equal(lowered.details?.maxBytes, 4 * 1024);
+  });
+});
+
+test("read maxLines overrides the default line cap", async () => {
+  await withTempDir(async (dir) => {
+    const read = createReadToolConfig();
+    const total = 100;
+    const lines = Array.from({ length: total }, (_, i) => `L${i + 1}`);
+    await writeFile(join(dir, "many.txt"), lines.join("\n"), "utf-8");
+
+    const result = await read.execute("c", { path: "many.txt", maxLines: 20 }, idleSignal, noop, {
+      cwd: dir,
+    });
+    const details = readDetails(result);
+    assert.match(text(result), /Showing lines 1-20 of 100\. Use offset=21 to continue\./u);
+    assert.equal(details.window.anchors.length, 20);
+    assert.equal(result.details?.maxLines, 20);
+    assert.equal(result.details?.maxBytes, DEFAULT_READ_MAX_BYTES);
+  });
+});
+
+test("read rejects invalid maxBytes and maxLines overrides", async () => {
+  await withTempDir(async (dir) => {
+    const read = createReadToolConfig();
+    await writeFile(join(dir, "valid.txt"), "ok\n", "utf-8");
+
+    const badBytes = await read.execute("c", { path: "valid.txt", maxBytes: 0 }, idleSignal, noop, {
+      cwd: dir,
+    });
+    assert.equal(badBytes.isError, true);
+    assert.equal(badBytes.details?.code, "INVALID_READ_WINDOW");
+    assert.equal(badBytes.details?.parameter, "maxBytes");
+
+    const badLines = await read.execute(
+      "c",
+      { path: "valid.txt", maxLines: -1 },
+      idleSignal,
+      noop,
+      { cwd: dir },
+    );
+    assert.equal(badLines.isError, true);
+    assert.equal(badLines.details?.code, "INVALID_READ_WINDOW");
+    assert.equal(badLines.details?.parameter, "maxLines");
+  });
+});
+
+test("read small files return full content with the default caps", async () => {
+  await withTempDir(async (dir) => {
+    const read = createReadToolConfig();
+    await writeFile(join(dir, "small.txt"), "one\ntwo\n", "utf-8");
+
+    const result = await read.execute("c", { path: "small.txt" }, idleSignal, noop, { cwd: dir });
+    assert.equal(
+      (result.details?.truncation as { truncated?: boolean } | undefined)?.truncated,
+      undefined,
+    );
+    assert.equal(result.details?.maxBytes, DEFAULT_READ_MAX_BYTES);
+    assert.equal(result.details?.maxLines, DEFAULT_READ_MAX_LINES);
+    assert.deepEqual(
+      readDetails(result).window.anchors.map((anchor) => anchor.text),
+      // Trailing newline yields a trailing empty anchor per the established
+      // CR/CRLF contract (see the CR-only line-ending test above).
+      ["one", "two", ""],
     );
   });
 });

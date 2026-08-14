@@ -10,9 +10,10 @@ on `@zendev-lab/spark-core`, `typebox`, `diff`, `ignore`, and `minimatch` — no
 ## Tools
 
 - `read` — read a text file with 1-indexed `offset`/`limit`. Output is
-  truncated to 2000 lines or 50KB (whichever is hit first) with an actionable
-  continuation notice (`Use offset=… to continue`). It has one output format:
-  the raw-byte SHA-256 version followed by stable `LINE#HASH:text` anchors.
+  truncated to 512 lines or 16KB (whichever is hit first) with an actionable
+  continuation notice (`Use offset=… to continue`); `maxBytes`/`maxLines`
+  override the defaults for a single call. It has one output format: the
+  raw-byte SHA-256 version followed by stable `LINE#HASH:text` anchors.
   Structured details carry the same version and window metadata. LF, CRLF,
   CR-only, mixed endings, and a UTF-8 BOM are reported as metadata while the
   visible anchors use logical line text. Invalid UTF-8 fails explicitly.

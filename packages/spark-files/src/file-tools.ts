@@ -42,6 +42,8 @@ import {
 import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
+  DEFAULT_READ_MAX_BYTES,
+  DEFAULT_READ_MAX_LINES,
   formatSize,
   joinTextLines,
   splitTextLines,
@@ -83,6 +85,18 @@ const readSchema = Type.Object(
     limit: Type.Optional(
       Type.Integer({ minimum: 1, description: "Maximum number of lines to read" }),
     ),
+    maxBytes: Type.Optional(
+      Type.Integer({
+        minimum: 1,
+        description: `Override the default ${DEFAULT_READ_MAX_BYTES / 1024}KB output byte cap for this read`,
+      }),
+    ),
+    maxLines: Type.Optional(
+      Type.Integer({
+        minimum: 1,
+        description: `Override the default ${DEFAULT_READ_MAX_LINES}-line output cap for this read`,
+      }),
+    ),
     expectedVersion: Type.Optional(
       Type.String({
         description:
@@ -118,7 +132,7 @@ export function createReadToolConfig(): ToolConfig {
   return {
     name: "read",
     label: "read",
-    description: `Read a UTF-8 text file as one versioned, line-anchored snapshot. The first line contains the complete-file SHA-256 version; every returned source line uses LINE#HASH:text. Output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit and follow the continuation notice for large files.`,
+    description: `Read a UTF-8 text file as one versioned, line-anchored snapshot. The first line contains the complete-file SHA-256 version; every returned source line uses LINE#HASH:text. Output is truncated to ${DEFAULT_READ_MAX_LINES} lines or ${DEFAULT_READ_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit and follow the continuation notice for large files. Override the caps with maxBytes/maxLines.`,
     promptGuidelines: [
       "Use read to examine files instead of cat or sed.",
       "Read always returns a model-visible file version and LINE#HASH:text anchors. Copy the file version into write.expectedVersion; remove LINE#HASH: prefixes when composing literal write.content or edit.oldText.",
@@ -155,6 +169,22 @@ export function createReadToolConfig(): ToolConfig {
           parameter: "limit",
         });
       }
+      const maxBytes = positiveIntegerParam(params.maxBytes);
+      if (params.maxBytes !== undefined && maxBytes === undefined) {
+        return errorResult("Could not read file: maxBytes must be a positive integer.", {
+          code: "INVALID_READ_WINDOW",
+          parameter: "maxBytes",
+        });
+      }
+      const maxLines = positiveIntegerParam(params.maxLines);
+      if (params.maxLines !== undefined && maxLines === undefined) {
+        return errorResult("Could not read file: maxLines must be a positive integer.", {
+          code: "INVALID_READ_WINDOW",
+          parameter: "maxLines",
+        });
+      }
+      const readMaxBytes = maxBytes ?? DEFAULT_READ_MAX_BYTES;
+      const readMaxLines = maxLines ?? DEFAULT_READ_MAX_LINES;
       const absolutePath = await resolveReadPath(rawPath, cwd);
       throwIfAborted(signal);
 
@@ -228,14 +258,17 @@ export function createReadToolConfig(): ToolConfig {
       }
 
       const selectedContent = joinTextLines(selectedSegments);
-      const truncation = truncateHead(selectedContent);
+      const truncation = truncateHead(selectedContent, {
+        maxLines: readMaxLines,
+        maxBytes: readMaxBytes,
+      });
       let noticeText: string | undefined;
       let details: Record<string, unknown> | undefined;
       let outputLineCount = selectedLines.length;
       let nextOffset: number | undefined;
       if (truncation.firstLineExceedsLimit) {
         const firstLineSize = formatSize(Buffer.byteLength(allLines[startLine] ?? "", "utf-8"));
-        noticeText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Read a narrower range with offset/limit.]`;
+        noticeText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(readMaxBytes)} limit. Read a narrower range with offset/limit.]`;
         details = { truncation };
         outputLineCount = 0;
       } else if (truncation.truncated) {
@@ -244,7 +277,7 @@ export function createReadToolConfig(): ToolConfig {
         if (truncation.truncatedBy === "lines") {
           noticeText = `[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue.]`;
         } else {
-          noticeText = `[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
+          noticeText = `[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(readMaxBytes)} limit). Use offset=${nextOffset} to continue.]`;
         }
         details = { truncation };
         outputLineCount = truncation.outputLines;
@@ -263,7 +296,7 @@ export function createReadToolConfig(): ToolConfig {
         nextOffset,
       });
       let outputText = renderVersionedRead(metadata, noticeText);
-      if (Buffer.byteLength(outputText, "utf8") > DEFAULT_MAX_BYTES) {
+      if (Buffer.byteLength(outputText, "utf8") > readMaxBytes) {
         let fittedLineCount = 0;
         let anchoredBytes = 0;
         const versionHeaderBytes = Buffer.byteLength(`[File version: ${metadata.version}]`, "utf8");
@@ -271,10 +304,15 @@ export function createReadToolConfig(): ToolConfig {
           const anchor = metadata.window.anchors[count - 1];
           if (anchor === undefined) break;
           anchoredBytes += Buffer.byteLength(anchor.anchor, "utf8") + (count > 1 ? 1 : 0);
-          const fittedNotice = byteLimitNotice(startLineDisplay, totalFileLines, count);
+          const fittedNotice = byteLimitNotice(
+            startLineDisplay,
+            totalFileLines,
+            count,
+            readMaxBytes,
+          );
           const candidateBytes =
             versionHeaderBytes + 2 + anchoredBytes + 2 + Buffer.byteLength(fittedNotice, "utf8");
-          if (candidateBytes > DEFAULT_MAX_BYTES) break;
+          if (candidateBytes > readMaxBytes) break;
           fittedLineCount = count;
         }
 
@@ -282,8 +320,8 @@ export function createReadToolConfig(): ToolConfig {
         nextOffset = fittedLineCount > 0 ? startLine + fittedLineCount + 1 : undefined;
         noticeText =
           fittedLineCount > 0
-            ? byteLimitNotice(startLineDisplay, totalFileLines, fittedLineCount)
-            : `[Line ${startLineDisplay} plus its read anchor exceeds the ${formatSize(DEFAULT_MAX_BYTES)} output limit.]`;
+            ? byteLimitNotice(startLineDisplay, totalFileLines, fittedLineCount, readMaxBytes)
+            : `[Line ${startLineDisplay} plus its read anchor exceeds the ${formatSize(readMaxBytes)} output limit.]`;
         metadata = createFileReadMetadata({
           buffer,
           lines: allLines,
@@ -302,6 +340,8 @@ export function createReadToolConfig(): ToolConfig {
             outputBytes: Buffer.byteLength(outputText, "utf8"),
             firstLineExceedsLimit: fittedLineCount === 0,
           },
+          maxBytes: readMaxBytes,
+          maxLines: readMaxLines,
         };
       }
       return {
@@ -313,6 +353,8 @@ export function createReadToolConfig(): ToolConfig {
           analysis: params.analysis ?? "auto",
           repair: params.repair ?? "none",
           ...metadata,
+          maxBytes: readMaxBytes,
+          maxLines: readMaxLines,
         },
       };
     },
@@ -714,9 +756,14 @@ function renderVersionedRead(
     .join("\n\n");
 }
 
-function byteLimitNotice(startLine: number, totalLines: number, lineCount: number): string {
+function byteLimitNotice(
+  startLine: number,
+  totalLines: number,
+  lineCount: number,
+  byteLimit: number,
+): string {
   const endLine = startLine + lineCount - 1;
-  return `[Showing lines ${startLine}-${endLine} of ${totalLines} (${formatSize(DEFAULT_MAX_BYTES)} output limit). Use offset=${endLine + 1} to continue.]`;
+  return `[Showing lines ${startLine}-${endLine} of ${totalLines} (${formatSize(byteLimit)} output limit). Use offset=${endLine + 1} to continue.]`;
 }
 
 function stringParam(value: unknown): string {
