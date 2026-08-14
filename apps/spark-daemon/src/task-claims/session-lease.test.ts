@@ -95,11 +95,7 @@ describe("daemon Session lease", () => {
     try {
       const workspace = registerWorkspace(db, { localPath: root });
       const administrator = administratorSession(workspace.id);
-      const child = ordinarySession(
-        "sess_execute_child",
-        workspace.id,
-        administrator.sessionId,
-      );
+      const child = ordinarySession("sess_execute_child", workspace.id, administrator.sessionId);
       const lease = await acquireDaemonSessionLease({
         db,
         task: { ...sessionTask(workspace.id), sessionId: child.sessionId },

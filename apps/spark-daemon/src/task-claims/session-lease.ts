@@ -115,13 +115,7 @@ export async function acquireDaemonSessionLease(input: {
 
 function isLeaseEligibleExecutionOwner(
   kind: string,
-): kind is
-  | "session"
-  | "task_run"
-  | "task_revision"
-  | "workflow_run"
-  | "driver"
-  | "driver_tick" {
+): kind is "session" | "task_run" | "task_revision" | "workflow_run" | "driver" | "driver_tick" {
   return (
     kind === "session" ||
     kind === "task_run" ||
@@ -153,8 +147,7 @@ async function assertWorkspaceAdministratorBoundary(input: {
 
   const administrator = [...chain.values()].find(
     (candidate) =>
-      candidate.owner.kind === "workspace" &&
-      candidate.owner.workspaceId === input.workspaceId,
+      candidate.owner.kind === "workspace" && candidate.owner.workspaceId === input.workspaceId,
   );
   if (
     !administrator ||

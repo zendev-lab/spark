@@ -1356,9 +1356,7 @@ function sessionExecutionPolicy(
     ...(sessionContext.surface ? { sessionSurface: sessionContext.surface } : {}),
     sessionSource: sessionSourceForTask(task),
     ...(binding ? { channelBinding: binding } : {}),
-    ...(task.stateBindingSessionId
-      ? { stateBindingSessionId: task.stateBindingSessionId }
-      : {}),
+    ...(task.stateBindingSessionId ? { stateBindingSessionId: task.stateBindingSessionId } : {}),
     ...(loop ? { loop } : {}),
     ...(sessionQuestionChainForTask(task)
       ? { sessionQuestionChain: sessionQuestionChainForTask(task) }
