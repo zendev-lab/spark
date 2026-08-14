@@ -41,6 +41,7 @@ async function runSupervisedRole(
     description: `Supervised ${request.role.id} Role`,
     systemPrompt: request.role.systemPrompt,
     capabilities: request.role.capabilities ?? [],
+    ...(request.role.skills ? { skills: request.role.skills } : {}),
     ...(request.role.allowedTools ? { allowedTools: request.role.allowedTools } : {}),
     ...(request.role.allowedToolEffects
       ? { allowedToolEffects: request.role.allowedToolEffects }

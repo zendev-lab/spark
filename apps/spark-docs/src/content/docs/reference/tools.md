@@ -60,13 +60,19 @@ a failed replacement does not write Task graph state.
 ## Roles, Sessions, and Skill Agents
 
 - A Role defines a typed capability and responsibility overlay, including its
-  semantic Model Type. It does not choose Session lifetime.
+  semantic Model Type. It can declare up to eight ordered Skills; Spark resolves
+  and preloads their complete instruction bodies before creating the child
+  Session. It does not choose Session lifetime.
 - A Session is the runtime instance that owns continuity, bindings, calls, and
   mail. Its single Owner derives `persistent | scoped | ephemeral` lifetime.
 - `skill_agent({ skills, instruction, inputs? })` resolves one to eight exact
   Skills and runs one fresh owned child Session with every selected Skill body
   loaded once. It receives the explicit packet, not the parent transcript, and
   cannot recurse into Roles or Skill Agents or manage other Sessions.
+
+A predefined Role follows its preloaded Skills directly in the same Session;
+it does not call `skill_agent` for them. Definition revisions include Skill
+names, while execution composition revisions also freeze Skill source digests.
 
 Role and Skill Agent children select models through semantic Model Types. A
 missing binding fails with `role_model_type_unconfigured`; Spark does not fall

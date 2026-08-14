@@ -232,6 +232,13 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       capabilities: Type.Array(
         Type.String({ description: "read | write | exec | net | interact | spawn" }),
       ),
+      skills: Type.Optional(
+        Type.Array(Type.String(), {
+          minItems: 1,
+          maxItems: 8,
+          description: "Ordered Skill names preloaded into each Role Session.",
+        }),
+      ),
       modelType: Type.String({ description: "Semantic model routing key." }),
       source: Type.Optional(Type.String({ description: "project | user. Defaults to project." })),
       allowedTools: Type.Optional(Type.Array(Type.String())),
@@ -259,6 +266,7 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
         rationale: normalizeRequiredString(params.rationale, "create_role rationale"),
         expectedUses: normalizeRequiredStringArray(params.expectedUses, "create_role expectedUses"),
         capabilities: normalizeRoleCapabilities(params.capabilities, "create_role capabilities"),
+        skills: normalizeOptionalStringArray(params.skills, "create_role skills"),
         allowedTools: normalizeOptionalStringArray(params.allowedTools, "create_role allowedTools"),
         modelType: normalizeRequiredString(params.modelType, "create_role modelType"),
         origin: { kind: "manual" },
@@ -338,6 +346,7 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
         roleId: role.id,
         roleSource: role.source,
         roleCapabilities: role.capabilities,
+        roleSkills: role.skills,
         roleModelType: role.modelType,
         allowedTools: role.allowedTools,
         allowedToolEffects: role.allowedToolEffects,
@@ -851,6 +860,7 @@ function compactRole(role: RoleSpec) {
     revision: role.revision,
     description: role.description,
     capabilities: role.capabilities,
+    skills: role.skills,
     modelType: role.modelType,
     systemPromptChars: role.systemPrompt.length,
     allowedTools: role.allowedTools,
