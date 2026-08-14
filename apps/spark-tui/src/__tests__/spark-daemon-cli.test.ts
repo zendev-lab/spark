@@ -2369,6 +2369,43 @@ test("daemon client repairs a live pid whose local RPC socket is unreachable", a
   }
 });
 
+test("daemon client coalesces concurrent ensure-running attempts per runtime", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-daemon-ensure-coalescing-"));
+  const paths = testDaemonPaths(dir);
+  let starts = 0;
+  let statuses = 0;
+  let releaseStatus!: () => void;
+  const statusReady = new Promise<void>((resolve) => {
+    releaseStatus = resolve;
+  });
+  const client: SparkDaemonClientOptions = {
+    paths,
+    startService: () => {
+      starts += 1;
+      return { kind: "detached", alreadyRunning: false, detail: "started" };
+    },
+    daemonStatus: async () => {
+      statuses += 1;
+      await statusReady;
+      return runningDaemonStatus();
+    },
+  };
+  try {
+    const first = ensureSparkDaemonClientRunning(client);
+    const second = ensureSparkDaemonClientRunning(client);
+    assert.equal(starts, 1);
+    assert.equal(statuses, 1);
+    releaseStatus();
+    await Promise.all([first, second]);
+
+    await ensureSparkDaemonClientRunning(client);
+    assert.equal(starts, 2);
+    assert.equal(statuses, 2);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("daemon client never repairs a freshly published process identity before readiness", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-daemon-startup-grace-"));
   const paths = testDaemonPaths(dir);
