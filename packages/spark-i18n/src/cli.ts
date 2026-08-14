@@ -796,7 +796,7 @@ const DAEMON_STRINGS: Record<SparkLanguage, SparkDaemonCliStrings> = {
     completedSession: (sessionId, invocationId) =>
       `Spark daemon completed session ${sessionId}: ${invocationId}`,
     nativeCommandDescriptions: {
-      ask: "answer a detached pending Ask in Spark TUI",
+      ask: "open a pending Ask overlay for this session or workspace",
       status: "show Spark daemon status",
       start: "start or wake the Spark daemon, then show status",
     },
@@ -835,7 +835,7 @@ const DAEMON_STRINGS: Record<SparkLanguage, SparkDaemonCliStrings> = {
     completedSession: (sessionId, invocationId) =>
       `Spark daemon 已完成 session ${sessionId}：${invocationId}`,
     nativeCommandDescriptions: {
-      ask: "在 Spark TUI 中回复异步 pending Ask",
+      ask: "打开当前 session 或同 workspace 的 pending Ask overlay",
       status: "显示 Spark daemon 状态",
       start: "启动或唤醒 Spark daemon，然后显示状态",
     },

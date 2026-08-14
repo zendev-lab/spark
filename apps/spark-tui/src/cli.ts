@@ -36,6 +36,7 @@ import {
   clientTurnStatus,
   createSparkDaemonNativeCommands,
   createSparkDaemonNativeResponder,
+  formatSparkDaemonTransportRetry,
   requestSparkDaemonControl,
   ensureSparkDaemonWorkspaceSession,
   handleSparkDaemonHumanInteractionRequest,
@@ -311,11 +312,16 @@ function workspaceOptionsForLaunchCwd(
   resolvedWorkspaceId?: string,
 ): { workspaces: SparkSessionSelectorWorkspace[]; suggestedWorkspaceId: string } {
   if (resolvedWorkspaceId) {
-    return {
-      workspaces: registeredWorkspaces,
-      suggestedWorkspaceId: requireSelectorWorkspace(registeredWorkspaces, resolvedWorkspaceId)
-        .canonicalId,
-    };
+    const resolvedWorkspace = registeredWorkspaces.find(
+      (workspace) =>
+        workspace.id === resolvedWorkspaceId || workspace.canonicalId === resolvedWorkspaceId,
+    );
+    if (resolvedWorkspace) {
+      return {
+        workspaces: registeredWorkspaces,
+        suggestedWorkspaceId: resolvedWorkspace.canonicalId,
+      };
+    }
   }
   const canonicalWorkspaces = uniqueSelectorWorkspaces(registeredWorkspaces);
   const resolvedLaunchCwd = safeRealpath(launchCwd) ?? launchCwd;
@@ -1221,6 +1227,39 @@ async function runSparkCliTuiSelection(input: {
     const createHostServices = options.createHostServices ?? createDefaultSparkCliHostServices;
     let pendingNativeUiTransport: ReturnType<typeof createSparkNativeUiTransport> | undefined;
     let activeNativeTuiApp: SparkNativeTuiApp | undefined;
+    const setTransportRetryStatus = (text: string | undefined) => {
+      const app = activeNativeTuiApp;
+      if (app) {
+        app.setStatus("spark-transport-retry", text);
+        return;
+      }
+      pendingNativeUiTransport?.setStatus?.("spark-transport-retry", text);
+    };
+    const tuiDaemonClient: SparkDaemonClientOptions = {
+      ...daemonClient,
+      onTurnTransportRetry: (event) => {
+        try {
+          daemonClient.onTurnTransportRetry?.(event);
+        } catch (error) {
+          pendingNativeUiTransport?.notify?.(
+            `transport retry observer failed: ${error instanceof Error ? error.message : String(error)}`,
+            "warning",
+          );
+        }
+        setTransportRetryStatus(formatSparkDaemonTransportRetry(event));
+      },
+      onTurnTransportReady: () => {
+        try {
+          daemonClient.onTurnTransportReady?.();
+        } catch (error) {
+          pendingNativeUiTransport?.notify?.(
+            `transport ready observer failed: ${error instanceof Error ? error.message : String(error)}`,
+            "warning",
+          );
+        }
+        setTransportRetryStatus(undefined);
+      },
+    };
     const services = await createHostServices({
       ...(await hostServiceOptionsFromRuntime(command.options)),
       cwd: sessionCwd,
@@ -1236,7 +1275,7 @@ async function runSparkCliTuiSelection(input: {
           : undefined,
     });
     if (selection.create) {
-      const defaults = createSparkDaemonModelAuthClient(daemonClient, {
+      const defaults = createSparkDaemonModelAuthClient(tuiDaemonClient, {
         sessionId: selectedManagedSession.sessionId,
       });
       const model = services.modelSelector.getActive();
@@ -1269,7 +1308,7 @@ async function runSparkCliTuiSelection(input: {
       lease.workspace.id,
     );
     const loadSnapshot = async () =>
-      await managedSessionSnapshotIfAvailable(currentSessionId, daemonClient);
+      await managedSessionSnapshotIfAvailable(currentSessionId, tuiDaemonClient);
     services.runtime.setSessionContext({
       sessionId: currentSessionIdentity,
       cwd: sessionCwd,
@@ -1280,7 +1319,7 @@ async function runSparkCliTuiSelection(input: {
       store: services.sessionStore,
       getNavigationState: () => undefined,
       listTextProvider: () =>
-        daemonSparkSessionListText(services, daemonClient, {
+        daemonSparkSessionListText(services, tuiDaemonClient, {
           workspaceId: lease.workspace.id,
           workspaceLabel: `${lease.workspace.displayName} • ${services.cwd}`,
         }),
@@ -1298,7 +1337,7 @@ async function runSparkCliTuiSelection(input: {
       modelRefToSelection(selectedManagedSession.model) ?? services.modelSelector.getActive();
     let sessionStatusThinkingLevel =
       selectedManagedSession.thinkingLevel ?? services.config.activeThinkingLevel;
-    const daemonModelControl = createSparkDaemonModelAuthClient(daemonClient, {
+    const daemonModelControl = createSparkDaemonModelAuthClient(tuiDaemonClient, {
       sessionId: currentSessionId,
       ensureSession: ensureCurrentSession,
     });
@@ -1329,7 +1368,7 @@ async function runSparkCliTuiSelection(input: {
     let newSessionId: string | undefined;
     const runTui = options.runTui ?? runNativeSparkTui;
     const attachSessionClient = options.attachSessionClient ?? attachSparkWorkspaceSessionClient;
-    const sessionHeartbeat = await attachSessionClient(daemonClient, {
+    const sessionHeartbeat = await attachSessionClient(tuiDaemonClient, {
       workspaceId: sessionWorkspaceId,
       sessionId: currentSessionIdentity,
     });
@@ -1347,7 +1386,7 @@ async function runSparkCliTuiSelection(input: {
     try {
       tuiExitReason = await runTui({
         initialMessage: input.initialMessage,
-        responder: createSparkDaemonNativeResponder(daemonClient, {
+        responder: createSparkDaemonNativeResponder(tuiDaemonClient, {
           sessionId: currentSessionId,
           identitySessionId: currentSessionIdentity,
           workspaceId: sessionWorkspaceId,
@@ -1366,7 +1405,7 @@ async function runSparkCliTuiSelection(input: {
             await app.withReloadBlocked(async () => {
               await handleSparkDaemonHumanInteractionRequest(request, event, {
                 currentSessionId,
-                client: daemonClient,
+                client: tuiDaemonClient,
                 ...(interactionContext.signal ? { signal: interactionContext.signal } : {}),
                 interaction,
                 notify: (message, level) => pendingNativeUiTransport?.notify?.(message, level),
@@ -1377,9 +1416,10 @@ async function runSparkCliTuiSelection(input: {
         workspaceSession: workspaceSession.state,
         slashCommands: createSparkNativeSlashCommands(
           services,
-          daemonClient,
+          tuiDaemonClient,
           modelControl,
           currentSessionId,
+          sessionWorkspaceId,
           ensureCurrentSession,
           () => {
             sessionSelectorRequested = true;
@@ -1395,7 +1435,7 @@ async function runSparkCliTuiSelection(input: {
                   ? { cwdArtifactRef: selectedManagedSession.cwdArtifactRef }
                   : {}),
               },
-              daemonClient,
+              tuiDaemonClient,
             );
             newSessionId = session.sessionId;
           },
@@ -1437,7 +1477,7 @@ async function runSparkCliTuiSelection(input: {
           if (snapshot) {
             const durablePrompts =
               snapshot.messages.length > 0
-                ? await loadManagedSessionPromptHistory(currentSessionId, daemonClient)
+                ? await loadManagedSessionPromptHistory(currentSessionId, tuiDaemonClient)
                 : [];
             app.hydratePromptHistory(durablePrompts);
             sessionStatusModel = modelRefToSelection(snapshot.model) ?? sessionStatusModel;
@@ -1811,12 +1851,14 @@ function createSparkNativeSlashCommands(
   daemonClient: SparkDaemonClientOptions,
   modelControl: SparkDaemonModelAuthClient,
   currentSessionId: string,
+  workspaceId: string,
   ensureCurrentSession: () => Promise<void>,
   requestSessionSelector: () => void,
   requestNewSession: () => Promise<void>,
 ): SparkNativeSlashCommandMap {
   const daemonCommands = createSparkDaemonNativeCommands(daemonClient, {
     sessionId: currentSessionId,
+    workspaceId,
   });
   const localControlCommands = createSparkNativeLocalControlSlashCommands();
   const piParityCommands = createSparkPiParitySlashCommands(
