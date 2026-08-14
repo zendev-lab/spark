@@ -2043,6 +2043,7 @@ function validateRegistryOwnership(sessions: SparkSessionState[]): void {
       if (
         session.cwd &&
         supervisor.cwd &&
+        !(supervisor.owner.kind === "workspace" && session.cwdArtifactRef) &&
         !isPathWithin(resolve(session.cwd), resolve(supervisor.cwd))
       ) {
         throw new Error(`Session cwd boundary widened: ${session.sessionId}`);
@@ -2134,7 +2135,12 @@ function assertOwnerWithinScope(
       "child Session cannot change its owner's GitChange boundary",
     );
   }
-  if (cwd && supervisor.cwd && !isPathWithin(resolve(cwd), resolve(supervisor.cwd))) {
+  if (
+    cwd &&
+    supervisor.cwd &&
+    !(supervisor.owner.kind === "workspace" && cwdArtifactRef) &&
+    !isPathWithin(resolve(cwd), resolve(supervisor.cwd))
+  ) {
     throw new SparkSessionRegistryError(
       "session_owner_scope_mismatch",
       `child cwd must remain inside owner cwd ${supervisor.cwd}`,
