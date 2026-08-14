@@ -409,6 +409,7 @@ function attachResolutionForManagedSession(
         ? baseState.workspaceHash
         : workspaceSessionHash(workspaceDir),
       attachTarget: sessionId,
+      ...(session?.name?.trim() ? { sessionName: session.name.trim() } : {}),
     },
     attachMatchesControlPlane: ownsControlPlane,
     shouldEmitSessionStart: ownsControlPlane,

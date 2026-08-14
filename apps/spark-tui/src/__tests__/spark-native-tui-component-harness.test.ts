@@ -1069,6 +1069,8 @@ test("native TUI renders compact session status before project UI", () => {
       mode: "attached",
       workspaceDir: "/workspaces/current",
       workspaceHash: "hash-current",
+      sessionId: "session-attached",
+      sessionName: "模型复现",
       controlPlaneSessionId: "client-current",
       attachTarget: "session:attached",
     },
@@ -1084,6 +1086,11 @@ test("native TUI renders compact session status before project UI", () => {
   const sessionLine = firstMarkerIndex(lines, /Spark session attached/);
   const projectLine = firstMarkerIndex(lines, /Project: Spark daemon session UX/);
   assert.equal(projectLine, sessionLine + 1);
+  assert.match(lines[sessionLine] ?? "", /session 模型复现 \(session:attached\)/u);
+  assert.match(
+    lines.find((line) => line.startsWith("Spark ·")) ?? "",
+    /session 模型复现 \(session:attached\)/u,
+  );
   assert.equal(
     lines.filter((line) =>
       /Spark session attached|workspace hash: hash-current|attach target: session:attached/.test(
