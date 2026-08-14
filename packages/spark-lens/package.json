@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-lens",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Revision-safe provider and observation kernel for Spark Lens.",
   "license": "MIT",

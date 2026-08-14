@@ -6,7 +6,7 @@ import {
   type SessionUpdate,
 } from "@agentclientprotocol/sdk";
 import { describe, expect, it, vi } from "vitest";
-import type { SparkTurnStreamPage } from "@zendev-lab/spark-protocol";
+import { SPARK_PROTOCOL_VERSION, type SparkTurnStreamPage } from "@zendev-lab/spark-protocol";
 import { createSparkAcpAgent, type SparkAcpDaemon } from "./index.ts";
 
 class FakeDaemon implements SparkAcpDaemon {
@@ -92,16 +92,16 @@ function messagePage(): SparkTurnStreamPage {
         kind: "daemon.view_event",
         createdAt: "2026-07-27T00:00:01.000Z",
         payload: {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           type: "daemon.view_event",
           source: "daemon",
           metadata: {},
           view: {
-            version: 1,
+            version: SPARK_PROTOCOL_VERSION,
             type: "session.message",
             sessionId: "sess_acp_canonical",
             message: {
-              version: 1,
+              version: SPARK_PROTOCOL_VERSION,
               id: "assistant-1",
               role: "assistant",
               text: "daemon answer",
@@ -147,12 +147,12 @@ function approvalPage(): SparkTurnStreamPage {
         kind: "daemon.interaction.request",
         createdAt: "2026-07-27T00:00:01.000Z",
         payload: {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           type: "daemon.interaction.request",
           source: "daemon",
           metadata: {},
           request: {
-            version: 1,
+            version: SPARK_PROTOCOL_VERSION,
             requestId: "approval-1",
             kind: "toolApproval",
             title: "Approve cue_exec",

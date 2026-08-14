@@ -22,9 +22,12 @@ or adding another scheduler/store.
 ## Canonical work summary
 
 New cross-surface Repro state is written through
-`@zendev-lab/spark-repro/work-summary`. `SparkReproWorkSummary` is the canonical
-projection input for composition, Hub, and benchmark integrations; it does not
-depend on Artifact storage, daemon state, or transcript text.
+`@zendev-lab/spark-repro/three-lane-work-summary`.
+`SparkReproWorkSummaryV3` is the canonical ReportModel input for composition,
+Hub, and benchmark integrations; it does not depend on Artifact storage,
+daemon state, or transcript text. The v2 builder remains the validated formal
+authority submodel and compatibility input, and only the Repro-owned pure
+migration/projection may wrap it with three-lane facts.
 
 Its capability stages are `contract → reference → target → alignment → delivery`,
 weighted `5 / 10 / 25 / 55 / 5`. Domain status and scheduler activity are

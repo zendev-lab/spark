@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-files",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Working-tree file tools (read/edit/write/grep/find) for Spark extension hosts, with bounded output, versioned reads, atomic writes, and diff semantics.",
   "keywords": [

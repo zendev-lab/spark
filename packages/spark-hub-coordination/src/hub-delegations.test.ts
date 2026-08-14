@@ -146,7 +146,7 @@ function deliverySucceeded(
 function responseEvent(
   input: Omit<SparkDaemonDelegationRespondedEvent, "version" | "source" | "metadata">,
 ): SparkDaemonDelegationRespondedEvent {
-  return { version: 1, source: "daemon", metadata: {}, ...input };
+  return { version: 2, source: "daemon", metadata: {}, ...input };
 }
 
 describe("Hub workspace delegations", () => {

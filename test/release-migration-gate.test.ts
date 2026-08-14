@@ -9,11 +9,36 @@ import * as migrationGate from "../scripts/test-release-migration.mjs";
 const {
   parseMigrationArguments,
   readCandidateArtifactIdentity,
+  resolveReleaseMigrationExemption,
   resolvePublishedHubProbe,
   runMixedVersionHubMigrationMatrix,
   runMixedVersionIpcMatrix,
   selectPublishedBaselineVersion,
 } = migrationGate;
+
+test("0.4.0 alone carries the declared one-time N-1 migration exemption", () => {
+  const sparkRelease = {
+    nMinusOneMigrationExemptions: {
+      "0.4.0": " coordinated view-model v2 hard cut ",
+    },
+  };
+
+  assert.deepEqual(resolveReleaseMigrationExemption(sparkRelease, "0.4.0"), {
+    candidateVersion: "0.4.0",
+    reason: "coordinated view-model v2 hard cut",
+  });
+  assert.equal(resolveReleaseMigrationExemption(sparkRelease, "0.4.1"), undefined);
+  assert.equal(resolveReleaseMigrationExemption({}, "0.4.0"), undefined);
+  assert.throws(
+    () => resolveReleaseMigrationExemption({ nMinusOneMigrationExemptions: [] }, "0.4.0"),
+    /must be an object/u,
+  );
+  assert.throws(
+    () =>
+      resolveReleaseMigrationExemption({ nMinusOneMigrationExemptions: { "0.4.0": "" } }, "0.4.0"),
+    /must have a reason/u,
+  );
+});
 
 test("release migration arguments support automatic and explicit published baselines", () => {
   assert.deepEqual(parseMigrationArguments(["--tarball", "dist/release/spark-v0.1.1.tgz"]), {

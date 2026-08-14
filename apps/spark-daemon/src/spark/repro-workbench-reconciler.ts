@@ -13,6 +13,12 @@ import {
   type SparkReproWorkSummary,
 } from "@zendev-lab/spark-repro/work-summary";
 import {
+  normalizeSparkReproWorkSummaryV3,
+  sparkReproWorkSummaryV3Base,
+  SPARK_REPRO_THREE_LANE_WORK_SUMMARY_SCHEMA,
+  type SparkReproWorkSummaryV3,
+} from "@zendev-lab/spark-repro/three-lane-work-summary";
+import {
   renderSparkReproWorkbenchA2ui,
   sparkReproWorkbenchCheckpointArtifactRef,
   sparkReproWorkbenchProjectionDigest,
@@ -403,12 +409,18 @@ async function readCanonicalSummary(
     throw new Error(`invalid ${REPRO_SUMMARY_PATH} envelope`);
   }
   const stored = value.work;
-  const work = normalizeSparkReproWorkSummary(stored);
-  for (const field of ["schema", "status", "progress", "technicalGoal"] as const) {
-    if (!isDeepStrictEqual(stored[field], work[field])) {
-      throw new Error(`${REPRO_SUMMARY_PATH} work.${field} is not canonical`);
+  const isThreeLane = stored.schema === SPARK_REPRO_THREE_LANE_WORK_SUMMARY_SCHEMA;
+  const projected = isThreeLane
+    ? normalizeSparkReproWorkSummaryV3(stored as unknown as SparkReproWorkSummaryV3)
+    : normalizeSparkReproWorkSummaryV3(normalizeSparkReproWorkSummary(stored));
+  if (isThreeLane) {
+    for (const field of ["schema", "status", "progress", "technicalGoal"] as const) {
+      if (!isDeepStrictEqual(stored[field], projected[field])) {
+        throw new Error(`${REPRO_SUMMARY_PATH} work.${field} is not canonical`);
+      }
     }
   }
+  const work = sparkReproWorkSummaryV3Base(projected);
   if (work.reproId !== loop.binding.reproId) {
     throw new Error(`${REPRO_SUMMARY_PATH} belongs to a different Repro run`);
   }

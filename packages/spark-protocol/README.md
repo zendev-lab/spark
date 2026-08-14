@@ -2,6 +2,11 @@
 
 JSON-safe schemas and types shared by native TUI, daemon, runtime WebSocket, and Hub surfaces. This package owns refs/errors, command/event envelopes, RoleSpec and Session lifecycle contracts, invocation lifecycle, registration, projections, interactions, and view models.
 
+View-model protocol v2 is a coordinated daemon/TUI hard cut. It adds bounded
+three-lane Repro summaries and single-line Goal readiness while the runtime
+WebSocket envelope remains `spark.runtime.v1alpha1`; daemon and native TUI do
+not negotiate mixed view-model versions.
+
 The shared RoleSpec contract carries a content-addressed revision, semantic Model Type, capabilities, and tool/effect policy. Durable Session state carries immutable Owner and Role binding plus lifecycle, placement, state binding, visibility, retention, purpose, and transcript references; lifetime and activity exist only in the public projection. A discard-on-close Session may retain up to 16 daemon-sealed, 16 KiB close receipts while its transcript and Invocation payloads are deleted. Close candidates are strict owner reports, not Evidence or automatic Memory. Registry v6 is a hard cut: compatibility decoding belongs only to the explicit migration path.
 
 `@zendev-lab/spark-protocol/conversation` projects the existing message-part

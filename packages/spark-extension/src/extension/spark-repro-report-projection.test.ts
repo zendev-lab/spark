@@ -17,7 +17,11 @@ import {
   type SparkReproWorkSummaryInput,
 } from "@zendev-lab/spark-repro/work-summary";
 
-import type { SparkSessionRepro } from "@zendev-lab/spark-repro";
+import {
+  createSparkSessionRepro,
+  registerSparkReproWorkItem,
+  type SparkSessionRepro,
+} from "@zendev-lab/spark-repro";
 import type { SparkDaemonReproFormalEvidenceControl } from "./spark-daemon-repro-formal-evidence-client.ts";
 import type { SparkDaemonUsageControl } from "./spark-daemon-usage-client.ts";
 import {
@@ -73,6 +77,41 @@ describe("canonical Repro report runtime projection", () => {
     expect(await readFile(join(cwd, SPARK_REPRO_REPORT_SOURCE_PATH), "utf8")).toBe(
       renderSparkReproReportMarkdown(projected.summary),
     );
+  });
+
+  it("joins the bounded three-lane projection into ReportModel v3", async () => {
+    const cwd = await temporaryDirectory();
+    const repro = createSparkSessionRepro("session:report-lanes", undefined, {
+      reproId: "repro-42",
+    });
+    const reproState: SparkSessionRepro = {
+      ...repro,
+      threeLane: registerSparkReproWorkItem(repro.threeLane, "implementation", {
+        workItemId: "work:implementation-report",
+        title: "Implement the bounded projection",
+        scope: "/private/worktree/implementation",
+        planRevision: repro.plan.currentRevision,
+        sourceRevision: "commit:implementation",
+        status: "open",
+        evidenceRefs: [],
+        unresolvedIds: [],
+      }),
+    };
+
+    const projected = await projectSparkReproReportSummary({
+      cwd,
+      currentReproId: "repro-42",
+      reproState,
+      workSummaryInput: workInput("repro-42"),
+      usageControl: fixedUsageControl(usage("repro-42")),
+      evidenceLookup: acceptAllEvidenceLookup,
+    });
+
+    expect(projected.work.schema).toBe("spark.repro.work-summary/v3");
+    expect(projected.work.lanes.implementation.workItemIds).toEqual(["work:implementation-report"]);
+    expect(projected.work.workItems).toEqual([
+      expect.objectContaining({ workItemId: "work:implementation-report" }),
+    ]);
   });
 
   it("rejects facts for another Repro before querying usage or writing", async () => {
@@ -402,12 +441,24 @@ function strictReproState(): SparkSessionRepro {
   return {
     reproId: "repro-verified",
     threeLane: {
+      schema: "spark.repro.three-lane-session/v1",
       planRevision: 1,
+      implementation: { stage: "contract", observationIds: [], workItemIds: [] },
+      exactness: { workItemIds: [], findingIds: [], mismatchIds: [] },
       formalize: {
         orderedStepIds: ["S1"],
         currentStepId: "S1",
         retiredStepIds: [],
+        candidateIds: [],
+        workItemIds: [],
       },
+      workItems: [],
+      findings: [],
+      mismatches: [],
+      handoffs: [],
+      resolutions: [],
+      unresolvedIds: [],
+      migration: { sourceVersion: 8, legacyProofAuthority: "not_promoted" },
     },
     subgoals: [{ id: "S1", planRevision: 1 }],
     plan: {
