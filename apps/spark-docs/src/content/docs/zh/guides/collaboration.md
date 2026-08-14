@@ -7,12 +7,13 @@ description: 在协调工作前，先区分 Role、Session、Side Thread 和消�
 
 | 对象 | 用途 | 生命周期与权限 |
 | --- | --- | --- |
-| Role | 可选且可复用的行为与能力叠加 | 每次 Invocation 开始时解析并冻结的定义 |
+| Role | 单一可复用职责、权限叠加与可选预载 Skill | 每次 Invocation 冻结定义与精确 Skill 组合 |
 | Session | 执行上下文、历史、队列和 mailbox | 由 Owner 派生 persistent、scoped 或 ephemeral 生命周期 |
 | Side Thread | 绑定到父 Session 的只读旁支问题 | scoped 子 Session，通过显式 handoff 回传 |
 | Channel | 飞书（Feishu）、如流（Infoflow）或 QQ Bot 对话 | 绑定到 scoped Session 的路由别名 |
 
-行为和能力策略需要复用时选择 Role。Session 默认使用 `none`，不增加 Role prompt；
+行为和能力策略需要复用时选择 Role。Role Session 直接遵循其声明的预载 Skill；
+`skill_agent` 只用于没有预定义 Role 的临时、自包含能力。Session 默认使用 `none`，不增加 Role prompt；
 每个 Workspace 有一个受保护的 persistent Administrator，其他持续对话是 scoped
 Session，Role call 使用仅一次 Invocation 的 ephemeral Session。
 受限的只读旁支问题使用 [Side Thread](/zh/guides/side-threads/)。

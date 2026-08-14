@@ -25,6 +25,7 @@ import type { DaemonSessionRegistry } from "./session-registry.ts";
 export interface SparkDaemonModelControl {
   snapshot(sessionId?: string): Promise<SparkModelControlSnapshot>;
   setDefaultModel(model: SparkModelRef): Promise<SparkModelControlSnapshot>;
+  setEnabledModels(models: readonly SparkModelRef[]): Promise<SparkModelControlSnapshot>;
   setSessionModel(sessionId: string, model: SparkModelRef): Promise<SparkSessionState>;
   setSessionThinkingLevel(
     sessionId: string,
@@ -74,6 +75,13 @@ class DaemonModelControl implements SparkDaemonModelControl {
     const snapshot = await this.snapshot();
     const canonical = requireAvailableModel(snapshot, model).model;
     await this.#providerControl.setDefaultModel(modelValue(canonical));
+    return await this.snapshot();
+  }
+
+  async setEnabledModels(models: readonly SparkModelRef[]): Promise<SparkModelControlSnapshot> {
+    const snapshot = await this.snapshot();
+    const canonical = models.map((model) => requireCatalogModel(snapshot, model).model);
+    await this.#providerControl.setEnabledModels(canonical.map(modelValue));
     return await this.snapshot();
   }
 
@@ -218,14 +226,14 @@ class DaemonModelControl implements SparkDaemonModelControl {
     if (!entry) return result({ status: "unreachable", reasonCode: "no-model" });
     canonical = entry.model;
     if (
-      snapshot.scopedModels &&
-      !snapshot.scopedModels.some(
+      snapshot.enabledModels !== undefined &&
+      !snapshot.enabledModels.some(
         (candidate) =>
           candidate.providerName === canonical.providerName &&
           candidate.modelId === canonical.modelId,
       )
     ) {
-      return result({ status: "unreachable", reasonCode: "model-out-of-scope" });
+      return result({ status: "unreachable", reasonCode: "model-not-enabled" });
     }
     if (!entry.available) {
       return result({ status: "unreachable", reasonCode: "model-binding-unavailable" });
@@ -358,14 +366,14 @@ function modelControlSnapshot(
   const defaultModel = control.activeModelId
     ? modelRefFromValue(control.activeModelId, control)
     : undefined;
-  const scopedModels = control.scopedModelIds.flatMap((value) => {
+  const enabledModels = control.enabledModelIds.flatMap((value) => {
     const model = modelRefFromValue(value, control);
     return model ? [model] : [];
   });
   return parseSparkModelControlSnapshot({
     providers,
     ...(defaultModel ? { defaultModel } : {}),
-    scopedModels,
+    enabledModels,
     ...(sessionId
       ? {
           session: {
@@ -434,7 +442,7 @@ function authProjection(
   };
 }
 
-function requireAvailableModel(
+function requireCatalogModel(
   snapshot: SparkModelControlSnapshot,
   requested: SparkModelRef,
 ): SparkModelCatalogEntry {
@@ -451,15 +459,24 @@ function requireAvailableModel(
       `Unknown Spark model: ${requested.providerName}/${requested.modelId}`,
     );
   }
+  return entry;
+}
+
+function requireAvailableModel(
+  snapshot: SparkModelControlSnapshot,
+  requested: SparkModelRef,
+): SparkModelCatalogEntry {
+  const entry = requireCatalogModel(snapshot, requested);
   if (
-    !snapshot.scopedModels?.some(
+    snapshot.enabledModels !== undefined &&
+    !snapshot.enabledModels.some(
       (model) =>
         model.providerName === entry.model.providerName && model.modelId === entry.model.modelId,
     )
   ) {
     throw new SparkDaemonControlError(
-      "model_out_of_scope",
-      `Spark model ${modelValue(entry.model)} is outside the user configured scoped models.`,
+      "model_not_enabled",
+      `Spark model ${modelValue(entry.model)} is not configured in enabledModels.`,
     );
   }
   if (!entry.available) {

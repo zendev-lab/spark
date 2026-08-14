@@ -27,6 +27,7 @@ const BAIDU_MODEL_IDS = [
   "gpt-5.6-luna",
   "gpt-5.6-terra",
   "grok-4.5",
+  "grok-4.6",
 ];
 
 function testModel(id: string): Model<Api> {

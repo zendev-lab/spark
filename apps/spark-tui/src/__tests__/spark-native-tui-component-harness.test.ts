@@ -12,6 +12,7 @@ import {
   type SparkLoopStartRequest,
   type SparkInteractionRequest,
   type SparkThinkingLevel,
+  type SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
 import {
   SparkHostRuntime,
@@ -30,6 +31,7 @@ import {
   type SparkNativeResponder,
 } from "../native-tui.ts";
 import { catalogSparkNativeCommands } from "../native-tui/command-presentation.ts";
+import { nativeAskFlowRequest } from "../native-tui/ask-helpers.ts";
 import { nativeKernelSlashCommandEntries } from "../native-tui/slash-commands.ts";
 import { createSparkPiParitySlashCommands } from "../cli/pi-parity-commands.ts";
 import type { SparkDaemonModelAuthClient } from "../cli/model-control.ts";
@@ -39,6 +41,7 @@ import type { Component } from "../tui/pi-tui-adapter.ts";
 import sparkExtension from "@zendev-lab/spark-extension/extension";
 type SparkDaemonLoopControl = NonNullable<Parameters<typeof sparkExtension>[0]["loopControl"]>;
 import { createSparkNativeTuiComponentHarness } from "../test-support/spark-native-tui-component-harness.ts";
+import { sparkNativeReproSessionView } from "../test-support/spark-native-repro-view-fixture.ts";
 
 const ESC = String.fromCharCode(27);
 const ANSI_PATTERN = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, "gu");
@@ -240,6 +243,8 @@ test("native TUI prompt history follows durable user prompts across snapshots an
 
   await harness.submitEditor("/status");
   await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "/status");
+  await harness.press("\x1b[A");
   assert.equal(harness.app.getEditorText(), "live durable prompt");
   await harness.press("\x1b[A");
   assert.equal(harness.app.getEditorText(), "new durable prompt");
@@ -249,6 +254,32 @@ test("native TUI prompt history follows durable user prompts across snapshots an
   assert.equal(harness.app.getEditorText(), "old durable prompt");
   await harness.press("\x1b[B");
   assert.equal(harness.app.getEditorText(), "new durable prompt");
+});
+
+test("native TUI recalls successful and failing slash command input in process history", async () => {
+  const submittedPrompts: string[] = [];
+  const responder = (async (prompt: string) => {
+    submittedPrompts.push(prompt);
+    return "done";
+  }) satisfies SparkNativeResponder;
+  const harness = createSparkNativeTuiComponentHarness({
+    responder,
+    slashCommands: {
+      status: { description: "Show status", handler: () => "status ok" },
+    },
+  });
+
+  await harness.submitEditor("  /status  inspect  ");
+  await harness.submitEditor("/missing");
+  await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "/missing");
+  await harness.press("\x1b[A");
+  assert.equal(harness.app.getEditorText(), "/status  inspect");
+  await harness.press("\x1b[B");
+  assert.equal(harness.app.getEditorText(), "/missing");
+
+  assert.equal(await harness.submit("//literal prompt"), "started");
+  assert.deepEqual(submittedPrompts, ["//literal prompt"]);
 });
 
 test("daemon prompt confirmations do not duplicate locally recalled history", async () => {
@@ -295,6 +326,55 @@ test("daemon prompt confirmations do not duplicate locally recalled history", as
   assert.equal(harness.app.getEditorText(), "first queued prompt");
   await harness.press("\x1b[A");
   assert.equal(harness.app.getEditorText(), "first queued prompt");
+});
+
+test("native TUI carries exact file and image editor input through daemon admission", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "spark-native-original-editor-input-"));
+  try {
+    await writeFile(join(cwd, "README.md"), "expanded file contents\n", "utf8");
+    await writeFile(
+      join(cwd, "pixel.png"),
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    );
+    const admissions: Array<{ prompt: string; submittedInput?: string }> = [];
+    const responder = Object.assign(async () => "", {
+      admit: async (prompt: string, context: { submittedInput?: string }) => {
+        admissions.push({ prompt, submittedInput: context.submittedInput });
+        return {
+          invocationId: `inv-original-${admissions.length}`,
+          status: "queued" as const,
+          acceptedAt: "2026-08-12T00:00:00.000Z",
+        };
+      },
+      observe: async () => "",
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      }),
+    }) satisfies SparkNativeResponder;
+    const harness = createSparkNativeTuiComponentHarness({
+      responder,
+      autocompleteBasePath: cwd,
+    });
+
+    await harness.submit("@README.md explain this");
+    await harness.flush();
+    await harness.submit("./pixel.png identify this");
+    await harness.flush();
+
+    assert.equal(admissions[0]?.submittedInput, "@README.md explain this");
+    assert.match(admissions[0]?.prompt ?? "", /<file name=.*README\.md/u);
+    assert.match(admissions[0]?.prompt ?? "", /expanded file contents/u);
+    assert.equal(admissions[1]?.submittedInput, "./pixel.png identify this");
+    assert.match(admissions[1]?.prompt ?? "", /<image name=.*pixel\.png/u);
+    assert.match(admissions[1]?.prompt ?? "", /data:image\/png;base64/u);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });
 
 test("native TUI PageUp and PageDown scroll the transcript viewport", async () => {
@@ -387,6 +467,12 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   assert.equal(local.review?.metadata?.canonicalCliTarget, "spark hub review list");
   assert.equal(local.run?.metadata?.canonicalCliTarget, "spark daemon run list");
   assert.equal(local.stop?.metadata?.canonicalCliTarget, "spark daemon run cancel <run>");
+  assert.equal(local.retry?.metadata?.plane, "daemon");
+  assert.equal(local.retry?.metadata?.resource, "invocation");
+  assert.equal(
+    local.retry?.metadata?.canonicalCliTarget,
+    "spark daemon invocation retry <invocation-id>",
+  );
   assert.equal(local.tasks?.metadata?.deprecatedAliasFor, "/task list");
   assert.equal(local.artifacts?.metadata?.deprecatedAliasFor, "/artifact list");
   assert.equal(local.runs?.metadata?.deprecatedAliasFor, "/run list");
@@ -543,7 +629,7 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   assert.match(rendered, /Automation\s+- \/goal — Goal command/);
   assert.match(rendered, /Workflows\s+- \/workflow — Workflow command/);
   assert.match(rendered, /Sessions & context[\s\S]*?- \/sessions — Sessions command/);
-  assert.match(rendered, /\/reload — reload extension-owned slash command state/);
+  assert.match(rendered, /\/reload — restart the TUI process and keep this session/);
   assert.doesNotMatch(rendered, /\/workflow-pause/);
   assert.doesNotMatch(rendered, /\/tasks —/);
   assert.doesNotMatch(rendered, /\/workflows —/);
@@ -597,6 +683,194 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   assert.equal(await harness.submit("/workflow"), "command");
   assert.equal(workflowCalls, 1);
   assert.equal(harness.app.actionBarSnapshot(), undefined);
+});
+
+test("native TUI /reload exits with a process-reload intent", async () => {
+  const reload = createSparkNativeTuiComponentHarness();
+  assert.equal(await reload.submit("/reload"), "command");
+  assert.equal(reload.state.exited, true);
+  assert.equal(reload.state.exitReason, "reload");
+  assert.doesNotMatch(stripAnsi(reload.render()), /Restart Spark TUI to reload/u);
+
+  const exit = createSparkNativeTuiComponentHarness();
+  assert.equal(await exit.submit("/exit"), "command");
+  assert.equal(exit.state.exitReason, "exit");
+});
+
+test("native TUI blocks reload until a daemon admission identity is durable", async () => {
+  let acknowledgeAdmission!: (receipt: SparkTurnSubmitResult) => void;
+  const admission = new Promise<SparkTurnSubmitResult>((resolve) => {
+    acknowledgeAdmission = resolve;
+  });
+  const responder = Object.assign(async () => "", {
+    admit: async () => await admission,
+    observe: async () => await new Promise<string>(() => undefined),
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "cancelled" as const,
+      cancelRequested: true,
+    }),
+  }) satisfies SparkNativeResponder;
+  const harness = createSparkNativeTuiComponentHarness({ responder });
+
+  assert.equal(await harness.submit("prompt awaiting daemon admission"), "started");
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exited, false);
+  assert.match(stripAnsi(harness.render()), /command, submission, or retry is still settling/u);
+
+  acknowledgeAdmission({
+    invocationId: "inv_reload_admitted",
+    status: "running",
+    acceptedAt: "2026-08-12T00:00:00.000Z",
+  });
+  await harness.flush();
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exitReason, "reload");
+});
+
+test("native TUI blocks reload while editor input is still being prepared", async () => {
+  let finishPreparation!: (prepared: string) => void;
+  const preparation = new Promise<string>((resolve) => {
+    finishPreparation = resolve;
+  });
+  const responder = Object.assign(async () => "", {
+    admit: async () => ({
+      invocationId: "inv_reload_prepared",
+      status: "running" as const,
+      acceptedAt: "2026-08-12T00:00:00.000Z",
+    }),
+    observe: async () => await new Promise<string>(() => undefined),
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "cancelled" as const,
+      cancelRequested: true,
+    }),
+  }) satisfies SparkNativeResponder;
+  const harness = createSparkNativeTuiComponentHarness({
+    responder,
+    prepareEditorInput: async (input, basePath) => {
+      assert.equal(input, "@README.md delayed prompt");
+      assert.equal(basePath, process.cwd());
+      return await preparation;
+    },
+  });
+
+  const pendingSubmit = harness.app.submitInput("@README.md delayed prompt");
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exited, false);
+  assert.match(stripAnsi(harness.render()), /command, submission, or retry is still settling/u);
+
+  finishPreparation("expanded delayed prompt");
+  assert.equal(await pendingSubmit, "started");
+  await harness.flush();
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exitReason, "reload");
+});
+
+test("native TUI blocks reload while another slash command is still settling", async () => {
+  let finishCommand!: () => void;
+  const commandSettled = new Promise<void>((resolve) => {
+    finishCommand = resolve;
+  });
+  const harness = createSparkNativeTuiComponentHarness({
+    slashCommands: {
+      slow: {
+        description: "slow command",
+        handler: async () => {
+          await commandSettled;
+          return "slow command settled";
+        },
+      },
+    },
+  });
+
+  // Exercise the public/direct command entry used by workflow panels and
+  // action bars, not only the editor submission path.
+  const pendingCommand = harness.app.executeSlashCommand("/slow");
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exited, false);
+
+  finishCommand();
+  await pendingCommand;
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exitReason, "reload");
+});
+
+test("native TUI blocks reload while an async keybinding is still settling", async () => {
+  let finishKeybinding!: () => void;
+  const keybindingSettled = new Promise<void>((resolve) => {
+    finishKeybinding = resolve;
+  });
+  const keybindings = new SparkKeybindings();
+  keybindings.register({
+    id: "test.reload-delayed-keybinding",
+    defaultKey: "ctrl+y",
+    description: "Delay a host mutation",
+    handler: async () => await keybindingSettled,
+  });
+  const harness = createSparkNativeTuiComponentHarness({ keybindings });
+
+  await harness.press("\u0019");
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exited, false);
+
+  finishKeybinding();
+  await harness.flush();
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exitReason, "reload");
+});
+
+test("native TUI blocks reload through a presentation-owned interaction delivery", async () => {
+  let acknowledgeDelivery!: () => void;
+  const delivered = new Promise<void>((resolve) => {
+    acknowledgeDelivery = resolve;
+  });
+  const harness = createSparkNativeTuiComponentHarness();
+
+  const pendingDelivery = harness.app.withReloadBlocked(async () => await delivered);
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exited, false);
+  assert.match(stripAnsi(harness.render()), /command, submission, or retry is still settling/u);
+
+  acknowledgeDelivery();
+  await pendingDelivery;
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exitReason, "reload");
+});
+
+test("native TUI blocks reload until a daemon cancellation receipt settles", async () => {
+  let finishCancellation!: () => void;
+  const cancellationSettled = new Promise<void>((resolve) => {
+    finishCancellation = resolve;
+  });
+  const responder = Object.assign(async () => "", {
+    admit: async () => ({
+      invocationId: "inv_reload_cancel",
+      status: "running" as const,
+      acceptedAt: "2026-08-12T00:00:00.000Z",
+    }),
+    observe: async () => await new Promise<string>(() => undefined),
+    cancel: async (invocationId: string) => {
+      await cancellationSettled;
+      return {
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      };
+    },
+  }) satisfies SparkNativeResponder;
+  const harness = createSparkNativeTuiComponentHarness({ responder });
+
+  assert.equal(await harness.submit("cancel me before reload"), "started");
+  await harness.flush();
+  assert.equal(await harness.submit("/stop"), "command");
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exited, false);
+
+  finishCancellation();
+  await harness.flush();
+  assert.equal(await harness.submit("/reload"), "command");
+  assert.equal(harness.state.exitReason, "reload");
 });
 
 test("Spark native TUI /inbox reads durable session mail", async () => {
@@ -674,7 +948,7 @@ test("Spark native TUI harness submits input and drives exit keys without a real
   assert.equal(harness.state.renderRequests.length > 0, true);
 });
 
-test("Spark native TUI keeps one submission identity across an ACK-loss retry", async () => {
+test("Spark native TUI manual retry uses a fresh submission identity", async () => {
   const seen: Array<{ input: string; submissionId?: string }> = [];
   let failFirst = true;
   const harness = createSparkNativeTuiComponentHarness({
@@ -696,12 +970,49 @@ test("Spark native TUI keeps one submission identity across an ACK-loss retry", 
   await harness.flush();
 
   assert.match(seen[0]?.submissionId ?? "", /^idem_[a-f0-9]{32}$/u);
-  assert.equal(seen[1]?.submissionId, seen[0]?.submissionId);
+  assert.notEqual(seen[1]?.submissionId, seen[0]?.submissionId);
   assert.notEqual(seen[2]?.submissionId, seen[0]?.submissionId);
   assert.deepEqual(
     seen.map(({ input }) => input),
     ["retry-safe prompt", "retry-safe prompt", "fresh prompt"],
   );
+});
+
+test("Spark native TUI awaits and renders canonical retry RPC failures", async () => {
+  const responder = Object.assign(async () => "compatibility path", {
+    admit: async () => ({
+      invocationId: "inv_retryerror",
+      status: "running" as const,
+      acceptedAt: "2026-08-12T00:00:00.000Z",
+    }),
+    observe: async () => {
+      throw new Error("stream ended");
+    },
+    status: async (invocationId: string) => ({
+      invocationId,
+      status: "failed" as const,
+      createdAt: "2026-08-12T00:00:00.000Z",
+      updatedAt: "2026-08-12T00:00:01.000Z",
+      finishedAt: "2026-08-12T00:00:01.000Z",
+      error: { code: "EXECUTION_TRANSIENT", message: "empty response" },
+      eventCursor: 1,
+    }),
+    retry: async () => {
+      throw new Error("retry RPC unavailable");
+    },
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "failed" as const,
+      cancelRequested: false,
+    }),
+  }) satisfies SparkNativeResponder;
+  const harness = createSparkNativeTuiComponentHarness({ responder });
+
+  assert.equal(await harness.submit("fail with retryable status"), "started");
+  await harness.flush();
+  assert.equal(await harness.submit("/retry"), "command");
+
+  assert.match(stripAnsi(harness.render()), /Command \/retry failed: retry RPC unavailable/u);
 });
 
 test("native TUI defaults to workspace session selector when no session target is provided", () => {
@@ -932,6 +1243,44 @@ test("native ask lifecycle cache bounds replay and transcript dedup together", a
         "ask-bounded-0",
   );
   assert.equal(markers.length, 2);
+});
+
+test("native ask overlay opens a freeform wait that omitted options arrays", async () => {
+  const omitted = {
+    id: "archive",
+    prompt: "Where is the frozen archive?",
+    type: "freeform" as const,
+    required: true,
+  };
+  assert.equal(
+    nativeAskFlowRequest({
+      version: SPARK_PROTOCOL_VERSION,
+      requestId: "ask-freeform-raw",
+      kind: "askFlow",
+      title: "Archive",
+      mode: "decision",
+      questions: [omitted as never],
+      metadata: {},
+    }).questions[0]?.options?.length,
+    0,
+  );
+  const harness = createSparkNativeTuiComponentHarness({ withOverlay: true });
+  const request = nativeAskRequest("ask-freeform-omitted-options", {
+    questions: [omitted as never],
+  });
+  assert.equal(nativeAskFlowRequest(request).questions[0]?.type, "freeform");
+  const promise = harness.app.handleInteractionRequest(request);
+  await harness.flush();
+  const overlay = harness.state.overlays.at(-1);
+  assert.ok(overlay);
+  const overlayComponent = overlay.component;
+  assert.ok(overlayComponent);
+  assert.equal(overlay.visible, true);
+  overlayComponent.handleInput?.("x");
+  overlayComponent.handleInput?.("\r");
+  overlayComponent.handleInput?.("\r");
+  const response = await promise;
+  assert.equal(response.status, "answered");
 });
 
 test("native ask overlay geometry fits terminal variants and renders within its width", async () => {
@@ -1446,7 +1795,7 @@ test("Spark native Pi parity slash commands are discoverable and route represent
   await submitEditorText(harness, "/help commands");
   for (const command of [
     "settings",
-    "scoped-models",
+    "enabled-models",
     "export",
     "import",
     "share",
@@ -1469,7 +1818,7 @@ test("Spark native Pi parity slash commands are discoverable and route represent
   }
   assert.match(
     stripAnsi(harness.render()),
-    /\/reload — reload extension-owned slash command state/,
+    /\/reload — restart the TUI process and keep this session/,
   );
   assert.match(stripAnsi(harness.render()), /\/resume \[session-id\|path\] —/u);
   assert.match(stripAnsi(harness.render()), /\/fork —/u);
@@ -1490,7 +1839,7 @@ test("Spark native Pi parity slash commands are discoverable and route represent
   await submitEditorText(harness, "/settings set thinking high");
   assert.match(stripAnsi(harness.render()), /thinking level set.*high/i);
 
-  await submitEditorText(harness, "/scoped-models inspect");
+  await submitEditorText(harness, "/enabled-models inspect");
   assert.match(stripAnsi(harness.render()), /fake/);
   assert.match(stripAnsi(harness.render()), /model-a/);
 
@@ -1714,7 +2063,7 @@ test("TUI action bar dispatches a normal action once even when Enter repeats", a
   await Promise.resolve();
 });
 
-test("bare catalog slash enters its primary destination without an intermediate action bar", async () => {
+test("bare catalog slash enters its protocol default destination without an intermediate action bar", async () => {
   const calls: string[] = [];
   const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
@@ -1819,6 +2168,7 @@ test("bare catalog slashes enter their final destinations in one step", async ()
     slashCommands: {
       settings: command("settings"),
       model: command("model"),
+      "enabled-models": command("enabled-models"),
       goal: command("goal"),
       loop: command("loop"),
       repro: command("repro"),
@@ -1842,15 +2192,16 @@ test("bare catalog slashes enter their final destinations in one step", async ()
   assert.deepEqual(calls.at(-1), { name: "settings", args: "set thinking minimal" });
   assert.equal(harness.session.messages.length, messageCount);
 
-  await harness.submit("/scoped-models");
-  assert.deepEqual(calls.at(-1), { name: "model", args: "" });
+  await harness.submit("/enabled-models");
+  assert.deepEqual(calls.at(-1), { name: "enabled-models", args: "" });
   assert.equal(harness.app.actionBarSnapshot(), undefined);
-  assert.equal(harness.session.messages.length, messageCount);
+  assert.equal(harness.session.messages.length, messageCount + 1);
+  assert.match(harness.session.messages.at(-1)?.text ?? "", /legacy:enabled-models:empty/);
 
   await harness.submit("/settings");
   assert.deepEqual(calls.at(-1), { name: "settings", args: "inspect" });
   assert.equal(harness.app.actionBarSnapshot(), undefined);
-  assert.equal(harness.session.messages.length, messageCount + 1);
+  assert.equal(harness.session.messages.length, messageCount + 2);
   assert.match(harness.session.messages.at(-1)?.text ?? "", /legacy:settings:inspect/);
 
   messageCount = harness.session.messages.length;
@@ -1970,7 +2321,7 @@ test("Spark native TUI surfaces command availability, queued work, stop, and tur
   await harness.flush();
   assert.match(
     stripAnsi(harness.render()),
-    /system> Spark turn failed: daemon unavailable\. Use \/retry to resubmit or \/status to inspect the\s+daemon\./,
+    /system> Spark turn failed: daemon unavailable\. If the daemon marks it retryable, use \/retry to\s+create a linked attempt; use \/status to inspect the daemon\./,
   );
 });
 
@@ -2485,6 +2836,9 @@ test("Spark hub renders shared workflow, run, task, artifact, review, and Graft 
     activePanel: undefined,
     sessionId: "session:dogfood",
     sessionStatus: "streaming",
+    reproProjectionStatus: "unavailable",
+    selectedReproLane: "implementation",
+    reproDetailExpanded: false,
     workflows: 1,
     workflowRuns: 1,
     roleRuns: 1,
@@ -2550,6 +2904,169 @@ test("Spark hub renders shared workflow, run, task, artifact, review, and Graft 
     stripAnsi(harness.render()),
     /task:task:graft-apply patch=patch:abc status=admitted/,
   );
+});
+
+test("native TUI renders and navigates the daemon-projected Repro lanes at 80x24", async () => {
+  const keybindings = new SparkKeybindings();
+  const harness = createSparkNativeTuiComponentHarness({ cols: 80, rows: 24, keybindings });
+  harness.app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "session.snapshot",
+    session: sparkNativeReproSessionView({ includeMessages: true }),
+  });
+
+  let lines = harness.renderLines();
+  let rendered = stripAnsi(lines.join("\n"));
+  assert.ok(lines.length <= 24);
+  assert.ok(lines.every((line) => visibleWidth(line) <= 80));
+  assert.match(rendered, /Repro · I2 !1 H1 · E2 H1 R1 · F1 R1 · tip commit:canonical-rmsnorm/u);
+  assert.match(rendered, /latest daemon-projected answer/u);
+
+  assert.equal(await keybindings.executeKey("ctrl+k", {}), true);
+  assert.equal(harness.app.hubSnapshot().activePanel, "repro");
+  assert.equal(await keybindings.executeKey("shift+ctrl+k", {}), true);
+  assert.equal(harness.app.hubSnapshot().activePanel, "workflows");
+  await harness.submit("/inspect repro");
+  rendered = stripAnsi(harness.render());
+  assert.match(rendered, /Session inspector: repro/u);
+  assert.match(rendered, /▸─ 1 Implementation \[blocked\]/u);
+  assert.match(rendered, /work:implementation-ready \[open\]/u);
+
+  await harness.press("2");
+  assert.deepEqual(
+    {
+      lane: harness.app.hubSnapshot().selectedReproLane,
+      item: harness.app.hubSnapshot().selectedReproWorkItemId,
+    },
+    { lane: "exactness", item: "work:exactness-rmsnorm" },
+  );
+  await harness.press("j");
+  assert.equal(harness.app.hubSnapshot().selectedReproWorkItemId, "work:exactness-resync");
+  await harness.press("k");
+  await harness.press("\r");
+  assert.equal(harness.app.hubSnapshot().reproDetailExpanded, true);
+  assert.match(
+    stripAnsi(harness.render()),
+    /Run run:exactness \[running\] Verify RMSNorm boundary/u,
+  );
+  assert.match(
+    stripAnsi(harness.render()),
+    /Evidence evidence:exactness \[accepted\] Exactness comparison/u,
+  );
+
+  await harness.press("\x1B");
+  assert.equal(harness.app.hubSnapshot().reproDetailExpanded, false);
+  assert.equal(harness.app.hubSnapshot().activePanel, "repro");
+  await harness.press("3");
+  await harness.press("\r");
+  assert.match(
+    stripAnsi(harness.render()),
+    /GitChange artifact:formalize-stack \[active\] Canonical Formalize stack/u,
+  );
+  await harness.press("\x1B");
+  await harness.press("1");
+  await harness.press("\r");
+  assert.match(
+    stripAnsi(harness.render()),
+    /Task task:implementation \[running\] Localize RMSNorm divergence/u,
+  );
+  await harness.press("\x1B");
+  await harness.press("\x1B");
+  assert.equal(harness.app.hubSnapshot().activePanel, undefined);
+
+  harness.app.setEditorText("narrow composer survives");
+  await harness.resize(42, 8);
+  lines = harness.renderLines();
+  rendered = stripAnsi(lines.join("\n"));
+  assert.ok(lines.length <= 8);
+  assert.ok(lines.every((line) => visibleWidth(line) <= 42));
+  assert.match(rendered, /latest daemon-projected answer/u);
+  assert.match(rendered, /narrow composer survives/u);
+});
+
+test("native TUI handles empty, stale, and unavailable Repro projections without parsing text", async () => {
+  const harness = createSparkNativeTuiComponentHarness({ cols: 100, rows: 24 });
+  const unavailable = sparkNativeReproSessionView();
+  delete unavailable.work;
+  unavailable.messages = [
+    {
+      version: SPARK_PROTOCOL_VERSION,
+      id: "message:fake-lanes",
+      role: "assistant",
+      text: "Repro I99 E99 F99 blocked work:invented",
+      status: "done",
+      metadata: {},
+    },
+  ];
+  harness.app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "session.snapshot",
+    session: unavailable,
+  });
+  assert.equal(harness.app.hubSnapshot().reproId, undefined);
+  await harness.submit("/inspect repro");
+  assert.match(
+    stripAnsi(harness.render()),
+    /No active Repro projection is available from the daemon/u,
+  );
+
+  const lanesUnavailable = sparkNativeReproSessionView({
+    updatedAt: "2026-08-13T07:30:00.000Z",
+  });
+  if (!lanesUnavailable.work?.repro) throw new Error("missing Repro fixture");
+  delete lanesUnavailable.work.repro.lanes;
+  harness.app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "session.snapshot",
+    session: lanesUnavailable,
+  });
+  assert.equal(harness.app.hubSnapshot().reproProjectionStatus, "unavailable");
+  assert.match(
+    stripAnsi(harness.render()),
+    /Three-lane projection is unavailable for this Session snapshot/u,
+  );
+
+  const empty = sparkNativeReproSessionView({ updatedAt: "2026-08-13T08:00:00.000Z" });
+  const emptyLanes = empty.work?.repro?.lanes;
+  if (!emptyLanes) throw new Error("missing Repro lane fixture");
+  for (const lane of [emptyLanes.implementation, emptyLanes.exactness, emptyLanes.formalize]) {
+    lane.status = "empty";
+    lane.totalCount = 0;
+    lane.openCount = 0;
+    lane.blockedCount = 0;
+    lane.completedCount = 0;
+    lane.supersededCount = 0;
+    lane.pendingHandoffCount = 0;
+    lane.resolutionCount = 0;
+    lane.items = [];
+  }
+  delete emptyLanes.formalizedTip;
+  harness.app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "session.snapshot",
+    session: empty,
+  });
+  assert.match(stripAnsi(harness.render()), /Implementation has no projected work items/u);
+
+  const current = sparkNativeReproSessionView({ updatedAt: "2026-08-13T09:00:00.000Z" });
+  harness.app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "session.snapshot",
+    session: current,
+  });
+  const stale = sparkNativeReproSessionView({ updatedAt: "2026-08-13T08:30:00.000Z" });
+  if (!stale.work?.repro?.lanes) throw new Error("missing stale Repro lane fixture");
+  stale.work.repro.lanes.formalizedTip = "commit:stale-projection";
+  harness.app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "session.snapshot",
+    session: stale,
+  });
+  const snapshot = harness.app.hubSnapshot();
+  assert.equal(snapshot.reproProjectionStatus, "stale");
+  assert.match(stripAnsi(harness.render()), /Stale Repro projection ignored/u);
+  assert.match(stripAnsi(harness.render()), /commit:canonical-rmsnorm/u);
+  assert.doesNotMatch(stripAnsi(harness.render()), /commit:stale-projection/u);
 });
 
 test("task updates stay below the composer instead of entering the transcript", () => {
@@ -2743,6 +3260,9 @@ test("Spark hub records workflow picker requests and exposes slash command navig
     activePanel: undefined,
     sessionId: undefined,
     sessionStatus: undefined,
+    reproProjectionStatus: "unavailable",
+    selectedReproLane: "implementation",
+    reproDetailExpanded: false,
     workflows: 2,
     workflowRuns: 0,
     roleRuns: 0,
@@ -2773,7 +3293,7 @@ test("Spark hub records workflow picker requests and exposes slash command navig
   assert.equal(await harness.submit("/help commands"), "command");
   assert.match(
     stripAnsi(harness.render()),
-    /\/inspect \[overview\|workflows\|runs\|tasks\|artifacts\|reviews\|graft\|off\]/,
+    /\/inspect \[overview\|repro\|workflows\|runs\|tasks\|artifacts\|reviews\|graft\|off\]/,
   );
   assert.doesNotMatch(stripAnsi(harness.render()), /\/hub \[overview/);
   assert.doesNotMatch(stripAnsi(harness.render()), /Ctrl\+K — toggle Spark hub overview/);

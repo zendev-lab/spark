@@ -137,6 +137,45 @@ test("provider control lists auth safely and patches only the default model fiel
   });
 });
 
+test("legacy provider config still exposes the bundled OpenAI Codex catalog", async () => {
+  await withSparkHome(async (sparkHome) => {
+    await writeFile(
+      join(sparkHome, "config.json"),
+      `${JSON.stringify({
+        providers: ["@zendev-lab/spark-ai/baidu-oneapi-provider"],
+        activeModelId: "baidu-oneapi/gpt-5.5",
+      })}\n`,
+    );
+    const control = createSparkProviderControl({ sparkHome, env: {} });
+
+    const snapshot = await control.snapshot();
+    const codex = snapshot.providers.find((provider) => provider.id === "openai-codex");
+    assert.equal(codex?.name, "OpenAI Codex");
+    assert.equal(codex?.modelCount, 7);
+    assert.equal(codex?.auth.kind, "oauth");
+    assert.equal(codex?.auth.configured, false);
+    assert.equal(snapshot.models.filter((model) => model.providerId === "openai-codex").length, 7);
+    assert.equal(
+      snapshot.models.some(
+        (model) => model.providerId === "openai-codex" && model.modelId === "gpt-5.3-codex-spark",
+      ),
+      true,
+    );
+    assert.equal(
+      snapshot.models
+        .filter((model) => model.providerId === "openai-codex")
+        .every((model) => !model.available),
+      true,
+    );
+    assert.equal(
+      snapshot.loadOutcomes.find(
+        (outcome) => outcome.specifier === "@zendev-lab/spark-ai/openai-codex-provider",
+      )?.ok,
+      true,
+    );
+  });
+});
+
 test("user enabledModels replaces defaults and explicit empty scope permits no models", async () => {
   await withSparkHome(async (sparkHome) => {
     const configPath = join(sparkHome, "config.json");
@@ -147,17 +186,75 @@ test("user enabledModels replaces defaults and explicit empty scope permits no m
     const control = createSparkProviderControl({ sparkHome, env: {} });
 
     const selected = await control.snapshot();
-    assert.deepEqual(selected.scopedModelIds, ["openai-codex/gpt-5.6-luna"]);
-    assert.ok(selected.models.length > selected.scopedModelIds.length);
+    assert.deepEqual(selected.enabledModelIds, ["openai-codex/gpt-5.6-luna"]);
+    assert.ok(selected.models.length > selected.enabledModelIds.length);
     await assert.rejects(
       control.setDefaultModel("openai-codex/gpt-5.6-sol"),
-      /outside configured enabledModels/u,
+      /not configured in enabledModels/u,
     );
 
     await writeFile(configPath, `${JSON.stringify({ enabledModels: [] })}\n`);
     const empty = await control.snapshot();
-    assert.deepEqual(empty.scopedModelIds, []);
+    assert.deepEqual(empty.enabledModelIds, []);
     assert.ok(empty.models.length > 0);
+  });
+});
+
+test("provider control persists exact enabledModels ids from a custom policy", async () => {
+  await withSparkHome(async (sparkHome) => {
+    const configPath = join(sparkHome, "config.json");
+    await writeFile(
+      configPath,
+      `${JSON.stringify({ enabledModels: ["openai-codex/gpt-5.6-luna"] })}
+`,
+    );
+    const control = createSparkProviderControl({ sparkHome, env: {} });
+
+    await control.setEnabledModels(["openai-codex/gpt-5.6-sol", "openai-codex/gpt-5.6-luna"]);
+    const updated = await control.snapshot();
+    assert.deepEqual(
+      new Set(updated.enabledModelIds),
+      new Set(["openai-codex/gpt-5.6-sol", "openai-codex/gpt-5.6-luna"]),
+    );
+    const persisted = await readJsonFixture<Record<string, unknown>>(configPath);
+    assert.deepEqual(persisted.enabledModels, [
+      "openai-codex/gpt-5.6-sol",
+      "openai-codex/gpt-5.6-luna",
+    ]);
+  });
+});
+
+test("default enabledModels replace grok-4.5 with grok-4.6 and keep the catalog row", async () => {
+  await withSparkHome(async (sparkHome) => {
+    const control = createSparkProviderControl({ sparkHome, env: {} });
+    const snapshot = await control.snapshot();
+    assert.equal(
+      snapshot.models.some((model) => model.id === "baidu-oneapi/grok-4.5"),
+      true,
+    );
+    assert.equal(snapshot.enabledModelIds.includes("baidu-oneapi/grok-4.5"), false);
+    assert.equal(snapshot.enabledModelIds.includes("baidu-oneapi/grok-4.6"), true);
+  });
+});
+
+test("previous grok-4.5 frontier default migrates onto grok-4.6", async () => {
+  await withSparkHome(async (sparkHome) => {
+    await writeFile(
+      join(sparkHome, "config.json"),
+      `${JSON.stringify({
+        enabledModels: [
+          "openai-codex/gpt-5.6-*",
+          "baidu-oneapi/claude-opus-5",
+          "baidu-oneapi/deepseek-v4-flash",
+          "baidu-oneapi/gpt-5.6-*",
+          "baidu-oneapi/grok-4.5",
+        ],
+      })}\n`,
+    );
+    const control = createSparkProviderControl({ sparkHome, env: {} });
+    const snapshot = await control.snapshot();
+    assert.equal(snapshot.enabledModelIds.includes("baidu-oneapi/grok-4.6"), true);
+    assert.equal(snapshot.enabledModelIds.includes("baidu-oneapi/grok-4.5"), false);
   });
 });
 

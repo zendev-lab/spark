@@ -33,12 +33,12 @@ application UI, and daemon lifecycle do not.
   state, permission, renderer, and result contract.
 - Do not expose internal aliases, implementation names, or host-specific
   variants as additional public tools.
-- Keep command placement consistent with
-  [`docs/specs/command-planes.md`](../../docs/specs/command-planes.md).
+- Keep command placement consistent with the authoritative state owner and
+  existing public command surface.
 - Shared command, ask, session-view, status, or result semantics must enter
   `spark-protocol` before surface adapters consume them.
 - New public behavior requires user-documentation updates in both supported
-  languages; do not document it only in extension tests or internal specs.
+  languages; do not document it only in extension tests or internal contracts.
 
 Hooks must be bounded, idempotent where replay is possible, and explicit about
 whether they steer a current turn, schedule daemon-owned work, or merely render

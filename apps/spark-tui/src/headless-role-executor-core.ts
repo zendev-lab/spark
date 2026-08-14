@@ -53,6 +53,7 @@ export interface SparkHeadlessRoleInstructionInput {
     id: string;
     revision: string;
     systemPrompt: string;
+    skills?: string[];
     allowedTools?: string[];
     allowedToolEffects?: ToolEffect[];
   };
@@ -65,6 +66,9 @@ export interface SparkHeadlessRoleInstructionInput {
     ref: RunRef;
     roleRef: RoleRef;
     roleRevision: string;
+    definitionRevision?: string;
+    compositionRevision?: string;
+    skillDigests?: Array<{ name: string; digest: string }>;
     runName?: string;
     instruction: string;
     status: SparkHeadlessRoleRunStatus;
@@ -83,6 +87,7 @@ export interface SparkHeadlessRoleInstructionInput {
   launch?: "fresh" | "forked";
   forkFromSession?: string;
   model?: string;
+  thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   nativeCompatibilityRecovery?: "reviewer";
   onEvent?: (event: unknown) => void | Promise<void>;
   inputControl?: ExtensionRoleRunInputControl;
@@ -359,6 +364,24 @@ export async function runSparkHeadlessSession(
   let abortFromSignal: (() => void) | undefined;
   let unsubscribe: () => void = () => undefined;
   let unsubscribeDaemon: () => void = () => undefined;
+  const pendingEventDeliveries = new Set<Promise<void>>();
+  let eventDeliveryFailure: unknown;
+  let eventDeliveryFailed = false;
+  const trackEventDelivery = (delivery: void | Promise<void>) => {
+    if (!delivery) return;
+    const tracked = Promise.resolve(delivery).catch((error: unknown) => {
+      if (!eventDeliveryFailed) eventDeliveryFailure = error;
+      eventDeliveryFailed = true;
+    });
+    pendingEventDeliveries.add(tracked);
+    void tracked.then(() => pendingEventDeliveries.delete(tracked));
+  };
+  const drainEventDeliveries = async () => {
+    while (pendingEventDeliveries.size > 0) {
+      await Promise.all([...pendingEventDeliveries]);
+    }
+    if (eventDeliveryFailed) throw eventDeliveryFailure;
+  };
   try {
     // Service bootstrap can be asynchronous (provider discovery, extension
     // loading, session-store setup). A cancellation that wins during bootstrap
@@ -381,7 +404,12 @@ export async function runSparkHeadlessSession(
 
     const recordEvent = (event: unknown) => {
       if (!input.onEvent) jsonEvents.push(event);
-      void input.onEvent?.(event);
+      if (!input.onEvent) return;
+      try {
+        trackEventDelivery(input.onEvent(event));
+      } catch (error) {
+        trackEventDelivery(Promise.reject(error));
+      }
     };
     const observeTokenUsage = createHeadlessTokenUsageObserver(input.tokenUsage);
     unsubscribe = services.agentLoop.onEvent((event) => {
@@ -418,6 +446,7 @@ export async function runSparkHeadlessSession(
       input.timeoutMs,
       abort,
     );
+    await drainEventDeliveries();
     assertSuccessfulHeadlessSessionOutcome(result.outcome, result.assistant, input.signal);
     return {
       sessionId: result.sessionId,
@@ -431,6 +460,12 @@ export async function runSparkHeadlessSession(
     };
   } catch (error) {
     primaryError = error;
+    try {
+      await drainEventDeliveries();
+    } catch {
+      // Preserve the execution failure, but do not let teardown or a scheduler
+      // terminal boundary overtake an already accepted event delivery.
+    }
     throw error;
   } finally {
     if (abortFromSignal) input.signal?.removeEventListener("abort", abortFromSignal);
@@ -523,6 +558,7 @@ export async function runSparkHeadlessRoleInstruction(
         return result;
       }
     }
+    if (input.thinking) services.config.activeThinkingLevel = input.thinking;
     const observeTokenUsage = createHeadlessTokenUsageObserver(options.tokenUsage);
     const unsubscribe = services.agentLoop.onEvent((event) => {
       const serialized = serializeLoopEvent(event);
@@ -920,7 +956,11 @@ function assertSuccessfulHeadlessSessionOutcome(
   }
   if (outcome.status === "completed") return;
   const detail = outcome.status === "aborted" ? outcome.reason.trim() : outcome.errorMessage.trim();
-  throw headlessSessionFailureError(outcome.status, detail);
+  throw headlessSessionFailureError(
+    outcome.status,
+    detail,
+    outcome.status === "failed" ? outcome.errorCode : undefined,
+  );
 }
 
 function assertSuccessfulHeadlessSessionAssistant(
@@ -943,6 +983,7 @@ function assertSuccessfulHeadlessSessionAssistant(
 function headlessSessionFailureError(
   status: "failed" | "aborted",
   detail: string,
+  outcomeCode?: string,
 ): Error & { code?: string } {
   const error = new Error(
     `Spark headless session ${status}${detail ? `: ${detail}` : ""}`,
@@ -951,7 +992,10 @@ function headlessSessionFailureError(
     error.code = "STREAM_IDLE_TIMEOUT";
   } else if (/stream timed out after \d+ms/i.test(detail)) {
     error.code = "STREAM_WALL_TIMEOUT";
-  } else if (classifyProviderFailure(detail).policy.retriable) {
+  } else if (
+    classifyProviderFailure({ message: detail, ...(outcomeCode ? { code: outcomeCode } : {}) })
+      .policy.retriable
+  ) {
     error.code = "EXECUTION_TRANSIENT";
   }
   return error;

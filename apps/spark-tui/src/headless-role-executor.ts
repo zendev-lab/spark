@@ -51,6 +51,11 @@ async function createHeadlessHostServices(options?: Parameters<SparkCliHostServi
   return createSparkCliHostServices(options);
 }
 
+/** Resolve the heavy host graph while daemon admission is still closed. */
+export async function preloadSparkHeadlessSessionRuntime(): Promise<void> {
+  await import("./host/bootstrap.ts");
+}
+
 export function createSparkHeadlessRoleExecutor(
   options: SparkHeadlessRoleExecutorOptions = {},
 ): (input: SparkHeadlessRoleInstructionInput) => Promise<SparkHeadlessRoleInstructionResult> {

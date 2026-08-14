@@ -131,6 +131,51 @@ describe("daemon session transcript ownership", () => {
       expect.objectContaining({ sessionId: session.sessionId, changed: false }),
     ]);
   });
+
+  it("does not back up a closing discard-on-close transcript", async () => {
+    const harness = await createHarness("closing-discard");
+    const administrator = await harness.registry.ensureWorkspaceAdministrator("workspace");
+    const session = await harness.registry.createSupervised({
+      sessionId: "sess_closing_discard",
+      scope: administrator.scope,
+      owner: { kind: "session", supervisorSessionId: administrator.sessionId },
+      stateBinding: { kind: "session", ref: administrator.sessionId },
+      visibility: "internal",
+      retention: "discard_on_close",
+      purpose: "task_run",
+      cwd: harness.cwd,
+    });
+    const record = harness.store.createSession({
+      id: session.sessionId,
+      timestamp: "2026-07-21T00:00:00.000Z",
+    });
+    harness.store.appendMessage(record, { role: "user", content: "temporary content" });
+    await harness.store.save(record);
+    await harness.registry.bindTranscriptPath({
+      sessionId: session.sessionId,
+      sessionPath: record.path,
+    });
+    await harness.registry.markClosing({
+      sessionId: session.sessionId,
+      expectedLifecycle: "open",
+    });
+    const backupRoot = join(harness.root, "closing-backups");
+
+    const result = await unifyDaemonSessionTranscripts({
+      registry: harness.registry,
+      transcriptSparkHome: harness.transcriptSparkHome,
+      backupRoot,
+      apply: true,
+    });
+
+    expect(result.sessions).toEqual([]);
+    await expect(access(record.path)).resolves.toBeUndefined();
+    await expect(access(backupRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(harness.registry.get(session.sessionId)).resolves.toMatchObject({
+      lifecycle: "closing",
+      sessionPath: record.path,
+    });
+  });
 });
 
 async function createHarness(label: string) {

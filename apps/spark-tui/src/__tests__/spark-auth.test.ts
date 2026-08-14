@@ -73,6 +73,7 @@ function daemonAuthClient(
     setSessionModel: unsupported,
     setSessionThinkingLevel: unsupported,
     setDefaultModel: async () => snapshot,
+    setEnabledModels: async () => snapshot,
     setApiKey: async () => snapshot,
     logout: async () => false,
     startOAuth: unsupported,
@@ -290,10 +291,10 @@ test("SparkProviderAuthResolver resolves env and stored API keys without status 
   });
 });
 
-test("native /scoped-models renders the daemon resolved scope instead of local catalog state", async () => {
+test("native /enabled-models renders the daemon resolved scope instead of local catalog state", async () => {
   const snapshot: SparkModelControlSnapshot = {
     defaultModel: { providerName: "provider-a", modelId: "model-a" },
-    scopedModels: [{ providerName: "provider-a", modelId: "model-b" }],
+    enabledModels: [{ providerName: "provider-a", modelId: "model-b" }],
     diagnostics: [],
     providers: [
       {
@@ -319,12 +320,14 @@ test("native /scoped-models renders the daemon resolved scope instead of local c
   };
   const services = {
     modelSelector: {
-      getPickerState: () => assert.fail("daemon-backed /scoped-models must not read local scope"),
+      getPickerState: () => assert.fail("daemon-backed /enabled-models must not read local scope"),
+      listCatalogItems: () =>
+        assert.fail("daemon-backed /enabled-models must not read local catalog"),
     },
   } as unknown as SparkCliHostServices;
   const commands = createSparkPiParitySlashCommands(services, daemonAuthClient(snapshot));
 
-  const rendered = await commands["scoped-models"]!.handler("", {
+  const rendered = await commands["enabled-models"]!.handler("", {
     app: {} as never,
     session: new SparkNativeSession(),
     exit: () => undefined,
@@ -332,6 +335,98 @@ test("native /scoped-models renders the daemon resolved scope instead of local c
 
   assert.match(String(rendered), /provider-a\/model-b/u);
   assert.doesNotMatch(String(rendered), /provider-a\/model-a/u);
+
+  const listed = await commands.enabled!.handler("inspect", {
+    app: {} as never,
+    session: new SparkNativeSession(),
+    exit: () => undefined,
+  });
+  assert.match(String(listed), /provider-a\/model-b/u);
+});
+
+test("native /enabled-models add persists exact catalog ids through daemon control", async () => {
+  const snapshot: SparkModelControlSnapshot = {
+    defaultModel: { providerName: "provider-a", modelId: "model-a" },
+    enabledModels: [{ providerName: "provider-a", modelId: "model-a" }],
+    diagnostics: [],
+    providers: [
+      {
+        providerName: "provider-a",
+        label: "Provider A",
+        auth: { providerName: "provider-a", kind: "none", configured: true },
+        models: [
+          {
+            model: { providerName: "provider-a", modelId: "model-a" },
+            reasoning: false,
+            input: ["text"],
+            available: true,
+          },
+          {
+            model: { providerName: "provider-a", modelId: "model-b" },
+            reasoning: true,
+            input: ["text"],
+            available: true,
+          },
+        ],
+      },
+    ],
+  };
+  let persisted: unknown;
+  const services = {
+    config: { enabledModels: ["provider-a/model-a"] },
+    modelSelector: {
+      listCatalogItems: () => assert.fail("daemon-backed mutation must not read local catalog"),
+    },
+  } as unknown as SparkCliHostServices;
+  const commands = createSparkPiParitySlashCommands(
+    services,
+    daemonAuthClient(snapshot, {
+      setEnabledModels: async (models) => {
+        persisted = models;
+        return {
+          ...snapshot,
+          enabledModels: [...models],
+        };
+      },
+    }),
+  );
+
+  const rendered = await commands["enabled-models"]!.handler("add provider-a/model-b", {
+    app: {} as never,
+    session: new SparkNativeSession(),
+    exit: () => undefined,
+  });
+
+  assert.deepEqual(persisted, [
+    { providerName: "provider-a", modelId: "model-a" },
+    { providerName: "provider-a", modelId: "model-b" },
+  ]);
+  assert.deepEqual(services.config.enabledModels, ["provider-a/model-a", "provider-a/model-b"]);
+  assert.match(String(rendered), /provider-a\/model-b/u);
+});
+
+test("native /enabled-models set writes local enabledModels when daemon is absent", async () => {
+  const saved: Array<{ enabledModels?: string[] }> = [];
+  const services = {
+    config: { extensions: [], providers: [], enabledModels: ["fake/model-a"] },
+    saveConfig: async (config: { enabledModels?: string[] }) => {
+      saved.push({ enabledModels: [...(config.enabledModels ?? [])] });
+    },
+    modelSelector: {
+      listCatalogItems: () => [],
+    },
+  } as unknown as SparkCliHostServices;
+  const commands = createSparkPiParitySlashCommands(services);
+
+  const rendered = await commands["enabled-models"]!.handler("set baidu-oneapi/grok-4.6", {
+    app: {} as never,
+    session: new SparkNativeSession(),
+    exit: () => undefined,
+  });
+
+  assert.deepEqual(services.config.enabledModels, ["baidu-oneapi/grok-4.6"]);
+  assert.deepEqual(saved[0]?.enabledModels, ["baidu-oneapi/grok-4.6"]);
+  assert.match(String(rendered), /baidu-oneapi\/grok-4.6/u);
 });
 
 test("native /login and /logout mutate Spark auth store and model availability", async () => {

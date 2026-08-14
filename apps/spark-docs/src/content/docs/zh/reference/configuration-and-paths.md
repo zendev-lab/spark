@@ -56,7 +56,7 @@ Daemon 默认最多同时接纳来自不同 session 的 4 个 root invocation。
 
 ```bash
 spark daemon configure --invocation-concurrency 8
-spark daemon restart --yes --wait
+spark daemon restart --yes
 spark daemon status --json
 ```
 
@@ -96,9 +96,20 @@ $XDG_CACHE_HOME/spark/update/
 
 ## Workspace 与 agent 定义
 
+Role、Workflow 和 Skill 共用以下加载优先级（后面的同名资源覆盖前面的）：
+
+```text
+builtin -> user -> workspace -> cwd -> configured -> repository
+```
+
 - `.spark/` 保存 workspace 自有的 Spark 运行状态。
 - `~/.agents/{roles,skills,workflows}` 保存用户级可复用定义。
-- `.agents/{roles,skills,workflows}` 保存项目级定义。
-- `.spark/skills` 保存 workspace 专用的 Spark skills。
+- `.agents/{roles,skills,workflows}` 保存仓库和 cwd 定义；先扫描仓库祖先，再扫描 cwd 根目录。
+- 显式配置的 user 根目录会替换默认 user 根目录。
+- 显式配置的 Skill 目录在 cwd 之后扫描。
+- 仓库 Skill 由请求匹配或显式 Skill Agent 渐进式聚焦，不会注入启动 catalog。
+
+Workflow 和 Role selector 保持现有 source 名称，其项目根目录共用上述优先级。
+`.spark/skills` 保存 workspace 专用的 Spark skills。
 
 不存在 `$SPARK_HOME/skills` 或 `$SPARK_HOME/workflows` 目录。

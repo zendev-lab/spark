@@ -14,10 +14,12 @@ import {
   type SparkConfig,
 } from "../host/index.ts";
 import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
+import { MODEL_EMPTY_RESPONSE_ERROR_CODE } from "@zendev-lab/spark-ai";
 import type { SparkViewModelEvent } from "@zendev-lab/spark-protocol";
 import {
   SPARK_PROMPT_ITEM_METADATA_KEY,
   SparkTurnRestartYieldError,
+  isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
 } from "@zendev-lab/spark-turn";
 import { assistantMessageToFinalAnswerText } from "../host/agent-session.ts";
@@ -313,6 +315,94 @@ test("SparkAgentSession manual compact mutates the canonical record idempotently
   }
 });
 
+test("SparkAgentSession auto compaction fires before the provider when reported usage undercounts", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-underreport-ambiguous-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    // Small window (8192) and modest output budget (512) so a handful of
+    // oversized tool results push the char-based estimate past the window
+    // while the provider-reported usage stays far below it. Two distinct user
+    // turns keep the compaction cut summarizable: with a single turn there is
+    // no history prefix before the last turn to summarize.
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      { contextWindow: 8_192, maxTokens: 512 },
+      { compactKeepRecentTokens: 100 },
+    );
+    const compactEvents: Array<{ reason?: unknown }> = [];
+    services.runtime.on("session_compact", (event) => {
+      if (event && typeof event === "object") compactEvents.push(event as { reason?: unknown });
+    });
+
+    const record = services.sessionStore.createSession({ id: "preflight-underreport" });
+    services.sessionStore.appendMessage(record, { role: "user", content: "start" });
+    // The only provider report in the transcript is far below the char/4
+    // estimate of the whole replay (three 20k-char tool results below).
+    services.sessionStore.appendMessage(record, {
+      role: "assistant",
+      content: [{ type: "text", text: "ok" }],
+      usage: { input: 1_000, output: 50, cacheRead: 1_000, cacheWrite: 0 },
+    });
+    for (const toolCallId of ["read-call-0", "read-call-1"]) {
+      services.sessionStore.appendMessage(record, {
+        role: "toolResult",
+        toolCallId,
+        toolName: "read",
+        content: [{ type: "text", text: "x".repeat(20_000) }],
+      });
+    }
+    // A second user turn makes the full-compaction cut have summarizable
+    // history before it; a lone single-turn transcript cannot be compacted
+    // by the branch-cut algorithm.
+    services.sessionStore.appendMessage(record, { role: "user", content: "mid" });
+    services.sessionStore.appendMessage(record, {
+      role: "toolResult",
+      toolCallId: "read-call-2",
+      toolName: "read",
+      content: [{ type: "text", text: "x".repeat(20_000) }],
+    });
+    services.sessionStore.appendMessage(record, {
+      role: "assistant",
+      content: [{ type: "text", text: "next" }],
+    });
+    await services.sessionStore.save(record);
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: record.header.id,
+      prompt: "continue",
+    });
+
+    // The run succeeds without hitting the hard provider preflight guard…
+    assert.ok(result.outcome, "run must produce an outcome");
+    assert.equal(result.outcome.status, "completed");
+    // …because auto compaction fired BEFORE the provider request (reason "auto"
+    // as the first session_compact event), never a failure-driven
+    // "context_overflow" pass.
+    assert.equal(compactEvents[0]?.reason, "auto");
+    assert.equal(
+      compactEvents.some((event) => event.reason === "context_overflow"),
+      false,
+      "auto compaction must trigger before the hard preflight rejects",
+    );
+
+    const saved = await services.sessionStore.load(record.path);
+    assert.ok(
+      saved.entries.some((entry) => entry.type === "compaction"),
+      "preflight compaction must leave a durable compaction entry",
+    );
+    assert.equal(
+      saved.entries.some(
+        (entry) => entry.type === "custom_message" && entry.customType === "spark-runtime-failure",
+      ),
+      false,
+      "no provider runtime failure may be persisted when auto compaction covers the turn",
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 test("SparkAgentSession discards a measured low-yield repeated compact with a Memory checkpoint", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-low-yield-compact-"));
   try {
@@ -553,6 +643,15 @@ test("SparkAgentSession restores a restart checkpoint without replaying its prom
 
     const predecessorServices = await makeFakeServices({ cwd, sparkHome }, fake);
     registerTool(predecessorServices);
+    predecessorServices.runtime.on("before_agent_start", () => ({
+      message: {
+        customType: "restart-regenerated-context",
+        content: "regenerate this transient context after restart",
+        display: false,
+        authority: "runtime_control",
+        trust: "trusted",
+      },
+    }));
     let checkpoint: SparkTurnResumeCheckpoint | undefined;
     await assert.rejects(
       new SparkAgentSession(predecessorServices).run({
@@ -567,6 +666,12 @@ test("SparkAgentSession restores a restart checkpoint without replaying its prom
       (error: unknown) => error instanceof SparkTurnRestartYieldError,
     );
     assert.ok(checkpoint);
+    assert.equal(isSparkTurnResumeCheckpointPersistable(checkpoint), true);
+    assert.equal(
+      checkpoint.promptItems.every((item) => item.persistence === "session"),
+      true,
+    );
+    assert.doesNotMatch(JSON.stringify(checkpoint), /restart-regenerated-context/u);
     assert.equal(toolExecutions, 0);
     assert.equal(providerCalls, 1);
 
@@ -716,7 +821,14 @@ test("SparkAgentSession continues from a persisted tool receipt after a terminal
               stopReason: "toolUse",
             } as unknown as AssistantMessage;
           }
-          if (providerCalls === 2 || providerCalls === 3) {
+          if (providerCalls === 2) {
+            return {
+              ...assistant(""),
+              content: [],
+              stopReason: "stop",
+            } as unknown as AssistantMessage;
+          }
+          if (providerCalls === 3) {
             return {
               ...assistant(""),
               content: [],
@@ -771,6 +883,16 @@ test("SparkAgentSession continues from a persisted tool receipt after a terminal
       ),
       true,
     );
+    assert.equal(
+      record.entries.some(
+        (entry) =>
+          entry.type === "custom_message" &&
+          entry.customType === "spark-runtime-failure" &&
+          (entry.details as { code?: unknown } | undefined)?.code ===
+            MODEL_EMPTY_RESPONSE_ERROR_CODE,
+      ),
+      true,
+    );
     const assistantViews = viewEvents
       .filter(isSessionMessageViewEvent)
       .filter((event) => event.message.role === "assistant")
@@ -794,6 +916,70 @@ test("SparkAgentSession continues from a persisted tool receipt after a terminal
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("SparkAgentSession automatically retries an empty model response with a bounded continuation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-empty-response-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {
+        streamSimple: () => {
+          providerCalls += 1;
+          return providerCalls === 1
+            ? ({ ...assistant(""), content: [], stopReason: "stop" } as AssistantMessage)
+            : assistant("recovered from empty response");
+        },
+      },
+    );
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "empty-response-session",
+      prompt: "return a visible answer",
+    });
+    assert.equal(result.outcome?.status, "completed");
+    assert.equal(result.assistantText, "recovered from empty response");
+    assert.equal(providerCalls, 2);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentSession exhausts empty-response continuation after three retries", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-empty-response-exhausted-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {
+        streamSimple: () => {
+          providerCalls += 1;
+          return { ...assistant(""), content: [], stopReason: "stop" } as AssistantMessage;
+        },
+      },
+    );
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "empty-response-exhausted-session",
+      prompt: "keep returning an empty response",
+    });
+
+    assert.equal(providerCalls, 4);
+    assert.equal(result.outcome?.status, "failed");
+    assert.equal(
+      result.outcome?.status === "failed" ? result.outcome.errorCode : undefined,
+      MODEL_EMPTY_RESPONSE_ERROR_CODE,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}, 15_000);
 
 test("SparkAgentSession retries an overloaded provider error instead of surfacing it immediately", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-overload-"));

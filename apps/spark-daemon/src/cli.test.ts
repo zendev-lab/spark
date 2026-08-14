@@ -2578,7 +2578,7 @@ describe("Spark daemon CLI", () => {
           previousProcessStartToken: "test:old",
           targetInstanceId: "new-instance",
           targetGeneration: "new-generation",
-          protocolVersion: 1,
+          protocolVersion: 2,
           requestedAt: "2026-07-17T00:01:00.000Z",
         }),
       );
@@ -2621,7 +2621,7 @@ describe("Spark daemon CLI", () => {
           previousProcessStartToken: "test:old",
           targetInstanceId: "new-instance",
           targetGeneration: "new-generation",
-          protocolVersion: 1,
+          protocolVersion: 2,
           requestedAt: "2026-07-17T00:01:00.000Z",
         }),
       );
@@ -3098,7 +3098,7 @@ describe("Spark daemon CLI", () => {
     }
   });
 
-  it("schedules a drain restart without waiting by default", async () => {
+  it("schedules a drain restart without waiting when --no-wait is set", async () => {
     await withTempSparkEnv(async () => {
       const paths = resolveSparkPaths({ app: "daemon" });
       mkdirSync(paths.runtimeDir, { recursive: true });
@@ -3130,13 +3130,60 @@ describe("Spark daemon CLI", () => {
         daemonStatusFromService,
       });
 
-      await expect(main(["daemon", "restart", "--yes"], capture.io)).resolves.toBe(0);
+      await expect(main(["daemon", "restart", "--yes", "--no-wait"], capture.io)).resolves.toBe(0);
 
       expect(daemonRestartFromService).toHaveBeenCalledOnce();
       expect(daemonStopFromService).not.toHaveBeenCalled();
       expect(daemonStatusFromService).not.toHaveBeenCalled();
       expect(capture.stdout()).toContain("draining active invocations");
       expect(capture.stdout()).toContain("Replacement will start after active work finishes");
+      expect(capture.stderr()).toBe("");
+    });
+  });
+
+  it("waits for a stable successor by default on restart --yes", async () => {
+    await withTempSparkEnv(async () => {
+      const paths = resolveSparkPaths({ app: "daemon" });
+      mkdirSync(paths.runtimeDir, { recursive: true });
+      writeFileSync(paths.pidFile, `${process.pid}\n`);
+      const daemonRestartFromService = vi.fn(async () => {
+        writeFileSync(paths.pidFile, `${process.ppid}\n`);
+        return {
+          accepted: true as const,
+          state: "draining" as const,
+          restartId: "restart-default-wait",
+          processInstanceId: "old-instance",
+          processGeneration: "old-generation",
+          targetInstanceId: "new-instance",
+          targetGeneration: "new-generation",
+          requestedAt: "2026-07-15T00:00:00.000Z",
+        };
+      });
+      const daemonStatusFromService = vi.fn(async () => ({
+        servers: [],
+        invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
+        invocationHealth: {},
+        lifecycle: {
+          state: "running" as const,
+          process: {
+            pid: process.ppid,
+            instanceId: "new-instance",
+            generation: "new-generation",
+            protocolVersion: 2 as const,
+            startedAt: "2026-07-15T00:00:01.000Z",
+            acceptedRestartId: "restart-default-wait",
+          },
+        },
+        observedAt: "2026-07-15T00:00:01.000Z",
+      }));
+      const capture = createCliIo({ daemonRestartFromService, daemonStatusFromService });
+
+      await expect(main(["daemon", "restart", "--yes"], capture.io)).resolves.toBe(0);
+
+      expect(daemonRestartFromService).toHaveBeenCalledOnce();
+      expect(daemonStatusFromService).toHaveBeenCalledOnce();
+      expect(capture.stdout()).toContain(`Spark daemon restarted as process ${process.ppid}.`);
+      expect(capture.stdout()).not.toContain("Replacement will start after active work finishes");
       expect(capture.stderr()).toBe("");
     });
   });
@@ -3169,24 +3216,51 @@ describe("Spark daemon CLI", () => {
       const paths = resolveSparkPaths({ app: "daemon" });
       mkdirSync(paths.runtimeDir, { recursive: true });
       writeFileSync(paths.pidFile, `${process.pid}\n`);
-      const daemonRestartFromService = vi.fn(async () => ({
-        accepted: true as const,
-        state: "draining" as const,
-        restartId: "restart-build-sync",
-        processInstanceId: "old-instance",
-        processGeneration: "old-generation",
-        targetInstanceId: "new-instance",
-        targetGeneration: "new-generation",
-        requestedAt: "2026-07-24T00:00:00.000Z",
-      }));
-      const daemonStatusFromService = vi.fn(async () => ({
-        servers: [],
-        invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
-        invocationHealth: {},
-        lifecycle: { state: "running" as const },
-        buildFingerprint: "sha256:older",
-        observedAt: "2026-07-24T00:00:00.000Z",
-      }));
+      const daemonRestartFromService = vi.fn(async () => {
+        writeFileSync(paths.pidFile, `${process.ppid}\n`);
+        return {
+          accepted: true as const,
+          state: "draining" as const,
+          restartId: "restart-build-sync",
+          processInstanceId: "old-instance",
+          processGeneration: "old-generation",
+          targetInstanceId: "new-instance",
+          targetGeneration: "new-generation",
+          requestedAt: "2026-07-24T00:00:00.000Z",
+        };
+      });
+      let statusChecks = 0;
+      const daemonStatusFromService = vi.fn(async () => {
+        statusChecks += 1;
+        if (statusChecks === 1) {
+          return {
+            servers: [],
+            invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
+            invocationHealth: {},
+            lifecycle: { state: "running" as const },
+            buildFingerprint: "sha256:older",
+            observedAt: "2026-07-24T00:00:00.000Z",
+          };
+        }
+        return {
+          servers: [],
+          invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
+          invocationHealth: {},
+          lifecycle: {
+            state: "running" as const,
+            process: {
+              pid: process.ppid,
+              instanceId: "new-instance",
+              generation: "new-generation",
+              protocolVersion: 2 as const,
+              startedAt: "2026-07-24T00:00:01.000Z",
+              acceptedRestartId: "restart-build-sync",
+            },
+          },
+          buildFingerprint: sparkDaemonEntrypointFingerprint(),
+          observedAt: "2026-07-24T00:00:01.000Z",
+        };
+      });
       const capture = createCliIo({ daemonRestartFromService, daemonStatusFromService });
 
       await expect(main(["daemon", "sync"], capture.io)).resolves.toBe(0);
@@ -3194,6 +3268,7 @@ describe("Spark daemon CLI", () => {
       expect(daemonRestartFromService).toHaveBeenCalledOnce();
       expect(capture.stdout()).toContain("build changed");
       expect(capture.stdout()).toContain("draining active invocations");
+      expect(capture.stdout()).toContain(`Spark daemon restarted as process ${process.ppid}.`);
     });
   });
 
@@ -3234,7 +3309,7 @@ describe("Spark daemon CLI", () => {
     });
   });
 
-  it("waits for replacement readiness only when explicitly requested", async () => {
+  it("waits for replacement readiness when --wait is set", async () => {
     await withTempSparkEnv(async () => {
       const paths = resolveSparkPaths({ app: "daemon" });
       mkdirSync(paths.runtimeDir, { recursive: true });
@@ -3262,7 +3337,7 @@ describe("Spark daemon CLI", () => {
             pid: process.ppid,
             instanceId: "new-instance",
             generation: "new-generation",
-            protocolVersion: 1 as const,
+            protocolVersion: 2 as const,
             startedAt: "2026-07-15T00:00:01.000Z",
             acceptedRestartId: "restart-1",
           },
@@ -3314,7 +3389,7 @@ describe("Spark daemon CLI", () => {
               pid: process.ppid,
               instanceId: "new-instance",
               generation: "new-generation",
-              protocolVersion: 1 as const,
+              protocolVersion: 2 as const,
               startedAt: "2026-07-15T00:00:01.000Z",
               acceptedRestartId: "restart-socket-handoff",
             },
@@ -3364,7 +3439,7 @@ describe("Spark daemon CLI", () => {
               pid: process.ppid,
               instanceId: "new-instance",
               generation: "new-generation",
-              protocolVersion: 1 as const,
+              protocolVersion: 2 as const,
               startedAt: "2026-07-17T00:00:01.000Z",
               acceptedRestartId: "restart-progress",
             },
@@ -3438,7 +3513,7 @@ describe("Spark daemon CLI", () => {
             previousProcessStartToken: "test:old",
             targetInstanceId: "new-instance",
             targetGeneration: "new-generation",
-            protocolVersion: 1,
+            protocolVersion: 2,
             requestedAt: "2026-07-15T00:00:00.000Z",
           }),
         );
@@ -3464,7 +3539,7 @@ describe("Spark daemon CLI", () => {
             pid: process.ppid,
             instanceId: "new-instance",
             generation: "new-generation",
-            protocolVersion: 1 as const,
+            protocolVersion: 2 as const,
             startedAt: "2026-07-15T00:00:01.000Z",
             acceptedRestartId: "restart-projection-race",
           },
@@ -3499,7 +3574,7 @@ describe("Spark daemon CLI", () => {
             previousProcessStartToken: "test:old",
             targetInstanceId: "new-instance",
             targetGeneration: "new-generation",
-            protocolVersion: 1,
+            protocolVersion: 2,
             requestedAt: "2026-07-15T00:00:00.000Z",
           }),
         );

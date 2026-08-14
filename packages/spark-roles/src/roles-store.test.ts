@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "vitest";
 
 import {
@@ -14,6 +15,7 @@ import {
   createExtensionRoleSpec,
   createRoleSpec,
   createBuiltinRoles,
+  hydrateDefaultRoleRegistry,
   builtinRoleIds,
   hydrateExtensionRoles,
   listExtensionRoles,
@@ -131,6 +133,29 @@ test("builtin Pi roles expose audited capability profiles", () => {
   validateBuiltinRoleProfiles(roles);
 });
 
+test("repository guardian Roles compose ordered Skills without skill_agent authority", async () => {
+  const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
+  const registry = new RoleRegistry();
+  await hydrateDefaultRoleRegistry(registry, repositoryRoot);
+  const expected = new Map([
+    ["spark-architecture-guardian", ["spark-change-scope", "spark-code-review"]],
+    ["spark-agent-knowledge-curator", ["spark-agent-knowledge"]],
+    [
+      "spark-delivery-verifier",
+      ["spark-change-scope", "spark-code-review", "spark-pre-push-checks"],
+    ],
+  ]);
+
+  for (const [id, skills] of expected) {
+    const role = registry.select(id);
+    assert.deepEqual(role.skills, skills);
+    assert.match(role.description, /^Use when /u);
+    assert.equal(role.allowedTools?.includes("skill_agent"), false);
+    assert.equal(role.allowedTools?.includes("role"), false);
+    assert.equal(role.allowedTools?.includes("workflow"), false);
+  }
+});
+
 test("retired builtin role aliases fail closed after registry v6", () => {
   const registry = new RoleRegistry(createBuiltinRoles());
   assert.throws(() => registry.select("builtin-scout"), /retired builtin role ref/u);
@@ -230,6 +255,28 @@ test("markdown role store still rejects Pi role specs with model frontmatter", a
       () => store.loadAll(),
       /role spec model fields are not supported; use role model settings/,
     );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("default role hydration applies workspace then cwd precedence", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-role-precedence-"));
+  try {
+    const repo = join(dir, "repo");
+    const cwd = join(repo, "nested");
+    await mkdir(join(repo, ".git"), { recursive: true });
+    await mkdir(join(repo, ".agents", "roles"), { recursive: true });
+    await mkdir(join(cwd, ".agents", "roles"), { recursive: true });
+    const markdown = (description: string) =>
+      `---\nid: shared\ndescription: ${description}\ncapabilities:\n  - read\nmodelType: implementation\n---\nUse this role.\n`;
+    await writeFile(join(repo, ".agents", "roles", "shared.md"), markdown("workspace"), "utf8");
+    await writeFile(join(cwd, ".agents", "roles", "shared.md"), markdown("cwd"), "utf8");
+
+    const registry = new RoleRegistry([]);
+    await hydrateDefaultRoleRegistry(registry, cwd, { includeUser: false });
+
+    assert.equal(registry.select("shared").description, "cwd");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

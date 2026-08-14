@@ -38,6 +38,17 @@ Retired Pi and component-specific storage variables no longer influence path res
 
 The native editor supports `@path`, image paths, `!command`, `!!command`, multiline input, steering, follow-ups, abort/restore, model selection, transcript export, and persisted session resume. Terminal-specific chords and binary clipboard images depend on terminal support.
 
+When the daemon publishes an active Repro work projection, the TUI keeps its
+bounded `work.repro` value in process-local presentation state. A compact
+Implementation/Exactness/Formalize summary remains visible above the composer;
+`Ctrl+K` opens the Repro inspector first, `Shift+Ctrl+K` cycles panels, and
+`/inspect repro` opens it directly. Inside the panel, use `1`/`2`/`3` for lanes,
+arrow keys or `j`/`k` for work items, Enter for associated Task/Run/GitChange
+and Evidence projections, and Esc to collapse details or close the panel. The
+TUI never derives lane state from transcript text or local timers. `/reload`
+rebuilds panel focus and selection while the daemon reprojects the same durable
+Session and Repro state.
+
 ## Daemon control
 
 ```sh
@@ -50,4 +61,4 @@ spark daemon invocation cancel <invocation-id> --reason <text> --json
 
 Invocation status and streamed events come from the daemon. Attach and resume are restricted to the current workspace.
 
-Run the component and Direct PTY validation lanes in [`../../docs/operations/native-tui-validation.md`](../../docs/operations/native-tui-validation.md) when changing native TUI interaction or process-terminal behavior.
+Run the component and Direct PTY validation lanes in [`../../.agents/notes/runbooks/native-tui-validation.md`](../../.agents/notes/runbooks/native-tui-validation.md) when changing native TUI interaction or process-terminal behavior.

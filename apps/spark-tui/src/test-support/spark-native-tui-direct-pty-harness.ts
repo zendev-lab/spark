@@ -15,6 +15,7 @@ export interface SparkNativeTuiDirectPtyReport {
   readonly columns?: number;
   readonly rows?: number;
   readonly message?: string;
+  readonly reason?: string;
 }
 
 export interface SparkNativeTuiDirectPtyExit {
@@ -46,7 +47,7 @@ export interface CreateSparkNativeTuiDirectPtyHarnessOptions {
   readonly columns?: number;
   readonly rows?: number;
   readonly terminationTimeoutMs?: number;
-  readonly scenario?: "navigation" | "queue";
+  readonly scenario?: "navigation" | "queue" | "reload" | "repro";
   /** Test seam for proving timeout escalation; the fixture still exits on SIGKILL. */
   readonly ignoreHangup?: boolean;
 }

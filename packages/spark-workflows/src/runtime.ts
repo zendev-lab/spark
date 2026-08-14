@@ -911,6 +911,17 @@ function runTrustedWorkflowScriptInVm<T>(body: string, context: vm.Context): Pro
 }
 
 export function normalizeWorkflowAgentOptions(options: WorkflowAgentOptions): WorkflowAgentOptions {
+  if (options.role !== undefined && options.roleRef !== undefined) {
+    throw new Error("workflow agent accepts role or roleRef, not both");
+  }
+  const role = options.role?.trim();
+  const roleRef = options.roleRef?.trim();
+  if (options.role !== undefined && !role) {
+    throw new Error("workflow agent role selector must be non-empty");
+  }
+  if (options.roleRef !== undefined && !roleRef) {
+    throw new Error("workflow agent roleRef must be non-empty");
+  }
   if (options.isolation !== undefined && options.isolation !== "graft") {
     throw new Error("workflow agent isolation must be 'graft' when provided");
   }
@@ -920,9 +931,18 @@ export function normalizeWorkflowAgentOptions(options: WorkflowAgentOptions): Wo
     if (!evidenceRef.startsWith("evidence:") || evidenceRef.length === "evidence:".length) {
       throw new Error("workflow agent evidenceRef must be an evidence: ref");
     }
-    return { ...options, evidenceRef: evidenceRef as WorkflowAgentOptions["evidenceRef"] };
+    return {
+      ...options,
+      ...(role ? { role } : {}),
+      ...(roleRef ? { roleRef } : {}),
+      evidenceRef: evidenceRef as WorkflowAgentOptions["evidenceRef"],
+    };
   }
-  return options;
+  return {
+    ...options,
+    ...(role ? { role } : {}),
+    ...(roleRef ? { roleRef } : {}),
+  };
 }
 
 export function applyWorkflowStageModel(

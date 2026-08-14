@@ -86,6 +86,8 @@ describe("SparkCommand vocabulary", () => {
       "session.list",
       "session.get",
       "session.snapshot",
+      "session.prompt-history",
+      "session.retry-target",
       "session.create",
       "session.bind",
       "session.unbind",
@@ -109,6 +111,7 @@ describe("SparkCommand vocabulary", () => {
       "side-thread.handoff",
       "model.catalog",
       "model.default.set",
+      "model.enabled.set",
       "provider.auth.api-key.set",
       "provider.auth.import.pi",
       "provider.auth.logout",
@@ -139,6 +142,12 @@ describe("SparkCommand vocabulary", () => {
     expect(sparkCommandKindForRuntimeServerCommand("workspace.relocate.request")).toBeNull();
     expect(sparkCommandKindForLocalRpcMethod("session.create")).toBe("session.create.request");
     expect(sparkCommandKindForLocalRpcMethod("session.snapshot")).toBe("session.snapshot.request");
+    expect(sparkCommandKindForLocalRpcMethod("session.prompt-history")).toBe(
+      "session.snapshot.request",
+    );
+    expect(sparkCommandKindForLocalRpcMethod("session.retry-target")).toBe(
+      "session.snapshot.request",
+    );
     expect(sparkCommandKindForLocalRpcMethod("session.compact")).toBe("session.compact.request");
     expect(sparkCommandKindForRuntimeServerCommand("session.compact.request")).toBeNull();
     expect(sparkCommandKindForLocalRpcMethod("session.model.set")).toBe(
@@ -202,6 +211,7 @@ describe("SparkCommand vocabulary", () => {
       "model.catalog.request",
       "model.connectivity.test.request",
       "model.default.set.request",
+      "model.enabled.set.request",
       "provider.auth.import.pi.request",
       "provider.auth.logout.request",
       "provider.auth.login.start.request",

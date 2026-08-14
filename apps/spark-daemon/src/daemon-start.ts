@@ -53,12 +53,14 @@ import {
   SparkDaemonHumanInteractionBroker,
   legacySparkDaemonQueueRoot,
   type SparkDaemonDrainProgress,
+  type SparkDaemonDrainWork,
   type SparkDaemonHumanInteractionOpened,
   type SparkDaemonHumanInteractionResponder,
   type SparkDaemonTask,
   type SparkInvocationSchedulerOptions,
 } from "./core/index.ts";
 import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
+import { InvocationDeliveryPump } from "./core/invocation-delivery-pump.ts";
 import {
   ensureHumanAnswerEventEvidence,
   reconcileHumanAnswerEventEvidence,
@@ -66,6 +68,10 @@ import {
 } from "./core/human-answer-evidence.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import { SessionSupervisor } from "./session-supervisor.ts";
+import {
+  commitLoopInvocationAdmission,
+  quiesceLoopsForClosingSession,
+} from "./loop-session-lifecycle.ts";
 import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
 import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
 import { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
@@ -374,6 +380,18 @@ async function createPreparedDaemonRuntime(
     ? new SessionSupervisor({
         registry: options.sessionRegistry,
         invocations: invocationStore,
+        quiesceOwnedLoops: (session, reason) => {
+          const quiesced = quiesceLoopsForClosingSession(
+            loopStore,
+            invocationStore,
+            session,
+            reason,
+          );
+          for (const loop of quiesced.stoppedLoops) {
+            emitLoopUpdate({ invocationStore, eventHub }, loop, loop.lastInvocationId);
+          }
+          return quiesced;
+        },
         resolveWorkspaceBindingId: (workspaceId) =>
           resolveWorkspaceBindingId(options.db, workspaceId),
         ownerExists: async (owner, session) => {
@@ -547,12 +565,16 @@ function createRestartDrainController(input: {
     const progress: SparkDaemonDrainProgress = {
       observedAt: new Date().toISOString(),
       stage: drainStage,
-      scheduler: (scheduler?.snapshot() ?? []).map((invocation) => ({
-        invocationId: invocation.invocationId,
-        kind: invocation.sourceKind ?? "scheduled",
-        startedAt: invocation.startedAt ?? invocation.claimedAt ?? invocation.createdAt,
-        ...(invocation.sessionId ? { sessionId: invocation.sessionId } : {}),
-      })),
+      scheduler: (scheduler?.drainSnapshot() ?? []).map(({ invocation, pauseState }) => {
+        const work: SparkDaemonDrainWork = {
+          invocationId: invocation.invocationId,
+          kind: invocation.sourceKind ?? "scheduled",
+          startedAt: invocation.startedAt ?? invocation.claimedAt ?? invocation.createdAt,
+          ...(invocation.sessionId ? { sessionId: invocation.sessionId } : {}),
+          pauseState,
+        };
+        return work;
+      }),
       direct: invocationRegistry.snapshot().map((invocation) => ({
         invocationId: invocation.invocationId,
         kind: invocation.kind,
@@ -875,14 +897,14 @@ async function resolveReproFormalStepState(cwd: string, ownerSessionId: string) 
   const graph = await defaultTaskGraphStore(cwd).load();
   return {
     reproId: repro.reproId,
-    dualLane: {
-      planRevision: repro.dualLane.planRevision,
-      normative: {
-        orderedStepIds: [...repro.dualLane.normative.orderedStepIds],
-        ...(repro.dualLane.normative.currentStepId
-          ? { currentStepId: repro.dualLane.normative.currentStepId }
+    threeLane: {
+      planRevision: repro.threeLane.planRevision,
+      formalize: {
+        orderedStepIds: [...repro.threeLane.formalize.orderedStepIds],
+        ...(repro.threeLane.formalize.currentStepId
+          ? { currentStepId: repro.threeLane.formalize.currentStepId }
           : {}),
-        retiredStepIds: [...repro.dualLane.normative.retiredStepIds],
+        retiredStepIds: [...repro.threeLane.formalize.retiredStepIds],
       },
     },
     subgoals: repro.subgoals.map((subgoal) => ({
@@ -1278,7 +1300,15 @@ function completeScheduledInvocation(
 async function materializeLoopDue(
   runtime: PreparedDaemonRuntime,
 ): Promise<SparkLoopRecord | undefined> {
-  const advanced = await runtime.loopStore.materializeDue(undefined, runtime.runtimeSignal);
+  const sessionRegistry = runtime.options.sessionRegistry;
+  const advanced = await runtime.loopStore.materializeDue(
+    undefined,
+    runtime.runtimeSignal,
+    sessionRegistry
+      ? async (ownerSessionId, admit) =>
+          await commitLoopInvocationAdmission(sessionRegistry, ownerSessionId, admit)
+      : undefined,
+  );
   if (!advanced) return undefined;
   emitLoopUpdate(
     {
@@ -1649,7 +1679,13 @@ function prepareChannelIngress(
               ? { messageMetadata: { memoryDirectIntent: assignment.memoryDirectIntent } }
               : {}),
           };
-          submitChannelInboundInvocation(invocationStore, assignment, task);
+          if (options.sessionRegistry) {
+            await options.sessionRegistry.commitInvocationAdmission(assignment.sessionId, () =>
+              submitChannelInboundInvocation(invocationStore, assignment, task),
+            );
+          } else {
+            submitChannelInboundInvocation(invocationStore, assignment, task);
+          }
         },
       },
     })
@@ -1887,11 +1923,14 @@ async function runSparkDaemonServerConnection(
     let intentionalClose = false;
     let settled = false;
     let unregisterInvocationEventTarget: (() => void) | undefined;
+    let invocationDeliveryPump:
+      | InvocationDeliveryPump<NonNullable<ReturnType<typeof runtimeEnvelopeForInvocationEvent>>>
+      | undefined;
+    let invocationProjectionDropReporter:
+      | ReturnType<typeof createRepeatedErrorReporter>
+      | undefined;
     let unregisterHumanRequestOutboxTarget: (() => void) | undefined;
     let runtimeReady = false;
-    let inFlightInvocationEvent:
-      | { messageId: string; invocationId: string; sequence: number }
-      | undefined;
     let artifactReconcileRun: Promise<void> | undefined;
     const invocationStore = new SparkInvocationStore(options.db);
     const artifactReconciler = new ArtifactProjectionReconciler();
@@ -1899,6 +1938,42 @@ async function runSparkDaemonServerConnection(
     const currentWorkspaceBindingIds = () =>
       serverUrl ? listWorkspaceBindingIdsForServer(options.db, serverUrl) : [];
     const activeHandlers = new Set<Promise<void>>();
+    const pendingClosedContentRepairIds = new Set<string>();
+    let closedContentRepairWorker: Promise<void> | undefined;
+    const startClosedContentRepairWorker = () => {
+      const supervisor = options.sessionSupervisor;
+      if (closedContentRepairWorker || !supervisor || pendingClosedContentRepairIds.size === 0) {
+        return;
+      }
+      const worker = (async () => {
+        while (pendingClosedContentRepairIds.size > 0) {
+          const invocationId = pendingClosedContentRepairIds.values().next().value;
+          if (invocationId === undefined) return;
+          pendingClosedContentRepairIds.delete(invocationId);
+          try {
+            await supervisor.repairClosedContentForInvocation(invocationId);
+          } catch (error) {
+            logDaemonError(runtimeId, error);
+          }
+        }
+      })().finally(() => {
+        activeHandlers.delete(worker);
+        closedContentRepairWorker = undefined;
+        startClosedContentRepairWorker();
+      });
+      closedContentRepairWorker = worker;
+      activeHandlers.add(worker);
+    };
+    const queueClosedContentRepair = (invocationId: string) => {
+      if (!options.sessionSupervisor) return;
+      pendingClosedContentRepairIds.add(invocationId);
+      startClosedContentRepairWorker();
+    };
+    const queueRetentionRepairAfterDelivery = (invocationId: string, sequence: number) => {
+      if (invocationStore.terminalDeliveryMayUnblockRetention(invocationId, sequence)) {
+        queueClosedContentRepair(invocationId);
+      }
+    };
     const scheduleTokenRefresh = (delayMs = nextSparkDaemonTokenRefreshDelayMs(config)) => {
       if (options.signal?.aborted || delayMs === undefined) {
         return;
@@ -1927,6 +2002,10 @@ async function runSparkDaemonServerConnection(
     const detachInvocationEventTarget = () => {
       unregisterInvocationEventTarget?.();
       unregisterInvocationEventTarget = undefined;
+      invocationDeliveryPump?.close();
+      invocationDeliveryPump = undefined;
+      invocationProjectionDropReporter?.flush();
+      invocationProjectionDropReporter = undefined;
     };
 
     const detachHumanRequestOutboxTarget = () => {
@@ -1983,6 +2062,7 @@ async function runSparkDaemonServerConnection(
     const requestShutdown = () => {
       intentionalClose = true;
       clearRuntimeTimers();
+      detachInvocationEventTarget();
       void drainActiveHandlers()
         .catch((error: unknown) => {
           logDaemonError(runtimeId, error);
@@ -1998,6 +2078,14 @@ async function runSparkDaemonServerConnection(
     const ws = new WebSocket(webSocketUrl, {
       headers: { Authorization: `Bearer ${runtimeToken}` },
     });
+    const failInvocationDelivery = (error: unknown) => {
+      if (settled) return;
+      logDaemonError(runtimeId, error);
+      clearRuntimeTimers();
+      markDisconnected("invocation.delivery.failed");
+      settle(error);
+      ws.terminate();
+    };
     const flushArtifactProjections = async () => {
       if (!runtimeReady || ws.readyState !== WebSocket.OPEN || !serverUrl) return;
       const workspaces = listWorkspacesForServer(options.db, serverUrl);
@@ -2042,38 +2130,6 @@ async function runSparkDaemonServerConnection(
       artifactReconcileRun = run;
       activeHandlers.add(run);
     };
-    const flushNextInvocationEvent = () => {
-      if (!runtimeReady || inFlightInvocationEvent || ws.readyState !== WebSocket.OPEN) {
-        return;
-      }
-      const pending = invocationStore.pendingDeliveries(
-        deliveryDestination,
-        1,
-        currentWorkspaceBindingIds(),
-      )[0];
-      if (!pending) return;
-      const projected = runtimeEnvelopeForInvocationEvent(pending, {
-        store: invocationStore,
-        db: options.db,
-        runtimeId,
-        serverUrl,
-      });
-      if (!projected) {
-        invocationStore.acknowledgeDelivery(
-          deliveryDestination,
-          pending.event.invocationId,
-          pending.event.sequence,
-        );
-        queueMicrotask(flushNextInvocationEvent);
-        return;
-      }
-      inFlightInvocationEvent = {
-        messageId: projected.messageId,
-        invocationId: pending.event.invocationId,
-        sequence: pending.event.sequence,
-      };
-      sendJson(ws, projected);
-    };
     if (options.signal?.aborted) {
       requestShutdown();
       return;
@@ -2081,26 +2137,60 @@ async function runSparkDaemonServerConnection(
     options.signal?.addEventListener("abort", requestShutdown, { once: true });
 
     ws.on("open", () => {
-      if (serverUrl) {
-        markSparkDaemonServerConnected(options.db, serverUrl);
+      try {
+        if (serverUrl) {
+          markSparkDaemonServerConnected(options.db, serverUrl);
+        }
+        invocationProjectionDropReporter = createRepeatedErrorReporter(
+          "[spark-daemon] dropping unroutable invocation events",
+        );
+        invocationDeliveryPump = new InvocationDeliveryPump({
+          workspaceBindingIds: currentWorkspaceBindingIds(),
+          loadPage: (workspaceBindingIds, limit) =>
+            invocationStore.pendingDeliveryPage(deliveryDestination, limit, workspaceBindingIds),
+          acknowledge: (event) => {
+            invocationStore.acknowledgeKnownDelivery(deliveryDestination, event);
+            queueRetentionRepairAfterDelivery(event.invocationId, event.sequence);
+          },
+          project(delivery) {
+            const projected = runtimeEnvelopeForInvocationEvent(delivery, {
+              store: invocationStore,
+              db: options.db,
+              runtimeId,
+              serverUrl,
+            });
+            if (projected) invocationProjectionDropReporter?.recovered();
+            return projected;
+          },
+          send: (envelope) => sendJson(ws, envelope),
+          bindingForInvocation: (invocationId) =>
+            invocationStore.invocationDeliveryBinding(invocationId),
+          onProjectionDropped: () =>
+            invocationProjectionDropReporter?.report(
+              new Error("no workspace route was available for a persisted invocation event"),
+            ),
+          onFatal: failInvocationDelivery,
+        });
+        unregisterInvocationEventTarget = options.registerInvocationEventTarget?.((event) =>
+          invocationDeliveryPump?.offer(event),
+        );
+        sendJson(ws, {
+          protocolVersion: runtimeProtocolVersion,
+          messageId: createId("msg"),
+          type: "runtime.hello",
+          sentAt: new Date().toISOString(),
+          payload: {
+            runtimeId,
+            runtimeVersion: sparkDaemonVersion,
+            supportedFeatures: sparkDaemonSupportedFeatures,
+            workspaceBindings: serverUrl
+              ? reconcileWorkspacesForServer(options.db, serverUrl).map(workspaceSummary)
+              : [],
+          },
+        });
+      } catch (error) {
+        failInvocationDelivery(error);
       }
-      unregisterInvocationEventTarget = options.registerInvocationEventTarget?.(() =>
-        flushNextInvocationEvent(),
-      );
-      sendJson(ws, {
-        protocolVersion: runtimeProtocolVersion,
-        messageId: createId("msg"),
-        type: "runtime.hello",
-        sentAt: new Date().toISOString(),
-        payload: {
-          runtimeId,
-          runtimeVersion: sparkDaemonVersion,
-          supportedFeatures: sparkDaemonSupportedFeatures,
-          workspaceBindings: serverUrl
-            ? reconcileWorkspacesForServer(options.db, serverUrl).map(workspaceSummary)
-            : [],
-        },
-      });
     });
 
     ws.on("message", (data: RawData) => {
@@ -2126,7 +2216,7 @@ async function runSparkDaemonServerConnection(
         onRuntimeReady() {
           runtimeReady = true;
           flushPendingRuntimeCommandTerminals(ws, options.db, runtimeId, serverUrl);
-          flushNextInvocationEvent();
+          invocationDeliveryPump?.ready();
           queueArtifactReconcile();
           artifactReconcileTimer ??= setInterval(
             queueArtifactReconcile,
@@ -2135,15 +2225,11 @@ async function runSparkDaemonServerConnection(
         },
         onIngestAck(ackOf) {
           artifactReconciler.acknowledge(ackOf);
-          const inFlight = inFlightInvocationEvent;
-          if (inFlight?.messageId !== ackOf) return;
-          invocationStore.acknowledgeDelivery(
-            deliveryDestination,
-            inFlight.invocationId,
-            inFlight.sequence,
-          );
-          inFlightInvocationEvent = undefined;
-          flushNextInvocationEvent();
+          invocationDeliveryPump?.acknowledge(ackOf);
+        },
+        onWorkspaceBindingsChanged() {
+          invocationDeliveryPump?.refreshWorkspaceBindingIds(currentWorkspaceBindingIds());
+          invocationDeliveryPump?.requestCatchup();
         },
         get runtimeSessionId() {
           return runtimeSession.id;

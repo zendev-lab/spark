@@ -1638,6 +1638,7 @@ export function normalizeTaskRun(run: TaskRun): TaskRun {
   }
   return {
     ...run,
+    updatedAt: run.updatedAt ?? run.finishedAt ?? run.startedAt,
     roleRef: normalizeRoleRef(run.roleRef),
     runName: run.runName?.trim() || undefined,
     execution,

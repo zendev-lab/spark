@@ -11,6 +11,9 @@ import { isTaskStatus } from "@zendev-lab/spark-core";
 import {
   createId,
   SPARK_PROTOCOL_VERSION,
+  SPARK_SESSION_PROMPT_HISTORY_MAX,
+  type SparkMessageView,
+  type SparkSessionPromptHistoryEntry,
   type SparkSessionProjection,
   type SparkSessionView,
   type SparkTaskView,
@@ -24,6 +27,7 @@ import {
   clientCancelTurn,
   clientCreateManagedSession,
   clientGetManagedSession,
+  clientGetManagedSessionPromptHistory,
   clientGetManagedSessionSnapshot,
   clientListDaemonWorkspaces,
   clientListManagedSessions,
@@ -32,6 +36,7 @@ import {
   clientTurnStatus,
   createSparkDaemonNativeCommands,
   createSparkDaemonNativeResponder,
+  formatSparkDaemonTransportRetry,
   requestSparkDaemonControl,
   ensureSparkDaemonWorkspaceSession,
   handleSparkDaemonHumanInteractionRequest,
@@ -46,7 +51,9 @@ import {
   createSparkNativeSideThreadSlashCommands,
   createSparkNativeUiTransport,
   runNativeSparkTui,
+  type RunNativeSparkTuiOptions,
   type SparkNativeSlashCommandMap,
+  type SparkNativeTuiExitReason,
   type SparkNativeTuiApp,
   type SparkNativeWorkspaceSessionState,
 } from "./native-tui.ts";
@@ -88,44 +95,25 @@ import {
   type SparkSessionSelectorWorkspace,
 } from "./tui/session-selector.ts";
 import { renderSparkFirstRunOnboarding } from "./cli/onboarding.ts";
+import {
+  SPARK_TUI_RELOAD_EXIT_CODE,
+  type SparkTuiReloadHandoff,
+} from "./cli/process-supervisor.ts";
+import {
+  parseSparkCliArgs as parseSparkCliArgsShared,
+  parseSparkCliCommand as parseSparkCliCommandShared,
+  type SparkCliArgs,
+  type SparkCliCommand,
+  type SparkCliRuntimeOptions,
+} from "./cli/args.ts";
+
+export {
+  type SparkCliArgs,
+  type SparkCliCommand,
+  type SparkCliRuntimeOptions,
+} from "./cli/args.ts";
 
 const tuiCliStrings = sparkTuiCliStrings();
-
-export interface SparkCliArgs {
-  initialMessage?: string;
-  help: boolean;
-}
-
-export interface SparkCliRuntimeOptions {
-  provider?: string;
-  model?: string;
-  session?: string;
-  sessionId?: string;
-  sessionDir?: string;
-  sparkSessionKey?: string;
-  wait?: boolean;
-  name?: string;
-  extensions?: string[];
-  noExtensions?: boolean;
-  skills?: string[];
-  noSkills?: boolean;
-  promptTemplates?: string[];
-  noPromptTemplates?: boolean;
-  themes?: string[];
-  noThemes?: boolean;
-  noContextFiles?: boolean;
-  thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
-  tools?: string[];
-  excludeTools?: string[];
-  projectTrustOverride?: boolean;
-  fileArgs?: string[];
-}
-
-export type SparkCliCommand =
-  | { kind: "help" }
-  | { kind: "run"; prompt: string; json: boolean; options?: SparkCliRuntimeOptions }
-  | { kind: "tui"; initialMessage?: string; options?: SparkCliRuntimeOptions }
-  | { kind: "error"; message: string };
 
 export interface SparkCliTerminalState {
   stdinIsTTY?: boolean;
@@ -135,7 +123,7 @@ export interface SparkCliTerminalState {
 export interface RunSparkCliOptions {
   daemonClient?: SparkDaemonClientOptions;
   attachSessionClient?: typeof attachSparkWorkspaceSessionClient;
-  runTui?: typeof runNativeSparkTui;
+  runTui?: (input?: string | RunNativeSparkTuiOptions) => Promise<SparkNativeTuiExitReason | void>;
   selectSession?: (
     options: SparkSessionSelectorOptions,
   ) => Promise<SparkSessionSelectorSelection | null>;
@@ -146,6 +134,7 @@ export interface RunSparkCliOptions {
   /** Test/embedding override; production uses process.cwd() as a non-mutating selector suggestion. */
   launchCwd?: string;
   terminal?: SparkCliTerminalState;
+  onReload?: (handoff: SparkTuiReloadHandoff) => void | Promise<void>;
 }
 
 export interface SparkSessionCwdSelection {
@@ -165,213 +154,11 @@ type SparkCliHostServicesFactory = (
 ) => Promise<SparkCliHostServices>;
 
 export function parseSparkCliArgs(argv: string[]): SparkCliArgs {
-  if (argv.some((arg) => arg === "-h" || arg === "--help")) return { help: true };
-  const initialMessage = argv.join(" ").trim();
-  return { help: false, initialMessage: initialMessage || undefined };
+  return parseSparkCliArgsShared(argv);
 }
 
 export function parseSparkCliCommand(argv: string[]): SparkCliCommand {
-  if (argv.length === 0) return { kind: "tui" };
-  if (argv[0] === "daemon") {
-    return {
-      kind: "error",
-      message: '"daemon" is not a spark-tui command. Use "spark daemon ..." instead.',
-    };
-  }
-  if (argv.some((arg) => arg === "-h" || arg === "--help") && argv[0] !== "server") {
-    return { kind: "help" };
-  }
-  if (argv[0] === "server") {
-    return {
-      kind: "error",
-      message: '"server" is not a spark-tui command. Use "spark hub" instead.',
-    };
-  }
-  if (argv[0] === "sessions" || argv[0] === "session") {
-    return {
-      kind: "error",
-      message: `Legacy "${argv[0]}" was removed. Use "spark daemon session ..." instead.`,
-    };
-  }
-  if (
-    argv[0] === "install" ||
-    argv[0] === "remove" ||
-    argv[0] === "uninstall" ||
-    argv[0] === "update" ||
-    argv[0] === "list" ||
-    argv[0] === "config"
-  ) {
-    return {
-      kind: "error",
-      message: `Legacy "${argv[0]}" resource command was removed from spark-tui.`,
-    };
-  }
-  if (
-    argv.some(
-      (arg) => arg === "--print" || arg === "-p" || arg === "--mode" || arg === "--list-models",
-    )
-  ) {
-    return {
-      kind: "error",
-      message:
-        'Legacy Pi-style flags were removed. Use "spark run", "spark acp", or "spark daemon model list".',
-    };
-  }
-  if (argv[0] === "run") return parseSparkRunCliCommand(argv.slice(1));
-
-  const parsed = parseSparkNativeOptions(argv);
-  const options = compactRuntimeOptions(parsed.options);
-  const initialMessage = parsed.messages.join(" ").trim();
-  return {
-    kind: "tui",
-    ...(initialMessage ? { initialMessage } : {}),
-    ...(options ? { options } : {}),
-  };
-}
-
-interface ParsedSparkNativeOptions {
-  messages: string[];
-  options: SparkCliRuntimeOptions;
-}
-
-function parseSparkRunCliCommand(argv: string[]): SparkCliCommand {
-  const mapped: string[] = [];
-  let json = false;
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]!;
-    if (arg === "--json") {
-      json = true;
-      continue;
-    }
-    if (arg === "--resume") {
-      const session = readRequired(argv, ++index, arg);
-      mapped.push("--session", session);
-      continue;
-    }
-    if (arg.startsWith("--resume=")) {
-      const session = arg.slice("--resume=".length);
-      if (!session) throw new Error("--resume requires a value");
-      mapped.push("--session", session);
-      continue;
-    }
-    mapped.push(arg);
-  }
-  const parsed = parseSparkNativeOptions(mapped);
-  const prompt = parsed.messages.join(" ").trim();
-  if (!prompt) throw new Error("spark run requires a prompt");
-  const options = compactRuntimeOptions(parsed.options);
-  return {
-    kind: "run",
-    prompt,
-    json,
-    ...(options ? { options } : {}),
-  };
-}
-
-function parseSparkNativeOptions(argv: string[]): ParsedSparkNativeOptions {
-  const messages: string[] = [];
-  const options: SparkCliRuntimeOptions = {};
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]!;
-    switch (arg) {
-      case "--provider":
-        options.provider = readRequired(argv, ++index, arg);
-        break;
-      case "--model":
-        options.model = readRequired(argv, ++index, arg);
-        break;
-      case "--session":
-        options.session = readRequired(argv, ++index, arg);
-        break;
-      case "--session-id":
-        options.sessionId = readRequired(argv, ++index, arg);
-        break;
-      case "--session-dir":
-        options.sessionDir = readRequired(argv, ++index, arg);
-        break;
-      case "--spark-session-key":
-        options.sparkSessionKey = readRequired(argv, ++index, arg);
-        break;
-      case "--wait":
-      case "-w":
-        options.wait = true;
-        break;
-      case "--name":
-      case "-n":
-        options.name = readRequired(argv, ++index, arg);
-        break;
-      case "--extension":
-      case "-e":
-        (options.extensions ??= []).push(readRequired(argv, ++index, arg));
-        break;
-      case "--no-extensions":
-      case "-ne":
-        options.noExtensions = true;
-        break;
-      case "--skill":
-        (options.skills ??= []).push(readRequired(argv, ++index, arg));
-        break;
-      case "--no-skills":
-      case "-ns":
-        options.noSkills = true;
-        break;
-      case "--prompt-template":
-        (options.promptTemplates ??= []).push(readRequired(argv, ++index, arg));
-        break;
-      case "--no-prompt-templates":
-      case "-np":
-        options.noPromptTemplates = true;
-        break;
-      case "--theme":
-        (options.themes ??= []).push(readRequired(argv, ++index, arg));
-        break;
-      case "--no-themes":
-        options.noThemes = true;
-        break;
-      case "--no-context-files":
-      case "-nc":
-        options.noContextFiles = true;
-        break;
-      case "--thinking":
-        options.thinking = readThinkingLevel(argv[++index]);
-        break;
-      case "--tools":
-      case "-t":
-        options.tools = splitCsv(readRequired(argv, ++index, arg));
-        break;
-      case "--exclude-tools":
-      case "-xt":
-        options.excludeTools = splitCsv(readRequired(argv, ++index, arg));
-        break;
-      case "--approve":
-      case "-a":
-        options.projectTrustOverride = true;
-        break;
-      case "--no-approve":
-      case "-na":
-        options.projectTrustOverride = false;
-        break;
-      default:
-        if (arg.startsWith("@")) {
-          (options.fileArgs ??= []).push(arg.slice(1));
-        } else if (arg.startsWith("-")) {
-          throw new Error(`Unknown spark option: ${arg}`);
-        } else {
-          messages.push(arg);
-        }
-    }
-  }
-  return { messages, options };
-}
-
-function compactRuntimeOptions(
-  options: SparkCliRuntimeOptions,
-): SparkCliRuntimeOptions | undefined {
-  return Object.values(options).some((value) =>
-    Array.isArray(value) ? value.length > 0 : value !== undefined,
-  )
-    ? options
-    : undefined;
+  return parseSparkCliCommandShared(argv);
 }
 
 interface SparkCliSessionAttachResolution {
@@ -525,11 +312,16 @@ function workspaceOptionsForLaunchCwd(
   resolvedWorkspaceId?: string,
 ): { workspaces: SparkSessionSelectorWorkspace[]; suggestedWorkspaceId: string } {
   if (resolvedWorkspaceId) {
-    return {
-      workspaces: registeredWorkspaces,
-      suggestedWorkspaceId: requireSelectorWorkspace(registeredWorkspaces, resolvedWorkspaceId)
-        .canonicalId,
-    };
+    const resolvedWorkspace = registeredWorkspaces.find(
+      (workspace) =>
+        workspace.id === resolvedWorkspaceId || workspace.canonicalId === resolvedWorkspaceId,
+    );
+    if (resolvedWorkspace) {
+      return {
+        workspaces: registeredWorkspaces,
+        suggestedWorkspaceId: resolvedWorkspace.canonicalId,
+      };
+    }
   }
   const canonicalWorkspaces = uniqueSelectorWorkspaces(registeredWorkspaces);
   const resolvedLaunchCwd = safeRealpath(launchCwd) ?? launchCwd;
@@ -631,6 +423,22 @@ async function managedSessionSnapshotIfAvailable(
     return await clientGetManagedSessionSnapshot(sessionId, daemonClient);
   } catch {
     return undefined;
+  }
+}
+
+async function loadManagedSessionPromptHistory(
+  sessionId: string,
+  daemonClient: SparkDaemonClientOptions,
+): Promise<SparkSessionPromptHistoryEntry[]> {
+  try {
+    const history = await clientGetManagedSessionPromptHistory(
+      sessionId,
+      daemonClient,
+      SPARK_SESSION_PROMPT_HISTORY_MAX,
+    );
+    return history.prompts;
+  } catch {
+    return [];
   }
 }
 
@@ -852,6 +660,42 @@ function runtimeOptionsForSparkSession(
     ...runtimeOptionsWithoutSparkSessionTarget(options),
     sessionId,
   };
+}
+
+export function sparkTuiReloadArgv(
+  options: SparkCliRuntimeOptions | undefined,
+  sessionId: string,
+): string[] {
+  const argv: string[] = [];
+  const value = (flag: string, entry: string | undefined) => {
+    if (entry !== undefined) argv.push(flag, entry);
+  };
+  const repeated = (flag: string, entries: readonly string[] | undefined) => {
+    for (const entry of entries ?? []) argv.push(flag, entry);
+  };
+
+  value("--provider", options?.provider);
+  value("--model", options?.model);
+  value("--session-dir", options?.sessionDir);
+  value("--name", options?.name);
+  repeated("--extension", options?.extensions);
+  if (options?.noExtensions) argv.push("--no-extensions");
+  repeated("--skill", options?.skills);
+  if (options?.noSkills) argv.push("--no-skills");
+  repeated("--prompt-template", options?.promptTemplates);
+  if (options?.noPromptTemplates) argv.push("--no-prompt-templates");
+  repeated("--theme", options?.themes);
+  if (options?.noThemes) argv.push("--no-themes");
+  if (options?.noContextFiles) argv.push("--no-context-files");
+  value("--thinking", options?.thinking);
+  if (options?.tools?.length) argv.push("--tools", options.tools.join(","));
+  if (options?.excludeTools?.length) {
+    argv.push("--exclude-tools", options.excludeTools.join(","));
+  }
+  if (options?.projectTrustOverride === true) argv.push("--approve");
+  if (options?.projectTrustOverride === false) argv.push("--no-approve");
+  argv.push("--session-id", sessionId);
+  return argv;
 }
 
 function safeRealpath(path: string): string | undefined {
@@ -1127,35 +971,6 @@ function stringField(record: Record<string, unknown> | undefined, key: string): 
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-function readRequired(argv: string[], index: number, flag: string): string {
-  const value = argv[index];
-  if (!value) throw new Error(`${flag} requires a value`);
-  return value;
-}
-
-function readThinkingLevel(
-  value: string | undefined,
-): NonNullable<SparkCliRuntimeOptions["thinking"]> {
-  if (
-    value === "off" ||
-    value === "minimal" ||
-    value === "low" ||
-    value === "medium" ||
-    value === "high" ||
-    value === "xhigh"
-  ) {
-    return value;
-  }
-  throw new Error("--thinking must be off, minimal, low, medium, high, or xhigh");
-}
-
-function splitCsv(value: string): string[] {
-  return value
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-}
-
 export async function runSparkCli(
   argv: string[] = process.argv.slice(2),
   options: RunSparkCliOptions = {},
@@ -1274,6 +1089,13 @@ export async function runSparkCli(
           initialMessage,
           hasLaunchedTui,
         });
+        if (result.reloadHandoff) {
+          if (!options.onReload) {
+            throw new Error("Spark TUI reload requires the process supervisor.");
+          }
+          await options.onReload(result.reloadHandoff);
+          return SPARK_TUI_RELOAD_EXIT_CODE;
+        }
         if (result.cancelled) {
           selectionOptions = currentSessionOptions;
           continue;
@@ -1293,12 +1115,13 @@ export async function runSparkCli(
 }
 
 type SparkCliTuiSelectionResult =
-  | { cancelled: true }
+  | { cancelled: true; reloadHandoff?: undefined }
   | {
       cancelled?: false;
       sessionId: string;
       sessionSelectorRequested: boolean;
       newSessionId?: string;
+      reloadHandoff?: SparkTuiReloadHandoff;
     };
 
 async function runSparkCliTuiSelection(input: {
@@ -1403,6 +1226,40 @@ async function runSparkCliTuiSelection(input: {
     const sessionCwd = selectedManagedSession.cwd ?? lease.workspace.localPath;
     const createHostServices = options.createHostServices ?? createDefaultSparkCliHostServices;
     let pendingNativeUiTransport: ReturnType<typeof createSparkNativeUiTransport> | undefined;
+    let activeNativeTuiApp: SparkNativeTuiApp | undefined;
+    const setTransportRetryStatus = (text: string | undefined) => {
+      const app = activeNativeTuiApp;
+      if (app) {
+        app.setStatus("spark-transport-retry", text);
+        return;
+      }
+      pendingNativeUiTransport?.setStatus?.("spark-transport-retry", text);
+    };
+    const tuiDaemonClient: SparkDaemonClientOptions = {
+      ...daemonClient,
+      onTurnTransportRetry: (event) => {
+        try {
+          daemonClient.onTurnTransportRetry?.(event);
+        } catch (error) {
+          pendingNativeUiTransport?.notify?.(
+            `transport retry observer failed: ${error instanceof Error ? error.message : String(error)}`,
+            "warning",
+          );
+        }
+        setTransportRetryStatus(formatSparkDaemonTransportRetry(event));
+      },
+      onTurnTransportReady: () => {
+        try {
+          daemonClient.onTurnTransportReady?.();
+        } catch (error) {
+          pendingNativeUiTransport?.notify?.(
+            `transport ready observer failed: ${error instanceof Error ? error.message : String(error)}`,
+            "warning",
+          );
+        }
+        setTransportRetryStatus(undefined);
+      },
+    };
     const services = await createHostServices({
       ...(await hostServiceOptionsFromRuntime(command.options)),
       cwd: sessionCwd,
@@ -1418,7 +1275,7 @@ async function runSparkCliTuiSelection(input: {
           : undefined,
     });
     if (selection.create) {
-      const defaults = createSparkDaemonModelAuthClient(daemonClient, {
+      const defaults = createSparkDaemonModelAuthClient(tuiDaemonClient, {
         sessionId: selectedManagedSession.sessionId,
       });
       const model = services.modelSelector.getActive();
@@ -1451,7 +1308,7 @@ async function runSparkCliTuiSelection(input: {
       lease.workspace.id,
     );
     const loadSnapshot = async () =>
-      await managedSessionSnapshotIfAvailable(currentSessionId, daemonClient);
+      await managedSessionSnapshotIfAvailable(currentSessionId, tuiDaemonClient);
     services.runtime.setSessionContext({
       sessionId: currentSessionIdentity,
       cwd: sessionCwd,
@@ -1462,7 +1319,7 @@ async function runSparkCliTuiSelection(input: {
       store: services.sessionStore,
       getNavigationState: () => undefined,
       listTextProvider: () =>
-        daemonSparkSessionListText(services, daemonClient, {
+        daemonSparkSessionListText(services, tuiDaemonClient, {
           workspaceId: lease.workspace.id,
           workspaceLabel: `${lease.workspace.displayName} • ${services.cwd}`,
         }),
@@ -1480,7 +1337,7 @@ async function runSparkCliTuiSelection(input: {
       modelRefToSelection(selectedManagedSession.model) ?? services.modelSelector.getActive();
     let sessionStatusThinkingLevel =
       selectedManagedSession.thinkingLevel ?? services.config.activeThinkingLevel;
-    const daemonModelControl = createSparkDaemonModelAuthClient(daemonClient, {
+    const daemonModelControl = createSparkDaemonModelAuthClient(tuiDaemonClient, {
       sessionId: currentSessionId,
       ensureSession: ensureCurrentSession,
     });
@@ -1511,7 +1368,7 @@ async function runSparkCliTuiSelection(input: {
     let newSessionId: string | undefined;
     const runTui = options.runTui ?? runNativeSparkTui;
     const attachSessionClient = options.attachSessionClient ?? attachSparkWorkspaceSessionClient;
-    const sessionHeartbeat = await attachSessionClient(daemonClient, {
+    const sessionHeartbeat = await attachSessionClient(tuiDaemonClient, {
       workspaceId: sessionWorkspaceId,
       sessionId: currentSessionIdentity,
     });
@@ -1525,10 +1382,11 @@ async function runSparkCliTuiSelection(input: {
         sessionId: current.sessionId,
       };
     });
+    let tuiExitReason: SparkNativeTuiExitReason | void;
     try {
-      await runTui({
+      tuiExitReason = await runTui({
         initialMessage: input.initialMessage,
-        responder: createSparkDaemonNativeResponder(daemonClient, {
+        responder: createSparkDaemonNativeResponder(tuiDaemonClient, {
           sessionId: currentSessionId,
           identitySessionId: currentSessionIdentity,
           workspaceId: sessionWorkspaceId,
@@ -1540,24 +1398,28 @@ async function runSparkCliTuiSelection(input: {
           },
           onInteractionRequest: async (request, event, interactionContext) => {
             const interaction = pendingNativeUiTransport?.interaction;
-            if (!interaction) {
+            const app = activeNativeTuiApp;
+            if (!interaction || !app) {
               throw new Error("Spark TUI interaction surface is not ready for this request.");
             }
-            await handleSparkDaemonHumanInteractionRequest(request, event, {
-              currentSessionId,
-              client: daemonClient,
-              ...(interactionContext.signal ? { signal: interactionContext.signal } : {}),
-              interaction,
-              notify: (message, level) => pendingNativeUiTransport?.notify?.(message, level),
+            await app.withReloadBlocked(async () => {
+              await handleSparkDaemonHumanInteractionRequest(request, event, {
+                currentSessionId,
+                client: tuiDaemonClient,
+                ...(interactionContext.signal ? { signal: interactionContext.signal } : {}),
+                interaction,
+                notify: (message, level) => pendingNativeUiTransport?.notify?.(message, level),
+              });
             });
           },
         }),
         workspaceSession: workspaceSession.state,
         slashCommands: createSparkNativeSlashCommands(
           services,
-          daemonClient,
+          tuiDaemonClient,
           modelControl,
           currentSessionId,
+          sessionWorkspaceId,
           ensureCurrentSession,
           () => {
             sessionSelectorRequested = true;
@@ -1573,7 +1435,7 @@ async function runSparkCliTuiSelection(input: {
                   ? { cwdArtifactRef: selectedManagedSession.cwdArtifactRef }
                   : {}),
               },
-              daemonClient,
+              tuiDaemonClient,
             );
             newSessionId = session.sessionId;
           },
@@ -1601,11 +1463,23 @@ async function runSparkCliTuiSelection(input: {
             .map(({ customType, renderer }) => [customType, renderer]),
         ),
         configureApp: async (app, session) => {
+          activeNativeTuiApp = app;
           pendingNativeUiTransport = createSparkNativeUiTransport(app, session);
           services.runtime.setUiTransport(pendingNativeUiTransport);
           app.setWorkspaceSession(workspaceSession.state);
-          void loadSnapshot().then((snapshot) => {
-            if (!snapshot || session.hasSubmittedInput) return;
+          // runNativeSparkTui awaits configuration before starting terminal input or
+          // submitting the initial prompt, so hydrate daemon-owned history inside
+          // that startup barrier instead of racing it in a detached task.
+          const [snapshot] = await Promise.all([
+            loadSnapshot(),
+            session.hydrateRetryableFailure().catch(() => undefined),
+          ]);
+          if (snapshot) {
+            const durablePrompts =
+              snapshot.messages.length > 0
+                ? await loadManagedSessionPromptHistory(currentSessionId, tuiDaemonClient)
+                : [];
+            app.hydratePromptHistory(durablePrompts);
             sessionStatusModel = modelRefToSelection(snapshot.model) ?? sessionStatusModel;
             sessionStatusThinkingLevel = snapshot.thinkingLevel ?? sessionStatusThinkingLevel;
             app.applyViewModelEvent({
@@ -1613,7 +1487,7 @@ async function runSparkCliTuiSelection(input: {
               type: "session.snapshot",
               session: snapshot,
             });
-          });
+          }
           if (workspaceSession.attachMatchesControlPlane) {
             await hydrateNativeHubFromTaskRead(services, app, workspaceSession.state);
           }
@@ -1636,6 +1510,7 @@ async function runSparkCliTuiSelection(input: {
         },
       });
     } finally {
+      activeNativeTuiApp = undefined;
       services.runtime.setSessionLeaseProvider(undefined);
       await stopSparkSessionHeartbeat(sessionHeartbeat, (message) => {
         if (pendingNativeUiTransport?.notify) {
@@ -1650,6 +1525,15 @@ async function runSparkCliTuiSelection(input: {
       sessionId: currentSessionId,
       sessionSelectorRequested,
       ...(newSessionId ? { newSessionId } : {}),
+      ...(tuiExitReason === "reload"
+        ? {
+            reloadHandoff: {
+              sessionId: currentSessionId,
+              cwd: process.cwd(),
+              argv: sparkTuiReloadArgv(command.options, currentSessionId),
+            },
+          }
+        : {}),
     };
   } finally {
     await lease.release();
@@ -1918,6 +1802,7 @@ function createDelegatingSparkDaemonModelAuthClient(
   };
   return {
     snapshot: () => current().snapshot(),
+    setEnabledModels: (models) => current().setEnabledModels(models),
     setSessionModel: (model) => current().setSessionModel(model),
     setSessionThinkingLevel: (thinkingLevel) => current().setSessionThinkingLevel(thinkingLevel),
     setDefaultModel: (model) => current().setDefaultModel(model),
@@ -1966,11 +1851,15 @@ function createSparkNativeSlashCommands(
   daemonClient: SparkDaemonClientOptions,
   modelControl: SparkDaemonModelAuthClient,
   currentSessionId: string,
+  workspaceId: string,
   ensureCurrentSession: () => Promise<void>,
   requestSessionSelector: () => void,
   requestNewSession: () => Promise<void>,
 ): SparkNativeSlashCommandMap {
-  const daemonCommands = createSparkDaemonNativeCommands(daemonClient);
+  const daemonCommands = createSparkDaemonNativeCommands(daemonClient, {
+    sessionId: currentSessionId,
+    workspaceId,
+  });
   const localControlCommands = createSparkNativeLocalControlSlashCommands();
   const piParityCommands = createSparkPiParitySlashCommands(
     services,
@@ -2542,24 +2431,4 @@ async function createDefaultSparkCliHostServices(
 ): Promise<SparkCliHostServices> {
   const { createSparkCliHostServices } = await import("./host/bootstrap.ts");
   return await createSparkCliHostServices(options);
-}
-
-function isDirectRun(moduleUrl: string, argvEntry: string | undefined): boolean {
-  if (!argvEntry) return false;
-  try {
-    return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(argvEntry);
-  } catch {
-    return false;
-  }
-}
-
-if (isDirectRun(import.meta.url, process.argv[1])) {
-  runSparkCli()
-    .then((code) => {
-      process.exitCode = code;
-    })
-    .catch((error: unknown) => {
-      console.error(formatSparkCliFailure(error, process.argv.slice(2)));
-      process.exitCode = 1;
-    });
 }

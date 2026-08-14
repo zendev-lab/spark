@@ -22,6 +22,7 @@ export {
 } from "./registry.ts";
 export {
   loadSparkSessionMediaChunk,
+  loadSparkSessionPromptHistory,
   loadSparkSessionSnapshot,
   loadSparkSessionSnapshotTail,
   refreshSparkSessionSnapshotIndex,

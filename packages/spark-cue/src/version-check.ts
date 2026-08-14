@@ -6,7 +6,7 @@
  * releases over its lifetime. So instead of comparing against spark-cue's own
  * `package.json` version, we ask the upstream release channel:
  *
- *   GET https://api.github.com/repos/zrr1999/cue-shell/releases/latest
+ *   GET https://api.github.com/repos/zendev-lab/cue/releases/latest
  *
  * That mirrors `cued upgrade`'s own self-update source of truth (see
  * `crates/cue-daemon/src/upgrade.rs`).
@@ -62,7 +62,7 @@ interface NotifyContext {
   ui?: { notify?: (message: string, level: "info" | "warning" | "error" | "success") => void };
 }
 
-const DEFAULT_API_URL = "https://api.github.com/repos/zrr1999/cue-shell/releases/latest";
+const DEFAULT_API_URL = "https://api.github.com/repos/zendev-lab/cue/releases/latest";
 const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const HTTP_TIMEOUT_MS = 4000;
 const NOTIFY_LEVEL = "warning";

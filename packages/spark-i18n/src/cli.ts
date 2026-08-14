@@ -206,6 +206,8 @@ export interface SparkNativeTuiStrings {
   unknownCommand: (name: string) => string;
   commandFailed: (name: string, error: string) => string;
   noTurnRunning: string;
+  reloadBlocked: string;
+  noRetryableFailure: string;
   exiting: string;
   hubPanelClosed: string;
   hubPanelOpen: (panel: string, countsLine: string) => string;
@@ -336,7 +338,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     observationInterrupted: (invocationId, error) =>
       `Live observation of daemon invocation ${invocationId} was interrupted: ${error}. Daemon ownership is retained; inspect /status or reconnect for the latest projection.`,
     turnFailed: (error) =>
-      `Spark turn failed: ${withoutTerminalPunctuation(error)}. Use /retry to resubmit or /status to inspect the daemon.`,
+      `Spark turn failed: ${withoutTerminalPunctuation(error)}. If the daemon marks it retryable, use /retry to create a linked attempt; use /status to inspect the daemon.`,
     steeringUpdate: (body) =>
       `Steering update for the previous Spark turn. Use this to adjust or correct the in-progress response before continuing.\n\n${body}`,
     defaultHelp: [
@@ -367,7 +369,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
         description: "request cancellation of the current Spark invocation",
         argumentHint: "[reason]",
       },
-      { name: "retry", description: "resubmit the previous user prompt" },
+      { name: "retry", description: "retry the latest failed daemon invocation" },
       {
         name: "inspect",
         description: "show the local session inspector",
@@ -428,6 +430,9 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     unknownCommand: (name) => `Unknown command: /${name}. Type /help for available commands.`,
     commandFailed: (name, error) => `Command /${name} failed: ${error}`,
     noTurnRunning: "No Spark turn is currently running.",
+    reloadBlocked:
+      "Reload was not started because a command, submission, or retry is still settling. Wait for it to finish or receive a durable daemon identity, or restore and resubmit rejected input first.",
+    noRetryableFailure: "No retryable failed TUI invocation is available.",
     exiting: "Exiting Spark native TUI.",
     hubPanelClosed: "Local session inspector closed.",
     hubPanelOpen: (panel, countsLine) =>
@@ -455,7 +460,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     observationInterrupted: (invocationId, error) =>
       `daemon invocation ${invocationId} 的实时观察已中断：${error}。执行所有权仍在 daemon；请用 /status 检查或重新连接以获取最新投影。`,
     turnFailed: (error) =>
-      `Spark turn 失败：${withoutTerminalPunctuation(error)}。使用 /retry 重新提交，或用 /status 检查 daemon。`,
+      `Spark turn 失败：${withoutTerminalPunctuation(error)}。若 daemon 将其标记为可重试，可用 /retry 创建关联 attempt；用 /status 检查 daemon。`,
     steeringUpdate: (body) =>
       `上一轮 Spark turn 的 steering update。用于在继续前调整或纠正进行中的回复。\n\n${body}`,
     defaultHelp: [
@@ -482,7 +487,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
         description: "请求取消当前 Spark invocation",
         argumentHint: "[reason]",
       },
-      { name: "retry", description: "重新提交上一条用户 prompt" },
+      { name: "retry", description: "重试最近失败的 daemon invocation" },
       {
         name: "inspect",
         description: "显示本地会话检查器",
@@ -543,6 +548,9 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     unknownCommand: (name) => `未知命令：/${name}。输入 /help 查看可用命令。`,
     commandFailed: (name, error) => `命令 /${name} 失败：${error}`,
     noTurnRunning: "当前没有运行中的 Spark turn。",
+    reloadBlocked:
+      "尚未开始 reload：有 command、submission 或 retry 仍在处理中。请等待其完成或获得持久 daemon 身份，或先恢复并重新提交被拒绝的输入。",
+    noRetryableFailure: "当前没有可重试的失败 TUI invocation。",
     exiting: "正在退出 Spark native TUI。",
     hubPanelClosed: "本地会话检查器已关闭。",
     hubPanelOpen: (panel, countsLine) => `本地会话检查器 ${panel} 面板已打开。\n${countsLine}`,
@@ -579,6 +587,9 @@ export interface SparkTuiPiParityStrings {
   themeSet: (themeId: string) => string;
   settingsHeader: string;
   noModelsRegistered: string;
+  enabledModelsMutationUsage: string;
+  enabledModelsSaved: string;
+  enabledModelsSavedEmpty: string;
   noExternalUpload: string;
   importUsage: string;
   sessionNameUnset: string;
@@ -607,6 +618,7 @@ export interface SparkDaemonCliStrings {
   queuedSession: (sessionId: string, invocationId: string) => string;
   completedSession: (sessionId: string, invocationId: string) => string;
   nativeCommandDescriptions: {
+    ask: string;
     status: string;
     start: string;
   };
@@ -660,7 +672,7 @@ const RESOURCE_STRINGS: Record<SparkLanguage, SparkTuiResourceStrings> = {
 
 const PI_PARITY_DESCRIPTIONS = {
   settings: "show Spark settings and provider/session configuration",
-  scopedModels: "show models enabled for Spark model selection/cycling",
+  enabledModels: "edit models enabled for Spark model selection/cycling",
   export: "export visible Spark transcript or a persisted session",
   import: "import a Spark/Pi JSONL session and show resume guidance",
   share: "write a share-safe local HTML transcript export (no secret upload)",
@@ -678,7 +690,7 @@ const PI_PARITY_DESCRIPTIONS = {
   new: "start a new visible Spark transcript",
   compact: "summarize visible Spark transcript and clear older context",
   resume: "list or preview a persisted Spark session for resume",
-  reload: "reload Spark keybindings/settings guidance",
+  reload: "restart the TUI process and keep the current session",
 } as const;
 
 const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
@@ -696,7 +708,7 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
       `Spark trusts this workspace only through explicit config and tool-approval flows. cwd=${cwd}`,
     newTranscript: "Started a new Spark native transcript.",
     reload:
-      "Restart or relaunch the native Spark TUI to reload extensions, providers, skills, prompts, themes, and keybindings from disk.",
+      "Use /reload to replace the native Spark TUI process, reattach the current daemon session, and reload extensions, providers, skills, prompts, themes, and keybindings from disk.",
     settingsUsageThinking: (levels) => `Usage: /settings set thinking <${levels.join("|")}>`,
     thinkingLevelSet: (level) => `Spark thinking level set for this session: ${level}.`,
     settingsUsageTheme: (themes) =>
@@ -705,6 +717,10 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
       `Spark theme set: ${themeId}. Restart or /reload to apply it to the active TUI.`,
     settingsHeader: "Spark settings",
     noModelsRegistered: "No Spark models registered.",
+    enabledModelsMutationUsage:
+      "Usage: /enabled-models [inspect|add <provider/model>|remove <provider/model>|set <provider/model>...]",
+    enabledModelsSaved: "Updated Spark enabledModels:",
+    enabledModelsSavedEmpty: "Updated Spark enabledModels: (none)",
     noExternalUpload:
       "No external upload was performed. Review the file before sharing it outside this machine.",
     importUsage: "Usage: /import <spark-jsonl-session-path>",
@@ -733,7 +749,7 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
     trust: (cwd) => `Spark 只通过显式 config 和 tool approval 信任此 workspace。cwd=${cwd}`,
     newTranscript: "已开始新的 Spark native transcript。",
     reload:
-      "重启或重新打开 native Spark TUI 以从磁盘重新加载 extensions/providers/skills/prompts/themes/keybindings。",
+      "使用 /reload 替换 native Spark TUI 进程、重新 attach 当前 daemon session，并从磁盘重新加载 extensions/providers/skills/prompts/themes/keybindings。",
     settingsUsageThinking: (levels) => `用法：/settings set thinking <${levels.join("|")}>`,
     thinkingLevelSet: (level) => `Thinking level 已设为 ${level}。`,
     settingsUsageTheme: (themes) =>
@@ -741,6 +757,10 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
     themeSet: (themeId) => `Theme 已设为 ${themeId}。重启 TUI 以重新加载样式。`,
     settingsHeader: "Spark settings",
     noModelsRegistered: "尚未注册 Spark 模型。",
+    enabledModelsMutationUsage:
+      "用法：/enabled-models [inspect|add <provider/model>|remove <provider/model>|set <provider/model>...]",
+    enabledModelsSaved: "已更新 Spark enabledModels：",
+    enabledModelsSavedEmpty: "已更新 Spark enabledModels：（空）",
     noExternalUpload: "未执行外部上传。",
     importUsage: "用法：/import <spark-jsonl-session-path>",
     sessionNameUnset: "（未设置）",
@@ -757,7 +777,7 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
   },
 };
 
-const DAEMON_HELP_TEXT = `spark daemon - daemon execution plane\n\nUsage:\n  spark daemon [--workspace <name>]\n  spark daemon login --server-url <url> [--no-open]\n  spark daemon auth status [--json]\n  spark daemon auth login [provider]\n  spark daemon auth logout <provider> [--json]\n  spark daemon auth import pi [--overwrite] [--json]\n  spark daemon model list [--all] [--json]\n  spark daemon model status [--session <id>] [--json]\n  spark daemon model set <provider/model> (--session <id>|--default) [--json]\n  spark daemon status [--json]\n  spark daemon start [--json]\n  spark daemon stop [--yes]\n  spark daemon restart [--yes] [--wait]\n  spark daemon logs [--follow] [--lines <n>]\n  spark daemon submit --session <id> --prompt <text> [--reset] [--json]\n  spark daemon ask list [--session <id>] [--json]\n  spark daemon ask answer <interaction-request-id> --answers <json> [--session <id>] [--json]\n  spark daemon ask cancel <interaction-request-id> [--session <id>] [--json]\n  spark daemon invocation list [--status <state>] [--session <id>] [--since <iso>] [--limit <n>] [--offset <n>] [--json]\n  spark daemon invocation status <invocation-id> [--json]\n  spark daemon invocation result <invocation-id> [--json]\n  spark daemon invocation stream <invocation-id> [--after <cursor>] [--limit <n>] [--json]\n  spark daemon invocation cancel <invocation-id> [--reason <text>] [--json]\n  spark daemon invocation retry <invocation-id> [--json]\n  spark daemon invocation retention --before <iso> [--limit <n>] [--json]\n  spark daemon session list [--json] [--registry] [--include-archived]\n  spark daemon session create --workspace <id> [--title <text>] [--role <role>] [--json]\n  spark daemon session show <session-id> [--json]\n  spark daemon session tree <session-id> [--json]\n  spark daemon session fork <session-id> [--id <new-session-id>] [--json]\n  spark daemon session clone <session-id> [--id <new-session-id>] [--json]\n  spark daemon session bind <session-id> --external-key <key> [--json]\n  spark daemon session unbind <session-id> --external-key <key> [--json]\n  spark daemon session archive <session-id> [--json]\n  spark daemon session export --session <id|path> [--format jsonl|json|text] [--leaf <entry-id|root>] [--json]\n  spark daemon session replay --session <id|path> [--leaf <entry-id|root>] [--json]\n  spark daemon session inbox --session <session-id> [--all] [--json]\n  spark daemon session inbox read <message-id> --session <session-id> [--json]\n  spark daemon session inbox ack <message-id> --session <session-id> [--json]\n  spark daemon channel list --workspace <id> [--json]\n  spark daemon channel status --workspace <id> [--json]\n  spark daemon channel reload --workspace <id> [--json]\n  spark daemon channel notify --workspace <id> [--action test|send] [--json]\n  spark daemon run list [--state <state>] [--limit <n>] [--json]\n  spark daemon run show <run-id> [--json]\n  spark daemon run cancel <run-id> [--json]\n  spark daemon events watch [--limit <n>] [--json]\n  spark daemon workspace register [path] --server-url <url> --token <token|-> --name <name>\n  spark daemon workspace ls [--json] [--all] [--full]\n  spark daemon workspace show [name] [--json]\n  spark daemon workspace stop <name> [--yes]\n\nDaemon login grants machine connectivity only; provider credentials live under daemon auth. Every workspace registration consumes a fresh one-time workspace token. Spark CLI starts/wakes the Spark daemon and talks over local IPC; SQLite-backed invocations are execution truth. Hub coordination and Web lifecycle commands live under spark hub; the retired spark cockpit namespace is rejected. Session registry and channel listeners are daemon-owned (see docs/specs/sessions-and-channels.md).`;
+const DAEMON_HELP_TEXT = `spark daemon - daemon execution plane\n\nUsage:\n  spark daemon [--workspace <name>]\n  spark daemon login --server-url <url> [--no-open]\n  spark daemon auth status [--json]\n  spark daemon auth login [provider]\n  spark daemon auth logout <provider> [--json]\n  spark daemon auth import pi [--overwrite] [--json]\n  spark daemon model list [--all] [--json]\n  spark daemon model status [--session <id>] [--json]\n  spark daemon model set <provider/model> (--session <id>|--default) [--json]\n  spark daemon status [--json]\n  spark daemon start [--no-wait] [--json]\n  spark daemon stop [--yes] [--wait]\n  spark daemon restart [--yes] [--no-wait]\n  spark daemon logs [--follow] [--lines <n>]\n  spark daemon submit --session <id> --prompt <text> [--reset] [--json]\n  spark daemon ask list [--session <id>] [--json]\n  spark daemon ask answer <interaction-request-id> --answers <json> [--session <id>] [--json]\n  spark daemon ask cancel <interaction-request-id> [--session <id>] [--json]\n  spark daemon invocation list [--status <state>] [--session <id>] [--since <iso>] [--limit <n>] [--offset <n>] [--json]\n  spark daemon invocation status <invocation-id> [--json]\n  spark daemon invocation result <invocation-id> [--json]\n  spark daemon invocation stream <invocation-id> [--after <cursor>] [--limit <n>] [--json]\n  spark daemon invocation cancel <invocation-id> [--reason <text>] [--json]\n  spark daemon invocation retry <invocation-id> [--json]\n  spark daemon invocation retention --before <iso> [--limit <n>] [--json]\n  spark daemon session list [--json] [--registry] [--include-archived]\n  spark daemon session create --workspace <id> [--title <text>] [--role <role>] [--json]\n  spark daemon session show <session-id> [--json]\n  spark daemon session tree <session-id> [--json]\n  spark daemon session fork <session-id> [--id <new-session-id>] [--json]\n  spark daemon session clone <session-id> [--id <new-session-id>] [--json]\n  spark daemon session bind <session-id> --external-key <key> [--json]\n  spark daemon session unbind <session-id> --external-key <key> [--json]\n  spark daemon session archive <session-id> [--json]\n  spark daemon session export --session <id|path> [--format jsonl|json|text] [--leaf <entry-id|root>] [--json]\n  spark daemon session replay --session <id|path> [--leaf <entry-id|root>] [--json]\n  spark daemon session inbox --session <session-id> [--all] [--json]\n  spark daemon session inbox read <message-id> --session <session-id> [--json]\n  spark daemon session inbox ack <message-id> --session <session-id> [--json]\n  spark daemon channel list --workspace <id> [--json]\n  spark daemon channel status --workspace <id> [--json]\n  spark daemon channel reload --workspace <id> [--json]\n  spark daemon channel notify --workspace <id> [--action test|send] [--json]\n  spark daemon run list [--state <state>] [--limit <n>] [--json]\n  spark daemon run show <run-id> [--json]\n  spark daemon run cancel <run-id> [--json]\n  spark daemon events watch [--limit <n>] [--json]\n  spark daemon workspace register [path] --server-url <url> --token <token|-> --name <name>\n  spark daemon workspace ls [--json] [--all] [--full]\n  spark daemon workspace show [name] [--json]\n  spark daemon workspace stop <name> [--yes]\n\nDaemon login grants machine connectivity only; provider credentials live under daemon auth. Every workspace registration consumes a fresh one-time workspace token. Spark CLI starts/wakes the Spark daemon and talks over local IPC; SQLite-backed invocations are execution truth. Hub coordination and Web lifecycle commands live under spark hub; the retired spark cockpit namespace is rejected. Session registry and channel listeners are daemon-owned (see .agents/notes/contracts/sessions-and-channels.md).`;
 
 const DAEMON_STRINGS: Record<SparkLanguage, SparkDaemonCliStrings> = {
   en: {
@@ -776,6 +796,7 @@ const DAEMON_STRINGS: Record<SparkLanguage, SparkDaemonCliStrings> = {
     completedSession: (sessionId, invocationId) =>
       `Spark daemon completed session ${sessionId}: ${invocationId}`,
     nativeCommandDescriptions: {
+      ask: "open a pending Ask overlay for this session or workspace",
       status: "show Spark daemon status",
       start: "start or wake the Spark daemon, then show status",
     },
@@ -814,6 +835,7 @@ const DAEMON_STRINGS: Record<SparkLanguage, SparkDaemonCliStrings> = {
     completedSession: (sessionId, invocationId) =>
       `Spark daemon 已完成 session ${sessionId}：${invocationId}`,
     nativeCommandDescriptions: {
+      ask: "打开当前 session 或同 workspace 的 pending Ask overlay",
       status: "显示 Spark daemon 状态",
       start: "启动或唤醒 Spark daemon，然后显示状态",
     },

@@ -7,6 +7,7 @@ vi.mock("$app/navigation", () => ({
   invalidateAll: vi.fn(async () => undefined),
 }));
 
+import { goto } from "$app/navigation";
 import { createSlashHandlers, type SlashHandlerDeps } from "./slash-handlers";
 import type { SparkActionView } from "@zendev-lab/spark-protocol";
 
@@ -73,6 +74,23 @@ describe("session slash activity routing", () => {
 
     expect(deps.composer.message).toBe("");
     expect(deps.submitModeSelection).toHaveBeenCalledWith("fleet");
+  });
+
+  it("routes enabled-model settings to the models page", async () => {
+    const deps = createDeps(() => undefined);
+    const handlers = createSlashHandlers(deps);
+
+    await handlers.handleSlashAction(
+      {
+        id: "edit-enabled",
+        intent: "settings.enabled-models",
+        label: "Edit enabled models",
+        payload: {},
+      },
+      "session",
+    );
+
+    expect(goto).toHaveBeenCalledWith("/settings/models");
   });
 
   it.each([

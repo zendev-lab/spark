@@ -17,6 +17,7 @@ import {
   parseSparkCliArgs,
   parseSparkCliCommand,
   runSparkCli,
+  sparkTuiReloadArgv,
   type SparkRpcState,
 } from "../cli.ts";
 import type { SparkDaemonClientOptions } from "../cli/daemon.ts";
@@ -29,6 +30,7 @@ import {
 } from "../native-tui.ts";
 import {
   SPARK_PROTOCOL_VERSION,
+  type SparkInvocationRetryResult,
   type SparkSessionProjection,
   type SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
@@ -40,6 +42,71 @@ test("parseSparkCliArgs treats positional args as the initial message", () => {
     help: false,
     initialMessage: "hello spark",
   });
+});
+
+test("sparkTuiReloadArgv keeps runtime overrides but pins one durable session", () => {
+  assert.deepEqual(
+    sparkTuiReloadArgv(
+      {
+        provider: "provider-a",
+        model: "model-a",
+        session: "old.jsonl",
+        sessionId: "old-session",
+        sparkSessionKey: "session:old-session",
+        sessionDir: ".spark-home",
+        noSession: true,
+        wait: true,
+        name: "named session",
+        extensions: ["extension-a"],
+        noExtensions: true,
+        skills: ["skill-a"],
+        noSkills: true,
+        promptTemplates: ["prompt-a"],
+        noPromptTemplates: true,
+        themes: ["theme-a"],
+        noThemes: true,
+        noContextFiles: true,
+        thinking: "xhigh",
+        tools: ["Read", "Write"],
+        excludeTools: ["Bash"],
+        projectTrustOverride: false,
+        fileArgs: ["README.md"],
+      },
+      "durable-session",
+    ),
+    [
+      "--provider",
+      "provider-a",
+      "--model",
+      "model-a",
+      "--session-dir",
+      ".spark-home",
+      "--name",
+      "named session",
+      "--extension",
+      "extension-a",
+      "--no-extensions",
+      "--skill",
+      "skill-a",
+      "--no-skills",
+      "--prompt-template",
+      "prompt-a",
+      "--no-prompt-templates",
+      "--theme",
+      "theme-a",
+      "--no-themes",
+      "--no-context-files",
+      "--thinking",
+      "xhigh",
+      "--tools",
+      "Read,Write",
+      "--exclude-tools",
+      "Bash",
+      "--no-approve",
+      "--session-id",
+      "durable-session",
+    ],
+  );
 });
 
 test("runSparkCli rejects implicit TUI launch in non-interactive terminals", async () => {
@@ -1058,6 +1125,187 @@ test("Spark native session makes definitively rejected admissions recoverable", 
   await new Promise((resolve) => setImmediate(resolve));
 });
 
+test("Spark native session clears rejected recovery after a successful retry", async () => {
+  const submissionIds: Array<string | undefined> = [];
+  let reject = true;
+  const responder = Object.assign(async () => "compatibility path", {
+    admit: async (_prompt: string, context: SparkNativeAdmissionContext) => {
+      submissionIds.push(context.submissionId);
+      if (reject) {
+        reject = false;
+        throw new SparkNativeAdmissionError("rejected once", "rejected");
+      }
+      return {
+        invocationId: "inv_rejectedretry",
+        status: "queued" as const,
+        acceptedAt: "2026-08-12T00:00:00.000Z",
+      };
+    },
+    observe: async () => "retry succeeded",
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "cancelled" as const,
+      cancelRequested: true,
+    }),
+  }) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("recover exactly once", {
+    submissionId: "idem_rejected_once",
+    submittedInput: "@retry.md",
+  });
+  for (let index = 0; index < 3; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(session.canRestoreQueuedInput, true);
+  assert.equal(session.canRetry, true);
+
+  assert.equal(await session.retryLast(), "started");
+  for (let index = 0; index < 3; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.equal(session.canRestoreQueuedInput, false);
+  assert.equal(session.restoreQueuedText(), undefined);
+  assert.notEqual(submissionIds[0], submissionIds[1]);
+});
+
+test("Spark native session holds rejected retry ownership through admission acknowledgement", async () => {
+  let admitCount = 0;
+  let acknowledgeRetry: ((receipt: SparkTurnSubmitResult) => void) | undefined;
+  let finishObservation: (() => void) | undefined;
+  let retryTargetReads = 0;
+  const canonicalRetries: string[] = [];
+  const responder = Object.assign(async () => "compatibility path", {
+    admit: async () => {
+      admitCount += 1;
+      if (admitCount === 1) {
+        throw new SparkNativeAdmissionError("rejected once", "rejected");
+      }
+      return await new Promise<SparkTurnSubmitResult>((resolve) => {
+        acknowledgeRetry = resolve;
+      });
+    },
+    observe: async () => {
+      await new Promise<void>((resolve) => {
+        finishObservation = resolve;
+      });
+      return "rejected retry completed";
+    },
+    latestRetryableFailure: async () => {
+      retryTargetReads += 1;
+      return {
+        invocationId: "inv_olderfailed",
+        failedAt: "2026-08-12T00:00:01.000Z",
+      };
+    },
+    retry: async (invocationId: string) => {
+      canonicalRetries.push(invocationId);
+      return {
+        invocationId: "inv_wrongchild",
+        retryOfInvocationId: invocationId,
+        status: "queued" as const,
+        acceptedAt: "2026-08-12T00:00:02.000Z",
+      };
+    },
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "failed" as const,
+      cancelRequested: false,
+    }),
+  }) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+  await session.submit("retry rejected admission");
+  for (let index = 0; index < 3; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  const first = session.retryLast();
+  await new Promise((resolve) => setImmediate(resolve));
+  const second = session.retryLast();
+  assert.equal(first, second);
+  acknowledgeRetry?.({
+    invocationId: "inv_rejectedretrychild",
+    status: "queued",
+    acceptedAt: "2026-08-12T00:00:02.000Z",
+  });
+  assert.deepEqual(await Promise.all([first, second]), ["started", "started"]);
+  assert.equal(await session.retryLast(), "ignored");
+  assert.equal(retryTargetReads, 0);
+  assert.deepEqual(canonicalRetries, []);
+
+  finishObservation?.();
+  for (let index = 0; index < 3; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+});
+
+test("Spark native session stops a rejected retry by cancelling its exact child after ACK", async () => {
+  let admitCount = 0;
+  let acknowledgeRetry: ((receipt: SparkTurnSubmitResult) => void) | undefined;
+  const observations: string[] = [];
+  const cancellations: Array<{ invocationId: string; reason: string }> = [];
+  const responder = Object.assign(async () => "compatibility path", {
+    admit: async () => {
+      admitCount += 1;
+      if (admitCount === 1) {
+        throw new SparkNativeAdmissionError("rejected once", "rejected");
+      }
+      return await new Promise<SparkTurnSubmitResult>((resolve) => {
+        acknowledgeRetry = resolve;
+      });
+    },
+    observe: async (admission: SparkTurnSubmitResult) => {
+      observations.push(admission.invocationId);
+      await new Promise((resolve) => setImmediate(resolve));
+      throw new Error("cancelled by daemon");
+    },
+    cancel: async (invocationId: string, reason: string) => {
+      cancellations.push({ invocationId, reason });
+      return {
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      };
+    },
+  }) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("retry rejected admission then stop");
+  for (let index = 0; index < 3; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(session.canRetry, true);
+
+  const retry = session.retryLast();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(session.isProcessing, true);
+  assert.deepEqual(session.abort("operator stopped rejected retry"), {
+    aborted: true,
+    clearedQueued: 0,
+  });
+  assert.deepEqual(cancellations, []);
+
+  acknowledgeRetry?.({
+    invocationId: "inv_rejected_retry_stop_child",
+    status: "queued",
+    acceptedAt: "2026-08-12T00:00:02.000Z",
+  });
+  assert.equal(await retry, "started");
+  for (let index = 0; index < 5; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.deepEqual(cancellations, [
+    {
+      invocationId: "inv_rejected_retry_stop_child",
+      reason: "operator stopped rejected retry",
+    },
+  ]);
+  assert.deepEqual(observations, ["inv_rejected_retry_stop_child"]);
+  assert.equal(session.isProcessing, false);
+});
+
 test("Spark native session retries unknown admission with the same request identity", async () => {
   const admissions: Array<{ prompt: string; submissionId?: string }> = [];
   const observed: string[] = [];
@@ -1375,6 +1623,533 @@ test("Spark native session settles observation failures from exact daemon status
   assert.match(
     session.messages.map(({ text }) => text).join("\n"),
     /Spark turn failed: provider upstream 503/u,
+  );
+});
+
+test("Spark native session retries a failed daemon invocation as a linked child", async () => {
+  const admissions: string[] = [];
+  const observations: string[] = [];
+  const retries: string[] = [];
+  let retryTargetReads = 0;
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async (prompt: string) => {
+        admissions.push(prompt);
+        return {
+          invocationId: "inv_retry_source",
+          status: "running" as const,
+          acceptedAt: "2026-08-12T00:00:00.000Z",
+        };
+      },
+      observe: async (admission: SparkTurnSubmitResult) => {
+        observations.push(admission.invocationId);
+        if (admission.invocationId === "inv_retry_source") throw new Error("empty response");
+        return "linked retry completed";
+      },
+      status: async (invocationId: string) => ({
+        invocationId,
+        status: invocationId === "inv_retry_source" ? ("failed" as const) : ("succeeded" as const),
+        createdAt: "2026-08-12T00:00:00.000Z",
+        updatedAt: "2026-08-12T00:00:01.000Z",
+        finishedAt: "2026-08-12T00:00:01.000Z",
+        ...(invocationId === "inv_retry_source"
+          ? { error: { code: "EXECUTION_TRANSIENT", message: "empty response" } }
+          : {}),
+        eventCursor: 2,
+      }),
+      retry: async (invocationId: string) => {
+        retries.push(invocationId);
+        return {
+          invocationId: "inv_retry_child",
+          retryOfInvocationId: invocationId,
+          status: "queued" as const,
+          acceptedAt: "2026-08-12T00:00:02.000Z",
+        };
+      },
+      latestRetryableFailure: async () => {
+        retryTargetReads += 1;
+        return {
+          invocationId: "inv_unrelatednewerfailure",
+          failedAt: "2026-08-12T00:00:01.500Z",
+        };
+      },
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "failed" as const,
+        cancelRequested: false,
+      }),
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("retry through the daemon", {
+    submissionId: "idem_retry_source",
+    submittedInput: "@task.md",
+  });
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(session.canRetry, true);
+
+  assert.equal(await session.retryLast(), "started");
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.deepEqual(admissions, ["retry through the daemon"]);
+  assert.equal(retryTargetReads, 0);
+  assert.deepEqual(retries, ["inv_retry_source"]);
+  assert.deepEqual(observations, ["inv_retry_source", "inv_retry_child"]);
+  assert.equal(session.canRetry, false);
+  assert.match(session.messages.map(({ text }) => text).join("\n"), /linked retry completed/u);
+});
+
+test("Spark native session coalesces concurrent retries of one failed invocation", async () => {
+  let releaseRetry: (() => void) | undefined;
+  const retries: string[] = [];
+  const observed: string[] = [];
+  const responder = Object.assign(async () => "compatibility path", {
+    admit: async () => ({
+      invocationId: "inv_concurrentsource",
+      status: "running" as const,
+      acceptedAt: "2026-08-12T00:00:00.000Z",
+    }),
+    observe: async (admission: SparkTurnSubmitResult) => {
+      observed.push(admission.invocationId);
+      if (admission.invocationId === "inv_concurrentsource") throw new Error("empty response");
+      return "retried once";
+    },
+    status: async (invocationId: string) => ({
+      invocationId,
+      status:
+        invocationId === "inv_concurrentsource" ? ("failed" as const) : ("succeeded" as const),
+      createdAt: "2026-08-12T00:00:00.000Z",
+      updatedAt: "2026-08-12T00:00:01.000Z",
+      finishedAt: "2026-08-12T00:00:01.000Z",
+      ...(invocationId === "inv_concurrentsource"
+        ? { error: { code: "EXECUTION_TRANSIENT", message: "empty response" } }
+        : {}),
+      eventCursor: 2,
+    }),
+    retry: async (invocationId: string) => {
+      retries.push(invocationId);
+      await new Promise<void>((resolve) => {
+        releaseRetry = resolve;
+      });
+      return {
+        invocationId: "inv_concurrentchild",
+        retryOfInvocationId: invocationId,
+        status: "queued" as const,
+        acceptedAt: "2026-08-12T00:00:02.000Z",
+      };
+    },
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "failed" as const,
+      cancelRequested: false,
+    }),
+  }) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+  await session.submit("retry once");
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  const first = session.retryLast();
+  const second = session.retryLast();
+  assert.equal(first, second);
+  releaseRetry?.();
+  assert.deepEqual(await Promise.all([first, second]), ["started", "started"]);
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.deepEqual(retries, ["inv_concurrentsource"]);
+  assert.deepEqual(observed, ["inv_concurrentsource", "inv_concurrentchild"]);
+  assert.equal(
+    session.messages.filter(
+      (message) =>
+        message.role === "user" && message.details?.invocationId === "inv_concurrentchild",
+    ).length,
+    1,
+  );
+});
+
+test("Spark native session stops an unacknowledged retry by cancelling its exact child after ACK", async () => {
+  let acknowledgeRetry: ((receipt: SparkInvocationRetryResult) => void) | undefined;
+  const observations: string[] = [];
+  const cancellations: Array<{ invocationId: string; reason: string }> = [];
+  const responder = Object.assign(async () => "compatibility path", {
+    admit: async () => ({
+      invocationId: "inv_retry_stop_source",
+      status: "running" as const,
+      acceptedAt: "2026-08-12T00:00:00.000Z",
+    }),
+    observe: async (admission: SparkTurnSubmitResult) => {
+      observations.push(admission.invocationId);
+      if (admission.invocationId === "inv_retry_stop_source") throw new Error("empty response");
+      await new Promise((resolve) => setImmediate(resolve));
+      throw new Error("cancelled by daemon");
+    },
+    status: async (invocationId: string) => ({
+      invocationId,
+      status:
+        invocationId === "inv_retry_stop_source"
+          ? ("failed" as const)
+          : cancellations.some((entry) => entry.invocationId === invocationId)
+            ? ("cancelled" as const)
+            : ("running" as const),
+      createdAt: "2026-08-12T00:00:00.000Z",
+      updatedAt: "2026-08-12T00:00:01.000Z",
+      ...(invocationId === "inv_retry_stop_source"
+        ? {
+            finishedAt: "2026-08-12T00:00:01.000Z",
+            error: { code: "EXECUTION_TRANSIENT", message: "empty response" },
+          }
+        : {}),
+      eventCursor: 2,
+    }),
+    retry: async () =>
+      await new Promise<SparkInvocationRetryResult>((resolve) => {
+        acknowledgeRetry = resolve;
+      }),
+    cancel: async (invocationId: string, reason: string) => {
+      cancellations.push({ invocationId, reason });
+      return {
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      };
+    },
+  }) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("retry then stop");
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(session.canRetry, true);
+
+  const retry = session.retryLast();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(session.isProcessing, true);
+  assert.equal(session.canRetry, false);
+  assert.deepEqual(session.abort("operator stopped retry"), {
+    aborted: true,
+    clearedQueued: 0,
+  });
+  assert.deepEqual(cancellations, []);
+
+  acknowledgeRetry?.({
+    invocationId: "inv_retry_stop_child",
+    retryOfInvocationId: "inv_retry_stop_source",
+    status: "queued",
+    acceptedAt: "2026-08-12T00:00:02.000Z",
+  });
+  assert.equal(await retry, "started");
+  for (let index = 0; index < 5; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.deepEqual(cancellations, [
+    { invocationId: "inv_retry_stop_child", reason: "operator stopped retry" },
+  ]);
+  assert.deepEqual(observations, ["inv_retry_stop_source", "inv_retry_stop_child"]);
+  assert.equal(session.isProcessing, false);
+});
+
+test("Spark native session aborts retry acknowledgement and skips its child after detach", async () => {
+  let acknowledgeRetry: ((receipt: SparkInvocationRetryResult) => void) | undefined;
+  let retrySignal: AbortSignal | undefined;
+  const observations: string[] = [];
+  const responder = Object.assign(async () => "compatibility path", {
+    admit: async () => ({
+      invocationId: "inv_retry_detach_source",
+      status: "running" as const,
+      acceptedAt: "2026-08-12T00:00:00.000Z",
+    }),
+    observe: async (admission: SparkTurnSubmitResult) => {
+      observations.push(admission.invocationId);
+      if (admission.invocationId === "inv_retry_detach_source") throw new Error("empty response");
+      return "detached child must not be observed";
+    },
+    status: async (invocationId: string) => ({
+      invocationId,
+      status:
+        invocationId === "inv_retry_detach_source" ? ("failed" as const) : ("succeeded" as const),
+      createdAt: "2026-08-12T00:00:00.000Z",
+      updatedAt: "2026-08-12T00:00:01.000Z",
+      finishedAt: "2026-08-12T00:00:01.000Z",
+      ...(invocationId === "inv_retry_detach_source"
+        ? { error: { code: "EXECUTION_TRANSIENT", message: "empty response" } }
+        : {}),
+      eventCursor: 2,
+    }),
+    retry: async (_invocationId: string, context?: { readonly signal?: AbortSignal }) => {
+      retrySignal = context?.signal;
+      // Deliberately ignore abort and deliver a late ACK. The detached TUI must
+      // still avoid attaching a child observer.
+      return await new Promise<SparkInvocationRetryResult>((resolve) => {
+        acknowledgeRetry = resolve;
+      });
+    },
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "cancelled" as const,
+      cancelRequested: true,
+    }),
+  }) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("retry then detach");
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  const retry = session.retryLast();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(session.isProcessing, true);
+  assert.notEqual(retrySignal, undefined);
+
+  session.detach();
+  assert.equal(retrySignal?.aborted, true);
+  acknowledgeRetry?.({
+    invocationId: "inv_retry_detach_child",
+    retryOfInvocationId: "inv_retry_detach_source",
+    status: "queued",
+    acceptedAt: "2026-08-12T00:00:02.000Z",
+  });
+  assert.equal(await retry, "started");
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.deepEqual(observations, ["inv_retry_detach_source"]);
+  assert.equal(session.isProcessing, false);
+});
+
+test("Spark native session restores canonical retry after reattaching to a failed Session", async () => {
+  const admissions: string[] = [];
+  const retries: string[] = [];
+  const retryTargetReads: string[] = [];
+  const responder = Object.assign(async () => "compatibility path", {
+    admit: async (prompt: string) => {
+      admissions.push(prompt);
+      throw new Error("reattachment retry must not resubmit");
+    },
+    observe: async () => "reattached retry completed",
+    status: async (invocationId: string) => ({
+      invocationId,
+      status: "succeeded" as const,
+      createdAt: "2026-08-12T00:00:02.000Z",
+      updatedAt: "2026-08-12T00:00:03.000Z",
+      finishedAt: "2026-08-12T00:00:03.000Z",
+      eventCursor: 1,
+    }),
+    retry: async (invocationId: string) => {
+      retries.push(invocationId);
+      return {
+        invocationId: "inv_reattachedchild",
+        retryOfInvocationId: invocationId,
+        status: "queued" as const,
+        acceptedAt: "2026-08-12T00:00:02.000Z",
+      };
+    },
+    latestRetryableFailure: async () => {
+      retryTargetReads.push("read");
+      return {
+        invocationId: "inv_reattachedsource",
+        failedAt: "2026-08-12T00:00:01.000Z",
+      };
+    },
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "failed" as const,
+      cancelRequested: false,
+    }),
+  }) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+  await session.hydrateRetryableFailure();
+
+  assert.equal(session.canRetry, true);
+  assert.equal(await session.retryLast(), "started");
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.deepEqual(retryTargetReads, ["read", "read"]);
+  assert.deepEqual(retries, ["inv_reattachedsource"]);
+  assert.deepEqual(admissions, []);
+  assert.equal(
+    session.messages.some(
+      (message) => message.role === "user" && /Retry failed invocation/u.test(message.text),
+    ),
+    false,
+  );
+});
+
+test("Spark native session revalidates a hydrated retry target before mutation", async () => {
+  const retries: string[] = [];
+  let targetRead = 0;
+  const responder = Object.assign(async () => "compatibility path", {
+    admit: async () => {
+      throw new Error("stale retry target must not resubmit");
+    },
+    observe: async () => "unused",
+    latestRetryableFailure: async () => {
+      targetRead += 1;
+      if (targetRead > 1) return null;
+      return {
+        invocationId: "inv_stalehydrated",
+        failedAt: "2026-08-12T00:00:01.000Z",
+      };
+    },
+    retry: async (invocationId: string) => {
+      retries.push(invocationId);
+      return {
+        invocationId: "inv_mustnotexist",
+        retryOfInvocationId: invocationId,
+        status: "queued" as const,
+        acceptedAt: "2026-08-12T00:00:02.000Z",
+      };
+    },
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "failed" as const,
+      cancelRequested: false,
+    }),
+  }) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.hydrateRetryableFailure();
+  assert.equal(session.canRetry, true);
+  assert.equal(await session.retryLast(), "ignored");
+  assert.equal(session.canRetry, false);
+  assert.equal(targetRead, 2);
+  assert.deepEqual(retries, []);
+});
+
+test("Spark native session orders a concurrent submit after cold retry selection", async () => {
+  let releaseTarget: (() => void) | undefined;
+  let releaseObservation: (() => void) | undefined;
+  const operations: string[] = [];
+  const responder = Object.assign(async () => "compatibility path", {
+    admit: async () => {
+      operations.push("admit");
+      return {
+        invocationId: "inv_newprompt",
+        status: "queued" as const,
+        acceptedAt: "2026-08-12T00:00:03.000Z",
+      };
+    },
+    observe: async () => {
+      await new Promise<void>((resolve) => {
+        releaseObservation = resolve;
+      });
+      return "completed";
+    },
+    latestRetryableFailure: async () => {
+      await new Promise<void>((resolve) => {
+        releaseTarget = resolve;
+      });
+      return {
+        invocationId: "inv_coldretrytarget",
+        failedAt: "2026-08-12T00:00:01.000Z",
+      };
+    },
+    retry: async (invocationId: string) => {
+      operations.push("retry");
+      return {
+        invocationId: "inv_coldretrychild",
+        retryOfInvocationId: invocationId,
+        status: "queued" as const,
+        acceptedAt: "2026-08-12T00:00:02.000Z",
+      };
+    },
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "failed" as const,
+      cancelRequested: false,
+    }),
+  }) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  const retry = session.retryLast();
+  await new Promise((resolve) => setImmediate(resolve));
+  const submit = session.submit("new prompt");
+  releaseTarget?.();
+
+  assert.equal(await retry, "started");
+  assert.equal(await submit, "queued");
+  assert.deepEqual(operations, ["retry", "admit"]);
+  releaseObservation?.();
+});
+
+test("Spark native session never renders a reattached retry placeholder as user input", async () => {
+  let latestInvocationId = "inv_reattachedsource";
+  const retries: string[] = [];
+  const responder = Object.assign(async () => "compatibility path", {
+    admit: async () => {
+      throw new Error("reattached retry must not resubmit");
+    },
+    observe: async (admission: SparkTurnSubmitResult) => {
+      if (admission.invocationId === "inv_reattachedchild1") {
+        latestInvocationId = admission.invocationId;
+        throw new Error("first linked retry also failed");
+      }
+      return "second linked retry completed";
+    },
+    status: async (invocationId: string) => ({
+      invocationId,
+      status:
+        invocationId === "inv_reattachedchild1" ? ("failed" as const) : ("succeeded" as const),
+      createdAt: "2026-08-12T00:00:02.000Z",
+      updatedAt: "2026-08-12T00:00:03.000Z",
+      finishedAt: "2026-08-12T00:00:03.000Z",
+      ...(invocationId === "inv_reattachedchild1"
+        ? { error: { code: "EXECUTION_TRANSIENT", message: "first linked retry also failed" } }
+        : {}),
+      eventCursor: 2,
+    }),
+    latestRetryableFailure: async () => ({
+      invocationId: latestInvocationId,
+      failedAt: "2026-08-12T00:00:01.000Z",
+    }),
+    retry: async (invocationId: string) => {
+      retries.push(invocationId);
+      return {
+        invocationId:
+          invocationId === "inv_reattachedsource" ? "inv_reattachedchild1" : "inv_reattachedchild2",
+        retryOfInvocationId: invocationId,
+        status: "queued" as const,
+        acceptedAt: "2026-08-12T00:00:02.000Z",
+      };
+    },
+    cancel: async (invocationId: string) => ({
+      invocationId,
+      status: "failed" as const,
+      cancelRequested: false,
+    }),
+  }) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.hydrateRetryableFailure();
+  assert.equal(await session.retryLast(), "started");
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(session.canRetry, true);
+  assert.equal(await session.retryLast(), "started");
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.deepEqual(retries, ["inv_reattachedsource", "inv_reattachedchild1"]);
+  assert.equal(
+    session.messages.some(
+      (message) => message.role === "user" && /Retry failed invocation/u.test(message.text),
+    ),
+    false,
   );
 });
 

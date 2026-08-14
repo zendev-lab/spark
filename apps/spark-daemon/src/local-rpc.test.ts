@@ -3235,6 +3235,38 @@ describe("Spark daemon local RPC", () => {
       expect(JSON.stringify(bound)).not.toMatch(
         /inactive answer|system-secret|tool-secret|secret-input|sessionPath/u,
       );
+      expect((bound as { result: Record<string, unknown> }).result).not.toHaveProperty("snapshot");
+      expect((bound as { result: Record<string, unknown> }).result).not.toHaveProperty("history");
+      const promptHistoryCompatibility = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "prompt_history_compatibility",
+          method: "session.prompt-history",
+          params: { sessionId: "sess_view", limit: 100 },
+        }),
+        paths,
+        db,
+        undefined,
+        { sessionRegistry },
+      );
+      expect(promptHistoryCompatibility).toMatchObject({
+        ok: false,
+        error: { message: "Unknown local RPC method: session.prompt-history" },
+      });
+      const retryTargetCompatibility = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "retry_target_compatibility",
+          method: "session.retry-target",
+          params: { sessionId: "sess_view" },
+        }),
+        paths,
+        db,
+        undefined,
+        { sessionRegistry },
+      );
+      expect(retryTargetCompatibility).toMatchObject({
+        ok: false,
+        error: { message: "Unknown local RPC method: session.retry-target" },
+      });
 
       const preferredPath = join(
         paths.piAgentDir!,
@@ -3309,6 +3341,7 @@ describe("Spark daemon local RPC", () => {
     const modelControl = {
       snapshot: vi.fn(async () => snapshot),
       setDefaultModel: vi.fn(async () => snapshot),
+      setEnabledModels: vi.fn(async () => snapshot),
       setSessionModel: vi.fn(async () =>
         workspaceSessionRecord({
           sessionId: "sess_model",

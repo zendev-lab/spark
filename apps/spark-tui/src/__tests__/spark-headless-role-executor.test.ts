@@ -13,6 +13,7 @@ import {
 } from "@zendev-lab/spark-host/headless-loader";
 import { SparkHostRuntime } from "../host/runtime.ts";
 import {
+  preloadSparkHeadlessSessionRuntime,
   runSparkHeadlessRoleInstruction,
   runSparkHeadlessSession,
   type SparkHeadlessRoleInstructionInput,
@@ -25,6 +26,8 @@ test("daemon headless loader resolves the real worker module and provider depend
   assert.equal(typeof headless.createSparkHeadlessRoleExecutor, "function");
   assert.equal(typeof headless.createSparkHeadlessSessionExecutor, "function");
   assert.equal(typeof headless.createSparkHeadlessSessionCompactor, "function");
+  assert.equal(typeof headless.preloadSparkHeadlessSessionRuntime, "function");
+  await preloadSparkHeadlessSessionRuntime();
 });
 
 test("runSparkHeadlessSession retains the control root for nested daemon-native roles", async () => {
@@ -100,6 +103,93 @@ test("runSparkHeadlessSession streams events without retaining a duplicate event
   );
   assert.equal(buffered.eventsStreamed, undefined);
   assert.equal(buffered.jsonEvents.length, 3);
+});
+
+test("runSparkHeadlessSession waits for accepted async event delivery before success", async () => {
+  let releaseDelivery!: () => void;
+  const delivery = new Promise<void>((resolve) => {
+    releaseDelivery = resolve;
+  });
+  let resolved = false;
+  const running = runSparkHeadlessSession(
+    {
+      cwd: process.cwd(),
+      sessionId: "session-async-event-delivery",
+      prompt: "finish",
+      onEvent: () => delivery,
+    },
+    { createServices: async () => eventfulHeadlessServices(1) as never },
+  ).then((result) => {
+    resolved = true;
+    return result;
+  });
+
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(resolved, false);
+  releaseDelivery();
+  await running;
+  assert.equal(resolved, true);
+});
+
+test("runSparkHeadlessSession drains event delivery failures and preserves the primary error", async () => {
+  const deliveryError = new Error("terminal projection failed");
+  let shutdownCalls = 0;
+  const syncFailure = eventfulHeadlessServices(1);
+  syncFailure.runtime.shutdown = async () => {
+    shutdownCalls += 1;
+  };
+  await assert.rejects(
+    runSparkHeadlessSession(
+      {
+        cwd: process.cwd(),
+        sessionId: "session-event-delivery-failed",
+        prompt: "finish",
+        onEvent: () => {
+          throw deliveryError;
+        },
+      },
+      { createServices: async () => syncFailure as never },
+    ),
+    (error) => error === deliveryError,
+  );
+
+  const primaryError = new Error("session execution failed");
+  let releaseDelivery!: () => void;
+  const delivery = new Promise<void>((resolve) => {
+    releaseDelivery = resolve;
+  });
+  const primaryFailure = eventfulHeadlessServices(1);
+  const originalOnEvent = primaryFailure.agentLoop.onEvent;
+  let listener: ((event: never) => void) | undefined;
+  primaryFailure.agentLoop.onEvent = (next: (event: never) => void) => {
+    listener = next;
+    return originalOnEvent(next);
+  };
+  primaryFailure.agentLoop.submitWithOutcome = async () => {
+    listener?.({ type: "runtime_message", item: { terminal: true } } as never);
+    throw primaryError;
+  };
+  primaryFailure.runtime.shutdown = async () => {
+    shutdownCalls += 1;
+  };
+  let rejected = false;
+  const running = runSparkHeadlessSession(
+    {
+      cwd: process.cwd(),
+      sessionId: "session-primary-failure-drain",
+      prompt: "fail",
+      onEvent: () => delivery,
+    },
+    { createServices: async () => primaryFailure as never },
+  ).catch((error: unknown) => {
+    rejected = true;
+    throw error;
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(rejected, false);
+  releaseDelivery();
+  await assert.rejects(running, (error) => error === primaryError);
+  assert.equal(shutdownCalls, 2);
 });
 
 test("headless sessions release extension resources after success and failure", async () => {
@@ -394,7 +484,31 @@ test("runSparkHeadlessSession classifies provider stream read errors as transien
       return true;
     },
   );
-});
+}, 15_000);
+
+test("runSparkHeadlessSession preserves an exhausted empty-response code as transient", async () => {
+  await assert.rejects(
+    runSparkHeadlessSession(
+      { cwd: process.cwd(), sessionId: "session-empty-response", prompt: "hello" },
+      {
+        createServices: async () =>
+          headlessServices(async () => ({
+            status: "failed",
+            assistant: successfulOutcome("").assistant,
+            roundtrips: 4,
+            errorMessage: "model completed without a displayable response",
+            errorCode: "MODEL_EMPTY_RESPONSE",
+          })) as never,
+      },
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal((error as Error & { code?: string }).code, "EXECUTION_TRANSIENT");
+      assert.match(error.message, /without a displayable response/u);
+      return true;
+    },
+  );
+}, 15_000);
 
 test("runSparkHeadlessSession preserves an active caller cancellation", async () => {
   const controller = new AbortController();
@@ -909,6 +1023,26 @@ test("runSparkHeadlessRoleInstruction fails closed when a scheduler worker omits
   assert.match(result.outcome.reason, /without calling role_report_outcome/u);
 });
 
+test("runSparkHeadlessRoleInstruction applies the frozen child thinking level", async () => {
+  const services = headlessRoleServices(async (tools) => {
+    await executeRoleOutcomeTool(tools, {
+      kind: "completed",
+      code: "thinking_applied",
+      reason: "Child thinking level was applied before execution",
+    });
+    return successfulOutcome("thinking applied");
+  });
+  const input = roleInstructionInput("thinking");
+  input.thinking = "low";
+
+  const result = await runSparkHeadlessRoleInstruction(input, {
+    createServices: async () => services as never,
+  });
+
+  assert.equal(services.config.activeThinkingLevel, "low");
+  assert.equal(result.record.status, "succeeded");
+});
+
 test("runSparkHeadlessRoleInstruction records provider resolution failures structurally", async () => {
   const services = headlessRoleServices(async () => successfulOutcome("must not run"));
   services.providerRegistry = {
@@ -982,6 +1116,7 @@ function headlessRoleServices(
   const tools = new Map<string, ToolConfig>();
   let activeTools = ["read"];
   return {
+    config: { activeThinkingLevel: "high" },
     agentLoop: {
       onEvent: () => () => undefined,
       setViewSessionId: () => undefined,

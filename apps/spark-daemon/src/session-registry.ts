@@ -10,6 +10,7 @@ import type {
   SparkSessionScope,
   SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
+import { setImmediate as yieldToMacrotask } from "node:timers/promises";
 import {
   defaultSparkSessionRegistryRoot,
   SparkSessionRegistry,
@@ -26,6 +27,7 @@ import {
   type SealSparkSessionCloseReceiptInput,
   type TransitionSparkSessionLifecycleInput,
 } from "@zendev-lab/spark-session";
+import type { SparkInvocationRecord } from "./store/invocations.ts";
 
 /**
  * The daemon-owned session registry surface. Every daemon subsystem that can
@@ -37,6 +39,13 @@ export interface DaemonSessionRegistry {
   createSupervised(input: CreateSparkSessionInput): Promise<SparkSessionState>;
   list(options?: DaemonSessionListRequest): Promise<SparkSessionState[]>;
   get(sessionId: string): Promise<SparkSessionState | undefined>;
+  /**
+   * Read the last atomically committed scope/owner snapshot for an existing
+   * invocation's visibility gate. These fields are immutable after Session
+   * creation, so this deliberately does not wait for unrelated registry
+   * mutations such as terminal transcript bookkeeping.
+   */
+  getInvocationVisibilitySnapshot(sessionId: string): Promise<SparkSessionState | undefined>;
   bind(input: SparkSessionBindRequest): Promise<SparkSessionState>;
   unbind(
     sessionId: string,
@@ -50,7 +59,6 @@ export interface DaemonSessionRegistry {
   sealCloseReceipt(input: SealSparkSessionCloseReceiptInput): Promise<SparkSessionState>;
   restore(sessionId: SparkSessionGetRequest["sessionId"], now?: Date): Promise<SparkSessionState>;
   close(input: CloseSparkSessionInput): Promise<SparkSessionState>;
-  finalizeClose(sessionId: string, now?: Date): Promise<SparkSessionState>;
   ensureWorkspaceAdministrator(workspaceId: string): Promise<SparkSessionState>;
   setNameIfMissing(sessionId: string, name: string): Promise<SparkSessionState>;
   setModel(sessionId: string, model: SparkModelRef): Promise<SparkSessionState>;
@@ -60,6 +68,24 @@ export interface DaemonSessionRegistry {
   ): Promise<SparkSessionState>;
   recordTurnQueued(sessionId: string, now?: Date): Promise<SparkSessionState>;
   recordTurnSettled(sessionId: string, now?: Date): Promise<SparkSessionState>;
+  /**
+   * Linearize a synchronous daemon-owned mutation with Session lifecycle
+   * transitions without changing turn or Invocation activity.
+   */
+  commitOpenSessionMutation<T>(
+    sessionId: string,
+    commit: (session: SparkSessionState) => T,
+  ): Promise<T>;
+  /**
+   * Linearize an Invocation admission with Session lifecycle mutations. The
+   * callback must remain synchronous so a queued row is visible before the
+   * registry writer admits a competing close.
+   */
+  commitInvocationAdmission(
+    sessionId: string,
+    admit: (session: SparkSessionState) => SparkInvocationRecord,
+    now?: Date,
+  ): Promise<SparkInvocationRecord>;
   recordRun(input: {
     sessionId: string;
     sessionPath: string;
@@ -75,6 +101,14 @@ export interface DaemonSessionRegistry {
   commitTranscriptReplacement(
     input: CommitDaemonSessionTranscriptReplacementInput,
     replace: () => Promise<void>,
+  ): Promise<SparkSessionState>;
+  /**
+   * Keep closed-session transcript deletion and registry reference cleanup
+   * behind the daemon's single Session mutation writer.
+   */
+  commitClosedTranscriptDiscard(
+    input: CommitDaemonClosedTranscriptDiscardInput,
+    discard: () => Promise<void>,
   ): Promise<SparkSessionState>;
   bindTranscriptPath(input: {
     sessionId: string;
@@ -103,6 +137,14 @@ export interface CommitDaemonSessionTranscriptReplacementInput extends RecordSpa
   expectedLifecycle: "open";
 }
 
+export interface CommitDaemonClosedTranscriptDiscardInput {
+  sessionId: string;
+  expectedIncarnation: number;
+  expectedSessionPath?: string;
+  expectedTranscriptRef?: string;
+  now?: Date;
+}
+
 /** Diagnostic child visibility is daemon-internal and absent from the wire schema. */
 export type DaemonSessionListRequest = SparkSessionListRequest & {
   includeClosed?: boolean;
@@ -128,6 +170,11 @@ export interface CreateDaemonSessionRegistryOptions {
   }) => Promise<{ cwd: string; cwdArtifactRef?: string }>;
 }
 
+export interface SerializeDaemonSessionRegistryOptions {
+  /** Test seam for the cooperative boundary between queued registry mutations. */
+  yieldBetweenMutations?: () => Promise<void>;
+}
+
 /**
  * Serialize complete registry transitions, including resolveBinding's
  * create-and-bind sequence. Reads wait for earlier mutations so callers never
@@ -135,18 +182,26 @@ export interface CreateDaemonSessionRegistryOptions {
  */
 export function createSerializedDaemonSessionRegistry(
   registry: DaemonSessionRegistry,
+  options: SerializeDaemonSessionRegistryOptions = {},
 ): DaemonSessionRegistry {
   let mutationTail: Promise<void> = Promise.resolve();
+  const yieldBetweenMutations =
+    options.yieldBetweenMutations ?? (async () => await yieldToMacrotask());
+  const yieldWithoutPoisoningQueue = async (): Promise<void> => {
+    try {
+      await yieldBetweenMutations();
+    } catch {
+      // The cooperative boundary is not registry state. Preserve the prior
+      // behavior where one failed queue item cannot poison later mutations.
+    }
+  };
   const readAfterMutations = async <T>(read: () => Promise<T>): Promise<T> => {
     await mutationTail;
     return await read();
   };
   const mutate = <T>(operation: () => Promise<T>): Promise<T> => {
     const result = mutationTail.then(operation);
-    mutationTail = result.then(
-      () => undefined,
-      () => undefined,
-    );
+    mutationTail = result.then(yieldWithoutPoisoningQueue, yieldWithoutPoisoningQueue);
     return result;
   };
   return {
@@ -154,6 +209,8 @@ export function createSerializedDaemonSessionRegistry(
     createSupervised: (input) => mutate(() => registry.createSupervised(input)),
     list: (options) => readAfterMutations(() => registry.list(options)),
     get: (sessionId) => readAfterMutations(() => registry.get(sessionId)),
+    getInvocationVisibilitySnapshot: (sessionId) =>
+      registry.getInvocationVisibilitySnapshot(sessionId),
     bind: (input) => mutate(() => registry.bind(input)),
     unbind: (sessionId, externalKey, adapterAccountIdentity) =>
       mutate(() => registry.unbind(sessionId, externalKey, adapterAccountIdentity)),
@@ -163,7 +220,6 @@ export function createSerializedDaemonSessionRegistry(
     sealCloseReceipt: (input) => mutate(() => registry.sealCloseReceipt(input)),
     restore: (sessionId, now) => mutate(() => registry.restore(sessionId, now)),
     close: (input) => mutate(() => registry.close(input)),
-    finalizeClose: (sessionId, now) => mutate(() => registry.finalizeClose(sessionId, now)),
     ensureWorkspaceAdministrator: (workspaceId) =>
       mutate(() => registry.ensureWorkspaceAdministrator(workspaceId)),
     setNameIfMissing: (sessionId, name) => mutate(() => registry.setNameIfMissing(sessionId, name)),
@@ -172,9 +228,15 @@ export function createSerializedDaemonSessionRegistry(
       mutate(() => registry.setThinkingLevel(sessionId, thinkingLevel)),
     recordTurnQueued: (sessionId, now) => mutate(() => registry.recordTurnQueued(sessionId, now)),
     recordTurnSettled: (sessionId, now) => mutate(() => registry.recordTurnSettled(sessionId, now)),
+    commitOpenSessionMutation: (sessionId, commit) =>
+      mutate(() => registry.commitOpenSessionMutation(sessionId, commit)),
+    commitInvocationAdmission: (sessionId, admit, now) =>
+      mutate(() => registry.commitInvocationAdmission(sessionId, admit, now)),
     recordRun: (input) => mutate(() => registry.recordRun(input)),
     commitTranscriptReplacement: (input, replace) =>
       mutate(() => registry.commitTranscriptReplacement(input, replace)),
+    commitClosedTranscriptDiscard: (input, discard) =>
+      mutate(() => registry.commitClosedTranscriptDiscard(input, discard)),
     bindTranscriptPath: (input) => mutate(() => registry.bindTranscriptPath(input)),
     relocateTranscriptPath: (input) => mutate(() => registry.relocateTranscriptPath(input)),
     ensureSideThread: (input) => mutate(() => registry.ensureSideThread(input)),
@@ -199,6 +261,7 @@ export function createDaemonSessionRegistry(
       await registry.create(await resolveRegistryCreateInput(input, options)),
     list: async (request = {}) => await registry.list(resolveListRequest(request, options)),
     get: async (sessionId) => await registry.get(sessionId),
+    getInvocationVisibilitySnapshot: async (sessionId) => await registry.get(sessionId),
     bind: async (input) => await registry.bind(input),
     unbind: async (sessionId, externalKey, adapterAccountIdentity) =>
       await registry.unbind(sessionId, externalKey, adapterAccountIdentity),
@@ -208,7 +271,6 @@ export function createDaemonSessionRegistry(
     sealCloseReceipt: async (input) => await registry.sealCloseReceipt(input),
     restore: async (sessionId, now) => await registry.restore(sessionId, now),
     close: async (input) => await registry.close(input),
-    finalizeClose: async (sessionId, now) => await registry.finalizeClose(sessionId, now),
     ensureWorkspaceAdministrator: async (workspaceId) => {
       const cwd = options.resolveWorkspaceCwd?.(workspaceId)?.trim();
       if (options.resolveWorkspaceCwd && !cwd) {
@@ -228,12 +290,31 @@ export function createDaemonSessionRegistry(
       await registry.setThinkingLevel(sessionId, thinkingLevel),
     recordTurnQueued: async (sessionId, now) => await registry.recordTurnQueued(sessionId, now),
     recordTurnSettled: async (sessionId, now) => await registry.recordTurnSettled(sessionId, now),
+    commitOpenSessionMutation: async (sessionId, commit) => {
+      const session = await registry.get(sessionId);
+      assertOpenSessionMutationFence(session, sessionId);
+      return commit(session);
+    },
+    commitInvocationAdmission: async (sessionId, admit, now) => {
+      const session = await registry.recordTurnQueued(sessionId, now);
+      return admit(session);
+    },
     recordRun: async (input) => await registry.recordRun(input),
     commitTranscriptReplacement: async (input, replace) => {
       const session = await registry.get(input.sessionId);
       assertTranscriptReplacementFence(session, input);
       await replace();
       return session!;
+    },
+    commitClosedTranscriptDiscard: async (input, discard) => {
+      const session = await registry.get(input.sessionId);
+      assertClosedTranscriptDiscardFence(session, input);
+      await discard();
+      return await registry.archiveOwned({
+        sessionId: input.sessionId,
+        discardTranscript: true,
+        ...(input.now ? { now: input.now } : {}),
+      });
     },
     bindTranscriptPath: async (input) => await registry.bindTranscriptPath(input),
     relocateTranscriptPath: async (input) => await registry.relocateTranscriptPath(input),
@@ -271,6 +352,27 @@ export function createDaemonSessionRegistry(
   return createSerializedDaemonSessionRegistry(ownedRegistry);
 }
 
+function assertOpenSessionMutationFence(
+  session: SparkSessionState | undefined,
+  sessionId: string,
+): asserts session is SparkSessionState {
+  if (!session) {
+    throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
+  }
+  if (session.lifecycle !== "open") {
+    throw new SparkSessionRegistryError(
+      session.lifecycle === "closing" ? "session_closing" : "session_closed",
+      `cannot mutate ${session.lifecycle} Session ${sessionId}`,
+    );
+  }
+  if (session.placement === "archived") {
+    throw new SparkSessionRegistryError(
+      "session_archived",
+      `cannot mutate archived Session ${sessionId}`,
+    );
+  }
+}
+
 function assertTranscriptReplacementFence(
   session: SparkSessionState | undefined,
   input: CommitDaemonSessionTranscriptReplacementInput,
@@ -290,6 +392,29 @@ function assertTranscriptReplacementFence(
       `session ${input.sessionId} changed before transcript replacement`,
     );
   }
+}
+
+function assertClosedTranscriptDiscardFence(
+  session: SparkSessionState | undefined,
+  input: CommitDaemonClosedTranscriptDiscardInput,
+): asserts session is SparkSessionState {
+  if (
+    !session ||
+    (session.incarnation ?? 1) !== input.expectedIncarnation ||
+    session.lifecycle !== "closed" ||
+    !sameOptionalPath(session.sessionPath, input.expectedSessionPath) ||
+    !sameOptionalPath(session.transcriptRef, input.expectedTranscriptRef)
+  ) {
+    throw new SparkSessionRegistryError(
+      "session_transcript_cas_failed",
+      `session ${input.sessionId} changed before closed transcript discard`,
+    );
+  }
+}
+
+function sameOptionalPath(left: string | undefined, right: string | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return resolve(left) === resolve(right);
 }
 
 async function resolveCreateRequest(

@@ -1,6 +1,8 @@
 import { appendFileSync } from "node:fs";
 
 import { runNativeSparkTui } from "../native-tui/run.ts";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
+import { sparkNativeReproSessionView } from "./spark-native-repro-view-fixture.ts";
 
 const reportPath = requiredEnvironmentVariable("SPARK_TUI_DIRECT_PTY_REPORT");
 const scenario = process.env.SPARK_TUI_DIRECT_PTY_SCENARIO;
@@ -38,7 +40,7 @@ async function main(): Promise<void> {
   report("boot");
 
   try {
-    await runNativeSparkTui({
+    const reason = await runNativeSparkTui({
       responder: (input) =>
         scenario === "queue" && input === "hold"
           ? new Promise<string>(() => undefined)
@@ -55,8 +57,15 @@ async function main(): Promise<void> {
               },
             }
           : undefined,
-      configureApp(_app, session) {
+      configureApp(app, session) {
         session.addSystemMessage("direct PTY ready");
+        if (scenario === "repro") {
+          app.applyViewModelEvent({
+            version: SPARK_PROTOCOL_VERSION,
+            type: "session.snapshot",
+            session: sparkNativeReproSessionView({ includeMessages: true }),
+          });
+        }
         if (scenario === "navigation") {
           for (let index = 0; index < 30; index += 1) {
             session.addSystemMessage(`navigation-history-${index}`);
@@ -70,7 +79,7 @@ async function main(): Promise<void> {
         }, 5);
       },
     });
-    report("stopped");
+    report("stopped", { reason });
   } finally {
     if (rawModeProbe) clearInterval(rawModeProbe);
     process.stdout.off("resize", recordResize);

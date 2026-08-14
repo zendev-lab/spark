@@ -5,7 +5,12 @@ import {
   type SparkEvidenceExpectedAnswerKind,
 } from "./human-interaction.ts";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
-import { sparkSessionPendingTurnSchema } from "./session-assignment.ts";
+import {
+  SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES,
+  SPARK_SESSION_PROMPT_HISTORY_MAX,
+  sparkSessionPendingTurnSchema,
+  sparkSessionSubmittedInputTextSchema,
+} from "./session-assignment.ts";
 import { sparkLoopViewSchema } from "./loop.ts";
 import {
   sparkTokenUsageAggregateSchema,
@@ -562,8 +567,17 @@ export const sparkSessionPrimaryWorkViewSchema = z.object({
 export const sparkSessionGoalWorkViewSchema = z.object({
   goalId: z.string().min(1),
   objective: z.string().min(1),
-  status: z.enum(["active", "paused", "complete"]),
+  status: z.enum(["active", "waiting_decision", "paused", "complete"]),
   reason: z.string().min(1).optional(),
+  readiness: z
+    .object({
+      readyTaskRefs: z.array(z.string().regex(/^task:.+/u)).max(6),
+      readyTaskCount: z.number().int().nonnegative(),
+      blockedTaskRefs: z.array(z.string().regex(/^task:.+/u)).max(6),
+      blockedTaskCount: z.number().int().nonnegative(),
+      pendingRequestCount: z.number().int().nonnegative(),
+    })
+    .optional(),
   updatedAt: sparkIsoDateTimeSchema,
 });
 
@@ -583,6 +597,72 @@ export const sparkSessionVerificationReceiptViewSchema = z.object({
   proofKind: z.enum(["evidence", "decision", "approval"]),
   verifiedDoneWhen: z.array(z.string().min(1)),
   evidenceRefs: z.array(z.string().min(1)),
+});
+
+export const SPARK_SESSION_REPRO_LANE_ITEM_LIMIT = 6 as const;
+
+export const sparkSessionReproLaneItemViewSchema = z.object({
+  workItemId: z.string().min(1).max(128),
+  title: z.string().min(1).max(160),
+  status: z.enum(["open", "blocked", "completed", "superseded"]),
+  taskRef: z
+    .string()
+    .regex(/^task:.+/u)
+    .optional(),
+  runRef: z
+    .string()
+    .regex(/^run:.+/u)
+    .optional(),
+  gitChangeRef: z
+    .string()
+    .regex(/^artifact:.+/u)
+    .optional(),
+  evidenceRefs: z.array(z.string().regex(/^evidence:.+/u)).max(6),
+  handoffCount: z.number().int().nonnegative(),
+  resolutionCount: z.number().int().nonnegative(),
+});
+
+export const sparkSessionReproLaneSummaryViewSchema = z
+  .object({
+    status: z.enum(["empty", "active", "blocked", "complete"]),
+    totalCount: z.number().int().nonnegative(),
+    openCount: z.number().int().nonnegative(),
+    blockedCount: z.number().int().nonnegative(),
+    completedCount: z.number().int().nonnegative(),
+    supersededCount: z.number().int().nonnegative(),
+    pendingHandoffCount: z.number().int().nonnegative(),
+    resolutionCount: z.number().int().nonnegative(),
+    items: z.array(sparkSessionReproLaneItemViewSchema).max(SPARK_SESSION_REPRO_LANE_ITEM_LIMIT),
+  })
+  .superRefine((lane, context) => {
+    const counted = lane.openCount + lane.blockedCount + lane.completedCount + lane.supersededCount;
+    if (counted !== lane.totalCount) {
+      context.addIssue({ code: "custom", message: "lane status counts must equal totalCount" });
+    }
+    if (lane.items.length > lane.totalCount) {
+      context.addIssue({ code: "custom", message: "lane items cannot exceed totalCount" });
+    }
+    if (new Set(lane.items.map((item) => item.workItemId)).size !== lane.items.length) {
+      context.addIssue({ code: "custom", message: "lane workItemId values must be unique" });
+    }
+    const expectedStatus =
+      lane.totalCount === 0
+        ? "empty"
+        : lane.blockedCount > 0
+          ? "blocked"
+          : lane.openCount > 0
+            ? "active"
+            : "complete";
+    if (lane.status !== expectedStatus) {
+      context.addIssue({ code: "custom", message: "lane status does not match its counts" });
+    }
+  });
+
+export const sparkSessionReproLanesViewSchema = z.object({
+  implementation: sparkSessionReproLaneSummaryViewSchema,
+  exactness: sparkSessionReproLaneSummaryViewSchema,
+  formalize: sparkSessionReproLaneSummaryViewSchema,
+  formalizedTip: z.string().min(1).max(256).optional(),
 });
 
 export const sparkSessionReproWorkViewSchema = z.object({
@@ -611,6 +691,8 @@ export const sparkSessionReproWorkViewSchema = z.object({
     limit: z.number().int().positive(),
   }),
   latestVerification: sparkSessionVerificationReceiptViewSchema.optional(),
+  /** Bounded, display-safe lane summaries. Full domain records remain Repro-owned. */
+  lanes: sparkSessionReproLanesViewSchema.optional(),
   /** Daemon-owned Repro-scope ledger projection; never derived from transcript or Session totals. */
   tokenUsage: sparkTokenUsageAggregateSchema.optional(),
   /** Bounded diagnostic split; it exposes aggregates, never receipt bodies. */
@@ -727,6 +809,42 @@ export const sparkSessionSnapshotPageSchema = z
         code: "custom",
         path: ["history", "nextBeforeMessageId"],
         message: "final snapshot page cannot have a continuation cursor",
+      });
+    }
+  });
+
+/** Daemon-owned durable prompt recall projection, separate from the rendered transcript. */
+export const sparkSessionPromptHistoryEntrySchema = z.object({
+  messageId: z.string().min(1),
+  text: sparkSessionSubmittedInputTextSchema,
+});
+
+export const sparkSessionPromptHistorySchema = z
+  .object({
+    sessionId: z.string().min(1),
+    prompts: z.array(sparkSessionPromptHistoryEntrySchema).max(SPARK_SESSION_PROMPT_HISTORY_MAX),
+    totalPrompts: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .superRefine((history, context) => {
+    if (history.prompts.length > history.totalPrompts) {
+      context.addIssue({
+        code: "custom",
+        path: ["totalPrompts"],
+        message: "prompt history total cannot be smaller than its projection",
+      });
+    }
+    if (history.truncated !== history.totalPrompts > history.prompts.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["truncated"],
+        message: "prompt history truncation flag does not match its total",
+      });
+    }
+    if (utf8ByteLength(JSON.stringify(history)) > SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES) {
+      context.addIssue({
+        code: "custom",
+        message: `prompt history exceeds ${SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES} bytes`,
       });
     }
   });
@@ -1150,11 +1268,18 @@ export type SparkSessionReproCurrentStepView = z.infer<
 export type SparkSessionVerificationReceiptView = z.infer<
   typeof sparkSessionVerificationReceiptViewSchema
 >;
+export type SparkSessionReproLaneItemView = z.infer<typeof sparkSessionReproLaneItemViewSchema>;
+export type SparkSessionReproLaneSummaryView = z.infer<
+  typeof sparkSessionReproLaneSummaryViewSchema
+>;
+export type SparkSessionReproLanesView = z.infer<typeof sparkSessionReproLanesViewSchema>;
 export type SparkSessionReproWorkView = z.infer<typeof sparkSessionReproWorkViewSchema>;
 export type SparkSessionWorkView = z.infer<typeof sparkSessionWorkViewSchema>;
 export type SparkSessionView = z.infer<typeof sparkSessionViewSchema>;
 export type SparkSessionSnapshotHistory = z.infer<typeof sparkSessionSnapshotHistorySchema>;
 export type SparkSessionSnapshotPage = z.infer<typeof sparkSessionSnapshotPageSchema>;
+export type SparkSessionPromptHistoryEntry = z.infer<typeof sparkSessionPromptHistoryEntrySchema>;
+export type SparkSessionPromptHistory = z.infer<typeof sparkSessionPromptHistorySchema>;
 export type SparkAskQuestionView = z.infer<typeof sparkAskQuestionViewSchema>;
 export type SparkAskAcknowledgement = z.infer<typeof sparkAskAcknowledgementSchema>;
 export type SparkInteractionCapabilities = z.infer<typeof sparkInteractionCapabilitiesSchema>;
@@ -1199,6 +1324,10 @@ export function parseSparkInteractionResponse(value: unknown): SparkInteractionR
 
 export function parseSparkSessionView(value: unknown): SparkSessionView {
   return sparkSessionViewSchema.parse(value);
+}
+
+export function parseSparkSessionPromptHistory(value: unknown): SparkSessionPromptHistory {
+  return sparkSessionPromptHistorySchema.parse(value);
 }
 
 export function parseSparkViewModelEvent(value: unknown): SparkViewModelEvent {

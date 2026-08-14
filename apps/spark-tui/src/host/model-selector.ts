@@ -9,7 +9,7 @@
  * injected through `picker` when the real boot path wires Ctrl+L.
  */
 
-import { resolveSparkScopedModelIds } from "@zendev-lab/spark-ai/control";
+import { resolveSparkEnabledModelIds } from "@zendev-lab/spark-ai/control";
 import type { SparkConfig } from "./config.ts";
 import { loadSparkConfig, saveSparkConfig } from "./config.ts";
 import type { SparkKeybindingContext, SparkKeybindings } from "./keybindings.ts";
@@ -38,6 +38,14 @@ export interface SparkModelSelectorItem {
   unavailableReason?: string;
   loginCommand?: string;
   reasoning: boolean;
+}
+
+export interface SparkEnabledModelEditorItem extends SparkModelSelectorItem {
+  enabled: boolean;
+}
+
+export interface SparkEnabledModelCatalogState {
+  items: SparkEnabledModelEditorItem[];
 }
 
 export interface SparkModelProviderGroup {
@@ -89,20 +97,32 @@ export class SparkModelSelector {
 
   listProviderGroups(): SparkModelProviderGroup[] {
     const active = this.registry.getActive();
-    const scopedModelIds = this.scopedModelIds();
+    const enabledModelIds = this.enabledModelIds();
     return this.registry.listProviders().map((provider) => ({
       providerName: provider.name,
       providerLabel: provider.name,
       active: active?.providerName === provider.name,
       models: this.registry
         .listModelsFor(provider.name)
-        .filter((model) => !scopedModelIds || scopedModelIds.has(`${provider.name}/${model.id}`))
+        .filter((model) => !enabledModelIds || enabledModelIds.has(`${provider.name}/${model.id}`))
         .map((model) => toSelectorItem(provider, model, active)),
     }));
   }
 
   listItems(): SparkModelSelectorItem[] {
     return this.listProviderGroups().flatMap((provider) => provider.models);
+  }
+
+  /** Complete catalog for enabled-model policy editing; never filters by enabledModels. */
+  listCatalogItems(): SparkModelSelectorItem[] {
+    const active = this.registry.getActive();
+    return this.registry
+      .listProviders()
+      .flatMap((provider) =>
+        this.registry
+          .listModelsFor(provider.name)
+          .map((model) => toSelectorItem(provider, model, active)),
+      );
   }
 
   getPickerState(): SparkModelPickerState {
@@ -129,10 +149,10 @@ export class SparkModelSelector {
    * `SparkProviderRegistry.setActive` does all provider/model validation.
    */
   async select(selection: SparkActiveSelection): Promise<SparkActiveSelection> {
-    const scopedModelIds = this.scopedModelIds();
+    const enabledModelIds = this.enabledModelIds();
     const modelValue = `${selection.providerName}/${selection.modelId}`;
-    if (scopedModelIds && !scopedModelIds.has(modelValue)) {
-      throw new Error(`Spark model ${modelValue} is outside the configured enabledModels scope`);
+    if (enabledModelIds && !enabledModelIds.has(modelValue)) {
+      throw new Error(`Spark model ${modelValue} is not configured in enabledModels`);
     }
     this.registry.setActive(selection);
     const active = this.registry.getActive() ?? selection;
@@ -196,11 +216,11 @@ export class SparkModelSelector {
     return item ? selectionFromItem(item) : undefined;
   }
 
-  private scopedModelIds(): Set<string> | undefined {
+  private enabledModelIds(): Set<string> | undefined {
     const patterns = this.config?.enabledModels;
     return patterns === undefined
       ? undefined
-      : new Set(resolveSparkScopedModelIds(this.registry, patterns));
+      : new Set(resolveSparkEnabledModelIds(this.registry, patterns));
   }
 
   private async getConfig(): Promise<SparkConfig> {

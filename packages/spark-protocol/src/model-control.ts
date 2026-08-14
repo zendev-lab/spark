@@ -68,14 +68,19 @@ export const sparkSessionModelSelectionSchema = z.object({
 export const sparkModelControlSnapshotSchema = z.object({
   providers: z.array(sparkModelCatalogProviderSchema).default([]),
   defaultModel: sparkModelRefSchema.optional(),
-  /** Resolved user policy. Omitted only by older daemons. */
-  scopedModels: z.array(sparkModelRefSchema).optional(),
+  /** Models resolved from the user's enabledModels policy; absent on older daemons. */
+  enabledModels: z.array(sparkModelRefSchema).optional(),
   session: sparkSessionModelSelectionSchema.optional(),
   diagnostics: z.array(z.string()).default([]),
 });
 
 export const sparkDefaultModelSetRequestSchema = z.object({
   model: sparkModelRefSchema,
+});
+
+/** Replace the user's enabledModels policy with exact catalog model refs. */
+export const sparkEnabledModelsSetRequestSchema = z.object({
+  models: z.array(sparkModelRefSchema),
 });
 
 export const sparkModelConnectivityTestRequestSchema = z.object({
@@ -87,7 +92,7 @@ export const sparkModelConnectivityFailureReasonSchema = z.enum([
   "timeout",
   "authentication-unavailable",
   "no-model",
-  "model-out-of-scope",
+  "model-not-enabled",
   "model-binding-unavailable",
   "route-unavailable",
   "model-call-failed",
@@ -215,6 +220,7 @@ export type SparkModelCatalogProvider = z.infer<typeof sparkModelCatalogProvider
 export type SparkSessionModelSelection = z.infer<typeof sparkSessionModelSelectionSchema>;
 export type SparkModelControlSnapshot = z.infer<typeof sparkModelControlSnapshotSchema>;
 export type SparkDefaultModelSetRequest = z.infer<typeof sparkDefaultModelSetRequestSchema>;
+export type SparkEnabledModelsSetRequest = z.infer<typeof sparkEnabledModelsSetRequestSchema>;
 export type SparkModelConnectivityFailureReason = z.infer<
   typeof sparkModelConnectivityFailureReasonSchema
 >;
@@ -242,6 +248,10 @@ export function parseSparkAuthImportReport(value: unknown): SparkAuthImportRepor
 
 export function parseSparkDefaultModelSetRequest(value: unknown): SparkDefaultModelSetRequest {
   return sparkDefaultModelSetRequestSchema.parse(value);
+}
+
+export function parseSparkEnabledModelsSetRequest(value: unknown): SparkEnabledModelsSetRequest {
+  return sparkEnabledModelsSetRequestSchema.parse(value);
 }
 
 export function parseSparkModelConnectivityTestResult(

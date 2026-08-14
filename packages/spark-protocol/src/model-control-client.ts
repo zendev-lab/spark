@@ -23,6 +23,7 @@ export interface SparkModelControlClient {
   setSessionModel(model: SparkModelRef): Promise<SparkSessionProjection>;
   setSessionThinkingLevel(thinkingLevel: SparkThinkingLevel): Promise<SparkSessionProjection>;
   setDefaultModel(model: SparkModelRef): Promise<SparkModelControlSnapshot>;
+  setEnabledModels(models: readonly SparkModelRef[]): Promise<SparkModelControlSnapshot>;
   setApiKey(
     providerName: string,
     apiKey: string,
@@ -85,6 +86,8 @@ export function createSparkModelControlClient(
     },
     setDefaultModel: async (model) =>
       parseSparkModelControlSnapshot(await transport("model.default.set", { model })),
+    setEnabledModels: async (models) =>
+      parseSparkModelControlSnapshot(await transport("model.enabled.set", { models })),
     setApiKey: async (providerName, apiKey, extra) =>
       parseSparkModelControlSnapshot(
         await transport("provider.auth.api-key.set", { providerName, apiKey, ...extra }),

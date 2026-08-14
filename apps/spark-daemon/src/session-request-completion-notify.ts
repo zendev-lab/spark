@@ -20,7 +20,7 @@ export interface SessionRequestCompletionNotifyDependencies {
     "claim" | "claimPending" | "recordFailure" | "markDelivered"
   >;
   mailStore?: Pick<SparkSessionMailStore, "send">;
-  sessionRegistry: Pick<DaemonSessionRegistry, "get" | "recordTurnQueued">;
+  sessionRegistry: Pick<DaemonSessionRegistry, "get" | "commitInvocationAdmission">;
   modelControl?: Pick<
     SparkDaemonModelControl,
     "effectiveModel" | "effectiveThinkingLevel" | "prepareModel"
@@ -90,15 +90,16 @@ export async function notifySessionRequestCompletion(
   const existing = deps.invocationStore.findByIdempotencyKey(candidate.idempotencyKey);
   const submitted =
     existing ??
-    deps.invocationStore.submit({
-      sessionId: candidate.fromSessionId,
-      idempotencyKey: candidate.idempotencyKey,
-      prompt,
-      task,
-      sourceKind: SESSION_REQUEST_COMPLETION_SOURCE_KIND,
-      sourceRef: input.invocation.invocationId,
-    });
-  await deps.sessionRegistry.recordTurnQueued(candidate.fromSessionId);
+    (await deps.sessionRegistry.commitInvocationAdmission(candidate.fromSessionId, () =>
+      deps.invocationStore.submit({
+        sessionId: candidate.fromSessionId,
+        idempotencyKey: candidate.idempotencyKey,
+        prompt,
+        task,
+        sourceKind: SESSION_REQUEST_COMPLETION_SOURCE_KIND,
+        sourceRef: input.invocation.invocationId,
+      }),
+    ));
   return existing
     ? { submitted: false, skippedReason: "already_notified", invocationId: submitted.invocationId }
     : { submitted: true, invocationId: submitted.invocationId };

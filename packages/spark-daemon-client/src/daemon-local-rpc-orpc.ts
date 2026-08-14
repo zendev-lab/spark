@@ -428,6 +428,16 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.snapshot"].output,
       client.session.snapshot(input, options),
     ),
+  "session.prompt-history": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.prompt-history"].output,
+      client.session.promptHistory(input, options),
+    ),
+  "session.retry-target": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.retry-target"].output,
+      client.session.retryTarget(input, options),
+    ),
   "session.create": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.create"].output,
@@ -508,6 +518,8 @@ const sessionInvokers = {
   | "session.list"
   | "session.get"
   | "session.snapshot"
+  | "session.prompt-history"
+  | "session.retry-target"
   | "session.create"
   | "session.bind"
   | "session.unbind"
@@ -572,6 +584,11 @@ const modelProviderHumanInvokers = {
       sparkLocalRpcProcedureSchemas["model.catalog"].output,
       client.model.catalog(input, options),
     ),
+  "model.enabled.set": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["model.enabled.set"].output,
+      client.model.enabled.set(input, options),
+    ),
   "model.default.set": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["model.default.set"].output,
@@ -625,6 +642,7 @@ const modelProviderHumanInvokers = {
 } satisfies Pick<
   SparkDaemonOrpcProcedureInvokerMap,
   | "model.catalog"
+  | "model.enabled.set"
   | "model.default.set"
   | "provider.auth.api-key.set"
   | "provider.auth.import.pi"

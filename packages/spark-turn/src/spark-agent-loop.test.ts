@@ -13,10 +13,17 @@ import type {
 } from "@zendev-lab/spark-ai";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { registerSparkEvidenceTool } from "@zendev-lab/spark-artifacts/extension";
-import { TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE } from "@zendev-lab/spark-ai";
-import { assertRef } from "@zendev-lab/spark-core";
+import {
+  MODEL_EMPTY_RESPONSE_ERROR_CODE,
+  TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
+} from "@zendev-lab/spark-ai";
+import { assertRef, type SparkHostDelegationEnvelope } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
-import type { SparkDaemonEvent, SparkViewModelEvent } from "@zendev-lab/spark-protocol";
+import {
+  SPARK_PROTOCOL_VERSION,
+  type SparkDaemonEvent,
+  type SparkViewModelEvent,
+} from "@zendev-lab/spark-protocol";
 
 import {
   SparkAgentLoop,
@@ -964,6 +971,65 @@ test("SparkAgentLoop forwards getReasoning into stream options.reasoning", async
   assert.equal(reasoningValues[0], "high");
 });
 
+test("SparkAgentLoop supplies tools with the exact current delegation envelope", async () => {
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-delegation-envelope-test",
+    allowedToolEffects: ["read"],
+  });
+  let delegation: SparkHostDelegationEnvelope | undefined;
+  host.registerTool({
+    name: "delegation_probe",
+    description: "capture the current delegation envelope",
+    parameters: { type: "object" },
+    policy: { effect: "read", executionMode: "parallel", approval: "none" },
+    async execute(_id, _args, _signal, _onUpdate, ctx) {
+      delegation = ctx.delegation;
+      return { content: [{ type: "text", text: "captured" }] };
+    },
+  });
+  host.registerTool({
+    name: "blocked_write",
+    description: "inactive under the host effect ceiling",
+    parameters: { type: "object" },
+    policy: { effect: "local_write", executionMode: "sequential", approval: "none" },
+    async execute() {
+      return { content: [{ type: "text", text: "must not run" }] };
+    },
+  });
+  const call: ToolCall = {
+    type: "toolCall",
+    id: "delegation-probe-call",
+    name: "delegation_probe",
+    arguments: {},
+  };
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [
+        [{ type: "done", reason: "toolUse", message: buildAssistant([call], "toolUse") }],
+        [
+          {
+            type: "done",
+            reason: "stop",
+            message: buildAssistant([{ type: "text", text: "done" }]),
+          },
+        ],
+      ],
+    }),
+    getModel: () => TEST_MODEL,
+    getReasoning: () => "high",
+  });
+
+  await loop.submit("capture delegation authority");
+
+  assert.deepEqual(delegation, {
+    model: { provider: "openai", id: "test-model", api: "openai-completions" },
+    thinking: "high",
+    activeTools: ["delegation_probe"],
+    allowedToolEffects: ["read"],
+  });
+});
+
 test("SparkAgentLoop runs a single-turn stop with one streamed text chunk", async () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-test" });
   const events: SparkAgentLoopEvent[] = [];
@@ -1322,6 +1388,23 @@ test("SparkAgentLoop preserves a stable provider error code on a thrown stream f
   if (outcome.status !== "failed") assert.fail("expected failed outcome");
   assert.equal(outcome.errorCode, TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE);
   assert.equal(outcome.errorMessage, "opaque provider failure");
+});
+
+test("SparkAgentLoop marks an empty terminal response with a stable transient code", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-empty-code" });
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [[{ type: "done", reason: "stop", message: buildAssistant([]) }]],
+    }),
+    getModel: () => TEST_MODEL,
+  });
+
+  const outcome = await loop.submitWithOutcome("empty response code");
+  assert.equal(outcome.status, "failed");
+  if (outcome.status !== "failed") assert.fail("expected failed outcome");
+  assert.equal(outcome.errorCode, MODEL_EMPTY_RESPONSE_ERROR_CODE);
+  assert.match(outcome.errorMessage, /without a displayable response/u);
 });
 
 test("SparkAgentLoop emits exactly one agent_end for terminal outcomes", async () => {
@@ -3133,7 +3216,7 @@ test("SparkAgentLoop blocks approval-required tools without explicit approval", 
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "blocked",
@@ -3210,7 +3293,7 @@ test("SparkAgentLoop skip approvalMethod executes requiresApproval tools without
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "blocked",
@@ -3271,7 +3354,7 @@ test("SparkAgentLoop auto approvalMethod executes when reviewer approves", async
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "blocked",
@@ -3339,7 +3422,7 @@ test("SparkAgentLoop auto approvalMethod escalates to ask when reviewer rejects"
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "answered",
@@ -3401,7 +3484,7 @@ test("SparkAgentLoop auto approvalMethod can deny without ask", async () => {
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "answered",

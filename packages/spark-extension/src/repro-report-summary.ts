@@ -6,10 +6,13 @@ import {
 } from "@zendev-lab/spark-protocol/token-usage";
 import {
   normalizeSparkReproWorkSummary,
-  SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA,
-  SPARK_REPRO_WORK_SUMMARY_SCHEMA,
   type SparkReproWorkSummary,
 } from "@zendev-lab/spark-repro/work-summary";
+import {
+  normalizeSparkReproWorkSummaryV3,
+  SPARK_REPRO_THREE_LANE_WORK_SUMMARY_SCHEMA,
+  type SparkReproWorkSummaryV3,
+} from "@zendev-lab/spark-repro/three-lane-work-summary";
 
 export const SPARK_REPRO_REPORT_SUMMARY_FORMAT = "spark-repro-summary/v1" as const;
 export const SPARK_REPRO_REPORT_SUMMARY_PATH = "outputs/spark-summary.json" as const;
@@ -23,34 +26,32 @@ export const SPARK_REPRO_REPORT_SUMMARY_PATH = "outputs/spark-summary.json" as c
  */
 export interface SparkReproReportSummary {
   format: typeof SPARK_REPRO_REPORT_SUMMARY_FORMAT;
-  work: SparkReproWorkSummary;
+  work: SparkReproWorkSummaryV3;
   tokenUsage?: SparkTokenUsageAggregate;
 }
 
 export interface SparkReproReportSummaryInput {
-  work: SparkReproWorkSummary;
+  work: SparkReproWorkSummary | SparkReproWorkSummaryV3;
   tokenUsage?: SparkTokenUsageAggregate;
 }
 
 export function composeSparkReproReportSummary(
   input: SparkReproReportSummaryInput,
 ): SparkReproReportSummary {
-  if (input.work.schema !== SPARK_REPRO_WORK_SUMMARY_SCHEMA) {
-    throw new Error(`unsupported Repro work summary schema: ${String(input.work.schema)}`);
-  }
+  const work = normalizeSparkReproWorkSummaryV3(input.work);
 
   const tokenUsage = input.tokenUsage
     ? sparkTokenUsageAggregateSchema.parse(input.tokenUsage)
     : undefined;
-  if (tokenUsage && tokenUsage.scope.reproId !== input.work.reproId) {
+  if (tokenUsage && tokenUsage.scope.reproId !== work.reproId) {
     throw new Error(
-      `token usage scope ${tokenUsage.scope.reproId} does not match work summary ${input.work.reproId}`,
+      `token usage scope ${tokenUsage.scope.reproId} does not match work summary ${work.reproId}`,
     );
   }
 
   return {
     format: SPARK_REPRO_REPORT_SUMMARY_FORMAT,
-    work: input.work,
+    work,
     ...(tokenUsage ? { tokenUsage } : {}),
   };
 }
@@ -68,8 +69,11 @@ export function parseSparkReproReportSummary(value: unknown): SparkReproReportSu
   if (!isRecord(value.work)) throw new Error("Repro report summary work must be an object");
 
   const storedWork = value.work;
-  const legacyWork = storedWork.schema === SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA;
-  const work = normalizeSparkReproWorkSummary(storedWork);
+  const legacyWork = storedWork.schema !== SPARK_REPRO_THREE_LANE_WORK_SUMMARY_SCHEMA;
+  const work =
+    storedWork.schema === SPARK_REPRO_THREE_LANE_WORK_SUMMARY_SCHEMA
+      ? normalizeSparkReproWorkSummaryV3(storedWork as unknown as SparkReproWorkSummaryV3)
+      : normalizeSparkReproWorkSummaryV3(normalizeSparkReproWorkSummary(storedWork));
   if (!legacyWork) {
     assertCanonicalField(storedWork, work, "schema");
     assertCanonicalField(storedWork, work, "status");
@@ -92,7 +96,7 @@ export function serializeSparkReproReportSummary(summary: SparkReproReportSummar
 
 function assertCanonicalField(
   stored: Record<string, unknown>,
-  canonical: SparkReproWorkSummary,
+  canonical: SparkReproWorkSummaryV3,
   field: "schema" | "status" | "progress" | "technicalGoal",
 ): void {
   if (!isDeepStrictEqual(stored[field], canonical[field])) {

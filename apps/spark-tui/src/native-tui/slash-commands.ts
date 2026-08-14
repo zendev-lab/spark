@@ -70,17 +70,19 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
       },
     },
     retry: {
-      description: "run the previous request again",
+      description: "retry the latest failed daemon invocation",
       metadata: {
         source: "extension",
         extensionId: SPARK_NATIVE_LOCAL_CONTROL_EXTENSION_ID,
-        plane: "tui",
-        resource: "session",
+        plane: "daemon",
+        resource: "invocation",
         verbs: ["retry"],
-        canonicalCliTarget: "spark tui retry",
+        canonicalCliTarget: "spark daemon invocation retry <invocation-id>",
       },
-      handler: (_args, ctx) => {
-        void ctx.session.retryLast();
+      handler: async (_args, ctx) => {
+        return (await ctx.session.retryLast()) === "ignored"
+          ? nativeTuiStrings.noRetryableFailure
+          : undefined;
       },
     },
     thinking: {
@@ -133,7 +135,7 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
     },
     inspect: {
       description: "show the local session inspector",
-      argumentHint: "[overview|workflows|runs|tasks|artifacts|reviews|graft|off]",
+      argumentHint: "[overview|repro|workflows|runs|tasks|artifacts|reviews|graft|off]",
       metadata: {
         source: "extension",
         extensionId: SPARK_NATIVE_LOCAL_CONTROL_EXTENSION_ID,
@@ -142,14 +144,14 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
         verbs: ["inspect"],
       },
       getArgumentCompletions: (prefix) =>
-        ["overview", "workflows", "runs", "tasks", "artifacts", "reviews", "graft", "off"]
+        ["overview", "repro", "workflows", "runs", "tasks", "artifacts", "reviews", "graft", "off"]
           .filter((value) => value.startsWith(prefix.toLowerCase()))
           .map((value) => ({ value, label: value })),
       handler: (args, ctx) => ctx.app.openHubPanelFromArgs(args) || undefined,
     },
     hub: {
       description: "show the local session inspector",
-      argumentHint: "[overview|workflows|runs|tasks|artifacts|reviews|graft|off]",
+      argumentHint: "[overview|repro|workflows|runs|tasks|artifacts|reviews|graft|off]",
       metadata: {
         source: "extension",
         extensionId: SPARK_NATIVE_LOCAL_CONTROL_EXTENSION_ID,
@@ -159,7 +161,7 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
         deprecatedAliasFor: "/inspect",
       },
       getArgumentCompletions: (prefix) =>
-        ["overview", "workflows", "runs", "tasks", "artifacts", "reviews", "graft", "off"]
+        ["overview", "repro", "workflows", "runs", "tasks", "artifacts", "reviews", "graft", "off"]
           .filter((value) => value.startsWith(prefix.toLowerCase()))
           .map((value) => ({ value, label: value })),
       handler: (args, ctx) => ctx.app.openHubPanelFromArgs(args) || undefined,
@@ -226,6 +228,6 @@ export function nativeKernelSlashCommandEntries(): Array<{
     { name: "exit", description: "exit the native TUI" },
     { name: "quit", description: "exit the native TUI", deprecatedAliasFor: "/exit" },
     { name: "clear", description: "clear the visible transcript" },
-    { name: "reload", description: "reload extension-owned slash command state" },
+    { name: "reload", description: "restart the TUI process and keep this session" },
   ];
 }

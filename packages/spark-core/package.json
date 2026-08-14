@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-core",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Spark host contract + lightweight primitives (ExtensionAPI types and dependency-light helpers). Not a revival of the retired spark-core capability bag.",
   "license": "MIT",

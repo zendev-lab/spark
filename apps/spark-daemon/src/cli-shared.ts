@@ -178,10 +178,10 @@ export function printDaemonHelp(io: CliIo): void {
 Commands:
   status [--json]
   configure --invocation-concurrency <integer 1..64> [--json]
-  start
-  stop
-  restart [--yes] [--wait]
-  sync [--wait]
+  start [--no-wait] [--json]
+  stop [--yes] [--wait]
+  restart [--yes] [--no-wait]
+  sync [--no-wait]
   logs [--follow] [--lines <n>]
   submit --session <id> --prompt <text> [--idempotency-key <key>] [--json]
   ask list [--session <id>] [--json]
@@ -213,10 +213,10 @@ Commands:
   ws
   status
   configure --invocation-concurrency <integer 1..64> [--json]
-  start
-  stop
-  restart [--yes] [--wait]
-  sync [--wait]
+  start [--no-wait] [--json]
+  stop [--yes] [--wait]
+  restart [--yes] [--no-wait]
+  sync [--no-wait]
   logs
   auth <status|login|logout|import> [args...]
   model <list|status|set> [args...]

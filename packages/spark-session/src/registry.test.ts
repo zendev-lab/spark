@@ -89,6 +89,47 @@ describe("SparkSessionRegistry v6 ownership", () => {
     expect(child).not.toHaveProperty("workspaceId");
   });
 
+  it("allows an administrator child to establish a GitChange boundary", async () => {
+    const registry = await tempRegistry();
+    const admin = await administrator(registry, "ws_a", "/repo");
+    const artifactRef = "artifact:git-change";
+    const child = await registry.create({
+      sessionId: "sess_git_change",
+      scope: admin.scope,
+      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      cwd: "/repo/.agents/worktrees/change",
+      cwdArtifactRef: artifactRef,
+    });
+    const attachedWorktree = await registry.create({
+      sessionId: "sess_attached_worktree",
+      scope: admin.scope,
+      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      cwd: "/Users/agent/.agents/worktrees/change",
+      cwdArtifactRef: "artifact:attached-worktree",
+    });
+
+    await expect(registry.list()).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: child.sessionId,
+          cwdArtifactRef: artifactRef,
+        }),
+        expect.objectContaining({
+          sessionId: attachedWorktree.sessionId,
+          cwdArtifactRef: "artifact:attached-worktree",
+        }),
+      ]),
+    );
+    await expect(
+      registry.create({
+        scope: admin.scope,
+        owner: { kind: "session", supervisorSessionId: child.sessionId },
+        cwd: "/repo/.agents/worktrees/change/nested",
+        cwdArtifactRef: "artifact:other-change",
+      }),
+    ).rejects.toMatchObject({ code: "session_owner_scope_mismatch" });
+  });
+
   it("rejects owner scope and cwd widening", async () => {
     const registry = await tempRegistry();
     const admin = await administrator(registry, "ws_a", "/repo");
@@ -162,6 +203,39 @@ describe("SparkSessionRegistry v6 ownership", () => {
     await expect(registry.recordTurnQueued(session.sessionId)).rejects.toMatchObject({
       code: "session_closed",
     });
+  });
+
+  it("idempotently clears transcript references from a legacy finalized Session", async () => {
+    const registry = await tempRegistry();
+    const admin = await administrator(registry);
+    const session = await registry.create({
+      sessionId: "sess_legacy_closed_content",
+      scope: admin.scope,
+      owner: { kind: "session", supervisorSessionId: admin.sessionId },
+      retention: "discard_on_close",
+      sessionPath: "/tmp/sessions/legacy-closed.jsonl",
+      transcriptRef: "/tmp/sessions/legacy-closed.jsonl",
+    });
+    await registry.markClosing({
+      sessionId: session.sessionId,
+      expectedLifecycle: "open",
+    });
+    const closed = await registry.finalizeClose(session.sessionId);
+
+    const repaired = await registry.archiveOwned({
+      sessionId: session.sessionId,
+      discardTranscript: true,
+    });
+    const replay = await registry.archiveOwned({
+      sessionId: session.sessionId,
+      discardTranscript: true,
+    });
+
+    expect(repaired).toMatchObject({ lifecycle: "closed", placement: "archived" });
+    expect(repaired).not.toHaveProperty("sessionPath");
+    expect(repaired).not.toHaveProperty("transcriptRef");
+    expect(repaired.archiveHistory).toEqual(closed.archiveHistory);
+    expect(replay).toEqual(repaired);
   });
 
   it("fences transcript mutation to the admitted open and active incarnation", async () => {

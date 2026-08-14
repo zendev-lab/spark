@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sparkInvocationIdSchema } from "./invocation-lifecycle.ts";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
 import { isoDateTimeSchema } from "./refs.ts";
 
@@ -677,6 +678,38 @@ export const sparkSessionSnapshotRequestSchema = sparkSessionGetRequestSchema.ex
   beforeMessageId: z.string().trim().min(1).optional(),
 });
 
+export const SPARK_SESSION_PROMPT_HISTORY_MAX = 100;
+/** Exact editor input retained per durable user prompt. */
+export const SPARK_SESSION_SUBMITTED_INPUT_MAX_BYTES = 64 * 1024;
+/** Prompt-history projection bytes, excluding transport-specific envelopes. */
+export const SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES = 1024 * 1024;
+
+export const sparkSessionSubmittedInputTextSchema = z.string().superRefine((text, context) => {
+  if (!text.trim()) {
+    context.addIssue({ code: "custom", message: "submitted input must contain visible text" });
+  }
+  if (utf8ByteLength(text) > SPARK_SESSION_SUBMITTED_INPUT_MAX_BYTES) {
+    context.addIssue({
+      code: "custom",
+      message: `submitted input exceeds ${SPARK_SESSION_SUBMITTED_INPUT_MAX_BYTES} bytes`,
+    });
+  }
+});
+
+export const sparkSessionSubmittedInputSchema = z.object({
+  text: sparkSessionSubmittedInputTextSchema,
+});
+
+/** Read the latest bounded set of durable user prompts for editor recall. */
+export const sparkSessionPromptHistoryRequestSchema = sparkSessionGetRequestSchema.extend({
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(SPARK_SESSION_PROMPT_HISTORY_MAX)
+    .default(SPARK_SESSION_PROMPT_HISTORY_MAX),
+});
+
 export const SPARK_SESSION_MEDIA_CHUNK_MAX_BYTES = 40 * 1024;
 export const SPARK_SESSION_MEDIA_MAX_BYTES = 6 * 1024 * 1024;
 
@@ -743,6 +776,21 @@ export const sparkSessionPendingTurnSchema = z.object({
   status: z.enum(["queued", "running"]),
   createdAt: isoDateTimeSchema,
   startedAt: isoDateTimeSchema.optional(),
+});
+
+export const sparkSessionRetryTargetRequestSchema = z.object({
+  sessionId: z.string().trim().min(1),
+});
+
+/** Daemon-selected explicit retry target for one user-facing TUI Session. */
+export const sparkSessionRetryTargetSchema = z.object({
+  sessionId: z.string().trim().min(1),
+  target: z
+    .object({
+      invocationId: sparkInvocationIdSchema,
+      failedAt: isoDateTimeSchema,
+    })
+    .nullable(),
 });
 
 export const sparkSessionBindRequestSchema = z.object({
@@ -837,9 +885,14 @@ export type SparkSessionCloseRequest = z.infer<typeof sparkSessionCloseRequestSc
 export type SparkSessionInvocationReceipt = z.infer<typeof sparkSessionInvocationReceiptSchema>;
 export type SparkSessionCompactRequest = z.infer<typeof sparkSessionCompactRequestSchema>;
 export type SparkSessionSnapshotRequest = z.infer<typeof sparkSessionSnapshotRequestSchema>;
+export type SparkSessionPromptHistoryRequest = z.infer<
+  typeof sparkSessionPromptHistoryRequestSchema
+>;
 export type SparkSessionMediaReadRequest = z.infer<typeof sparkSessionMediaReadRequestSchema>;
 export type SparkSessionMediaReadResult = z.infer<typeof sparkSessionMediaReadResultSchema>;
 export type SparkSessionPendingTurn = z.infer<typeof sparkSessionPendingTurnSchema>;
+export type SparkSessionRetryTargetRequest = z.infer<typeof sparkSessionRetryTargetRequestSchema>;
+export type SparkSessionRetryTarget = z.infer<typeof sparkSessionRetryTargetSchema>;
 export type SparkSessionBindRequest = z.infer<typeof sparkSessionBindRequestSchema>;
 export type SparkSessionUnbindRequest = z.infer<typeof sparkSessionUnbindRequestSchema>;
 export type SparkSessionSetModelRequest = z.infer<typeof sparkSessionSetModelRequestSchema>;
@@ -914,6 +967,10 @@ function validateSparkSessionCloseRefs(
 
 function jsonByteLength(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
 }
 
 function validateManagedSessionCreateBinding(

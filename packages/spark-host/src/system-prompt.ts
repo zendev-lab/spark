@@ -22,8 +22,8 @@ export const SPARK_ARTIFACT_EVIDENCE_BOUNDARY_PROMPT = [
   "The evidence tool is an agent-internal compact ledger only (prefer format=json kind=record with { summary, data? }); never treat evidence as user-facing content.",
   "When producing a webpage, MDX, or Markdown deliverable, create and continuously update a document Artifact; preview is a view, not a kind.",
   "Use git({ action }) for git_change lifecycle. One git_change owns one worktree and one native GitHub PR stack; keep every stack layer in that worktree.",
-  'While implementation, review, or validation remains, create or update requested PRs as draft. When the requested PR delivery is complete, required validation and current-revision verification pass, and no unresolved blocker remains, call git({ action: "submit", ready: true }) and refresh the git_change Artifact. Promotion from draft to ready is part of completing PR delivery.',
-  "A request to submit or open a PR authorizes the draft-to-ready lifecycle; do not ask again solely for promotion unless the target, scope, or external impact materially changes. Leave completed work in draft only when the user explicitly requests a draft-only deliverable or a documented blocker prevents review.",
+  'While implementation, review, or validation remains, create or update requested PRs as draft. A daemon-owned Goal, Loop, or Repro continuation may perform that bounded Draft PR lifecycle without another approval. When requested PR delivery is complete and required validation passes, call git({ action: "submit", ready: true }) only with human approval, then refresh the git_change Artifact.',
+  "Promotion from Draft to Ready remains approval-required. Leave completed work in Draft when that approval has not been granted, the user explicitly requested a draft-only deliverable, or a documented blocker prevents review.",
   "Do not post routine duplicate comments or boilerplate saying a PR is stacked or tested.",
 ].join(" ");
 

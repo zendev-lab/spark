@@ -8,6 +8,7 @@ type ModelRequest = Extract<
     method:
       | "model.catalog"
       | "model.default.set"
+      | "model.enabled.set"
       | "provider.auth.api-key.set"
       | "provider.auth.import.pi"
       | "provider.auth.logout"
@@ -30,6 +31,10 @@ export async function handleModelRequest(
     }
     case "model.default.set": {
       const snapshot = await requireModelControl(options).setDefaultModel(request.params.model);
+      return snapshot;
+    }
+    case "model.enabled.set": {
+      const snapshot = await requireModelControl(options).setEnabledModels(request.params.models);
       return snapshot;
     }
     case "provider.auth.api-key.set": {

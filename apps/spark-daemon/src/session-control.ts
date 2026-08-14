@@ -19,6 +19,9 @@ import {
   sparkSessionGetRequestSchema,
   sparkSessionListRequestSchema,
   sparkSessionMediaReadRequestSchema,
+  sparkSessionPromptHistoryRequestSchema,
+  sparkSessionRetryTargetRequestSchema,
+  sparkSessionRetryTargetSchema,
   sparkSessionSetModeRequestSchema,
   sparkSessionSnapshotPageSchema,
   sparkSessionSnapshotRequestSchema,
@@ -37,12 +40,15 @@ import {
   type SparkInvocationListResult,
   type SparkProtocolJsonValue,
   type SparkSessionCreateRequest,
+  type SparkSessionPromptHistory,
+  type SparkSessionRetryTarget,
   type SparkSessionProjection,
   type SparkSessionState,
   type SparkSessionView,
 } from "@zendev-lab/spark-protocol";
 import {
   loadSparkSessionMediaChunk,
+  loadSparkSessionPromptHistory,
   loadSparkSessionSnapshot,
   loadSparkSessionSnapshotTail,
   SparkSessionRegistryError,
@@ -426,11 +432,11 @@ export async function executeSparkDaemonSessionControl(
       }
 
       const model = await effectiveTurnModel(options, parsed.sessionId);
-      await options.sessionRegistry?.recordTurnQueued(parsed.sessionId);
       let submitted;
       let raced: ReturnType<typeof store.findByIdempotencyKey>;
       try {
-        submitted = submitInvocationTask(
+        submitted = await submitInvocationTask(
+          options.sessionRegistry,
           options.db,
           {
             type: "session.compact",
@@ -554,11 +560,11 @@ export async function executeSparkDaemonSessionControl(
       // change can manufacture an idempotency conflict.
       const model = await effectiveTurnModel(options, parsed.sessionId, parsed.model);
       const thinkingLevel = await effectiveTurnThinkingLevel(options, parsed.sessionId);
-      await options.sessionRegistry?.recordTurnQueued(parsed.sessionId);
       let submitted;
       let raced: ReturnType<typeof store.findByIdempotencyKey>;
       try {
-        submitted = submitInvocationTask(
+        submitted = await submitInvocationTask(
+          options.sessionRegistry,
           options.db,
           {
             type: "session.run",
@@ -690,65 +696,88 @@ export async function executeSparkDaemonSessionControl(
   }
 }
 
-/**
- * Cancel work owned by closing Session trees and finalize only after every
- * queued/running Invocation in the tree has settled. Safe to repeat at startup
- * and on every list/get reconciliation.
- */
+/** Daemon-owned prompt recall read used by the typed local oRPC adapter. */
+export async function readSparkDaemonSessionPromptHistory(
+  options: SparkDaemonSessionControlOptions,
+  input: { sessionId: string; limit?: number },
+): Promise<SparkSessionPromptHistory> {
+  const parsed = sparkSessionPromptHistoryRequestSchema.parse(input);
+  const request: SparkDaemonSessionControlRequest = {
+    kind: "session.snapshot.request",
+    scope: "any",
+    sessionId: parsed.sessionId,
+    payload: parsed,
+  };
+  const session = await requireSession(options, parsed.sessionId, request);
+  assertOrdinarySessionVisible(session);
+  if (!options.paths.piAgentDir) {
+    throw new SparkDaemonControlError(
+      "session_storage_unavailable",
+      "Spark daemon native session storage is not available.",
+    );
+  }
+  return await loadSparkSessionPromptHistory({
+    sessionsRoot: join(options.paths.piAgentDir, "sessions"),
+    session,
+    limit: parsed.limit,
+  });
+}
+
+/** Daemon-owned explicit retry eligibility read used by the native TUI. */
+export async function readSparkDaemonSessionRetryTarget(
+  options: SparkDaemonSessionControlOptions,
+  input: { sessionId: string },
+): Promise<SparkSessionRetryTarget> {
+  const parsed = sparkSessionRetryTargetRequestSchema.parse(input);
+  const request: SparkDaemonSessionControlRequest = {
+    kind: "session.snapshot.request",
+    scope: "any",
+    sessionId: parsed.sessionId,
+    payload: parsed,
+  };
+  const session = await requireSession(options, parsed.sessionId, request);
+  assertOrdinarySessionVisible(session);
+  const target = new SparkInvocationStore(options.db).latestTuiUserRetryTargetForSession(
+    session.sessionId,
+  );
+  return sparkSessionRetryTargetSchema.parse({
+    sessionId: session.sessionId,
+    target: target
+      ? {
+          invocationId: target.invocationId,
+          failedAt: target.failedAt,
+        }
+      : null,
+  });
+}
+
+/** Route closing recovery through the daemon's single lifecycle owner. */
 export async function reconcileClosingSessionLifecycles(
-  options: Pick<SparkDaemonSessionControlOptions, "db" | "sessionRegistry">,
+  options: Pick<SparkDaemonSessionControlOptions, "sessionSupervisor">,
 ): Promise<void> {
-  const registry = options.sessionRegistry;
-  if (!registry) return;
-  const sessions = await registry.list({
+  const supervisor = options.sessionSupervisor;
+  if (!supervisor) return;
+  const sessions = await supervisor.registry.list({
     includeArchived: true,
-    includeClosed: true,
     includeSideThreads: true,
   });
-  const byId = new Map(sessions.map((session) => [session.sessionId, session]));
-  const closing = sessions.filter((session) => session.lifecycle === "closing");
-  const closingIds = new Set(closing.map((session) => session.sessionId));
-  const roots = closing.filter((session) => {
+  const closingIds = new Set(
+    sessions
+      .filter((session) => session.lifecycle === "closing")
+      .map((session) => session.sessionId),
+  );
+  const roots = sessions.filter((session) => {
+    if (session.lifecycle !== "closing") return false;
     const parentId = sessionOwnerSessionId(session.owner);
     return !parentId || !closingIds.has(parentId);
   });
-  const store = new SparkInvocationStore(options.db);
   for (const root of roots) {
-    const tree = sessions.filter(
-      (candidate) =>
-        candidate.sessionId === root.sessionId ||
-        sessionDescendsFrom(candidate, root.sessionId, byId),
-    );
-    for (const session of tree) {
-      for (const invocation of store.listPendingForSession(session.sessionId)) {
-        store.requestCancellation(
-          invocation.invocationId,
-          `Owning Session ${root.sessionId} is closing.`,
-        );
-      }
-    }
-    const stillPending = tree.some(
-      (session) => store.listPendingForSession(session.sessionId).length > 0,
-    );
-    if (!stillPending) await registry.finalizeClose(root.sessionId);
+    await supervisor.close({
+      sessionId: root.sessionId,
+      reason: "closing lifecycle reconcile",
+      settleTimeoutMs: 0,
+    });
   }
-}
-
-function sessionDescendsFrom(
-  session: SparkSessionState,
-  ancestorSessionId: string,
-  byId: ReadonlyMap<string, SparkSessionState>,
-): boolean {
-  const visited = new Set<string>();
-  let parentId = sessionOwnerSessionId(session.owner);
-  while (parentId) {
-    if (parentId === ancestorSessionId) return true;
-    if (visited.has(parentId)) return false;
-    visited.add(parentId);
-    const parent = byId.get(parentId);
-    parentId = parent ? sessionOwnerSessionId(parent.owner) : undefined;
-  }
-  return false;
 }
 
 function sessionOwnerSessionId(owner: SparkSessionState["owner"]): string | undefined {
@@ -1081,7 +1110,15 @@ async function requireInvocationSession(
 ): Promise<SparkSessionState | undefined> {
   if (request.scope === "any" && !options.sessionRegistry) return undefined;
   if (!sessionId) throw new Error("Invocation has no daemon-owned session route.");
-  return await requireSession(options, sessionId, request);
+  const session = await requireSessionRegistry(options).getInvocationVisibilitySnapshot(sessionId);
+  if (!session) {
+    throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
+  }
+  // Invocation admission happens only after Session creation completes. Scope
+  // and owner are immutable thereafter, so visibility checks may use the
+  // last atomically committed snapshot without waiting for unrelated mutable
+  // bookkeeping (for example terminal recordRun writes).
+  return projectSessionForRequest(options.db, session, request);
 }
 
 function assertOrdinarySessionVisible(
@@ -1314,7 +1351,8 @@ function assertOriginBindingRoute(
   }
 }
 
-function submitInvocationTask(
+async function submitInvocationTask(
+  registry: DaemonSessionRegistry | undefined,
   db: DatabaseSync,
   task: SparkDaemonSessionRunTask | SparkDaemonSessionCompactTask,
   idempotencyKey?: string,
@@ -1330,8 +1368,11 @@ function submitInvocationTask(
     ...(source ? { sourceKind: source.kind, sourceRef: source.ref } : {}),
     ...(source?.parentInvocationId ? { parentInvocationId: source.parentInvocationId } : {}),
   };
-  const invocation =
+  const admit = () =>
     source?.kind === "session.question" ? store.submitIfSessionIdle(input) : store.submit(input);
+  const invocation = registry
+    ? await registry.commitInvocationAdmission(task.sessionId, admit)
+    : admit();
   return turnSubmitResultForInvocation(invocation);
 }
 

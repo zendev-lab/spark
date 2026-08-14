@@ -56,14 +56,15 @@ describe("spark-repro", () => {
       objective: "Reproduce target logits",
     });
 
-    expect(repro.version).toBe(7);
-    expect(repro.dualLane).toMatchObject({
-      schema: "spark.repro.dual-lane-session/v1",
+    expect(repro.version).toBe(8);
+    expect(repro.threeLane).toMatchObject({
+      schema: "spark.repro.three-lane-session/v1",
       planRevision: 1,
-      explore: { stage: "contract", observationIds: [] },
-      normative: { retiredStepIds: [], candidateIds: [] },
+      implementation: { stage: "contract", observationIds: [], workItemIds: [] },
+      exactness: { workItemIds: [], findingIds: [], mismatchIds: [] },
+      formalize: { retiredStepIds: [], candidateIds: [], workItemIds: [] },
       unresolvedIds: [],
-      migration: { sourceVersion: 7, legacyProofAuthority: "not_promoted" },
+      migration: { sourceVersion: 8, legacyProofAuthority: "not_promoted" },
     });
     expect(repro.projectRef).toBeUndefined();
     expect(repro.subgoals).toHaveLength(
@@ -104,7 +105,7 @@ describe("spark-repro", () => {
     ).toThrow("reproId must be a non-empty safe identifier");
   });
 
-  it("normalizes the current v7 persisted shape without dropping its dual-lane state", () => {
+  it("normalizes the current v8 persisted shape without dropping its three-lane state", () => {
     const repro = createSparkSessionRepro("session:persisted-v6", undefined, {
       objective: "Read the current persisted shape",
     });
@@ -145,7 +146,7 @@ describe("spark-repro", () => {
     };
 
     const migrated = migrateSparkSessionReproV5(legacy);
-    expect(migrated.version).toBe(7);
+    expect(migrated.version).toBe(8);
     expect(migrated.subgoals[0]?.status).toBe("done");
     expect(migrated.subgoals[0]?.evidenceRefs).toEqual(completed.subgoals[0]?.evidenceRefs);
     expect(migrated.subgoals[0]?.taskRef).toBeUndefined();
@@ -157,7 +158,7 @@ describe("spark-repro", () => {
     expect(migrated.subgoals[2]).not.toHaveProperty("delegation");
     expect(migrated.subgoals[2]).not.toHaveProperty("goalId");
     expect(migrated.subgoals[2]).not.toHaveProperty("roleRef");
-    expect(migrated.dualLane.migration).toEqual({
+    expect(migrated.threeLane.migration).toEqual({
       sourceVersion: 6,
       legacyProofAuthority: "not_promoted",
     });
@@ -168,57 +169,61 @@ describe("spark-repro", () => {
       createSparkSessionRepro("session:migrate-v6"),
       "repro-contract-frozen",
     );
-    const { dualLane: _dualLane, ...withoutDualLane } = current;
-    const legacy: SparkSessionReproV6 = { ...withoutDualLane, version: 6 };
+    const { threeLane: _threeLane, ...withoutThreeLane } = current;
+    const legacy: SparkSessionReproV6 = { ...withoutThreeLane, version: 6 };
 
     const first = migrateSparkSessionReproV6(legacy);
     const second = normalizeStoredSparkSessionRepro(structuredClone(first));
     expect(second).toEqual(first);
-    expect(first.dualLane).toMatchObject({
+    expect(first.threeLane).toMatchObject({
       planRevision: legacy.plan.currentRevision,
-      explore: { observationIds: [] },
-      normative: { candidateIds: [] },
+      implementation: { observationIds: [], workItemIds: [] },
+      exactness: { workItemIds: [], findingIds: [], mismatchIds: [] },
+      formalize: { candidateIds: [], workItemIds: [] },
       unresolvedIds: [],
       migration: { sourceVersion: 6, legacyProofAuthority: "not_promoted" },
     });
-    expect(first.dualLane.normative.retiredStepIds).toEqual([]);
+    expect(first.threeLane.formalize.retiredStepIds).toEqual([]);
   });
 
-  it("reopens a completed v6 snapshot until v7 Normative retirement is proven", () => {
+  it("reopens a completed v6 snapshot until v8 Formalize retirement is proven", () => {
     const current = createSparkSessionRepro("session:migrate-complete-v6");
-    const { dualLane: _dualLane, ...withoutDualLane } = current;
+    const { threeLane: _threeLane, ...withoutThreeLane } = current;
     const legacy: SparkSessionReproV6 = {
-      ...withoutDualLane,
+      ...withoutThreeLane,
       version: 6,
       status: "complete",
       completedAt: "2026-08-01T00:00:00.000Z",
-      stopGuard: { ...withoutDualLane.stopGuard, decision: "complete" },
+      stopGuard: { ...withoutThreeLane.stopGuard, decision: "complete" },
     };
 
     const migrated = migrateSparkSessionReproV6(legacy);
     expect(migrated.status).toBe("active");
     expect(migrated.completedAt).toBeUndefined();
     expect(migrated.stopGuard.decision).toBe("continue");
-    expect(migrated.dualLane.normative.retiredStepIds).toEqual([]);
-    expect(migrated.dualLane.migration).toEqual({
+    expect(migrated.threeLane.formalize.retiredStepIds).toEqual([]);
+    expect(migrated.threeLane.migration).toEqual({
       sourceVersion: 6,
       legacyProofAuthority: "not_promoted",
     });
   });
 
-  it("keeps v6 proof outside Normative retirement after a later plan revision", () => {
+  it("keeps v6 proof outside Formalize retirement after a later plan revision", () => {
     const completed = completeStep(
       createSparkSessionRepro("session:migrate-v6-revise"),
       "repro-contract-frozen",
     );
-    const { dualLane: _dualLane, ...withoutDualLane } = completed;
-    const legacy: SparkSessionReproV6 = { ...withoutDualLane, version: 6 };
+    const { threeLane: _threeLane, ...withoutThreeLane } = completed;
+    const legacy: SparkSessionReproV6 = { ...withoutThreeLane, version: 6 };
     let migrated = migrateSparkSessionReproV6(legacy);
     migrated = {
       ...migrated,
-      dualLane: {
-        ...migrated.dualLane,
-        explore: { ...migrated.dualLane.explore, observationIds: ["legacy-observation"] },
+      threeLane: {
+        ...migrated.threeLane,
+        implementation: {
+          ...migrated.threeLane.implementation,
+          observationIds: ["legacy-observation"],
+        },
         unresolvedIds: ["legacy-unresolved"],
       },
     };
@@ -227,10 +232,11 @@ describe("spark-repro", () => {
       reason: "Change only the difficulty after migration",
       difficulty: 9,
     });
-    expect(revised.dualLane).toMatchObject({
+    expect(revised.threeLane).toMatchObject({
       planRevision: 2,
-      explore: { observationIds: ["legacy-observation"] },
-      normative: {
+      implementation: { observationIds: ["legacy-observation"] },
+      exactness: { workItemIds: [], findingIds: [], mismatchIds: [] },
+      formalize: {
         currentStepId: revised.plan.steps[0]?.id,
         retiredStepIds: [],
         candidateIds: [],
@@ -240,23 +246,23 @@ describe("spark-repro", () => {
     });
   });
 
-  it("buffers v7 StepVerifier completions and retires them only as an ordered prefix", () => {
+  it("buffers v8 StepVerifier completions and retires them only as an ordered prefix", () => {
     let repro = createSparkSessionRepro("session:ordered-retirement");
     const [s1, s2, s3, s4] = repro.plan.steps;
     repro = completeStep(repro, s3!.id);
-    expect(repro.dualLane.normative).toMatchObject({
+    expect(repro.threeLane.formalize).toMatchObject({
       currentStepId: s1!.id,
       retiredStepIds: [],
       candidateIds: [s3!.id],
     });
     repro = completeStep(repro, s2!.id);
-    expect(repro.dualLane.normative).toMatchObject({
+    expect(repro.threeLane.formalize).toMatchObject({
       currentStepId: s1!.id,
       retiredStepIds: [],
       candidateIds: [s2!.id, s3!.id],
     });
     repro = completeStep(repro, s1!.id);
-    expect(repro.dualLane.normative).toMatchObject({
+    expect(repro.threeLane.formalize).toMatchObject({
       currentStepId: s4!.id,
       retiredStepIds: [s1!.id, s2!.id, s3!.id],
       candidateIds: [],
@@ -350,10 +356,11 @@ describe("spark-repro", () => {
     });
 
     expect(repro.plan.currentRevision).toBe(2);
-    expect(repro.dualLane).toMatchObject({
+    expect(repro.threeLane).toMatchObject({
       planRevision: 2,
-      explore: { observationIds: [] },
-      normative: {
+      implementation: { observationIds: [] },
+      exactness: { workItemIds: [], findingIds: [], mismatchIds: [] },
+      formalize: {
         currentStepId: "repro-contract-frozen",
         retiredStepIds: [],
         candidateIds: [],

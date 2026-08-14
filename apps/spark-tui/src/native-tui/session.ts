@@ -7,6 +7,7 @@ import {
   sparkConversationVisibleText,
   type SparkConversationProjection,
   type SparkConversationToolProjectionPart,
+  type SparkInvocationRetryResult,
   type SparkMessageView,
   type SparkSessionPendingTurn,
   type SparkSessionView,
@@ -91,6 +92,7 @@ function formatSteeringSubmission(inputs: string[]): string {
 type SparkNativeDaemonObservation = {
   readonly text: string;
   readonly effectivePrompt: string;
+  readonly submittedInput?: string;
   readonly mode: SparkNativeQueuedInput["mode"];
   readonly submissionId: string;
   admission?: SparkTurnSubmitResult;
@@ -101,6 +103,13 @@ type SparkNativeDaemonObservation = {
   cancelResult?: SparkTurnCancelResult;
   observerAbort?: AbortController;
   userMessageDisplayed?: boolean;
+  redisplayInput?: boolean;
+};
+
+type SparkNativeRetryAdmission = {
+  readonly abort: AbortController;
+  kind: "selecting" | "canonical" | "rejected";
+  cancelReason?: string;
 };
 
 function nativeMessageDetail(message: SparkNativeMessage, key: string): string | undefined {
@@ -145,7 +154,23 @@ export class SparkNativeSession {
   private readonly reportedDaemonFailures = new Set<string>();
   private daemonDetached = false;
   private readonly responder: SparkNativeResponder;
-  private lastSubmittedInput: { text: string; submissionId: string } | undefined;
+  private lastSubmittedInput:
+    | { text: string; submissionId: string; submittedInput?: string }
+    | undefined;
+  private lastFailedDaemonInvocation:
+    | {
+        invocationId: string;
+        text: string;
+        submittedInput?: string;
+        redisplayInput?: boolean;
+        source: "observed" | "hydrated";
+      }
+    | undefined;
+  private lastRejectedDaemonInput:
+    | { text: string; submissionId: string; submittedInput?: string }
+    | undefined;
+  private retryLastInFlight: Promise<"started" | "queued" | "ignored"> | undefined;
+  private retryAdmissionInFlight: SparkNativeRetryAdmission | undefined;
   private processing = false;
   private activeTurnId = 0;
   private currentAbort: AbortController | undefined;
@@ -166,16 +191,19 @@ export class SparkNativeSession {
       this.processing ||
       this.daemonObserverRunning ||
       (!this.daemonDetached &&
-        (this.daemonObservations.length > 0 || (this.daemonPendingTurns?.length ?? 0) > 0))
+        (this.retryAdmissionInFlight !== undefined ||
+          this.daemonObservations.length > 0 ||
+          (this.daemonPendingTurns?.length ?? 0) > 0))
     );
   }
 
   get canRetry(): boolean {
-    return !this.isProcessing && this.lastSubmittedInput !== undefined;
-  }
-
-  /** Startup hydration must not replace input submitted while the snapshot was still loading. */
-  get hasSubmittedInput(): boolean {
+    if (this.isProcessing) return false;
+    if (hasDaemonQueueCapabilities(this.responder)) {
+      return Boolean(
+        (this.lastFailedDaemonInvocation && this.responder.retry) || this.lastRejectedDaemonInput,
+      );
+    }
     return this.lastSubmittedInput !== undefined;
   }
 
@@ -191,6 +219,23 @@ export class SparkNativeSession {
     return (
       this.failedAdmissions.length > 0 ||
       (this.daemonOwnsQueue ? this.daemonQueued.length > 0 : this.queuedFollowUps.length > 0)
+    );
+  }
+
+  /**
+   * Reload may discard presentation state, but it must never discard a turn
+   * whose daemon admission or retry identity exists only in this process.
+   */
+  get canReloadSafely(): boolean {
+    if (!hasDaemonQueueCapabilities(this.responder)) {
+      return !this.processing && this.queuedFollowUps.length === 0;
+    }
+    return (
+      this.retryAdmissionInFlight === undefined &&
+      this.daemonCancellationRequests.size === 0 &&
+      this.failedAdmissions.length === 0 &&
+      this.lastRejectedDaemonInput === undefined &&
+      this.daemonObservations.every((observation) => observation.admission !== undefined)
     );
   }
 
@@ -240,16 +285,33 @@ export class SparkNativeSession {
     input: string,
     options: SparkNativeSubmitOptions = {},
   ): Promise<"started" | "queued" | "ignored"> {
+    if (hasDaemonQueueCapabilities(this.responder) && this.retryLastInFlight) {
+      await this.retryLastInFlight.catch(() => undefined);
+    }
+    return await this.submitWithoutRetryBarrier(input, options);
+  }
+
+  private async submitWithoutRetryBarrier(
+    input: string,
+    options: SparkNativeSubmitOptions = {},
+    queuedOverride?: boolean,
+  ): Promise<"started" | "queued" | "ignored"> {
     const text = input.trim();
     if (!text) return "ignored";
     const submissionId = options.submissionId ?? createId("idem");
-    this.lastSubmittedInput = { text, submissionId };
+    this.lastSubmittedInput = {
+      text,
+      submissionId,
+      ...(options.submittedInput !== undefined ? { submittedInput: options.submittedInput } : {}),
+    };
 
     if (hasDaemonQueueCapabilities(this.responder)) {
-      const queued = this.isProcessing || this.daemonObservations.length > 0;
+      this.lastFailedDaemonInvocation = undefined;
+      this.lastRejectedDaemonInput = undefined;
+      const queued = queuedOverride ?? (this.isProcessing || this.daemonObservations.length > 0);
       // turn.submit is a durable next-turn admission. Until the daemon exposes
       // a real mid-turn input RPC, never label or rewrite it as steering.
-      this.enqueueDaemonObservation(text, "followUp", submissionId, queued);
+      this.enqueueDaemonObservation(text, "followUp", submissionId, queued, options.submittedInput);
       return queued ? "queued" : "started";
     }
 
@@ -263,11 +325,134 @@ export class SparkNativeSession {
     return "started";
   }
 
-  async retryLast(): Promise<"started" | "queued" | "ignored"> {
+  retryLast(): Promise<"started" | "queued" | "ignored"> {
+    if (this.retryLastInFlight) return this.retryLastInFlight;
+    const wasProcessing =
+      this.processing ||
+      (!this.daemonDetached &&
+        (this.daemonObservations.length > 0 || (this.daemonPendingTurns?.length ?? 0) > 0));
+    const retryAdmission: SparkNativeRetryAdmission = {
+      abort: new AbortController(),
+      kind: "selecting",
+    };
+    this.retryAdmissionInFlight = retryAdmission;
+    this.emitChange();
+    const inFlight = this.performRetryLast(retryAdmission, wasProcessing);
+    this.retryLastInFlight = inFlight;
+    void inFlight.then(
+      () => {
+        if (this.retryLastInFlight === inFlight) this.retryLastInFlight = undefined;
+        if (this.retryAdmissionInFlight === retryAdmission) {
+          this.retryAdmissionInFlight = undefined;
+          this.emitChange();
+        }
+      },
+      () => {
+        if (this.retryLastInFlight === inFlight) this.retryLastInFlight = undefined;
+        if (this.retryAdmissionInFlight === retryAdmission) {
+          this.retryAdmissionInFlight = undefined;
+          this.emitChange();
+        }
+      },
+    );
+    return inFlight;
+  }
+
+  async hydrateRetryableFailure(options: { signal?: AbortSignal } = {}): Promise<void> {
+    if (!hasDaemonQueueCapabilities(this.responder) || !this.responder.latestRetryableFailure) {
+      return;
+    }
+    const latest = await this.responder.latestRetryableFailure(options);
+    if (!latest) {
+      this.lastFailedDaemonInvocation = undefined;
+      this.emitChange();
+      return;
+    }
+    if (this.lastFailedDaemonInvocation?.invocationId === latest.invocationId) return;
+    this.lastFailedDaemonInvocation = {
+      invocationId: latest.invocationId,
+      text: `Retry failed invocation ${latest.invocationId}`,
+      redisplayInput: false,
+      source: "hydrated",
+    };
+    this.emitChange();
+  }
+
+  private async performRetryLast(
+    retryAdmission: SparkNativeRetryAdmission,
+    wasProcessing: boolean,
+  ): Promise<"started" | "queued" | "ignored"> {
+    if (hasDaemonQueueCapabilities(this.responder)) {
+      if (wasProcessing && !this.lastFailedDaemonInvocation && !this.lastRejectedDaemonInput) {
+        return "ignored";
+      }
+      if (
+        this.responder.latestRetryableFailure &&
+        (this.lastFailedDaemonInvocation?.source === "hydrated" ||
+          (!this.lastFailedDaemonInvocation && !this.lastRejectedDaemonInput))
+      ) {
+        // The startup projection is only an availability hint. Re-read daemon
+        // truth immediately before mutating so another client cannot make a
+        // cached, older failure the retry target.
+        await this.hydrateRetryableFailure({ signal: retryAdmission.abort.signal });
+      }
+      const failed = this.lastFailedDaemonInvocation;
+      if (failed) {
+        if (!this.responder.retry) {
+          throw new Error("Spark daemon invocation retry is unavailable in this TUI host");
+        }
+        retryAdmission.kind = "canonical";
+        const queued = wasProcessing || this.daemonObservations.length > 0;
+        const retried = await this.responder.retry(failed.invocationId, {
+          signal: retryAdmission.abort.signal,
+        });
+        if (retried.retryOfInvocationId !== failed.invocationId) {
+          throw new Error(
+            `Spark daemon retry ancestry mismatch: expected ${failed.invocationId}, received ${retried.retryOfInvocationId}`,
+          );
+        }
+        this.lastFailedDaemonInvocation = undefined;
+        this.lastRejectedDaemonInput = undefined;
+        if (!this.daemonDetached) {
+          this.enqueueAdmittedDaemonObservation(
+            failed.text,
+            failed.submittedInput,
+            retried,
+            queued,
+            failed.redisplayInput !== false,
+            retryAdmission.cancelReason,
+          );
+        }
+        return queued ? "queued" : "started";
+      }
+
+      const rejected = this.lastRejectedDaemonInput;
+      if (!rejected) return "ignored";
+      retryAdmission.kind = "rejected";
+      this.removeFailedAdmission(rejected.submissionId);
+      this.pushMessage({ role: "system", text: "Retrying the rejected daemon submission." });
+      const result = await this.submitWithoutRetryBarrier(
+        rejected.text,
+        {
+          submissionId: createId("idem"),
+          ...(rejected.submittedInput !== undefined
+            ? { submittedInput: rejected.submittedInput }
+            : {}),
+        },
+        wasProcessing,
+      );
+      const admissionSettled = this.daemonAdmissionTail;
+      await admissionSettled;
+      return result;
+    }
+
     if (!this.lastSubmittedInput) return "ignored";
-    const { text, submissionId } = this.lastSubmittedInput;
+    const { text, submittedInput } = this.lastSubmittedInput;
     this.pushMessage({ role: "system", text: `Retrying: ${text}` });
-    return await this.submit(text, { submissionId });
+    return await this.submit(text, {
+      submissionId: createId("idem"),
+      ...(submittedInput !== undefined ? { submittedInput } : {}),
+    });
   }
 
   addSystemMessage(text: string): void {
@@ -485,6 +670,15 @@ export class SparkNativeSession {
 
   abort(reason: string = "user stop"): SparkNativeAbortResult {
     if (hasDaemonQueueCapabilities(this.responder)) {
+      const retryAdmission = this.retryAdmissionInFlight;
+      if (retryAdmission && retryAdmission.kind !== "rejected") {
+        retryAdmission.cancelReason ??= reason;
+        this.pushMessage({
+          role: "system",
+          text: nativeTuiStrings.cancellationRequested(),
+        });
+        return { aborted: true, clearedQueued: 0 };
+      }
       const pending = this.daemonCancellationTarget();
       const admittedObservation = pending
         ? this.daemonObservations.find(
@@ -542,6 +736,7 @@ export class SparkNativeSession {
   detach(): void {
     if (!hasDaemonQueueCapabilities(this.responder)) return;
     this.daemonDetached = true;
+    this.retryAdmissionInFlight?.abort.abort(new Error("Spark TUI detached"));
     for (const observation of this.daemonObservations) {
       observation.admissionAbort?.abort(new Error("Spark TUI detached"));
     }
@@ -558,6 +753,7 @@ export class SparkNativeSession {
     if (recoverable.length === 0) return undefined;
     const restored = recoverable.join("\n\n");
     this.failedAdmissions.splice(0, this.failedAdmissions.length);
+    this.lastRejectedDaemonInput = undefined;
     if (!this.daemonOwnsQueue) {
       this.queuedFollowUps.splice(0, this.queuedFollowUps.length);
     }
@@ -678,11 +874,13 @@ export class SparkNativeSession {
     mode: SparkNativeQueuedInput["mode"],
     submissionId: string,
     queued: boolean,
+    submittedInput?: string,
   ): void {
     this.removeFailedAdmission(submissionId);
     const observation: SparkNativeDaemonObservation = {
       text,
       effectivePrompt: text,
+      ...(submittedInput !== undefined ? { submittedInput } : {}),
       mode,
       submissionId,
     };
@@ -712,6 +910,59 @@ export class SparkNativeSession {
     if (!this.daemonObserverRunning) {
       void this.drainDaemonObservations();
     }
+    this.emitChange();
+  }
+
+  private enqueueAdmittedDaemonObservation(
+    text: string,
+    submittedInput: string | undefined,
+    retried: SparkInvocationRetryResult,
+    queued: boolean,
+    redisplayInput: boolean,
+    cancelReason?: string,
+  ): void {
+    const submissionId = createId("idem");
+    const admission: SparkTurnSubmitResult = {
+      invocationId: retried.invocationId,
+      status: retried.status,
+      acceptedAt: retried.acceptedAt,
+    };
+    const observation: SparkNativeDaemonObservation = {
+      text,
+      effectivePrompt: text,
+      ...(submittedInput !== undefined ? { submittedInput } : {}),
+      mode: "followUp",
+      submissionId,
+      admission,
+      admissionPromise: Promise.resolve(admission),
+      userMessageDisplayed: !redisplayInput || !queued,
+      redisplayInput,
+      ...(cancelReason ? { cancelReason } : {}),
+    };
+    this.lastSubmittedInput = {
+      text,
+      submissionId,
+      ...(submittedInput !== undefined ? { submittedInput } : {}),
+    };
+    this.observedDaemonInvocationIds.add(admission.invocationId);
+    this.daemonObservations.push(observation);
+    this.upsertDaemonPending({
+      invocationId: admission.invocationId,
+      prompt: text,
+      status: retried.status,
+      createdAt: admission.acceptedAt,
+    });
+    if (redisplayInput && !queued) {
+      this.pushMessage({
+        role: "user",
+        text: submittedInput?.trim() || displayNativeSubmittedInput(text),
+        details: { submissionId, invocationId: admission.invocationId },
+      });
+    }
+    if (cancelReason) {
+      void this.requestDaemonCancelById(admission.invocationId, cancelReason, observation);
+    }
+    if (!this.daemonObserverRunning) void this.drainDaemonObservations();
     this.emitChange();
   }
 
@@ -773,6 +1024,9 @@ export class SparkNativeSession {
         try {
           admission = await this.responder.admit(observation.effectivePrompt, {
             submissionId: observation.submissionId,
+            ...(observation.submittedInput !== undefined
+              ? { submittedInput: observation.submittedInput }
+              : {}),
             signal: admissionAbort.signal,
           });
           break;
@@ -981,6 +1235,7 @@ export class SparkNativeSession {
           this.removeDaemonPending(admission.invocationId);
           if (streamedAssistant || finishAssistantRequested) this.finishAssistantMessage();
           if (status.status === "failed") {
+            this.rememberFailedDaemonInvocation(observation, admission.invocationId);
             this.reportDaemonFailure(
               admission.invocationId,
               status.error?.message ??
@@ -1019,6 +1274,7 @@ export class SparkNativeSession {
         this.removeDaemonPending(admission.invocationId);
         if (streamedAssistant || finishAssistantRequested) this.finishAssistantMessage();
         if (cancelTerminal.status === "failed") {
+          this.rememberFailedDaemonInvocation(observation, admission.invocationId);
           this.reportDaemonFailure(
             admission.invocationId,
             observationError instanceof Error
@@ -1248,10 +1504,35 @@ export class SparkNativeSession {
   private rememberFailedAdmission(observation: SparkNativeDaemonObservation): void {
     this.removeFailedAdmission(observation.submissionId);
     this.failedAdmissions.push({
-      text: observation.text,
+      text: observation.submittedInput ?? observation.text,
       mode: observation.mode,
       submissionId: observation.submissionId,
     });
+    this.lastRejectedDaemonInput = {
+      text: observation.text,
+      submissionId: observation.submissionId,
+      ...(observation.submittedInput !== undefined
+        ? { submittedInput: observation.submittedInput }
+        : {}),
+    };
+  }
+
+  private rememberFailedDaemonInvocation(
+    observation: SparkNativeDaemonObservation,
+    invocationId: string,
+  ): void {
+    this.lastFailedDaemonInvocation = {
+      invocationId,
+      text: observation.text,
+      ...(observation.submittedInput !== undefined
+        ? { submittedInput: observation.submittedInput }
+        : {}),
+      ...(observation.redisplayInput !== undefined
+        ? { redisplayInput: observation.redisplayInput }
+        : {}),
+      source: "observed",
+    };
+    this.lastRejectedDaemonInput = undefined;
   }
 
   private handleDaemonAdmissionFailure(

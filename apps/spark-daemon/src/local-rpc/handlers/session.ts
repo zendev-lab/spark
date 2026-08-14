@@ -10,7 +10,11 @@ import {
   type SparkSessionSendRequest,
 } from "@zendev-lab/spark-protocol";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
-import { executeSparkDaemonSessionControl } from "../../session-control.ts";
+import {
+  executeSparkDaemonSessionControl,
+  readSparkDaemonSessionPromptHistory,
+  readSparkDaemonSessionRetryTarget,
+} from "../../session-control.ts";
 import { SparkLoopStore } from "../../store/loops.ts";
 import { WorkbenchArtifactBindingStore } from "../../store/workbench-artifact-bindings.ts";
 import { SparkTokenUsageStore } from "../../store/token-usage.ts";
@@ -37,6 +41,8 @@ type SessionRequest = Extract<
       | "session.list"
       | "session.get"
       | "session.snapshot"
+      | "session.prompt-history"
+      | "session.retry-target"
       | "session.create"
       | "session.bind"
       | "session.unbind"
@@ -149,6 +155,10 @@ export async function handleSessionRequest(
               }
             : undefined;
         },
+        pendingRequestCount:
+          options.humanWaits
+            ?.listPending()
+            .filter((wait) => wait.sessionId === request.params.sessionId).length ?? 0,
       });
       const withLoops = parseSparkSessionView({
         ...snapshot,
@@ -156,6 +166,20 @@ export async function handleSessionRequest(
         ...(work ? { work } : {}),
       });
       return await projectSessionMailbox(options, withLoops);
+    }
+    case "session.prompt-history": {
+      const history = await readSparkDaemonSessionPromptHistory(
+        sessionControlOptions(paths, db, options),
+        request.params,
+      );
+      return parseLocalRpcServiceOutput(request.method, history);
+    }
+    case "session.retry-target": {
+      const target = await readSparkDaemonSessionRetryTarget(
+        sessionControlOptions(paths, db, options),
+        request.params,
+      );
+      return parseLocalRpcServiceOutput(request.method, target);
     }
     case "session.create": {
       const executed = await executeSparkDaemonSessionControl(

@@ -1,0 +1,129 @@
+# Test architecture
+
+Spark tests should identify the contract they protect and run at the closest owning boundary.
+The root suite is for cross-package behavior; package-local behavior belongs beside the package so
+its normal check and mutation evaluation can exercise it.
+
+## Lanes
+
+| Lane | Location | Contract |
+| --- | --- | --- |
+| Package unit / contract | `packages/*/src/**/*.test.ts` | Pure behavior, schemas, state transitions, adapter contracts |
+| App unit / integration | `apps/*/src/**/*.test.ts` | App-owned composition, persistence, process, route, and rendering behavior |
+| Root integration | `pnpm test` (`test/**/*.test.ts`, excluding `test/process/` and `test/journey/`) | Behavior that genuinely crosses package or app ownership boundaries |
+| Source process | `pnpm run test:process:source` (`test/process/**/*.test.ts`) | Exact source-distributed executable lifecycle under isolated local state |
+| Repro Golden Journey | `pnpm run test:journey:repro` (`test/journey/**/*.test.ts`) | Complete trusted product path through real source processes and cue-shell |
+| Browser component | `pnpm run test:browser:hub` | Browser-only interaction and DOM behavior |
+| Product process | `pnpm run smoke` | Packed, clean-installed public product lifecycle and Hub HTTP/client-asset smoke |
+| Capability CE | `pnpm run test:capability:ce` | Repeated zero-token Goal, Loop, and Repro sentinels, inventory stability, flakes, and duration variance |
+| Mutation CE | `pnpm run test:mutation` | Whether focused package tests detect plausible implementation faults |
+
+Do not move package unit tests into `test/` merely to share setup. Put reusable fixtures or a
+contract-suite function at the owning package boundary, then run the same contract against each
+implementation. For example, daemon Loop stores bind
+`apps/spark-daemon/src/store/loops.contract.ts` to a fresh implementation harness; process-level
+startup and drain checks remain in the daemon integration lane rather than being mocked into that
+store contract.
+
+Keep Node SSR tests for deterministic rendered states and browser tests for behavior that requires
+focus, events, layout, or browser APIs. Browser tests remain outside the default and unit suites so
+Chromium setup does not slow down package tests; CI labels them as a dedicated smoke step.
+
+Native TUI validation has two app-local lanes. The component harness drives the real app/editor over
+a renderer-neutral fake `TUI` boundary for deterministic state, shortcut, and fixed-viewport
+contracts. The Direct PTY harness launches `runNativeSparkTui()` in a real pseudo-terminal for
+stdin/stdout bytes, raw mode, resize, redraw, and exit behavior. Do not simulate PTY semantics in
+the component harness or require a terminal multiplexer for either lane.
+
+Real process and journey tests stay out of the root Vitest suite. Source and packed-product checks share the same
+daemon lifecycle harness, but invoke different executable targets. This prevents the source launcher
+and generated npm product from drifting while keeping failures attributable to distinct named steps.
+`pnpm run check` remains the serial local gate. Static CI runs maintained workflow validators,
+architecture, dependency, documentation, formatting, lint, and type checks. Runtime CI runs the
+complete source and process suites on the Ubuntu/macOS matrix, the Repro Golden Journey on Ubuntu
+with a pinned compatible cue-shell source build, plus the browser suite for pull requests and
+`merge_group`. CI workflows do not run on branch pushes. The core jobs are direct merge gates:
+`Pre-commit Checks`, `Project Checks`, `Documentation Checks`, both `Source Tests` jobs,
+both `Process Tests` jobs, `Repro Golden Journey (Ubuntu)`, and `Browser Tests`. They remain
+fully parallel; there is no aggregate required job or static-to-runtime dependency chain.
+Benchmark, Mutation CE, Capability CE, and Dependency Audit jobs remain advisory.
+
+`prek` is the local fast-fix boundary: use native pre-commit integrations for file-format and
+workflow checks, plus the repository's `spark-check-fix` hook. Actionlint parses workflow syntax
+and expressions; Zizmor owns GitHub Actions security policy, including immutable action references.
+
+Continuous-evaluation lanes remain separate from merge gates. Capability CE repeats the exact
+owner tests selected by the deterministic sentinel runner and preserves missing runs, inventory
+drift, flakes, and duration violations as distinct failures. Mutation CE evaluates whether tests
+kill plausible source changes. Both publish reports without weakening the binary contracts used by
+pull-request verification.
+
+## Test ownership and discovery
+
+Test ownership is structural instead of ledger-driven:
+
+- package and app tests live under their owning workspace and run through that workspace's `test` script;
+- `vitest.root.config.ts` owns cross-workspace tests under `test/` and excludes separate real-process and journey lanes;
+- `vitest.process.config.ts` owns `test/process/`;
+- `vitest.journey.config.ts` owns `test/journey/` and may declare native runtime prerequisites in its dedicated CI job;
+- Dependency Cruiser rejects root/app deep links into workspace `src/` internals and cross-package relative source imports;
+- `pnpm -r --workspace-concurrency=1 --if-present run test` discovers every app- and package-local test script directly from manifests, while `check-architecture-ratchets.mjs` fails closed when any workspace contains tests but does not expose a `test` script.
+
+Mutation CE selection is also package-owned: either a `test:mutation` script or `stryker.config.json` requires the complete command, config, and dependency set. Shared Stryker dependencies alone do not enroll a package. This keeps pnpm recursive `--if-present` discovery fail-closed without a second workspace inventory.
+
+## Tests versus static policy
+
+Code tests assert observable functionality: return values, state transitions, persisted effects,
+boundary calls, process results, rendered output, DOM interaction, and compatibility behavior.
+They do not inspect the repository's current source, workflow YAML, package scripts, manifests,
+CSS, or documentation to prove that an implementation fragment exists.
+
+Repository policy belongs to dedicated static tools invoked by `pnpm run check:static`:
+
+- Actionlint and Zizmor own GitHub Actions parsing and security analysis;
+- JSON Schema, Syncpack, and Knip own generic inventory and manifest consistency;
+- Dependency Cruiser owns import direction, cycles, deep-link bans, transport boundaries, and the
+  daemon execution worker import graph;
+- `check-architecture-ratchets.mjs` compares the authoritative package inventory with workspace
+  manifests and keeps test and mutation discovery fail-closed;
+- Astro/Starlight own documentation parsing and compilation; focused tests exercise locale
+  selection and path mapping as behavior.
+
+Do not add a repository-wide source, YAML, schema-string, prompt, or prose keyword scanner. If a
+maintained parser or analyzer owns the format, configure it. If the concern is product behavior,
+test the consuming boundary. A project-specific static check is acceptable only when it compares
+structured sources of truth that generic tooling cannot relate.
+
+Prefer, in order:
+
+1. externally observable return values, state transitions, persisted data, calls at a real boundary,
+   exit status, and side effects;
+2. versioned schemas or reusable contract suites for producer/consumer and adapter compatibility;
+3. complete golden files when the full serialized or rendered representation is itself public
+   behavior.
+
+Reading production source and asserting that fragments are present is not a behavior test. It is
+usually a brittle implementation mirror. Express an import rule in Dependency Cruiser, validate a
+machine-readable contract, or delete the assertion. The same rule applies to prompt and instruction
+wording: verify structured behavior at the consuming boundary instead of matching text fragments.
+For schemas and transforms, test acceptance, rejection, normalization, or downstream behavior
+instead of proving that a word or field name appears in a serialized schema.
+Hashing the same text does not turn an implementation mirror into a contract test. Assert a fixed
+digest only when the digest itself is the protocol, such as content-addressed identity or an
+integrity/wire digest, or when the test exercises runtime byte integrity rather than copied wording.
+
+## Golden files
+
+Use a golden only when the representation itself is the contract, such as a complete tool rendering
+or agent instruction. Keep one coherent golden per meaningful state instead of many substring
+assertions. Dynamic behavior still needs separate tests of the state or input that selects the
+golden.
+
+## Review questions
+
+- What real regression becomes invisible if this assertion is deleted?
+- Does a synonymous wording or refactor break the test while behavior stays correct?
+- Is there at least one negative path for a fail-closed or recovery boundary?
+- Does a mock observe an edge, or replace the logic that the test claims to verify?
+- Does the test belong to the package that owns the contract?
+- Can the failure be replayed in a clean checkout without hidden local state?

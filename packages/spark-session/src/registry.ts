@@ -88,7 +88,8 @@ export interface TransitionSparkSessionLifecycleInput {
 export interface SealSparkSessionCloseReceiptInput {
   sessionId: string;
   expectedIncarnation: number;
-  expectedLifecycle: "closing";
+  /** Closed is accepted only for daemon upgrade repair of legacy finalized records. */
+  expectedLifecycle: "closing" | "closed";
   receipt: SparkSessionCloseReceipt;
   now?: Date;
 }
@@ -813,7 +814,42 @@ export class SparkSessionRegistry {
         `managed close requires a scoped or ephemeral Session: ${input.sessionId}`,
       );
     }
-    if (current.lifecycle === "closed") return current;
+    if (current.lifecycle === "closed") {
+      const discardTranscript =
+        input.discardTranscript === true || current.retention === "discard_on_close";
+      const needsTranscriptCleanup =
+        discardTranscript &&
+        (current.sessionPath !== undefined || current.transcriptRef !== undefined);
+      const needsEphemeralTombstone = current.owner.kind === "invocation";
+      if (!needsTranscriptCleanup && !needsEphemeralTombstone) return current;
+      const now = input.now ?? new Date();
+      const repaired: SparkSessionState = {
+        ...current,
+        updatedAt: now.toISOString() > current.updatedAt ? now.toISOString() : current.updatedAt,
+      };
+      if (discardTranscript) {
+        delete repaired.sessionPath;
+        delete repaired.transcriptRef;
+      }
+      if (current.owner.kind === "invocation") {
+        file.sessions.splice(index, 1);
+        file.tombstones.push({
+          recordKind: "ephemeral_tombstone",
+          sessionId: current.sessionId,
+          scope: current.scope,
+          owner: current.owner,
+          lifecycle: "closed",
+          placement: "archived",
+          closeReceipts: repaired.closeReceipts ?? [],
+          createdAt: current.createdAt,
+          updatedAt: repaired.updatedAt,
+        });
+      } else {
+        file.sessions[index] = repaired;
+      }
+      await this.saveFile(file);
+      return repaired;
+    }
     const now = input.now ?? new Date();
     const archiveEvent = createArchiveEvent(current, input, now);
     const updated: SparkSessionState = {
@@ -1998,12 +2034,16 @@ function validateRegistryOwnership(sessions: SparkSessionState[]): void {
       if (!sameSessionScope(session.scope, supervisor.scope)) {
         throw new Error(`Session owner scope mismatch: ${session.sessionId}`);
       }
-      if (session.cwdArtifactRef && session.cwdArtifactRef !== supervisor.cwdArtifactRef) {
+      // A Workspace Administrator has no GitChange boundary, so its direct
+      // child may narrow into one. Once an ancestor establishes a boundary,
+      // every descendant must retain that exact ArtifactRef.
+      if (supervisor.cwdArtifactRef && session.cwdArtifactRef !== supervisor.cwdArtifactRef) {
         throw new Error(`Session GitChange boundary widened: ${session.sessionId}`);
       }
       if (
         session.cwd &&
         supervisor.cwd &&
+        !(supervisor.owner.kind === "workspace" && session.cwdArtifactRef) &&
         !isPathWithin(resolve(session.cwd), resolve(supervisor.cwd))
       ) {
         throw new Error(`Session cwd boundary widened: ${session.sessionId}`);
@@ -2095,7 +2135,12 @@ function assertOwnerWithinScope(
       "child Session cannot change its owner's GitChange boundary",
     );
   }
-  if (cwd && supervisor.cwd && !isPathWithin(resolve(cwd), resolve(supervisor.cwd))) {
+  if (
+    cwd &&
+    supervisor.cwd &&
+    !(supervisor.owner.kind === "workspace" && cwdArtifactRef) &&
+    !isPathWithin(resolve(cwd), resolve(supervisor.cwd))
+  ) {
     throw new SparkSessionRegistryError(
       "session_owner_scope_mismatch",
       `child cwd must remain inside owner cwd ${supervisor.cwd}`,

@@ -2,10 +2,15 @@ import { appendFile, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/prom
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { parseSparkSessionProjection } from "@zendev-lab/spark-protocol";
+import {
+  SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES,
+  SPARK_SESSION_SUBMITTED_INPUT_MAX_BYTES,
+  parseSparkSessionProjection,
+} from "@zendev-lab/spark-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   loadSparkSessionMediaChunk,
+  loadSparkSessionPromptHistory,
   loadSparkSessionSnapshot,
   loadSparkSessionSnapshotTail,
   refreshSparkSessionSnapshotIndex,
@@ -24,6 +29,29 @@ function sessionControlFields(supervisorSessionId: string) {
     retention: "retain" as const,
     purpose: "interactive",
   };
+}
+
+function promptHistorySession(input: {
+  sessionId: string;
+  workspaceId: string;
+  sessionPath: string;
+  createdAt: string;
+  updatedAt: string;
+}) {
+  const supervisorSessionId = `sess_admin_${input.workspaceId}`;
+  return parseSparkSessionProjection({
+    sessionId: input.sessionId,
+    scope: { kind: "workspace", workspaceId: input.workspaceId },
+    lifecycle: "open",
+    placement: "active",
+    roleBinding: { kind: "none" },
+    owner: { kind: "session", supervisorSessionId },
+    ...sessionControlFields(supervisorSessionId),
+    sessionPath: input.sessionPath,
+    bindings: [],
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt,
+  });
 }
 
 afterEach(async () => {
@@ -75,6 +103,303 @@ async function createLinearTranscript(entryCount: number, sessionId: string) {
 }
 
 describe("loadSparkSessionSnapshot", () => {
+  it("projects the latest 100 user prompts from a bounded inline index summary", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-session-prompt-history-"));
+    roots.push(root);
+    const transcriptPath = join(root, "session.jsonl");
+    const sessionId = "sess_prompt_history";
+    const lines = [
+      JSON.stringify({
+        type: "session",
+        version: 3,
+        id: sessionId,
+        timestamp: "2026-08-12T00:00:00.000Z",
+        cwd: root,
+      }),
+    ];
+    let parentId: string | null = null;
+    for (let index = 0; index < 1_000; index += 1) {
+      const id = `message-${index}`;
+      const user = index % 9 === 0;
+      lines.push(
+        JSON.stringify({
+          type: "message",
+          id,
+          parentId,
+          timestamp: "2026-08-12T00:00:01.000Z",
+          message: {
+            role: user ? "user" : "assistant",
+            content: `${user ? "durable prompt" : "non-user reply"} ${index}`,
+          },
+        }),
+      );
+      parentId = id;
+    }
+    await writeFile(transcriptPath, `${lines.join("\n")}\n`, "utf8");
+    const session = promptHistorySession({
+      sessionId,
+      workspaceId: "ws_prompt_history",
+      sessionPath: transcriptPath,
+      createdAt: "2026-08-12T00:00:00.000Z",
+      updatedAt: "2026-08-12T00:00:01.000Z",
+    });
+
+    const refreshed = await refreshSparkSessionSnapshotIndex({
+      sessionPath: transcriptPath,
+      sessionId,
+    });
+    const persistedIndex = JSON.parse(await readFile(refreshed.indexPath, "utf8")) as {
+      prompts: Array<{ messageId: string; text: string }>;
+      totalPrompts: number;
+    };
+    expect(persistedIndex.prompts).toHaveLength(100);
+    expect(persistedIndex.prompts[0]).toEqual({
+      messageId: "message-108",
+      text: "durable prompt 108",
+    });
+    expect(persistedIndex.totalPrompts).toBe(112);
+
+    const history = await loadSparkSessionPromptHistory({
+      sessionsRoot: root,
+      session,
+      limit: 100,
+    });
+
+    expect(history.totalPrompts).toBe(112);
+    expect(history.prompts).toHaveLength(100);
+    expect(history.prompts[0]).toMatchObject({
+      messageId: "message-108",
+      text: "durable prompt 108",
+    });
+    expect(history.prompts.at(-1)).toMatchObject({
+      messageId: "message-999",
+      text: "durable prompt 999",
+    });
+    expect(history.truncated).toBe(true);
+  });
+
+  it("rebuilds an older additive index once before bounded prompt reads", async () => {
+    const fixture = await createLinearTranscript(64, "sess_legacy_prompt_index");
+    const refreshed = await refreshSparkSessionSnapshotIndex({
+      sessionPath: fixture.transcriptPath,
+      sessionId: fixture.session.sessionId,
+    });
+    const legacy = JSON.parse(await readFile(refreshed.indexPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    delete legacy.prompts;
+    delete legacy.totalPrompts;
+    await writeFile(refreshed.indexPath, `${JSON.stringify(legacy)}\n`, "utf8");
+
+    const history = await loadSparkSessionPromptHistory({
+      sessionsRoot: fixture.root,
+      session: fixture.session,
+      limit: 8,
+    });
+    expect(history.prompts.map((prompt) => prompt.messageId)).toEqual(
+      Array.from({ length: 8 }, (_, index) => `message-${56 + index}`),
+    );
+    const rebuilt = JSON.parse(await readFile(refreshed.indexPath, "utf8")) as {
+      prompts: unknown[];
+      totalPrompts: number;
+    };
+    expect(rebuilt.prompts).toHaveLength(64);
+    expect(rebuilt.totalPrompts).toBe(64);
+  });
+
+  it("recalls exact submitted file and image input while old entries fall back to text", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-session-raw-prompt-history-"));
+    roots.push(root);
+    const transcriptPath = join(root, "session.jsonl");
+    const sessionId = "sess_raw_prompt_history";
+    const entries = [
+      {
+        type: "session",
+        version: 3,
+        id: sessionId,
+        timestamp: "2026-08-12T00:00:00.000Z",
+        cwd: root,
+      },
+      {
+        type: "message",
+        id: "prompt-file",
+        parentId: null,
+        timestamp: "2026-08-12T00:00:01.000Z",
+        message: {
+          role: "user",
+          content: '<file name="README.md">expanded contents</file>',
+          metadata: {
+            invocationId: "inv-file",
+            submittedInput: { text: "@README.md" },
+          },
+        },
+      },
+      {
+        type: "message",
+        id: "prompt-image",
+        parentId: "prompt-file",
+        timestamp: "2026-08-12T00:00:02.000Z",
+        message: {
+          role: "user",
+          content: [{ type: "image", data: "iVBORw==", mimeType: "image/png" }],
+          metadata: { submittedInput: { text: "./cat.png" } },
+        },
+      },
+      {
+        type: "message",
+        id: "prompt-legacy",
+        parentId: "prompt-image",
+        timestamp: "2026-08-12T00:00:03.000Z",
+        message: { role: "user", content: "legacy editor prompt" },
+      },
+    ];
+    await writeFile(
+      transcriptPath,
+      `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
+      "utf8",
+    );
+    const session = promptHistorySession({
+      sessionId,
+      workspaceId: "ws_raw_prompt_history",
+      sessionPath: transcriptPath,
+      createdAt: "2026-08-12T00:00:00.000Z",
+      updatedAt: "2026-08-12T00:00:03.000Z",
+    });
+
+    await refreshSparkSessionSnapshotIndex({ sessionPath: transcriptPath, sessionId });
+    const history = await loadSparkSessionPromptHistory({
+      sessionsRoot: root,
+      session,
+      limit: 100,
+    });
+    expect(history.prompts).toEqual([
+      { messageId: "prompt-file", text: "@README.md" },
+      { messageId: "prompt-image", text: "./cat.png" },
+      { messageId: "prompt-legacy", text: "legacy editor prompt" },
+    ]);
+    const snapshot = await loadSparkSessionSnapshot({ sessionsRoot: root, session });
+    expect(snapshot.messages[0]?.metadata).toEqual({ invocationId: "inv-file" });
+    expect(snapshot.messages[0]?.metadata).not.toHaveProperty("submittedInput");
+  });
+
+  it("keeps huge expanded file content out of the bounded prompt-history index", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-session-huge-expanded-prompt-"));
+    roots.push(root);
+    const transcriptPath = join(root, "session.jsonl");
+    const sessionId = "sess_huge_expanded_prompt";
+    const expandedMarker = "expanded-file-content-must-not-enter-index";
+    const expandedContent = `${expandedMarker}:${"x".repeat(2 * 1024 * 1024)}`;
+    const lines = [
+      JSON.stringify({
+        type: "session",
+        version: 3,
+        id: sessionId,
+        timestamp: "2026-08-12T00:00:00.000Z",
+        cwd: root,
+      }),
+      JSON.stringify({
+        type: "message",
+        id: "prompt-huge-file",
+        parentId: null,
+        timestamp: "2026-08-12T00:00:01.000Z",
+        message: {
+          role: "user",
+          content: `<file name="huge.txt">${expandedContent}</file>`,
+          metadata: { submittedInput: { text: "@huge.txt summarize" } },
+        },
+      }),
+    ];
+    await writeFile(transcriptPath, `${lines.join("\n")}\n`, "utf8");
+    const session = promptHistorySession({
+      sessionId,
+      workspaceId: "ws_huge_expanded_prompt",
+      sessionPath: transcriptPath,
+      createdAt: "2026-08-12T00:00:00.000Z",
+      updatedAt: "2026-08-12T00:00:01.000Z",
+    });
+
+    const refreshed = await refreshSparkSessionSnapshotIndex({
+      sessionPath: transcriptPath,
+      sessionId,
+    });
+    const indexText = await readFile(refreshed.indexPath, "utf8");
+    const persistedIndex = JSON.parse(indexText) as {
+      prompts: Array<{ messageId: string; text: string }>;
+    };
+    expect(persistedIndex.prompts).toEqual([
+      { messageId: "prompt-huge-file", text: "@huge.txt summarize" },
+    ]);
+    expect(indexText).not.toContain(expandedMarker);
+    expect(Buffer.byteLength(indexText)).toBeLessThan(SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES);
+    expect((await stat(refreshed.indexPath)).mode & 0o777).toBe(0o600);
+
+    await expect(
+      loadSparkSessionPromptHistory({ sessionsRoot: root, session, limit: 100 }),
+    ).resolves.toEqual({
+      sessionId,
+      prompts: [{ messageId: "prompt-huge-file", text: "@huge.txt summarize" }],
+      totalPrompts: 1,
+      truncated: false,
+    });
+  });
+
+  it("measures the exact returned prompt-history object against its byte bound", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-session-prompt-history-bytes-"));
+    roots.push(root);
+    const transcriptPath = join(root, "session.jsonl");
+    const sessionId = "sess_prompt_history_bytes";
+    const raw = "x".repeat(SPARK_SESSION_SUBMITTED_INPUT_MAX_BYTES - 128);
+    const lines = [
+      JSON.stringify({
+        type: "session",
+        version: 3,
+        id: sessionId,
+        timestamp: "2026-08-12T00:00:00.000Z",
+        cwd: root,
+      }),
+    ];
+    let parentId: string | null = null;
+    for (let index = 0; index < 20; index += 1) {
+      const id = `prompt-${index}`;
+      lines.push(
+        JSON.stringify({
+          type: "message",
+          id,
+          parentId,
+          timestamp: "2026-08-12T00:00:01.000Z",
+          message: {
+            role: "user",
+            content: `expanded ${index}`,
+            metadata: { submittedInput: { text: `${index}:${raw}` } },
+          },
+        }),
+      );
+      parentId = id;
+    }
+    await writeFile(transcriptPath, `${lines.join("\n")}\n`, "utf8");
+    const session = promptHistorySession({
+      sessionId,
+      workspaceId: "ws_prompt_history_bytes",
+      sessionPath: transcriptPath,
+      createdAt: "2026-08-12T00:00:00.000Z",
+      updatedAt: "2026-08-12T00:00:01.000Z",
+    });
+
+    await refreshSparkSessionSnapshotIndex({ sessionPath: transcriptPath, sessionId });
+    const history = await loadSparkSessionPromptHistory({
+      sessionsRoot: root,
+      session,
+      limit: 100,
+    });
+    expect(history.prompts.length).toBeLessThan(20);
+    expect(history.prompts.at(-1)?.messageId).toBe("prompt-19");
+    expect(history.truncated).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(history))).toBeLessThanOrEqual(
+      SPARK_SESSION_PROMPT_HISTORY_MAX_BYTES,
+    );
+  });
+
   it("projects persisted user images without folding bytes into message text", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-session-image-"));
     roots.push(root);

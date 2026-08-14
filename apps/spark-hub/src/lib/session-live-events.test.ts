@@ -51,13 +51,13 @@ describe("session live events", () => {
         id: "evt_driver",
         kind: "daemon.view_event",
         payload: {
-          version: 1,
+          version: 2,
           type: "daemon.view_event",
           source: "daemon",
           emittedAt: "2026-07-13T08:00:01.000Z",
           sessionId: "sess_current",
           view: {
-            version: 1,
+            version: 2,
             type: "loop.update",
             sessionId: "sess_current",
             loop: {

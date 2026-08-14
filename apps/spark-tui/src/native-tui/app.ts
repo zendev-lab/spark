@@ -12,6 +12,7 @@ import {
   createBlockedInteractionResponse,
   parseSparkInteractionResponse,
   parseSparkViewModelEvent,
+  sparkActionBarDefaultAction,
   sparkSlashActionBarForInput,
   type SparkActionBarView,
   type SparkActionView,
@@ -21,6 +22,10 @@ import {
   type SparkInteractionResponse,
   type SparkMessageView,
   type SparkRunView,
+  type SparkSessionReproLaneItemView,
+  type SparkSessionReproLaneSummaryView,
+  type SparkSessionReproWorkView,
+  type SparkSessionPromptHistoryEntry,
   type SparkSessionView,
   type SparkTaskView,
   type SparkViewModelEvent,
@@ -134,6 +139,7 @@ import {
   SPARK_HUB_PANELS,
   type SparkNativeHubPanel,
   type SparkNativeHubSnapshot,
+  type SparkNativeHubState,
   type SparkNativeFooterMetrics,
   type SparkNativeInteractionHandler,
   type SparkNativeMessage,
@@ -143,6 +149,7 @@ import {
   type SparkNativeStatusContext,
   type SparkNativeToolStatus,
   type SparkNativeTuiAppOptions,
+  type SparkNativeTuiExitReason,
   type SparkNativeWidget,
   type SparkNativeWorkspaceSessionState,
 } from "./types.ts";
@@ -170,7 +177,8 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private readonly editor: Editor;
   private readonly tui: TUI;
   private readonly session: SparkNativeSession;
-  private readonly onExit: () => void;
+  private readonly onExit: (reason?: SparkNativeTuiExitReason) => void;
+  private readonly prepareEditorInput: (input: string, basePath: string) => Promise<string>;
   private readonly messageRenderers: ReadonlyMap<string, SparkHostMessageRenderer>;
   private readonly keybindings?: SparkKeybindings;
   private readonly keybindingContext: SparkKeybindingContext;
@@ -203,6 +211,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private pendingEscapeTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly editorPromptHistoryMessageIds = new Set<string>();
   private readonly pendingDurablePromptHistory: string[] = [];
+  private reloadBlockingOperations = 0;
   private readonly handleSessionChange = () => {
     this.syncWorkingSpinner();
     this.invalidate();
@@ -212,12 +221,13 @@ export class SparkNativeTuiApp implements Component, Focusable {
   constructor(
     tui: TUI,
     session: SparkNativeSession,
-    onExit: () => void,
+    onExit: (reason?: SparkNativeTuiExitReason) => void,
     options: SparkNativeTuiAppOptions = {},
   ) {
     this.tui = tui;
     this.session = session;
     this.onExit = onExit;
+    this.prepareEditorInput = options.prepareEditorInput ?? prepareSparkNativeEditorInput;
     this.messageRenderers = options.messageRenderers ?? new Map();
     this.keybindings = options.keybindings;
     this.keybindingContext = options.keybindingContext ?? { hasUI: true };
@@ -267,6 +277,15 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   getEditorText(): string {
     return this.editor.getExpandedText();
+  }
+
+  /** Seed durable prompt recall without replacing the bounded transcript projection. */
+  hydratePromptHistory(entries: readonly SparkSessionPromptHistoryEntry[]): void {
+    for (const entry of entries) {
+      if (this.editorPromptHistoryMessageIds.has(entry.messageId)) continue;
+      this.editorPromptHistoryMessageIds.add(entry.messageId);
+      this.editor.addToHistory(entry.text);
+    }
   }
 
   async executeSlashCommand(input: string): Promise<void> {
@@ -350,37 +369,59 @@ export class SparkNativeTuiApp implements Component, Focusable {
     options: { mode: SparkNativeQueueMode },
   ): Promise<"started" | "queued" | "ignored" | "command"> {
     const text = input.trim();
-    if (!text) return await this.session.submit(input, options);
+    const isSlashCommand = text.startsWith("/") && !text.startsWith("//");
     // Host controls must bypass SparkNativeSession.submit: an active turn may queue prompts,
     // but it must never queue or swallow slash commands such as /model and /plan.
-    if (text.startsWith("/") && !text.startsWith("//")) {
+    if (isSlashCommand) {
+      this.editor.addToHistory(input);
       await this.runSlashCommand(text);
       this.invalidate();
       this.tui.requestRender();
       return "command";
     }
-    const bang = parseBangCommand(input);
-    if (bang?.hidden) {
-      const hiddenResult = await runSparkNativeBangCommand(bang.command, true, this.inputBasePath);
-      this.session.addToolMessage({ toolName: "shell", text: hiddenResult, status: "success" });
-      return "ignored";
-    }
-    try {
-      const prepared = await prepareSparkNativeEditorInput(input, this.inputBasePath);
-      if (!bang) {
-        this.editor.addToHistory(input);
-        if (this.session.daemonOwnsQueue) {
-          this.pendingDurablePromptHistory.push(displayNativeSubmittedInput(prepared).trim());
+    return await this.withReloadBlocked(async () => {
+      if (!text) return await this.session.submit(input, options);
+      const bang = parseBangCommand(input);
+      try {
+        if (bang?.hidden) {
+          const hiddenResult = await runSparkNativeBangCommand(
+            bang.command,
+            true,
+            this.inputBasePath,
+          );
+          this.session.addToolMessage({
+            toolName: "shell",
+            text: hiddenResult,
+            status: "success",
+          });
+          return "ignored";
         }
+        const prepared = await this.prepareEditorInput(input, this.inputBasePath);
+        if (!bang) {
+          this.editor.addToHistory(input);
+          if (this.session.daemonOwnsQueue) {
+            this.pendingDurablePromptHistory.push(displayNativeSubmittedInput(prepared).trim());
+          }
+        }
+        return await this.session.submit(prepared, { ...options, submittedInput: input });
+      } catch (error) {
+        this.session.addSystemMessage(
+          nativeTuiStrings.inputPreparationFailed(
+            error instanceof Error ? error.message : String(error),
+          ),
+        );
+        return "ignored";
       }
-      return await this.session.submit(prepared, options);
-    } catch (error) {
-      this.session.addSystemMessage(
-        nativeTuiStrings.inputPreparationFailed(
-          error instanceof Error ? error.message : String(error),
-        ),
-      );
-      return "ignored";
+    });
+  }
+
+  /** Keep process reload fenced until a presentation-owned async operation settles. */
+  async withReloadBlocked<T>(operation: () => Promise<T>): Promise<T> {
+    this.reloadBlockingOperations += 1;
+    try {
+      return await operation();
+    } finally {
+      this.reloadBlockingOperations -= 1;
     }
   }
 
@@ -587,6 +628,13 @@ export class SparkNativeTuiApp implements Component, Focusable {
       activePanel: this.controller.viewState.activeHubPanel,
       sessionId: this.hub.sessionId,
       sessionStatus: this.hub.sessionStatus,
+      ...(this.hub.repro ? { reproId: this.hub.repro.reproId } : {}),
+      reproProjectionStatus: this.hub.reproProjectionStatus,
+      selectedReproLane: this.hub.selectedReproLane,
+      ...(this.hub.selectedReproWorkItemId
+        ? { selectedReproWorkItemId: this.hub.selectedReproWorkItemId }
+        : {}),
+      reproDetailExpanded: this.hub.reproDetailExpanded,
       workflows: this.hub.workflows.size,
       workflowRuns: [...this.hub.runs.values()].filter((run) => run.kind === "workflow").length,
       roleRuns: [...this.hub.runs.values()].filter((run) => run.kind === "role").length,
@@ -599,11 +647,13 @@ export class SparkNativeTuiApp implements Component, Focusable {
     };
   }
 
-  toggleHubPanel(panel: SparkNativeHubPanel = "overview"): boolean {
-    const state = this.controller.dispatch({ type: "hub.toggle", panel });
+  toggleHubPanel(panel?: SparkNativeHubPanel): boolean {
+    const target = panel ?? (this.hasActiveReproProjection() ? "repro" : "overview");
+    const state = this.controller.dispatch({ type: "hub.toggle", panel: target });
     if (state.activeHubPanel === "runs" || state.activeHubPanel === "workflows") {
       this.ensureWorkflowRunSelection();
     }
+    if (state.activeHubPanel === "repro") this.ensureReproWorkItemSelection();
     this.invalidate();
     this.tui.requestRender();
     return state.activeHubPanel !== undefined;
@@ -611,9 +661,10 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   cycleHubPanel(): SparkNativeHubPanel {
     const next =
-      this.controller.dispatch({ type: "hub.cycle", panels: SPARK_HUB_PANELS }).activeHubPanel ??
-      "overview";
+      this.controller.dispatch({ type: "hub.cycle", panels: this.availableHubPanels() })
+        .activeHubPanel ?? "overview";
     if (next === "runs" || next === "workflows") this.ensureWorkflowRunSelection();
+    if (next === "repro") this.ensureReproWorkItemSelection();
     this.invalidate();
     this.tui.requestRender();
     return next;
@@ -621,6 +672,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   private handleHubPanelInput(data: string): boolean {
     const activePanel = this.controller.viewState.activeHubPanel;
+    if (activePanel === "repro") return this.handleReproPanelInput(data);
     if (activePanel !== "runs" && activePanel !== "workflows") {
       return false;
     }
@@ -667,6 +719,71 @@ export class SparkNativeTuiApp implements Component, Focusable {
       return true;
     }
     return false;
+  }
+
+  private handleReproPanelInput(data: string): boolean {
+    if (matchesKey(data, Key.escape)) {
+      if (this.hub.reproDetailExpanded) this.hub.reproDetailExpanded = false;
+      else this.controller.dispatch({ type: "hub.close" });
+      this.invalidate();
+      this.tui.requestRender();
+      return true;
+    }
+    if (data === "1" || data === "2" || data === "3") {
+      this.selectReproLane(
+        data === "1" ? "implementation" : data === "2" ? "exactness" : "formalize",
+      );
+      return true;
+    }
+    if (matchesKey(data, Key.up) || data === "k") {
+      this.moveReproWorkItemSelection(-1);
+      return true;
+    }
+    if (matchesKey(data, Key.down) || data === "j") {
+      this.moveReproWorkItemSelection(1);
+      return true;
+    }
+    if (matchesKey(data, Key.enter)) {
+      if (this.selectedReproWorkItem()) {
+        this.hub.reproDetailExpanded = true;
+        this.invalidate();
+        this.tui.requestRender();
+      }
+      return true;
+    }
+    return false;
+  }
+
+  private availableHubPanels(): readonly SparkNativeHubPanel[] {
+    return this.hasActiveReproProjection()
+      ? SPARK_HUB_PANELS
+      : SPARK_HUB_PANELS.filter((panel) => panel !== "repro");
+  }
+
+  private hasActiveReproProjection(): boolean {
+    return this.hub.repro?.status === "active";
+  }
+
+  private selectReproLane(lane: SparkNativeHubState["selectedReproLane"]): void {
+    this.hub.selectedReproLane = lane;
+    this.hub.selectedReproWorkItemId = this.selectedReproLaneSummary()?.items[0]?.workItemId;
+    this.hub.reproDetailExpanded = false;
+    this.invalidate();
+    this.tui.requestRender();
+  }
+
+  private moveReproWorkItemSelection(delta: number): void {
+    const items = this.selectedReproLaneSummary()?.items ?? [];
+    if (items.length === 0) return;
+    const current = Math.max(
+      0,
+      items.findIndex((item) => item.workItemId === this.hub.selectedReproWorkItemId),
+    );
+    const next = items[(current + delta + items.length) % items.length];
+    this.hub.selectedReproWorkItemId = next?.workItemId;
+    this.hub.reproDetailExpanded = false;
+    this.invalidate();
+    this.tui.requestRender();
   }
 
   private moveWorkflowRunSelection(delta: number): void {
@@ -775,6 +892,8 @@ export class SparkNativeTuiApp implements Component, Focusable {
         return "settings";
       case "settings.providers":
         return "login";
+      case "settings.enabled-models":
+        return "enabled-models";
       case "status.inspect":
         return "status";
       case "session.select":
@@ -850,6 +969,9 @@ export class SparkNativeTuiApp implements Component, Focusable {
           return;
         case "settings.providers":
           await this.invokeRegisteredSlashCommand("login", "", true);
+          return;
+        case "settings.enabled-models":
+          await this.invokeRegisteredSlashCommand("enabled-models", "", true);
           return;
         case "status.inspect":
           await this.invokeRegisteredSlashCommand("status", "", true);
@@ -1030,10 +1152,26 @@ export class SparkNativeTuiApp implements Component, Focusable {
       });
     }
     const flowRequest = nativeAskFlowRequest(request);
-    const controller = new SparkAskFlowController({
-      request: flowRequest,
-      language: nativeAskLanguage(),
-    });
+    let controller: SparkAskFlowController;
+    try {
+      controller = new SparkAskFlowController({
+        request: flowRequest,
+        language: nativeAskLanguage(),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.session.addSystemMessage(`Ask overlay failed to open: ${message}`);
+      return {
+        version: SPARK_PROTOCOL_VERSION,
+        kind: "askFlow",
+        requestId: request.requestId,
+        status: "blocked",
+        answers: {},
+        nextAction: "block",
+        message,
+        metadata: { surface: "native-tui" },
+      };
+    }
     let timedOut = false;
     const resultPromise = this.custom<SparkAskFlowResult>(
       (tui, theme, _keybindings, done) => {
@@ -1206,6 +1344,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private recordSessionView(view: SparkSessionView): void {
+    const previousSessionId = this.hub.sessionId;
     this.hub.sessionId = view.sessionId;
     this.hub.sessionTitle = view.title;
     this.hub.sessionStatus = view.status;
@@ -1217,6 +1356,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
     else delete this.hub.model;
     if (view.thinkingLevel) this.hub.thinkingLevel = view.thinkingLevel;
     else delete this.hub.thinkingLevel;
+    this.recordReproProjection(
+      view.work?.repro,
+      previousSessionId === view.sessionId,
+      view.updatedAt,
+    );
     this.sessionFooterMetrics = view.usage ? footerMetricsFromRecord(view.usage) : {};
     this.runFooterMetrics.clear();
     this.hub.runs.clear();
@@ -1269,6 +1413,59 @@ export class SparkNativeTuiApp implements Component, Focusable {
       }
     }
     for (const evidence of view.evidence ?? []) this.hub.evidence.set(evidence.ref, evidence);
+  }
+
+  private recordReproProjection(
+    incoming: SparkSessionReproWorkView | undefined,
+    sameSession: boolean,
+    snapshotUpdatedAt: string | undefined,
+  ): void {
+    const current = this.hub.repro;
+    if (!incoming) {
+      if (
+        sameSession &&
+        current &&
+        snapshotUpdatedAt &&
+        current.updatedAt.localeCompare(snapshotUpdatedAt) > 0
+      ) {
+        this.hub.reproProjectionStatus = "stale";
+        return;
+      }
+      delete this.hub.repro;
+      this.hub.reproProjectionStatus = "unavailable";
+      this.resetReproPresentation();
+      return;
+    }
+    if (
+      sameSession &&
+      current?.reproId === incoming.reproId &&
+      current.updatedAt.localeCompare(incoming.updatedAt) > 0
+    ) {
+      this.hub.reproProjectionStatus = "stale";
+      return;
+    }
+    const changedRepro = !sameSession || current?.reproId !== incoming.reproId;
+    this.hub.repro = incoming;
+    this.hub.reproProjectionStatus = incoming.lanes ? "current" : "unavailable";
+    if (changedRepro) this.resetReproPresentation();
+    this.ensureReproWorkItemSelection();
+  }
+
+  private resetReproPresentation(): void {
+    this.hub.selectedReproLane = "implementation";
+    this.hub.selectedReproWorkItemId = undefined;
+    this.hub.reproDetailExpanded = false;
+  }
+
+  private ensureReproWorkItemSelection(): void {
+    const items = this.selectedReproLaneSummary()?.items ?? [];
+    if (
+      !this.hub.selectedReproWorkItemId ||
+      !items.some((item) => item.workItemId === this.hub.selectedReproWorkItemId)
+    ) {
+      this.hub.selectedReproWorkItemId = items[0]?.workItemId;
+      this.hub.reproDetailExpanded = false;
+    }
   }
 
   private recordRunView(run: SparkRunView, includeUsage = true): void {
@@ -1390,7 +1587,9 @@ export class SparkNativeTuiApp implements Component, Focusable {
     const key = parseKey(data) ?? data;
     const keybindings = this.keybindings;
     if (!keybindings || !keybindings.canExecuteKey(key, this.keybindingContext)) return false;
-    void keybindings.executeKey(key, this.keybindingContext).then(
+    void this.withReloadBlocked(
+      async () => await keybindings.executeKey(key, this.keybindingContext),
+    ).then(
       (didHandle) => {
         if (didHandle) {
           this.invalidate();
@@ -1482,7 +1681,12 @@ export class SparkNativeTuiApp implements Component, Focusable {
     ];
     const context = this.renderWorkspaceSessionState(width);
     const detail = this.renderActiveHubPanel(width);
-    const pinnedStatus = [...header, ...context, ...this.renderWidgets("aboveEditor", width)];
+    const pinnedStatus = [
+      ...header,
+      ...context,
+      ...this.renderReproSummary(width),
+      ...this.renderWidgets("aboveEditor", width),
+    ];
     const auxiliary = this.renderPendingAskPresentations(width);
     const transcript = this.renderTranscript(width);
     const transcriptScrollOffset = Math.min(
@@ -1494,7 +1698,12 @@ export class SparkNativeTuiApp implements Component, Focusable {
         ? transcript.slice(0, transcript.length - transcriptScrollOffset)
         : transcript;
     const queue = this.renderInputQueue(width);
-    const composer = [this.separatorLine(width), ...this.editor.render(width)];
+    const editorLines = this.editor.render(width);
+    const composer = [this.separatorLine(width), ...editorLines];
+    const composerActive =
+      editorLines.length >= 2
+        ? editorLines.slice(editorLines.length - 2, editorLines.length - 1)
+        : [];
     const footer = [
       ...(this.widgets.has("spark-status") ? [] : this.renderTaskStatus(width)),
       ...this.renderWidgets("belowEditor", width),
@@ -1517,6 +1726,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
         pinnedStatus,
         queue,
         composer,
+        composerActive,
         footer,
         runtimeFooter,
       },
@@ -1566,6 +1776,35 @@ export class SparkNativeTuiApp implements Component, Focusable {
       ...(state.mismatchDiagnostic ? [`diagnostic: ${state.mismatchDiagnostic}`] : []),
     ];
     return [truncateToWidth(this.renderTheme.fg("muted", details.join(" • ")), width)];
+  }
+
+  private renderReproSummary(width: number): string[] {
+    const repro = this.hub.repro;
+    if (!repro) return [];
+    if (!repro.lanes) {
+      return [
+        truncateToWidth(
+          this.renderTheme.fg("warning", `Repro ${repro.reproId} · lanes unavailable`),
+          width,
+        ),
+      ];
+    }
+    const lane = (label: string, summary: SparkSessionReproLaneSummaryView) =>
+      `${label}${summary.totalCount}` +
+      (summary.blockedCount > 0 ? ` !${summary.blockedCount}` : "") +
+      (summary.pendingHandoffCount > 0 ? ` H${summary.pendingHandoffCount}` : "") +
+      (summary.resolutionCount > 0 ? ` R${summary.resolutionCount}` : "");
+    const projection = this.hub.reproProjectionStatus === "stale" ? " · stale ignored" : "";
+    const tip = repro.lanes.formalizedTip ? ` · tip ${repro.lanes.formalizedTip}` : "";
+    return [
+      truncateToWidth(
+        this.renderTheme.fg(
+          "muted",
+          `Repro · ${lane("I", repro.lanes.implementation)} · ${lane("E", repro.lanes.exactness)} · ${lane("F", repro.lanes.formalize)}${tip}${projection}`,
+        ),
+        width,
+      ),
+    ];
   }
 
   private renderInputQueue(width: number): string[] {
@@ -1890,6 +2129,8 @@ export class SparkNativeTuiApp implements Component, Focusable {
     switch (panel) {
       case "overview":
         return this.renderHubOverview();
+      case "repro":
+        return this.renderReproHub();
       case "workflows":
         return this.renderWorkflowHub();
       case "runs":
@@ -1909,6 +2150,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
     const snapshot = this.hubSnapshot();
     return [
       "◆ Session inspector: overview",
+      `├─ Repro lanes: ${snapshot.reproId ? `${snapshot.reproId} (${snapshot.reproProjectionStatus})` : "unavailable"}`,
       `├─ Workflow picker/progress: ${snapshot.workflows} option(s), ${snapshot.workflowRuns} workflow run(s)`,
       `├─ Role-run board: ${snapshot.roleRuns} role run(s), ${snapshot.interactions} interaction(s)`,
       `├─ Task/project board: ${snapshot.tasks} tracked task(s)`,
@@ -1916,6 +2158,109 @@ export class SparkNativeTuiApp implements Component, Focusable {
       `├─ Graft provenance/patch status: ${snapshot.graftItems} item(s)`,
       "└─ Cross-session Hub: run spark hub in another terminal.",
     ];
+  }
+
+  private renderReproHub(): string[] {
+    const lines = [
+      "◆ Session inspector: repro",
+      "│  Keys: 1/2/3 lane · ↑/↓ or j/k work item · Enter details · Esc details/panel",
+    ];
+    const repro = this.hub.repro;
+    if (!repro) {
+      lines.push("└─ No active Repro projection is available from the daemon.");
+      return lines;
+    }
+    lines.push(`│  ${repro.reproId} [${repro.status}] · plan r${repro.plan.revision}`);
+    if (!repro.lanes) {
+      lines.push("└─ Three-lane projection is unavailable for this Session snapshot.");
+      return lines;
+    }
+    if (this.hub.reproProjectionStatus === "stale") {
+      lines.push("│  Stale Repro projection ignored; showing the newest daemon snapshot.");
+    }
+    const lanes = [
+      ["implementation", "1 Implementation", repro.lanes.implementation],
+      ["exactness", "2 Exactness", repro.lanes.exactness],
+      ["formalize", "3 Formalize", repro.lanes.formalize],
+    ] as const;
+    for (const [lane, label, summary] of lanes) {
+      const marker = lane === this.hub.selectedReproLane ? "▸" : "├";
+      lines.push(
+        `${marker}─ ${label} [${summary.status}] total=${summary.totalCount} open=${summary.openCount} blocked=${summary.blockedCount} handoff=${summary.pendingHandoffCount} resolution=${summary.resolutionCount}`,
+      );
+    }
+    if (repro.lanes.formalizedTip) {
+      lines.push(`│  Formalized tip: ${repro.lanes.formalizedTip}`);
+    }
+
+    const selectedLane = this.selectedReproLaneSummary();
+    const selectedLaneLabel = reproLaneTitle(this.hub.selectedReproLane);
+    if (!selectedLane || selectedLane.items.length === 0) {
+      lines.push(`└─ ${selectedLaneLabel} has no projected work items.`);
+      return lines;
+    }
+    const selectedItem = this.selectedReproWorkItem();
+    const visibleItems =
+      this.hub.reproDetailExpanded && selectedItem ? [selectedItem] : selectedLane.items;
+    for (const item of visibleItems) {
+      const marker = item.workItemId === this.hub.selectedReproWorkItemId ? "▸" : "├";
+      const refs = [item.taskRef, item.runRef, item.gitChangeRef].filter(Boolean).length;
+      lines.push(
+        `${marker}─ ${item.workItemId} [${item.status}] refs=${refs} evidence=${item.evidenceRefs.length} H${item.handoffCount}/R${item.resolutionCount} ${item.title}`,
+      );
+    }
+    if (this.hub.reproDetailExpanded) {
+      if (selectedItem) lines.push(...this.renderReproWorkItemDetails(selectedItem));
+    }
+    return lines;
+  }
+
+  private selectedReproLaneSummary(): SparkSessionReproLaneSummaryView | undefined {
+    return this.hub.repro?.lanes?.[this.hub.selectedReproLane];
+  }
+
+  private selectedReproWorkItem(): SparkSessionReproLaneItemView | undefined {
+    return this.selectedReproLaneSummary()?.items.find(
+      (item) => item.workItemId === this.hub.selectedReproWorkItemId,
+    );
+  }
+
+  private renderReproWorkItemDetails(item: SparkSessionReproLaneItemView): string[] {
+    const lines = ["│  Details from existing owner projections:"];
+    if (item.taskRef) {
+      const task = this.hub.tasks.get(item.taskRef);
+      lines.push(
+        task
+          ? `│  Task ${task.ref} [${task.status}] ${task.title}`
+          : `│  Task ${item.taskRef}: projection unavailable`,
+      );
+    }
+    if (item.runRef) {
+      const run = this.hub.runs.get(item.runRef);
+      lines.push(
+        run
+          ? `│  Run ${run.id} [${run.status}] ${run.title ?? run.summary ?? ""}`.trimEnd()
+          : `│  Run ${item.runRef}: projection unavailable`,
+      );
+    }
+    if (item.gitChangeRef) {
+      const artifact = this.hub.artifacts.get(item.gitChangeRef);
+      lines.push(
+        artifact
+          ? `│  GitChange ${artifact.ref} [${artifact.status ?? "recorded"}] ${artifact.title}`
+          : `│  GitChange ${item.gitChangeRef}: projection unavailable`,
+      );
+    }
+    for (const evidenceRef of item.evidenceRefs) {
+      const evidence = this.hub.evidence.get(evidenceRef);
+      lines.push(
+        evidence
+          ? `│  Evidence ${evidence.ref} [${evidence.status ?? "recorded"}] ${evidence.title}`
+          : `│  Evidence ${evidenceRef}: projection unavailable`,
+      );
+    }
+    if (lines.length === 1) lines.push("│  No associated Task, Run, GitChange, or Evidence refs.");
+    return lines;
   }
 
   private renderWorkflowHub(): string[] {
@@ -2299,6 +2644,19 @@ export class SparkNativeTuiApp implements Component, Focusable {
       return;
     }
 
+    if (parsed.name !== "reload") {
+      await this.withReloadBlocked(async () => {
+        await this.runParsedSlashCommand(input, parsed);
+      });
+      return;
+    }
+    await this.runParsedSlashCommand(input, parsed);
+  }
+
+  private async runParsedSlashCommand(
+    input: string,
+    parsed: NonNullable<ReturnType<typeof parseSlashCommand>>,
+  ): Promise<void> {
     // Compatibility aliases must execute their registered handler. Otherwise
     // a same-named local panel or legacy action bar can intercept the command
     // before it reaches the canonical command family.
@@ -2330,7 +2688,15 @@ export class SparkNativeTuiApp implements Component, Focusable {
     // Canonical mode commands and `/workflow` already own complete native
     // flows. Hub uses the shared semantic action bars, but the TUI must not let
     // that presentation layer intercept its registered command handlers.
-    const directRegisteredCommand = ["plan", "execute", "fleet", "workflow"].includes(parsed.name)
+    const directRegisteredCommand = [
+      "plan",
+      "execute",
+      "fleet",
+      "workflow",
+      "ask",
+      "enabled-models",
+      "enabled",
+    ].includes(parsed.name)
       ? parsed.name
       : undefined;
     if (
@@ -2345,16 +2711,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
     const actionBar = sparkSlashActionBarForInput(input);
     if (actionBar) {
       // Bare slash commands enter their canonical destination in one step.
-      // The thinking-level bar is itself the final selector; every other
-      // catalog bar is presentation metadata whose primary action identifies
-      // the destination that the native TUI should enter directly.
-      if (actionBar.id === "thinking") {
-        this.openActionBar(actionBar);
-        return;
-      }
-      const primaryAction =
-        actionBar.actions.find((action) => action.tone === "primary") ?? actionBar.actions[0];
-      if (primaryAction) await this.executeActionBarAction(primaryAction);
+      // A protocol-owned default identifies shorthand behavior; bars without
+      // one (such as the thinking selector) are themselves the destination.
+      const defaultAction = sparkActionBarDefaultAction(actionBar);
+      if (defaultAction) await this.executeActionBarAction(defaultAction);
+      else this.openActionBar(actionBar);
       return;
     }
 
@@ -2366,27 +2727,29 @@ export class SparkNativeTuiApp implements Component, Focusable {
     args: string,
     emitResult: boolean,
   ): Promise<void> {
-    const command = this.slashCommands[name];
-    if (!command) {
-      this.session.addSystemMessage(nativeTuiStrings.unknownCommand(name));
-      return;
-    }
+    await this.withReloadBlocked(async () => {
+      const command = this.slashCommands[name];
+      if (!command) {
+        this.session.addSystemMessage(nativeTuiStrings.unknownCommand(name));
+        return;
+      }
 
-    try {
-      const result = await command.handler(args, {
-        app: this,
-        session: this.session,
-        exit: this.onExit,
-      });
-      if (emitResult && result?.trim()) this.session.addSystemMessage(result.trim());
-    } catch (error) {
-      this.session.addSystemMessage(
-        nativeTuiStrings.commandFailed(
-          name,
-          error instanceof Error ? error.message : String(error),
-        ),
-      );
-    }
+      try {
+        const result = await command.handler(args, {
+          app: this,
+          session: this.session,
+          exit: this.onExit,
+        });
+        if (emitResult && result?.trim()) this.session.addSystemMessage(result.trim());
+      } catch (error) {
+        this.session.addSystemMessage(
+          nativeTuiStrings.commandFailed(
+            name,
+            error instanceof Error ? error.message : String(error),
+          ),
+        );
+      }
+    });
   }
 
   private builtInSlashCommand(name: string, _args: string): string | undefined | false {
@@ -2397,7 +2760,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
         this.session.clearTranscript();
         return false;
       case "reload":
-        return "Reload requested. Restart Spark TUI to reload extension state.";
+        if (this.reloadBlockingOperations > 0 || !this.session.canReloadSafely) {
+          return nativeTuiStrings.reloadBlocked;
+        }
+        this.onExit("reload");
+        return false;
       case "stop": {
         const result = this.session.abort(_args.trim() || "user stop");
         if (result.restoredText) this.setEditorText(result.restoredText);
@@ -2406,9 +2773,6 @@ export class SparkNativeTuiApp implements Component, Focusable {
           ? `Restored ${result.clearedQueued} queued input(s) to the editor.`
           : nativeTuiStrings.noTurnRunning;
       }
-      case "retry":
-        void this.session.retryLast();
-        return false;
       case "inspect":
       case "hub":
         return this.openHubPanelFromArgs(_args);
@@ -2453,6 +2817,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
   openHubPanel(panel: SparkNativeHubPanel): string | false {
     this.controller.dispatch({ type: "hub.open", panel });
     if (panel === "runs" || panel === "workflows") this.ensureWorkflowRunSelection();
+    if (panel === "repro") this.ensureReproWorkItemSelection();
     this.invalidate();
     this.tui.requestRender();
     return false;
@@ -2543,6 +2908,17 @@ function taskStatusRank(status: SparkTaskView["status"]): number {
       return 5;
     case "cancelled":
       return 6;
+  }
+}
+
+function reproLaneTitle(lane: SparkNativeHubState["selectedReproLane"]): string {
+  switch (lane) {
+    case "implementation":
+      return "Implementation";
+    case "exactness":
+      return "Exactness";
+    case "formalize":
+      return "Formalize";
   }
 }
 

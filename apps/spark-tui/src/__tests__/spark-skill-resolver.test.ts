@@ -45,6 +45,19 @@ test("parseSkillFrontmatter reads multiline block descriptions", () => {
   assert.equal(parsed.frontmatter.disabled, false);
 });
 
+test("checked-in spark-ai-models skill is parseable and model-invocable", async () => {
+  const raw = await readFile(
+    join(process.cwd(), ".agents/skills/spark-ai-models/SKILL.md"),
+    "utf8",
+  );
+  const parsed = parseSkillFrontmatter(raw);
+  assert.equal(parsed.frontmatter.name, "spark-ai-models");
+  assert.equal(typeof parsed.frontmatter.description, "string");
+  assert.ok(String(parsed.frontmatter.description).length > 0);
+  assert.equal(parsed.frontmatter["disable-model-invocation"], undefined);
+  assert.ok(parsed.body.trim().length > 0);
+});
+
 test("loadBuiltinSkills exposes parsed metadata and a non-empty body", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-builtin-skills-fulltext-"));
   try {
@@ -105,11 +118,11 @@ test("SparkSkillResolver discovers builtin, workspace, and user skills with user
 
     assert.deepEqual(result.skills.map((skill) => `${skill.name}:${skill.layer}`).sort(), [
       "builtin-only:builtin",
-      "shared:user",
+      "shared:workspace",
     ]);
     assert.equal(
       result.skills.find((skill) => skill.name === "shared")!.description,
-      "User shared skill",
+      "Workspace shared skill",
     );
     assert.equal(
       result.diagnostics.filter((diagnostic) => diagnostic.type === "collision").length,
@@ -207,10 +220,9 @@ test("SparkSkillResolver discovers cross-harness .agents/skills and ignores thei
     const resolver = new SparkSkillResolver({
       cwd,
       builtinDirs: [join(dir, "none-builtin")],
-      userDir: join(dir, "none-user"),
       userAgentsDir: userAgents,
     });
-    const result = await resolver.resolve();
+    const result = await resolver.resolve({ includeRepository: true });
 
     assert.deepEqual(result.skills.map((skill) => skill.name).sort(), [
       "project-agent",

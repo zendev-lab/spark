@@ -99,6 +99,8 @@ export const localRpcServiceHandlerMethodGroups = {
     "session.list",
     "session.get",
     "session.snapshot",
+    "session.prompt-history",
+    "session.retry-target",
     "session.create",
     "session.bind",
     "session.unbind",
@@ -125,6 +127,7 @@ export const localRpcServiceHandlerMethodGroups = {
   model: [
     "model.catalog",
     "model.default.set",
+    "model.enabled.set",
     "provider.auth.api-key.set",
     "provider.auth.import.pi",
     "provider.auth.logout",

@@ -29,7 +29,7 @@ export function primarySessionLoop(
 
 export function sessionWorkStatus(
   session: SparkSessionView | null | undefined,
-): SparkLoopStatus | "active" | "paused" | "complete" | undefined {
+): SparkLoopStatus | "active" | "waiting_decision" | "paused" | "complete" | undefined {
   const loop = primarySessionLoop(session);
   if (loop) return loop.status;
   if (session?.work?.repro) return session.work.repro.status;

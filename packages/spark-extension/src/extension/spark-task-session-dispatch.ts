@@ -97,6 +97,7 @@ export async function dispatchManagedTaskSessions(
   const daemonRequest = input.daemonRequest ?? requestSparkDaemon;
   const store = defaultTaskGraphStore(stateCwd);
   const uniqueTaskRefs = [...new Set(input.taskRefs)];
+  await store.reconcileStaleTaskRuns({ projectRef: input.projectRef });
   if (uniqueTaskRefs.length === 0) return [];
   const fleetTargets = input.fleet
     ? await resolveFleetTargets(stateCwd, store, uniqueTaskRefs)
@@ -598,6 +599,7 @@ function reserveTaskSessionRuns(
       resourceAllocation: input.resourceAllocations?.[taskRef],
       status: "queued",
       startedAt: nowIso(),
+      updatedAt: nowIso(),
       outputEvidenceRefs: [],
     };
     graph.recordRun(run);
@@ -627,6 +629,10 @@ async function ensureTaskExecutionSession(input: {
   daemonRequest: typeof requestSparkDaemon;
 }): Promise<void> {
   const sessionId = taskExecutionSessionId(input.execution);
+  const fleetWorkerTarget =
+    input.fleetTarget && input.fleetTarget.writableArtifactRefs.length > 0
+      ? input.fleetTarget
+      : undefined;
   const owner = await input.daemonRequest("session.get", {
     sessionId: input.execution.ownerSessionId,
   });
@@ -638,25 +644,25 @@ async function ensureTaskExecutionSession(input: {
       sessionId,
       scope: { kind: "workspace", workspaceId: owner.scope.workspaceId },
       roleBinding: { kind: "explicit", roleRef: input.roleRef },
-      ...(input.fleetTarget
+      ...(fleetWorkerTarget
         ? {
             supervisorSessionId: input.execution.ownerSessionId,
-            cwd: input.fleetTarget.primaryRoot,
-            cwdArtifactRef: input.fleetTarget.primaryArtifactRef,
+            cwd: fleetWorkerTarget.primaryRoot,
+            cwdArtifactRef: fleetWorkerTarget.primaryArtifactRef,
           }
         : {
             ...(owner.cwd ? { cwd: owner.cwd } : {}),
             ...(owner.cwdArtifactRef ? { cwdArtifactRef: owner.cwdArtifactRef } : {}),
           }),
-      ...(input.fleetTarget && input.execution.workerLaneKey
+      ...(fleetWorkerTarget && input.execution.workerLaneKey
         ? {
             fleetWorker: {
               ownerSessionId: input.execution.ownerSessionId,
               projectRef: input.projectRef,
               roleRef: input.roleRef,
               laneKey: input.execution.workerLaneKey,
-              primaryArtifactRef: input.fleetTarget.primaryArtifactRef,
-              writableArtifactRefs: input.fleetTarget.writableArtifactRefs,
+              primaryArtifactRef: fleetWorkerTarget.primaryArtifactRef,
+              writableArtifactRefs: fleetWorkerTarget.writableArtifactRefs,
             },
           }
         : {
@@ -693,7 +699,12 @@ async function ensureTaskExecutionSession(input: {
     const existing = await input.daemonRequest("session.get", {
       sessionId,
     });
-    const bindingMatches = input.fleetTarget
+    if (existing.lifecycle !== "open" || existing.placement !== "active") {
+      throw new Error(
+        `Fleet worker Session ${sessionId} is unavailable after daemon restart: lifecycle=${existing.lifecycle}, placement=${existing.placement}`,
+      );
+    }
+    const bindingMatches = fleetWorkerTarget
       ? existing.owner.kind === "session" &&
         existing.owner.supervisorSessionId === input.execution.ownerSessionId &&
         existing.roleBinding.kind === "explicit" &&
@@ -702,10 +713,10 @@ async function ensureTaskExecutionSession(input: {
         existing.fleetWorker.projectRef === input.projectRef &&
         existing.fleetWorker.roleRef === input.roleRef &&
         existing.fleetWorker.laneKey === input.execution.workerLaneKey &&
-        existing.fleetWorker.primaryArtifactRef === input.fleetTarget.primaryArtifactRef &&
+        existing.fleetWorker.primaryArtifactRef === fleetWorkerTarget.primaryArtifactRef &&
         sameStrings(
-          existing.fleetWorker.writableArtifactRefs,
-          input.fleetTarget.writableArtifactRefs,
+          existing.fleetWorker?.writableArtifactRefs ?? [],
+          fleetWorkerTarget.writableArtifactRefs,
         )
       : (existing.owner.kind === "task_run" || existing.owner.kind === "task_revision") &&
         existing.owner.kind ===
@@ -719,7 +730,7 @@ async function ensureTaskExecutionSession(input: {
       throw new Error(`managed session ${sessionId} has a conflicting owner or execution binding`);
     }
   }
-  if (input.fleetTarget) return;
+  if (fleetWorkerTarget) return;
   const goal = await setSessionGoal(
     input.cwd,
     { ...input.ctx, sessionId },
@@ -832,7 +843,7 @@ async function updateReservedRun(
       const run = graph.runs().find((candidate) => candidate.ref === runRef);
       if (!run) throw new Error(`unknown reserved task run: ${runRef}`);
       const updated = update(run);
-      graph.recordRun(updated);
+      graph.recordRun({ ...updated, updatedAt: nowIso() });
       if (updated.status === "failed" || updated.status === "cancelled") {
         graph.setTaskStatus(taskRef, "failed");
       }

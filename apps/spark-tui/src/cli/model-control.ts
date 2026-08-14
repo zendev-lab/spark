@@ -6,7 +6,10 @@ import {
   type SparkModelControlSnapshot,
   type SparkModelRef,
 } from "@zendev-lab/spark-protocol";
-import type { SparkModelPickerState } from "../host/model-selector.ts";
+import type {
+  SparkEnabledModelCatalogState,
+  SparkModelPickerState,
+} from "../host/model-selector.ts";
 import type { SparkActiveSelection } from "../host/provider-registry.ts";
 import { requestSparkDaemonControl, type SparkDaemonClientOptions } from "./daemon.ts";
 
@@ -53,6 +56,7 @@ const SPARK_DAEMON_MODEL_CONTROL_METHODS = [
   "session.model.set",
   "session.thinking.set",
   "model.default.set",
+  "model.enabled.set",
   "provider.auth.api-key.set",
   "provider.auth.logout",
   "provider.auth.login.start",
@@ -70,9 +74,10 @@ function isSparkDaemonModelControlMethod(method: string): method is SparkDaemonM
 export function daemonSnapshotToPickerState(
   snapshot: SparkModelControlSnapshot,
 ): SparkModelPickerState {
-  const scopedModelValues = snapshot.scopedModels
-    ? new Set(snapshot.scopedModels.map(sparkModelValue))
-    : undefined;
+  const enabledModelValues =
+    snapshot.enabledModels === undefined
+      ? undefined
+      : new Set(snapshot.enabledModels.map(sparkModelValue));
   const effectiveModel = snapshot.session?.model ?? snapshot.defaultModel;
   const effectiveEntry = effectiveModel
     ? snapshot.providers
@@ -80,7 +85,7 @@ export function daemonSnapshotToPickerState(
         .find(
           (entry) =>
             modelEquals(entry.model, effectiveModel) &&
-            (!scopedModelValues || scopedModelValues.has(sparkModelValue(entry.model))),
+            (!enabledModelValues || enabledModelValues.has(sparkModelValue(entry.model))),
         )
     : undefined;
   const active =
@@ -92,7 +97,7 @@ export function daemonSnapshotToPickerState(
       active: active?.providerName === provider.providerName,
       models: provider.models
         .filter(
-          (entry) => !scopedModelValues || scopedModelValues.has(sparkModelValue(entry.model)),
+          (entry) => !enabledModelValues || enabledModelValues.has(sparkModelValue(entry.model)),
         )
         .map((entry) => ({
           value: sparkModelValue(entry.model),
@@ -120,6 +125,43 @@ export function daemonSnapshotToPickerState(
     providers,
     items: providers.flatMap((provider) => provider.models),
     ...(active && effectiveModel ? { active, activeModelId: sparkModelValue(effectiveModel) } : {}),
+  };
+}
+
+/** Full catalog for enabled-model policy editing; never filters by enabledModels. */
+export function daemonSnapshotToCatalogState(
+  snapshot: SparkModelControlSnapshot,
+): SparkEnabledModelCatalogState {
+  const enabledModelValues =
+    snapshot.enabledModels === undefined
+      ? undefined
+      : new Set(snapshot.enabledModels.map(sparkModelValue));
+  const effectiveModel = snapshot.session?.model ?? snapshot.defaultModel;
+  return {
+    items: snapshot.providers.flatMap((provider) =>
+      provider.models.map((entry) => ({
+        value: sparkModelValue(entry.model),
+        providerName: entry.model.providerName,
+        providerLabel: entry.model.providerLabel ?? provider.label,
+        modelId: entry.model.modelId,
+        modelLabel: entry.model.modelLabel ?? entry.model.modelId,
+        description: entry.available
+          ? (entry.description ??
+            `${entry.reasoning ? "reasoning" : "standard"} · ${entry.contextWindow ?? "?"} ctx`)
+          : (entry.unavailableReason ?? "Authentication required"),
+        active: entry.available && modelEquals(entry.model, effectiveModel),
+        available: entry.available,
+        ...(entry.available
+          ? {}
+          : {
+              unavailableReason: entry.unavailableReason ?? "Authentication required",
+              loginCommand: `/login ${provider.providerName}`,
+            }),
+        reasoning: entry.reasoning,
+        enabled:
+          enabledModelValues === undefined || enabledModelValues.has(sparkModelValue(entry.model)),
+      })),
+    ),
   };
 }
 

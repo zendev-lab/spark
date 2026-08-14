@@ -283,6 +283,81 @@ Add an independent numerical review without weakening Repro gates.
   }
 });
 
+test("WORKFLOW.md v2 compiles one body-only orchestration handler that owns stage order", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-workflow-v2-orchestration-"));
+  const root = join(dir, "workflows");
+  const workflowDir = join(root, "orchestrated");
+  try {
+    await mkdir(workflowDir, { recursive: true });
+    await writeFile(
+      join(workflowDir, "WORKFLOW.md"),
+      `---
+id: orchestrated
+title: Orchestrated
+handler: orchestrate.js
+stages:
+  - id: scope
+  - id: verify
+---
+The handler owns ordered handoffs.
+`,
+      "utf8",
+    );
+    await writeFile(
+      join(workflowDir, "orchestrate.js"),
+      `stage('scope')
+const scoped = { instruction: args.instruction }
+stage('scope', { status: 'success' })
+stage('verify')
+stage('verify', { status: 'success' })
+return { scoped, verified: true }
+`,
+      "utf8",
+    );
+
+    const definition = await resolveWorkflowDefinition({
+      cwd: dir,
+      selector: "workspace:orchestrated",
+      includeUser: false,
+      workspaceWorkflowDir: root,
+    });
+    assert.ok(definition.handler);
+    assert.match(definition.script, /stage\('scope'\)/u);
+    const run = await runWorkflowScript(definition.script, {
+      args: { instruction: "preserve the owner" },
+      agent: async () => {
+        throw new Error("orchestration smoke does not delegate");
+      },
+    });
+    assert.deepEqual(JSON.parse(JSON.stringify(run.result)), {
+      scoped: { instruction: "preserve the owner" },
+      verified: true,
+    });
+    assert.deepEqual(
+      run.stages?.map((stage) => `${stage.title}:${stage.status}`),
+      ["scope:success", "verify:success"],
+    );
+
+    await writeFile(
+      join(workflowDir, "orchestrate.js"),
+      "export const meta = { name: 'nested' }\nreturn {}\n",
+      "utf8",
+    );
+    await assert.rejects(
+      () =>
+        resolveWorkflowDefinition({
+          cwd: dir,
+          selector: "workspace:orchestrated",
+          includeUser: false,
+          workspaceWorkflowDir: root,
+        }),
+      /workflow orchestration handler must be a body-only handler/u,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("WORKFLOW.md v2 fails closed on unknown fields and weakened Repro policy", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-workflow-v2-invalid-"));
   const root = join(dir, "workflows");
@@ -828,6 +903,16 @@ await agent('check isolation', { isolation: '${isolation}' })`;
   }
 });
 
+test("spark-workflows rejects simultaneous role selector and exact roleRef", async () => {
+  const script = `export const meta = { name: 'role selector', description: 'exclusive role selection' }
+return await agent('review', { role: 'reviewer', roleRef: 'role:builtin-reviewer' })`;
+
+  await assert.rejects(
+    () => runWorkflowScript(script, { agent: async () => "should not run" }),
+    /workflow agent accepts role or roleRef, not both/,
+  );
+});
+
 test("spark-workflows graft isolation smoke keeps parallel same-path edits in separate refs", async () => {
   const requests: SparkWorkflowRoleRunRequest[] = [];
   const agent = createSparkWorkflowRoleRunAdapter({
@@ -1304,6 +1389,37 @@ return 'stale'`;
     });
     assert.equal(reconciled.runs[0]?.status, "stale");
     assert.match(reconciled.runs[0]?.errorMessage ?? "", /became stale/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("workflow discovery uses the closest cwd root after repository roots", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-workflow-precedence-"));
+  try {
+    const repo = join(dir, "repo");
+    const cwd = join(repo, "nested");
+    const writeWorkflow = async (root: string, description: string) => {
+      const workflowDir = join(root, "workflows", "shared");
+      await mkdir(workflowDir, { recursive: true });
+      await writeFile(
+        join(workflowDir, "WORKFLOW.md"),
+        `---\nid: shared\ntitle: Shared\ndescription: ${description}\n---\nUse this workflow.\n`,
+        "utf8",
+      );
+    };
+    await mkdir(join(repo, ".git"), { recursive: true });
+    await writeWorkflow(join(repo, ".agents"), "workspace");
+    await writeWorkflow(cwd, "cwd");
+
+    const listing = await listSavedWorkflows(cwd, {
+      includeUser: false,
+      workspaceWorkflowDirs: [join(repo, ".agents", "workflows")],
+      cwdWorkflowDir: join(cwd, "workflows"),
+    });
+    const shared = listing.workflows.find((workflow) => workflow.selector === "workspace:shared");
+
+    assert.equal(shared?.description, "cwd");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

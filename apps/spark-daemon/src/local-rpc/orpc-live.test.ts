@@ -87,6 +87,148 @@ describe("local-rpc direct oRPC service", () => {
     });
   });
 
+  it("reads bounded durable user prompt history only over daemon oRPC", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spark-orpc-prompt-history-"));
+    dirs.push(dir);
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: dir },
+      overrides: {
+        dataDir: join(dir, "data"),
+        cacheDir: join(dir, "cache"),
+        stateDir: join(dir, "state"),
+        runtimeDir: join(dir, "run"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    closers.push(async () => db.close());
+    const sessionRegistry = createDaemonSessionRegistry(join(dir, ".spark"), {
+      daemonCwd: dir,
+    });
+    const sessionId = "prompt-history-live";
+    const transcriptPath = join(dir, "prompt-history.jsonl");
+    writeFileSync(
+      transcriptPath,
+      `${[
+        {
+          type: "session",
+          version: 3,
+          id: sessionId,
+          timestamp: "2026-08-12T00:00:00.000Z",
+          cwd: dir,
+        },
+        {
+          type: "message",
+          id: "prompt-1",
+          parentId: null,
+          timestamp: "2026-08-12T00:00:01.000Z",
+          message: { role: "user", content: "first prompt" },
+        },
+        {
+          type: "message",
+          id: "answer-1",
+          parentId: "prompt-1",
+          timestamp: "2026-08-12T00:00:02.000Z",
+          message: { role: "assistant", content: "first answer" },
+        },
+        {
+          type: "message",
+          id: "prompt-2",
+          parentId: "answer-1",
+          timestamp: "2026-08-12T00:00:03.000Z",
+          message: { role: "user", content: "second prompt" },
+        },
+      ]
+        .map((entry) => JSON.stringify(entry))
+        .join("\n")}\n`,
+    );
+    await createDaemonWorkspaceSession(sessionRegistry, {
+      sessionId,
+      workspaceId: "workspace-prompt-history",
+      cwd: dir,
+      sessionPath: transcriptPath,
+    });
+    const retrySource = new SparkInvocationStore(db).submit({
+      sessionId,
+      task: {
+        type: "session.run",
+        sessionId,
+        prompt: "retry this TUI turn",
+        messageMetadata: {
+          origin: { kind: "user", host: "tui", surface: "local" },
+        },
+      },
+      now: "2026-08-12T00:00:04.000Z",
+    });
+    new SparkInvocationStore(db).complete(retrySource.invocationId, {
+      status: "failed",
+      errorCode: "EXECUTION_TRANSIENT",
+      errorMessage: "empty response",
+      now: "2026-08-12T00:00:05.000Z",
+    });
+    const server = await startLocalRpcOrpcServer({
+      paths,
+      db,
+      handlerOptions: { sessionRegistry },
+    });
+    closers.push(() => server.close());
+    const handle = await createSparkDaemonOrpcClient({ paths });
+    closers.push(async () => handle.close());
+
+    await expect(
+      invokeSparkDaemonOrpcLiveMethod(handle.client, "session.prompt-history", {
+        sessionId,
+        limit: 1,
+      }),
+    ).resolves.toMatchObject({
+      sessionId,
+      prompts: [{ messageId: "prompt-2", text: "second prompt" }],
+      totalPrompts: 2,
+      truncated: true,
+    });
+    await expect(
+      invokeSparkDaemonOrpcLiveMethod(handle.client, "session.retry-target", { sessionId }),
+    ).resolves.toEqual({
+      sessionId,
+      target: {
+        invocationId: retrySource.invocationId,
+        failedAt: "2026-08-12T00:00:05.000Z",
+      },
+    });
+    await expect(
+      handleLocalRpcLine(
+        JSON.stringify({
+          id: "legacy-prompt-history",
+          method: "session.prompt-history",
+          params: { sessionId, limit: 1 },
+        }),
+        paths,
+        db,
+        undefined,
+        { sessionRegistry },
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { message: "Unknown local RPC method: session.prompt-history" },
+    });
+    await expect(
+      handleLocalRpcLine(
+        JSON.stringify({
+          id: "legacy-retry-target",
+          method: "session.retry-target",
+          params: { sessionId },
+        }),
+        paths,
+        db,
+        undefined,
+        { sessionRegistry },
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { message: "Unknown local RPC method: session.retry-target" },
+    });
+  });
+
   it("preserves actionable daemon restart scheduling failures", async () => {
     const dir = mkdtempSync(join(tmpdir(), "spark-orpc-restart-error-"));
     dirs.push(dir);
@@ -400,6 +542,7 @@ describe("local-rpc direct oRPC service", () => {
     const modelControl: SparkDaemonModelControl = {
       snapshot: unusedModelControlMethod,
       setDefaultModel: unusedModelControlMethod,
+      setEnabledModels: unusedModelControlMethod,
       setSessionModel: unusedModelControlMethod,
       setSessionThinkingLevel: unusedModelControlMethod,
       setApiKey: unusedModelControlMethod,
@@ -608,6 +751,7 @@ describe("local-rpc direct oRPC service", () => {
     const modelControl: SparkDaemonModelControl = {
       snapshot: crossDomainFailure,
       setDefaultModel: crossDomainFailure,
+      setEnabledModels: crossDomainFailure,
       setSessionModel: crossDomainFailure,
       setSessionThinkingLevel: crossDomainFailure,
       setApiKey: crossDomainFailure,

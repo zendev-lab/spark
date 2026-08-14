@@ -3,6 +3,7 @@ import { test } from "vitest";
 
 import {
   FAILURE_CLASS_POLICIES,
+  MODEL_EMPTY_RESPONSE_ERROR_CODE,
   classifyProviderFailure,
   TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
   type FailureClass,
@@ -158,6 +159,16 @@ test("classifyProviderFailure uses the terminal-less provider code before messag
   assert.equal(result.failureClass, "transient");
   assert.equal(result.policy.retriable, true);
   assert.equal(result.code, TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE);
+});
+
+test("classifyProviderFailure treats a coded empty model response as transient", () => {
+  const result = classifyProviderFailure({
+    code: MODEL_EMPTY_RESPONSE_ERROR_CODE,
+    message: "model completed without a displayable response",
+  });
+  assert.equal(result.failureClass, "transient");
+  assert.equal(result.policy.retriable, true);
+  assert.equal(result.code, MODEL_EMPTY_RESPONSE_ERROR_CODE);
 });
 
 test("classifyProviderFailure retains the legacy terminal-less message fallback", () => {

@@ -160,6 +160,78 @@ describe("durable Loop cycle review", () => {
     });
   });
 
+  it("stops a claimed tick when its owner Session rejects Invocation admission", async () => {
+    const workflowEntered = deferred<void>();
+    const releaseWorkflow = deferred<void>();
+    const { db, loops } = harness({
+      async resolve() {
+        workflowEntered.resolve();
+        await releaseWorkflow.promise;
+        return {
+          digest: "closing-owner-workflow",
+          policy: {
+            cadenceMs: 30_000,
+            retry: { maxAttempts: 3, delaysMs: [30_000] },
+            beforeTick: [],
+            afterTick: [],
+          },
+        };
+      },
+    });
+    loops.start({
+      loopId: "closing-owner-tick",
+      ownerSessionId: "closing-owner",
+      binding: { workflowSelector: "workspace:closing-owner" },
+      cwd: "/workspace",
+      prompt: "must not run",
+      dueAt: "2026-08-04T00:00:00.000Z",
+    });
+
+    let closing = false;
+    const materializing = loops.materializeDue(
+      "2026-08-04T00:00:00.000Z",
+      undefined,
+      async (ownerSessionId) => {
+        expect(ownerSessionId).toBe("closing-owner");
+        expect(closing).toBe(true);
+        return undefined;
+      },
+    );
+    await workflowEntered.promise;
+    closing = true;
+    releaseWorkflow.resolve();
+    const advanced = await materializing;
+
+    expect(advanced?.invocation).toBeUndefined();
+    expect(advanced?.loop).toMatchObject({ status: "stopped", generation: 2 });
+    expect(advanced?.loop.cycleStep).toBeUndefined();
+    expect(db.prepare("SELECT COUNT(*) AS count FROM invocations").get()).toEqual({ count: 0 });
+  });
+
+  it("does not stop a newer Loop generation after an old admission is rejected", async () => {
+    const { db, loops } = harness();
+    loops.start({
+      loopId: "restarted-during-admission",
+      ownerSessionId: "restart-owner",
+      cwd: "/workspace",
+      prompt: "old generation",
+      dueAt: "2026-08-04T00:00:00.000Z",
+    });
+
+    const advanced = await loops.materializeDue("2026-08-04T00:00:00.000Z", undefined, async () => {
+      loops.restart("restarted-during-admission", "new generation", "2026-08-04T00:00:01.000Z");
+      return undefined;
+    });
+
+    expect(advanced?.loop).toMatchObject({
+      status: "scheduled",
+      generation: 2,
+      reason: "new generation",
+      dueAt: "2026-08-04T00:00:01.000Z",
+    });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM invocations").get()).toEqual({ count: 0 });
+  });
+
   it("retries a failing before_tick evaluator at the same checkpoint then blocks", async () => {
     const { db, loops } = harness();
     loops.start({
@@ -230,6 +302,33 @@ describe("durable Loop cycle review", () => {
         .prepare("SELECT COUNT(*) AS count FROM invocations WHERE source_kind = 'loop.evaluate'")
         .get(),
     ).toEqual({ count: 2 });
+  });
+
+  it("stops a claimed evaluation when its owner Session rejects Invocation admission", async () => {
+    const { db, invocations, loops } = harness();
+    const tick = await runningGoalTick(loops, invocations, "closing-owner-review");
+    loops.completeTick(tick.invocation, tick.task, {
+      status: "succeeded",
+      result: { summary: "main tick committed" },
+      now: "2026-08-04T00:00:01.000Z",
+    });
+
+    const advanced = await loops.materializeDue(
+      "2026-08-04T00:00:01.000Z",
+      undefined,
+      async (ownerSessionId) => {
+        expect(ownerSessionId).toBe("owner-closing-owner-review");
+        return undefined;
+      },
+    );
+
+    expect(advanced?.invocation).toBeUndefined();
+    expect(advanced?.loop).toMatchObject({ status: "stopped" });
+    expect(
+      db
+        .prepare("SELECT COUNT(*) AS count FROM invocations WHERE source_kind = 'loop.evaluate'")
+        .get(),
+    ).toEqual({ count: 0 });
   });
 
   it("recovers between a successful main tick and after_tick evaluation", async () => {
@@ -412,4 +511,12 @@ function receipt(
     evidenceRefs: input.evidenceRefs ?? [],
     evaluatedAt: "2026-08-04T00:00:02.000Z",
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }

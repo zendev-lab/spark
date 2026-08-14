@@ -30,6 +30,7 @@ import {
   CURRENT_SPARK_COMPACTION_SUMMARY_VERSION,
   DEFAULT_SPARK_COMPACTION_SETTINGS,
   compactSparkSessionRecord,
+  estimateSparkContextTokens,
   meterSparkContextTokens,
   prepareSparkCompaction,
   renderSparkSmartCompactionPrompt,
@@ -509,9 +510,20 @@ export class SparkAgentSession {
     if (!settings.enabled) return;
     const requestedOutput = positiveNumber(model.maxTokens) ?? 0;
     const replayMessages = activeSessionReplayMessages(record);
+    // The final assembled-envelope guard meters the exact provider request with
+    // the larger of provider-reported usage and the local chars/4 estimate
+    // (local estimate mirrors the guard's envelope). A trailing/partial report
+    // (prompt-cache accounting or a smaller prior request) can undercount the
+    // next request enough to skip preflight compaction entirely, so the
+    // preflight must never trust a report below the estimate it shares with
+    // the guard. Use the max of the two meters.
+    const reportedTokens = latestReportedContextTokens(record);
+    const estimatedReplayTokens = estimateSparkContextTokens(replayMessages).tokens;
     const contextMeter = meterSparkContextTokens({
       messages: replayMessages,
-      reportedTokens: latestReportedContextTokens(record),
+      ...(reportedTokens !== undefined && reportedTokens >= estimatedReplayTokens
+        ? { reportedTokens }
+        : {}),
     });
     const promptMeter = meterSparkContextTokens({ messages: [{ role: "user", content: prompt }] });
     const schedule = scheduleSparkCompaction(replayMessages, contextWindow, settings);
@@ -894,7 +906,7 @@ function restartCheckpointForTurn(
     throw new Error("Spark restart checkpoint has no transient prompt delta");
   }
   const promptItems = structuredClone(
-    checkpoint.promptItems.slice(beforeCount),
+    checkpoint.promptItems.slice(beforeCount).filter((item) => item.persistence === "session"),
   ) as SparkPromptItem[];
   const toolCalls = structuredClone(checkpoint.toolCalls) as ToolCall[];
   const resumeCheckpoint: SparkTurnResumeCheckpoint = {

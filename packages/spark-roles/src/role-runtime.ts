@@ -10,9 +10,18 @@ import {
   type ToolEffect,
 } from "@zendev-lab/spark-core";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { resolveRoleNativeExecutor } from "./native-executor.ts";
-import { dirname, extname, join, relative, sep } from "node:path";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import {
+  loadSparkSkillByName,
+  SparkSkillResolver,
+  type SparkLoadedSkill,
+} from "@zendev-lab/spark-host/skill-resolver";
+import {
+  defaultProjectResourceDirs,
+  orderedSparkResourceRoots,
+} from "@zendev-lab/spark-system/resource-paths";
+import { dirname, extname, join, relative, sep } from "node:path";
+import { resolveRoleNativeExecutor } from "./native-executor.ts";
 import {
   sparkRoleModelTypeSchema,
   sparkRoleOriginSchema,
@@ -47,6 +56,8 @@ export interface RoleSpec {
   description: string;
   systemPrompt: string;
   capabilities: RoleCapability[];
+  /** Ordered Skill names preloaded into each Session created from this Role. */
+  skills?: string[];
   allowedTools?: string[];
   allowedToolEffects?: ToolEffect[];
   modelType: SparkRoleModelType;
@@ -64,6 +75,7 @@ export interface RoleSpecProposal {
   rationale: string;
   expectedUses: string[];
   capabilities: RoleCapability[];
+  skills?: string[];
   allowedTools?: string[];
   allowedToolEffects?: ToolEffect[];
   modelType: SparkRoleModelType;
@@ -85,11 +97,29 @@ export type RoleRunStatus =
   | "not_started";
 export type RoleRunInputControl = "stdin" | "native" | "none";
 
+export interface RoleSkillDigest {
+  name: string;
+  digest: string;
+}
+
+export interface ResolvedRoleComposition {
+  definitionRevision: string;
+  compositionRevision: string;
+  systemPrompt: string;
+  skillDigests: RoleSkillDigest[];
+}
+
 export interface RoleRunRecord {
   ref: RoleRunRef;
   roleRef: RoleRef;
-  /** RoleSpec content revision frozen when this Invocation started. */
+  /** Effective Role revision frozen when this Invocation started. */
   roleRevision: string;
+  /** Static RoleSpec revision before execution-time Skill resolution. */
+  definitionRevision?: string;
+  /** Executed Role composition revision, including ordered Skill content digests. */
+  compositionRevision?: string;
+  /** Ordered Skill source digests frozen for this Invocation. */
+  skillDigests?: RoleSkillDigest[];
   /** Human-readable name for this concrete role run; roleRef remains the reusable definition. */
   runName?: string;
   instruction: string;
@@ -163,6 +193,8 @@ export interface RoleRunLauncherInput extends RoleRunCommandInput {
   roleId?: string;
   roleSource?: RoleSource;
   roleCapabilities?: RoleCapability[];
+  /** Ordered Skill names declared by the reusable Role definition. */
+  roleSkills?: string[];
   roleModelType?: SparkRoleModelType;
   /** Preserve workflow-vs-role accounting across the native executor boundary. */
   usageExecutionKind?: "role_run" | "workflow_agent";
@@ -284,6 +316,10 @@ const FORBIDDEN_BUILTIN_ROLE_TOOLS = new Set([
   "graft_patch",
 ]);
 
+export const MAX_ROLE_SKILLS = 8;
+export const MAX_ROLE_SKILL_SOURCE_CHARS = 64_000;
+const ROLE_SKILL_NAME_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+
 const ROLE_FRONTMATTER_KEYS = new Set([
   "id",
   "name",
@@ -295,6 +331,7 @@ const ROLE_FRONTMATTER_KEYS = new Set([
   "tools",
   "origin",
   "capabilities",
+  "skills",
   "modelType",
   "createdAt",
   "updatedAt",
@@ -579,8 +616,14 @@ export class RoleRegistry {
         roleIdFromRef(role.ref) === selection,
     );
     if (matches.length === 0) throw new Error(`no role matches: ${idOrRef}`);
-    if (matches.length > 1) throw new Error(`ambiguous role: ${idOrRef}`);
-    return matches[0];
+    if (matches.length > 1) {
+      const priority: RoleSource[] = ["project", "user", "extension", "builtin"];
+      const bestPriority = Math.min(...matches.map((role) => priority.indexOf(role.source)));
+      const best = matches.filter((role) => priority.indexOf(role.source) === bestPriority);
+      if (best.length === 1) return best[0]!;
+      throw new Error(`ambiguous role: ${idOrRef}`);
+    }
+    return matches[0]!;
   }
 }
 
@@ -942,21 +985,43 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+export interface RoleHydrationOptions {
+  home?: string;
+  includeUser?: boolean;
+  userRoleDir?: string;
+  projectRoleDirs?: string[];
+  cwdRoleDir?: string;
+  configuredRoleDirs?: string[];
+}
+
 export async function hydrateDefaultRoleRegistry(
   registry: RoleRegistry,
   cwd: string,
-  options: {
-    home?: string;
-    includeUser?: boolean;
-  } = {},
+  options: RoleHydrationOptions = {},
 ): Promise<void> {
   hydrateExtensionRoles(registry);
-  await defaultProjectRoleStore(cwd).hydrate(registry);
-  if (options.includeUser) await defaultUserRoleStore(options.home).hydrate(registry);
+  if (options.includeUser) {
+    const userStore = options.userRoleDir
+      ? new MarkdownRoleStore({ rootDir: options.userRoleDir, source: "user" })
+      : defaultUserRoleStore(options.home);
+    await userStore.hydrate(registry);
+  }
+  const projectDirs = defaultProjectResourceDirs(cwd, "roles");
+  const workspaceDirs = options.projectRoleDirs ?? projectDirs.slice(0, -1);
+  const cwdDir = options.cwdRoleDir ?? projectDirs.at(-1) ?? join(cwd, ".agents", "roles");
+  const roots = orderedSparkResourceRoots({
+    workspace: workspaceDirs,
+    cwd: [cwdDir],
+    configured: options.configuredRoleDirs,
+  });
+  for (const root of roots) {
+    await new MarkdownRoleStore({ rootDir: root.path, source: "project" }).hydrate(registry);
+  }
 }
 
 export function createRoleSpec(proposal: RoleSpecProposal, now = nowIso()): RoleSpec {
   const source = proposal.source ?? "project";
+  const skills = normalizeRoleSkills(proposal.skills);
   const role = {
     ref: createRoleRef(source, proposal.id),
     id: proposal.id,
@@ -964,6 +1029,7 @@ export function createRoleSpec(proposal: RoleSpecProposal, now = nowIso()): Role
     description: proposal.description,
     systemPrompt: proposal.systemPrompt,
     capabilities: proposal.capabilities,
+    ...(skills ? { skills } : {}),
     allowedTools: proposal.allowedTools,
     allowedToolEffects: proposal.allowedToolEffects,
     modelType: proposal.modelType,
@@ -988,6 +1054,7 @@ export function validateRoleSpec(role: RoleSpec): void {
   assertNonEmpty(role.systemPrompt, `role ${role.id} system prompt`);
   if (!normalizeRoleSource(role.source))
     throw new Error(`invalid role source: ${String(role.source)}`);
+  normalizeRoleSkills(role.skills);
   const expectedRevision = roleRevision(role);
   if (role.revision !== expectedRevision) {
     throw new Error(`role ${role.id} revision does not match its content`);
@@ -1081,6 +1148,7 @@ export function parseRoleSpecMarkdown(
     | undefined;
   const capabilities =
     roleCapabilitiesFrontmatter(frontmatter) ?? capabilitiesFromAllowedTools(allowedTools);
+  const skills = normalizeRoleSkills(arrayFrontmatter(frontmatter, "skills"));
   const modelType = sparkRoleModelTypeSchema.parse(
     stringFrontmatter(frontmatter, "modelType") ?? "custom",
   );
@@ -1091,6 +1159,7 @@ export function parseRoleSpecMarkdown(
       description,
       systemPrompt,
       capabilities,
+      skills,
       allowedTools,
       allowedToolEffects,
       modelType,
@@ -1100,6 +1169,7 @@ export function parseRoleSpecMarkdown(
     description,
     systemPrompt,
     capabilities,
+    ...(skills ? { skills } : {}),
     allowedTools,
     allowedToolEffects,
     modelType,
@@ -1118,6 +1188,7 @@ export function roleRevision(
     | "description"
     | "systemPrompt"
     | "capabilities"
+    | "skills"
     | "allowedTools"
     | "allowedToolEffects"
     | "modelType"
@@ -1129,6 +1200,7 @@ export function roleRevision(
       description: role.description,
       systemPrompt: role.systemPrompt,
       capabilities: role.capabilities,
+      ...(role.skills ? { skills: role.skills } : {}),
       allowedTools: role.allowedTools ?? [],
       allowedToolEffects: role.allowedToolEffects ?? [],
       modelType: role.modelType,
@@ -1147,6 +1219,7 @@ export function serializeRoleSpecMarkdown(role: RoleSpec): string {
     modelType: role.modelType,
   };
   if (role.allowedTools?.length) frontmatter.allowedTools = role.allowedTools;
+  if (role.skills?.length) frontmatter.skills = role.skills;
   if (role.allowedToolEffects?.length) frontmatter.allowedToolEffects = role.allowedToolEffects;
   if (role.origin) frontmatter.origin = role.origin;
   frontmatter.createdAt = role.createdAt;
@@ -1352,6 +1425,7 @@ const ROLE_FRONTMATTER_FIELDS = new Set([
   "tools",
   "allowedToolEffects",
   "capabilities",
+  "skills",
   "modelType",
   "createdAt",
   "updatedAt",
@@ -1362,6 +1436,21 @@ function assertKnownRoleFrontmatter(frontmatter: Record<string, unknown>): void 
   if (unknown.length > 0) {
     throw new Error(`unknown Role frontmatter fields: ${unknown.sort().join(", ")}`);
   }
+}
+
+function normalizeRoleSkills(value: readonly string[] | undefined): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (value.length < 1 || value.length > MAX_ROLE_SKILLS) {
+    throw new Error(`role skills must contain between 1 and ${MAX_ROLE_SKILLS} names`);
+  }
+  const skills = value.map((name) => name.trim());
+  for (const name of skills) {
+    if (!ROLE_SKILL_NAME_REGEX.test(name)) {
+      throw new Error(`invalid role skill name: ${name || "(empty)"}`);
+    }
+  }
+  if (new Set(skills).size !== skills.length) throw new Error("role skills must be unique");
+  return skills;
 }
 
 function normalizeRoleOriginKind(value: unknown): RoleOriginKind | undefined {
@@ -1582,6 +1671,89 @@ export function roleRunChildEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Pr
   };
 }
 
+export async function resolveRoleComposition(
+  input: {
+    definitionRevision: string;
+    systemPrompt: string;
+    skills?: readonly string[];
+  },
+  options: {
+    cwd: string;
+    maxCombinedSkillChars?: number;
+  },
+): Promise<ResolvedRoleComposition | undefined> {
+  const skills = normalizeRoleSkills(input.skills);
+  if (!skills) return undefined;
+  if (!input.definitionRevision.trim()) {
+    throw new Error("Role Skill composition requires a definition revision");
+  }
+
+  const resolver = new SparkSkillResolver({ cwd: options.cwd });
+  const { skills: availableSkills } = await resolver.resolve({ includeRepository: true });
+  const loaded = await Promise.all(
+    skills.map((name) => loadSparkSkillByName(availableSkills, name)),
+  );
+  const unavailable = skills.filter((_name, index) => loaded[index] === undefined);
+  if (unavailable.length > 0) {
+    throw new Error(
+      `Role Skill composition cannot load model-invocable Skills: ${unavailable.join(", ")}`,
+    );
+  }
+  const loadedSkills = loaded.filter((skill): skill is SparkLoadedSkill => skill !== undefined);
+  const combinedChars = loadedSkills.reduce((sum, skill) => sum + skill.content.length, 0);
+  const limit = options.maxCombinedSkillChars ?? MAX_ROLE_SKILL_SOURCE_CHARS;
+  if (combinedChars > limit) {
+    throw new Error(
+      `Role Skill composition is ${combinedChars} characters, above the ${limit} character limit`,
+    );
+  }
+  const skillDigests = loadedSkills.map(({ skill, content }) => ({
+    name: skill.name,
+    digest: `sha256:${contentHash(content)}`,
+  }));
+  const compositionRevision = `sha256:${contentHash(
+    JSON.stringify({ definitionRevision: input.definitionRevision, skills: skillDigests }),
+  )}`;
+  return {
+    definitionRevision: input.definitionRevision,
+    compositionRevision,
+    systemPrompt: renderPreloadedRoleSkills(input.systemPrompt, loadedSkills),
+    skillDigests,
+  };
+}
+
+function renderPreloadedRoleSkills(
+  systemPrompt: string,
+  skills: readonly SparkLoadedSkill[],
+): string {
+  const lines = [
+    systemPrompt.trim(),
+    "",
+    "The following Role Skills were resolved by exact name and preloaded in declaration order before this Session was created. Follow their instructions directly when relevant. Relative references resolve from each resource-base. Do not call skill_agent for these Skills.",
+    "<preloaded_role_skills>",
+  ];
+  for (const loaded of skills) {
+    lines.push(`  <skill name="${escapeRoleSkillXml(loaded.skill.name)}">`);
+    lines.push(`    <location>${escapeRoleSkillXml(loaded.skill.filePath)}</location>`);
+    lines.push(`    <resource-base>${escapeRoleSkillXml(loaded.skill.baseDir)}</resource-base>`);
+    lines.push("    <instructions>");
+    lines.push(loaded.body.trim());
+    lines.push("    </instructions>");
+    lines.push("  </skill>");
+  }
+  lines.push("</preloaded_role_skills>");
+  return lines.join("\n");
+}
+
+function escapeRoleSkillXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
 function parseRoleRunDepth(value: string | undefined): number {
   if (value === undefined || value.trim() === "") return DEFAULT_ROLE_RUN_DEPTH;
   const parsed = Number(value);
@@ -1593,6 +1765,17 @@ function parseRoleRunDepth(value: string | undefined): number {
 
 export async function runRole(input: RoleRunLauncherInput): Promise<RoleRunResult> {
   if (input.signal?.aborted) throw new RoleRunCancelledError(abortSignalReason(input.signal));
+  const composition = await resolveRoleComposition(
+    {
+      definitionRevision: input.roleRevision ?? "",
+      systemPrompt: input.systemPrompt,
+      skills: input.roleSkills,
+    },
+    { cwd: input.cwd },
+  );
+  const effectiveRoleRevision =
+    composition?.compositionRevision ?? input.roleRevision ?? "unversioned";
+  const effectiveSystemPrompt = composition?.systemPrompt ?? input.systemPrompt;
   // Preserve the recursion guard for nested role calls even when the run is
   // daemon-native rather than process-backed.
   const nativeEnv = roleRunChildEnv(input.env);
@@ -1648,9 +1831,9 @@ export async function runRole(input: RoleRunLauncherInput): Promise<RoleRunResul
       role: {
         ref: input.roleRef,
         id: input.roleId ?? roleIdFromRef(input.roleRef),
-        revision: input.roleRevision ?? "unversioned",
-        systemPrompt: input.systemPrompt,
-        ...(input.roleRevision ? { revision: input.roleRevision } : {}),
+        revision: effectiveRoleRevision,
+        systemPrompt: effectiveSystemPrompt,
+        ...(input.roleSkills ? { skills: input.roleSkills } : {}),
         ...(input.roleSource ? { source: input.roleSource } : {}),
         ...(input.roleCapabilities ? { capabilities: input.roleCapabilities } : {}),
         ...(input.roleModelType ? { modelType: input.roleModelType } : {}),
@@ -1664,7 +1847,14 @@ export async function runRole(input: RoleRunLauncherInput): Promise<RoleRunResul
       record: {
         ref: input.runRef,
         roleRef: input.roleRef,
-        roleRevision: input.roleRevision ?? "unversioned",
+        roleRevision: effectiveRoleRevision,
+        ...(composition
+          ? {
+              definitionRevision: composition.definitionRevision,
+              compositionRevision: composition.compositionRevision,
+              skillDigests: composition.skillDigests,
+            }
+          : {}),
         instruction: input.instruction,
         status: "running" as const,
         startedAt,
@@ -1681,6 +1871,7 @@ export async function runRole(input: RoleRunLauncherInput): Promise<RoleRunResul
         ? { forkFromSession: input.forkFromSession.trim() }
         : {}),
       ...(input.model?.trim() ? { model: input.model.trim() } : {}),
+      ...(input.thinking ? { thinking: input.thinking } : {}),
       env: nativeEnv,
       inputControl,
       ...(input.onEvent ? { onEvent: input.onEvent } : {}),
@@ -1704,7 +1895,7 @@ export async function runRole(input: RoleRunLauncherInput): Promise<RoleRunResul
         ...result.record,
         ref: input.runRef,
         roleRef: input.roleRef,
-        roleRevision: input.roleRevision ?? result.record.roleRevision ?? "unversioned",
+        roleRevision: effectiveRoleRevision,
         model: input.model?.trim() || result.record.model,
         thinking: input.thinking,
         instruction: input.instruction,

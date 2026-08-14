@@ -12,7 +12,7 @@ import {
 const projectionFixture = JSON.parse(
   readFileSync(
     new URL(
-      "../../../../packages/spark-protocol/src/fixtures/conversation-v1/projection.json",
+      "../../../../packages/spark-protocol/src/fixtures/conversation-v2/projection.json",
       import.meta.url,
     ),
     "utf8",
@@ -145,6 +145,7 @@ test("SparkNativeSession merges a daemon user projection into its optimistic inp
 
   assert.equal(session.messages.filter((message) => message.role === "user").length, 1);
   assert.equal((stripAnsi(app.render(100).join("\n")).match(/> render once/gu) ?? []).length, 1);
+  await waitUntil(() => releaseObservation !== undefined);
   releaseObservation?.();
   await waitUntil(() => !session.isProcessing);
 });
@@ -647,6 +648,18 @@ test("SparkNativeTuiApp renders native setStatus and setWidget surfaces", () => 
   assert.doesNotMatch(rendered, /◆ Role runs/);
 });
 
+test("SparkNativeTuiApp replaces a widget with the same key instead of stacking it", () => {
+  const session = new SparkNativeSession();
+  const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
+
+  app.setWidget("spark-status", ["◆ Repro(old)"], { placement: "belowEditor" });
+  app.setWidget("spark-status", ["◆ Repro(new)"], { placement: "belowEditor" });
+
+  const rendered = app.render(100).join("\n");
+  assert.doesNotMatch(rendered, /Repro\(old\)/u);
+  assert.equal(rendered.match(/Repro\(new\)/gu)?.length, 1);
+});
+
 test("Spark native UI transport bridges notify, status, widget, and custom", async () => {
   const session = new SparkNativeSession();
   const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
@@ -787,6 +800,9 @@ test("SparkNativeTuiApp records protocol hub state and renders Spark panels", as
     activePanel: undefined,
     sessionId: "native-hub-session",
     sessionStatus: "idle",
+    reproProjectionStatus: "unavailable",
+    selectedReproLane: "implementation",
+    reproDetailExpanded: false,
     workflows: 1,
     workflowRuns: 1,
     roleRuns: 1,
@@ -1008,13 +1024,13 @@ test("SparkNativeTuiApp handles local slash commands without submitting to respo
   assert.match(rendered, /Common/);
   assert.match(rendered, /\/status — show daemon status/);
   assert.match(rendered, /Advanced/);
-  assert.match(rendered, /\/reload — reload extension-owned slash command state/);
+  assert.match(rendered, /\/reload — restart the TUI process and keep this session/);
   assert.doesNotMatch(rendered, /\/plan —/);
   assert.doesNotMatch(rendered, /\/goal —/);
   assert.doesNotMatch(rendered, /\/hub —/);
   assert.match(
     rendered,
-    /\/inspect \[overview\|workflows\|runs\|tasks\|artifacts\|reviews\|graft\|off\]/,
+    /\/inspect \[overview\|repro\|workflows\|runs\|tasks\|artifacts\|reviews\|graft\|off\]/,
   );
   assert.match(rendered, /daemon: running/);
 });

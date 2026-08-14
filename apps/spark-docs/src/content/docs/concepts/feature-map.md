@@ -35,7 +35,7 @@ For contributors, the source topology stays compact by family:
 | `spark-protocol`, `spark-core`, `spark-runtime`, `spark-system`, `spark-tui-adapter` | Cross-surface contracts and dependency-light foundations |
 | `packages/spark-hub-*` | Hub-private database, coordination, and localization implementation |
 
-Contributors can inspect `docs/specs/package-architecture.md` for dependency
+Contributors can inspect `.agents/notes/contracts/package-architecture.md` for dependency
 rules and `architecture/packages.json` for the exhaustive owner/stability
 inventory. Ordinary users do not need to learn individual workspace packages.
 
@@ -85,6 +85,11 @@ reusable daemon worker Sessions without letting the owner edit code directly.
 Goal, Loop, Repro, and Workflow add daemon-owned continuation for work
 that must persist or repeat. `/automate` is only a picker for those existing
 modes.
+
+Repro owns three lanes: Implementation Explore, Exactness Explore, and
+Formalize. Explore work can proceed in parallel without advancing normative
+progress; only Formalize can update the accepted `formalizedTip`. Goal remains
+a single TaskGraph-derived runtime projection rather than adopting those lanes.
 
 Start with [plan and implement](/guides/plan-and-execute/), then read
 [long-running automation](/guides/automation/).
