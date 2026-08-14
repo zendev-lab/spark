@@ -13,9 +13,6 @@
   "type": "module",
   "exports": {
     ".": "./src/agent-loop.ts",
-    "./behavior-eval": "./src/behavior-eval.ts",
-    "./behavior-ce": "./src/behavior-ce.ts",
-    "./prompt-manifest": "./src/prompt-manifest.ts",
     "./side-thread": "./src/side-thread.ts",
     "./testing/scripted-provider": "./src/testing/scripted-provider.ts"
   },
