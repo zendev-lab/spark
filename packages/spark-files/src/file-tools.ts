@@ -97,6 +97,12 @@ const readSchema = Type.Object(
         description: `Override the default ${DEFAULT_READ_MAX_LINES}-line output cap for this read`,
       }),
     ),
+    page: Type.Optional(
+      Type.Integer({
+        minimum: 1,
+        description: `Select a 1-based page of up to ${DEFAULT_READ_MAX_LINES} lines. Without offset/limit/page the LAST page is returned`,
+      }),
+    ),
     expectedVersion: Type.Optional(
       Type.String({
         description:
@@ -185,6 +191,13 @@ export function createReadToolConfig(): ToolConfig {
       }
       const readMaxBytes = maxBytes ?? DEFAULT_READ_MAX_BYTES;
       const readMaxLines = maxLines ?? DEFAULT_READ_MAX_LINES;
+      const page = positiveIntegerParam(params.page);
+      if (params.page !== undefined && page === undefined) {
+        return errorResult("Could not read file: page must be a positive integer.", {
+          code: "INVALID_READ_WINDOW",
+          parameter: "page",
+        });
+      }
       const absolutePath = await resolveReadPath(rawPath, cwd);
       throwIfAborted(signal);
 
@@ -237,8 +250,7 @@ export function createReadToolConfig(): ToolConfig {
       const lineSegments = splitTextLines(textContent);
       const allLines = lineSegments.map((line) => line.text);
       const totalFileLines = allLines.length;
-      const startLine = offset === undefined ? 0 : offset - 1;
-      const startLineDisplay = startLine + 1;
+      let startLine = offset === undefined ? 0 : offset - 1;
       if (startLine >= allLines.length) {
         return errorResult(
           `Offset ${offset} is beyond end of file (${allLines.length} lines total)`,
@@ -248,14 +260,26 @@ export function createReadToolConfig(): ToolConfig {
       let selectedLines: string[];
       let selectedSegments = lineSegments.slice(startLine);
       let userLimitedLines: number | undefined;
+      let pageNumber: number | undefined;
+      let pageTotalPages: number | undefined;
       if (limit !== undefined) {
         const endLine = Math.min(startLine + limit, allLines.length);
         selectedLines = allLines.slice(startLine, endLine);
         selectedSegments = lineSegments.slice(startLine, endLine);
         userLimitedLines = endLine - startLine;
       } else {
-        selectedLines = allLines.slice(startLine);
+        // Without offset/limit/page the read defaults to the LAST page so a
+        // long file surfaces its tail (the recently-written part) instead of
+        // the head. An explicit `page` selects a 1-based window of up to
+        // readMaxLines lines.
+        pageTotalPages = Math.max(1, Math.ceil(allLines.length / readMaxLines));
+        pageNumber = page === undefined ? pageTotalPages : Math.min(page, pageTotalPages);
+        startLine = (pageNumber - 1) * readMaxLines;
+        const endLine = Math.min(startLine + readMaxLines, allLines.length);
+        selectedLines = allLines.slice(startLine, endLine);
+        selectedSegments = lineSegments.slice(startLine, endLine);
       }
+      const startLineDisplay = startLine + 1;
 
       const selectedContent = joinTextLines(selectedSegments);
       const truncation = truncateHead(selectedContent, {
@@ -281,6 +305,11 @@ export function createReadToolConfig(): ToolConfig {
         }
         details = { truncation };
         outputLineCount = truncation.outputLines;
+      } else if (pageNumber !== undefined && (pageTotalPages ?? 0) > 1) {
+        const pageEndDisplay = startLineDisplay + outputLineCount - 1;
+        nextOffset = startLineDisplay + outputLineCount;
+        noticeText = `[Showing lines ${startLineDisplay}-${pageEndDisplay} of ${totalFileLines} (page ${pageNumber}/${pageTotalPages}). Use offset=${nextOffset} to continue to the next page (page reads default to the last page).]`;
+        details = { ...(details ?? {}), page: pageNumber, totalPages: pageTotalPages };
       } else if (userLimitedLines !== undefined && startLine + userLimitedLines < allLines.length) {
         const remaining = allLines.length - (startLine + userLimitedLines);
         nextOffset = startLine + userLimitedLines + 1;
