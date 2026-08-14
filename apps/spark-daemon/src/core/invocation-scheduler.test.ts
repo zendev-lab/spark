@@ -1150,9 +1150,12 @@ describe("SparkInvocationScheduler", () => {
       expect(scheduler.processBatch()).toBe(true);
       await scheduler.wait();
       expect(store.require(invocation.invocationId)).toMatchObject({
-        status: "succeeded",
-        result: { drained: true },
+        status: "failed",
+        errorCode: "EXECUTION_FAILED",
       });
+      expect(store.require(invocation.invocationId).errorMessage).toMatch(
+        /cannot persist this turn checkpoint/u,
+      );
       expect(store.hasRestartCheckpoint(invocation.invocationId)).toBe(false);
     } finally {
       db.close();
@@ -1828,6 +1831,176 @@ describe("SparkInvocationScheduler", () => {
       });
     } finally {
       gate.resolve();
+      db.close();
+    }
+  });
+
+  it("yields a persistable ask checkpoint when restart arrives during a human wait", async () => {
+    const restart = new AbortController();
+    const gate = deferred<void>();
+    const checkpoint: SparkTurnResumeCheckpoint = {
+      version: 1,
+      phase: "before_tool_calls",
+      createdAt: "2026-07-31T00:00:00.000Z",
+      baseSessionEntryId: null,
+      basePromptItemCount: 0,
+      promptItems: [
+        {
+          authority: "assistant",
+          trust: "trusted",
+          visibility: "visible",
+          persistence: "session",
+          content: {
+            kind: "provider_message",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "toolCall",
+                  id: "call-ask",
+                  name: "ask",
+                  arguments: { title: "continue?" },
+                },
+              ],
+            },
+          },
+          timestamp: 1,
+        },
+      ],
+      toolCalls: [
+        {
+          type: "toolCall",
+          id: "call-ask",
+          name: "ask",
+          arguments: { title: "continue?" },
+        },
+      ],
+    };
+    const { db, store, scheduler } = harness(
+      async (_task, context) => {
+        context.yieldForRestartIfRequested?.(checkpoint);
+        await context.withPausedTimeout?.(async () => await gate.promise);
+        return { answered: true };
+      },
+      { restartRequestedSignal: restart.signal },
+    );
+    try {
+      const invocation = store.submit({
+        sessionId: "human-wait-restart",
+        prompt: "wait",
+        task: {
+          type: "session.run",
+          sessionId: "human-wait-restart",
+          prompt: "wait",
+        },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await eventually(() => scheduler.drainSnapshot()[0]?.pauseState === "human-wait");
+      expect(store.require(invocation.invocationId).status).toBe("running");
+      restart.abort(new Error("planned restart"));
+      await scheduler.wait();
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "queued",
+        sourceKind: "invocation.resume",
+        task: {
+          type: "session.run",
+          resumeFromInterrupt: true,
+          restartCheckpoint: checkpoint,
+        },
+      });
+      expect(store.hasRestartCheckpoint(invocation.invocationId)).toBe(true);
+    } finally {
+      gate.resolve();
+      db.close();
+    }
+  });
+
+  it("fails a human wait restart that only has a mixed-tool checkpoint", async () => {
+    const restart = new AbortController();
+    const waiting = deferred<void>();
+    const checkpoint: SparkTurnResumeCheckpoint = {
+      version: 1,
+      phase: "before_tool_calls",
+      createdAt: "2026-07-31T00:00:00.000Z",
+      baseSessionEntryId: null,
+      basePromptItemCount: 0,
+      promptItems: [
+        {
+          authority: "assistant",
+          trust: "trusted",
+          visibility: "visible",
+          persistence: "session",
+          content: {
+            kind: "provider_message",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "toolCall",
+                  id: "call-exec",
+                  name: "cue_exec",
+                  arguments: { command: "pwd" },
+                },
+                {
+                  type: "toolCall",
+                  id: "call-ask",
+                  name: "ask",
+                  arguments: { title: "continue?" },
+                },
+              ],
+            },
+          },
+          timestamp: 1,
+        },
+      ],
+      toolCalls: [
+        {
+          type: "toolCall",
+          id: "call-exec",
+          name: "cue_exec",
+          arguments: { command: "pwd" },
+        },
+        {
+          type: "toolCall",
+          id: "call-ask",
+          name: "ask",
+          arguments: { title: "continue?" },
+        },
+      ],
+    };
+    const { db, store, scheduler } = harness(
+      async (_task, context) => {
+        context.yieldForRestartIfRequested?.(checkpoint);
+        waiting.resolve();
+        await context.withPausedTimeout?.(async () => await new Promise(() => undefined));
+        return { leaked: true };
+      },
+      { restartRequestedSignal: restart.signal },
+    );
+    try {
+      const invocation = store.submit({
+        sessionId: "mixed-human-wait",
+        prompt: "wait",
+        task: {
+          type: "session.run",
+          sessionId: "mixed-human-wait",
+          prompt: "wait",
+        },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await waiting.promise;
+      await eventually(() => scheduler.drainSnapshot()[0]?.pauseState === "human-wait");
+      restart.abort(new Error("planned restart"));
+      await scheduler.wait();
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "failed",
+        errorCode: "EXECUTION_FAILED",
+      });
+      expect(store.require(invocation.invocationId).errorMessage).toMatch(
+        /non-replayable tool work/u,
+      );
+      expect(store.hasRestartCheckpoint(invocation.invocationId)).toBe(false);
+    } finally {
       db.close();
     }
   });

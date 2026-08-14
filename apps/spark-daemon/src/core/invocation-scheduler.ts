@@ -62,6 +62,7 @@ interface ActiveInvocation {
   controller: AbortController;
   commitState: InvocationCommitState;
   settled: Promise<void>;
+  pauseState: "busy" | "human-wait";
 }
 
 interface InvocationCommitState {
@@ -266,9 +267,26 @@ export class SparkInvocationScheduler {
   }
 
   snapshot(): SparkInvocationRecord[] {
-    return [...this.active.values(), ...this.structuredActive.values()].map(
-      (entry) => entry.invocation,
-    );
+    return this.activeEntries().map((entry) => entry.invocation);
+  }
+
+  /** Process-local drain view, including whether the executor is only waiting on a human. */
+  drainSnapshot(): Array<{
+    invocation: SparkInvocationRecord;
+    pauseState: "busy" | "human-wait";
+  }> {
+    return this.activeEntries().map((entry) => ({
+      invocation: entry.invocation,
+      pauseState: entry.pauseState,
+    }));
+  }
+
+  private activeEntries(): ActiveInvocation[] {
+    return [...this.active.values(), ...this.structuredActive.values()];
+  }
+
+  private activeEntry(invocationId: string): ActiveInvocation | undefined {
+    return this.active.get(invocationId) ?? this.structuredActive.get(invocationId);
   }
 
   /** True while this process still owns an executor for the Session, even
@@ -353,6 +371,14 @@ export class SparkInvocationScheduler {
     };
     const sessionId = getSparkDaemonTaskSessionId(task);
     let executorSettled: Promise<unknown> | undefined;
+    const entry: ActiveInvocation = {
+      invocation,
+      controller,
+      commitState,
+      settled: Promise.resolve(),
+      pauseState: "busy",
+    };
+    this.structuredActive.set(invocationId, entry);
     const settled = this.run(invocation, task, controller, commitState, (promise) => {
       executorSettled = promise;
     }).finally(() => {
@@ -363,7 +389,7 @@ export class SparkInvocationScheduler {
       if (executorSettled) void executorSettled.then(release, release);
       else release();
     });
-    this.structuredActive.set(invocationId, { invocation, controller, commitState, settled });
+    entry.settled = settled;
     await settled;
     return this.store.require(invocationId);
   }
@@ -421,6 +447,14 @@ export class SparkInvocationScheduler {
     const sessionId = getSparkDaemonTaskSessionId(task);
     let executorSettled: Promise<unknown> | undefined;
     if (sessionId) this.activeSessions.add(sessionId);
+    const entry: ActiveInvocation = {
+      invocation,
+      controller,
+      commitState,
+      settled: Promise.resolve(),
+      pauseState: "busy",
+    };
+    this.active.set(invocation.invocationId, entry);
     const settled = this.run(invocation, task, controller, commitState, (promise) => {
       executorSettled = promise;
     }).finally(async () => {
@@ -437,7 +471,7 @@ export class SparkInvocationScheduler {
         else releaseSession();
       }
     });
-    this.active.set(invocation.invocationId, { invocation, controller, commitState, settled });
+    entry.settled = settled;
   }
 
   private resolveSessionIdleWaiters(sessionId: string): void {
@@ -711,19 +745,41 @@ export class SparkInvocationScheduler {
           timeout.disable();
         },
         deferTerminalUntil,
-        withPausedTimeout: async <T>(operation: () => Promise<T>) =>
-          await timeout.runPaused(operation),
-        yieldForRestartIfRequested: (checkpoint: SparkTurnResumeCheckpoint) => {
-          if (!this.restartRequestedSignal?.aborted) return;
-          if (!isSparkTurnResumeCheckpointPersistable(checkpoint)) return;
-          if (controller.signal.aborted) {
-            throw abortReason(controller.signal, new Error("invocation aborted"));
+        withPausedTimeout: async <T>(operation: () => Promise<T>) => {
+          const entry = this.activeEntry(invocation.invocationId);
+          if (entry) entry.pauseState = "human-wait";
+          const humanWait = new AbortController();
+          try {
+            this.yieldHumanWaitForRestartIfRequested(invocation.invocationId, controller, () => {
+              restartYieldCommitted = true;
+            });
+            return await Promise.race([
+              timeout.runPaused(operation),
+              this.waitForRestartThenYieldHumanWait(
+                invocation.invocationId,
+                controller,
+                humanWait.signal,
+                () => {
+                  restartYieldCommitted = true;
+                },
+              ),
+            ]);
+          } finally {
+            humanWait.abort();
+            if (entry && entry.pauseState === "human-wait") entry.pauseState = "busy";
           }
-          const persisted = this.store.require(invocation.invocationId);
-          if (persisted.cancelReason) throw new InvocationCancelledError(persisted.cancelReason);
-          this.store.requeueAtRestartCheckpoint(invocation.invocationId, checkpoint);
-          restartYieldCommitted = true;
-          throw new SparkTurnRestartYieldError();
+        },
+        yieldForRestartIfRequested: (checkpoint: SparkTurnResumeCheckpoint) => {
+          rememberPersistableRestartCheckpoint(invocation.invocationId, checkpoint);
+          if (!this.restartRequestedSignal?.aborted) return;
+          if (!isSparkTurnResumeCheckpointPersistable(checkpoint)) {
+            throw new Error(
+              `Spark daemon restart ${invocation.invocationId} cannot persist this turn checkpoint; refusing to continue past a model-to-tool boundary.`,
+            );
+          }
+          this.commitRestartYield(invocation.invocationId, checkpoint, controller, () => {
+            restartYieldCommitted = true;
+          });
         },
         emitEvent: (event: SparkDaemonEvent) => attemptSession!.recordEvent(event),
         ...(this.tokenUsageStore
@@ -832,9 +888,82 @@ export class SparkInvocationScheduler {
       await bindLateReproUsageScope();
       this.settleTokenUsageExecution(rootUsageExecution?.executionId, usageStatus);
     } finally {
+      persistableRestartCheckpoints.delete(invocation.invocationId);
       timeout.clear();
       this.executionEventIngress.release(invocation.invocationId);
     }
+  }
+
+  private commitRestartYield(
+    invocationId: string,
+    checkpoint: SparkTurnResumeCheckpoint,
+    controller: AbortController,
+    markYielded: () => void,
+  ): never {
+    if (controller.signal.aborted) {
+      throw abortReason(controller.signal, new Error("invocation aborted"));
+    }
+    const persisted = this.store.require(invocationId);
+    if (persisted.cancelReason) throw new InvocationCancelledError(persisted.cancelReason);
+    this.store.requeueAtRestartCheckpoint(invocationId, checkpoint);
+    markYielded();
+    throw new SparkTurnRestartYieldError();
+  }
+
+  private yieldHumanWaitForRestartIfRequested(
+    invocationId: string,
+    controller: AbortController,
+    markYielded: () => void,
+  ): void {
+    if (!this.restartRequestedSignal?.aborted) return;
+    const checkpoint = lastPersistableRestartCheckpoint(invocationId);
+    if (!checkpoint) {
+      throw new Error(
+        `Spark daemon restart ${invocationId} is waiting for a human response without a persistable restart checkpoint.`,
+      );
+    }
+    if (!isInteractionOnlyRestartCheckpoint(checkpoint)) {
+      throw new Error(
+        `Spark daemon restart ${invocationId} is waiting for a human response after non-replayable tool work.`,
+      );
+    }
+    this.commitRestartYield(invocationId, checkpoint, controller, markYielded);
+  }
+
+  private waitForRestartThenYieldHumanWait(
+    invocationId: string,
+    controller: AbortController,
+    settleSignal: AbortSignal,
+    markYielded: () => void,
+  ): Promise<never> {
+    return new Promise((_, reject) => {
+      const restart = this.restartRequestedSignal;
+      const tryYield = () => {
+        try {
+          this.yieldHumanWaitForRestartIfRequested(invocationId, controller, markYielded);
+        } catch (error) {
+          cleanup();
+          reject(error);
+        }
+      };
+      const onAbort = () => {
+        cleanup();
+        reject(abortReason(controller.signal, new Error("invocation aborted")));
+      };
+      const cleanup = () => {
+        restart?.removeEventListener("abort", tryYield);
+        controller.signal.removeEventListener("abort", onAbort);
+        settleSignal.removeEventListener("abort", cleanup);
+      };
+      if (settleSignal.aborted) return;
+      settleSignal.addEventListener("abort", cleanup, { once: true });
+      if (restart?.aborted) {
+        tryYield();
+        return;
+      }
+      restart?.addEventListener("abort", tryYield, { once: true });
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+    });
   }
 
   private async commitTerminalBundle<T>(operation: () => T): Promise<T> {
@@ -1143,4 +1272,31 @@ function positiveInteger(value: number | undefined, fallback: number): number {
 function nonNegativeInteger(value: number | undefined, fallback: number): number {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(0, Math.floor(value ?? fallback));
+}
+
+const persistableRestartCheckpoints = new Map<string, SparkTurnResumeCheckpoint>();
+
+function rememberPersistableRestartCheckpoint(
+  invocationId: string,
+  checkpoint: SparkTurnResumeCheckpoint,
+): void {
+  if (!isSparkTurnResumeCheckpointPersistable(checkpoint)) return;
+  persistableRestartCheckpoints.set(invocationId, structuredClone(checkpoint));
+}
+
+function lastPersistableRestartCheckpoint(
+  invocationId: string,
+): SparkTurnResumeCheckpoint | undefined {
+  return persistableRestartCheckpoints.get(invocationId);
+}
+
+function isInteractionOnlyRestartCheckpoint(checkpoint: SparkTurnResumeCheckpoint): boolean {
+  return (
+    checkpoint.toolCalls.length > 0 &&
+    checkpoint.toolCalls.every((toolCall) => isInteractionToolName(toolCall.name))
+  );
+}
+
+function isInteractionToolName(name: string): boolean {
+  return name === "ask" || name === "ask_user" || name === "ask_flow";
 }
