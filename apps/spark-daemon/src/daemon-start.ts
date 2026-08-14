@@ -777,7 +777,11 @@ function reconcileDaemonExecutionState(
     }
   } catch (error) {
     console.error("[spark-daemon] execution reconcile failed", error);
-    throw error;
+    // Startup recovery is fail-closed: admission must not open while durable
+    // execution state is unreadable. Periodic ticks run inside the scheduler
+    // loop, where rethrowing would kill the loop permanently, so they log and
+    // retry on the next tick instead.
+    if (trigger === "startup") throw error;
   }
 }
 
