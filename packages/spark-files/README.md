@@ -9,11 +9,14 @@ on `@zendev-lab/spark-core`, `typebox`, `diff`, `ignore`, and `minimatch` — no
 
 ## Tools
 
-- `read` — read a text file with 1-indexed `offset`/`limit`. Output is
-  truncated to 2000 lines or 50KB (whichever is hit first) with an actionable
-  continuation notice (`Use offset=… to continue`). It has one output format:
-  the raw-byte SHA-256 version followed by stable `LINE#HASH:text` anchors.
-  Structured details carry the same version and window metadata. LF, CRLF,
+- `read` — read a text file with 1-indexed `offset`/`limit` or by `page`.
+  Without any window args the read returns the **last page** so long files
+  surface their tail; a page holds up to 512 lines/16KB (whichever is hit
+  first) with an actionable continuation notice (`Use offset=… to continue`).
+  `maxBytes`/`maxLines`/`page` override the defaults for a single call. It
+  has one output format: the raw-byte SHA-256 version followed by stable
+  `LINE#HASH:text` anchors. Structured details carry the same version,
+  window, page, and maxBytes/maxLines metadata. LF, CRLF,
   CR-only, mixed endings, and a UTF-8 BOM are reported as metadata while the
   visible anchors use logical line text. Invalid UTF-8 fails explicitly.
   Pagination values must be positive integers. `expectedVersion` can bind a
