@@ -88,6 +88,7 @@ export async function migrateRoleSessionStructuredData(input: {
   userRoleModelSettingsFile: string;
   workspaces: readonly RoleSessionDataMigrationWorkspace[];
   now?: () => string;
+  onWarning?: (message: string) => void;
 }): Promise<RoleSessionDataMigrationResult> {
   const migratedAt = (input.now ?? nowIso)();
   const mutations = new Map<string, FileMutation>();
@@ -100,7 +101,12 @@ export async function migrateRoleSessionStructuredData(input: {
     for (const path of WORKSPACE_JSON_TREES)
       await collectJsonTreeMutations(join(rootDir, path), mutations);
     await collectSessionReproMutations(join(rootDir, ".spark", "sessions"), mutations);
-    await collectEvidenceMutations(join(rootDir, ".spark", "evidence"), migratedAt, mutations);
+    await collectEvidenceMutations(
+      join(rootDir, ".spark", "evidence"),
+      migratedAt,
+      mutations,
+      input.onWarning,
+    );
   }
 
   const ordered = [...mutations.values()].sort((left, right) =>
@@ -225,6 +231,7 @@ async function collectEvidenceMutations(
   evidenceRoot: string,
   migratedAt: string,
   mutations: Map<string, FileMutation>,
+  onWarning?: (message: string) => void,
 ): Promise<void> {
   const entries = await listDirectFiles(evidenceRoot);
   for (const metadataPath of entries.filter((path) => path.endsWith(".json"))) {
@@ -243,26 +250,37 @@ async function collectEvidenceMutations(
         throw new Error(`Evidence ${evidenceRef ?? metadataPath} is missing blob ${blobPath}`);
       if (typeof raw.hash === "string" && contentHash(blobOriginal) !== raw.hash)
         throw new Error(`Evidence ${evidenceRef ?? metadataPath} has a mismatched body hash`);
-      const body = JSON.parse(blobOriginal) as unknown;
-      const rewrittenBody = rewriteStructuredRoleRefs(body, undefined);
-      bodyChanged = !deepEqual(body, rewrittenBody);
-      if (bodyChanged) {
-        const nextBlob = JSON.stringify(rewrittenBody, null, 2);
-        const nextHash = contentHash(nextBlob);
-        const nextBlobPath = join(evidenceRoot, "blobs", `${nextHash}.json`);
-        const existingNextBlob = await readOptionalFile(nextBlobPath);
-        if (existingNextBlob !== undefined && existingNextBlob !== nextBlob)
-          throw new Error(`Evidence blob hash collision at ${nextBlobPath}`);
-        if (existingNextBlob === undefined)
-          addMutation(mutations, {
-            targetPath: nextBlobPath,
-            next: nextBlob,
-            kind: "evidence_blob",
-            ...(evidenceRef ? { evidenceRef } : {}),
-          });
-        rewrittenMetadata.hash = nextHash;
-        rewrittenMetadata.blobPath = relative(evidenceRoot, nextBlobPath);
-        rewriteEvidenceMetadataBody(rewrittenMetadata, rewrittenBody, nextBlob);
+      let body: unknown;
+      let bodyParsed = true;
+      try {
+        body = JSON.parse(blobOriginal) as unknown;
+      } catch (error) {
+        bodyParsed = false;
+        onWarning?.(
+          `Skipping RoleRef rewrite for malformed JSON Evidence body ${blobPath}: ${errorMessage(error)}`,
+        );
+      }
+      if (bodyParsed) {
+        const rewrittenBody = rewriteStructuredRoleRefs(body, undefined);
+        bodyChanged = !deepEqual(body, rewrittenBody);
+        if (bodyChanged) {
+          const nextBlob = JSON.stringify(rewrittenBody, null, 2);
+          const nextHash = contentHash(nextBlob);
+          const nextBlobPath = join(evidenceRoot, "blobs", `${nextHash}.json`);
+          const existingNextBlob = await readOptionalFile(nextBlobPath);
+          if (existingNextBlob !== undefined && existingNextBlob !== nextBlob)
+            throw new Error(`Evidence blob hash collision at ${nextBlobPath}`);
+          if (existingNextBlob === undefined)
+            addMutation(mutations, {
+              targetPath: nextBlobPath,
+              next: nextBlob,
+              kind: "evidence_blob",
+              ...(evidenceRef ? { evidenceRef } : {}),
+            });
+          rewrittenMetadata.hash = nextHash;
+          rewrittenMetadata.blobPath = relative(evidenceRoot, nextBlobPath);
+          rewriteEvidenceMetadataBody(rewrittenMetadata, rewrittenBody, nextBlob);
+        }
       }
     }
 

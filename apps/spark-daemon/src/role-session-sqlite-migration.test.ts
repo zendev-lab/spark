@@ -71,6 +71,9 @@ describe("Role/Session v6 SQLite migration", () => {
     expect(JSON.parse(outbox.payloadJson)).toEqual({
       reviewerRoleRefs: ["role:builtin-explorer"],
     });
+    expect(
+      db.prepare("SELECT value FROM daemon_meta WHERE key = ?").get("role-session-v6-sqlite"),
+    ).toEqual({ value: "complete" });
 
     await expect(
       migrateRoleSessionSqliteData({

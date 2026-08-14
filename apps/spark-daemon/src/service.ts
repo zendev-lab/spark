@@ -33,8 +33,16 @@ const restartTerminalFileSuffix = ".json";
 const legacyRestartTerminalFileName = "restart.terminal.json";
 const processIdentityFileName = "daemon.identity.json";
 const processOwnershipMutexName = "daemon.identity.lock";
+const startMarkerFileName = "daemon.starting.json";
 const restartStartRetryBaseMs = 100;
 const restartStartRetryMaxMs = 5_000;
+
+interface SparkDaemonStartMarker {
+  token: string;
+  ownerPid: number;
+  childPid?: number;
+  claimedAt: string;
+}
 
 type SparkDaemonRestartRecordState = "armed" | "claimed" | "cancelled" | "completed";
 
@@ -118,6 +126,95 @@ export interface SparkDaemonServiceResult {
   /** Spawned or observed process, used to fence a pre-pidfile cancellation race. */
   pid?: number;
   processStartToken?: string;
+}
+
+export function clearSparkDaemonStartMarker(paths: Pick<SparkPaths, "runtimeDir">): void {
+  const path = join(paths.runtimeDir, startMarkerFileName);
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    // Startup must not fail merely because the best-effort marker cleanup lost
+    // a race with a stale launcher.
+  }
+}
+
+function claimSparkDaemonStartMarker(paths: Pick<SparkPaths, "runtimeDir">):
+  | {
+      claimed: true;
+      token: string;
+    }
+  | { claimed: false; pid: number } {
+  mkdirSync(paths.runtimeDir, { recursive: true });
+  const path = join(paths.runtimeDir, startMarkerFileName);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const token = randomUUID();
+    const marker: SparkDaemonStartMarker = {
+      token,
+      ownerPid: process.pid,
+      claimedAt: new Date().toISOString(),
+    };
+    try {
+      const fd = openSync(path, "wx", 0o600);
+      try {
+        writeFileSync(fd, `${JSON.stringify(marker)}\n`, "utf8");
+      } finally {
+        closeSync(fd);
+      }
+      return { claimed: true, token };
+    } catch {
+      const existing = readSparkDaemonStartMarker(path);
+      const pid = existing?.childPid ?? existing?.ownerPid;
+      if (pid && isProcessAlive(pid)) return { claimed: false, pid };
+      rmSync(path, { force: true });
+    }
+  }
+  return { claimed: false, pid: process.pid };
+}
+
+function writeSparkDaemonStartMarker(
+  paths: Pick<SparkPaths, "runtimeDir">,
+  token: string,
+  childPid: number | null,
+): void {
+  const path = join(paths.runtimeDir, startMarkerFileName);
+  const marker = readSparkDaemonStartMarker(path);
+  if (!marker || marker.token !== token) return;
+  const next: SparkDaemonStartMarker = {
+    ...marker,
+    ...(childPid && childPid > 0 ? { childPid } : {}),
+  };
+  writeFileSync(path, `${JSON.stringify(next)}\n`, { encoding: "utf8", mode: 0o600 });
+}
+
+function releaseSparkDaemonStartMarker(paths: Pick<SparkPaths, "runtimeDir">, token: string): void {
+  const path = join(paths.runtimeDir, startMarkerFileName);
+  const marker = readSparkDaemonStartMarker(path);
+  if (marker?.token === token) rmSync(path, { force: true });
+}
+
+function readSparkDaemonStartMarker(path: string): SparkDaemonStartMarker | null {
+  if (!existsSync(path)) return null;
+  try {
+    const value = JSON.parse(readFileSync(path, "utf8")) as Partial<SparkDaemonStartMarker>;
+    if (
+      typeof value.token !== "string" ||
+      typeof value.ownerPid !== "number" ||
+      !Number.isInteger(value.ownerPid) ||
+      typeof value.claimedAt !== "string"
+    ) {
+      return null;
+    }
+    return {
+      token: value.token,
+      ownerPid: value.ownerPid,
+      ...(typeof value.childPid === "number" && Number.isInteger(value.childPid)
+        ? { childPid: value.childPid }
+        : {}),
+      claimedAt: value.claimedAt,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function startSparkDaemonService(
@@ -1616,6 +1713,17 @@ function startDetachedSparkDaemon(
     };
   }
 
+  const startMarker = claimSparkDaemonStartMarker(paths);
+  if (!startMarker.claimed) {
+    return {
+      kind: "detached",
+      alreadyRunning: true,
+      detail: `Spark daemon is already starting as process ${startMarker.pid}.`,
+      ownership: "observed",
+      pid: startMarker.pid,
+    };
+  }
+
   mkdirSync(paths.logDir, { recursive: true, mode: 0o700 });
   rotateSparkDaemonServiceLogs(paths);
   const stdout = openSync(join(paths.logDir, "service.stdout.log"), "a", 0o600);
@@ -1633,8 +1741,10 @@ function startDetachedSparkDaemon(
     stdio: ["ignore", stdout, stderr],
   });
   child.once("error", (error) => {
+    releaseSparkDaemonStartMarker(paths, startMarker.token);
     console.error("[spark-daemon] detached service failed to spawn", error);
   });
+  writeSparkDaemonStartMarker(paths, startMarker.token, child.pid ?? null);
   child.unref();
   const childStartToken = child.pid ? processStartTokenForPid(child.pid) : null;
 

@@ -45,8 +45,25 @@ export async function migrateRoleSessionSqliteData(input: {
   now?: () => string;
   writeJournal?: (path: string, value: RoleSessionSqliteMigrationJournal) => Promise<void>;
 }): Promise<RoleSessionSqliteMigrationResult> {
+  const dbMeta = new Map<string, string>();
+  try {
+    const rows = input.db.prepare("SELECT key, value FROM daemon_meta").all() as Array<{
+      key: string;
+      value: string;
+    }>;
+    for (const row of rows) dbMeta.set(row.key, row.value);
+  } catch {
+    // Older databases may not have daemon_meta yet; migration proceeds normally.
+  }
+  if (dbMeta.get("role-session-v6-sqlite") === "complete") {
+    return { changed: false, rows: 0 };
+  }
+
   const mutations = collectMutations(input.db);
-  if (mutations.length === 0) return { changed: false, rows: 0 };
+  if (mutations.length === 0) {
+    markMigrationComplete(input.db, (input.now ?? nowIso)());
+    return { changed: false, rows: 0 };
+  }
 
   const migratedAt = (input.now ?? nowIso)();
   const runId = `${migratedAt.replace(/[^0-9A-Za-z]/gu, "-")}-${randomUUID()}`;
@@ -92,6 +109,13 @@ export async function migrateRoleSessionSqliteData(input: {
     journal.status = "complete";
     journal.migratedAt = migratedAt;
     await writeJournal(journalPath, journal);
+    input.db
+      .prepare(
+        `INSERT INTO daemon_meta (key, value, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      )
+      .run("role-session-v6-sqlite", "complete", migratedAt);
   } catch (cause) {
     if (transactionOpen) input.db.exec("ROLLBACK");
     if (committed) {
@@ -124,6 +148,13 @@ export async function migrateRoleSessionSqliteData(input: {
   };
 }
 
+function markMigrationComplete(db: DatabaseSync, migratedAt: string): void {
+  db.prepare(
+    `INSERT INTO daemon_meta (key, value, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  ).run("role-session-v6-sqlite", "complete", migratedAt);
+}
 function collectMutations(db: DatabaseSync): SqliteMigrationMutation[] {
   const tables = db
     .prepare(

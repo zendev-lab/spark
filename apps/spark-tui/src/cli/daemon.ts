@@ -142,6 +142,11 @@ const HUMAN_INTERACTION_RESPONSE_MAX_ATTEMPTS = 4;
 const HUMAN_INTERACTION_RESPONSE_RETRY_BASE_MS = 50;
 const DAEMON_PROCESS_STARTUP_GRACE_MS = 10 * 60_000;
 
+// A TUI can issue several daemon-backed requests during startup. Serialize the
+// ensure path per runtime so those requests share one spawn/readiness attempt
+// instead of rebuilding and launching the daemon repeatedly.
+const daemonEnsureRunningPromises = new Map<string, Promise<void>>();
+
 export interface SparkDaemonClientPaths {
   runtimeDir: string;
   socketPath: string;
@@ -3508,6 +3513,23 @@ export async function ensureSparkDaemonClientRunning(
   client: SparkDaemonClientOptions,
 ): Promise<void> {
   const paths = resolveSparkDaemonClientPaths(client);
+  const existing = daemonEnsureRunningPromises.get(paths.runtimeDir);
+  if (existing) return await existing;
+  const attempt = ensureSparkDaemonClientRunningInternal(client, paths);
+  daemonEnsureRunningPromises.set(paths.runtimeDir, attempt);
+  try {
+    await attempt;
+  } finally {
+    if (daemonEnsureRunningPromises.get(paths.runtimeDir) === attempt) {
+      daemonEnsureRunningPromises.delete(paths.runtimeDir);
+    }
+  }
+}
+
+async function ensureSparkDaemonClientRunningInternal(
+  client: SparkDaemonClientOptions,
+  paths: SparkDaemonClientPaths,
+): Promise<void> {
   if (
     client.controlRequest ||
     client.startService ||
