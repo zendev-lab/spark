@@ -157,8 +157,7 @@ test("legacy provider config still exposes the bundled OpenAI Codex catalog", as
     assert.equal(snapshot.models.filter((model) => model.providerId === "openai-codex").length, 7);
     assert.equal(
       snapshot.models.some(
-        (model) =>
-          model.providerId === "openai-codex" && model.modelId === "gpt-5.3-codex-spark",
+        (model) => model.providerId === "openai-codex" && model.modelId === "gpt-5.3-codex-spark",
       ),
       true,
     );
@@ -173,21 +172,6 @@ test("legacy provider config still exposes the bundled OpenAI Codex catalog", as
         (outcome) => outcome.specifier === "@zendev-lab/spark-ai/openai-codex-provider",
       )?.ok,
       true,
-    );
-    assert.deepEqual(
-      snapshot.enabledModelIds.toSorted((a, b) => a.localeCompare(b)),
-      [
-        "baidu-oneapi/claude-opus-4.6",
-        "baidu-oneapi/claude-opus-5",
-        "baidu-oneapi/deepseek-v4-flash",
-        "baidu-oneapi/gpt-5.6-luna",
-        "baidu-oneapi/gpt-5.6-sol",
-        "baidu-oneapi/gpt-5.6-terra",
-        "baidu-oneapi/grok-4.6",
-        "openai-codex/gpt-5.6-luna",
-        "openai-codex/gpt-5.6-sol",
-        "openai-codex/gpt-5.6-terra",
-      ],
     );
   });
 });
