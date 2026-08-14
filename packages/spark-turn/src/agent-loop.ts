@@ -69,7 +69,9 @@ export type {
 import { createHash } from "node:crypto";
 
 import type {
+  SparkHostDelegationEnvelope,
   SparkHostContext,
+  SparkDelegationThinkingLevel,
   ToolExecutionResult,
   ToolExecutionReconciliation,
   ToolExecutionRetryability,
@@ -1375,9 +1377,12 @@ export class SparkAgentLoop {
         ...toolCall,
         arguments: normalizeToolCallArguments(tool.config.parameters, toolCall.arguments),
       };
+      const model = this.getModel();
+      const delegation = this.delegationEnvelope(model);
       const ctx: SparkHostContext = this.host.makeContext({
-        model: this.getModel(),
+        model,
         sessionId: this.viewSessionId,
+        ...(delegation ? { delegation } : {}),
       });
       const approval = await this.requestToolApprovalIfNeeded(normalizedToolCall, tool, signal);
       if (!approval.approved) return errorToolResult(toolCall, approval.message);
@@ -1778,6 +1783,31 @@ export class SparkAgentLoop {
 
   private collectActiveRegisteredTools(): SparkTurnRegisteredTool[] {
     return this.host.listTools().filter((entry) => this.isToolAvailable(entry));
+  }
+
+  private delegationEnvelope(model: Model<string>): SparkHostDelegationEnvelope | undefined {
+    const thinking = this.getReasoning?.();
+    if (thinking === undefined) return undefined;
+    const activeTools = this.collectActiveRegisteredTools().filter((entry) =>
+      this.isToolDispatchAllowed(entry.config.name, entry),
+    );
+    const allowedToolEffects = [
+      ...new Set(
+        activeTools
+          .map((entry) => resolvedRegisteredToolPolicy(entry).effect)
+          .filter((effect) => effect !== "unknown"),
+      ),
+    ];
+    return {
+      model: {
+        provider: model.provider,
+        id: model.id,
+        ...(model.api ? { api: model.api } : {}),
+      },
+      thinking: thinking satisfies SparkDelegationThinkingLevel,
+      activeTools: activeTools.map((entry) => entry.config.name),
+      allowedToolEffects,
+    };
   }
 
   private collectActiveTools(entries: readonly SparkTurnRegisteredTool[]): Tool[] {

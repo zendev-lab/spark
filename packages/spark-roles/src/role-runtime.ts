@@ -1871,6 +1871,7 @@ export async function runRole(input: RoleRunLauncherInput): Promise<RoleRunResul
         ? { forkFromSession: input.forkFromSession.trim() }
         : {}),
       ...(input.model?.trim() ? { model: input.model.trim() } : {}),
+      ...(input.thinking ? { thinking: input.thinking } : {}),
       env: nativeEnv,
       inputControl,
       ...(input.onEvent ? { onEvent: input.onEvent } : {}),

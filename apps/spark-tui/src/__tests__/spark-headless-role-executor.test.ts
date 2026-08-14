@@ -1023,6 +1023,26 @@ test("runSparkHeadlessRoleInstruction fails closed when a scheduler worker omits
   assert.match(result.outcome.reason, /without calling role_report_outcome/u);
 });
 
+test("runSparkHeadlessRoleInstruction applies the frozen child thinking level", async () => {
+  const services = headlessRoleServices(async (tools) => {
+    await executeRoleOutcomeTool(tools, {
+      kind: "completed",
+      code: "thinking_applied",
+      reason: "Child thinking level was applied before execution",
+    });
+    return successfulOutcome("thinking applied");
+  });
+  const input = roleInstructionInput("thinking");
+  input.thinking = "low";
+
+  const result = await runSparkHeadlessRoleInstruction(input, {
+    createServices: async () => services as never,
+  });
+
+  assert.equal(services.config.activeThinkingLevel, "low");
+  assert.equal(result.record.status, "succeeded");
+});
+
 test("runSparkHeadlessRoleInstruction records provider resolution failures structurally", async () => {
   const services = headlessRoleServices(async () => successfulOutcome("must not run"));
   services.providerRegistry = {
@@ -1096,6 +1116,7 @@ function headlessRoleServices(
   const tools = new Map<string, ToolConfig>();
   let activeTools = ["read"];
   return {
+    config: { activeThinkingLevel: "high" },
     agentLoop: {
       onEvent: () => () => undefined,
       setViewSessionId: () => undefined,

@@ -65,20 +65,24 @@ a failed replacement does not write Task graph state.
   Session. It does not choose Session lifetime.
 - A Session is the runtime instance that owns continuity, bindings, calls, and
   mail. Its single Owner derives `persistent | scoped | ephemeral` lifetime.
-- `skill_agent({ skills, instruction, inputs? })` resolves one to eight exact
-  Skills and runs one fresh owned child Session with every selected Skill body
-  loaded once. It receives the explicit packet, not the parent transcript, and
-  cannot recurse into Roles or Skill Agents or manage other Sessions.
+- `skill_agent({ skills, instruction, inputs?, timeoutMs?, model?, thinking?, allowedTools?, allowedToolEffects? })`
+  resolves one to eight exact Skills and runs one fresh owned child Session with
+  every selected Skill body loaded once. It receives the explicit packet, not
+  the parent transcript, and cannot recurse into Roles or Skill Agents or
+  manage other Sessions.
 
 A predefined Role follows its preloaded Skills directly in the same Session;
 it does not call `skill_agent` for them. Definition revisions include Skill
 names, while execution composition revisions also freeze Skill source digests.
 
-Role and Skill Agent children select models through semantic Model Types. A
-missing binding fails with `role_model_type_unconfigured`; Spark does not fall
-back to the parent Session model. On close, an owned child seals a bounded
-receipt before discarding its full transcript and Invocation payload. The
-receipt is operational Session metadata rather than Evidence.
+Role children select models through semantic Model Types. Skill Agents instead
+default to the parent Session's exact model, thinking level, active tools, and
+allowed effects. A caller may override model and thinking, while tools and
+effects can only narrow the parent envelope and the fixed Skill Agent safety
+cap. Hosts without an exact delegation envelope fail closed. On close, an owned
+child seals a bounded receipt before discarding its full transcript and
+Invocation payload. The receipt is operational Session metadata rather than
+Evidence.
 
 The parent Session remains responsible for decomposition, durable coordination,
 verification of consequential claims, and user-facing synthesis.

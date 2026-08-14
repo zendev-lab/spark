@@ -637,6 +637,16 @@ export interface SessionModelRef {
   api?: string;
 }
 
+export type SparkDelegationThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+/** Exact current-Session authority available to bounded child delegation. */
+export interface SparkHostDelegationEnvelope {
+  model: SessionModelRef;
+  thinking: SparkDelegationThinkingLevel;
+  activeTools: string[];
+  allowedToolEffects: ToolEffect[];
+}
+
 /**
  * Stable, credential-free reason codes for a degraded leaf capability call.
  * Hosts must never derive these from raw provider error text.
@@ -808,6 +818,7 @@ export interface ExtensionRoleRunRequest {
   launch?: ExtensionRoleLaunchMode;
   forkFromSession?: string;
   model?: string;
+  thinking?: SparkDelegationThinkingLevel;
   /**
    * Reviewer-only compatibility authority. Hosts may emit the stable native
    * compatibility outcome only for this exact marker and only when no event
@@ -908,6 +919,11 @@ export interface SparkHostContext {
   verifyMemoryDirectIntent?: (value: unknown) => Promise<boolean> | boolean;
   /** Present only inside a daemon-owned autonomous loop tick. */
   loop?: SparkHostLoopContext;
+  /**
+   * Host-resolved current-Session delegation authority. Child execution must
+   * fail closed when this envelope is absent rather than infer parent policy.
+   */
+  delegation?: SparkHostDelegationEnvelope;
   /** Session IDs already participating in a synchronous question chain. */
   sessionQuestionChain?: string[];
   /** Host-owned policy for detached asynchronous Goal/Repro evidence requests. */

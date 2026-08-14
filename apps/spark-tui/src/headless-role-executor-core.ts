@@ -87,6 +87,7 @@ export interface SparkHeadlessRoleInstructionInput {
   launch?: "fresh" | "forked";
   forkFromSession?: string;
   model?: string;
+  thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   nativeCompatibilityRecovery?: "reviewer";
   onEvent?: (event: unknown) => void | Promise<void>;
   inputControl?: ExtensionRoleRunInputControl;
@@ -557,6 +558,7 @@ export async function runSparkHeadlessRoleInstruction(
         return result;
       }
     }
+    if (input.thinking) services.config.activeThinkingLevel = input.thinking;
     const observeTokenUsage = createHeadlessTokenUsageObserver(options.tokenUsage);
     const unsubscribe = services.agentLoop.onEvent((event) => {
       const serialized = serializeLoopEvent(event);

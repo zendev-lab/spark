@@ -249,7 +249,11 @@ The public request is:
   "skills": ["release-audit", "github-publish"],
   "instruction": "Validate the release and publish the approved change.",
   "inputs": ["artifact:...", "CI must pass"],
-  "timeoutMs": 300000
+  "timeoutMs": 300000,
+  "model": "provider/model",
+  "thinking": "high",
+  "allowedTools": ["read", "grep"],
+  "allowedToolEffects": ["read"]
 }
 ```
 
@@ -260,6 +264,10 @@ Rules:
 - the host resolves and loads every complete Skill body exactly once;
 - the aggregate Skill source is bounded and never silently truncated;
 - one fresh owned Agent Session receives the combined Skill set;
+- model, thinking, active tools, and allowed effects default to the exact parent
+  Session delegation envelope; an older host without that envelope is rejected;
+- callers may override model and thinking, but tools and effects may only narrow
+  both the parent envelope and the fixed Skill Agent safety cap;
 - the parent transcript is intentionally unavailable, so `instruction` is
   self-contained;
 - the child cannot call Role, Session, Task, Skill Agent, Workflow, Git
