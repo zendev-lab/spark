@@ -75,6 +75,7 @@ import {
 import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
 import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
 import { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
+import { reconcileExecutionState } from "./core/execution-reconciler.ts";
 import { ExecutionAttemptStore } from "./execution/state.ts";
 import { createDaemonExecutionOwnerHandlers } from "./execution/daemon-owner-capabilities.ts";
 import { recoverInterruptedRuntimeCommandReceipts } from "./runtime-command-receipts.ts";
@@ -240,6 +241,8 @@ interface PreparedDaemonRuntime {
   nextWorkbenchReconcileAtMs: number;
   nextStorageMaintenanceAtMs: number;
   channelReplyDeliveryStore: ChannelReplyDeliveryStore;
+  executionAttemptStore: ExecutionAttemptStore;
+  executionAttemptGeneration: number;
   scheduler: SparkInvocationScheduler | null;
   sessionSupervisor: SessionSupervisor | null;
   mailStore: SparkSessionMailStore;
@@ -432,6 +435,8 @@ async function createPreparedDaemonRuntime(
         },
       })
     : null;
+  const executionAttemptStore = new ExecutionAttemptStore(options.db);
+  const executionAttemptGeneration = executionAttemptStore.allocateDaemonGeneration();
   const scheduler = createDaemonScheduler({
     options,
     runtimeSignal,
@@ -449,6 +454,8 @@ async function createPreparedDaemonRuntime(
     mailStore,
     sessionCompletionDeliveryStore,
     sessionSupervisor,
+    executionAttemptStore,
+    executionAttemptGeneration,
   });
   if (scheduler) sessionSupervisor?.attachScheduler(scheduler);
   const closeRestartAdmission = () => {
@@ -501,6 +508,8 @@ async function createPreparedDaemonRuntime(
     nextWorkbenchReconcileAtMs: Date.now(),
     nextStorageMaintenanceAtMs: Date.now(),
     channelReplyDeliveryStore,
+    executionAttemptStore,
+    executionAttemptGeneration,
     scheduler,
     sessionSupervisor,
     mailStore,
@@ -732,7 +741,10 @@ function canOpenDaemonAdmission(runtime: PreparedDaemonRuntime): boolean {
 }
 
 async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<void> {
-  runtime.scheduler?.recover();
+  // Durable execution recovery must finish before admission opens so a
+  // successor generation cannot claim work that still looks live under a
+  // previous generation.
+  reconcileDaemonExecutionState(runtime, "startup");
   await runtime.sessionSupervisor?.reconcile({
     workspaceIds: listWorkspaces(runtime.options.db, { includeInactive: true }).map(
       (workspace) => workspace.id,
@@ -745,6 +757,28 @@ async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<
   runtime.invocationRegistry.activateAdmission();
   runtime.admission.open = true;
   runStorageMaintenance(runtime);
+}
+
+function reconcileDaemonExecutionState(
+  runtime: PreparedDaemonRuntime,
+  trigger: "startup" | "periodic_tick" | "planned_shutdown" | "daemon_crash",
+): void {
+  try {
+    const result = reconcileExecutionState({
+      invocationStore: runtime.invocationStore,
+      attemptStore: runtime.executionAttemptStore,
+      daemonGeneration: runtime.executionAttemptGeneration,
+      trigger,
+    });
+    if (result.transitionCount > 0) {
+      console.error(
+        `[spark-daemon] execution reconcile trigger=${result.trigger} generation=${result.daemonGeneration} transitions=${result.transitionCount} requeues=${result.invocationRequeues} failures=${result.invocationFailures}`,
+      );
+    }
+  } catch (error) {
+    console.error("[spark-daemon] execution reconcile failed", error);
+    throw error;
+  }
 }
 
 function startDaemonServingLoops(runtime: PreparedDaemonRuntime): void {
@@ -828,6 +862,11 @@ async function runSchedulerLoop(runtime: PreparedDaemonRuntime): Promise<void> {
   while (!runtime.runtimeSignal.aborted) {
     if (Date.now() >= runtime.nextStorageMaintenanceAtMs) {
       runStorageMaintenance(runtime);
+    }
+    if (runtime.admission.open) {
+      // Same durable path as startup: recover orphaned attempts/invocations
+      // without waiting for another daemon restart.
+      reconcileDaemonExecutionState(runtime, "periodic_tick");
     }
     if (runtime.admission.open) await reconcilePendingHumanAnswerEvidence(runtime);
     if (runtime.admission.open) await reconcileLoopGoalSettlements(runtime.loopStore);
@@ -1059,15 +1098,16 @@ function createDaemonScheduler(input: {
   mailStore: SparkSessionMailStore;
   sessionCompletionDeliveryStore: SessionRequestCompletionDeliveryStore;
   sessionSupervisor: SessionSupervisor | null;
+  executionAttemptStore: ExecutionAttemptStore;
+  executionAttemptGeneration: number;
 }): SparkInvocationScheduler | null {
   if (input.options.runScheduler === false) return null;
   const { options } = input;
   const sessionRegistry = options.sessionRegistry;
-  const executionAttemptStore = new ExecutionAttemptStore(options.db);
   return new SparkInvocationScheduler({
     store: input.invocationStore,
-    executionAttemptStore,
-    executionAttemptGeneration: executionAttemptStore.allocateDaemonGeneration(),
+    executionAttemptStore: input.executionAttemptStore,
+    executionAttemptGeneration: input.executionAttemptGeneration,
     executionOwnerHandlers: createDaemonExecutionOwnerHandlers({
       db: options.db,
       humanInteractions: input.humanInteractions,
