@@ -75,7 +75,7 @@ hooks = [
 ]
 
 [[repos]]
-repo = "https://github.com/zrr1999/zendev"
+repo = "https://github.com/zendev-lab/zendev"
 rev = "v0.1.0"
 hooks = [{ id = "zendev-commit-msg", stages = ["commit-msg"] }]
 
