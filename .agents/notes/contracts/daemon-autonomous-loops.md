@@ -7,13 +7,16 @@ Loop.
 
 ## Orthogonal state
 
-- `Session.phase` is `plan | implement` and controls the operating prompt.
+- Session **Mode** is `plan | execute | fleet` and controls the operating
+  prompt. Canonical terminology lives in
+  [`agent-operating-model.md`](./agent-operating-model.md); `phase` is not the
+  name for these values, and `implement` is not a mode.
 - Goal owns the objective and completion contract.
 - WorkflowRun owns Workflow stages and definition identity.
 - Loop owns cadence, retry, generation, and cycle execution.
 - Repro is the domain facade over Goal, `builtin:repro`, and Loop.
 
-Workflow stages are not Session phases. A Session has at most one non-terminal
+Workflow stages are not Session modes. A Session has at most one non-terminal
 Loop. A Goal or bare Loop can run without a Workflow binding.
 
 ## Protocol
