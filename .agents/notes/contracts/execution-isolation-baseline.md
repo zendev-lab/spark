@@ -4,7 +4,7 @@ This source-process baseline measures the current single-daemon execution fault 
 execution-attempt process boundary is introduced. It is a diagnostic contract, not a claim that the
 daemon already isolates invocations or cleans up descendant processes. The normative replaceable
 attempt identity, fencing, crash, capability, and worker-import rules are in
-[`docs/specs/execution-attempts.md`](../specs/execution-attempts.md).
+[`execution-attempts.md`](./execution-attempts.md).
 
 ## Run
 
@@ -26,7 +26,7 @@ and local child processes. It does not read the real daemon database, credential
 or remote services. Reports are intentionally not committed because timestamps, RSS, PIDs, and
 latency vary by machine. RSS is a whole-source-process observation across sequential fixtures, not
 an isolated per-fixture allocation or leak measurement. The schema is
-[`test/process/execution-isolation-baseline.schema.json`](../../test/process/execution-isolation-baseline.schema.json).
+[`test/process/execution-isolation-baseline.schema.json`](../../../test/process/execution-isolation-baseline.schema.json).
 
 ## Fixtures and interpretation
 

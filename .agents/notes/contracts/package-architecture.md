@@ -4,7 +4,7 @@ Spark package boundaries follow execution ownership, state ownership, and
 adapter/runtime placement. They do not follow file count alone.
 
 The machine-readable source of truth is
-[`../../architecture/packages.json`](../../architecture/packages.json). Every
+[`../../architecture/packages.json`](../../../architecture/packages.json). Every
 workspace declares a `layer`, `owner`, `stability`, and `stateWriter`. The same
 inventory owns the layer matrix, exact temporary
 exceptions, Pi manifest ownership, package budget, and expected composition
@@ -64,7 +64,7 @@ Spark task commands for task creation, package-owner migrations for startup
 migration, Vitest config for deterministic test selection, and pnpm recursive
 scripts for package discovery. Knip remains the advisory dead-file check; a
 script that intentionally survives only as an operator command must have a
-package script, workflow, test, or operations-document caller.
+package script, workflow, test, or runbook caller.
 
 Manypkg was not selected because its mandatory private-root dependency policy
 conflicts with Spark's deliberate root product-composition dependencies. `Sherif`

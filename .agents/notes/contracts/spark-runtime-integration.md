@@ -3,7 +3,7 @@
 This specification owns the machine-consumable acceptance and invocation
 semantics used by schedulers, CI, and local managers. User-facing command syntax
 and examples belong in the public
-[`CLI reference`](../../apps/spark-docs/src/content/docs/reference/cli.md).
+[`CLI reference`](../../../apps/spark-docs/src/content/docs/reference/cli.md).
 
 Integrations must use the canonical headless run/background surfaces and parse
 only their documented machine output. Removed legacy root aliases are not

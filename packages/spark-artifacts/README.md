@@ -15,7 +15,7 @@ Atomic Artifacts (`issue` / `git_change` / `document`) for users, plus an
   Stack layers are child entries, not separate Artifact refs. `git({ action })`
   owns init, checkout/adopt, layer, commit, refresh, submit, sync, and cleanup.
   Managed paths and legacy compatibility are specified in
-  [`docs/specs/tools.md`](../../docs/specs/tools.md); new worktrees use
+  [`.agents/notes/contracts/tools.md`](../../.agents/notes/contracts/tools.md); new worktrees use
   `<workspace-root>/.agents/worktrees/<owner>/<repo>/<semantic-name>`.
 - `gh stack` is the sole writable topology authority. Submissions are draft by
   default; Spark does not add routine PR comments or boilerplate saying a PR

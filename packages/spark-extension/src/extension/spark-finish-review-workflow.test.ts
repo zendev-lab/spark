@@ -14,7 +14,7 @@ import {
 function reviewInput(): TaskReviewInput {
   const plan: TaskPlan = {
     objective: "Verify the bounded finish reviewer.",
-    contextRefs: ["docs/specs/tools.md"],
+    contextRefs: [".agents/notes/contracts/tools.md"],
     constraints: ["Do not relax correctness gates."],
     nonGoals: ["Do not inspect unrelated Tasks."],
     successCriteria: ["Focused tests pass."],
