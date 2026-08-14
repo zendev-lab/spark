@@ -183,7 +183,7 @@ test("Spark role-run TUI renders paused runs as visible recoverable work", () =>
   assert.equal(formatSparkRoleRunStatusSummary(snapshot), "roles: paused=1");
   const board = renderSparkRoleRunBoardLines(snapshot, {}, { width: 120 }, theme).join("\n");
   assert.match(board, /paused=1/u);
-  assert.match(board, /Ⅱ worker/u);
+  assert.match(board, /Ⅱ executor/u);
 });
 
 test("Spark role-run completion message renderer supports compact and expanded details", () => {
