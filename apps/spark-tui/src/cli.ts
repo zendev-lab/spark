@@ -1762,6 +1762,7 @@ function createDelegatingSparkDaemonModelAuthClient(
   };
   return {
     snapshot: () => current().snapshot(),
+    setEnabledModels: (models) => current().setEnabledModels(models),
     setSessionModel: (model) => current().setSessionModel(model),
     setSessionThinkingLevel: (thinkingLevel) => current().setSessionThinkingLevel(thinkingLevel),
     setDefaultModel: (model) => current().setDefaultModel(model),

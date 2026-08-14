@@ -3341,6 +3341,7 @@ describe("Spark daemon local RPC", () => {
     const modelControl = {
       snapshot: vi.fn(async () => snapshot),
       setDefaultModel: vi.fn(async () => snapshot),
+      setEnabledModels: vi.fn(async () => snapshot),
       setSessionModel: vi.fn(async () =>
         workspaceSessionRecord({
           sessionId: "sess_model",

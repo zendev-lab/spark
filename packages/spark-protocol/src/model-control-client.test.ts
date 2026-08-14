@@ -56,6 +56,7 @@ describe("spark model control client", () => {
 
     const snapshot = await client.snapshot();
     const session = await client.setSessionModel({ providerName: "openai", modelId: "gpt" });
+    const enabled = await client.setEnabledModels([{ providerName: "openai", modelId: "gpt" }]);
     const imported = await client.importPiAuth({
       sourcePath: "/tmp/pi/auth.json",
       overwrite: true,
@@ -63,12 +64,17 @@ describe("spark model control client", () => {
 
     expect(snapshot.session?.model).toEqual({ providerName: "openai", modelId: "gpt" });
     expect(session.model).toEqual({ providerName: "openai", modelId: "gpt" });
+    expect(enabled.defaultModel).toEqual({ providerName: "openai", modelId: "gpt" });
     expect(imported.totals.imported).toBe(1);
     expect(calls).toEqual([
       { method: "model.catalog", params: { sessionId: "sess_demo" } },
       {
         method: "session.model.set",
         params: { sessionId: "sess_demo", model: { providerName: "openai", modelId: "gpt" } },
+      },
+      {
+        method: "model.enabled.set",
+        params: { models: [{ providerName: "openai", modelId: "gpt" }] },
       },
       {
         method: "provider.auth.import.pi",

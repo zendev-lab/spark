@@ -3,6 +3,7 @@ import { test } from "vitest";
 
 import {
   createSparkDaemonModelAuthClient,
+  daemonSnapshotToCatalogState,
   daemonSnapshotToPickerState,
   resolveDaemonModelSelection,
 } from "../cli/model-control.ts";
@@ -101,6 +102,19 @@ test("daemon model picker exposes only the resolved scoped models", () => {
 
   const empty = daemonSnapshotToPickerState({ ...snapshot, enabledModels: [] });
   assert.deepEqual(empty.items, []);
+
+  const catalog = daemonSnapshotToCatalogState({
+    ...snapshot,
+    enabledModels: [{ providerName: "provider-b", modelId: "model-a" }],
+  });
+  assert.deepEqual(
+    catalog.items.map((item) => [item.value, item.enabled]),
+    [
+      ["provider-a/model-a", false],
+      ["provider-a/model-locked", false],
+      ["provider-b/model-a", true],
+    ],
+  );
 });
 
 test("daemon model picker prefers the persisted session model over the global default", () => {

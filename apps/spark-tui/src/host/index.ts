@@ -101,6 +101,8 @@ export type {
   SparkModelPicker,
   SparkModelPickerState,
   SparkModelProviderGroup,
+  SparkEnabledModelCatalogState,
+  SparkEnabledModelEditorItem,
   SparkModelSelectorItem,
   SparkModelSelectorKeybindingOptions,
   SparkModelSelectorOptions,

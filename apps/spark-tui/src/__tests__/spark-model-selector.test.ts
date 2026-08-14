@@ -20,6 +20,7 @@ import {
   type SparkModelSelectorTheme,
   type SparkModelSelectorTuiLike,
 } from "../tui/model-selector.ts";
+import { createSparkEnabledModelsEditorComponent } from "../tui/enabled-models-editor.ts";
 
 const fakeStream: ProviderConfig["streamSimple"] = () => ({}) as unknown;
 
@@ -111,6 +112,10 @@ test("SparkModelSelector and /enabled-models share configured scope, including e
   });
   assert.deepEqual(emptySelector.getPickerState().items, []);
   assert.equal(await emptySelector.cycle("next"), undefined);
+  assert.deepEqual(
+    emptySelector.listCatalogItems().map((item) => item.value),
+    ["fake/model-a", "fake/model-b", "fake/model-c", "other/model-z"],
+  );
 });
 
 test("SparkModelSelector select validates through registry and persists SparkConfig", async () => {
@@ -335,4 +340,52 @@ test("createSparkModelPickerFromCustomUi mounts a SelectList overlay picker", as
   assert.equal(factoryRendered, true);
   assert.equal(overlayEnabled, true);
   assert.deepEqual(selection, { providerName: "fake", modelId: "model-b" });
+});
+
+test("enabled-models editor toggles catalog rows and saves exact ids", () => {
+  let saved: string[] | null | undefined;
+  const component = createSparkEnabledModelsEditorComponent({
+    state: {
+      items: [
+        {
+          value: "fake/model-a",
+          providerName: "fake",
+          providerLabel: "fake",
+          modelId: "model-a",
+          modelLabel: "model-a",
+          description: "standard",
+          active: false,
+          available: true,
+          reasoning: false,
+          enabled: true,
+        },
+        {
+          value: "fake/model-b",
+          providerName: "fake",
+          providerLabel: "fake",
+          modelId: "model-b",
+          modelLabel: "model-b",
+          description: "standard",
+          active: false,
+          available: true,
+          reasoning: false,
+          enabled: false,
+        },
+      ],
+    },
+    onSave: (values) => {
+      saved = values;
+    },
+  });
+
+  const rendered = component.render(80).join("\n");
+  assert.match(rendered, /Edit enabled models/u);
+  assert.match(rendered, /\[x\] model-a/u);
+  assert.match(rendered, /\[ \] model-b/u);
+
+  component.handleInput(" ");
+  component.handleInput("j");
+  component.handleInput(" ");
+  component.handleInput("\r");
+  assert.deepEqual(saved, ["fake/model-b"]);
 });

@@ -25,6 +25,7 @@ import type { DaemonSessionRegistry } from "./session-registry.ts";
 export interface SparkDaemonModelControl {
   snapshot(sessionId?: string): Promise<SparkModelControlSnapshot>;
   setDefaultModel(model: SparkModelRef): Promise<SparkModelControlSnapshot>;
+  setEnabledModels(models: readonly SparkModelRef[]): Promise<SparkModelControlSnapshot>;
   setSessionModel(sessionId: string, model: SparkModelRef): Promise<SparkSessionState>;
   setSessionThinkingLevel(
     sessionId: string,
@@ -74,6 +75,13 @@ class DaemonModelControl implements SparkDaemonModelControl {
     const snapshot = await this.snapshot();
     const canonical = requireAvailableModel(snapshot, model).model;
     await this.#providerControl.setDefaultModel(modelValue(canonical));
+    return await this.snapshot();
+  }
+
+  async setEnabledModels(models: readonly SparkModelRef[]): Promise<SparkModelControlSnapshot> {
+    const snapshot = await this.snapshot();
+    const canonical = models.map((model) => requireCatalogModel(snapshot, model).model);
+    await this.#providerControl.setEnabledModels(canonical.map(modelValue));
     return await this.snapshot();
   }
 
@@ -434,7 +442,7 @@ function authProjection(
   };
 }
 
-function requireAvailableModel(
+function requireCatalogModel(
   snapshot: SparkModelControlSnapshot,
   requested: SparkModelRef,
 ): SparkModelCatalogEntry {
@@ -451,6 +459,14 @@ function requireAvailableModel(
       `Unknown Spark model: ${requested.providerName}/${requested.modelId}`,
     );
   }
+  return entry;
+}
+
+function requireAvailableModel(
+  snapshot: SparkModelControlSnapshot,
+  requested: SparkModelRef,
+): SparkModelCatalogEntry {
+  const entry = requireCatalogModel(snapshot, requested);
   if (
     snapshot.enabledModels !== undefined &&
     !snapshot.enabledModels.some(

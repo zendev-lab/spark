@@ -811,6 +811,8 @@ export class SparkNativeTuiApp implements Component, Focusable {
         return "settings";
       case "settings.providers":
         return "login";
+      case "settings.enabled-models":
+        return "enabled-models";
       case "status.inspect":
         return "status";
       case "session.select":
@@ -886,6 +888,9 @@ export class SparkNativeTuiApp implements Component, Focusable {
           return;
         case "settings.providers":
           await this.invokeRegisteredSlashCommand("login", "", true);
+          return;
+        case "settings.enabled-models":
+          await this.invokeRegisteredSlashCommand("enabled-models", "", true);
           return;
         case "status.inspect":
           await this.invokeRegisteredSlashCommand("status", "", true);
@@ -2381,7 +2386,14 @@ export class SparkNativeTuiApp implements Component, Focusable {
     // Canonical mode commands and `/workflow` already own complete native
     // flows. Hub uses the shared semantic action bars, but the TUI must not let
     // that presentation layer intercept its registered command handlers.
-    const directRegisteredCommand = ["plan", "execute", "fleet", "workflow"].includes(parsed.name)
+    const directRegisteredCommand = [
+      "plan",
+      "execute",
+      "fleet",
+      "workflow",
+      "enabled-models",
+      "enabled",
+    ].includes(parsed.name)
       ? parsed.name
       : undefined;
     if (

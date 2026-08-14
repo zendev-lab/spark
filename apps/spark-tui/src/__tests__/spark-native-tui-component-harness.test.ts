@@ -2100,6 +2100,7 @@ test("bare catalog slashes enter their final destinations in one step", async ()
     slashCommands: {
       settings: command("settings"),
       model: command("model"),
+      "enabled-models": command("enabled-models"),
       goal: command("goal"),
       loop: command("loop"),
       repro: command("repro"),
@@ -2124,14 +2125,15 @@ test("bare catalog slashes enter their final destinations in one step", async ()
   assert.equal(harness.session.messages.length, messageCount);
 
   await harness.submit("/enabled-models");
-  assert.deepEqual(calls.at(-1), { name: "model", args: "" });
+  assert.deepEqual(calls.at(-1), { name: "enabled-models", args: "" });
   assert.equal(harness.app.actionBarSnapshot(), undefined);
-  assert.equal(harness.session.messages.length, messageCount);
+  assert.equal(harness.session.messages.length, messageCount + 1);
+  assert.match(harness.session.messages.at(-1)?.text ?? "", /legacy:enabled-models:empty/);
 
   await harness.submit("/settings");
   assert.deepEqual(calls.at(-1), { name: "settings", args: "inspect" });
   assert.equal(harness.app.actionBarSnapshot(), undefined);
-  assert.equal(harness.session.messages.length, messageCount + 1);
+  assert.equal(harness.session.messages.length, messageCount + 2);
   assert.match(harness.session.messages.at(-1)?.text ?? "", /legacy:settings:inspect/);
 
   messageCount = harness.session.messages.length;

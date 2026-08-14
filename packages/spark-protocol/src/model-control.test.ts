@@ -4,6 +4,7 @@ import {
   parseSparkModelControlSnapshot,
   parseSparkModelConnectivityTestResult,
   sparkDefaultModelSetRequestSchema,
+  sparkEnabledModelsSetRequestSchema,
 } from "./model-control.ts";
 import {
   parseSparkSessionProjection,
@@ -80,6 +81,9 @@ describe("Spark model-control protocol", () => {
 
   it("uses the same model ref for default and session set requests and records", () => {
     expect(sparkDefaultModelSetRequestSchema.parse({ model })).toEqual({ model });
+    expect(sparkEnabledModelsSetRequestSchema.parse({ models: [model] })).toEqual({
+      models: [model],
+    });
     expect(parseSparkSessionSetModelRequest({ sessionId: "sess_demo", model })).toEqual({
       sessionId: "sess_demo",
       model,

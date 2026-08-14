@@ -101,6 +101,15 @@ describe("Spark action-bar protocol", () => {
       command: "run",
       descriptor: { name: "workflow", actionBar: { id: "workflow" } },
     });
+    expect(resolveSparkSlashEditorInput("/enabled")).toMatchObject({
+      kind: "exact",
+      command: "enabled",
+      descriptor: { name: "enabled-models", actionBar: { id: "enabled-models" } },
+    });
+    expect(sparkSlashActionBarForInput("/enabled")?.defaultActionId).toBe("edit-enabled");
+    expect(
+      sparkActionBarDefaultAction(sparkSlashActionBarForInput("/enabled-models")!)?.intent,
+    ).toBe("settings.enabled-models");
     expect(resolveSparkSlashEditorInput("/NEW")).toEqual({
       kind: "unknown",
       command: "new",

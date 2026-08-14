@@ -55,6 +55,9 @@ describe("daemon model control", () => {
     await expect(control.setDefaultModel(selectedModel)).resolves.toMatchObject({
       defaultModel: selectedModel,
     });
+    await expect(control.setEnabledModels([selectedModel])).resolves.toMatchObject({
+      enabledModels: [selectedModel],
+    });
     await expect(
       control.importPiAuth({ sourcePath: "/tmp/pi/auth.json", overwrite: false }),
     ).resolves.toMatchObject({ source: "pi", totals: { imported: 0 } });
@@ -419,6 +422,9 @@ function fakeProviderControl(
     snapshot: async () => snapshot,
     setDefaultModel: async (modelRef) => {
       snapshot.activeModelId = modelRef;
+    },
+    setEnabledModels: async (modelRefs) => {
+      snapshot.enabledModelIds = [...modelRefs];
     },
     setApiKey: async () => undefined,
     logout: async () => false,

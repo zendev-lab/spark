@@ -4,9 +4,11 @@ import type { OAuthLoginCallbacks } from "@zendev-lab/spark-ai";
 import { sparkTuiPiParityStrings } from "@zendev-lab/spark-i18n/cli";
 import {
   SPARK_PROTOCOL_VERSION,
+  sparkModelValue,
   type SparkAuthFlow,
   type SparkModelCatalogProvider,
   type SparkModelControlSnapshot,
+  type SparkModelRef,
   type SparkSessionCompactRequest,
   type SparkSessionView,
   type SparkTurnResult,
@@ -38,7 +40,13 @@ import { listOAuthProviderSummaries } from "../host/auth.ts";
 import { sessionMailStatus, type SparkSessionMailMessage } from "../host/session-mail-store.ts";
 import type { SparkCliHostServices } from "../host/index.ts";
 import type { SparkConfig } from "../host/config.ts";
-import { daemonSnapshotToPickerState, type SparkDaemonModelAuthClient } from "./model-control.ts";
+import {
+  daemonSnapshotToCatalogState,
+  daemonSnapshotToPickerState,
+  type SparkDaemonModelAuthClient,
+} from "./model-control.ts";
+import { runSparkEnabledModelsEditor } from "../tui/enabled-models-editor.ts";
+import type { SparkEnabledModelCatalogState } from "../host/model-selector.ts";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 const STRINGS = sparkTuiPiParityStrings();
@@ -98,7 +106,16 @@ export function createSparkPiParitySlashCommands(
     },
     "enabled-models": {
       description: STRINGS.descriptions.enabledModels,
-      handler: async () => renderEnabledModels(services, modelAuthClient),
+      argumentHint: "[inspect|add|remove|set]",
+      handler: async (args, ctx) =>
+        handleEnabledModelsCommand(services, args, ctx, modelAuthClient),
+    },
+    enabled: {
+      description: STRINGS.descriptions.enabledModels,
+      argumentHint: "[inspect|add|remove|set]",
+      metadata: { deprecatedAliasFor: "/enabled-models" },
+      handler: async (args, ctx) =>
+        handleEnabledModelsCommand(services, args, ctx, modelAuthClient),
     },
     export: {
       description: STRINGS.descriptions.export,
@@ -351,17 +368,138 @@ function isThinkingLevel(value: string | undefined): value is SparkThinkingLevel
   return (THINKING_LEVELS as readonly string[]).includes(value ?? "");
 }
 
+async function handleEnabledModelsCommand(
+  services: SparkCliHostServices,
+  args: string,
+  ctx: SparkNativeSlashCommandContext,
+  modelAuthClient?: SparkDaemonModelAuthClient,
+): Promise<string> {
+  const tokens = args.trim().split(/\s+/u).filter(Boolean);
+  const action = tokens[0];
+  if (action === "inspect" || action === "list") {
+    return renderEnabledModels(services, modelAuthClient);
+  }
+  if (action === "add" || action === "remove" || action === "set") {
+    const refs = tokens.slice(1);
+    if (action !== "set" && refs.length === 0) {
+      return STRINGS.enabledModelsMutationUsage;
+    }
+    return persistEnabledModels(
+      services,
+      modelAuthClient,
+      mutateEnabledModelValues(
+        await currentEnabledModelValues(services, modelAuthClient),
+        action,
+        refs,
+      ),
+    );
+  }
+  if (tokens.length > 0) return STRINGS.enabledModelsMutationUsage;
+
+  const catalog = await loadEnabledModelCatalog(services, modelAuthClient);
+  if (catalog.items.length === 0) return STRINGS.noModelsRegistered;
+  const custom = ctx.app.custom;
+  if (typeof custom !== "function") return renderEnabledModels(services, modelAuthClient);
+  const selected = await runSparkEnabledModelsEditor({ custom }, catalog);
+  if (!selected) return "";
+  return persistEnabledModels(services, modelAuthClient, selected);
+}
+
 async function renderEnabledModels(
   services: SparkCliHostServices,
   modelAuthClient?: SparkDaemonModelAuthClient,
 ): Promise<string> {
-  const items = modelAuthClient
-    ? daemonSnapshotToPickerState(await modelAuthClient.snapshot()).items
-    : services.modelSelector.getPickerState().items;
+  const items = (await loadEnabledModelCatalog(services, modelAuthClient)).items.filter(
+    (item) => item.enabled,
+  );
   if (items.length === 0) return STRINGS.noModelsRegistered;
   return items
     .map((model) => `${model.active ? "*" : " "} ${model.value} — ${model.description}`)
     .join("\n");
+}
+
+async function loadEnabledModelCatalog(
+  services: SparkCliHostServices,
+  modelAuthClient?: SparkDaemonModelAuthClient,
+): Promise<SparkEnabledModelCatalogState> {
+  if (modelAuthClient) return daemonSnapshotToCatalogState(await modelAuthClient.snapshot());
+  const enabled = new Set(await currentEnabledModelValues(services));
+  return {
+    items: services.modelSelector.listCatalogItems().map((item) => ({
+      ...item,
+      enabled: enabled.has(item.value),
+    })),
+  };
+}
+
+async function currentEnabledModelValues(
+  services: SparkCliHostServices,
+  modelAuthClient?: SparkDaemonModelAuthClient,
+): Promise<string[]> {
+  if (modelAuthClient) {
+    const snapshot = await modelAuthClient.snapshot();
+    if (snapshot.enabledModels !== undefined) {
+      return snapshot.enabledModels.map(sparkModelValue);
+    }
+    return snapshot.providers.flatMap((provider) =>
+      provider.models.map((entry) => sparkModelValue(entry.model)),
+    );
+  }
+  if (services.config.enabledModels !== undefined) return [...services.config.enabledModels];
+  return services.modelSelector.listCatalogItems().map((item) => item.value);
+}
+
+function mutateEnabledModelValues(
+  current: readonly string[],
+  action: "add" | "remove" | "set",
+  refs: readonly string[],
+): string[] {
+  if (action === "set") return uniqueModelValues(refs);
+  const next = new Set(current);
+  for (const ref of refs) {
+    if (action === "add") next.add(ref);
+    else next.delete(ref);
+  }
+  return [...next];
+}
+
+function uniqueModelValues(values: readonly string[]): string[] {
+  const unique: string[] = [];
+  for (const value of values) {
+    if (!unique.includes(value)) unique.push(value);
+  }
+  return unique;
+}
+
+async function persistEnabledModels(
+  services: SparkCliHostServices,
+  modelAuthClient: SparkDaemonModelAuthClient | undefined,
+  modelValues: readonly string[],
+): Promise<string> {
+  if (modelAuthClient) {
+    const snapshot = await modelAuthClient.setEnabledModels(
+      modelValues.map(parseEnabledModelValue),
+    );
+    if (services.config) services.config.enabledModels = [...modelValues];
+    return formatEnabledModelsSaved((snapshot.enabledModels ?? []).map(sparkModelValue));
+  }
+  services.config.enabledModels = [...modelValues];
+  if (services.saveConfig) await services.saveConfig(services.config);
+  return formatEnabledModelsSaved(modelValues);
+}
+
+function parseEnabledModelValue(value: string): SparkModelRef {
+  const trimmed = value.trim();
+  const slash = trimmed.indexOf("/");
+  if (slash <= 0 || slash === trimmed.length - 1) {
+    throw new Error(`Select a valid provider/model: ${value}`);
+  }
+  return { providerName: trimmed.slice(0, slash), modelId: trimmed.slice(slash + 1) };
+}
+
+function formatEnabledModelsSaved(modelValues: readonly string[]): string {
+  if (modelValues.length === 0) return STRINGS.enabledModelsSavedEmpty;
+  return `${STRINGS.enabledModelsSaved}\n${modelValues.map((value) => `  ${value}`).join("\n")}`;
 }
 
 async function handleInboxCommand(

@@ -14,6 +14,7 @@ export const sparkActionIntentOptions = [
   "thinking.select",
   "settings.inspect",
   "settings.providers",
+  "settings.enabled-models",
   "status.inspect",
   "session.select",
   "session.create",
@@ -226,10 +227,10 @@ const queueActionBar = actionBar({
 
 const enabledModelsActionBar = actionBar({
   id: "enabled-models",
-  title: "Available models",
-  defaultActionId: "select-model",
+  title: "Enabled models",
+  defaultActionId: "edit-enabled",
   actions: [
-    action("select-model", "Choose model", "model.select", "primary"),
+    action("edit-enabled", "Edit enabled models", "settings.enabled-models", "primary"),
     action("inspect-providers", "Provider settings", "settings.providers"),
   ],
 });
@@ -312,7 +313,7 @@ export const sparkSlashCommandDescriptors: readonly SparkSlashCommandDescriptor[
   slashCommand("settings", settingsActionBar),
   slashCommand("status", statusActionBar),
   slashCommand("queue", queueActionBar),
-  slashCommand("enabled-models", enabledModelsActionBar),
+  slashCommand("enabled-models", enabledModelsActionBar, ["enabled"], ["enabled"]),
   slashCommand("plan", planModeActionBar),
   slashCommand("execute", executeModeActionBar),
   slashCommand("fleet", fleetModeActionBar),

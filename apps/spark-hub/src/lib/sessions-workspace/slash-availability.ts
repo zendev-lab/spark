@@ -48,6 +48,7 @@ export function slashActionAvailability(
       return { enabled: true };
     case "settings.inspect":
     case "settings.providers":
+    case "settings.enabled-models":
       return { enabled: true };
     case "status.inspect":
     case "session.inspect":

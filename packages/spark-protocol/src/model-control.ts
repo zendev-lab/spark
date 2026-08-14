@@ -78,6 +78,11 @@ export const sparkDefaultModelSetRequestSchema = z.object({
   model: sparkModelRefSchema,
 });
 
+/** Replace the user's enabledModels policy with exact catalog model refs. */
+export const sparkEnabledModelsSetRequestSchema = z.object({
+  models: z.array(sparkModelRefSchema),
+});
+
 export const sparkModelConnectivityTestRequestSchema = z.object({
   model: sparkModelRefSchema,
 });
@@ -215,6 +220,7 @@ export type SparkModelCatalogProvider = z.infer<typeof sparkModelCatalogProvider
 export type SparkSessionModelSelection = z.infer<typeof sparkSessionModelSelectionSchema>;
 export type SparkModelControlSnapshot = z.infer<typeof sparkModelControlSnapshotSchema>;
 export type SparkDefaultModelSetRequest = z.infer<typeof sparkDefaultModelSetRequestSchema>;
+export type SparkEnabledModelsSetRequest = z.infer<typeof sparkEnabledModelsSetRequestSchema>;
 export type SparkModelConnectivityFailureReason = z.infer<
   typeof sparkModelConnectivityFailureReasonSchema
 >;
@@ -242,6 +248,10 @@ export function parseSparkAuthImportReport(value: unknown): SparkAuthImportRepor
 
 export function parseSparkDefaultModelSetRequest(value: unknown): SparkDefaultModelSetRequest {
   return sparkDefaultModelSetRequestSchema.parse(value);
+}
+
+export function parseSparkEnabledModelsSetRequest(value: unknown): SparkEnabledModelsSetRequest {
+  return sparkEnabledModelsSetRequestSchema.parse(value);
 }
 
 export function parseSparkModelConnectivityTestResult(

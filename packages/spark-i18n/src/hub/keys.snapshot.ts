@@ -1145,6 +1145,7 @@ export const hubMessageKeySnapshot = [
   "sessions.workbench.showEarlier",
   "sessions.workbench.slashActions.actions.choose-thinking",
   "sessions.workbench.slashActions.actions.create-session",
+  "sessions.workbench.slashActions.actions.edit-enabled",
   "sessions.workbench.slashActions.actions.enter-execute",
   "sessions.workbench.slashActions.actions.enter-fleet",
   "sessions.workbench.slashActions.actions.enter-plan",

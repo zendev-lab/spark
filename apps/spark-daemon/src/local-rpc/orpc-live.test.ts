@@ -542,6 +542,7 @@ describe("local-rpc direct oRPC service", () => {
     const modelControl: SparkDaemonModelControl = {
       snapshot: unusedModelControlMethod,
       setDefaultModel: unusedModelControlMethod,
+      setEnabledModels: unusedModelControlMethod,
       setSessionModel: unusedModelControlMethod,
       setSessionThinkingLevel: unusedModelControlMethod,
       setApiKey: unusedModelControlMethod,
@@ -750,6 +751,7 @@ describe("local-rpc direct oRPC service", () => {
     const modelControl: SparkDaemonModelControl = {
       snapshot: crossDomainFailure,
       setDefaultModel: crossDomainFailure,
+      setEnabledModels: crossDomainFailure,
       setSessionModel: crossDomainFailure,
       setSessionThinkingLevel: crossDomainFailure,
       setApiKey: crossDomainFailure,

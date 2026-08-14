@@ -61,6 +61,7 @@ export {
   readSparkProviderConfig,
   resolveSparkEnabledModelIds,
   writeSparkDefaultModel,
+  writeSparkEnabledModels,
 } from "./provider-catalog.ts";
 export type {
   LoadSparkProviderCatalogOptions,

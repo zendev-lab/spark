@@ -5,7 +5,23 @@ import type {
   SparkToolCallView,
   SparkViewModelEvent,
 } from "@zendev-lab/spark-protocol";
+import type { Component } from "../tui/pi-tui-adapter.ts";
 import type { SparkNativeHubPanel } from "./hub-types.ts";
+
+export type SparkNativeCustomUi = {
+  custom?: <T>(
+    factory: (
+      tui: { terminal?: { columns?: number }; requestRender(): void },
+      theme: {
+        fg?: (color: string, text: string) => string;
+        bold?: (text: string) => string;
+      },
+      keybindings: unknown,
+      done: (value: T) => void,
+    ) => Component,
+    options?: unknown,
+  ) => T | Promise<T>;
+};
 
 interface SparkNativeSessionMessageContract {
   role: "system" | "user" | "assistant" | "custom" | "tool" | "thinking";
@@ -36,7 +52,7 @@ interface SparkNativeAbortContract {
   restoredText?: string;
 }
 
-export interface SparkNativeAppContract {
+export interface SparkNativeAppContract extends SparkNativeCustomUi {
   applyViewModelEvent(event: SparkViewModelEvent): void;
   handleInteractionRequest(request: SparkInteractionRequest): Promise<SparkInteractionResponse>;
   executeSlashCommand(input: string): Promise<void> | void;

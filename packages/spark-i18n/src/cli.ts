@@ -587,6 +587,9 @@ export interface SparkTuiPiParityStrings {
   themeSet: (themeId: string) => string;
   settingsHeader: string;
   noModelsRegistered: string;
+  enabledModelsMutationUsage: string;
+  enabledModelsSaved: string;
+  enabledModelsSavedEmpty: string;
   noExternalUpload: string;
   importUsage: string;
   sessionNameUnset: string;
@@ -669,7 +672,7 @@ const RESOURCE_STRINGS: Record<SparkLanguage, SparkTuiResourceStrings> = {
 
 const PI_PARITY_DESCRIPTIONS = {
   settings: "show Spark settings and provider/session configuration",
-  enabledModels: "show models enabled for Spark model selection/cycling",
+  enabledModels: "edit models enabled for Spark model selection/cycling",
   export: "export visible Spark transcript or a persisted session",
   import: "import a Spark/Pi JSONL session and show resume guidance",
   share: "write a share-safe local HTML transcript export (no secret upload)",
@@ -714,6 +717,10 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
       `Spark theme set: ${themeId}. Restart or /reload to apply it to the active TUI.`,
     settingsHeader: "Spark settings",
     noModelsRegistered: "No Spark models registered.",
+    enabledModelsMutationUsage:
+      "Usage: /enabled-models [inspect|add <provider/model>|remove <provider/model>|set <provider/model>...]",
+    enabledModelsSaved: "Updated Spark enabledModels:",
+    enabledModelsSavedEmpty: "Updated Spark enabledModels: (none)",
     noExternalUpload:
       "No external upload was performed. Review the file before sharing it outside this machine.",
     importUsage: "Usage: /import <spark-jsonl-session-path>",
@@ -750,6 +757,10 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
     themeSet: (themeId) => `Theme 已设为 ${themeId}。重启 TUI 以重新加载样式。`,
     settingsHeader: "Spark settings",
     noModelsRegistered: "尚未注册 Spark 模型。",
+    enabledModelsMutationUsage:
+      "用法：/enabled-models [inspect|add <provider/model>|remove <provider/model>|set <provider/model>...]",
+    enabledModelsSaved: "已更新 Spark enabledModels：",
+    enabledModelsSavedEmpty: "已更新 Spark enabledModels：（空）",
     noExternalUpload: "未执行外部上传。",
     importUsage: "用法：/import <spark-jsonl-session-path>",
     sessionNameUnset: "（未设置）",

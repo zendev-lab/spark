@@ -323,6 +323,11 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
           invoke("model.default.set", params),
         ),
       },
+      enabled: {
+        set: os.model.enabled.set.handler(async ({ input: params }) =>
+          invoke("model.enabled.set", params),
+        ),
+      },
     },
     provider: {
       auth: {
