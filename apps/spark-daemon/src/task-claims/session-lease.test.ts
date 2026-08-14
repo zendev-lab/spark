@@ -235,6 +235,120 @@ describe("daemon Session lease", () => {
     }
   });
 
+  it("leases the task's explicit state binding identity for an owned driver tick", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-state-bound-lease-"));
+    roots.push(root);
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    try {
+      const workspace = registerWorkspace(db, { localPath: root });
+      const lease = await acquireDaemonSessionLease({
+        db,
+        task: {
+          ...sessionTask(workspace.id),
+          sessionId: "driver_tick_owned",
+          stateBindingSessionId: "sess_workspace_administrator",
+        },
+        context: executionContext(),
+        sessionRegistry: {
+          get: async (sessionId) =>
+            sessionId === "driver_tick_owned"
+              ? ({
+                  sessionId: "driver_tick_owned",
+                  scope: { kind: "workspace", workspaceId: workspace.id },
+                  owner: {
+                    kind: "driver_tick",
+                    driverId: "repro:managed",
+                    generation: 4,
+                    tickInvocationId: "inv_managed",
+                    supervisorSessionId: "sess_workspace_administrator",
+                  },
+                  lifetime: "scoped",
+                  stateBinding: { kind: "session", ref: "sess_workspace_administrator" },
+                } as never)
+              : sessionId === "sess_workspace_administrator"
+                ? (administratorSession(workspace.id) as never)
+                : undefined,
+        },
+      });
+
+      // The execution Session is the actor, but its tool context is bound to
+      // the owner Session's durable state, so the lease must name that same
+      // identity or claim/finish symmetry breaks (spark task claims are
+      // recorded and queried under it).
+      expect(lease?.identity).toMatchObject({
+        workspaceId: workspace.id,
+        sessionId: "session:sess_workspace_administrator",
+        leaseFence: expect.stringMatching(/^wclf_/u),
+      });
+      lease?.release();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("fails closed when the task state binding diverges from the Session binding", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-divergent-state-binding-lease-"));
+    roots.push(root);
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    try {
+      const workspace = registerWorkspace(db, { localPath: root });
+      await expect(
+        acquireDaemonSessionLease({
+          db,
+          task: {
+            ...sessionTask(workspace.id),
+            sessionId: "driver_tick_owned",
+            stateBindingSessionId: "sess_other_owner",
+          },
+          context: executionContext(),
+          sessionRegistry: {
+            get: async (sessionId) =>
+              sessionId === "driver_tick_owned"
+                ? ({
+                    sessionId: "driver_tick_owned",
+                    scope: { kind: "workspace", workspaceId: workspace.id },
+                    owner: {
+                      kind: "driver_tick",
+                      driverId: "repro:managed",
+                      generation: 4,
+                      tickInvocationId: "inv_managed",
+                      supervisorSessionId: "sess_workspace_administrator",
+                    },
+                    lifetime: "scoped",
+                    stateBinding: { kind: "session", ref: "sess_workspace_administrator" },
+                  } as never)
+                : sessionId === "sess_workspace_administrator"
+                  ? (administratorSession(workspace.id) as never)
+                  : undefined,
+          },
+        }),
+      ).rejects.toThrow("task state binding does not match its Session state binding");
+      expect(listWorkspaceClients(db, workspace.id)).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("does not invent a lease for an unowned daemon Session", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-unowned-session-lease-"));
     roots.push(root);

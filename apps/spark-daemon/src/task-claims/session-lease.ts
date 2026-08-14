@@ -50,9 +50,29 @@ export async function acquireDaemonSessionLease(input: {
   });
   // The Administrator is the durable workspace/state owner. It authorizes the
   // binding boundary, but it is not the actor for the managed execution. Keep
-  // the daemon lease fenced to the Session that is actually running this turn
-  // so task_write and Session-local mode checks use one canonical identity.
-  const sessionId = sparkSessionKey({ sessionId: input.task.sessionId });
+  // the daemon lease fenced to the Session identity the execution's tool
+  // context will use, so task_write claim checks and the daemon's claim
+  // authority see one canonical identity. A task that carries an explicit
+  // canonical state binding (a loop driver tick binds its owner Session so
+  // durable Task/Repro state survives driver regeneration) must lease that
+  // same state identity, and it must match the Session's durable binding.
+  const taskStateBindingSessionId =
+    input.task.type === "session.run"
+      ? input.task.stateBindingSessionId?.trim() || undefined
+      : undefined;
+  if (taskStateBindingSessionId) {
+    if (
+      session.stateBinding?.kind !== "session" ||
+      session.stateBinding.ref !== taskStateBindingSessionId
+    ) {
+      throw new Error(
+        `Daemon Session ${input.task.sessionId} task state binding does not match its Session state binding.`,
+      );
+    }
+  }
+  const sessionId = sparkSessionKey({
+    sessionId: taskStateBindingSessionId ?? input.task.sessionId,
+  });
   const client = attachWorkspaceClient(input.db, {
     workspaceId,
     kind: "interactive",
