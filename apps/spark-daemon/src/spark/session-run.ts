@@ -1356,10 +1356,8 @@ function sessionExecutionPolicy(
     ...(sessionContext.surface ? { sessionSurface: sessionContext.surface } : {}),
     sessionSource: sessionSourceForTask(task),
     ...(binding ? { channelBinding: binding } : {}),
-    ...((task.stateBindingSessionId ?? sessionContext.stateBindingSessionId)
-      ? {
-          stateBindingSessionId: task.stateBindingSessionId ?? sessionContext.stateBindingSessionId,
-        }
+    ...(task.stateBindingSessionId
+      ? { stateBindingSessionId: task.stateBindingSessionId }
       : {}),
     ...(loop ? { loop } : {}),
     ...(sessionQuestionChainForTask(task)
@@ -1812,7 +1810,6 @@ interface SessionInvocationContext {
   role?: RoleSpec;
   sideThread?: boolean;
   taskSession?: boolean;
-  stateBindingSessionId?: string;
   retention?: "retain" | "discard_on_close" | "audit";
   purpose?: string;
   sessionPath?: string;
@@ -1894,9 +1891,6 @@ async function sessionContextForTask(
       ? { taskSession: true }
       : {}),
     ...(session.fleetWorker ? { taskSession: true, fleetWorker: session.fleetWorker } : {}),
-    ...(session.stateBinding?.kind === "session"
-      ? { stateBindingSessionId: session.stateBinding.ref }
-      : {}),
     ...(session.retention ? { retention: session.retention } : {}),
     ...(session.purpose ? { purpose: session.purpose } : {}),
     ...(sessionPath ? { sessionPath } : {}),

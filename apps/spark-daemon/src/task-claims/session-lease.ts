@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
+import type { SparkSessionOwner, SparkSessionState } from "@zendev-lab/spark-protocol";
 import type { SparkSessionLeaseIdentity } from "@zendev-lab/spark-core";
 import { sparkSessionKey } from "@zendev-lab/spark-loop";
 import type {
@@ -30,7 +31,7 @@ export async function acquireDaemonSessionLease(input: {
   onHeartbeatError?: (error: unknown) => void;
 }): Promise<DaemonSessionLeaseHandle | undefined> {
   const session = await input.sessionRegistry.get(input.task.sessionId);
-  if (!session || !isManagedExecutionOwner(session.owner.kind)) return undefined;
+  if (!session || !isLeaseEligibleExecutionOwner(session.owner.kind)) return undefined;
 
   if (session.scope.kind !== "workspace") {
     throw new Error(`Managed Task Session ${input.task.sessionId} has no workspace owner.`);
@@ -42,31 +43,16 @@ export async function acquireDaemonSessionLease(input: {
     );
   }
 
-  // Daemon-owned execution Sessions mutate durable Task/Repro state through
-  // their explicit persistent Administrator owner. Fence that state owner,
-  // never the disposable execution Session, so host context and daemon
-  // authority agree and a malformed binding cannot mint a lease.
-  if (session.stateBinding?.kind !== "session") {
-    throw new Error(`Managed Session ${input.task.sessionId} has no Session state binding.`);
-  }
-  const stateBindingSessionId = session.stateBinding.ref;
-  const stateOwner = await input.sessionRegistry.get(stateBindingSessionId);
-  if (
-    !stateOwner ||
-    stateOwner.owner.kind !== "workspace" ||
-    stateOwner.owner.workspaceId !== workspaceId ||
-    stateOwner.scope.kind !== "workspace" ||
-    stateOwner.scope.workspaceId !== workspaceId ||
-    stateOwner.lifecycle !== "open" ||
-    stateOwner.placement !== "active" ||
-    stateOwner.roleBinding.kind !== "explicit" ||
-    stateOwner.roleBinding.roleRef !== "role:builtin-administrator"
-  ) {
-    throw new Error(
-      `Managed Session ${input.task.sessionId} state binding is not the open Workspace Administrator.`,
-    );
-  }
-  const sessionId = sparkSessionKey({ sessionId: stateBindingSessionId });
+  await assertWorkspaceAdministratorBoundary({
+    session,
+    workspaceId,
+    sessionRegistry: input.sessionRegistry,
+  });
+  // The Administrator is the durable workspace/state owner. It authorizes the
+  // binding boundary, but it is not the actor for the managed execution. Keep
+  // the daemon lease fenced to the Session that is actually running this turn
+  // so task_write and Session-local mode checks use one canonical identity.
+  const sessionId = sparkSessionKey({ sessionId: input.task.sessionId });
   const client = attachWorkspaceClient(input.db, {
     workspaceId,
     kind: "interactive",
@@ -127,14 +113,94 @@ export async function acquireDaemonSessionLease(input: {
   };
 }
 
-function isManagedExecutionOwner(
+function isLeaseEligibleExecutionOwner(
   kind: string,
-): kind is "task_run" | "task_revision" | "workflow_run" | "driver" | "driver_tick" {
+): kind is
+  | "session"
+  | "task_run"
+  | "task_revision"
+  | "workflow_run"
+  | "driver"
+  | "driver_tick" {
   return (
+    kind === "session" ||
     kind === "task_run" ||
     kind === "task_revision" ||
     kind === "workflow_run" ||
     kind === "driver" ||
     kind === "driver_tick"
   );
+}
+
+async function assertWorkspaceAdministratorBoundary(input: {
+  session: SparkSessionState;
+  workspaceId: string;
+  sessionRegistry: Pick<DaemonSessionRegistry, "get">;
+}): Promise<void> {
+  const visited = new Set<string>();
+  const chain = new Map<string, SparkSessionState>();
+  let current: SparkSessionState | undefined = input.session;
+  while (current) {
+    if (visited.has(current.sessionId)) {
+      throw new Error(`Managed Session ${input.session.sessionId} has a Session owner cycle.`);
+    }
+    visited.add(current.sessionId);
+    chain.set(current.sessionId, current);
+    const supervisorSessionId = supervisorSessionIdForOwner(current.owner);
+    if (!supervisorSessionId) break;
+    current = await input.sessionRegistry.get(supervisorSessionId);
+  }
+
+  const administrator = [...chain.values()].find(
+    (candidate) =>
+      candidate.owner.kind === "workspace" &&
+      candidate.owner.workspaceId === input.workspaceId,
+  );
+  if (
+    !administrator ||
+    administrator.scope.kind !== "workspace" ||
+    administrator.scope.workspaceId !== input.workspaceId ||
+    administrator.lifecycle !== "open" ||
+    administrator.placement !== "active" ||
+    administrator.roleBinding.kind !== "explicit" ||
+    administrator.roleBinding.roleRef !== "role:builtin-administrator"
+  ) {
+    throw new Error(
+      `Managed Session ${input.session.sessionId} is not under the open Workspace Administrator.`,
+    );
+  }
+
+  // A session state binding is a state boundary, not an actor identity. If it
+  // names another Session, it must still be one of the current Session's
+  // immutable owner ancestors; task/driver/workflow/channel bindings are
+  // validated by their typed owner and are intentionally not treated as IDs.
+  if (input.session.stateBinding.kind === "session") {
+    const stateOwner = chain.get(input.session.stateBinding.ref);
+    if (
+      !stateOwner ||
+      stateOwner.scope.kind !== "workspace" ||
+      stateOwner.scope.workspaceId !== input.workspaceId
+    ) {
+      throw new Error(
+        `Managed Session ${input.session.sessionId} state binding is outside its Workspace owner boundary.`,
+      );
+    }
+  }
+}
+
+function supervisorSessionIdForOwner(owner: SparkSessionOwner): string | undefined {
+  switch (owner.kind) {
+    case "session":
+    case "task_run":
+    case "task_revision":
+    case "workflow_run":
+    case "driver":
+    case "driver_tick":
+    case "invocation":
+      return owner.supervisorSessionId;
+    case "side_thread":
+      return owner.parentSessionId;
+    case "workspace":
+      return undefined;
+  }
 }

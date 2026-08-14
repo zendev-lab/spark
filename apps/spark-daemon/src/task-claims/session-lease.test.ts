@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 describe("daemon Session lease", () => {
-  it("attaches a canonical daemon-fenced lease and releases it after the turn", async () => {
+  it("attaches a canonical daemon-fenced lease to the managed execution Session", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-managed-task-session-lease-"));
     roots.push(root);
     const paths = resolveSparkPaths({
@@ -49,7 +49,7 @@ describe("daemon Session lease", () => {
 
       expect(lease?.identity).toMatchObject({
         workspaceId: workspace.id,
-        sessionId: "session:sess_workspace_administrator",
+        sessionId: "session:sess_task_managed",
         leaseFence: expect.stringMatching(/^wclf_/u),
       });
       expect(listWorkspaceClients(db, workspace.id)).toContainEqual(
@@ -57,7 +57,7 @@ describe("daemon Session lease", () => {
           id: lease?.identity.clientId,
           kind: "interactive",
           status: "connected",
-          sessionId: "session:sess_workspace_administrator",
+          sessionId: "session:sess_task_managed",
           leaseFence: lease?.identity.leaseFence,
           metadata: expect.objectContaining({
             purpose: "managed_execution_session",
@@ -73,6 +73,60 @@ describe("daemon Session lease", () => {
       expect(listWorkspaceClients(db, workspace.id, "9999-01-01T00:00:00.000Z")).toContainEqual(
         expect.objectContaining({ id: lease?.identity.clientId, status: "disconnected" }),
       );
+    } finally {
+      db.close();
+    }
+  });
+
+  it("attaches a fenced lease to an ordinary scoped Session without using Administrator mode", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-scoped-session-lease-"));
+    roots.push(root);
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    try {
+      const workspace = registerWorkspace(db, { localPath: root });
+      const administrator = administratorSession(workspace.id);
+      const child = ordinarySession(
+        "sess_execute_child",
+        workspace.id,
+        administrator.sessionId,
+      );
+      const lease = await acquireDaemonSessionLease({
+        db,
+        task: { ...sessionTask(workspace.id), sessionId: child.sessionId },
+        context: executionContext(),
+        sessionRegistry: {
+          get: async (sessionId) =>
+            sessionId === child.sessionId
+              ? (child as never)
+              : sessionId === administrator.sessionId
+                ? (administrator as never)
+                : undefined,
+        },
+      });
+
+      expect(lease?.identity).toMatchObject({
+        workspaceId: workspace.id,
+        sessionId: "session:sess_execute_child",
+        leaseFence: expect.stringMatching(/^wclf_/u),
+      });
+      expect(listWorkspaceClients(db, workspace.id)).toContainEqual(
+        expect.objectContaining({
+          id: lease?.identity.clientId,
+          sessionId: "session:sess_execute_child",
+          metadata: expect.objectContaining({ ownerKind: "session" }),
+        }),
+      );
+      lease?.release();
     } finally {
       db.close();
     }
@@ -115,7 +169,7 @@ describe("daemon Session lease", () => {
     }
   });
 
-  it("fences the persistent state binding for an owned execution Session", async () => {
+  it("validates the Administrator boundary without importing its actor identity", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-owned-session-lease-"));
     roots.push(root);
     const paths = resolveSparkPaths({
@@ -162,13 +216,13 @@ describe("daemon Session lease", () => {
 
       expect(lease?.identity).toMatchObject({
         workspaceId: workspace.id,
-        sessionId: "session:sess_workspace_administrator",
+        sessionId: "session:driver_tick_owned",
         leaseFence: expect.stringMatching(/^wclf_/u),
       });
       expect(listWorkspaceClients(db, workspace.id)).toContainEqual(
         expect.objectContaining({
           id: lease?.identity.clientId,
-          sessionId: "session:sess_workspace_administrator",
+          sessionId: "session:driver_tick_owned",
           metadata: expect.objectContaining({
             purpose: "managed_execution_session",
             ownerKind: "driver_tick",
@@ -200,20 +254,20 @@ describe("daemon Session lease", () => {
     });
     const db = openSparkDaemonDatabase(paths);
     try {
+      const workspace = registerWorkspace(db, { localPath: root });
+      const child = ordinarySession("sess_unowned", workspace.id, "sess_missing_admin");
       await expect(
         acquireDaemonSessionLease({
           db,
-          task: unownedSessionTask(),
+          task: { ...unownedSessionTask(), sessionId: child.sessionId },
           context: executionContext(),
           sessionRegistry: {
-            get: async () =>
-              ({
-                scope: { kind: "workspace", workspaceId: "ws_unowned" },
-                owner: { kind: "session", supervisorSessionId: "sess_administrator" },
-              }) as never,
+            get: async (sessionId) =>
+              sessionId === child.sessionId ? (child as never) : undefined,
           },
         }),
-      ).resolves.toBeUndefined();
+      ).rejects.toThrow("not under the open Workspace Administrator");
+      expect(listWorkspaceClients(db, workspace.id)).toEqual([]);
     } finally {
       db.close();
     }
@@ -244,16 +298,15 @@ describe("daemon Session lease", () => {
             get: async (sessionId) =>
               sessionId === "sess_task_managed"
                 ? (managedTaskSession(sessionId, workspace.id) as never)
-                : ({
-                    ...administratorSession(workspace.id),
-                    owner: {
-                      kind: "session",
-                      supervisorSessionId: "sess_workspace_administrator",
-                    },
-                  } as never),
+                : sessionId === "sess_workspace_administrator"
+                  ? ({
+                      ...administratorSession(workspace.id),
+                      roleBinding: { kind: "none" },
+                    } as never)
+                  : undefined,
           },
         }),
-      ).rejects.toThrow("not the open Workspace Administrator");
+      ).rejects.toThrow("not under the open Workspace Administrator");
       expect(listWorkspaceClients(db, workspace.id)).toEqual([]);
     } finally {
       db.close();
@@ -332,6 +385,18 @@ function managedTaskSession(sessionId: string, workspaceId: string) {
       supervisorSessionId: "sess_workspace_administrator",
     },
     stateBinding: { kind: "session", ref: "sess_workspace_administrator" },
+  };
+}
+
+function ordinarySession(sessionId: string, workspaceId: string, supervisorSessionId: string) {
+  return {
+    sessionId,
+    scope: { kind: "workspace", workspaceId },
+    owner: { kind: "session", supervisorSessionId },
+    lifecycle: "open",
+    placement: "active",
+    roleBinding: { kind: "none" },
+    stateBinding: { kind: "session", ref: supervisorSessionId },
   };
 }
 

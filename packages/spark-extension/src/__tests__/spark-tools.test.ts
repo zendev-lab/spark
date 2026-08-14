@@ -6063,6 +6063,28 @@ test("impl_use_project duplicate gate does not block explicit existing project s
   }
 });
 
+test("canonical task project_use accepts projectRef when selecting an existing project", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "task-tool-project-ref-selection-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "project-ref-child");
+    const { tools } = registerSparkToolsForTest();
+    const graph = await defaultTaskGraphStore(dir).load();
+    const project = graph?.projects().find((candidate) => candidate.title === "Tool persistence");
+    assert.ok(project);
+
+    const selected = await executeSparkTool(tools, "task_write", ctx, {
+      action: "project_use",
+      projectRef: project.ref,
+    });
+
+    assert.match(toolText(selected), /Selected existing Spark project/);
+    assert.equal((selected.details as { created?: boolean } | undefined)?.created, false);
+    assert.equal((await loadCurrentProjectState(dir, ctx))?.projectRef, project.ref);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 test("canonical task project_use exposes duplicate creation gate guidance", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-project-duplicate-canonical-"));
   try {
