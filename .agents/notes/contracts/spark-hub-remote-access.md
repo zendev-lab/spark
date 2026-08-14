@@ -3,7 +3,7 @@
 This specification owns remote-access **authority, trust, and security
 invariants**. User-facing Hub startup, browser-key, workspace-registration, and
 reverse-proxy setup belong in the public
-[`Hub Web guide`](../../apps/spark-docs/src/content/docs/guides/hub.md).
+[`Hub Web guide`](../../../apps/spark-docs/src/content/docs/guides/hub.md).
 
 ## Authority layers
 

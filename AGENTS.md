@@ -30,13 +30,7 @@ for interpreting this file.
 - Package layer, owner, stability, state-writer metadata, dependency exceptions,
   Pi ownership, and package budget:
   [`architecture/packages.json`](./architecture/packages.json).
-- Package creation and dependency direction:
-  [`docs/specs/package-architecture.md`](./docs/specs/package-architecture.md).
-- Command placement and state ownership:
-  [`docs/specs/command-planes.md`](./docs/specs/command-planes.md).
 - Public behavior and current commands: [`apps/spark-docs`](./apps/spark-docs).
-- Internal contracts and operator procedures:
-  [`docs/README.md`](./docs/README.md).
 - Project intent and open design direction: [`SPARK.md`](./SPARK.md).
 
 ## Repository-wide invariants
@@ -117,8 +111,9 @@ Use the ownership table in
 
 - keep `README.md` stable and user-oriented;
 - keep exhaustive commands and workflows in `apps/spark-docs`;
-- keep normative behavior in `docs/specs`;
-- keep operator procedures in `docs/operations`;
+- keep internal contracts in `.agents/notes/contracts`;
+- keep maintainer procedures in `.agents/notes/runbooks`;
+- keep dated engineering decisions in `.agents/notes/decisions`;
 - keep temporary migration status and open design direction in `SPARK.md`;
 - keep this file limited to stable, self-contained standing orders;
 - place reusable agent methods or orchestration in their Role, Skill, Workflow,

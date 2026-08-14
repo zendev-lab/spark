@@ -61,4 +61,4 @@ spark daemon invocation cancel <invocation-id> --reason <text> --json
 
 Invocation status and streamed events come from the daemon. Attach and resume are restricted to the current workspace.
 
-Run the component and Direct PTY validation lanes in [`../../docs/operations/native-tui-validation.md`](../../docs/operations/native-tui-validation.md) when changing native TUI interaction or process-terminal behavior.
+Run the component and Direct PTY validation lanes in [`../../.agents/notes/runbooks/native-tui-validation.md`](../../.agents/notes/runbooks/native-tui-validation.md) when changing native TUI interaction or process-terminal behavior.

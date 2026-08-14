@@ -2,12 +2,12 @@
 
 Status: **supported, explicit stdio adapter**.
 
-Package: [`packages/spark-mcp`](../../packages/spark-mcp/).
+Package: [`packages/spark-mcp`](../../../packages/spark-mcp/).
 Official SDK:
 [`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk).
 
 User-facing MCP client setup belongs in the public
-[`CLI reference`](../../apps/spark-docs/src/content/docs/reference/cli.md#mcp-clients).
+[`CLI reference`](../../../apps/spark-docs/src/content/docs/reference/cli.md#mcp-clients).
 This page owns only the adapter boundary and maintainer validation.
 
 ## Ownership boundary

@@ -34,7 +34,7 @@ updated: 2026-08-04
 
 精确的包清单、层级、owner、稳定性和依赖方向以
 [`architecture/packages.json`](./architecture/packages.json) 为准；包创建、合并与依赖
-规则由 [`docs/specs/package-architecture.md`](./docs/specs/package-architecture.md) 约束。
+规则由 [`.agents/notes/contracts/package-architecture.md`](./.agents/notes/contracts/package-architecture.md) 约束。
 
 - Pi SDK 保持模型流与终端呈现内核，Spark 不重建独立的 Pi 产品 facade。
 - daemon 是持久会话、调用、通道、本地执行、自治计时、重试与恢复的唯一 owner。

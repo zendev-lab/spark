@@ -17,6 +17,11 @@ A predefined Role follows its preloaded Skills directly in the same Session. It 
 
 This keeps identity and authority stable while allowing methods to be reused and revised independently. Progressive disclosure limits standing context, and content-addressed composition makes an executed Role reproducible without turning Notes into another runtime knowledge system.
 
+Standing orders form the independent base layer: repository and ordinary
+subtree `AGENTS.md` files must remain interpretable without linking to Agent
+Notes, Roles, Skills, or Workflows. Agent knowledge may depend on standing
+orders, never the reverse.
+
 ## Consequences
 
 Each fact has one authoritative home. Role bodies stay small, Skills contain method, and Workflows contain orchestration. Missing, disabled, non-model-invocable, or oversized Role Skills fail before child Session creation. Roles without Skills keep their previous execution behavior.

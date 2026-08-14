@@ -81,7 +81,7 @@ than maintained as a second file-tool product.
 `daemon-extension.ts` remains only as a bounded migration and integration-test
 adapter. It is not a supported Pi product surface and receives no new
 Pi-specific behavior. See
-[`docs/specs/pi-product-compatibility.md`](../../docs/specs/pi-product-compatibility.md).
+[`.agents/notes/contracts/pi-product-compatibility.md`](../../.agents/notes/contracts/pi-product-compatibility.md).
 
 The sole Spark read/write protocol is versioned: there is no plain read mode and
 no blind write path. The check is content-level optimistic concurrency plus a

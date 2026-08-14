@@ -14,7 +14,9 @@ lower layer.
 - Separate how a Session works from what causes it to continue.
 - Keep Role binding optional and explicit; default Sessions add no Role prompt
   or Role capability ceiling.
-- Compile one or more Skills into one dedicated autonomous Agent invocation.
+- Compose predefined single-responsibility Roles from ordered preloaded Skills.
+- Compile one or more Skills into one dedicated autonomous Agent invocation
+  only when no predefined Role owns the responsibility.
 - Keep prompt layers narrow enough that later prompts cannot silently override
   global intent, authority, or artifact policy.
 - Treat a requested pull request as a delivery lifecycle, not as a one-time
@@ -28,7 +30,7 @@ lower layer.
 | **Continuation driver** | Who owns whether and when the Session receives another turn | `manual`, `goal`, `loop`, `repro` |
 | **Stage** | An ordered step inside a domain protocol or Workflow | Repro contract/baseline/alignment; Workflow stages |
 | **Status** | Lifecycle state of a durable object or run | `running`, `paused`, `complete`, `failed` |
-| **Role** | Optional typed behavior and capability overlay | Administrator, Explorer, Executor, Reviewer |
+| **Role** | One reusable responsibility, authority overlay, and optional ordered preloaded Skills | Administrator, Architecture Guardian, Executor |
 | **Agent form** | The execution identity and authority envelope of one model invocation | scoped Session, Role Invocation, Skill Agent, Workflow child, leaf |
 | **WorkflowRun** | A bounded orchestration program execution | saved or generated Workflow |
 
@@ -209,10 +211,36 @@ close, then its structured outcome and final assistant result become the Session
 close candidate. The sealed close receipt is Session metadata and is never copied
 into Invocation rows or injected into the parent transcript.
 
-## Multi-Skill Agent
+## Predefined Role-Skill composition
+
+A predefined Role owns one reusable responsibility. Its body contains only the
+responsibility, authority ceiling, stop conditions, and output contract. The
+Role may declare one to eight ordered unique Skill names containing its reusable
+task procedures.
+
+At execution time the Role owner:
+
+- resolves exact Skill names through normal Skill precedence before creating
+  the child Session;
+- requires each Skill to exist, remain enabled, and permit model invocation;
+- reads each complete `SKILL.md` source once and preserves its resource base for
+  relative references;
+- rejects aggregate Skill source above 64K characters without truncation;
+- renders each Skill body into the same Role Session in declaration order;
+- records the static Role definition revision, an execution composition
+  revision, and ordered Skill source digests.
+
+The Role definition revision includes ordered Skill names. The composition
+revision additionally includes the exact Skill source digests used by that
+Invocation. A Role without `skills` retains its existing revision and prompt
+behavior. A predefined Role follows preloaded Skills directly and does not call
+`skill_agent` for them.
+
+## Ad-hoc multi-Skill Agent
 
 `skill_agent` is the canonical intelligent execution surface for one or more
-model-invocable Skills that jointly own a self-contained unit of work.
+model-invocable Skills that jointly own a self-contained unit of work and are
+not already composed into a predefined Role.
 
 The public request is:
 
