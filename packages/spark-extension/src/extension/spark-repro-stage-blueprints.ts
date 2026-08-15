@@ -33,13 +33,14 @@ export interface ReproStageBlueprint {
 }
 
 const explorer = "role:builtin-explorer" as RoleRef;
-const executor = "role:builtin-executor" as RoleRef;
 const reviewer = "role:builtin-reviewer" as RoleRef;
 const distributedRunner = "role:extension-repro-distributed-runner" as RoleRef;
 const divergenceLocalizer = "role:extension-repro-first-divergence-localizer" as RoleRef;
 const precisionFixer = "role:extension-repro-precision-fixer" as RoleRef;
 const performanceBenchmarker = "role:extension-repro-performance-benchmarker" as RoleRef;
 const numericalAuditor = "role:extension-repro-numerical-auditor" as RoleRef;
+const implementationExplorer = "role:extension-repro-implementation-explorer" as RoleRef;
+const exactnessInstrumentation = "role:extension-repro-exactness-instrumentation-worker" as RoleRef;
 
 function task(
   id: string,
@@ -88,6 +89,7 @@ function defaultReproRoleRef(
   if (isAskAuthority(authority)) return reviewer;
   if (authority === "driver_local") return executor;
   if (/(?:first-bad|boundary-classification|localiz)/u.test(id)) return divergenceLocalizer;
+  if (/(?:instrument|diagnostic-hook|trace-hook)/u.test(id)) return exactnessInstrumentation;
   if (/(?:precision-fix|incident-fix|apply-fix)/u.test(id)) return precisionFixer;
   if (/(?:performance-budget|benchmark)/u.test(id)) return performanceBenchmarker;
   if (
@@ -104,7 +106,7 @@ function defaultReproRoleRef(
   ) {
     return distributedRunner;
   }
-  if (kind === "implement") return executor;
+  if (kind === "implement") return implementationExplorer;
   if (kind === "review") return reviewer;
   return explorer;
 }

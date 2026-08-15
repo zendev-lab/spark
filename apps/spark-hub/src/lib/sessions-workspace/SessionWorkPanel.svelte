@@ -71,6 +71,52 @@
             />
           </div>
         {/if}
+        {#if repro.lanes}
+          <article class="work-card lane-inspector" aria-label="Repro lane execution">
+            <div class="lane-inspector-heading">
+              <div>
+                <p class="field-label">Execution topology</p>
+                <h3>Implementation · Exactness · Formalize</h3>
+              </div>
+              {#if repro.lanes.formalizedTip}<code>{repro.lanes.formalizedTip}</code>{/if}
+            </div>
+            <div class="lane-grid">
+              {#each [
+                { title: "Implementation", lane: repro.lanes.implementation },
+                { title: "Exactness", lane: repro.lanes.exactness },
+                { title: "Formalize", lane: repro.lanes.formalize },
+              ] as laneEntry}
+                <section class="lane-card">
+                  <header>
+                    <strong>{laneEntry.title}</strong>
+                    <span>{laneEntry.lane.status} · {laneEntry.lane.openCount}/{laneEntry.lane.totalCount} open</span>
+                  </header>
+                  {#if laneEntry.lane.items.length === 0}
+                    <p>No bound work items.</p>
+                  {:else}
+                    <ul>
+                      {#each laneEntry.lane.items as item}
+                        <li>
+                          <div><code>{item.workItemId}</code> · {item.status}</div>
+                          <small>
+                            {item.bindingRevision
+                              ? `binding r${item.bindingRevision} ${item.bindingStatus}`
+                              : "compatibility binding"}
+                            {#if item.runRef} · <code>{item.runRef}</code>{/if}
+                          </small>
+                          {#if item.gitChangeRef}<small>worktree <code>{item.gitChangeRef}</code></small>{/if}
+                          {#if item.routeAction}
+                            <small>route {item.routeAction} · {item.routeStatus}</small>
+                          {/if}
+                        </li>
+                      {/each}
+                    </ul>
+                  {/if}
+                </section>
+              {/each}
+            </div>
+          </article>
+        {/if}
         <article class="work-card current-step">
           <p class="field-label">{host.copy.currentStep}</p>
           {#if currentStep}
@@ -336,6 +382,64 @@
   .workbench-surface {
     grid-column: 1 / -1;
     min-width: 0;
+  }
+
+  .lane-inspector {
+    display: grid;
+    gap: 12px;
+    grid-column: 1 / -1;
+  }
+
+  .lane-inspector-heading,
+  .lane-card header {
+    align-items: start;
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+  }
+
+  .lane-inspector-heading code,
+  .lane-card code {
+    overflow-wrap: anywhere;
+  }
+
+  .lane-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .lane-card {
+    background: var(--color-surface-soft);
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-md);
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    padding: 10px;
+  }
+
+  .lane-card header span,
+  .lane-card p,
+  .lane-card small {
+    color: var(--color-ink-muted);
+    font-size: 11px;
+  }
+
+  .lane-card ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .lane-card li {
+    display: grid;
+    gap: 3px;
+  }
+
+  @media (max-width: 760px) {
+    .lane-grid {
+      grid-template-columns: 1fr;
+    }
   }
 
   .current-step {

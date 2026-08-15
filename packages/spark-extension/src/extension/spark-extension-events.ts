@@ -21,14 +21,22 @@ import {
   sparkStateCwd,
 } from "./session-state.ts";
 import { projectSparkFleetState, renderSparkFleetProjection } from "./spark-fleet-projection.ts";
-import { reconcileManagedTaskSessions } from "./spark-task-session-dispatch.ts";
+import {
+  dispatchManagedTaskSessions,
+  reconcileManagedTaskSessions,
+} from "./spark-task-session-dispatch.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import {
   collectUnreadHiddenRoleRunInbox,
   formatHiddenRoleRunInbox,
   markHiddenRoleRunInboxDelivered,
 } from "./role-run-completions.ts";
-import { readSessionRepro } from "./spark-session-repro.ts";
+import { readSessionRepro, writeSessionRepro } from "./spark-session-repro.ts";
+import {
+  reconcileSparkReproLaneTopology,
+  requestSparkReproRootAttention,
+} from "./spark-repro-lane-execution.ts";
+import { createSparkRoleRegistry } from "./spark-role-registry.ts";
 import type { SparkModeMessageApi } from "./spark-mode-entry.ts";
 import { createSparkAgentEndReconciliationController } from "./spark-agent-end-reconciliation.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
@@ -169,6 +177,7 @@ export function registerSparkExtensionEvents(
     await syncGoalAskAutoAnswerPolicy(ctx);
     await syncGoalInteractiveToolAvailability(pi, ctx, goalToolBaselines);
     await deps.ensureActiveReproLoop?.(ctx);
+    await reconcileTerminalReproLaneResultsSafely(ctx, "turn_start");
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
   // turn_end also fires between normal tool-call iterations. Only a successful
@@ -191,6 +200,7 @@ export function registerSparkExtensionEvents(
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await resumeOwnedBackgroundSubroles(ctx.cwd, ctx);
     await deps.ensureActiveReproLoop?.(ctx);
+    await reconcileTerminalReproLaneResultsSafely(ctx, "session_start");
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
   pi.on?.("session_compact", async (_event: unknown, ctx: SparkToolContext) => {
@@ -226,6 +236,7 @@ export function registerSparkExtensionEvents(
     const graph = await loadSparkGraph(ctx.cwd, ctx);
     if (!graph) return;
     if (ensureSparkGraphInvariants(graph)) await saveSparkGraphAndTodos(ctx.cwd, graph, ctx, store);
+    await reconcileTerminalReproLaneResults(ctx);
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
 
@@ -258,6 +269,11 @@ async function collectFleetLifecycleMessages(ctx: SparkToolContext): Promise<
     } catch (error) {
       reconcileError = error instanceof Error ? error.message : String(error);
     }
+  }
+  try {
+    await reconcileTerminalReproLaneResults(ctx);
+  } catch (error) {
+    reconcileError = reconcileError ?? (error instanceof Error ? error.message : String(error));
   }
   const mode = (await loadSparkMode(ctx.cwd, ctx)).mode;
   if (mode !== "fleet" && mode !== "plan") return [];
@@ -305,6 +321,57 @@ async function collectFleetLifecycleMessages(ctx: SparkToolContext): Promise<
         trust: "trusted",
       },
     ];
+  }
+}
+
+async function reconcileTerminalReproLaneResults(ctx: SparkToolContext): Promise<void> {
+  const ownerSessionId = ctx.sessionId?.trim();
+  if (!ownerSessionId) return;
+  const repro = await readSessionRepro(ctx.cwd, ctx);
+  if (!repro?.projectRef || repro.status !== "active") return;
+  const workspaceCwd = sparkStateCwd(ctx.cwd, ctx);
+  const graph = await defaultTaskGraphStore(workspaceCwd).load();
+  if (!graph) return;
+  const evidenceRefs = graph
+    .runs(repro.projectRef)
+    .filter((run) => run.status !== "queued" && run.status !== "running")
+    .flatMap((run) => run.outputEvidenceRefs);
+  await reconcileSparkReproLaneTopology({
+    workspaceCwd,
+    repositoryCwd: ctx.cwd,
+    repro,
+    evidenceRefs,
+    persist: async (next) => await writeSessionRepro(ctx.cwd, next, ctx),
+    dispatch: async (taskRefs) =>
+      await dispatchManagedTaskSessions({
+        cwd: ctx.cwd,
+        ctx,
+        ownerSessionId,
+        ...(ctx.invocationId ? { parentInvocationId: ctx.invocationId } : {}),
+        projectRef: repro.projectRef!,
+        taskRefs,
+        registry: await createSparkRoleRegistry(workspaceCwd),
+        fleet: true,
+      }),
+    requestAttention: async (route) =>
+      await requestSparkReproRootAttention({
+        route,
+        ...(ctx.ui?.interaction ? { interaction: ctx.ui.interaction } : {}),
+      }),
+  });
+}
+
+async function reconcileTerminalReproLaneResultsSafely(
+  ctx: SparkToolContext,
+  trigger: "session_start" | "turn_start",
+): Promise<void> {
+  try {
+    await reconcileTerminalReproLaneResults(ctx);
+  } catch (error) {
+    console.warn(
+      `[spark-repro] lane topology reconciliation failed during ${trigger}; durable routes remain pending`,
+      error,
+    );
   }
 }
 

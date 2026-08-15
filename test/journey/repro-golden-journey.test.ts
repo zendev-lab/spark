@@ -1013,6 +1013,7 @@ function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }
       planRevision: 8,
       sourceRevision: candidateRevision,
       status: "completed",
+      taskRef: "${LAST_TASK_REF}",
       gitChangeRef: "${ARTIFACT_REF_1}",
       evidenceRefs: [laneEvidenceRef],
     },
@@ -1031,6 +1032,21 @@ function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }
       candidateRevisions: [candidateRevision],
       doneWhen: ["The first bad boundary is confirmed"],
       status: "accepted",
+    },
+  });
+  tool("three-lane.exactness.registered", "repro", {
+    action: "work_register",
+    laneInput: {
+      lane: "exactness",
+      workItemId: laneWorkItemId,
+      title: "Align the minimal normalization boundary",
+      scope: "target normalization boundary",
+      planRevision: 8,
+      sourceRevision: candidateRevision,
+      status: "completed",
+      taskRef: "${LAST_TASK_REF}",
+      gitChangeRef: "${ARTIFACT_REF_1}",
+      evidenceRefs: [laneEvidenceRef],
     },
   });
   tool("three-lane.finding.recorded", "repro", {
@@ -1065,6 +1081,21 @@ function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }
       dependsOnHandoffIds: ["handoff:minimal-implementation-exactness"],
       doneWhen: ["The canonical stack accepts the repair"],
       status: "accepted",
+    },
+  });
+  tool("three-lane.formalize.registered", "repro", {
+    action: "work_register",
+    laneInput: {
+      lane: "formalize",
+      workItemId: laneWorkItemId,
+      title: "Align the minimal normalization boundary",
+      scope: "target normalization boundary",
+      planRevision: 8,
+      sourceRevision: candidateRevision,
+      status: "completed",
+      taskRef: "${LAST_TASK_REF}",
+      gitChangeRef: "${ARTIFACT_REF_1}",
+      evidenceRefs: [laneEvidenceRef],
     },
   });
   const formalResolution = {
@@ -1426,9 +1457,13 @@ function completeWorkSummary(input: {
 }
 
 function assertThreeLaneRecoveryState(repro: Record<string, unknown>): void {
-  assert.equal(numberField(repro, "version"), 8);
+  assert.equal(numberField(repro, "version"), 9);
   const threeLane = objectField(repro, "threeLane");
-  assert.equal(stringField(threeLane, "schema"), "spark.repro.three-lane-session/v1");
+  assert.equal(stringField(threeLane, "schema"), "spark.repro.three-lane-session/v2");
+  assert.deepEqual(
+    arrayField(threeLane, "bindings").map((binding) => stringField(binding, "lane")),
+    ["implementation", "exactness", "formalize"],
+  );
   assert.deepEqual(
     arrayField(threeLane, "workItems").map((item) => stringField(item, "workItemId")),
     ["work:minimal-normalization"],

@@ -90,6 +90,8 @@ Repro owns three lanes: Implementation Explore, Exactness Explore, and
 Formalize. Explore work can proceed in parallel without advancing normative
 progress; only Formalize can update the accepted `formalizedTip`. Goal remains
 a single TaskGraph-derived runtime projection rather than adopting those lanes.
+The current Session is the Repro Root; managed WorkItem-by-lane Task Sessions
+own candidate worktrees, while one serial integrator owns the canonical stack.
 
 Start with [plan and implement](/guides/plan-and-execute/), then read
 [long-running automation](/guides/automation/).

@@ -37,7 +37,12 @@ test("Repro extension roles are bounded specialists without ask or spawn authori
     roles.find((role) => role.id === "repro-precision-fixer")?.allowedTools?.includes("edit"),
     true,
   );
-  for (const role of roles.filter((candidate) => candidate.id !== "repro-precision-fixer")) {
+  const writable = new Set([
+    "repro-implementation-explorer",
+    "repro-exactness-instrumentation-worker",
+    "repro-precision-fixer",
+  ]);
+  for (const role of roles.filter((candidate) => !writable.has(candidate.id))) {
     assert.equal(role.allowedTools?.includes("edit"), false);
     assert.equal(role.allowedTools?.includes("write"), false);
   }

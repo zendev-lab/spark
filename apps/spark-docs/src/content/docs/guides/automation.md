@@ -94,6 +94,17 @@ resynchronization point. Repro pauses instead of guessing when a baseline,
 material authority decision, or `required` approval is missing. Use
 `/inspect repro` to inspect the bounded daemon projection in the TUI.
 
+The current user Session is the Repro Root. Each writable WorkItem in
+Implementation or Exactness runs in its own managed Task Session and candidate
+worktree. Formalize uses one serial canonical integrator and one Git Change;
+each WorkItem becomes one Draft stack entry. Typed lane-result Evidence routes
+forward automatically and then refreshes Exactness and Implementation in their
+original worktrees after Formalize. Lane workers cannot Ask directly: only a
+deduplicated structured decision request reaches the Root Inbox. Repro pauses
+instead of guessing when a baseline, authority decision, or approval is missing.
+Use `/inspect repro` to inspect binding, TaskRun, Git Change, route, and refresh
+state in the bounded daemon projection.
+
 ```text
 /repro start <objective>
 /repro status

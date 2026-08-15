@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { EvidenceRef } from "@zendev-lab/spark-core";
+import type { EvidenceRef, RunRef } from "@zendev-lab/spark-core";
 import {
   sessionGoalStorePathV2,
   sessionReproStorePathV2,
@@ -62,7 +62,7 @@ describe("session work projection", () => {
     const repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
       objective: "Own root-session token usage",
     });
-    await writeJson(sessionReproStorePathV2(cwd, context), { version: 8, repro });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 9, repro });
 
     await expect(resolveActiveSessionReproUsageScope({ cwd, sessionId })).resolves.toEqual({
       kind: "repro",
@@ -156,7 +156,7 @@ describe("session work projection", () => {
     const repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
       objective: "Account for this reproduction",
     });
-    await writeJson(sessionReproStorePathV2(cwd, context), { version: 8, repro });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 9, repro });
     const tokenUsage: SparkTokenUsageAggregate = {
       scope: { kind: "repro", reproId: repro.reproId },
       reported: breakdown(12),
@@ -292,10 +292,40 @@ describe("session work projection", () => {
 
   it("rebuilds lane, handoff, resolution, and formalized tip projections after restart", async () => {
     const cwd = await tempCwd();
-    let repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
-      objective: "Recover three-lane work",
-      reproId: "repro-restart",
-    });
+    const graphResult = await defaultTaskGraphStore(cwd).update(
+      (graph) => {
+        const project = graph.createProject({ title: "Repro", description: "Projection" });
+        const tasks = Object.fromEntries(
+          ["implementation", "exactness", "formalize"].map((lane) => [
+            lane,
+            graph.createTask({
+              projectRef: project.ref,
+              title: `${lane} concern`,
+              description: "Projection binding",
+            }),
+          ]),
+        );
+        graph.recordRun({
+          ref: "run:implementation-latest" as RunRef,
+          projectRef: project.ref,
+          taskRef: tasks.implementation!.ref,
+          status: "succeeded",
+          startedAt: "2026-08-14T00:00:00.000Z",
+          finishedAt: "2026-08-14T00:01:00.000Z",
+          outputEvidenceRefs: [],
+        });
+        return { project, tasks };
+      },
+      { createIfMissing: true },
+    );
+    const { project, tasks } = graphResult.result;
+    let repro = {
+      ...createSparkSessionRepro(`session:${sessionId}`, undefined, {
+        objective: "Recover three-lane work",
+        reproId: "repro-restart",
+      }),
+      projectRef: project.ref,
+    };
     let threeLane = registerSparkReproWorkItem(repro.threeLane, "implementation", {
       workItemId: "work:restart-boundary",
       title: "Recover the first bad boundary",
@@ -303,9 +333,23 @@ describe("session work projection", () => {
       planRevision: repro.plan.currentRevision,
       sourceRevision: "commit:candidate",
       status: "open",
+      taskRef: tasks.implementation!.ref,
       evidenceRefs: [],
       unresolvedIds: [],
     });
+    for (const lane of ["exactness", "formalize"] as const) {
+      threeLane = registerSparkReproWorkItem(threeLane, lane, {
+        workItemId: "work:restart-boundary",
+        title: "Recover the first bad boundary",
+        scope: "/private/repro/candidate",
+        planRevision: repro.plan.currentRevision,
+        sourceRevision: "commit:candidate",
+        status: "open",
+        taskRef: tasks[lane]!.ref,
+        evidenceRefs: [],
+        unresolvedIds: [],
+      });
+    }
     threeLane = recordSparkReproWorkHandoff(threeLane, {
       handoffId: "handoff:implementation-exactness",
       workItemId: "work:restart-boundary",
@@ -358,7 +402,7 @@ describe("session work projection", () => {
       parentResolutionId: "resolution:formalize-exactness",
     });
     repro = { ...repro, threeLane };
-    await writeJson(sessionReproStorePathV2(cwd, context), { version: 8, repro });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 9, repro });
 
     const beforeRestart = await projectSparkSessionWork({ cwd, sessionId, loops: [] });
     const recovered = await readSessionReproForDaemon(cwd, sessionId);
@@ -370,7 +414,15 @@ describe("session work projection", () => {
     expect(afterRestart?.repro?.lanes).toMatchObject({
       implementation: {
         totalCount: 1,
-        items: [{ workItemId: "work:restart-boundary", handoffCount: 2, resolutionCount: 2 }],
+        items: [
+          {
+            workItemId: "work:restart-boundary",
+            bindingRevision: 1,
+            runRef: "run:implementation-latest",
+            handoffCount: 2,
+            resolutionCount: 2,
+          },
+        ],
       },
       exactness: { totalCount: 1 },
       formalize: { totalCount: 1 },
@@ -384,7 +436,7 @@ describe("session work projection", () => {
     const repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
       objective: "Keep the technical work visible",
     });
-    await writeJson(sessionReproStorePathV2(cwd, context), { version: 8, repro });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 9, repro });
     const diagnostics: string[] = [];
 
     const work = await projectSparkSessionWork({

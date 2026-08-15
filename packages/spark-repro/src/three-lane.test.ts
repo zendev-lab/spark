@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ArtifactRef, EvidenceRef } from "@zendev-lab/spark-core";
+import type { ArtifactRef, EvidenceRef, TaskRef } from "@zendev-lab/spark-core";
 
 import {
   createSparkSessionRepro,
@@ -48,9 +48,9 @@ describe("Spark Repro three-lane domain", () => {
     const migrated = migrateSparkSessionReproV7(legacy);
 
     expect(migrated).toMatchObject({
-      version: 8,
+      version: 9,
       threeLane: {
-        schema: "spark.repro.three-lane-session/v1",
+        schema: "spark.repro.three-lane-session/v2",
         implementation: { stage: "reference", observationIds: ["obs:1"], workItemIds: [] },
         exactness: { workItemIds: [], findingIds: [], mismatchIds: [] },
         workItems: [],
@@ -140,12 +140,14 @@ describe("Spark Repro three-lane domain", () => {
 
     const rematerialized = rematerializeSparkReproWorkItem(withHandoff, {
       workItemId: item.workItemId,
+      lane: "implementation",
+      expectedBindingRevision: 1,
       expectedSourceRevision: item.sourceRevision,
       sourceRevision: "commit:candidate-after-rebase",
       evidenceRefs: [evidence("rebase")],
     });
 
-    expect(rematerialized.workItems[0]).toMatchObject({
+    expect(rematerialized.bindings[0]).toMatchObject({
       workItemId: item.workItemId,
       sourceRevision: "commit:candidate-after-rebase",
     });
@@ -153,11 +155,46 @@ describe("Spark Repro three-lane domain", () => {
     expect(() =>
       rematerializeSparkReproWorkItem(rematerialized, {
         workItemId: item.workItemId,
+        lane: "implementation",
+        expectedBindingRevision: 1,
         expectedSourceRevision: item.sourceRevision,
         sourceRevision: "commit:stale-write",
         evidenceRefs: [evidence("stale")],
       }),
     ).toThrow("stale work item materialization revision");
+  });
+
+  it("isolates source and binding revisions by WorkItem lane", () => {
+    const repro = createSparkSessionRepro("session:binding-isolation");
+    const item = workItem(repro.plan.currentRevision);
+    let state = registerSparkReproWorkItem(repro.threeLane, "implementation", item);
+    state = registerSparkReproWorkItem(state, "exactness", {
+      ...item,
+      taskRef: "task:exactness" as TaskRef,
+      gitChangeRef: "artifact:exactness" as ArtifactRef,
+    });
+
+    const updated = rematerializeSparkReproWorkItem(state, {
+      workItemId: item.workItemId,
+      lane: "exactness",
+      expectedBindingRevision: 1,
+      expectedSourceRevision: item.sourceRevision,
+      sourceRevision: "commit:exactness-only",
+      taskRef: "task:exactness-refresh" as TaskRef,
+      evidenceRefs: [evidence("exactness-refresh")],
+    });
+
+    expect(updated.bindings.find((binding) => binding.lane === "implementation")).toMatchObject({
+      bindingRevision: 1,
+      sourceRevision: item.sourceRevision,
+      taskRef: item.taskRef,
+    });
+    expect(updated.bindings.find((binding) => binding.lane === "exactness")).toMatchObject({
+      bindingRevision: 2,
+      sourceRevision: "commit:exactness-only",
+      taskRef: "task:exactness-refresh",
+    });
+    expect(updated.workItems[0]?.sourceRevision).toBe(item.sourceRevision);
   });
 
   it("binds Formalize to one stack integrator idempotently", () => {
@@ -168,7 +205,7 @@ describe("Spark Repro three-lane domain", () => {
     };
 
     const bound = bindSparkReproFormalizeOwnership(repro.threeLane, ownership);
-    expect(bound.formalize.ownership).toEqual(ownership);
+    expect(bound.formalize.ownership).toEqual({ ...ownership, generation: 1 });
     expect(bindSparkReproFormalizeOwnership(bound, ownership)).toBe(bound);
     expect(() =>
       bindSparkReproFormalizeOwnership(bound, {
@@ -176,6 +213,23 @@ describe("Spark Repro three-lane domain", () => {
         integratorSessionId: "session:specialist",
       }),
     ).toThrow("another stack integrator");
+
+    const replaced = bindSparkReproFormalizeOwnership(bound, {
+      ...ownership,
+      integratorSessionId: "session:integrator-recovered",
+      generation: 2,
+    });
+    expect(replaced.formalize.ownership).toMatchObject({
+      integratorSessionId: "session:integrator-recovered",
+      generation: 2,
+    });
+    expect(() =>
+      bindSparkReproFormalizeOwnership(bound, {
+        gitChangeRef: "artifact:other-stack" as ArtifactRef,
+        integratorSessionId: "session:integrator-recovered",
+        generation: 2,
+      }),
+    ).toThrow("cannot replace the canonical GitChange");
   });
 
   it("propagates a typed resolution backward and updates only the accepted formalized tip", () => {
@@ -222,6 +276,7 @@ function workItem(planRevision: number): SparkReproWorkItem {
     scope: "layers.0.input_layernorm",
     planRevision,
     sourceRevision: "commit:candidate-a",
+    taskRef: "task:rmsnorm-boundary" as TaskRef,
     status: "open",
     evidenceRefs: [],
     unresolvedIds: [],
