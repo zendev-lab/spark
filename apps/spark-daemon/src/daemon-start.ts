@@ -748,9 +748,7 @@ async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<
   // previous generation.
   reconcileDaemonExecutionState(runtime, "startup");
   await runtime.sessionSupervisor?.reconcile({
-    workspaceIds: listWorkspaces(runtime.options.db, { includeInactive: true }).map(
-      (workspace) => workspace.id,
-    ),
+    workspaceIds: listWorkspaces(runtime.options.db).map((workspace) => workspace.id),
   });
   runtime.loopStore.reconcileTerminalTicks();
   await reconcileLoopGoalSettlements(runtime.loopStore, { retryErrors: true });

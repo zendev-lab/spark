@@ -83,9 +83,13 @@ one-time key:
 spark hub workspace access create --workspace <id>
 ```
 
-Exchange that key at `/{slug}/login`. Treat both keys as secrets. Non-loopback
-access requires HTTPS unless you deliberately opt into insecure HTTP on a
-trusted private network.
+Exchange that key at `/{slug}/login`. If the browser already holds a different
+workspace-scoped session, opening an active workspace route redirects to that
+target login and returns to the original route after the key exchange. A browser
+cookie grants one workspace at a time, so use a separate profile or private
+window to keep parallel workspace sessions. Treat both keys as secrets.
+Non-loopback access requires HTTPS unless you deliberately opt into insecure
+HTTP on a trusted private network.
 
 ## Trusted reverse proxy
 

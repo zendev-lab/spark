@@ -212,6 +212,8 @@ describe("remote access auth", () => {
       workspaceSessionAllowsRequest(db, session.workspaceId, "/spark/sessions/missing-session"),
     ).toBe(false);
     expect(workspaceSessionAllowsRequest(db, session.workspaceId, "/spore/sessions")).toBe(false);
+    expect(workspaceSessionAllowsRequest(db, session.workspaceId, "/spore/login")).toBe(true);
+    expect(workspaceSessionAllowsRequest(db, session.workspaceId, "/missing/login")).toBe(false);
     expect(workspaceSessionAllowsRequest(db, session.workspaceId, "/settings/models")).toBe(false);
 
     const refreshed = refreshWorkspaceSession(

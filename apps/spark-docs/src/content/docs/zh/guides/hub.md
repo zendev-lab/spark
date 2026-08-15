@@ -73,7 +73,10 @@ spark hub access create
 spark hub workspace access create --workspace <id>
 ```
 
-在 `/{slug}/login` 交换它。两种 key 都应视为秘密。非 loopback 访问要求 HTTPS，
+在 `/{slug}/login` 交换它。如果浏览器已持有另一个 workspace 范围的会话，打开
+目标 workspace 的活跃路由时会跳转到该目标的登录页，并在交换 key 后返回原路由。
+一个浏览器 Cookie 同时只授权一个 workspace；如需保留多个并行会话，请使用独立
+浏览器 profile 或隐私窗口。两种 key 都应视为秘密。非 loopback 访问要求 HTTPS，
 除非你明确在受信任的私有网络上允许不安全 HTTP。
 
 ## 受信任的反向代理
