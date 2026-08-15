@@ -18,10 +18,16 @@ const milestoneNames = [
   "validation.passed_after_fix",
   "git_change.committed",
   "pull_request.submitted",
+  "implementation.work_registered",
+  "handoff.implementation_exactness",
+  "exactness.finding_recorded",
+  "handoff.exactness_formalize",
+  "formalize.resolved",
   "report.projected",
   "report.synced",
   "repro.completed",
   "workbench.sealed",
+  "three_lane.recovered",
 ] as const;
 
 interface ProcessIdentity {

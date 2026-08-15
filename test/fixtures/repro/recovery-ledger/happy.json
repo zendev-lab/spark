@@ -57,28 +57,64 @@
       "sequence": 9
     },
     {
-      "name": "report.projected",
+      "name": "implementation.work_registered",
       "reproId": "repro:golden-journey-source-process",
       "count": 1,
       "sequence": 10
     },
     {
-      "name": "report.synced",
+      "name": "handoff.implementation_exactness",
       "reproId": "repro:golden-journey-source-process",
       "count": 1,
       "sequence": 11
     },
     {
-      "name": "repro.completed",
+      "name": "exactness.finding_recorded",
       "reproId": "repro:golden-journey-source-process",
       "count": 1,
       "sequence": 12
     },
     {
-      "name": "workbench.sealed",
+      "name": "handoff.exactness_formalize",
       "reproId": "repro:golden-journey-source-process",
       "count": 1,
       "sequence": 13
+    },
+    {
+      "name": "formalize.resolved",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 14
+    },
+    {
+      "name": "report.projected",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 15
+    },
+    {
+      "name": "report.synced",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 16
+    },
+    {
+      "name": "repro.completed",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 17
+    },
+    {
+      "name": "workbench.sealed",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 18
+    },
+    {
+      "name": "three_lane.recovered",
+      "reproId": "repro:golden-journey-source-process",
+      "count": 1,
+      "sequence": 19
     }
   ],
   "providerRoundsAtWait": 6,

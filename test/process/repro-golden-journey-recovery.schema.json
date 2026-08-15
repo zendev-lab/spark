@@ -29,8 +29,8 @@
     "reproId": { "type": "string", "pattern": "^repro:[A-Za-z0-9._:-]+$" },
     "milestones": {
       "type": "array",
-      "minItems": 13,
-      "maxItems": 13,
+      "minItems": 19,
+      "maxItems": 19,
       "items": { "$ref": "#/$defs/milestone" }
     },
     "providerRoundsAtWait": { "type": "integer", "minimum": 1 },
@@ -88,15 +88,21 @@
             "validation.passed_after_fix",
             "git_change.committed",
             "pull_request.submitted",
+            "implementation.work_registered",
+            "handoff.implementation_exactness",
+            "exactness.finding_recorded",
+            "handoff.exactness_formalize",
+            "formalize.resolved",
             "report.projected",
             "report.synced",
             "repro.completed",
-            "workbench.sealed"
+            "workbench.sealed",
+            "three_lane.recovered"
           ]
         },
         "reproId": { "type": "string", "pattern": "^repro:[A-Za-z0-9._:-]+$" },
         "count": { "const": 1 },
-        "sequence": { "type": "integer", "minimum": 1, "maximum": 13 }
+        "sequence": { "type": "integer", "minimum": 1, "maximum": 19 }
       }
     },
     "interactionRequestId": {
