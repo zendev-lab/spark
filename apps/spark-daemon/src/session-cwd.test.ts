@@ -87,6 +87,21 @@ describe("session cwd ownership", () => {
     fixture.db.close();
   });
 
+  it("ignores stale registrations while resolving another live workspace", async () => {
+    const fixture = await createFixture();
+    const staleRoot = join(fixture.root, "stale-workspace");
+    await mkdir(staleRoot);
+    registerWorkspace(fixture.db, { localPath: staleRoot });
+    await rm(staleRoot, { recursive: true });
+
+    await expect(resolveSessionCwdOwner(fixture.db, fixture.workspaceRoot)).resolves.toMatchObject({
+      workspace: { id: fixture.workspace.id },
+      cwd: fixture.workspaceRoot,
+    });
+    expect(listWorkspaces(fixture.db)).toHaveLength(2);
+    fixture.db.close();
+  });
+
   it("rejects an unmatched invocation cwd instead of registering it implicitly", async () => {
     const fixture = await createFixture();
     const checkout = join(fixture.root, "standalone");

@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { stdin as processStdin, stdout as processStdout } from "node:process";
@@ -87,7 +87,6 @@ import {
   type SparkModelSelectorCustomUi,
 } from "./tui/model-selector.ts";
 import {
-  LAUNCH_CWD_WORKSPACE_SELECTION,
   formatSparkSessionListByWorkspace,
   runNativeSparkSessionSelector,
   type SparkSessionSelectorOptions,
@@ -243,10 +242,15 @@ async function selectSparkCliWorkspaceSession(
     launchCwd,
     resolvedLaunchCwd?.workspace.id,
   );
+  if (workspaces.length === 0) {
+    throw new Error(
+      `No available registered Spark workspace. Register ${launchCwd} with spark daemon workspace register before opening the TUI.`,
+    );
+  }
   const selection = await selectSession({
     sessions: sessions.filter((session) => session.scope.kind === "workspace"),
     workspaces,
-    suggestedWorkspaceId,
+    ...(suggestedWorkspaceId ? { suggestedWorkspaceId } : {}),
   });
   if (!selection) return { cancelled: true };
   assertSparkSessionSelectorSelection(selection);
@@ -310,7 +314,7 @@ function workspaceOptionsForLaunchCwd(
   registeredWorkspaces: SparkSessionSelectorWorkspace[],
   launchCwd: string,
   resolvedWorkspaceId?: string,
-): { workspaces: SparkSessionSelectorWorkspace[]; suggestedWorkspaceId: string } {
+): { workspaces: SparkSessionSelectorWorkspace[]; suggestedWorkspaceId?: string } {
   if (resolvedWorkspaceId) {
     const resolvedWorkspace = registeredWorkspaces.find(
       (workspace) =>
@@ -338,16 +342,10 @@ function workspaceOptionsForLaunchCwd(
     };
   }
 
-  const suggestedWorkspace: SparkSessionSelectorWorkspace = {
-    id: LAUNCH_CWD_WORKSPACE_SELECTION,
-    canonicalId: LAUNCH_CWD_WORKSPACE_SELECTION,
-    displayName: basename(resolvedLaunchCwd) || "Launch cwd",
-    localPath: resolvedLaunchCwd,
-    registration: "suggested",
-  };
+  const fallback = canonicalWorkspaces[0];
   return {
-    workspaces: [...registeredWorkspaces, suggestedWorkspace],
-    suggestedWorkspaceId: suggestedWorkspace.canonicalId,
+    workspaces: registeredWorkspaces,
+    ...(fallback ? { suggestedWorkspaceId: fallback.canonicalId } : {}),
   };
 }
 
@@ -507,7 +505,9 @@ async function resolveLegacySparkCliSessionTarget(
   );
   const candidates = looksLikeSparkSessionPath(target)
     ? uniqueSelectorWorkspaces(workspaces)
-    : [requireSelectorWorkspace(workspaces, suggestedWorkspaceId)];
+    : suggestedWorkspaceId
+      ? [requireSelectorWorkspace(workspaces, suggestedWorkspaceId)]
+      : [];
   const matches: Array<{
     workspace: SparkSessionSelectorWorkspace;
     legacySession: SparkCliLegacySessionTarget;
@@ -706,6 +706,14 @@ function safeRealpath(path: string): string | undefined {
   }
 }
 
+function isLocalDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function isSameOrChildPath(path: string, parent: string): boolean {
   return path === parent || path.startsWith(parent.endsWith("/") ? parent : `${parent}/`);
 }
@@ -720,15 +728,16 @@ async function listSparkSessionSelectorWorkspaces(
   daemonClient: SparkDaemonClientOptions,
 ): Promise<SparkSessionSelectorWorkspace[]> {
   const { workspaces } = await clientListDaemonWorkspaces(daemonClient);
-  return workspaces.flatMap((workspace) =>
-    sparkSessionSelectorWorkspaceIds(workspace).map((id) => ({
+  return workspaces.flatMap((workspace) => {
+    if (!isLocalDirectory(workspace.localPath)) return [];
+    return sparkSessionSelectorWorkspaceIds(workspace).map((id) => ({
       id,
       canonicalId: workspace.id,
       displayName: workspace.displayName,
       localPath: workspace.localPath,
       registration: "registered" as const,
-    })),
-  );
+    }));
+  });
 }
 
 async function listWorkspaceGitChanges(

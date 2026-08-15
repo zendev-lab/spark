@@ -178,7 +178,7 @@ test("Spark session selector renders explicit workspace creation and managed ses
   assert.deepEqual(selected, [{ kind: "create", workspaceId: "workspace-1" }]);
 });
 
-test("Spark session selector presents an unregistered cwd as a workspace creation action", () => {
+test("Spark session selector presents a suggested workspace as an open-session action", () => {
   const component = createSparkSessionSelectorComponent({
     sessions: [],
     workspaces: [
@@ -196,10 +196,10 @@ test("Spark session selector presents an unregistered cwd as a workspace creatio
   });
 
   const rendered = component.render(120).join("\n");
-  assert.match(rendered, /\[Create workspace\]/u);
-  assert.match(rendered, /\+ Create workspace/u);
-  assert.match(rendered, /Use \/workspace\/new-project, then open a new session/u);
-  assert.doesNotMatch(rendered, /Launch cwd|Create workspace \(0\)|new-project \(0\)/u);
+  assert.match(rendered, /\[Open workspace\]/u);
+  assert.match(rendered, /\+ New session/u);
+  assert.match(rendered, /Open a new session in \/workspace\/new-project/u);
+  assert.doesNotMatch(rendered, /Launch cwd|Open workspace \(0\)|new-project \(0\)/u);
   assert.match(rendered, /spark \(0\)/u);
   assert.doesNotMatch(rendered, /spark • \/workspace\/spark/u);
 });

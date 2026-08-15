@@ -111,11 +111,23 @@ export async function resolveSessionCwdOwner(
 ): Promise<ResolvedSessionCwd> {
   const cwd = await canonicalDirectory(requestedCwd, "session cwd");
   const workspaces = listWorkspaces(db);
-  const containingWorkspaces = await Promise.all(
-    workspaces.map(async (workspace) => ({
-      workspace,
-      path: await canonicalDirectory(workspace.localPath, "workspace"),
-    })),
+  const containingWorkspaces = (
+    await Promise.all(
+      workspaces.map(async (workspace) => {
+        try {
+          return {
+            workspace,
+            path: await canonicalDirectory(workspace.localPath, "workspace"),
+          };
+        } catch {
+          // A stale registration cannot authorize a cwd, but it must not poison
+          // resolution for every other live workspace.
+          return null;
+        }
+      }),
+    )
+  ).filter((candidate): candidate is { workspace: SparkDaemonWorkspace; path: string } =>
+    Boolean(candidate),
   );
   const direct = containingWorkspaces
     .filter((candidate) => pathContains(candidate.path, cwd))
@@ -123,7 +135,9 @@ export async function resolveSessionCwdOwner(
   if (direct[0]) return { workspace: direct[0].workspace, cwd };
 
   const worktreeMatches = (
-    await Promise.all(workspaces.map(async (workspace) => await listWorkspaceWorktrees(workspace)))
+    await Promise.all(
+      containingWorkspaces.map(async ({ workspace }) => await listWorkspaceWorktrees(workspace)),
+    )
   )
     .flat()
     .filter((worktree) => pathContains(worktree.path, cwd));
