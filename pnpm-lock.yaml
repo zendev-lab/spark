@@ -916,15 +916,15 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
-      '@zendev-lab/spark-cue':
-        specifier: workspace:^
-        version: link:../spark-cue
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
       '@zendev-lab/spark-repro':
         specifier: workspace:^
         version: link:../spark-repro
+      '@zendev-lab/spark-roles':
+        specifier: workspace:^
+        version: link:../spark-roles
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
@@ -1195,9 +1195,6 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
-      '@zendev-lab/spark-host':
-        specifier: workspace:^
-        version: link:../spark-host
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol

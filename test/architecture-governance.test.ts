@@ -11,6 +11,7 @@ const require = createRequire(import.meta.url);
 const governance = require("../architecture/dependency-governance.cjs");
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const inventory = governance.loadArchitectureInventory(rootDir);
+const exceptionCount = inventory.governance.temporaryDependencyExceptions.length;
 const rootManifest = governance.readRootManifest(rootDir);
 const manifests = governance.readWorkspaceManifests(rootDir, inventory);
 
@@ -201,12 +202,13 @@ describe("architecture inventory governance", () => {
       packageSchema,
     );
 
+    const reducedCount = exceptionCount - 1;
     const budgetTamper = structuredClone(inventory);
-    budgetTamper.governance.temporaryDependencyExceptionBudget.current = 4;
+    budgetTamper.governance.temporaryDependencyExceptionBudget.current = reducedCount;
     expect(
       governance.validateArchitectureGovernance(budgetTamper, manifests, rootManifest),
     ).toContain(
-      "temporaryDependencyExceptionBudget must keep current=4, ceiling=5, and exception ledger length=5 equal",
+      `temporaryDependencyExceptionBudget must keep current=${reducedCount}, ceiling=${exceptionCount}, and exception ledger length=${exceptionCount} equal`,
     );
     expect(validatePackageInventory(budgetTamper)).toBe(false);
 
@@ -215,34 +217,34 @@ describe("architecture inventory governance", () => {
     expect(
       governance.validateArchitectureGovernance(ceilingTamper, manifests, rootManifest),
     ).toContain(
-      "temporaryDependencyExceptionBudget current=5 ceiling=7 exceeds non-growth maximum 6",
+      `temporaryDependencyExceptionBudget current=${exceptionCount} ceiling=7 exceeds non-growth maximum 6`,
     );
     expect(validatePackageInventory(ceilingTamper)).toBe(false);
 
     const currentOnlyReduction = structuredClone(inventory);
     currentOnlyReduction.governance.temporaryDependencyExceptions.pop();
-    currentOnlyReduction.governance.temporaryDependencyExceptionBudget.current = 4;
+    currentOnlyReduction.governance.temporaryDependencyExceptionBudget.current = reducedCount;
     expect(
       governance.validateArchitectureGovernance(currentOnlyReduction, manifests, rootManifest),
     ).toContain(
-      "temporaryDependencyExceptionBudget must keep current=4, ceiling=5, and exception ledger length=4 equal",
+      `temporaryDependencyExceptionBudget must keep current=${reducedCount}, ceiling=${exceptionCount}, and exception ledger length=${reducedCount} equal`,
     );
     expect(validatePackageInventory(currentOnlyReduction)).toBe(false);
 
     const ceilingOnlyReduction = structuredClone(inventory);
     ceilingOnlyReduction.governance.temporaryDependencyExceptions.pop();
-    ceilingOnlyReduction.governance.temporaryDependencyExceptionBudget.ceiling = 4;
+    ceilingOnlyReduction.governance.temporaryDependencyExceptionBudget.ceiling = reducedCount;
     expect(
       governance.validateArchitectureGovernance(ceilingOnlyReduction, manifests, rootManifest),
     ).toContain(
-      "temporaryDependencyExceptionBudget must keep current=5, ceiling=4, and exception ledger length=4 equal",
+      `temporaryDependencyExceptionBudget must keep current=${exceptionCount}, ceiling=${reducedCount}, and exception ledger length=${reducedCount} equal`,
     );
     expect(validatePackageInventory(ceilingOnlyReduction)).toBe(false);
 
     const reduced = structuredClone(inventory);
     const removed = reduced.governance.temporaryDependencyExceptions.pop();
-    reduced.governance.temporaryDependencyExceptionBudget.current = 4;
-    reduced.governance.temporaryDependencyExceptionBudget.ceiling = 4;
+    reduced.governance.temporaryDependencyExceptionBudget.current = reducedCount;
+    reduced.governance.temporaryDependencyExceptionBudget.ceiling = reducedCount;
     const reducedManifests = structuredClone(manifests);
     if (removed) {
       const deps = reducedManifests[removed.from].dependencies ?? {};
@@ -266,7 +268,7 @@ describe("architecture inventory governance", () => {
     expect(
       governance.validateArchitectureGovernance(regrowth, regrowthManifests, rootManifest),
     ).toContain(
-      "temporaryDependencyExceptionBudget must keep current=4, ceiling=4, and exception ledger length=5 equal",
+      `temporaryDependencyExceptionBudget must keep current=${reducedCount}, ceiling=${reducedCount}, and exception ledger length=${exceptionCount} equal`,
     );
   });
 
@@ -354,10 +356,10 @@ describe("architecture inventory governance", () => {
     expect(report.inventory.workspaceCount).toBe(41);
     expect(report.layerMatrix.missingDecisionCount).toBe(0);
     expect(report.dependencies.edgeCount).toBe(166);
-    expect(report.dependencies.registeredExceptions).toHaveLength(5);
+    expect(report.dependencies.registeredExceptions).toHaveLength(exceptionCount);
     expect(report.temporaryDependencyExceptionBudget).toEqual({
-      current: 5,
-      ceiling: 5,
+      current: exceptionCount,
+      ceiling: exceptionCount,
       nonGrowth: true,
     });
     expect(report.dependencies.unregisteredViolations).toEqual([]);
@@ -366,7 +368,7 @@ describe("architecture inventory governance", () => {
     expect(report.piOwnership.violations).toEqual([]);
     expect(Object.keys(report.workspaces)).toHaveLength(41);
     expect(report.workspaces["@zendev-lab/spark-daemon"].stateWriter).toBe("daemon");
-    expect(compactMarkdown).toContain("exceptionBudget: 5/5");
+    expect(compactMarkdown).toContain(`exceptionBudget: ${exceptionCount}/${exceptionCount}`);
     expect(digest).toMatch(/^[0-9a-f]{64}$/);
     // Stable digest for the projected health report body.
     expect(digest).toBe(

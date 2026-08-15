@@ -8,13 +8,16 @@
   "files": [
     "src/**/*.ts",
     "!src/**/*.test.ts",
+    "skills",
     "README.md"
   ],
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./builtin-skills": "./src/builtin-skills.ts",
     "./extension": "./src/extension-entry.ts",
-    "./reviewer-runner": "./src/reviewer-runner.ts"
+    "./reviewer-runner": "./src/reviewer-runner.ts",
+    "./skill-resolver": "./src/skill-resolver-entry.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
@@ -22,7 +25,6 @@
   },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
-    "@zendev-lab/spark-host": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
     "@zendev-lab/spark-text": "workspace:^",

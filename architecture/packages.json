@@ -70,21 +70,12 @@
         "owner": "interaction",
         "exitTask": "task:8eccaf5a-cb45-4993-8268-9e2aba1987a2",
         "nonGrowth": true
-      },
-      {
-        "from": "@zendev-lab/spark-roles",
-        "to": "@zendev-lab/spark-host",
-        "toLayer": "runtime",
-        "reason": "Role execution still imports host runtime services until the presentation and host ports are inverted.",
-        "owner": "roles",
-        "exitTask": "task:8eccaf5a-cb45-4993-8268-9e2aba1987a2",
-        "nonGrowth": true
       }
     ],
 
     "temporaryDependencyExceptionBudget": {
-      "current": 5,
-      "ceiling": 5,
+      "current": 4,
+      "ceiling": 4,
       "nonGrowth": true
     },
     "piOwnership": {
