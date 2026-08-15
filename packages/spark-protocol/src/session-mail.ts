@@ -49,6 +49,15 @@ export const sparkSessionMailRequestAdmissionSchema = z.discriminatedUnion("stat
   }),
 ]);
 
+export const sparkSessionMailRequestExecutionSchema = z.object({
+  notifyOnCompletion: z.boolean().default(false),
+  parentInvocationId: z.string().trim().min(1).nullish(),
+  origin: z.object({
+    surface: z.enum(["local", "channel"]),
+    host: z.enum(["tui", "web", "channel", "daemon", "session"]),
+  }),
+});
+
 export const sparkSessionMailMessageSchema = z.object({
   id: z.string().trim().min(1),
   toSessionId: z.string().trim().min(1),
@@ -70,6 +79,8 @@ export const sparkSessionMailMessageSchema = z.object({
   ackedAt: z.string().nullable(),
   source: z.enum(["cli", "tui", "tool"]),
   requestAdmission: sparkSessionMailRequestAdmissionSchema.optional(),
+  /** Execution envelope frozen at send time and replayed when a queued request drains. */
+  requestExecution: sparkSessionMailRequestExecutionSchema.optional(),
 });
 
 export const sparkSessionSendRequestSchema = z.object({
@@ -88,6 +99,8 @@ export const sparkSessionSendRequestSchema = z.object({
     host: z.enum(["tui", "web", "channel", "daemon", "session"]),
   }),
   parentInvocationId: z.string().trim().min(1).optional(),
+  /** Behavior when the target session is currently active (queued or running). */
+  onActive: z.enum(["queue", "interrupt"]).default("queue"),
   notifyOnCompletion: z.boolean().default(false),
   source: z.enum(["cli", "tui", "tool"]).default("tool"),
 });
@@ -145,6 +158,9 @@ export type SparkSessionMailOriginBinding = z.infer<typeof sparkSessionMailOrigi
 export type SparkSessionMailDeliveryReceipt = z.infer<typeof sparkSessionMailDeliveryReceiptSchema>;
 export type SparkSessionMailRequestAdmission = z.infer<
   typeof sparkSessionMailRequestAdmissionSchema
+>;
+export type SparkSessionMailRequestExecution = z.infer<
+  typeof sparkSessionMailRequestExecutionSchema
 >;
 export type SparkSessionMailMessage = z.infer<typeof sparkSessionMailMessageSchema>;
 export type SparkSessionSendRequest = z.infer<typeof sparkSessionSendRequestSchema>;

@@ -757,3 +757,116 @@ describe("blocking session requests", () => {
     });
   });
 });
+
+describe("session send queue|interrupt tool surface", () => {
+  it("reports a durably queued request without an invocation receipt", async () => {
+    const mailStore = await createMailStore();
+    const origin = session("sess_origin");
+    const worker = session("sess_worker");
+    const request = vi.fn(async (method: string, params: unknown) => {
+      if (method === "session.get") {
+        return (params as { sessionId: string }).sessionId === origin.sessionId ? origin : worker;
+      }
+      if (method === "session.send") {
+        const input = params as SparkSessionSendRequest;
+        expect(input.onActive).toBe("queue");
+        const sent = await mailStore.send({
+          toSessionId: input.toSessionId,
+          fromSessionId: input.fromSessionId,
+          kind: input.kind,
+          intent: input.intent,
+          payload: input.payload,
+          idempotencyKey: input.idempotencyKey,
+          body: input.body,
+          source: input.source,
+        });
+        return {
+          message: sent.message,
+          filePath: sent.path,
+          created: sent.created,
+          executionTriggered: false,
+          target: input.toSessionId === worker.sessionId ? worker : origin,
+        };
+      }
+      throw new Error(`unexpected RPC method: ${method}`);
+    });
+
+    const queued = await executeSparkSessionAction(
+      {
+        action: "send",
+        toolCallId: "tool-queued",
+        params: { toSessionId: worker.sessionId, kind: "request", message: "queued work" },
+        signal: new AbortController().signal,
+        ctx: { sessionId: origin.sessionId },
+      },
+      { request: request as never },
+    );
+    expect(queued.content[0]!.text).toContain("Queued request");
+    expect(queued.details).toMatchObject({
+      action: "send",
+      executionTriggered: false,
+      queued: true,
+    });
+    expect(queued.details.invocationId).toBeUndefined();
+  });
+
+  it("passes onActive=interrupt through to the daemon request", async () => {
+    const origin = session("sess_origin");
+    const worker = session("sess_worker");
+    let seenOnActive: unknown;
+    const request = vi.fn(async (method: string, params: unknown) => {
+      if (method === "session.get") {
+        return (params as { sessionId: string }).sessionId === origin.sessionId ? origin : worker;
+      }
+      if (method === "session.send") {
+        seenOnActive = (params as SparkSessionSendRequest).onActive;
+        return {
+          message: {
+            id: "mail:queued",
+            toSessionId: worker.sessionId,
+            fromSessionId: origin.sessionId,
+            kind: "request",
+            visibility: "internal",
+            delivery: "mailbox",
+            deliveries: [],
+            intent: "work.request",
+            payload: {},
+            correlationId: "corr:1",
+            replyToMessageId: null,
+            idempotencyKey: "key:1",
+            subject: null,
+            body: "queued work",
+            createdAt: "2026-07-17T00:00:00.000Z",
+            readAt: null,
+            ackedAt: null,
+            source: "tool",
+            requestAdmission: { status: "pending", updatedAt: "2026-07-17T00:00:00.000Z" },
+          },
+          filePath: "/tmp/mail.json",
+          created: true,
+          executionTriggered: false,
+          target: worker,
+        };
+      }
+      throw new Error(`unexpected RPC method: ${method}`);
+    });
+
+    const result = await executeSparkSessionAction(
+      {
+        action: "send",
+        toolCallId: "tool-interrupt",
+        params: {
+          toSessionId: worker.sessionId,
+          kind: "request",
+          message: "interrupt and take over",
+          onActive: "interrupt",
+        },
+        signal: new AbortController().signal,
+        ctx: { sessionId: origin.sessionId },
+      },
+      { request: request as never },
+    );
+    expect(seenOnActive).toBe("interrupt");
+    expect(result.content[0]!.text).toContain("Queued request");
+  });
+});

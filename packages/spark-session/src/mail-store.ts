@@ -10,6 +10,7 @@ import type {
   SparkSessionMailKind,
   SparkSessionMailMessage,
   SparkSessionMailOriginBinding,
+  SparkSessionMailRequestExecution,
   SparkSessionMailVisibility,
   SparkProtocolJsonValue,
   SparkTurnSubmitResult,
@@ -59,6 +60,8 @@ export interface SparkSessionMailSendInput {
   subject?: string | null;
   body?: string;
   source?: SparkSessionMailMessage["source"];
+  /** Frozen execution envelope for request mails; replayed when a queued request drains. */
+  requestExecution?: SparkSessionMailRequestExecution;
 }
 
 export interface SparkSessionMailListOptions {
@@ -116,6 +119,7 @@ export class SparkSessionMailStore {
       replyToMessageId,
       subject: input.subject?.trim() || null,
       body,
+      requestExecution: input.requestExecution,
     };
     return await this.withSendLock(async () => {
       if (idempotencyKey) {
@@ -151,6 +155,9 @@ export class SparkSessionMailStore {
           source: input.source ?? "cli",
           ...(kind === "request"
             ? { requestAdmission: { status: "pending" as const, updatedAt: this.nowIso() } }
+            : {}),
+          ...(kind === "request" && input.requestExecution
+            ? { requestExecution: input.requestExecution }
             : {}),
         };
         mailbox.messages.push(message);
@@ -195,6 +202,30 @@ export class SparkSessionMailStore {
       }
     }
     return pending;
+  }
+
+  /**
+   * Durable session-request queue: every executable request mail that has not
+   * been admitted by a turn yet, FIFO by creation. The daemon drains one per
+   * session per pass after the session becomes idle.
+   */
+  async pendingRequests(limit = 100): Promise<SparkSessionMailMessage[]> {
+    const normalizedLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    const pending: SparkSessionMailMessage[] = [];
+    for (const message of await this.allStoredMessages()) {
+      if (message.kind !== "request" || message.requestAdmission?.status !== "pending") continue;
+      pending.push(message);
+      if (pending.length >= normalizedLimit) return pending;
+    }
+    return pending;
+  }
+
+  /** Pending (queued) executable requests for one target session, FIFO by createdAt. */
+  async pendingRequestsForSession(toSessionId: string): Promise<SparkSessionMailMessage[]> {
+    const messages = await this.list(toSessionId, { includeAcked: true });
+    return messages.filter(
+      (message) => message.kind === "request" && message.requestAdmission?.status === "pending",
+    );
   }
 
   async get(toSessionId: string, messageId: string): Promise<SparkSessionMailMessage> {
@@ -634,6 +665,9 @@ function normalizeMailMessage(value: unknown): SparkSessionMailMessage | undefin
     ...(normalizeRequestAdmission(record.requestAdmission, record.kind)
       ? { requestAdmission: normalizeRequestAdmission(record.requestAdmission, record.kind)! }
       : {}),
+    ...(normalizeRequestExecution(record.requestExecution, record.kind)
+      ? { requestExecution: normalizeRequestExecution(record.requestExecution, record.kind)! }
+      : {}),
   };
 }
 
@@ -662,6 +696,40 @@ function normalizeRequestAdmission(
     };
   }
   return { status: "pending", updatedAt };
+}
+
+function normalizeRequestExecution(
+  value: unknown,
+  kind: unknown,
+): SparkSessionMailRequestExecution | undefined {
+  if (kind !== "request") return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const originRecord =
+    record.origin && typeof record.origin === "object"
+      ? (record.origin as Record<string, unknown>)
+      : undefined;
+  const surface = originRecord?.surface;
+  const host = originRecord?.host;
+  if (surface !== "local" && surface !== "channel") return undefined;
+  if (
+    host !== "tui" &&
+    host !== "web" &&
+    host !== "channel" &&
+    host !== "daemon" &&
+    host !== "session"
+  ) {
+    return undefined;
+  }
+  const parentInvocationId =
+    typeof record.parentInvocationId === "string" && record.parentInvocationId.trim()
+      ? record.parentInvocationId.trim()
+      : null;
+  return {
+    notifyOnCompletion: record.notifyOnCompletion === true,
+    parentInvocationId,
+    origin: { surface, host },
+  };
 }
 
 function normalizeMailKind(value: unknown): SparkSessionMailKind {
@@ -948,6 +1016,7 @@ function assertSameLogicalMessage(
     replyToMessageId: string | null;
     subject: string | null;
     body: string;
+    requestExecution?: SparkSessionMailRequestExecution;
   },
 ): void {
   const comparableExisting = {
@@ -964,6 +1033,7 @@ function assertSameLogicalMessage(
     replyToMessageId: existing.replyToMessageId,
     subject: existing.subject,
     body: existing.body,
+    requestExecution: existing.requestExecution,
   };
   const comparableCandidate = {
     toSessionId: candidate.toSessionId,
@@ -979,6 +1049,7 @@ function assertSameLogicalMessage(
     replyToMessageId: candidate.replyToMessageId,
     subject: candidate.subject,
     body: candidate.body,
+    requestExecution: candidate.requestExecution,
   };
   if (JSON.stringify(comparableExisting) !== JSON.stringify(comparableCandidate)) {
     throw new Error(

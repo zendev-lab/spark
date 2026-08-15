@@ -201,6 +201,7 @@ export const sparkLocalRpcSessionOrpcErrors = {
   session_mail_not_notification: { status: 422 },
   session_mail_not_user_visible: { status: 422 },
   session_mail_origin_binding_required: { status: 422 },
+  session_mail_queue_full: { status: 429 },
   session_mail_self_target: { status: 422 },
   session_mail_store_unavailable: { status: 503 },
   session_mail_target_archived: { status: 409 },
@@ -586,6 +587,7 @@ const sparkLocalRpcSessionSendOrpcErrors = {
   session_mail_not_found: sparkLocalRpcSessionOrpcErrors.session_mail_not_found,
   session_mail_origin_binding_required:
     sparkLocalRpcSessionOrpcErrors.session_mail_origin_binding_required,
+  session_mail_queue_full: sparkLocalRpcSessionOrpcErrors.session_mail_queue_full,
   session_mail_self_target: sparkLocalRpcSessionOrpcErrors.session_mail_self_target,
   session_mail_store_unavailable: sparkLocalRpcSessionOrpcErrors.session_mail_store_unavailable,
   session_mail_target_archived: sparkLocalRpcSessionOrpcErrors.session_mail_target_archived,
