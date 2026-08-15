@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";
@@ -252,6 +252,40 @@ describe("reconcileExecutionState", () => {
       status: "running",
       daemonGeneration: generation,
     });
+  });
+
+  it("propagates recovery writes that fail while the invocation is still running", () => {
+    const { store, attempts } = harness();
+    const generation = attempts.allocateDaemonGeneration(at(0));
+    const invocation = store.submit({
+      invocationId: "inv_recovery_write_failure",
+      sessionId: "session-write-failure",
+      prompt: "remain running",
+      task: {
+        type: "session.run",
+        sessionId: "session-write-failure",
+        generation: 1,
+        continuity: "session",
+        cwd: process.cwd(),
+        prompt: "remain running",
+      },
+      now: at(0),
+    });
+    store.claimNext("worker-old", at(1));
+    vi.spyOn(store, "requeueForResume").mockImplementation(() => {
+      throw new Error("forced recovery write failure");
+    });
+
+    expect(() =>
+      reconcileExecutionState({
+        invocationStore: store,
+        attemptStore: attempts,
+        daemonGeneration: generation,
+        trigger: "startup",
+        now: at(2),
+      }),
+    ).toThrow("forced recovery write failure");
+    expect(store.require(invocation.invocationId).status).toBe("running");
   });
 
   it("lists only latest non-terminal attempts per invocation", () => {
