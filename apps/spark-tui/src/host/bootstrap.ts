@@ -79,7 +79,10 @@ export async function createSparkCliHostServices(
     options.configPath ??
     (options.sparkHome ? join(options.sparkHome, "config.json") : defaultSparkConfigPath());
   const config = options.config ?? (await loadSparkConfig(configPath));
-  const saveLoadedConfig = (nextConfig: SparkConfig) => saveSparkConfig(nextConfig, configPath);
+  const saveLoadedConfig = (
+    nextConfig: SparkConfig,
+    options?: import("./config.ts").SparkConfigSaveOptions,
+  ) => saveSparkConfig(nextConfig, configPath, options);
 
   const keybindings = new SparkKeybindings();
   const keybindingsPath =

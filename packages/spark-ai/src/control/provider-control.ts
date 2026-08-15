@@ -36,6 +36,23 @@ import {
   type SparkProviderLoadOutcome,
 } from "./provider-catalog.ts";
 
+export type SparkEnabledModelsWriteIntent = {
+  kind: "user-initiated";
+  via: "slash-command" | "settings-ui" | "cli";
+};
+
+function requireEnabledModelsWriteIntent(
+  intent: SparkEnabledModelsWriteIntent | undefined,
+): SparkEnabledModelsWriteIntent {
+  if (
+    intent?.kind !== "user-initiated" ||
+    (intent.via !== "slash-command" && intent.via !== "settings-ui" && intent.via !== "cli")
+  ) {
+    throw new Error("enabledModels writes require verified user-initiated intent");
+  }
+  return intent;
+}
+
 export interface CreateSparkProviderControlOptions {
   sparkHome?: string;
   authPath?: string;
@@ -98,7 +115,10 @@ export interface SparkProviderControlSnapshot {
 export interface SparkProviderControl {
   snapshot(): Promise<SparkProviderControlSnapshot>;
   setDefaultModel(modelRef: string): Promise<void>;
-  setEnabledModels(modelRefs: readonly string[]): Promise<void>;
+  setEnabledModels(
+    modelRefs: readonly string[],
+    intent?: SparkEnabledModelsWriteIntent,
+  ): Promise<void>;
   setApiKey(providerId: string, apiKey: string): Promise<void>;
   logout(providerId: string): Promise<boolean>;
   startOAuth(providerId: string): Promise<SparkOAuthFlowSnapshot>;
@@ -217,7 +237,11 @@ class LocalSparkProviderControl implements SparkProviderControl {
     await writeSparkDefaultModel(this.#configPath, selectedModelId);
   }
 
-  async setEnabledModels(modelRefs: readonly string[]): Promise<void> {
+  async setEnabledModels(
+    modelRefs: readonly string[],
+    intent?: SparkEnabledModelsWriteIntent,
+  ): Promise<void> {
+    requireEnabledModelsWriteIntent(intent);
     const state = await this.#loadState();
     if (state.config.loadError) {
       throw new Error(`Refusing to overwrite unreadable Spark config: ${state.config.loadError}`);

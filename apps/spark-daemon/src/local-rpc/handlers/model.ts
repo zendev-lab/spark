@@ -34,7 +34,10 @@ export async function handleModelRequest(
       return snapshot;
     }
     case "model.enabled.set": {
-      const snapshot = await requireModelControl(options).setEnabledModels(request.params.models);
+      const snapshot = await requireModelControl(options).setEnabledModels(
+        request.params.models,
+        request.params.intent,
+      );
       return snapshot;
     }
     case "provider.auth.api-key.set": {

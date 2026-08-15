@@ -22,10 +22,33 @@ import type { SparkOAuthFlowSnapshot } from "@zendev-lab/spark-ai/control";
 import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 
+type SparkEnabledModelsWriteIntent = {
+  kind: "user-initiated";
+  via: "slash-command" | "settings-ui" | "cli";
+};
+
+function requireEnabledModelsWriteIntent(
+  intent: SparkEnabledModelsWriteIntent | undefined,
+): SparkEnabledModelsWriteIntent {
+  if (
+    intent?.kind !== "user-initiated" ||
+    (intent.via !== "slash-command" && intent.via !== "settings-ui" && intent.via !== "cli")
+  ) {
+    throw new SparkDaemonControlError(
+      "enabled_models_intent_required",
+      "enabledModels writes require verified user-initiated intent",
+    );
+  }
+  return intent;
+}
+
 export interface SparkDaemonModelControl {
   snapshot(sessionId?: string): Promise<SparkModelControlSnapshot>;
   setDefaultModel(model: SparkModelRef): Promise<SparkModelControlSnapshot>;
-  setEnabledModels(models: readonly SparkModelRef[]): Promise<SparkModelControlSnapshot>;
+  setEnabledModels(
+    models: readonly SparkModelRef[],
+    intent?: SparkEnabledModelsWriteIntent,
+  ): Promise<SparkModelControlSnapshot>;
   setSessionModel(sessionId: string, model: SparkModelRef): Promise<SparkSessionState>;
   setSessionThinkingLevel(
     sessionId: string,
@@ -78,10 +101,14 @@ class DaemonModelControl implements SparkDaemonModelControl {
     return await this.snapshot();
   }
 
-  async setEnabledModels(models: readonly SparkModelRef[]): Promise<SparkModelControlSnapshot> {
+  async setEnabledModels(
+    models: readonly SparkModelRef[],
+    intent?: SparkEnabledModelsWriteIntent,
+  ): Promise<SparkModelControlSnapshot> {
+    const verified = requireEnabledModelsWriteIntent(intent);
     const snapshot = await this.snapshot();
     const canonical = models.map((model) => requireCatalogModel(snapshot, model).model);
-    await this.#providerControl.setEnabledModels(canonical.map(modelValue));
+    await this.#providerControl.setEnabledModels(canonical.map(modelValue), verified);
     return await this.snapshot();
   }
 

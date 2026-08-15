@@ -43,6 +43,7 @@ export { createSparkProviderControl } from "./provider-control.ts";
 export type {
   CreateSparkProviderControlOptions,
   SparkControlOAuthProvider,
+  SparkEnabledModelsWriteIntent,
   SparkProviderControl,
   SparkProviderControlAuthSnapshot,
   SparkProviderControlModelSnapshot,

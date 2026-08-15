@@ -1752,12 +1752,14 @@ async function persistDaemonModelSelection(
   selection: SparkActiveSelection,
 ): Promise<void> {
   await modelControl.setSessionModel(selection);
-  await modelControl.setDefaultModel(selection);
+  // Session selection is intentionally scoped to the current session. The
+  // daemon default is only a seed for sessions created after it changes.
+  // Do not persist config.json here: in-memory enabledModels may be normalized
+  // catalog defaults and must not overwrite an explicit user policy.
   services.config.activeModelId = sparkModelSelectionValue(selection);
   delete services.config.activeProvider;
   delete services.config.activeModel;
   synchronizeLocalModelSelection(services, selection);
-  await services.saveConfig?.(services.config);
 }
 
 async function persistThinkingLevel(
@@ -1802,7 +1804,7 @@ function createDelegatingSparkDaemonModelAuthClient(
   };
   return {
     snapshot: () => current().snapshot(),
-    setEnabledModels: (models) => current().setEnabledModels(models),
+    setEnabledModels: (models, intent) => current().setEnabledModels(models, intent),
     setSessionModel: (model) => current().setSessionModel(model),
     setSessionThinkingLevel: (thinkingLevel) => current().setSessionThinkingLevel(thinkingLevel),
     setDefaultModel: (model) => current().setDefaultModel(model),

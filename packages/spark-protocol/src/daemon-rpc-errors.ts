@@ -51,6 +51,7 @@ export const sparkModelRpcErrorCodeOptions = [
   "role_model_type_unconfigured",
   "model_not_found",
   "model_not_enabled",
+  "enabled_models_intent_required",
   "model_unavailable",
   "provider_not_found",
   "provider_auth_method_unsupported",

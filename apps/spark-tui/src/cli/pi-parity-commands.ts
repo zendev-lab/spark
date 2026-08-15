@@ -39,7 +39,7 @@ import { navigateSparkSessionBranchWithSummary } from "../host/compaction.ts";
 import { listOAuthProviderSummaries } from "../host/auth.ts";
 import { sessionMailStatus, type SparkSessionMailMessage } from "../host/session-mail-store.ts";
 import type { SparkCliHostServices } from "../host/index.ts";
-import type { SparkConfig } from "../host/config.ts";
+import { sparkUserInitiatedEnabledModelsIntent, type SparkConfig } from "../host/config.ts";
 import {
   daemonSnapshotToCatalogState,
   daemonSnapshotToPickerState,
@@ -479,12 +479,17 @@ async function persistEnabledModels(
   if (modelAuthClient) {
     const snapshot = await modelAuthClient.setEnabledModels(
       modelValues.map(parseEnabledModelValue),
+      sparkUserInitiatedEnabledModelsIntent("slash-command"),
     );
     if (services.config) services.config.enabledModels = [...modelValues];
     return formatEnabledModelsSaved((snapshot.enabledModels ?? []).map(sparkModelValue));
   }
   services.config.enabledModels = [...modelValues];
-  if (services.saveConfig) await services.saveConfig(services.config);
+  if (services.saveConfig) {
+    await services.saveConfig(services.config, {
+      enabledModelsIntent: sparkUserInitiatedEnabledModelsIntent("slash-command"),
+    });
+  }
   return formatEnabledModelsSaved(modelValues);
 }
 

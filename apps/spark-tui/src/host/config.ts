@@ -132,14 +132,60 @@ export async function loadSparkConfig(
   return mergeWithDefault(parsed);
 }
 
+export type SparkEnabledModelsWriteIntent = {
+  kind: "user-initiated";
+  via: "slash-command" | "settings-ui" | "cli";
+};
+
+export interface SparkConfigSaveOptions {
+  enabledModelsIntent?: SparkEnabledModelsWriteIntent;
+}
+
+export function sparkUserInitiatedEnabledModelsIntent(
+  via: SparkEnabledModelsWriteIntent["via"],
+): SparkEnabledModelsWriteIntent {
+  return { kind: "user-initiated", via };
+}
+
 export async function saveSparkConfig(
   config: SparkConfig,
   path: string = defaultSparkConfigPath(),
+  options?: SparkConfigSaveOptions,
 ): Promise<void> {
+  const toWrite: SparkConfig = { ...config };
+  if (!hasVerifiedEnabledModelsWriteIntent(options?.enabledModelsIntent)) {
+    const diskEnabledModels = await readDiskEnabledModels(path);
+    if (diskEnabledModels === undefined) delete toWrite.enabledModels;
+    else toWrite.enabledModels = diskEnabledModels;
+  }
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  await writeFile(tmp, `${JSON.stringify(toWrite, null, 2)}\n`, "utf8");
   await rename(tmp, path);
+}
+
+function hasVerifiedEnabledModelsWriteIntent(
+  intent: SparkEnabledModelsWriteIntent | undefined,
+): intent is SparkEnabledModelsWriteIntent {
+  return (
+    intent?.kind === "user-initiated" &&
+    (intent.via === "slash-command" || intent.via === "settings-ui" || intent.via === "cli")
+  );
+}
+
+async function readDiskEnabledModels(path: string): Promise<string[] | undefined> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    if (!("enabledModels" in parsed)) return undefined;
+    const value = (parsed as { enabledModels?: unknown }).enabledModels;
+    if (!Array.isArray(value)) return undefined;
+    return value.filter((entry): entry is string => typeof entry === "string");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
 }
 
 export function mergeWithDefault(raw: unknown): SparkConfig {

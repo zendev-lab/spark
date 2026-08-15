@@ -473,6 +473,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["session.model.set", "model_control_unavailable"],
       ["session.model.set", "model_not_enabled"],
       ["model.default.set", "model_not_enabled"],
+      ["model.enabled.set", "enabled_models_intent_required"],
     ] as const;
     for (const [method, code] of declaredCases) {
       expect(isSparkLocalRpcOrpcErrorCodeForMethod(method, code), `${method}: ${code}`).toBe(true);

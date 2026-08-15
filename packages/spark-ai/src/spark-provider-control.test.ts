@@ -161,6 +161,23 @@ test("user enabledModels replaces defaults and explicit empty scope permits no m
   });
 });
 
+test("provider control refuses enabledModels writes without verified user-initiated intent", async () => {
+  await withSparkHome(async (sparkHome) => {
+    const configPath = join(sparkHome, "config.json");
+    await writeFile(
+      configPath,
+      `${JSON.stringify({ enabledModels: ["baidu-oneapi/grok-4.6"] })}\n`,
+    );
+    const control = createSparkProviderControl({ sparkHome, env: {} });
+    await assert.rejects(
+      control.setEnabledModels(["baidu-oneapi/grok-4.5"]),
+      /enabledModels writes require verified user-initiated intent/u,
+    );
+    const persisted = await readJsonFixture<Record<string, unknown>>(configPath);
+    assert.deepEqual(persisted.enabledModels, ["baidu-oneapi/grok-4.6"]);
+  });
+});
+
 test("provider control persists exact enabledModels ids from a custom policy", async () => {
   await withSparkHome(async (sparkHome) => {
     const configPath = join(sparkHome, "config.json");
@@ -171,7 +188,10 @@ test("provider control persists exact enabledModels ids from a custom policy", a
     );
     const control = createSparkProviderControl({ sparkHome, env: {} });
 
-    await control.setEnabledModels(["openai-codex/gpt-5.6-sol", "openai-codex/gpt-5.6-luna"]);
+    await control.setEnabledModels(["openai-codex/gpt-5.6-sol", "openai-codex/gpt-5.6-luna"], {
+      kind: "user-initiated",
+      via: "cli",
+    });
     const updated = await control.snapshot();
     assert.deepEqual(
       new Set(updated.enabledModelIds),

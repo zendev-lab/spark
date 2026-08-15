@@ -5046,7 +5046,7 @@ test("native TUI model selection and following turn share one managed session", 
       providerName: "provider-a",
       modelId: "model-b",
     });
-    assert.equal(savedModelId, "provider-a/model-b");
+    assert.equal(savedModelId, undefined);
     assert.deepEqual(controlCalls, [
       { method: "session.snapshot", params: { sessionId: "same-session" } },
       { method: "model.catalog", params: { sessionId: "same-session" } },
@@ -5056,10 +5056,6 @@ test("native TUI model selection and following turn share one managed session", 
           sessionId: "same-session",
           model: { providerName: "provider-a", modelId: "model-b" },
         },
-      },
-      {
-        method: "model.default.set",
-        params: { model: { providerName: "provider-a", modelId: "model-b" } },
       },
     ]);
     assert.match(submitted[0]?.input.idempotencyKey ?? "", /^turn\.submit:spark_cli_/u);
