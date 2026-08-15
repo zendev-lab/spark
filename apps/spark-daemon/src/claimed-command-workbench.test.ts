@@ -60,6 +60,7 @@ describe("claimed runtime Workbench command", () => {
       config: { installationId: "claimed-workbench-test", displayName: "Test daemon" },
       db,
       runtimeId: "rt_11111111111111111111111111111111",
+      sparkHome: root,
       runtimeSessionId: undefined,
       setRuntimeSessionId() {},
       ensureHeartbeat() {},

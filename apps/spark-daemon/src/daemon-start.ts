@@ -2253,6 +2253,7 @@ async function runSparkDaemonServerConnection(
         serverUrl: serverUrl ?? undefined,
         runSparkCommand: options.runSparkCommand ?? runSparkCommandBridge,
         cancelSparkInvocation: options.cancelSparkInvocation ?? cancelSparkBridgeInvocation,
+        sparkHome: userPaths.dataRoot,
         controlSparkHome: userPaths.configRoot,
         ...(options.modelControl ? { modelControl: options.modelControl } : {}),
         ...(options.channelIngress ? { channelIngress: options.channelIngress } : {}),

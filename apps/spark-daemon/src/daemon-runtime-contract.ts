@@ -93,7 +93,7 @@ export interface MessageContext {
   db: DatabaseSync;
   runtimeId: string;
   serverUrl?: string;
-  sparkHome?: string;
+  sparkHome: string;
   controlSparkHome?: string;
   runtimeSessionId: string | undefined;
   setRuntimeSessionId(value: string): void;

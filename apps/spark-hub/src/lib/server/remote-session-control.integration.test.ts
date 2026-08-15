@@ -112,6 +112,7 @@ test("remote Hub controls workspace sessions without a daemon socket", async () 
       config: { installationId, displayName: "Remote session daemon", runtimeId },
       db: daemonDb,
       runtimeId,
+      sparkHome: join(root, "spark-home"),
       runtimeSessionId: undefined,
       setRuntimeSessionId(value) {
         this.runtimeSessionId = value;
