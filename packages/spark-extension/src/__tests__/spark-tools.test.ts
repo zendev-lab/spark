@@ -7967,6 +7967,8 @@ test("repro three-lane actions bind one native stack and reconcile resolutions t
       action: "work_rematerialize",
       laneInput: {
         workItemId: "work:rmsnorm-candidate",
+        lane: "implementation",
+        expectedBindingRevision: 1,
         expectedSourceRevision: "commit:candidate",
         sourceRevision: "commit:candidate-v2",
         evidenceRefs: ["evidence:rebase"],
@@ -7978,6 +7980,8 @@ test("repro three-lane actions bind one native stack and reconcile resolutions t
           action: "work_rematerialize",
           laneInput: {
             workItemId: "work:rmsnorm-candidate",
+            lane: "implementation",
+            expectedBindingRevision: 1,
             expectedSourceRevision: "commit:candidate",
             sourceRevision: "commit:stale-write",
             evidenceRefs: ["evidence:rebase"],
@@ -8040,6 +8044,32 @@ test("repro three-lane actions bind one native stack and reconcile resolutions t
     await executeSparkTool(tools, "repro", ctx, {
       action: "formalize_bind",
       laneInput: { gitChangeRef },
+    });
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "work_register",
+      laneInput: {
+        lane: "exactness",
+        workItemId: "work:rmsnorm-candidate",
+        title: "Localize RMSNorm divergence",
+        scope: "layers.0.input_layernorm",
+        planRevision: initial.plan.currentRevision,
+        sourceRevision: "commit:candidate-v2",
+        taskRef: task.ref,
+        gitChangeRef,
+      },
+    });
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "work_register",
+      laneInput: {
+        lane: "formalize",
+        workItemId: "work:rmsnorm-candidate",
+        title: "Localize RMSNorm divergence",
+        scope: "layers.0.input_layernorm",
+        planRevision: initial.plan.currentRevision,
+        sourceRevision: "commit:candidate-v2",
+        taskRef: task.ref,
+        gitChangeRef,
+      },
     });
     await executeSparkTool(tools, "repro", ctx, {
       action: "handoff_record",
@@ -14077,7 +14107,7 @@ test("repro start creates a generic project with one task per bound subgoal", as
     });
 
     const repro = await readSessionRepro(dir, ctx);
-    assert.equal(repro?.version, 8);
+    assert.equal(repro?.version, 9);
     assert.ok(repro?.projectRef);
     const graph = await defaultTaskGraphStore(dir).load();
     assert.ok(graph);
@@ -14120,7 +14150,7 @@ test("repro start creates a generic project with one task per bound subgoal", as
       version: number;
       repro?: { projectRef?: string };
     };
-    assert.equal(persisted.version, 8);
+    assert.equal(persisted.version, 9);
     assert.equal(persisted.repro?.projectRef, project.ref);
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });

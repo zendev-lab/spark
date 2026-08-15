@@ -11,6 +11,7 @@ import {
   migrateSparkSessionReproV4,
   migrateSparkSessionReproV5,
   migrateSparkSessionReproV6,
+  migrateSparkSessionReproV8,
   normalizeReproStageName,
   normalizeStoredSparkSessionRepro,
   reproProgressDigest,
@@ -26,6 +27,7 @@ import {
   type SparkSessionReproV5,
   type SparkSessionReproV6,
   type SparkSessionReproV7,
+  type SparkSessionReproV8,
 } from "@zendev-lab/spark-repro";
 import {
   rebuildSessionIndex,
@@ -40,9 +42,15 @@ export function reproPhaseToSessionMode(phase: SparkSessionPhase): "plan" | "exe
   return phase === "implement" ? "execute" : "plan";
 }
 
+interface SparkSessionReproSnapshotV9 {
+  version: 9;
+  repro?: SparkSessionRepro;
+  [key: string]: unknown;
+}
+
 interface SparkSessionReproSnapshotV8 {
   version: 8;
-  repro?: SparkSessionRepro;
+  repro?: SparkSessionReproV8;
   [key: string]: unknown;
 }
 
@@ -114,6 +122,7 @@ interface LegacySparkSessionReproSnapshot {
 }
 
 type StoredSparkSessionReproSnapshot =
+  | SparkSessionReproSnapshotV9
   | SparkSessionReproSnapshotV8
   | SparkSessionReproSnapshotV7
   | SparkSessionReproSnapshotV6
@@ -133,16 +142,31 @@ export async function readSessionRepro(
   const path = sessionReproStorePath(cwd, ctx);
   const snapshot = await readJsonFileOptional<StoredSparkSessionReproSnapshot>(path);
   if (!snapshot) return undefined;
-  if (snapshot.version === 8) {
+  if (snapshot.version === 9) {
     if (snapshot.repro === undefined) return undefined;
     const repro = sanitizeStoredSessionRepro(snapshot.repro);
     if (!repro) {
       throw new Error(`Stored Repro snapshot is invalid and was preserved at ${path}`);
     }
     if (JSON.stringify(repro) !== JSON.stringify(snapshot.repro)) {
-      await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
+      await writeJsonFileAtomic(path, { version: 9, repro } satisfies SparkSessionReproSnapshotV9);
       await rebuildSessionIndex(cwd);
     }
+    return repro;
+  }
+  if (snapshot.version === 8) {
+    if (snapshot.repro === undefined) return undefined;
+    let repro: SparkSessionRepro | undefined;
+    try {
+      repro = sanitizeStoredSessionRepro(migrateSparkSessionReproV8(snapshot.repro));
+    } catch {
+      repro = undefined;
+    }
+    if (!repro) {
+      throw new Error(`Stored Repro snapshot is invalid and was preserved at ${path}`);
+    }
+    await writeJsonFileAtomic(path, { version: 9, repro } satisfies SparkSessionReproSnapshotV9);
+    await rebuildSessionIndex(cwd);
     return repro;
   }
   if (snapshot.version === 7) {
@@ -151,7 +175,7 @@ export async function readSessionRepro(
     if (!repro) {
       throw new Error(`Stored Repro snapshot is invalid and was preserved at ${path}`);
     }
-    await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
+    await writeJsonFileAtomic(path, { version: 9, repro } satisfies SparkSessionReproSnapshotV9);
     await rebuildSessionIndex(cwd);
     return repro;
   }
@@ -159,7 +183,7 @@ export async function readSessionRepro(
     const sanitized = sanitizeStoredSessionReproV6(snapshot.repro);
     const migrated = sanitized ? migrateSparkSessionReproV6(sanitized) : undefined;
     const repro = sanitizeStoredSessionRepro(migrated);
-    await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
+    await writeJsonFileAtomic(path, { version: 9, repro } satisfies SparkSessionReproSnapshotV9);
     await rebuildSessionIndex(cwd);
     return repro;
   }
@@ -167,7 +191,7 @@ export async function readSessionRepro(
     const sanitized = sanitizeStoredSessionReproV5(snapshot.repro);
     const migrated = sanitized ? migrateSparkSessionReproV5(sanitized) : undefined;
     const repro = sanitizeStoredSessionRepro(migrated);
-    await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
+    await writeJsonFileAtomic(path, { version: 9, repro } satisfies SparkSessionReproSnapshotV9);
     await rebuildSessionIndex(cwd);
     return repro;
   }
@@ -175,7 +199,7 @@ export async function readSessionRepro(
     const sanitized = sanitizeStoredSessionReproV4(snapshot.repro);
     const migrated = sanitized ? migrateSparkSessionReproV4(sanitized) : undefined;
     const repro = sanitizeStoredSessionRepro(migrated);
-    await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
+    await writeJsonFileAtomic(path, { version: 9, repro } satisfies SparkSessionReproSnapshotV9);
     await rebuildSessionIndex(cwd);
     return repro;
   }
@@ -184,7 +208,7 @@ export async function readSessionRepro(
     const v4 = sanitized ? migrateSparkSessionReproV3(sanitized) : undefined;
     const migrated = v4 ? migrateSparkSessionReproV4(v4) : undefined;
     const repro = sanitizeStoredSessionRepro(migrated);
-    await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
+    await writeJsonFileAtomic(path, { version: 9, repro } satisfies SparkSessionReproSnapshotV9);
     await rebuildSessionIndex(cwd);
     return repro;
   }
@@ -194,7 +218,7 @@ export async function readSessionRepro(
   const v4 = v3 ? migrateSparkSessionReproV3(v3) : undefined;
   const migrated = v4 ? migrateSparkSessionReproV4(v4) : undefined;
   const repro = sanitizeStoredSessionRepro(migrated);
-  await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
+  await writeJsonFileAtomic(path, { version: 9, repro } satisfies SparkSessionReproSnapshotV9);
   await rebuildSessionIndex(cwd);
   return repro;
 }
@@ -205,8 +229,8 @@ export async function writeSessionRepro(
   ctx?: SparkSessionContext,
 ): Promise<void> {
   const path = sessionReproStorePath(cwd, ctx);
-  const snapshot: SparkSessionReproSnapshotV8 = {
-    version: 8,
+  const snapshot: SparkSessionReproSnapshotV9 = {
+    version: 9,
     repro: repro ? withoutReproRuntimeState(repro) : undefined,
   };
   await writeJsonFileAtomic(path, snapshot);
@@ -491,7 +515,7 @@ function normalizeLegacyStageNames<
       name: normalizeReproStageName(stage.name),
     })),
     ...(plan ? { plan } : {}),
-    ...(repro.version === 5 || repro.version === 6 || repro.version === 8
+    ...(repro.version === 5 || repro.version === 6 || repro.version === 9
       ? { subgoals: repro.subgoals.map(normalizeDefinition) }
       : {}),
   } as T;

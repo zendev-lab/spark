@@ -31,7 +31,9 @@ interface SparkReproDualLaneSessionInput {
   unresolvedIds: string[];
 }
 
-export const SPARK_REPRO_THREE_LANE_SESSION_SCHEMA = "spark.repro.three-lane-session/v1" as const;
+export const SPARK_REPRO_THREE_LANE_SESSION_SCHEMA_V1 =
+  "spark.repro.three-lane-session/v1" as const;
+export const SPARK_REPRO_THREE_LANE_SESSION_SCHEMA = "spark.repro.three-lane-session/v2" as const;
 
 export const SPARK_REPRO_LANES = ["implementation", "exactness", "formalize"] as const;
 export type SparkReproLane = (typeof SPARK_REPRO_LANES)[number];
@@ -54,6 +56,68 @@ export interface SparkReproWorkItem {
   gitChangeRef?: ArtifactRef;
   evidenceRefs: EvidenceRef[];
   unresolvedIds: string[];
+}
+
+export type SparkReproLaneBindingStatus = "active" | "refreshing" | "converged" | "superseded";
+
+/**
+ * Durable routing identity for one WorkItem x lane. TaskRun and Session state
+ * remain TaskGraph/daemon-owned and are deliberately absent.
+ */
+export interface SparkReproLaneBinding {
+  workItemId: string;
+  lane: SparkReproLane;
+  bindingRevision: number;
+  taskRef: TaskRef;
+  sourceRevision: string;
+  gitChangeRef?: ArtifactRef;
+  evidenceRefs: EvidenceRef[];
+  status: SparkReproLaneBindingStatus;
+}
+
+/** Fail-closed v8 binding retained only for inspection and explicit rematerialization. */
+export interface SparkReproCompatibilityBinding {
+  workItemId: string;
+  candidateLanes: SparkReproLane[];
+  sourceRevision: string;
+  taskRef?: TaskRef;
+  runRef?: RunRef;
+  gitChangeRef?: ArtifactRef;
+  evidenceRefs: EvidenceRef[];
+  schedulable: false;
+  reason: "ambiguous_lane" | "missing_task_ref";
+}
+
+export type SparkReproRouteAction = "materialize_binding" | "refresh_binding" | "root_attention";
+export type SparkReproRouteStatus = "pending" | "acknowledged";
+
+/** Repro-owned routing fact. Runtime reservation and invocation state live in TaskGraph. */
+export interface SparkReproRoute {
+  routeId: string;
+  resultId: string;
+  resultDigest: string;
+  action: SparkReproRouteAction;
+  workItemId: string;
+  fromLane: SparkReproLane;
+  toLane?: SparkReproLane;
+  planRevision: number;
+  sourceBindingRevision: number;
+  sourceRevision: string;
+  evidenceRef: EvidenceRef;
+  decisionKey?: string;
+  attention?: {
+    question: string;
+    reason: string;
+    expectedAnswerKind: "single" | "multi" | "freeform";
+  };
+  status: SparkReproRouteStatus;
+}
+
+/** Compact receipt used only to fence deterministic lane-result identity reuse. */
+export interface SparkReproLaneResultReceipt {
+  resultId: string;
+  resultDigest: string;
+  evidenceRef: EvidenceRef;
 }
 
 export type SparkReproMismatchClassification =
@@ -148,14 +212,43 @@ export interface SparkReproThreeLaneSessionState {
     ownership?: {
       gitChangeRef: ArtifactRef;
       integratorSessionId: string;
+      generation: number;
     };
   };
   workItems: SparkReproWorkItem[];
+  bindings: SparkReproLaneBinding[];
+  compatibilityBindings: SparkReproCompatibilityBinding[];
+  routes: SparkReproRoute[];
+  resultReceipts: SparkReproLaneResultReceipt[];
   findings: SparkReproAlignmentFinding[];
   mismatches: SparkReproUnresolvedMismatch[];
   handoffs: SparkReproWorkHandoff[];
   resolutions: SparkReproResolution[];
   unresolvedIds: string[];
+  migration: {
+    sourceVersion: 6 | 7 | 8 | 9;
+    legacyProofAuthority: "not_promoted";
+  };
+}
+
+/** Persisted v8 three-lane state before lane-scoped execution bindings. */
+export interface SparkReproThreeLaneSessionStateV1 extends Omit<
+  SparkReproThreeLaneSessionState,
+  | "schema"
+  | "bindings"
+  | "compatibilityBindings"
+  | "routes"
+  | "resultReceipts"
+  | "formalize"
+  | "migration"
+> {
+  schema: typeof SPARK_REPRO_THREE_LANE_SESSION_SCHEMA_V1;
+  formalize: Omit<SparkReproThreeLaneSessionState["formalize"], "ownership"> & {
+    ownership?: {
+      gitChangeRef: ArtifactRef;
+      integratorSessionId: string;
+    };
+  };
   migration: {
     sourceVersion: 6 | 7 | 8;
     legacyProofAuthority: "not_promoted";
@@ -164,11 +257,11 @@ export interface SparkReproThreeLaneSessionState {
 
 export function createSparkReproThreeLaneSessionState(
   plan: SparkReproThreeLanePlanInput,
-  sourceVersion: 6 | 8 = 8,
+  sourceVersion: 6 | 8 | 9 = 9,
 ): SparkReproThreeLaneSessionState {
   const orderedStepIds = normativeOrderedStepIds(plan);
   const retiredStepIds: string[] = [];
-  if (sourceVersion === 8) {
+  if (sourceVersion !== 6) {
     for (const stepId of orderedStepIds) {
       if (plan.steps.find((step) => step.id === stepId)?.status !== "done") break;
       retiredStepIds.push(stepId);
@@ -176,7 +269,7 @@ export function createSparkReproThreeLaneSessionState(
   }
   const retired = new Set(retiredStepIds);
   const candidateIds =
-    sourceVersion === 8
+    sourceVersion !== 6
       ? orderedStepIds.filter(
           (stepId) =>
             plan.steps.find((step) => step.id === stepId)?.status === "done" &&
@@ -201,6 +294,10 @@ export function createSparkReproThreeLaneSessionState(
       workItemIds: [],
     },
     workItems: [],
+    bindings: [],
+    compatibilityBindings: [],
+    routes: [],
+    resultReceipts: [],
     findings: [],
     mismatches: [],
     handoffs: [],
@@ -232,12 +329,76 @@ export function migrateSparkReproDualLaneSessionState(
       workItemIds: [],
     },
     workItems: [],
+    bindings: [],
+    compatibilityBindings: [],
+    routes: [],
+    resultReceipts: [],
     findings: [],
     mismatches: [],
     handoffs: [],
     resolutions: [],
     unresolvedIds: [...prior.unresolvedIds],
     migration: { sourceVersion: 7, legacyProofAuthority: "not_promoted" },
+  };
+}
+
+/**
+ * Pure v8 -> v9 migration. Only an old binding with exactly one lane owner and
+ * one TaskRef becomes schedulable. Ambiguous or incomplete bindings remain
+ * inspectable but cannot be dispatched until fresh lane Evidence rematerializes
+ * them.
+ */
+export function migrateSparkReproThreeLaneSessionStateV1(
+  plan: SparkReproThreeLanePlanInput,
+  prior: SparkReproThreeLaneSessionStateV1,
+): SparkReproThreeLaneSessionState {
+  if (prior.planRevision !== plan.currentRevision) {
+    throw new Error("stale v8 three-lane plan revision");
+  }
+  const bindings: SparkReproLaneBinding[] = [];
+  const compatibilityBindings: SparkReproCompatibilityBinding[] = [];
+  for (const item of prior.workItems) {
+    const candidateLanes = SPARK_REPRO_LANES.filter((lane) =>
+      laneWorkItemIds(prior, lane).includes(item.workItemId),
+    );
+    if (candidateLanes.length === 1 && item.taskRef) {
+      bindings.push({
+        workItemId: item.workItemId,
+        lane: candidateLanes[0]!,
+        bindingRevision: 1,
+        taskRef: item.taskRef,
+        sourceRevision: item.sourceRevision,
+        ...(item.gitChangeRef ? { gitChangeRef: item.gitChangeRef } : {}),
+        evidenceRefs: [...item.evidenceRefs],
+        status: item.status === "superseded" ? "superseded" : "active",
+      });
+      continue;
+    }
+    compatibilityBindings.push({
+      workItemId: item.workItemId,
+      candidateLanes,
+      sourceRevision: item.sourceRevision,
+      ...(item.taskRef ? { taskRef: item.taskRef } : {}),
+      ...(item.runRef ? { runRef: item.runRef } : {}),
+      ...(item.gitChangeRef ? { gitChangeRef: item.gitChangeRef } : {}),
+      evidenceRefs: [...item.evidenceRefs],
+      schedulable: false,
+      reason: candidateLanes.length === 1 ? "missing_task_ref" : "ambiguous_lane",
+    });
+  }
+  const { ownership: priorOwnership, ...priorFormalize } = structuredClone(prior.formalize);
+  return {
+    ...structuredClone(prior),
+    schema: SPARK_REPRO_THREE_LANE_SESSION_SCHEMA,
+    formalize: {
+      ...priorFormalize,
+      ...(priorOwnership ? { ownership: { ...priorOwnership, generation: 1 } } : {}),
+    },
+    bindings,
+    compatibilityBindings,
+    routes: [],
+    resultReceipts: [],
+    migration: { sourceVersion: 8, legacyProofAuthority: "not_promoted" },
   };
 }
 
@@ -339,14 +500,63 @@ export function registerSparkReproWorkItem(
   validateWorkItem(input, state.planRevision);
   const existing = state.workItems.find((item) => item.workItemId === input.workItemId);
   if (existing) {
-    if (JSON.stringify(existing) !== JSON.stringify(input)) {
-      throw new Error(`workItemId already exists with different content: ${input.workItemId}`);
+    if (
+      existing.title !== input.title ||
+      existing.scope !== input.scope ||
+      existing.planRevision !== input.planRevision
+    ) {
+      throw new Error(`workItemId already exists with different identity: ${input.workItemId}`);
+    }
+  }
+  const existingBinding = state.bindings.find(
+    (binding) => binding.workItemId === input.workItemId && binding.lane === lane,
+  );
+  if (existingBinding) {
+    const incomingBinding = input.taskRef
+      ? {
+          workItemId: input.workItemId,
+          lane,
+          bindingRevision: existingBinding.bindingRevision,
+          taskRef: input.taskRef,
+          sourceRevision: input.sourceRevision,
+          ...(input.gitChangeRef ? { gitChangeRef: input.gitChangeRef } : {}),
+          evidenceRefs: [...input.evidenceRefs],
+          status: input.status === "superseded" ? ("superseded" as const) : ("active" as const),
+        }
+      : undefined;
+    if (!incomingBinding || JSON.stringify(existingBinding) !== JSON.stringify(incomingBinding)) {
+      throw new Error(
+        `lane binding already exists with different content: ${input.workItemId}:${lane}`,
+      );
     }
     return state;
   }
   const next = cloneThreeLane(state);
-  next.workItems.push(cloneWorkItem(input));
-  laneWorkItemIds(next, lane).push(input.workItemId);
+  if (!existing) next.workItems.push(cloneWorkItem(input));
+  pushUnique(laneWorkItemIds(next, lane), input.workItemId);
+  if (input.taskRef) {
+    next.bindings.push({
+      workItemId: input.workItemId,
+      lane,
+      bindingRevision: 1,
+      taskRef: input.taskRef,
+      sourceRevision: input.sourceRevision,
+      ...(input.gitChangeRef ? { gitChangeRef: input.gitChangeRef } : {}),
+      evidenceRefs: [...input.evidenceRefs],
+      status: input.status === "superseded" ? "superseded" : "active",
+    });
+  } else {
+    next.compatibilityBindings.push({
+      workItemId: input.workItemId,
+      candidateLanes: [lane],
+      sourceRevision: input.sourceRevision,
+      ...(input.runRef ? { runRef: input.runRef } : {}),
+      ...(input.gitChangeRef ? { gitChangeRef: input.gitChangeRef } : {}),
+      evidenceRefs: [...input.evidenceRefs],
+      schedulable: false,
+      reason: "missing_task_ref",
+    });
+  }
   return next;
 }
 
@@ -354,14 +564,31 @@ export function rematerializeSparkReproWorkItem(
   state: SparkReproThreeLaneSessionState,
   input: {
     workItemId: string;
+    lane?: SparkReproLane;
+    expectedBindingRevision?: number;
     expectedSourceRevision: string;
     sourceRevision: string;
+    taskRef?: TaskRef;
+    gitChangeRef?: ArtifactRef;
     evidenceRefs: EvidenceRef[];
   },
 ): SparkReproThreeLaneSessionState {
   const item = assertWorkItem(state, input.workItemId);
-  if (item.sourceRevision !== input.expectedSourceRevision) {
+  const candidates = state.bindings.filter(
+    (binding) =>
+      binding.workItemId === input.workItemId && (!input.lane || binding.lane === input.lane),
+  );
+  if (candidates.length > 1) throw new Error("lane is required for ambiguous work item binding");
+  const binding = candidates[0];
+  const currentSourceRevision = binding?.sourceRevision ?? item.sourceRevision;
+  if (currentSourceRevision !== input.expectedSourceRevision) {
     throw new Error("stale work item materialization revision");
+  }
+  if (
+    input.expectedBindingRevision !== undefined &&
+    binding?.bindingRevision !== input.expectedBindingRevision
+  ) {
+    throw new Error("stale work item binding revision");
   }
   assertNonEmpty(input.sourceRevision, "sourceRevision");
   if (input.evidenceRefs.length === 0) {
@@ -372,11 +599,46 @@ export function rematerializeSparkReproWorkItem(
   const index = next.workItems.findIndex((candidate) => candidate.workItemId === input.workItemId);
   next.workItems[index] = {
     ...next.workItems[index]!,
-    sourceRevision: input.sourceRevision,
+    // The WorkItem is stable concern identity. Source revision is lane-bound
+    // in v2 and must not leak across sibling lane rematerializations.
     evidenceRefs: [...new Set([...next.workItems[index]!.evidenceRefs, ...input.evidenceRefs])],
   };
+  if (binding) {
+    const bindingIndex = next.bindings.findIndex(
+      (candidate) => candidate.workItemId === binding.workItemId && candidate.lane === binding.lane,
+    );
+    next.bindings[bindingIndex] = {
+      ...next.bindings[bindingIndex]!,
+      bindingRevision: binding.bindingRevision + 1,
+      sourceRevision: input.sourceRevision,
+      ...(input.taskRef ? { taskRef: input.taskRef } : {}),
+      ...(input.gitChangeRef ? { gitChangeRef: input.gitChangeRef } : {}),
+      evidenceRefs: [
+        ...new Set([...next.bindings[bindingIndex]!.evidenceRefs, ...input.evidenceRefs]),
+      ],
+      status: "active",
+    };
+  } else {
+    if (!input.lane || !input.taskRef) {
+      throw new Error("fresh lane rematerialization requires lane and taskRef");
+    }
+    next.bindings.push({
+      workItemId: input.workItemId,
+      lane: input.lane,
+      bindingRevision: 1,
+      taskRef: input.taskRef,
+      sourceRevision: input.sourceRevision,
+      ...(input.gitChangeRef ? { gitChangeRef: input.gitChangeRef } : {}),
+      evidenceRefs: [...input.evidenceRefs],
+      status: "active",
+    });
+    next.compatibilityBindings = next.compatibilityBindings.filter(
+      (candidate) => candidate.workItemId !== input.workItemId,
+    );
+  }
   next.handoffs = next.handoffs.map((handoff) =>
     handoff.workItemId === input.workItemId &&
+    handoff.from === (binding?.lane ?? input.lane) &&
     handoff.sourceRevision === input.expectedSourceRevision &&
     handoff.status !== "superseded"
       ? { ...handoff, status: "stale" }
@@ -387,20 +649,27 @@ export function rematerializeSparkReproWorkItem(
 
 export function bindSparkReproFormalizeOwnership(
   state: SparkReproThreeLaneSessionState,
-  ownership: { gitChangeRef: ArtifactRef; integratorSessionId: string },
+  ownership: { gitChangeRef: ArtifactRef; integratorSessionId: string; generation?: number },
 ): SparkReproThreeLaneSessionState {
   if (!isRef(ownership.gitChangeRef, "artifact")) {
     throw new Error("Formalize ownership requires a git_change Artifact ref");
   }
   assertNonEmpty(ownership.integratorSessionId, "integratorSessionId");
+  const normalized = { ...ownership, generation: ownership.generation ?? 1 };
+  if (!Number.isInteger(normalized.generation) || normalized.generation < 1) {
+    throw new Error("Formalize ownership generation must be a positive integer");
+  }
   if (state.formalize.ownership) {
-    if (JSON.stringify(state.formalize.ownership) !== JSON.stringify(ownership)) {
+    if (JSON.stringify(state.formalize.ownership) === JSON.stringify(normalized)) return state;
+    if (normalized.generation <= state.formalize.ownership.generation) {
       throw new Error("Formalize ownership is already bound to another stack integrator");
     }
-    return state;
+    if (normalized.gitChangeRef !== state.formalize.ownership.gitChangeRef) {
+      throw new Error("Formalize ownership generation cannot replace the canonical GitChange");
+    }
   }
   const next = cloneThreeLane(state);
-  next.formalize.ownership = { ...ownership };
+  next.formalize.ownership = normalized;
   return next;
 }
 
@@ -465,10 +734,12 @@ export function recordSparkReproWorkHandoff(
   if (!validDirection) throw new Error("Repro handoff must move one lane forward");
   assertStableId(handoff.handoffId, "handoffId");
   const item = assertWorkItem(state, handoff.workItemId);
+  const binding = sparkReproLaneBinding(state, handoff.workItemId, handoff.from);
+  if (!binding) throw new Error("Repro handoff requires an active source lane binding");
   if (handoff.planRevision !== state.planRevision || item.planRevision !== state.planRevision) {
     throw new Error("stale Repro handoff plan revision");
   }
-  if (handoff.sourceRevision !== item.sourceRevision) {
+  if (handoff.sourceRevision !== binding.sourceRevision) {
     throw new Error("stale Repro handoff source revision");
   }
   assertNonEmpty(handoff.scope, "handoff.scope");
@@ -534,6 +805,86 @@ export function recordSparkReproResolution(
   return next;
 }
 
+export function sparkReproLaneBinding(
+  state: SparkReproThreeLaneSessionState,
+  workItemId: string,
+  lane: SparkReproLane,
+): SparkReproLaneBinding | undefined {
+  return state.bindings.find(
+    (binding) => binding.workItemId === workItemId && binding.lane === lane,
+  );
+}
+
+export function recordSparkReproRoute(
+  state: SparkReproThreeLaneSessionState,
+  route: SparkReproRoute,
+): SparkReproThreeLaneSessionState {
+  validateRoute(route, state);
+  const existing = state.routes.find((candidate) => candidate.routeId === route.routeId);
+  if (existing) {
+    const existingIdentity = { ...existing, status: "pending" as const };
+    const incomingIdentity = { ...route, status: "pending" as const };
+    return idempotentOrThrow(state, existingIdentity, incomingIdentity, "routeId");
+  }
+  const duplicateDecision = route.decisionKey
+    ? state.routes.find((candidate) => candidate.decisionKey === route.decisionKey)
+    : undefined;
+  if (duplicateDecision) {
+    if (duplicateDecision.resultId !== route.resultId) {
+      throw new Error("decisionKey already exists for another lane result");
+    }
+    return state;
+  }
+  const next = cloneThreeLane(state);
+  next.routes.push(structuredClone(route));
+  return next;
+}
+
+export function recordSparkReproLaneResultReceipt(
+  state: SparkReproThreeLaneSessionState,
+  receipt: SparkReproLaneResultReceipt,
+): SparkReproThreeLaneSessionState {
+  assertStableId(receipt.resultId, "resultId");
+  assertNonEmpty(receipt.resultDigest, "resultDigest");
+  if (!isRef(receipt.evidenceRef, "evidence")) {
+    throw new Error("lane result receipt EvidenceRef is invalid");
+  }
+  const existing = state.resultReceipts.find(
+    (candidate) => candidate.resultId === receipt.resultId,
+  );
+  if (existing) {
+    if (existing.resultDigest !== receipt.resultDigest) {
+      throw new Error("resultId already exists with different content");
+    }
+    return state;
+  }
+  const evidenceOwner = state.resultReceipts.find(
+    (candidate) => candidate.evidenceRef === receipt.evidenceRef,
+  );
+  if (evidenceOwner) {
+    throw new Error("lane-result Evidence is already bound to another resultId");
+  }
+  const next = cloneThreeLane(state);
+  next.resultReceipts.push(structuredClone(receipt));
+  return next;
+}
+
+export function acknowledgeSparkReproRoute(
+  state: SparkReproThreeLaneSessionState,
+  routeId: string,
+): SparkReproThreeLaneSessionState {
+  const index = state.routes.findIndex((route) => route.routeId === routeId);
+  if (index < 0) throw new Error(`unknown Repro route: ${routeId}`);
+  if (state.routes[index]!.status === "acknowledged") return state;
+  const next = cloneThreeLane(state);
+  next.routes[index] = { ...next.routes[index]!, status: "acknowledged" };
+  return next;
+}
+
+export function pendingSparkReproRoutes(state: SparkReproThreeLaneSessionState): SparkReproRoute[] {
+  return state.routes.filter((route) => route.status === "pending").map((route) => ({ ...route }));
+}
+
 export function validateSparkReproThreeLaneSessionState(
   state: SparkReproThreeLaneSessionState,
   plan: SparkReproThreeLanePlanInput,
@@ -574,6 +925,49 @@ export function validateSparkReproThreeLaneSessionState(
   );
   for (const item of state.workItems) validateWorkItem(item, state.planRevision);
   const knownWorkItems = new Set(state.workItems.map((item) => item.workItemId));
+  assertUnique(
+    state.bindings.map((binding) => `${binding.workItemId}:${binding.lane}`),
+    "lane binding",
+  );
+  for (const binding of state.bindings) {
+    if (!knownWorkItems.has(binding.workItemId)) {
+      throw new Error(`lane binding references unknown work item: ${binding.workItemId}`);
+    }
+    validateLaneBinding(binding);
+  }
+  assertUnique(
+    state.compatibilityBindings.map((binding) => binding.workItemId),
+    "compatibility binding",
+  );
+  for (const binding of state.compatibilityBindings) {
+    if (!knownWorkItems.has(binding.workItemId)) {
+      throw new Error(`compatibility binding references unknown work item: ${binding.workItemId}`);
+    }
+    if (binding.schedulable !== false) throw new Error("compatibility binding must fail closed");
+    if (binding.candidateLanes.length > 1 && binding.reason !== "ambiguous_lane") {
+      throw new Error("ambiguous compatibility binding reason is invalid");
+    }
+  }
+  assertUnique(
+    state.routes.map((route) => route.routeId),
+    "routeId",
+  );
+  for (const route of state.routes) validateRoute(route, state);
+  assertUnique(
+    state.resultReceipts.map((receipt) => receipt.resultId),
+    "result receipt",
+  );
+  assertUnique(
+    state.resultReceipts.map((receipt) => receipt.evidenceRef),
+    "lane-result EvidenceRef",
+  );
+  for (const receipt of state.resultReceipts) {
+    assertStableId(receipt.resultId, "receipt.resultId");
+    assertNonEmpty(receipt.resultDigest, "receipt.resultDigest");
+    if (!isRef(receipt.evidenceRef, "evidence")) {
+      throw new Error("invalid lane result receipt EvidenceRef");
+    }
+  }
   for (const id of [
     ...state.implementation.workItemIds,
     ...state.exactness.workItemIds,
@@ -590,6 +984,12 @@ export function validateSparkReproThreeLaneSessionState(
       throw new Error("invalid Formalize gitChangeRef");
     }
     assertNonEmpty(state.formalize.ownership.integratorSessionId, "integratorSessionId");
+    if (
+      !Number.isInteger(state.formalize.ownership.generation) ||
+      state.formalize.ownership.generation < 1
+    ) {
+      throw new Error("invalid Formalize ownership generation");
+    }
   }
   for (const finding of state.findings) {
     assertWorkItem(state, finding.workItemId);
@@ -629,6 +1029,7 @@ export function validateSparkReproThreeLaneSessionState(
   }
   for (const handoff of state.handoffs) {
     const item = assertWorkItem(state, handoff.workItemId);
+    const sourceBinding = sparkReproLaneBinding(state, handoff.workItemId, handoff.from);
     if (
       !(
         (handoff.from === "implementation" && handoff.to === "exactness") ||
@@ -641,7 +1042,7 @@ export function validateSparkReproThreeLaneSessionState(
       handoff.planRevision !== state.planRevision ||
       (handoff.status !== "stale" &&
         handoff.status !== "superseded" &&
-        handoff.sourceRevision !== item.sourceRevision)
+        handoff.sourceRevision !== (sourceBinding?.sourceRevision ?? item.sourceRevision))
     ) {
       throw new Error("stale persisted Repro handoff revision");
     }
@@ -725,7 +1126,14 @@ function normativeOrderedStepIds(plan: SparkReproThreeLanePlanInput): string[] {
     .map(({ step }) => step.id);
 }
 
-function laneWorkItemIds(state: SparkReproThreeLaneSessionState, lane: SparkReproLane): string[] {
+function laneWorkItemIds(
+  state: {
+    implementation: { workItemIds: string[] };
+    exactness: { workItemIds: string[] };
+    formalize: { workItemIds: string[] };
+  },
+  lane: SparkReproLane,
+): string[] {
   return lane === "implementation"
     ? state.implementation.workItemIds
     : lane === "exactness"
@@ -750,6 +1158,62 @@ function validateWorkItem(item: SparkReproWorkItem, planRevision: number): void 
     throw new Error("invalid work item gitChangeRef");
   }
   validateEvidenceRefs(item.evidenceRefs, "workItem.evidenceRefs");
+}
+
+function validateLaneBinding(binding: SparkReproLaneBinding): void {
+  assertStableId(binding.workItemId, "binding.workItemId");
+  if (!SPARK_REPRO_LANES.includes(binding.lane)) throw new Error("invalid lane binding lane");
+  if (!Number.isInteger(binding.bindingRevision) || binding.bindingRevision < 1) {
+    throw new Error("bindingRevision must be a positive integer");
+  }
+  if (!isRef(binding.taskRef, "task")) throw new Error("invalid lane binding taskRef");
+  assertNonEmpty(binding.sourceRevision, "binding.sourceRevision");
+  if (binding.gitChangeRef && !isRef(binding.gitChangeRef, "artifact")) {
+    throw new Error("invalid lane binding gitChangeRef");
+  }
+  assertOneOf(
+    binding.status,
+    ["active", "refreshing", "converged", "superseded"] as const,
+    "binding.status",
+  );
+  validateEvidenceRefs(binding.evidenceRefs, "binding.evidenceRefs");
+}
+
+function validateRoute(route: SparkReproRoute, state: SparkReproThreeLaneSessionState): void {
+  assertStableId(route.routeId, "routeId");
+  assertStableId(route.resultId, "resultId");
+  assertNonEmpty(route.resultDigest, "route.resultDigest");
+  assertWorkItem(state, route.workItemId);
+  if (route.planRevision !== state.planRevision) throw new Error("stale Repro route plan revision");
+  if (!isRef(route.evidenceRef, "evidence")) throw new Error("invalid Repro route evidenceRef");
+  assertNonEmpty(route.sourceRevision, "route.sourceRevision");
+  if (!Number.isInteger(route.sourceBindingRevision) || route.sourceBindingRevision < 1) {
+    throw new Error("route.sourceBindingRevision must be a positive integer");
+  }
+  if (route.action === "root_attention") {
+    assertNonEmpty(route.decisionKey ?? "", "route.decisionKey");
+    if (!route.attention) throw new Error("root attention route requires an attention request");
+    assertNonEmpty(route.attention.question, "route.attention.question");
+    assertNonEmpty(route.attention.reason, "route.attention.reason");
+    assertOneOf(
+      route.attention.expectedAnswerKind,
+      ["single", "multi", "freeform"] as const,
+      "route.attention.expectedAnswerKind",
+    );
+    if (route.toLane) throw new Error("root attention route cannot target a lane");
+    return;
+  }
+  if (route.attention) throw new Error("lane route cannot contain an attention request");
+  if (!route.toLane) throw new Error("lane route requires toLane");
+  const forward =
+    route.action === "materialize_binding" &&
+    ((route.fromLane === "implementation" && route.toLane === "exactness") ||
+      (route.fromLane === "exactness" && route.toLane === "formalize"));
+  const backward =
+    route.action === "refresh_binding" &&
+    ((route.fromLane === "formalize" && route.toLane === "exactness") ||
+      (route.fromLane === "exactness" && route.toLane === "implementation"));
+  if (!forward && !backward) throw new Error("invalid Repro route direction");
 }
 
 function validateEvidenceRefs(refs: readonly EvidenceRef[], field: string): void {

@@ -24,14 +24,17 @@ import {
 import {
   createSparkReproThreeLaneSessionState,
   migrateSparkReproDualLaneSessionState,
+  migrateSparkReproThreeLaneSessionStateV1,
   normalizeSparkReproThreeLaneSessionState,
   rebaseSparkReproThreeLaneSessionState,
   synchronizeSparkReproThreeLaneSessionState,
   validateSparkReproThreeLaneSessionState,
   type SparkReproThreeLaneSessionState,
+  type SparkReproThreeLaneSessionStateV1,
 } from "./three-lane.ts";
 
 export * from "./three-lane.ts";
+export * from "./lane-result.ts";
 
 export type SparkSessionPhase = "plan" | "implement";
 
@@ -295,8 +298,13 @@ export interface SparkSessionReproV7 extends Omit<SparkSessionReproV6, "version"
   dualLane: SparkReproDualLaneSessionState;
 }
 
-export interface SparkSessionRepro extends Omit<SparkSessionReproV7, "version" | "dualLane"> {
+export interface SparkSessionReproV8 extends Omit<SparkSessionReproV7, "version" | "dualLane"> {
   version: 8;
+  threeLane: SparkReproThreeLaneSessionStateV1;
+}
+
+export interface SparkSessionRepro extends Omit<SparkSessionReproV8, "version" | "threeLane"> {
+  version: 9;
   threeLane: SparkReproThreeLaneSessionState;
 }
 
@@ -629,7 +637,7 @@ export function createSparkSessionRepro(
   const reproId = explicitReproId ?? crypto.randomUUID?.() ?? `repro-${Date.now()}`;
   const plan = createInitialReproPlan(resolvedStages, timestamp);
   const reproWithoutDigest: SparkSessionRepro = {
-    version: 8,
+    version: 9,
     reproId,
     sessionKey,
     status: "active",
@@ -1007,7 +1015,9 @@ export function normalizeStoredSparkSessionRepro(value: unknown): SparkSessionRe
           ? migrateSparkSessionReproV6(value)
           : value.version === 7
             ? migrateSparkSessionReproV7(value)
-            : value;
+            : value.version === 8
+              ? migrateSparkSessionReproV8(value)
+              : value;
     const stages = normalizeStoredReproStages(repro.stages);
     const steps = repro.plan.steps.map((step: SparkReproStep) => {
       const evidenceRefs = step.evidenceRefs.filter(isStoredEvidenceRef);
@@ -1116,7 +1126,7 @@ export function reproProgressDigest(
       evidenceRefs: step.evidenceRefs,
       blocker: step.blocker,
     })),
-    ...(repro.version === 8
+    ...(repro.version === 9
       ? {
           threeLane: repro.threeLane,
           subgoalTasks: [...repro.subgoals]
@@ -1213,10 +1223,19 @@ function normalizeStoredReproStages(stages: readonly SparkReproStage[]): SparkRe
 
 function isStoredSparkSessionRepro(
   value: unknown,
-): value is SparkSessionRepro | SparkSessionReproV7 | SparkSessionReproV6 | SparkSessionReproV5 {
+): value is
+  | SparkSessionRepro
+  | SparkSessionReproV8
+  | SparkSessionReproV7
+  | SparkSessionReproV6
+  | SparkSessionReproV5 {
   if (
     !isRecord(value) ||
-    (value.version !== 5 && value.version !== 6 && value.version !== 7 && value.version !== 8)
+    (value.version !== 5 &&
+      value.version !== 6 &&
+      value.version !== 7 &&
+      value.version !== 8 &&
+      value.version !== 9)
   )
     return false;
   if (
@@ -1244,6 +1263,16 @@ function isStoredSparkSessionRepro(
   if (value.version === 7 && !isStoredDualLaneSessionState(value.dualLane, value.plan))
     return false;
   if (value.version === 8) {
+    try {
+      migrateSparkReproThreeLaneSessionStateV1(
+        value.plan,
+        value.threeLane as SparkReproThreeLaneSessionStateV1,
+      );
+    } catch {
+      return false;
+    }
+  }
+  if (value.version === 9) {
     try {
       validateSparkReproThreeLaneSessionState(
         value.threeLane as SparkReproThreeLaneSessionState,
@@ -1734,7 +1763,7 @@ export function migrateSparkSessionReproV4(repro: SparkSessionReproV4): SparkSes
   const plan = migrateReproPlanV4(legacy.plan);
   const migratedWithoutDigest: SparkSessionRepro = {
     ...legacy,
-    version: 8,
+    version: 9,
     plan,
     subgoals: createInitialReproSubgoals(legacy.reproId, plan, legacy.updatedAt || nowIso()),
     threeLane: createSparkReproThreeLaneSessionState(plan, 6),
@@ -1758,7 +1787,7 @@ export function migrateSparkSessionReproV5(repro: SparkSessionReproV5): SparkSes
   }
   const migratedWithoutDigest: SparkSessionRepro = {
     ...legacy,
-    version: 8,
+    version: 9,
     subgoals: legacy.subgoals.map((legacySubgoal): SparkReproSubgoal => {
       const uniqueTaskRefs = [...new Set(legacySubgoal.taskRefs)];
       const taskRef =
@@ -1804,7 +1833,7 @@ export function migrateSparkSessionReproV6(repro: SparkSessionReproV6): SparkSes
   const legacy = reopenLegacyCompletionForDualLane(repro);
   const migratedWithoutDigest: SparkSessionRepro = {
     ...legacy,
-    version: 8,
+    version: 9,
     threeLane: createSparkReproThreeLaneSessionState(legacy.plan, 6),
   };
   return {
@@ -1820,8 +1849,23 @@ export function migrateSparkSessionReproV7(repro: SparkSessionReproV7): SparkSes
   const { dualLane, ...legacy } = repro;
   const migratedWithoutDigest: SparkSessionRepro = {
     ...legacy,
-    version: 8,
+    version: 9,
     threeLane: migrateSparkReproDualLaneSessionState(legacy.plan, dualLane),
+  };
+  return {
+    ...migratedWithoutDigest,
+    stopGuard: {
+      ...migratedWithoutDigest.stopGuard,
+      lastProgressDigest: reproProgressDigest(migratedWithoutDigest),
+    },
+  };
+}
+
+export function migrateSparkSessionReproV8(repro: SparkSessionReproV8): SparkSessionRepro {
+  const migratedWithoutDigest: SparkSessionRepro = {
+    ...repro,
+    version: 9,
+    threeLane: migrateSparkReproThreeLaneSessionStateV1(repro.plan, repro.threeLane),
   };
   return {
     ...migratedWithoutDigest,

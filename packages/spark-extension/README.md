@@ -35,10 +35,17 @@ Artifact share one identity; an already-active run rejects a different requested
 identifier.
 
 The same canonical `repro({ action })` surface composes the Repro-owned
-three-lane lifecycle. `work_register`, `work_rematerialize`, `finding_record`,
-`mismatch_record`, `handoff_record`, `formalize_bind`, and `resolution_record`
-delegate semantics to `spark-repro`, resolve Evidence and GitChange Artifacts
-through their stores, and reconcile temporary work through the TaskGraph owner.
-Formalize mutations require the current Session to own one attached native
-`gh-stack` GitChange. The extension does not create another scheduler, progress
-store, Git topology, or public alias.
+three-lane lifecycle. `work_register` and `work_rematerialize` are lane-scoped.
+Terminal `spark.repro.lane-result/v1` Evidence is validated and automatically
+routed through the existing TaskGraph, Artifact, Session, and human-request
+owners; `lane_result_record` is the recovery entrypoint. Manual finding,
+handoff, Formalize binding, and resolution actions remain compatibility and
+operator-recovery surfaces.
+
+Implementation and Exactness receive independent WorkItem-by-lane candidate
+GitChanges. Formalize uses one generation-bound stack-integrator Session and
+canonical native `gh-stack` GitChange, with one Draft stack entry per WorkItem.
+The driver may create scoped candidates and first Draft PRs, but has no path to
+force-push, mark Ready, merge, close, change a PR base, or clean external state.
+The extension derives routing intents and invokes owner APIs; it does not create
+another scheduler, progress store, Git topology, Session owner, or public alias.

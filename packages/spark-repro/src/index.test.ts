@@ -56,15 +56,15 @@ describe("spark-repro", () => {
       objective: "Reproduce target logits",
     });
 
-    expect(repro.version).toBe(8);
+    expect(repro.version).toBe(9);
     expect(repro.threeLane).toMatchObject({
-      schema: "spark.repro.three-lane-session/v1",
+      schema: "spark.repro.three-lane-session/v2",
       planRevision: 1,
       implementation: { stage: "contract", observationIds: [], workItemIds: [] },
       exactness: { workItemIds: [], findingIds: [], mismatchIds: [] },
       formalize: { retiredStepIds: [], candidateIds: [], workItemIds: [] },
       unresolvedIds: [],
-      migration: { sourceVersion: 8, legacyProofAuthority: "not_promoted" },
+      migration: { sourceVersion: 9, legacyProofAuthority: "not_promoted" },
     });
     expect(repro.projectRef).toBeUndefined();
     expect(repro.subgoals).toHaveLength(
@@ -105,7 +105,7 @@ describe("spark-repro", () => {
     ).toThrow("reproId must be a non-empty safe identifier");
   });
 
-  it("normalizes the current v8 persisted shape without dropping its three-lane state", () => {
+  it("normalizes the current v9 persisted shape without dropping its three-lane state", () => {
     const repro = createSparkSessionRepro("session:persisted-v6", undefined, {
       objective: "Read the current persisted shape",
     });
@@ -146,7 +146,7 @@ describe("spark-repro", () => {
     };
 
     const migrated = migrateSparkSessionReproV5(legacy);
-    expect(migrated.version).toBe(8);
+    expect(migrated.version).toBe(9);
     expect(migrated.subgoals[0]?.status).toBe("done");
     expect(migrated.subgoals[0]?.evidenceRefs).toEqual(completed.subgoals[0]?.evidenceRefs);
     expect(migrated.subgoals[0]?.taskRef).toBeUndefined();

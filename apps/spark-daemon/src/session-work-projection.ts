@@ -137,7 +137,13 @@ export async function projectSparkSessionWork(
     }
   }
   const projectedRepro = repro
-    ? projectReproWork(repro, tokenUsage, tokenUsageByPersistence, input.workbench?.(repro.reproId))
+    ? projectReproWork(
+        repro,
+        tokenUsage,
+        tokenUsageByPersistence,
+        input.workbench?.(repro.reproId),
+        await projectReproLaneRuntime(input.cwd, repro, input.onDiagnostic),
+      )
     : undefined;
   const parsedRepro = projectedRepro
     ? sparkSessionReproWorkViewSchema.safeParse(projectedRepro)
@@ -193,6 +199,7 @@ function projectReproWork(
   tokenUsage?: SparkTokenUsageAggregate,
   tokenUsageByPersistence?: SparkTokenUsageByPersistence,
   workbench?: SparkSessionReproWorkView["workbench"],
+  latestRunRefByTaskRef?: ReadonlyMap<string, string>,
 ): SparkSessionReproWorkView {
   const stage = currentReproStage(repro);
   const currentStep = nextReproStep(repro);
@@ -237,7 +244,10 @@ function projectReproWork(
       stagnationCount: repro.stopGuard.stagnationCount,
       limit: repro.stopGuard.limit,
     },
-    lanes: projectSparkReproLanesView(repro.threeLane),
+    lanes: projectSparkReproLanesView(
+      repro.threeLane,
+      latestRunRefByTaskRef ? { latestRunRefByTaskRef } : {},
+    ),
     ...(latestVerification?.verdict === "Pass"
       ? {
           latestVerification: {
@@ -253,6 +263,32 @@ function projectReproWork(
     ...(workbench ? { workbench } : {}),
     updatedAt: repro.updatedAt,
   };
+}
+
+async function projectReproLaneRuntime(
+  cwd: string | undefined,
+  repro: SparkSessionRepro,
+  onDiagnostic?: ProjectSparkSessionWorkInput["onDiagnostic"],
+): Promise<ReadonlyMap<string, string> | undefined> {
+  if (!cwd || !repro.projectRef) return undefined;
+  try {
+    const graph = await defaultTaskGraphStore(cwd).load();
+    if (!graph) return undefined;
+    const latest = new Map<string, { ref: string; time: string }>();
+    for (const run of graph.runs(repro.projectRef)) {
+      const time = run.finishedAt ?? run.startedAt ?? run.updatedAt ?? "";
+      const current = latest.get(run.taskRef);
+      if (!current || time >= current.time) latest.set(run.taskRef, { ref: run.ref, time });
+    }
+    return new Map([...latest].map(([taskRef, run]) => [taskRef, run.ref]));
+  } catch {
+    onDiagnostic?.({
+      code: "task_graph_unavailable",
+      domain: "repro",
+      sessionId: repro.sessionKey.replace(/^session:/u, ""),
+    });
+    return undefined;
+  }
 }
 
 async function projectGoalReadiness(
@@ -333,7 +369,11 @@ async function readRepro(
     if (raw === undefined) return undefined;
     if (
       !isRecord(raw) ||
-      (raw.version !== 5 && raw.version !== 6 && raw.version !== 7 && raw.version !== 8)
+      (raw.version !== 5 &&
+        raw.version !== 6 &&
+        raw.version !== 7 &&
+        raw.version !== 8 &&
+        raw.version !== 9)
     ) {
       recordDiagnostic({ sessionId, onDiagnostic }, "repro_state_unavailable", "repro");
       return undefined;

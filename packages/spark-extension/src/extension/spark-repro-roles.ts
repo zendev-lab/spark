@@ -13,11 +13,16 @@ const EXEC_TOOLS = [
   "script_run",
   "script_eval",
   "cue_jobs",
+  "evidence",
+  "impl_update_task_plan_items",
+  "impl_finish_task",
 ];
 
 export const SPARK_REPRO_ROLE_IDS = [
+  "repro-implementation-explorer",
   "repro-distributed-runner",
   "repro-first-divergence-localizer",
+  "repro-exactness-instrumentation-worker",
   "repro-precision-fixer",
   "repro-performance-benchmarker",
   "repro-numerical-auditor",
@@ -25,6 +30,19 @@ export const SPARK_REPRO_ROLE_IDS = [
 
 export function createSparkReproRoleSpecs(now?: string): RoleSpec[] {
   return [
+    createExtensionRoleSpec(
+      {
+        id: "repro-implementation-explorer",
+        description:
+          "Builds a reversible implementation candidate in exactly one assigned candidate worktree.",
+        capabilities: ["read", "exec", "write"],
+        modelType: "implementation",
+        allowedTools: [...EXEC_TOOLS, "edit", "write"],
+        systemPrompt:
+          "You are a Repro Implementation explorer. Modify only the assigned candidate git_change worktree and pursue the bounded WorkItem. Start from the supplied formalized baseline, keep experiments reversible, run lane-local checks, commit only within the exact binding, and finish by writing one spark.repro.lane-result/v1 JSON Evidence bound to the supplied repro, WorkItem, lane, plan revision, binding revision, TaskRef, RunRef, and source revision, then attach that Evidence through impl_finish_task. Never edit a canonical stack, formalize or publish, force-push, clean external state, spawn roles, or Ask the user. Ordinary ambiguity, failure, and OOM must be reported as evidence or retried within the accepted contract; only a genuine user decision becomes an attention_request result.",
+      },
+      now,
+    ),
     createExtensionRoleSpec(
       {
         id: "repro-distributed-runner",
@@ -52,6 +70,19 @@ export function createSparkReproRoleSpecs(now?: string): RoleSpec[] {
     ),
     createExtensionRoleSpec(
       {
+        id: "repro-exactness-instrumentation-worker",
+        description:
+          "Adds bounded diagnostics in one Exactness candidate worktree without changing canonical behavior.",
+        capabilities: ["read", "exec", "write"],
+        modelType: "exploration",
+        allowedTools: [...EXEC_TOOLS, "edit", "write"],
+        systemPrompt:
+          "You are a Repro Exactness instrumentation worker. Modify only the assigned Exactness candidate git_change worktree. Import only the candidate revisions named by the accepted Implementation handoff, add bounded non-interfering instrumentation, localize or classify the mismatch, and record isolate plus resynchronize evidence before any skip. Finish with one spark.repro.lane-result/v1 JSON Evidence for the exact binding and attach it through impl_finish_task. Never modify the canonical stack, widen acceptance, publish, force-push, clean external state, spawn roles, or Ask the user; emit a deduplicated attention_request only when a real Root decision is unavoidable.",
+      },
+      now,
+    ),
+    createExtensionRoleSpec(
+      {
         id: "repro-precision-fixer",
         description:
           "Implements a confirmed numerical mechanism in an isolated worktree and proves ablation.",
@@ -59,7 +90,7 @@ export function createSparkReproRoleSpecs(now?: string): RoleSpec[] {
         modelType: "implementation",
         allowedTools: [...EXEC_TOOLS, "edit", "write"],
         systemPrompt:
-          "You are a model-reproduction precision fixer. Modify only the assigned repository and isolated worktree for a mechanism already confirmed by evidence. Keep the patch shape-independent, scoped, and default-off or explicitly configured when required. Build and run focused tests, then prove OFF reproduces the failure and ON passes the nearest formal regression on representative real shapes/layouts. Do not change acceptance criteria, edit evidence, spawn roles, ask interactively, push, create PRs, or claim broader topology/trajectory coverage than the formal run proves.",
+          "You are a model-reproduction precision fixer. Modify only the assigned repository and isolated worktree for a mechanism already confirmed by evidence. Keep the patch shape-independent and scoped. Build and run focused tests, record the required numerical audit, then write one spark.repro.lane-result/v1 JSON Evidence for the exact binding and attach it through impl_finish_task. Do not change acceptance criteria, edit prior evidence, spawn roles, ask interactively, push, create PRs, or claim broader topology/trajectory coverage than the formal run proves.",
       },
       now,
     ),

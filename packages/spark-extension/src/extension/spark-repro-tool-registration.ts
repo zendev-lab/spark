@@ -14,7 +14,6 @@ import {
   nowIso,
   type ArtifactRef,
   type EvidenceRef,
-  type RunRef,
   type TaskRef,
 } from "@zendev-lab/spark-core";
 import { sparkSessionKey, sparkStateCwd } from "@zendev-lab/spark-loop";
@@ -31,7 +30,10 @@ import {
 } from "./spark-repro-project.ts";
 import { syncSparkReproReportArtifact } from "./spark-repro-report.ts";
 import { collectReproOrchestrationSnapshot } from "./spark-repro-orchestration.ts";
-import { reconcileManagedTaskSessions } from "./spark-task-session-dispatch.ts";
+import {
+  dispatchManagedTaskSessions,
+  reconcileManagedTaskSessions,
+} from "./spark-task-session-dispatch.ts";
 import { sparkActiveMode } from "./spark-mode-state.ts";
 import {
   reproPhaseToSessionMode,
@@ -50,6 +52,7 @@ import {
   isStageComplete,
   nextReproStagePlanningBlocker,
   nextReproStep,
+  parseSparkReproLaneResult,
   recordReproRequirementProof,
   recordSparkReproResolution,
   recordSparkReproWorkHandoff,
@@ -57,11 +60,13 @@ import {
   registerSparkReproAlignmentFinding,
   registerSparkReproUnresolvedMismatch,
   registerSparkReproWorkItem,
+  reconcileSparkReproLaneResult,
   rematerializeSparkReproWorkItem,
   reproRequirementBlockers,
   reproStepPlanRevision,
   reviseReproPlan,
   settleReproTick,
+  sparkReproLaneResultEvidenceRefs,
   stepDefinitionDigest,
   updateReproStep,
   verifyReproStepPass,
@@ -69,6 +74,7 @@ import {
   type SparkReproGoalContractInput,
   type SparkReproAlignmentFinding,
   type SparkReproLane,
+  type SparkReproRoute,
   type SparkReproResolution,
   type SparkReproRequirement,
   type SparkReproRequirementProof,
@@ -103,6 +109,11 @@ import {
   validateSparkReproEvidenceRefs,
   validateSparkReproWorkItemBinding,
 } from "./spark-repro-three-lane-composition.ts";
+import {
+  reconcileSparkReproLaneTopology,
+  requestSparkReproRootAttention,
+} from "./spark-repro-lane-execution.ts";
+import { createSparkRoleRegistry } from "./spark-role-registry.ts";
 
 function reproStepPlanSchema() {
   return Type.Object({
@@ -153,6 +164,7 @@ type SparkReproToolAction =
   | "handoff_record"
   | "formalize_bind"
   | "resolution_record"
+  | "lane_result_record"
   | "stop";
 
 export function registerSparkReproTool(
@@ -196,7 +208,7 @@ export function registerSparkReproTool(
       "Use repro action=advance only when requirements and any derived gate are complete.",
       "Use repro action=project_report with canonical workSummary facts. It validates and derives status/progress/technicalGoal, joins daemon-owned usage.summary for this Repro run, and deterministically projects outputs/spark-summary.json plus outputs/report.md without scanning transcripts.",
       "Use repro action=sync_report after project_report. It verifies that outputs/report.md is the exact projection of the typed summary, updates the stable per-run Markdown Document Artifact, and never changes a technical gate.",
-      "Use work_register/work_rematerialize, finding_record/mismatch_record, handoff_record, formalize_bind, and resolution_record for the Repro-owned three-lane lifecycle. laneInput is revision-fenced typed domain data; Formalize mutations require the current Session to own the bound native GitChange stack.",
+      "Lane workers write spark.repro.lane-result/v1 JSON Evidence and never Ask directly. Use lane_result_record with its EvidenceRef for recovery; normal terminal TaskRun reconciliation routes it automatically. work_register/work_rematerialize and manual handoff/resolution actions are compatibility recovery surfaces.",
       "Before ending a daemon-owned repro tick, use repro action=settle. It schedules another tick only when semantic progress changed; three unchanged settlements return Recover Ask and leave the Loop dormant.",
       "Use repro action=stop to clear the Repro.",
     ],
@@ -205,7 +217,7 @@ export function registerSparkReproTool(
         Type.String({
           default: "status",
           description:
-            "status | start | plan | step | record | evaluate | advance | settle | project_report | sync_report | work_register | work_rematerialize | finding_record | mismatch_record | handoff_record | formalize_bind | resolution_record | stop; satisfy and gate are compatibility aliases",
+            "status | start | plan | step | record | evaluate | advance | settle | project_report | sync_report | lane_result_record | work_register | work_rematerialize | finding_record | mismatch_record | handoff_record | formalize_bind | resolution_record | stop; satisfy and gate are compatibility aliases",
         }),
       ),
       laneInput: Type.Optional(
@@ -405,6 +417,63 @@ export function registerSparkReproTool(
           laneInput: params.laneInput,
         });
         if (applied.changed) await writeUnifiedSessionRepro(cwd, applied.repro, ctx);
+        let finalRepro = applied.repro;
+        let laneDispatch:
+          | {
+              materializedRouteIds: string[];
+              dispatchedRouteIds: string[];
+              taskRefs: TaskRef[];
+              attentionRouteIds: string[];
+            }
+          | undefined;
+        if (action === "lane_result_record") {
+          if (!ctx.sessionId?.trim()) {
+            throw new Error("automatic Repro routing requires a daemon-owned Root Session");
+          }
+          const reconciled = await reconcileSparkReproLaneTopology({
+            workspaceCwd: stateCwd,
+            repositoryCwd: cwd,
+            repro: finalRepro,
+            evidenceRefs: [],
+            persist: async (next) => await writeUnifiedSessionRepro(cwd, next, ctx),
+            dispatch: async (taskRefs) =>
+              finalRepro.projectRef
+                ? await dispatchManagedTaskSessions({
+                    cwd,
+                    ctx,
+                    ownerSessionId: ctx.sessionId!.trim(),
+                    ...(ctx.invocationId ? { parentInvocationId: ctx.invocationId } : {}),
+                    projectRef: finalRepro.projectRef,
+                    taskRefs,
+                    registry: await createSparkRoleRegistry(stateCwd),
+                    fleet: true,
+                  })
+                : [],
+            requestAttention: async (route) =>
+              await requestSparkReproRootAttention({
+                route,
+                ...(ctx.ui?.interaction ? { interaction: ctx.ui.interaction } : {}),
+              }),
+          });
+          finalRepro = reconciled.repro;
+          laneDispatch = {
+            materializedRouteIds: reconciled.materializedRouteIds,
+            dispatchedRouteIds: reconciled.dispatchedRouteIds,
+            taskRefs: reconciled.dispatchedRouteIds.flatMap((routeId) => {
+              const route = finalRepro.threeLane.routes.find(
+                (candidate) => candidate.routeId === routeId,
+              );
+              const binding = route?.toLane
+                ? finalRepro.threeLane.bindings.find(
+                    (candidate) =>
+                      candidate.workItemId === route.workItemId && candidate.lane === route.toLane,
+                  )
+                : undefined;
+              return binding ? [binding.taskRef] : [];
+            }),
+            attentionRouteIds: reconciled.attentionRouteIds,
+          };
+        }
         const taskArtifactLinked = applied.workItem
           ? await reconcileSparkReproWorkItemTaskArtifact({
               cwd: stateCwd,
@@ -423,12 +492,13 @@ export function registerSparkReproTool(
         return {
           content: [{ type: "text" as const, text: applied.message }],
           details: {
-            ...reproDetails(applied.repro),
+            ...reproDetails(finalRepro),
             threeLaneAction: action,
             changed: applied.changed,
             ...(applied.refs ? { refs: applied.refs } : {}),
             ...(taskArtifactLinked !== undefined ? { taskArtifactLinked } : {}),
             ...(taskReconciliation ? { taskReconciliation } : {}),
+            ...(laneDispatch ? { laneDispatch } : {}),
           },
         };
       }
@@ -964,6 +1034,7 @@ function normalizeReproAction(value: unknown): SparkReproToolAction {
     value === "handoff_record" ||
     value === "formalize_bind" ||
     value === "resolution_record" ||
+    value === "lane_result_record" ||
     value === "stop"
   ) {
     return value;
@@ -980,6 +1051,7 @@ type SparkReproThreeLaneAction = Extract<
   | "handoff_record"
   | "formalize_bind"
   | "resolution_record"
+  | "lane_result_record"
 >;
 
 function isThreeLaneReproAction(action: SparkReproToolAction): action is SparkReproThreeLaneAction {
@@ -991,6 +1063,7 @@ function isThreeLaneReproAction(action: SparkReproToolAction): action is SparkRe
     "handoff_record",
     "formalize_bind",
     "resolution_record",
+    "lane_result_record",
   ].includes(action);
 }
 
@@ -1005,6 +1078,7 @@ interface AppliedThreeLaneReproAction {
   refs?: Record<string, string>;
   workItem?: SparkReproWorkItem;
   resolution?: SparkReproResolution;
+  routes?: SparkReproRoute[];
 }
 
 async function applyThreeLaneReproAction(input: {
@@ -1020,6 +1094,7 @@ async function applyThreeLaneReproAction(input: {
   let refs: Record<string, string> | undefined;
   let workItem: SparkReproWorkItem | undefined;
   let resolution: SparkReproResolution | undefined;
+  let routes: SparkReproRoute[] | undefined;
 
   switch (input.action) {
     case "work_register": {
@@ -1043,16 +1118,28 @@ async function applyThreeLaneReproAction(input: {
       const evidenceRefs = normalizeEvidenceRefs(value.evidenceRefs, "laneInput.evidenceRefs");
       await validateSparkReproEvidenceRefs(input.cwd, evidenceRefs);
       const workItemId = normalizeRequiredString(value.workItemId, "laneInput.workItemId");
+      const lane = normalizeReproLane(value.lane);
       state = rematerializeSparkReproWorkItem(state, {
         workItemId,
+        lane,
+        expectedBindingRevision: normalizePositiveInteger(
+          value.expectedBindingRevision,
+          "laneInput.expectedBindingRevision",
+        ),
         expectedSourceRevision: normalizeRequiredString(
           value.expectedSourceRevision,
           "laneInput.expectedSourceRevision",
         ),
         sourceRevision: normalizeRequiredString(value.sourceRevision, "laneInput.sourceRevision"),
+        ...(value.taskRef !== undefined
+          ? { taskRef: normalizeTaskRefValue(value.taskRef, "laneInput.taskRef") }
+          : {}),
+        ...(value.gitChangeRef !== undefined
+          ? { gitChangeRef: normalizeArtifactRef(value.gitChangeRef, "laneInput.gitChangeRef") }
+          : {}),
         evidenceRefs,
       });
-      message = `Rematerialized ${workItemId} with a new source revision.`;
+      message = `Rematerialized ${workItemId}:${lane} with a new binding revision.`;
       refs = { workItemId };
       break;
     }
@@ -1106,6 +1193,26 @@ async function applyThreeLaneReproAction(input: {
       refs = { workItemId: resolution.workItemId, resolutionId: resolution.resolutionId };
       break;
     }
+    case "lane_result_record": {
+      const evidenceRef = normalizeEvidenceRef(value.evidenceRef, "laneInput.evidenceRef");
+      const evidenceRecord = await defaultEvidenceStore(input.cwd).get(evidenceRef);
+      if (evidenceRecord.format !== "json" || typeof evidenceRecord.body !== "object") {
+        throw new Error("lane result Evidence must contain a JSON object");
+      }
+      const result = parseSparkReproLaneResult(evidenceRecord.body);
+      await validateSparkReproEvidenceRefs(input.cwd, sparkReproLaneResultEvidenceRefs(result));
+      const reconciled = reconcileSparkReproLaneResult({
+        state,
+        reproId: input.repro.reproId,
+        evidenceRef,
+        result,
+      });
+      state = reconciled.state;
+      routes = reconciled.pendingRoutes;
+      message = `Accepted lane result ${reconciled.resultId}; ${routes.length} route(s) pending.`;
+      refs = { workItemId: result.workItemId, resultId: reconciled.resultId, evidenceRef };
+      break;
+    }
     default: {
       const exhaustive: never = input.action;
       throw new Error(`Unknown three-lane Repro action: ${String(exhaustive)}`);
@@ -1120,6 +1227,7 @@ async function applyThreeLaneReproAction(input: {
     ...(refs ? { refs } : {}),
     ...(workItem ? { workItem } : {}),
     ...(resolution ? { resolution } : {}),
+    ...(routes ? { routes } : {}),
   };
 }
 
@@ -1150,12 +1258,7 @@ function normalizeReproWorkItem(value: Record<string, unknown>): SparkReproWorkI
     planRevision: normalizePositiveInteger(value.planRevision, "laneInput.planRevision"),
     sourceRevision: normalizeRequiredString(value.sourceRevision, "laneInput.sourceRevision"),
     status,
-    ...(value.taskRef !== undefined
-      ? { taskRef: normalizeTaskRefValue(value.taskRef, "laneInput.taskRef") }
-      : {}),
-    ...(value.runRef !== undefined
-      ? { runRef: normalizeRunRef(value.runRef, "laneInput.runRef") }
-      : {}),
+    taskRef: normalizeTaskRefValue(value.taskRef, "laneInput.taskRef"),
     ...(value.gitChangeRef !== undefined
       ? { gitChangeRef: normalizeArtifactRef(value.gitChangeRef, "laneInput.gitChangeRef") }
       : {}),
@@ -1349,12 +1452,6 @@ function normalizePositiveInteger(value: unknown, field: string): number {
 function normalizeTaskRefValue(value: unknown, field: string): TaskRef {
   const ref = normalizeRequiredString(value, field);
   if (!isRef(ref, "task")) throw new Error(`${field} must be a task: ref`);
-  return ref;
-}
-
-function normalizeRunRef(value: unknown, field: string): RunRef {
-  const ref = normalizeRequiredString(value, field);
-  if (!isRef(ref, "run")) throw new Error(`${field} must be a run: ref`);
   return ref;
 }
 

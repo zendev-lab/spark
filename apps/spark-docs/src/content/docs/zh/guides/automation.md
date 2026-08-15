@@ -60,9 +60,16 @@ Repro 把证据门控工作组织为 Implementation Explore、Exactness Explore 
 
 Implementation 把候选改动向前交给 Exactness，Exactness 把验证过的候选交给
 Formalize；resolution 反向流动，用来消除临时工作。Exactness mismatch 必须记录首个
-异常边界、分类、置信度和处置；跳过检查必须同时声明 isolate 与 resync。缺少基线、
-关键决定或批准时，Repro 会暂停询问，而不是猜测。可以用 `/inspect repro` 在 TUI
-查看有界 daemon 投影。
+异常边界、分类、置信度和处置；跳过检查必须同时声明 isolate 与 resync。
+
+当前用户 Session 就是 Repro Root。Implementation 或 Exactness 中每个可写 WorkItem
+都在独立的受管 Task Session 和候选 worktree 中运行；Formalize 只有一个串行 canonical
+integrator 和一个 Git Change，每个 WorkItem 对应一个 Draft stack entry。结构化 lane-result
+Evidence 会自动向前路由；Formalize 完成后，再在原候选 worktree 中依次 refresh
+Exactness 与 Implementation。Lane worker 不能直接 Ask，只有按稳定 decision key 去重的
+结构化决策请求会进入 Root Inbox。缺少基线、关键决定或批准时，Repro 会暂停询问，
+而不是猜测。可以用 `/inspect repro` 查看 binding、TaskRun、Git Change、route 和 refresh
+状态的有界 daemon 投影。
 
 ```text
 /repro start <目标>

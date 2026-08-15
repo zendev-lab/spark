@@ -107,7 +107,9 @@ handoffs, and the last `formalizedTip`. Ctrl+K opens the Repro panel first;
 Shift+Ctrl+K cycles inspector panels. In the Repro panel, press 1, 2, or 3 to
 select a lane, use the arrow keys or J/K to select a bounded work item, and
 press Enter to open its existing Task, Run, Git Change, and Evidence
-projections. Esc returns from detail to panel, then from panel to transcript.
+projections. Each lane row also shows its binding revision and status, current
+route or refresh action, TaskRun, and candidate or canonical Git Change. Esc
+returns from detail to panel, then from panel to transcript.
 
 The TUI never derives lane state from transcript text, prompts, or elapsed
 time. Narrow terminals preserve the newest transcript content and composer

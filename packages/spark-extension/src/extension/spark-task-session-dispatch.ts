@@ -492,6 +492,14 @@ function reserveTaskSessionRuns(
     if (task.projectRef !== input.projectRef) {
       throw new Error(`task ${taskRef} does not belong to project ${input.projectRef}`);
     }
+    const recoverableReservation = projectRuns.find(
+      (run) =>
+        run.taskRef === taskRef &&
+        run.status === "queued" &&
+        run.execution !== undefined &&
+        run.execution.invocationId === undefined,
+    );
+    if (recoverableReservation) continue;
     const historicalRuns = projectRuns.filter((run) => run.taskRef === taskRef && !run.dryRun);
     const attempt = historicalRuns.length + 1;
     const maxAttempts = task.executionPolicy?.maxAttempts ?? 2;
@@ -508,14 +516,11 @@ function reserveTaskSessionRuns(
     if (task.projectRef !== input.projectRef) {
       throw new Error(`task ${taskRef} does not belong to project ${input.projectRef}`);
     }
-    if (!ready.has(taskRef)) throw new Error(`task ${taskRef} is not in the ready frontier`);
     const activeRun = graph
       .runs(input.projectRef)
       .find(
         (run) => run.taskRef === taskRef && (run.status === "queued" || run.status === "running"),
       );
-    if (activeRun) throw new Error(`task ${taskRef} already has active run ${activeRun.ref}`);
-
     const roleRef = sparkTaskExecutorRoleRef(task);
     input.registry.get(roleRef);
     const subgoal = input.subgoals?.find((candidate) => candidate.taskRef === taskRef);
@@ -534,6 +539,30 @@ function reserveTaskSessionRuns(
           }
         : {}),
     });
+    if (activeRun) {
+      if (
+        activeRun.status !== "queued" ||
+        !activeRun.execution ||
+        activeRun.execution.invocationId ||
+        activeRun.execution.ownerSessionId !== input.ownerSessionId ||
+        activeRun.execution.jobId !== jobId ||
+        activeRun.roleRef !== roleRef
+      ) {
+        throw new Error(`task ${taskRef} already has active run ${activeRun.ref}`);
+      }
+      // A process may exit after the TaskGraph reservation commits but before
+      // turn.submit. Reuse that exact Run, Session, attempt, and idempotency key
+      // so restart never creates a second TaskRun or invocation.
+      reservations.push({
+        run: activeRun,
+        roleRef,
+        goal: subgoal?.goal ?? task.plan?.objective ?? task.description,
+        evidenceRequired: subgoal?.evidenceRequired ?? task.plan?.evidenceRequired ?? [],
+        executionPolicy: task.executionPolicy!,
+      });
+      continue;
+    }
+    if (!ready.has(taskRef)) throw new Error(`task ${taskRef} is not in the ready frontier`);
     const historicalRuns = projectRuns.filter((run) => run.taskRef === taskRef && !run.dryRun);
     const attempt = historicalRuns.length + 1;
     const executionPolicy = task.executionPolicy;

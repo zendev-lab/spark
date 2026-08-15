@@ -2206,7 +2206,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
       const marker = item.workItemId === this.hub.selectedReproWorkItemId ? "▸" : "├";
       const refs = [item.taskRef, item.runRef, item.gitChangeRef].filter(Boolean).length;
       lines.push(
-        `${marker}─ ${item.workItemId} [${item.status}] refs=${refs} evidence=${item.evidenceRefs.length} H${item.handoffCount}/R${item.resolutionCount} ${item.title}`,
+        `${marker}─ ${item.workItemId} [${item.status}]${item.bindingRevision ? ` b${item.bindingRevision}/${item.bindingStatus}` : ""}${item.routeAction ? ` ${item.routeAction}:${item.routeStatus}` : ""} refs=${refs} evidence=${item.evidenceRefs.length} H${item.handoffCount}/R${item.resolutionCount} ${item.title}`,
       );
     }
     if (this.hub.reproDetailExpanded) {
@@ -2227,6 +2227,14 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   private renderReproWorkItemDetails(item: SparkSessionReproLaneItemView): string[] {
     const lines = ["│  Details from existing owner projections:"];
+    if (item.bindingRevision) {
+      lines.push(
+        `│  Binding r${item.bindingRevision} [${item.bindingStatus}] source=${item.sourceRevision ?? "unknown"}`,
+      );
+    }
+    if (item.routeId) {
+      lines.push(`│  Route ${item.routeId} [${item.routeStatus}] ${item.routeAction}`);
+    }
     if (item.taskRef) {
       const task = this.hub.tasks.get(item.taskRef);
       lines.push(

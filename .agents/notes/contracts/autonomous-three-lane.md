@@ -45,9 +45,44 @@ This contract does not create another scheduler, Task graph, Evidence store, hum
 | Human interaction | daemon broker + shared protocol; Hub outbox/read model | durable request lifecycle, correlation, answer event, UI projection | synthesized answers, timeout-as-user-decision |
 | User-visible products | Artifact owner; Hub/TUI/A2UI adapters | stable Document content/revision and read-only projections | technical gates, internal Evidence bodies, report-to-state parsing |
 
-Task Sessions, `assign`, and controlled Workflows reuse the daemon scheduler. A specialist may produce an observation or evidence candidate; only the owner session may reconcile it into Formalize state.
+The user-facing Session is the Repro Root. It alone owns intent, user interaction, and formal reconciliation; there is no additional Root Session. Task Sessions, `assign`, and controlled Workflows reuse the daemon scheduler. A specialist produces typed Evidence, and the deterministic owner adapter may reconcile a revision-valid lane result without a Root LLM forwarding turn.
 
 Formalize binds one canonical `git_change` Artifact. Its stack-integrator Session is the only writer to that owning worktree. Other specialists are read-only or use distinct candidate GitChanges; Repro never copies raw worktree paths or becomes a writable PR-topology owner.
+
+## Managed execution topology
+
+Implementation and Exactness are logical lanes, not long-lived coordinator
+Sessions. Every writable `WorkItem × lane` binding owns one managed Task Session
+and one candidate GitChange; it permits at most one writer, while read-only probes
+may run concurrently. Explore starts from the latest accepted `formalizedTip`.
+Exactness additionally imports only candidate revisions named by an accepted
+Implementation handoff.
+
+Formalize has one generation-bound stack-integrator Session and one canonical
+GitChange. It serializes integration, and each small WorkItem maps to one Draft PR
+stack entry. No non-integrator Session may write the canonical worktree.
+
+`spark.repro.lane-result/v1` binds `reproId`, `workItemId`, lane, plan and binding
+revisions, TaskRef, RunRef, source revision, and Evidence. A valid result creates a
+deterministic Handoff, Resolution, refresh, or attention route. Duplicate content
+is idempotent; stale bindings, missing Evidence, or an identity reused with
+different content fail closed. Routing runs after result persistence, terminal
+TaskRun, Root settle/tick, and daemon startup. TaskRun reservation and stable
+owner identities make every boundary restart-safe.
+
+A Formalize resolution first creates an Exactness refresh in the original
+candidate worktree, then an Implementation refresh. Each refresh updates to the
+canonical revision, drops explicitly superseded revisions, reruns lane-local
+validation, and records new Evidence. The WorkItem converges only after both
+refreshes succeed.
+
+Lane workers never Ask the user. Only an `attention_request` with a stable
+`decisionKey` enters the Root Session's existing asynchronous human-request
+ledger. Ordinary failures, OOMs, or locally testable ambiguity remain lane work.
+An active generation may create and commit exact candidate worktrees and submit
+the first canonical Draft PR. Force-push, existing-PR base changes, Ready, merge,
+close, cleanup, and other destructive or external writes retain their existing
+approval gates.
 
 ## Data flow and single source of truth
 
@@ -514,7 +549,7 @@ Daemon restart reconstructs activity and idempotency from existing owners. No fr
 
 A Repro settlement is unchanged only when all three lanes have no ready work, there is no Handoff, Resolution, candidate, or AnswerEvent to reconcile, and the semantic fingerprint is unchanged. A pending request can coexist with dormant only when every remaining action depends on it.
 
-`SparkSessionRepro` v7 migrates to v8 by mapping Explore observations into Implementation, creating empty Exactness state, and preserving the ordered Formalize cursor and unresolved identities. `work-summary/v2` migrates to v3 by the same rule. Migration creates no WorkItem, Handoff, Resolution, Exactness finding, or `formalizedTip`, and is idempotent.
+`SparkSessionRepro` v7 migrates to v8 by mapping Explore observations into Implementation, creating empty Exactness state, and preserving the ordered Formalize cursor and unresolved identities. v8 then migrates to v9 and `spark.repro.three-lane-session/v2`: only a legacy WorkItem with one uniquely provable source lane and TaskRef becomes schedulable. Ambiguous or incomplete bindings remain fail-closed compatibility records until new Evidence rematerializes them. `work-summary/v2` migrates to v3 by the original lane rule. Migration creates no Handoff, Resolution, Exactness finding, or `formalizedTip`, never guesses a lane, and is idempotent.
 
 Daemon and TUI use one lockstep view-model protocol version and fail closed on mismatch; there is no daemon/host/surface capability negotiation. Bounded cross-version translation, when required, remains in the Hub↔daemon adapter/client and cannot write Repro state.
 

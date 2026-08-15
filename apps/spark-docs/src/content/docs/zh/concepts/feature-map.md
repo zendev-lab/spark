@@ -81,6 +81,8 @@ Workflow 为需要持续或重复的
 Repro 拥有三条 lane：Implementation Explore、Exactness Explore 和 Formalize。
 Explore 工作可以并行，但不会推进正式进度；只有 Formalize 能更新已接受的
 `formalizedTip`。Goal 仍是由 TaskGraph 推导的单线 runtime 投影，不采用这三条 lane。
+当前 Session 就是 Repro Root；按 WorkItem 与 lane 管理的 Task Session 各自拥有候选
+worktree，只有一个串行 integrator 拥有 canonical stack。
 
 先读[规划并实现一个修改](/zh/guides/plan-and-execute/)，需要长期工作时再读
 [长期自动推进](/zh/guides/automation/)。

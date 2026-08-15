@@ -30,6 +30,150 @@ afterEach(async () => {
 });
 
 describe("managed Task Session dispatch", () => {
+  it("resumes the exact queued reservation when restart precedes invocation persistence", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-reserved-recovery-"));
+    roots.push(cwd);
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Recovery", description: "Recovery" });
+    const task = graph.createTask({
+      projectRef: project.ref,
+      title: "Reserved task",
+      description: "Resume the durable TaskRun reservation.",
+      kind: "implement",
+      roleRef: "role:builtin-executor",
+      executionPolicy: {
+        sessionLifetime: "task_revision",
+        continuity: "reuse_within_revision",
+        isolation: "isolated_results",
+        comparison: "single_side",
+        resources: { gpuCount: 0 },
+        concurrencyKeys: [],
+        maxAttempts: 2,
+      },
+      plan: normalizeTaskPlan(
+        {
+          objective: "Implement and verify durable TaskRun reservation recovery.",
+          successCriteria: [
+            "A focused recovery test proves that RunRef, Session id, job id, and attempt stay unchanged.",
+          ],
+          evidenceRequired: [
+            "An inspectable test result containing the recovered TaskRun and idempotency identities.",
+          ],
+          steps: [
+            "Inspect the queued TaskRun identity and execution binding.",
+            "Run the original Session with the persisted idempotency key.",
+          ],
+        },
+        "Reserved task",
+        "Resume the durable TaskRun reservation.",
+      ),
+    });
+    graph.setTaskStatus(task.ref, "ready");
+    expect(graph.taskPlanReadiness(task.ref)).toEqual({ ready: true, issues: [] });
+    await defaultTaskGraphStore(cwd).save(graph);
+
+    const sessions = new Map<string, Extract<SparkSessionOwner, { kind: "task_revision" }>>();
+    const submitKeys: string[] = [];
+    const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
+      if (method === "session.get") {
+        const sessionId = String(input.sessionId);
+        if (sessionId === "sess_owner") {
+          return workspaceSessionRecord({
+            sessionId,
+            workspaceId: "ws_recovery",
+            cwd,
+            createdAt: "2026-08-14T00:00:00.000Z",
+            updatedAt: "2026-08-14T00:00:00.000Z",
+          });
+        }
+        const owner = sessions.get(sessionId);
+        if (!owner) {
+          throw new SparkDaemonRemoteError("session not found", { code: "session_not_found" });
+        }
+        return {
+          ...workspaceSessionRecord({
+            sessionId,
+            workspaceId: "ws_recovery",
+            roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+            cwd,
+            createdAt: "2026-08-14T00:00:00.000Z",
+            updatedAt: "2026-08-14T00:00:00.000Z",
+          }),
+          owner,
+          roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+        };
+      }
+      if (method === "session.create") {
+        const sessionId = String(input.sessionId);
+        if (sessions.has(sessionId)) {
+          throw new SparkDaemonRemoteError("session exists", { code: "session_exists" });
+        }
+        const taskExecution = input.taskExecution as Record<string, unknown> & {
+          ownerKind: "task_revision";
+        };
+        const { ownerKind, kind: _legacyKind, ...fields } = taskExecution;
+        const owner = { kind: ownerKind, ...fields } as Extract<
+          SparkSessionOwner,
+          { kind: "task_revision" }
+        >;
+        sessions.set(sessionId, owner);
+        return {
+          ...workspaceSessionRecord({
+            sessionId,
+            workspaceId: "ws_recovery",
+            roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+            cwd,
+            createdAt: "2026-08-14T00:00:00.000Z",
+            updatedAt: "2026-08-14T00:00:00.000Z",
+          }),
+          owner,
+          roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+        };
+      }
+      if (method === "turn.submit") {
+        const key = String(input.idempotencyKey);
+        submitKeys.push(key);
+        return {
+          invocationId: "inv_reserved_once",
+          status: "queued",
+          acceptedAt: "2026-08-14T00:00:00.000Z",
+        };
+      }
+      throw new Error(`unexpected daemon method: ${method}`);
+    }) as typeof requestSparkDaemon;
+    const dispatch = () =>
+      dispatchManagedTaskSessions({
+        cwd,
+        ctx: { sessionId: "sess_owner" },
+        ownerSessionId: "sess_owner",
+        projectRef: project.ref,
+        taskRefs: [task.ref],
+        registry: new RoleRegistry(),
+        daemonRequest,
+      });
+
+    const [first] = await dispatch();
+    await defaultTaskGraphStore(cwd).update(
+      (next) => {
+        const run = next.runs(project.ref).find((candidate) => candidate.ref === first!.runRef)!;
+        const { invocationId: _invocationId, ...execution } = run.execution!;
+        next.recordRun({ ...run, status: "queued", execution });
+      },
+      { createIfMissing: false },
+    );
+    const [recovered] = await dispatch();
+
+    expect(recovered).toMatchObject({
+      runRef: first!.runRef,
+      sessionId: first!.sessionId,
+      jobId: first!.jobId,
+      attempt: 1,
+      invocationId: "inv_reserved_once",
+    });
+    expect(submitKeys).toEqual([submitKeys[0], submitKeys[0]]);
+    expect((await defaultTaskGraphStore(cwd).load())?.runs(project.ref)).toHaveLength(1);
+  });
+
   it("serializes one Fleet lane, reuses its Session, and honors fresh continuity", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-fleet-"));
     roots.push(cwd);

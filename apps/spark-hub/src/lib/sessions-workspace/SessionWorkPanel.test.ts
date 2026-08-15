@@ -87,6 +87,23 @@ describe("SessionWorkPanel", () => {
             },
           },
           stopGuard: { decision: "ask", stagnationCount: 3, limit: 3 },
+          lanes: {
+            implementation: lane({
+              workItemId: "work:projection",
+              taskRef: "task:implementation",
+              runRef: "run:implementation",
+              gitChangeRef: "artifact:implementation",
+              bindingRevision: 2,
+              bindingStatus: "refreshing",
+              sourceRevision: "commit:candidate",
+              routeId: "route:refresh",
+              routeAction: "refresh_binding",
+              routeStatus: "pending",
+            }),
+            exactness: lane(),
+            formalize: lane(),
+            formalizedTip: "commit:canonical",
+          },
           workbench: {
             artifactRef: "artifact:workbench-repro-1",
             revision: 4,
@@ -153,6 +170,11 @@ describe("SessionWorkPanel", () => {
     expect(body).toContain("27,431 ·");
     expect(body).toContain("Persistent sessions");
     expect(body).toContain("Loading trusted Repro Workbench");
+    expect(body).toContain("Execution topology");
+    expect(body).toContain("binding r2 refreshing");
+    expect(body).toContain("run:implementation");
+    expect(body).toContain("refresh_binding");
+    expect(body).toContain("commit:canonical");
     expect(body).toContain("Cycle checkpoint");
     expect(body).toContain("after_tick");
     expect(body).not.toContain("lastProgressDigest");
@@ -247,6 +269,31 @@ function tokenUsageBucket(totalTokens: number, responseCount: number) {
     missingResponseCount: 0,
     reported: tokenBreakdown(totalTokens),
     estimated: tokenBreakdown(0),
+  };
+}
+
+function lane(item?: Record<string, unknown>) {
+  return {
+    status: item ? "active" : "empty",
+    totalCount: item ? 1 : 0,
+    openCount: item ? 1 : 0,
+    blockedCount: 0,
+    completedCount: 0,
+    supersededCount: 0,
+    pendingHandoffCount: 0,
+    resolutionCount: 0,
+    items: item
+      ? [
+          {
+            title: "Projected concern",
+            status: "open",
+            evidenceRefs: [],
+            handoffCount: 0,
+            resolutionCount: 0,
+            ...item,
+          },
+        ]
+      : [],
   };
 }
 

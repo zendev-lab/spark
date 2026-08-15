@@ -93,7 +93,9 @@ daemon 投影活跃 Repro 时，transcript 顶部会常驻一行紧凑的 Implem
 Formalize 摘要，显示计数、阻塞、待交接和最近的 `formalizedTip`。Ctrl+K 会先打开
 Repro panel；Shift+Ctrl+K 循环 inspector panel。在 Repro panel 中，用 1、2、3 选择
 lane，用方向键或 J/K 选择有界 work item，按 Enter 打开已有 Task、Run、Git Change
-和 Evidence 投影组成的详情。Esc 按“详情 → panel → transcript”返回。
+和 Evidence 投影组成的详情。每行还会显示 binding revision 与状态、当前 route 或
+refresh action、TaskRun，以及候选或 canonical Git Change。Esc 按“详情 → panel →
+transcript”返回。
 
 TUI 不会从 transcript 文本、prompt 或经过时间推断 lane 状态。窄终端优先保留最新
 对话和 composer，再显示 inspector 详情。`/reload` 后 panel 焦点和选择会重置，新

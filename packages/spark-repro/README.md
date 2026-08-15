@@ -12,7 +12,7 @@ Spark supplies the generic state, scheduling, and evidence boundaries.
 The normative three-lane, asynchronous-evidence, Profile/progress, numerical
 frontier, ReportModel, and completion semantics are defined in
 [`../../.agents/notes/contracts/autonomous-three-lane.md`](../../.agents/notes/contracts/autonomous-three-lane.md).
-`SparkSessionRepro` v8 implements that contract as structured state, while the
+`SparkSessionRepro` v9 implements that contract as structured state, while the
 `./three-lane-work-summary` entrypoint defines the pure
 `spark.repro.work-summary/v2 -> v3` migration used by projection adopters.
 Legacy work-summary/v1-v2 and session v1-v7 records migrate only through
@@ -74,12 +74,22 @@ intermediate.
 ## Versioned session protocol
 
 The package root remains the compatibility execution and persistence model for
-session snapshots. SparkSessionRepro v8 adds a versioned three-lane binding over
-the existing five-stage plan/subgoal protocol. Migrating v7 maps Explore
-observations into Implementation, creates empty Exactness state, and does not
-promote legacy proof into Formalize retirement. A later plan revision preserves observation and
-unresolved identities, but resets revision-bound candidates and retirement rather
-than inferring them from legacy `done` status.
+session snapshots. SparkSessionRepro v9 carries
+`spark.repro.three-lane-session/v2` lane bindings over the existing five-stage
+plan/subgoal protocol. Each binding fences one stable WorkItem and lane with a
+binding revision, TaskRef, source revision, optional GitChange, and Evidence;
+TaskRun and Session history remain owner-derived. A `spark.repro.lane-result/v1`
+Evidence record is accepted only against that exact fence and deterministically
+creates the next handoff, refresh, or Root-attention route.
+
+Migrating v7 to v8 maps Explore observations into Implementation, creates empty
+Exactness state, and does not promote legacy proof into Formalize retirement.
+Migrating v8 to v9 creates a schedulable binding only when one source lane and
+TaskRef are uniquely provable. Ambiguous or incomplete legacy bindings remain
+visible compatibility state and require new Evidence to rematerialize; migration
+never guesses. A later plan revision preserves observation and unresolved
+identities, but resets revision-bound candidates and retirement rather than
+inferring them from legacy `done` status.
 
 The legacy protocol includes four durable structures:
 
@@ -117,7 +127,8 @@ the next tick; three unchanged settlements stop automatic continuation and
 require one concrete canonical Ask. Safe transient execution retry/backoff
 remains daemon-owned and is deliberately separate from semantic stagnation.
 
-Stored v1-v7 snapshots migrate to v8. Invalid legacy proof is removed,
+Stored v1-v7 snapshots migrate through v8 to v9. Existing v8 snapshots then use
+the fail-closed binding migration above. Invalid legacy proof is removed,
 affected contracts/steps/gates reopen, and no legacy boolean or proof is promoted
 into a user decision, passing validation, Implementation observation, Exactness
 finding, candidate, unresolved discharge, or Formalize retirement.

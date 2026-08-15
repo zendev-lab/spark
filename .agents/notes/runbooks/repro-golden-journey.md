@@ -19,12 +19,14 @@ A user can:
 4. answer through a supported product surface;
 5. let the same Repro resume and repair a deterministic defect;
 6. receive a validated `git_change` Artifact and Draft PR;
-7. hand one stable work item through Implementation Explore, Exactness Explore,
-   and Formalize, then receive idempotent backward resolutions;
-8. restart the daemon after completion and recover the same bounded three-lane
+7. route one stable work item through Implementation Explore, Exactness Explore,
+   and the canonical Formalize integrator from typed lane-result Evidence;
+8. refresh Exactness and then Implementation in their original candidate
+   worktrees before the WorkItem converges;
+9. restart the daemon after completion and recover the same bounded three-lane
    projection;
-9. receive a stable Repro report Document with durable Evidence;
-10. observe the Repro complete and its Workbench seal.
+10. receive a stable Repro report Document with durable Evidence;
+11. observe the Repro complete and its Workbench seal.
 
 The complete path must run without live model tokens or a real GitHub repository.
 It uses production code for Spark-owned behavior and deterministic substitutes only
@@ -44,10 +46,12 @@ user objective
   -> a managed git worktree is changed and validated
   -> Evidence records the failing baseline and passing repair
   -> git_change is committed and submitted as one Draft PR
-  -> Implementation hands the stable work item to Exactness
-  -> Exactness records the first bad boundary and hands it to Formalize
-  -> Formalize accepts one canonical revision and resolves temporary work backward
-  -> duplicate resolution delivery is a no-op
+  -> Implementation lane-result automatically materializes an Exactness Task Session
+  -> Exactness records the first bad boundary and automatically routes to Formalize
+  -> one generation-bound integrator accepts the canonical revision and opens a Draft
+  -> Exactness refreshes in its original candidate worktree
+  -> Implementation refreshes in its original candidate worktree
+  -> duplicate lane-result delivery is a no-op
   -> typed Repro summary and Markdown report are projected
   -> the stable report Artifact is synchronized
   -> trusted completion evaluation closes the Repro
@@ -62,7 +66,8 @@ The process journey must retain real implementations for:
 - daemon process and SQLite persistence;
 - local RPC and protocol decoding;
 - Session, Goal, Repro, Loop, and InvocationScheduler state;
-- Repro v8 work items, handoffs, findings, resolutions, and revision fences;
+- Repro v9 lane bindings, result receipts, routes, handoffs, findings,
+  resolutions, refreshes, and revision fences;
 - AgentLoop and tool dispatch;
 - Ask persistence and answer settlement;
 - file edits, Git repository, worktree, and commit;
@@ -106,6 +111,13 @@ normal provider registry and active-model selection path. Zero-tool auxiliary
 requests, such as compaction, are recorded separately and do not advance the
 Journey cursor.
 
+The suite contains two complementary tests. The source-process path retains the
+real daemon, provider, Ask, Git, Draft, report, and restart wiring. The managed
+execution topology path uses the real Repro, Evidence, and TaskGraph owners to
+drive `Implementation → Exactness → Formalize → Exactness refresh →
+Implementation refresh`, while substituting only Git lifecycle and Session
+invocation side effects. Both tests run under `test:journey:repro`.
+
 The first Ask opens asynchronously so the daemon can restart while the durable
 request is pending. The test answers it through `spark daemon ask answer`, then
 replays the same response over public local RPC to prove idempotency. A blocking
@@ -117,12 +129,13 @@ scripted provider, which returns a valid structured approval without advancing
 the main Journey cursor or creating a second human request. The test fails
 closed if a tool-approval Ask appears.
 
-After delivery, the provider registers one stable work item, records both
-forward handoffs, classifies the first bad boundary, binds the native Git Change
-stack to Formalize, and sends two backward resolutions. Replaying the first
-resolution is required to remain a no-op. After terminal completion, the test
-restarts the daemon again and compares persisted Repro state with the bounded
-`session.snapshot` lane projection; scope text must not cross that projection.
+After delivery, the source-process provider also exercises the retained manual
+recovery surfaces for one stable WorkItem and proves the v9 record survives
+daemon replacement. The managed topology test writes typed lane-result Evidence;
+the adapter creates distinct candidate bindings, one canonical integrator, two
+automatic forward handoffs, and the two ordered refreshes. It proves one Root,
+five managed binding Tasks, one canonical GitChange identity, one Draft, and one
+converged WorkItem without using model- or module-specific routing.
 
 Local Git remains real. The forge shim replaces only `gh stack`/GitHub network
 operations and records exactly one Draft PR. The typed summary is compared with
@@ -161,8 +174,8 @@ implementation under test. Expected outputs are immutable test data.
 
 ## Required milestones
 
-The final process test must derive or observe this ordered trace from production
-state and receipts:
+The Journey suite must derive or observe this ordered trace from owner state and
+receipts:
 
 ```text
 repro.started
@@ -179,6 +192,8 @@ handoff.implementation_exactness
 exactness.finding_recorded
 handoff.exactness_formalize
 formalize.resolved
+exactness.refreshed
+implementation.refreshed
 report.projected
 report.synced
 repro.completed
@@ -186,7 +201,10 @@ workbench.sealed
 three_lane.recovered
 ```
 
-Each milestone must:
+The source-process trace observes the milestones through `formalize.resolved`
+and then report/completion/recovery. The managed topology test supplies the two
+refresh milestones and asserts the complete lane order from owner state. Across
+the suite, each milestone must:
 
 - occur exactly once;
 - carry the same `reproId`;
@@ -206,11 +224,15 @@ The completed Golden Journey must prove all of the following:
 - verification fails before the repair and passes afterward;
 - one commit and one Draft PR are created;
 - recovery cannot create a duplicate commit or PR;
-- one stable work item appears in all three lanes, with two forward handoffs and
-  two backward resolutions;
+- one stable work item appears in all three lanes, with two automatic forward
+  handoffs and two backward resolutions;
+- Implementation and Exactness use independent candidate GitChanges, while one
+  generation-bound integrator Session is the only canonical writer;
+- Formalize creates one Draft entry, then Exactness and Implementation refresh
+  in that order before all three bindings converge;
 - duplicate resolution delivery has no side effects, and `formalizedTip` records
   the accepted retirement rather than the changing stack tip;
-- daemon restart reconstructs the v8 owner state and the bounded v2 Session
+- daemon restart reconstructs the v9 owner state and the bounded v2 Session
   projection without leaking scope text, paths, credentials, or full bodies;
 - the v3 work summary contains the same work item, finding, handoffs,
   resolutions, and `formalizedTip` as the owner state;
@@ -220,10 +242,11 @@ The completed Golden Journey must prove all of the following:
 - trusted evaluation, not model narration, completes the Repro;
 - no invocation, pending decision, or writable Workbench remains after completion.
 
-Focused Repro owner tests remain responsible for v7/v2 migration determinism,
-repeat migration, stale revision rejection, skip-without-resync rejection, and
-all invalid handoff or resolution directions. The process Journey proves that
-their accepted state survives real daemon process replacement.
+Focused Repro owner tests remain responsible for v7→v8 and v8→v9 migration
+determinism, repeat migration, stale revision rejection, conflicting result
+identity, skip-without-resync rejection, and invalid route directions. The
+Journey suite proves both the managed execution chain and real daemon process
+replacement.
 
 ## CI position
 
