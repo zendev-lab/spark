@@ -66,7 +66,7 @@
         "from": "@zendev-lab/spark-ask",
         "to": "@zendev-lab/spark-tui-adapter",
         "toLayer": "adapter",
-        "reason": "Ask rendering still imports TUI primitives until the presentation port is inverted.",
+        "reason": "Interactive ask flow rendering still imports TUI key-input primitives until the presentation port is inverted.",
         "owner": "interaction",
         "exitTask": "task:8eccaf5a-cb45-4993-8268-9e2aba1987a2",
         "nonGrowth": true
@@ -79,20 +79,12 @@
         "owner": "roles",
         "exitTask": "task:8eccaf5a-cb45-4993-8268-9e2aba1987a2",
         "nonGrowth": true
-      },
-      {
-        "from": "@zendev-lab/spark-roles",
-        "to": "@zendev-lab/spark-tui-adapter",
-        "toLayer": "adapter",
-        "reason": "Role rendering still imports TUI primitives until the presentation port is inverted.",
-        "owner": "roles",
-        "exitTask": "task:8eccaf5a-cb45-4993-8268-9e2aba1987a2",
-        "nonGrowth": true
       }
     ],
+
     "temporaryDependencyExceptionBudget": {
-      "current": 6,
-      "ceiling": 6,
+      "current": 5,
+      "ceiling": 5,
       "nonGrowth": true
     },
     "piOwnership": {

@@ -1204,9 +1204,9 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
-      '@zendev-lab/spark-tui-adapter':
+      '@zendev-lab/spark-text':
         specifier: workspace:^
-        version: link:../spark-tui
+        version: link:../spark-text
       es-toolkit:
         specifier: 'catalog:'
         version: 1.50.0

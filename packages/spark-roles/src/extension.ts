@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
+import { truncateToWidth } from "@zendev-lab/spark-text";
 import type { ExtensionRoleRunner, ToolPolicy } from "@zendev-lab/spark-core";
 import { Type } from "typebox";
 import {
