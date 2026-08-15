@@ -393,6 +393,35 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
     }
   }
 
+  // Activity is read before any persistence so the idle/queue/interrupt
+  // decision can fail closed: a rejected queued send must never leave a
+  // pending mail behind. Queue depth is enforced only for fresh sends —
+  // idempotent replays keep returning the existing admission instead of a
+  // queue-full error.
+  const control = sessionControlOptions(paths, db, options);
+  const invocationStore = new SparkInvocationStore(db);
+  const active =
+    params.kind === "request" ? invocationStore.listPendingForSession(params.toSessionId) : [];
+  if (params.kind === "request" && active.length > 0 && params.onActive !== "interrupt") {
+    const key = params.idempotencyKey?.trim();
+    const alreadyDurable = key
+      ? (await mailStore.list(params.toSessionId, { includeAcked: true })).some(
+          (message) => message.idempotencyKey === key,
+        )
+      : false;
+    if (!alreadyDurable) {
+      const queued = mailStore.pendingRequestsForSession
+        ? await mailStore.pendingRequestsForSession(params.toSessionId)
+        : [];
+      if (queued.length >= MAX_PENDING_SESSION_REQUEST_QUEUE) {
+        throw new SparkSessionRegistryError(
+          "session_mail_queue_full",
+          `session ${params.toSessionId} already has ${MAX_PENDING_SESSION_REQUEST_QUEUE} queued requests; wait or use onActive=interrupt`,
+        );
+      }
+    }
+  }
+
   const sent = await mailStore.send({
     toSessionId: params.toSessionId,
     fromSessionId: params.fromSessionId,
@@ -446,10 +475,6 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
       target,
     });
   }
-
-  const control = sessionControlOptions(paths, db, options);
-  const invocationStore = new SparkInvocationStore(db);
-  const active = invocationStore.listPendingForSession(params.toSessionId);
 
   if (active.length === 0) {
     // Idle target: submit immediately. The read and submit are both served by
@@ -506,18 +531,10 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
     });
   }
 
-  // Running/queued target with the default queue policy: persist the mail as a
-  // pending request. The daemon drains it FIFO after the current invocation
-  // settles. A plain running send never silently interrupts.
-  if (mailStore.pendingRequestsForSession) {
-    const queued = await mailStore.pendingRequestsForSession(params.toSessionId);
-    if (queued.length > MAX_PENDING_SESSION_REQUEST_QUEUE) {
-      throw new SparkSessionRegistryError(
-        "session_mail_queue_full",
-        `session ${params.toSessionId} already has ${MAX_PENDING_SESSION_REQUEST_QUEUE} queued requests; wait or use onActive=interrupt`,
-      );
-    }
-  }
+  // Running/queued target with the default queue policy: the mail persisted
+  // above waits as a durable pending request and the daemon drains it FIFO
+  // after the current invocation settles. A plain running send never
+  // silently interrupts; the queue bound was enforced before persistence.
   return sparkSessionSendResultSchema.parse({
     message: sent.message,
     filePath: sent.path,

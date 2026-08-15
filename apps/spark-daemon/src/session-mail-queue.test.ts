@@ -6,9 +6,7 @@ import { describe, expect, it } from "vitest";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { createDaemonSessionRegistry, handleLocalRpcLine } from "./local-rpc.js";
-import {
-  MAX_PENDING_SESSION_REQUEST_QUEUE,
-} from "./session-mail-execution.ts";
+import { MAX_PENDING_SESSION_REQUEST_QUEUE } from "./session-mail-execution.ts";
 import { drainSessionMailRequestQueue } from "./session-mail-queue.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
 import { SparkInvocationStore } from "./store/invocations.ts";
@@ -209,7 +207,9 @@ describe("session.send queue|interrupt", () => {
         executionTriggered: false,
         message: { requestAdmission: { status: "pending" } },
       });
-      expect(harness.invocations.listPage({ sessionId: "sess_worker" }).invocations).toHaveLength(1);
+      expect(harness.invocations.listPage({ sessionId: "sess_worker" }).invocations).toHaveLength(
+        1,
+      );
     } finally {
       cleanup();
     }
@@ -274,9 +274,7 @@ describe("session.send queue|interrupt", () => {
 
       expect(await drain()).toEqual({ drained: 1, skippedBusy: 0 });
       const after = await harness.mailStore.list("sess_worker", { includeAcked: true });
-      expect(
-        after.every((message) => message.requestAdmission?.status === "accepted"),
-      ).toBe(true);
+      expect(after.every((message) => message.requestAdmission?.status === "accepted")).toBe(true);
       // FIFO: the first drained mail was admitted before the second.
       const admittedIds = after.map((message) =>
         message.requestAdmission?.status === "accepted"
@@ -334,6 +332,14 @@ describe("session.send queue|interrupt", () => {
       const overflow = await send(harness, sendParams({ body: "overflow" }));
       expect(overflow.ok).toBe(false);
       expect(overflow.error).toMatchObject({ code: "session_mail_queue_full" });
+      // Fail-closed: the rejected send persisted nothing; the queue stays at
+      // exactly the bound with no orphaned pending mail.
+      expect(await harness.mailStore.pendingRequests()).toHaveLength(
+        MAX_PENDING_SESSION_REQUEST_QUEUE,
+      );
+      expect(await harness.mailStore.list("sess_worker", { includeAcked: true })).toHaveLength(
+        MAX_PENDING_SESSION_REQUEST_QUEUE,
+      );
     } finally {
       cleanup();
     }
@@ -361,7 +367,126 @@ describe("session.send queue|interrupt", () => {
         },
       });
       expect(await harness.mailStore.list("sess_worker", { includeAcked: true })).toHaveLength(1);
-      expect(harness.invocations.listPage({ sessionId: "sess_worker" }).invocations).toHaveLength(1);
+      expect(harness.invocations.listPage({ sessionId: "sess_worker" }).invocations).toHaveLength(
+        1,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("is idempotent: replay of an accepted request returns the original admission without re-executing", async () => {
+    const { harness, cleanup } = await createHarness();
+    try {
+      const current = runningInvocation(harness);
+      const params = sendParams({ body: "drained once" });
+      const first = await send(harness, params);
+      expect(first.result).toMatchObject({
+        created: true,
+        executionTriggered: false,
+        message: { requestAdmission: { status: "pending" } },
+      });
+
+      harness.invocations.complete(current.invocationId, { status: "succeeded" });
+      await drainSessionMailRequestQueue({
+        control: controlFor(harness),
+        invocationStore: harness.invocations,
+        mailStore: harness.mailStore,
+      });
+      const accepted = (await harness.mailStore.list("sess_worker", { includeAcked: true }))[0]!;
+      expect(accepted.requestAdmission).toMatchObject({ status: "accepted" });
+
+      const replay = await send(harness, params);
+      expect(replay.result).toMatchObject({
+        created: false,
+        executionTriggered: true,
+        message: {
+          id: first.result?.message?.id,
+          requestAdmission: { status: "accepted" },
+        },
+      });
+      expect(replay.result?.submitted?.invocationId).toBe(
+        accepted.requestAdmission?.status === "accepted"
+          ? accepted.requestAdmission.invocationId
+          : undefined,
+      );
+      // The replay neither created a second mail nor a second invocation.
+      expect(await harness.mailStore.list("sess_worker", { includeAcked: true })).toHaveLength(1);
+      expect(harness.invocations.listPage({ sessionId: "sess_worker" }).invocations).toHaveLength(
+        2,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("keeps an accepted replay out of the queue-full bound once the queue is full", async () => {
+    const { harness, cleanup } = await createHarness();
+    try {
+      const current = runningInvocation(harness);
+      const acceptedParams = sendParams({ body: "accepted once" });
+      const first = await send(harness, acceptedParams);
+      expect(first.result?.message?.requestAdmission?.status).toBe("pending");
+
+      harness.invocations.complete(current.invocationId, { status: "succeeded" });
+      await drainSessionMailRequestQueue({
+        control: controlFor(harness),
+        invocationStore: harness.invocations,
+        mailStore: harness.mailStore,
+      });
+
+      // Fill the pending queue to its exact bound.
+      for (let index = 0; index < MAX_PENDING_SESSION_REQUEST_QUEUE; index += 1) {
+        const response = await send(harness, sendParams({ body: `fill ${index}` }));
+        expect(response.ok).toBe(true);
+        expect(response.result?.executionTriggered).toBe(false);
+      }
+
+      // A fresh overflow send is rejected before anything is persisted.
+      const overflow = await send(harness, sendParams({ body: "overflow" }));
+      expect(overflow.ok).toBe(false);
+      expect(overflow.error).toMatchObject({ code: "session_mail_queue_full" });
+      expect(await harness.mailStore.pendingRequests()).toHaveLength(
+        MAX_PENDING_SESSION_REQUEST_QUEUE,
+      );
+
+      // The replay of the accepted request is NOT a fresh send: it returns the
+      // original acceptance even though the queue is currently full.
+      const replay = await send(harness, acceptedParams);
+      expect(replay.ok).toBe(true);
+      expect(replay.result).toMatchObject({
+        created: false,
+        executionTriggered: true,
+        message: { requestAdmission: { status: "accepted" } },
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("serializes concurrent queue and interrupt sends without losing or duplicating", async () => {
+    const { harness, cleanup } = await createHarness();
+    try {
+      const current = runningInvocation(harness);
+      const [queued, interrupting] = await Promise.all([
+        send(harness, sendParams({ body: "raced queue" })),
+        send(harness, sendParams({ body: "raced interrupt", onActive: "interrupt" })),
+      ]);
+      expect(queued.ok).toBe(true);
+      expect(interrupting.ok).toBe(true);
+
+      const mails = await harness.mailStore.list("sess_worker", { includeAcked: true });
+      expect(mails).toHaveLength(2);
+      // Exactly one delivery: the interrupt admitted one request while the
+      // queue send waited. Nothing was lost and nothing was executed twice.
+      expect(mails.filter((mail) => mail.requestAdmission?.status === "accepted")).toHaveLength(1);
+      expect(mails.filter((mail) => mail.requestAdmission?.status === "pending")).toHaveLength(1);
+      expect(harness.invocations.require(current.invocationId).cancelReason).toContain(
+        "session.send interrupt",
+      );
+      expect(harness.invocations.listPage({ sessionId: "sess_worker" }).invocations).toHaveLength(
+        2,
+      );
     } finally {
       cleanup();
     }
