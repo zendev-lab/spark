@@ -1,3 +1,4 @@
+import type { DatabaseSync } from "node:sqlite";
 import { createId } from "@zendev-lab/spark-protocol";
 import type { Handle, HandleServerError, RequestEvent } from "@sveltejs/kit";
 import {
@@ -29,6 +30,7 @@ import {
   legacyCockpitActiveWorkspaceCookieName,
 } from "$lib/server/active-workspace";
 import { remoteAccessDecision } from "$lib/server/remote-access";
+import { loadWorkspaceByRouteId } from "$lib/server/workspace-routing";
 
 export const handle: Handle = async ({ event, resolve }) => {
   migrateLegacyHubCookies(event);
@@ -74,7 +76,10 @@ export const handle: Handle = async ({ event, resolve }) => {
     const decision = remoteAccessDecision({ url: event.url, clientAddress });
     event.locals.hasControlPlaneAccess = !decision.required || Boolean(hubSession);
     if (decision.required && !hubSession && !workspaceSession) {
-      return remoteAccessRequiredResponse(event, "hub");
+      const routeWorkspace = activeRouteWorkspace(db, event.url.pathname);
+      return routeWorkspace
+        ? remoteAccessRequiredResponse(event, "workspace", routeWorkspace.slug)
+        : remoteAccessRequiredResponse(event, "hub");
     }
     if (
       decision.required &&
@@ -92,6 +97,10 @@ export const handle: Handle = async ({ event, resolve }) => {
       workspaceSession &&
       !workspaceSessionAllowsRequest(db, workspaceSession.workspaceId, event.url.pathname)
     ) {
+      const routeWorkspace = activeRouteWorkspace(db, event.url.pathname);
+      if (routeWorkspace && routeWorkspace.id !== workspaceSession.workspaceId) {
+        return remoteAccessRequiredResponse(event, "workspace", routeWorkspace.slug);
+      }
       // Hub owner sessions may still use control-plane routes.
       if (!hubSession || isRemoteWorkspaceDataPath(event.url.pathname)) {
         return workspaceAccessForbiddenResponse(workspaceSession.workspaceSlug);
@@ -194,6 +203,11 @@ function workspaceSlugFromPath(pathname: string): string | null {
   } catch {
     return segment;
   }
+}
+
+function activeRouteWorkspace(db: DatabaseSync, pathname: string) {
+  const routeId = workspaceSlugFromPath(pathname);
+  return routeId ? loadWorkspaceByRouteId(db, routeId) : undefined;
 }
 
 function remoteAccessRequiredResponse(
