@@ -53,4 +53,36 @@ describe("HubShell browser contract", () => {
 
     await screen.unmount();
   });
+
+  it("keeps the skip-to-content link visually hidden until keyboard focus", async () => {
+    const screen = await render(HubShell, {
+      children,
+      closeNavigationLabel: messages.layout.aria.closeWorkspaceNavigation,
+      common: messages.common,
+      layout: messages.layout,
+      navigation,
+      navigationAriaLabel: messages.layout.aria.workspaceNavigation,
+      navigationId: "test-navigation",
+      pathname: "/workspace/sessions",
+      sessionMessages: messages.sessions,
+      workspaceHref: () => "/",
+    });
+
+    const skipLink = screen.container.querySelector<HTMLAnchorElement>(".skip-link");
+    expect(skipLink).not.toBeNull();
+    expect(skipLink?.getAttribute("href")).toBe("#hub-main-content");
+    expect(skipLink?.getBoundingClientRect().width ?? 0).toBeLessThanOrEqual(1);
+
+    skipLink?.focus();
+    await vi.waitFor(() => {
+      expect(skipLink?.getBoundingClientRect().width ?? 0).toBeGreaterThan(1);
+    });
+
+    skipLink?.click();
+    await vi.waitFor(() => {
+      expect(document.activeElement?.id).toBe("hub-main-content");
+    });
+
+    await screen.unmount();
+  });
 });
