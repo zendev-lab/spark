@@ -985,6 +985,7 @@ test("daemon session list defaults to live attachable workspace clients", async 
               kind: "interactive" as const,
               status: "connected" as const,
               displayName: "Spark TUI",
+              sessionId: "session-a",
               attachedAt: "2026-07-08T00:00:00.000Z",
               lastSeenAt: "2026-07-08T00:01:00.000Z",
             },
@@ -1049,7 +1050,8 @@ test("daemon session list defaults to live attachable workspace clients", async 
     list.sessions.every((session) => session.joinCommand.includes("spark tui")),
     true,
   );
-  assert.match(list.text, /join: cd \/tmp\/workspace-a && spark tui/u);
+  assert.match(list.text, /join: cd \/tmp\/workspace-a && spark tui --session-id session-a/u);
+  assert.match(list.text, /join: cd \/tmp\/workspace-b && spark tui/u);
   assert.doesNotMatch(list.text, /wcl-old-a/u);
 });
 

@@ -230,7 +230,7 @@ function liveSessionSummary(
 ): DaemonSessionSummary {
   const timestamp = client.lastSeenAt ?? client.attachedAt ?? workspace.updatedAt ?? observedAt;
   const display = client.displayName ?? client.kind;
-  const joinCommand = joinCommandForWorkspace(workspace.localPath);
+  const joinCommand = joinCommandForSession(workspace.localPath, client.sessionId);
   return {
     sessionKey: sessionKey(client.clientId),
     id: client.clientId,
@@ -268,8 +268,11 @@ function renderLiveSessionList(sessions: DaemonSessionSummary[]): string {
   );
 }
 
-function joinCommandForWorkspace(cwd: string): string {
-  return `cd ${shellQuote(cwd)} && spark tui`;
+function joinCommandForSession(cwd: string, sessionId?: string): string {
+  const attach = sessionId?.trim()
+    ? `spark tui --session-id ${shellQuote(sessionId.trim())}`
+    : "spark tui";
+  return `cd ${shellQuote(cwd)} && ${attach}`;
 }
 
 function shellQuote(value: string): string {

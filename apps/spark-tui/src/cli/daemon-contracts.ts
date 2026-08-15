@@ -5,6 +5,7 @@ export interface SparkWorkspaceClientProjection {
   kind: SparkWorkspaceClientKind;
   status: "connected" | "disconnected";
   displayName?: string;
+  sessionId?: string;
   attachedAt?: string;
   lastSeenAt?: string;
 }
