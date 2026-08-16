@@ -33,6 +33,7 @@ import { syncSparkReproReportArtifact } from "./spark-repro-report.ts";
 import { collectReproOrchestrationSnapshot } from "./spark-repro-orchestration.ts";
 import { reconcileManagedTaskSessions } from "./spark-task-session-dispatch.ts";
 import { sparkActiveMode } from "./spark-mode-state.ts";
+import { loadCurrentProjectRef } from "./session-state.ts";
 import {
   reproPhaseToSessionMode,
   advanceReproPhase,
@@ -530,7 +531,8 @@ export function registerSparkReproTool(
         const repro = await activeRepro(cwd, ctx);
         if (!repro) return noActiveReproResult();
         const input = normalizeReproPlanRevision(params);
-        const updated = reviseReproPlan(repro, input);
+        const revised = reviseReproPlan(repro, input);
+        const updated = await rebindReproToCurrentProjectForBoundTasks(cwd, ctx, revised);
         await writeUnifiedSessionRepro(cwd, updated, ctx);
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
@@ -1857,6 +1859,25 @@ async function activeRepro(
 ): Promise<SparkSessionRepro | undefined> {
   const repro = await readSessionRepro(cwd, ctx);
   return repro?.status === "active" ? repro : undefined;
+}
+
+async function rebindReproToCurrentProjectForBoundTasks(
+  cwd: string,
+  ctx: SparkToolContext,
+  repro: SparkSessionRepro,
+): Promise<SparkSessionRepro> {
+  const taskRefs = repro.subgoals.flatMap((subgoal) => (subgoal.taskRef ? [subgoal.taskRef] : []));
+  if (taskRefs.length === 0) return repro;
+
+  const projectRef = await loadCurrentProjectRef(cwd, ctx);
+  if (!projectRef || projectRef === repro.projectRef) return repro;
+
+  const graph = await defaultTaskGraphStore(sparkStateCwd(cwd, ctx)).load();
+  if (!graph) return repro;
+  const currentProjectTaskRefs = new Set(graph.tasks(projectRef).map((task) => task.ref));
+  if (!taskRefs.every((taskRef) => currentProjectTaskRefs.has(taskRef))) return repro;
+
+  return { ...repro, projectRef, updatedAt: nowIso() };
 }
 
 function noActiveReproResult() {
