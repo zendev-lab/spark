@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
-import { acquireMainTaskClaim, recoverMainTaskClaim, releaseMainTaskClaim } from "./authority.ts";
+import { acquireMainTaskClaim, recoverTaskClaim, releaseMainTaskClaim } from "./authority.ts";
 import {
   attachTaskClaimTestSession,
   loadedTaskClaimTestTask,
@@ -13,7 +13,7 @@ async function expectCode(run: () => Promise<unknown>, code: string) {
   await expect(run()).rejects.toMatchObject({ code });
 }
 
-describe("daemon main task claim authority", () => {
+describe("daemon task claim authority", () => {
   it("acquires through a fenced lease and rejects stale fences", async () => {
     await withTaskClaimTestContext(async (context) => {
       const lease = attachTaskClaimTestSession(context, "session:one", taskClaimTestNow);
@@ -198,7 +198,7 @@ describe("daemon main task claim authority", () => {
         provenance: { producer: "task", taskRef: roleTask.ref },
       });
 
-      const recovered = await recoverMainTaskClaim(
+      const recovered = await recoverTaskClaim(
         context.db,
         {
           ...lease,
@@ -251,7 +251,7 @@ describe("daemon main task claim authority", () => {
         provenance: { producer: "task", taskRef: context.task.ref },
       });
 
-      const recovered = await recoverMainTaskClaim(
+      const recovered = await recoverTaskClaim(
         context.db,
         {
           ...lease,

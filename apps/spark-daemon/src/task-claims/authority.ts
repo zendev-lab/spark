@@ -95,7 +95,7 @@ export async function releaseMainTaskClaim(
   return taskClaimResult(result.task, input.sessionId, "released", result.changed, now);
 }
 
-export async function recoverMainTaskClaim(
+export async function recoverTaskClaim(
   db: DatabaseSync,
   input: SparkLocalRpcParsedInput<"task.claim.recover">,
   now = new Date().toISOString(),
