@@ -7,9 +7,12 @@ Generic Workflow v2 definition and runtime capability for Spark hosts.
 Workflow children may request one reusable Role by selector with `role`, or pin an
 exact Role ref with `roleRef`; supplying both fails closed. Spark resolves a
 selector before approval and freezes its exact ref and revision into approval
-and run provenance. `.agents/workflows/repo-change` is the repository-owned
-scope/implement/review/verify workflow. It returns structured delivery evidence
-and never publishes Git or GitHub state.
+and run provenance. The repository-owned engineering workflows are
+`.agents/workflows/repo-change` for already-bounded changes,
+`.agents/workflows/maintainability-change` for behavior-preserving review and
+simplification, and `.agents/workflows/feature-change` for
+research/selection/plan/implementation delivery. They return structured
+delivery evidence and never publish Git or GitHub state.
 
 The generic ready-task orchestrator also packs Task execution policies against
 the node inventory. `SPARK_TASK_RESOURCE_INVENTORY` accepts JSON in this shape:

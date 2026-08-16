@@ -148,11 +148,21 @@ The host resolves selectors before approval and writes the exact Role ref and
 revision to the approval summary and run record. Execution fails closed if the
 binding changes before the child Role starts.
 
-The repository `workspace:repo-change` Workflow scopes with the architecture
-guardian, implements through the builtin executor in the owning worktree,
-reviews independently (adding the knowledge curator for `.agents` changes), and
-verifies delivery evidence. It returns accepted or rejected structured evidence
-and never creates, pushes, merges, or publishes a pull request.
+Repository-owned engineering Workflows keep distinct entry boundaries:
+
+- [`workspace:repo-change`](../../workflows/repo-change/WORKFLOW.md) handles an
+  already-bounded repository change;
+- [`workspace:maintainability-change`](../../workflows/maintainability-change/WORKFLOW.md)
+  establishes a behavior baseline, combines correctness and simplification
+  review, and implements only bounded equivalent improvements;
+- [`workspace:feature-change`](../../workflows/feature-change/WORKFLOW.md)
+  separates research, architecture selection, planning, implementation, and
+  independent review.
+
+Their Workflow definitions own exact stage order and handoffs. All three
+execute in the current owning worktree, add the knowledge curator when
+`.agents` changes, return accepted or rejected structured evidence, and never
+create, push, merge, or publish a pull request.
 
 ## Prompt ownership
 
