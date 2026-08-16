@@ -81,7 +81,7 @@ export const sparkDefaultModelSetRequestSchema = z.object({
 export const SPARK_ENABLED_MODELS_WRITE_INTENT_KIND = "user-initiated" as const;
 export const sparkEnabledModelsWriteViaOptions = ["slash-command", "settings-ui", "cli"] as const;
 
-/** Verified user-facing write of enabledModels. Catalog/reconnect/session switches cannot mint this. */
+/** Explicit user-facing write provenance. Catalog/reconnect/session switches cannot mint this. */
 export const sparkEnabledModelsWriteIntentSchema = z.object({
   kind: z.literal(SPARK_ENABLED_MODELS_WRITE_INTENT_KIND),
   via: z.enum(sparkEnabledModelsWriteViaOptions),
@@ -98,7 +98,7 @@ export function requireSparkEnabledModelsWriteIntent(
 ): SparkEnabledModelsWriteIntent {
   const parsed = sparkEnabledModelsWriteIntentSchema.safeParse(intent);
   if (!parsed.success) {
-    throw new Error("enabledModels writes require verified user-initiated intent");
+    throw new Error("enabledModels writes require explicit user-initiated intent");
   }
   return parsed.data;
 }
@@ -280,7 +280,7 @@ export function parseSparkDefaultModelSetRequest(value: unknown): SparkDefaultMo
 export function parseSparkEnabledModelsSetRequest(value: unknown): SparkEnabledModelsSetRequest {
   const parsed = sparkEnabledModelsSetRequestSchema.safeParse(value);
   if (!parsed.success) {
-    throw new Error("enabledModels writes require verified user-initiated intent");
+    throw new Error("enabledModels writes require explicit user-initiated intent");
   }
   return parsed.data;
 }

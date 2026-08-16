@@ -41,14 +41,14 @@ export type SparkEnabledModelsWriteIntent = {
   via: "slash-command" | "settings-ui" | "cli";
 };
 
-function requireEnabledModelsWriteIntent(
+function requireExplicitEnabledModelsWriteIntent(
   intent: SparkEnabledModelsWriteIntent | undefined,
 ): SparkEnabledModelsWriteIntent {
   if (
     intent?.kind !== "user-initiated" ||
     (intent.via !== "slash-command" && intent.via !== "settings-ui" && intent.via !== "cli")
   ) {
-    throw new Error("enabledModels writes require verified user-initiated intent");
+    throw new Error("enabledModels writes require explicit user-initiated intent");
   }
   return intent;
 }
@@ -241,7 +241,7 @@ class LocalSparkProviderControl implements SparkProviderControl {
     modelRefs: readonly string[],
     intent?: SparkEnabledModelsWriteIntent,
   ): Promise<void> {
-    requireEnabledModelsWriteIntent(intent);
+    requireExplicitEnabledModelsWriteIntent(intent);
     const state = await this.#loadState();
     if (state.config.loadError) {
       throw new Error(`Refusing to overwrite unreadable Spark config: ${state.config.loadError}`);

@@ -31,7 +31,12 @@ import {
   normalizeSparkEnabledModelPatterns,
 } from "@zendev-lab/spark-ai/control";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
-import { DEFAULT_SPARK_THINKING_LEVEL } from "@zendev-lab/spark-protocol";
+import {
+  DEFAULT_SPARK_THINKING_LEVEL,
+  sparkEnabledModelsWriteIntentSchema,
+  sparkUserInitiatedEnabledModelsIntent,
+  type SparkEnabledModelsWriteIntent,
+} from "@zendev-lab/spark-protocol";
 import { DEFAULT_SPARK_COMPACTION_SETTINGS, type SparkCompactionSettings } from "./compaction.ts";
 import { DEFAULT_SPARK_EXTENSION_SPECS } from "./extension-specs.ts";
 
@@ -132,20 +137,12 @@ export async function loadSparkConfig(
   return mergeWithDefault(parsed);
 }
 
-export type SparkEnabledModelsWriteIntent = {
-  kind: "user-initiated";
-  via: "slash-command" | "settings-ui" | "cli";
-};
-
 export interface SparkConfigSaveOptions {
   enabledModelsIntent?: SparkEnabledModelsWriteIntent;
 }
 
-export function sparkUserInitiatedEnabledModelsIntent(
-  via: SparkEnabledModelsWriteIntent["via"],
-): SparkEnabledModelsWriteIntent {
-  return { kind: "user-initiated", via };
-}
+export { sparkUserInitiatedEnabledModelsIntent };
+export type { SparkEnabledModelsWriteIntent };
 
 export async function saveSparkConfig(
   config: SparkConfig,
@@ -153,7 +150,7 @@ export async function saveSparkConfig(
   options?: SparkConfigSaveOptions,
 ): Promise<void> {
   const toWrite: SparkConfig = { ...config };
-  if (!hasVerifiedEnabledModelsWriteIntent(options?.enabledModelsIntent)) {
+  if (!hasExplicitEnabledModelsWriteIntent(options?.enabledModelsIntent)) {
     const diskEnabledModels = await readDiskEnabledModels(path);
     if (diskEnabledModels === undefined) delete toWrite.enabledModels;
     else toWrite.enabledModels = diskEnabledModels;
@@ -164,13 +161,10 @@ export async function saveSparkConfig(
   await rename(tmp, path);
 }
 
-function hasVerifiedEnabledModelsWriteIntent(
+function hasExplicitEnabledModelsWriteIntent(
   intent: SparkEnabledModelsWriteIntent | undefined,
 ): intent is SparkEnabledModelsWriteIntent {
-  return (
-    intent?.kind === "user-initiated" &&
-    (intent.via === "slash-command" || intent.via === "settings-ui" || intent.via === "cli")
-  );
+  return sparkEnabledModelsWriteIntentSchema.safeParse(intent).success;
 }
 
 async function readDiskEnabledModels(path: string): Promise<string[] | undefined> {

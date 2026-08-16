@@ -84,7 +84,7 @@ describe("daemon model control", () => {
     expect(prepareModel).toHaveBeenCalledWith("baidu-oneapi/ernie-4.6");
   });
 
-  it("fails closed when setEnabledModels has no verified user-initiated intent", async () => {
+  it("fails closed when setEnabledModels has no explicit user-initiated intent", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-model-control-intent-"));
     roots.push(root);
     const sessionRegistry = createDaemonSessionRegistry(root, {

@@ -7,8 +7,10 @@ import {
   DEFAULT_SPARK_THINKING_LEVEL,
   parseSparkAuthFlow,
   parseSparkModelControlSnapshot,
+  requireSparkEnabledModelsWriteIntent,
   type SparkAuthImportReport,
   type SparkAuthFlow,
+  type SparkEnabledModelsWriteIntent,
   type SparkModelCatalogEntry,
   type SparkModelCatalogProvider,
   type SparkModelConnectivityTestResult,
@@ -22,24 +24,17 @@ import type { SparkOAuthFlowSnapshot } from "@zendev-lab/spark-ai/control";
 import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 
-type SparkEnabledModelsWriteIntent = {
-  kind: "user-initiated";
-  via: "slash-command" | "settings-ui" | "cli";
-};
-
 function requireEnabledModelsWriteIntent(
   intent: SparkEnabledModelsWriteIntent | undefined,
 ): SparkEnabledModelsWriteIntent {
-  if (
-    intent?.kind !== "user-initiated" ||
-    (intent.via !== "slash-command" && intent.via !== "settings-ui" && intent.via !== "cli")
-  ) {
+  try {
+    return requireSparkEnabledModelsWriteIntent(intent);
+  } catch {
     throw new SparkDaemonControlError(
       "enabled_models_intent_required",
-      "enabledModels writes require verified user-initiated intent",
+      "enabledModels writes require explicit user-initiated intent",
     );
   }
-  return intent;
 }
 
 export interface SparkDaemonModelControl {
@@ -105,10 +100,10 @@ class DaemonModelControl implements SparkDaemonModelControl {
     models: readonly SparkModelRef[],
     intent?: SparkEnabledModelsWriteIntent,
   ): Promise<SparkModelControlSnapshot> {
-    const verified = requireEnabledModelsWriteIntent(intent);
+    const explicitIntent = requireEnabledModelsWriteIntent(intent);
     const snapshot = await this.snapshot();
     const canonical = models.map((model) => requireCatalogModel(snapshot, model).model);
-    await this.#providerControl.setEnabledModels(canonical.map(modelValue), verified);
+    await this.#providerControl.setEnabledModels(canonical.map(modelValue), explicitIntent);
     return await this.snapshot();
   }
 

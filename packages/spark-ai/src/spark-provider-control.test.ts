@@ -161,7 +161,7 @@ test("user enabledModels replaces defaults and explicit empty scope permits no m
   });
 });
 
-test("provider control refuses enabledModels writes without verified user-initiated intent", async () => {
+test("provider control refuses enabledModels writes without explicit user-initiated intent", async () => {
   await withSparkHome(async (sparkHome) => {
     const configPath = join(sparkHome, "config.json");
     await writeFile(
@@ -171,7 +171,7 @@ test("provider control refuses enabledModels writes without verified user-initia
     const control = createSparkProviderControl({ sparkHome, env: {} });
     await assert.rejects(
       control.setEnabledModels(["baidu-oneapi/grok-4.5"]),
-      /enabledModels writes require verified user-initiated intent/u,
+      /enabledModels writes require explicit user-initiated intent/u,
     );
     const persisted = await readJsonFixture<Record<string, unknown>>(configPath);
     assert.deepEqual(persisted.enabledModels, ["baidu-oneapi/grok-4.6"]);

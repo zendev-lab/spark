@@ -119,9 +119,9 @@ describe("Spark model-control protocol", () => {
     ).toEqual(model);
   });
 
-  it("fails closed when model.enabled.set has no verified user-initiated intent", () => {
+  it("fails closed when model.enabled.set has no explicit user-initiated intent", () => {
     expect(() => parseSparkEnabledModelsSetRequest({ models: [model] })).toThrow(
-      /enabledModels writes require verified user-initiated intent/u,
+      /enabledModels writes require explicit user-initiated intent/u,
     );
   });
 
