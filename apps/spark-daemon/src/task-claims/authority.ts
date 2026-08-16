@@ -7,6 +7,7 @@ import {
   assertPreviousSessionInactive,
   assertRecoveryReasonAllowed,
   mainClaimSessionId,
+  taskClaimSessionId,
   requireTask,
   requireTaskClaimWorkspace,
   taskClaimConflict,
@@ -104,7 +105,7 @@ export async function recoverMainTaskClaim(
   assertPreviousSessionInactive(db, input.workspaceId, input.previousSessionId, now);
   const task = await updateTaskGraph(workspace.localPath, (graph) => {
     const current = requireTask(graph, input.taskRef);
-    if (mainClaimSessionId(current) !== input.previousSessionId) {
+    if (taskClaimSessionId(current) !== input.previousSessionId) {
       throw new SparkDaemonControlError(
         "task_claim_recovery_refused",
         `Task ${input.taskRef} is no longer claimed by ${input.previousSessionId}.`,

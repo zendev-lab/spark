@@ -50,6 +50,10 @@ export function mainClaimSessionId(task: Task): string | undefined {
   return task.claim.sessionId ?? task.claim.claimedBy;
 }
 
+export function taskClaimSessionId(task: Task): string | undefined {
+  return task.claim?.sessionId ?? task.claim?.claimedBy;
+}
+
 export function assertPreviousSessionInactive(
   db: DatabaseSync,
   workspaceId: string,
