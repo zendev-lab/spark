@@ -72,6 +72,15 @@ references from that incarnation. If no valid semantic result exists, Spark
 stores a deterministic metadata-only fallback and still removes the content.
 The receipt is queryable Session metadata, not Evidence or Memory.
 
+## Sending work between Sessions
+
+A Session request without `onActive` is an idle-only attempt. Spark submits it immediately when the target is idle. If the target is queued or running, Spark persists nothing and returns `session_mail_target_active`, prompting the caller to retry with one explicit policy:
+
+- `onActive: "queue"` stores the request in the target's durable FIFO queue. Each target accepts at most three pending requests; a full queue fails without storing another message.
+- `onActive: "interrupt"` cancels the target's current invocation before submitting the new request.
+
+Notifications still persist without triggering target execution.
+
 ## Which mode should you use?
 
 - Use `spark run` for one foreground result.

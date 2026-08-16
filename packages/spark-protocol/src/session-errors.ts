@@ -37,6 +37,7 @@ export const sparkSessionRegistryDomainErrorCodeOptions = [
   "session_mail_queue_full",
   "session_mail_self_target",
   "session_mail_store_unavailable",
+  "session_mail_target_active",
   "session_mail_target_archived",
   "session_mail_target_not_local",
   "session_mail_not_channel_delivery",

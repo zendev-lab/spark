@@ -394,10 +394,10 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
   }
 
   // Activity is read before any persistence so the idle/queue/interrupt
-  // decision can fail closed: a rejected queued send must never leave a
-  // pending mail behind. Queue depth is enforced only for fresh sends —
-  // idempotent replays keep returning the existing admission instead of a
-  // queue-full error.
+  // decision fails closed. An active target requires an explicit policy, and
+  // a rejected or overflowing send must never leave pending mail behind.
+  // Idempotent replays keep returning the existing admission regardless of
+  // current activity or queue depth.
   const control = sessionControlOptions(paths, db, options);
   const invocationStore = new SparkInvocationStore(db);
   const active =
@@ -410,13 +410,19 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
         )
       : false;
     if (!alreadyDurable) {
+      if (params.onActive !== "queue") {
+        throw new SparkSessionRegistryError(
+          "session_mail_target_active",
+          `session ${params.toSessionId} is active; retry with onActive="queue" to enqueue or onActive="interrupt" to cancel the current invocation`,
+        );
+      }
       const queued = mailStore.pendingRequestsForSession
         ? await mailStore.pendingRequestsForSession(params.toSessionId)
         : [];
       if (queued.length >= MAX_PENDING_SESSION_REQUEST_QUEUE) {
         throw new SparkSessionRegistryError(
           "session_mail_queue_full",
-          `session ${params.toSessionId} already has ${MAX_PENDING_SESSION_REQUEST_QUEUE} queued requests; wait or use onActive=interrupt`,
+          `session ${params.toSessionId} already has ${MAX_PENDING_SESSION_REQUEST_QUEUE} queued requests; wait or use onActive="interrupt"`,
         );
       }
     }
@@ -531,10 +537,10 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
     });
   }
 
-  // Running/queued target with the default queue policy: the mail persisted
+  // Running/queued target with the explicit queue policy: the mail persisted
   // above waits as a durable pending request and the daemon drains it FIFO
-  // after the current invocation settles. A plain running send never
-  // silently interrupts; the queue bound was enforced before persistence.
+  // after the current invocation settles. The queue bound was enforced before
+  // persistence.
   return sparkSessionSendResultSchema.parse({
     message: sent.message,
     filePath: sent.path,

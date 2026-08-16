@@ -30,7 +30,7 @@ export function registerSparkSessionTool(
       "The Workspace Administrator is persistent and protected. Never attempt to archive, close, or replace it. Administrator delegates execution; it is not an executor.",
       "session list is paginated and labels lifecycle, placement, owner-derived lifetime, Role binding, surface, and Invocation-derived activity. Archived Sessions remain searchable with includeArchived=true and can be restored; closed Sessions are terminal.",
       "session send kind=notification persists without triggering the target session; it is the default and cannot wait for completion.",
-      "session send kind=request persists and submits one turn to an idle or running local target. wait=accepted is asynchronous and is the default; when the target finishes, the daemon wakes the sender session with a completion summary turn so it can synthesize immediately. wait=completed polls the durable invocation through restart and returns its terminal response without a second wake. After a completed wait times out, call send again with kind=request, wait=completed, and only invocationId/timeoutMs to continue waiting without resubmitting or writing mail.",
+      "session send kind=request submits immediately only when the local target is idle. If the target is active and onActive is omitted, the send fails without persisting mail and reports the explicit choices: onActive=queue for durable FIFO admission or onActive=interrupt to cancel current work before submitting. wait=accepted is asynchronous and is the default; when the target finishes, the daemon wakes the sender session with a completion summary turn so it can synthesize immediately. wait=completed polls the durable invocation through restart and returns its terminal response without a second wake. After a completed wait times out, call send again with kind=request, wait=completed, and only invocationId/timeoutMs to continue waiting without resubmitting or writing mail.",
       "Message-platform sessions may use only list/get/send/inbox/read/ack. Their list/get/send targets are restricted to the current workspace, and sends require local targets.",
       "inbox/read/ack are current-session-only; inbox supports offset/limit pagination.",
     ],
@@ -117,6 +117,12 @@ export function registerSparkSessionTool(
             "request | notification. Defaults to notification; only request triggers target execution.",
         }),
       ),
+      onActive: Type.Optional(
+        Type.Union([Type.Literal("queue"), Type.Literal("interrupt")], {
+          description:
+            "Active-target policy for request sends. Omit to fail closed; queue persists up to three FIFO requests, while interrupt cancels current work before submitting.",
+        }),
+      ),
       wait: Type.Optional(
         Type.String({
           description:
@@ -153,6 +159,7 @@ export function registerSparkSessionTool(
               ? args.sessionId
               : undefined,
           typeof args.kind === "string" ? `kind=${args.kind}` : undefined,
+          typeof args.onActive === "string" ? `onActive=${args.onActive}` : undefined,
           typeof args.wait === "string" ? `wait=${args.wait}` : undefined,
           typeof args.invocationId === "string" ? `invocation=${args.invocationId}` : undefined,
           typeof args.surface === "string" ? `surface=${args.surface}` : undefined,

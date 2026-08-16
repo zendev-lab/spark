@@ -172,11 +172,28 @@ describe("session.send queue|interrupt", () => {
     }
   });
 
-  it("queues a plain send while the target is running and never silently interrupts", async () => {
+  it("fails closed for a running target when onActive is omitted", async () => {
     const { harness, cleanup } = await createHarness();
     try {
       const current = runningInvocation(harness);
       const response = await send(harness, sendParams());
+      expect(response.ok).toBe(false);
+      expect(response.error).toMatchObject({ code: "session_mail_target_active" });
+      expect(response.error?.message).toContain('onActive="queue"');
+      expect(response.error?.message).toContain('onActive="interrupt"');
+      expect(harness.invocations.require(current.invocationId).cancelReason).toBeUndefined();
+      expect(harness.invocations.listPendingForSession("sess_worker")).toHaveLength(1);
+      expect(await harness.mailStore.list("sess_worker", { includeAcked: true })).toHaveLength(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("queues a request only when onActive=queue is explicit", async () => {
+    const { harness, cleanup } = await createHarness();
+    try {
+      const current = runningInvocation(harness);
+      const response = await send(harness, sendParams({ onActive: "queue" }));
       expect(response.ok).toBe(true);
       expect(response.result).toMatchObject({
         created: true,
@@ -184,9 +201,7 @@ describe("session.send queue|interrupt", () => {
         message: { requestAdmission: { status: "pending" } },
       });
       expect(response.result?.submitted).toBeUndefined();
-      // No cancel was requested on the running turn.
       expect(harness.invocations.require(current.invocationId).cancelReason).toBeUndefined();
-      // No extra invocation was admitted; the message waits in the durable queue.
       expect(harness.invocations.listPendingForSession("sess_worker")).toHaveLength(1);
       expect(await harness.mailStore.pendingRequests()).toHaveLength(1);
     } finally {
@@ -194,7 +209,7 @@ describe("session.send queue|interrupt", () => {
     }
   });
 
-  it("does not silently interrupt a session with queued (not running) work either", async () => {
+  it("fails closed for a queued target when onActive is omitted", async () => {
     const { harness, cleanup } = await createHarness();
     try {
       harness.invocations.submit({
@@ -203,13 +218,12 @@ describe("session.send queue|interrupt", () => {
         task: { type: "session.run", sessionId: "sess_worker", prompt: "ahead" },
       });
       const response = await send(harness, sendParams());
-      expect(response.result).toMatchObject({
-        executionTriggered: false,
-        message: { requestAdmission: { status: "pending" } },
-      });
+      expect(response.ok).toBe(false);
+      expect(response.error).toMatchObject({ code: "session_mail_target_active" });
       expect(harness.invocations.listPage({ sessionId: "sess_worker" }).invocations).toHaveLength(
         1,
       );
+      expect(await harness.mailStore.list("sess_worker", { includeAcked: true })).toHaveLength(0);
     } finally {
       cleanup();
     }
@@ -242,8 +256,8 @@ describe("session.send queue|interrupt", () => {
     const { harness, cleanup } = await createHarness();
     try {
       const current = runningInvocation(harness);
-      const first = await send(harness, sendParams({ body: "first task" }));
-      const second = await send(harness, sendParams({ body: "second task" }));
+      const first = await send(harness, sendParams({ body: "first task", onActive: "queue" }));
+      const second = await send(harness, sendParams({ body: "second task", onActive: "queue" }));
       expect(first.result?.message?.requestAdmission?.status).toBe("pending");
       expect(second.result?.message?.requestAdmission?.status).toBe("pending");
 
@@ -291,7 +305,7 @@ describe("session.send queue|interrupt", () => {
     const { harness, cleanup } = await createHarness();
     try {
       const current = runningInvocation(harness);
-      const first = await send(harness, sendParams({ body: "persisted task" }));
+      const first = await send(harness, sendParams({ body: "persisted task", onActive: "queue" }));
       expect(first.result?.message?.requestAdmission?.status).toBe("pending");
 
       // Simulate a daemon restart: a fresh mail store reads the same mailbox files.
@@ -324,12 +338,16 @@ describe("session.send queue|interrupt", () => {
     const { harness, cleanup } = await createHarness();
     try {
       runningInvocation(harness);
+      expect(MAX_PENDING_SESSION_REQUEST_QUEUE).toBe(3);
       for (let index = 0; index < MAX_PENDING_SESSION_REQUEST_QUEUE; index += 1) {
-        const response = await send(harness, sendParams({ body: `queued ${index}` }));
+        const response = await send(
+          harness,
+          sendParams({ body: `queued ${index}`, onActive: "queue" }),
+        );
         expect(response.ok).toBe(true);
         expect(response.result?.executionTriggered).toBe(false);
       }
-      const overflow = await send(harness, sendParams({ body: "overflow" }));
+      const overflow = await send(harness, sendParams({ body: "overflow", onActive: "queue" }));
       expect(overflow.ok).toBe(false);
       expect(overflow.error).toMatchObject({ code: "session_mail_queue_full" });
       // Fail-closed: the rejected send persisted nothing; the queue stays at
@@ -349,7 +367,7 @@ describe("session.send queue|interrupt", () => {
     const { harness, cleanup } = await createHarness();
     try {
       runningInvocation(harness);
-      const params = sendParams({ body: "once" });
+      const params = sendParams({ body: "once", onActive: "queue" });
       const first = await send(harness, params);
       expect(first.result).toMatchObject({
         created: true,
@@ -379,7 +397,7 @@ describe("session.send queue|interrupt", () => {
     const { harness, cleanup } = await createHarness();
     try {
       const current = runningInvocation(harness);
-      const params = sendParams({ body: "drained once" });
+      const params = sendParams({ body: "drained once", onActive: "queue" });
       const first = await send(harness, params);
       expect(first.result).toMatchObject({
         created: true,
@@ -424,7 +442,7 @@ describe("session.send queue|interrupt", () => {
     const { harness, cleanup } = await createHarness();
     try {
       const current = runningInvocation(harness);
-      const acceptedParams = sendParams({ body: "accepted once" });
+      const acceptedParams = sendParams({ body: "accepted once", onActive: "queue" });
       const first = await send(harness, acceptedParams);
       expect(first.result?.message?.requestAdmission?.status).toBe("pending");
 
@@ -437,13 +455,16 @@ describe("session.send queue|interrupt", () => {
 
       // Fill the pending queue to its exact bound.
       for (let index = 0; index < MAX_PENDING_SESSION_REQUEST_QUEUE; index += 1) {
-        const response = await send(harness, sendParams({ body: `fill ${index}` }));
+        const response = await send(
+          harness,
+          sendParams({ body: `fill ${index}`, onActive: "queue" }),
+        );
         expect(response.ok).toBe(true);
         expect(response.result?.executionTriggered).toBe(false);
       }
 
       // A fresh overflow send is rejected before anything is persisted.
-      const overflow = await send(harness, sendParams({ body: "overflow" }));
+      const overflow = await send(harness, sendParams({ body: "overflow", onActive: "queue" }));
       expect(overflow.ok).toBe(false);
       expect(overflow.error).toMatchObject({ code: "session_mail_queue_full" });
       expect(await harness.mailStore.pendingRequests()).toHaveLength(
@@ -469,7 +490,7 @@ describe("session.send queue|interrupt", () => {
     try {
       const current = runningInvocation(harness);
       const [queued, interrupting] = await Promise.all([
-        send(harness, sendParams({ body: "raced queue" })),
+        send(harness, sendParams({ body: "raced queue", onActive: "queue" })),
         send(harness, sendParams({ body: "raced interrupt", onActive: "interrupt" })),
       ]);
       expect(queued.ok).toBe(true);

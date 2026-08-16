@@ -329,7 +329,7 @@ export async function executeSparkSessionAction(
             },
             notifyOnCompletion: kind === "request" && wait === "accepted",
             source: "tool",
-            onActive,
+            ...(onActive ? { onActive } : {}),
             ...(correlationId ? { correlationId } : {}),
             ...(subject ? { subject } : {}),
             ...(kind === "request" && ctx.sessionSurface === "channel"
@@ -362,9 +362,9 @@ export async function executeSparkSessionAction(
       }
       const submitted = admitted.submitted;
       if (!submitted) {
-        // The target session was active and the request was durably queued
-        // (onActive defaults to queue). It will be drained after the current
-        // turn completes; there is no invocation receipt to wait on.
+        // The caller explicitly selected the durable queue for an active
+        // target. It will be drained after the current turn completes; there
+        // is no invocation receipt to wait on.
         return sessionResult(
           `Queued request ${sent.message.id} for ${toSessionId}; it will execute after the target session's current work completes.`,
           {
@@ -732,8 +732,8 @@ function normalizeSendWait(value: unknown): "accepted" | "completed" {
   return value;
 }
 
-function normalizeSendOnActive(value: unknown): "queue" | "interrupt" {
-  if (value === undefined || value === null || value === "") return "queue";
+function normalizeSendOnActive(value: unknown): "queue" | "interrupt" | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
   if (value !== "queue" && value !== "interrupt") {
     throw new Error("session onActive must be queue or interrupt");
   }

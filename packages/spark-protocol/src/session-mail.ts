@@ -99,8 +99,8 @@ export const sparkSessionSendRequestSchema = z.object({
     host: z.enum(["tui", "web", "channel", "daemon", "session"]),
   }),
   parentInvocationId: z.string().trim().min(1).optional(),
-  /** Behavior when the target session is currently active (queued or running). */
-  onActive: z.enum(["queue", "interrupt"]).default("queue"),
+  /** Explicit behavior when the target session is active; omission fails closed. */
+  onActive: z.enum(["queue", "interrupt"]).optional(),
   notifyOnCompletion: z.boolean().default(false),
   source: z.enum(["cli", "tui", "tool"]).default("tool"),
 });

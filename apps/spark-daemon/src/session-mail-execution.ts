@@ -14,7 +14,7 @@ import { executeSparkDaemonSessionControl } from "./session-control.ts";
  * durable queue. The queue is drained after each current invocation, so this
  * only bounds backlog between drains.
  */
-export const MAX_PENDING_SESSION_REQUEST_QUEUE = 16;
+export const MAX_PENDING_SESSION_REQUEST_QUEUE = 3;
 
 export interface SessionMailTurnSubmitDependencies {
   control: SparkDaemonSessionControlOptions;

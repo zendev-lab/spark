@@ -795,7 +795,12 @@ describe("session send queue|interrupt tool surface", () => {
       {
         action: "send",
         toolCallId: "tool-queued",
-        params: { toSessionId: worker.sessionId, kind: "request", message: "queued work" },
+        params: {
+          toSessionId: worker.sessionId,
+          kind: "request",
+          message: "queued work",
+          onActive: "queue",
+        },
         signal: new AbortController().signal,
         ctx: { sessionId: origin.sessionId },
       },
@@ -808,6 +813,41 @@ describe("session send queue|interrupt tool surface", () => {
       queued: true,
     });
     expect(queued.details.invocationId).toBeUndefined();
+  });
+
+  it("omits onActive by default and propagates the active-target failure", async () => {
+    const origin = session("sess_origin");
+    const worker = session("sess_worker");
+    const activeError = Object.assign(new Error("target session is active"), {
+      code: "session_mail_target_active",
+    });
+    const request = vi.fn(async (method: string, params: unknown) => {
+      if (method === "session.get") {
+        return (params as { sessionId: string }).sessionId === origin.sessionId ? origin : worker;
+      }
+      if (method === "session.send") {
+        expect(Object.hasOwn(params as object, "onActive")).toBe(false);
+        throw activeError;
+      }
+      throw new Error(`unexpected RPC method: ${method}`);
+    });
+
+    await expect(
+      executeSparkSessionAction(
+        {
+          action: "send",
+          toolCallId: "tool-active-without-policy",
+          params: {
+            toSessionId: worker.sessionId,
+            kind: "request",
+            message: "try idle-only delivery",
+          },
+          signal: new AbortController().signal,
+          ctx: { sessionId: origin.sessionId },
+        },
+        { request: request as never },
+      ),
+    ).rejects.toBe(activeError);
   });
 
   it("passes onActive=interrupt through to the daemon request", async () => {

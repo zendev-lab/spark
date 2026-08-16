@@ -44,8 +44,14 @@ const message = {
 };
 
 describe("session mail protocol", () => {
-  it("defaults onActive to queue for active targets", () => {
-    expect(sparkSessionSendRequestSchema.parse(request)).toMatchObject({ onActive: "queue" });
+  it("keeps active-target handling explicit", () => {
+    expect(sparkSessionSendRequestSchema.parse(request).onActive).toBeUndefined();
+    expect(
+      sparkSessionSendRequestSchema.parse({
+        ...request,
+        onActive: "queue",
+      }).onActive,
+    ).toBe("queue");
     expect(
       sparkSessionSendRequestSchema.parse({
         ...request,
