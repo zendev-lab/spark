@@ -3798,6 +3798,7 @@ test("native TUI lists all daemon sessions and routes a cross-workspace selectio
     const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
     const now = "2026-07-13T00:00:00.000Z";
     const otherDir = join(dir, "other-workspace");
+    await mkdir(otherDir);
     const current = managedSessionFixture({
       sessionId: "session-current",
       name: "Current workspace",
@@ -3928,7 +3929,7 @@ test("native TUI lists all daemon sessions and routes a cross-workspace selectio
   }
 });
 
-test("does not ensure the launch cwd before session selection", async () => {
+test("filters stale workspaces without ensuring launch cwd before session selection", async () => {
   const sessions = [
     managedSessionFixture({
       sessionId: "existing-session",
@@ -3953,11 +3954,19 @@ test("does not ensure the launch cwd before session selection", async () => {
     workspaceList: async () => ({
       workspaces: [
         {
+          id: "stale-workspace",
+          serverUrl: "",
+          localWorkspaceKey: "stale",
+          displayName: "Stale",
+          localPath: "/definitely-missing-spark-workspace",
+          status: "active",
+        },
+        {
           id: "registered-workspace",
           serverUrl: "",
           localWorkspaceKey: "registered",
           displayName: "Registered",
-          localPath: "/registered/workspace",
+          localPath: process.cwd(),
           status: "active",
         },
       ],
@@ -3982,7 +3991,16 @@ test("does not ensure the launch cwd before session selection", async () => {
     terminal: { stdinIsTTY: true, stdoutIsTTY: true },
     launchCwd: "/launch/unregistered",
     selectSession: async (options) => {
-      assert.equal(options.suggestedWorkspaceId, "__spark_launch_cwd_workspace__");
+      assert.equal(options.suggestedWorkspaceId, "registered-workspace");
+      assert.equal(new Set(options.workspaces.map((workspace) => workspace.canonicalId)).size, 1);
+      assert.equal(
+        options.workspaces.some((workspace) => workspace.registration === "suggested"),
+        false,
+      );
+      assert.equal(
+        options.workspaces.some((workspace) => workspace.canonicalId === "stale-workspace"),
+        false,
+      );
       assert.equal(options.sessions.length, beforeRegistryCount);
       assert.equal(ensureCount, 0);
       assert.equal(attachCount, 0);
@@ -4009,7 +4027,7 @@ test("ignores a stale resolved workspace suggestion without consulting local dae
     serverUrl: "",
     localWorkspaceKey: "registered",
     displayName: "Registered",
-    localPath: "/registered/workspace",
+    localPath: process.cwd(),
     status: "active" as const,
   };
   const staleWorkspace = {
@@ -4054,8 +4072,8 @@ test("ignores a stale resolved workspace suggestion without consulting local dae
       terminal: { stdinIsTTY: true, stdoutIsTTY: true },
       launchCwd: "/launch/unregistered",
       selectSession: async (options) => {
-        assert.equal(options.suggestedWorkspaceId, "__spark_launch_cwd_workspace__");
-        assert.equal(options.workspaces.at(-1)?.canonicalId, "__spark_launch_cwd_workspace__");
+        assert.equal(options.suggestedWorkspaceId, registeredWorkspace.id);
+        assert.equal(options.workspaces.at(-1)?.canonicalId, registeredWorkspace.id);
         assert.equal(
           options.workspaces.some((workspace) => workspace.canonicalId === registeredWorkspace.id),
           true,

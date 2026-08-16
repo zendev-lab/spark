@@ -6,7 +6,7 @@ import type {
   ExtensionEvidenceRequestBinding,
   SparkHostContext,
 } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
+import { truncateToWidth } from "@zendev-lab/spark-text";
 import {
   SPARK_PROTOCOL_VERSION,
   createId,

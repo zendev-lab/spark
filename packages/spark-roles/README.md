@@ -1,6 +1,6 @@
 # @zendev-lab/spark-roles
 
-Owns reusable `RoleSpec` definitions, Role-Skill composition, external Role model settings, ephemeral Role Invocation execution, the canonical `role` tool, and the ad-hoc `skill_agent` execution surface. A `RoleRun` is only the durable receipt/projection of a Role Invocation.
+Owns reusable `RoleSpec` definitions, Role-Skill composition, Skill discovery and prompt rendering, external Role model settings, ephemeral Role Invocation execution, the canonical `role` tool, and the ad-hoc `skill_agent` execution surface. A `RoleRun` is only the durable receipt/projection of a Role Invocation. Canonical Skill APIs are exported from `@zendev-lab/spark-roles/{builtin-skills,skill-resolver}`; the matching `spark-host` subpaths are compatibility re-exports only.
 
 ## Storage and models
 

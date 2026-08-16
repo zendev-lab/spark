@@ -6,7 +6,7 @@ import type {
   SparkHostContext,
 } from "@zendev-lab/spark-core";
 import { SPARK_PROTOCOL_VERSION, createId } from "@zendev-lab/spark-protocol";
-import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
+import { truncateToWidth } from "@zendev-lab/spark-text";
 import { Type } from "typebox";
 
 import { rejectAutonomousAskAlias } from "./autonomous-policy.ts";

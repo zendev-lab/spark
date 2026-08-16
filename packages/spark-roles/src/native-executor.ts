@@ -5,9 +5,10 @@ import {
   type ExtensionRoleRunner,
 } from "@zendev-lab/spark-core";
 import {
-  loadSparkHeadlessSessionModule,
-  type SparkHeadlessSessionModule,
-} from "@zendev-lab/spark-host/headless-loader";
+  loadSparkHeadlessRoleModule,
+  type SparkHeadlessRoleExecutorModule,
+  type SparkHeadlessRoleModuleLoader,
+} from "./headless-role-module.ts";
 import {
   ISOLATED_NATIVE_EXECUTOR_ABORT_MESSAGE,
   ISOLATED_NATIVE_EXECUTOR_FAILURE_MESSAGE,
@@ -15,7 +16,7 @@ import {
 } from "./isolated-native-executor.ts";
 
 export interface RoleNativeExecutorResolverDeps {
-  loadHeadlessModule?: typeof loadSparkHeadlessSessionModule;
+  loadHeadlessModule?: SparkHeadlessRoleModuleLoader;
   moduleSpecifier?: string;
 }
 
@@ -184,8 +185,8 @@ function compatibilityFallbackAborted(): never {
 async function loadFallbackHeadlessRoleExecutor(
   deps: RoleNativeExecutorResolverDeps,
 ): Promise<ExtensionRoleRunner> {
-  const loadHeadlessModule = deps.loadHeadlessModule ?? loadSparkHeadlessSessionModule;
-  let module: SparkHeadlessSessionModule;
+  const loadHeadlessModule = deps.loadHeadlessModule ?? loadSparkHeadlessRoleModule;
+  let module: SparkHeadlessRoleExecutorModule;
   try {
     module = await loadHeadlessModule(
       deps.moduleSpecifier ? { moduleSpecifier: deps.moduleSpecifier } : undefined,

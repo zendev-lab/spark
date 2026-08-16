@@ -87,6 +87,10 @@ export function helpFlagRequested(argv: readonly string[]): boolean {
   return options.some((arg) => arg === "--help" || arg === "-h");
 }
 
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function printSparkCliResult(
   output: SparkCliOutput,
   value: unknown,

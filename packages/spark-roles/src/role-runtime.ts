@@ -15,7 +15,7 @@ import {
   loadSparkSkillByName,
   SparkSkillResolver,
   type SparkLoadedSkill,
-} from "@zendev-lab/spark-host/skill-resolver";
+} from "./skill-resolver-entry.ts";
 import {
   defaultProjectResourceDirs,
   orderedSparkResourceRoots,
