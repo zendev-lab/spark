@@ -92,6 +92,15 @@ export function normalizeSparkNewProjectInput(
   };
 }
 
+/**
+ * Canonical project selector for task actions. The public task_write schema
+ * exposes `projectRef`; `project` remains a decoder-level compatibility alias.
+ * The canonical field wins when both are provided.
+ */
+export function resolveSparkProjectSelector(params: Record<string, unknown>): string | undefined {
+  return normalizeSparkProjectOptionalString(params.projectRef ?? params.project, "project");
+}
+
 export function hasSparkProjectPatch(patch: SparkProjectPatch): boolean {
   return Boolean(
     patch.title ||
