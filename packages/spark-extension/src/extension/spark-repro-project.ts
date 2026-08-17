@@ -154,27 +154,25 @@ function materializeStageInGraph(
   };
   const timestamp = nowIso();
   const project = graph.getProject(projectRef);
-  const roadmapItems = blueprint.roadmaps.map(
-    (item, index): RoadmapItem => ({
-      ref: `roadmap-item:repro-${stage}-${stableId(`${projectRef}:${repro.reproId}:${item.key}`)}`,
-      title: item.title,
-      status: index === 0 ? "active" : "pending",
-      objective: `${item.objective} Target: ${repro.goalContract.objective}`,
-      scope: item.scope,
-      constraints: [
-        "Treat only inspectable evidence as completion proof",
-        "Allow only explicitly bounded low-risk driver-local writes; keep readiness, destructive actions, and material owner decisions behind canonical Ask authority",
-      ],
-      successCriteria: item.successCriteria,
-      evidenceRequired: item.evidenceRequired,
-      evidenceRefs: [],
-      openQuestions: [],
-      askRefs: [],
-      taskRefs: [],
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    }),
-  );
+  const roadmapItems = blueprint.roadmaps.map((item, index): RoadmapItem => ({
+    ref: `roadmap-item:repro-${stage}-${stableId(`${projectRef}:${repro.reproId}:${item.key}`)}`,
+    title: item.title,
+    status: index === 0 ? "active" : "pending",
+    objective: `${item.objective} Target: ${repro.goalContract.objective}`,
+    scope: item.scope,
+    constraints: [
+      "Treat only inspectable evidence as completion proof",
+      "Allow only explicitly bounded low-risk driver-local writes; keep readiness, destructive actions, and material owner decisions behind canonical Ask authority",
+    ],
+    successCriteria: item.successCriteria,
+    evidenceRequired: item.evidenceRequired,
+    evidenceRefs: [],
+    openQuestions: [],
+    askRefs: [],
+    taskRefs: [],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }));
   const newRefs = new Set(roadmapItems.map((item) => item.ref));
   const priorItems = project.roadmap.items
     .filter((item) => !newRefs.has(item.ref))
