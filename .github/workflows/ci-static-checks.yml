@@ -1,0 +1,50 @@
+name: "CI - Static Checks"
+
+on:
+  pull_request:
+  merge_group:
+    types:
+      - checks_requested
+
+concurrency:
+  group: ci-static-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pre-commit:
+    name: Pre-commit Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/spark-node-setup
+      - run: pnpm exec prek run --all-files --skip spark-check-fix
+
+  project:
+    name: Project Checks
+    needs: pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/spark-node-setup
+      - name: Check architecture transition from main
+        run: pnpm run check:architecture-transition -- --base-ref origin/main
+      - run: pnpm run check:static
+
+  documentation:
+    name: Documentation Checks
+    needs: pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/spark-node-setup
+      - run: pnpm run check:docs

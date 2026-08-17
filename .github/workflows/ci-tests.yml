@@ -1,0 +1,90 @@
+name: "CI - Tests"
+
+on:
+  pull_request:
+  merge_group:
+    types:
+      - checks_requested
+
+concurrency:
+  group: ci-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: Source Tests (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu
+            os: ubuntu-latest
+          - name: macOS
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/spark-node-setup
+      - run: pnpm run test:unit
+
+  process:
+    name: Process Tests (${{ matrix.name }})
+    needs: source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu
+            os: ubuntu-latest
+          - name: macOS
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/spark-node-setup
+      - run: pnpm run test:process:source
+
+  repro-journey:
+    name: Repro Golden Journey (Ubuntu)
+    needs: source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/spark-node-setup
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: 1.95.0
+      - name: Install pinned cue-shell runtime
+        run: |
+          cargo install \
+            --git https://github.com/zendev-lab/cue.git \
+            --rev 3d596c626f8a5c3fec02499ecc28094ed80aabc4 \
+            --locked \
+            --root "${RUNNER_TEMP}/cue-shell" \
+            cue-cli
+          echo "${RUNNER_TEMP}/cue-shell/bin" >> "${GITHUB_PATH}"
+      - run: pnpm run test:journey:repro
+
+  browser:
+    name: Browser Tests
+    needs: source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/spark-node-setup
+      - run: pnpm --filter @zendev-lab/spark-hub run setup:browser
+      - run: pnpm run test:browser
