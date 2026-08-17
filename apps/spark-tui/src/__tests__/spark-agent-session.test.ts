@@ -6,6 +6,7 @@ import { test, vi } from "vitest";
 
 import {
   SparkAgentSession,
+  SparkSkillResolver,
   createSparkCliHostServices,
   sessionEntriesToAgentMessages,
   sessionEntriesToPromptItems,
@@ -2233,6 +2234,17 @@ async function makeFakeServices(
     runCompactionModel?: SparkCliHostServices["runCompactionModel"];
   } = {},
 ) {
+  const cwd = options.cwd ?? process.cwd();
+  const isolatedSkillRoot = join(options.sparkHome ?? cwd, "test-skills");
+  const skillResolver = new SparkSkillResolver({
+    cwd,
+    builtinDirs: [join(isolatedSkillRoot, "builtin")],
+    workspaceDir: join(isolatedSkillRoot, "workspace"),
+    workspaceAgentsDirs: [join(isolatedSkillRoot, "workspace-agents")],
+    userDir: join(isolatedSkillRoot, "user"),
+    userAgentsDir: join(isolatedSkillRoot, "user-agents"),
+    skillDirs: [join(isolatedSkillRoot, "configured")],
+  });
   const config: SparkConfig = {
     extensions: [],
     providers: ["fake-provider"],
@@ -2261,7 +2273,9 @@ async function makeFakeServices(
     extensions: [],
     providers: ["fake-provider"],
     providerImporter: async () => fakeProviderModule(fake),
+    skillResolver,
   });
+  assert.equal(services.skillResolver, skillResolver);
   // Tests opt into Smart compact explicitly; default bootstrap runner would call the
   // fake provider and change overflow/providerCall expectations.
   services.runCompactionModel = testOptions.runCompactionModel;

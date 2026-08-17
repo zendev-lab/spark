@@ -244,11 +244,13 @@ export async function createSparkCliHostServices(
   // Role execution is daemon-owned. Headless hosts receive the supervised
   // adapter explicitly; an embedded host must not create a second lifecycle.
   runtime.setRoleRunner(options.roleRunner);
-  const skillResolver = new SparkSkillResolver({
-    cwd,
-    sparkHome: options.sparkHome,
-    skillDirs: config.skills ?? [],
-  });
+  const skillResolver =
+    options.skillResolver ??
+    new SparkSkillResolver({
+      cwd,
+      sparkHome: options.sparkHome,
+      skillDirs: config.skills ?? [],
+    });
   const promptTemplateResolver = new SparkPromptTemplateResolver({
     cwd,
     sparkHome: options.sparkHome,
