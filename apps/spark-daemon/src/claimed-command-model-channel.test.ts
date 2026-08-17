@@ -69,6 +69,7 @@ describe("claimed runtime model/channel commands", () => {
       config: { installationId: "claimed-model-channel-test", displayName: "Test daemon" },
       db,
       runtimeId: "rt_11111111111111111111111111111111",
+      sparkHome: root,
       runtimeSessionId: undefined,
       setRuntimeSessionId() {},
       ensureHeartbeat() {},

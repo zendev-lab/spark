@@ -228,6 +228,7 @@ function makeContext(
     config,
     db: harness.db,
     runtimeId: "rt_11111111111111111111111111111111",
+    sparkHome: harness.sparkHome,
     runtimeSessionId: undefined,
     setRuntimeSessionId() {},
     ensureHeartbeat() {},

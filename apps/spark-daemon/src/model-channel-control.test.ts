@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, vi } from "vitest";
@@ -172,6 +172,81 @@ test("runtime model control exposes a credential-free quick-test result", async 
     },
   });
   assert.deepEqual(testModel.mock.calls[0], [model]);
+});
+
+test("runtime channel status projects configured QQ credentials from the managed data root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "spark-channel-status-"));
+  const workspaceId = "workspace-qq";
+  const configPath = join(root, "workspaces", workspaceId, "channels", "config.json");
+  try {
+    await mkdir(join(root, "workspaces", workspaceId, "channels"), { recursive: true });
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        adapters: {
+          qqbot: {
+            type: "qqbot",
+            app_id: "1900000000",
+            client_secret: "private-credential",
+            api_environment: "production",
+          },
+        },
+        routes: {},
+        ingress: { enabled: true, on_unbound: "create" },
+      }),
+    );
+    const channelIngress = {
+      status: vi.fn(() => ({
+        plane: "daemon" as const,
+        resource: "channel" as const,
+        workspaceId,
+        configPath,
+        available: true as const,
+        configured: true,
+        ingressEnabled: true,
+        state: "running" as const,
+        adapters: [
+          {
+            id: "qqbot",
+            type: "qqbot",
+            running: true,
+            state: "connected" as const,
+          },
+        ],
+        routes: [],
+        observedAt: "2026-08-15T14:58:29.821Z",
+        text: "running\n",
+      })),
+    } as unknown as DaemonChannelIngressRuntime;
+
+    const result = await executeSparkDaemonModelChannelPublicControl(
+      { channelIngress, sparkHome: root },
+      {
+        kind: "channel.status.request",
+        scope: "workspace",
+        workspaceId,
+        payload: { workspaceId },
+      },
+    );
+
+    assert.deepEqual(
+      (result.result.snapshot as { configuration: { qqbot?: Record<string, unknown> } })
+        .configuration.qqbot,
+      {
+        appId: "1900000000",
+        clientSecretSet: true,
+        sandbox: false,
+        allowedUserIds: [],
+        groupPolicy: "disabled",
+        groupTrigger: "mention",
+        allowedGroupIds: [],
+        systemPrompt: "",
+      },
+    );
+    assert.equal(JSON.stringify(result).includes("private-credential"), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("runtime channel control routes QQ QR auth within one workspace", async () => {

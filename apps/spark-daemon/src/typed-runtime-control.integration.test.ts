@@ -259,6 +259,7 @@ function messageContext(
     config: { installationId: "install-typed-control", displayName: "Typed daemon", runtimeId },
     db,
     runtimeId,
+    sparkHome: paths.dataDir,
     runtimeSessionId: undefined,
     setRuntimeSessionId() {},
     ensureHeartbeat() {},
