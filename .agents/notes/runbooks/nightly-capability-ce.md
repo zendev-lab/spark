@@ -6,12 +6,12 @@ drift, and runtime variance that a single pull-request run cannot expose. It is
 provider-token free and does not replace the binary sentinel contracts in
 [`capability-sentinels.md`](./capability-sentinels.md).
 
-The repeated lane runs in `.github/workflows/ce-behavior.yml` as the
-`capability-ce` job. Ordinary CI already executes the selected sentinel tests
-once through the daemon suite on every pull request; CE owns only repeated
-statistical sampling. The scheduled and manual default is eight repetitions,
-daily at 18:37 UTC (03:37 JST). The job remains non-blocking and retains
-capability reports for 30 days.
+The repeated lane runs in `.github/workflows/ce-behavior.yml`. Ordinary CI
+already executes the selected sentinel tests once through the daemon suite on
+every pull request; CE owns only repeated statistical sampling. The scheduled
+and manual default is eight repetitions, daily at 18:37 UTC (03:37 JST). The
+workflow shares one runner setup with scripted-provider CE, remains non-blocking,
+and retains the combined behavior reports for 30 days.
 
 ## Run locally
 
