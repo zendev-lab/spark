@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import type { ToolConfig } from "@zendev-lab/spark-core";
-import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
+import sparkMemoryExtension from "./extension.ts";
 
 import { EvidenceStore } from "@zendev-lab/spark-artifacts";
 import type {
@@ -25,7 +25,7 @@ import {
   type LearningEvidenceStore,
   type MemoryMutationAuthorization,
   type SparkMemoryStore,
-} from "@zendev-lab/spark-memory";
+} from "./index.ts";
 
 const NOW = "2026-07-30T12:00:00.000Z";
 const FUTURE = "2026-07-30T13:00:00.000Z";

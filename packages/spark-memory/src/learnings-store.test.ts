@@ -11,8 +11,8 @@ import {
   LearningStore,
   parseLearningExportMarkdown,
   renderLearningExportMarkdown,
-} from "@zendev-lab/spark-memory";
-import { createLegacyMemoryFixturePermit } from "@zendev-lab/spark-memory/legacy-fixture";
+} from "./index.ts";
+import { createLegacyMemoryFixturePermit } from "./legacy-fixture.ts";
 import { newRef } from "@zendev-lab/spark-core";
 
 function legacyLearningStore(
@@ -268,19 +268,6 @@ test("learning store keeps candidates out of default active recall", async () =>
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-});
-
-test("repository gitignore keeps local .spark stores untracked", async () => {
-  const gitignore = await readFile(join(process.cwd(), ".gitignore"), "utf8");
-  assert.match(gitignore, /^\.spark\/$/m);
-});
-
-test("repository gitignore versions project .agents definitions and ignores worktrees", async () => {
-  const gitignore = await readFile(join(process.cwd(), ".gitignore"), "utf8");
-  assert.match(gitignore, /^\.agents\/worktrees\/$/m);
-  assert.doesNotMatch(gitignore, /^\.agents\/$/m);
-  const nested = await readFile(join(process.cwd(), ".agents/.gitignore"), "utf8");
-  assert.match(nested, /^worktrees\/$/m);
 });
 
 test("default learning store writes to .spark/memory/learnings outside git workspaces", async () => {

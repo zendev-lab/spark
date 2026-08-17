@@ -9,7 +9,7 @@ not negotiate mixed view-model versions.
 
 The shared RoleSpec contract carries a content-addressed revision, semantic Model Type, capabilities, and tool/effect policy. Durable Session state carries immutable Owner and Role binding plus lifecycle, placement, state binding, visibility, retention, purpose, and transcript references; lifetime and activity exist only in the public projection. A discard-on-close Session may retain up to 16 daemon-sealed, 16 KiB close receipts while its transcript and Invocation payloads are deleted. Close candidates are strict owner reports, not Evidence or automatic Memory. Registry v6 is a hard cut: compatibility decoding belongs only to the explicit migration path.
 
-`@zendev-lab/spark-protocol/conversation` projects the existing message-part
+The shared conversation model projects the existing message-part
 wire schema into shared, stateless conversation semantics. It normalizes text
 phases, redacted thinking, images, tool lifecycle/result merging, and legacy
 text-only messages; browser and terminal adapters continue to own their own

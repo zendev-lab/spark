@@ -8,7 +8,7 @@ import {
   createSparkDaemonOrpcClient,
   invokeSparkDaemonOrpcLiveMethod,
   isSparkDaemonSideThreadOrpcError,
-} from "@zendev-lab/spark-daemon-client/orpc";
+} from "@zendev-lab/spark-daemon-client";
 import { describe, expect, it, vi } from "vitest";
 
 import { createDaemonSessionRegistry } from "../session-registry.ts";
