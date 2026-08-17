@@ -13,26 +13,31 @@ const {
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const inventory = loadArchitectureInventory(rootDir);
+const EXCEPTION_COUNT = inventory.governance.temporaryDependencyExceptions.length;
 
 function reducedInventory() {
   const reduced = structuredClone(inventory);
   reduced.governance.temporaryDependencyExceptions.pop();
-  reduced.governance.temporaryDependencyExceptionBudget.current = 5;
-  reduced.governance.temporaryDependencyExceptionBudget.ceiling = 5;
+  reduced.governance.temporaryDependencyExceptionBudget.current = EXCEPTION_COUNT - 1;
+  reduced.governance.temporaryDependencyExceptionBudget.ceiling = EXCEPTION_COUNT - 1;
   return reduced;
 }
 
 describe("architecture governance transitions", () => {
-  test("allows a 6-to-5 exception reduction", () => {
+  test(`allows a ${EXCEPTION_COUNT}-to-${EXCEPTION_COUNT - 1} exception reduction`, () => {
     expect(validateArchitectureGovernanceTransition(inventory, reducedInventory())).toEqual([]);
   });
 
-  test("rejects 5-to-6 budget and exception regrowth", () => {
+  test(`rejects ${EXCEPTION_COUNT - 1}-to-${EXCEPTION_COUNT} budget and exception regrowth`, () => {
     expect(validateArchitectureGovernanceTransition(reducedInventory(), inventory)).toEqual(
       expect.arrayContaining([
         expect.stringContaining("adds or revives temporary dependency exception"),
-        expect.stringContaining("grows temporaryDependencyExceptionBudget.current from 5 to 6"),
-        expect.stringContaining("grows temporaryDependencyExceptionBudget.ceiling from 5 to 6"),
+        expect.stringContaining(
+          `grows temporaryDependencyExceptionBudget.current from ${EXCEPTION_COUNT - 1} to ${EXCEPTION_COUNT}`,
+        ),
+        expect.stringContaining(
+          `grows temporaryDependencyExceptionBudget.ceiling from ${EXCEPTION_COUNT - 1} to ${EXCEPTION_COUNT}`,
+        ),
       ]),
     );
   });

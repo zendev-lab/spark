@@ -1,5 +1,8 @@
-import { realpathSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import {
+  DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE,
+  SPARK_HEADLESS_EXECUTOR_MODULE_ENV,
+  resolveSparkHeadlessExecutorSpecifier,
+} from "@zendev-lab/spark-system/headless-module";
 import type {
   ExtensionInteractionCapabilities,
   ExtensionInteractionRequest,
@@ -196,33 +199,12 @@ export interface SparkHeadlessSessionModule {
   runSparkHeadlessSession?: unknown;
 }
 
-export const DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE =
-  "@zendev-lab/spark-tui/headless-role-executor" as const;
-
-/** Set by the single-package npm launcher to its compiled executor artifact. */
-export const SPARK_HEADLESS_EXECUTOR_MODULE_ENV = "SPARK_HEADLESS_EXECUTOR_MODULE" as const;
-
-export type SparkHeadlessExecutorModuleSpecifier = typeof DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE;
-
-/**
- * Resolve the headless executor to a real filesystem path.
- * Node refuses `--experimental-strip-types` under `node_modules/`; pnpm links the
- * workspace package there, so we import via the realpath file URL instead.
- */
-export function resolveSparkHeadlessExecutorSpecifier(
-  moduleSpecifier: string = DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE,
-): string {
-  if (moduleSpecifier.startsWith("file:") || moduleSpecifier.startsWith("/")) {
-    return moduleSpecifier;
-  }
-  try {
-    const resolved = import.meta.resolve(moduleSpecifier);
-    const real = realpathSync(new URL(resolved));
-    return pathToFileURL(real).href;
-  } catch {
-    return moduleSpecifier;
-  }
-}
+export {
+  DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE,
+  SPARK_HEADLESS_EXECUTOR_MODULE_ENV,
+  resolveSparkHeadlessExecutorSpecifier,
+} from "@zendev-lab/spark-system/headless-module";
+export type { SparkHeadlessExecutorModuleSpecifier } from "@zendev-lab/spark-system/headless-module";
 
 export async function loadSparkHeadlessSessionModule(
   options: {

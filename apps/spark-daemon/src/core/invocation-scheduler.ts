@@ -14,8 +14,6 @@ import {
 } from "@zendev-lab/spark-turn";
 import type { SparkReproUsageScope } from "@zendev-lab/spark-protocol/token-usage";
 import {
-  SPARK_INVOCATION_INTERRUPTED_ERROR_CODE,
-  SPARK_INVOCATION_INTERRUPTED_ERROR_MESSAGE,
   SparkInvocationStore,
   type CompleteSparkInvocationInput,
   type SparkInvocationEvent,
@@ -45,6 +43,7 @@ import {
   INVOCATION_SCHEDULER_QUESTION_OVERFLOW,
 } from "./invocation-scheduler-policy.ts";
 import { DaemonEventIngress } from "./daemon-event-ingress.ts";
+import { recoverInterruptedInvocations } from "./execution-reconciler.ts";
 
 export { DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY } from "./invocation-scheduler-policy.ts";
 /**
@@ -178,44 +177,11 @@ export class SparkInvocationScheduler {
   }
 
   recover(now?: string): number {
-    // Successor daemon resumes interrupted turns against persisted session state.
-    // Invalid task payloads still fail closed because they cannot be reclaimed.
-    let recovered = 0;
-    while (true) {
-      const running = this.store.listPage({ status: "running", limit: 100 }).invocations;
-      if (running.length === 0) return recovered;
-      for (const invocation of running) {
-        let task: SparkDaemonTask;
-        try {
-          task = validateSparkDaemonTask(invocation.task);
-        } catch {
-          this.store.complete(invocation.invocationId, {
-            status: "failed",
-            errorCode: SPARK_INVOCATION_INTERRUPTED_ERROR_CODE,
-            errorMessage: SPARK_INVOCATION_INTERRUPTED_ERROR_MESSAGE,
-            ...(now ? { now } : {}),
-          });
-          recovered += 1;
-          continue;
-        }
-        if (
-          this.store.hasDurableCommitStarted(invocation.invocationId) &&
-          task.type !== "session.compact"
-        ) {
-          this.store.complete(invocation.invocationId, {
-            status: "failed",
-            errorCode: "DURABLE_COMMIT_OUTCOME_UNKNOWN",
-            errorMessage:
-              "The daemon exited after this invocation entered its durable commit phase; inspect the operation result before retrying.",
-            ...(now ? { now } : {}),
-          });
-          recovered += 1;
-          continue;
-        }
-        this.store.requeueForResume(invocation.invocationId, now);
-        recovered += 1;
-      }
-    }
+    const recovered = recoverInterruptedInvocations({
+      invocationStore: this.store,
+      ...(now ? { now } : {}),
+    });
+    return recovered.invocationRequeues + recovered.invocationFailures;
   }
 
   processBatch(): boolean {

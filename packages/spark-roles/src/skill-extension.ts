@@ -14,9 +14,9 @@ import {
   SparkSkillResolver,
   type SparkLoadedSkill,
   type SparkSkillResolverOptions,
-} from "@zendev-lab/spark-host/skill-resolver";
+} from "./skill-resolver-entry.ts";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
-import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
+import { truncateToWidth } from "@zendev-lab/spark-text";
 import { Type } from "typebox";
 import { runRole, type RoleCapability, type RoleRunRef } from "./role-runtime.ts";
 

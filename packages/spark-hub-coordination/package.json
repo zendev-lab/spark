@@ -21,7 +21,6 @@
     "./command-submission": "./src/command-submission.ts",
     "./events": "./src/events.ts",
     "./liveness": "./src/liveness.ts",
-    "./project-hub": "./src/project-hub.ts",
     "./projection-services": "./src/projection-services.ts",
     "./runtime-control": "./src/runtime-control.ts",
     "./runtime-registration": "./src/runtime-registration.ts",
@@ -30,7 +29,6 @@
     "./runtime-ws": "./src/runtime-ws.ts",
     "./routing": "./src/routing.ts",
     "./session-activity": "./src/session-activity.ts",
-    "./security": "./src/security.ts",
     "./workspace-access": "./src/workspace-access.ts"
   },
   "scripts": {

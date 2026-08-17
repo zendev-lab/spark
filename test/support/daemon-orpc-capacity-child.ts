@@ -10,7 +10,7 @@ import { createSparkProviderControl } from "@zendev-lab/spark-ai/control";
 import {
   createSparkDaemonOrpcClient,
   type SparkDaemonOrpcClientHandle,
-} from "@zendev-lab/spark-daemon-client/orpc";
+} from "@zendev-lab/spark-daemon-client";
 import type {
   SparkLocalRpcInput,
   SparkLocalRpcMethod,

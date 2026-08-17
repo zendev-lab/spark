@@ -1051,6 +1051,8 @@ function projectSessionForRequest(
     if (requestWorkspaceAliases(db, request).has(session.scope.workspaceId)) {
       return parseSparkSessionState({
         ...session,
+        owner:
+          session.owner.kind === "workspace" ? { ...session.owner, workspaceId } : session.owner,
         scope: { kind: "workspace", workspaceId },
       });
     }

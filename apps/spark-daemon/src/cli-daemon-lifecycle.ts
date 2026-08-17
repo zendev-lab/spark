@@ -240,7 +240,7 @@ export async function start(
       roleLoopStore.list({ ownerSessionId: sessionId }).length > 0,
     resolveSessionCwd: (input) => resolveSessionCwdForWorkspaceId(db, input),
   });
-  for (const workspace of listWorkspaces(db, { includeInactive: true })) {
+  for (const workspace of listWorkspaces(db)) {
     await ensureWorkspaceAdministratorSession(db, sessionRegistry, workspace.id);
   }
   const modelControl = createSparkDaemonModelControl({

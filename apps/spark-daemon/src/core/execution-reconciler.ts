@@ -54,11 +54,6 @@ export interface ReconcileExecutionStateInput {
   daemonGeneration: number;
   trigger: ExecutionReconcileTrigger;
   now?: string;
-  /**
-   * Optional CAS guard: when set, only attempts owned by this generation are
-   * mutated. Attempts from a newer generation are skipped (stale writer).
-   */
-  writerGeneration?: number;
 }
 
 /**
@@ -75,21 +70,6 @@ export function reconcileExecutionState(
   input: ReconcileExecutionStateInput,
 ): ExecutionReconcileResult {
   const now = input.now ?? new Date().toISOString();
-  const writerGeneration = input.writerGeneration ?? input.daemonGeneration;
-  if (writerGeneration > input.daemonGeneration) {
-    return {
-      trigger: input.trigger,
-      daemonGeneration: input.daemonGeneration,
-      observedAt: now,
-      attemptCount: 0,
-      transitionCount: 0,
-      leaseCount: 0,
-      attempts: [],
-      invocationRequeues: 0,
-      invocationFailures: 0,
-    };
-  }
-
   const pauseSemantics =
     input.trigger === "planned_shutdown" || input.trigger === "transport_detach";
   // Periodic ticks only reclaim work left by an older generation. Live same-
@@ -181,12 +161,49 @@ export function reconcileExecutionState(
     if (crashed.replacement) leaseCount += 1;
   }
 
-  // Invocation-level recovery mirrors scheduler.recover() so turn resume is
-  // independent of an in-memory active-process registry. Skip on periodic ticks
-  // so the live process does not requeue its own running work.
+  // Invocation-level recovery is independent of the in-memory active-process
+  // registry. Skip it on periodic ticks so live same-generation work remains
+  // owned by the current process.
+  const invocationRecovery = recoverRunningInvocations
+    ? recoverInterruptedInvocations({
+        invocationStore: input.invocationStore,
+        now,
+        reason,
+      })
+    : { attempts: [], invocationRequeues: 0, invocationFailures: 0 };
+  attempts.push(...invocationRecovery.attempts);
+  transitionCount += invocationRecovery.invocationRequeues + invocationRecovery.invocationFailures;
+
+  return {
+    trigger: input.trigger,
+    daemonGeneration: input.daemonGeneration,
+    observedAt: now,
+    attemptCount: liveAttempts.length,
+    transitionCount,
+    leaseCount,
+    attempts,
+    invocationRequeues: invocationRecovery.invocationRequeues,
+    invocationFailures: invocationRecovery.invocationFailures,
+  };
+}
+
+export interface RecoverInterruptedInvocationsInput {
+  invocationStore: SparkInvocationStore;
+  now?: string;
+  reason?: string;
+}
+
+/** One invocation-level recovery implementation for every compatibility caller. */
+export function recoverInterruptedInvocations(
+  input: RecoverInterruptedInvocationsInput,
+): Pick<ExecutionReconcileResult, "attempts" | "invocationRequeues" | "invocationFailures"> {
+  const now = input.now ?? new Date().toISOString();
+  const reason = input.reason ?? "startup_reconcile";
+  const attempts: ExecutionReconcileAttemptResult[] = [];
   let invocationRequeues = 0;
   let invocationFailures = 0;
-  while (recoverRunningInvocations) {
+
+  while (true) {
     const running = input.invocationStore.listPage({ status: "running", limit: 100 }).invocations;
     if (running.length === 0) break;
     for (const invocation of running) {
@@ -209,7 +226,6 @@ export function reconcileExecutionState(
             transition: "fail_interrupted",
             reason: "invalid_task_payload",
           });
-          transitionCount += 1;
           continue;
         }
         if (
@@ -231,7 +247,6 @@ export function reconcileExecutionState(
             transition: "fail_interrupted",
             reason: "durable_commit_unknown",
           });
-          transitionCount += 1;
           continue;
         }
         input.invocationStore.requeueForResume(invocation.invocationId, now);
@@ -241,12 +256,12 @@ export function reconcileExecutionState(
           attemptEpoch: 0,
           previousStatus: "running",
           transition: "requeue_invocation",
-          nextStatus: "queued" as ExecutionAttemptRecord["status"],
+          nextStatus: "queued",
           reason,
         });
-        transitionCount += 1;
-      } catch {
-        // Concurrent terminal complete — treat as skip.
+      } catch (error) {
+        const current = input.invocationStore.getSummary(invocation.invocationId);
+        if (current?.status === "running") throw error;
         attempts.push({
           invocationId: invocation.invocationId,
           attemptEpoch: 0,
@@ -258,17 +273,7 @@ export function reconcileExecutionState(
     }
   }
 
-  return {
-    trigger: input.trigger,
-    daemonGeneration: input.daemonGeneration,
-    observedAt: now,
-    attemptCount: liveAttempts.length,
-    transitionCount,
-    leaseCount,
-    attempts,
-    invocationRequeues,
-    invocationFailures,
-  };
+  return { attempts, invocationRequeues, invocationFailures };
 }
 
 function reconcileReason(trigger: ExecutionReconcileTrigger): string {

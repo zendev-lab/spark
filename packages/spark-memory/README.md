@@ -33,7 +33,7 @@ This package is intentionally conservative:
 
 ## Reflection
 
-Session reflection scan/synthesis writes under `.spark/memory/reflections/` (candidates, scan cursor, latest report). Import from `@zendev-lab/spark-memory` or the `./reflection-*` subpaths.
+Session reflection scan/synthesis writes under `.spark/memory/reflections/` (candidates, scan cursor, latest report). Import from `@zendev-lab/spark-memory`.
 
 ## pi-memory compatibility tools
 

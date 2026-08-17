@@ -57,6 +57,9 @@ test("session tool exposes persistent lifecycle, calls, classification, and mail
   const schema = JSON.stringify(tool.parameters);
   const properties = (tool.parameters as { properties?: Record<string, unknown> }).properties ?? {};
   assert.equal("scope" in properties, false);
+  assert.ok("onActive" in properties);
+  assert.match(JSON.stringify(properties.onActive), /queue/u);
+  assert.match(JSON.stringify(properties.onActive), /interrupt/u);
   for (const action of [
     "list",
     "get",

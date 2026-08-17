@@ -113,11 +113,19 @@ The empty `/workflow` command opens the picker. Existing commands such as
 `/workflows`, `/workflow-runs`, and `/workflow-pause` remain executable as
 compatibility aliases but are hidden from the normal command catalog.
 
-The repository-owned `workspace:repo-change` workflow runs owner scoping,
-implementation in the current owning worktree, independent review, and delivery
-verification. Changes to `.agents` knowledge add an independent curator review.
-The workflow returns structured accepted or rejected evidence; it never creates,
-pushes, merges, or publishes a pull request.
+Spark includes three repository-owned engineering workflows:
+
+- `workspace:repo-change` runs an already-bounded change through owner scoping,
+  implementation, independent review, and delivery verification;
+- `workspace:maintainability-change` establishes the behavior baseline, reviews
+  correctness and unnecessary complexity, applies a bounded set of equivalent
+  improvements, then reruns independent review;
+- `workspace:feature-change` separates repository/external research,
+  architecture selection, planning, implementation, and independent review.
+
+Changes to `.agents` knowledge add an independent curator review. Each workflow
+returns structured accepted or rejected evidence; none creates, pushes, merges,
+or publishes a pull request.
 
 ## Supervise instead of memorizing states
 

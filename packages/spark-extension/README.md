@@ -7,7 +7,7 @@ The package registers Spark commands, tools, shortcuts, renderers, and lifecycle
 policy by composing the task, workflow, role, memory, ask, and host-neutral
 capability packages. It does not own their durable stores.
 
-`@zendev-lab/spark-extension/repro-report-summary` is the pure composition
+The internal report-summary composition (`src/repro-report-summary.ts`) is the pure composition
 boundary for report producers. It joins a canonical
 `spark.repro.work-summary/v1` value with the daemon-owned public token usage
 aggregate as `{ format: "spark-repro-summary/v1", work, tokenUsage? }`. It does

@@ -15,7 +15,7 @@ import {
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { sparkLanguageForProject, type SparkLanguage } from "./spark-i18n.ts";
 import { renderSparkModeSystemPrompt } from "./mode/index.ts";
-import { renderBaseSystemPromptsCatalogPrompt } from "@zendev-lab/spark-host/builtin-skills";
+import { renderBaseSystemPromptsCatalogPrompt } from "@zendev-lab/spark-roles/builtin-skills";
 import type { SparkModeEntryDeps, SparkModeMessageApi } from "./spark-mode-entry.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 

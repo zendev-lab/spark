@@ -241,6 +241,26 @@ describe("daemon-owned execution attempt state", () => {
     );
   });
 
+  it("lists every live attempt instead of truncating recovery at one thousand rows", () => {
+    const db = database();
+    migrateSparkDaemonDatabase(db);
+    const invocations = new SparkInvocationStore(db);
+    const attempts = new ExecutionAttemptStore(db);
+    for (let index = 0; index < 1_001; index += 1) {
+      const invocationId = `inv_live_${String(index).padStart(4, "0")}`;
+      invocations.submit({
+        invocationId,
+        sessionId: `session-live-${index}`,
+        prompt: "fixture",
+        task: { type: "fixture" },
+        now: at(index),
+      });
+      attempts.create(invocationId, 1, `corr_live_${index}`, at(index));
+    }
+
+    expect(attempts.listNonTerminalAttempts()).toHaveLength(1_001);
+  });
+
   it("migrates execution attempt tables idempotently", () => {
     const db = database();
     migrateSparkDaemonDatabase(db);

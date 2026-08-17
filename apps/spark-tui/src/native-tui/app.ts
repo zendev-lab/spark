@@ -1764,8 +1764,10 @@ export class SparkNativeTuiApp implements Component, Focusable {
         : state.mode === "mismatch"
           ? "Spark session attach blocked"
           : "Select Spark session";
+    const sessionIdentity = formatAttachedSessionIdentity(state);
     const details = [
       title,
+      ...(sessionIdentity ? [sessionIdentity] : []),
       `workspace: ${state.workspaceDir}`,
       `workspace hash: ${state.workspaceHash}`,
       ...(state.controlPlaneSessionId
@@ -2488,8 +2490,12 @@ export class SparkNativeTuiApp implements Component, Focusable {
     );
     const loopSuffix =
       activeLoops.length === 0 ? "" : ` · loop=${activeLoops.map((loop) => loop.status).join(",")}`;
+    const attachedSessionIdentity =
+      this.workspaceSession?.mode === "attached"
+        ? formatAttachedSessionIdentity(this.workspaceSession)
+        : undefined;
     const sessionLabel =
-      this.hub.sessionTitle?.trim() ||
+      (attachedSessionIdentity ?? this.hub.sessionTitle?.trim()) ||
       this.hub.sessionId?.trim() ||
       this.workspaceSession?.controlPlaneSessionId?.trim() ||
       "local";
@@ -2964,4 +2970,27 @@ function taskStatusColor(status: SparkTaskView["status"]): string {
     case "cancelled":
       return "dim";
   }
+}
+
+function formatAttachedSessionIdentity(
+  state?: Pick<SparkNativeWorkspaceSessionState, "sessionName" | "attachTarget" | "sessionId">,
+  hub?: Pick<SparkNativeHubState, "sessionTitle" | "sessionId">,
+): string | undefined {
+  const sessionId =
+    state?.attachTarget?.trim() ||
+    stripSessionKeyPrefix(state?.sessionId) ||
+    hub?.sessionId?.trim();
+  const sessionName = state?.sessionName?.trim() || undefined;
+  if (sessionName && sessionId && sessionName !== sessionId) {
+    return `session ${sessionName} (${sessionId})`;
+  }
+  if (sessionId) return `session ${sessionId}`;
+  if (sessionName) return `session ${sessionName}`;
+  return undefined;
+}
+
+function stripSessionKeyPrefix(sessionId: string | undefined): string | undefined {
+  const value = sessionId?.trim();
+  if (!value) return undefined;
+  return value.startsWith("session:") ? value.slice("session:".length) : value;
 }

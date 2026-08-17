@@ -12,9 +12,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./headless-module": "./src/headless-module.ts",
     "./resource-paths": "./src/resource-paths.ts",
     "./strings": "./src/strings.ts",
-    "./sqlite": "./src/sqlite.ts",
     "./socket-message-port": "./src/socket-message-port.ts"
   },
   "scripts": {

@@ -234,6 +234,7 @@ export async function executeSparkSessionAction(
     case "send": {
       const kind = normalizeMailKind(params.kind);
       const wait = normalizeSendWait(params.wait);
+      const onActive = normalizeSendOnActive(params.onActive);
       const continuationInvocationId = optionalString(params.invocationId, "invocationId");
       if (continuationInvocationId) {
         if (kind !== "request" || wait !== "completed") {
@@ -328,6 +329,7 @@ export async function executeSparkSessionAction(
             },
             notifyOnCompletion: kind === "request" && wait === "accepted",
             source: "tool",
+            ...(onActive ? { onActive } : {}),
             ...(correlationId ? { correlationId } : {}),
             ...(subject ? { subject } : {}),
             ...(kind === "request" && ctx.sessionSurface === "channel"
@@ -360,8 +362,22 @@ export async function executeSparkSessionAction(
       }
       const submitted = admitted.submitted;
       if (!submitted) {
-        throw new Error(
-          `Spark daemon stored ${sent.message.id} but returned no invocation admission receipt`,
+        // The caller explicitly selected the durable queue for an active
+        // target. It will be drained after the current turn completes; there
+        // is no invocation receipt to wait on.
+        return sessionResult(
+          `Queued request ${sent.message.id} for ${toSessionId}; it will execute after the target session's current work completes.`,
+          {
+            action,
+            message: withMailStatus(sent.message),
+            filePath: sent.path,
+            created: sent.created,
+            executionTriggered: false,
+            queued: true,
+            blocking: false,
+            wait,
+            target: projectSession(targetSession),
+          },
         );
       }
       if (wait === "completed") {
@@ -712,6 +728,14 @@ function normalizeSendWait(value: unknown): "accepted" | "completed" {
   if (value === undefined || value === null || value === "") return "accepted";
   if (value !== "accepted" && value !== "completed") {
     throw new Error("session wait must be accepted or completed");
+  }
+  return value;
+}
+
+function normalizeSendOnActive(value: unknown): "queue" | "interrupt" | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (value !== "queue" && value !== "interrupt") {
+    throw new Error("session onActive must be queue or interrupt");
   }
   return value;
 }

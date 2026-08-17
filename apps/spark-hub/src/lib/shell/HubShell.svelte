@@ -231,20 +231,28 @@
   .skip-link {
     background: var(--color-primary);
     border-radius: var(--rounded-sm);
+    clip-path: inset(50%);
     color: var(--color-primary-foreground);
     font-size: 13px;
     font-weight: 700;
+    height: 1px;
     left: var(--spacing-md);
-    padding: 8px 12px;
+    overflow: hidden;
+    padding: 0;
     position: absolute;
     text-decoration: none;
-    top: -48px;
-    transition: top 120ms ease;
+    top: var(--spacing-sm);
+    white-space: nowrap;
+    width: 1px;
     z-index: 200;
   }
 
   .skip-link:focus-visible {
-    top: var(--spacing-sm);
+    clip-path: none;
+    height: auto;
+    overflow: visible;
+    padding: 8px 12px;
+    width: auto;
   }
 
   .hub-shell-contextbar {

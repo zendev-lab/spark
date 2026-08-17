@@ -1245,7 +1245,7 @@ describe("daemon session control admission", () => {
     });
     await createDaemonWorkspaceSession(sessionRegistry, {
       sessionId: "session-hub",
-      workspaceId: hubWorkspaceId,
+      workspaceId: hubBindingId,
       cwd: root,
     });
     await createDaemonWorkspaceSession(sessionRegistry, {
