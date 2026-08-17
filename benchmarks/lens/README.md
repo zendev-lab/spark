@@ -13,17 +13,25 @@ This directory has two intentionally separate benchmark layers:
 
 ## CodSpeed suite
 
-The suite currently measures three real package paths:
+The same advisory job also measures protocol and session hot paths. Cases live
+next to each bench and are reused by `test/*-benchmarks.test.ts`.
+
+Lens currently measures three real package paths:
 
 1. canonical `stableJson` serialization of 1,024 nested records;
 2. aggregation of 1,000 diagnostics into 500 observations;
 3. validation, normalization, and hashing of a 500-edit patch proposal.
 
-Inputs are constructed in `production-path-cases.ts` and reused by
-`test/lens-benchmarks.test.ts`. The tests assert output shape and determinism so
-CodSpeed cannot report a faster benchmark that stopped doing the intended work.
-The cases do not start providers, access the network, read credentials, or use
-mutable repository state.
+Protocol measures `parseSparkSessionView` (500 messages),
+`projectSparkConversationMessage` (500 parts), `normalizeSparkA2uiDocument`
+(500 components), and `validateCompletedSparkAgentTrace` (247 tool spans).
+Session measures `refreshSparkSessionSnapshotIndex` (10,000 entries) and an
+index-hit `loadSparkSessionSnapshotTail` (10,000→32).
+
+Inputs are constructed in `*-cases.ts` files and reused by the correctness
+tests so CodSpeed cannot report a faster benchmark that stopped doing the
+intended work. The cases do not start providers, access the network, read
+credentials, or use mutable repository state.
 
 Run the local Vitest benchmark UI:
 
