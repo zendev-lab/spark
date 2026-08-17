@@ -15,12 +15,9 @@ import {
   type LearningRecord,
   type MemoryMutationAuthorization,
   type SparkMemoryEntry,
-} from "@zendev-lab/spark-memory";
-import { createLegacyMemoryFixturePermit } from "@zendev-lab/spark-memory/legacy-fixture";
-import {
-  registerSparkMemoryTool,
-  type SparkMemoryExtensionApi,
-} from "@zendev-lab/spark-memory/extension";
+} from "./index.ts";
+import { createLegacyMemoryFixturePermit } from "./legacy-fixture.ts";
+import { registerSparkMemoryTool, type SparkMemoryExtensionApi } from "./extension.ts";
 import {
   MemoryLineageProposalStore,
   memoryLineageProposalApprovalPayload,
@@ -29,7 +26,7 @@ import {
   suggestSemanticMemoryReview,
   type FrozenMemoryRevisionSource,
   type MemoryLineageProposal,
-} from "@zendev-lab/spark-memory/proposals";
+} from "./proposals.ts";
 import type { SparkMemoryApprovalProof } from "@zendev-lab/spark-protocol";
 
 const NOW = "2026-08-03T12:00:00.000Z";
