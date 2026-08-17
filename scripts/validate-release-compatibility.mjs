@@ -88,6 +88,18 @@ export function validateCompatibilitySemantics(contract) {
     compareStableVersions(contract.fullMatrixRequiredFrom, contract.firstSplitRelease) > 0,
     "the full product matrix ratchet must follow the first split release",
   );
+  assert.deepEqual(
+    contract.releaseGate.compatibilityExemptVersions,
+    ["0.4.0"],
+    "only the published 0.4.0 hard cut may be excluded from baseline selection",
+  );
+  for (const version of contract.releaseGate.compatibilityExemptVersions) {
+    assert.ok(
+      compareStableVersions(version, contract.firstSplitRelease) > 0 &&
+        compareStableVersions(version, contract.fullMatrixRequiredFrom) < 0,
+      `compatibility-exempt version ${version} must fall between the first split release and the full-matrix ratchet`,
+    );
+  }
   assert.equal(
     contract.database.metadataRequiredFrom,
     contract.fullMatrixRequiredFrom,
@@ -134,7 +146,12 @@ export async function loadAndValidateReleaseCompatibility(base = root) {
 }
 
 async function readJson(path) {
-  return JSON.parse(await readFile(path, "utf8"));
+  const source = await readFile(path, "utf8");
+  try {
+    return JSON.parse(source);
+  } catch (error) {
+    throw new Error(`Invalid JSON in ${path}: ${String(error)}`, { cause: error });
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

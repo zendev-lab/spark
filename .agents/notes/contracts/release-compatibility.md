@@ -15,27 +15,32 @@ release are invalid rather than forward-compatible policy extensions.
 
 ## Compatibility invariant
 
-For every stable release `N`, each supported product edge must accept peers from
-`N - 1`, `N`, and `N + 1`:
+For every governed stable release `N`, each supported product edge must accept
+peers from the most recent published stable release `B` that supplied N-1
+compatibility evidence, as well as peers from `N` and the next governed release:
 
 ```text
-Hub N-1 ─┐                 ┌─ TUI N-1
-Hub N   ─┼─ daemon N-1/N/N+1 ─┼─ TUI N
-Hub N+1 ─┘                 └─ TUI N+1
+Hub B ─┐               ┌─ TUI B
+Hub N ─┼─ daemon B/N/F ─┼─ TUI N
+Hub F ─┘               └─ TUI F
 ```
 
-There is no direct Hub ↔ TUI compatibility promise. The daemon is the boundary
-between control-plane projection and terminal interaction.
+Normally `B` is the immediately preceding stable version. A published hard-cut
+exemption is not an eligible compatibility baseline. There is no direct Hub ↔
+TUI compatibility promise; the daemon is the boundary between control-plane
+projection and terminal interaction.
 
 A release candidate can only test versions that already exist. Consequently,
-the release gate for candidate `N` proves both directions of `N ↔ N - 1`; the
-next release's gate proves the remaining `N ↔ N + 1` obligation. Same-version
-smoke remains necessary but is not evidence of adjacent compatibility.
+the release gate for candidate `N` proves both directions of `N ↔ B`; the next
+governed release proves the remaining forward obligation. Same-version smoke
+remains necessary but is not evidence of cross-version compatibility.
 
 The first split release, `0.3.0`, has one bounded exception: published `0.2.1`
 is the legacy all-in-one package and has no independent Hub or TUI artifacts.
-Once `0.3.0` is the published baseline, every later stable release must run the
-complete split-product matrix. The exception must not be copied forward.
+Published `0.4.0` has a separate one-time hard-cut exemption and therefore cannot
+serve as the baseline for `0.5.0`. The first complete governed matrix is
+`0.3.0 ↔ 0.5.0`; after `0.5.0` publishes, ordinary releases select it as their
+baseline unless another explicitly reviewed exemption is added.
 
 ## Required release matrix
 

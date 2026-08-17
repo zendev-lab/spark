@@ -14,6 +14,8 @@ export interface ReleaseCompatibilityContract extends Record<string, unknown> {
     harness: string;
     productHarness: string;
     reportPath: string;
+    baselineSelection: string;
+    compatibilityExemptVersions: string[];
     placeholder?: boolean;
     requiredPhases: Array<{
       id: string;
@@ -35,6 +37,7 @@ export interface ReleaseCompatibilityContract extends Record<string, unknown> {
     unknownRequiredCapabilities?: string;
   };
   database: {
+    metadataRequiredFrom: string;
     harness: string;
     reportPath: string;
     owners: Array<{

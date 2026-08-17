@@ -144,32 +144,55 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function parseJson(source, label) {
+  try {
+    return JSON.parse(source);
+  } catch (error) {
+    throw new Error(`Invalid JSON in ${label}: ${String(error)}`, { cause: error });
+  }
+}
+
 function compareVersions(left, right) {
   const a = left.split(".").map(Number);
   const b = right.split(".").map(Number);
   return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 }
 
-export function selectPublishedBaselineVersion(published, candidateVersion) {
+export function selectPublishedBaselineVersion(
+  published,
+  candidateVersion,
+  compatibilityExemptVersions = [],
+) {
+  const excluded = new Set(compatibilityExemptVersions);
   const stable = (Array.isArray(published) ? published : [published])
     .filter((value) => typeof value === "string" && /^\d+\.\d+\.\d+$/u.test(value))
+    .filter((value) => !excluded.has(value))
     .sort(compareVersions);
   return stable.filter((version) => compareVersions(version, candidateVersion) < 0).at(-1);
 }
 
-async function assertPublishedBaseline(packageNames, baselineVersion, candidateVersion) {
+async function assertPublishedBaseline(
+  packageNames,
+  baselineVersion,
+  candidateVersion,
+  compatibilityExemptVersions,
+) {
   for (const packageName of packageNames) {
     const result = await command("npm", ["view", packageName, "versions", "--json"], {
       timeout: 120000,
     });
-    const published = JSON.parse(result.stdout);
-    const selected = selectPublishedBaselineVersion(published, candidateVersion);
+    const published = parseJson(result.stdout, `${packageName} published versions`);
+    const selected = selectPublishedBaselineVersion(
+      published,
+      candidateVersion,
+      compatibilityExemptVersions,
+    );
     if (selected !== baselineVersion)
       throw new Error(
         packageName +
           " baseline " +
           baselineVersion +
-          " is not published N-1; expected " +
+          " is not the latest published non-exempt baseline; expected " +
           String(selected),
       );
   }
@@ -232,7 +255,7 @@ async function archiveJson(tarball, entry) {
   const result = await execFileAsync("tar", ["-xOf", tarball, entry], {
     maxBuffer: 4 * 1024 * 1024,
   });
-  return JSON.parse(result.stdout);
+  return parseJson(result.stdout, `${entry} from ${tarball}`);
 }
 
 export async function readTarballIdentity(tarball, expectedPackage) {
@@ -274,7 +297,7 @@ async function npmPackPublished(prefix, packageName, version) {
     ["pack", `${packageName}@${version}`, "--json", "--pack-destination", destination],
     { cwd: prefix, timeout: 300000 },
   );
-  const metadata = JSON.parse(result.stdout)[0];
+  const metadata = parseJson(result.stdout, `npm pack ${packageName}@${version}`)[0];
   if (metadata?.name !== packageName || metadata?.version !== version || !metadata.filename) {
     throw new Error(`published artifact identity mismatch for ${packageName}@${version}`);
   }
@@ -301,7 +324,7 @@ async function writeJson(path, value) {
 
 async function packageIdentity(prefix, packageName) {
   const manifestPath = join(prefix, "node_modules", ...packageName.split("/"), "package.json");
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  const manifest = parseJson(await readFile(manifestPath, "utf8"), manifestPath);
   const buildPath = join(
     prefix,
     "node_modules",
@@ -310,7 +333,7 @@ async function packageIdentity(prefix, packageName) {
     "build-info.json",
   );
   const buildInfo = await readFile(buildPath, "utf8")
-    .then(JSON.parse)
+    .then((source) => parseJson(source, buildPath))
     .catch(() => null);
   return { name: manifest.name, version: manifest.version, bin: manifest.bin ?? {}, buildInfo };
 }
@@ -425,7 +448,7 @@ async function runHub(bin, root, assertions, requestedPort, probeBin = bin) {
       ["__compat-product", "prepare", "--database", databasePath, "--json"],
       { cwd: packagedProductRoot(probeBin), env },
     );
-    const payload = JSON.parse(probe.stdout);
+    const payload = parseJson(probe.stdout, "Hub compatibility prepare probe");
     if (
       payload?.product !== "@zendev-lab/spark-hub" ||
       typeof payload.registrationToken !== "string"
@@ -550,7 +573,7 @@ async function runDaemon(bin, root, assertions) {
       );
     try {
       const status = await command(bin, ["status", "--json"], { cwd, env, timeout: 10_000 });
-      payload = JSON.parse(status.stdout);
+      payload = parseJson(status.stdout, "daemon status probe");
       if (payload?.daemon?.running === true && payload?.daemon?.pid === child.pid) break;
     } catch {}
     await new Promise((resolveWait) => setTimeout(resolveWait, 100));
@@ -606,7 +629,7 @@ async function prepareDaemonWorkspace(bin, root, assertions) {
     ["__compat-product", "prepare-workspace", "--workspace", workspace, "--json"],
     { cwd: packagedProductRoot(bin), env },
   );
-  const payload = JSON.parse(result.stdout);
+  const payload = parseJson(result.stdout, "daemon workspace compatibility probe");
   if (typeof payload?.workspaceId !== "string")
     throw new Error("daemon local workspace preparation failed");
   assertions.push({
@@ -624,7 +647,7 @@ async function prepareDaemonInvocation(bin, root, workspaceId, assertions) {
     ["__compat-product", "prepare-invocation", "--workspace-id", workspaceId, "--json"],
     { cwd: packagedProductRoot(bin), env },
   );
-  const payload = JSON.parse(result.stdout);
+  const payload = parseJson(result.stdout, "daemon invocation compatibility probe");
   if (
     payload?.workspaceId !== workspaceId ||
     typeof payload?.sessionId !== "string" ||
@@ -660,7 +683,7 @@ async function runTui(bin, root, assertions, fixture) {
     ],
     { cwd: workspace, env, timeout: 180_000 },
   );
-  const first = JSON.parse(firstResult.stdout);
+  const first = parseJson(firstResult.stdout, "candidate TUI first compatibility probe");
   for (const id of [
     "handshake",
     "localRpcStatus",
@@ -686,7 +709,7 @@ async function runTui(bin, root, assertions, fixture) {
     ],
     { cwd: workspace, env, timeout: 180_000 },
   );
-  const resume = JSON.parse(resumeResult.stdout);
+  const resume = parseJson(resumeResult.stdout, "candidate TUI resume compatibility probe");
   for (const id of [
     "handshake",
     "localRpcStatus",
@@ -795,7 +818,7 @@ console.log(JSON.stringify({ invocationId, replies }));
       timeout: 180_000,
     },
   );
-  const baseline = JSON.parse(result.stdout);
+  const baseline = parseJson(result.stdout, "baseline TUI compatibility adapter");
   const stateReply = baseline.replies?.find((reply) => reply.id === "state");
   const abortReply = baseline.replies?.find((reply) => reply.id === "abort");
   if (stateReply?.success !== true || abortReply?.success !== true) {
@@ -819,7 +842,7 @@ console.log(JSON.stringify({ invocationId, replies }));
       ],
       { cwd: workspace, env, timeout: 180_000 },
     );
-    resume = JSON.parse(resumeResult.stdout);
+    resume = parseJson(resumeResult.stdout, "candidate TUI baseline-observer probe");
     if (resume?.assertions?.cancelled === true) break;
     await new Promise((resolveWait) => setTimeout(resolveWait, 100));
   }
@@ -879,7 +902,7 @@ async function verifyHubRuntime(hubBin, root, env, databasePath, assertions, suf
     ["__compat-product", "inspect", "--database", databasePath, "--json"],
     { cwd: root, env, timeout: 30_000 },
   );
-  const probe = JSON.parse(result.stdout);
+  const probe = parseJson(result.stdout, "Hub runtime compatibility probe");
   if (
     probe?.runtimeStatus !== "online" ||
     probe?.commandStatus !== "succeeded" ||
@@ -1145,9 +1168,8 @@ export async function buildMatrix({
   root = process.cwd(),
   keepFixture = false,
 }) {
-  const contract = JSON.parse(
-    await readFile(resolve(root, "architecture/release-compatibility.json"), "utf8"),
-  );
+  const contractPath = resolve(root, "architecture/release-compatibility.json");
+  const contract = parseJson(await readFile(contractPath, "utf8"), contractPath);
   const candidateIds = {};
   for (const key of ["hub", "daemon", "tui"])
     candidateIds[key] = await readTarballIdentity(candidate[key], PRODUCT_PACKAGES[key]);
@@ -1174,6 +1196,7 @@ export async function buildMatrix({
       isLegacyException ? ["@zendev-lab/spark"] : Object.values(PRODUCT_PACKAGES),
       baselineVersion,
       candidateVersion,
+      contract.releaseGate.compatibilityExemptVersions,
     );
     const baselineException = isLegacyException;
     const installs = { candidate: {}, baseline: {} };

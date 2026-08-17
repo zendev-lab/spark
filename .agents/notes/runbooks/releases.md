@@ -26,8 +26,8 @@ must match it exactly (`vX.Y.Z`).
 Hub container, exact-tarball smoke, and the canonical adjacent product and
 database compatibility gate before artifacts are uploaded. The gate queries the
 canonical npm registry, selects the newest published stable `@zendev-lab/spark`
-version strictly older than the candidate, and validates structured product and
-database reports. A missing, duplicate, skipped, or failed phase and any
+version strictly older than the candidate that did not receive an N-1
+compatibility exemption, and validates structured product and database reports. A missing, duplicate, skipped, or failed phase and any
 unverifiable cleanup stop the release. The normative requirements are defined
 by [`release-compatibility.md`](../contracts/release-compatibility.md) and
 `architecture/release-compatibility.json`. `pnpm run release:pack` writes the
@@ -47,8 +47,11 @@ Mixed old/new processes are unsupported. Before applying `0.4.0`, stop all
 `0.3.x` Hub, daemon, and TUI processes and capture a verified backup of their
 state. The release manifest deliberately declares no executable rollback range;
 returning to `0.3.x` requires stopping `0.4.0` and restoring the pre-cutover
-backup. The exemption must not be copied to `0.4.1` or any later release; remove
-its manifest entry on `main` when advancing beyond the published `0.4.0` line.
+backup. The exemption must not be copied to `0.4.1` or any later release. Keep its
+manifest entry as the historical exclusion ledger: `0.5.0` must skip the
+ineligible `0.4.0` baseline and run the complete product and database matrix
+against published `0.3.0`. Once `0.5.0` publishes, it becomes the ordinary
+baseline for the next governed release.
 
 The root manifest remains the managed updater contract; the bounded companion
 manifests bind each app package to the same version, Git SHA, npm integrity,
@@ -107,11 +110,14 @@ stop, backup, and restore procedure above.
 
 Keep the pre-1.0 rollout deliberately gated:
 
-1. Stop every `0.3.x` process and capture verified daemon and Hub state backups.
-2. Publish the reviewed `v0.4.0` five-package set and matching GitHub Release.
-3. Exercise managed install plus restore-based rollback on macOS.
+1. Treat published `v0.4.0` as an immutable hard-cut release, not an eligible
+   compatibility baseline.
+2. Build `v0.5.0` from the reviewed five-package set and run the exact-tarball
+   product, database, and migration matrix against published `v0.3.0`.
+3. Exercise managed install plus rollback on macOS; retain a pre-upgrade backup
+   even though the governed matrix also proves N-1 reopen/write behavior.
 4. Enable the `notify` launchd job by default; keep `auto` opt-in.
-5. Open `auto` only after three real same-minor upgrades and one failed-candidate
+5. Open `auto` only after three real governed upgrades and one failed-candidate
    rollback have preserved the daemon database, sessions, transcripts, Hub
    reconnection, and exact successor build identity.
 

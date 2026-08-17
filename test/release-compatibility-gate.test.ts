@@ -12,6 +12,7 @@ type ReleaseGateContract = {
   [key: string]: unknown;
   firstSplitRelease: string;
   releaseGate: {
+    compatibilityExemptVersions: string[];
     firstSplitReleaseException: { baselineVersion: string };
   };
 };
@@ -47,20 +48,21 @@ test("requires every exact candidate distribution used by the canonical gate", (
   );
 });
 
-test("fixes the first split baseline and then requires the newest published stable baseline", async () => {
+test("fixes the first split baseline and skips published compatibility exemptions", async () => {
   const value = await contract();
   assert.equal(selectRequiredBaseline(value, "0.3.0", ["0.2.0", "0.2.1"]), "0.2.1");
   assert.throws(
     () => selectRequiredBaseline(value, "0.3.0", ["0.2.1"], "0.2.0"),
     /fixed at 0.2.1/u,
   );
+  assert.deepEqual(value.releaseGate.compatibilityExemptVersions, ["0.4.0"]);
   assert.equal(
     selectRequiredBaseline(value, "0.5.0", ["0.2.1", "0.3.0", "0.4.0", "0.5.0-beta.1"]),
-    "0.4.0",
+    "0.3.0",
   );
   assert.throws(
-    () => selectRequiredBaseline(value, "0.5.0", ["0.3.0", "0.4.0"], "0.3.0"),
-    /newest published stable baseline 0.4.0/u,
+    () => selectRequiredBaseline(value, "0.5.0", ["0.3.0", "0.4.0"], "0.4.0"),
+    /newest published non-exempt stable baseline 0.3.0/u,
   );
 });
 

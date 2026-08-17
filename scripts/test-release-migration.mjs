@@ -42,10 +42,20 @@ export function parseMigrationArguments(argv) {
   };
 }
 
-export function selectPublishedBaselineVersion(published, currentVersion, explicitVersion) {
+export function selectPublishedBaselineVersion(
+  published,
+  currentVersion,
+  explicitVersion,
+  compatibilityExemptVersions = [],
+) {
   const stable = [...new Set(Array.isArray(published) ? published : [published])]
     .filter((version) => typeof version === "string" && isStableVersion(version))
     .sort(compareVersions);
+  const excluded = new Set(compatibilityExemptVersions);
+  const selected = stable
+    .filter((version) => compareVersions(version, currentVersion) < 0)
+    .filter((version) => !excluded.has(version))
+    .at(-1);
   if (explicitVersion) {
     if (!stable.includes(explicitVersion)) {
       throw new Error(`${packageName}@${explicitVersion} is not a published stable release.`);
@@ -55,9 +65,17 @@ export function selectPublishedBaselineVersion(published, currentVersion, explic
         `Explicit baseline ${explicitVersion} must be older than candidate ${currentVersion}.`,
       );
     }
+    if (excluded.has(explicitVersion)) {
+      throw new Error(`Explicit baseline ${explicitVersion} is compatibility-exempt.`);
+    }
+    if (explicitVersion !== selected) {
+      throw new Error(
+        `Explicit baseline ${explicitVersion} is not the latest published non-exempt baseline ${String(selected)}.`,
+      );
+    }
     return explicitVersion;
   }
-  return stable.filter((version) => compareVersions(version, currentVersion) < 0).at(-1);
+  return selected;
 }
 
 export function resolveReleaseMigrationExemption(sparkRelease, candidateVersion) {
@@ -326,10 +344,14 @@ async function main() {
     console.log("No published Spark version exists; N-1 migration gate is not applicable.");
     return;
   }
+  const compatibilityExemptVersions = Object.keys(
+    rootManifest.sparkRelease?.nMinusOneMigrationExemptions ?? {},
+  );
   const baselineVersion = selectPublishedBaselineVersion(
     parseJson(versions.stdout, `${packageName} published versions`),
     currentVersion,
     explicitBaseline,
+    compatibilityExemptVersions,
   );
   if (!baselineVersion) {
     console.log("No earlier stable Spark version exists; N-1 migration gate is not applicable.");

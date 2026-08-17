@@ -48,12 +48,16 @@ export function selectRequiredBaseline(contract, candidateVersion, publishedVers
     }
     return baseline;
   }
+  const excluded = new Set(contract.releaseGate.compatibilityExemptVersions);
   const stable = publishedVersions
     .filter((version) => /^\d+\.\d+\.\d+$/u.test(version))
     .filter((version) => compareVersions(version, candidateVersion) < 0)
+    .filter((version) => !excluded.has(version))
     .sort(compareVersions);
   const baseline = stable.at(-1);
-  if (!baseline) throw new Error(`No published stable baseline exists before ${candidateVersion}.`);
+  if (!baseline) {
+    throw new Error(`No published non-exempt stable baseline exists before ${candidateVersion}.`);
+  }
   if (baseline === contract.releaseGate.firstSplitReleaseException.baselineVersion) {
     throw new Error(
       `Candidate ${candidateVersion} requires a published split-product baseline; legacy ${baseline} is invalid.`,
@@ -61,7 +65,7 @@ export function selectRequiredBaseline(contract, candidateVersion, publishedVers
   }
   if (explicit && explicit !== baseline) {
     throw new Error(
-      `Explicit baseline ${explicit} is not the newest published stable baseline ${baseline}.`,
+      `Explicit baseline ${explicit} is not the newest published non-exempt stable baseline ${baseline}.`,
     );
   }
   return baseline;
@@ -71,7 +75,27 @@ export async function runReleaseCompatibilityGate(input, dependencies = {}) {
   const run = dependencies.run ?? runCommand;
   const npmVersions = dependencies.npmVersions ?? publishedVersions;
   const contract = dependencies.contract ?? (await loadAndValidateReleaseCompatibility(root));
-  const packageManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
+  const packageManifest = parseJson(
+    await readFile(resolve(root, "package.json"), "utf8"),
+    "root package.json",
+  );
+  const manifestExemptions = packageManifest.sparkRelease?.nMinusOneMigrationExemptions;
+  if (
+    !manifestExemptions ||
+    typeof manifestExemptions !== "object" ||
+    Array.isArray(manifestExemptions)
+  ) {
+    throw new Error("sparkRelease.nMinusOneMigrationExemptions must be an object.");
+  }
+  const manifestExcludedVersions = Object.keys(manifestExemptions).sort(compareVersions);
+  const contractExcludedVersions = [...contract.releaseGate.compatibilityExemptVersions].sort(
+    compareVersions,
+  );
+  if (JSON.stringify(manifestExcludedVersions) !== JSON.stringify(contractExcludedVersions)) {
+    throw new Error(
+      "The release contract compatibility exemptions must match sparkRelease.nMinusOneMigrationExemptions.",
+    );
+  }
   const candidateVersion = packageManifest.version;
   if (!/^\d+\.\d+\.\d+$/u.test(candidateVersion)) {
     throw new Error(
@@ -154,7 +178,7 @@ async function publishedVersions() {
     cwd: root,
     maxBuffer: 4 * 1024 * 1024,
   });
-  const parsed = JSON.parse(result.stdout);
+  const parsed = parseJson(result.stdout, "published @zendev-lab/spark versions");
   return Array.isArray(parsed) ? parsed : [parsed];
 }
 
@@ -168,7 +192,15 @@ async function runCommand(script, args, options) {
 }
 
 async function readJson(path) {
-  return JSON.parse(await readFile(path, "utf8"));
+  return parseJson(await readFile(path, "utf8"), path);
+}
+
+function parseJson(source, label) {
+  try {
+    return JSON.parse(source);
+  } catch (error) {
+    throw new Error(`Invalid JSON in ${label}: ${String(error)}`, { cause: error });
+  }
 }
 
 function compareVersions(left, right) {

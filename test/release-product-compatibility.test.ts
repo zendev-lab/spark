@@ -217,12 +217,15 @@ test("phase report rejects no-op, duplicate, wrong, and incomplete reports", () 
   );
 });
 
-test("selects the nearest published stable N-1 and rejects stale baselines", () => {
+test("selects the latest published non-exempt compatibility baseline", () => {
+  assert.equal(
+    selectPublishedBaselineVersion(["0.2.1", "0.3.0", "0.4.0", "0.5.0-beta.1"], "0.5.0", ["0.4.0"]),
+    "0.3.0",
+  );
   assert.equal(
     selectPublishedBaselineVersion(["0.2.1", "0.3.0", "0.4.0-beta.1"], "0.4.0"),
     "0.3.0",
   );
-  assert.notEqual(selectPublishedBaselineVersion(["0.2.1", "0.3.0"], "0.4.0"), "0.2.1");
 });
 
 test("0.3.0 to 0.2.1 is only the bounded split exception", () => {

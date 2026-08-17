@@ -101,6 +101,7 @@
         "productHarness",
         "reportPath",
         "baselineSelection",
+        "compatibilityExemptVersions",
         "requiredPhases",
         "sameVersionSanity",
         "sameVersionPhase",
@@ -111,7 +112,15 @@
         "harness": { "$ref": "#/$defs/repoPath" },
         "productHarness": { "$ref": "#/$defs/repoPath" },
         "reportPath": { "$ref": "#/$defs/repoPath" },
-        "baselineSelection": { "const": "latest-published-stable-before-candidate" },
+        "baselineSelection": {
+          "const": "latest-published-stable-without-n-minus-one-exemption-before-candidate"
+        },
+        "compatibilityExemptVersions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableVersion" }
+        },
         "requiredPhases": {
           "type": "array",
           "minItems": 1,

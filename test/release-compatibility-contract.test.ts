@@ -70,6 +70,8 @@ test("the contract schema rejects missing, unknown, and malformed policy", async
     (value: ReleaseCompatibilityContract) => (value.releaseGate.placeholder = true),
     (value: ReleaseCompatibilityContract) => (value.fullMatrixRequiredFrom = "next"),
     (value: ReleaseCompatibilityContract) =>
+      (value.releaseGate.compatibilityExemptVersions = ["0.4.0", "0.4.0"]),
+    (value: ReleaseCompatibilityContract) =>
       (value.database.automaticUpdatePhases = ["expand", "backfill"]),
   ]) {
     const invalid = clone(contract);
@@ -92,13 +94,19 @@ test("semantic validation rejects broken product graphs and a leaked legacy exce
   const leakedException = clone(contract);
   leakedException.releaseGate.firstSplitReleaseException.candidateVersion = "0.4.0";
   assert.throws(() => validateCompatibilitySemantics(leakedException), /first split release/u);
+
+  const copiedHardCut = clone(contract);
+  copiedHardCut.releaseGate.compatibilityExemptVersions.push("0.5.0");
+  assert.throws(() => validateCompatibilitySemantics(copiedHardCut), /only the published 0.4.0/u);
 });
 
 test("the legacy all-in-one exception is bounded and reports split phases as not-applicable", async () => {
   const contract = await loadAndValidateReleaseCompatibility(root);
   const exception = contract.releaseGate.firstSplitReleaseException;
   assert.equal(contract.firstSplitRelease, "0.3.0");
-  assert.equal(contract.fullMatrixRequiredFrom, "0.4.0");
+  assert.equal(contract.fullMatrixRequiredFrom, "0.5.0");
+  assert.equal(contract.database.metadataRequiredFrom, "0.5.0");
+  assert.deepEqual(contract.releaseGate.compatibilityExemptVersions, ["0.4.0"]);
   assert.deepEqual(exception, {
     candidateVersion: "0.3.0",
     baselineVersion: "0.2.1",

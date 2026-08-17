@@ -75,6 +75,23 @@ test("release migration arguments support automatic and explicit published basel
     selectPublishedBaselineVersion(["0.3.0", "0.2.1", "0.3.0-rc.1", "0.3.0", "invalid"], "0.3.1"),
     "0.3.0",
   );
+  assert.equal(
+    selectPublishedBaselineVersion(
+      ["0.2.1", "0.3.0", "0.4.0", "0.5.0-beta.1"],
+      "0.5.0",
+      undefined,
+      ["0.4.0"],
+    ),
+    "0.3.0",
+  );
+  assert.equal(
+    selectPublishedBaselineVersion(["0.3.0", "0.4.0"], "0.5.0", "0.3.0", ["0.4.0"]),
+    "0.3.0",
+  );
+  assert.throws(
+    () => selectPublishedBaselineVersion(["0.3.0", "0.4.0"], "0.5.0", "0.4.0", ["0.4.0"]),
+    /compatibility-exempt/u,
+  );
   assert.throws(
     () => selectPublishedBaselineVersion(["0.1.0"], "0.1.0", "0.1.0"),
     /must be older than candidate/u,
