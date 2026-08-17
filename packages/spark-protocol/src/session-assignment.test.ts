@@ -3,6 +3,7 @@ import {
   parseSparkSessionProjection,
   parseSparkSessionState,
   sparkSessionLifetimeForOwner,
+  sparkSessionOwnerSessionId,
   SPARK_SESSION_CLOSE_RECEIPT_HISTORY_LIMIT,
   SPARK_SESSION_CLOSE_RECEIPT_MAX_BYTES,
   SPARK_SESSION_COMPACT_CUSTOM_INSTRUCTIONS_MAX_LENGTH,
@@ -90,6 +91,80 @@ describe("session ownership protocol", () => {
         lifetime: lifetime === "persistent" ? "ephemeral" : "persistent",
       }),
     ).toThrow(/lifetime must be/u);
+  });
+
+  it.each([
+    [{ kind: "workspace", workspaceId: "ws_test" }, undefined],
+    [{ kind: "session", supervisorSessionId: "sess_admin" }, "sess_admin"],
+    [{ kind: "side_thread", parentSessionId: "sess_parent", generation: 2 }, "sess_parent"],
+    [
+      {
+        kind: "task_run",
+        supervisorSessionId: "sess_admin",
+        projectRef: "proj:repro",
+        taskRef: "task:trace",
+        runRef: "run:trace-1",
+        sessionGoalId: "goal-trace-1",
+        roleRef: "role:builtin-explorer",
+        jobId: "task-job:trace",
+        attempt: 1,
+      },
+      "sess_admin",
+    ],
+    [
+      {
+        kind: "task_revision",
+        supervisorSessionId: "sess_admin",
+        projectRef: "proj:repro",
+        taskRef: "task:trace",
+        sessionGoalId: "goal-trace-1",
+        roleRef: "role:builtin-explorer",
+        jobId: "task-job:trace",
+        attempt: 1,
+        revisionRef: "rev:trace-1",
+        originatingRunRef: "run:trace-1",
+      },
+      "sess_admin",
+    ],
+    [
+      {
+        kind: "workflow_run",
+        supervisorSessionId: "sess_admin",
+        workflowRef: "workflow:trace",
+        runRef: "run:workflow-1",
+        generation: 1,
+      },
+      "sess_admin",
+    ],
+    [
+      {
+        kind: "invocation",
+        invocationId: "inv-1",
+        supervisorSessionId: "sess_admin",
+      },
+      "sess_admin",
+    ],
+    [
+      {
+        kind: "driver",
+        driverId: "driver-1",
+        generation: 3,
+        supervisorSessionId: "sess_admin",
+      },
+      "sess_admin",
+    ],
+    [
+      {
+        kind: "driver_tick",
+        driverId: "driver-1",
+        generation: 3,
+        tickInvocationId: "inv-tick-1",
+        supervisorSessionId: "sess_admin",
+      },
+      "sess_admin",
+    ],
+  ] as const)("resolves %s owner session id", (owner, sessionId) => {
+    expect(sparkSessionOwnerSessionId(owner)).toBe(sessionId);
   });
 
   it("normalizes bounded manual compaction instructions", () => {

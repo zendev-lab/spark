@@ -9,6 +9,7 @@ import {
   sparkSessionSnapshotPageSchema,
   type SparkSessionSnapshotPage,
 } from "@zendev-lab/spark-protocol";
+import { SparkSessionRegistry, defaultSparkSessionRegistryRoot } from "@zendev-lab/spark-session";
 import { describe, expect, it, vi } from "vitest";
 
 import type { SparkDaemonModelControl } from "./model-control.ts";
@@ -1380,6 +1381,164 @@ describe("daemon session control admission", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("rolls owner-tree transcript usage onto the parent snapshot", async () => {
+    const harness = await createUsageSnapshotHarness("spark-session-usage-rollup-");
+    try {
+      const parent = await createDaemonWorkspaceSession(harness.sessionRegistry, {
+        sessionId: "session-usage-parent",
+        workspaceId: "workspace-usage",
+        cwd: harness.root,
+      });
+      const child = await harness.sessionRegistry.createSupervised({
+        sessionId: "session-usage-child",
+        scope: { kind: "workspace", workspaceId: "workspace-usage" },
+        cwd: harness.root,
+        owner: { kind: "session", supervisorSessionId: parent.sessionId },
+      });
+      const parentTranscript = join(harness.root, "parent.jsonl");
+      const childTranscript = join(harness.root, "child.jsonl");
+      writeAssistantUsageTranscript(parentTranscript, parent.sessionId, {
+        input: 100,
+        output: 20,
+        cacheRead: 50,
+        cacheWrite: 10,
+        totalTokens: 999,
+        cost: 0.1,
+      });
+      writeAssistantUsageTranscript(childTranscript, child.sessionId, {
+        input: 40,
+        output: 10,
+        cacheRead: 160,
+        cacheWrite: 5,
+        totalTokens: 210,
+        cost: 0.2,
+      });
+      await harness.sessionRegistry.recordRun({
+        sessionId: parent.sessionId,
+        sessionPath: parentTranscript,
+      });
+      await harness.sessionRegistry.recordRun({
+        sessionId: child.sessionId,
+        sessionPath: childTranscript,
+      });
+
+      const page = await requestSessionSnapshot(harness, parent.sessionId);
+      expect(page.snapshot.usage).toMatchObject({
+        inputTokens: 140,
+        outputTokens: 30,
+        cacheReadTokens: 210,
+        cacheWriteTokens: 15,
+        contextTokens: 999,
+      });
+      expect(page.snapshot.usage?.costUsd).toBeCloseTo(0.3);
+      expect(page.snapshot.usage?.latestCacheHitPercent).toBeCloseTo((50 / 160) * 100);
+      expect(page.snapshot.usage).not.toHaveProperty("contextTokenSource");
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps parent-only usage when the owner tree has no child transcripts", async () => {
+    const harness = await createUsageSnapshotHarness("spark-session-usage-parent-only-");
+    try {
+      const parent = await createDaemonWorkspaceSession(harness.sessionRegistry, {
+        sessionId: "session-usage-solo",
+        workspaceId: "workspace-usage-solo",
+        cwd: harness.root,
+      });
+      const parentTranscript = join(harness.root, "solo.jsonl");
+      writeAssistantUsageTranscript(parentTranscript, parent.sessionId, {
+        input: 100,
+        output: 20,
+        cacheRead: 50,
+        cacheWrite: 10,
+        totalTokens: 999,
+        cost: 0.1,
+      });
+      await harness.sessionRegistry.recordRun({
+        sessionId: parent.sessionId,
+        sessionPath: parentTranscript,
+      });
+
+      const page = await requestSessionSnapshot(harness, parent.sessionId);
+      expect(page.snapshot.usage).toMatchObject({
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheReadTokens: 50,
+        cacheWriteTokens: 10,
+        contextTokens: 999,
+      });
+      expect(page.snapshot.usage?.costUsd).toBeCloseTo(0.1);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("includes closed child transcript usage in the parent rollup", async () => {
+    const harness = await createUsageSnapshotHarness("spark-session-usage-closed-child-");
+    try {
+      const parent = await createDaemonWorkspaceSession(harness.sessionRegistry, {
+        sessionId: "session-usage-closed-parent",
+        workspaceId: "workspace-usage-closed",
+        cwd: harness.root,
+      });
+      const child = await harness.sessionRegistry.createSupervised({
+        sessionId: "session-usage-closed-child",
+        scope: { kind: "workspace", workspaceId: "workspace-usage-closed" },
+        cwd: harness.root,
+        owner: { kind: "session", supervisorSessionId: parent.sessionId },
+      });
+      const parentTranscript = join(harness.root, "parent.jsonl");
+      const childTranscript = join(harness.root, "child.jsonl");
+      writeAssistantUsageTranscript(parentTranscript, parent.sessionId, {
+        input: 12,
+        output: 4,
+        cacheRead: 8,
+        cacheWrite: 2,
+        totalTokens: 400,
+        cost: 0.05,
+      });
+      writeAssistantUsageTranscript(childTranscript, child.sessionId, {
+        input: 3,
+        output: 7,
+        cacheRead: 9,
+        cacheWrite: 1,
+        totalTokens: 50,
+        cost: 0.02,
+      });
+      await harness.sessionRegistry.recordRun({
+        sessionId: parent.sessionId,
+        sessionPath: parentTranscript,
+      });
+      await harness.sessionRegistry.recordRun({
+        sessionId: child.sessionId,
+        sessionPath: childTranscript,
+      });
+      await harness.sessionRegistry.close({ sessionId: child.sessionId });
+      const rawRegistry = new SparkSessionRegistry({
+        rootDir: defaultSparkSessionRegistryRoot(join(harness.root, ".spark")),
+      });
+      await rawRegistry.finalizeClose(child.sessionId);
+      await expect(harness.sessionRegistry.get(child.sessionId)).resolves.toMatchObject({
+        lifecycle: "closed",
+        placement: "archived",
+      });
+
+      const page = await requestSessionSnapshot(harness, parent.sessionId);
+      expect(page.snapshot.usage).toMatchObject({
+        inputTokens: 15,
+        outputTokens: 11,
+        cacheReadTokens: 17,
+        cacheWriteTokens: 3,
+        contextTokens: 400,
+      });
+      expect(page.snapshot.usage?.costUsd).toBeCloseTo(0.07);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("propagates explicit --model from CLI through to frozen invocation task", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-model-propagation-"));
     const db = openMemoryDatabase();
@@ -1541,4 +1700,109 @@ function deferred<T>(): {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+async function createUsageSnapshotHarness(prefix: string) {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  const db = openMemoryDatabase();
+  migrateSparkDaemonDatabase(db);
+  const paths = resolveSparkPaths({
+    app: "daemon",
+    env: { HOME: root },
+    overrides: {
+      dataDir: join(root, "data"),
+      cacheDir: join(root, "cache"),
+      stateDir: join(root, "state"),
+      runtimeDir: join(root, "run"),
+    },
+  });
+  const sessionRegistry = createDaemonSessionRegistry(join(root, ".spark"), {
+    daemonId: "usage-rollup-test",
+    daemonCwd: root,
+  });
+  return {
+    root,
+    db,
+    paths,
+    sessionRegistry,
+    close() {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
+async function requestSessionSnapshot(
+  harness: Awaited<ReturnType<typeof createUsageSnapshotHarness>>,
+  sessionId: string,
+): Promise<SparkSessionSnapshotPage> {
+  const response = await executeSparkDaemonSessionControl(
+    {
+      paths: harness.paths,
+      db: harness.db,
+      sessionRegistry: harness.sessionRegistry,
+      actor: "spark-daemon-runtime-ws",
+    },
+    {
+      kind: "session.snapshot.request",
+      scope: "any",
+      sessionId,
+      payload: { sessionId },
+    },
+  );
+  return sparkSessionSnapshotPageSchema.parse(response.result);
+}
+
+function writeAssistantUsageTranscript(
+  transcriptPath: string,
+  sessionId: string,
+  usage: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    totalTokens: number;
+    cost: number;
+  },
+): void {
+  const entries = [
+    {
+      type: "session",
+      version: 3,
+      id: sessionId,
+      timestamp: "2026-08-17T00:00:00.000Z",
+      cwd: "/workspace/demo",
+    },
+    {
+      type: "message",
+      id: `${sessionId}-user`,
+      parentId: null,
+      timestamp: "2026-08-17T00:00:01.000Z",
+      message: { role: "user", content: "prompt" },
+    },
+    {
+      type: "message",
+      id: `${sessionId}-assistant`,
+      parentId: `${sessionId}-user`,
+      timestamp: "2026-08-17T00:00:02.000Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "response" }],
+        stopReason: "stop",
+        usage: {
+          input: usage.input,
+          output: usage.output,
+          cacheRead: usage.cacheRead,
+          cacheWrite: usage.cacheWrite,
+          totalTokens: usage.totalTokens,
+          cost: { total: usage.cost },
+        },
+      },
+    },
+  ];
+  writeFileSync(
+    transcriptPath,
+    `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
+    "utf8",
+  );
 }
