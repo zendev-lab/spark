@@ -92,10 +92,17 @@ Formalize；resolution 反向流动，用来消除临时工作。Exactness misma
 空的 `/workflow` 会打开选择器。`/workflows`、`/workflow-runs` 和
 `/workflow-pause` 等旧命令仍可作为兼容别名执行，但不会出现在普通命令目录中。
 
-仓库自带的 `workspace:repo-change` 工作流依次执行 owner 范围确认、在当前 owning
-worktree 中实现、独立审查和交付验证；涉及 `.agents` 知识时会额外加入独立 curator
-审查。该工作流只返回结构化的 accepted 或 rejected 证据，不会创建、推送、合并或
-发布 pull request。
+Spark 自带三条仓库工程工作流：
+
+- `workspace:repo-change` 对边界已明确的改动执行 owner 范围确认、实现、独立审查和
+  交付验证；
+- `workspace:maintainability-change` 先建立行为基线，分别审查正确性与非必要复杂度，
+  再执行有限的等价优化并重新独立审查；
+- `workspace:feature-change` 将仓库/外部调研、架构选型、计划、实现和独立审查拆成
+  明确的结构化交接。
+
+涉及 `.agents` 知识时会额外加入独立 curator 审查。三条工作流都只返回结构化的
+accepted 或 rejected 证据，不会创建、推送、合并或发布 pull request。
 
 ## 监督执行，而不是背诵状态
 
