@@ -1,0 +1,32 @@
+name: Spark Node Setup
+description: Install pnpm, Node, and frozen-lockfile dependencies after checkout.
+
+inputs:
+  node-version:
+    description: Exact Node version. When empty, .node-version is used.
+    required: false
+    default: ""
+  relax-engine-strict:
+    description: Pass --config.engine-strict=false to pnpm install.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      if: inputs.node-version == ''
+      with:
+        node-version-file: .node-version
+        cache: pnpm
+
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      if: inputs.node-version != ''
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: pnpm
+
+    - shell: bash
+      run: pnpm install --frozen-lockfile ${{ inputs.relax-engine-strict == 'true' && '--config.engine-strict=false' || '' }}

@@ -92,7 +92,7 @@ pnpm run test:journey:repro
 
 The command requires a cue-shell runtime that advertises IPC protocol v2 and the
 `session-handshake-required` capability. The dedicated Ubuntu CI lane builds the
-runtime from the immutable source revision declared in `ci-tests.yml`; this native
+runtime from the immutable source revision declared in `ci-repro-journey.yml`; this native
 dependency intentionally stays outside `prek` and the default local `pnpm run check` gate.
 
 The root journey and source-process scripts build the real Hub adapter-node output

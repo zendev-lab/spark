@@ -18,64 +18,56 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  SPARK_NIGHTLY_CE_RUNS: ${{ inputs.runs || '8' }}
+  SPARK_NIGHTLY_CE_MAX_FAILURE_RATE: "0"
+  SPARK_NIGHTLY_CE_MAX_DURATION_P95_MS: "30000"
+  SPARK_NIGHTLY_CE_RUN_TIMEOUT_MS: "120000"
+  SPARK_SCRIPTED_PROVIDER_CE_SOURCE_SHA: ${{ github.sha }}
+  SPARK_SCRIPTED_PROVIDER_CE_RUNS: ${{ inputs.runs || '8' }}
+  SPARK_SCRIPTED_PROVIDER_CE_MAX_FAILURE_RATE: "0"
+  SPARK_SCRIPTED_PROVIDER_CE_MAX_DURATION_P95_MS: "10000"
+  SPARK_SCRIPTED_PROVIDER_CE_RUN_TIMEOUT_MS: "60000"
+
 jobs:
-  behavior-ce:
-    name: behavior-ce
+  capability-ce:
+    name: capability-ce
     runs-on: ubuntu-latest
     timeout-minutes: 40
     continue-on-error: true
-    env:
-      SPARK_NIGHTLY_CE_RUNS: ${{ inputs.runs || '8' }}
-      SPARK_NIGHTLY_CE_MAX_FAILURE_RATE: "0"
-      SPARK_NIGHTLY_CE_MAX_DURATION_P95_MS: "30000"
-      SPARK_NIGHTLY_CE_RUN_TIMEOUT_MS: "120000"
-      SPARK_SCRIPTED_PROVIDER_CE_SOURCE_SHA: ${{ github.sha }}
-      SPARK_SCRIPTED_PROVIDER_CE_RUNS: ${{ inputs.runs || '8' }}
-      SPARK_SCRIPTED_PROVIDER_CE_MAX_FAILURE_RATE: "0"
-      SPARK_SCRIPTED_PROVIDER_CE_MAX_DURATION_P95_MS: "10000"
-      SPARK_SCRIPTED_PROVIDER_CE_RUN_TIMEOUT_MS: "60000"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
+      - uses: ./.github/actions/spark-node-setup
       - name: Run repeated capability CE
-        id: capability
-        continue-on-error: true
         run: pnpm run test:capability:ce
-
-      - name: Run scripted provider CE
-        id: scripted_provider
-        continue-on-error: true
-        run: node --experimental-strip-types scripts/run-scripted-provider-ce.mts
-
-      - name: Upload behavior CE reports
+      - name: Upload capability CE reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: behavior-ce-reports
-          path: |
-            reports/capability-ce/
-            reports/scripted-provider-ce/
+          name: capability-ce-reports
+          path: reports/capability-ce/
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Propagate behavior CE failures
+  scripted-provider-ce:
+    name: scripted-provider-ce
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/spark-node-setup
+      - name: Run scripted provider CE
+        run: node --experimental-strip-types scripts/run-scripted-provider-ce.mts
+      - name: Upload scripted-provider CE reports
         if: always()
-        env:
-          CAPABILITY_OUTCOME: ${{ steps.capability.outcome }}
-          SCRIPTED_PROVIDER_OUTCOME: ${{ steps.scripted_provider.outcome }}
-        run: |
-          if [ "$CAPABILITY_OUTCOME" != "success" ] || [ "$SCRIPTED_PROVIDER_OUTCOME" != "success" ]; then
-            echo "Behavior CE failed: capability=$CAPABILITY_OUTCOME scripted-provider=$SCRIPTED_PROVIDER_OUTCOME" >&2
-            exit 1
-          fi
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scripted-provider-ce-reports
+          path: reports/scripted-provider-ce/
+          if-no-files-found: warn
+          retention-days: 30

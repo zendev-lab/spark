@@ -1,0 +1,26 @@
+name: "CI - Browser Tests"
+
+on:
+  pull_request:
+  merge_group:
+    types:
+      - checks_requested
+
+concurrency:
+  group: ci-browser-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    name: Browser Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/spark-node-setup
+      - run: pnpm --filter @zendev-lab/spark-hub run setup:browser
+      - run: pnpm run test:browser
