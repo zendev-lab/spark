@@ -15,6 +15,9 @@ import { createInterface } from "node:readline/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { object, or } from "@optique/core/constructs";
+import { parse } from "@optique/core/parser";
+import { command, constant, passThrough } from "@optique/core/primitives";
 import { resolvePiAuthSourcePath } from "@zendev-lab/spark-ai/control";
 import type { SparkAuthFlow, SparkAuthImportReport } from "@zendev-lab/spark-protocol";
 import { gitCommand, resolveSparkPaths } from "@zendev-lab/spark-system";
@@ -117,24 +120,85 @@ import { runSparkDaemonControlCommand } from "./control-cli.ts";
 export type { CliIo } from "./cli-shared.ts";
 export { sparkDaemonServiceExitCode } from "./cli-daemon-lifecycle.ts";
 
+const remainingArgv = () => passThrough({ format: "greedy" });
+
+const sparkDaemonCommandParser = or(
+  or(
+    command("help", object({ kind: constant("help" as const), argv: remainingArgv() })),
+    command("--help", object({ kind: constant("help" as const), argv: remainingArgv() })),
+    command("-h", object({ kind: constant("help" as const), argv: remainingArgv() })),
+    command("install", object({ kind: constant("install" as const), argv: remainingArgv() })),
+    command("doctor", object({ kind: constant("doctor" as const), argv: remainingArgv() })),
+    command("status", object({ kind: constant("status" as const), argv: remainingArgv() })),
+    command("logs", object({ kind: constant("logs" as const), argv: remainingArgv() })),
+    command("login", object({ kind: constant("login" as const), argv: remainingArgv() })),
+    command("auth", object({ kind: constant("auth" as const), argv: remainingArgv() })),
+  ),
+  or(
+    command("start", object({ kind: constant("start" as const), argv: remainingArgv() })),
+    command(
+      "__service-start",
+      object({ kind: constant("serviceStart" as const), argv: remainingArgv() }),
+    ),
+    command("stop", object({ kind: constant("stop" as const), argv: remainingArgv() })),
+    command("restart", object({ kind: constant("restart" as const), argv: remainingArgv() })),
+    command("sync", object({ kind: constant("sync" as const), argv: remainingArgv() })),
+    command(
+      "__restart-successor",
+      object({ kind: constant("restartSuccessor" as const), argv: remainingArgv() }),
+    ),
+    command("submit", object({ kind: constant("submit" as const), argv: remainingArgv() })),
+    command("ask", object({ kind: constant("ask" as const), argv: remainingArgv() })),
+  ),
+  or(
+    command("model", object({ kind: constant("model" as const), argv: remainingArgv() })),
+    command("invocation", object({ kind: constant("invocation" as const), argv: remainingArgv() })),
+    command("session", object({ kind: constant("session" as const), argv: remainingArgv() })),
+    command("sessions", object({ kind: constant("sessions" as const), argv: remainingArgv() })),
+    command("channel", object({ kind: constant("channel" as const), argv: remainingArgv() })),
+    command("channels", object({ kind: constant("channels" as const), argv: remainingArgv() })),
+    command("run", object({ kind: constant("run" as const), argv: remainingArgv() })),
+    command("runs", object({ kind: constant("runs" as const), argv: remainingArgv() })),
+    command("events", object({ kind: constant("events" as const), argv: remainingArgv() })),
+  ),
+  or(
+    command("workspace", object({ kind: constant("workspace" as const), argv: remainingArgv() })),
+    command("ws", object({ kind: constant("workspace" as const), argv: remainingArgv() })),
+    command("uplink", object({ kind: constant("uplink" as const), argv: remainingArgv() })),
+    command("daemon", object({ kind: constant("daemon" as const), argv: remainingArgv() })),
+  ),
+  object({ kind: constant("empty" as const) }),
+);
+
+function classifySparkDaemonCommand(argv: string[]) {
+  const result = parse(sparkDaemonCommandParser, argv);
+  if (result.success) {
+    if (result.value.kind === "empty") return result.value;
+    return { ...result.value, argv: [...result.value.argv] };
+  }
+  const first = argv[0];
+  if (first?.startsWith("--")) return { kind: "workspaceDefault" as const, argv };
+  return { kind: "unknown" as const, command: first ?? "" };
+}
+
 export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo): Promise<number> {
   const args = argv[0] === "--" ? argv.slice(1) : argv;
-  const [command, subcommand, ...rest] = args;
+  const classified = classifySparkDaemonCommand(args);
   const paths = resolveSparkPaths({ app: "daemon" });
 
   try {
-    if (command === "help" || command === "--help" || command === "-h") {
-      printHelp(io);
-      return 0;
-    }
-
-    if (command?.startsWith("--")) {
-      return await defaultWorkspace(paths, args, io);
-    }
-
-    switch (command) {
-      case undefined:
+    switch (classified.kind) {
+      case "help":
+        printHelp(io);
+        return 0;
+      case "workspaceDefault":
+        return await defaultWorkspace(paths, classified.argv, io);
+      case "empty":
         return await defaultWorkspace(paths, [], io);
+      case "unknown":
+        io.stderr.write(`${STRINGS.unknownCommand(classified.command)}\n`);
+        printHelp(io);
+        return 2;
       case "install":
         return install(paths, io);
       case "doctor":
@@ -142,14 +206,16 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
       case "status":
         return await status(paths, io);
       case "logs":
-        return await logs(paths, args.slice(1), io);
+        return await logs(paths, classified.argv, io);
       case "login":
-        return await login(paths, args.slice(1), io);
-      case "auth":
+        return await login(paths, classified.argv, io);
+      case "auth": {
+        const [subcommand, ...rest] = classified.argv;
         return await providerAuth(paths, subcommand, rest, io);
+      }
       case "start": {
         const managed = process.env.XPC_SERVICE_NAME === "dev.spark.daemon";
-        if (!managed) return await startCommand(paths, args.slice(1), io);
+        if (!managed) return await startCommand(paths, classified.argv, io);
         return await start(paths, {
           // Plists created by older Spark versions invoked `start` directly.
           // launchd exposes the label here, so legacy managed activation must
@@ -158,7 +224,7 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
           managed,
         });
       }
-      case "__service-start":
+      case "serviceStart":
         // This entrypoint is shared by launchd and detached starts. Only the
         // former has a supervisor that can replace a planned restart exit.
         return await start(paths, {
@@ -167,17 +233,17 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
           expectedRestartId: process.env.SPARK_DAEMON_EXPECTED_RESTART_ID?.trim() || undefined,
         });
       case "stop":
-        return await stop(paths, args.slice(1), io);
+        return await stop(paths, classified.argv, io);
       case "restart":
-        return await restart(paths, args.slice(1), io);
+        return await restart(paths, classified.argv, io);
       case "sync":
-        return await daemonSync(paths, args.slice(1), io);
-      case "__restart-successor":
-        return await restartSuccessor(paths, args.slice(1), io);
+        return await daemonSync(paths, classified.argv, io);
+      case "restartSuccessor":
+        return await restartSuccessor(paths, classified.argv, io);
       case "submit":
-        return await daemonSubmit(paths, args.slice(1), io);
+        return await daemonSubmit(paths, classified.argv, io);
       case "ask":
-        return await daemonAsk(paths, args.slice(1), io);
+        return await daemonAsk(paths, classified.argv, io);
       case "model":
       case "invocation":
       case "session":
@@ -187,18 +253,23 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
       case "run":
       case "runs":
       case "events":
-        return await runSparkDaemonControlCommand(paths, command, args.slice(1), io);
-      case "workspace":
-      case "ws":
+        return await runSparkDaemonControlCommand(paths, classified.kind, classified.argv, io);
+      case "workspace": {
+        const [subcommand, ...rest] = classified.argv;
         return await workspace(paths, subcommand, rest, io);
-      case "uplink":
+      }
+      case "uplink": {
+        const [subcommand, ...rest] = classified.argv;
         return await uplink(paths, subcommand, rest, io);
-      case "daemon":
+      }
+      case "daemon": {
+        const [subcommand, ...rest] = classified.argv;
         return await daemon(paths, subcommand, rest, io);
-      default:
-        io.stderr.write(`${STRINGS.unknownCommand(command)}\n`);
-        printHelp(io);
-        return 2;
+      }
+      default: {
+        const exhaustive: never = classified;
+        return exhaustive;
+      }
     }
   } catch (error) {
     io.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
