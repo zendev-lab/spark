@@ -10,7 +10,7 @@
  */
 
 import { resolveSparkEnabledModelIds } from "@zendev-lab/spark-ai/control";
-import type { SparkConfig } from "./config.ts";
+import type { SparkConfig, SparkConfigSaveOptions } from "./config.ts";
 import { loadSparkConfig, saveSparkConfig } from "./config.ts";
 import type { SparkKeybindingContext, SparkKeybindings } from "./keybindings.ts";
 import type {
@@ -68,7 +68,10 @@ export type SparkModelPicker = (
 ) => SparkActiveSelection | null | undefined | Promise<SparkActiveSelection | null | undefined>;
 
 export type SparkConfigLoader = () => SparkConfig | Promise<SparkConfig>;
-export type SparkConfigSaver = (config: SparkConfig) => void | Promise<void>;
+export type SparkConfigSaver = (
+  config: SparkConfig,
+  options?: SparkConfigSaveOptions,
+) => void | Promise<void>;
 
 export interface SparkModelSelectorOptions {
   registry: SparkProviderRegistry;
@@ -91,7 +94,9 @@ export class SparkModelSelector {
     this.registry = options.registry;
     this.config = options.config;
     this.loadConfig = options.loadConfig ?? loadSparkConfig;
-    this.saveConfig = options.saveConfig ?? saveSparkConfig;
+    this.saveConfig =
+      options.saveConfig ??
+      ((config, saveOptions) => saveSparkConfig(config, undefined, saveOptions));
     this.picker = options.picker;
   }
 

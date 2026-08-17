@@ -31,7 +31,12 @@ import {
   normalizeSparkEnabledModelPatterns,
 } from "@zendev-lab/spark-ai/control";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
-import { DEFAULT_SPARK_THINKING_LEVEL } from "@zendev-lab/spark-protocol";
+import {
+  DEFAULT_SPARK_THINKING_LEVEL,
+  sparkEnabledModelsWriteIntentSchema,
+  sparkUserInitiatedEnabledModelsIntent,
+  type SparkEnabledModelsWriteIntent,
+} from "@zendev-lab/spark-protocol";
 import { DEFAULT_SPARK_COMPACTION_SETTINGS, type SparkCompactionSettings } from "./compaction.ts";
 import { DEFAULT_SPARK_EXTENSION_SPECS } from "./extension-specs.ts";
 
@@ -132,14 +137,49 @@ export async function loadSparkConfig(
   return mergeWithDefault(parsed);
 }
 
+export interface SparkConfigSaveOptions {
+  enabledModelsIntent?: SparkEnabledModelsWriteIntent;
+}
+
+export { sparkUserInitiatedEnabledModelsIntent };
+export type { SparkEnabledModelsWriteIntent };
+
 export async function saveSparkConfig(
   config: SparkConfig,
   path: string = defaultSparkConfigPath(),
+  options?: SparkConfigSaveOptions,
 ): Promise<void> {
+  const toWrite: SparkConfig = { ...config };
+  if (!hasExplicitEnabledModelsWriteIntent(options?.enabledModelsIntent)) {
+    const diskEnabledModels = await readDiskEnabledModels(path);
+    if (diskEnabledModels === undefined) delete toWrite.enabledModels;
+    else toWrite.enabledModels = diskEnabledModels;
+  }
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  await writeFile(tmp, `${JSON.stringify(toWrite, null, 2)}\n`, "utf8");
   await rename(tmp, path);
+}
+
+function hasExplicitEnabledModelsWriteIntent(
+  intent: SparkEnabledModelsWriteIntent | undefined,
+): intent is SparkEnabledModelsWriteIntent {
+  return sparkEnabledModelsWriteIntentSchema.safeParse(intent).success;
+}
+
+async function readDiskEnabledModels(path: string): Promise<string[] | undefined> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    if (!("enabledModels" in parsed)) return undefined;
+    const value = (parsed as { enabledModels?: unknown }).enabledModels;
+    if (!Array.isArray(value)) return undefined;
+    return value.filter((entry): entry is string => typeof entry === "string");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
 }
 
 export function mergeWithDefault(raw: unknown): SparkConfig {

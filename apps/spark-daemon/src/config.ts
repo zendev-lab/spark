@@ -7,9 +7,17 @@ import {
   MAX_INVOCATION_SCHEDULER_CONCURRENCY,
 } from "./core/invocation-scheduler-policy.ts";
 
+export type SparkDaemonApprovalMode = "manual" | "automatic" | "allow_all";
+export type SparkDaemonToolApprovalMethod = "human" | "auto" | "skip";
+
+/** Temporary default while approval-gated tools are being stabilized. */
+export const DEFAULT_SPARK_DAEMON_APPROVAL_MODE: SparkDaemonApprovalMode = "allow_all";
+
 export interface SparkDaemonConfig {
   installationId: string;
   displayName: string;
+  /** Unified approval behavior for daemon-owned agent turns. */
+  approvalMode?: SparkDaemonApprovalMode;
   /** Maximum number of concurrently running root invocations across distinct sessions. */
   invocationConcurrency?: number;
   serverUrl?: string;
@@ -31,6 +39,30 @@ export function parseSparkDaemonInvocationConcurrency(value: string): number {
     throw invalidInvocationConcurrency();
   }
   return validateSparkDaemonInvocationConcurrency(Number(value));
+}
+
+export function parseSparkDaemonApprovalMode(value: string): SparkDaemonApprovalMode {
+  if (value === "manual" || value === "automatic" || value === "allow_all") return value;
+  throw new Error('approvalMode must be one of "manual", "automatic", or "allow_all"');
+}
+
+export function resolveSparkDaemonApprovalMode(
+  config: Pick<SparkDaemonConfig, "approvalMode">,
+): SparkDaemonApprovalMode {
+  return config.approvalMode ?? DEFAULT_SPARK_DAEMON_APPROVAL_MODE;
+}
+
+export function resolveSparkDaemonToolApprovalMethod(
+  config: Pick<SparkDaemonConfig, "approvalMode">,
+): SparkDaemonToolApprovalMethod {
+  switch (resolveSparkDaemonApprovalMode(config)) {
+    case "manual":
+      return "human";
+    case "automatic":
+      return "auto";
+    case "allow_all":
+      return "skip";
+  }
 }
 
 export function validateSparkDaemonInvocationConcurrency(value: number): number {
@@ -80,8 +112,16 @@ export function writeSparkDaemonConfig(paths: SparkPaths, config: SparkDaemonCon
 
 function parseTomlSubset(contents: string): Partial<SparkDaemonConfig> {
   const values: Record<string, string> = {};
+  let approvalMode: SparkDaemonApprovalMode | undefined;
   let invocationConcurrency: number | undefined;
   for (const line of contents.split(/\r?\n/)) {
+    if (/^\s*approvalMode\s*=/u.test(line)) {
+      const match = line.match(/^\s*approvalMode\s*=\s*"([^"]+)"\s*(?:#.*)?$/u);
+      if (!match?.[1])
+        throw new Error('approvalMode must be one of "manual", "automatic", or "allow_all"');
+      approvalMode = parseSparkDaemonApprovalMode(match[1]);
+      continue;
+    }
     if (/^\s*invocationConcurrency\s*=/u.test(line)) {
       const match = line.match(/^\s*invocationConcurrency\s*=\s*([^\s#]+)\s*(?:#.*)?$/u);
       if (!match?.[1]) throw invalidInvocationConcurrency();
@@ -100,6 +140,7 @@ function parseTomlSubset(contents: string): Partial<SparkDaemonConfig> {
   const config: Partial<SparkDaemonConfig> = {};
   if (values.installationId) config.installationId = values.installationId;
   if (values.displayName) config.displayName = values.displayName;
+  if (approvalMode) config.approvalMode = approvalMode;
   if (invocationConcurrency !== undefined) config.invocationConcurrency = invocationConcurrency;
   if (values.serverUrl) config.serverUrl = values.serverUrl;
   if (values.runtimeId) config.runtimeId = values.runtimeId;
@@ -118,6 +159,9 @@ function serializeTomlSubset(config: SparkDaemonConfig): string {
   return [
     `installationId = "${escapeTomlString(config.installationId)}"`,
     `displayName = "${escapeTomlString(config.displayName)}"`,
+    config.approvalMode !== undefined
+      ? `approvalMode = "${resolveSparkDaemonApprovalMode(config)}"`
+      : undefined,
     config.invocationConcurrency !== undefined
       ? `invocationConcurrency = ${validateSparkDaemonInvocationConcurrency(config.invocationConcurrency)}`
       : undefined,

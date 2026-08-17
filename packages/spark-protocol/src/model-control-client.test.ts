@@ -4,6 +4,7 @@ import {
   parseSparkModelValue,
   sparkModelValue,
 } from "./model-control-client.ts";
+import { sparkUserInitiatedEnabledModelsIntent } from "./model-control.ts";
 
 describe("spark model control client", () => {
   it("routes catalog and session setters through one method table", async () => {
@@ -56,7 +57,10 @@ describe("spark model control client", () => {
 
     const snapshot = await client.snapshot();
     const session = await client.setSessionModel({ providerName: "openai", modelId: "gpt" });
-    const enabled = await client.setEnabledModels([{ providerName: "openai", modelId: "gpt" }]);
+    const enabled = await client.setEnabledModels(
+      [{ providerName: "openai", modelId: "gpt" }],
+      sparkUserInitiatedEnabledModelsIntent("cli"),
+    );
     const imported = await client.importPiAuth({
       sourcePath: "/tmp/pi/auth.json",
       overwrite: true,
@@ -74,7 +78,10 @@ describe("spark model control client", () => {
       },
       {
         method: "model.enabled.set",
-        params: { models: [{ providerName: "openai", modelId: "gpt" }] },
+        params: {
+          models: [{ providerName: "openai", modelId: "gpt" }],
+          intent: sparkUserInitiatedEnabledModelsIntent("cli"),
+        },
       },
       {
         method: "provider.auth.import.pi",

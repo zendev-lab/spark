@@ -38,7 +38,10 @@ export type SparkCompactionModelRunner = (
 export interface SparkCliHostServices {
   cwd: string;
   config: SparkConfig;
-  saveConfig?: (config: SparkConfig) => Promise<void>;
+  saveConfig?: (
+    config: SparkConfig,
+    options?: import("./config.ts").SparkConfigSaveOptions,
+  ) => Promise<void>;
   runtime: SparkHostRuntime;
   memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
   keybindings: SparkKeybindings;

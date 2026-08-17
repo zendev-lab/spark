@@ -6,12 +6,12 @@ import { test } from "vitest";
 
 import {
   CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
-  DEFAULT_SPARK_EXTENSION_SPECS,
   DEFAULT_SPARK_CONFIG,
   loadSparkConfig,
-  mergeSparkConfigWithDefault,
+  mergeWithDefault as mergeSparkConfigWithDefault,
   saveSparkConfig,
-} from "../host/index.ts";
+} from "../host/config.ts";
+import { DEFAULT_SPARK_EXTENSION_SPECS } from "../host/extension-specs.ts";
 
 test("default Spark providers include shared Baidu OneAPI and OpenAI Codex adapters", () => {
   assert.deepEqual(DEFAULT_SPARK_CONFIG.providers, [
@@ -73,6 +73,48 @@ test("bundled legacy model defaults migrate without re-enabling compatibility mo
     ["baidu-oneapi/*"],
   );
   assert.deepEqual(mergeSparkConfigWithDefault({ enabledModels: [] }).enabledModels, []);
+});
+
+test("catalog/reconnect saves keep explicit grok-4.6 and only normalize in memory", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-config-enabled-models-"));
+  try {
+    const path = join(dir, "config.json");
+    const explicit = [
+      "openai-codex/gpt-5.6-*",
+      "baidu-oneapi/claude-opus-5",
+      "baidu-oneapi/deepseek-v4-flash",
+      "baidu-oneapi/gpt-5.6-*",
+      "baidu-oneapi/grok-4.6",
+    ];
+    await writeFile(path, `${JSON.stringify({ enabledModels: explicit })}\n`, "utf8");
+
+    const loaded = await loadSparkConfig(path);
+    assert.deepEqual(loaded.enabledModels, DEFAULT_SPARK_CONFIG.enabledModels);
+    assert.equal(loaded.enabledModels?.includes("baidu-oneapi/grok-4.6"), true);
+    assert.equal(loaded.enabledModels?.includes("baidu-oneapi/grok-4.5"), false);
+
+    await saveSparkConfig(
+      {
+        ...loaded,
+        enabledModels: [
+          "openai-codex/gpt-5.6-*",
+          "baidu-oneapi/claude-opus-5",
+          "baidu-oneapi/deepseek-v4-flash",
+          "baidu-oneapi/gpt-5.6-*",
+          "baidu-oneapi/grok-4.5",
+        ],
+        activeModelId: "baidu-oneapi/grok-4.5",
+      },
+      path,
+    );
+
+    const onDisk = JSON.parse(await readFile(path, "utf8")) as { enabledModels: string[] };
+    assert.deepEqual(onDisk.enabledModels, explicit);
+    assert.equal(onDisk.enabledModels.includes("baidu-oneapi/grok-4.6"), true);
+    assert.equal(onDisk.enabledModels.includes("baidu-oneapi/grok-4.5"), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("Compact V2 config defaults to 40% reduction and current session model", () => {

@@ -55,7 +55,9 @@ describe("daemon model control", () => {
     await expect(control.setDefaultModel(selectedModel)).resolves.toMatchObject({
       defaultModel: selectedModel,
     });
-    await expect(control.setEnabledModels([selectedModel])).resolves.toMatchObject({
+    await expect(
+      control.setEnabledModels([selectedModel], { kind: "user-initiated", via: "cli" }),
+    ).resolves.toMatchObject({
       enabledModels: [selectedModel],
     });
     await expect(
@@ -80,6 +82,26 @@ describe("daemon model control", () => {
 
     await control.prepareModel(selectedModel);
     expect(prepareModel).toHaveBeenCalledWith("baidu-oneapi/ernie-4.6");
+  });
+
+  it("fails closed when setEnabledModels has no explicit user-initiated intent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-model-control-intent-"));
+    roots.push(root);
+    const sessionRegistry = createDaemonSessionRegistry(root, {
+      daemonId: "install-model-intent",
+      daemonCwd: root,
+    });
+    const persist = vi.fn(async () => undefined);
+    const control = createSparkDaemonModelControl({
+      providerControl: { ...fakeProviderControl(), setEnabledModels: persist },
+      sessionRegistry,
+    });
+
+    await expect(control.setEnabledModels([selectedModel])).rejects.toMatchObject({
+      name: "SparkDaemonControlError",
+      code: "enabled_models_intent_required",
+    });
+    expect(persist).not.toHaveBeenCalled();
   });
 
   it("defaults thinking to high while preserving an explicit session level", async () => {

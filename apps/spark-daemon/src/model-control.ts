@@ -7,8 +7,10 @@ import {
   DEFAULT_SPARK_THINKING_LEVEL,
   parseSparkAuthFlow,
   parseSparkModelControlSnapshot,
+  requireSparkEnabledModelsWriteIntent,
   type SparkAuthImportReport,
   type SparkAuthFlow,
+  type SparkEnabledModelsWriteIntent,
   type SparkModelCatalogEntry,
   type SparkModelCatalogProvider,
   type SparkModelConnectivityTestResult,
@@ -22,10 +24,26 @@ import type { SparkOAuthFlowSnapshot } from "@zendev-lab/spark-ai/control";
 import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 
+function requireEnabledModelsWriteIntent(
+  intent: SparkEnabledModelsWriteIntent | undefined,
+): SparkEnabledModelsWriteIntent {
+  try {
+    return requireSparkEnabledModelsWriteIntent(intent);
+  } catch {
+    throw new SparkDaemonControlError(
+      "enabled_models_intent_required",
+      "enabledModels writes require explicit user-initiated intent",
+    );
+  }
+}
+
 export interface SparkDaemonModelControl {
   snapshot(sessionId?: string): Promise<SparkModelControlSnapshot>;
   setDefaultModel(model: SparkModelRef): Promise<SparkModelControlSnapshot>;
-  setEnabledModels(models: readonly SparkModelRef[]): Promise<SparkModelControlSnapshot>;
+  setEnabledModels(
+    models: readonly SparkModelRef[],
+    intent?: SparkEnabledModelsWriteIntent,
+  ): Promise<SparkModelControlSnapshot>;
   setSessionModel(sessionId: string, model: SparkModelRef): Promise<SparkSessionState>;
   setSessionThinkingLevel(
     sessionId: string,
@@ -78,10 +96,14 @@ class DaemonModelControl implements SparkDaemonModelControl {
     return await this.snapshot();
   }
 
-  async setEnabledModels(models: readonly SparkModelRef[]): Promise<SparkModelControlSnapshot> {
+  async setEnabledModels(
+    models: readonly SparkModelRef[],
+    intent?: SparkEnabledModelsWriteIntent,
+  ): Promise<SparkModelControlSnapshot> {
+    const explicitIntent = requireEnabledModelsWriteIntent(intent);
     const snapshot = await this.snapshot();
     const canonical = models.map((model) => requireCatalogModel(snapshot, model).model);
-    await this.#providerControl.setEnabledModels(canonical.map(modelValue));
+    await this.#providerControl.setEnabledModels(canonical.map(modelValue), explicitIntent);
     return await this.snapshot();
   }
 

@@ -295,6 +295,7 @@ export const sparkLocalRpcModelOrpcErrors = {
   role_model_type_unconfigured: { status: 422 },
   model_not_found: { status: 404 },
   model_not_enabled: { status: 422 },
+  enabled_models_intent_required: { status: 403 },
   model_unavailable: { status: 422 },
   provider_not_found: { status: 404 },
   provider_auth_method_unsupported: { status: 422 },
@@ -636,6 +637,11 @@ const sparkLocalRpcReadinessModelOrpcErrors = {
 const sparkLocalRpcModelCatalogOrpcErrors = {
   ...sparkLocalRpcReadinessOrpcErrors,
   model_control_unavailable: sparkLocalRpcModelOrpcErrors.model_control_unavailable,
+} as const;
+
+const sparkLocalRpcEnabledModelsSetOrpcErrors = {
+  ...sparkLocalRpcModelCatalogOrpcErrors,
+  enabled_models_intent_required: sparkLocalRpcModelOrpcErrors.enabled_models_intent_required,
 } as const;
 
 const sparkLocalRpcModelSelectionOrpcErrors = {
@@ -2237,7 +2243,7 @@ export const sparkLocalRpcOrpcContract = {
         "POST",
         "/model/enabled/set",
         p["model.enabled.set"],
-        sparkLocalRpcModelCatalogOrpcErrors,
+        sparkLocalRpcEnabledModelsSetOrpcErrors,
       ),
     },
   },

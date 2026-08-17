@@ -123,6 +123,9 @@ export {
   mergeWithDefault as mergeSparkConfigWithDefault,
   migrateSparkExtensionProfile,
   saveSparkConfig,
+  sparkUserInitiatedEnabledModelsIntent,
+  type SparkConfigSaveOptions,
+  type SparkEnabledModelsWriteIntent,
 } from "./config.ts";
 export {
   CURRENT_SPARK_COMPACTION_SUMMARY_VERSION,
