@@ -139,6 +139,7 @@ import {
   reconcileSessionRequestCompletions,
   sessionRequestCompletionRequested,
 } from "./session-request-completion-notify.ts";
+import { drainSessionMailRequestQueue } from "./session-mail-queue.ts";
 import {
   reconcileInactiveSessionRetention,
   SESSION_RETENTION_RECONCILE_INTERVAL_MS,
@@ -209,6 +210,7 @@ interface DaemonServingLoops {
   channelReply?: Promise<void>;
   notification?: Promise<void>;
   sessionCompletion?: Promise<void>;
+  sessionMailQueue?: Promise<void>;
   sessionRetention?: Promise<void>;
   taskClaims?: Promise<void>;
 }
@@ -830,6 +832,12 @@ function startDaemonServingLoops(runtime: PreparedDaemonRuntime): void {
       await runSessionCompletionReconcileLoop(runtime);
     });
   }
+  if (options.sessionRegistry && !options.once) {
+    loops.sessionMailQueue = servingGate.promise.then(async (committed) => {
+      if (!committed || runtimeSignal.aborted) return;
+      await runSessionMailQueueDrainLoop(runtime);
+    });
+  }
   if (channelIngress && options.sessionRegistry && !options.once) {
     loops.notification = servingGate.promise.then(async (committed) => {
       if (!committed || runtimeSignal.aborted) return;
@@ -1006,6 +1014,35 @@ async function runSessionCompletionReconcileLoop(runtime: PreparedDaemonRuntime)
   while (!runtime.runtimeSignal.aborted) {
     await reconcileSessionRequestCompletionBatch(runtime);
     await delayUnlessAborted(500, runtime.runtimeSignal);
+  }
+}
+
+const SESSION_MAIL_QUEUE_DRAIN_INTERVAL_MS = 1_000;
+
+async function runSessionMailQueueDrainLoop(runtime: PreparedDaemonRuntime): Promise<void> {
+  while (!runtime.runtimeSignal.aborted) {
+    await drainSessionMailQueueBatch(runtime);
+    await delayUnlessAborted(SESSION_MAIL_QUEUE_DRAIN_INTERVAL_MS, runtime.runtimeSignal);
+  }
+}
+
+async function drainSessionMailQueueBatch(runtime: PreparedDaemonRuntime): Promise<void> {
+  if (!runtime.options.sessionRegistry || !runtime.admission.open) return;
+  try {
+    await drainSessionMailRequestQueue({
+      control: {
+        paths: runtime.options.paths,
+        db: runtime.options.db,
+        sessionRegistry: runtime.options.sessionRegistry,
+        sessionSupervisor: runtime.sessionSupervisor ?? undefined,
+        modelControl: runtime.options.modelControl,
+        actor: "spark-daemon-local-rpc",
+      },
+      invocationStore: runtime.invocationStore,
+      mailStore: runtime.mailStore,
+    });
+  } catch (error) {
+    console.error("[spark-daemon] session mail queue drain failed", error);
   }
 }
 
