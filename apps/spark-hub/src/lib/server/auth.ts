@@ -523,11 +523,12 @@ export function workspaceSessionAllowsRequest(
   const routeWorkspace = db
     .prepare("SELECT id FROM workspaces WHERE (id = ? OR slug = ?) AND status = 'active' LIMIT 1")
     .get(segments[0], segments[0]) as { id: string } | undefined;
+  if (segments.length === 2 && segments[1] === "login") return Boolean(routeWorkspace);
   if (routeWorkspace?.id !== workspaceId) return false;
 
   const resourceId = segments[2];
   if (!resourceId) return true;
-  if (segments[1] === "login" || segments[1] === "settings") return true;
+  if (segments[1] === "settings") return true;
   if (segments[1] === "sessions") {
     return Boolean(
       db

@@ -49,6 +49,8 @@ export async function resolveFleetTaskTarget(input: {
     }
   }
 
+  const isolation = input.task.executionPolicy?.isolation ?? "isolated_results";
+  const readonly = isolation === "readonly";
   const store = defaultArtifactStore(input.workspaceCwd);
   let writableArtifactRefs: ArtifactRef[];
   if (explicit) {
@@ -58,6 +60,17 @@ export async function resolveFleetTaskTarget(input: {
     for (const ref of input.task.artifactRefs) {
       const artifact = await store.tryGet(ref);
       if (artifact?.body.kind === "git_change") linkedGitChanges.push(ref);
+    }
+    if (linkedGitChanges.length === 0 && readonly) {
+      const resultsRoot = await resolveResultsRoot(input.workspaceCwd, isolation, input.jobId);
+      return {
+        primaryArtifactRef: "artifact:readonly" as ArtifactRef,
+        primaryRoot: input.workspaceCwd,
+        writableArtifactRefs: [],
+        writableRoots: [],
+        concurrencyKeys: [],
+        ...(resultsRoot ? { resultsRoot } : {}),
+      };
     }
     if (linkedGitChanges.length !== 1) {
       throw new Error(
@@ -70,7 +83,7 @@ export async function resolveFleetTaskTarget(input: {
   }
 
   const primaryArtifactRef = explicit?.primaryArtifactRef ?? writableArtifactRefs[0]!;
-  if (!writableArtifactRefs.includes(primaryArtifactRef)) {
+  if (!readonly && !writableArtifactRefs.includes(primaryArtifactRef)) {
     throw new Error(`Fleet primary target ${primaryArtifactRef} is not writable`);
   }
 
@@ -88,7 +101,6 @@ export async function resolveFleetTaskTarget(input: {
     writableRoots.push(root);
   }
   const primaryRoot = writableRoots[writableArtifactRefs.indexOf(primaryArtifactRef)]!;
-  const isolation = input.task.executionPolicy?.isolation ?? "isolated_results";
   const resultsRoot = await resolveResultsRoot(input.workspaceCwd, isolation, input.jobId);
   return {
     primaryArtifactRef,

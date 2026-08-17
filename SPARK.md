@@ -2,7 +2,7 @@
 description: "spark：以 Pi SDK 为内核，统一 TUI / Hub / 消息平台的本地智能开发编排"
 owner: zrr1999
 created: 2026-05-18
-updated: 2026-08-04
+updated: 2026-08-13
 ---
 
 # `spark` 项目意图
@@ -34,7 +34,7 @@ updated: 2026-08-04
 
 精确的包清单、层级、owner、稳定性和依赖方向以
 [`architecture/packages.json`](./architecture/packages.json) 为准；包创建、合并与依赖
-规则由 [`docs/specs/package-architecture.md`](./docs/specs/package-architecture.md) 约束。
+规则由 [`.agents/notes/contracts/package-architecture.md`](./.agents/notes/contracts/package-architecture.md) 约束。
 
 - Pi SDK 保持模型流与终端呈现内核，Spark 不重建独立的 Pi 产品 facade。
 - daemon 是持久会话、调用、通道、本地执行、自治计时、重试与恢复的唯一 owner。
@@ -85,3 +85,6 @@ updated: 2026-08-04
 - 将 PR、CI、review 与 conflict 读取收敛成幂等 delivery feedback 事件。
 - 完善自治 driver 的部署、诊断、更新与日志运维，但不形成第二个运行时 owner。
 - Hub 能力继续留在现有 owner 中，直到独立迁移能证明新的硬边界。
+- 第 42 个 workspace 槽 `@zendev-lab/pi-spark`（`packages/pi-spark`）仍按
+  `architecture/packages.json` 预留，目录尚未创建；切割完成前根
+  `package.json#pi` 继续走现有 frozen exception，不把该槽位当成已落地包。

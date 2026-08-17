@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import { defineConfig } from "vitest/config";
 
 /**
@@ -13,6 +15,7 @@ export default defineConfig({
     pool: "forks",
     fileParallelism: false,
     maxWorkers: 2,
+    setupFiles: [resolve(import.meta.dirname, "test/support/hermetic-env.ts")],
     testTimeout: 120_000,
     hookTimeout: 120_000,
   },

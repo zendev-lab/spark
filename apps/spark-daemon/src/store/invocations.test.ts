@@ -1995,17 +1995,17 @@ describe("SparkInvocationStore", () => {
     try {
       const invocation = store.submit({ sessionId: "session-large-event", prompt: "large event" });
       const event = store.appendEvent(invocation.invocationId, "daemon.view_event", {
-        version: 1,
+        version: 2,
         type: "daemon.view_event",
         source: "daemon",
         sessionId: "session-large-event",
         invocationId: invocation.invocationId,
         view: {
-          version: 1,
+          version: 2,
           type: "session.message",
           sessionId: "session-large-event",
           message: {
-            version: 1,
+            version: 2,
             id: "large-message",
             role: "assistant",
             text: "x".repeat(512 * 1024),

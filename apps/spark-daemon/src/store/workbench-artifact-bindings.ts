@@ -4,6 +4,10 @@ import type { DatabaseSync } from "node:sqlite";
 import type { ArtifactRef } from "@zendev-lab/spark-core";
 import type { SparkReproWorkSummary } from "@zendev-lab/spark-repro/work-summary";
 import {
+  normalizeSparkReproWorkSummaryV3,
+  type SparkReproWorkSummaryV3,
+} from "@zendev-lab/spark-repro/three-lane-work-summary";
+import {
   sparkReproWorkbenchArtifactRef,
   type SparkReproWorkbenchCheckpoint,
   type SparkReproWorkbenchCheckpointKind,
@@ -221,7 +225,7 @@ export class WorkbenchArtifactBindingStore {
     artifactRef: ArtifactRef;
     revision: number;
     artifactHash: string;
-    work: SparkReproWorkSummary;
+    work: SparkReproWorkSummaryV3;
     now?: string;
   }): SparkReproWorkbenchCheckpoint {
     const now = input.now ?? new Date().toISOString();
@@ -347,6 +351,9 @@ function bindingFromRow(row: BindingRow): WorkbenchArtifactBinding {
 }
 
 function checkpointFromRow(row: CheckpointRow): SparkReproWorkbenchCheckpoint {
+  const stored = JSON.parse(row.summary_json) as unknown as
+    | SparkReproWorkSummary
+    | SparkReproWorkSummaryV3;
   return {
     checkpointId: row.checkpoint_id,
     kind: row.kind,
@@ -355,7 +362,7 @@ function checkpointFromRow(row: CheckpointRow): SparkReproWorkbenchCheckpoint {
     revision: row.revision,
     hash: row.artifact_hash,
     createdAt: row.created_at,
-    work: JSON.parse(row.summary_json) as SparkReproWorkSummary,
+    work: normalizeSparkReproWorkSummaryV3(stored),
   };
 }
 

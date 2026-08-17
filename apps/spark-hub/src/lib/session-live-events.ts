@@ -1,4 +1,5 @@
 import {
+  SPARK_PROTOCOL_VERSION,
   parseSparkDaemonEvent,
   sanitizeSparkDisplayError,
   type SparkDaemonEvent,
@@ -1162,7 +1163,7 @@ function sanitizeLiveMessage(message: SparkMessageView): SparkMessageView {
 
 function emptySessionView(sessionId: string, createdAt: string): SparkSessionView {
   return {
-    version: 1,
+    version: SPARK_PROTOCOL_VERSION,
     sessionId,
     status: "idle",
     messages: [],

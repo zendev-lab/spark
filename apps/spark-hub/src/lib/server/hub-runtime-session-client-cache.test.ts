@@ -66,13 +66,13 @@ describe("hub runtime session cache", () => {
       updatedAt: now,
     });
     const snapshot = {
-      version: 1 as const,
+      version: 2 as const,
       sessionId: session.sessionId,
       title: session.name,
       status: "idle" as const,
       messages: [
         {
-          version: 1 as const,
+          version: 2 as const,
           id: "msg_cached",
           role: "assistant" as const,
           text: "Cached response",

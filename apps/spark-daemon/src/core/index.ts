@@ -15,6 +15,7 @@ export type {
   SparkDaemonLifecycleState,
   SparkDaemonDrainProgress,
   SparkDaemonDrainStage,
+  SparkDaemonDrainPauseState,
   SparkDaemonDrainWork,
   SparkDaemonProcessIdentity,
   SparkDaemonRestartRequestResult,

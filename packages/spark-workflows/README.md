@@ -2,7 +2,17 @@
 
 Generic Workflow v2 definition and runtime capability for Spark hosts.
 
-`@zendev-lab/spark-workflows` resolves strict frontmatter plus Markdown instructions from controlled roots and owns host-neutral workflow runtime primitives. Project workflows use `.agents/workflows/<id>/WORKFLOW.md`, and user workflows use `$HOME/.agents/workflows/<id>/WORKFLOW.md`; explicit directory overrides remain available to embedded hosts and tests. JavaScript is allowed only as a relative, explicitly referenced stage handler. The definition owns stages, Loop policy, roles, skills, instructions, and workbench policy; Goal state remains separate.
+`@zendev-lab/spark-workflows` resolves strict frontmatter plus Markdown instructions from controlled roots and owns host-neutral workflow runtime primitives. Project workflows use `.agents/workflows/<id>/WORKFLOW.md`, and user workflows use `$HOME/.agents/workflows/<id>/WORKFLOW.md`; explicit directory overrides remain available to embedded hosts and tests. JavaScript is allowed only through explicitly referenced, relative body-only handlers. A Workflow can use either one top-level orchestration handler that owns stage order and handoffs, or individual stage handlers, but not both. The definition owns stages, Loop policy, roles, skills, instructions, and workbench policy; Goal state remains separate.
+
+Workflow children may request one reusable Role by selector with `role`, or pin an
+exact Role ref with `roleRef`; supplying both fails closed. Spark resolves a
+selector before approval and freezes its exact ref and revision into approval
+and run provenance. The repository-owned engineering workflows are
+`.agents/workflows/repo-change` for already-bounded changes,
+`.agents/workflows/maintainability-change` for behavior-preserving review and
+simplification, and `.agents/workflows/feature-change` for
+research/selection/plan/implementation delivery. They return structured
+delivery evidence and never publish Git or GitHub state.
 
 The generic ready-task orchestrator also packs Task execution policies against
 the node inventory. `SPARK_TASK_RESOURCE_INVENTORY` accepts JSON in this shape:

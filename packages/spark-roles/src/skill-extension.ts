@@ -2,8 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type {
   RoleRef,
+  SparkDelegationThinkingLevel,
+  SparkHostDelegationEnvelope,
   SparkHostContext,
   ToolConfig,
+  ToolEffect,
   ToolRenderComponent,
 } from "@zendev-lab/spark-core";
 import {
@@ -11,18 +14,11 @@ import {
   SparkSkillResolver,
   type SparkLoadedSkill,
   type SparkSkillResolverOptions,
-} from "@zendev-lab/spark-host/skill-resolver";
+} from "./skill-resolver-entry.ts";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
-import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
+import { truncateToWidth } from "@zendev-lab/spark-text";
 import { Type } from "typebox";
-import {
-  RoleModelTypeUnconfiguredError,
-  defaultProjectRoleModelSettingsStore,
-  defaultUserRoleModelSettingsStore,
-  resolveRoleModelSetting,
-  runRole,
-  type RoleRunRef,
-} from "./role-runtime.ts";
+import { runRole, type RoleCapability, type RoleRunRef } from "./role-runtime.ts";
 
 export interface SparkSkillAgentToolOptions {
   sparkHome?: string;
@@ -50,8 +46,18 @@ const MAX_SKILL_AGENT_INSTRUCTION_CHARS = 12_000;
 const MAX_SKILL_AGENT_INPUTS = 32;
 const MAX_SKILL_AGENT_INPUT_CHARS = 2_048;
 const MAX_SKILL_AGENT_OUTPUT_CHARS = 12_000;
+const MAX_SKILL_AGENT_MODEL_CHARS = 256;
 const SKILL_NAME_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*$";
 const SKILL_NAME_REGEX = new RegExp(SKILL_NAME_PATTERN, "u");
+const MODEL_REF_REGEX = /^\S+\/\S+$/u;
+const SKILL_AGENT_THINKING_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+] as const satisfies readonly SparkDelegationThinkingLevel[];
 
 /**
  * The parent owns orchestration and durable coordination. A dedicated Skill
@@ -76,6 +82,14 @@ export const SKILL_AGENT_ALLOWED_TOOLS = [
   "edit",
   "write",
 ] as const;
+
+/** Skill Agents may never inherit control or destructive effects. */
+export const SKILL_AGENT_ALLOWED_TOOL_EFFECTS = [
+  "read",
+  "network_read",
+  "local_write",
+  "external_write",
+] as const satisfies readonly ToolEffect[];
 
 const SKILL_AGENT_POLICY = {
   effect: "external_write",
@@ -155,6 +169,39 @@ export function createSparkSkillAgentTool(options: SparkSkillAgentToolOptions = 
             description: `Agent timeout in milliseconds. Default: ${defaultTimeoutMs}.`,
           }),
         ),
+        model: Type.Optional(
+          Type.String({
+            minLength: 3,
+            maxLength: MAX_SKILL_AGENT_MODEL_CHARS,
+            pattern: "^\\S+/\\S+$",
+            description: "Optional provider/model override. Defaults to the parent Session model.",
+          }),
+        ),
+        thinking: Type.Optional(
+          Type.Union(
+            SKILL_AGENT_THINKING_LEVELS.map((level) => Type.Literal(level)),
+            { description: "Optional thinking override. Defaults to the parent Session level." },
+          ),
+        ),
+        allowedTools: Type.Optional(
+          Type.Array(Type.String({ minLength: 1 }), {
+            maxItems: SKILL_AGENT_ALLOWED_TOOLS.length,
+            uniqueItems: true,
+            description:
+              "Optional tool narrowing within both the parent Session envelope and the Skill Agent safety cap.",
+          }),
+        ),
+        allowedToolEffects: Type.Optional(
+          Type.Array(
+            Type.Union(SKILL_AGENT_ALLOWED_TOOL_EFFECTS.map((effect) => Type.Literal(effect))),
+            {
+              maxItems: SKILL_AGENT_ALLOWED_TOOL_EFFECTS.length,
+              uniqueItems: true,
+              description:
+                "Optional effect narrowing within both the parent Session envelope and the Skill Agent safety cap.",
+            },
+          ),
+        ),
       },
       { additionalProperties: false },
     ),
@@ -201,17 +248,14 @@ export function createSparkSkillAgentTool(options: SparkSkillAgentToolOptions = 
         );
       }
 
+      const delegation = requiredDelegationEnvelope(ctx);
+      const model = normalizeSkillAgentModel(params.model, delegation);
+      const thinking = normalizeSkillAgentThinking(params.thinking, delegation);
+      const allowedTools = normalizeAllowedTools(params.allowedTools, delegation);
+      const allowedToolEffects = normalizeAllowedToolEffects(params.allowedToolEffects, delegation);
       const identity = skillAgentIdentity(skillNames);
       const roleRef = `role:${identity}` as RoleRef;
-      const modelType = "implementation" as const;
-      const modelSetting = await resolveRoleModelSetting({
-        roleRef,
-        modelType,
-        projectStore: defaultProjectRoleModelSettingsStore(cwd),
-        userStore: defaultUserRoleModelSettingsStore(options.sparkHome),
-      });
-      if (!modelSetting) throw new RoleModelTypeUnconfiguredError(roleRef, modelType);
-      const model = modelSetting.model;
+      const modelType = "skill-agent" as const;
       const runRef = `run:${randomUUID()}` as RoleRunRef;
       const runName = `skills:${skillNames.join(",")}`;
       const agentInstruction = renderSkillAgentInstruction(instruction, inputs);
@@ -222,17 +266,19 @@ export function createSparkSkillAgentTool(options: SparkSkillAgentToolOptions = 
         roleId: identity,
         roleRevision: skillAgentRevision(loadedSkills),
         roleSource: "extension",
-        roleCapabilities: ["read", "write", "exec", "net"],
+        roleCapabilities: skillAgentCapabilities(allowedTools),
         roleModelType: modelType,
         runName,
         systemPrompt: renderSkillAgentSystemPrompt(loadedSkills),
         instruction: agentInstruction,
-        allowedTools: [...SKILL_AGENT_ALLOWED_TOOLS],
+        allowedTools,
+        allowedToolEffects,
         cwd,
         timeoutMs,
         signal,
         launch: "fresh",
         model,
+        thinking,
         stdinMode: "ignore",
         nativeExecutor: ctx.runRole,
       });
@@ -264,6 +310,9 @@ export function createSparkSkillAgentTool(options: SparkSkillAgentToolOptions = 
           runRef,
           runName,
           model,
+          thinking,
+          allowedTools,
+          allowedToolEffects,
           timeoutMs,
           record: result.record,
           outcome: result.outcome,
@@ -392,6 +441,198 @@ function skillAgentRevision(skills: readonly SparkLoadedSkill[]): string {
 function requiredCwd(ctx: SparkHostContext): string {
   if (typeof ctx.cwd === "string" && ctx.cwd.trim()) return ctx.cwd.trim();
   throw new Error("skill_agent requires ctx.cwd");
+}
+
+function requiredDelegationEnvelope(ctx: SparkHostContext): SparkHostDelegationEnvelope {
+  const envelope = ctx.delegation;
+  if (!envelope) {
+    throw new Error(
+      "skill_agent requires the host to provide an exact current-Session delegation envelope",
+    );
+  }
+  if (
+    !envelope.model ||
+    !optionalString(envelope.model.provider) ||
+    !optionalString(envelope.model.id)
+  ) {
+    throw new Error("skill_agent received an invalid parent Session model envelope");
+  }
+  if (!isSkillAgentThinkingLevel(envelope.thinking)) {
+    throw new Error("skill_agent received an invalid parent Session thinking envelope");
+  }
+  const activeTools = normalizedEnvelopeStrings(envelope.activeTools, "activeTools");
+  const allowedToolEffects = normalizedEnvelopeEffects(envelope.allowedToolEffects);
+  return {
+    model: {
+      provider: envelope.model.provider.trim(),
+      id: envelope.model.id.trim(),
+      ...(optionalString(envelope.model.api) ? { api: envelope.model.api!.trim() } : {}),
+    },
+    thinking: envelope.thinking,
+    activeTools,
+    allowedToolEffects,
+  };
+}
+
+function normalizeSkillAgentModel(value: unknown, delegation: SparkHostDelegationEnvelope): string {
+  if (value === undefined || value === null) {
+    return `${delegation.model.provider}/${delegation.model.id}`;
+  }
+  const model = requiredBoundedString(value, "skill_agent.model", MAX_SKILL_AGENT_MODEL_CHARS);
+  if (!MODEL_REF_REGEX.test(model)) {
+    throw new Error("skill_agent.model must use provider/model syntax");
+  }
+  return model;
+}
+
+function normalizeSkillAgentThinking(
+  value: unknown,
+  delegation: SparkHostDelegationEnvelope,
+): SparkDelegationThinkingLevel {
+  if (value === undefined || value === null) return delegation.thinking;
+  if (!isSkillAgentThinkingLevel(value)) {
+    throw new Error(
+      `skill_agent.thinking must be one of ${SKILL_AGENT_THINKING_LEVELS.join(", ")}`,
+    );
+  }
+  return value;
+}
+
+function normalizeAllowedTools(value: unknown, delegation: SparkHostDelegationEnvelope): string[] {
+  const parent = new Set(delegation.activeTools);
+  if (value === undefined || value === null) {
+    return SKILL_AGENT_ALLOWED_TOOLS.filter((tool) => parent.has(tool));
+  }
+  const tools = normalizedRequestedStrings(
+    value,
+    "skill_agent.allowedTools",
+    SKILL_AGENT_ALLOWED_TOOLS.length,
+  );
+  const safetyCap = new Set<string>(SKILL_AGENT_ALLOWED_TOOLS);
+  for (const tool of tools) {
+    if (!safetyCap.has(tool)) {
+      throw new Error(`skill_agent.allowedTools cannot grant fixed-forbidden tool ${tool}`);
+    }
+    if (!parent.has(tool)) {
+      throw new Error(`skill_agent.allowedTools cannot grant parent-inactive tool ${tool}`);
+    }
+  }
+  return tools;
+}
+
+function normalizeAllowedToolEffects(
+  value: unknown,
+  delegation: SparkHostDelegationEnvelope,
+): ToolEffect[] {
+  const parent = new Set<ToolEffect>(delegation.allowedToolEffects);
+  if (value === undefined || value === null) {
+    return SKILL_AGENT_ALLOWED_TOOL_EFFECTS.filter((effect) => parent.has(effect));
+  }
+  if (!Array.isArray(value) || value.length > SKILL_AGENT_ALLOWED_TOOL_EFFECTS.length) {
+    throw new Error(
+      `skill_agent.allowedToolEffects must be an array with at most ${SKILL_AGENT_ALLOWED_TOOL_EFFECTS.length} items`,
+    );
+  }
+  const effects = value.map((effect, index) => {
+    if (!isToolEffect(effect)) {
+      throw new Error(`skill_agent.allowedToolEffects[${index}] is not a valid tool effect`);
+    }
+    return effect;
+  });
+  if (new Set(effects).size !== effects.length) {
+    throw new Error("skill_agent.allowedToolEffects must not contain duplicates");
+  }
+  const safetyCap = new Set<ToolEffect>(SKILL_AGENT_ALLOWED_TOOL_EFFECTS);
+  for (const effect of effects) {
+    if (!safetyCap.has(effect)) {
+      throw new Error(
+        `skill_agent.allowedToolEffects cannot grant fixed-forbidden effect ${effect}`,
+      );
+    }
+    if (!parent.has(effect)) {
+      throw new Error(
+        `skill_agent.allowedToolEffects cannot grant parent-forbidden effect ${effect}`,
+      );
+    }
+  }
+  return effects;
+}
+
+function skillAgentCapabilities(allowedTools: readonly string[]): RoleCapability[] {
+  const tools = new Set(allowedTools);
+  const capabilities: RoleCapability[] = [];
+  if (
+    ["read", "grep", "find", "context", "code_search", "fetch_content", "get_search_content"].some(
+      (tool) => tools.has(tool),
+    )
+  ) {
+    capabilities.push("read");
+  }
+  if (["edit", "write"].some((tool) => tools.has(tool))) capabilities.push("write");
+  if (
+    ["cue_exec", "cue_run", "cue_script", "script_run", "script_eval", "cue_jobs"].some((tool) =>
+      tools.has(tool),
+    )
+  ) {
+    capabilities.push("exec");
+  }
+  if (
+    ["web_search", "code_search", "fetch_content", "get_search_content"].some((tool) =>
+      tools.has(tool),
+    )
+  ) {
+    capabilities.push("net");
+  }
+  return capabilities;
+}
+
+function normalizedEnvelopeStrings(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) throw new Error(`skill_agent received an invalid ${field} envelope`);
+  const normalized = value.map((item) => optionalString(item));
+  if (normalized.some((item) => item === undefined)) {
+    throw new Error(`skill_agent received an invalid ${field} envelope`);
+  }
+  const strings = normalized as string[];
+  if (new Set(strings).size !== strings.length) {
+    throw new Error(`skill_agent received a duplicate ${field} envelope`);
+  }
+  return strings;
+}
+
+function normalizedEnvelopeEffects(value: unknown): ToolEffect[] {
+  if (!Array.isArray(value) || !value.every(isToolEffect)) {
+    throw new Error("skill_agent received an invalid allowedToolEffects envelope");
+  }
+  if (new Set(value).size !== value.length) {
+    throw new Error("skill_agent received a duplicate allowedToolEffects envelope");
+  }
+  return [...value];
+}
+
+function normalizedRequestedStrings(value: unknown, field: string, maxItems: number): string[] {
+  if (!Array.isArray(value) || value.length > maxItems) {
+    throw new Error(`${field} must be an array with at most ${maxItems} items`);
+  }
+  const normalized = value.map((item, index) => requiredString(item, `${field}[${index}]`));
+  if (new Set(normalized).size !== normalized.length) {
+    throw new Error(`${field} must not contain duplicates`);
+  }
+  return normalized;
+}
+
+function isSkillAgentThinkingLevel(value: unknown): value is SparkDelegationThinkingLevel {
+  return (SKILL_AGENT_THINKING_LEVELS as readonly unknown[]).includes(value);
+}
+
+function isToolEffect(value: unknown): value is ToolEffect {
+  return [
+    "read",
+    "network_read",
+    "control",
+    "local_write",
+    "external_write",
+    "destructive",
+  ].includes(value as string);
 }
 
 function requiredString(value: unknown, field: string): string {

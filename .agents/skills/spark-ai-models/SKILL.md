@@ -1,11 +1,9 @@
 ---
 name: spark-ai-models
 description: >
-  Add or update Spark AI provider models and their compact/preflight metrics
-  (contextWindow, maxTokens, cost, thinkingLevelMap, transport). Use when adding
-  a new model to spark-ai, especially baidu-oneapi; when tuning model parameter
-  metrics; or when the user mentions Grok, Claude, GPT, DeepSeek, OneAPI, 百度
-  provider, 新模型, or context/pricing windows.
+  Use when adding or updating Spark AI provider models or their compact and
+  preflight metrics, especially baidu-oneapi, Grok, Claude, GPT, DeepSeek,
+  OneAPI, context windows, output budgets, prices, thinking maps, or transports.
 ---
 
 # Spark AI model catalog

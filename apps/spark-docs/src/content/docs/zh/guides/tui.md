@@ -62,10 +62,14 @@ Spark 时传入的 prompt 不会被重放。编辑器草稿、overlay、滚动�
 实时队列，裸 `/goal`、`/loop`、`/repro` 则直接显示对应 lifecycle 的状态；
 `/thinking` 直接打开最终 thinking-level selector。
 
-编辑器的上、下方向键会按当前 session 中持久化的 `user` prompt 回溯，包括本次
-TUI 进程启动之前的 prompt；本地 slash command 不会混入这份 prompt history。
-PageUp、PageDown 用来滚动可见对话记录；Ctrl+PageUp、Ctrl+PageDown 仍用于在
-多行编辑草稿中移动。提交新输入时，对话会回到最新一行。
+编辑器的上、下方向键会回溯 editor history；它会从当前 session 中持久化的
+`user` prompt 恢复，因此也包含本次 TUI 进程启动之前的 prompt。非空的本地
+slash command 输入会在分发前加入 history，无论执行成功还是报错都可再次
+召回；但这些 command entry 只存在于当前 TUI 进程，不会写入 transcript、daemon
+prompt history 或用户文件，`/reload` 后也不会保留。以 `//` 开头的输入仍作为
+普通 prompt 处理。PageUp、PageDown 用来滚动可见对话记录；
+Ctrl+PageUp、Ctrl+PageDown 仍用于在多行编辑草稿中移动。提交新输入时，对话会
+回到最新一行。
 
 Esc 仍会优先取消正在执行的工作。session 空闲且编辑器为空时，在 500 ms 内连续
 按两次 Esc，会离开当前对话并打开统一 session hierarchy。
@@ -78,11 +82,22 @@ Esc 仍会优先取消正在执行的工作。session 空闲且编辑器为空�
 /inspect
 /inspect tasks
 /inspect artifacts
+/inspect repro
 /inspect off
 ```
 
 这里只展示已经发布到当前 TUI 的投影，不是 Hub Web，也不会创建新的执行
 所有者。需要跨会话和工作空间监督时，在另一个终端运行 `spark hub`。
+
+daemon 投影活跃 Repro 时，transcript 顶部会常驻一行紧凑的 Implementation / Exactness /
+Formalize 摘要，显示计数、阻塞、待交接和最近的 `formalizedTip`。Ctrl+K 会先打开
+Repro panel；Shift+Ctrl+K 循环 inspector panel。在 Repro panel 中，用 1、2、3 选择
+lane，用方向键或 J/K 选择有界 work item，按 Enter 打开已有 Task、Run、Git Change
+和 Evidence 投影组成的详情。Esc 按“详情 → panel → transcript”返回。
+
+TUI 不会从 transcript 文本、prompt 或经过时间推断 lane 状态。窄终端优先保留最新
+对话和 composer，再显示 inspector 详情。`/reload` 后 panel 焦点和选择会重置，新
+worker 会重新投影同一份 daemon 所有的 Session 与 Repro 状态；已完成 Ask 不会重放。
 
 旧的 `/hub` 拼写仍可作为兼容别名执行，但不会出现在普通补全中。
 

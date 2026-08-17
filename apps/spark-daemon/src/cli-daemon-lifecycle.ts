@@ -72,6 +72,7 @@ import { getWorkspaceById, listWorkspaces, resolveWorkspaceLocalPath } from "./s
 import { ensureWorkspaceAdministratorSession } from "./workspace-administrator-session.ts";
 import {
   cancelSparkDaemonRestartSuccessor,
+  clearSparkDaemonStartMarker,
   clearSparkDaemonRestartFenceForExplicitStart,
   completeSparkDaemonRestartSuccessor,
   isSparkDaemonRestartHelperDefinitelyDead,
@@ -185,10 +186,12 @@ export async function start(
         workspaceId: workspace.id,
         rootDir: workspace.localPath,
       })),
+      onWarning: (message) => console.error(`[spark-daemon] migration warning: ${message}`),
     });
     console.error("[spark-daemon] preparing lens broker");
     await prepareDaemonLensBroker(db);
   } catch (error) {
+    clearSparkDaemonStartMarker(paths);
     await closeDaemonLensBroker(db);
     db.close();
     await lock.release();
@@ -237,7 +240,7 @@ export async function start(
       roleLoopStore.list({ ownerSessionId: sessionId }).length > 0,
     resolveSessionCwd: (input) => resolveSessionCwdForWorkspaceId(db, input),
   });
-  for (const workspace of listWorkspaces(db, { includeInactive: true })) {
+  for (const workspace of listWorkspaces(db)) {
     await ensureWorkspaceAdministratorSession(db, sessionRegistry, workspace.id);
   }
   const modelControl = createSparkDaemonModelControl({
@@ -458,12 +461,14 @@ export async function start(
         lifecycle.activate();
         console.error("[spark-daemon] serving; restart fence completed when applicable");
         if (!completeSparkDaemonRestartSuccessor(paths, lifecycle.processIdentity)) {
+          clearSparkDaemonStartMarker(paths);
           lifecycle.deactivate();
           stopRequested = true;
           stopIntent.abort(new Error("Spark daemon restart was cancelled before readiness."));
           shutdown.abort();
           return;
         }
+        clearSparkDaemonStartMarker(paths);
         stopBuildWatcher = watchSparkDaemonBuild({
           entrypoint: deployedEntrypoint,
           initialFingerprint: runningBuildFingerprint,
@@ -1211,10 +1216,14 @@ function formatRestartDrainBlockers(lifecycle: SparkDaemonLifecycleSnapshot | un
   if (blockers.length === 0) return `; drain stage ${stage}; blockers 0`;
   const ids = blockers
     .slice(0, 3)
-    .map((entry) => entry.invocationId)
+    .map((entry) =>
+      entry.pauseState ? `${entry.invocationId}:${entry.pauseState}` : entry.invocationId,
+    )
     .join(",");
+  const waiting = blockers.filter((entry) => entry.pauseState === "human-wait").length;
   return (
     `; drain stage ${stage}; blockers scheduler=${scheduled.length} direct=${direct.length}` +
+    `${waiting > 0 ? ` human-wait=${waiting}` : ""}` +
     ` ids=${ids}${blockers.length > 3 ? ",…" : ""}`
   );
 }

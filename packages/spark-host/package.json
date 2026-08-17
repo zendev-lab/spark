@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-host",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Host-neutral Spark ExtensionAPI runtime and host services.",
   "license": "MIT",
@@ -31,9 +31,9 @@
   },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
-    "@zendev-lab/spark-cue": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-repro": "workspace:^",
+    "@zendev-lab/spark-roles": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
     "@zendev-lab/spark-tasks": "workspace:^",
     "@zendev-lab/spark-text": "workspace:^",

@@ -67,6 +67,15 @@ Invocation、Evidence 与 Artifact 引用。没有有效语义结果时，Spark 
 的确定性 fallback，并继续清理内容。该 receipt 是可查询的 Session 元数据，不是
 Evidence 或 Memory。
 
+## 在 Session 之间发送工作
+
+未设置 `onActive` 的 Session request 只尝试投递给空闲目标。目标空闲时，Spark 会立即提交；目标处于 queued 或 running 状态时，Spark 不会持久化消息，并返回 `session_mail_target_active`，提示调用方显式选择一种重试策略：
+
+- `onActive: "queue"`：把 request 放入目标的持久 FIFO 队列。每个目标最多保留三个 pending request；队列已满时不会再写入消息。
+- `onActive: "interrupt"`：先取消目标当前的 invocation，再提交新 request。
+
+Notification 仍然只做持久化，不会触发目标执行。
+
 ## 应该使用哪一种？
 
 - 只要一个前台结果时使用 `spark run`。

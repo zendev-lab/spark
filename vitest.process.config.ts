@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import { defineConfig } from "vitest/config";
 
 /** Real-process source-distribution contracts. Keep separate from unit/integration tests. */
@@ -8,6 +10,7 @@ export default defineConfig({
     pool: "forks",
     fileParallelism: false,
     maxWorkers: 1,
+    setupFiles: [resolve(import.meta.dirname, "test/support/hermetic-env.ts")],
     testTimeout: 180_000,
     hookTimeout: 180_000,
   },

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
 
 import { createBuildFingerprint } from "./build-info.ts";
 import {
@@ -75,7 +76,7 @@ describe("Spark update configuration and state", () => {
       currentFingerprint: createBuildFingerprint({
         version: "0.1.0",
         gitSha: "abc",
-        protocolVersion: 1,
+        protocolVersion: SPARK_PROTOCOL_VERSION,
         migrationHead: "001.sql",
       }),
     };
@@ -611,14 +612,14 @@ function testBuildInfo(version: string) {
     packageName: "@zendev-lab/spark" as const,
     version,
     gitSha: `git-${version}`,
-    protocolVersion: 1,
+    protocolVersion: SPARK_PROTOCOL_VERSION,
     minimumNodeVersion: ">=26.0.0 <27",
     migrationHead: "001.sql",
     migrationMode: "expand-only" as const,
     fingerprint: createBuildFingerprint({
       version,
       gitSha: `git-${version}`,
-      protocolVersion: 1,
+      protocolVersion: SPARK_PROTOCOL_VERSION,
       migrationHead: "001.sql",
     }),
   };

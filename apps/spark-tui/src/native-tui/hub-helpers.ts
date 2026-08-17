@@ -21,6 +21,9 @@ export function isSparkNativeLocalControlCommand(command: SparkNativeSlashComman
 
 export function createSparkNativeHubState(): SparkNativeHubState {
   return {
+    reproProjectionStatus: "unavailable",
+    selectedReproLane: "implementation",
+    reproDetailExpanded: false,
     workflows: new Map(),
     runs: new Map(),
     tasks: new Map(),

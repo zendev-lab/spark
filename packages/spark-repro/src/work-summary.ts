@@ -927,9 +927,9 @@ export function deriveSparkReproTechnicalGoal(
 
 export interface SparkReproCurrentStepAuthority {
   reproId: string;
-  dualLane: {
+  threeLane: {
     planRevision: number;
-    normative: {
+    formalize: {
       orderedStepIds: readonly string[];
       currentStepId?: string;
       retiredStepIds: readonly string[];
@@ -983,11 +983,11 @@ export function validateSparkReproCurrentRetirementAuthority(
     throw new Error("Repro retirement StepVerifier plan revision is stale");
   }
   if (
-    current.dualLane.planRevision !== work.normativeCursor.planRevision ||
-    JSON.stringify(current.dualLane.normative.orderedStepIds) !==
+    current.threeLane.planRevision !== work.normativeCursor.planRevision ||
+    JSON.stringify(current.threeLane.formalize.orderedStepIds) !==
       JSON.stringify(work.normativeCursor.orderedStepIds) ||
-    current.dualLane.normative.currentStepId !== work.normativeCursor.currentStepId ||
-    JSON.stringify(current.dualLane.normative.retiredStepIds) !==
+    current.threeLane.formalize.currentStepId !== work.normativeCursor.currentStepId ||
+    JSON.stringify(current.threeLane.formalize.retiredStepIds) !==
       JSON.stringify(work.normativeCursor.retiredStepIds)
   ) {
     throw new Error("Repro summary is stale against the current durable Normative cursor");

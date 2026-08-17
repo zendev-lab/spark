@@ -1,5 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
+
 import {
   SPARK_TUI_RELOAD_EXIT_CODE,
   SPARK_TUI_WORKER_ARG,
@@ -7,6 +9,9 @@ import {
   runSparkTuiProcessSupervisor,
   sendSparkTuiReloadHandoff,
 } from "../cli/process-supervisor.ts";
+import { SparkNativeSession, SparkNativeTuiApp } from "../native-tui.ts";
+import type { TUI } from "../tui/pi-tui-adapter.ts";
+import { sparkNativeReproSessionView } from "./spark-native-repro-view-fixture.ts";
 
 interface FixtureOptions {
   generation: number;
@@ -46,6 +51,7 @@ async function runWorker(argv: string[]): Promise<number> {
     process.on("SIGINT", () => undefined);
     process.on("SIGTERM", () => undefined);
   }
+  const reproPresentation = reproPresentationState(options.generation, options.sessionId);
   process.stdout.write(
     `${JSON.stringify({
       kind: "worker",
@@ -54,6 +60,7 @@ async function runWorker(argv: string[]): Promise<number> {
       generation: options.generation,
       cwd: process.cwd(),
       sessionId: options.sessionId,
+      ...reproPresentation,
     })}\n`,
   );
   if (options.hang) {
@@ -82,6 +89,36 @@ async function runWorker(argv: string[]): Promise<number> {
     ],
   });
   return options.handoffExitCode ?? SPARK_TUI_RELOAD_EXIT_CODE;
+}
+
+function reproPresentationState(generation: number, sessionId: string): Record<string, unknown> {
+  const tui = {
+    terminal: { rows: 24, columns: 80 },
+    requestRender: () => undefined,
+    addChild: () => undefined,
+    removeChild: () => undefined,
+    setFocus: () => undefined,
+  } as unknown as TUI;
+  const session = new SparkNativeSession();
+  const app = new SparkNativeTuiApp(tui, session, () => undefined);
+  app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "session.snapshot",
+    session: sparkNativeReproSessionView({ sessionId }),
+  });
+  if (generation === 0) {
+    app.openHubPanel("repro");
+    app.handleInput("2");
+    app.handleInput("\r");
+  }
+  const snapshot = app.hubSnapshot();
+  app.dispose();
+  return {
+    reproId: snapshot.reproId,
+    activeHubPanel: snapshot.activePanel,
+    selectedReproLane: snapshot.selectedReproLane,
+    reproDetailExpanded: snapshot.reproDetailExpanded,
+  };
 }
 
 async function main(): Promise<number> {

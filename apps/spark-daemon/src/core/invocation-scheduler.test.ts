@@ -95,7 +95,7 @@ describe("SparkInvocationScheduler", () => {
     const { db, store, scheduler } = harness(
       async (_task, context) => {
         void context.emitEvent?.({
-          version: 1,
+          version: 2,
           type: "daemon.view_event",
           source: "daemon",
           invocationId: context.invocationId,
@@ -303,7 +303,7 @@ describe("SparkInvocationScheduler", () => {
     const { db, store, scheduler, executionAttemptStore } = harness(
       async (_task, context) => {
         void context.emitEvent?.({
-          version: 1,
+          version: 2,
           type: "daemon.view_event",
           source: "daemon",
           invocationId: context.invocationId,
@@ -1150,9 +1150,12 @@ describe("SparkInvocationScheduler", () => {
       expect(scheduler.processBatch()).toBe(true);
       await scheduler.wait();
       expect(store.require(invocation.invocationId)).toMatchObject({
-        status: "succeeded",
-        result: { drained: true },
+        status: "failed",
+        errorCode: "EXECUTION_FAILED",
       });
+      expect(store.require(invocation.invocationId).errorMessage).toMatch(
+        /cannot persist this turn checkpoint/u,
+      );
       expect(store.hasRestartCheckpoint(invocation.invocationId)).toBe(false);
     } finally {
       db.close();
@@ -1265,7 +1268,7 @@ describe("SparkInvocationScheduler", () => {
       const { db, store, scheduler } = harness(async (_task, context) => {
         for (let index = 0; index < jsonEvents.length; index += 1) {
           void context.emitEvent?.({
-            version: 1,
+            version: 2,
             type: "daemon.view_event",
             source: "daemon",
             emittedAt: "2026-07-30T00:00:00.000Z",
@@ -1336,18 +1339,18 @@ describe("SparkInvocationScheduler", () => {
     const { db, store, scheduler } = harness(async (_task, context) => {
       for (let index = 0; index < 200; index += 1) {
         void context.emitEvent?.({
-          version: 1,
+          version: 2,
           type: "daemon.view_event",
           source: "daemon",
           invocationId: context.invocationId,
           sessionId,
           metadata: {},
           view: {
-            version: 1,
+            version: 2,
             type: "session.message",
             sessionId,
             message: {
-              version: 1,
+              version: 2,
               id: "message-coalesced",
               role: "assistant",
               text: `partial-${index}`,
@@ -1358,18 +1361,18 @@ describe("SparkInvocationScheduler", () => {
         });
       }
       void context.emitEvent?.({
-        version: 1,
+        version: 2,
         type: "daemon.view_event",
         source: "daemon",
         invocationId: context.invocationId,
         sessionId,
         metadata: {},
         view: {
-          version: 1,
+          version: 2,
           type: "session.message",
           sessionId,
           message: {
-            version: 1,
+            version: 2,
             id: "message-coalesced",
             role: "assistant",
             text: "partial-199",
@@ -1832,6 +1835,176 @@ describe("SparkInvocationScheduler", () => {
     }
   });
 
+  it("yields a persistable ask checkpoint when restart arrives during a human wait", async () => {
+    const restart = new AbortController();
+    const gate = deferred<void>();
+    const checkpoint: SparkTurnResumeCheckpoint = {
+      version: 1,
+      phase: "before_tool_calls",
+      createdAt: "2026-07-31T00:00:00.000Z",
+      baseSessionEntryId: null,
+      basePromptItemCount: 0,
+      promptItems: [
+        {
+          authority: "assistant",
+          trust: "trusted",
+          visibility: "visible",
+          persistence: "session",
+          content: {
+            kind: "provider_message",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "toolCall",
+                  id: "call-ask",
+                  name: "ask",
+                  arguments: { title: "continue?" },
+                },
+              ],
+            },
+          },
+          timestamp: 1,
+        },
+      ],
+      toolCalls: [
+        {
+          type: "toolCall",
+          id: "call-ask",
+          name: "ask",
+          arguments: { title: "continue?" },
+        },
+      ],
+    };
+    const { db, store, scheduler } = harness(
+      async (_task, context) => {
+        context.yieldForRestartIfRequested?.(checkpoint);
+        await context.withPausedTimeout?.(async () => await gate.promise);
+        return { answered: true };
+      },
+      { restartRequestedSignal: restart.signal },
+    );
+    try {
+      const invocation = store.submit({
+        sessionId: "human-wait-restart",
+        prompt: "wait",
+        task: {
+          type: "session.run",
+          sessionId: "human-wait-restart",
+          prompt: "wait",
+        },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await eventually(() => scheduler.drainSnapshot()[0]?.pauseState === "human-wait");
+      expect(store.require(invocation.invocationId).status).toBe("running");
+      restart.abort(new Error("planned restart"));
+      await scheduler.wait();
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "queued",
+        sourceKind: "invocation.resume",
+        task: {
+          type: "session.run",
+          resumeFromInterrupt: true,
+          restartCheckpoint: checkpoint,
+        },
+      });
+      expect(store.hasRestartCheckpoint(invocation.invocationId)).toBe(true);
+    } finally {
+      gate.resolve();
+      db.close();
+    }
+  });
+
+  it("fails a human wait restart that only has a mixed-tool checkpoint", async () => {
+    const restart = new AbortController();
+    const waiting = deferred<void>();
+    const checkpoint: SparkTurnResumeCheckpoint = {
+      version: 1,
+      phase: "before_tool_calls",
+      createdAt: "2026-07-31T00:00:00.000Z",
+      baseSessionEntryId: null,
+      basePromptItemCount: 0,
+      promptItems: [
+        {
+          authority: "assistant",
+          trust: "trusted",
+          visibility: "visible",
+          persistence: "session",
+          content: {
+            kind: "provider_message",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "toolCall",
+                  id: "call-exec",
+                  name: "cue_exec",
+                  arguments: { command: "pwd" },
+                },
+                {
+                  type: "toolCall",
+                  id: "call-ask",
+                  name: "ask",
+                  arguments: { title: "continue?" },
+                },
+              ],
+            },
+          },
+          timestamp: 1,
+        },
+      ],
+      toolCalls: [
+        {
+          type: "toolCall",
+          id: "call-exec",
+          name: "cue_exec",
+          arguments: { command: "pwd" },
+        },
+        {
+          type: "toolCall",
+          id: "call-ask",
+          name: "ask",
+          arguments: { title: "continue?" },
+        },
+      ],
+    };
+    const { db, store, scheduler } = harness(
+      async (_task, context) => {
+        context.yieldForRestartIfRequested?.(checkpoint);
+        waiting.resolve();
+        await context.withPausedTimeout?.(async () => await new Promise(() => undefined));
+        return { leaked: true };
+      },
+      { restartRequestedSignal: restart.signal },
+    );
+    try {
+      const invocation = store.submit({
+        sessionId: "mixed-human-wait",
+        prompt: "wait",
+        task: {
+          type: "session.run",
+          sessionId: "mixed-human-wait",
+          prompt: "wait",
+        },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await waiting.promise;
+      await eventually(() => scheduler.drainSnapshot()[0]?.pauseState === "human-wait");
+      restart.abort(new Error("planned restart"));
+      await scheduler.wait();
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "failed",
+        errorCode: "EXECUTION_FAILED",
+      });
+      expect(store.require(invocation.invocationId).errorMessage).toMatch(
+        /non-replayable tool work/u,
+      );
+      expect(store.hasRestartCheckpoint(invocation.invocationId)).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
   it("keeps the same invocation and session slot active while awaiting human input", async () => {
     const gate = deferred<void>();
     let executingInvocationId: string | undefined;
@@ -1952,18 +2125,18 @@ function streamingAssistantMessage(
   text: string,
 ) {
   return {
-    version: 1 as const,
+    version: 2 as const,
     type: "daemon.view_event" as const,
     source: "daemon" as const,
     invocationId,
     sessionId,
     metadata: {},
     view: {
-      version: 1 as const,
+      version: 2 as const,
       type: "session.message" as const,
       sessionId,
       message: {
-        version: 1 as const,
+        version: 2 as const,
         id: messageId,
         role: "assistant" as const,
         text,

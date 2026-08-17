@@ -17,9 +17,13 @@ import {
   MODEL_EMPTY_RESPONSE_ERROR_CODE,
   TERMINAL_LESS_PROVIDER_STREAM_ERROR_CODE,
 } from "@zendev-lab/spark-ai";
-import { assertRef } from "@zendev-lab/spark-core";
+import { assertRef, type SparkHostDelegationEnvelope } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
-import type { SparkDaemonEvent, SparkViewModelEvent } from "@zendev-lab/spark-protocol";
+import {
+  SPARK_PROTOCOL_VERSION,
+  type SparkDaemonEvent,
+  type SparkViewModelEvent,
+} from "@zendev-lab/spark-protocol";
 
 import {
   SparkAgentLoop,
@@ -113,6 +117,80 @@ test("Spark prompt IR retains runtime authority until provider lowering", () => 
   });
   const loweredDeveloper = lowerSparkPromptItem(replayedDeveloper);
   assert.equal(loweredDeveloper.role, "user");
+});
+
+test("SparkAgentLoop continues after removing a retriable assistant failure tail", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-retriable-continuation" });
+  const finalAssistant = buildAssistant([{ type: "text", text: "continued" }]);
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
+    }),
+    getModel: () => TEST_MODEL,
+  });
+  loop.replacePromptItems([
+    sparkPromptItemFromProviderMessage({ role: "user", content: "original" }),
+    sparkPromptItemFromProviderMessage({
+      role: "assistant",
+      content: [],
+      stopReason: "error",
+    }),
+  ]);
+
+  const outcome = await loop.continueWithOutcome();
+
+  assert.equal(outcome.status, "completed");
+  assert.equal(loop.getMessages().at(-1)?.role, "assistant");
+});
+
+test("SparkAgentLoop continues after removing a retriable assistant length tail", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-length-continuation" });
+  const finalAssistant = buildAssistant([{ type: "text", text: "continued after length" }]);
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
+    }),
+    getModel: () => TEST_MODEL,
+  });
+  loop.replacePromptItems([
+    sparkPromptItemFromProviderMessage({ role: "user", content: "original" }),
+    sparkPromptItemFromProviderMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "truncated" }],
+      stopReason: "length",
+    }),
+  ]);
+
+  const outcome = await loop.continueWithOutcome();
+
+  assert.equal(outcome.status, "completed");
+  assert.equal(loop.getMessages().at(-1)?.role, "assistant");
+});
+test("SparkAgentLoop refuses continuation from a completed assistant message", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-invalid-continuation" });
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({ rounds: [] }),
+    getModel: () => TEST_MODEL,
+  });
+  loop.replacePromptItems([
+    sparkPromptItemFromProviderMessage({ role: "user", content: "original" }),
+    sparkPromptItemFromProviderMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "done" }],
+      stopReason: "stop",
+    }),
+  ]);
+
+  await assert.rejects(
+    loop.continueWithOutcome(),
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as Error & { code?: unknown }).code === "SPARK_TURN_CONTINUATION_TAIL",
+  );
+  assert.equal(loop.getMessages().at(-1)?.role, "assistant");
 });
 
 test("provider Context meter includes current system prompt and active tool schemas", () => {
@@ -965,6 +1043,65 @@ test("SparkAgentLoop forwards getReasoning into stream options.reasoning", async
   await loop.submit("think carefully");
 
   assert.equal(reasoningValues[0], "high");
+});
+
+test("SparkAgentLoop supplies tools with the exact current delegation envelope", async () => {
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-delegation-envelope-test",
+    allowedToolEffects: ["read"],
+  });
+  let delegation: SparkHostDelegationEnvelope | undefined;
+  host.registerTool({
+    name: "delegation_probe",
+    description: "capture the current delegation envelope",
+    parameters: { type: "object" },
+    policy: { effect: "read", executionMode: "parallel", approval: "none" },
+    async execute(_id, _args, _signal, _onUpdate, ctx) {
+      delegation = ctx.delegation;
+      return { content: [{ type: "text", text: "captured" }] };
+    },
+  });
+  host.registerTool({
+    name: "blocked_write",
+    description: "inactive under the host effect ceiling",
+    parameters: { type: "object" },
+    policy: { effect: "local_write", executionMode: "sequential", approval: "none" },
+    async execute() {
+      return { content: [{ type: "text", text: "must not run" }] };
+    },
+  });
+  const call: ToolCall = {
+    type: "toolCall",
+    id: "delegation-probe-call",
+    name: "delegation_probe",
+    arguments: {},
+  };
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [
+        [{ type: "done", reason: "toolUse", message: buildAssistant([call], "toolUse") }],
+        [
+          {
+            type: "done",
+            reason: "stop",
+            message: buildAssistant([{ type: "text", text: "done" }]),
+          },
+        ],
+      ],
+    }),
+    getModel: () => TEST_MODEL,
+    getReasoning: () => "high",
+  });
+
+  await loop.submit("capture delegation authority");
+
+  assert.deepEqual(delegation, {
+    model: { provider: "openai", id: "test-model", api: "openai-completions" },
+    thinking: "high",
+    activeTools: ["delegation_probe"],
+    allowedToolEffects: ["read"],
+  });
 });
 
 test("SparkAgentLoop runs a single-turn stop with one streamed text chunk", async () => {
@@ -3153,7 +3290,7 @@ test("SparkAgentLoop blocks approval-required tools without explicit approval", 
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "blocked",
@@ -3230,7 +3367,7 @@ test("SparkAgentLoop skip approvalMethod executes requiresApproval tools without
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "blocked",
@@ -3291,7 +3428,7 @@ test("SparkAgentLoop auto approvalMethod executes when reviewer approves", async
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "blocked",
@@ -3359,7 +3496,7 @@ test("SparkAgentLoop auto approvalMethod escalates to ask when reviewer rejects"
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "answered",
@@ -3421,7 +3558,7 @@ test("SparkAgentLoop auto approvalMethod can deny without ask", async () => {
       interaction: async (request) => {
         interactionRequests.push(request);
         return {
-          version: 1,
+          version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
           status: "answered",

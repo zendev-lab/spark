@@ -1,1300 +1,254 @@
 /** `spark daemon ...` command parsing and Spark daemon IPC client operations. */
 
-import { spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
-
-import type { ChannelNotifySendResult } from "@zendev-lab/spark-channels";
-import type { RoleRef } from "@zendev-lab/spark-core";
+import { type SparkSessionMailMessage, sessionMailStatus } from "../host/session-mail-store.ts";
+import { exportSparkSessionRecord, formatSessionReplay } from "../host/session-navigation.ts";
 import {
-  createId,
-  hasNonEmptySparkHumanAnswer,
-  isTerminalSparkHumanInteractionDelivery,
-  parseSparkInteractionRequest,
-  parseSparkModelValue,
-  parseSparkDaemonEvent,
-  parseSparkInteractionResponse,
-  parseSparkSessionPromptHistory,
-  parseSparkSessionView,
-  SPARK_PROTOCOL_VERSION,
-  SPARK_SESSION_PROMPT_HISTORY_MAX,
-  sparkLocalRpcProcedureSchemas,
-  sparkModelValue,
-  sparkSessionSubmittedInputSchema,
-  type SparkAssignment,
-  type SparkDaemonEvent,
-  type SparkInvocationListResult,
-  type SparkInvocationRetentionApplyResult,
-  type SparkInvocationRetentionPreviewResult,
-  type SparkInvocationRetryResult,
-  type SparkInvocationStatus,
-  type SparkInteractionRequest,
-  type SparkInteractionResponse,
-  type SparkLocalRpcInput,
-  type SparkLocalRpcMethod,
-  type SparkLocalRpcOutput,
-  type SparkModelControlSnapshot,
-  type SparkModelRef,
-  type SparkSessionCreateRequest,
-  type SparkSessionListRequest,
-  type SparkSessionPromptHistory,
-  type SparkSessionProjection,
-  type SparkSessionView,
-  type SparkViewModelEvent,
-  type SparkTurnCancelResult,
-  type SparkTurnResult,
-  type SparkTurnStatusResult,
-  type SparkTurnStreamPage,
-  type SparkTurnSubmitResult,
-} from "@zendev-lab/spark-protocol";
-import { sparkDaemonCliStrings } from "@zendev-lab/spark-i18n/cli";
-import { cappedExponentialCeiling, equalJitter } from "@zendev-lab/spark-retry";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+  type SparkNativeAdmissionContext,
+  SparkNativeAdmissionError,
+  type SparkNativeInvocationStatusContext,
+  type SparkNativeResponderContext,
+  type SparkNativeSlashCommandContext,
+  type SparkNativeSlashCommandMap,
+} from "../native-tui.ts";
+import type { ChannelStatusSnapshot } from "./channel-status.ts";
 import {
-  requestSparkDaemon,
-  SparkDaemonRemoteError,
-  SparkDaemonRpcError,
-  SparkDaemonUnavailableError,
-  type SparkDaemonSessionHeartbeatHandle,
-} from "@zendev-lab/spark-daemon-client";
-import { SparkSessionStore, type SparkSessionInfo } from "@zendev-lab/spark-host/session-store";
-
-import {
-  exportSparkSessionRecord,
-  formatSessionReplay,
-  readSparkSessionExportFormat,
-  type SparkSessionExportFormat,
-} from "../host/session-navigation.ts";
-import { sessionMailStatus, type SparkSessionMailMessage } from "../host/session-mail-store.ts";
-import {
+  type DaemonSessionForkResult,
+  type DaemonSessionListResult,
+  type DaemonSessionShowResult,
+  type DaemonSessionTreeResult,
   forkDaemonSession,
   listDaemonSessions,
   listLiveDaemonSessions,
   showDaemonSession,
   treeDaemonSession,
-  type DaemonSessionForkResult,
-  type DaemonSessionListResult,
-  type DaemonSessionShowResult,
-  type DaemonSessionTreeResult,
 } from "./daemon-session.ts";
+import type { SparkDaemonWorkspace, SparkWorkspaceClientKind } from "./daemon-contracts.ts";
 import {
+  type SparkDaemonManagedSessionsClient,
   createDaemonManagedSessionsClient,
   renderManagedSession,
-  type SparkDaemonManagedSessionsClient,
 } from "./session-registry.ts";
-import type { ChannelStatusSnapshot } from "./channel-status.ts";
 import {
   attachSparkWorkspaceSessionHeartbeat,
   type AttachSparkWorkspaceSessionClientOptions,
 } from "./daemon-session-heartbeat.ts";
 import {
-  SparkNativeAdmissionError,
-  type SparkNativeAdmissionContext,
-  type SparkNativeInvocationStatusContext,
-  type SparkNativeResponder,
-  type SparkNativeResponderContext,
-  type SparkNativeSlashCommandContext,
-  type SparkNativeSlashCommandMap,
-} from "../native-tui.ts";
-import {
-  consoleSparkCliOutput,
-  helpFlagRequested,
-  parseSparkCliOptions,
-  printSparkCliResult,
-  readBooleanOption,
-  readNumberOption,
-  readStringOption,
   type SparkCliOutput,
+  consoleSparkCliOutput,
+  isRecord,
+  printSparkCliResult,
 } from "./shared.ts";
+import type { ChannelNotifySendResult } from "@zendev-lab/spark-channels";
+import {
+  SparkDaemonRemoteError,
+  SparkDaemonRpcError,
+  type SparkDaemonSessionHeartbeatHandle,
+  SparkDaemonUnavailableError,
+  requestSparkDaemon,
+} from "@zendev-lab/spark-daemon-client";
+import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
+import { sparkDaemonCliStrings } from "@zendev-lab/spark-i18n/cli";
+import {
+  SPARK_PROTOCOL_VERSION,
+  SPARK_SESSION_PROMPT_HISTORY_MAX,
+  type SparkDaemonEvent,
+  type SparkInteractionRequest,
+  type SparkInteractionResponse,
+  type SparkInvocationRetryResult,
+  type SparkLocalRpcInput,
+  type SparkLocalRpcMethod,
+  type SparkLocalRpcOutput,
+  type SparkModelRef,
+  type SparkSessionCreateRequest,
+  type SparkSessionListRequest,
+  type SparkSessionProjection,
+  type SparkSessionPromptHistory,
+  type SparkSessionView,
+  type SparkViewModelEvent,
+  createId,
+  hasNonEmptySparkHumanAnswer,
+  isTerminalSparkHumanInteractionDelivery,
+  parseSparkDaemonEvent,
+  parseSparkInteractionRequest,
+  parseSparkInteractionResponse,
+  parseSparkSessionPromptHistory,
+  parseSparkSessionView,
+  sparkLocalRpcProcedureSchemas,
+  sparkModelValue,
+  sparkSessionSubmittedInputSchema,
+} from "@zendev-lab/spark-protocol";
+import { cappedExponentialCeiling, equalJitter } from "@zendev-lab/spark-retry";
+import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { spawn, spawnSync } from "node:child_process";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
+import { sparkDaemonHelpText } from "./daemon-parse.ts";
+import type {
+  AttachSparkWorkspaceClientOptions,
+  LocalDaemonEventsWatchResult,
+  LocalDaemonRunListResult,
+  LocalDaemonRunShowResult,
+  LocalDaemonRunSummary,
+  LocalDaemonSessionInboxListResult,
+  LocalDaemonSessionListResult,
+  LocalDaemonSessionMailMessageResult,
+  LocalDaemonSessionTextResult,
+  LocalDaemonWorkspaceListResult,
+  LocalTurnCancelResult,
+  LocalTurnStatusResult,
+  LocalTurnStreamResult,
+  LocalTurnSubmitResult,
+  LocalWorkspaceClientAttachInput,
+  LocalWorkspaceClientHeartbeatInput,
+  LocalWorkspaceClientReleaseInput,
+  LocalWorkspaceClientResult,
+  LocalWorkspaceEnsureLocalInput,
+  ManagedSessionRegistryResult,
+  SparkDaemonAskCommand,
+  SparkDaemonAskCommandResult,
+  SparkDaemonChannelCommand,
+  SparkDaemonCliCommand,
+  SparkDaemonCliResult,
+  SparkDaemonClientOptions,
+  SparkDaemonClientPaths,
+  SparkDaemonClientStatus,
+  SparkDaemonEventsCommand,
+  SparkDaemonHumanInteractionRequestHandlerOptions,
+  SparkDaemonHumanInteractionRespondInput,
+  SparkDaemonHumanInteractionRespondResult,
+  SparkDaemonInvocationCommand,
+  SparkDaemonInvocationResult,
+  SparkDaemonLocalStatus,
+  SparkDaemonModelCommand,
+  SparkDaemonModelCommandResult,
+  SparkDaemonNativeCommandOptions,
+  SparkDaemonNativeResponder,
+  SparkDaemonNativeResponderContext,
+  SparkDaemonNativeResponderOptions,
+  SparkDaemonPendingHumanInteraction,
+  SparkDaemonPendingHumanInteractionIdentity,
+  SparkDaemonRunsCommand,
+  SparkDaemonServiceCommandOptions,
+  SparkDaemonSessionsCommand,
+  SparkDaemonTurnSubmitInput,
+  SparkDaemonTurnTransportRetryEvent,
+  SparkSessionCwdResolution,
+  SparkWorkspaceClientHandle,
+} from "./daemon-types.ts";
 
-export type SparkDaemonCliAction =
-  | "help"
-  | "status"
-  | "submit"
-  | "invocation"
-  | "start"
-  | "sessions"
-  | "ask"
-  | "channel"
-  | "runs"
-  | "events"
-  | "model"
-  | "service";
-export type SparkDaemonRunState =
-  | "queued"
-  | "running"
-  | "succeeded"
-  | "failed"
-  | "cancelled"
-  | "all";
+export { parseSparkDaemonCliArgs, sparkDaemonHelpText } from "./daemon-parse.ts";
+export type {
+  SparkDaemonCliAction,
+  SparkDaemonRunState,
+  SparkDaemonClientPaths,
+  SparkDaemonControlRequest,
+  SparkDaemonTurnTransportRetryEvent,
+  SparkDaemonClientOptions,
+  SparkDaemonLocalStatus,
+  SparkDaemonTurnSubmitInput,
+  SparkDaemonTurnSubmitTask,
+  SparkDaemonClientStatus,
+  LocalTurnSubmitResult,
+  LocalTurnStatusResult,
+  LocalTurnStreamResult,
+  LocalTurnCancelResult,
+  LocalTurnResult,
+  LocalInvocationListResult,
+  LocalInvocationRetryResult,
+  LocalInvocationRetentionPreviewResult,
+  LocalInvocationRetentionApplyResult,
+  LocalDaemonSessionListResult,
+  LocalDaemonWorkspaceListResult,
+  LocalDaemonSessionTextResult,
+  LocalDaemonRunSummary,
+  LocalDaemonRunListResult,
+  LocalDaemonRunShowResult,
+  LocalDaemonEventsWatchResult,
+  LocalWorkspaceEnsureLocalInput,
+  LocalWorkspaceClientAttachInput,
+  LocalWorkspaceClientHeartbeatInput,
+  LocalWorkspaceClientReleaseInput,
+  SparkWorkspaceClientLease,
+  LocalWorkspaceClientResult,
+  SparkWorkspaceClientHandle,
+  SparkSessionCwdResolution,
+  AttachSparkWorkspaceClientOptions,
+  SparkDaemonCliCommandBase,
+  SparkDaemonHelpCommand,
+  SparkDaemonStatusCommand,
+  SparkDaemonSubmitCommand,
+  SparkDaemonInvocationCommand,
+  SparkDaemonSessionsCommand,
+  SparkDaemonAskCommand,
+  SparkDaemonChannelCommand,
+  SparkDaemonRunsCommand,
+  SparkDaemonEventsCommand,
+  SparkDaemonModelCommand,
+  SparkDaemonStartCommand,
+  SparkDaemonServiceCommand,
+  SparkDaemonCliCommand,
+  SparkDaemonCliResult,
+  SparkDaemonStatusResult,
+  SparkDaemonSubmitResult,
+  SparkDaemonInvocationResult,
+  SparkDaemonSessionsResult,
+  ManagedSessionRegistryResult,
+  SparkDaemonPendingHumanInteraction,
+  SparkDaemonAskCommandResult,
+  SparkDaemonAskResult,
+  SparkDaemonChannelResult,
+  LocalDaemonSessionInboxListResult,
+  LocalDaemonSessionMailMessageResult,
+  SparkDaemonRunsResult,
+  SparkDaemonEventsResult,
+  SparkDaemonModelCommandResult,
+  SparkDaemonModelResult,
+  SparkDaemonStartResult,
+  SparkDaemonNativeResponderOptions,
+  SparkDaemonNativeResponderContext,
+  SparkDaemonNativeResponder,
+  SparkDaemonNativeCommandOptions,
+  SparkDaemonHumanInteractionRespondInput,
+  SparkDaemonHumanInteractionRespondResult,
+  SparkDaemonPendingHumanInteractionIdentity,
+  SparkDaemonHumanInteractionRequestHandlerOptions,
+  SparkDaemonServiceCommandOptions,
+} from "./daemon-types.ts";
 
 const STRINGS = sparkDaemonCliStrings();
 // Accepted invocations are durable and scheduler execution time pauses during
 // human interaction. Keep reads unbounded by default; callers own cancellation
 // through AbortSignal and may still provide an explicit timeout.
+
 const DEFAULT_NATIVE_TURN_WAIT_TIMEOUT_MS = Number.POSITIVE_INFINITY;
+
 const TURN_TRANSPORT_RETRY_BASE_MS = 100;
+
 const TURN_TRANSPORT_RETRY_MAX_MS = 5_000;
+
 const TURN_TRANSPORT_RECOVERY_INTERVAL = 4;
+
 const HUMAN_INTERACTION_RESPONSE_MAX_ATTEMPTS = 4;
+
 const HUMAN_INTERACTION_RESPONSE_RETRY_BASE_MS = 50;
+
 const DAEMON_PROCESS_STARTUP_GRACE_MS = 10 * 60_000;
 
-export interface SparkDaemonClientPaths {
-  runtimeDir: string;
-  socketPath: string;
-  pidFile: string;
-  lockPath: string;
-}
+// A TUI can issue several daemon-backed requests during startup. Serialize the
+// ensure path per runtime so those requests share one spawn/readiness attempt
+// instead of rebuilding and launching the daemon repeatedly.
 
-export type SparkDaemonControlRequest = <M extends SparkLocalRpcMethod>(
-  method: M,
-  params: SparkLocalRpcInput<M>,
-  options?: { signal?: AbortSignal },
-) => Promise<unknown>;
+const daemonEnsureRunningPromises = new Map<string, Promise<void>>();
 
-export interface SparkDaemonTurnTransportRetryEvent {
-  operation: "submit" | "read" | "retry";
-  failureCount: number;
-  error: string;
-  nextRetryMs: number;
-  recoveryAttempted: boolean;
-  recoveryError?: string;
-}
-
-export interface SparkDaemonClientOptions {
-  paths?: SparkDaemonClientPaths;
-  startService?: (paths: SparkDaemonClientPaths) => unknown;
-  daemonStatus?: (paths: SparkDaemonClientPaths) => Promise<SparkDaemonLocalStatus>;
-  channelStatus?: (paths: SparkDaemonClientPaths) => Promise<ChannelStatusSnapshot>;
-  channelReload?: (
-    paths: SparkDaemonClientPaths,
-    workspaceId: string,
-  ) => Promise<ChannelStatusSnapshot>;
-  turnSubmit?: (
-    paths: SparkDaemonClientPaths,
-    input: SparkDaemonTurnSubmitInput,
-  ) => Promise<LocalTurnSubmitResult>;
-  turnStatus?: (
-    paths: SparkDaemonClientPaths,
-    input: { invocationId: string },
-  ) => Promise<LocalTurnStatusResult>;
-  turnCancel?: (
-    paths: SparkDaemonClientPaths,
-    input: { invocationId: string; reason?: string },
-  ) => Promise<LocalTurnCancelResult>;
-  turnStream?: (
-    paths: SparkDaemonClientPaths,
-    input: { invocationId: string; after?: number; limit?: number },
-  ) => Promise<LocalTurnStreamResult>;
-  controlRequest?: SparkDaemonControlRequest;
-  workspaceEnsureLocal?: (
-    paths: SparkDaemonClientPaths,
-    input: LocalWorkspaceEnsureLocalInput,
-  ) => Promise<SparkDaemonWorkspace>;
-  workspaceResolveSessionCwd?: (
-    paths: SparkDaemonClientPaths,
-    input: SparkLocalRpcInput<"workspace.resolve-session-cwd">,
-  ) => Promise<SparkSessionCwdResolution>;
-  workspaceClientAttach?: (
-    paths: SparkDaemonClientPaths,
-    input: LocalWorkspaceClientAttachInput,
-  ) => Promise<LocalWorkspaceClientResult>;
-  workspaceClientHeartbeat?: (
-    paths: SparkDaemonClientPaths,
-    input: LocalWorkspaceClientHeartbeatInput,
-  ) => Promise<LocalWorkspaceClientResult>;
-  workspaceClientRelease?: (
-    paths: SparkDaemonClientPaths,
-    input: LocalWorkspaceClientReleaseInput,
-  ) => Promise<LocalWorkspaceClientResult>;
-  workspaceList?: (paths: SparkDaemonClientPaths) => Promise<LocalDaemonWorkspaceListResult>;
-  sessionList?: (
-    paths: SparkDaemonClientPaths,
-    params?: { allWorkspaces?: boolean; history?: boolean },
-  ) => Promise<LocalDaemonSessionListResult>;
-  sessionExport?: (
-    paths: SparkDaemonClientPaths,
-    params: { sessionId: string; format: SparkSessionExportFormat; leafId?: string | null },
-  ) => Promise<LocalDaemonSessionTextResult>;
-  sessionReplay?: (
-    paths: SparkDaemonClientPaths,
-    params: { sessionId: string; leafId?: string | null },
-  ) => Promise<LocalDaemonSessionTextResult>;
-  runList?: (
-    paths: SparkDaemonClientPaths,
-    params?: { state?: SparkDaemonRunState; limit?: number },
-  ) => Promise<LocalDaemonRunListResult>;
-  runShow?: (
-    paths: SparkDaemonClientPaths,
-    params: { runId: string },
-  ) => Promise<LocalDaemonRunShowResult>;
-  eventsWatch?: (
-    paths: SparkDaemonClientPaths,
-    params?: { limit?: number },
-  ) => Promise<LocalDaemonEventsWatchResult>;
-  serviceCommand?: (argv: string[]) => Promise<number>;
-  managedSessions?: SparkDaemonManagedSessionsClient;
-  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
-  random?: () => number;
-  now?: () => number;
-  /** Periodically re-run daemon service recovery after this many transport failures. */
-  turnTransportRecoveryInterval?: number;
-  /** Retry visibility hook; recurring failures otherwise fall back to stderr. */
-  onTurnTransportRetry?: (event: SparkDaemonTurnTransportRetryEvent) => void;
-  sparkHome?: string;
-}
-
-export interface SparkDaemonLocalStatus {
-  observedAt: string;
-  servers: Array<{
-    url: string;
-    workspaceCount: number;
-    wsConnected: boolean;
-    lastHeartbeatAt?: string;
-    lastDisconnectReason?: string;
-  }>;
-  invocations: Record<"queued" | "running" | "succeeded" | "failed" | "cancelled", number>;
-  invocationHealth?: { oldestQueuedAt?: string; oldestRunningAt?: string };
-  channelDeliveries?: {
-    pending: number;
-    retrying: number;
-    inFlight: number;
-    delivered: number;
-    uncertain: number;
-    oldestPendingAt?: string;
-    lastError?: string;
-    lastErrorAt?: string;
-  };
-  lifecycle?: {
-    state: "starting" | "running" | "draining" | "stopping";
-    phase?:
-      | "initializing"
-      | "serving"
-      | "draining-active-work"
-      | "draining-channel-ingress"
-      | "stopping";
-    restartRequestedAt?: string;
-    stopRequestedAt?: string;
-    stopReason?: string;
-    drain?: {
-      observedAt: string;
-      stage: "active-work" | "channel-ingress";
-      scheduler: Array<{ invocationId: string }>;
-      direct: Array<{ invocationId: string }>;
-    };
-  };
-}
-
-export interface SparkDaemonTurnSubmitInput {
-  sessionId: string;
-  prompt: string;
-  idempotencyKey?: string;
-  model?: string;
-  reset?: boolean;
-  assignment?: SparkAssignment;
-  messageMetadata?: Record<string, unknown>;
-}
-
-export interface SparkDaemonTurnSubmitTask extends SparkDaemonTurnSubmitInput {
-  type: "session.run";
-  actor?: string;
-  note?: string;
-  input?: string;
-  workspaceBindingId?: string;
-  workspaceId?: string;
-  projectId?: string;
-}
-
-export interface SparkDaemonClientStatus {
-  running: boolean;
-  [key: string]: unknown;
-}
-
-export type LocalTurnSubmitResult = SparkTurnSubmitResult;
-export type LocalTurnStatusResult = SparkTurnStatusResult;
-export type LocalTurnStreamResult = SparkTurnStreamPage;
-export type LocalTurnCancelResult = SparkTurnCancelResult;
-export type LocalTurnResult = SparkTurnResult;
-export type LocalInvocationListResult = SparkInvocationListResult;
-export type LocalInvocationRetryResult = SparkInvocationRetryResult;
-export type LocalInvocationRetentionPreviewResult = SparkInvocationRetentionPreviewResult;
-export type LocalInvocationRetentionApplyResult = SparkInvocationRetentionApplyResult;
-
-export interface LocalDaemonSessionListResult {
-  sessions: SparkSessionInfo[];
-  text: string;
-  observedAt: string;
-  allWorkspaces?: boolean;
-  history?: boolean;
-}
-
-export interface LocalDaemonWorkspaceListResult {
-  workspaces: SparkDaemonWorkspace[];
-  observedAt: string;
-}
-
-export interface LocalDaemonSessionTextResult {
-  sessionId: string;
-  text: string;
-  observedAt: string;
-}
-
-export interface LocalDaemonRunSummary {
-  runKey: string;
-  id: string;
-  state: SparkDaemonRunState;
-  sessionKey?: string;
-  prompt?: string;
-  enqueuedAt?: string;
-  startedAt?: string;
-  finishedAt?: string;
-}
-
-export interface LocalDaemonRunListResult {
-  plane: "daemon";
-  resource: "run";
-  runs: LocalDaemonRunSummary[];
-  text: string;
-  observedAt: string;
-}
-
-export interface LocalDaemonRunShowResult {
-  plane: "daemon";
-  resource: "run";
-  runKey: string;
-  run?: LocalDaemonRunSummary;
-  text: string;
-  observedAt: string;
-}
-
-export interface LocalDaemonEventsWatchResult {
-  plane: "daemon";
-  resource: "events";
-  events: SparkDaemonEvent[];
-  text: string;
-  observedAt: string;
-}
-
-import type { SparkDaemonWorkspace, SparkWorkspaceClientKind } from "./daemon-contracts.ts";
 export type {
   SparkDaemonWorkspace,
   SparkWorkspaceClientKind,
   SparkWorkspaceClientProjection,
 } from "./daemon-contracts.ts";
 
-export interface LocalWorkspaceEnsureLocalInput {
-  localPath: string;
-  displayName?: string;
-  localWorkspaceKey?: string;
-}
-
-export interface LocalWorkspaceClientAttachInput {
-  workspaceId: string;
-  clientId?: string;
-  kind: SparkWorkspaceClientKind;
-  displayName?: string;
-  leaseTtlMs?: number;
-  sessionId?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface LocalWorkspaceClientHeartbeatInput {
-  clientId: string;
-  leaseTtlMs?: number;
-  leaseFence?: string;
-}
-
-export interface LocalWorkspaceClientReleaseInput {
-  clientId: string;
-  leaseFence?: string;
-}
-
-export interface SparkWorkspaceClientLease {
-  id: string;
-  workspaceId: string;
-  kind: SparkWorkspaceClientKind;
-  displayName?: string;
-  status: "connected" | "disconnected";
-  attachedAt: string;
-  lastSeenAt: string;
-  leaseExpiresAt?: string;
-  releasedAt?: string;
-  sessionId?: string;
-  leaseFence?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface LocalWorkspaceClientResult {
-  client: SparkWorkspaceClientLease;
-  workspace: SparkDaemonWorkspace;
-  observedAt: string;
-}
-
-export interface SparkWorkspaceClientHandle {
-  client: SparkWorkspaceClientLease;
-  workspace: SparkDaemonWorkspace;
-  cwd: string;
-  cwdArtifactRef?: string;
-  heartbeat(): Promise<LocalWorkspaceClientResult>;
-  release(): Promise<LocalWorkspaceClientResult | null>;
-}
-
-export interface SparkSessionCwdResolution {
-  workspace: SparkDaemonWorkspace;
-  cwd: string;
-  cwdArtifactRef?: string;
-}
-
 export type { AttachSparkWorkspaceSessionClientOptions } from "./daemon-session-heartbeat.ts";
-
-export interface AttachSparkWorkspaceClientOptions {
-  kind: SparkWorkspaceClientKind;
-  clientId?: string;
-  displayName?: string;
-  /** Attach an already-registered workspace without ensuring the launch cwd. */
-  workspaceId?: string;
-  /** Explicitly selected local path to ensure before attach. Mutually exclusive with workspaceId. */
-  localPath?: string;
-  leaseTtlMs?: number;
-  heartbeatIntervalMs?: number | false;
-  metadata?: Record<string, unknown>;
-  /** Called when a lease-transfer consent request appears for this workspace. */
-  onLeaseTransferPrompt?: (transfer: {
-    transferId: string;
-    workspaceDisplayName: string;
-    targetServerUrl: string;
-    previousServerUrl: string;
-    expiresAt: string;
-  }) => void | Promise<"accept" | "reject" | void>;
-}
-
-export interface SparkDaemonCliCommandBase {
-  action: SparkDaemonCliAction;
-  json?: boolean;
-}
-
-export interface SparkDaemonHelpCommand extends SparkDaemonCliCommandBase {
-  action: "help";
-}
-
-export interface SparkDaemonStatusCommand extends SparkDaemonCliCommandBase {
-  action: "status";
-}
-
-export interface SparkDaemonSubmitCommand extends SparkDaemonCliCommandBase {
-  action: "submit";
-  sessionId: string;
-  prompt: string;
-  idempotencyKey?: string;
-  model?: string;
-  reset?: boolean;
-  assignment?: SparkAssignment;
-}
-
-export interface SparkDaemonInvocationCommand extends SparkDaemonCliCommandBase {
-  action: "invocation";
-  subcommand: "list" | "status" | "result" | "stream" | "cancel" | "retry" | "retention";
-  invocationId?: string;
-  status?: SparkInvocationStatus;
-  sessionId?: string;
-  since?: string;
-  before?: string;
-  offset?: number;
-  after?: number;
-  limit?: number;
-  eventLimit?: number;
-  retentionAction?: "preview" | "apply";
-  confirm?: boolean;
-  reason?: string;
-}
-
-export interface SparkDaemonSessionsCommand extends SparkDaemonCliCommandBase {
-  action: "sessions";
-  subcommand:
-    | "list"
-    | "show"
-    | "tree"
-    | "fork"
-    | "clone"
-    | "export"
-    | "replay"
-    | "inbox"
-    | "create"
-    | "bind"
-    | "unbind"
-    | "archive"
-    | "restore"
-    | "close";
-  sessionId?: string;
-  format?: SparkSessionExportFormat;
-  leafId?: string | null;
-  allWorkspaces?: boolean;
-  history?: boolean;
-  registry?: boolean;
-  includeArchived?: boolean;
-  query?: string;
-  tags?: string[];
-  newSessionId?: string;
-  inboxAction?: "list" | "read" | "ack";
-  messageId?: string;
-  all?: boolean;
-  workspaceId?: string;
-  name?: string;
-  roleRef?: RoleRef;
-  inheritRole?: boolean;
-  placement?: "child" | "sibling";
-  supervisorSessionId?: string;
-  externalKey?: string;
-}
-
-export interface SparkDaemonAskCommand extends SparkDaemonCliCommandBase {
-  action: "ask";
-  subcommand: "list" | "answer" | "cancel";
-  interactionRequestId?: string;
-  sessionId?: string;
-  invocationId?: string;
-  answers?: Record<string, unknown>;
-}
-
-export interface SparkDaemonChannelCommand extends SparkDaemonCliCommandBase {
-  action: "channel";
-  subcommand: "list" | "status" | "reload" | "notify";
-  workspaceId: string;
-  notifyAction?: "test" | "send";
-  route?: string;
-  adapter?: string;
-  recipient?: string;
-  text?: string;
-  imageUrl?: string;
-  imageType?: string;
-}
-
-export interface SparkDaemonRunsCommand extends SparkDaemonCliCommandBase {
-  action: "runs";
-  subcommand: "list" | "show" | "cancel";
-  runId?: string;
-  state?: SparkDaemonRunState;
-  limit?: number;
-}
-
-export interface SparkDaemonEventsCommand extends SparkDaemonCliCommandBase {
-  action: "events";
-  subcommand: "watch";
-  limit?: number;
-}
-
-export interface SparkDaemonModelCommand extends SparkDaemonCliCommandBase {
-  action: "model";
-  subcommand: "list" | "status" | "set";
-  all?: boolean;
-  sessionId?: string;
-  model?: SparkModelRef;
-  target?: "session" | "default";
-}
-
-export interface SparkDaemonStartCommand extends SparkDaemonCliCommandBase {
-  action: "start";
-}
-
-export interface SparkDaemonServiceCommand extends SparkDaemonCliCommandBase {
-  action: "service";
-  argv: string[];
-}
-
-export type SparkDaemonCliCommand =
-  | SparkDaemonHelpCommand
-  | SparkDaemonStatusCommand
-  | SparkDaemonSubmitCommand
-  | SparkDaemonInvocationCommand
-  | SparkDaemonSessionsCommand
-  | SparkDaemonAskCommand
-  | SparkDaemonChannelCommand
-  | SparkDaemonRunsCommand
-  | SparkDaemonEventsCommand
-  | SparkDaemonModelCommand
-  | SparkDaemonStartCommand
-  | SparkDaemonServiceCommand;
-
-export type SparkDaemonCliResult =
-  | { action: "help"; text: string }
-  | SparkDaemonStatusResult
-  | SparkDaemonSubmitResult
-  | SparkDaemonInvocationResult
-  | SparkDaemonSessionsResult
-  | SparkDaemonAskResult
-  | SparkDaemonChannelResult
-  | SparkDaemonRunsResult
-  | SparkDaemonEventsResult
-  | SparkDaemonModelResult
-  | SparkDaemonStartResult;
-
-export interface SparkDaemonStatusResult {
-  action: "status";
-  daemon: SparkDaemonClientStatus;
-}
-
-export interface SparkDaemonSubmitResult {
-  action: "submit";
-  result: LocalTurnSubmitResult;
-}
-
-export interface SparkDaemonInvocationResult {
-  action: "invocation";
-  result:
-    | LocalInvocationListResult
-    | LocalTurnStatusResult
-    | LocalTurnResult
-    | LocalTurnStreamResult
-    | LocalTurnCancelResult
-    | LocalInvocationRetryResult
-    | LocalInvocationRetentionPreviewResult
-    | LocalInvocationRetentionApplyResult;
-}
-
-export interface SparkDaemonSessionsResult {
-  action: "sessions";
-  result:
-    | LocalDaemonSessionListResult
-    | LocalDaemonSessionTextResult
-    | LocalDaemonSessionInboxListResult
-    | LocalDaemonSessionMailMessageResult
-    | DaemonSessionListResult
-    | DaemonSessionShowResult
-    | DaemonSessionTreeResult
-    | DaemonSessionForkResult
-    | ManagedSessionRegistryResult;
-}
-
-export interface ManagedSessionRegistryResult {
-  plane: "daemon";
-  resource: "session";
-  subcommand: "create" | "bind" | "unbind" | "archive" | "restore" | "close" | "list";
-  sessions?: Array<Record<string, unknown>>;
-  session?: Record<string, unknown>;
-  text: string;
-  observedAt: string;
-}
-
-export interface SparkDaemonPendingHumanInteraction {
-  humanRequestId: string;
-  interactionRequestId: string;
-  sessionId: string;
-  invocationId: string;
-  title: string;
-  prompt: string;
-  questions: Array<{
-    id: string;
-    prompt: string;
-    options?: Array<{ value: string; label: string }>;
-  }>;
-  createdAt: string;
-}
-
-export type SparkDaemonAskCommandResult =
-  | {
-      subcommand: "list";
-      waits: SparkDaemonPendingHumanInteraction[];
-      text: string;
-      observedAt: string;
-    }
-  | {
-      subcommand: "answer" | "cancel";
-      result: SparkDaemonHumanInteractionRespondResult;
-      text: string;
-      observedAt: string;
-    };
-
-export interface SparkDaemonAskResult {
-  action: "ask";
-  result: SparkDaemonAskCommandResult;
-}
-
-export interface SparkDaemonChannelResult {
-  action: "channel";
-  result: ChannelStatusSnapshot | ChannelNotifySendResult;
-}
-
-export interface LocalDaemonSessionInboxListResult {
-  subcommand: "inbox";
-  sessionId: string;
-  messages: Array<
-    SparkSessionMailMessage & { status: "pending" | "read" | "acked"; preview: string }
-  >;
-  text: string;
-  observedAt: string;
-}
-
-export interface LocalDaemonSessionMailMessageResult {
-  subcommand: "inbox";
-  inboxAction: "read" | "ack";
-  sessionId: string;
-  message: SparkSessionMailMessage & { status: "pending" | "read" | "acked" };
-  text: string;
-  observedAt: string;
-}
-
-export interface SparkDaemonRunsResult {
-  action: "runs";
-  result: LocalDaemonRunListResult | LocalDaemonRunShowResult | LocalTurnCancelResult;
-}
-
-export interface SparkDaemonEventsResult {
-  action: "events";
-  result: LocalDaemonEventsWatchResult;
-}
-
-export interface SparkDaemonModelCommandResult {
-  subcommand: "list" | "status" | "set";
-  snapshot: SparkModelControlSnapshot;
-  models?: SparkModelControlSnapshot["providers"][number]["models"];
-  selected?: SparkModelRef;
-  text: string;
-}
-
-export interface SparkDaemonModelResult {
-  action: "model";
-  result: SparkDaemonModelCommandResult;
-}
-
-export interface SparkDaemonStartResult {
-  action: "start";
-  daemon: SparkDaemonClientStatus;
-}
-
-export function parseSparkDaemonCliArgs(argv: string[]): SparkDaemonCliCommand {
-  if (argv.length === 0) {
-    return { action: "service", argv: [] };
-  }
-
-  const [action, ...rest] = argv;
-  if (action === "help" || action === "--help" || action === "-h") {
-    return { action: "help" };
-  }
-  if (helpFlagRequested(argv)) {
-    return { action: "help" };
-  }
-
-  const parsed = parseSparkCliOptions(rest);
-  const json = readBooleanOption(parsed.options, "json");
-
-  switch (action) {
-    case "status":
-      return { action: "status", json };
-    case "submit": {
-      const sessionId = readStringOption(parsed.options, "session")?.trim();
-      const prompt = readPrompt(parsed);
-      const idempotencyKey = readStringOption(parsed.options, "idempotency-key")?.trim();
-      if (!sessionId) throw new Error(STRINGS.submitRequiresSession);
-      if (!prompt) throw new Error(STRINGS.submitRequiresPrompt);
-      return {
-        action: "submit",
-        json,
-        sessionId,
-        prompt,
-        ...(idempotencyKey ? { idempotencyKey } : {}),
-        reset: readBooleanOption(parsed.options, "reset"),
-      };
-    }
-    case "invocation":
-      return parseSparkDaemonInvocationCommand(parsed, json);
-    case "queue":
-      throw new Error(STRINGS.unknownCommand("queue"));
-    case "session":
-    case "sessions":
-      return parseSparkDaemonSessionsCommand(parsed, json);
-    case "ask":
-    case "human":
-      return parseSparkDaemonAskCommand(parsed, json);
-    case "channel":
-    case "channels":
-      return parseSparkDaemonChannelCommand(parsed, json);
-    case "run":
-    case "runs":
-      return parseSparkDaemonRunsCommand(parsed, json);
-    case "events":
-      return parseSparkDaemonEventsCommand(parsed, json);
-    case "model":
-      return parseSparkDaemonModelCommand(parsed, json);
-    case "start":
-      return { action: "start", json };
-    case "stop":
-    case "install":
-    case "doctor":
-    case "login":
-    case "auth":
-    case "workspace":
-    case "ws":
-    case "uplink":
-      return { action: "service", argv };
-    case "restart":
-    case "logs":
-      return { action: "service", argv: ["daemon", ...argv] };
-    default:
-      throw new Error(STRINGS.unknownCommand(String(action)));
-  }
-}
-
-function parseSparkDaemonModelCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonModelCommand {
-  const [subcommand = "list", modelValue, ...extraPositionals] = parsed.positionals;
-  const sessionId = readStringOption(parsed.options, "session")?.trim();
-  if (subcommand === "list") {
-    assertOnlyModelOptions(parsed.options, ["all", "json"]);
-    if (modelValue || extraPositionals.length > 0 || sessionId) {
-      throw new Error("Usage: spark daemon model list [--all] [--json]");
-    }
-    assertBooleanModelOption(parsed.options, "all");
-    return {
-      action: "model",
-      subcommand,
-      json,
-      all: readBooleanOption(parsed.options, "all"),
-    };
-  }
-  if (subcommand === "status") {
-    assertOnlyModelOptions(parsed.options, ["session", "json"]);
-    if (modelValue || extraPositionals.length > 0) {
-      throw new Error("Usage: spark daemon model status [--session <id>] [--json]");
-    }
-    return { action: "model", subcommand, json, ...(sessionId ? { sessionId } : {}) };
-  }
-  if (subcommand === "set") {
-    assertOnlyModelOptions(parsed.options, ["session", "default", "json"]);
-    assertBooleanModelOption(parsed.options, "default");
-    if (!modelValue || extraPositionals.length > 0) {
-      throw new Error(
-        "Usage: spark daemon model set <provider/model> (--session <id>|--default) [--json]",
-      );
-    }
-    const useDefault = readBooleanOption(parsed.options, "default");
-    if (Boolean(sessionId) === useDefault) {
-      throw new Error("spark daemon model set requires exactly one of --session <id> or --default");
-    }
-    return {
-      action: "model",
-      subcommand,
-      json,
-      model: parseSparkModelValue(modelValue),
-      target: useDefault ? "default" : "session",
-      ...(sessionId ? { sessionId } : {}),
-    };
-  }
-  throw new Error(`unknown spark daemon model command: ${subcommand}`);
-}
-
-function assertOnlyModelOptions(
-  options: Record<string, string | boolean>,
-  allowed: readonly string[],
-): void {
-  const unknown = Object.keys(options).find((name) => !allowed.includes(name));
-  if (unknown) throw new Error(`unknown spark daemon model option: --${unknown}`);
-}
-
-function assertBooleanModelOption(options: Record<string, string | boolean>, name: string): void {
-  if (typeof options[name] === "string") {
-    throw new Error(`--${name} does not accept a value`);
-  }
-}
-
-function parseSparkDaemonInvocationCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonInvocationCommand {
-  const [subcommand = "list", positionalInvocationId] = parsed.positionals;
-  if (subcommand === "list") {
-    return {
-      action: "invocation",
-      subcommand,
-      json,
-      status: readInvocationStatus(readStringOption(parsed.options, "status")),
-      sessionId: readStringOption(parsed.options, "session")?.trim(),
-      since: readInvocationSinceOption(parsed.options),
-      limit: readNumberOption(parsed.options, "limit"),
-      offset: readNumberOption(parsed.options, "offset"),
-    };
-  }
-  if (subcommand === "retention") {
-    const retentionAction = positionalInvocationId ?? "preview";
-    if (retentionAction !== "preview" && retentionAction !== "apply") {
-      throw new Error(`unknown spark daemon invocation retention command: ${retentionAction}`);
-    }
-    const before = readIsoDateTimeOption(parsed.options, "before");
-    if (!before) throw new Error("spark daemon invocation retention requires --before <iso>");
-    if (retentionAction === "apply" && !readBooleanOption(parsed.options, "confirm")) {
-      throw new Error("spark daemon invocation retention apply requires --confirm");
-    }
-    return {
-      action: "invocation",
-      subcommand,
-      before,
-      limit: readNumberOption(parsed.options, "limit"),
-      json,
-      ...(retentionAction === "apply"
-        ? {
-            retentionAction,
-            eventLimit: readNumberOption(parsed.options, "event-limit"),
-            confirm: true,
-          }
-        : {}),
-    };
-  }
-  if (
-    subcommand !== "status" &&
-    subcommand !== "result" &&
-    subcommand !== "stream" &&
-    subcommand !== "cancel" &&
-    subcommand !== "retry"
-  ) {
-    throw new Error(`unknown spark daemon invocation command: ${subcommand}`);
-  }
-  const invocationId =
-    readStringOption(parsed.options, "invocation")?.trim() || positionalInvocationId?.trim();
-  if (!invocationId) {
-    throw new Error(`spark daemon invocation ${subcommand} requires <invocation-id>`);
-  }
-  return {
-    action: "invocation",
-    subcommand,
-    invocationId,
-    json,
-    ...(subcommand === "stream"
-      ? {
-          after: readNumberOption(parsed.options, "after"),
-          limit: readNumberOption(parsed.options, "limit"),
-        }
-      : {}),
-    ...(subcommand === "cancel"
-      ? { reason: readStringOption(parsed.options, "reason")?.trim() }
-      : {}),
-  };
-}
-
-function parseSparkDaemonChannelCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonChannelCommand {
-  const [subcommand = "status"] = parsed.positionals;
-  if (subcommand === "list" || subcommand === "status" || subcommand === "reload") {
-    const workspaceId = readStringOption(parsed.options, "workspace")?.trim();
-    if (!workspaceId) {
-      throw new Error(`spark daemon channel ${subcommand} requires --workspace <workspaceId>`);
-    }
-    return { action: "channel", subcommand, json, workspaceId };
-  }
-  if (subcommand !== "notify") {
-    throw new Error(`unknown spark daemon channel command: ${subcommand}`);
-  }
-  const notifyAction = readStringOption(parsed.options, "action") ?? "test";
-  if (notifyAction !== "test" && notifyAction !== "send") {
-    throw new Error("spark daemon channel notify --action must be test or send");
-  }
-  const workspaceId = readStringOption(parsed.options, "workspace")?.trim();
-  if (!workspaceId) {
-    throw new Error("spark daemon channel notify requires --workspace <workspaceId>");
-  }
-  const optional = (name: string, key: string) => {
-    const value = readStringOption(parsed.options, name);
-    return value ? { [key]: value } : {};
-  };
-  return {
-    action: "channel",
-    subcommand: "notify",
-    json,
-    workspaceId,
-    notifyAction,
-    ...optional("route", "route"),
-    ...optional("adapter", "adapter"),
-    ...optional("recipient", "recipient"),
-    ...optional("text", "text"),
-    ...optional("image-url", "imageUrl"),
-    ...optional("image-type", "imageType"),
-  };
-}
-
-function readInvocationStatus(value: string | undefined): SparkInvocationStatus | undefined {
-  if (!value?.trim()) return undefined;
-  const normalized = value.trim();
-  if (
-    normalized === "queued" ||
-    normalized === "running" ||
-    normalized === "succeeded" ||
-    normalized === "failed" ||
-    normalized === "cancelled"
-  ) {
-    return normalized;
-  }
-  throw new Error(
-    "spark daemon invocation --status must be queued, running, succeeded, failed, or cancelled",
-  );
-}
-
-function readInvocationSinceOption(
-  options: ReturnType<typeof parseSparkCliOptions>["options"],
-): string | undefined {
-  const value = readStringOption(options, "since")?.trim();
-  if (!value) return undefined;
-  const relative = value.match(/^(\d+)(s|m|h|d)$/iu);
-  if (relative) {
-    const amount = Number(relative[1]);
-    const unitMs = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 }[
-      relative[2]!.toLowerCase() as "s" | "m" | "h" | "d"
-    ];
-    const durationMs = amount * unitMs;
-    if (amount < 1 || !Number.isSafeInteger(durationMs) || durationMs > 365 * 86_400_000) {
-      throw new Error("spark daemon invocation --since duration must be between 1s and 365d");
-    }
-    return new Date(Date.now() - durationMs).toISOString();
-  }
-  return readIsoDateTimeOption(options, "since");
-}
-
-function readIsoDateTimeOption(
-  options: ReturnType<typeof parseSparkCliOptions>["options"],
-  name: string,
-): string | undefined {
-  const value = readStringOption(options, name)?.trim();
-  if (!value) return undefined;
-  if (!Number.isFinite(Date.parse(value))) {
-    throw new Error(`spark daemon invocation --${name} must be an ISO date-time`);
-  }
-  return new Date(value).toISOString();
-}
-
-function parseSparkDaemonSessionsCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonSessionsCommand {
-  const [subcommand = "list", maybeLeaf] = parsed.positionals;
-  if (subcommand === "list") {
-    const allWorkspaces = readBooleanOption(parsed.options, "all-workspaces");
-    const query = readStringOption(parsed.options, "query")?.trim();
-    const tagList = readStringOption(parsed.options, "tags")
-      ?.split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean);
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      allWorkspaces,
-      history: readBooleanOption(parsed.options, "history") || allWorkspaces,
-      registry: readBooleanOption(parsed.options, "registry"),
-      includeArchived: readBooleanOption(parsed.options, "include-archived"),
-      ...(query ? { query } : {}),
-      ...(tagList?.length ? { tags: tagList } : {}),
-      workspaceId: readStringOption(parsed.options, "workspace")?.trim(),
-    };
-  }
-  if (subcommand === "create") {
-    const workspaceId = readStringOption(parsed.options, "workspace")?.trim() || maybeLeaf?.trim();
-    if (!workspaceId) throw new Error("spark daemon session create requires --workspace <id>");
-    const supervisorSessionId = readStringOption(parsed.options, "supervisor")?.trim();
-    if (!supervisorSessionId) {
-      throw new Error("spark daemon session create requires --supervisor <session-id>");
-    }
-    const rawRoleRef = readStringOption(parsed.options, "role-ref")?.trim();
-    if (rawRoleRef && !rawRoleRef.startsWith("role:")) {
-      throw new Error("spark daemon session create --role-ref must start with role:");
-    }
-    const inheritRole = readBooleanOption(parsed.options, "inherit-role");
-    if (rawRoleRef && inheritRole) {
-      throw new Error(
-        "spark daemon session create accepts only one of --role-ref and --inherit-role",
-      );
-    }
-    const rawPlacement = readStringOption(parsed.options, "placement")?.trim() ?? "child";
-    if (rawPlacement !== "child" && rawPlacement !== "sibling") {
-      throw new Error("spark daemon session create --placement must be child or sibling");
-    }
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      workspaceId,
-      name: readStringOption(parsed.options, "name")?.trim(),
-      ...(rawRoleRef ? { roleRef: rawRoleRef as RoleRef } : {}),
-      inheritRole,
-      placement: rawPlacement,
-      supervisorSessionId,
-      sessionId: readStringOption(parsed.options, "id")?.trim(),
-    };
-  }
-  if (subcommand === "bind" || subcommand === "unbind") {
-    const sessionId = readStringOption(parsed.options, "session")?.trim() || maybeLeaf?.trim();
-    const externalKey = readStringOption(parsed.options, "external-key")?.trim();
-    if (!sessionId) throw new Error(`spark daemon session ${subcommand} requires <session-id>`);
-    if (!externalKey)
-      throw new Error(`spark daemon session ${subcommand} requires --external-key <key>`);
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      sessionId,
-      externalKey,
-    };
-  }
-  if (subcommand === "archive" || subcommand === "restore" || subcommand === "close") {
-    const sessionId = readStringOption(parsed.options, "session")?.trim() || maybeLeaf?.trim();
-    if (!sessionId) throw new Error(`spark daemon session ${subcommand} requires <session-id>`);
-    return { action: "sessions", subcommand, json, sessionId };
-  }
-  if (subcommand === "inbox") {
-    const [inboxActionOrMessageId, maybeMessageId] = parsed.positionals.slice(1);
-    const inboxAction =
-      inboxActionOrMessageId === "read" || inboxActionOrMessageId === "ack"
-        ? inboxActionOrMessageId
-        : "list";
-    const sessionId = readStringOption(parsed.options, "session")?.trim();
-    if (!sessionId) throw new Error("spark daemon session inbox requires --session <session-id>");
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      sessionId,
-      inboxAction,
-      all: readBooleanOption(parsed.options, "all"),
-      ...(inboxAction === "list"
-        ? {}
-        : {
-            messageId:
-              maybeMessageId?.trim() || readStringOption(parsed.options, "message")?.trim(),
-          }),
-    };
-  }
-  if (
-    subcommand === "show" ||
-    subcommand === "tree" ||
-    subcommand === "fork" ||
-    subcommand === "clone"
-  ) {
-    const sessionId = readStringOption(parsed.options, "session")?.trim() || maybeLeaf?.trim();
-    if (!sessionId) throw new Error(STRINGS.sessionsReplayRequiresSession);
-    const newSessionId = readStringOption(parsed.options, "id")?.trim();
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      sessionId,
-      ...(newSessionId ? { newSessionId } : {}),
-    };
-  }
-  if (subcommand === "export") {
-    const sessionId = readStringOption(parsed.options, "session")?.trim();
-    if (!sessionId) throw new Error(STRINGS.sessionsExportRequiresSession);
-    const format = readSparkSessionExportFormat(
-      readStringOption(parsed.options, "format") ?? "jsonl",
-    );
-    const leafId = readDaemonLeafArg(readStringOption(parsed.options, "leaf") ?? maybeLeaf);
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      sessionId,
-      format,
-      ...(leafId !== undefined ? { leafId } : {}),
-    };
-  }
-  if (subcommand === "replay") {
-    const sessionId = readStringOption(parsed.options, "session")?.trim();
-    if (!sessionId) throw new Error(STRINGS.sessionsReplayRequiresSession);
-    const leafId = readDaemonLeafArg(readStringOption(parsed.options, "leaf") ?? maybeLeaf);
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      sessionId,
-      ...(leafId !== undefined ? { leafId } : {}),
-    };
-  }
-  throw new Error(STRINGS.unknownSessionsCommand(subcommand));
-}
-
-function parseSparkDaemonRunsCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonRunsCommand {
-  const [subcommand = "list", maybeRunId] = parsed.positionals;
-  if (subcommand === "list") {
-    const state = readRunState(readStringOption(parsed.options, "state") ?? "all");
-    const limit = readNumberOption(parsed.options, "limit");
-    return { action: "runs", subcommand, json, state, limit };
-  }
-  if (subcommand === "show" || subcommand === "cancel") {
-    const runId = readStringOption(parsed.options, "run")?.trim() || maybeRunId?.trim();
-    if (!runId) throw new Error(`${subcommand} requires --run <id> or a run id argument`);
-    return { action: "runs", subcommand, json, runId };
-  }
-  throw new Error(`unknown daemon run command: ${subcommand}`);
-}
-
-function parseSparkDaemonAskCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonAskCommand {
-  const [subcommand = "list", positionalInteractionRequestId] = parsed.positionals;
-  if (subcommand === "list") {
-    return {
-      action: "ask",
-      subcommand,
-      json,
-      sessionId: readStringOption(parsed.options, "session")?.trim(),
-    };
-  }
-  if (subcommand !== "answer" && subcommand !== "cancel") {
-    throw new Error(`unknown spark daemon ask command: ${subcommand}`);
-  }
-  const interactionRequestId =
-    readStringOption(parsed.options, "interaction")?.trim() ||
-    positionalInteractionRequestId?.trim();
-  if (!interactionRequestId) {
-    throw new Error(`spark daemon ask ${subcommand} requires <interaction-request-id>`);
-  }
-  if (subcommand === "cancel") {
-    return {
-      action: "ask",
-      subcommand,
-      json,
-      interactionRequestId,
-      sessionId: readStringOption(parsed.options, "session")?.trim(),
-      invocationId: readStringOption(parsed.options, "invocation")?.trim(),
-    };
-  }
-  const rawAnswers =
-    readStringOption(parsed.options, "answers") ?? readStringOption(parsed.options, "answer");
-  if (!rawAnswers) throw new Error("spark daemon ask answer requires --answers <json>");
-  let parsedAnswers: unknown;
-  try {
-    parsedAnswers = JSON.parse(rawAnswers);
-  } catch (error) {
-    throw new Error("spark daemon ask answer requires valid JSON in --answers", { cause: error });
-  }
-  if (!isRecord(parsedAnswers)) {
-    throw new Error("spark daemon ask answer requires a JSON object in --answers");
-  }
-  return {
-    action: "ask",
-    subcommand,
-    json,
-    interactionRequestId,
-    sessionId: readStringOption(parsed.options, "session")?.trim(),
-    invocationId: readStringOption(parsed.options, "invocation")?.trim(),
-    answers: parsedAnswers,
-  };
-}
-
-function parseSparkDaemonEventsCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonEventsCommand {
-  const [subcommand = "watch"] = parsed.positionals;
-  if (subcommand !== "watch") throw new Error(`unknown daemon events command: ${subcommand}`);
-  return { action: "events", subcommand, json, limit: readNumberOption(parsed.options, "limit") };
-}
 
 export async function handleSparkDaemonCliCommand(
   command: SparkDaemonCliCommand,
@@ -1478,45 +432,6 @@ function renderInvocationResult(result: SparkDaemonInvocationResult["result"]): 
   if ("assistantText" in result && result.assistantText) return `${result.assistantText}\n`;
   return `${JSON.stringify(result, null, 2)}\n`;
 }
-
-export function sparkDaemonHelpText(): string {
-  return STRINGS.helpText;
-}
-
-export interface SparkDaemonNativeResponderOptions {
-  /** Daemon registry session identifier used for session/turn RPCs. */
-  sessionId?: string;
-  /** Canonical host/claim owner identity exposed by the responder. */
-  identitySessionId?: string;
-  workspaceId?: string;
-  cwd?: string;
-  ensureSession?: () => Promise<void>;
-  waitForCompletion?: boolean;
-  pollIntervalMs?: number;
-  timeoutMs?: number;
-  /** Let protocol view events own conversation rendering instead of text-only chunks. */
-  conversationProjection?: "assistant-chunks" | "view-events";
-  onViewEvent?: (event: SparkViewModelEvent) => void;
-  onInteractionRequest?: (
-    request: SparkInteractionRequest,
-    event: Extract<SparkDaemonEvent, { type: "daemon.interaction.request" }>,
-    context: { signal?: AbortSignal },
-  ) => void | Promise<void>;
-}
-
-export type SparkDaemonNativeResponderContext = Omit<SparkNativeResponderContext, "messages"> & {
-  messages?: SparkNativeResponderContext["messages"];
-};
-
-export type SparkDaemonNativeResponder = SparkNativeResponder &
-  Required<
-    Pick<
-      SparkNativeResponder,
-      "admit" | "observe" | "cancel" | "retry" | "latestRetryableFailure" | "status"
-    >
-  > & {
-    sessionId: string;
-  } & ((input: string, context?: SparkDaemonNativeResponderContext) => Promise<string>);
 
 export function createSparkDaemonNativeResponder(
   client: SparkDaemonClientOptions = {},
@@ -1790,10 +705,6 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 type SparkDaemonPendingHumanWait = SparkLocalRpcOutput<"human.interaction.list">["waits"][number];
 
 const SPARK_NATIVE_PENDING_ASK_SELECTION_ID = "pending-ask";
@@ -1818,7 +729,7 @@ function nativePendingAskRequest(wait: SparkDaemonPendingHumanWait): SparkIntera
       invocationId: wait.invocationId,
       resumedBy: "spark-tui",
     },
-    delivery: "async",
+    delivery: wait.delivery,
     mode: nativePendingAskMode(wait.kind),
     questions: wait.questions,
     ...(wait.evidenceRequest ? { evidenceRequest: wait.evidenceRequest } : {}),
@@ -1864,13 +775,30 @@ function selectedNativePendingAskId(response: SparkInteractionResponse): string 
 }
 
 function renderNativePendingAskList(waits: readonly SparkDaemonPendingHumanWait[]): string {
-  if (waits.length === 0) return "No pending async Ask for this Spark TUI session.";
+  if (waits.length === 0) return "No pending Ask for this Spark TUI session or workspace.";
   return waits
     .map(
       (wait) =>
         `${wait.interactionRequestId}  ${wait.title || "Pending Ask"}\n${wait.prompt || "(no prompt)"}`,
     )
     .join("\n\n");
+}
+
+function isAnswerablePendingAsk(wait: SparkDaemonPendingHumanWait): boolean {
+  return wait.status === "pending" && Array.isArray(wait.questions) && wait.questions.length > 0;
+}
+
+function selectNativePendingAsks(
+  waits: readonly SparkDaemonPendingHumanWait[],
+  options: SparkDaemonNativeCommandOptions,
+): SparkDaemonPendingHumanWait[] {
+  const pending = waits.filter(isAnswerablePendingAsk);
+  const sessionId = options.sessionId?.trim();
+  const workspaceId = options.workspaceId?.trim();
+  const forSession = sessionId ? pending.filter((wait) => wait.sessionId === sessionId) : pending;
+  if (forSession.length > 0) return forSession;
+  if (workspaceId) return pending.filter((wait) => wait.workspaceId === workspaceId);
+  return pending;
 }
 
 async function handleSparkNativePendingAskCommand(
@@ -1880,12 +808,8 @@ async function handleSparkNativePendingAskCommand(
   options: SparkDaemonNativeCommandOptions,
 ): Promise<string> {
   const input = args.trim();
-  const response = await requestSparkDaemonControl(
-    "human.interaction.list",
-    options.sessionId ? { sessionId: options.sessionId } : {},
-    client,
-  );
-  const waits = response.waits.filter((wait) => wait.delivery === "async");
+  const response = await requestSparkDaemonControl("human.interaction.list", {}, client);
+  const waits = selectNativePendingAsks(response.waits, options);
   if (input === "list") return renderNativePendingAskList(waits);
   if (waits.length === 0) return renderNativePendingAskList(waits);
 
@@ -1919,11 +843,6 @@ async function handleSparkNativePendingAskCommand(
     client,
   );
   return result.message || `Ask response ${result.outcome}.`;
-}
-
-export interface SparkDaemonNativeCommandOptions {
-  /** Default session whose detached async Ask requests are shown by `/ask`. */
-  sessionId?: string;
 }
 
 export function createSparkDaemonNativeCommands(
@@ -2784,11 +1703,13 @@ async function clientSubmit(
   while (true) {
     throwIfAborted(options.signal);
     try {
-      return client.turnSubmit
+      const result = client.turnSubmit
         ? await client.turnSubmit(paths, admissionInput)
         : await localRpcRequest(paths, "turn.submit", admissionInput, {
             signal: options.signal,
           });
+      reportTurnTransportReady(client);
+      return result;
     } catch (error) {
       if (options.signal?.aborted) throwIfAborted(options.signal);
       if (!isRetryableTurnTransportError(error)) throw error;
@@ -2882,6 +1803,23 @@ function isDaemonUnavailableTransportError(error: unknown): boolean {
   );
 }
 
+export function formatSparkDaemonTransportRetry(event: SparkDaemonTurnTransportRetryEvent): string {
+  const error = event.error.replace(/\s+/gu, " ").trim();
+  const recovery = event.recoveryError
+    ? `; recovery failed: ${event.recoveryError.replace(/\s+/gu, " ").trim()}`
+    : "";
+  return `[spark] ${event.operation} transport retry ${event.failureCount}; retrying in ${event.nextRetryMs}ms: ${error}${recovery}`;
+}
+
+function reportTurnTransportReady(client: SparkDaemonClientOptions): void {
+  if (!client.onTurnTransportReady) return;
+  try {
+    client.onTurnTransportReady();
+  } catch (error) {
+    console.error("[spark] turn transport ready observer failed", error);
+  }
+}
+
 function reportTurnTransportRetry(
   client: SparkDaemonClientOptions,
   event: SparkDaemonTurnTransportRetryEvent,
@@ -2903,9 +1841,7 @@ function reportTurnTransportRetry(
   ) {
     return;
   }
-  console.error(
-    `[spark] ${event.operation} transport retry ${event.failureCount}; retrying in ${event.nextRetryMs}ms: ${event.error}${event.recoveryError ? `; recovery failed: ${event.recoveryError}` : ""}`,
-  );
+  console.error(formatSparkDaemonTransportRetry(event));
 }
 
 function turnTransportErrorMessage(error: unknown): string {
@@ -2959,7 +1895,9 @@ async function retryTurnTransportRead<T>(
     throwIfAborted(options.signal);
     if (now() >= options.deadline) throw options.deadlineError;
     try {
-      return await read();
+      const result = await read();
+      reportTurnTransportReady(client);
+      return result;
     } catch (error) {
       if (options.signal?.aborted) throwIfAborted(options.signal);
       if (!isRetryableTurnTransportError(error)) throw error;
@@ -2984,6 +1922,7 @@ async function retryTurnTransportRead<T>(
 }
 
 /** Shared daemon-owned model/auth control request used by native TUI adapters. */
+
 export async function requestSparkDaemonControl<M extends SparkLocalRpcMethod>(
   method: M,
   params: SparkLocalRpcInput<M>,
@@ -3009,7 +1948,14 @@ async function retrySparkDaemonInvocation(
   let failureCount = 0;
   while (true) {
     try {
-      return await requestSparkDaemonControl("invocation.retry", { invocationId }, client, options);
+      const result = await requestSparkDaemonControl(
+        "invocation.retry",
+        { invocationId },
+        client,
+        options,
+      );
+      reportTurnTransportReady(client);
+      return result;
     } catch (error) {
       if (options.signal?.aborted) throw error;
       if (!isRetryableTurnTransportError(error)) throw error;
@@ -3028,37 +1974,6 @@ async function retrySparkDaemonInvocation(
   }
 }
 
-export interface SparkDaemonHumanInteractionRespondInput {
-  interactionRequestId: string;
-  sessionId?: string;
-  invocationId?: string;
-  humanResponseId?: string;
-  status: "answered" | "cancelled";
-  answers?: Record<string, unknown>;
-  responseArtifactRefs?: string[];
-}
-
-export interface SparkDaemonHumanInteractionRespondResult {
-  outcome:
-    | "accepted"
-    | "replayed"
-    | "already_resolved"
-    | "orphaned"
-    | "unknown_request"
-    | "transient";
-  retryable: boolean;
-  returnedToTool: boolean;
-  message: string;
-  winnerResponseId?: string;
-}
-
-export interface SparkDaemonPendingHumanInteractionIdentity {
-  interactionRequestId: string;
-  sessionId: string;
-  invocationId?: string;
-}
-
-/** Read daemon-owned pending Ask state without inferring lifecycle from event history. */
 export async function clientHasPendingHumanInteraction(
   input: SparkDaemonPendingHumanInteractionIdentity,
   client: SparkDaemonClientOptions = {},
@@ -3080,6 +1995,7 @@ export async function clientHasPendingHumanInteraction(
 }
 
 /** Deliver a native TUI answer to the daemon-owned interaction continuation. */
+
 export async function clientRespondHumanInteraction(
   input: SparkDaemonHumanInteractionRespondInput,
   client: SparkDaemonClientOptions = {},
@@ -3121,16 +2037,6 @@ export async function clientRespondHumanInteraction(
   throw new Error("Spark daemon human interaction response retry exhausted unexpectedly.");
 }
 
-export interface SparkDaemonHumanInteractionRequestHandlerOptions {
-  currentSessionId: string;
-  client?: SparkDaemonClientOptions;
-  signal?: AbortSignal;
-  reopenDelayMs?: number;
-  interaction(request: SparkInteractionRequest): Promise<unknown>;
-  notify(message: string, level: "success" | "warning"): void;
-}
-
-/** Keep a daemon-owned Ask visible until its answer reaches the owning wait. */
 export async function handleSparkDaemonHumanInteractionRequest(
   request: SparkInteractionRequest,
   event: Extract<SparkDaemonEvent, { type: "daemon.interaction.request" }>,
@@ -3465,6 +2371,23 @@ export async function ensureSparkDaemonClientRunning(
   client: SparkDaemonClientOptions,
 ): Promise<void> {
   const paths = resolveSparkDaemonClientPaths(client);
+  const existing = daemonEnsureRunningPromises.get(paths.runtimeDir);
+  if (existing) return await existing;
+  const attempt = ensureSparkDaemonClientRunningInternal(client, paths);
+  daemonEnsureRunningPromises.set(paths.runtimeDir, attempt);
+  try {
+    await attempt;
+  } finally {
+    if (daemonEnsureRunningPromises.get(paths.runtimeDir) === attempt) {
+      daemonEnsureRunningPromises.delete(paths.runtimeDir);
+    }
+  }
+}
+
+async function ensureSparkDaemonClientRunningInternal(
+  client: SparkDaemonClientOptions,
+  paths: SparkDaemonClientPaths,
+): Promise<void> {
   if (
     client.controlRequest ||
     client.startService ||
@@ -3567,12 +2490,6 @@ async function runForeground(command: string, args: string[]): Promise<number> {
       resolvePromise(code ?? 1);
     });
   });
-}
-
-export interface SparkDaemonServiceCommandOptions {
-  daemonAppDir?: string;
-  env?: NodeJS.ProcessEnv;
-  buildSource?: (daemonAppDir: string, env: NodeJS.ProcessEnv) => number | null;
 }
 
 export function sparkDaemonServiceCliCommand(options: SparkDaemonServiceCommandOptions = {}): {
@@ -3694,31 +2611,6 @@ function resolveSparkDaemonClientPaths(
     pidFile: join(runtimeDir, "daemon.pid"),
     lockPath: join(runtimeDir, "daemon.lock"),
   };
-}
-
-function readPrompt(parsed: ReturnType<typeof parseSparkCliOptions>): string | undefined {
-  const fromOption = readStringOption(parsed.options, "prompt");
-  const text = fromOption ?? parsed.positionals.join(" ");
-  return text.trim() || undefined;
-}
-
-function readDaemonLeafArg(raw: string | undefined): string | null | undefined {
-  if (raw === undefined || raw === "all") return undefined;
-  return raw === "root" ? null : raw;
-}
-
-function readRunState(raw: string): SparkDaemonRunState {
-  if (
-    raw === "queued" ||
-    raw === "running" ||
-    raw === "succeeded" ||
-    raw === "failed" ||
-    raw === "cancelled" ||
-    raw === "all"
-  ) {
-    return raw;
-  }
-  throw new Error(`invalid daemon run state: ${raw}`);
 }
 
 function formatNativeDaemonStatus(status: SparkDaemonClientStatus): string {

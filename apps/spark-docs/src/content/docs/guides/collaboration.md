@@ -7,12 +7,14 @@ description: Distinguish roles, sessions, Side Threads, and message-platform cha
 
 | Object | Use it for | Lifetime and authority |
 | --- | --- | --- |
-| Role | Optional reusable behavior and capability overlay | Definition resolved and frozen per Invocation |
+| Role | One reusable responsibility, authority overlay, and optional preloaded Skills | Definition and exact Skill composition frozen per Invocation |
 | Session | Execution context, history, queue, and mailbox | Owner-derived persistent, scoped, or ephemeral lifetime |
 | Side Thread | Read-only tangent attached to one parent Session | Scoped child with explicit handoff |
 | Channel | Feishu, Infoflow, or QQ Bot conversation | Routing alias bound to a scoped Session |
 
 Choose a Role when behavior and capability policy should be reusable. The
+Role Session follows its declared preloaded Skills directly; `skill_agent` is
+for ad-hoc self-contained capabilities without a predefined Role. The
 default Session binding is `none`, with no extra Role prompt. Every Workspace
 has one protected persistent Administrator; other continuing conversations are
 scoped Sessions. A Role call uses a one-Invocation ephemeral Session. Use a

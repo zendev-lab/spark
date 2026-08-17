@@ -1,6 +1,6 @@
 /**
  * Persistence adapter for the host-neutral @zendev-lab/spark-repro state machine.
- * Legacy v1-v6 snapshots are migrated fail-closed into the v7 dual-lane session protocol.
+ * Legacy v1-v7 snapshots are migrated fail-closed into the v8 three-lane session protocol.
  */
 
 import type { EvidenceRef } from "@zendev-lab/spark-core";
@@ -25,6 +25,7 @@ import {
   type SparkSessionReproV4,
   type SparkSessionReproV5,
   type SparkSessionReproV6,
+  type SparkSessionReproV7,
 } from "@zendev-lab/spark-repro";
 import {
   rebuildSessionIndex,
@@ -39,9 +40,15 @@ export function reproPhaseToSessionMode(phase: SparkSessionPhase): "plan" | "exe
   return phase === "implement" ? "execute" : "plan";
 }
 
+interface SparkSessionReproSnapshotV8 {
+  version: 8;
+  repro?: SparkSessionRepro;
+  [key: string]: unknown;
+}
+
 interface SparkSessionReproSnapshotV7 {
   version: 7;
-  repro?: SparkSessionRepro;
+  repro?: SparkSessionReproV7;
   [key: string]: unknown;
 }
 
@@ -107,6 +114,7 @@ interface LegacySparkSessionReproSnapshot {
 }
 
 type StoredSparkSessionReproSnapshot =
+  | SparkSessionReproSnapshotV8
   | SparkSessionReproSnapshotV7
   | SparkSessionReproSnapshotV6
   | SparkSessionReproSnapshotV5
@@ -125,23 +133,33 @@ export async function readSessionRepro(
   const path = sessionReproStorePath(cwd, ctx);
   const snapshot = await readJsonFileOptional<StoredSparkSessionReproSnapshot>(path);
   if (!snapshot) return undefined;
-  if (snapshot.version === 7) {
+  if (snapshot.version === 8) {
     if (snapshot.repro === undefined) return undefined;
     const repro = sanitizeStoredSessionRepro(snapshot.repro);
     if (!repro) {
       throw new Error(`Stored Repro snapshot is invalid and was preserved at ${path}`);
     }
     if (JSON.stringify(repro) !== JSON.stringify(snapshot.repro)) {
-      await writeJsonFileAtomic(path, { version: 7, repro } satisfies SparkSessionReproSnapshotV7);
+      await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
       await rebuildSessionIndex(cwd);
     }
+    return repro;
+  }
+  if (snapshot.version === 7) {
+    if (snapshot.repro === undefined) return undefined;
+    const repro = normalizeStoredSparkSessionRepro(snapshot.repro);
+    if (!repro) {
+      throw new Error(`Stored Repro snapshot is invalid and was preserved at ${path}`);
+    }
+    await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
+    await rebuildSessionIndex(cwd);
     return repro;
   }
   if (snapshot.version === 6) {
     const sanitized = sanitizeStoredSessionReproV6(snapshot.repro);
     const migrated = sanitized ? migrateSparkSessionReproV6(sanitized) : undefined;
     const repro = sanitizeStoredSessionRepro(migrated);
-    await writeJsonFileAtomic(path, { version: 7, repro } satisfies SparkSessionReproSnapshotV7);
+    await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
     await rebuildSessionIndex(cwd);
     return repro;
   }
@@ -149,7 +167,7 @@ export async function readSessionRepro(
     const sanitized = sanitizeStoredSessionReproV5(snapshot.repro);
     const migrated = sanitized ? migrateSparkSessionReproV5(sanitized) : undefined;
     const repro = sanitizeStoredSessionRepro(migrated);
-    await writeJsonFileAtomic(path, { version: 7, repro } satisfies SparkSessionReproSnapshotV7);
+    await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
     await rebuildSessionIndex(cwd);
     return repro;
   }
@@ -157,7 +175,7 @@ export async function readSessionRepro(
     const sanitized = sanitizeStoredSessionReproV4(snapshot.repro);
     const migrated = sanitized ? migrateSparkSessionReproV4(sanitized) : undefined;
     const repro = sanitizeStoredSessionRepro(migrated);
-    await writeJsonFileAtomic(path, { version: 7, repro } satisfies SparkSessionReproSnapshotV7);
+    await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
     await rebuildSessionIndex(cwd);
     return repro;
   }
@@ -166,7 +184,7 @@ export async function readSessionRepro(
     const v4 = sanitized ? migrateSparkSessionReproV3(sanitized) : undefined;
     const migrated = v4 ? migrateSparkSessionReproV4(v4) : undefined;
     const repro = sanitizeStoredSessionRepro(migrated);
-    await writeJsonFileAtomic(path, { version: 7, repro } satisfies SparkSessionReproSnapshotV7);
+    await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
     await rebuildSessionIndex(cwd);
     return repro;
   }
@@ -176,7 +194,7 @@ export async function readSessionRepro(
   const v4 = v3 ? migrateSparkSessionReproV3(v3) : undefined;
   const migrated = v4 ? migrateSparkSessionReproV4(v4) : undefined;
   const repro = sanitizeStoredSessionRepro(migrated);
-  await writeJsonFileAtomic(path, { version: 7, repro } satisfies SparkSessionReproSnapshotV7);
+  await writeJsonFileAtomic(path, { version: 8, repro } satisfies SparkSessionReproSnapshotV8);
   await rebuildSessionIndex(cwd);
   return repro;
 }
@@ -187,8 +205,8 @@ export async function writeSessionRepro(
   ctx?: SparkSessionContext,
 ): Promise<void> {
   const path = sessionReproStorePath(cwd, ctx);
-  const snapshot: SparkSessionReproSnapshotV7 = {
-    version: 7,
+  const snapshot: SparkSessionReproSnapshotV8 = {
+    version: 8,
     repro: repro ? withoutReproRuntimeState(repro) : undefined,
   };
   await writeJsonFileAtomic(path, snapshot);
@@ -473,7 +491,7 @@ function normalizeLegacyStageNames<
       name: normalizeReproStageName(stage.name),
     })),
     ...(plan ? { plan } : {}),
-    ...(repro.version === 5 || repro.version === 6 || repro.version === 7
+    ...(repro.version === 5 || repro.version === 6 || repro.version === 8
       ? { subgoals: repro.subgoals.map(normalizeDefinition) }
       : {}),
   } as T;

@@ -38,6 +38,7 @@ import {
 } from "../../../test/support/session-fixtures.ts";
 import {
   addWorkspace,
+  applyWorkspaceLifecycleMutation,
   attachWorkspaceClient,
   getWorkspaceById,
   registerWorkspace,
@@ -342,6 +343,45 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
+  it("ensures Administrator Sessions only for active workspaces during startup", async () => {
+    const harness = makeHarness();
+    const inactivePath = join(harness.sparkHome, "inactive-workspace");
+    mkdirSync(inactivePath, { recursive: true });
+    const inactive = registerWorkspace(harness.db, {
+      localPath: inactivePath,
+      displayName: "Inactive workspace",
+    });
+    applyWorkspaceLifecycleMutation(harness.db, {
+      action: "unregister",
+      workspaceId: inactive.id,
+    });
+    const sessionRegistry = createDaemonSessionRegistry(harness.sparkHome, {
+      resolveWorkspaceCwd: (workspaceId) => getWorkspaceById(harness.db, workspaceId)?.localPath,
+    });
+    const ensureAdministrator = vi.spyOn(sessionRegistry, "ensureWorkspaceAdministrator");
+
+    try {
+      await startSparkDaemon({
+        paths: harness.paths,
+        sparkHome: harness.sparkHome,
+        db: harness.db,
+        config: {
+          installationId: "active-workspace-startup-test",
+          displayName: "Active workspace startup test daemon",
+        },
+        sessionRegistry,
+        once: true,
+        runScheduler: false,
+      });
+
+      expect(ensureAdministrator).toHaveBeenCalledTimes(1);
+      expect(ensureAdministrator).toHaveBeenCalledWith(harness.workspace.id);
+      expect(ensureAdministrator).not.toHaveBeenCalledWith(inactive.id);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
   it.each([
     {
       name: "configured five-slot capacity",
@@ -444,7 +484,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );
@@ -629,7 +669,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
         previousProcessStartToken: "test:previous",
         targetInstanceId: "target-instance",
         targetGeneration: "target-generation",
-        protocolVersion: 1,
+        protocolVersion: 2,
         requestedAt: "2026-07-15T00:01:00.000Z",
       }),
     );

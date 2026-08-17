@@ -5,7 +5,7 @@ import {
   DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE,
   SPARK_HEADLESS_EXECUTOR_MODULE_ENV,
   resolveSparkHeadlessExecutorSpecifier,
-} from "@zendev-lab/spark-host/headless-loader";
+} from "@zendev-lab/spark-system/headless-module";
 
 export const ISOLATED_NATIVE_EXECUTOR_FAILURE_MESSAGE =
   "host-provided native role executor was incompatible; Spark headless fallback failed";
@@ -26,6 +26,7 @@ interface IsolatedExecutorRequest {
   launch?: ExtensionRoleRunRequest["launch"];
   forkFromSession?: string;
   model?: string;
+  thinking?: ExtensionRoleRunRequest["thinking"];
   nativeCompatibilityRecovery?: "reviewer";
 }
 
@@ -200,6 +201,7 @@ export function serializeIsolatedExecutorRequest(
     launch: request.launch,
     forkFromSession: request.forkFromSession,
     model: request.model,
+    thinking: request.thinking,
     nativeCompatibilityRecovery: request.nativeCompatibilityRecovery,
   };
 }
@@ -259,6 +261,9 @@ function isRoleRunRecord(value: unknown): value is ExtensionRoleRunResult["recor
       "ref",
       "roleRef",
       "roleRevision",
+      "definitionRevision",
+      "compositionRevision",
+      "skillDigests",
       "runName",
       "instruction",
       "status",
@@ -275,6 +280,22 @@ function isRoleRunRecord(value: unknown): value is ExtensionRoleRunResult["recor
   if (typeof value.ref !== "string" || !value.ref.startsWith("run:")) return false;
   if (typeof value.roleRef !== "string" || !value.roleRef.startsWith("role:")) return false;
   if (typeof value.roleRevision !== "string" || !value.roleRevision.trim()) return false;
+  for (const field of ["definitionRevision", "compositionRevision"] as const) {
+    if (value[field] !== undefined && typeof value[field] !== "string") return false;
+  }
+  if (
+    value.skillDigests !== undefined &&
+    (!Array.isArray(value.skillDigests) ||
+      !value.skillDigests.every(
+        (entry) =>
+          isRecord(entry) &&
+          hasOnlyKeys(entry, ["name", "digest"]) &&
+          typeof entry.name === "string" &&
+          typeof entry.digest === "string",
+      ))
+  ) {
+    return false;
+  }
   if (typeof value.instruction !== "string" || !isRoleRunStatus(value.status)) return false;
   for (const field of [
     "runName",

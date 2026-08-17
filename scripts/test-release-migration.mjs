@@ -60,6 +60,20 @@ export function selectPublishedBaselineVersion(published, currentVersion, explic
   return stable.filter((version) => compareVersions(version, currentVersion) < 0).at(-1);
 }
 
+export function resolveReleaseMigrationExemption(sparkRelease, candidateVersion) {
+  const exemptions = sparkRelease?.nMinusOneMigrationExemptions;
+  if (exemptions === undefined) return undefined;
+  if (!isRecord(exemptions)) {
+    throw new Error("sparkRelease.nMinusOneMigrationExemptions must be an object.");
+  }
+  const reason = exemptions[candidateVersion];
+  if (reason === undefined) return undefined;
+  if (typeof reason !== "string" || !reason.trim()) {
+    throw new Error(`N-1 migration exemption for ${candidateVersion} must have a reason.`);
+  }
+  return { candidateVersion, reason: reason.trim() };
+}
+
 export async function resolvePublishedHubProbe(baselineRoot, dependencies = {}) {
   const pathExists = dependencies.exists ?? exists;
   const candidates = [
@@ -275,6 +289,13 @@ async function main() {
     throw new Error(`Root package version must be a stable x.y.z release: ${currentVersion}`);
   }
   await readCandidateArtifactIdentity(candidatePath, currentVersion);
+  const exemption = resolveReleaseMigrationExemption(rootManifest.sparkRelease, currentVersion);
+  if (exemption && !explicitBaseline) {
+    console.log(
+      `N-1 migration compatibility is exempt for ${exemption.candidateVersion}: ${exemption.reason}`,
+    );
+    return;
+  }
   const npmEnvironment = {
     ...process.env,
     npm_config_registry: "https://registry.npmjs.org/",
@@ -633,6 +654,10 @@ function parseJson(text, label) {
   } catch (error) {
     throw new Error(`${label} is not valid JSON`, { cause: error });
   }
+}
+
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function runCommand(command, args, { cwd, env }) {

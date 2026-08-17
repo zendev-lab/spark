@@ -16,6 +16,7 @@ import {
   type SparkReproWorkSummaryInput,
   type SparkReproWorkStage,
 } from "@zendev-lab/spark-repro/work-summary";
+import { migrateSparkReproWorkSummaryV2 } from "@zendev-lab/spark-repro/three-lane-work-summary";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SparkLoopEvaluationContext } from "../store/loop-evaluators.ts";
 import {
@@ -61,6 +62,23 @@ describe("trusted Repro Loop evaluators", () => {
     expect(result).toMatchObject({ verdict: "achieved" });
     expect(result.evidenceRefs).toHaveLength(1);
     expect(result.evidenceRefs?.[0]).toMatch(/^evidence:/u);
+  });
+
+  it("reviews a canonical three-lane work-summary/v3 through its formal base", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    await persistAcceptedFormalEvidence(cwd, input);
+    await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
+    const work = migrateSparkReproWorkSummaryV2(buildSparkReproWorkSummary(input));
+    await mkdir(join(cwd, "outputs"), { recursive: true });
+    await writeFile(
+      join(cwd, "outputs", "spark-summary.json"),
+      `${JSON.stringify({ format: "spark-repro-summary/v1", work }, null, 2)}\n`,
+    );
+
+    await expect(reproCompletionEvaluator(context(cwd))).resolves.toMatchObject({
+      verdict: "achieved",
+    });
   });
 
   it("preserves an unchanged retired step proof across a later global plan append", async () => {
@@ -432,9 +450,9 @@ function completionEvaluator(
     },
     async (cwd) => ({
       reproId: "repro-1",
-      dualLane: {
+      threeLane: {
         planRevision: options.currentRevision ?? 1,
-        normative: {
+        formalize: {
           orderedStepIds: options.includeS2 ? ["S1", "S2"] : ["S1"],
           retiredStepIds: options.includeS2 ? ["S1", "S2"] : ["S1"],
         },

@@ -245,6 +245,8 @@ export interface SparkNativeWorkspaceSessionState {
   workspaceHash: string;
   /** Canonical host/claim owner identity for the attached persistent session. */
   sessionId?: string;
+  /** Operator-facing Session name; never a project/workspace title. */
+  sessionName?: string;
   controlPlaneSessionId?: string;
   attachTarget?: string;
   mismatchDiagnostic?: string;
@@ -286,6 +288,7 @@ export interface SparkNativeWidget {
 
 export const SPARK_HUB_PANELS: readonly SparkNativeHubPanel[] = [
   "overview",
+  "repro",
   "workflows",
   "runs",
   "tasks",

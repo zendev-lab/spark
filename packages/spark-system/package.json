@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-system",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Spark filesystem path, permission, command, and local runtime helpers.",
   "files": [
@@ -12,9 +12,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./headless-module": "./src/headless-module.ts",
     "./resource-paths": "./src/resource-paths.ts",
     "./strings": "./src/strings.ts",
-    "./sqlite": "./src/sqlite.ts",
     "./socket-message-port": "./src/socket-message-port.ts"
   },
   "scripts": {

@@ -22,6 +22,12 @@ Use `--token -` to read a one-line registration token from stdin. Browser/device
 
 The daemon owns workspace arbitration, the Session registry and Owner-derived lifecycle, Administrator provisioning, channels, SQLite Invocations/receipts, per-Session execution fencing, cancellation, timeout, restart recovery, and the runtime WebSocket uplink. Hub receives projections; it is not execution truth.
 
+Session work projections are rebuilt from owner state on every snapshot. Repro
+lane summaries come from the persisted v8 Repro record; Goal readiness comes
+from the selected TaskGraph project plus daemon-owned pending human requests.
+`waiting_decision` does not remove unrelated ready TaskRefs, and no projection
+parses transcript or rendered text to infer progress.
+
 Daemon SQLite startup uses the static registry under `src/store/migrations/`.
 Each step declares a stable diagnostic ID and its state owner; startup executes
 the registry in source order. Migrations remain idempotent and retain any
@@ -41,3 +47,9 @@ closed while invocations or clients are active and require confirmation unless
 Keep source/package updates outside the daemon. An updater should build or install into a staging location, atomically replace the deployed package, then run `spark daemon sync`. `sync` starts a stopped daemon, leaves an already-current daemon alone, and requests the same fenced drain restart when the running build fingerprint differs; it waits for readiness by default (pass `--no-wait` only for fire-and-forget). A running daemon also watches its deployed entrypoint and automatically requests that safe restart after a changed fingerprint remains stable. On macOS the launchd service remains the process supervisor; the daemon never pulls Git or overwrites its own installation.
 
 An unplanned daemon exit resumes durable invocations that were left `running`: the successor requeues them with `invocation.resume` and a resume notice for the model session. Invalid task payloads still fail closed with `DAEMON_EXECUTION_INTERRUPTED`. Invocations that were still `queued` remain eligible for the next daemon generation.
+
+In a source checkout, the daemon also fingerprints the runtime source graph of
+its daemon/TUI headless dependencies and workspace manifests. A renamed
+workspace export therefore requests the same safe drain restart as a deployed
+build replacement. Tests, docs, declarations, and generated output do not
+trigger this source watcher.

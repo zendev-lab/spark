@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Spark monorepo: daemon-first agent orchestration across TUI, Hub, and channels, with Pi retained only as an SDK kernel.",
   "keywords": [
@@ -34,7 +34,8 @@
   "type": "module",
   "scripts": {
     "check": "pnpm run check:static && pnpm run check:docs && pnpm run test:unit && pnpm run test:process:source",
-    "check:static": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/sync-workspace-versions.mjs && pnpm exec prek run actionlint --all-files && pnpm exec prek run zizmor --all-files && pnpm run check:pi-extensions && pnpm run check:architecture && pnpm run check:tool-surface && pnpm run check:boundaries && vp fmt . --check && vp lint --quiet --report-unused-disable-directives-severity error && pnpm run typecheck",
+    "check:static": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/sync-workspace-versions.mjs && pnpm exec prek run actionlint --all-files && pnpm exec prek run zizmor --all-files && pnpm run check:agent-knowledge && pnpm run check:pi-extensions && pnpm run check:architecture && pnpm run check:tool-surface && pnpm run check:boundaries && vp fmt . --check && vp lint --quiet --report-unused-disable-directives-severity error && pnpm run typecheck",
+    "check:agent-knowledge": "node scripts/check-agent-knowledge.mjs",
     "check:pi-extensions": "node scripts/check-pi-extensions.mjs",
     "check:architecture": "prek run check-jsonschema check-metaschema --files architecture/packages.json architecture/packages.schema.json architecture/health.schema.json && syncpack lint --config .syncpackrc.json --no-ansi && knip --strict --include unlisted --no-progress --no-config-hints && node scripts/check-architecture-ratchets.mjs && node scripts/check-architecture-governance.mjs --check",
     "check:architecture-transition": "node scripts/check-architecture-transition.mjs",
@@ -144,7 +145,10 @@
   },
   "sparkRelease": {
     "minimumUpdaterVersion": "0.2.0",
-    "rollbackCompatibility": ">=0.2.0 <0.3.0",
+    "rollbackCompatibility": "<0.0.0",
+    "nMinusOneMigrationExemptions": {
+      "0.4.0": "One-time coordinated hard cut for view-model protocol v2; mixed 0.3.x and 0.4.0 processes are unsupported."
+    },
     "migrationMode": "expand-only"
   }
 }

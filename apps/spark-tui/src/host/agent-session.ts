@@ -30,6 +30,7 @@ import {
   CURRENT_SPARK_COMPACTION_SUMMARY_VERSION,
   DEFAULT_SPARK_COMPACTION_SETTINGS,
   compactSparkSessionRecord,
+  estimateSparkContextTokens,
   meterSparkContextTokens,
   prepareSparkCompaction,
   renderSparkSmartCompactionPrompt,
@@ -509,9 +510,20 @@ export class SparkAgentSession {
     if (!settings.enabled) return;
     const requestedOutput = positiveNumber(model.maxTokens) ?? 0;
     const replayMessages = activeSessionReplayMessages(record);
+    // The final assembled-envelope guard meters the exact provider request with
+    // the larger of provider-reported usage and the local chars/4 estimate
+    // (local estimate mirrors the guard's envelope). A trailing/partial report
+    // (prompt-cache accounting or a smaller prior request) can undercount the
+    // next request enough to skip preflight compaction entirely, so the
+    // preflight must never trust a report below the estimate it shares with
+    // the guard. Use the max of the two meters.
+    const reportedTokens = latestReportedContextTokens(record);
+    const estimatedReplayTokens = estimateSparkContextTokens(replayMessages).tokens;
     const contextMeter = meterSparkContextTokens({
       messages: replayMessages,
-      reportedTokens: latestReportedContextTokens(record),
+      ...(reportedTokens !== undefined && reportedTokens >= estimatedReplayTokens
+        ? { reportedTokens }
+        : {}),
     });
     const promptMeter = meterSparkContextTokens({ messages: [{ role: "user", content: prompt }] });
     const schedule = scheduleSparkCompaction(replayMessages, contextWindow, settings);
@@ -849,7 +861,10 @@ function throwIfCompactionAborted(signal: AbortSignal | undefined): void {
 function isProviderErrorPromptItem(item: SparkPromptItem): boolean {
   if (item.content.kind !== "provider_message") return false;
   const message = item.content.message;
-  return message.role === "assistant" && message.stopReason === "error";
+  return (
+    message.role === "assistant" &&
+    (message.stopReason === "error" || message.stopReason === "length")
+  );
 }
 
 function classifyRunOutcome(

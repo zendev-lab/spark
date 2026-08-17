@@ -15,7 +15,7 @@ export {
   renderBaseSystemPromptsPrompt,
   renderBuiltinSkillsCatalogForPrompt,
   type SparkSkillFrontmatter,
-} from "@zendev-lab/spark-host/builtin-skills";
+} from "@zendev-lab/spark-roles/builtin-skills";
 export { loadSparkMode } from "./extension/session-state.ts";
 export { sparkSessionKey } from "@zendev-lab/spark-loop";
 export type { SparkSessionContext } from "@zendev-lab/spark-loop";

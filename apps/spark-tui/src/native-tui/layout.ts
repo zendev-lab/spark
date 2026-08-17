@@ -10,6 +10,8 @@ export interface SparkNativeRenderedSections {
   pinnedStatus?: readonly string[];
   queue?: readonly string[];
   composer: readonly string[];
+  /** Active editor row(s) to retain when the complete bordered composer cannot fit. */
+  composerActive?: readonly string[];
   footer: readonly string[];
   runtimeFooter?: readonly string[];
 }
@@ -38,10 +40,20 @@ export function composeSparkNativeFrame(input: SparkNativeLayoutInput): string[]
   const pinnedStatus = clean(input.sections.pinnedStatus);
   const queue = clean(input.sections.queue);
   const composer = clean(input.sections.composer);
+  const composerActive = clean(input.sections.composerActive);
   const footer = clean(input.sections.footer);
   const runtimeFooter = clean(input.sections.runtimeFooter);
 
-  const bottom = allocateBottom({ pinnedStatus, composer, footer, runtimeFooter, height });
+  const latestTranscriptReserve =
+    transcript.length > 0 && composer.length > 0 && height > 1 ? 1 : 0;
+  const bottom = allocateBottom({
+    pinnedStatus,
+    composer,
+    composerActive,
+    footer,
+    runtimeFooter,
+    height: height - latestTranscriptReserve,
+  });
   let remaining = height - bottom.length;
   const top = [...header, ...context].slice(0, remaining);
   remaining -= top.length;
@@ -64,6 +76,7 @@ export function composeSparkNativeFrame(input: SparkNativeLayoutInput): string[]
 function allocateBottom(input: {
   pinnedStatus: string[];
   composer: string[];
+  composerActive: string[];
   footer: string[];
   runtimeFooter: string[];
   height: number;
@@ -80,7 +93,12 @@ function allocateBottom(input: {
   // The composer is the only indispensable surface. Keep its active line first,
   // then controls/runtime identity, and use the remaining rows for the leading
   // durable status projection (session, Goal/Phase, workflows, and projects).
-  const composer = input.composer.length > 0 ? input.composer.slice(-1) : [];
+  const composer =
+    input.composerActive.length > 0
+      ? input.composerActive.slice(-1)
+      : input.composer.length > 0
+        ? input.composer.slice(-1)
+        : [];
   let remaining = input.height - composer.length;
   const footer = input.footer.slice(0, remaining);
   remaining -= footer.length;

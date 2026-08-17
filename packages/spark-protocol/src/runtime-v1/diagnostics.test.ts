@@ -37,12 +37,12 @@ function runtimeHello() {
 
 describe("Spark protocol version diagnostics", () => {
   it("preserves the mismatch as structured, actionable data", () => {
-    expect(() => assertSparkProtocolVersion(2, { label: "workspace snapshot" })).toThrowError(
+    expect(() => assertSparkProtocolVersion(1, { label: "workspace snapshot" })).toThrowError(
       SparkProtocolVersionError,
     );
 
     try {
-      assertSparkProtocolVersion(2, { label: "workspace snapshot" });
+      assertSparkProtocolVersion(1, { label: "workspace snapshot" });
     } catch (error) {
       expect(error).toBeInstanceOf(SparkProtocolVersionError);
       if (!(error instanceof SparkProtocolVersionError)) return;
@@ -51,13 +51,13 @@ describe("Spark protocol version diagnostics", () => {
         kind: "view-model",
         field: "version",
         label: "workspace snapshot",
-        received: "2",
-        expected: "1",
+        received: "1",
+        expected: "2",
         action:
           "Upgrade Spark or migrate the payload to the supported schema version before retrying.",
       });
       expect(error.message).toContain(
-        "unsupported Spark protocol version at workspace snapshot: received 2; expected 1",
+        "unsupported Spark protocol version at workspace snapshot: received 1; expected 2",
       );
       expect(error.message).toContain("Action:");
     }

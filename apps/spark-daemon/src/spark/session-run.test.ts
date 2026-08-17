@@ -480,6 +480,51 @@ describe("daemon native session execution", () => {
     }
   });
 
+  it("keeps ordinary scoped Session tools bound to the child instead of its Administrator", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "spark-scoped-session-actor-"));
+    const executeSession = vi.fn(async () => ({ assistantText: "child executed" }));
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_execute_child",
+      prompt: "claim from the child Session",
+      cwd,
+    };
+
+    try {
+      await executeSparkDaemonSessionRunTask(task, context(task), {
+        paths,
+        executeSession,
+        sessionRegistry: {
+          get: vi.fn(async () =>
+            workspaceSessionRecord({
+              sessionId: task.sessionId,
+              workspaceId: "workspace-scoped-child",
+              supervisorSessionId: "sess_workspace_administrator",
+              cwd,
+            }),
+          ),
+          recordRun: vi.fn(async () => ({}) as never),
+          recordTurnQueued: vi.fn(async () => ({}) as never),
+          recordTurnSettled: vi.fn(async () => ({}) as never),
+        },
+      });
+
+      expect(executeSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: "sess_execute_child",
+          sessionSource: "daemon",
+        }),
+      );
+      expect(executeSession).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          stateBindingSessionId: "sess_workspace_administrator",
+        }),
+      );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it("passes and releases the daemon-fenced lease for a managed Task Session", async () => {
     const wakeOwner = vi.fn();
     const release = vi.fn();

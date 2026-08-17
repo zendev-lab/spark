@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-memory",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Unified Spark memory capability with explicit scoped entries, keyword search, and policy-only prompting.",
   "license": "MIT",
@@ -15,19 +15,12 @@
     ".": "./src/index.ts",
     "./extension": "./src/extension.ts",
     "./recall": "./src/recall-store.ts",
-    "./learning": "./src/learning-store.ts",
-    "./compaction-candidates": "./src/compaction-candidates.ts",
     "./candidate-lifecycle": "./src/candidate-lifecycle.ts",
     "./retrieval-telemetry": "./src/retrieval-telemetry.ts",
     "./quarantine": "./src/quarantine.ts",
     "./legacy-fixture": "./src/legacy-fixture.ts",
-    "./mutation-lock": "./src/mutation-lock.ts",
-    "./proposals": "./src/proposals.ts",
     "./schema-migration": "./src/schema-migration.ts",
-    "./reflection-candidate-inbox": "./src/reflection-candidate-inbox.ts",
-    "./reflection-in-session-scheduler": "./src/reflection-in-session-scheduler.ts",
-    "./reflection-session-scanner": "./src/reflection-session-scanner.ts",
-    "./reflection-synthesis-engine": "./src/reflection-synthesis-engine.ts"
+    "./reflection-in-session-scheduler": "./src/reflection-in-session-scheduler.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",

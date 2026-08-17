@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { EvidenceStore } from "@zendev-lab/spark-artifacts";
+import { contentHash } from "@zendev-lab/spark-core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { migrateRoleSessionStructuredData } from "./role-session-data-migration.ts";
@@ -159,6 +160,50 @@ describe("Role/Session v6 structured data migration", () => {
       }),
     ).rejects.toThrow(/Conflicting role model settings/u);
     expect(await readFile(roleSettings, "utf8")).toBe(original);
+  });
+
+  it("warns and preserves malformed legacy JSON Evidence bodies", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-role-session-invalid-evidence-"));
+    roots.push(root);
+    const workspace = join(root, "workspace");
+    const evidenceRoot = join(workspace, ".spark", "evidence");
+    const evidenceStore = new EvidenceStore({ rootDir: evidenceRoot });
+    const evidence = await evidenceStore.put({
+      kind: "trace",
+      title: "legacy invalid JSON",
+      format: "json",
+      body: { roleRef: "role:builtin-worker" },
+      provenance: { producer: "role", roleRef: "role:builtin-worker" },
+    });
+    if (!evidence.blobPath) throw new Error("missing Evidence blobPath");
+    const malformed = "not JSON";
+    const blobPath = join(evidenceRoot, evidence.blobPath);
+    const metadataPath = join(evidenceRoot, `${evidence.ref.slice("evidence:".length)}.json`);
+    const metadata = await readJson<Record<string, unknown>>(metadataPath);
+    await writeFile(blobPath, malformed, "utf8");
+    await writeJson(metadataPath, {
+      ...metadata,
+      hash: contentHash(malformed),
+      body: malformed,
+    });
+    const warnings: string[] = [];
+
+    const result = await migrateRoleSessionStructuredData({
+      sparkHome: join(root, "home"),
+      userRoleModelSettingsFile: join(root, "home", "role-model-settings.json"),
+      workspaces: [{ workspaceId: "ws_demo", rootDir: workspace }],
+      onWarning: (message) => warnings.push(message),
+    });
+
+    expect(result.changed).toBe(true);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("Skipping RoleRef rewrite for malformed JSON Evidence body");
+    expect(await readFile(blobPath, "utf8")).toBe(malformed);
+    expect(await readJson<Record<string, unknown>>(metadataPath)).toMatchObject({
+      hash: contentHash(malformed),
+      body: malformed,
+      provenance: { producer: "role", roleRef: "role:builtin-executor" },
+    });
   });
 });
 

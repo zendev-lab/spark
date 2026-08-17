@@ -325,16 +325,16 @@ function sessionSelectionGroups(
     const suggested = workspace.registration === "suggested";
     byKey.set(key, {
       key,
-      label: suggested ? "Create workspace" : workspace.displayName,
-      tabLabel: suggested ? "Create workspace" : workspace.displayName,
+      label: suggested ? "Open workspace" : workspace.displayName,
+      tabLabel: suggested ? "Open workspace" : workspace.displayName,
       suggested,
       items: [
         {
           value: `${CREATE_SPARK_SESSION_SELECTION}:${workspace.canonicalId}`,
           selection: { kind: "create", workspaceId: workspace.canonicalId },
-          label: suggested ? "+ Create workspace" : "+ New session",
+          label: "+ New session",
           description: suggested
-            ? `Use ${workspace.localPath}, then open a new session`
+            ? `Open a new session in ${workspace.localPath}`
             : "Create a daemon-managed session in this workspace",
         },
       ],

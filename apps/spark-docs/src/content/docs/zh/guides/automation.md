@@ -25,6 +25,9 @@ description: 只有普通 Plan 与 Implement 路径不够时，才选择 Goal、
 
 Goal 围绕一个持久结果继续工作，在完成、失败或需要你的输入时停止。
 
+Goal 仍只有一条 runtime 线。`active`、`waiting_decision`、`paused` 和 `complete`
+都由 TaskGraph 推导；等待决定不会阻止互不相关的 ready Task 继续运行。
+
 ```text
 /goal start <目标>
 /goal status
@@ -51,8 +54,15 @@ Loop 用于刻意保持开放的重复工作。只有当前步骤明确调度下
 
 ## Repro
 
-Repro 按 setup、scaffold、reproduce、scale 和 deliver 推进证据门控的复现工作。
-缺少基线、关键决定或批准时，它会暂停询问，而不是猜测。
+Repro 把证据门控工作组织为 Implementation Explore、Exactness Explore 和 Formalize。
+两条 Explore 线可以独立推进，但不会改变正式进度；只有 Formalize 接受一次 retirement
+才会更新 `formalizedTip`，它与正在演进的 Git Change stack tip 不同。
+
+Implementation 把候选改动向前交给 Exactness，Exactness 把验证过的候选交给
+Formalize；resolution 反向流动，用来消除临时工作。Exactness mismatch 必须记录首个
+异常边界、分类、置信度和处置；跳过检查必须同时声明 isolate 与 resync。缺少基线、
+关键决定或批准时，Repro 会暂停询问，而不是猜测。可以用 `/inspect repro` 在 TUI
+查看有界 daemon 投影。
 
 ```text
 /repro start <目标>
@@ -81,6 +91,18 @@ Repro 按 setup、scaffold、reproduce、scale 和 deliver 推进证据门控的
 
 空的 `/workflow` 会打开选择器。`/workflows`、`/workflow-runs` 和
 `/workflow-pause` 等旧命令仍可作为兼容别名执行，但不会出现在普通命令目录中。
+
+Spark 自带三条仓库工程工作流：
+
+- `workspace:repo-change` 对边界已明确的改动执行 owner 范围确认、实现、独立审查和
+  交付验证；
+- `workspace:maintainability-change` 先建立行为基线，分别审查正确性与非必要复杂度，
+  再执行有限的等价优化并重新独立审查；
+- `workspace:feature-change` 将仓库/外部调研、架构选型、计划、实现和独立审查拆成
+  明确的结构化交接。
+
+涉及 `.agents` 知识时会额外加入独立 curator 审查。三条工作流都只返回结构化的
+accepted 或 rejected 证据，不会创建、推送、合并或发布 pull request。
 
 ## 监督执行，而不是背诵状态
 

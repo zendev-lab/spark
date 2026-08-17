@@ -637,6 +637,16 @@ export interface SessionModelRef {
   api?: string;
 }
 
+export type SparkDelegationThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+/** Exact current-Session authority available to bounded child delegation. */
+export interface SparkHostDelegationEnvelope {
+  model: SessionModelRef;
+  thinking: SparkDelegationThinkingLevel;
+  activeTools: string[];
+  allowedToolEffects: ToolEffect[];
+}
+
 /**
  * Stable, credential-free reason codes for a degraded leaf capability call.
  * Hosts must never derive these from raw provider error text.
@@ -772,6 +782,7 @@ export interface ExtensionRoleRunRequest {
     systemPrompt: string;
     source?: "builtin" | "extension" | "project" | "user";
     capabilities?: Array<"read" | "write" | "exec" | "net" | "interact" | "manage" | "spawn">;
+    skills?: string[];
     modelType?: string;
     allowedTools?: string[];
     allowedToolEffects?: ToolEffect[];
@@ -784,8 +795,11 @@ export interface ExtensionRoleRunRequest {
   record: {
     ref: RunRef;
     roleRef: RoleRef;
-    /** Role definition revision frozen when the Invocation started. */
+    /** Effective Role revision frozen when the Invocation started. */
     roleRevision: string;
+    definitionRevision?: string;
+    compositionRevision?: string;
+    skillDigests?: Array<{ name: string; digest: string }>;
     runName?: string;
     instruction: string;
     status: ExtensionRoleRunStatus;
@@ -804,6 +818,7 @@ export interface ExtensionRoleRunRequest {
   launch?: ExtensionRoleLaunchMode;
   forkFromSession?: string;
   model?: string;
+  thinking?: SparkDelegationThinkingLevel;
   /**
    * Reviewer-only compatibility authority. Hosts may emit the stable native
    * compatibility outcome only for this exact marker and only when no event
@@ -904,6 +919,11 @@ export interface SparkHostContext {
   verifyMemoryDirectIntent?: (value: unknown) => Promise<boolean> | boolean;
   /** Present only inside a daemon-owned autonomous loop tick. */
   loop?: SparkHostLoopContext;
+  /**
+   * Host-resolved current-Session delegation authority. Child execution must
+   * fail closed when this envelope is absent rather than infer parent policy.
+   */
+  delegation?: SparkHostDelegationEnvelope;
   /** Session IDs already participating in a synchronous question chain. */
   sessionQuestionChain?: string[];
   /** Host-owned policy for detached asynchronous Goal/Repro evidence requests. */
@@ -1641,7 +1661,8 @@ export type TaskRunStatus =
   | "succeeded"
   | "blocked"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "stale";
 
 export interface TaskRunCompletionSummary {
   runRef: RunRef;
@@ -1697,6 +1718,10 @@ export interface TaskRun {
   outcome?: RoleRunCompletionOutcome;
   startedAt?: string;
   finishedAt?: string;
+  /** Last durable state transition used by liveness reconciliation. */
+  updatedAt?: string;
+  /** Recovery can explicitly make a prior failed attempt non-consuming. */
+  attemptConsumed?: boolean;
   outputEvidenceRefs: EvidenceRef[];
   completionSummary?: TaskRunCompletionSummary;
 }

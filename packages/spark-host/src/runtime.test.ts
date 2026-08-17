@@ -42,7 +42,7 @@ describe("SparkHostRuntime effect contract", () => {
     });
   });
 
-  it("keeps an explicit state binding authoritative over a turn-local view Session", () => {
+  it("keeps an explicit driver state binding authoritative over a turn-local view Session", () => {
     const host = new SparkHostRuntime({
       cwd: "/workspace",
       stateBindingSessionId: "session:state-owner",

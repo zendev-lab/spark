@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-extension",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Spark-native extension composition and policy boundary.",
   "license": "MIT",
@@ -15,7 +15,6 @@
     "./extension": "./src/extension/index.ts",
     "./extension/memory-approval-verifier": "./src/extension/memory-approval-verifier.ts",
     "./host-support": "./src/host-support.ts",
-    "./repro-report-summary": "./src/repro-report-summary.ts",
     "./repro-test-support": "./src/repro-test-support.ts"
   },
   "scripts": {

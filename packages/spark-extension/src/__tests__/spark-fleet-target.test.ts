@@ -50,6 +50,7 @@ function task(
   ref: string,
   artifactRefs: ArtifactRef[],
   worktreeTarget?: { primaryArtifactRef: ArtifactRef; writableArtifactRefs: ArtifactRef[] },
+  options: { kind?: Task["kind"]; isolation?: "isolated_worktree" | "readonly" } = {},
 ): Task {
   return {
     ref: ref as TaskRef,
@@ -57,13 +58,13 @@ function task(
     name: ref.replace("task:", ""),
     title: ref,
     description: "Fleet test task",
-    kind: "implement",
+    kind: options.kind ?? "implement",
     status: "ready",
     roleRef: "role:executor" as RoleRef,
     executionPolicy: {
       sessionLifetime: "task_revision",
       continuity: "reuse_within_revision",
-      isolation: "isolated_worktree",
+      isolation: options.isolation ?? "isolated_worktree",
       comparison: "single_side",
       concurrencyKeys: [],
       maxAttempts: 2,
@@ -157,6 +158,19 @@ test("Fleet rejects ambiguous, unlinked, missing, and moved targets without repl
       }),
       /no linked git_change/u,
     );
+  });
+});
+
+test("Fleet allows readonly tasks without a git_change and uses the session cwd", async () => {
+  await withWorkspace(async (workspace) => {
+    const resolved = await resolveFleetTaskTarget({
+      workspaceCwd: workspace,
+      task: task("task:review", [], undefined, { kind: "review", isolation: "readonly" }),
+    });
+    assert.equal(resolved.primaryRoot, workspace);
+    assert.deepEqual(resolved.writableArtifactRefs, []);
+    assert.deepEqual(resolved.writableRoots, []);
+    assert.deepEqual(resolved.concurrencyKeys, []);
   });
 });
 

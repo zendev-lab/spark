@@ -1,3 +1,4 @@
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,11 +9,14 @@ import type { SparkDaemonTask } from "../core/types.ts";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";
 import {
+  admitChannelWorkspaceIdentity,
   channelInboundInvocationIdempotencyKey,
+  isPermanentWorkspaceIdentityFailure,
   legacyChannelInboundInvocationIdempotencyKey,
   submitChannelInboundInvocation,
 } from "./admission.ts";
 import { createChannelIngressController, type ChannelIngressAssignment } from "./ingress.ts";
+import { applyWorkspaceLifecycleMutation, registerWorkspace } from "../store/workspaces.ts";
 import { workspaceSessionRecord } from "../../../../test/support/session-fixtures.ts";
 
 interface ReplayCase {
@@ -299,6 +303,160 @@ describe("channel inbound durable admission", () => {
       expect(store.listPage({ limit: 10 }).total).toBe(2);
     } finally {
       db.close();
+    }
+  });
+
+  it("resolves ws_* to the unique owning rtwb_* before assignment submit", () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-channel-ws-identity-"));
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    try {
+      const localPath = join(root, "owned");
+      mkdirSync(localPath);
+      const workspace = registerWorkspace(db, {
+        serverUrl: "https://hub.example/",
+        localPath,
+        displayName: "owned",
+        serverBindingId: "rtwb_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        serverWorkspaceId: "ws_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      });
+
+      const admission = admitChannelWorkspaceIdentity(db, "ws_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+      expect(admission).toEqual({
+        state: "resolved",
+        workspaceBindingId: "rtwb_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        workspaceId: workspace.id,
+        serverWorkspaceId: "ws_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      });
+      expect(isPermanentWorkspaceIdentityFailure(admission)).toBe(false);
+      if (admission.state !== "resolved") {
+        throw new Error(`expected resolved workspace identity, got ${admission.state}`);
+      }
+
+      const store = new SparkInvocationStore(db);
+      const assignment = {
+        sessionId: "session-ws-identity",
+        goal: "route by server workspace id",
+        assignment: {
+          goal: "route by server workspace id",
+          target: {
+            sessionId: "session-ws-identity",
+            workspaceId: "ws_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          },
+          constraints: [],
+          evidence: [],
+          source: {
+            kind: "channel",
+            channel: "qqbot",
+            externalRef: "platform-message-ws",
+          },
+        },
+        source: {
+          kind: "channel",
+          channel: "qqbot",
+          externalRef: "platform-message-ws",
+        },
+        externalKey: "qqbot:c2c:user-private",
+        adapterAccountIdentity: "channel-account:qqbot:account-a",
+        channelReply: {
+          adapter: "qqbot" as const,
+          workspaceId: "ws_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          adapterId: "qqbot",
+          recipient: "c2c:user-private",
+          externalKey: "qqbot:c2c:user-private",
+        },
+        channelContext: {
+          externalKey: "qqbot:c2c:user-private",
+          senderId: "user-private",
+          messageId: "platform-message-ws",
+        },
+      } satisfies ChannelIngressAssignment;
+      const task: SparkDaemonTask = {
+        type: "session.run",
+        sessionId: assignment.sessionId,
+        prompt: assignment.goal,
+        assignment: assignment.assignment,
+        workspaceId: admission.workspaceId,
+        workspaceBindingId: admission.workspaceBindingId,
+        cwd: localPath,
+        channelReply: { ...assignment.channelReply, externalKey: assignment.externalKey },
+        channelContext: assignment.channelContext,
+      };
+      const admitted = submitChannelInboundInvocation(store, assignment, task);
+      expect(admitted.workspaceBindingId).toBe("rtwb_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+      expect(store.listPage({ limit: 10 }).total).toBe(1);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("classifies unknown/ambiguous/unregistered workspace identities as permanent route failures", () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-channel-ws-route-"));
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    try {
+      const firstPath = join(root, "a");
+      const secondPath = join(root, "b");
+      const retiredPath = join(root, "retired");
+      mkdirSync(firstPath);
+      mkdirSync(secondPath);
+      mkdirSync(retiredPath);
+      registerWorkspace(db, {
+        serverUrl: "https://hub.example/",
+        localPath: firstPath,
+        displayName: "a",
+        serverBindingId: "rtwb_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        serverWorkspaceId: "ws_shared",
+      });
+      registerWorkspace(db, {
+        serverUrl: "https://hub.example/",
+        localPath: secondPath,
+        displayName: "b",
+        serverBindingId: "rtwb_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        serverWorkspaceId: "ws_shared",
+      });
+      const retired = registerWorkspace(db, {
+        serverUrl: "https://hub.example/",
+        localPath: retiredPath,
+        displayName: "retired",
+        serverBindingId: "rtwb_cccccccccccccccccccccccccccccccc",
+        serverWorkspaceId: "ws_retired",
+      });
+      applyWorkspaceLifecycleMutation(db, {
+        action: "unregister",
+        workspaceId: retired.id,
+      });
+
+      const cases = [
+        {
+          identity: "ws_missing",
+          state: "unknown" as const,
+          reasonCode: "workspace_identity_unknown" as const,
+        },
+        {
+          identity: "ws_shared",
+          state: "ambiguous" as const,
+          reasonCode: "workspace_identity_ambiguous" as const,
+        },
+        {
+          identity: "ws_retired",
+          state: "unregistered" as const,
+          reasonCode: "workspace_identity_unregistered" as const,
+        },
+      ];
+      for (const testCase of cases) {
+        const admission = admitChannelWorkspaceIdentity(db, testCase.identity);
+        expect(admission).toMatchObject({
+          state: testCase.state,
+          reasonCode: testCase.reasonCode,
+        });
+        expect(isPermanentWorkspaceIdentityFailure(admission)).toBe(true);
+        expect(admission.workspaceBindingId).toBeUndefined();
+      }
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

@@ -33,7 +33,7 @@ TUI 与 Hub 也可作为独立 app package 安装。其他源码 workspace 仍�
 | `spark-protocol`、`spark-core`、`spark-runtime`、`spark-system`、`spark-tui-adapter` | 跨表面契约与低依赖基础层 |
 | `packages/spark-hub-*` | Hub 私有数据库、协调与本地化实现 |
 
-贡献者可查看 `docs/specs/package-architecture.md` 的依赖规则，以及
+贡献者可查看 `.agents/notes/contracts/package-architecture.md` 的依赖规则，以及
 `architecture/packages.json` 的完整 owner/stability 清单。普通用户不必记住各个
 workspace package。
 
@@ -77,6 +77,10 @@ Project → Task plan → claim 或 assign → Run → Artifact → Review
 互不冲突的安全 ready frontier，父会话本身不直接修改代码。Goal、Loop、Repro 和
 Workflow 为需要持续或重复的
 工作提供 daemon 所有的续跑能力。`/automate` 只是这些已有模式的选择器。
+
+Repro 拥有三条 lane：Implementation Explore、Exactness Explore 和 Formalize。
+Explore 工作可以并行，但不会推进正式进度；只有 Formalize 能更新已接受的
+`formalizedTip`。Goal 仍是由 TaskGraph 推导的单线 runtime 投影，不采用这三条 lane。
 
 先读[规划并实现一个修改](/zh/guides/plan-and-execute/)，需要长期工作时再读
 [长期自动推进](/zh/guides/automation/)。

@@ -165,7 +165,13 @@ export type LocalRpcMailStore = Pick<SparkSessionMailStore, "list"> &
   Partial<
     Pick<
       SparkSessionMailStore,
-      "ack" | "get" | "read" | "recordChannelDelivery" | "recordRequestAdmission" | "send"
+      | "ack"
+      | "get"
+      | "read"
+      | "recordChannelDelivery"
+      | "recordRequestAdmission"
+      | "send"
+      | "pendingRequestsForSession"
     >
   >;
 

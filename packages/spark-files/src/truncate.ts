@@ -12,6 +12,14 @@
 
 export const DEFAULT_MAX_LINES = 2000;
 export const DEFAULT_MAX_BYTES = 50 * 1024; // 50KB
+
+/**
+ * Read-tool defaults: a small bounded window so a single read cannot blow up
+ * the session context. The byte cap governs anchored output; the line cap is
+ * the corresponding depth for short-line files.
+ */
+export const DEFAULT_READ_MAX_LINES = 512;
+export const DEFAULT_READ_MAX_BYTES = 16 * 1024; // ~16KB
 export const GREP_MAX_LINE_LENGTH = 500; // Max chars per grep match line
 
 export type TruncatedBy = "lines" | "bytes" | null;

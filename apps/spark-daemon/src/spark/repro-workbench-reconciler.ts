@@ -13,6 +13,12 @@ import {
   type SparkReproWorkSummary,
 } from "@zendev-lab/spark-repro/work-summary";
 import {
+  normalizeSparkReproWorkSummaryV3,
+  sparkReproWorkSummaryV3Base,
+  SPARK_REPRO_THREE_LANE_WORK_SUMMARY_SCHEMA,
+  type SparkReproWorkSummaryV3,
+} from "@zendev-lab/spark-repro/three-lane-work-summary";
+import {
   renderSparkReproWorkbenchA2ui,
   sparkReproWorkbenchCheckpointArtifactRef,
   sparkReproWorkbenchProjectionDigest,
@@ -76,7 +82,7 @@ export async function reconcileReproWorkbenchArtifacts(input: {
       await input.validateFormalEvidence?.({
         cwd: stateCwd,
         ownerSessionId: loop.ownerSessionId,
-        work: summary.work,
+        work: sparkReproWorkSummaryV3Base(summary.work),
       });
       const goal = await loadSessionGoal(stateCwd, { sessionId: loop.ownerSessionId });
       if (!goal || goal.goalId !== binding.goalId) {
@@ -209,7 +215,7 @@ async function projectLiveWorkbench(input: {
   binding: WorkbenchArtifactBinding;
   bindings: WorkbenchArtifactBindingStore;
   loop: SparkLoopRecord;
-  work: SparkReproWorkSummary;
+  work: SparkReproWorkSummaryV3;
   goalContract: Parameters<typeof renderSparkReproWorkbenchA2ui>[0]["goalContract"];
   tokenUsage?: SparkTokenUsageAggregate;
   artifactCwd: string;
@@ -299,7 +305,7 @@ async function ensureCheckpoint(input: {
   binding: WorkbenchArtifactBinding;
   bindings: WorkbenchArtifactBindingStore;
   loop: SparkLoopRecord;
-  work: SparkReproWorkSummary;
+  work: SparkReproWorkSummaryV3;
   goalContract: Parameters<typeof renderSparkReproWorkbenchA2ui>[0]["goalContract"];
   tokenUsage?: SparkTokenUsageAggregate;
   artifactCwd: string;
@@ -388,7 +394,7 @@ async function readCanonicalSummary(
   loop: SparkLoopRecord,
   stateCwd: string,
 ): Promise<{
-  work: SparkReproWorkSummary;
+  work: SparkReproWorkSummaryV3;
   tokenUsage?: SparkTokenUsageAggregate;
 } | null> {
   let text: string;
@@ -403,10 +409,15 @@ async function readCanonicalSummary(
     throw new Error(`invalid ${REPRO_SUMMARY_PATH} envelope`);
   }
   const stored = value.work;
-  const work = normalizeSparkReproWorkSummary(stored);
-  for (const field of ["schema", "status", "progress", "technicalGoal"] as const) {
-    if (!isDeepStrictEqual(stored[field], work[field])) {
-      throw new Error(`${REPRO_SUMMARY_PATH} work.${field} is not canonical`);
+  const legacy = stored.schema !== SPARK_REPRO_THREE_LANE_WORK_SUMMARY_SCHEMA;
+  const work = legacy
+    ? normalizeSparkReproWorkSummaryV3(normalizeSparkReproWorkSummary(stored))
+    : normalizeSparkReproWorkSummaryV3(stored as unknown as SparkReproWorkSummaryV3);
+  if (!legacy) {
+    for (const field of ["schema", "status", "progress", "technicalGoal"] as const) {
+      if (!isDeepStrictEqual(stored[field], work[field])) {
+        throw new Error(`${REPRO_SUMMARY_PATH} work.${field} is not canonical`);
+      }
     }
   }
   if (work.reproId !== loop.binding.reproId) {

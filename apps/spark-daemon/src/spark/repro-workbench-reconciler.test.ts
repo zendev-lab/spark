@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
 import { setSessionGoal } from "@zendev-lab/spark-loop";
 import { buildSparkReproWorkSummary } from "@zendev-lab/spark-repro/work-summary";
+import { migrateSparkReproWorkSummaryV2 } from "@zendev-lab/spark-repro/three-lane-work-summary";
 import { sparkReproWorkbenchArtifactRef } from "@zendev-lab/spark-repro/workbench";
 import { describe, expect, it } from "vitest";
 
@@ -54,7 +55,7 @@ describe("Repro Workbench Artifact reconciliation", () => {
         },
       },
     );
-    const work = reproWorkSummary("repro-1", "Align model");
+    const work = migrateSparkReproWorkSummaryV2(reproWorkSummary("repro-1", "Align model"));
     await writeFile(
       join(workspaceCwd, "outputs", "spark-summary.json"),
       `${JSON.stringify({ format: "spark-repro-summary/v1", work }, null, 2)}\n`,
@@ -97,12 +98,18 @@ describe("Repro Workbench Artifact reconciliation", () => {
       }),
     ).toThrow("WORKBENCH_BINDING_IDENTITY_CONFLICT");
     expect(bindings.listCheckpoints(binding.bindingId)).toHaveLength(1);
-    expect(
-      await defaultArtifactStore(workspaceCwd).get(sparkReproWorkbenchArtifactRef("repro-1")),
-    ).toMatchObject({
+    const projectedArtifact = await defaultArtifactStore(workspaceCwd).get(
+      sparkReproWorkbenchArtifactRef("repro-1"),
+    );
+    expect(projectedArtifact).toMatchObject({
       kind: "document",
       body: { revision: 1, management: { authority: "daemon", lifecycle: "live" } },
     });
+    if (projectedArtifact.body.kind !== "document") {
+      throw new Error("expected Workbench Document");
+    }
+    expect(projectedArtifact.body.content).toContain('"title": "Lanes"');
+    expect(projectedArtifact.body.content).not.toContain('"title": "Plan"');
 
     expect(await reconcile()).toMatchObject({
       projected: 0,

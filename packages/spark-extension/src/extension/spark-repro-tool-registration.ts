@@ -9,8 +9,15 @@ import {
   verifyCanonicalAnswerEventEvidence,
   verifyCanonicalAskEvidence,
 } from "@zendev-lab/spark-ask";
-import { isRef, type EvidenceRef, type TaskRef } from "@zendev-lab/spark-core";
-import { sparkStateCwd } from "@zendev-lab/spark-loop";
+import {
+  isRef,
+  nowIso,
+  type ArtifactRef,
+  type EvidenceRef,
+  type RunRef,
+  type TaskRef,
+} from "@zendev-lab/spark-core";
+import { sparkSessionKey, sparkStateCwd } from "@zendev-lab/spark-loop";
 import {
   loadSessionGoal,
   restoreSessionGoal,
@@ -44,7 +51,13 @@ import {
   nextReproStagePlanningBlocker,
   nextReproStep,
   recordReproRequirementProof,
+  recordSparkReproResolution,
+  recordSparkReproWorkHandoff,
   readSessionRepro,
+  registerSparkReproAlignmentFinding,
+  registerSparkReproUnresolvedMismatch,
+  registerSparkReproWorkItem,
+  rematerializeSparkReproWorkItem,
   reproRequirementBlockers,
   reproStepPlanRevision,
   reviseReproPlan,
@@ -54,6 +67,9 @@ import {
   verifyReproStepPass,
   writeSessionRepro,
   type SparkReproGoalContractInput,
+  type SparkReproAlignmentFinding,
+  type SparkReproLane,
+  type SparkReproResolution,
   type SparkReproRequirement,
   type SparkReproRequirementProof,
   type SparkReproStageName,
@@ -63,6 +79,9 @@ import {
   type SparkReproStepDefinition,
   type SparkReproStepStatus,
   type SparkReproStepVerifierResult,
+  type SparkReproUnresolvedMismatch,
+  type SparkReproWorkHandoff,
+  type SparkReproWorkItem,
   type SparkSessionRepro,
 } from "./spark-session-repro.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
@@ -76,6 +95,14 @@ import {
 } from "./spark-daemon-usage-client.ts";
 import { projectSparkReproReportSummary } from "./spark-repro-report-projection.ts";
 import type { SparkDaemonReproFormalEvidenceControl } from "./spark-daemon-repro-formal-evidence-client.ts";
+import {
+  bindSparkReproFormalizeStack,
+  reconcileSparkReproResolutionTask,
+  reconcileSparkReproWorkItemTaskArtifact,
+  requireFormalizeIntegrator,
+  validateSparkReproEvidenceRefs,
+  validateSparkReproWorkItemBinding,
+} from "./spark-repro-three-lane-composition.ts";
 
 function reproStepPlanSchema() {
   return Type.Object({
@@ -119,6 +146,13 @@ type SparkReproToolAction =
   | "advance"
   | "project_report"
   | "sync_report"
+  | "work_register"
+  | "work_rematerialize"
+  | "finding_record"
+  | "mismatch_record"
+  | "handoff_record"
+  | "formalize_bind"
+  | "resolution_record"
   | "stop";
 
 export function registerSparkReproTool(
@@ -162,6 +196,7 @@ export function registerSparkReproTool(
       "Use repro action=advance only when requirements and any derived gate are complete.",
       "Use repro action=project_report with canonical workSummary facts. It validates and derives status/progress/technicalGoal, joins daemon-owned usage.summary for this Repro run, and deterministically projects outputs/spark-summary.json plus outputs/report.md without scanning transcripts.",
       "Use repro action=sync_report after project_report. It verifies that outputs/report.md is the exact projection of the typed summary, updates the stable per-run Markdown Document Artifact, and never changes a technical gate.",
+      "Use work_register/work_rematerialize, finding_record/mismatch_record, handoff_record, formalize_bind, and resolution_record for the Repro-owned three-lane lifecycle. laneInput is revision-fenced typed domain data; Formalize mutations require the current Session to own the bound native GitChange stack.",
       "Before ending a daemon-owned repro tick, use repro action=settle. It schedules another tick only when semantic progress changed; three unchanged settlements return Recover Ask and leave the Loop dormant.",
       "Use repro action=stop to clear the Repro.",
     ],
@@ -170,7 +205,13 @@ export function registerSparkReproTool(
         Type.String({
           default: "status",
           description:
-            "status | start | plan | step | record | evaluate | advance | settle | project_report | sync_report | stop; satisfy and gate are compatibility aliases",
+            "status | start | plan | step | record | evaluate | advance | settle | project_report | sync_report | work_register | work_rematerialize | finding_record | mismatch_record | handoff_record | formalize_bind | resolution_record | stop; satisfy and gate are compatibility aliases",
+        }),
+      ),
+      laneInput: Type.Optional(
+        Type.Any({
+          description:
+            "Versioned input for work_register, work_rematerialize, finding_record, mismatch_record, handoff_record, formalize_bind, or resolution_record.",
         }),
       ),
       workSummary: Type.Optional(
@@ -349,6 +390,45 @@ export function registerSparkReproTool(
                 }
               : { included: false },
             ...(projected.warning ? { warning: projected.warning } : {}),
+          },
+        };
+      }
+
+      if (isThreeLaneReproAction(action)) {
+        const repro = await activeRepro(cwd, ctx);
+        if (!repro) return noActiveReproResult();
+        const applied = await applyThreeLaneReproAction({
+          action,
+          cwd: stateCwd,
+          actorSessionId: sparkSessionKey(ctx),
+          repro,
+          laneInput: params.laneInput,
+        });
+        if (applied.changed) await writeUnifiedSessionRepro(cwd, applied.repro, ctx);
+        const taskArtifactLinked = applied.workItem
+          ? await reconcileSparkReproWorkItemTaskArtifact({
+              cwd: stateCwd,
+              repro: applied.repro,
+              item: applied.workItem,
+            })
+          : undefined;
+        const taskReconciliation = applied.resolution
+          ? await reconcileSparkReproResolutionTask({
+              cwd: stateCwd,
+              repro: applied.repro,
+              resolution: applied.resolution,
+            })
+          : undefined;
+        await deps.refreshSparkWidget?.(cwd, ctx);
+        return {
+          content: [{ type: "text" as const, text: applied.message }],
+          details: {
+            ...reproDetails(applied.repro),
+            threeLaneAction: action,
+            changed: applied.changed,
+            ...(applied.refs ? { refs: applied.refs } : {}),
+            ...(taskArtifactLinked !== undefined ? { taskArtifactLinked } : {}),
+            ...(taskReconciliation ? { taskReconciliation } : {}),
           },
         };
       }
@@ -877,17 +957,411 @@ function normalizeReproAction(value: unknown): SparkReproToolAction {
     value === "advance" ||
     value === "project_report" ||
     value === "sync_report" ||
+    value === "work_register" ||
+    value === "work_rematerialize" ||
+    value === "finding_record" ||
+    value === "mismatch_record" ||
+    value === "handoff_record" ||
+    value === "formalize_bind" ||
+    value === "resolution_record" ||
     value === "stop"
   ) {
     return value;
   }
-  throw new Error(
-    "repro action must be status, start, plan, step, record, evaluate, satisfy, gate, advance, settle, project_report, sync_report, or stop",
-  );
+  throw new Error("repro action is not supported");
+}
+
+type SparkReproThreeLaneAction = Extract<
+  SparkReproToolAction,
+  | "work_register"
+  | "work_rematerialize"
+  | "finding_record"
+  | "mismatch_record"
+  | "handoff_record"
+  | "formalize_bind"
+  | "resolution_record"
+>;
+
+function isThreeLaneReproAction(action: SparkReproToolAction): action is SparkReproThreeLaneAction {
+  return [
+    "work_register",
+    "work_rematerialize",
+    "finding_record",
+    "mismatch_record",
+    "handoff_record",
+    "formalize_bind",
+    "resolution_record",
+  ].includes(action);
 }
 
 function assertNeverReproAction(_action: never): never {
   throw new Error("Unknown repro action");
+}
+
+interface AppliedThreeLaneReproAction {
+  repro: SparkSessionRepro;
+  changed: boolean;
+  message: string;
+  refs?: Record<string, string>;
+  workItem?: SparkReproWorkItem;
+  resolution?: SparkReproResolution;
+}
+
+async function applyThreeLaneReproAction(input: {
+  action: SparkReproThreeLaneAction;
+  cwd: string;
+  actorSessionId: string;
+  repro: SparkSessionRepro;
+  laneInput: unknown;
+}): Promise<AppliedThreeLaneReproAction> {
+  const value = requireLaneInput(input.laneInput, input.action);
+  let state = input.repro.threeLane;
+  let message: string;
+  let refs: Record<string, string> | undefined;
+  let workItem: SparkReproWorkItem | undefined;
+  let resolution: SparkReproResolution | undefined;
+
+  switch (input.action) {
+    case "work_register": {
+      const lane = normalizeReproLane(value.lane);
+      const item = normalizeReproWorkItem(value);
+      state = registerSparkReproWorkItem(state, lane, item);
+      await validateSparkReproEvidenceRefs(input.cwd, item.evidenceRefs);
+      await validateSparkReproWorkItemBinding({
+        cwd: input.cwd,
+        repro: input.repro,
+        lane,
+        item,
+        actorSessionId: input.actorSessionId,
+      });
+      workItem = item;
+      message = `Registered ${item.workItemId} in the ${lane} lane.`;
+      refs = { workItemId: item.workItemId };
+      break;
+    }
+    case "work_rematerialize": {
+      const evidenceRefs = normalizeEvidenceRefs(value.evidenceRefs, "laneInput.evidenceRefs");
+      await validateSparkReproEvidenceRefs(input.cwd, evidenceRefs);
+      const workItemId = normalizeRequiredString(value.workItemId, "laneInput.workItemId");
+      state = rematerializeSparkReproWorkItem(state, {
+        workItemId,
+        expectedSourceRevision: normalizeRequiredString(
+          value.expectedSourceRevision,
+          "laneInput.expectedSourceRevision",
+        ),
+        sourceRevision: normalizeRequiredString(value.sourceRevision, "laneInput.sourceRevision"),
+        evidenceRefs,
+      });
+      message = `Rematerialized ${workItemId} with a new source revision.`;
+      refs = { workItemId };
+      break;
+    }
+    case "finding_record": {
+      const finding = normalizeReproFinding(value);
+      await validateSparkReproEvidenceRefs(input.cwd, finding.evidenceRefs);
+      state = registerSparkReproAlignmentFinding(state, finding);
+      message = `Recorded Exactness finding ${finding.findingId}.`;
+      refs = { workItemId: finding.workItemId, findingId: finding.findingId };
+      break;
+    }
+    case "mismatch_record": {
+      const mismatch = normalizeReproMismatch(value);
+      await validateSparkReproEvidenceRefs(input.cwd, [
+        ...mismatch.evidenceRefs,
+        ...(mismatch.isolation?.evidenceRefs ?? []),
+        ...(mismatch.resynchronization?.evidenceRefs ?? []),
+      ]);
+      state = registerSparkReproUnresolvedMismatch(state, mismatch);
+      message = `Recorded Exactness mismatch ${mismatch.mismatchId}.`;
+      refs = { workItemId: mismatch.workItemId, mismatchId: mismatch.mismatchId };
+      break;
+    }
+    case "handoff_record": {
+      const handoff = normalizeReproHandoff(value);
+      if (handoff.to === "formalize") requireFormalizeIntegrator(state, input.actorSessionId);
+      await validateSparkReproEvidenceRefs(input.cwd, handoff.evidenceRefs);
+      state = recordSparkReproWorkHandoff(state, handoff);
+      message = `Recorded ${handoff.from} → ${handoff.to} handoff ${handoff.handoffId}.`;
+      refs = { workItemId: handoff.workItemId, handoffId: handoff.handoffId };
+      break;
+    }
+    case "formalize_bind": {
+      const gitChangeRef = normalizeArtifactRef(value.gitChangeRef, "laneInput.gitChangeRef");
+      state = await bindSparkReproFormalizeStack({
+        cwd: input.cwd,
+        state,
+        gitChangeRef,
+        integratorSessionId: input.actorSessionId,
+      });
+      message = `Bound Formalize to ${gitChangeRef} for the current stack integrator.`;
+      refs = { gitChangeRef };
+      break;
+    }
+    case "resolution_record": {
+      resolution = normalizeReproResolution(value);
+      requireFormalizeIntegrator(state, input.actorSessionId);
+      await validateSparkReproEvidenceRefs(input.cwd, resolution.evidenceRefs);
+      state = recordSparkReproResolution(state, resolution);
+      message = `Recorded ${resolution.from} → ${resolution.to} resolution ${resolution.resolutionId}.`;
+      refs = { workItemId: resolution.workItemId, resolutionId: resolution.resolutionId };
+      break;
+    }
+    default: {
+      const exhaustive: never = input.action;
+      throw new Error(`Unknown three-lane Repro action: ${String(exhaustive)}`);
+    }
+  }
+
+  const changed = state !== input.repro.threeLane;
+  return {
+    repro: changed ? { ...input.repro, threeLane: state, updatedAt: nowIso() } : input.repro,
+    changed,
+    message,
+    ...(refs ? { refs } : {}),
+    ...(workItem ? { workItem } : {}),
+    ...(resolution ? { resolution } : {}),
+  };
+}
+
+function requireLaneInput(value: unknown, action: SparkReproThreeLaneAction) {
+  if (!isRecord(value)) throw new Error(`laneInput is required for action=${action}`);
+  return value;
+}
+
+function normalizeReproLane(value: unknown): SparkReproLane {
+  if (value === "implementation" || value === "exactness" || value === "formalize") return value;
+  throw new Error("laneInput.lane must be implementation, exactness, or formalize");
+}
+
+function normalizeReproWorkItem(value: Record<string, unknown>): SparkReproWorkItem {
+  const status = value.status ?? "open";
+  if (
+    status !== "open" &&
+    status !== "blocked" &&
+    status !== "completed" &&
+    status !== "superseded"
+  ) {
+    throw new Error("laneInput.status is invalid for a Repro WorkItem");
+  }
+  return {
+    workItemId: normalizeRequiredString(value.workItemId, "laneInput.workItemId"),
+    title: normalizeRequiredString(value.title, "laneInput.title"),
+    scope: normalizeRequiredString(value.scope, "laneInput.scope"),
+    planRevision: normalizePositiveInteger(value.planRevision, "laneInput.planRevision"),
+    sourceRevision: normalizeRequiredString(value.sourceRevision, "laneInput.sourceRevision"),
+    status,
+    ...(value.taskRef !== undefined
+      ? { taskRef: normalizeTaskRefValue(value.taskRef, "laneInput.taskRef") }
+      : {}),
+    ...(value.runRef !== undefined
+      ? { runRef: normalizeRunRef(value.runRef, "laneInput.runRef") }
+      : {}),
+    ...(value.gitChangeRef !== undefined
+      ? { gitChangeRef: normalizeArtifactRef(value.gitChangeRef, "laneInput.gitChangeRef") }
+      : {}),
+    evidenceRefs: normalizeEvidenceRefs(value.evidenceRefs, "laneInput.evidenceRefs", true),
+    unresolvedIds: normalizeStringArray(value.unresolvedIds, "laneInput.unresolvedIds", true),
+  };
+}
+
+function normalizeReproFinding(value: Record<string, unknown>): SparkReproAlignmentFinding {
+  const disposition = normalizeRequiredString(value.disposition, "laneInput.disposition");
+  if (
+    disposition !== "fix" &&
+    disposition !== "adapt" &&
+    disposition !== "accept" &&
+    disposition !== "defer"
+  ) {
+    throw new Error("laneInput.disposition must be fix, adapt, accept, or defer for a finding");
+  }
+  return {
+    findingId: normalizeRequiredString(value.findingId, "laneInput.findingId"),
+    workItemId: normalizeRequiredString(value.workItemId, "laneInput.workItemId"),
+    firstBadBoundary: normalizeRequiredString(value.firstBadBoundary, "laneInput.firstBadBoundary"),
+    classification: normalizeMismatchClassification(value.classification),
+    disposition,
+    confidence: normalizeFindingConfidence(value.confidence),
+    evidenceRefs: normalizeEvidenceRefs(value.evidenceRefs, "laneInput.evidenceRefs"),
+  };
+}
+
+function normalizeReproMismatch(value: Record<string, unknown>): SparkReproUnresolvedMismatch {
+  const disposition = normalizeRequiredString(value.disposition, "laneInput.disposition");
+  if (!["fix", "adapt", "accept", "defer", "skip"].includes(disposition)) {
+    throw new Error("laneInput.disposition is invalid for a mismatch");
+  }
+  const isolation = optionalBoundaryEvidence(value.isolation, "laneInput.isolation", "boundary");
+  const resynchronization = optionalBoundaryEvidence(
+    value.resynchronization,
+    "laneInput.resynchronization",
+    "checkpoint",
+  );
+  return {
+    mismatchId: normalizeRequiredString(value.mismatchId, "laneInput.mismatchId"),
+    workItemId: normalizeRequiredString(value.workItemId, "laneInput.workItemId"),
+    firstBadBoundary: normalizeRequiredString(value.firstBadBoundary, "laneInput.firstBadBoundary"),
+    classification: normalizeMismatchClassification(value.classification),
+    disposition: disposition as SparkReproUnresolvedMismatch["disposition"],
+    confidence: normalizeFindingConfidence(value.confidence),
+    evidenceRefs: normalizeEvidenceRefs(value.evidenceRefs, "laneInput.evidenceRefs", true),
+    ...(isolation
+      ? { isolation: { boundary: isolation.value, evidenceRefs: isolation.evidenceRefs } }
+      : {}),
+    ...(resynchronization
+      ? {
+          resynchronization: {
+            checkpoint: resynchronization.value,
+            evidenceRefs: resynchronization.evidenceRefs,
+          },
+        }
+      : {}),
+  };
+}
+
+function normalizeReproHandoff(value: Record<string, unknown>): SparkReproWorkHandoff {
+  const from = normalizeRequiredString(value.from, "laneInput.from");
+  const to = normalizeRequiredString(value.to, "laneInput.to");
+  const status =
+    value.status === undefined
+      ? "pending"
+      : normalizeRequiredString(value.status, "laneInput.status");
+  if (!["pending", "accepted", "stale", "superseded"].includes(status)) {
+    throw new Error("laneInput.status is invalid for a WorkHandoff");
+  }
+  if (from !== "implementation" && from !== "exactness") {
+    throw new Error("laneInput.from is invalid for a WorkHandoff");
+  }
+  if (to !== "exactness" && to !== "formalize") {
+    throw new Error("laneInput.to is invalid for a WorkHandoff");
+  }
+  return {
+    handoffId: normalizeRequiredString(value.handoffId, "laneInput.handoffId"),
+    workItemId: normalizeRequiredString(value.workItemId, "laneInput.workItemId"),
+    from,
+    to,
+    planRevision: normalizePositiveInteger(value.planRevision, "laneInput.planRevision"),
+    sourceRevision: normalizeRequiredString(value.sourceRevision, "laneInput.sourceRevision"),
+    scope: normalizeRequiredString(value.scope, "laneInput.scope"),
+    findingIds: normalizeStringArray(value.findingIds, "laneInput.findingIds", true),
+    evidenceRefs: normalizeEvidenceRefs(value.evidenceRefs, "laneInput.evidenceRefs"),
+    candidateRevisions: normalizeStringArray(
+      value.candidateRevisions,
+      "laneInput.candidateRevisions",
+    ),
+    dependsOnHandoffIds: normalizeStringArray(
+      value.dependsOnHandoffIds,
+      "laneInput.dependsOnHandoffIds",
+      true,
+    ),
+    doneWhen: normalizeStringArray(value.doneWhen, "laneInput.doneWhen"),
+    status: status as SparkReproWorkHandoff["status"],
+  };
+}
+
+function normalizeReproResolution(value: Record<string, unknown>): SparkReproResolution {
+  const from = normalizeRequiredString(value.from, "laneInput.from");
+  const to = normalizeRequiredString(value.to, "laneInput.to");
+  const status = normalizeRequiredString(value.status, "laneInput.status");
+  if (from !== "formalize" && from !== "exactness") {
+    throw new Error("laneInput.from is invalid for a Resolution");
+  }
+  if (to !== "exactness" && to !== "implementation") {
+    throw new Error("laneInput.to is invalid for a Resolution");
+  }
+  if (status !== "resolved" && status !== "superseded" && status !== "rejected") {
+    throw new Error("laneInput.status is invalid for a Resolution");
+  }
+  return {
+    resolutionId: normalizeRequiredString(value.resolutionId, "laneInput.resolutionId"),
+    workItemId: normalizeRequiredString(value.workItemId, "laneInput.workItemId"),
+    from,
+    to,
+    status,
+    canonicalRevision: normalizeRequiredString(
+      value.canonicalRevision,
+      "laneInput.canonicalRevision",
+    ),
+    supersededRevisions: normalizeStringArray(
+      value.supersededRevisions,
+      "laneInput.supersededRevisions",
+      true,
+    ),
+    evidenceRefs: normalizeEvidenceRefs(value.evidenceRefs, "laneInput.evidenceRefs"),
+    ...(value.parentResolutionId !== undefined
+      ? {
+          parentResolutionId: normalizeRequiredString(
+            value.parentResolutionId,
+            "laneInput.parentResolutionId",
+          ),
+        }
+      : {}),
+  };
+}
+
+function normalizeMismatchClassification(
+  value: unknown,
+): SparkReproUnresolvedMismatch["classification"] {
+  if (
+    value === "implementation_defect" ||
+    value === "semantic_difference" ||
+    value === "intrinsic_numerical" ||
+    value === "contract_environment" ||
+    value === "unknown"
+  ) {
+    return value;
+  }
+  throw new Error("laneInput.classification is invalid");
+}
+
+function normalizeFindingConfidence(value: unknown): "suspected" | "confirmed" {
+  if (value === "suspected" || value === "confirmed") return value;
+  throw new Error("laneInput.confidence must be suspected or confirmed");
+}
+
+function optionalBoundaryEvidence(
+  value: unknown,
+  field: string,
+  valueField: "boundary" | "checkpoint",
+): { value: string; evidenceRefs: EvidenceRef[] } | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error(`${field} must be an object`);
+  return {
+    value: normalizeRequiredString(value[valueField], `${field}.${valueField}`),
+    evidenceRefs: normalizeEvidenceRefs(value.evidenceRefs, `${field}.evidenceRefs`),
+  };
+}
+
+function normalizeEvidenceRefs(value: unknown, field: string, optional = false): EvidenceRef[] {
+  if (value === undefined && optional) return [];
+  if (!Array.isArray(value) || (!optional && value.length === 0)) {
+    throw new Error(`${field} must be a non-empty EvidenceRef array`);
+  }
+  return value.map((entry, index) => normalizeEvidenceRef(entry, `${field}[${index}]`));
+}
+
+function normalizePositiveInteger(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`${field} must be a positive integer`);
+  }
+  return value;
+}
+
+function normalizeTaskRefValue(value: unknown, field: string): TaskRef {
+  const ref = normalizeRequiredString(value, field);
+  if (!isRef(ref, "task")) throw new Error(`${field} must be a task: ref`);
+  return ref;
+}
+
+function normalizeRunRef(value: unknown, field: string): RunRef {
+  const ref = normalizeRequiredString(value, field);
+  if (!isRef(ref, "run")) throw new Error(`${field} must be a run: ref`);
+  return ref;
+}
+
+function normalizeArtifactRef(value: unknown, field: string): ArtifactRef {
+  const ref = normalizeRequiredString(value, field);
+  if (!isRef(ref, "artifact")) throw new Error(`${field} must be an artifact: ref`);
+  return ref;
 }
 
 function normalizeOptionalReproObjective(value: unknown): string | undefined {
@@ -1412,6 +1886,7 @@ function reproStatusResult(repro: SparkSessionRepro, loopHealth?: SparkReproLoop
     `Goal Contract: ${repro.goalContract.status}`,
     `Objective: ${repro.goalContract.objective}`,
     `Plan revision: ${repro.plan.currentRevision}; difficulty: ${repro.plan.difficulty}/10; materialized subgoals: ${repro.subgoals.length}`,
+    `Lanes: Implementation ${repro.threeLane.implementation.workItemIds.length}; Exactness ${repro.threeLane.exactness.workItemIds.length}; Formalize ${repro.threeLane.formalize.workItemIds.length}; handoffs ${repro.threeLane.handoffs.length}; resolutions ${repro.threeLane.resolutions.length}${repro.threeLane.formalize.formalizedTip ? `; formalized ${repro.threeLane.formalize.formalizedTip}` : ""}`,
     `Stage: ${stage.title} (${stage.name}) [${repro.currentStageIndex + 1}/${repro.stages.length}]`,
     `Phase: ${repro.currentPhase}`,
     "",
@@ -1474,6 +1949,16 @@ function reproDetails(repro: SparkSessionRepro): Record<string, unknown> {
       steps: currentReproSteps(repro),
     },
     stopGuard: repro.stopGuard,
+    threeLane: {
+      implementationCount: repro.threeLane.implementation.workItemIds.length,
+      exactnessCount: repro.threeLane.exactness.workItemIds.length,
+      formalizeCount: repro.threeLane.formalize.workItemIds.length,
+      handoffCount: repro.threeLane.handoffs.length,
+      resolutionCount: repro.threeLane.resolutions.length,
+      ...(repro.threeLane.formalize.formalizedTip
+        ? { formalizedTip: repro.threeLane.formalize.formalizedTip }
+        : {}),
+    },
     currentStage: stage.name,
     currentStageIndex: repro.currentStageIndex,
     totalStages: repro.stages.length,

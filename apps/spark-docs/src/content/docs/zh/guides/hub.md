@@ -13,8 +13,11 @@ description: 启动 Hub Web 界面，理解它与 daemon 的关系，并保护�
 - **产物**：查看 Issue、Git Change 与 Document；
 - **资源**：管理仓库、文档、链接和工具。
 
-进入对话后，会话检查器把摘要、产物、变更和任务分开。摘要先显示状态与数量；
-工作目录、模型、session ID 和时间放在默认折叠的技术详情中。
+进入对话后，会话检查器把摘要、产物、变更、任务和 Lanes 分开。活跃 Repro 的
+Lanes 会显示 Implementation、Exactness、Formalize 三张有界卡片，以及向前 handoff、
+向后 resolution 和 `formalizedTip`。该文档来自 daemon 已有的 A2UI 投影；Hub 不保存
+第二份 Repro store，也不调度 lane 工作。摘要先显示状态与数量；工作目录、模型、
+session ID 和时间放在默认折叠的技术详情中。
 
 TUI 的 `/inspect` 只展示当前终端 session 的本地投影；Hub Web 是跨 session 和
 workspace 的浏览器控制面。两者都把执行提交给 Spark daemon。
@@ -70,7 +73,10 @@ spark hub access create
 spark hub workspace access create --workspace <id>
 ```
 
-在 `/{slug}/login` 交换它。两种 key 都应视为秘密。非 loopback 访问要求 HTTPS，
+在 `/{slug}/login` 交换它。如果浏览器已持有另一个 workspace 范围的会话，打开
+目标 workspace 的活跃路由时会跳转到该目标的登录页，并在交换 key 后返回原路由。
+一个浏览器 Cookie 同时只授权一个 workspace；如需保留多个并行会话，请使用独立
+浏览器 profile 或隐私窗口。两种 key 都应视为秘密。非 loopback 访问要求 HTTPS，
 除非你明确在受信任的私有网络上允许不安全 HTTP。
 
 ## 受信任的反向代理

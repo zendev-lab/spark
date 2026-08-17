@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "vitest";
 
 import {
@@ -130,6 +131,29 @@ test("builtin Pi roles expose audited capability profiles", () => {
     for (const tool of role.allowedTools ?? []) assert.equal(forbiddenTools.has(tool), false);
   }
   validateBuiltinRoleProfiles(roles);
+});
+
+test("repository guardian Roles compose ordered Skills without skill_agent authority", async () => {
+  const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
+  const registry = new RoleRegistry();
+  await hydrateDefaultRoleRegistry(registry, repositoryRoot);
+  const expected = new Map([
+    ["spark-architecture-guardian", ["spark-change-scope", "spark-code-review"]],
+    ["spark-agent-knowledge-curator", ["spark-agent-knowledge"]],
+    [
+      "spark-delivery-verifier",
+      ["spark-change-scope", "spark-code-review", "spark-pre-push-checks"],
+    ],
+  ]);
+
+  for (const [id, skills] of expected) {
+    const role = registry.select(id);
+    assert.deepEqual(role.skills, skills);
+    assert.match(role.description, /^Use when /u);
+    assert.equal(role.allowedTools?.includes("skill_agent"), false);
+    assert.equal(role.allowedTools?.includes("role"), false);
+    assert.equal(role.allowedTools?.includes("workflow"), false);
+  }
 });
 
 test("retired builtin role aliases fail closed after registry v6", () => {

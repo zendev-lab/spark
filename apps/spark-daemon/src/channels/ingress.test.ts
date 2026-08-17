@@ -1059,7 +1059,7 @@ describe("channel quote enrichment", () => {
       findChannelMessagePreviewById(
         [
           {
-            version: 1,
+            version: 2,
             id: "1",
             role: "user",
             text: "先说一声",
@@ -1068,7 +1068,7 @@ describe("channel quote enrichment", () => {
             metadata: { channel: { messageId: "m-old" } },
           },
           {
-            version: 1,
+            version: 2,
             id: "2",
             role: "assistant",
             text: "收到",

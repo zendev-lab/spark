@@ -138,7 +138,7 @@ jobs:
           --tui-tarball "dist/release/spark-tui-${RELEASE_TAG}.tgz"
           --hub-tarball "dist/release/spark-hub-${RELEASE_TAG}.tgz"
 
-      - name: Verify N-1 expand-only migration compatibility
+      - name: Verify declared N-1 migration policy
         run: >-
           node scripts/test-release-migration.mjs
           --tarball "dist/release/spark-${RELEASE_TAG}.tgz"

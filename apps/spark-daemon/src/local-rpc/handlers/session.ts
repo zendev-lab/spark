@@ -19,6 +19,10 @@ import { SparkLoopStore } from "../../store/loops.ts";
 import { WorkbenchArtifactBindingStore } from "../../store/workbench-artifact-bindings.ts";
 import { SparkTokenUsageStore } from "../../store/token-usage.ts";
 import { SparkInvocationStore } from "../../store/invocations.ts";
+import {
+  MAX_PENDING_SESSION_REQUEST_QUEUE,
+  submitSessionMailTurn,
+} from "../../session-mail-execution.ts";
 import { projectSparkSessionWork } from "../../session-work-projection.ts";
 import {
   deliverSessionNotificationFromLocalRpc,
@@ -155,6 +159,10 @@ export async function handleSessionRequest(
               }
             : undefined;
         },
+        pendingRequestCount:
+          options.humanWaits
+            ?.listPending()
+            .filter((wait) => wait.sessionId === request.params.sessionId).length ?? 0,
       });
       const withLoops = parseSparkSessionView({
         ...snapshot,
@@ -385,6 +393,41 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
     }
   }
 
+  // Activity is read before any persistence so the idle/queue/interrupt
+  // decision fails closed. An active target requires an explicit policy, and
+  // a rejected or overflowing send must never leave pending mail behind.
+  // Idempotent replays keep returning the existing admission regardless of
+  // current activity or queue depth.
+  const control = sessionControlOptions(paths, db, options);
+  const invocationStore = new SparkInvocationStore(db);
+  const active =
+    params.kind === "request" ? invocationStore.listPendingForSession(params.toSessionId) : [];
+  if (params.kind === "request" && active.length > 0 && params.onActive !== "interrupt") {
+    const key = params.idempotencyKey?.trim();
+    const alreadyDurable = key
+      ? (await mailStore.list(params.toSessionId, { includeAcked: true })).some(
+          (message) => message.idempotencyKey === key,
+        )
+      : false;
+    if (!alreadyDurable) {
+      if (params.onActive !== "queue") {
+        throw new SparkSessionRegistryError(
+          "session_mail_target_active",
+          `session ${params.toSessionId} is active; retry with onActive="queue" to enqueue or onActive="interrupt" to cancel the current invocation`,
+        );
+      }
+      const queued = mailStore.pendingRequestsForSession
+        ? await mailStore.pendingRequestsForSession(params.toSessionId)
+        : [];
+      if (queued.length >= MAX_PENDING_SESSION_REQUEST_QUEUE) {
+        throw new SparkSessionRegistryError(
+          "session_mail_queue_full",
+          `session ${params.toSessionId} already has ${MAX_PENDING_SESSION_REQUEST_QUEUE} queued requests; wait or use onActive="interrupt"`,
+        );
+      }
+    }
+  }
+
   const sent = await mailStore.send({
     toSessionId: params.toSessionId,
     fromSessionId: params.fromSessionId,
@@ -397,6 +440,15 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
     ...(params.correlationId ? { correlationId: params.correlationId } : {}),
     ...(params.subject !== undefined ? { subject: params.subject } : {}),
     ...(params.originBinding ? { originBinding: params.originBinding } : {}),
+    ...(params.kind === "request"
+      ? {
+          requestExecution: {
+            notifyOnCompletion: params.notifyOnCompletion,
+            parentInvocationId: params.parentInvocationId ?? null,
+            origin: params.origin,
+          },
+        }
+      : {}),
   });
   if (params.kind === "notification") {
     return sparkSessionSendResultSchema.parse({
@@ -408,58 +460,93 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
     });
   }
 
-  const accepted = acceptedAdmission(sent.message);
-  const submitted =
-    accepted ??
-    sparkTurnSubmitResultSchema.parse(
-      (
-        await executeSparkDaemonSessionControl(sessionControlOptions(paths, db, options), {
-          kind: "turn.submit.request",
-          scope: "any",
-          sessionId: params.toSessionId,
-          idempotencyKey: `session.mail:${sent.message.id}`,
-          payload: {
-            sessionId: params.toSessionId,
-            prompt: sent.message.body,
-            idempotencyKey: `session.mail:${sent.message.id}`,
-            ...(params.originBinding ? { originBinding: params.originBinding } : {}),
-            messageMetadata: {
-              origin: {
-                kind: "session",
-                sessionId: params.fromSessionId,
-                surface: params.origin.surface,
-                host: params.origin.host,
-              },
-              sessionMail: {
-                messageId: sent.message.id,
-                kind: sent.message.kind,
-                intent: sent.message.intent,
-                correlationId: sent.message.correlationId,
-                fromSessionId: sent.message.fromSessionId,
-                toSessionId: sent.message.toSessionId,
-                notifyOnCompletion: params.notifyOnCompletion,
-                ...(Object.keys(params.payload).length > 0
-                  ? { requestPayload: params.payload }
-                  : {}),
-                ...(params.parentInvocationId
-                  ? { parentInvocationId: params.parentInvocationId }
-                  : {}),
-              },
-            },
-          },
-        })
-      ).result,
+  // An idempotent replay never re-enqueues, re-submits, or re-interrupts.
+  if (!sent.created) {
+    const accepted = acceptedAdmission(sent.message);
+    if (accepted) {
+      return sparkSessionSendResultSchema.parse({
+        message: sent.message,
+        filePath: sent.path,
+        created: false,
+        executionTriggered: true,
+        target,
+        submitted: accepted,
+      });
+    }
+    return sparkSessionSendResultSchema.parse({
+      message: sent.message,
+      filePath: sent.path,
+      created: false,
+      executionTriggered: false,
+      target,
+    });
+  }
+
+  if (active.length === 0) {
+    // Idle target: submit immediately. The read and submit are both served by
+    // the invocation store; a concurrent admission only ever queues behind
+    // this turn and never interrupts it.
+    const { submitted, message } = await submitSessionMailTurn(
+      {
+        control,
+        mailStore: { recordRequestAdmission: mailStore.recordRequestAdmission.bind(mailStore) },
+      },
+      params,
+      sent.message,
     );
-  const message = accepted
-    ? sent.message
-    : await mailStore.recordRequestAdmission(params.toSessionId, sent.message.id, submitted);
+    return sparkSessionSendResultSchema.parse({
+      message,
+      filePath: sent.path,
+      created: true,
+      executionTriggered: true,
+      target,
+      submitted,
+    });
+  }
+
+  if (params.onActive === "interrupt") {
+    // Explicit interrupt: cancel the current (running first, else FIFO queued)
+    // invocation, then submit. This is the only path that cancels, and it is
+    // opted-in per send.
+    const current = active.find((invocation) => invocation.status === "running") ?? active[0]!;
+    await executeSparkDaemonSessionControl(control, {
+      kind: "turn.cancel.request",
+      scope: "any",
+      sessionId: params.toSessionId,
+      payload: {
+        sessionId: params.toSessionId,
+        invocationId: current.invocationId,
+        reason: `session.send interrupt requested by ${params.fromSessionId}`,
+      },
+    });
+    const submission = await submitSessionMailTurn(
+      {
+        control,
+        mailStore: { recordRequestAdmission: mailStore.recordRequestAdmission.bind(mailStore) },
+      },
+      params,
+      sent.message,
+    );
+    return sparkSessionSendResultSchema.parse({
+      message: submission.message,
+      filePath: sent.path,
+      created: true,
+      executionTriggered: true,
+      target,
+      submitted: submission.submitted,
+    });
+  }
+
+  // Running/queued target with the explicit queue policy: the mail persisted
+  // above waits as a durable pending request and the daemon drains it FIFO
+  // after the current invocation settles. The queue bound was enforced before
+  // persistence.
   return sparkSessionSendResultSchema.parse({
-    message,
+    message: sent.message,
     filePath: sent.path,
-    created: sent.created,
-    executionTriggered: true,
+    created: true,
+    executionTriggered: false,
     target,
-    submitted,
   });
 }
 

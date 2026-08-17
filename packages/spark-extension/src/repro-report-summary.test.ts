@@ -9,6 +9,7 @@ import {
   type SparkReproProfile,
   type SparkReproWorkStage,
 } from "@zendev-lab/spark-repro/work-summary";
+import { sparkReproWorkSummaryV3Base } from "@zendev-lab/spark-repro/three-lane-work-summary";
 import {
   composeSparkReproReportSummary,
   parseSparkReproReportSummary,
@@ -23,7 +24,12 @@ describe("Repro report summary composition", () => {
     const tokenUsage = usage("run-42");
     const summary = composeSparkReproReportSummary({ work, tokenUsage });
 
-    expect(summary).toEqual({ format: "spark-repro-summary/v1", work, tokenUsage });
+    expect(summary).toMatchObject({
+      format: "spark-repro-summary/v1",
+      work: { schema: "spark.repro.work-summary/v3" },
+      tokenUsage,
+    });
+    expect(sparkReproWorkSummaryV3Base(summary.work)).toEqual(work);
     expect(serializeSparkReproReportSummary(summary)).toBe(`${JSON.stringify(summary, null, 2)}\n`);
     expect(parseSparkReproReportSummary(structuredClone(summary))).toEqual(summary);
   });
@@ -40,13 +46,14 @@ describe("Repro report summary composition", () => {
     delete summary.work.retirementBlockers;
 
     const migrated = parseSparkReproReportSummary(summary);
-    expect(migrated.work.schema).toBe("spark.repro.work-summary/v2");
+    expect(migrated.work.schema).toBe("spark.repro.work-summary/v3");
     expect(migrated.work.progress.quantified).toBe(false);
     expect(migrated.work.progress).not.toHaveProperty("percent");
     expect(migrated.work.validationMatrix.rows.every((row) => row.evidenceClass === "probe")).toBe(
       true,
     );
-    expect(migrated.work.exploreFrontier.observationId).toBeUndefined();
+    expect(migrated.work.lanes.implementation.frontier.observationId).toBeUndefined();
+    expect(migrated.work.lanes.exactness.workItemIds).toEqual([]);
   });
 
   it("rejects usage attributed to another Repro run", () => {
