@@ -40,6 +40,7 @@ jobs:
 
   process:
     name: Process Tests (${{ matrix.name }})
+    needs: source
     strategy:
       fail-fast: false
       matrix:
@@ -64,6 +65,7 @@ jobs:
 
   repro-journey:
     name: Repro Golden Journey (Ubuntu)
+    needs: source
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -92,6 +94,7 @@ jobs:
 
   browser:
     name: Browser Tests
+    needs: source
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
