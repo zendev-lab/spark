@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "catalog:",
+    "@optique/core": "catalog:",
     "@zendev-lab/spark-daemon-client": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^"
   },
