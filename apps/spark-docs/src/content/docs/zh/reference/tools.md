@@ -33,7 +33,9 @@ fail closed。阻塞 timeout 由 host policy 持有，工具调用方不能自�
 
 面向用户的 Artifact kind 只有 `issue | git_change | document`。一个
 `git_change` 拥有一个 worktree 和一个原生 PR stack；Preview 是 Document
-的视图，不是新的 Artifact kind。
+的视图，不是新的 Artifact kind。`git` submit 会等待每个非终态 pull request
+的 required GitHub checks，再把 pass、fail 或 conflict 记录到该 Artifact。
+没有 required checks 的 pull request 记为 inconclusive，而不是阻塞 submit 结果。
 
 Evidence 记录内部 claim 与验证。Artifact 和 Evidence ref 使用不同的命名空间、
 store、权限和生命周期。工具不能把文件路径、transcript 陈述或未验证结果静默提升为

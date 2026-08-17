@@ -1504,6 +1504,8 @@ const messages = {
       draft: "Draft",
       openPullRequest: "Open pull request",
       checks: "Checks",
+      mergeable: "Mergeable",
+      conflict: "Conflict",
       description: "Description",
       diff: "Diff summary",
       technicalDetails: "Git details",

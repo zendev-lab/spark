@@ -4,8 +4,13 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ToolConfig } from "@zendev-lab/spark-core";
 import { defaultArtifactStore } from "../artifact/index.ts";
-import { registerGitLifecycleTool } from "./extension.ts";
-import { GitLifecycleError, GitLifecycleService, type GitCommandRunner } from "./lifecycle.ts";
+import { registerGitLifecycleTool, renderGitChangeBody } from "./extension.ts";
+import {
+  GitLifecycleError,
+  GitLifecycleService,
+  defaultGitCommandRunner,
+  type GitCommandRunner,
+} from "./lifecycle.ts";
 
 describe("git_change lifecycle", () => {
   it("creates semantic worktrees under the owning workspace", async () => {
@@ -330,6 +335,210 @@ describe("git_change lifecycle", () => {
       approval: "required",
     });
   });
+
+  it("watches required PR checks after submit and records pass", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-git-submit-watch-pass-"));
+    const calls: string[][] = [];
+    const service = new GitLifecycleService({
+      cwd,
+      runner: stackRunner(calls, {
+        requiredChecks: [{ name: "build", state: "SUCCESS" }],
+        statusCheckRollup: [{ name: "build", state: "SUCCESS" }],
+        watchChecksCode: 0,
+      }),
+      store: defaultArtifactStore(cwd),
+      readyGate: async () => {},
+    });
+    const artifact = await service.adopt();
+
+    const submitted = await service.submit(artifact.ref);
+    const pullRequest = submitted.body.stack.entries[0]?.pullRequest;
+    expect(submitted.body.stack.entries[0]?.needsRebase).toBe(false);
+    expect(pullRequest?.checksVerdict).toBe("pass");
+    expect(calls).toContainEqual([
+      "gh",
+      "pr",
+      "checks",
+      "41",
+      "--required",
+      "--watch",
+      "--fail-fast",
+    ]);
+    expect(renderGitChangeBody(submitted.body)).toContain("checks=pass");
+  });
+
+  it("records check failure on the artifact without throwing from submit", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-git-submit-watch-fail-"));
+    const calls: string[][] = [];
+    const service = new GitLifecycleService({
+      cwd,
+      runner: stackRunner(calls, {
+        requiredChecks: [{ name: "build", state: "FAILURE" }],
+        statusCheckRollup: [{ name: "build", state: "FAILURE" }],
+        watchChecksCode: 1,
+      }),
+      store: defaultArtifactStore(cwd),
+      readyGate: async () => {},
+    });
+    const artifact = await service.adopt();
+
+    const submitted = await service.submit(artifact.ref);
+    expect(submitted.body.stack.entries[0]?.pullRequest?.checksVerdict).toBe("fail");
+    expect(renderGitChangeBody(submitted.body)).toContain("checks=fail");
+    expect(calls).toContainEqual([
+      "gh",
+      "pr",
+      "checks",
+      "41",
+      "--required",
+      "--watch",
+      "--fail-fast",
+    ]);
+  });
+
+  it("records inconclusive and skips watch when a PR has no required checks", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-git-submit-no-required-"));
+    const calls: string[][] = [];
+    const service = new GitLifecycleService({
+      cwd,
+      runner: stackRunner(calls, {
+        requiredChecks: [],
+        statusCheckRollup: [{ name: "optional", state: "SUCCESS" }],
+      }),
+      store: defaultArtifactStore(cwd),
+      readyGate: async () => {},
+    });
+    const artifact = await service.adopt();
+
+    const submitted = await service.submit(artifact.ref);
+    expect(submitted.body.stack.entries[0]?.pullRequest?.checksVerdict).toBe("inconclusive");
+    expect(calls.some(isPrChecksWatch)).toBe(false);
+    expect(renderGitChangeBody(submitted.body)).toContain("checks=inconclusive");
+  });
+
+  it("persists needs-rebase and conflict without throwing from submit", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-git-submit-conflict-"));
+    const calls: string[][] = [];
+    const service = new GitLifecycleService({
+      cwd,
+      runner: stackRunner(calls, {
+        branches: [
+          {
+            name: "feature-base",
+            base: "base-oid",
+            isCurrent: false,
+            isMerged: false,
+            isQueued: false,
+            needsRebase: true,
+          },
+          {
+            name: "feature-top",
+            base: "top-base-oid",
+            isCurrent: true,
+            isMerged: false,
+            isQueued: false,
+            needsRebase: false,
+          },
+        ],
+        mergeable: "CONFLICTING",
+        mergeStateStatus: "DIRTY",
+        requiredChecks: [{ name: "build", state: "SUCCESS" }],
+        watchChecksCode: 0,
+      }),
+      store: defaultArtifactStore(cwd),
+      readyGate: async () => {},
+    });
+    const artifact = await service.adopt();
+
+    const submitted = await service.submit(artifact.ref);
+    const pullRequest = submitted.body.stack.entries[0]?.pullRequest;
+    expect(submitted.body.stack.entries[0]?.needsRebase).toBe(true);
+    expect(pullRequest?.mergeable).toBe(false);
+    expect(pullRequest?.mergeStateStatus).toBe("DIRTY");
+    const rendered = renderGitChangeBody(submitted.body);
+    expect(rendered).toContain("needs-rebase");
+    expect(rendered).toContain("conflict");
+  });
+
+  it("records pending when required-check watch times out instead of throwing", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-git-submit-timeout-"));
+    const calls: string[][] = [];
+    const service = new GitLifecycleService({
+      cwd,
+      runner: stackRunner(calls, {
+        requiredChecks: [{ name: "build", state: "PENDING" }],
+        statusCheckRollup: [{ name: "build", state: "PENDING" }],
+        watchHangsUntilAbort: true,
+      }),
+      store: defaultArtifactStore(cwd),
+      readyGate: async () => {},
+      requiredChecksTimeoutMs: 50,
+    });
+    const artifact = await service.adopt();
+
+    const submitted = await service.submit(artifact.ref);
+    expect(submitted.body.stack.entries[0]?.pullRequest?.checksVerdict).toBe("pending");
+    expect(renderGitChangeBody(submitted.body)).toContain("checks=pending");
+  });
+
+  it("does not watch required checks during inspect or sync", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-git-inspect-sync-"));
+    const calls: string[][] = [];
+    const service = new GitLifecycleService({
+      cwd,
+      runner: stackRunner(calls, {
+        requiredChecks: [{ name: "build", state: "PENDING" }],
+        statusCheckRollup: [{ name: "build", state: "PENDING" }],
+      }),
+      store: defaultArtifactStore(cwd),
+    });
+    const artifact = await service.adopt();
+    await service.inspect({ artifactRef: artifact.ref });
+    await service.sync(artifact.ref);
+
+    expect(calls.some(isPrChecksWatch)).toBe(false);
+    expect(calls).toContainEqual(["gh", "stack", "sync"]);
+  });
+
+  it("skips required-check watch for merged pull requests", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-git-submit-merged-"));
+    const calls: string[][] = [];
+    const service = new GitLifecycleService({
+      cwd,
+      runner: stackRunner(calls, {
+        pullRequestState: "MERGED",
+        requiredChecks: [{ name: "build", state: "SUCCESS" }],
+        branches: [
+          {
+            name: "feature-base",
+            base: "base-oid",
+            isCurrent: true,
+            isMerged: true,
+            isQueued: false,
+            needsRebase: false,
+          },
+        ],
+      }),
+      store: defaultArtifactStore(cwd),
+      readyGate: async () => {},
+    });
+    const artifact = await service.adopt();
+    await service.submit(artifact.ref);
+    expect(calls.some(isPrChecksWatch)).toBe(false);
+  });
+
+  it("kills a spawned command when the runner AbortSignal fires", async () => {
+    const controller = new AbortController();
+    const pending = defaultGitCommandRunner(
+      process.execPath,
+      ["-e", "setTimeout(() => {}, 60000)"],
+      process.cwd(),
+      { signal: controller.signal },
+    );
+    controller.abort();
+    const result = await pending;
+    expect(result.code).not.toBe(0);
+  });
 });
 
 interface StackRunnerOptions {
@@ -343,13 +552,20 @@ interface StackRunnerOptions {
     needsRebase?: boolean;
   }>;
   failStackInit?: boolean;
+  requiredChecks?: Array<{ name: string; state: string }>;
+  statusCheckRollup?: Array<{ name?: string; state?: string }>;
+  watchChecksCode?: number;
+  watchHangsUntilAbort?: boolean;
+  mergeable?: string | boolean;
+  mergeStateStatus?: string;
+  pullRequestState?: string;
 }
 
 function stackRunner(calls: string[][], options: StackRunnerOptions = {}): GitCommandRunner {
-  return async (command, args, cwd) => {
+  return async (command, args, cwd, runnerOptions) => {
     calls.push([command, ...args]);
     if (command === "git") return simulateGitCommand(args, cwd, options);
-    if (command === "gh") return simulateGhCommand(args, options);
+    if (command === "gh") return simulateGhCommand(args, options, runnerOptions);
     return failure(127, `unexpected command: ${command} ${args.join(" ")}`);
   };
 }
@@ -380,11 +596,16 @@ async function simulateGitCommand(args: string[], cwd: string, options: StackRun
   return failure(127, `unexpected command: git ${invocation}`);
 }
 
-function simulateGhCommand(args: string[], options: StackRunnerOptions) {
+async function simulateGhCommand(
+  args: string[],
+  options: StackRunnerOptions,
+  runnerOptions?: { signal?: AbortSignal },
+) {
   if (args[0] === "stack" && args[1] === "init") {
     return options.failStackInit ? failure(1, "stack init failed") : success("");
   }
   if (args[0] === "stack" && args[1] === "checkout") return success("");
+  if (args[0] === "stack" && args[1] === "sync") return success("");
   if (args.join(" ") === "stack view --json") {
     return success(
       JSON.stringify({
@@ -400,19 +621,47 @@ function simulateGhCommand(args: string[], options: StackRunnerOptions) {
       JSON.stringify({
         number: 41,
         title: "Base layer",
-        state: "OPEN",
+        state: options.pullRequestState ?? "OPEN",
         url: "https://github.com/acme/app/pull/41",
         body: "Substantive description",
         labels: [],
         headRefName: "feature-base",
         baseRefName: "main",
         isDraft: true,
-        statusCheckRollup: [],
+        statusCheckRollup: options.statusCheckRollup ?? [],
+        mergeable: options.mergeable,
+        mergeStateStatus: options.mergeStateStatus,
       }),
     );
   }
+  if (args[0] === "pr" && args[1] === "checks") {
+    if (args.includes("--watch")) {
+      if (options.watchHangsUntilAbort) {
+        await waitForAbort(runnerOptions?.signal);
+        return failure(1, "aborted");
+      }
+      return options.watchChecksCode && options.watchChecksCode !== 0
+        ? failure(options.watchChecksCode, "required checks failed")
+        : success("All checks were successful\n");
+    }
+    return success(JSON.stringify(options.requiredChecks ?? []));
+  }
   if (args[0] === "stack" && args[1] === "submit") return success("Stack submitted\n");
   return failure(127, `unexpected command: gh ${args.join(" ")}`);
+}
+
+function isPrChecksWatch(call: string[]): boolean {
+  return (
+    call[0] === "gh" && call[1] === "pr" && call.includes("checks") && call.includes("--watch")
+  );
+}
+
+async function waitForAbort(signal: AbortSignal | undefined): Promise<void> {
+  if (!signal) return;
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
 }
 
 function defaultStackBranches(): NonNullable<StackRunnerOptions["branches"]> {

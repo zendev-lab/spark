@@ -19,7 +19,39 @@ function fromCanonicalGitChange(body: GitChangeArtifactBody): GitChangePreviewMo
     trunk: body.trunk,
     lifecycle: body.lifecycle,
     worktree: body.worktree,
-    stack: body.stack,
+    stack: {
+      authority: body.stack.authority,
+      number: body.stack.number,
+      currentBranch: body.stack.currentBranch,
+      observedAt: body.stack.observedAt,
+      entries: body.stack.entries.map((entry) => ({
+        branch: entry.branch,
+        base: entry.base,
+        isCurrent: entry.isCurrent,
+        isMerged: entry.isMerged,
+        isQueued: entry.isQueued,
+        needsRebase: entry.needsRebase,
+        pullRequest: entry.pullRequest
+          ? {
+              number: entry.pullRequest.number,
+              url: entry.pullRequest.url,
+              state: entry.pullRequest.state,
+              title: entry.pullRequest.title,
+              headRef: entry.pullRequest.headRef,
+              baseRef: entry.pullRequest.baseRef,
+              draft: entry.pullRequest.draft,
+              labels: entry.pullRequest.labels,
+              checks: entry.pullRequest.checks,
+              checksSummary: entry.pullRequest.checksSummary,
+              checksVerdict: entry.pullRequest.checksVerdict,
+              mergeable: entry.pullRequest.mergeable,
+              mergeStateStatus: entry.pullRequest.mergeStateStatus,
+              bodyText: entry.pullRequest.bodyText,
+              diffSummary: entry.pullRequest.diffSummary,
+            }
+          : undefined,
+      })),
+    },
     cleanupBlockers: body.cleanupBlockers,
   };
 }

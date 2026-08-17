@@ -10,9 +10,13 @@ import {
   type ArtifactStore,
   type GitChangeArtifactBody,
   type GitChangeEntry,
+  type GitChecksVerdict,
+  type GitPullRequestCheck,
   type GitPullRequestSnapshot,
 } from "../artifact/index.ts";
 import { requireCurrentLensPass } from "./verification-gate.ts";
+
+export const GIT_SUBMIT_REQUIRED_CHECKS_TIMEOUT_MS = 60 * 60 * 1000;
 
 export type GitLifecycleAction =
   | "inspect"
@@ -30,6 +34,7 @@ export type GitCommandRunner = (
   command: string,
   args: string[],
   cwd: string,
+  options?: { signal?: AbortSignal },
 ) => Promise<{ stdout: string; stderr: string; code: number }>;
 
 export interface GitLifecycleServiceOptions {
@@ -39,6 +44,7 @@ export interface GitLifecycleServiceOptions {
   runner?: GitCommandRunner;
   worktreeRoot?: string;
   readyGate?: (worktreePath: string, artifactRef: ArtifactRef) => Promise<unknown>;
+  requiredChecksTimeoutMs?: number;
 }
 
 export interface CreateGitChangeInput {
@@ -100,12 +106,15 @@ export class GitLifecycleService {
   readonly runner: GitCommandRunner;
   readonly worktreeRoot: string;
   readonly readyGate: (worktreePath: string, artifactRef: ArtifactRef) => Promise<unknown>;
+  readonly requiredChecksTimeoutMs: number;
 
   constructor(options: GitLifecycleServiceOptions) {
     this.cwd = resolve(options.cwd);
     this.workspaceRoot = resolve(options.workspaceRoot?.trim() || options.cwd);
     this.store = options.store ?? defaultArtifactStore(this.workspaceRoot);
     this.runner = options.runner ?? defaultGitCommandRunner;
+    this.requiredChecksTimeoutMs =
+      options.requiredChecksTimeoutMs ?? GIT_SUBMIT_REQUIRED_CHECKS_TIMEOUT_MS;
     const configuredWorktreeRoot =
       options.worktreeRoot?.trim() || process.env.SPARK_GIT_WORKTREE_ROOT?.trim();
     this.worktreeRoot = resolve(
@@ -314,7 +323,13 @@ export class GitLifecycleService {
     const args = ["stack", "submit", "--auto"];
     if (options.ready === true) args.push("--open");
     await this.runChecked("gh", args, worktreePath, "stack_submit_failed");
-    return this.refresh(artifactRef);
+    const submitted = await this.refresh(artifactRef);
+    const outcomes = await this.awaitRequiredPullRequestChecks(submitted);
+    const refreshed = await this.refresh(artifactRef);
+    if (outcomes.size === 0) return refreshed;
+    return this.store.update(refreshed.ref, {
+      body: applyChecksVerdictOverlays(refreshed.body, outcomes),
+    });
   }
 
   async sync(artifactRef: ArtifactRef): Promise<Artifact<GitChangeArtifactBody>> {
@@ -483,7 +498,7 @@ export class GitLifecycleService {
         "--repo",
         repo,
         "--json",
-        "number,title,state,url,body,labels,headRefName,baseRefName,isDraft,statusCheckRollup",
+        "number,title,state,url,body,labels,headRefName,baseRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus",
       ],
       cwd,
     );
@@ -498,14 +513,22 @@ export class GitLifecycleService {
       headRefName: string;
       baseRefName: string;
       isDraft?: boolean;
-      statusCheckRollup?: Array<{ state?: string; name?: string }>;
+      statusCheckRollup?: Array<{
+        name?: string;
+        context?: string;
+        state?: string;
+        conclusion?: string;
+        status?: string;
+      }>;
+      mergeable?: unknown;
+      mergeStateStatus?: unknown;
     };
     try {
       raw = JSON.parse(result.stdout) as typeof raw;
     } catch {
       return undefined;
     }
-    const checks = raw.statusCheckRollup ?? [];
+    const checks = normalizePullRequestChecks(raw.statusCheckRollup);
     return {
       forge: "github",
       repo,
@@ -518,14 +541,65 @@ export class GitLifecycleService {
       headRef: raw.headRefName,
       baseRef: raw.baseRefName,
       draft: Boolean(raw.isDraft),
+      checks,
       checksSummary:
-        checks.length === 0
+        checks === undefined
           ? undefined
-          : checks
-              .map((check) => `${check.name ?? "check"}=${check.state ?? "unknown"}`)
-              .join(", "),
+          : checks.map((check) => `${check.name}=${check.state}`).join(", "),
+      checksVerdict: deriveChecksVerdict(checks),
+      mergeable: parseMergeable(raw.mergeable),
+      mergeStateStatus: parseMergeStateStatus(raw.mergeStateStatus),
       syncedAt: new Date().toISOString(),
     };
+  }
+
+  private async awaitRequiredPullRequestChecks(
+    artifact: Artifact<GitChangeArtifactBody>,
+  ): Promise<Map<number, GitChecksVerdict>> {
+    const outcomes = new Map<number, GitChecksVerdict>();
+    const worktreePath = requireAttachedWorktree(artifact);
+    const signal = AbortSignal.timeout(this.requiredChecksTimeoutMs);
+    for (const entry of artifact.body.stack.entries) {
+      const pullRequest = entry.pullRequest;
+      if (!pullRequest || isTerminalPullRequestState(pullRequest.state)) continue;
+      const outcome = await this.awaitOnePullRequestChecks(
+        worktreePath,
+        pullRequest.number,
+        signal,
+      );
+      outcomes.set(pullRequest.number, outcome);
+      if (signal.aborted) break;
+    }
+    return outcomes;
+  }
+
+  private async awaitOnePullRequestChecks(
+    worktreePath: string,
+    number: number,
+    signal: AbortSignal,
+  ): Promise<GitChecksVerdict> {
+    if (signal.aborted) return "inconclusive";
+    try {
+      const probe = await this.runner(
+        "gh",
+        ["pr", "checks", String(number), "--required", "--json", "name,state"],
+        worktreePath,
+        { signal },
+      );
+      if (signal.aborted) return "inconclusive";
+      if (!probeHasRequiredChecks(probe)) return "inconclusive";
+      const watched = await this.runner(
+        "gh",
+        ["pr", "checks", String(number), "--required", "--watch", "--fail-fast"],
+        worktreePath,
+        { signal },
+      );
+      if (signal.aborted) return "pending";
+      return watched.code === 0 ? "pass" : "fail";
+    } catch (error) {
+      if (signal.aborted || isAbortError(error)) return "pending";
+      throw error;
+    }
   }
 
   private async requireGitChange(
@@ -670,8 +744,9 @@ export class GitLifecycleService {
     args: string[],
     cwd: string,
     code: string,
+    options?: { signal?: AbortSignal },
   ): Promise<{ stdout: string; stderr: string; code: number }> {
-    const result = await this.runner(command, args, cwd);
+    const result = await this.runner(command, args, cwd, options);
     if (result.code !== 0) throw commandError(code, `${command} ${args.join(" ")}`, result);
     return result;
   }
@@ -681,26 +756,39 @@ export function defaultGitCommandRunner(
   command: string,
   args: string[],
   cwd: string,
+  options?: { signal?: AbortSignal },
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolvePromise) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: {
-        ...process.env,
-        GH_PROMPT_DISABLED: "1",
-        GIT_TERMINAL_PROMPT: "0",
-      },
-    });
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(command, args, {
+        cwd,
+        signal: options?.signal,
+        env: {
+          ...process.env,
+          GH_PROMPT_DISABLED: "1",
+          GIT_TERMINAL_PROMPT: "0",
+        },
+      });
+    } catch (error) {
+      resolvePromise({
+        stdout: "",
+        stderr: error instanceof Error ? error.message : String(error),
+        code: 1,
+      });
+      return;
+    }
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (chunk: Buffer | string) => {
+    child.stdout?.on("data", (chunk: Buffer | string) => {
       stdout += String(chunk);
     });
-    child.stderr.on("data", (chunk: Buffer | string) => {
+    child.stderr?.on("data", (chunk: Buffer | string) => {
       stderr += String(chunk);
     });
     child.on("error", (error) => {
-      resolvePromise({ stdout, stderr: error.message, code: 127 });
+      const aborted = error.name === "AbortError" || options?.signal?.aborted === true;
+      resolvePromise({ stdout, stderr: error.message, code: aborted ? 1 : 127 });
     });
     child.on("close", (code) => {
       resolvePromise({ stdout, stderr, code: code ?? 1 });
@@ -765,6 +853,126 @@ function gitChangeLifecycle(entries: GitChangeEntry[]): GitChangeArtifactBody["l
     return "terminal";
   }
   return "published";
+}
+
+function applyChecksVerdictOverlays(
+  body: GitChangeArtifactBody,
+  outcomes: Map<number, GitChecksVerdict>,
+): GitChangeArtifactBody {
+  if (outcomes.size === 0) return body;
+  return {
+    ...body,
+    stack: {
+      ...body.stack,
+      entries: body.stack.entries.map((entry) => {
+        const pullRequest = entry.pullRequest;
+        if (!pullRequest) return entry;
+        const overlay = outcomes.get(pullRequest.number);
+        if (!overlay) return entry;
+        return {
+          ...entry,
+          pullRequest: { ...pullRequest, checksVerdict: overlay },
+        };
+      }),
+    },
+  };
+}
+
+function normalizePullRequestChecks(
+  rollup:
+    | Array<{
+        name?: string;
+        context?: string;
+        state?: string;
+        conclusion?: string;
+        status?: string;
+      }>
+    | undefined,
+): GitPullRequestCheck[] | undefined {
+  if (!rollup || rollup.length === 0) return undefined;
+  return rollup.map((check) => ({
+    name: check.name ?? check.context ?? "check",
+    state: check.state ?? check.conclusion ?? check.status ?? "unknown",
+  }));
+}
+
+function deriveChecksVerdict(checks: GitPullRequestCheck[] | undefined): GitChecksVerdict {
+  if (!checks || checks.length === 0) return "inconclusive";
+  const buckets = checks.map((check) => checkStateBucket(check.state));
+  if (buckets.some((bucket) => bucket === "fail")) return "fail";
+  if (buckets.some((bucket) => bucket === "pending")) return "pending";
+  if (buckets.every((bucket) => bucket === "pass")) return "pass";
+  return "inconclusive";
+}
+
+function checkStateBucket(state: string): "pass" | "fail" | "pending" | "unknown" {
+  const normalized = state.trim().toUpperCase();
+  switch (normalized) {
+    case "SUCCESS":
+    case "PASS":
+    case "SKIPPED":
+    case "NEUTRAL":
+      return "pass";
+    case "FAILURE":
+    case "FAIL":
+    case "ERROR":
+    case "TIMED_OUT":
+    case "CANCELLED":
+    case "CANCELED":
+    case "ACTION_REQUIRED":
+    case "STARTUP_FAILURE":
+      return "fail";
+    case "PENDING":
+    case "IN_PROGRESS":
+    case "QUEUED":
+    case "EXPECTED":
+    case "WAITING":
+    case "REQUESTED":
+      return "pending";
+    default:
+      return "unknown";
+  }
+}
+
+function parseMergeable(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return undefined;
+  switch (value.trim().toUpperCase()) {
+    case "MERGEABLE":
+    case "TRUE":
+      return true;
+    case "CONFLICTING":
+    case "FALSE":
+      return false;
+    default:
+      return undefined;
+  }
+}
+
+function parseMergeStateStatus(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function probeHasRequiredChecks(result: { stdout: string; stderr: string; code: number }): boolean {
+  const trimmed = result.stdout.trim();
+  if (trimmed) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (Array.isArray(parsed)) return parsed.length > 0;
+    } catch {
+      return true;
+    }
+  }
+  return result.code === 8;
+}
+
+function isTerminalPullRequestState(state: string): boolean {
+  const normalized = state.toLowerCase();
+  return normalized === "merged" || normalized === "closed";
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function requireAttachedWorktree(artifact: Artifact<GitChangeArtifactBody>): string {

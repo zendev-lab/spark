@@ -1,6 +1,7 @@
 export {
   ARTIFACT_KINDS,
   ARTIFACT_FORMATS,
+  GIT_CHECKS_VERDICTS,
   asJsonValue,
   isArtifactBody,
   isArtifactFormat,
@@ -20,6 +21,8 @@ export {
   type GitChangeRepository,
   type GitChangeStack,
   type GitChangeWorktreeStatus,
+  type GitChecksVerdict,
+  type GitPullRequestCheck,
   type GitPullRequestSnapshot,
   type IssueArtifactBody,
   type LegacyArtifactBody,

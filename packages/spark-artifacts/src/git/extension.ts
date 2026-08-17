@@ -12,6 +12,8 @@ import {
   type Artifact,
   type ArtifactRef,
   type GitChangeArtifactBody,
+  type GitChangeEntry,
+  type GitChecksVerdict,
 } from "../artifact/index.ts";
 import { GitLifecycleService, type GitLifecycleAction } from "./lifecycle.ts";
 import { gitChangeReviewState } from "./review-state.ts";
@@ -180,7 +182,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
           artifactRef,
           worktreePath: stringOrUndefined(params.worktreePath),
         });
-        return gitResult(action, renderBody(body), {
+        return gitResult(action, renderGitChangeBody(body), {
           gitChange: body,
           reviewState: gitChangeReviewState(body),
         });
@@ -276,39 +278,73 @@ export function registerSparkGitLifecycleTool(pi: SparkHostAPI): void {
 
 function changedResult(action: GitLifecycleAction, artifact: Artifact<GitChangeArtifactBody>) {
   const reviewState = gitChangeReviewState(artifact.body);
-  return gitResult(action, `${artifact.ref} ${artifact.title}\n${renderBody(artifact.body)}`, {
-    changed: true,
-    reviewState,
-    refs: { artifactRef: artifact.ref },
-    artifact: {
-      ref: artifact.ref,
-      kind: artifact.kind,
-      title: artifact.title,
-      body: artifact.body,
+  return gitResult(
+    action,
+    `${artifact.ref} ${artifact.title}\n${renderGitChangeBody(artifact.body)}`,
+    {
+      changed: true,
       reviewState,
-      updatedAt: artifact.updatedAt,
+      refs: { artifactRef: artifact.ref },
+      artifact: {
+        ref: artifact.ref,
+        kind: artifact.kind,
+        title: artifact.title,
+        body: artifact.body,
+        reviewState,
+        updatedAt: artifact.updatedAt,
+      },
     },
-  });
+  );
 }
 
-function renderBody(body: GitChangeArtifactBody): string {
+export function renderGitChangeBody(body: GitChangeArtifactBody): string {
   return [
     `repository=${body.repository.repo}`,
     `worktree=${body.worktree.status}${body.worktree.path ? ` ${body.worktree.path}` : ""}`,
     `stack=${body.stack.authority} trunk=${body.trunk} layers=${body.stack.entries.length}`,
     `lifecycle=${body.lifecycle} review=${gitChangeReviewState(body)}`,
-    ...body.stack.entries.map((entry) => {
-      const pr = entry.pullRequest ? ` PR #${entry.pullRequest.number}` : "";
-      const review = entry.pullRequest
-        ? entry.pullRequest.draft === true
-          ? " draft"
-          : entry.pullRequest.draft === false
-            ? " ready"
-            : " review-unknown"
-        : "";
-      return `- ${entry.branch}${pr}${review}${entry.needsRebase ? " needs-rebase" : ""}`;
-    }),
+    ...body.stack.entries.map((entry) => renderGitChangeEntry(entry)),
   ].join("\n");
+}
+
+function renderGitChangeEntry(entry: GitChangeEntry): string {
+  const pullRequest = entry.pullRequest;
+  const parts = [`- ${entry.branch}`];
+  if (pullRequest) {
+    parts.push(` PR #${pullRequest.number}`);
+    parts.push(
+      pullRequest.draft === true
+        ? " draft"
+        : pullRequest.draft === false
+          ? " ready"
+          : " review-unknown",
+    );
+    if (pullRequest.checksVerdict) {
+      parts.push(` ${formatChecksVerdict(pullRequest.checksVerdict)}`);
+    } else if (pullRequest.checksSummary) {
+      parts.push(` checks=${pullRequest.checksSummary}`);
+    }
+  }
+  if (entry.needsRebase) parts.push(" needs-rebase");
+  if (pullRequest?.mergeable === false) parts.push(" conflict");
+  return parts.join("");
+}
+
+function formatChecksVerdict(verdict: GitChecksVerdict): string {
+  switch (verdict) {
+    case "pass":
+      return "checks=pass";
+    case "fail":
+      return "checks=fail";
+    case "pending":
+      return "checks=pending";
+    case "inconclusive":
+      return "checks=inconclusive";
+    default: {
+      const exhaustive: never = verdict;
+      return exhaustive;
+    }
+  }
 }
 
 function gitResult(action: GitLifecycleAction, text: string, details: Record<string, unknown>) {

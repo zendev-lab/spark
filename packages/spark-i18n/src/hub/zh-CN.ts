@@ -1467,6 +1467,8 @@ const messages = {
       draft: "草稿",
       openPullRequest: "打开 PR",
       checks: "检查",
+      mergeable: "可合并",
+      conflict: "冲突",
       description: "说明",
       diff: "Diff 摘要",
       technicalDetails: "Git 详情",

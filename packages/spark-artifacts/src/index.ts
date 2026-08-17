@@ -1098,6 +1098,7 @@ export {
   ARTIFACT_KINDS,
   ARTIFACT_FORMATS,
   ARTIFACT_PROJECTION_MAX_INLINE_BYTES,
+  GIT_CHECKS_VERDICTS,
   ArtifactStore,
   ArtifactValidationError,
   applyWorktreeToPrBody,
@@ -1138,6 +1139,8 @@ export {
   type GitChangeRepository,
   type GitChangeStack,
   type GitChangeWorktreeStatus,
+  type GitChecksVerdict,
+  type GitPullRequestCheck,
   type GitPullRequestSnapshot,
   type ForgeIssueSnapshot,
   type ForgePrSnapshot,
@@ -1189,6 +1192,7 @@ export {
 } from "./artifact/file-sync.ts";
 
 export {
+  GIT_SUBMIT_REQUIRED_CHECKS_TIMEOUT_MS,
   GitLifecycleError,
   GitLifecycleService,
   defaultGitCommandRunner,
