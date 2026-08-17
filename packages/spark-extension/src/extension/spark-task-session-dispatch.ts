@@ -783,7 +783,7 @@ async function submitFleetTaskRequest(input: {
     body: input.prompt,
     origin: { surface: "local", host: "daemon" },
     ...(input.parentInvocationId ? { parentInvocationId: input.parentInvocationId } : {}),
-    notifyOnCompletion: true,
+    wake: true,
     source: "tool",
   });
   if (!result.submitted) throw new Error("Fleet request was not admitted as an invocation");

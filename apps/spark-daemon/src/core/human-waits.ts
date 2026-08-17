@@ -5,6 +5,7 @@ import {
   createId,
   hasNonEmptySparkHumanAnswer,
   matchesAutonomousAskInteractionRequestId,
+  parseSparkHumanWaitRespondent,
   sparkEvidenceAnswerEventSchema,
   type HumanRequestCreatedPayload,
   type SparkDirectAnswerProvenance,
@@ -12,6 +13,7 @@ import {
   type SparkEvidenceRequestBinding,
   type SparkHumanInteractionDeliveryOutcome,
   type SparkHumanInteractionStatus,
+  type SparkHumanWaitRespondent,
 } from "@zendev-lab/spark-protocol";
 
 type JsonObject = Record<string, unknown>;
@@ -38,13 +40,15 @@ export interface SparkDaemonHumanWaitInput {
   questions?: HumanQuestion[];
   context?: JsonObject;
   contextArtifactRefs?: string[];
+  respondent?: SparkHumanWaitRespondent;
 }
 
 export interface SparkDaemonHumanWaitRecord extends Required<
-  Omit<SparkDaemonHumanWaitInput, "humanRequestId" | "evidenceRequest">
+  Omit<SparkDaemonHumanWaitInput, "humanRequestId" | "evidenceRequest" | "respondent">
 > {
   humanRequestId: string;
   evidenceRequest?: SparkEvidenceRequestBinding;
+  respondent: SparkHumanWaitRespondent;
   status: HumanWaitStatus;
   createdAt: string;
   updatedAt: string;
@@ -103,6 +107,7 @@ export interface SparkDaemonHumanWaitOutboxRoute {
 
 export interface SparkDaemonHumanWaitInteractionLookup {
   interactionRequestId?: string;
+  humanRequestId?: string;
   toolCallId?: string;
   sessionId?: string;
   invocationId?: string;
@@ -211,6 +216,9 @@ export class SparkDaemonHumanWaitRegistry {
     if (input.evidenceRequest) {
       requireEvidenceOwnerQuestion(input.evidenceRequest, input.questions ?? []);
     }
+    if (input.evidenceRequest && input.respondent?.kind === "session") {
+      throw new Error("session-addressed human interaction cannot bind an EvidenceRequest");
+    }
     const now = new Date().toISOString();
     const wait: SparkDaemonHumanWaitRecord = {
       humanRequestId: input.humanRequestId ?? createId("hreq"),
@@ -229,6 +237,7 @@ export class SparkDaemonHumanWaitRegistry {
       questions: input.questions ?? [],
       context: input.context ?? {},
       contextArtifactRefs: input.contextArtifactRefs ?? [],
+      respondent: input.respondent ?? { kind: "user" },
       status: "pending",
       createdAt: now,
       updatedAt: now,
@@ -500,6 +509,24 @@ export class SparkDaemonHumanWaitRegistry {
       )
       .all() as unknown as HumanWaitRow[];
     return rows.map((row) => parseHumanWaitRow(row).wait);
+  }
+
+  findPendingAskForRespondentSession(sessionId: string): SparkDaemonHumanWaitRecord | undefined {
+    const normalized = sessionId.trim();
+    if (!normalized) return undefined;
+    const row = this.db
+      .prepare(
+        `SELECT request_json AS requestJson, response_json AS responseJson,
+                accepted_response_id AS acceptedResponseId, status, updated_at AS updatedAt
+         FROM daemon_human_waits
+         WHERE status = 'pending'
+           AND json_extract(request_json, '$.respondent.kind') = 'session'
+           AND json_extract(request_json, '$.respondent.sessionId') = ?
+         ORDER BY created_at, rowid
+         LIMIT 1`,
+      )
+      .get(normalized) as HumanWaitRow | undefined;
+    return row ? parseHumanWaitRow(row).wait : undefined;
   }
 
   listEvidenceAnswerEvents(humanRequestId?: string): SparkEvidenceAnswerEvent[] {
@@ -837,23 +864,25 @@ function requireUniqueInteractionMatch(
   statusLabel: string,
 ): SparkDaemonHumanWaitRecord {
   const interactionRequestId = input.interactionRequestId?.trim();
+  const humanRequestId = input.humanRequestId?.trim();
   const toolCallId = input.toolCallId?.trim();
   const sessionId = input.sessionId?.trim();
   const invocationId = input.invocationId?.trim();
-  if (!interactionRequestId && !toolCallId) {
+  if (!interactionRequestId && !humanRequestId && !toolCallId) {
     throw new SparkDaemonHumanWaitLookupError(
       "human_interaction_not_found",
-      "A daemon-owned human interaction lookup requires interactionRequestId or toolCallId.",
+      "A daemon-owned human interaction lookup requires interactionRequestId, humanRequestId, or toolCallId.",
     );
   }
   const matches = waits.filter(
     (wait) =>
       (!interactionRequestId || wait.interactionRequestId === interactionRequestId) &&
+      (!humanRequestId || wait.humanRequestId === humanRequestId) &&
       (!toolCallId || wait.toolCallId === toolCallId) &&
       (!sessionId || wait.sessionId === sessionId) &&
       (!invocationId || wait.invocationId === invocationId),
   );
-  const lookup = interactionRequestId || toolCallId || "(empty)";
+  const lookup = interactionRequestId || humanRequestId || toolCallId || "(empty)";
   if (matches.length === 0) {
     throw new SparkDaemonHumanWaitLookupError(
       "human_interaction_not_found",
@@ -880,6 +909,7 @@ function parseHumanWaitRow(row: HumanWaitRow): {
     delivery: stored.delivery ?? "blocking",
     interactionRequestId: stored.interactionRequestId ?? "",
     sessionId: stored.sessionId ?? "",
+    respondent: parseSparkHumanWaitRespondent(stored.respondent),
     status: row.status,
     updatedAt: row.updatedAt,
   };

@@ -60,6 +60,7 @@ test("session tool exposes persistent lifecycle, calls, classification, and mail
   assert.ok("onActive" in properties);
   assert.match(JSON.stringify(properties.onActive), /queue/u);
   assert.match(JSON.stringify(properties.onActive), /interrupt/u);
+  assert.ok("wake" in properties);
   for (const action of [
     "list",
     "get",
@@ -71,6 +72,8 @@ test("session tool exposes persistent lifecycle, calls, classification, and mail
     "restore",
     "close",
     "send",
+    "lookup",
+    "wait",
     "inbox",
     "read",
     "ack",
@@ -78,6 +81,20 @@ test("session tool exposes persistent lifecycle, calls, classification, and mail
     assert.match(schema, new RegExp(action));
   }
   assert.deepEqual(tool.resolvePolicy?.({ action: "list" }), {
+    effect: "read",
+    executionMode: "parallel",
+    domains: ["sessions"],
+    modes: ["plan", "execute", "fleet"],
+    approval: "none",
+  });
+  assert.deepEqual(tool.resolvePolicy?.({ action: "lookup" }), {
+    effect: "read",
+    executionMode: "parallel",
+    domains: ["sessions"],
+    modes: ["plan", "execute", "fleet"],
+    approval: "none",
+  });
+  assert.deepEqual(tool.resolvePolicy?.({ action: "wait" }), {
     effect: "read",
     executionMode: "parallel",
     domains: ["sessions"],
@@ -482,7 +499,7 @@ test("session request delegates durable admission context to the daemon", async 
           surface: "local",
           host: "tui",
         });
-        assert.equal(input.notifyOnCompletion, true);
+        assert.equal(input.wake, false);
         return admitted as T;
       }
       return assert.fail(`unexpected RPC method: ${method}`);
@@ -588,7 +605,7 @@ test("session request delegates durable admission context to the daemon", async 
   }
 });
 
-test("session request blocks for success and preserves causal invocation metadata", async () => {
+test("session request remains one-way and wait polls the durable invocation", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-session-request-success-"));
   try {
     const mailStore = new SparkSessionMailStore({ sparkHome: dir });
@@ -632,7 +649,7 @@ test("session request blocks for success and preserves causal invocation metadat
       sleep: async () => undefined,
     });
 
-    const result = await execute(
+    const sent = await execute(
       tool,
       {
         ...context("session:caller"),
@@ -642,24 +659,34 @@ test("session request blocks for success and preserves causal invocation metadat
       {
         action: "send",
         kind: "request",
-        wait: "completed",
         toSessionId: "session:worker",
         message: "Is the build green?",
-        timeoutMs: 1_000,
       },
       "call-request-success",
+    );
+    assert.equal(
+      (sent.details as { submitted: { invocationId: string } }).submitted.invocationId,
+      "inv_requestsuccess",
+    );
+    const result = await execute(
+      tool,
+      context("session:caller"),
+      {
+        action: "wait",
+        invocationId: "inv_requestsuccess",
+        timeoutMs: 1_000,
+      },
+      "call-request-wait",
     );
 
     assert.equal(toolText(result), "The build is green.");
     const details = result.details as {
       blocking: boolean;
-      executionTriggered: boolean;
       waitTimedOut: boolean;
       answer: string;
       invocationId: string;
     };
     assert.equal(details.blocking, true);
-    assert.equal(details.executionTriggered, true);
     assert.equal(details.waitTimedOut, false);
     assert.equal(details.answer, "The build is green.");
     assert.equal(details.invocationId, "inv_requestsuccess");
@@ -672,7 +699,7 @@ test("session request blocks for success and preserves causal invocation metadat
         body: sendRequest.body,
         idempotencyKey: sendRequest.idempotencyKey,
         origin: sendRequest.origin,
-        notifyOnCompletion: sendRequest.notifyOnCompletion,
+        wake: sendRequest.wake,
         parentInvocationId: sendRequest.parentInvocationId,
       },
       {
@@ -681,7 +708,7 @@ test("session request blocks for success and preserves causal invocation metadat
         body: "Is the build green?",
         idempotencyKey: 'session.tool:["session:caller","call-request-success"]',
         origin: { surface: "local", host: "daemon" },
-        notifyOnCompletion: false,
+        wake: false,
         parentInvocationId: "inv_parent",
       },
     );
@@ -735,11 +762,8 @@ test("session request reports terminal failure without retrying or throwing", as
     });
 
     const result = await execute(tool, context("session:caller"), {
-      action: "send",
-      kind: "request",
-      wait: "completed",
-      toSessionId: "session:worker",
-      message: "Run the check",
+      action: "wait",
+      invocationId: "inv_requestfailed",
     });
 
     assert.match(toolText(result), /inv_requestfailed failed: worker failed/u);
@@ -790,12 +814,15 @@ test("session request timeout stops only the sender wait", async () => {
       },
     });
 
-    const timedOut = await execute(tool, context("session:caller"), {
+    await execute(tool, context("session:caller"), {
       action: "send",
       kind: "request",
-      wait: "completed",
       toSessionId: "session:worker",
       message: "Keep working after I stop waiting",
+    });
+    const timedOut = await execute(tool, context("session:caller"), {
+      action: "wait",
+      invocationId: "inv_requesttimeout",
       timeoutMs: 1_000,
     });
     assert.match(toolText(timedOut), /stopped waiting after 1000ms/u);
@@ -814,6 +841,15 @@ test("session request timeout stops only the sender wait", async () => {
           message: "Reject before persistence",
           timeoutMs: 999,
         }),
+      /session send no longer accepts wait/u,
+    );
+    await assert.rejects(
+      () =>
+        execute(tool, context("session:invalid-timeout"), {
+          action: "wait",
+          invocationId: "inv_requesttimeout",
+          timeoutMs: 999,
+        }),
       /request timeoutMs must be between 1000 and 300000/u,
     );
     assert.equal((await mailStore.list("session:other")).length, 0);
@@ -821,7 +857,6 @@ test("session request timeout stops only the sender wait", async () => {
     const delegated = await execute(tool, context("session:nested"), {
       action: "send",
       kind: "request",
-      wait: "accepted",
       toSessionId: "session:other",
       message: "Delegate asynchronously",
     });

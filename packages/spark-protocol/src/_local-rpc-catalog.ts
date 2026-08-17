@@ -5,6 +5,7 @@ import {
   sparkEvidenceAnswerEventSchema,
   sparkEvidenceRequestBindingSchema,
   sparkHumanInteractionDeliveryOutcomeSchema,
+  sparkHumanWaitRespondentSchema,
 } from "./human-interaction.ts";
 import {
   localRpcMethodToSparkCommandKind,
@@ -82,6 +83,7 @@ import {
   sparkSessionPromptHistoryRequestSchema,
   sparkSessionRetryTargetRequestSchema,
   sparkSessionRetryTargetSchema,
+  sparkSessionPeerProjectionSchema,
   sparkSessionProjectionSchema,
   sparkSessionSetModelRequestSchema,
   sparkSessionSetThinkingRequestSchema,
@@ -355,6 +357,7 @@ export const sparkLocalRpcWorkspaceOrpcErrors = {
 export const sparkLocalRpcHumanOrpcErrors = {
   human_interaction_not_found: { status: 404 },
   human_interaction_ambiguous: { status: 409 },
+  human_interaction_forbidden: { status: 403 },
   human_wait_registry_unavailable: { status: 503 },
   human_interaction_responder_unavailable: { status: 503 },
 } as const satisfies Record<SparkHumanRpcErrorCode, SparkLocalRpcErrorSpec>;
@@ -1289,15 +1292,28 @@ export const sparkLocalRpcHumanInteractionListRequestSchema = z.object({
   sessionId: z.string().trim().min(1).optional(),
 });
 
-export const sparkLocalRpcHumanInteractionRespondRequestSchema = z.object({
-  interactionRequestId: z.string().trim().min(1),
-  sessionId: z.string().trim().min(1).optional(),
-  invocationId: z.string().trim().min(1).optional(),
-  humanResponseId: prefixedIdSchema("hres").optional(),
-  status: z.enum(["answered", "cancelled"]),
-  answers: sparkProtocolJsonObjectSchema.default({}),
-  responseArtifactRefs: z.array(z.string().trim().min(1)).default([]),
-});
+export const sparkLocalRpcHumanInteractionRespondRequestSchema = z
+  .object({
+    interactionRequestId: z.string().trim().min(1).optional(),
+    humanRequestId: z.string().trim().min(1).optional(),
+    sessionId: z.string().trim().min(1).optional(),
+    invocationId: z.string().trim().min(1).optional(),
+    respondentSessionId: z.string().trim().min(1).optional(),
+    humanResponseId: prefixedIdSchema("hres").optional(),
+    status: z.enum(["answered", "cancelled"]),
+    provenance: sparkDirectAnswerProvenanceSchema.optional(),
+    answers: sparkProtocolJsonObjectSchema.default({}),
+    responseArtifactRefs: z.array(z.string().trim().min(1)).default([]),
+  })
+  .superRefine((request, context) => {
+    if (!request.interactionRequestId && !request.humanRequestId) {
+      context.addIssue({
+        code: "custom",
+        path: ["interactionRequestId"],
+        message: "human.interaction.respond requires interactionRequestId or humanRequestId",
+      });
+    }
+  });
 
 const sparkLocalRpcHumanWaitSchema = z.object({
   humanRequestId: z.string().min(1),
@@ -1316,6 +1332,7 @@ const sparkLocalRpcHumanWaitSchema = z.object({
   questions: z.array(sparkProtocolJsonObjectSchema),
   context: sparkProtocolJsonObjectSchema,
   contextArtifactRefs: z.array(z.string()),
+  respondent: sparkHumanWaitRespondentSchema.optional(),
   status: z.enum(["pending", "answered", "cancelled", "archived"]),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
@@ -1592,6 +1609,7 @@ export const sparkLocalRpcProcedureSchemas = {
     output: z.array(sparkSessionProjectionSchema),
   },
   "session.get": { input: sessionIdInputSchema, output: sparkSessionProjectionSchema },
+  "session.lookup": { input: sessionIdInputSchema, output: sparkSessionPeerProjectionSchema },
   "session.snapshot": {
     input: sparkSessionSnapshotRequestSchema,
     output: z.lazy(() => sparkSessionViewSchema),
@@ -2076,6 +2094,12 @@ export const sparkLocalRpcOrpcContract = {
   session: {
     list: procedure("GET", "/session/list", p["session.list"], sparkLocalRpcSessionListOrpcErrors),
     get: procedure("GET", "/session/get", p["session.get"], sparkLocalRpcSessionGetOrpcErrors),
+    lookup: procedure(
+      "GET",
+      "/session/lookup",
+      p["session.lookup"],
+      sparkLocalRpcSessionGetOrpcErrors,
+    ),
     snapshot: procedure(
       "GET",
       "/session/snapshot",

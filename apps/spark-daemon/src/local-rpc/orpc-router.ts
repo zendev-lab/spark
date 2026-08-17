@@ -237,6 +237,9 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
     session: {
       list: os.session.list.handler(async ({ input: params }) => invoke("session.list", params)),
       get: os.session.get.handler(async ({ input: params }) => invoke("session.get", params)),
+      lookup: os.session.lookup.handler(async ({ input: params }) =>
+        invoke("session.lookup", params),
+      ),
       snapshot: os.session.snapshot.handler(async ({ input: params }) =>
         invoke("session.snapshot", params),
       ),

@@ -87,6 +87,19 @@ Evidence.
 The parent Session remains responsible for decomposition, durable coordination,
 verification of consequential claims, and user-facing synthesis.
 
+`session({ action: "send" })` is one-way. `kind=notification` persists without
+running the target; `kind=request` persists and admits one invocation. An active
+target requires explicit `onActive=queue` or `onActive=interrupt`. Optional
+`wake=true` (request only; default `false`) later wakes the sender with a
+completion summary. Poll a durable invocation with
+`session({ action: "wait", invocationId })`. Inspect a peer with
+`session({ action: "lookup", sessionId })`; lookup does not wait and is not a
+Hub snapshot.
+
+`ask({ toSessionId })` addresses structured questions to another Session.
+That Session answers with `ask({ action: "answer" })`. Session-addressed asks
+do not appear in Hub Inbox; User asks remain the Inbox / TUI / channel path.
+
 Workflow child calls accept either a `role` selector or an exact `roleRef`, not
 both. Before approval, Spark resolves a selector to one exact Role ref and
 revision and records that binding in approval and run provenance. A changed or

@@ -69,6 +69,8 @@ export interface SparkAskRequest {
   interactionRequestId?: string;
   /** Host-only detached EvidenceRequest binding; raw ask_user cannot set this. */
   evidenceRequest?: ExtensionEvidenceRequestBinding;
+  /** Address the ask to this Session instead of User. */
+  toSessionId?: string;
   questions: SparkAskQuestion[];
 }
 
@@ -158,6 +160,9 @@ class ToolCallText implements ToolCallComponent {
 }
 
 export function createAskUserRequest(input: SparkAskRequest): SparkAskRequest {
+  if (input.toSessionId?.trim() && input.evidenceRequest) {
+    throw new Error("ask.toSessionId cannot be combined with evidenceRequest");
+  }
   if (input.questions.length === 0) throw new Error("ask_user needs at least one question");
   if (
     input.timeoutMs !== undefined &&
@@ -358,6 +363,7 @@ function decodeAskRequest(params: Record<string, unknown>): SparkAskRequest {
       params.evidenceRequest && typeof params.evidenceRequest === "object"
         ? (params.evidenceRequest as ExtensionEvidenceRequestBinding)
         : undefined,
+    toSessionId: typeof params.toSessionId === "string" ? params.toSessionId.trim() : undefined,
     questions,
   });
 }
@@ -425,6 +431,7 @@ function createAskUserInteractionRequest(
     metadata: { tool: "ask_user" },
     delivery: request.delivery ?? "blocking",
     ...(request.evidenceRequest ? { evidenceRequest: request.evidenceRequest } : {}),
+    ...(request.toSessionId ? { toSessionId: request.toSessionId } : {}),
     ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
     mode: request.mode ?? "clarification",
     questions: request.questions.map((question) => ({
@@ -742,6 +749,7 @@ export type {
   SparkAskActionToolOptions,
   SparkAskAutoAnswerProvider,
   SparkAskAutoAnswerResolver,
+  SparkAskDaemonRequest,
 } from "./action-tool.ts";
 export {
   recordCanonicalAnswerEventEvidenceReceipt,

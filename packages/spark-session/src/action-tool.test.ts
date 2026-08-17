@@ -274,7 +274,7 @@ describe("persistent session channel routing", () => {
         },
         fromSessionId: origin.sessionId,
         kind: "request",
-        notifyOnCompletion: true,
+        wake: false,
       }),
       expect.anything(),
     );
@@ -303,7 +303,7 @@ describe("persistent session channel routing", () => {
   });
 });
 
-describe("blocking session requests", () => {
+describe("session send, wait, and lookup", () => {
   const origin = session("sess_origin");
   const worker = session("sess_worker");
   const signal = new AbortController().signal;
@@ -345,9 +345,8 @@ describe("blocking session requests", () => {
   async function send(
     params: Record<string, unknown>,
     request: ReturnType<typeof baseRequest>,
-    mailStore: SparkSessionMailStore,
     extras: { now?: () => number; sleep?: (ms: number, signal: AbortSignal) => Promise<void> } = {},
-    toolCallId = "blocking-request",
+    toolCallId = "one-way-send",
   ) {
     return await executeSparkSessionAction(
       {
@@ -361,30 +360,61 @@ describe("blocking session requests", () => {
     );
   }
 
-  it("defaults to notification and rejects notification completion waits", async () => {
+  async function wait(
+    params: Record<string, unknown>,
+    request: ReturnType<typeof baseRequest> | ReturnType<typeof vi.fn>,
+    extras: { now?: () => number; sleep?: (ms: number, signal: AbortSignal) => Promise<void> } = {},
+    toolCallId = "invocation-wait",
+  ) {
+    return await executeSparkSessionAction(
+      {
+        action: "wait",
+        toolCallId,
+        params,
+        signal,
+        ctx: { sessionId: origin.sessionId },
+      },
+      { request: request as never, ...extras },
+    );
+  }
+
+  it("defaults to notification and rejects retired send wait fields", async () => {
     const mailStore = await createMailStore();
     const request = baseRequest(mailStore, (method) => {
       throw new Error(`unexpected RPC method: ${method}`);
     });
 
-    const delivered = await send({}, request, mailStore);
+    const delivered = await send({}, request);
     expect(delivered.details).toMatchObject({
       executionTriggered: false,
       blocking: false,
-      wait: "accepted",
+      wake: false,
       message: { kind: "notification" },
     });
     expect(request).toHaveBeenCalledWith(
       "session.send",
-      expect.objectContaining({ kind: "notification", notifyOnCompletion: false }),
+      expect.objectContaining({ kind: "notification" }),
       expect.anything(),
     );
+    expect(request.mock.calls[0]?.[1]).not.toHaveProperty("wake");
+    await expect(send({ wait: "completed" }, request, {}, "invalid-wait")).rejects.toThrow(
+      /session send no longer accepts wait/u,
+    );
+    await expect(send({ timeoutMs: 1_000 }, request, {}, "invalid-timeout")).rejects.toThrow(
+      /session send no longer accepts timeoutMs/u,
+    );
     await expect(
-      send({ kind: "notification", wait: "completed" }, request, mailStore, {}, "invalid-wait"),
-    ).rejects.toThrow("session notification cannot wait for completion");
+      send({ invocationId: "inv_continue" }, request, {}, "invalid-invocation"),
+    ).rejects.toThrow(/session send no longer continues waits/u);
+    await expect(send({ notifyOnCompletion: true }, request, {}, "invalid-notify")).rejects.toThrow(
+      /session send no longer accepts notifyOnCompletion/u,
+    );
+    await expect(
+      send({ kind: "notification", wake: true }, request, {}, "invalid-wake"),
+    ).rejects.toThrow("session notification cannot set wake");
   });
 
-  it("keeps request wait=accepted asynchronous", async () => {
+  it("keeps request send one-way with wake defaulting to false", async () => {
     const mailStore = await createMailStore();
     const request = baseRequest(mailStore, (method) => {
       if (method === "session.send") {
@@ -397,54 +427,44 @@ describe("blocking session requests", () => {
       throw new Error(`unexpected RPC method: ${method}`);
     });
 
-    const result = await send({ kind: "request" }, request, mailStore);
+    const result = await send({ kind: "request" }, request);
     expect(result.details).toMatchObject({
       blocking: false,
-      wait: "accepted",
+      wake: false,
       submitted: { invocationId: "inv_accepted" },
     });
     expect(request).toHaveBeenCalledWith(
       "session.send",
       expect.objectContaining({
-        notifyOnCompletion: true,
+        kind: "request",
+        wake: false,
       }),
       expect.anything(),
     );
   });
 
-  it("disables completion notify for wait=completed requests", async () => {
+  it("passes explicit wake=true for request send", async () => {
     const mailStore = await createMailStore();
     const request = baseRequest(mailStore, (method) => {
       if (method === "session.send") {
         return {
-          invocationId: "inv_waitcompleted",
+          invocationId: "inv_wake",
           status: "queued",
           acceptedAt: "2026-07-17T00:00:00.000Z",
-        };
-      }
-      if (method === "turn.status") return status("inv_waitcompleted", "succeeded");
-      if (method === "turn.result") {
-        return {
-          invocationId: "inv_waitcompleted",
-          status: "succeeded",
-          assistantText: "done",
-          finishedAt: "2026-07-17T00:00:01.000Z",
         };
       }
       throw new Error(`unexpected RPC method: ${method}`);
     });
 
-    await send({ kind: "request", wait: "completed" }, request, mailStore);
+    await send({ kind: "request", wake: true }, request);
     expect(request).toHaveBeenCalledWith(
       "session.send",
-      expect.objectContaining({
-        notifyOnCompletion: false,
-      }),
+      expect.objectContaining({ wake: true }),
       expect.anything(),
     );
   });
 
-  it("returns a result completed before waiter registration or after daemon restart", async () => {
+  it("returns a durable wait result without sending again", async () => {
     const mailStore = await createMailStore();
     const request = baseRequest(mailStore, (method) => {
       if (method === "session.send") {
@@ -466,9 +486,12 @@ describe("blocking session requests", () => {
       throw new Error(`unexpected RPC method: ${method}`);
     });
 
-    const result = await send({ kind: "request", wait: "completed" }, request, mailStore);
+    const sent = await send({ kind: "request" }, request);
+    expect(sent.details).toMatchObject({ submitted: { invocationId: "inv_durable" } });
+    const result = await wait({ invocationId: "inv_durable" }, request);
     expect(result.content[0]?.text).toBe("durable response");
     expect(result.details).toMatchObject({
+      action: "wait",
       blocking: true,
       waitTimedOut: false,
       answer: "durable response",
@@ -476,7 +499,7 @@ describe("blocking session requests", () => {
     });
   });
 
-  it("times out without cancelling the persistent invocation", async () => {
+  it("times out wait without cancelling the persistent invocation", async () => {
     const mailStore = await createMailStore();
     let now = 0;
     const request = baseRequest(mailStore, (method) => {
@@ -491,12 +514,11 @@ describe("blocking session requests", () => {
       throw new Error(`unexpected RPC method: ${method}`);
     });
 
-    const result = await send(
-      { kind: "request", wait: "completed", timeoutMs: 1_000 },
-      request,
-      mailStore,
-      { now: () => now, sleep: async (ms) => void (now += ms) },
-    );
+    await send({ kind: "request" }, request);
+    const result = await wait({ invocationId: "inv_timeout", timeoutMs: 1_000 }, request, {
+      now: () => now,
+      sleep: async (ms) => void (now += ms),
+    });
     expect(result.details).toMatchObject({
       invocationId: "inv_timeout",
       waitTimedOut: true,
@@ -505,7 +527,7 @@ describe("blocking session requests", () => {
     expect(request).not.toHaveBeenCalledWith("turn.cancel", expect.anything(), expect.anything());
   });
 
-  it("continues the same accepted invocation after a wait timeout and returns the terminal result exactly once", async () => {
+  it("continues the same invocation wait after timeout and returns the terminal result exactly once", async () => {
     const mailStore = await createMailStore();
     let now = 0;
     let statusCalls = 0;
@@ -537,10 +559,10 @@ describe("blocking session requests", () => {
       throw new Error(`unexpected RPC method: ${method}`);
     });
 
-    const timedOut = await send(
-      { kind: "request", wait: "completed", timeoutMs: 1_000 },
+    await send({ kind: "request" }, request);
+    const timedOut = await wait(
+      { invocationId: "inv_continue", timeoutMs: 1_000 },
       request,
-      mailStore,
       { now: () => now, sleep: async (ms) => void (now += ms) },
       "continue-timeout",
     );
@@ -551,24 +573,11 @@ describe("blocking session requests", () => {
     });
 
     continuationStarted = true;
-    const continued = await executeSparkSessionAction(
-      {
-        action: "send",
-        toolCallId: "continue-terminal",
-        params: {
-          kind: "request",
-          wait: "completed",
-          invocationId: "inv_continue",
-          timeoutMs: 1_000,
-        },
-        signal,
-        ctx: { sessionId: origin.sessionId },
-      },
-      {
-        request: request as never,
-        sleep: async () => undefined,
-        now: () => now,
-      },
+    const continued = await wait(
+      { invocationId: "inv_continue", timeoutMs: 1_000 },
+      request,
+      { sleep: async () => undefined, now: () => now },
+      "continue-terminal",
     );
     expect(continued.content[0]?.text).toBe("continued response");
     expect(continued.details).toMatchObject({
@@ -578,24 +587,11 @@ describe("blocking session requests", () => {
     });
     expect(request.mock.calls.filter(([method]) => method === "session.send")).toHaveLength(1);
 
-    const repeated = await executeSparkSessionAction(
-      {
-        action: "send",
-        toolCallId: "continue-repeat",
-        params: {
-          kind: "request",
-          wait: "completed",
-          invocationId: "inv_continue",
-          timeoutMs: 1_000,
-        },
-        signal,
-        ctx: { sessionId: origin.sessionId },
-      },
-      {
-        request: request as never,
-        sleep: async () => undefined,
-        now: () => now,
-      },
+    const repeated = await wait(
+      { invocationId: "inv_continue", timeoutMs: 1_000 },
+      request,
+      { sleep: async () => undefined, now: () => now },
+      "continue-repeat",
     );
     expect(repeated.content[0]?.text).toBe("continued response");
     expect(repeated.details).toMatchObject({
@@ -604,7 +600,7 @@ describe("blocking session requests", () => {
     });
   });
 
-  it("continues wait=completed by invocation id without resubmission", async () => {
+  it("waits by invocation id without resubmission", async () => {
     const continuationInvocationId = "inv_continueonly";
     let terminalStatus = false;
     let terminalReads = 0;
@@ -627,24 +623,11 @@ describe("blocking session requests", () => {
     });
     let now = 0;
     const continuation = async (timeoutMs: number, toolCallId: string) =>
-      await executeSparkSessionAction(
-        {
-          action: "send",
-          toolCallId,
-          params: {
-            kind: "request",
-            wait: "completed",
-            invocationId: continuationInvocationId,
-            timeoutMs,
-          },
-          signal,
-          ctx: { sessionId: origin.sessionId },
-        },
-        {
-          request: request as never,
-          now: () => now,
-          sleep: async (ms) => void (now += ms),
-        },
+      await wait(
+        { invocationId: continuationInvocationId, timeoutMs },
+        request,
+        { now: () => now, sleep: async (ms) => void (now += ms) },
+        toolCallId,
       );
 
     const timedOut = await continuation(1_000, "continuation-timeout");
@@ -672,16 +655,9 @@ describe("blocking session requests", () => {
     expect(request.mock.calls.filter(([method]) => method === "session.get")).toHaveLength(0);
   });
 
-  it("returns terminal failure details", async () => {
+  it("returns terminal failure details from wait", async () => {
     const mailStore = await createMailStore();
     const request = baseRequest(mailStore, (method) => {
-      if (method === "session.send") {
-        return {
-          invocationId: "inv_failed",
-          status: "queued",
-          acceptedAt: "2026-07-17T00:00:00.000Z",
-        };
-      }
       if (method === "turn.status") return status("inv_failed", "failed");
       if (method === "turn.result") {
         return {
@@ -694,7 +670,7 @@ describe("blocking session requests", () => {
       throw new Error(`unexpected RPC method: ${method}`);
     });
 
-    const result = await send({ kind: "request", wait: "completed" }, request, mailStore);
+    const result = await wait({ invocationId: "inv_failed" }, request);
     expect(result.content[0]?.text).toContain("target failed");
     expect(result.details).toMatchObject({
       invocationId: "inv_failed",
@@ -702,7 +678,7 @@ describe("blocking session requests", () => {
     });
   });
 
-  it("keeps concurrent requests correlated by invocation id", async () => {
+  it("keeps concurrent waits correlated by invocation id", async () => {
     const mailStore = await createMailStore();
     const invocationByPrompt = new Map([
       ["first", "inv_first"],
@@ -731,21 +707,13 @@ describe("blocking session requests", () => {
       throw new Error(`unexpected RPC method: ${method}`);
     });
 
+    await Promise.all([
+      send({ kind: "request", message: "first" }, request, {}, "concurrent-first"),
+      send({ kind: "request", message: "second" }, request, {}, "concurrent-second"),
+    ]);
     const [first, second] = await Promise.all([
-      send(
-        { kind: "request", wait: "completed", message: "first" },
-        request,
-        mailStore,
-        {},
-        "concurrent-first",
-      ),
-      send(
-        { kind: "request", wait: "completed", message: "second" },
-        request,
-        mailStore,
-        {},
-        "concurrent-second",
-      ),
+      wait({ invocationId: "inv_first" }, request, {}, "wait-first"),
+      wait({ invocationId: "inv_second" }, request, {}, "wait-second"),
     ]);
     expect(first.details).toMatchObject({
       invocationId: "inv_first",
@@ -755,6 +723,55 @@ describe("blocking session requests", () => {
       invocationId: "inv_second",
       answer: "inv_second response",
     });
+  });
+
+  it("rejects lookup timeout and wait fields and does not snapshot", async () => {
+    const request = vi.fn(async (method: string, params: unknown) => {
+      if (method === "session.lookup") {
+        expect(params).toEqual({ sessionId: worker.sessionId });
+        return {
+          sessionId: worker.sessionId,
+          lifecycle: "open",
+          placement: "active",
+          activity: "idle",
+        };
+      }
+      throw new Error(`unexpected RPC method: ${method}`);
+    });
+    const base = {
+      toolCallId: "lookup-peer",
+      signal,
+      ctx: { sessionId: origin.sessionId },
+    };
+    await expect(
+      executeSparkSessionAction(
+        { ...base, action: "lookup", params: { sessionId: worker.sessionId, timeoutMs: 1_000 } },
+        { request: request as never },
+      ),
+    ).rejects.toThrow("session lookup does not accept timeoutMs");
+    await expect(
+      executeSparkSessionAction(
+        { ...base, action: "lookup", params: { sessionId: worker.sessionId, until: "idle" } },
+        { request: request as never },
+      ),
+    ).rejects.toThrow("session lookup does not accept until");
+    await expect(
+      executeSparkSessionAction(
+        { ...base, action: "lookup", params: { sessionId: worker.sessionId, wait: "completed" } },
+        { request: request as never },
+      ),
+    ).rejects.toThrow("session lookup does not accept wait");
+    expect(request).not.toHaveBeenCalled();
+
+    const lookedUp = await executeSparkSessionAction(
+      { ...base, action: "lookup", params: { sessionId: worker.sessionId } },
+      { request: request as never },
+    );
+    expect(lookedUp.details).toMatchObject({
+      action: "lookup",
+      projection: { sessionId: worker.sessionId, activity: "idle" },
+    });
+    expect(request.mock.calls.map(([method]) => method)).toEqual(["session.lookup"]);
   });
 });
 

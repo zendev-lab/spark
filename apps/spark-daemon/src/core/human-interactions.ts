@@ -6,6 +6,7 @@ import {
   createId,
   parseSparkInteractionRequest,
   sparkJsonObjectSchema,
+  type SparkDirectAnswerProvenance,
   type SparkEvidenceAnswerEvent,
   type SparkInteractionRequest,
   type SparkInteractionResponse,
@@ -59,7 +60,7 @@ export interface SparkDaemonHumanInteractionResponseInput {
   /** Stable across client retries so an accepted response can be replayed safely. */
   humanResponseId?: string;
   status: "answered" | "cancelled" | "archived";
-  provenance: "direct_user" | "system";
+  provenance: SparkDirectAnswerProvenance;
   answers: Record<string, unknown>;
   responseArtifactRefs: string[];
 }
@@ -68,6 +69,16 @@ export type SparkDaemonHumanInteractionResponder = (
   wait: SparkDaemonHumanWaitRecord,
   input: SparkDaemonHumanInteractionResponseInput,
 ) => Promise<SparkDaemonHumanWaitDeliveryResult>;
+
+export interface SparkDaemonSessionAskDelivery {
+  fromSessionId: string;
+  toSessionId: string;
+  humanRequestId: string;
+  interactionRequestId: string;
+  title: string;
+  prompt: string;
+  parentInvocationId?: string;
+}
 
 export interface SparkDaemonHumanInteractionBrokerOptions {
   db: DatabaseSync;
@@ -82,6 +93,24 @@ export interface SparkDaemonHumanInteractionBrokerOptions {
   onOutboxReady?: () => void | Promise<void>;
   /** Optional channel projection (QQ keyboard); failure must not lose the Hub request. */
   onRequestOpened?: (input: SparkDaemonHumanInteractionOpened) => void | Promise<void>;
+  /** Deliver a session-addressed ask through session.send without Hub Inbox. */
+  deliverSessionAsk?: (input: SparkDaemonSessionAskDelivery) => Promise<void>;
+}
+
+export function renderSparkDaemonSessionAskDeliveryBody(
+  input: SparkDaemonSessionAskDelivery,
+): string {
+  const title = input.title.trim() || "Session ask";
+  const prompt = input.prompt.trim().slice(0, 1024);
+  return [
+    title,
+    `humanRequestId: ${input.humanRequestId}`,
+    `interactionRequestId: ${input.interactionRequestId}`,
+    prompt ? `Question: ${prompt}` : undefined,
+    'Answer with ask({ action: "answer", humanRequestId, answers }).',
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
 }
 
 export class SparkDaemonHumanInteractionBroker {
@@ -185,10 +214,36 @@ export class SparkDaemonHumanInteractionBroker {
     const route = resolveHumanInteractionRoute(this.options.db, context);
     const runtimeId = route ? this.options.getRuntimeId(route)?.trim() : undefined;
     const localTui = context.sessionSource === "tui";
-    const hubProjected = Boolean(runtimeId && route);
+    const toSessionId = durable.ask.toSessionId?.trim();
+    const sessionAddressed = Boolean(toSessionId);
+    if (sessionAddressed && request.kind === "toolApproval") {
+      return createBlockedInteractionResponse(
+        request,
+        "Tool approval cannot be addressed to a Session.",
+      );
+    }
+    if (sessionAddressed && toSessionId === context.sessionId.trim()) {
+      return createBlockedInteractionResponse(
+        request,
+        "A session ask must target a different Session.",
+      );
+    }
+    if (sessionAddressed && durable.ask.evidenceRequest) {
+      return createBlockedInteractionResponse(
+        request,
+        "A session-addressed ask cannot bind an EvidenceRequest.",
+      );
+    }
+    if (sessionAddressed && !this.options.deliverSessionAsk) {
+      return createBlockedInteractionResponse(
+        request,
+        "Daemon could not deliver a session-addressed ask.",
+      );
+    }
+    const hubProjected = !sessionAddressed && Boolean(runtimeId && route);
     const operatorAnswerable =
       context.sessionSource === "daemon" || context.sessionSource === "session";
-    if (!hubProjected && !localTui && !operatorAnswerable) {
+    if (!sessionAddressed && !hubProjected && !localTui && !operatorAnswerable) {
       return createBlockedInteractionResponse(
         request,
         "Daemon could not resolve a Hub runtime/workspace route for this ask.",
@@ -331,12 +386,45 @@ export class SparkDaemonHumanInteractionBroker {
             questions: payload.questions,
             context: contextPayload,
             contextArtifactRefs: [],
+            respondent: sessionAddressed
+              ? { kind: "session", sessionId: toSessionId! }
+              : { kind: "user" },
           },
           envelope ? { messageId, kind: "human.request.created", envelope } : undefined,
         );
 
+    if (sessionAddressed && this.options.deliverSessionAsk) {
+      try {
+        await this.options.deliverSessionAsk({
+          fromSessionId: context.sessionId,
+          toSessionId: toSessionId!,
+          humanRequestId: registration.wait.humanRequestId,
+          interactionRequestId: request.requestId,
+          title: durable.ask.title ?? "",
+          prompt,
+          parentInvocationId: context.invocationId,
+        });
+      } catch (error) {
+        console.error("[spark-daemon] session ask delivery failed", error);
+        if (registration.wait.status === "pending") {
+          await this.respond(registration.wait, {
+            status: "cancelled",
+            provenance: "system",
+            answers: {},
+            responseArtifactRefs: [],
+          }).catch((cancelError: unknown) => {
+            console.error("[spark-daemon] failed to cancel undelivered session ask", cancelError);
+          });
+        }
+        return createBlockedInteractionResponse(
+          request,
+          "Daemon could not deliver the session ask.",
+        );
+      }
+    }
+
     if (registration.created && envelope) await Promise.resolve(this.options.onOutboxReady?.());
-    if (registration.created && this.options.onRequestOpened) {
+    if (registration.created && !sessionAddressed && this.options.onRequestOpened) {
       try {
         await this.options.onRequestOpened({
           wait: registration.wait,

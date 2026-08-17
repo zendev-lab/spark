@@ -159,7 +159,7 @@ describe("workspace and session local RPC control errors", () => {
         payload: {},
         body: "investigate",
         origin: { surface: "local", host: "session" },
-        notifyOnCompletion: true,
+        wake: true,
         source: "tool",
       } as const;
       const options = { sessionRegistry, mailStore };

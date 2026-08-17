@@ -63,13 +63,29 @@ describe("session mail protocol", () => {
   it("keeps send admission as one daemon-owned RPC contract", () => {
     expect(sparkSessionSendRequestSchema.parse(request)).toMatchObject({
       kind: "request",
-      notifyOnCompletion: false,
+      wake: false,
       source: "tool",
     });
     expect(sparkSessionMailMessageSchema.parse(message).requestAdmission).toMatchObject({
       status: "accepted",
       invocationId: "inv_1",
     });
+  });
+
+  it("accepts notifyOnCompletion as a wake compatibility decoder", () => {
+    expect(
+      sparkSessionSendRequestSchema.parse({ ...request, notifyOnCompletion: true }),
+    ).toMatchObject({ wake: true });
+    expect(sparkSessionSendRequestSchema.parse({ ...request, wake: true })).toMatchObject({
+      wake: true,
+    });
+    expect(
+      sparkSessionSendRequestSchema.parse({
+        ...request,
+        wake: false,
+        notifyOnCompletion: true,
+      }),
+    ).toMatchObject({ wake: false });
   });
 
   it("requires an invocation receipt when execution was triggered", () => {

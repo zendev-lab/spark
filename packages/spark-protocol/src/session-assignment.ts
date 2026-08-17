@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { sparkInvocationIdSchema } from "./invocation-lifecycle.ts";
+import { sparkInvocationIdSchema, sparkInvocationStatusSchema } from "./invocation-lifecycle.ts";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
 import { isoDateTimeSchema } from "./refs.ts";
 
@@ -603,6 +603,40 @@ export const sparkSessionGetRequestSchema = z.object({
   sessionId: z.string().trim().min(1),
 });
 
+export const SPARK_SESSION_PEER_INVOCATION_SUMMARY_MAX_BYTES = 2048;
+
+export const sparkSessionPeerPendingAskSchema = z
+  .object({
+    humanRequestId: z.string().min(1),
+    fromSessionId: z.string().min(1),
+    title: z.string(),
+    status: z.literal("pending"),
+  })
+  .strict();
+
+export const sparkSessionPeerLatestInvocationSchema = z
+  .object({
+    invocationId: z.string().min(1),
+    status: sparkInvocationStatusSchema,
+    createdAt: isoDateTimeSchema,
+    updatedAt: isoDateTimeSchema,
+    finishedAt: isoDateTimeSchema.optional(),
+    summary: z.string().max(SPARK_SESSION_PEER_INVOCATION_SUMMARY_MAX_BYTES).optional(),
+  })
+  .strict();
+
+/** Bounded peer observation; not a Hub/TUI snapshot and not a registry `get` record. */
+export const sparkSessionPeerProjectionSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    lifecycle: sparkSessionLifecycleSchema,
+    placement: sparkSessionPlacementSchema,
+    activity: sparkSessionActivitySchema,
+    latestInvocation: sparkSessionPeerLatestInvocationSchema.optional(),
+    pendingAsk: sparkSessionPeerPendingAskSchema.optional(),
+  })
+  .strict();
+
 export const sparkSessionArchiveRequestSchema = sparkSessionGetRequestSchema.extend({
   source: sparkSessionArchiveSourceSchema.optional(),
   reason: z.string().trim().min(1).max(256).optional(),
@@ -879,6 +913,11 @@ export type SparkSessionListRequest =
       limit?: number;
     };
 export type SparkSessionGetRequest = z.infer<typeof sparkSessionGetRequestSchema>;
+export type SparkSessionPeerPendingAsk = z.infer<typeof sparkSessionPeerPendingAskSchema>;
+export type SparkSessionPeerLatestInvocation = z.infer<
+  typeof sparkSessionPeerLatestInvocationSchema
+>;
+export type SparkSessionPeerProjection = z.infer<typeof sparkSessionPeerProjectionSchema>;
 export type SparkSessionArchiveRequest = z.infer<typeof sparkSessionArchiveRequestSchema>;
 export type SparkSessionRestoreRequest = z.infer<typeof sparkSessionRestoreRequestSchema>;
 export type SparkSessionCloseRequest = z.infer<typeof sparkSessionCloseRequestSchema>;
@@ -903,6 +942,10 @@ export type SparkAssignment = z.infer<typeof sparkAssignmentSchema>;
 
 export function parseSparkSessionProjection(value: unknown): SparkSessionProjection {
   return sparkSessionProjectionSchema.parse(value);
+}
+
+export function parseSparkSessionPeerProjection(value: unknown): SparkSessionPeerProjection {
+  return sparkSessionPeerProjectionSchema.parse(value);
 }
 
 export function parseSparkSessionProjections(value: unknown): SparkSessionProjection[] {

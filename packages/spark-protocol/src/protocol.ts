@@ -943,9 +943,18 @@ export const sparkAskFlowInteractionRequestSchema = sparkInteractionBaseRequestS
     flow: z.string().min(1).optional(),
     questions: z.array(sparkAskQuestionViewSchema).min(1),
     allowElaborate: z.boolean().optional(),
+    /** When set, the durable reply-wait is addressed to this Session instead of User. */
+    toSessionId: z.string().trim().min(1).optional(),
     evidenceRequest: sparkEvidenceRequestBindingSchema.optional(),
   })
   .superRefine((request, context) => {
+    if (request.toSessionId && request.evidenceRequest) {
+      context.addIssue({
+        code: "custom",
+        path: ["toSessionId"],
+        message: "session-addressed ask cannot bind an EvidenceRequest",
+      });
+    }
     if (!request.evidenceRequest) return;
     if (request.delivery !== "async") {
       context.addIssue({

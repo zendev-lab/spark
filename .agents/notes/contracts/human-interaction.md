@@ -66,10 +66,12 @@ async request or reviewer-timeout takeover.
 Whether an answer “counts” (option selected or non-empty custom text) is defined once by `hasSparkAskAnswerContent` / `parseSparkAskChoice` in `spark-protocol` (`ask-semantics.ts`).
 
 - TUI (`spark-ask`) re-exports those helpers for the flow controller and presents asks as an in-turn overlay.
-- Hub shows pending asks inline in the owning session (timeline `ask` tool part + composer `SessionAskPanel`); the workspace Inbox page remains the list/detail fallback. There is no global ask dialog.
+- Hub shows pending **User** asks inline in the owning session (timeline `ask` tool part + composer `SessionAskPanel`); the workspace Inbox page remains the list/detail fallback. There is no global ask dialog. Inbox remains agent→user only.
+- Session-addressed asks (`ask({ toSessionId })`) share the same delivery kernel as `session.send` and register `respondent.kind=session`. The asked Session settles them with `ask({ action: "answer" })` using provenance `session`. Session answers must not mint `spark.evidence-answer-event/v1`. They do not appear in Hub Inbox. User-addressed asks stay Hub/TUI/channel.
+- Invocation wait (`session({ action: "wait" })`) is a durable invocation predicate. Ask durable wait is a separate **reply-wait**. Do not merge mailbox SQLite with `daemon_human_waits`.
 - Approval-center builds decision payloads with the shared response status enum; it does not re-derive answer content rules.
 
-Cross-session agent-to-agent traffic is **messages** (session inspector tab), not Inbox. Inbox is only agent→user human asks.
+Cross-session agent-to-agent traffic is **messages** (session inspector tab) plus session-addressed `ask`, not Inbox. Inbox is only agent→user human asks.
 
 ## Autonomous Goal/Repro evidence requests
 
@@ -98,7 +100,7 @@ Ordinary non-autonomous sessions retain the existing interaction contract.
 
 ## Related
 
-- [`tools.md`](./tools.md) — `ask` is the only structured question surface; cancellation is not approval.
+- [`tools.md`](./tools.md) — `ask` is the only structured question surface; cancellation is not approval. Session-addressed asks stay out of Inbox.
 - [`turn.md`](./turn.md) — daemon is execution truth; transports are adapters.
 - [`sessions-and-channels.md`](./sessions-and-channels.md) — session mail `request` is a cross-session invocation primitive, not a tool-level human wait.
 

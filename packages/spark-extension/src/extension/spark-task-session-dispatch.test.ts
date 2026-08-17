@@ -213,7 +213,7 @@ describe("managed Task Session dispatch", () => {
         fromSessionId: "sess_owner",
         kind: "request",
         intent: "fleet.task.execute",
-        notifyOnCompletion: true,
+        wake: true,
         parentInvocationId: "inv_owner",
         payload: {
           kind: "task_execution",

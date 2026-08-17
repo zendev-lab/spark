@@ -172,8 +172,9 @@ The visible user content remains the exact human/request body. Origin and mail-e
 
 `session({ action: "send" })` is the canonical cross-session send path. The sender is always the current session and cannot be supplied by the caller.
 
-- `kind=request` persists an envelope, then asynchronously submits the exact body as one user turn to an unarchived local session. It may wait behind work already active for that session, never scans older inbox entries, and cannot target channel sessions. Default `wait=accepted` returns after acceptance; when that target invocation becomes terminal, the daemon submits one durable completion-summary turn on the originating sender (`notifyOnCompletion=true`) so the parent synthesizes immediately. `wait=completed` polls the durable invocation for a bounded terminal response and sets `notifyOnCompletion=false` to avoid a double wake. Wait timeout stops only the sender wait; the target invocation continues.
-- `kind=notification` persists without triggering the target and cannot wait for completion.
+- `kind=request` persists an envelope, then admits one invocation for an unarchived local session. An idle target submits immediately. An active target fails closed unless `onActive=queue` (durable FIFO, bounded to three pending requests) or `onActive=interrupt` is explicit. It never scans older inbox entries and cannot target channel sessions. `send` is one-way and returns after admission. Optional `wake=true` (request only; default `false`) later submits one durable completion-summary turn on the originating sender. Use `session({ action: "wait", invocationId })` to poll that durable invocation for a bounded terminal response. Wait timeout stops only the sender wait; the target invocation continues. Do not pass `wait`, `timeoutMs`, `invocationId`, or `notifyOnCompletion` on `send`.
+- `kind=notification` persists without triggering the target and cannot set `wake`.
+- `session({ action: "lookup", sessionId })` returns a bounded peer projection (lifecycle, placement, activity, optional latest terminal invocation summary, optional pending session-addressed ask). It does not wait, does not call `session.snapshot`, and does not expose Hub/workspace internals.
 - Inbox/read/ack access only the current session and cross daemon-owned RPC
   methods; extension hosts never open mailbox files. Idempotency keys are
   unique across mailboxes.
@@ -198,8 +199,9 @@ failures remain hard admission blocks.
 A channel-bound host exposes only canonical `session`, `ask`, `context`, and
 `todo`. It permanently disables cue tools, `role`, `assign`, and
 `workflow`, including after extension lifecycle events. The caller may
-inspect same-workspace sessions, request work only from an unarchived local
-session, and may not perform lifecycle or call actions.
+inspect same-workspace sessions with `list`, `get`, `lookup`, and `wait`,
+request work only from an unarchived local session, and may not perform
+lifecycle or call actions.
 
 Inbound adapters first persist a normalized, raw-payload-free receipt in the daemon SQLite ledger. A leased worker then resolves/binds the platform conversation and submits the exact human body with channel origin metadata. `(workspace, adapter, externalKey, platformMessageId)` produces a stable hashed identity, so platform replay and overlapping restart generations converge on one invocation. Messages whose platform supplies no ID remain at-least-once.
 

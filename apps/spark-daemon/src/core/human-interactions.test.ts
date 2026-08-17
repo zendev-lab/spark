@@ -70,6 +70,7 @@ function askRequest(
   delivery: "blocking" | "async",
   timeoutMs?: number,
   evidenceRequest?: Extract<SparkInteractionRequest, { kind: "askFlow" }>["evidenceRequest"],
+  toSessionId?: string,
 ): Extract<SparkInteractionRequest, { kind: "askFlow" }> {
   return parseSparkInteractionRequest({
     requestId,
@@ -78,6 +79,7 @@ function askRequest(
     prompt: "How should Spark continue?",
     delivery,
     ...(evidenceRequest ? { evidenceRequest } : {}),
+    ...(toSessionId ? { toSessionId } : {}),
     ...(timeoutMs ? { timeoutMs } : {}),
     mode: "decision",
     source: "daemon",
@@ -909,6 +911,121 @@ describe("SparkDaemonHumanInteractionBroker", () => {
         status: "answered",
         approved: true,
       });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("delivers a session-addressed ask without Hub Inbox projection", async () => {
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    seedHumanRoute(db);
+    const waits = new SparkDaemonHumanWaitRegistry(db);
+    const onOutboxReady = vi.fn(async () => undefined);
+    const onRequestOpened = vi.fn(async () => undefined);
+    const deliverSessionAsk = vi.fn(async () => undefined);
+    const broker = new SparkDaemonHumanInteractionBroker({
+      db,
+      waits,
+      getRuntimeId: primaryRuntimeId,
+      onOutboxReady,
+      onRequestOpened,
+      deliverSessionAsk,
+    });
+
+    try {
+      const response = await broker.interact(
+        askRequest("interaction-session-ask", "async", undefined, undefined, "sess_target"),
+        interactionContext(),
+      );
+      expect(response).toMatchObject({
+        kind: "askFlow",
+        status: "pending",
+        requestId: "interaction-session-ask",
+      });
+      expect(deliverSessionAsk).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fromSessionId: "session-1",
+          toSessionId: "sess_target",
+          interactionRequestId: "interaction-session-ask",
+        }),
+      );
+      expect(onOutboxReady).not.toHaveBeenCalled();
+      expect(onRequestOpened).not.toHaveBeenCalled();
+      expect(waits.listPendingOutbox()).toEqual([]);
+      expect(waits.listPending()).toEqual([
+        expect.objectContaining({
+          interactionRequestId: "interaction-session-ask",
+          respondent: { kind: "session", sessionId: "sess_target" },
+        }),
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("fails closed for self-targeted session asks and missing delivery", async () => {
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    const waits = new SparkDaemonHumanWaitRegistry(db);
+    const withoutDeliverer = new SparkDaemonHumanInteractionBroker({
+      db,
+      waits,
+      getRuntimeId: () => undefined,
+    });
+    const withDeliverer = new SparkDaemonHumanInteractionBroker({
+      db,
+      waits,
+      getRuntimeId: () => undefined,
+      deliverSessionAsk: async () => undefined,
+    });
+
+    try {
+      await expect(
+        withoutDeliverer.interact(
+          askRequest("interaction-session-missing", "async", undefined, undefined, "sess_target"),
+          { ...interactionContext(), sessionSource: "session" },
+        ),
+      ).resolves.toMatchObject({ status: "blocked" });
+      expect(waits.listPending()).toHaveLength(0);
+
+      await expect(
+        withDeliverer.interact(
+          askRequest("interaction-session-self", "async", undefined, undefined, "session-1"),
+          { ...interactionContext(), sessionSource: "session" },
+        ),
+      ).resolves.toMatchObject({ status: "blocked" });
+      expect(waits.listPending()).toHaveLength(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("cancels a pending session ask when delivery fails", async () => {
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    const waits = new SparkDaemonHumanWaitRegistry(db);
+    const broker = new SparkDaemonHumanInteractionBroker({
+      db,
+      waits,
+      getRuntimeId: () => undefined,
+      deliverSessionAsk: async () => {
+        throw new Error("mailbox unavailable");
+      },
+    });
+
+    try {
+      await expect(
+        broker.interact(
+          askRequest("interaction-session-fail", "async", undefined, undefined, "sess_target"),
+          { ...interactionContext(), sessionSource: "session" },
+        ),
+      ).resolves.toMatchObject({ status: "blocked" });
+      expect(waits.listPending()).toHaveLength(0);
+      const settled = db.prepare("SELECT status AS status FROM daemon_human_waits").all() as Array<{
+        status: string;
+      }>;
+      expect(settled).toEqual([{ status: "cancelled" }]);
     } finally {
       db.close();
     }
