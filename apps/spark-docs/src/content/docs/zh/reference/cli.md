@@ -16,8 +16,8 @@ spark daemon --help
 spark hub --help
 ```
 
-嵌套命令同样接受 `--help`。Help 必须是只读的：它只描述所选命令，不能启动
-daemon、Hub 或 workflow。
+嵌套命令同样接受 `--help`。运行时 `--help` 由 Optique 解析器生成。Help 必须是
+只读的：它只描述所选命令，不能启动 daemon、Hub 或 workflow。
 
 在 TUI 中使用：
 

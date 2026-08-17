@@ -3,6 +3,10 @@ import { existsSync, realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { object, or } from "@optique/core/constructs";
+import { formatMessage } from "@optique/core/message";
+import { parse } from "@optique/core/parser";
+import { command, constant, option, passThrough } from "@optique/core/primitives";
 import { sparkCliDispatcherStrings } from "@zendev-lab/spark-i18n/cli";
 import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
@@ -34,51 +38,110 @@ export interface SparkDispatcherLauncher {
   run(target: SparkDispatcherTarget, argv: string[], options: SpawnOptions): Promise<number>;
 }
 
+const remainingArgv = () => passThrough({ format: "greedy" });
+
+const sparkDispatcherParser = or(
+  or(
+    command("help", object({ kind: constant("help" as const), argv: remainingArgv() })),
+    command("--help", object({ kind: constant("help" as const), argv: remainingArgv() })),
+    command("-h", object({ kind: constant("help" as const), argv: remainingArgv() })),
+    command("version", object({ kind: constant("version" as const), argv: remainingArgv() })),
+    command("--version", object({ kind: constant("versionFlag" as const), argv: remainingArgv() })),
+    command("-v", object({ kind: constant("versionFlag" as const), argv: remainingArgv() })),
+    command("install", object({ kind: constant("install" as const), argv: remainingArgv() })),
+    command("update", object({ kind: constant("update" as const), argv: remainingArgv() })),
+    command(
+      "paths",
+      object({
+        kind: constant("paths" as const),
+        json: option("--json"),
+        argv: remainingArgv(),
+      }),
+    ),
+  ),
+  or(
+    command("run", object({ kind: constant("run" as const), argv: remainingArgv() })),
+    command("bg", object({ kind: constant("bg" as const), argv: remainingArgv() })),
+    command("doctor", object({ kind: constant("doctor" as const), argv: remainingArgv() })),
+    command("tui", object({ kind: constant("tui" as const), argv: remainingArgv() })),
+    command("daemon", object({ kind: constant("daemon" as const), argv: remainingArgv() })),
+    command("hub", object({ kind: constant("hub" as const), argv: remainingArgv() })),
+    command("acp", object({ kind: constant("acp" as const), argv: remainingArgv() })),
+    command("mcp", object({ kind: constant("mcp" as const), argv: remainingArgv() })),
+    command("server", object({ kind: constant("server" as const), argv: remainingArgv() })),
+  ),
+  object({ kind: constant("empty" as const) }),
+);
+
+const knownDispatcherCommands = new Set([
+  "help",
+  "--help",
+  "-h",
+  "version",
+  "--version",
+  "-v",
+  "install",
+  "update",
+  "paths",
+  "run",
+  "bg",
+  "doctor",
+  "tui",
+  "daemon",
+  "hub",
+  "acp",
+  "mcp",
+  "server",
+]);
+
 export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand {
-  const [first, ...rest] = argv;
-  if (!first) return { kind: "dispatch", target: "tui", argv: [] };
-  switch (first) {
+  const result = parse(sparkDispatcherParser, argv);
+  if (!result.success) {
+    const first = argv[0];
+    if (first !== undefined && !knownDispatcherCommands.has(first)) {
+      return errorCommand(dispatcherStrings.unknownSubcommand(first, argv));
+    }
+    return errorCommand(formatMessage(result.error));
+  }
+
+  const parsed = result.value;
+  switch (parsed.kind) {
+    case "empty":
+      return { kind: "dispatch", target: "tui", argv: [] };
     case "help":
-    case "--help":
-    case "-h":
       return { kind: "help" };
     case "version":
-      return { kind: "dispatch", target: "update", argv: ["version", ...rest] };
-    case "--version":
-    case "-v":
+      return { kind: "dispatch", target: "update", argv: ["version", ...parsed.argv] };
+    case "versionFlag":
       return { kind: "dispatch", target: "update", argv: ["version"] };
     case "install":
-      return { kind: "dispatch", target: "update", argv: ["install", ...rest] };
+      return { kind: "dispatch", target: "update", argv: ["install", ...parsed.argv] };
     case "update":
-      return { kind: "dispatch", target: "update", argv: ["update", ...rest] };
+      return { kind: "dispatch", target: "update", argv: ["update", ...parsed.argv] };
     case "paths":
-      return parseSparkPathsCommand(rest);
+      return parseSparkPathsCommand(parsed.json, parsed.argv);
     case "run":
-      return parseSparkRunCommand(rest);
+      return parseSparkRunCommand([...parsed.argv]);
     case "bg":
-      return parseSparkBackgroundCommand(rest);
+      return parseSparkBackgroundCommand([...parsed.argv]);
     case "doctor":
-      return { kind: "dispatch", target: "daemon", argv: ["doctor", ...rest] };
+      return { kind: "dispatch", target: "daemon", argv: ["doctor", ...parsed.argv] };
     case "tui":
-      return rest.some(
-        (arg) => arg === "--print" || arg === "-p" || arg === "--mode" || arg === "--list-models",
-      )
-        ? errorCommand(
-            'Legacy TUI flags were removed. Use "spark run", "spark acp", or "spark-daemon model list".',
-          )
-        : { kind: "dispatch", target: "tui", argv: rest };
+      return parseSparkTuiCommand([...parsed.argv]);
     case "daemon":
-      return { kind: "dispatch", target: "daemon", argv: rest };
+      return { kind: "dispatch", target: "daemon", argv: [...parsed.argv] };
+    case "hub":
+      return { kind: "dispatch", target: "hub", argv: [...parsed.argv] };
+    case "acp":
+      return { kind: "dispatch", target: "acp", argv: [...parsed.argv] };
+    case "mcp":
+      return { kind: "dispatch", target: "mcp", argv: [...parsed.argv] };
     case "server":
       return errorCommand('The "spark server" namespace was removed. Use "spark hub" instead.');
-    case "hub":
-      return { kind: "dispatch", target: "hub", argv: rest };
-    case "acp":
-      return { kind: "dispatch", target: "acp", argv: rest };
-    case "mcp":
-      return { kind: "dispatch", target: "mcp", argv: rest };
-    default:
-      return errorCommand(dispatcherStrings.unknownSubcommand(first, argv));
+    default: {
+      const exhaustive: never = parsed;
+      return exhaustive;
+    }
   }
 }
 
@@ -126,6 +189,10 @@ export async function runSparkDispatcher(
         dispatchArgv,
         spawnOptions(command.target, dispatchArgv),
       );
+    }
+    default: {
+      const exhaustive: never = command;
+      return exhaustive;
     }
   }
 }
@@ -197,10 +264,19 @@ function parseSparkBackgroundCommand(argv: string[]): SparkDispatcherCommand {
   };
 }
 
-function parseSparkPathsCommand(argv: string[]): SparkDispatcherCommand {
-  if (argv.length === 0) return { kind: "paths", json: false };
-  if (argv.length === 1 && argv[0] === "--json") return { kind: "paths", json: true };
-  return errorCommand('spark paths accepts only the optional "--json" flag');
+function parseSparkTuiCommand(argv: string[]): SparkDispatcherCommand {
+  return argv.some(
+    (arg) => arg === "--print" || arg === "-p" || arg === "--mode" || arg === "--list-models",
+  )
+    ? errorCommand(
+        'Legacy TUI flags were removed. Use "spark run", "spark acp", or "spark-daemon model list".',
+      )
+    : { kind: "dispatch", target: "tui", argv };
+}
+
+function parseSparkPathsCommand(json: boolean, argv: readonly string[]): SparkDispatcherCommand {
+  if (argv.length > 0) return errorCommand('spark paths accepts only the optional "--json" flag');
+  return { kind: "paths", json };
 }
 
 function formatSparkPaths(payload: {

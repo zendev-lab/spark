@@ -17,8 +17,9 @@ spark daemon --help
 spark hub --help
 ```
 
-Nested commands accept `--help` as well. Help is read-only: it must describe
-the selected command without starting a daemon, Hub, or workflow.
+Nested commands accept `--help` as well. Runtime `--help` is generated from
+Optique parsers. Help is read-only: it must describe the selected command
+without starting a daemon, Hub, or workflow.
 
 Inside the TUI, use:
 
