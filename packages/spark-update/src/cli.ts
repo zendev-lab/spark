@@ -1,6 +1,7 @@
 import { readSparkBuildInfo } from "./build-info.ts";
 import { parseChannel, parsePolicy } from "./config.ts";
 import { SparkUpdateManager } from "./manager.ts";
+import type { SparkUpdateConfig } from "./types.ts";
 
 type Output = Pick<NodeJS.WriteStream, "write">;
 
@@ -100,7 +101,11 @@ const UPDATE_COMMAND_HANDLERS: Readonly<Record<string, UpdateCommandHandler>> = 
       ...(channel ? { channel } : {}),
       ...(checkIntervalHours !== undefined ? { checkIntervalHours } : {}),
     });
-    stdout.write(`${JSON.stringify(config, null, 2)}\n`);
+    stdout.write(
+      rest.includes("--json")
+        ? `${JSON.stringify(config, null, 2)}\n`
+        : `${formatConfig(config)}\n`,
+    );
   },
   apply: async ({ manager, rest, stdout }) => {
     requireConfirmation(rest);
@@ -115,6 +120,14 @@ const UPDATE_COMMAND_HANDLERS: Readonly<Record<string, UpdateCommandHandler>> = 
     stdout.write(`${formatStatus(await manager.retry(positional(rest)))}\n`);
   },
 };
+
+function formatConfig(config: SparkUpdateConfig): string {
+  return [
+    `policy: ${config.policy}`,
+    `channel: ${config.channel}`,
+    `check interval: ${config.checkIntervalHours}h`,
+  ].join("\n");
+}
 
 function writeStatus(
   output: Output,

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
 
 import { createBuildFingerprint } from "./build-info.ts";
+import { runSparkUpdateCommand } from "./cli.ts";
 import {
   DEFAULT_SPARK_UPDATE_CONFIG,
   parseUpdateToml,
@@ -25,6 +26,28 @@ import {
 } from "./state.ts";
 
 const temporaryRoots: string[] = [];
+function cliOutputCapture(): {
+  io: {
+    stdout: { write: (chunk: string) => boolean };
+    stderr: { write: (chunk: string) => boolean };
+  };
+  stdout: () => string;
+} {
+  let stdout = "";
+  return {
+    io: {
+      stdout: {
+        write(chunk: string) {
+          stdout += String(chunk);
+          return true;
+        },
+      },
+      stderr: { write: () => true },
+    },
+    stdout: () => stdout,
+  };
+}
+
 const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
@@ -598,6 +621,29 @@ describe("package-manager update transaction", () => {
     expect(plist).toContain("<string>update</string>");
     expect(plist).toContain("<string>__tick</string>");
   });
+});
+
+it("prints update configure as readable text by default and JSON on demand", async () => {
+  const root = await temporaryRoot();
+  const home = process.env.HOME;
+  process.env.HOME = root;
+  try {
+    // "manual" policy keeps the launchd updater disabled, so configure succeeds
+    // without a detectable managed installation.
+    const args = ["configure", "--policy", "manual", "--channel", "next"];
+    const text = cliOutputCapture();
+    await expect(runSparkUpdateCommand(args, text.io)).resolves.toBe(0);
+    expect(text.stdout()).toContain("policy: manual");
+    expect(text.stdout()).toContain("channel: next");
+    expect(text.stdout()).not.toMatch(/^\s*[{[]/);
+
+    const json = cliOutputCapture();
+    await expect(runSparkUpdateCommand([...args, "--json"], json.io)).resolves.toBe(0);
+    expect(JSON.parse(json.stdout())).toMatchObject({ policy: "manual", channel: "next" });
+  } finally {
+    if (home === undefined) delete process.env.HOME;
+    else process.env.HOME = home;
+  }
 });
 
 async function temporaryRoot(): Promise<string> {
