@@ -308,13 +308,13 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       resumedLedger.auxiliaryRequests?.filter(
         (request) => request.label === "auxiliary.tool-approval.outcome",
       ).length,
-      1,
+      0,
     );
     assert.equal(
       resumedLedger.auxiliaryRequests?.filter(
         (request) => request.label === "auxiliary.tool-approval.verdict",
       ).length,
-      1,
+      0,
     );
     assert.equal(
       resumedLedger.auxiliaryRequests?.filter(

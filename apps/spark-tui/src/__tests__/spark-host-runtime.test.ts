@@ -103,6 +103,27 @@ test("SparkHostRuntime resolves and exposes immutable fail-closed tool policies"
   );
 
   host.registerTool({
+    name: "bounded_external_write",
+    description: "bounded driver-authorized external write",
+    parameters: {},
+    policy: {
+      effect: "external_write",
+      executionMode: "parallel",
+      approval: "manual_only",
+    },
+    async execute() {
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  });
+  assert.deepEqual(host.getTool("bounded_external_write")?.policy, {
+    effect: "external_write",
+    executionMode: "sequential",
+    domains: [],
+    modes: [],
+    approval: "manual_only",
+  });
+
+  host.registerTool({
     name: "malformed",
     description: "runtime-invalid policy",
     parameters: {},

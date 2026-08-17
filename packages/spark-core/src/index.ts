@@ -132,8 +132,15 @@ export interface SparkHostHookOptions {
 /** Pi-compatible per-tool sibling-call execution mode. */
 export type ToolExecutionMode = "sequential" | "parallel";
 
-/** Static approval requirement declared by the tool owner. */
-export type ToolApprovalPolicy = "none" | "required";
+/**
+ * Static approval requirement declared by the tool owner.
+ *
+ * `manual_only` is a narrow capability grant: a daemon-owned continuation
+ * driver may execute the call without another approval, while a manually
+ * submitted turn still requires approval. It must only be used for bounded,
+ * reversible low-risk effects; high-risk effects remain `required`.
+ */
+export type ToolApprovalPolicy = "none" | "manual_only" | "required";
 
 /**
  * Declarative tool policy owned by the package that implements the tool.
@@ -345,6 +352,7 @@ function resolveToolApproval(
 ): ToolApprovalPolicy {
   if (malformedPolicy || (legacy !== undefined && typeof legacy !== "boolean")) return "required";
   if (legacy === true || canonical === "required") return "required";
+  if (canonical === "manual_only" && legacy === undefined) return "manual_only";
   if (canonical === undefined || canonical === "none") return "none";
   return "required";
 }
@@ -372,7 +380,7 @@ function isOptionalToolExecutionMode(value: unknown): value is ToolExecutionMode
 }
 
 function isOptionalToolApproval(value: unknown): value is ToolApprovalPolicy | undefined {
-  return value === undefined || value === "none" || value === "required";
+  return value === undefined || value === "none" || value === "manual_only" || value === "required";
 }
 
 function isOptionalPolicyLabels(value: unknown): value is readonly string[] | undefined {
@@ -1023,7 +1031,7 @@ export type CueJobRef = Ref<"cue-job">;
 export type SubgoalRef = Ref<"subgoal">;
 
 export type SparkSubgoalStatus = "pending" | "in_progress" | "done" | "blocked" | "cancelled";
-export type SparkSubgoalAuthority = "safe_local" | "ask_decision" | "ask_approval";
+export type SparkSubgoalAuthority = "safe_local" | "driver_local" | "ask_decision" | "ask_approval";
 
 export interface SparkSubgoalDefinition {
   goal: string;

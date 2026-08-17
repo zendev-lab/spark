@@ -55,8 +55,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       "Use one git_change Artifact and one writable worktree for the complete dependent stack.",
       "Give init a meaningful title or branch; Spark uses it for the workspace-local worktree name.",
       "gh stack is the only writable topology authority; do not emulate stack topology in Spark.",
-      "Submit or update the stack as draft while implementation, review, or validation remains. When the requested PR delivery is complete, required verification passes, and no blocker remains, submit again with ready=true; promotion to Ready and the refreshed git_change Artifact are part of completion.",
-      "A request to submit or open a PR authorizes this draft-to-Ready lifecycle; do not ask again solely for promotion unless target, scope, or external impact materially changes.",
+      "Submit or update the stack as draft while implementation, review, or validation remains. A Goal, Loop, or Repro driver may perform this bounded Draft PR lifecycle without another approval. When delivery is complete and required verification passes, submit again with ready=true; promotion to Ready remains approval-required.",
       "Do not post routine PR comments or boilerplate about stacking/testing. Report substantive state in the task or final response.",
       "cleanup is conservative: Spark ownership, a clean worktree, remote-covered commits, and terminal PRs are all required.",
     ],
@@ -84,7 +83,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
           executionMode: "sequential",
           domains: ["git", "artifact"],
           modes: ["plan", "execute"],
-          approval: "required",
+          approval: action === "submit" && args.ready === true ? "required" : "manual_only",
         };
       }
       if (action === "cleanup") {

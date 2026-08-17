@@ -44,6 +44,7 @@ import {
   sparkRuntimePromptItem,
 } from "./prompt-items.ts";
 import { compactToolResultContent } from "./tool-result-compaction.ts";
+import { toolRequiresApproval } from "./tool-dispatch.ts";
 
 const TEST_MODEL: Model<string> = {
   id: "test-model",
@@ -883,7 +884,19 @@ test("SparkAgentLoop applies one phase profile to schemas, manifests, and dispat
 });
 
 test("SparkAgentLoop rechecks phase availability after async approval", async () => {
-  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-phase-approval-test" });
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-phase-approval-test",
+    ui: {
+      interaction: async (request) => ({
+        version: SPARK_PROTOCOL_VERSION,
+        kind: "toolApproval",
+        requestId: request.requestId,
+        status: "answered",
+        approved: true,
+        metadata: {},
+      }),
+    },
+  });
   let executions = 0;
   host.registerTool({
     name: "approved_implement_action",
@@ -2120,7 +2133,7 @@ test("SparkAgentLoop aborts a timed-out tool attempt before reconciling its exte
     policy: { effect: "external_write", executionMode: "sequential" },
     async execute(_id, _parameters, signal) {
       toolCalls += 1;
-      return await new Promise((resolve, reject) => {
+      return await new Promise((_resolve, reject) => {
         const onAbort = () => {
           timedOutSignalAborted = signal.aborted;
           reject(signal.reason);
@@ -3359,6 +3372,196 @@ test("SparkAgentLoop blocks approval-required tools without explicit approval", 
   assert.match(JSON.stringify(toolResult), /no tool execution occurred/u);
 });
 
+test("manual_only authority excludes standalone WorkflowRuns and includes real drivers", () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-manual-only-driver-authority" });
+  host.registerTool({
+    name: "draft_pr_policy_probe",
+    description: "bounded Draft PR operation",
+    parameters: { type: "object" },
+    policy: { effect: "external_write", executionMode: "sequential", approval: "manual_only" },
+    async execute() {
+      return { content: [{ type: "text", text: "ok" }] };
+    },
+  } as never);
+  const tool = host.getTool("draft_pr_policy_probe");
+  assert.ok(tool);
+  const loop = (binding: { goalId?: string; workflowRunId?: string; reproId?: string }) => ({
+    loopId: "loop-driver-authority",
+    binding,
+    generation: 1,
+    ownerSessionId: "session-owner",
+    schedule: async () => undefined,
+    stop: async () => undefined,
+  });
+
+  assert.equal(toolRequiresApproval(tool), true);
+  assert.equal(toolRequiresApproval(tool, {}, { loop: loop({}) }), false);
+  assert.equal(toolRequiresApproval(tool, {}, { loop: loop({ goalId: "goal-1" }) }), false);
+  assert.equal(toolRequiresApproval(tool, {}, { loop: loop({ reproId: "repro-1" }) }), false);
+  assert.equal(
+    toolRequiresApproval(tool, {}, { loop: loop({ workflowRunId: "workflow-run-1" }) }),
+    true,
+  );
+  assert.equal(
+    toolRequiresApproval(
+      tool,
+      {},
+      {
+        loop: loop({ goalId: "goal-1", workflowRunId: "workflow-run-1" }),
+      },
+    ),
+    false,
+  );
+});
+
+test("SparkAgentLoop requires human approval for manual_only tools on manual turns", async () => {
+  const interactionRequests: unknown[] = [];
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-manual-only-test",
+    ui: {
+      interaction: async (request) => {
+        interactionRequests.push(request);
+        return {
+          version: 1,
+          kind: "toolApproval",
+          requestId: request.requestId,
+          status: "blocked",
+          approved: false,
+          message: "not authorized",
+          metadata: {},
+        };
+      },
+    },
+  });
+  let toolCalls = 0;
+  host.registerTool({
+    name: "draft_pr_manual",
+    description: "creates a bounded draft PR",
+    parameters: { type: "object" },
+    policy: { effect: "external_write", executionMode: "sequential", approval: "manual_only" },
+    async execute() {
+      toolCalls += 1;
+      return { content: [{ type: "text", text: "draft created" }] };
+    },
+  } as never);
+  const fake = makeFakeStream({
+    rounds: [
+      [
+        {
+          type: "done",
+          reason: "toolUse",
+          message: buildAssistant(
+            [
+              {
+                type: "toolCall",
+                id: "tc-draft-pr-manual",
+                name: "draft_pr_manual",
+                arguments: {},
+              },
+            ],
+            "toolUse",
+          ),
+        },
+      ],
+      [{ type: "done", reason: "stop", message: buildAssistant([{ type: "text", text: "done" }]) }],
+    ],
+  });
+  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+
+  await loop.submit("create draft PR manually");
+
+  assert.equal(toolCalls, 0);
+  assert.equal(interactionRequests.length, 1);
+  assert.equal((interactionRequests[0] as { toolName?: string }).toolName, "draft_pr_manual");
+});
+
+test("SparkAgentLoop lets a driver run manual_only tools but keeps required gates", async () => {
+  const interactionRequests: unknown[] = [];
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-driver-approval-test",
+    loop: {
+      loopId: "goal-loop",
+      binding: { goalId: "goal-1" },
+      generation: 1,
+      ownerSessionId: "session-owner",
+      schedule: async () => undefined,
+      stop: async () => undefined,
+    },
+    ui: {
+      interaction: async (request) => {
+        interactionRequests.push(request);
+        return {
+          version: 1,
+          kind: "toolApproval",
+          requestId: request.requestId,
+          status: "blocked",
+          approved: false,
+          message: "required approval withheld",
+          metadata: {},
+        };
+      },
+    },
+  });
+  let draftCalls = 0;
+  let destructiveCalls = 0;
+  host.registerTool({
+    name: "draft_pr_driver",
+    description: "creates a bounded draft PR",
+    parameters: { type: "object" },
+    policy: { effect: "external_write", executionMode: "sequential", approval: "manual_only" },
+    async execute() {
+      draftCalls += 1;
+      return { content: [{ type: "text", text: "draft created" }] };
+    },
+  } as never);
+  host.registerTool({
+    name: "cleanup_driver",
+    description: "destructive cleanup",
+    parameters: { type: "object" },
+    policy: { effect: "destructive", executionMode: "sequential", approval: "required" },
+    async execute() {
+      destructiveCalls += 1;
+      return { content: [{ type: "text", text: "cleaned" }] };
+    },
+  } as never);
+  const fake = makeFakeStream({
+    rounds: [
+      [
+        {
+          type: "done",
+          reason: "toolUse",
+          message: buildAssistant(
+            [
+              {
+                type: "toolCall",
+                id: "tc-draft-pr-driver",
+                name: "draft_pr_driver",
+                arguments: {},
+              },
+              {
+                type: "toolCall",
+                id: "tc-cleanup-driver",
+                name: "cleanup_driver",
+                arguments: {},
+              },
+            ],
+            "toolUse",
+          ),
+        },
+      ],
+      [{ type: "done", reason: "stop", message: buildAssistant([{ type: "text", text: "done" }]) }],
+    ],
+  });
+  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+
+  await loop.submit("continue goal delivery");
+
+  assert.equal(draftCalls, 1);
+  assert.equal(destructiveCalls, 0);
+  assert.equal(interactionRequests.length, 1);
+  assert.equal((interactionRequests[0] as { toolName?: string }).toolName, "cleanup_driver");
+});
+
 test("SparkAgentLoop skip approvalMethod executes requiresApproval tools without interaction", async () => {
   const interactionRequests: unknown[] = [];
   const host = new SparkHostRuntime({
@@ -3420,7 +3623,7 @@ test("SparkAgentLoop skip approvalMethod executes requiresApproval tools without
   assert.equal(interactionRequests.length, 0);
 });
 
-test("SparkAgentLoop auto approvalMethod executes when reviewer approves", async () => {
+test("SparkAgentLoop auto review cannot substitute for human approval", async () => {
   const interactionRequests: unknown[] = [];
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-approval-auto-ok-test",
@@ -3431,9 +3634,8 @@ test("SparkAgentLoop auto approvalMethod executes when reviewer approves", async
           version: SPARK_PROTOCOL_VERSION,
           kind: "toolApproval",
           requestId: request.requestId,
-          status: "blocked",
-          approved: false,
-          message: "should not be asked",
+          status: "answered",
+          approved: true,
           metadata: {},
         };
       },
@@ -3485,7 +3687,7 @@ test("SparkAgentLoop auto approvalMethod executes when reviewer approves", async
   assert.equal(toolCalls, 1);
   assert.equal(reviewCalls.length, 1);
   assert.equal((reviewCalls[0] as { toolName?: string }).toolName, "dangerous_auto_ok");
-  assert.equal(interactionRequests.length, 0);
+  assert.equal(interactionRequests.length, 1);
 });
 
 test("SparkAgentLoop auto approvalMethod escalates to ask when reviewer rejects", async () => {

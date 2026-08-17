@@ -336,8 +336,9 @@ export async function createSparkCliHostServices(
     promptManifest: {
       getSelectedSkills: () => selectedSkillMatches.map((match) => match.skill.name),
     },
-    // Local interactive TUI skips approval gates; channel/headless pass `auto`.
-    approvalMethod: options.approvalMethod ?? "skip",
+    // Manual turns require human approval; trusted driver context bypasses only
+    // tools whose owner explicitly classifies them as `manual_only`.
+    approvalMethod: options.approvalMethod ?? "human",
     ...(options.approvalRejectAction ? { approvalRejectAction: options.approvalRejectAction } : {}),
     reviewToolApproval: async (request, signal) => {
       const ctx = runtime.makeContext();

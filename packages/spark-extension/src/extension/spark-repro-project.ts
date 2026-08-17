@@ -162,7 +162,7 @@ function materializeStageInGraph(
     scope: item.scope,
     constraints: [
       "Treat only inspectable evidence as completion proof",
-      "Keep external writes and material owner decisions behind canonical Ask authority",
+      "Allow only explicitly bounded low-risk driver-local writes; keep readiness, destructive actions, and material owner decisions behind canonical Ask authority",
     ],
     successCriteria: item.successCriteria,
     evidenceRequired: item.evidenceRequired,
@@ -282,7 +282,10 @@ function taskPlanInput(definition: ReproTaskBlueprint, roadmapItem: RoadmapItem)
         ],
         openQuestions: [],
         askRefs: [],
-        riskLevel: definition.authority === "safe_local" ? "normal" : "high",
+        riskLevel:
+          definition.authority === "ask_decision" || definition.authority === "ask_approval"
+            ? "high"
+            : "normal",
       },
       definition.description,
       definition.title,

@@ -136,7 +136,20 @@ Unknown or conflicting policy fails closed.
 - Pure reads that explicitly allow parallel execution may run concurrently.
 - Writes, policy changes, mixed batches, and external side effects remain
   serialized unless their owning contract proves a safe alternative.
-- A required approval is part of execution authority, not presentation text.
+- `none` operations need no human approval.
+- `manual_only` operations are bounded, low-risk, and reversible. Manual
+  continuation asks for approval; an active Goal, Loop, or Repro driver may
+  execute them within its confirmed objective and targets without asking
+  again. Creating, updating, and synchronizing a Draft PR are examples.
+- `required` operations always need human approval. These include destructive,
+  irreversible, security-sensitive, costly, high-impact, or materially
+  scope-expanding actions, plus release, deployment, merge, and promotion of a
+  Draft PR to Ready.
+- A WorkflowRun is not a continuation driver. It inherits the approval context
+  of the driver that started it only while that authority remains active; it
+  cannot retain driver authority by itself.
+- Approval is execution authority, not presentation text. Unknown or
+  conflicting policy fails closed.
 - Compatibility and Channel profiles may expose a smaller set than the native
   TUI or Hub Session.
 

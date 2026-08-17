@@ -15,7 +15,12 @@ function manifest() {
     promptCacheKey: "cache-key-containing-session-data",
     tools: [
       { name: "read", effect: "read", executionMode: "parallel" },
-      { name: "write", effect: "local_write", executionMode: "sequential" },
+      {
+        name: "write",
+        effect: "local_write",
+        executionMode: "sequential",
+        approval: "manual_only",
+      },
       { name: "hidden", active: false, effect: "destructive" },
     ],
     selectedSkills: ["coding", "coding", "testing"],
@@ -28,7 +33,7 @@ test("prompt manifest exposes diagnostics without retaining sensitive prompt/ses
   const result = manifest();
   const serialized = JSON.stringify(result);
 
-  assert.equal(result.schemaVersion, 4);
+  assert.equal(result.schemaVersion, 5);
   assert.equal(result.prompt.stableChars, "stable secret prompt".length);
   assert.equal(result.prompt.dynamicChars, "dynamic user data".length);
   assert.equal(result.sessionFingerprint.length, 16);
@@ -37,6 +42,7 @@ test("prompt manifest exposes diagnostics without retaining sensitive prompt/ses
     result.tools.map((tool) => tool.name),
     ["read", "write"],
   );
+  assert.equal(result.tools[1]?.approval, "manual_only");
   assert.deepEqual(result.selectedSkills, ["coding", "testing"]);
   assert.deepEqual(result.roundtrip, { index: 1 });
   assert.doesNotMatch(serialized, /private-identity|secret prompt|user data|cache-key-containing/u);

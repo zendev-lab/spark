@@ -118,7 +118,11 @@ export type SparkReproGoalContractStatus = SparkGoalContractStatus;
 export type SparkReproGoalAuthority = SparkGoalAuthority;
 export type SparkReproGoalContract = SparkGoalContract;
 
-export type SparkReproStepAuthority = "safe_local" | "ask_decision" | "ask_approval";
+export type SparkReproStepAuthority =
+  | "safe_local"
+  | "driver_local"
+  | "ask_decision"
+  | "ask_approval";
 export type SparkReproStepStatus = "pending" | "in_progress" | "done" | "blocked" | "cancelled";
 
 export interface SparkReproStepDefinition {
@@ -1022,13 +1026,22 @@ export function normalizeStoredSparkSessionRepro(value: unknown): SparkSessionRe
     });
     const normalizedPlan = { ...repro.plan, steps };
     const threeLane = normalizeSparkReproThreeLaneSessionState(normalizedPlan, repro.threeLane);
+    const goalContract: SparkReproGoalContract = {
+      ...repro.goalContract,
+      authority: {
+        ...repro.goalContract.authority,
+        boundedExternalWrites: "driver",
+      },
+    };
     const semanticStateChanged =
       JSON.stringify(stages) !== JSON.stringify(repro.stages) ||
       JSON.stringify(steps) !== JSON.stringify(repro.plan.steps) ||
-      JSON.stringify(threeLane) !== JSON.stringify(repro.threeLane);
+      JSON.stringify(threeLane) !== JSON.stringify(repro.threeLane) ||
+      JSON.stringify(goalContract) !== JSON.stringify(repro.goalContract);
     const normalized: SparkSessionRepro = {
       ...repro,
       stages,
+      goalContract,
       plan: normalizedPlan,
       threeLane,
       stopGuard: {
@@ -1342,6 +1355,7 @@ function isStoredGoalAuthority(value: unknown): boolean {
   return (
     isRecord(value) &&
     value.safeLocal === "auto" &&
+    (value.boundedExternalWrites === undefined || value.boundedExternalWrites === "driver") &&
     value.externalWrites === "ask" &&
     value.destructiveActions === "ask" &&
     value.scopeExpansion === "ask"
@@ -1388,6 +1402,7 @@ function isStoredReproSubgoalV5(value: unknown): boolean {
     isStringArray(value.doneWhen) &&
     isStringArray(value.evidenceRequired) &&
     (value.authority === "safe_local" ||
+      value.authority === "driver_local" ||
       value.authority === "ask_decision" ||
       value.authority === "ask_approval") &&
     (value.dependsOn === undefined ||
@@ -1419,6 +1434,7 @@ function isStoredReproSubgoal(value: unknown): boolean {
     isStringArray(value.doneWhen) &&
     isStringArray(value.evidenceRequired) &&
     (value.authority === "safe_local" ||
+      value.authority === "driver_local" ||
       value.authority === "ask_decision" ||
       value.authority === "ask_approval") &&
     (value.dependsOn === undefined ||
@@ -1483,6 +1499,7 @@ function isStoredReproStepDefinition(value: unknown): boolean {
     isStringArray(value.doneWhen) &&
     isStringArray(value.evidenceRequired) &&
     (value.authority === "safe_local" ||
+      value.authority === "driver_local" ||
       value.authority === "ask_decision" ||
       value.authority === "ask_approval") &&
     (value.dependsOn === undefined || isStringArray(value.dependsOn))
@@ -1928,7 +1945,7 @@ function subgoalFromStep(
           definitionDigest: subgoalDefinitionDigest(subgoal),
           evidenceRefs: [...step.evidenceRefs],
           verifiedDoneWhen: [...step.doneWhen],
-          ...(step.authority === "safe_local" || !step.evidenceRefs[0]
+          ...(isEvidenceStepAuthority(step.authority) || !step.evidenceRefs[0]
             ? {}
             : { canonicalAskEvidenceRef: step.evidenceRefs[0] }),
         }
@@ -1983,6 +2000,7 @@ function createGoalContract(
     evidenceRequired: ["Evidence refs for completed requirements and plan steps"],
     authority: {
       safeLocal: "auto",
+      boundedExternalWrites: "driver",
       externalWrites: "ask",
       destructiveActions: "ask",
       scopeExpansion: "ask",
@@ -2093,6 +2111,10 @@ function stepDefinitionForRequirement(
 
 function stepDefinition(step: SparkReproStep): SparkReproStepDefinition {
   return stepDefinitionValue(step);
+}
+
+function isEvidenceStepAuthority(authority: SparkReproStepAuthority): boolean {
+  return authority === "safe_local" || authority === "driver_local";
 }
 
 function stepDefinitionValue(step: SparkReproStepDefinition): SparkReproStepDefinition {
@@ -2247,6 +2269,7 @@ function normalizeStepDefinitions(
     ids.add(id);
     if (
       definition.authority !== "safe_local" &&
+      definition.authority !== "driver_local" &&
       definition.authority !== "ask_decision" &&
       definition.authority !== "ask_approval"
     ) {

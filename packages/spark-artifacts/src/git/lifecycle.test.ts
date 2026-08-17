@@ -323,6 +323,14 @@ describe("git_change lifecycle", () => {
     });
     expect(tool?.resolvePolicy?.({ action: "submit" })).toMatchObject({
       effect: "external_write",
+      approval: "manual_only",
+    });
+    expect(tool?.resolvePolicy?.({ action: "sync" })).toMatchObject({
+      effect: "external_write",
+      approval: "manual_only",
+    });
+    expect(tool?.resolvePolicy?.({ action: "submit", ready: true })).toMatchObject({
+      effect: "external_write",
       approval: "required",
     });
     expect(tool?.resolvePolicy?.({ action: "cleanup" })).toMatchObject({

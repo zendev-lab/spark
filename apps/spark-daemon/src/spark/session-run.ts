@@ -1362,7 +1362,9 @@ function sessionExecutionPolicy(
       ? { sessionQuestionChain: sessionQuestionChainForTask(task) }
       : {}),
     ...(allowedTools ? { allowedTools } : {}),
-    ...(sessionContext.surface === "channel" ? { approvalMethod: "auto" as const } : {}),
+    ...(sessionContext.surface === "channel"
+      ? { approvalMethod: "auto" as const }
+      : { approvalMethod: "human" as const }),
     ...(sessionContext.role?.allowedToolEffects
       ? { allowedToolEffects: sessionContext.role.allowedToolEffects }
       : {}),

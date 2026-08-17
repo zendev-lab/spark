@@ -90,6 +90,29 @@ An owner may refine that conservative registration envelope with argument-aware
 `resolvePolicy`. Unknown, malformed, or conflicting policy fails closed to an
 unknown effect, sequential execution, and required approval.
 
+Approval requirements have three canonical values:
+
+- `none` needs no human approval;
+- `manual_only` covers bounded, low-risk, reversible external operations. A
+  manual continuation needs human approval for the exact operation; an active
+  Goal, Loop, or Repro driver may dispatch it without another approval when it
+  remains within the driver's confirmed objective and targets;
+- `required` needs human approval under every continuation driver.
+
+Creating, updating, and synchronizing a Draft PR are canonical `manual_only`
+operations. Destructive, irreversible, security-sensitive, costly,
+high-impact, materially scope-expanding, release, deployment, merge, and Ready
+promotion operations are `required`. A WorkflowRun is not a driver and inherits
+the approval context of the continuation driver that started it only while that
+authority remains active.
+
+The host resolves driver-aware approval from authoritative continuation state
+immediately before dispatch. Prompt or transcript text, a tool name, Workflow
+metadata, and automated review cannot grant or widen authority. Driver stop,
+completion, or replacement expires that driver's authority. Each later
+dispatch re-resolves the current driver and uses manual approval behavior when
+none is active.
+
 A batch executes concurrently only when every concrete call resolves to an
 active, approval-free read tool with `executionMode=parallel`. Mixed, unknown,
 write-capable, policy-changing, or external-effect batches remain sequential.

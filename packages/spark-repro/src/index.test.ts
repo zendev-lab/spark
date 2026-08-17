@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { EvidenceRef, RoleRef, TaskRef } from "@zendev-lab/spark-core";
 import {
   advanceReproStage,
+  createReproStepAskBinding,
   createSparkSessionRepro,
   evaluateStageGate,
   isPhaseComplete,
@@ -111,6 +112,27 @@ describe("spark-repro", () => {
     });
 
     expect(normalizeStoredSparkSessionRepro(structuredClone(repro))).toEqual(repro);
+  });
+
+  it("backfills bounded driver authority in a legacy Goal Contract", () => {
+    const legacy = structuredClone(createSparkSessionRepro("session:legacy-authority"));
+    delete (legacy.goalContract.authority as Partial<typeof legacy.goalContract.authority>)
+      .boundedExternalWrites;
+
+    expect(normalizeStoredSparkSessionRepro(legacy)?.goalContract.authority).toEqual({
+      safeLocal: "auto",
+      boundedExternalWrites: "driver",
+      externalWrites: "ask",
+      destructiveActions: "ask",
+      scopeExpansion: "ask",
+    });
+  });
+
+  it("rejects malformed bounded external-write authority fail closed", () => {
+    const invalid = structuredClone(createSparkSessionRepro("session:invalid-authority"));
+    invalid.goalContract.authority.boundedExternalWrites = "auto" as never;
+
+    expect(normalizeStoredSparkSessionRepro(invalid)).toBeUndefined();
   });
 
   it("migrates v5 evidence while invalidating delegation and ambiguous task bindings", () => {
@@ -598,6 +620,50 @@ describe("spark-repro", () => {
     });
     repro = updateReproStep(repro, step.id, { status: "done", evidenceRefs, verifier: approved })!;
     expect(repro.plan.steps.find((candidate) => candidate.id === step.id)?.status).toBe("done");
+  });
+
+  it("persists driver-local Steps as evidence authority without a canonical Ask", () => {
+    let repro = createSparkSessionRepro("session:driver-local");
+    const stepId = "repro-contract-frozen";
+    repro = reviseReproPlan(repro, {
+      reason: "Allow the active Repro driver to perform a bounded owner-local action",
+      steps: repro.plan.steps.map((step) =>
+        step.id === stepId
+          ? { ...stepDefinition(step), authority: "driver_local" as const }
+          : stepDefinition(step),
+      ),
+    });
+    const step = repro.plan.steps.find((candidate) => candidate.id === stepId)!;
+    expect(repro.subgoals.find((candidate) => candidate.id === stepId)).toMatchObject({
+      authority: "driver_local",
+      status: "pending",
+      planRevision: 2,
+    });
+    expect(() => createReproStepAskBinding(repro, step)).toThrow(
+      "does not require a canonical ask",
+    );
+
+    const evidenceRefs = [ref("driver-local-proof")];
+    const verifier = verifyReproStepPass(repro, step.id, {
+      verdict: "Pass",
+      planRevision: repro.plan.currentRevision,
+      definitionDigest: stepDefinitionDigest(step),
+      proofKind: "evidence",
+      evidenceRefs,
+      verifiedDoneWhen: step.doneWhen,
+    });
+    expect(verifier.verdict).toBe("Pass");
+
+    repro = updateReproStep(repro, step.id, { status: "done", evidenceRefs, verifier })!;
+    expect(repro.subgoals.find((candidate) => candidate.id === stepId)).toMatchObject({
+      authority: "driver_local",
+      status: "done",
+      verification: { verdict: "Pass", evidenceRefs },
+    });
+    expect(
+      repro.subgoals.find((candidate) => candidate.id === stepId)?.verification,
+    ).not.toHaveProperty("canonicalAskEvidenceRef");
+    expect(normalizeStoredSparkSessionRepro(structuredClone(repro))).toEqual(repro);
   });
 
   it("blocks stage advance until the target stage has planned subgoals", () => {
