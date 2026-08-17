@@ -95,9 +95,6 @@
       "@zendev-lab/spark-hub-coordination/liveness": [
         "./packages/spark-hub-coordination/src/liveness.ts"
       ],
-      "@zendev-lab/spark-hub-coordination/project-hub": [
-        "./packages/spark-hub-coordination/src/project-hub.ts"
-      ],
       "@zendev-lab/spark-hub-coordination/projection-services": [
         "./packages/spark-hub-coordination/src/projection-services.ts"
       ],
@@ -109,9 +106,6 @@
       ],
       "@zendev-lab/spark-hub-coordination/routing": [
         "./packages/spark-hub-coordination/src/routing.ts"
-      ],
-      "@zendev-lab/spark-hub-coordination/security": [
-        "./packages/spark-hub-coordination/src/security.ts"
       ],
       "@zendev-lab/spark-turn": ["./packages/spark-turn/src/agent-loop.ts"],
       "@zendev-lab/spark-update": ["./packages/spark-update/src/index.ts"],

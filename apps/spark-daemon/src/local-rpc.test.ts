@@ -16,7 +16,7 @@ import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import {
   requestSparkDaemonLocalRpcWire,
   SparkDaemonLocalRpcUnavailableError,
-} from "@zendev-lab/spark-daemon-client/local-rpc";
+} from "@zendev-lab/spark-daemon-client";
 import {
   createDaemonSessionRegistry,
   createSparkDaemonLocalEventBus,

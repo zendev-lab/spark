@@ -2,11 +2,11 @@
 
 Host-neutral model/tool turn execution for Spark hosts.
 
-The default entry point exports `SparkAgentLoop` and its turn-facing types. Focused entry points expose behavior evaluation, repeated-run CE summaries, privacy-safe prompt manifests, and side-thread state primitives.
+The default entry point exports `SparkAgentLoop` and its turn-facing types. The `./side-thread` entry point exposes side-thread state primitives; `./testing/scripted-provider` supports the scripted-provider CE fixture. Behavior evaluation and repeated-run CE summaries are internal modules imported by the CE driver scripts.
 
 ## Behavior evaluation
 
-`@zendev-lab/spark-turn/behavior-eval` scores one recorded run from observable tool, skill, outcome, roundtrip, and Evidence facts. `@zendev-lab/spark-turn/behavior-ce` summarizes repeated runs without averaging away failures: missing runs, case-inventory drift, duplicate samples, flakes, failure-rate limits, and duration budgets remain explicit.
+The behavior evaluation module scores one recorded run from observable tool, skill, outcome, roundtrip, and Evidence facts. The repeated-run CE summary module aggregates runs without averaging away failures: missing runs, case-inventory drift, duplicate samples, flakes, failure-rate limits, and duration budgets remain explicit. Both live under `src/` and are consumed by `scripts/run-nightly-capability-ce.mts` and `scripts/run-scripted-provider-ce.mts`.
 
 ## Side-thread boundary
 

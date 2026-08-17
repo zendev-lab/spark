@@ -48,8 +48,8 @@ The lane passes only when all of the following remain true:
 
 A case that passes seven runs and fails one is a failure, not an 87.5% success.
 Missing samples and inventory drift are also failures rather than being removed
-from the denominator. The reusable `@zendev-lab/spark-turn/behavior-ce`
-aggregator preserves those distinctions for future scripted-provider and live
+from the denominator. The reusable spark-turn behavior-CE
+aggregator (`packages/spark-turn/src/behavior-ce.ts`) preserves those distinctions for future scripted-provider and live
 canary evaluations.
 
 ## Reports

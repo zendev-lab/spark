@@ -73,7 +73,7 @@ production code.
 
 ## Pass semantics and budgets
 
-The repeated lane uses `@zendev-lab/spark-turn/behavior-ce`. It fails when:
+The repeated lane uses the spark-turn behavior-CE module (`packages/spark-turn/src/behavior-ce.ts`). It fails when:
 
 - an expected run or case is missing;
 - a run exposes a different case inventory;

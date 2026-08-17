@@ -10,7 +10,7 @@ import {
   SparkDaemonLocalRpcError,
   SparkDaemonLocalRpcRemoteError,
   SparkDaemonLocalRpcUnavailableError,
-} from "@zendev-lab/spark-daemon-client/local-rpc";
+} from "@zendev-lab/spark-daemon-client";
 import { SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
 import {
   parseSparkDaemonEvent,
