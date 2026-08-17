@@ -36,7 +36,10 @@ timeouts are host policy and cannot be selected per tool call.
 
 User-facing Artifact kinds are exactly `issue | git_change | document`.
 A `git_change` owns one worktree and one native PR stack; a preview is a
-Document view, not another Artifact kind.
+Document view, not another Artifact kind. `git` submit waits for required
+GitHub PR checks on each non-terminal pull request, then records pass, fail,
+or conflict on that Artifact. Pull requests with no required checks are
+recorded as inconclusive rather than blocking the submit result.
 
 Evidence records internal claims and verification. Artifact and Evidence refs
 use separate namespaces, stores, permissions, and lifecycle rules. A tool must
