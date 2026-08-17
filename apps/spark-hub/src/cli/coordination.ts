@@ -1,3 +1,6 @@
+import { object, or } from "@optique/core/constructs";
+import { parse } from "@optique/core/parser";
+import { command, constant, passThrough } from "@optique/core/primitives";
 import { type TaskGraph } from "@zendev-lab/spark-tasks";
 import type { Project, ProjectRef, Task, TaskRef } from "@zendev-lab/spark-core";
 import { createId, parseSparkAssignment } from "@zendev-lab/spark-protocol";
@@ -211,16 +214,44 @@ export interface SparkHubWorkflowListResult {
   text: string;
 }
 
+const remainingArgv = () => passThrough({ format: "greedy" });
+
+const sparkHubResourceParser = or(
+  or(
+    command("help", object({ resource: constant("help" as const), argv: remainingArgv() })),
+    command("--help", object({ resource: constant("help" as const), argv: remainingArgv() })),
+    command("-h", object({ resource: constant("help" as const), argv: remainingArgv() })),
+    command("status", object({ resource: constant("status" as const), argv: remainingArgv() })),
+    command("project", object({ resource: constant("project" as const), argv: remainingArgv() })),
+    command("task", object({ resource: constant("task" as const), argv: remainingArgv() })),
+    command("goal", object({ resource: constant("goal" as const), argv: remainingArgv() })),
+    command("artifact", object({ resource: constant("artifact" as const), argv: remainingArgv() })),
+    command("review", object({ resource: constant("review" as const), argv: remainingArgv() })),
+  ),
+  or(
+    command("workflow", object({ resource: constant("workflow" as const), argv: remainingArgv() })),
+    command("assign", object({ resource: constant("assign" as const), argv: remainingArgv() })),
+    command("instance", object({ resource: constant("instance" as const), argv: remainingArgv() })),
+    command("access", object({ resource: constant("access" as const), argv: remainingArgv() })),
+    command(
+      "workspace",
+      object({ resource: constant("workspace" as const), argv: remainingArgv() }),
+    ),
+  ),
+  object({ resource: constant("empty" as const) }),
+);
+
 export function parseSparkHubCliArgs(argv: string[]): SparkHubCliCommand {
-  if (argv.length === 0) return { resource: "status", json: false };
-  const [resourceToken, ...rest] = argv;
-  if (resourceToken === "help" || resourceToken === "--help" || resourceToken === "-h") {
+  const classified = classifySparkHubResource(argv);
+  if (classified.resource === "empty") return { resource: "status", json: false };
+  if (classified.resource === "help" || helpFlagRequested(argv)) {
     return { resource: "help" };
   }
-  if (helpFlagRequested(argv)) {
-    return { resource: "help" };
+  if (classified.resource === "unknown") {
+    throw new Error(`unknown spark hub resource: ${classified.command}`);
   }
-  const parsed = parseSparkCliOptions(rest);
+  const resourceToken = classified.resource;
+  const parsed = parseSparkCliOptions([...classified.argv]);
   const json = readBooleanOption(parsed.options, "json");
   const limit = readNumberOption(parsed.options, "limit");
   const selector =
@@ -311,9 +342,20 @@ export function parseSparkHubCliArgs(argv: string[]): SparkHubCliCommand {
         tokenId,
       };
     }
-    default:
-      throw new Error(`unknown spark hub resource: ${resourceToken}`);
+    default: {
+      const exhaustive: never = resourceToken;
+      return exhaustive;
+    }
   }
+}
+
+function classifySparkHubResource(argv: string[]) {
+  const result = parse(sparkHubResourceParser, argv);
+  if (result.success) {
+    if (result.value.resource === "empty") return result.value;
+    return { ...result.value, argv: [...result.value.argv] };
+  }
+  return { resource: "unknown" as const, command: argv[0] ?? "" };
 }
 
 export async function handleSparkHubCliCommand(

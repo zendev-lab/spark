@@ -380,6 +380,9 @@ importers:
       '@core-workspace/infoflow-sdk-nodejs':
         specifier: 2026.6.12-beta.1
         version: 2026.6.12-beta.1(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
+      '@optique/core':
+        specifier: 'catalog:'
+        version: 1.2.0
       '@sveltejs/adapter-node':
         specifier: ^5.3.1
         version: 5.5.7(@sveltejs/kit@2.70.2(@opentelemetry/api@1.9.0)(@sveltejs/vite-plugin-svelte@7.3.0(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9))(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9)(typescript@6.0.3))

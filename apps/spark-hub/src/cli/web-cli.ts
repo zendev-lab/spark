@@ -1,3 +1,7 @@
+import { object, or } from "@optique/core/constructs";
+import { parse } from "@optique/core/parser";
+import { command, constant, passThrough } from "@optique/core/primitives";
+
 import {
   formatHubWebStatus,
   getHubWebStatus,
@@ -8,6 +12,17 @@ import {
 } from "./web-service.ts";
 import { helpFlagRequested } from "./shared.ts";
 
+const remainingArgv = () => passThrough({ format: "greedy" });
+
+const sparkHubWebParser = or(
+  command("run", object({ kind: constant("run" as const), argv: remainingArgv() })),
+  command("start", object({ kind: constant("start" as const), argv: remainingArgv() })),
+  command("status", object({ kind: constant("status" as const), argv: remainingArgv() })),
+  command("stop", object({ kind: constant("stop" as const), argv: remainingArgv() })),
+  command("logs", object({ kind: constant("logs" as const), argv: remainingArgv() })),
+  object({ kind: constant("empty" as const) }),
+);
+
 /** Handle `spark hub web …` after the surface dispatcher peels off `web`. */
 export async function runHubWebCli(argv: string[]): Promise<number> {
   if (helpFlagRequested(argv)) {
@@ -15,9 +30,13 @@ export async function runHubWebCli(argv: string[]): Promise<number> {
     return 0;
   }
 
-  const [command = "status"] = argv;
+  const classified = classifySparkHubWebCommand(argv);
   const json = argv.includes("--json");
-  switch (command) {
+  switch (classified.kind) {
+    case "empty":
+    case "status":
+      process.stdout.write(`${formatHubWebStatus(getHubWebStatus(), json)}\n`);
+      return 0;
     case "run":
       await runHubWebService();
       return typeof process.exitCode === "number" ? process.exitCode : 0;
@@ -26,9 +45,6 @@ export async function runHubWebCli(argv: string[]): Promise<number> {
       process.stdout.write(`${formatHubWebStatus(result.status, json)}\n`);
       return 0;
     }
-    case "status":
-      process.stdout.write(`${formatHubWebStatus(getHubWebStatus(), json)}\n`);
-      return 0;
     case "stop": {
       const result = await stopHubWebService();
       process.stdout.write(`${formatHubWebStatus(result.status, json)}\n`);
@@ -43,9 +59,19 @@ export async function runHubWebCli(argv: string[]): Promise<number> {
       else process.stdout.write(`no logs yet: ${result.logFile}\n`);
       return 0;
     }
-    default:
-      throw new Error(`Unknown spark hub web command: ${command}`);
+    case "unknown":
+      throw new Error(`Unknown spark hub web command: ${classified.command}`);
+    default: {
+      const exhaustive: never = classified;
+      return exhaustive;
+    }
   }
+}
+
+function classifySparkHubWebCommand(argv: string[]) {
+  const result = parse(sparkHubWebParser, argv);
+  if (result.success) return result.value;
+  return { kind: "unknown" as const, command: argv[0] ?? "" };
 }
 
 function hubWebHelpText(): string {
