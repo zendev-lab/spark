@@ -15,7 +15,7 @@ allowBuilds:
   workerd: true
 
 catalog:
-  axe-core: "4.12.1"
+  axe-core: "4.13.0"
   "@agentclientprotocol/sdk": "1.3.0"
   "@modelcontextprotocol/sdk": "1.30.0"
   "@orpc/client": "1.15.0"
@@ -29,8 +29,8 @@ catalog:
   "p-retry": "^8.0.0"
   typebox: "^1.3.6"
   typescript: "^6.0.3"
-  vite: "npm:@voidzero-dev/vite-plus-core@0.2.8"
-  vite-plus: "0.2.8"
+  vite: "npm:@voidzero-dev/vite-plus-core@0.2.9"
+  vite-plus: "0.2.9"
   vitest: "4.1.10"
   ws: "^8.18.3"
 
@@ -43,9 +43,9 @@ overrides:
   "@earendil-works/pi-coding-agent>undici": "8.10.0"
   # The MCP SDK's HTTP transport reaches ip-address through express-rate-limit.
   # Keep the patched parser until the SDK refreshes that transitive dependency.
-  "express-rate-limit>ip-address": "10.4.0"
-  "hono": "4.13.1"
-  "@modelcontextprotocol/sdk>@hono/node-server": "2.1.0"
+  "express-rate-limit>ip-address": "10.5.0"
+  "hono": "4.13.2"
+  "@modelcontextprotocol/sdk>@hono/node-server": "2.1.1"
   "@sveltejs/kit>cookie": "0.7.2"
   "miniflare>undici": "8.10.0"
   "postcss": "8.5.26"

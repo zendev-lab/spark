@@ -16,9 +16,9 @@ function fakeClient() {
     messageid: "group-options-id",
     msgseqid: "group-options-seq",
   }));
-  const update = vi.fn(
-    async (_input: unknown): Promise<{ ok: boolean; error?: string }> => ({ ok: true }),
-  );
+  const update = vi.fn(async (_input: unknown): Promise<{ ok: boolean; error?: string }> => ({
+    ok: true,
+  }));
   const start = vi.fn<() => Promise<boolean>>(async () => true);
   const stream = {
     start,

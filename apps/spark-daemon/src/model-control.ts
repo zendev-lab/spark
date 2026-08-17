@@ -399,24 +399,22 @@ function providerProjection(
     auth: authProjection(provider.id, provider.auth),
     models: control.models
       .filter((model) => model.providerId === provider.id)
-      .map(
-        (model): SparkModelCatalogEntry => ({
-          model: {
-            providerName: provider.id,
-            modelId: model.modelId,
-            providerLabel: provider.name,
-            modelLabel: model.name,
-          },
-          reasoning: model.reasoning,
-          input: [...model.input],
-          contextWindow: model.contextWindow,
-          maxTokens: model.maxTokens,
-          available: model.available,
-          ...(model.available
-            ? {}
-            : { unavailableReason: `Configure ${provider.name} before selecting this model.` }),
-        }),
-      ),
+      .map((model): SparkModelCatalogEntry => ({
+        model: {
+          providerName: provider.id,
+          modelId: model.modelId,
+          providerLabel: provider.name,
+          modelLabel: model.name,
+        },
+        reasoning: model.reasoning,
+        input: [...model.input],
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
+        available: model.available,
+        ...(model.available
+          ? {}
+          : { unavailableReason: `Configure ${provider.name} before selecting this model.` }),
+      })),
   };
 }
 
