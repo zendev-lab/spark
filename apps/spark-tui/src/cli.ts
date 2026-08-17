@@ -33,7 +33,9 @@ import {
   clientListManagedSessions,
   clientResolveSessionCwd,
   clientRestoreManagedSession,
+  clientSubmit,
   clientTurnStatus,
+  clientTurnStreamPage,
   createSparkDaemonNativeCommands,
   createSparkDaemonNativeResponder,
   formatSparkDaemonTransportRetry,
@@ -993,6 +995,11 @@ export async function runSparkCli(
       return 0;
     case "error":
       throw new Error(command.message);
+    case "compat-product": {
+      const probe = await runSparkCompatProduct(command, daemonClient);
+      process.stdout.write(`${JSON.stringify(probe)}\n`);
+      return 0;
+    }
     case "run": {
       const sessionId =
         command.options?.sessionId ??
@@ -2158,6 +2165,87 @@ function formatSparkModelList(services: SparkCliHostServices, query: string | un
       return `${marker} ${row.value} — ${row.modelLabel} (${row.description})`;
     })
     .join("\n");
+}
+
+async function runSparkCompatProduct(
+  command: Extract<SparkCliCommand, { kind: "compat-product" }>,
+  daemonClient: SparkDaemonClientOptions,
+): Promise<Record<string, unknown>> {
+  const status = await handleSparkDaemonCliCommand({ action: "status", json: true }, daemonClient);
+  const statusRecord = status.action === "status" ? status.daemon : undefined;
+  if (!statusRecord?.running)
+    throw new Error("compat product probe requires a running Spark daemon");
+  const lease = await attachSparkWorkspaceClient(daemonClient, {
+    kind: "headless",
+    clientId: `spark-compat-product-${command.action}-${Date.now().toString(36)}`,
+    displayName: "Spark release compatibility product probe",
+    heartbeatIntervalMs: false,
+  });
+  try {
+    if (command.action === "resume") {
+      const sessionId = command.sessionId!;
+      const invocationId = command.invocationId!;
+      const cursor = command.cursor!;
+      const snapshot = await clientGetManagedSessionSnapshot(sessionId, daemonClient);
+      const replay = await clientTurnStreamPage(
+        { invocationId, after: cursor, limit: 100 },
+        daemonClient,
+      );
+      const terminal = await clientTurnStatus({ invocationId }, daemonClient);
+      return {
+        product: "@zendev-lab/spark-tui",
+        action: "resume",
+        sessionId,
+        invocationId,
+        cursor,
+        nextCursor: replay.nextCursor,
+        assertions: {
+          handshake: true,
+          localRpcStatus: true,
+          snapshotRead: snapshot.sessionId === sessionId,
+          eventDecode: replay.events.every((event) => event.sequence > cursor),
+          reconnect: true,
+          cursorReconnect: replay.events.every((event) => event.sequence > cursor),
+          noDuplicate:
+            new Set(replay.events.map((event) => event.sequence)).size === replay.events.length,
+          cancelled: terminal.status === "cancelled" || terminal.status === "failed",
+          detachRelease: true,
+        },
+      };
+    }
+    const sessionId = command.sessionId!;
+    const invocationId = command.invocationId!;
+    const snapshot = await clientGetManagedSessionSnapshot(sessionId, daemonClient);
+    const beforeCancellation = await clientTurnStatus({ invocationId }, daemonClient);
+    const cancellation = await clientCancelTurn(
+      { invocationId, reason: "Release compatibility probe cancellation." },
+      daemonClient,
+    );
+    const stream = await clientTurnStreamPage({ invocationId, after: 0, limit: 100 }, daemonClient);
+    const terminal = await clientTurnStatus({ invocationId }, daemonClient);
+    return {
+      product: "@zendev-lab/spark-tui",
+      action: "first",
+      sessionId,
+      invocationId,
+      cursor: stream.nextCursor,
+      assertions: {
+        handshake: true,
+        localRpcStatus: true,
+        sessionWrite:
+          snapshot.sessionId === sessionId && beforeCancellation.invocationId === invocationId,
+        snapshotRead: snapshot.sessionId === sessionId,
+        eventDecode: stream.events.length > 0 && stream.events.every((event) => event.sequence > 0),
+        cancelled:
+          cancellation.cancelRequested ||
+          terminal.status === "cancelled" ||
+          terminal.status === "failed",
+        detachRelease: true,
+      },
+    };
+  } finally {
+    await lease.release();
+  }
 }
 
 function printSparkJsonEventStream(

@@ -1,0 +1,145 @@
+{
+  "$schema": "./release-compatibility.schema.json",
+  "schemaVersion": 1,
+  "adjacentReleaseWindow": 1,
+  "firstSplitRelease": "0.3.0",
+  "fullMatrixRequiredFrom": "0.5.0",
+  "components": ["hub", "daemon", "tui"],
+  "edges": [
+    {
+      "id": "hub-daemon",
+      "left": "hub",
+      "right": "daemon",
+      "surfaces": ["runtime-websocket", "local-control-rpc"]
+    },
+    {
+      "id": "daemon-tui",
+      "left": "daemon",
+      "right": "tui",
+      "surfaces": ["local-control-rpc", "view-event-stream"]
+    }
+  ],
+  "releaseGate": {
+    "artifactMode": "exact-tarballs",
+    "harness": "scripts/test-release-compatibility.mjs",
+    "productHarness": "scripts/test-adjacent-product-compatibility.mjs",
+    "reportPath": "dist/release/adjacent-product-compatibility.json",
+    "baselineSelection": "latest-published-stable-without-n-minus-one-exemption-before-candidate",
+    "compatibilityExemptVersions": ["0.4.0"],
+    "requiredPhases": [
+      {
+        "id": "candidate-hub--baseline-daemon",
+        "edge": "hub-daemon",
+        "left": "candidate-hub",
+        "right": "baseline-daemon",
+        "assertions": [
+          "product-identity",
+          "handshake",
+          "projection-read",
+          "command-delivery",
+          "reconnect",
+          "cleanup"
+        ]
+      },
+      {
+        "id": "baseline-hub--candidate-daemon",
+        "edge": "hub-daemon",
+        "left": "baseline-hub",
+        "right": "candidate-daemon",
+        "assertions": [
+          "product-identity",
+          "handshake",
+          "projection-read",
+          "command-delivery",
+          "reconnect",
+          "cleanup"
+        ]
+      },
+      {
+        "id": "candidate-tui--baseline-daemon",
+        "edge": "daemon-tui",
+        "left": "candidate-tui",
+        "right": "baseline-daemon",
+        "assertions": [
+          "product-identity",
+          "local-rpc-status",
+          "session-snapshot",
+          "event-decoding",
+          "cursor-reconnect",
+          "cancellation-safe-detach",
+          "cleanup"
+        ]
+      },
+      {
+        "id": "baseline-tui--candidate-daemon",
+        "edge": "daemon-tui",
+        "left": "baseline-tui",
+        "right": "candidate-daemon",
+        "assertions": [
+          "product-identity",
+          "local-rpc-status",
+          "session-snapshot",
+          "event-decoding",
+          "cursor-reconnect",
+          "cancellation-safe-detach",
+          "cleanup"
+        ]
+      }
+    ],
+    "sameVersionSanity": true,
+    "sameVersionPhase": {
+      "id": "candidate-same-version",
+      "components": ["hub", "daemon", "tui"],
+      "assertions": ["product-identity", "health", "local-rpc-status", "cleanup"]
+    },
+    "firstSplitReleaseException": {
+      "candidateVersion": "0.3.0",
+      "baselineVersion": "0.2.1",
+      "phaseStatus": "not-applicable",
+      "reason": "The published baseline is the legacy all-in-one package and has no independently published Hub or TUI artifacts. The complete split-product matrix becomes mandatory once 0.3.0 is the published N-1 baseline."
+    }
+  },
+  "protocol": {
+    "productVersionIsWireVersion": false,
+    "featureNegotiation": "intersection",
+    "unknownOptionalFields": "ignore-with-deterministic-defaults",
+    "unknownRequiredCapabilities": "reject-with-actionable-diagnostic",
+    "breakingChangeBridgeReleases": 1
+  },
+  "database": {
+    "metadataRequiredFrom": "0.5.0",
+    "harness": "scripts/test-adjacent-database-compatibility.mjs",
+    "reportPath": "dist/release/adjacent-database-compatibility.json",
+    "owners": [
+      {
+        "id": "daemon",
+        "migrationManifest": "apps/spark-daemon/src/store/migrations/manifest.json",
+        "probeCommand": "spark-daemon __compat-database"
+      },
+      {
+        "id": "hub",
+        "migrationManifest": "packages/spark-hub-db/src/migrations/manifest.json",
+        "probeCommand": "spark-hub __compat-database"
+      }
+    ],
+    "requiredPhases": [
+      "baseline-create-write",
+      "candidate-migrate-read-write",
+      "baseline-reopen-read-write",
+      "candidate-idempotent-reopen",
+      "candidate-fresh-baseline-read-write",
+      "interruption-recovery",
+      "reject-unsafe-states"
+    ],
+    "migrationPhases": ["expand", "backfill", "contract"],
+    "automaticUpdatePhases": ["expand"],
+    "minimumContractDelayReleases": 2,
+    "requireMigrationChecksums": true,
+    "requireImmutableAppliedMigrations": true,
+    "requireNMinusOneReadWrite": true,
+    "requireIdempotentReopen": true,
+    "requireCrashRecovery": true,
+    "rejectUnsupportedFutureSchema": true,
+    "rollbackRestoresDatabase": false
+  }
+}

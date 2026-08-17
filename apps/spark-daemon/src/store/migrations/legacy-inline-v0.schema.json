@@ -1,0 +1,2910 @@
+{
+  "schemaVersion": 1,
+  "databaseId": "spark-daemon-sqlite",
+  "comparison": "required-subset",
+  "tables": [
+    {
+      "name": "channel_deliveries",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "kind",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "idempotency_key",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "payload_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "attempt_count",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "next_attempt_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "lease_owner",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "lease_token",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "claimed_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "dispatched_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_error",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "receipt_json",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "delivered_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["channel_deliveries_due_idx"]
+    },
+    {
+      "name": "daemon_delegation_projections",
+      "columns": [
+        {
+          "name": "delegation_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "workspace_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 2
+        },
+        {
+          "name": "role",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "request_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "receipt_json",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "message_sequence",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "invocation_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["daemon_delegation_projections_workspace_status_idx"]
+    },
+    {
+      "name": "daemon_human_answer_events",
+      "columns": [
+        {
+          "name": "answer_event_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "human_request_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "interaction_request_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "human_response_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "event_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "wake_completed_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "wake_loop_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "wake_generation",
+          "type": "INTEGER",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["daemon_human_answer_events_request_idx"]
+    },
+    {
+      "name": "daemon_human_waits",
+      "columns": [
+        {
+          "name": "human_request_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "interaction_request_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "evidence_request_json",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "invocation_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "workspace_binding_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "workspace_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "project_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "tool_call_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "kind",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "request_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "response_json",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "accepted_response_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["daemon_human_waits_evidence_interaction_idx", "daemon_human_waits_status_idx"]
+    },
+    {
+      "name": "daemon_meta",
+      "columns": [
+        {
+          "name": "key",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "value",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "daemon_relocation_audit",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "instance_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "runtime_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "from_server_url",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "to_server_url",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "workspace_count",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "outcome",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "daemon_repro_formal_evidence_receipts",
+      "columns": [
+        {
+          "name": "receipt_key",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "workspace_cwd",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "repro_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "requirement_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "step_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "evidence_ref",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "receipt_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "daemon_server_credentials",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "server_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "runtime_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "runtime_token_hash",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "refresh_token_hash",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "runtime_token_expires_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "refresh_token_expires_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "daemon_servers",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "server_url",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "first_registered_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_connected_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_disconnect_reason",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "protocol_version",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "daemon_workspace_clients",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "workspace_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "kind",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "display_name",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "attached_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_seen_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "released_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "session_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "lease_fence",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "metadata_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": [
+        "daemon_workspace_clients_lease_idx",
+        "daemon_workspace_clients_workspace_status_idx"
+      ]
+    },
+    {
+      "name": "daemon_workspace_grants",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "daemon_workspace_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "grant_token_hash",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "server_grant_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "consumed_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "revoked_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["daemon_workspace_grants_workspace_idx"]
+    },
+    {
+      "name": "daemon_workspaces",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "server_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "server_workspace_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "server_binding_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "name",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "slug",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "local_path",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "profile_source_kind",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "profile_ref",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "profile_commit",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "registered_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_known_status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_known_offline_reason",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_status_changed_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["daemon_workspaces_status_idx"]
+    },
+    {
+      "name": "execution_attempt_crashes",
+      "columns": [
+        {
+          "name": "invocation_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "attempt_epoch",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 2
+        },
+        {
+          "name": "daemon_generation",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "accepted",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "accepted_crash_ordinal",
+          "type": "INTEGER",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "error_code",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "next_attempt_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["execution_attempt_crashes_history_idx"]
+    },
+    {
+      "name": "execution_attempt_events",
+      "columns": [
+        {
+          "name": "invocation_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "sequence",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 2
+        },
+        {
+          "name": "attempt_epoch",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "kind",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "payload_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["execution_attempt_events_order_idx"]
+    },
+    {
+      "name": "execution_attempts",
+      "columns": [
+        {
+          "name": "invocation_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "attempt_epoch",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 2
+        },
+        {
+          "name": "daemon_generation",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "correlation_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "accepted_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "started_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "finished_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "next_attempt_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "event_high_water_mark",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "usage_high_water_mark",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["execution_attempts_retry_idx", "execution_attempts_current_idx"]
+    },
+    {
+      "name": "invocation_event_deliveries",
+      "columns": [
+        {
+          "name": "destination",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "invocation_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 2
+        },
+        {
+          "name": "sequence",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["invocation_event_deliveries_cursor_idx"]
+    },
+    {
+      "name": "invocation_event_delivery_consumers",
+      "columns": [
+        {
+          "name": "destination",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "registered_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "invocation_events",
+      "columns": [
+        {
+          "name": "invocation_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "sequence",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 2
+        },
+        {
+          "name": "kind",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "payload_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": [
+        "invocation_events_delivery_head_idx",
+        "invocation_events_kind_created_idx",
+        "invocation_events_delivery_order_idx",
+        "invocation_events_cursor_idx"
+      ]
+    },
+    {
+      "name": "invocations",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "command_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "workspace_binding_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "session_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "idempotency_key",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "prompt",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "task_json",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "result_json",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "source_kind",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "source_ref",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "parent_invocation_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "retry_of_invocation_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "claim_class",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "execution_profile_json",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "retention_summary_json",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "payload_redacted_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "worker_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "attempt_count",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "cancel_reason",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "error_code",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "error_message",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "event_cursor",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "claimed_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "started_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "finished_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "retained_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": [
+        "invocations_legacy_workspace_delivery_idx",
+        "invocations_workspace_updated_idx",
+        "invocations_loop_execution_owner_idx",
+        "invocations_idempotency_idx",
+        "invocations_retention_idx",
+        "invocations_retry_idx",
+        "invocations_parent_idx",
+        "invocations_created_at_idx",
+        "invocations_session_updated_idx",
+        "invocations_claim_class_status_idx",
+        "invocations_session_status_idx",
+        "invocations_status_idx"
+      ]
+    },
+    {
+      "name": "lens_code_edges",
+      "columns": [
+        {
+          "name": "workspace_root",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "edge_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 2
+        },
+        {
+          "name": "revision_digest",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "from_path",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "to_path",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "from_symbol",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "to_symbol",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "kind",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "source",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "confidence",
+          "type": "REAL",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["lens_code_edges_to_idx", "lens_code_edges_from_idx"]
+    },
+    {
+      "name": "lens_code_files",
+      "columns": [
+        {
+          "name": "workspace_root",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "path",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 2
+        },
+        {
+          "name": "revision_digest",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "content_digest",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "lens_code_graph_meta",
+      "columns": [
+        {
+          "name": "workspace_root",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "revision_digest",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "lens_code_symbols",
+      "columns": [
+        {
+          "name": "workspace_root",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "symbol_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 2
+        },
+        {
+          "name": "revision_digest",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "path",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "name",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "kind",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "start_line",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "end_line",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "source",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "confidence",
+          "type": "REAL",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["lens_code_symbols_path_idx", "lens_code_symbols_search_idx"]
+    },
+    {
+      "name": "lens_observation_dispositions",
+      "columns": [
+        {
+          "name": "observation_ref",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "workspace_root",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "revision_digest",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "disposition",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "patch_proposal_ref",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["lens_observation_dispositions_revision_idx"]
+    },
+    {
+      "name": "lens_observations",
+      "columns": [
+        {
+          "name": "observation_ref",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "workspace_root",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "revision_digest",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "payload_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["lens_observations_revision_idx"]
+    },
+    {
+      "name": "lens_patch_proposals",
+      "columns": [
+        {
+          "name": "proposal_ref",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "workspace_root",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "base_revision_digest",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "payload_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["lens_patch_proposals_revision_idx"]
+    },
+    {
+      "name": "lens_provider_processes",
+      "columns": [
+        {
+          "name": "process_key",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "provider_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "worktree_root",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "project_root",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "config_digest",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "executable_digest",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "daemon_instance_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "process_marker",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "pid",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "started_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_heartbeat_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "exited_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["lens_provider_processes_status_idx"]
+    },
+    {
+      "name": "lens_provider_results",
+      "columns": [
+        {
+          "name": "provider_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "capability",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 2
+        },
+        {
+          "name": "revision_digest",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 3
+        },
+        {
+          "name": "result_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "produced_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["lens_provider_results_revision_idx"]
+    },
+    {
+      "name": "loop_goal_settlements",
+      "columns": [
+        {
+          "name": "loop_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "generation",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 2
+        },
+        {
+          "name": "goal_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "owner_session_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "cwd",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "receipt_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "attempt_count",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_error",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "applied_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["loop_goal_settlements_pending_idx"]
+    },
+    {
+      "name": "loop_hidden_sessions",
+      "columns": [
+        {
+          "name": "execution_session_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "loop_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "generation",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "invocation_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "session_path",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "archived_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "gc_after",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["loop_hidden_sessions_gc_idx"]
+    },
+    {
+      "name": "loop_wakeups",
+      "columns": [
+        {
+          "name": "loop_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "owner_session_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "binding_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "continuity",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "session_lifetime",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "driver_session_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "generation",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "cycle_step",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "policy_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "workflow_definition_digest",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "checkpoint_json",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "counters_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "due_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "attempt",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_invocation_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "reason",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "error",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "prompt",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "wake_prompt",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "route_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "domain_state_digest",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["loop_wakeups_owner_idx", "loop_wakeups_due_idx"]
+    },
+    {
+      "name": "outbox",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "kind",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "payload_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["outbox_status_idx"]
+    },
+    {
+      "name": "qqbot_gateway_cursors",
+      "columns": [
+        {
+          "name": "workspace_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "adapter_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 2
+        },
+        {
+          "name": "session_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_seq",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "runtime_command_receipts",
+      "columns": [
+        {
+          "name": "command_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "runtime_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "scope",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "workspace_binding_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "workspace_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "project_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "session_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "idempotency_key",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "request_message_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "payload_json",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "claim_token",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "lease_expires_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "kind",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "payload_hash",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "delivery_count",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "ack_json",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "terminal_message_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "terminal_json",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "terminal_acked_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "first_seen_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_seen_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "completed_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["runtime_command_receipts_terminal_idx"]
+    },
+    {
+      "name": "session_request_completion_deliveries",
+      "columns": [
+        {
+          "name": "source_invocation_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "attempt_count",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_error",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "claim_token",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "claim_expires_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "delivered_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["idx_session_request_completion_due"]
+    },
+    {
+      "name": "token_usage_receipts",
+      "columns": [
+        {
+          "name": "event_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "execution_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "invocation_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "response_ordinal",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "measurement",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "provider",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "model",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "provider_response_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "provider_total_tokens",
+          "type": "INTEGER",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "input_tokens",
+          "type": "INTEGER",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "output_tokens",
+          "type": "INTEGER",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "cache_read_tokens",
+          "type": "INTEGER",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "cache_write_tokens",
+          "type": "INTEGER",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "reasoning_tokens",
+          "type": "INTEGER",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "cost_usd",
+          "type": "REAL",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "observed_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "recorded_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": [
+        "token_usage_receipts_invocation_idx",
+        "token_usage_receipts_execution_ordinal_idx",
+        "token_usage_receipts_execution_idx"
+      ]
+    },
+    {
+      "name": "usage_execution_lifecycle_events",
+      "columns": [
+        {
+          "name": "event_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "execution_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "observed_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "recorded_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["usage_execution_lifecycle_idx"]
+    },
+    {
+      "name": "usage_executions",
+      "columns": [
+        {
+          "name": "execution_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "invocation_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "root_invocation_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "parent_execution_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "scope_kind",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "repro_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "kind",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "kind_provisional",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "detail_kind",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "persistence",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "session_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "run_ref",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "started_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": [
+        "usage_executions_repro_idx",
+        "usage_executions_root_idx",
+        "usage_executions_invocation_idx"
+      ]
+    },
+    {
+      "name": "workbench_action_receipts",
+      "columns": [
+        {
+          "name": "idempotency_key",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "request_digest",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "binding_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "result_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "workbench_artifact_bindings",
+      "columns": [
+        {
+          "name": "binding_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "owner_session_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "goal_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "workflow_run_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "loop_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "repro_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "artifact_ref",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "revision",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "artifact_hash",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "projection_digest",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "lifecycle",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "generation",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_stage",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "last_error",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "sealed_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["workbench_artifact_bindings_session_idx"]
+    },
+    {
+      "name": "workbench_checkpoints",
+      "columns": [
+        {
+          "name": "checkpoint_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 2
+        },
+        {
+          "name": "binding_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "kind",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "stage",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "artifact_ref",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "revision",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "artifact_hash",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "summary_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["workbench_checkpoints_binding_idx"]
+    },
+    {
+      "name": "workspace_administrator_provisioning",
+      "columns": [
+        {
+          "name": "workspace_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "state",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "error",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "retry_count",
+          "type": "INTEGER",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "workspace_administrator_sessions",
+      "columns": [
+        {
+          "name": "workspace_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "session_id",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": []
+    },
+    {
+      "name": "workspace_lifecycle",
+      "columns": [
+        {
+          "name": "workspace_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "state",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "merged_into_workspace_id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "previous_local_path",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "changed_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["workspace_lifecycle_merge_target_idx"]
+    },
+    {
+      "name": "workspaces",
+      "columns": [
+        {
+          "name": "id",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 1
+        },
+        {
+          "name": "server_url",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "local_workspace_key",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "display_name",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "local_path",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "status",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "capabilities_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "diagnostics_json",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "profile_source_kind",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "profile_ref",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "profile_commit",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "profile_imported_at",
+          "type": "TEXT",
+          "notNull": false,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "created_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        },
+        {
+          "name": "updated_at",
+          "type": "TEXT",
+          "notNull": true,
+          "primaryKeyPosition": 0
+        }
+      ],
+      "indexes": ["workspaces_status_idx"]
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import { SPARK_PROTOCOL_VERSION, sparkTurnSubmitResultSchema } from "@zendev-lab/spark-protocol";
+import { SPARK_MINIMUM_COMPATIBLE_DAEMON_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/version";
 import type { DaemonChannelIngressStatus } from "../channels/ingress.ts";
 import type {
   SparkDaemonDrainPauseState,
@@ -138,7 +139,8 @@ export function parseSparkDaemonLifecycleSnapshot(value: unknown): SparkDaemonLi
     processIdentity.instanceId.length > 0 &&
     typeof processIdentity.generation === "string" &&
     processIdentity.generation.length > 0 &&
-    processIdentity.protocolVersion === SPARK_PROTOCOL_VERSION &&
+    (processIdentity.protocolVersion === SPARK_PROTOCOL_VERSION ||
+      processIdentity.protocolVersion === SPARK_MINIMUM_COMPATIBLE_DAEMON_PROTOCOL_VERSION) &&
     typeof processIdentity.startedAt === "string";
   if (value.process !== undefined && !validProcessIdentity) {
     throw new Error("Invalid local RPC daemon process identity.");

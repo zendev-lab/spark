@@ -138,9 +138,9 @@ jobs:
           --tui-tarball "dist/release/spark-tui-${RELEASE_TAG}.tgz"
           --hub-tarball "dist/release/spark-hub-${RELEASE_TAG}.tgz"
 
-      - name: Verify declared N-1 migration policy
+      - name: Verify adjacent product and database compatibility
         run: >-
-          node scripts/test-release-migration.mjs
+          node scripts/test-release-compatibility.mjs
           --tarball "dist/release/spark-${RELEASE_TAG}.tgz"
           --cli-tarball "dist/release/spark-cli-${RELEASE_TAG}.tgz"
           --daemon-tarball "dist/release/spark-daemon-${RELEASE_TAG}.tgz"
@@ -206,6 +206,9 @@ jobs:
             dist/release/*.tgz
             dist/release/*-release-manifest.json
             dist/release/release-manifest.json
+            dist/release/adjacent-product-compatibility.json
+            dist/release/adjacent-database-compatibility.json
+            dist/release/release-compatibility.json
             dist/release/SHA256SUMS
 
       - name: Publish the exact daemon artifact to npm

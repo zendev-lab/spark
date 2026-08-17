@@ -1686,7 +1686,7 @@ async function clientInvocation(
   return await clientCancelTurn({ invocationId, reason: command.reason }, client);
 }
 
-async function clientSubmit(
+export async function clientSubmit(
   input: SparkDaemonTurnSubmitInput,
   client: SparkDaemonClientOptions,
   options: { signal?: AbortSignal } = {},

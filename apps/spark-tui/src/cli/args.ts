@@ -32,6 +32,14 @@ export interface SparkCliRuntimeOptions {
 export type SparkCliCommand =
   | { kind: "help" }
   | { kind: "run"; prompt: string; json: boolean; options?: SparkCliRuntimeOptions }
+  | {
+      kind: "compat-product";
+      action: "first" | "resume";
+      json: true;
+      sessionId?: string;
+      invocationId?: string;
+      cursor?: number;
+    }
   | { kind: "tui"; initialMessage?: string; options?: SparkCliRuntimeOptions }
   | { kind: "error"; message: string };
 
@@ -95,6 +103,7 @@ export function parseSparkCliCommand(argv: string[]): SparkCliCommand {
     };
   }
   if (argv[0] === "run") return parseSparkRunCliCommand(argv.slice(1));
+  if (argv[0] === "__compat-product") return parseSparkCompatProductCommand(argv.slice(1));
 
   const parsed = parseSparkNativeOptions(argv);
   const options = compactRuntimeOptions(parsed.options);
@@ -103,6 +112,41 @@ export function parseSparkCliCommand(argv: string[]): SparkCliCommand {
     kind: "tui",
     ...(initialMessage ? { initialMessage } : {}),
     ...(options ? { options } : {}),
+  };
+}
+
+function parseSparkCompatProductCommand(argv: string[]): SparkCliCommand {
+  const action = argv[0];
+  if (action !== "first" && action !== "resume") {
+    return { kind: "error", message: "__compat-product requires first or resume" };
+  }
+  if (!argv.includes("--json")) {
+    return { kind: "error", message: "__compat-product requires --json" };
+  }
+  const readOption = (name: string) => {
+    const index = argv.indexOf(name);
+    return index >= 0 ? argv[index + 1] : undefined;
+  };
+  const sessionId = readOption("--session");
+  const invocationId = readOption("--invocation");
+  const cursorText = readOption("--cursor");
+  if (action === "first" && (!sessionId || !invocationId)) {
+    return { kind: "error", message: "first requires --session --invocation" };
+  }
+  if (action === "resume" && (!sessionId || !invocationId || cursorText === undefined)) {
+    return { kind: "error", message: "resume requires --session --invocation --cursor" };
+  }
+  const cursor = cursorText === undefined ? undefined : Number(cursorText);
+  if (cursor !== undefined && (!Number.isInteger(cursor) || cursor < 0)) {
+    return { kind: "error", message: "--cursor must be a non-negative integer" };
+  }
+  return {
+    kind: "compat-product",
+    action,
+    json: true,
+    ...(sessionId ? { sessionId } : {}),
+    ...(invocationId ? { invocationId } : {}),
+    ...(cursor !== undefined ? { cursor } : {}),
   };
 }
 

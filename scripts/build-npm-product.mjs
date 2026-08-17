@@ -41,7 +41,7 @@ async function run(command, args, options = {}) {
     return await execFileAsync(command, args, {
       cwd: root,
       env: process.env,
-      maxBuffer: 64 * 1024 * 1024,
+      maxBuffer: 256 * 1024 * 1024,
       ...options,
     });
   } catch (error) {
@@ -61,7 +61,9 @@ async function bundle(entry, output) {
     "--platform=node",
     "--format=esm",
     "--target=node26",
-    ...(output.endsWith("spark-headless-role-executor.js")
+    ...(["spark-headless-role-executor.js", "spark-tui-entry.js", "spark-tui-worker.js"].some(
+      (name) => output.endsWith(name),
+    )
       ? [`--banner:js=${esmRequireBanner}`]
       : []),
     `--outfile=${output}`,
@@ -123,9 +125,22 @@ async function writeProductManifest(distribution, dependencies) {
 
 async function latestMigrationName(distribution) {
   if (!distribution.migrationSource) return "none";
-  const names = (await readdir(resolve(distribution.directory, "dist/migrations")))
-    .filter((name) => name.endsWith(".sql"))
-    .sort();
+  const migrationDirectory = resolve(distribution.directory, "dist/migrations");
+  try {
+    const manifest = JSON.parse(
+      await readFile(
+        resolve(migrationDirectory, distribution.migrationManifestName ?? "manifest.json"),
+        "utf8",
+      ),
+    );
+    if (typeof manifest.currentSchemaHead !== "string" || !manifest.currentSchemaHead) {
+      throw new Error(`${distribution.id} migration manifest has no currentSchemaHead`);
+    }
+    return manifest.currentSchemaHead;
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  const names = (await readdir(migrationDirectory)).filter((name) => name.endsWith(".sql")).sort();
   return names.at(-1) ?? "none";
 }
 

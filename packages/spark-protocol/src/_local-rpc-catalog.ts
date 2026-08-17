@@ -128,7 +128,10 @@ import {
   sparkReproFormalEvidenceRecordResultSchema,
 } from "./repro-formal-evidence.ts";
 import { sparkSessionPromptHistorySchema, sparkSessionViewSchema } from "./protocol.ts";
-import { SPARK_PROTOCOL_VERSION } from "./version.ts";
+import {
+  SPARK_MINIMUM_COMPATIBLE_DAEMON_PROTOCOL_VERSION,
+  SPARK_PROTOCOL_VERSION,
+} from "./version.ts";
 import {
   workspaceDelegationExecuteRequestSchema,
   workspaceDelegationExecuteResultSchema,
@@ -757,6 +760,14 @@ export function isSparkLocalRpcOrpcErrorCode(value: unknown): value is SparkLoca
 
 export const sparkLocalRpcEmptyInputSchema = z.object({}).default({});
 
+const sparkLocalRpcProtocolAwareEmptyInputSchema = z
+  .object({ clientProtocolVersion: z.literal(SPARK_PROTOCOL_VERSION).optional() })
+  .default({});
+
+const sparkLocalRpcSessionSnapshotInputSchema = sparkSessionSnapshotRequestSchema.extend({
+  clientProtocolVersion: z.literal(SPARK_PROTOCOL_VERSION).optional(),
+});
+
 export const sparkLocalRpcDaemonLifecycleSchema = z.object({
   state: z.enum(["starting", "running", "draining", "stopping"]),
   phase: z
@@ -773,7 +784,10 @@ export const sparkLocalRpcDaemonLifecycleSchema = z.object({
       pid: z.number().int().positive(),
       instanceId: z.string().min(1),
       generation: z.string().min(1),
-      protocolVersion: z.literal(SPARK_PROTOCOL_VERSION),
+      protocolVersion: z.union([
+        z.literal(SPARK_MINIMUM_COMPATIBLE_DAEMON_PROTOCOL_VERSION),
+        z.literal(SPARK_PROTOCOL_VERSION),
+      ]),
       startedAt: isoDateTimeSchema,
       acceptedRestartId: z.string().min(1).optional(),
       predecessorInstanceId: z.string().min(1).optional(),
@@ -1383,9 +1397,18 @@ export const sparkLocalRpcToolExecutionResultSchema = z.object({
   isError: z.boolean().optional(),
 });
 
+const sparkLocalRpcCompatibleSessionViewSchema = z.lazy(() =>
+  z.union([
+    sparkSessionViewSchema,
+    sparkSessionViewSchema.extend({
+      version: z.literal(SPARK_MINIMUM_COMPATIBLE_DAEMON_PROTOCOL_VERSION),
+    }),
+  ]),
+);
+
 export const sparkLocalRpcProcedureSchemas = {
   "daemon.status": {
-    input: sparkLocalRpcEmptyInputSchema,
+    input: sparkLocalRpcProtocolAwareEmptyInputSchema,
     output: sparkLocalRpcDaemonStatusResultSchema,
   },
   "daemon.stop": {
@@ -1589,8 +1612,8 @@ export const sparkLocalRpcProcedureSchemas = {
   },
   "session.get": { input: sessionIdInputSchema, output: sparkSessionProjectionSchema },
   "session.snapshot": {
-    input: sparkSessionSnapshotRequestSchema,
-    output: z.lazy(() => sparkSessionViewSchema),
+    input: sparkLocalRpcSessionSnapshotInputSchema,
+    output: sparkLocalRpcCompatibleSessionViewSchema,
   },
   "session.prompt-history": {
     input: sparkSessionPromptHistoryRequestSchema,

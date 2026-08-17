@@ -1557,6 +1557,25 @@ test("parseSparkCliCommand parses native run and rejects removed Pi-compatible c
     prompt: "hello",
     json: true,
   });
+  assert.deepEqual(
+    parseSparkCliCommand([
+      "__compat-product",
+      "first",
+      "--session",
+      "sess_compat",
+      "--invocation",
+      "inv_compat",
+      "--json",
+    ]),
+    {
+      kind: "compat-product",
+      action: "first",
+      json: true,
+      sessionId: "sess_compat",
+      invocationId: "inv_compat",
+    },
+  );
+  assert.equal(parseSparkCliCommand(["__compat-product", "first", "--json"]).kind, "error");
   for (const legacy of [
     ["--print", "hello"],
     ["--mode", "rpc"],

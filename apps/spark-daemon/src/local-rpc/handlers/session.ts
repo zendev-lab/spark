@@ -9,6 +9,10 @@ import {
   type SparkSessionMailMessage,
   type SparkSessionSendRequest,
 } from "@zendev-lab/spark-protocol";
+import {
+  SPARK_MINIMUM_COMPATIBLE_DAEMON_PROTOCOL_VERSION,
+  SPARK_PROTOCOL_VERSION,
+} from "@zendev-lab/spark-protocol/version";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 import {
   executeSparkDaemonSessionControl,
@@ -97,13 +101,14 @@ export async function handleSessionRequest(
       return parseLocalRpcServiceOutput(request.method, executed.result.session);
     }
     case "session.snapshot": {
+      const { clientProtocolVersion, ...snapshotRequest } = request.params;
       const executed = await executeSparkDaemonSessionControl(
         sessionControlOptions(paths, db, options),
         {
           kind: "session.snapshot.request",
           scope: "any",
-          sessionId: request.params.sessionId,
-          payload: { ...request.params },
+          sessionId: snapshotRequest.sessionId,
+          payload: snapshotRequest,
         },
       );
       const snapshot = parseSparkSessionView(executed.result.snapshot);
@@ -165,7 +170,13 @@ export async function handleSessionRequest(
         loops,
         ...(work ? { work } : {}),
       });
-      return await projectSessionMailbox(options, withLoops);
+      const projected = await projectSessionMailbox(options, withLoops);
+      return clientProtocolVersion === SPARK_PROTOCOL_VERSION
+        ? projected
+        : {
+            ...projected,
+            version: SPARK_MINIMUM_COMPATIBLE_DAEMON_PROTOCOL_VERSION,
+          };
     }
     case "session.prompt-history": {
       const history = await readSparkDaemonSessionPromptHistory(

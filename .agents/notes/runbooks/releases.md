@@ -22,26 +22,17 @@ must match it exactly (`vX.Y.Z`).
 
 ## Release gate
 
-`.github/workflows/cd-publish.yml` assumes the source commit has already passed
-the ordinary CI checks and validates only release-specific surfaces: the docs
-deployment dry run, Hub container build/smoke, exact generated tarballs, and the
-declared N-1 migration policy. It does not rerun the repository
-source/unit/process or Hub browser suites owned by CI.
-
-For release compatibility, the gate queries the canonical npm registry, selects
-the newest published stable `@zendev-lab/spark` version strictly older than the
-candidate, and adapts to either the current `spark-hub`
-or legacy `spark-cockpit` command contract. An explicit `--baseline-version`
-remains available for local incident reproduction, but production publication
-does not pin a historical baseline. For the first split release, `v0.3.0`, the
-automatic selection resolved to the legacy all-in-one
-`@zendev-lab/spark@0.2.1`; the four new package identities had no independently
-published N-1 artifact. `pnpm run release:pack` builds once and writes:
-
-- `dist/release/*.tgz`
-- `dist/release/*-release-manifest.json`
-- `dist/release/release-manifest.json`
-- `dist/release/SHA256SUMS`
+`.github/workflows/cd-publish.yml` runs the release-specific docs deployment,
+Hub container, exact-tarball smoke, and the canonical adjacent product and
+database compatibility gate before artifacts are uploaded. The gate queries the
+canonical npm registry, selects the newest published stable `@zendev-lab/spark`
+version strictly older than the candidate that did not receive an N-1
+compatibility exemption, and validates structured product and database reports. A missing, duplicate, skipped, or failed phase and any
+unverifiable cleanup stop the release. The normative requirements are defined
+by [`release-compatibility.md`](../contracts/release-compatibility.md) and
+`architecture/release-compatibility.json`. `pnpm run release:pack` writes the
+exact tarballs and manifests; the compatibility reports are written under
+`dist/release/` and uploaded with those artifacts.
 
 ### One-time 0.4.0 compatibility exemption
 
@@ -56,8 +47,11 @@ Mixed old/new processes are unsupported. Before applying `0.4.0`, stop all
 `0.3.x` Hub, daemon, and TUI processes and capture a verified backup of their
 state. The release manifest deliberately declares no executable rollback range;
 returning to `0.3.x` requires stopping `0.4.0` and restoring the pre-cutover
-backup. The exemption must not be copied to `0.4.1` or any later release; remove
-its manifest entry on `main` when advancing beyond the published `0.4.0` line.
+backup. The exemption must not be copied to `0.4.1` or any later release. Keep its
+manifest entry as the historical exclusion ledger: `0.5.0` must skip the
+ineligible `0.4.0` baseline and run the complete product and database matrix
+against published `0.3.0`. Once `0.5.0` publishes, it becomes the ordinary
+baseline for the next governed release.
 
 The root manifest remains the managed updater contract; the bounded companion
 manifests bind each app package to the same version, Git SHA, npm integrity,
@@ -116,11 +110,14 @@ stop, backup, and restore procedure above.
 
 Keep the pre-1.0 rollout deliberately gated:
 
-1. Stop every `0.3.x` process and capture verified daemon and Hub state backups.
-2. Publish the reviewed `v0.4.0` five-package set and matching GitHub Release.
-3. Exercise managed install plus restore-based rollback on macOS.
+1. Treat published `v0.4.0` as an immutable hard-cut release, not an eligible
+   compatibility baseline.
+2. Build `v0.5.0` from the reviewed five-package set and run the exact-tarball
+   product, database, and migration matrix against published `v0.3.0`.
+3. Exercise managed install plus rollback on macOS; retain a pre-upgrade backup
+   even though the governed matrix also proves N-1 reopen/write behavior.
 4. Enable the `notify` launchd job by default; keep `auto` opt-in.
-5. Open `auto` only after three real same-minor upgrades and one failed-candidate
+5. Open `auto` only after three real governed upgrades and one failed-candidate
    rollback have preserved the daemon database, sessions, transcripts, Hub
    reconnection, and exact successor build identity.
 

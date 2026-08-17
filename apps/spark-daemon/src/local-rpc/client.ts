@@ -1,6 +1,7 @@
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import type { ChannelNotifyInput, ChannelsConfig } from "@zendev-lab/spark-channels";
 import {
+  parseSparkSessionView,
   type SparkLocalRpcOutput,
   type SparkSessionView,
   type SparkLoopListResult,
@@ -389,5 +390,5 @@ export async function requestSessionSnapshot(
   paths: SparkPaths,
   sessionId: string,
 ): Promise<SparkSessionView> {
-  return localRpcRequest(paths, "session.snapshot", { sessionId });
+  return parseSparkSessionView(await localRpcRequest(paths, "session.snapshot", { sessionId }));
 }

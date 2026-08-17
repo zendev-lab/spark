@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { chmod, copyFile, mkdir, readdir, rename, rm } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -7,6 +7,11 @@ import { build } from "esbuild";
 const hubDbEntry = realpathSync(fileURLToPath(import.meta.resolve("@zendev-lab/spark-hub-db")));
 const migrationsSource = join(dirname(hubDbEntry), "migrations");
 const migrationsDestination = fileURLToPath(new URL("../dist/migrations/", import.meta.url));
+const daemonMigrationSource = fileURLToPath(new URL("../src/store/migrations/", import.meta.url));
+const daemonManifestSource = join(daemonMigrationSource, "manifest.json");
+const daemonMigrationsDestination = fileURLToPath(
+  new URL("../dist/migrations/daemon/", import.meta.url),
+);
 
 const distCli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
 const temporaryCli = `${distCli}.${process.pid}.${Date.now()}.tmp`;
@@ -55,3 +60,23 @@ await Promise.all(
     rm(join(migrationsDestination, name), { recursive: true, force: true }),
   ),
 );
+const daemonManifest = JSON.parse(await readFile(daemonManifestSource, "utf8"));
+const daemonMigrationNames = ["manifest.json", daemonManifest.baseline.checksumPath];
+await mkdir(daemonMigrationsDestination, { recursive: true });
+await Promise.all(
+  daemonMigrationNames.map((name) =>
+    copyFile(join(daemonMigrationSource, name), join(daemonMigrationsDestination, name)),
+  ),
+);
+const staleDaemonMigrationNames = (await readdir(daemonMigrationsDestination)).filter(
+  (name) => !daemonMigrationNames.includes(name),
+);
+await Promise.all(
+  staleDaemonMigrationNames.map((name) =>
+    rm(join(daemonMigrationsDestination, name), { recursive: true, force: true }),
+  ),
+);
+await rm(fileURLToPath(new URL("../dist/daemon-migrations/", import.meta.url)), {
+  recursive: true,
+  force: true,
+});
