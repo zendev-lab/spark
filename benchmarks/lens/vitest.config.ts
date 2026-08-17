@@ -11,9 +11,17 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["benchmarks/lens/**/*.bench.ts"],
+    include: [
+      "benchmarks/lens/**/*.bench.ts",
+      "benchmarks/protocol/**/*.bench.ts",
+      "benchmarks/session/**/*.bench.ts",
+    ],
     benchmark: {
-      include: ["benchmarks/lens/**/*.bench.ts"],
+      include: [
+        "benchmarks/lens/**/*.bench.ts",
+        "benchmarks/protocol/**/*.bench.ts",
+        "benchmarks/session/**/*.bench.ts",
+      ],
     },
   },
 });
