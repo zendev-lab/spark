@@ -2568,7 +2568,7 @@ describe("Spark daemon local RPC", () => {
         idempotencyKey: "session.send:sess_origin:tool-1",
         body: "investigate",
         origin: { surface: "local", host: "session" },
-        notifyOnCompletion: true,
+        wake: true,
         source: "tool",
       };
       const send = async (id: string) =>

@@ -75,6 +75,18 @@ Session 运维元数据，不是 Evidence。
 
 父 Session 仍负责拆解、持久协调、验证重要结论和面向用户的综合。
 
+`session({ action: "send" })` 是单向投递。`kind=notification` 只持久化、不触发目标；
+`kind=request` 持久化并准入一次 invocation。目标忙碌时必须显式给出
+`onActive=queue` 或 `onActive=interrupt`。可选 `wake=true`（仅 request，默认
+`false`）会在目标结束后唤醒发送方。用
+`session({ action: "wait", invocationId })` 轮询持久 invocation。用
+`session({ action: "lookup", sessionId })` 查看有界 peer projection；lookup 不等待，
+也不是 Hub snapshot。
+
+`ask({ toSessionId })` 把结构化问题发给另一个 Session。被问 Session 用
+`ask({ action: "answer" })` 作答。发给 Session 的 ask 不会进入 Hub Inbox；发给 User
+的 ask 仍走 Inbox / TUI / channel。
+
 Workflow 子调用可以提供 `role` selector 或精确 `roleRef`，但不能同时提供。Spark
 会在审批前把 selector 解析为唯一的 Role ref 与 revision，并将该绑定写入审批与运行
 溯源。如果绑定无法解析或在子 Role 启动前发生变化，执行会 fail closed。

@@ -53,6 +53,7 @@ import {
 import {
   SparkDaemonInvocationRegistry,
   SparkDaemonHumanInteractionBroker,
+  renderSparkDaemonSessionAskDeliveryBody,
   legacySparkDaemonQueueRoot,
   type SparkDaemonDrainProgress,
   type SparkDaemonDrainWork,
@@ -62,6 +63,8 @@ import {
   type SparkInvocationSchedulerOptions,
 } from "./core/index.ts";
 import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
+import { admitSparkDaemonSessionSend } from "./local-rpc/handlers/session.ts";
+import type { LocalRpcDispatchContext } from "./local-rpc/handlers/context.ts";
 import { InvocationDeliveryPump } from "./core/invocation-delivery-pump.ts";
 import {
   ensureHumanAnswerEventEvidence,
@@ -299,6 +302,9 @@ async function createPreparedDaemonRuntime(
   let onAnswerEvidenceProjected: (
     event: Parameters<typeof ensureHumanAnswerEventEvidence>[1],
   ) => boolean | Promise<boolean> = () => false;
+  const sessionAskDelivery: {
+    ctx?: Pick<LocalRpcDispatchContext, "paths" | "db" | "options">;
+  } = {};
   const { humanInteractions, registerHumanRequestOutboxTarget } = await configureHumanInteractions({
     options,
     channelIngress,
@@ -309,6 +315,7 @@ async function createPreparedDaemonRuntime(
     flushHumanRequestOutbox,
     humanRequestOutboxTargets,
     onAnswerEvidenceProjected: (event) => onAnswerEvidenceProjected(event),
+    sessionAskDelivery,
   });
   const eventHub = createInvocationEventHub(options);
   const invocationStore = new SparkInvocationStore(options.db);
@@ -439,6 +446,16 @@ async function createPreparedDaemonRuntime(
         },
       })
     : null;
+  sessionAskDelivery.ctx = {
+    paths: options.paths,
+    db: options.db,
+    options: {
+      ...(options.sessionRegistry ? { sessionRegistry: options.sessionRegistry } : {}),
+      ...(sessionSupervisor ? { sessionSupervisor } : {}),
+      ...(options.modelControl ? { modelControl: options.modelControl } : {}),
+      mailStore,
+    },
+  };
   const executionAttemptStore = new ExecutionAttemptStore(options.db);
   const executionAttemptGeneration = executionAttemptStore.allocateDaemonGeneration();
   const scheduler = createDaemonScheduler({
@@ -1482,6 +1499,9 @@ async function configureHumanInteractions(input: {
   onAnswerEvidenceProjected: (
     event: Parameters<typeof ensureHumanAnswerEventEvidence>[1],
   ) => boolean | Promise<boolean>;
+  sessionAskDelivery: {
+    ctx?: Pick<LocalRpcDispatchContext, "paths" | "db" | "options">;
+  };
 }): Promise<{
   humanInteractions: SparkDaemonHumanInteractionBroker;
   registerHumanRequestOutboxTarget: (flush: () => void) => () => boolean;
@@ -1507,6 +1527,23 @@ async function configureHumanInteractions(input: {
     onAnswerEvent: projectAnswerEvent,
     onRequestOpened: (request) =>
       projectChannelAskRequest(channelIngress, request, channelDeliveryOutbox),
+    deliverSessionAsk: async (delivery) => {
+      const ctx = input.sessionAskDelivery.ctx;
+      if (!ctx) throw new Error("session ask delivery is not ready");
+      await admitSparkDaemonSessionSend(ctx, {
+        toSessionId: delivery.toSessionId,
+        fromSessionId: delivery.fromSessionId,
+        kind: "request",
+        intent: "ask.session",
+        payload: {},
+        idempotencyKey: `session.ask:${delivery.humanRequestId}`,
+        body: renderSparkDaemonSessionAskDeliveryBody(delivery),
+        origin: { surface: "local", host: "daemon" },
+        wake: false,
+        source: "tool",
+        ...(delivery.parentInvocationId ? { parentInvocationId: delivery.parentInvocationId } : {}),
+      });
+    },
   });
   return { humanInteractions, registerHumanRequestOutboxTarget };
 }

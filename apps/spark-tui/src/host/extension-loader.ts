@@ -5,9 +5,10 @@ import { resolve } from "node:path";
 import type { SparkHostAPI } from "@zendev-lab/spark-core";
 import { sparkMemoryDirectIntentReceiptSchema } from "@zendev-lab/spark-protocol";
 
-import sparkAskExtension from "@zendev-lab/spark-ask/extension";
+import sparkAskExtension, { type SparkAskDaemonRequest } from "@zendev-lab/spark-ask/extension";
 import sparkArtifactsExtension from "@zendev-lab/spark-artifacts/extension";
 import sparkCueExtension from "@zendev-lab/spark-cue/extension";
+import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import sparkFilesExtension from "@zendev-lab/spark-files/extension";
 import sparkFusionExtension from "@zendev-lab/spark-fusion/extension";
 import sparkMemoryExtension, {
@@ -70,7 +71,10 @@ const BUILTIN_EXTENSION_FACTORIES: readonly SparkBuiltinCapabilityFactory[] = [
   {
     name: "@zendev-lab/spark-ask",
     specifier: "@zendev-lab/spark-ask/extension",
-    factory: sparkAskExtension as SparkCapabilityFactory,
+    factory: (api) =>
+      sparkAskExtension(api, {
+        request: requestSparkDaemon as unknown as SparkAskDaemonRequest,
+      }),
   },
   {
     name: "@zendev-lab/spark-artifacts",

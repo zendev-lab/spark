@@ -99,9 +99,27 @@ export function matchesAutonomousAskInteractionRequestId(
   );
 }
 
-export const sparkDirectAnswerProvenanceSchema = z.enum(["direct_user", "system"]);
+export const sparkDirectAnswerProvenanceSchema = z.enum(["direct_user", "system", "session"]);
 
 export type SparkDirectAnswerProvenance = z.infer<typeof sparkDirectAnswerProvenanceSchema>;
+
+/** Who is authorized to settle a durable reply-wait. Missing rows default to user. */
+export const sparkHumanWaitRespondentSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("user") }).strict(),
+  z
+    .object({
+      kind: z.literal("session"),
+      sessionId: z.string().trim().min(1),
+    })
+    .strict(),
+]);
+
+export type SparkHumanWaitRespondent = z.infer<typeof sparkHumanWaitRespondentSchema>;
+
+export function parseSparkHumanWaitRespondent(value: unknown): SparkHumanWaitRespondent {
+  const parsed = sparkHumanWaitRespondentSchema.safeParse(value);
+  return parsed.success ? parsed.data : { kind: "user" };
+}
 
 /**
  * One accepted direct-user answer candidate. Cancellation, archive, empty

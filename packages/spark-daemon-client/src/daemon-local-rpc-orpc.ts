@@ -423,6 +423,11 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.get"].output,
       client.session.get(input, options),
     ),
+  "session.lookup": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.lookup"].output,
+      client.session.lookup(input, options),
+    ),
   "session.snapshot": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.snapshot"].output,
@@ -517,6 +522,7 @@ const sessionInvokers = {
   SparkDaemonOrpcProcedureInvokerMap,
   | "session.list"
   | "session.get"
+  | "session.lookup"
   | "session.snapshot"
   | "session.prompt-history"
   | "session.retry-target"

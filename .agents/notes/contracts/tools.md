@@ -14,8 +14,9 @@ over copied prose.
 - One stateful domain has one canonical action tool and one authoritative owner.
   Hosts may narrow a surface, but must not create aliases that become competing
   state or policy implementations.
-- `ask` is the only structured human-question surface; cancellation is not
-  approval.
+- `ask` is the only structured question surface; cancellation is not
+  approval. User-addressed asks remain Hub Inbox / TUI / channel. Session-addressed
+  asks use `toSessionId` and `ask({ action: "answer" })` and must not enter Inbox.
 - `task_read`, `task_write`, and `assign` operate on Task/Project work. Direct
   role/session calls do not create task attribution.
 - `todo` owns the session-bound standalone checklist. TODO state is independent
@@ -238,7 +239,7 @@ write paths expose revision, lease, or equivalent conflict validation.
 
 - `role` manages reusable definitions/model settings. A call instantiates an explicit-Role ephemeral Session, invokes it once, closes it, and retains only its receipt. It does not accept Session lifecycle, persistence, mail, or identity inputs.
 - `session` manages Owner-derived scoped lifecycle, role binding, calls, bindings, and mail. List/get expose Owner, lifetime, lifecycle, placement, Invocation activity, adapters, and external keys. The Workspace Administrator is provisioned separately and is protected from lifecycle mutation.
-- `send kind=request` asynchronously submits the exact body to an unarchived local session. Default `wait=accepted` returns after acceptance; when the target reaches a terminal status the daemon submits one completion-summary turn on the sender so it can synthesize immediately. `wait=completed` polls for a bounded terminal result without a second wake and without cancelling execution on wait timeout.
+- `send kind=request` asynchronously submits the exact body to an unarchived local session and returns a one-way admission receipt. Optional `wake=true` later wakes the sender with a completion summary; the default is `wake=false`. `session({ action: "wait", invocationId })` polls for a bounded terminal result without cancelling execution on wait timeout. `session({ action: "lookup", sessionId })` returns a bounded peer projection and must not wait or alias `get`.
 
 Both call paths share `SessionRuntime.instantiate -> invoke -> close`; only lifetime and continuity differ. Full policy is in [`sessions-and-channels.md`](./sessions-and-channels.md).
 

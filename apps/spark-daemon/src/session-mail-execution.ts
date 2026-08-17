@@ -63,7 +63,7 @@ export async function submitSessionMailTurn(
               correlationId: message.correlationId,
               fromSessionId: message.fromSessionId,
               toSessionId: message.toSessionId,
-              notifyOnCompletion: params.notifyOnCompletion,
+              wake: params.wake,
               ...(Object.keys(params.payload).length > 0 ? { requestPayload: params.payload } : {}),
               ...(params.parentInvocationId
                 ? { parentInvocationId: params.parentInvocationId }

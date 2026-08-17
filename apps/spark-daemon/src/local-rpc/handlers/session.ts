@@ -1,7 +1,9 @@
 import {
+  parseSparkSessionPeerProjection,
   parseSparkSessionProjection,
   parseSparkSessionView,
   projectSparkSessionState,
+  SPARK_SESSION_PEER_INVOCATION_SUMMARY_MAX_BYTES,
   sparkSessionInboxResultSchema,
   sparkSessionMailMutationResultSchema,
   sparkSessionSendResultSchema,
@@ -18,7 +20,7 @@ import {
 import { SparkLoopStore } from "../../store/loops.ts";
 import { WorkbenchArtifactBindingStore } from "../../store/workbench-artifact-bindings.ts";
 import { SparkTokenUsageStore } from "../../store/token-usage.ts";
-import { SparkInvocationStore } from "../../store/invocations.ts";
+import { type SparkInvocationRecord, SparkInvocationStore } from "../../store/invocations.ts";
 import {
   MAX_PENDING_SESSION_REQUEST_QUEUE,
   submitSessionMailTurn,
@@ -44,6 +46,7 @@ type SessionRequest = Extract<
       | "session.notification.deliver"
       | "session.list"
       | "session.get"
+      | "session.lookup"
       | "session.snapshot"
       | "session.prompt-history"
       | "session.retry-target"
@@ -99,6 +102,55 @@ export async function handleSessionRequest(
         },
       );
       return parseLocalRpcServiceOutput(request.method, executed.result.session);
+    }
+    case "session.lookup": {
+      const sessionId = request.params.sessionId;
+      const executed = await executeSparkDaemonSessionControl(
+        sessionControlOptions(paths, db, options),
+        {
+          kind: "session.get.request",
+          scope: "any",
+          sessionId,
+          payload: { sessionId },
+        },
+      );
+      const session = parseSparkSessionProjection(executed.result.session);
+      const invocations = new SparkInvocationStore(db);
+      const activity = invocations.sessionActivity(sessionId).activity;
+      const latest = invocations.listPage({ sessionId, limit: 1 }).invocations[0];
+      const pending = options.humanWaits?.findPendingAskForRespondentSession(sessionId);
+      const summary = latest ? peerInvocationSummary(latest) : undefined;
+      return parseLocalRpcServiceOutput(
+        request.method,
+        parseSparkSessionPeerProjection({
+          sessionId: session.sessionId,
+          lifecycle: session.lifecycle,
+          placement: session.placement,
+          activity,
+          ...(latest
+            ? {
+                latestInvocation: {
+                  invocationId: latest.invocationId,
+                  status: latest.status,
+                  createdAt: latest.createdAt,
+                  updatedAt: latest.updatedAt,
+                  ...(latest.finishedAt ? { finishedAt: latest.finishedAt } : {}),
+                  ...(summary ? { summary } : {}),
+                },
+              }
+            : {}),
+          ...(pending
+            ? {
+                pendingAsk: {
+                  humanRequestId: pending.humanRequestId,
+                  fromSessionId: pending.sessionId,
+                  title: pending.title,
+                  status: "pending" as const,
+                },
+              }
+            : {}),
+        }),
+      );
     }
     case "session.snapshot": {
       const executed = await executeSparkDaemonSessionControl(
@@ -262,7 +314,7 @@ export async function handleSessionRequest(
       return parseLocalRpcServiceOutput(request.method, executed.result.session);
     }
     case "session.send": {
-      const result = await sendSessionMail(ctx, request.params);
+      const result = await admitSparkDaemonSessionSend(ctx, request.params);
       return result;
     }
     case "session.inbox": {
@@ -336,7 +388,10 @@ export async function handleSessionRequest(
   }
 }
 
-async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessionSendRequest) {
+export async function admitSparkDaemonSessionSend(
+  ctx: Pick<LocalRpcDispatchContext, "paths" | "db" | "options">,
+  params: SparkSessionSendRequest,
+) {
   const { paths, db, options } = ctx;
   const mailStore = options.mailStore;
   if (!mailStore?.send || !mailStore.recordRequestAdmission) {
@@ -443,7 +498,7 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
     ...(params.kind === "request"
       ? {
           requestExecution: {
-            notifyOnCompletion: params.notifyOnCompletion,
+            notifyOnCompletion: params.wake,
             parentInvocationId: params.parentInvocationId ?? null,
             origin: params.origin,
           },
@@ -558,6 +613,23 @@ function acceptedAdmission(message: SparkSessionMailMessage) {
     status: "queued",
     acceptedAt: admission.acceptedAt,
   });
+}
+
+function peerInvocationSummary(record: SparkInvocationRecord): string | undefined {
+  if (
+    record.status !== "succeeded" &&
+    record.status !== "failed" &&
+    record.status !== "cancelled"
+  ) {
+    return undefined;
+  }
+  const result = record.result;
+  if (!result || typeof result !== "object" || Array.isArray(result)) return undefined;
+  const text = (result as { assistantText?: unknown }).assistantText;
+  if (typeof text !== "string" || text.length === 0) return undefined;
+  return text.length <= SPARK_SESSION_PEER_INVOCATION_SUMMARY_MAX_BYTES
+    ? text
+    : text.slice(0, SPARK_SESSION_PEER_INVOCATION_SUMMARY_MAX_BYTES);
 }
 
 async function requireSessionMail(

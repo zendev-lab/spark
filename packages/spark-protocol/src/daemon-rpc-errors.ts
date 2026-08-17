@@ -110,6 +110,7 @@ export const sparkTaskClaimRpcErrorCodeOptions = [
 export const sparkHumanRpcErrorCodeOptions = [
   "human_interaction_not_found",
   "human_interaction_ambiguous",
+  "human_interaction_forbidden",
   "human_wait_registry_unavailable",
   "human_interaction_responder_unavailable",
 ] as const;

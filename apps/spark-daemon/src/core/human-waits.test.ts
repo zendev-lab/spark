@@ -708,4 +708,77 @@ describe("SparkDaemonHumanWaitRegistry", () => {
       db.close();
     }
   });
+
+  it("defaults respondent to user and looks up pending session asks by respondent", () => {
+    const { db, waits } = createHarness();
+    try {
+      expect(waits.register(waitInput("hreq-user")).wait.respondent).toEqual({ kind: "user" });
+      waits.register({
+        ...waitInput("hreq-session-older", "async"),
+        humanRequestId: "hreq-session-older",
+        sessionId: "sess_asker",
+        respondent: { kind: "session", sessionId: "sess_target" },
+      });
+      waits.register({
+        ...waitInput("hreq-session-newer", "async"),
+        humanRequestId: "hreq-session-newer",
+        sessionId: "sess_asker",
+        respondent: { kind: "session", sessionId: "sess_target" },
+      });
+      waits.register({
+        ...waitInput("hreq-other-session", "async"),
+        humanRequestId: "hreq-other-session",
+        respondent: { kind: "session", sessionId: "sess_other" },
+      });
+
+      expect(waits.findPendingAskForRespondentSession("sess_target")?.humanRequestId).toBe(
+        "hreq-session-older",
+      );
+      expect(
+        waits.requireUniquePendingInteraction({ humanRequestId: "hreq-session-newer" })
+          .humanRequestId,
+      ).toBe("hreq-session-newer");
+      expect(waits.findPendingAskForRespondentSession("sess_missing")).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rejects a session-addressed wait that binds an EvidenceRequest", () => {
+    const { db, waits } = createHarness();
+    try {
+      const evidenceRequest = {
+        schema: "spark.evidence-request/v1" as const,
+        askRef: `ask:${"d".repeat(64)}`,
+        ownerSessionId: "session-1",
+        goalOrReproId: "repro:session",
+        modeScope: "repro" as const,
+        planRevision: 1,
+        ownerStepOrUnresolvedId: "step:decision",
+        stepDefinitionDigest: "decision-digest",
+        requestHash: "d".repeat(64),
+        ownerQuestionId: "decision",
+        expectedAnswerKind: "single" as const,
+      };
+      expect(() =>
+        waits.register({
+          ...waitInput("hreq-session-evidence"),
+          interactionRequestId: `ask_async:${evidenceRequest.requestHash}`,
+          questions: [
+            {
+              id: "decision",
+              type: "single",
+              prompt: "Decide?",
+              required: true,
+              options: [{ value: "yes", label: "Yes" }],
+            },
+          ],
+          evidenceRequest,
+          respondent: { kind: "session", sessionId: "sess_target" },
+        }),
+      ).toThrow(/cannot bind an EvidenceRequest/u);
+    } finally {
+      db.close();
+    }
+  });
 });

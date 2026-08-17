@@ -85,6 +85,7 @@ describe("SparkCommand vocabulary", () => {
       "workspace.transfer.respond",
       "session.list",
       "session.get",
+      "session.lookup",
       "session.snapshot",
       "session.prompt-history",
       "session.retry-target",
@@ -141,6 +142,7 @@ describe("SparkCommand vocabulary", () => {
     );
     expect(sparkCommandKindForRuntimeServerCommand("workspace.relocate.request")).toBeNull();
     expect(sparkCommandKindForLocalRpcMethod("session.create")).toBe("session.create.request");
+    expect(sparkCommandKindForLocalRpcMethod("session.lookup")).toBe("session.lookup.request");
     expect(sparkCommandKindForLocalRpcMethod("session.snapshot")).toBe("session.snapshot.request");
     expect(sparkCommandKindForLocalRpcMethod("session.prompt-history")).toBe(
       "session.snapshot.request",

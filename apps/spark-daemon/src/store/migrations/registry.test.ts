@@ -17,6 +17,7 @@ describe("daemon migration registry", () => {
       expect.arrayContaining([
         "execution-attempts.schema",
         "human-waits.answer-event-mailbox",
+        "human-waits.respondent-user",
         "invocations.workspace-projection-index",
         "migration.driver-to-loop-v1",
         "migration.retire-daemon-error-outbox-v1",
@@ -67,6 +68,46 @@ describe("daemon migration registry", () => {
           )
           .get(),
       ).toEqual({ name: "daemon_human_waits_evidence_interaction_idx" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("backfills missing human wait respondent to user", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`
+        CREATE TABLE daemon_human_waits (
+          human_request_id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          status TEXT NOT NULL,
+          request_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO daemon_human_waits (
+          human_request_id, kind, status, request_json, created_at, updated_at
+        ) VALUES (
+          'hreq-legacy',
+          'ask_user',
+          'pending',
+          '{"humanRequestId":"hreq-legacy","title":"Choose","prompt":"Continue?"}',
+          '2026-08-01T00:00:00.000Z',
+          '2026-08-01T00:00:00.000Z'
+        );
+      `);
+      const mailbox = daemonMigrations.filter((migration) => migration.owner === "human-waits");
+      runDaemonMigrations(db, mailbox);
+      runDaemonMigrations(db, mailbox);
+      expect(
+        db
+          .prepare(
+            `SELECT json_extract(request_json, '$.respondent.kind') AS kind
+             FROM daemon_human_waits
+             WHERE human_request_id = 'hreq-legacy'`,
+          )
+          .get(),
+      ).toEqual({ kind: "user" });
     } finally {
       db.close();
     }

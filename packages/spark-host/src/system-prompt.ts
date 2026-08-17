@@ -51,8 +51,8 @@ export const SPARK_CHANNEL_ALLOWED_TOOLS = ["session", "ask", "context", "todo"]
 export const SPARK_CHANNEL_SESSION_EXECUTION_PROMPT = [
   "Message-platform sessions expose only a bounded safe tool surface: session, ask, context, and todo.",
   "Shell execution, file access, file mutation, role execution, assignment, workflow, model configuration, task/run control, evidence/artifact/memory/learning writes, and external network tools are unavailable.",
-  'Use ask for context-specific clarification, decisions, approvals, or unblock questions; use delivery="blocking" when the current turn cannot continue without an answer and delivery="async" when the request should enter the Inbox.',
-  'Use session({ action: "list", scope: "workspace" }) to inspect same-workspace persistent targets; use session({ action: "send", kind: "request", toSessionId, intent, message }) to queue work on a local surface=local target.',
+  'Use ask for context-specific clarification, decisions, approvals, or unblock questions; use delivery="blocking" when the current turn cannot continue without an answer and delivery="async" when a User ask should enter the Inbox. Address another Session with toSessionId; that Session answers with ask({ action: "answer" }).',
+  'Use session({ action: "list" }) to inspect same-workspace targets, session({ action: "lookup", sessionId }) for a bounded peer projection, session({ action: "send", kind: "request", toSessionId, message }) to send one-way work to a local target (idle-only unless onActive=queue or interrupt), and session({ action: "wait", invocationId }) to poll that invocation.',
   "Use todo for the current session checklist and context for bounded registered context.",
   "The session target must belong to this workspace. Do not use session create/call/bind/unbind/archive, and do not target another channel session.",
 ].join(" ");

@@ -83,27 +83,37 @@ export const sparkSessionMailMessageSchema = z.object({
   requestExecution: sparkSessionMailRequestExecutionSchema.optional(),
 });
 
-export const sparkSessionSendRequestSchema = z.object({
-  toSessionId: z.string().trim().min(1),
-  fromSessionId: z.string().trim().min(1),
-  kind: sparkSessionMailKindSchema,
-  intent: z.string().trim().min(1),
-  payload: sparkProtocolJsonObjectSchema.default({}),
-  correlationId: z.string().trim().min(1).optional(),
-  idempotencyKey: z.string().trim().min(1),
-  subject: z.string().nullable().optional(),
-  body: z.string(),
-  originBinding: sparkSessionMailOriginBindingSchema.optional(),
-  origin: z.object({
-    surface: z.enum(["local", "channel"]),
-    host: z.enum(["tui", "web", "channel", "daemon", "session"]),
-  }),
-  parentInvocationId: z.string().trim().min(1).optional(),
-  /** Explicit behavior when the target session is active; omission fails closed. */
-  onActive: z.enum(["queue", "interrupt"]).optional(),
-  notifyOnCompletion: z.boolean().default(false),
-  source: z.enum(["cli", "tui", "tool"]).default("tool"),
-});
+export const sparkSessionSendRequestSchema = z
+  .object({
+    toSessionId: z.string().trim().min(1),
+    fromSessionId: z.string().trim().min(1),
+    kind: sparkSessionMailKindSchema,
+    intent: z.string().trim().min(1),
+    payload: sparkProtocolJsonObjectSchema.default({}),
+    correlationId: z.string().trim().min(1).optional(),
+    idempotencyKey: z.string().trim().min(1),
+    subject: z.string().nullable().optional(),
+    body: z.string(),
+    originBinding: sparkSessionMailOriginBindingSchema.optional(),
+    origin: z.object({
+      surface: z.enum(["local", "channel"]),
+      host: z.enum(["tui", "web", "channel", "daemon", "session"]),
+    }),
+    parentInvocationId: z.string().trim().min(1).optional(),
+    /** Explicit behavior when the target session is active; omission fails closed. */
+    onActive: z.enum(["queue", "interrupt"]).optional(),
+    wake: z.boolean().optional(),
+    /** Compatibility input only; canonical output is `wake`. */
+    notifyOnCompletion: z.boolean().optional(),
+    source: z.enum(["cli", "tui", "tool"]).default("tool"),
+  })
+  .transform((request) => {
+    const { notifyOnCompletion, wake, ...rest } = request;
+    return {
+      ...rest,
+      wake: wake ?? notifyOnCompletion ?? false,
+    };
+  });
 
 export const sparkSessionSendResultSchema = z
   .object({

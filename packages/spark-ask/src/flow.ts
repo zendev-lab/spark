@@ -473,6 +473,7 @@ function createSparkAskFlowInteractionRequest(
     metadata: { tool: "ask_flow" },
     delivery: request.delivery ?? "blocking",
     ...(request.evidenceRequest ? { evidenceRequest: request.evidenceRequest } : {}),
+    ...(request.toSessionId ? { toSessionId: request.toSessionId } : {}),
     ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
     mode: request.mode ?? "clarification",
     ...(request.flow ? { flow: request.flow } : {}),
