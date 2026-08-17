@@ -135,6 +135,7 @@ describe("Repro A2UI Workbench projection", () => {
         evidenceRequired: ["formal evidence"],
         authority: {
           safeLocal: "auto" as const,
+          boundedExternalWrites: "driver" as const,
           externalWrites: "ask" as const,
           destructiveActions: "ask" as const,
           scopeExpansion: "ask" as const,

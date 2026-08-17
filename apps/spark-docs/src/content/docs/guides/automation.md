@@ -24,6 +24,25 @@ start work or create a fifth automation mode.
 | Reproduce a model or system with evidence at each milestone | Repro | `/repro start Reproduce model X in framework Y` |
 | Execute a saved, staged procedure | Workflow | `/workflow run builtin:research Compare the two designs` |
 
+## Authority while a driver is active
+
+Starting a Goal, Loop, or Repro gives that driver bounded authority for its
+confirmed objective, Workspace, repository, and writable targets. While it is
+active, the driver may perform `manual_only` operations without asking again.
+Those operations must be low-risk and reversible; creating, updating, and
+synchronizing a Draft PR are examples.
+
+This does not authorize `required` operations. Destructive, irreversible,
+security-sensitive, costly, high-impact, or materially scope-expanding actions
+always need human approval, as do release, deployment, merge, and promotion of
+a Draft PR to Ready. When the driver stops, completes, or is replaced,
+that driver's authority expires. Later continuation uses manual approval
+behavior when no driver is active.
+
+A WorkflowRun is an execution mechanism, not a continuation driver. It inherits
+the approval context of the driver that started it only while that authority
+remains active, and grants or retains no authority by itself.
+
 ## Goal
 
 A goal keeps working toward one durable outcome and stops when it completes,
@@ -72,8 +91,8 @@ verified candidates to Formalize. Resolutions flow backward to retire temporary
 work. An Exactness mismatch records the first bad boundary, classification,
 confidence, and disposition; skipping a check requires both isolation and a
 resynchronization point. Repro pauses instead of guessing when a baseline,
-authority decision, or approval is missing. Use `/inspect repro` to inspect the
-bounded daemon projection in the TUI.
+material authority decision, or `required` approval is missing. Use
+`/inspect repro` to inspect the bounded daemon projection in the TUI.
 
 ```text
 /repro start <objective>

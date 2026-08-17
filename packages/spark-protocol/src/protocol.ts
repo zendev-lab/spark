@@ -586,7 +586,7 @@ export const sparkSessionReproCurrentStepViewSchema = z.object({
   stage: z.enum(["contract", "reference", "target", "alignment", "delivery"]),
   goal: z.string().min(1),
   status: z.enum(["pending", "in_progress", "done", "blocked", "cancelled"]),
-  authority: z.enum(["safe_local", "ask_decision", "ask_approval"]),
+  authority: z.enum(["safe_local", "driver_local", "ask_decision", "ask_approval"]),
   doneWhen: z.array(z.string().min(1)),
   evidenceRequired: z.array(z.string().min(1)),
   blocker: z.string().min(1).optional(),

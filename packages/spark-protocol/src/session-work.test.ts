@@ -59,7 +59,7 @@ describe("SparkSessionView work projection", () => {
               stage: "target",
               goal: "Reach 20-step parity",
               status: "blocked",
-              authority: "safe_local",
+              authority: "driver_local",
               doneWhen: ["20 steps pass"],
               evidenceRequired: ["Alignment result"],
               blocker: "GPU unavailable",
@@ -102,6 +102,7 @@ describe("SparkSessionView work projection", () => {
     expect(parsed.work?.repro?.plan.currentStep).toMatchObject({
       id: "bitwise-pass-20",
       status: "blocked",
+      authority: "driver_local",
     });
     expect(parsed.work?.repro?.latestVerification?.evidenceRefs).toEqual(["evidence:baseline"]);
     expect(parsed.work?.goal).toMatchObject({

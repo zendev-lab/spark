@@ -72,7 +72,10 @@ import { recordCanonicalAnswerEventEvidenceReceipt } from "@zendev-lab/spark-ask
 import piAskExtension from "@zendev-lab/spark-ask/extension";
 import sparkExtension from "../extension/index.ts";
 import { SparkWorkflowRunManagerController } from "../extension/spark-workflow-run-manager.ts";
-import { registerSparkReproTool } from "../extension/spark-repro-tool-registration.ts";
+import {
+  registerSparkReproTool,
+  renderReproTickInstruction,
+} from "../extension/spark-repro-tool-registration.ts";
 import { materializeReproStagePlan } from "../extension/spark-repro-project.ts";
 import { REPRO_STAGE_BLUEPRINTS } from "../extension/spark-repro-stage-blueprints.ts";
 import { collectReproOrchestrationSnapshot } from "../extension/spark-repro-orchestration.ts";
@@ -172,6 +175,7 @@ import {
   createReproStepAskBinding,
   createSparkSessionRepro,
   encodeReproStepAskBinding,
+  nextReproStep,
   reproStepPlanRevision,
   stepDefinitionDigest,
   updateReproStep,
@@ -8502,6 +8506,93 @@ test("repro approval Steps require a current bound approving Ask receipt", async
   }
 });
 
+test("repro driver-local Steps complete from bound evidence without canonical Ask", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-step-driver-local-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, { action: "start" });
+    const initial = await readSessionRepro(dir, ctx);
+    if (!initial) throw new Error("missing active repro");
+    const stepId = nextReproStep(initial)?.id;
+    if (!stepId) throw new Error("missing seeded repro step");
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "plan",
+      reason: "Exercise bounded Repro driver authority",
+      steps: initial.plan.steps.map((step) => ({
+        id: step.id,
+        stage: step.stage,
+        goal: step.goal,
+        doneWhen: step.doneWhen,
+        evidenceRequired: step.evidenceRequired,
+        authority: step.id === stepId ? "driver_local" : step.authority,
+        ...(step.dependsOn ? { dependsOn: step.dependsOn } : {}),
+      })),
+    });
+    const repro = await readSessionRepro(dir, ctx);
+    const step = repro?.plan.steps.find((candidate) => candidate.id === stepId);
+    if (!repro || !step) throw new Error("missing driver-local step");
+    const instruction = renderReproTickInstruction(repro);
+    assert.match(instruction, /active Repro driver owns this explicitly bounded low-risk action/u);
+    assert.doesNotMatch(instruction, /context="spark\.repro\.step-ask/u);
+
+    const ordinaryEvidence = await defaultEvidenceStore(dir).put({
+      kind: "record",
+      title: "Ordinary driver output",
+      format: "text",
+      body: "Draft PR URL and pushed commit ref without a bound verifier proof",
+      provenance: { producer: "spark" },
+    });
+    const unbound = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [ordinaryEvidence.ref],
+    });
+    assert.equal(unbound.isError, true);
+    assert.match(toolText(unbound), /driver_local Step requires.*step-proof/u);
+
+    const proof = await defaultEvidenceStore(dir).put({
+      kind: "record",
+      title: "Bound driver-local Step proof",
+      format: "json",
+      body: {
+        schema: "spark.repro.step-proof/v1",
+        planRevision: reproStepPlanRevision(repro, step.id),
+        stepId: step.id,
+        definitionDigest: stepDefinitionDigest(step),
+        proofKind: "evidence",
+        doneWhen: step.doneWhen,
+        passed: true,
+      },
+      provenance: { producer: "spark" },
+    });
+    const completed = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [proof.ref],
+    });
+    assert.match(toolText(completed), /updated to done/u);
+    assert.deepEqual(
+      (await readSessionRepro(dir, ctx))?.plan.steps.find((candidate) => candidate.id === stepId)
+        ?.verification,
+      {
+        verdict: "Pass",
+        planRevision: reproStepPlanRevision(repro, step.id),
+        stepId,
+        definitionDigest: stepDefinitionDigest(step),
+        proofKind: "evidence",
+        evidenceRefs: [proof.ref],
+        verifiedDoneWhen: step.doneWhen,
+      },
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
 test("repro approval Step accepts only current direct-user AnswerEvent Evidence", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-step-answer-event-"));
   try {
@@ -14201,6 +14292,16 @@ test("repro stage blueprints materialize a complete dependency-valid task graph"
       blueprintTasks.every((task) => task.executionPolicy.maxAttempts === 2),
       true,
     );
+    for (const draftMutationTaskId of [
+      "create-initial-draft-pr-approved",
+      "sync-reproduce-report-and-draft-pr",
+      "sync-scale-report-and-draft-pr",
+    ]) {
+      assert.equal(taskById.get(draftMutationTaskId)?.authority, "driver_local");
+      assert.equal(taskById.get(draftMutationTaskId)?.kind, "implement");
+      assert.equal(taskById.get(draftMutationTaskId)?.roleRef, "role:builtin-executor");
+    }
+    assert.equal(taskById.get("mark-prs-ready-approved")?.authority, "ask_approval");
 
     const graph = await defaultTaskGraphStore(dir).load();
     assert.ok(graph);
@@ -14406,6 +14507,41 @@ test("repro orchestration excludes ask authority tasks from the dispatchable fro
     const snapshot = collectReproOrchestrationSnapshot(withAskAuthority, graph);
     assert.equal(snapshot.dispatchableTaskRefs.includes(askTaskRef), false);
     assert.equal(snapshot.excludedAskTaskRefs.includes(askTaskRef), true);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro orchestration keeps driver-local authority owner-only without awaiting Ask", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-frontier-driver-local-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "driver-local-exclusion");
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, { action: "start" });
+    const repro = await readSessionRepro(dir, ctx);
+    assert.ok(repro?.projectRef);
+    const safeSubgoal = repro.subgoals.find(
+      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRef,
+    );
+    assert.ok(safeSubgoal?.taskRef);
+    const driverLocalTaskRef = safeSubgoal.taskRef;
+    const withDriverLocalAuthority = {
+      ...repro,
+      subgoals: repro.subgoals.map((subgoal) =>
+        subgoal.ref === safeSubgoal.ref
+          ? { ...subgoal, authority: "driver_local" as const }
+          : subgoal,
+      ),
+    };
+    const graph = await defaultTaskGraphStore(dir).load();
+    assert.ok(graph);
+
+    const snapshot = collectReproOrchestrationSnapshot(withDriverLocalAuthority, graph);
+    assert.equal(snapshot.dispatchableTaskRefs.includes(driverLocalTaskRef), false);
+    assert.equal(snapshot.driverLocalTaskRefs.includes(driverLocalTaskRef), true);
+    assert.equal(snapshot.excludedAskTaskRefs.includes(driverLocalTaskRef), false);
+    assert.equal(snapshot.awaitingAsk, false);
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }

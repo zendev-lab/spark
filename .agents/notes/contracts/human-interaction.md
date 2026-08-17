@@ -71,6 +71,17 @@ Whether an answer “counts” (option selected or non-empty custom text) is def
 
 Cross-session agent-to-agent traffic is **messages** (session inspector tab), not Inbox. Inbox is only agent→user human asks.
 
+## Driver-aware approvals
+
+Approval classes are owned by [`tools.md`](./tools.md). In a manual
+continuation, a `manual_only` operation creates a human approval request. While
+a Goal, Loop, or Repro driver is active, its bounded authority resolves that
+class without creating a human wait. A `required` operation still creates a
+durable human request bound to the exact action, and the driver continues
+independent work when possible. A WorkflowRun inherits the continuation driver
+that started it only while that driver's authority remains active, and never
+creates or retains authority by itself.
+
 ## Autonomous Goal/Repro evidence requests
 
 The autonomous contract is owned by

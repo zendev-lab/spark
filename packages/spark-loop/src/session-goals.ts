@@ -15,6 +15,7 @@ export type SparkSessionGoalSource = "explicit" | "inferred" | "agent" | "review
 export type SparkGoalContractStatus = "draft" | "frozen";
 export interface SparkGoalAuthority {
   safeLocal: "auto";
+  boundedExternalWrites: "driver";
   externalWrites: "ask";
   destructiveActions: "ask";
   scopeExpansion: "ask";
@@ -371,7 +372,9 @@ function createGoalContract(input: {
       supplied?.evidenceRequired ??
         input.existing?.evidenceRequired ?? ["trusted reviewer receipt"],
     ),
-    authority: supplied?.authority ?? input.existing?.authority ?? defaultGoalAuthority(),
+    authority: normalizeGoalAuthorityForWrite(
+      supplied?.authority ?? input.existing?.authority ?? defaultGoalAuthority(),
+    ),
     evidenceRefs: [
       ...(supplied?.evidenceRefs ?? (changed ? [] : input.existing?.evidenceRefs) ?? []),
     ],
@@ -454,9 +457,19 @@ function normalizeStoredGoalContract(
 function defaultGoalAuthority(): SparkGoalAuthority {
   return {
     safeLocal: "auto",
+    boundedExternalWrites: "driver",
     externalWrites: "ask",
     destructiveActions: "ask",
     scopeExpansion: "ask",
+  };
+}
+
+function normalizeGoalAuthorityForWrite(
+  value: SparkGoalAuthority | Omit<SparkGoalAuthority, "boundedExternalWrites">,
+): SparkGoalAuthority {
+  return {
+    ...value,
+    boundedExternalWrites: "driver",
   };
 }
 
@@ -465,6 +478,7 @@ function normalizeStoredGoalAuthority(value: unknown, filePath: string): SparkGo
   if (
     !isRecord(value) ||
     value.safeLocal !== "auto" ||
+    (value.boundedExternalWrites !== undefined && value.boundedExternalWrites !== "driver") ||
     value.externalWrites !== "ask" ||
     value.destructiveActions !== "ask" ||
     value.scopeExpansion !== "ask"

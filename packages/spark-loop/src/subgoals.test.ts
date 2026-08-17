@@ -71,6 +71,21 @@ describe("createSubgoal", () => {
     expect(current).not.toHaveProperty("roleRef");
     expect(current).not.toHaveProperty("delegation");
   });
+
+  it("accepts driver-local authority without making it an Ask authority", () => {
+    const current = subgoal("driver_local");
+    const result = verifySubgoalCompletion(current, {
+      planRevision: current.planRevision,
+      definitionDigest: subgoalDefinitionDigest(current),
+      evidenceRefs: [proofRef],
+    });
+
+    expect(result).toMatchObject({
+      verdict: "Pass",
+      evidenceRefs: [proofRef],
+    });
+    expect(result).not.toHaveProperty("canonicalAskEvidenceRef");
+  });
 });
 
 describe("verifySubgoalCompletion", () => {

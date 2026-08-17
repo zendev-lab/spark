@@ -1102,6 +1102,11 @@ describe("daemon native session execution", () => {
     expect(executeSession).toHaveBeenCalledWith(
       expect.objectContaining({
         prompt: "continue",
+        approvalMethod: "human",
+        loop: expect.objectContaining({
+          loopId: "repro-123",
+          binding: { reproId: "repro-123" },
+        }),
       }),
     );
     expect(JSON.stringify(executeSession.mock.calls[0])).not.toContain("model-reproduction");

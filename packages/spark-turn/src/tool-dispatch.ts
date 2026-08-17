@@ -5,6 +5,7 @@ import {
   resolveToolPolicy,
   resolveToolPolicyForArgs,
   type ResolvedToolPolicy,
+  type SparkHostContext,
   type ToolConfig,
 } from "@zendev-lab/spark-core";
 import type { AssistantMessage, Tool, ToolCall, ToolResultMessage } from "@zendev-lab/spark-ai";
@@ -198,8 +199,18 @@ export function resolvedRegisteredToolPolicy(
 export function toolRequiresApproval(
   tool: SparkTurnRegisteredTool,
   args?: Readonly<Record<string, unknown>>,
+  context?: Pick<SparkHostContext, "loop">,
 ): boolean {
-  return resolvedRegisteredToolPolicy(tool, args).approval === "required";
+  const approval = resolvedRegisteredToolPolicy(tool, args).approval;
+  if (approval === "required") return true;
+  if (approval === "manual_only") return !hasActiveDriverAuthority(context?.loop);
+  return false;
+}
+
+function hasActiveDriverAuthority(loop: SparkHostContext["loop"]): boolean {
+  if (!loop) return false;
+  const { goalId, reproId, workflowRunId } = loop.binding;
+  return Boolean(goalId || reproId || !workflowRunId);
 }
 
 export function legacyApprovalPolicyRequiresApproval(config: ToolConfig): boolean {
@@ -230,7 +241,7 @@ export function normalizeApprovalMethod(
   value: SparkToolApprovalMethod | undefined,
 ): SparkToolApprovalMethod {
   if (value === "skip" || value === "human" || value === "auto") return value;
-  return "auto";
+  return "human";
 }
 
 export function normalizeApprovalRejectAction(

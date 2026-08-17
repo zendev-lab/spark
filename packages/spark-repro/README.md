@@ -98,9 +98,12 @@ step for every configured stage, use unique stable ids, and have an acyclic
 dependency graph. Difficulty is an integer from 1 to 10 and enforces adaptive
 minimum plan sizes of 4, 6, 8, 11, or 13 steps; the fixed five-stage coverage
 requirement still applies. A step cannot start before its dependencies finish
-or become `done` without a passing typed StepVerifier result. Safe-local steps require
-structured proof bound to the current definition and `doneWhen`; decision and approval
-steps additionally require a current canonical Ask receipt bound to the exact Step.
+or become `done` without a passing typed StepVerifier result. `safe_local`
+steps are worker-dispatchable and require structured proof bound to the current
+definition and `doneWhen`. `driver_local` steps use the same evidence proof but
+remain owner/driver-only and are never dispatched to workers. `ask_decision`
+and `ask_approval` steps additionally require a current canonical Ask receipt
+bound to the exact Step.
 
 Setup is research-first and separates three requirement kinds:
 

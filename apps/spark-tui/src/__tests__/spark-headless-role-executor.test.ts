@@ -75,7 +75,7 @@ test("runSparkHeadlessSession retains the control root for nested daemon-native 
     sessionMode: undefined,
     hasUI: false,
     streamTimeoutMs: 0,
-    approvalMethod: "auto",
+    approvalMethod: "human",
   });
 });
 
@@ -431,7 +431,7 @@ test("runSparkHeadlessSession times out a never-resolving agent turn", async () 
   });
   assert.deepEqual(capturedServiceOptions?.allowedTools, ["session"]);
   assert.equal(capturedServiceOptions?.sparkStateRoot, undefined);
-  assert.equal(capturedServiceOptions?.approvalMethod, "auto");
+  assert.equal(capturedServiceOptions?.approvalMethod, "human");
   assert.equal(capturedServiceOptions?.streamTimeoutMs, 0);
   assert.equal(capturedServiceOptions?.toolTimeoutMs, undefined);
   assert.equal(capturedServiceOptions?.interactionTimeoutMs, undefined);
