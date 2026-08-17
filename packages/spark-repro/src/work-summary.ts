@@ -2617,15 +2617,12 @@ function normalizeRetirementBlocks(
     : (() => {
         const count = input ?? 0;
         assertNonNegativeInteger(count, "retirementBlocks");
-        return Array.from(
-          { length: count },
-          (_, index): SparkReproRetirementBlock => ({
-            id: `unspecified:${index + 1}`,
-            kind: "decision",
-            ownerStepId: "unknown",
-            reason: "A required Normative retirement remains blocked",
-          }),
-        );
+        return Array.from({ length: count }, (_, index): SparkReproRetirementBlock => ({
+          id: `unspecified:${index + 1}`,
+          kind: "decision",
+          ownerStepId: "unknown",
+          reason: "A required Normative retirement remains blocked",
+        }));
       })();
   const ids = new Set(blocks.map((block) => block.id));
   for (const decision of decisions) {

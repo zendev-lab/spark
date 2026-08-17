@@ -249,27 +249,25 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
         ...current,
         version: 1,
         currentPhase: "research",
-        stages: current.stages.map(
-          (stage): LegacyReproStageFixture => ({
-            name: stage.name,
-            title: stage.title,
-            phases: stage.name === "contract" ? ["research", "plan"] : stage.phases,
-            acceptance: stage.acceptance.map((requirement) => ({
-              description: requirement.description,
-              phase: requirement.phase,
-              satisfied: false,
-            })),
-            ...(stage.gate
-              ? {
-                  gate: {
-                    id: stage.gate.id,
-                    description: stage.gate.description,
-                    passed: true,
-                  },
-                }
-              : {}),
-          }),
-        ),
+        stages: current.stages.map((stage): LegacyReproStageFixture => ({
+          name: stage.name,
+          title: stage.title,
+          phases: stage.name === "contract" ? ["research", "plan"] : stage.phases,
+          acceptance: stage.acceptance.map((requirement) => ({
+            description: requirement.description,
+            phase: requirement.phase,
+            satisfied: false,
+          })),
+          ...(stage.gate
+            ? {
+                gate: {
+                  id: stage.gate.id,
+                  description: stage.gate.description,
+                  passed: true,
+                },
+              }
+            : {}),
+        })),
       };
       const negativeValues = JSON.parse(
         await readFile(

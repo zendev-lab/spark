@@ -279,17 +279,15 @@ function renderModels(input: {
 }
 
 function renderTable(entries: ModelEntry[], includeAuthColumn: boolean): string {
-  const rows = entries.map(
-    (entry): ModelDisplayRow => ({
-      provider: entry.provider,
-      model: entry.id,
-      context: formatTokenCount(entry.contextWindow),
-      maxOut: formatTokenCount(entry.maxTokens),
-      thinking: entry.thinking ? "yes" : "no",
-      images: entry.images ? "yes" : "no",
-      ...(includeAuthColumn ? { auth: entry.available ? "yes" : "no" } : {}),
-    }),
-  );
+  const rows = entries.map((entry): ModelDisplayRow => ({
+    provider: entry.provider,
+    model: entry.id,
+    context: formatTokenCount(entry.contextWindow),
+    maxOut: formatTokenCount(entry.maxTokens),
+    thinking: entry.thinking ? "yes" : "no",
+    images: entry.images ? "yes" : "no",
+    ...(includeAuthColumn ? { auth: entry.available ? "yes" : "no" } : {}),
+  }));
   const columns = includeAuthColumn
     ? (["provider", "model", "context", "maxOut", "thinking", "images", "auth"] as const)
     : (["provider", "model", "context", "maxOut", "thinking", "images"] as const);
