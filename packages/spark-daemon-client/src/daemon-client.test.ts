@@ -96,6 +96,42 @@ describe("protocol-aware Spark daemon client", () => {
     );
   });
 
+  it("normalizes an adjacent daemon session snapshot after wire validation", async () => {
+    const invoke = vi.fn().mockResolvedValueOnce({
+      version: 1,
+      sessionId: "sess_adjacent",
+      title: "Workspace Coordinator",
+      cwd: "/tmp/adjacent",
+      status: "idle",
+      pendingTurns: [],
+      messages: [],
+      tools: [],
+      runs: [],
+      loops: [],
+      tasks: [],
+      artifacts: [],
+      evidence: [],
+      mailbox: [],
+      createdAt: "2026-08-12T00:00:00.000Z",
+      updatedAt: "2026-08-12T00:00:00.000Z",
+      metadata: { registryStatus: "ready" },
+    });
+    transportMocks.createOrpc.mockResolvedValueOnce(connectedHandle(invoke));
+
+    await expect(
+      requestSparkDaemon("session.snapshot", { sessionId: "sess_adjacent" }),
+    ).resolves.toMatchObject({
+      version: 2,
+      sessionId: "sess_adjacent",
+      metadata: { registryStatus: "ready", sourceProtocolVersion: 1 },
+    });
+    expect(invoke).toHaveBeenCalledWith(
+      "session.snapshot",
+      { sessionId: "sess_adjacent", clientProtocolVersion: 2 },
+      { signal: expect.any(AbortSignal) },
+    );
+  });
+
   it("diagnoses malformed legacy output as a protocol mismatch without another request", async () => {
     transportMocks.createOrpc.mockRejectedValueOnce(new Error("ENOENT"));
     transportMocks.requestLegacy.mockResolvedValueOnce({

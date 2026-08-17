@@ -544,7 +544,8 @@ export function migrateWorkbenchCheckpointKey(db: DatabaseSync): void {
     .sort((left, right) => left.pk - right.pk)
     .map((column) => column.name);
   if (primaryKey.join(",") === "binding_id,checkpoint_id") return;
-  db.exec("BEGIN IMMEDIATE");
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec("BEGIN IMMEDIATE");
   try {
     db.exec(`
       ALTER TABLE workbench_checkpoints RENAME TO workbench_checkpoints_legacy_key;
@@ -571,9 +572,9 @@ export function migrateWorkbenchCheckpointKey(db: DatabaseSync): void {
       CREATE INDEX IF NOT EXISTS workbench_checkpoints_binding_idx
         ON workbench_checkpoints(binding_id, created_at);
     `);
-    db.exec("COMMIT");
+    if (ownsTransaction) db.exec("COMMIT");
   } catch (error) {
-    if (db.isTransaction) db.exec("ROLLBACK");
+    if (ownsTransaction && db.isTransaction) db.exec("ROLLBACK");
     throw error;
   }
 }
@@ -775,7 +776,8 @@ export function migrateChannelDeliverySchema(db: DatabaseSync): void {
   const columns = workspaceColumns(db, "channel_deliveries");
   const dispatchedAt = columns.has("dispatched_at") ? "dispatched_at" : "NULL";
 
-  db.exec("BEGIN IMMEDIATE");
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec("BEGIN IMMEDIATE");
   try {
     db.exec(`
       DROP INDEX IF EXISTS channel_deliveries_due_idx;
@@ -821,9 +823,9 @@ export function migrateChannelDeliverySchema(db: DatabaseSync): void {
           SELECT RAISE(ABORT, 'channel delivery idempotency_key is immutable');
         END;
     `);
-    db.exec("COMMIT");
+    if (ownsTransaction) db.exec("COMMIT");
   } catch (error) {
-    db.exec("ROLLBACK");
+    if (ownsTransaction && db.isTransaction) db.exec("ROLLBACK");
     throw error;
   }
 }
@@ -832,7 +834,8 @@ export function migrateChannelDeliverySchema(db: DatabaseSync): void {
 export function migrateLegacyDriverTables(db: DatabaseSync): void {
   if (!tableExists(db, "driver_wakeups")) return;
   const now = new Date().toISOString();
-  db.exec("BEGIN IMMEDIATE");
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec("BEGIN IMMEDIATE");
   try {
     const legacyColumns = workspaceColumns(db, "driver_wakeups");
     if (!legacyColumns.has("wake_prompt")) {
@@ -927,9 +930,9 @@ export function migrateLegacyDriverTables(db: DatabaseSync): void {
        VALUES ('migration.driver-to-loop-v1', 'complete', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
     ).run(now);
-    db.exec("COMMIT");
+    if (ownsTransaction) db.exec("COMMIT");
   } catch (error) {
-    db.exec("ROLLBACK");
+    if (ownsTransaction && db.isTransaction) db.exec("ROLLBACK");
     throw error;
   }
 }
@@ -946,7 +949,8 @@ export function migrateLegacyDriverTables(db: DatabaseSync): void {
 export function retireLegacyDaemonErrorOutbox(db: DatabaseSync): void {
   const migrationKey = "migration.retire-daemon-error-outbox-v1";
   const now = new Date().toISOString();
-  db.exec("BEGIN IMMEDIATE");
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec("BEGIN IMMEDIATE");
   try {
     db.prepare("DELETE FROM outbox WHERE kind = 'daemon.error'").run();
     db.prepare(
@@ -956,9 +960,9 @@ export function retireLegacyDaemonErrorOutbox(db: DatabaseSync): void {
          value = excluded.value,
          updated_at = excluded.updated_at`,
     ).run(migrationKey, now);
-    db.exec("COMMIT");
+    if (ownsTransaction) db.exec("COMMIT");
   } catch (error) {
-    db.exec("ROLLBACK");
+    if (ownsTransaction && db.isTransaction) db.exec("ROLLBACK");
     throw error;
   }
 }

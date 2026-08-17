@@ -250,6 +250,64 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
         execution: { backend: "in_process", rootConcurrency: 65, questionOverflow: 1 },
       }),
     ).toThrow();
+    const adjacentLifecycle = {
+      state: "running" as const,
+      process: {
+        pid: 42,
+        instanceId: "instance-n-minus-one",
+        generation: "generation-n-minus-one",
+        protocolVersion: 1,
+        startedAt: "2026-08-12T00:00:00.000Z",
+      },
+    };
+    expect(schema.parse({ ...legacyStatus, lifecycle: adjacentLifecycle }).lifecycle).toEqual(
+      adjacentLifecycle,
+    );
+    expect(() =>
+      schema.parse({
+        ...legacyStatus,
+        lifecycle: {
+          ...adjacentLifecycle,
+          process: { ...adjacentLifecycle.process, protocolVersion: 0 },
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("accepts the adjacent daemon session snapshot on the local RPC wire", () => {
+    expect(
+      sparkLocalRpcProcedureSchemas["daemon.status"].input.parse({
+        clientProtocolVersion: 2,
+      }),
+    ).toEqual({ clientProtocolVersion: 2 });
+    expect(
+      sparkLocalRpcProcedureSchemas["session.snapshot"].input.parse({
+        sessionId: "sess_adjacent",
+        clientProtocolVersion: 2,
+      }),
+    ).toMatchObject({ sessionId: "sess_adjacent", clientProtocolVersion: 2 });
+    const parsed = sparkLocalRpcProcedureSchemas["session.snapshot"].output.parse({
+      version: 1,
+      sessionId: "sess_adjacent",
+      title: "Workspace Coordinator",
+      cwd: "/tmp/adjacent",
+      status: "idle",
+      pendingTurns: [],
+      messages: [],
+      tools: [],
+      runs: [],
+      loops: [],
+      tasks: [],
+      artifacts: [],
+      evidence: [],
+      mailbox: [],
+      createdAt: "2026-08-12T00:00:00.000Z",
+      updatedAt: "2026-08-12T00:00:00.000Z",
+      metadata: { registryStatus: "ready" },
+    });
+
+    expect(parsed.version).toBe(1);
+    expect(parsed.metadata).toMatchObject({ registryStatus: "ready" });
   });
 
   it("parses session-bound workspace client procedures through their oRPC schemas", () => {

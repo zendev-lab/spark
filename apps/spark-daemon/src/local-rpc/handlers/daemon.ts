@@ -1,3 +1,7 @@
+import {
+  SPARK_MINIMUM_COMPATIBLE_DAEMON_PROTOCOL_VERSION,
+  SPARK_PROTOCOL_VERSION,
+} from "@zendev-lab/spark-protocol/version";
 import { SparkInvocationStore } from "../../store/invocations.ts";
 import { SparkChannelDeliveryStore } from "../../store/channel-deliveries.ts";
 import { sparkDaemonServerStatusSummaries } from "../../store/workspaces.js";
@@ -19,6 +23,19 @@ export async function handleDaemonRequest(
     case "daemon.status": {
       const store = new SparkInvocationStore(db);
       const oldestActive = store.oldestActive();
+      const lifecycle = options.getLifecycle?.() ?? { state: "running" as const };
+      const compatibleLifecycle = lifecycle.process
+        ? {
+            ...lifecycle,
+            process: {
+              ...lifecycle.process,
+              protocolVersion:
+                request.params.clientProtocolVersion === SPARK_PROTOCOL_VERSION
+                  ? SPARK_PROTOCOL_VERSION
+                  : SPARK_MINIMUM_COMPATIBLE_DAEMON_PROTOCOL_VERSION,
+            },
+          }
+        : lifecycle;
       return {
         servers: sparkDaemonServerStatusSummaries(db),
         invocations: store.counts(),
@@ -28,7 +45,7 @@ export async function handleDaemonRequest(
         },
         ...(options.getExecutionStatus ? { execution: options.getExecutionStatus() } : {}),
         channelDeliveries: new SparkChannelDeliveryStore(db).summary(),
-        lifecycle: options.getLifecycle?.() ?? { state: "running" },
+        lifecycle: compatibleLifecycle,
         ...(options.getBuildFingerprint ? { buildFingerprint: options.getBuildFingerprint() } : {}),
         observedAt: new Date().toISOString(),
       };

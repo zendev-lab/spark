@@ -1,4 +1,5 @@
 export * from "./commands.ts";
+export * from "./database-compatibility-probe.ts";
 export * from "./environment.ts";
 export * from "./paths.ts";
 export * from "./permissions.ts";
@@ -6,3 +7,4 @@ export * from "./resource-paths.ts";
 export * from "./socket-message-port.ts";
 export * from "./sqlite.ts";
 export * from "./strings.ts";
+export * from "./sqlite-migration-manifest.ts";

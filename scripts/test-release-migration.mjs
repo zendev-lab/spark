@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { access, chmod, mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs, promisify } from "node:util";
 
@@ -185,13 +185,27 @@ export async function runMixedVersionIpcMatrix(
 
     let failure;
     let daemonIdentity;
+    let foregroundChild;
     let restoreSocket = async () => {};
     try {
-      assertRunning(
-        await runSpark(owner, ["daemon", "start", "--json"], { env }),
-        `${id} owner did not start`,
-      );
-      daemonIdentity = await captureDaemonIdentity(paths, processControl);
+      if (dependencies.runSpark) {
+        assertRunning(
+          await runSpark(owner, ["daemon", "start", "--json"], { env }),
+          `${id} owner did not start`,
+        );
+        daemonIdentity = await captureDaemonIdentity(paths, processControl);
+      } else {
+        const foreground = await startForegroundDaemon(
+          join(dirname(owner), "spark-daemon"),
+          root,
+          env,
+          paths,
+          processControl,
+          id,
+        );
+        foregroundChild = foreground.child;
+        daemonIdentity = foreground.identity;
+      }
       if (!(await exists(paths.legacy))) {
         throw new Error(`${id}: daemon.sock is required`);
       }
@@ -215,6 +229,9 @@ export async function runMixedVersionIpcMatrix(
       daemonIdentity ??= await captureDaemonIdentityIfPresent(paths, processControl);
       if (daemonIdentity) {
         await stopDaemon([owner, client], paths, env, runSpark, id, daemonIdentity, processControl);
+        if (foregroundChild && foregroundChild.exitCode === null) {
+          await waitForOwnedProcessExit(daemonIdentity, processControl);
+        }
       } else {
         await assertNoRuntimeArtifacts(paths, id);
       }
@@ -388,6 +405,54 @@ async function hideSocket(path) {
       await rename(hiddenPath, path);
     }
   };
+}
+
+async function startForegroundDaemon(bin, cwd, env, paths, processControl, label) {
+  await access(bin);
+  const child = spawn(bin, ["__service-start"], {
+    cwd,
+    env,
+    detached: process.platform !== "win32",
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  if (!child.pid) throw new Error(`${label}: foreground daemon has no PID`);
+  let stderr = "";
+  child.stderr?.on("data", (chunk) => {
+    stderr = `${stderr}${String(chunk)}`.slice(-16_384);
+  });
+  const startToken = await processControl.readStartToken(child.pid);
+  if (!startToken) throw new Error(`${label}: foreground daemon start token is unavailable`);
+  const spawnedIdentity = { pid: child.pid, startToken };
+  try {
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null) {
+        throw new Error(
+          `${label}: foreground daemon exited ${child.exitCode}${stderr.trim() ? `: ${stderr.trim()}` : ""}`,
+        );
+      }
+      if ((await exists(paths.pid)) && (await exists(paths.legacy))) {
+        const identity = await captureDaemonIdentity(paths, processControl);
+        if (identity.pid !== child.pid || identity.startToken !== startToken) {
+          throw new Error(`${label}: foreground daemon pidfile identity does not match its child`);
+        }
+        return { child, identity };
+      }
+      await processControl.sleep(100);
+    }
+    throw new Error(
+      `${label}: foreground daemon did not become ready within 60 seconds${stderr.trim() ? `: ${stderr.trim()}` : ""}`,
+    );
+  } catch (error) {
+    try {
+      await terminateOwnedDaemon(spawnedIdentity, processControl);
+    } catch (cleanupError) {
+      const unsafe = new AggregateError([error, cleanupError], `${label} startup cleanup failed`);
+      unsafe.migrationCleanupUnsafe = true;
+      throw unsafe;
+    }
+    throw error;
+  }
 }
 
 async function stopDaemon(sparks, paths, env, runSpark, label, daemonIdentity, processControl) {

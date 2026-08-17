@@ -214,6 +214,20 @@ describe("Spark daemon local RPC", () => {
   it("parses drain progress strictly without inventing malformed status", () => {
     expect(
       parseSparkDaemonLifecycleSnapshot({
+        state: "running",
+        phase: "serving",
+        process: {
+          pid: 42,
+          instanceId: "instance-adjacent",
+          generation: "generation-adjacent",
+          protocolVersion: 1,
+          startedAt: "2026-07-17T00:00:00.000Z",
+        },
+      }).process?.protocolVersion,
+    ).toBe(2);
+
+    expect(
+      parseSparkDaemonLifecycleSnapshot({
         state: "draining",
         phase: "draining-channel-ingress",
         drain: {

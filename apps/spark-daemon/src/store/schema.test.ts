@@ -3,6 +3,50 @@ import { describe, expect, it } from "vitest";
 import { LOOP_EXECUTION_SESSION_IDS_QUERY } from "./invocations.js";
 import { migrateSparkDaemonDatabase } from "./schema.js";
 
+describe("daemon migration compatibility manifest", () => {
+  it("records only the honest legacy-inline-v0 baseline and reopens idempotently", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      migrateSparkDaemonDatabase(db);
+      migrateSparkDaemonDatabase(db);
+      expect(
+        db.prepare("SELECT value FROM daemon_meta WHERE key = 'schema.compatibility.head'").get(),
+      ).toEqual({ value: "legacy-inline-v0" });
+      expect(
+        db.prepare("SELECT value FROM daemon_meta WHERE key = 'schema.compatibility.state'").get(),
+      ).toEqual({ value: "legacy-unverified" });
+      expect(
+        db
+          .prepare("SELECT value FROM daemon_meta WHERE key = 'schema.compatibility.baseline'")
+          .get(),
+      ).toEqual({ value: "legacy-inline-v0" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it.each([
+    ["unknown or future head", "schema.compatibility.head", "future-0001", /unknown or future/u],
+    [
+      "modified baseline checksum",
+      "schema.compatibility.baseline_checksum",
+      "f".repeat(64),
+      /checksum mismatch/u,
+    ],
+    ["dirty marker", "schema.compatibility.state", "dirty", /not clean/u],
+    ["failed marker", "schema.compatibility.state", "failed", /not clean/u],
+  ])("rejects %s", (_name, key, value, error) => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      migrateSparkDaemonDatabase(db);
+      db.prepare("UPDATE daemon_meta SET value = ? WHERE key = ?").run(value, key);
+      expect(() => migrateSparkDaemonDatabase(db)).toThrow(error);
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe("migrateSparkDaemonDatabase", () => {
   it("creates durable Workbench bindings, typed checkpoints, and action receipts", () => {
     const db = new DatabaseSync(":memory:");

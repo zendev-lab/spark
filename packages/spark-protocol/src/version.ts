@@ -10,6 +10,9 @@ import { runtimeProtocolVersion } from "./runtime-v1/envelope.ts";
 /** Numeric schema version for view-model / daemon event payloads. */
 export const SPARK_PROTOCOL_VERSION = 2 as const;
 
+/** Oldest daemon status protocol accepted during the one-release compatibility bridge. */
+export const SPARK_MINIMUM_COMPATIBLE_DAEMON_PROTOCOL_VERSION = 1 as const;
+
 /** Runtime WebSocket control-plane protocol identifier. */
 export const SPARK_RUNTIME_PROTOCOL_VERSION = runtimeProtocolVersion;
 

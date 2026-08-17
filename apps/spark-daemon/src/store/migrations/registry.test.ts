@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
@@ -178,6 +178,20 @@ describe("daemon migration registry", () => {
         platform: "node",
         target: "node26",
       });
+      await mkdir(join(outputDirectory, "migrations"), { recursive: true });
+      await cp(
+        join(daemonRoot, "src/store/migrations/manifest.json"),
+        join(outputDirectory, "migrations/manifest.json"),
+      );
+      await cp(
+        join(daemonRoot, "src/store/migrations/legacy-inline-v0.schema.json"),
+        join(outputDirectory, "migrations/legacy-inline-v0.schema.json"),
+      );
+      const previousManifest = process.env.SPARK_DAEMON_MIGRATION_MANIFEST;
+      process.env.SPARK_DAEMON_MIGRATION_MANIFEST = join(
+        outputDirectory,
+        "migrations/manifest.json",
+      );
       const packaged = (await import(`${pathToFileURL(outputPath).href}?test=${Date.now()}`)) as {
         migrateSparkDaemonDatabase(db: DatabaseSync): void;
       };
@@ -207,6 +221,8 @@ describe("daemon migration registry", () => {
         ).toEqual({ present: 1 });
       } finally {
         db.close();
+        if (previousManifest === undefined) delete process.env.SPARK_DAEMON_MIGRATION_MANIFEST;
+        else process.env.SPARK_DAEMON_MIGRATION_MANIFEST = previousManifest;
       }
     } finally {
       await rm(outputDirectory, { recursive: true });

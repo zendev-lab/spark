@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 2,
+  "owner": "daemon",
+  "databaseId": "spark-daemon-sqlite",
+  "currentSchemaHead": "legacy-inline-v0",
+  "minimumReadableHead": "legacy-inline-v0",
+  "minimumWritableHead": "legacy-inline-v0",
+  "baseline": {
+    "id": "legacy-inline-v0",
+    "kind": "validated-legacy-shape",
+    "checksum": "d6d66ff03c32fb1340508f073d7bcaa2902a860e044a4e60c6a3f7063b22ebfd",
+    "introducedRelease": null,
+    "historicalMigrationHistoryAvailable": false,
+    "provenance": "legacy-unverified",
+    "checksumKind": "canonical-schema-descriptor",
+    "checksumPath": "legacy-inline-v0.schema.json"
+  },
+  "preGovernanceMigrations": [],
+  "migrations": []
+}

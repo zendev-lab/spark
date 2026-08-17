@@ -8,7 +8,10 @@ import type {
   SparkLocalRpcMethod,
   SparkLocalRpcOutput,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/version";
+import {
+  SPARK_MINIMUM_COMPATIBLE_DAEMON_PROTOCOL_VERSION,
+  SPARK_PROTOCOL_VERSION,
+} from "@zendev-lab/spark-protocol/version";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import {
   requestSparkDaemonLocalRpc,
@@ -124,6 +127,7 @@ export async function requestSparkDaemon<M extends SparkLocalRpcMethod>(
   options: SparkDaemonClientOptions = {},
 ): Promise<SparkLocalRpcOutput<M>> {
   if (options.signal?.aborted) throw abortError();
+  const wireInput = adjacentProtocolAwareInput(method, input);
 
   let handle: SparkDaemonOrpcClientHandle;
   try {
@@ -143,16 +147,26 @@ export async function requestSparkDaemon<M extends SparkLocalRpcMethod>(
     if (DAEMON_ONLY_TOOL_METHODS.has(method) || ORPC_ONLY_METHODS.has(method)) {
       throw new SparkDaemonPreDispatchUnavailableError(method, error);
     }
-    const result = await requestSparkDaemonLocalRpc<unknown>(method, input, legacyOptions(options));
+    const result = await requestSparkDaemonLocalRpc<unknown>(
+      method,
+      wireInput,
+      legacyOptions(options),
+    );
     try {
-      return sparkLocalRpcProcedureSchemas[method].output.parse(result) as SparkLocalRpcOutput<M>;
+      const parsed = sparkLocalRpcProcedureSchemas[method].output.parse(
+        result,
+      ) as SparkLocalRpcOutput<M>;
+      return normalizeAdjacentDaemonOutput(method, parsed);
     } catch (error) {
       throw new SparkDaemonProtocolMismatchError(method, error);
     }
   }
 
   try {
-    return await invokeConnected(handle, method, input, options);
+    return normalizeAdjacentDaemonOutput(
+      method,
+      await invokeConnected(handle, method, wireInput, options),
+    );
   } catch (error) {
     throw normalizeConnectedError(error, options.signal, method);
   } finally {
@@ -261,6 +275,35 @@ function normalizeConnectedError(
   return new SparkDaemonLocalRpcError(`Spark daemon oRPC transport failed: ${detail}`, {
     cause: error,
   });
+}
+
+function adjacentProtocolAwareInput<M extends SparkLocalRpcMethod>(
+  method: M,
+  input: SparkLocalRpcInput<M>,
+): SparkLocalRpcInput<M> {
+  if (method !== "daemon.status" && method !== "session.snapshot") return input;
+  return {
+    ...(input as Record<string, unknown>),
+    clientProtocolVersion: SPARK_PROTOCOL_VERSION,
+  } as SparkLocalRpcInput<M>;
+}
+
+function normalizeAdjacentDaemonOutput<M extends SparkLocalRpcMethod>(
+  method: M,
+  output: SparkLocalRpcOutput<M>,
+): SparkLocalRpcOutput<M> {
+  if (method !== "session.snapshot" || !isRecord(output)) return output;
+  const record = output as Record<string, unknown>;
+  if (record.version !== SPARK_MINIMUM_COMPATIBLE_DAEMON_PROTOCOL_VERSION) return output;
+  const metadata = isRecord(record.metadata) ? record.metadata : {};
+  return {
+    ...record,
+    version: SPARK_PROTOCOL_VERSION,
+    metadata: {
+      ...metadata,
+      sourceProtocolVersion: SPARK_MINIMUM_COMPATIBLE_DAEMON_PROTOCOL_VERSION,
+    },
+  } as SparkLocalRpcOutput<M>;
 }
 
 function isProtocolSchemaError(error: unknown): boolean {
