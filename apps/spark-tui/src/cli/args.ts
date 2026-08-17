@@ -1,3 +1,7 @@
+import { object, or } from "@optique/core/constructs";
+import { parse } from "@optique/core/parser";
+import { command, constant, passThrough } from "@optique/core/primitives";
+
 export interface SparkCliArgs {
   initialMessage?: string;
   help: boolean;
@@ -41,6 +45,73 @@ export function parseSparkCliArgs(argv: string[]): SparkCliArgs {
   return { help: false, initialMessage: initialMessage || undefined };
 }
 
+const remainingArgv = () => passThrough({ format: "greedy" });
+
+const sparkTuiCommandParser = or(
+  or(
+    command("daemon", object({ kind: constant("daemon" as const), argv: remainingArgv() })),
+    command("server", object({ kind: constant("server" as const), argv: remainingArgv() })),
+    command("sessions", object({ kind: constant("sessions" as const), argv: remainingArgv() })),
+    command("session", object({ kind: constant("session" as const), argv: remainingArgv() })),
+    command(
+      "install",
+      object({
+        kind: constant("legacy" as const),
+        name: constant("install"),
+        argv: remainingArgv(),
+      }),
+    ),
+    command(
+      "remove",
+      object({
+        kind: constant("legacy" as const),
+        name: constant("remove"),
+        argv: remainingArgv(),
+      }),
+    ),
+    command(
+      "uninstall",
+      object({
+        kind: constant("legacy" as const),
+        name: constant("uninstall"),
+        argv: remainingArgv(),
+      }),
+    ),
+    command(
+      "update",
+      object({
+        kind: constant("legacy" as const),
+        name: constant("update"),
+        argv: remainingArgv(),
+      }),
+    ),
+    command(
+      "list",
+      object({
+        kind: constant("legacy" as const),
+        name: constant("list"),
+        argv: remainingArgv(),
+      }),
+    ),
+    command(
+      "config",
+      object({
+        kind: constant("legacy" as const),
+        name: constant("config"),
+        argv: remainingArgv(),
+      }),
+    ),
+  ),
+  or(
+    command("run", object({ kind: constant("run" as const), argv: remainingArgv() })),
+    command("help", object({ kind: constant("help" as const), argv: remainingArgv() })),
+    command("--help", object({ kind: constant("help" as const), argv: remainingArgv() })),
+    command("-h", object({ kind: constant("help" as const), argv: remainingArgv() })),
+  ),
+  object({ kind: constant("tui" as const), argv: remainingArgv() }),
+  object({ kind: constant("empty" as const) }),
+);
+
 /**
  * Authoritative process-mode classifier and Spark TUI argument parser.
  *
@@ -48,61 +119,72 @@ export function parseSparkCliArgs(argv: string[]): SparkCliArgs {
  * uses it before deciding whether to load the full TUI worker.
  */
 export function parseSparkCliCommand(argv: string[]): SparkCliCommand {
-  if (argv.length === 0) return { kind: "tui" };
-  if (argv[0] === "daemon") {
-    return {
-      kind: "error",
-      message: '"daemon" is not a spark-tui command. Use "spark daemon ..." instead.',
-    };
+  const classified = classifySparkTuiCommand(argv);
+  switch (classified.kind) {
+    case "empty":
+      return { kind: "tui" };
+    case "help":
+      return { kind: "help" };
+    case "daemon":
+      return {
+        kind: "error",
+        message: '"daemon" is not a spark-tui command. Use "spark daemon ..." instead.',
+      };
+    case "server":
+      return {
+        kind: "error",
+        message: '"server" is not a spark-tui command. Use "spark hub" instead.',
+      };
+    case "sessions":
+    case "session":
+      return {
+        kind: "error",
+        message: `Legacy "${classified.kind}" was removed. Use "spark daemon session ..." instead.`,
+      };
+    case "legacy":
+      return {
+        kind: "error",
+        message: `Legacy "${classified.name}" resource command was removed from spark-tui.`,
+      };
+    case "run":
+      if (hasLegacyPiFlags(classified.argv)) return legacyPiFlagError();
+      return parseSparkRunCliCommand([...classified.argv]);
+    case "tui": {
+      if (classified.argv.some((arg) => arg === "-h" || arg === "--help")) return { kind: "help" };
+      if (hasLegacyPiFlags(classified.argv)) return legacyPiFlagError();
+      const parsed = parseSparkNativeOptions([...classified.argv]);
+      const options = compactRuntimeOptions(parsed.options);
+      const initialMessage = parsed.messages.join(" ").trim();
+      return {
+        kind: "tui",
+        ...(initialMessage ? { initialMessage } : {}),
+        ...(options ? { options } : {}),
+      };
+    }
+    default: {
+      const exhaustive: never = classified;
+      return exhaustive;
+    }
   }
-  if (argv.some((arg) => arg === "-h" || arg === "--help") && argv[0] !== "server") {
-    return { kind: "help" };
-  }
-  if (argv[0] === "server") {
-    return {
-      kind: "error",
-      message: '"server" is not a spark-tui command. Use "spark hub" instead.',
-    };
-  }
-  if (argv[0] === "sessions" || argv[0] === "session") {
-    return {
-      kind: "error",
-      message: `Legacy "${argv[0]}" was removed. Use "spark daemon session ..." instead.`,
-    };
-  }
-  if (
-    argv[0] === "install" ||
-    argv[0] === "remove" ||
-    argv[0] === "uninstall" ||
-    argv[0] === "update" ||
-    argv[0] === "list" ||
-    argv[0] === "config"
-  ) {
-    return {
-      kind: "error",
-      message: `Legacy "${argv[0]}" resource command was removed from spark-tui.`,
-    };
-  }
-  if (
-    argv.some(
-      (arg) => arg === "--print" || arg === "-p" || arg === "--mode" || arg === "--list-models",
-    )
-  ) {
-    return {
-      kind: "error",
-      message:
-        'Legacy Pi-style flags were removed. Use "spark run", "spark acp", or "spark daemon model list".',
-    };
-  }
-  if (argv[0] === "run") return parseSparkRunCliCommand(argv.slice(1));
+}
 
-  const parsed = parseSparkNativeOptions(argv);
-  const options = compactRuntimeOptions(parsed.options);
-  const initialMessage = parsed.messages.join(" ").trim();
+function classifySparkTuiCommand(argv: string[]) {
+  const result = parse(sparkTuiCommandParser, argv);
+  if (result.success) return result.value;
+  return { kind: "tui" as const, argv };
+}
+
+function hasLegacyPiFlags(argv: readonly string[]): boolean {
+  return argv.some(
+    (arg) => arg === "--print" || arg === "-p" || arg === "--mode" || arg === "--list-models",
+  );
+}
+
+function legacyPiFlagError(): SparkCliCommand {
   return {
-    kind: "tui",
-    ...(initialMessage ? { initialMessage } : {}),
-    ...(options ? { options } : {}),
+    kind: "error",
+    message:
+      'Legacy Pi-style flags were removed. Use "spark run", "spark acp", or "spark daemon model list".',
   };
 }
 
