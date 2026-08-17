@@ -2,7 +2,7 @@
 
 import type { SparkRunView } from "@zendev-lab/spark-protocol";
 
-import { isRecord, numberFromRecord } from "./message-view.ts";
+import { numberFromRecord } from "./message-view.ts";
 import type { SparkNativeFooterMetrics } from "./types.ts";
 
 export function runTimeMs(run: SparkRunView): number {
@@ -12,13 +12,36 @@ export function runTimeMs(run: SparkRunView): number {
   if (Number.isFinite(startedAt)) return startedAt;
   return 0;
 }
-export function footerMetricsFromRun(run: SparkRunView): SparkNativeFooterMetrics {
-  const fromMetadata = footerMetricsFromRecord(run.metadata);
-  const fromUsageTotals = footerMetricsFromRecord(
-    isRecord(run.metadata.usageTotals) ? run.metadata.usageTotals : {},
-  );
-  const fromSummary = footerMetricsFromSummary(run.summary);
-  return mergeFooterMetrics(mergeFooterMetrics(fromSummary, fromMetadata), fromUsageTotals);
+
+export function ownerTreeRunDurationMs(runs: Iterable<SparkRunView>): number | undefined {
+  let startedAt: number | undefined;
+  let completedAt: number | undefined;
+  for (const run of runs) {
+    const started = run.startedAt ? Date.parse(run.startedAt) : NaN;
+    const completed = run.completedAt ? Date.parse(run.completedAt) : NaN;
+    if (!Number.isFinite(started) || !Number.isFinite(completed)) continue;
+    startedAt = startedAt === undefined ? started : Math.min(startedAt, started);
+    completedAt = completedAt === undefined ? completed : Math.max(completedAt, completed);
+  }
+  if (startedAt === undefined || completedAt === undefined) return undefined;
+  const durationMs = completedAt - startedAt;
+  return durationMs > 0 ? durationMs : undefined;
+}
+
+export function footerTokensPerSecond(
+  outputTokens: number | undefined,
+  durationMs: number | undefined,
+): number | undefined {
+  if (outputTokens === undefined || outputTokens <= 0) return undefined;
+  if (durationMs === undefined || durationMs <= 0) return undefined;
+  const rate = outputTokens / (durationMs / 1000);
+  if (!Number.isFinite(rate) || rate <= 0) return undefined;
+  return rate;
+}
+
+export function formatFooterTokensPerSecond(rate: number | undefined): string | undefined {
+  if (rate === undefined || !Number.isFinite(rate) || rate <= 0) return undefined;
+  return `${rate.toFixed(1)} t/s`;
 }
 
 export function footerMetricsFromRecord(record: Record<string, unknown>): SparkNativeFooterMetrics {
@@ -46,50 +69,6 @@ export function footerMetricsFromRecord(record: Record<string, unknown>): SparkN
   };
 }
 
-export function footerMetricsFromSummary(summary: string | undefined): SparkNativeFooterMetrics {
-  if (!summary) return {};
-  const cache = /\bcache\s+read=(\d+(?:\.\d+)?)\s+write=(\d+(?:\.\d+)?)/iu.exec(summary);
-  const cost = /\bcost=\$?(\d+(?:\.\d+)?)/iu.exec(summary);
-  const tokens = /\b(?:tokens|totalTokens)=(\d+(?:\.\d+)?)/iu.exec(summary);
-  return {
-    ...(cache ? { cacheRead: Number(cache[1]), cacheWrite: Number(cache[2]) } : {}),
-    ...(cost ? { costUsd: Number(cost[1]) } : {}),
-    ...(tokens ? { contextTokens: Number(tokens[1]) } : {}),
-  };
-}
-
-export function mergeFooterMetrics(
-  current: SparkNativeFooterMetrics,
-  next: SparkNativeFooterMetrics,
-): SparkNativeFooterMetrics {
-  return {
-    inputTokens: next.inputTokens ?? current.inputTokens,
-    outputTokens: next.outputTokens ?? current.outputTokens,
-    cacheRead: next.cacheRead ?? current.cacheRead,
-    cacheWrite: next.cacheWrite ?? current.cacheWrite,
-    costUsd: next.costUsd ?? current.costUsd,
-    latestCacheHitPercent: next.latestCacheHitPercent ?? current.latestCacheHitPercent,
-    contextTokens: next.contextTokens ?? current.contextTokens,
-    contextWindow: next.contextWindow ?? current.contextWindow,
-  };
-}
-
-export function addFooterMetrics(
-  current: SparkNativeFooterMetrics,
-  next: SparkNativeFooterMetrics,
-): SparkNativeFooterMetrics {
-  return {
-    inputTokens: (current.inputTokens ?? 0) + (next.inputTokens ?? 0),
-    outputTokens: (current.outputTokens ?? 0) + (next.outputTokens ?? 0),
-    cacheRead: (current.cacheRead ?? 0) + (next.cacheRead ?? 0),
-    cacheWrite: (current.cacheWrite ?? 0) + (next.cacheWrite ?? 0),
-    costUsd: (current.costUsd ?? 0) + (next.costUsd ?? 0),
-    latestCacheHitPercent: next.latestCacheHitPercent ?? current.latestCacheHitPercent,
-    contextTokens: next.contextTokens ?? current.contextTokens,
-    contextWindow: next.contextWindow ?? current.contextWindow,
-  };
-}
-
 export function formatFooterMetrics(
   metrics: SparkNativeFooterMetrics,
   autoCompactionEnabled: boolean,
@@ -105,6 +84,8 @@ export function formatFooterMetrics(
     parts.push(`CH${metrics.latestCacheHitPercent.toFixed(1)}%`);
   }
   if (metrics.costUsd) parts.push(`$${metrics.costUsd.toFixed(3)}`);
+  const tokensPerSecond = formatFooterTokensPerSecond(metrics.tokensPerSecond);
+  if (tokensPerSecond) parts.push(tokensPerSecond);
   if (metrics.contextWindow) {
     const contextPercent =
       metrics.contextTokens !== undefined

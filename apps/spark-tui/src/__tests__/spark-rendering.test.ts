@@ -1383,6 +1383,16 @@ test("native UI transport consumes view model events without concrete TUI protoc
       status: "running",
       model: { providerName: "baidu-oneapi", modelId: "gpt-5.6-sol" },
       thinkingLevel: "xhigh",
+      usage: {
+        inputTokens: 19_000_000,
+        outputTokens: 820_000,
+        cacheReadTokens: 230_000_000,
+        cacheWriteTokens: 16,
+        costUsd: 23.509,
+        latestCacheHitPercent: 99.3,
+        contextTokens: 262_632,
+        contextWindow: 372_000,
+      },
       messages: [],
       tools: [],
       runs: [],
@@ -1416,18 +1426,7 @@ test("native UI transport consumes view model events without concrete TUI protoc
       summary: "cache read=64 write=16",
       evidenceRefs: [],
       artifactRefs: [],
-      metadata: {
-        usageTotals: {
-          inputTokens: 19_000_000,
-          outputTokens: 820_000,
-          cacheReadTokens: 230_000_000,
-          cacheWriteTokens: 16,
-          costUsd: 23.509,
-          latestCacheHitPercent: 99.3,
-          contextTokens: 262_632,
-          contextWindow: 372_000,
-        },
-      },
+      metadata: {},
     },
   });
 
