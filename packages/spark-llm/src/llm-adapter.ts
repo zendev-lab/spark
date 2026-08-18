@@ -1,7 +1,10 @@
 import {
   LlmAdapter,
+  ReasoningEffortId,
   attributionHeaders,
   type GenerateOptions,
+  type LlmReasoningEffortInfo,
+  type LlmResolvedModelInfo,
   type StreamChunk,
 } from "@deepseek-ai/dsh-llm";
 import type { Model } from "@earendil-works/pi-ai";
@@ -18,6 +21,15 @@ import {
   createProviderRegistryStreamFunction,
   type ProviderRegistryRunnerOptions,
 } from "./provider-runner.ts";
+
+/** Session thinking levels Spark may send as dsh-llm `reasoningEffort`. */
+const SPARK_LLM_REASONING_EFFORTS: readonly LlmReasoningEffortInfo[] = [
+  { id: ReasoningEffortId("minimal"), name: "Minimal" },
+  { id: ReasoningEffortId("low"), name: "Low" },
+  { id: ReasoningEffortId("medium"), name: "Medium" },
+  { id: ReasoningEffortId("high"), name: "High" },
+  { id: ReasoningEffortId("xhigh"), name: "Extra high" },
+];
 
 export class SparkProviderLlmAdapter extends LlmAdapter {
   readonly #registry: SparkProviderRegistry;
@@ -49,7 +61,7 @@ export class SparkProviderLlmAdapter extends LlmAdapter {
     }));
   }
 
-  override async resolveModel(provider: string, model: string) {
+  override async resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     const definition = this.#registry
       .listModelsFor(this.#providerName)
       .find((entry) => entry.id === model || entry.aliases?.includes(model));
@@ -61,6 +73,13 @@ export class SparkProviderLlmAdapter extends LlmAdapter {
         ? {
             context: { contextWindow: definition.contextWindow },
             defaultMaxTokens: definition.maxTokens,
+            ...(definition.reasoning
+              ? {
+                  reasoning: {
+                    efforts: SPARK_LLM_REASONING_EFFORTS,
+                  },
+                }
+              : {}),
           }
         : {}),
     };

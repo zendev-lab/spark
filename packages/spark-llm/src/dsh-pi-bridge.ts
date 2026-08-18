@@ -64,7 +64,8 @@ export function sparkContextToGenerateOptions(
     ...(context.tools ? { tools: context.tools.map(piToolToSchema) } : {}),
     ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
-    ...(typeof reasoning === "string" && reasoning !== "off"
+    // LlmRuntime rejects reasoningEffort unless the model advertises it.
+    ...(typeof reasoning === "string" && reasoning !== "off" && model.reasoning
       ? { reasoningEffort: reasoning as GenerateOptions["reasoningEffort"] }
       : {}),
   } as SparkGenerateOptions;

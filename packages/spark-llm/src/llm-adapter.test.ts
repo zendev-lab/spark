@@ -143,3 +143,49 @@ test("SparkProviderLlmAdapter can stream a GenerateOptions request without a pi 
   }
   assert.equal(chunks.at(-1)?.type, "finish");
 });
+
+test("SparkProviderLlmAdapter advertises reasoning efforts only when the model supports them", async () => {
+  const registry = new SparkProviderRegistry();
+  const message = fakeAssistant("stop");
+  registry.registerProvider(
+    "fake",
+    provider(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: "done", reason: "stop", message };
+      },
+      result: async () => message,
+    })),
+  );
+  const adapter = new SparkProviderLlmAdapter(registry, "fake");
+  const withoutReasoning = await adapter.resolveModel("fake", "model-a");
+  assert.equal("reasoning" in withoutReasoning, false);
+
+  registry.registerProvider("thinker", {
+    ...provider(() => ({
+      async *[Symbol.asyncIterator]() {
+        yield { type: "done", reason: "stop", message };
+      },
+      result: async () => message,
+    })),
+    name: "thinker",
+    models: [
+      {
+        id: "model-b",
+        name: "Model B",
+        reasoning: true,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 4096,
+        maxTokens: 1024,
+      },
+    ],
+  });
+  const thinking = await new SparkProviderLlmAdapter(registry, "thinker").resolveModel(
+    "thinker",
+    "model-b",
+  );
+  assert.deepEqual(
+    thinking.reasoning?.efforts.map((effort) => effort.id),
+    ["minimal", "low", "medium", "high", "xhigh"],
+  );
+});

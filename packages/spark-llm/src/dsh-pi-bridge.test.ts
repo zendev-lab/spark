@@ -4,7 +4,12 @@ import { test } from "vitest";
 import type { AssistantMessage, AssistantMessageEvent, Model } from "@earendil-works/pi-ai";
 import type { StreamChunk } from "@deepseek-ai/dsh-llm";
 
-import { llmChunksToPiAiStream, piEventsToLlmChunks } from "./dsh-pi-bridge.ts";
+import {
+  llmChunksToPiAiStream,
+  piEventsToLlmChunks,
+  readSparkPiGenerateCarrier,
+  sparkContextToGenerateOptions,
+} from "./dsh-pi-bridge.ts";
 
 const MODEL: Model<string> = {
   id: "model-a",
@@ -88,6 +93,26 @@ test("pi-ai start, deltas, and toolcall_end survive a StreamChunk round-trip", a
     },
   ]);
   assert.deepEqual(types, ["start", "text_delta", "toolcall_end", "done"]);
+});
+
+test("sparkContextToGenerateOptions omits reasoningEffort for non-reasoning models", () => {
+  const options = sparkContextToGenerateOptions(
+    MODEL,
+    { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] },
+    { reasoning: "high" },
+  );
+  assert.equal("reasoningEffort" in options, false);
+  assert.equal(readSparkPiGenerateCarrier(options)?.options.reasoning, "high");
+});
+
+test("sparkContextToGenerateOptions forwards reasoningEffort for reasoning models", () => {
+  const options = sparkContextToGenerateOptions(
+    { ...MODEL, reasoning: true },
+    { messages: [{ role: "user", content: "hi", timestamp: Date.now() }] },
+    { reasoning: "high" },
+  );
+  assert.equal(options.reasoningEffort, "high");
+  assert.equal(readSparkPiGenerateCarrier(options)?.options.reasoning, "high");
 });
 
 test("an empty pi-ai iterator does not throw while converting to chunks", async () => {
