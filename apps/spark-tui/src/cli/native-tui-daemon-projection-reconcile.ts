@@ -56,20 +56,20 @@ export function startIdleNativeTuiDaemonProjectionReconcile(input: {
   refreshWidget: () => Promise<void>;
   lastSignature?: string;
   intervalMs?: number;
-  schedule?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout> | number;
-  cancelSchedule?: (handle: ReturnType<typeof setTimeout> | number) => void;
 }): void {
   const intervalMs = Math.max(250, input.intervalMs ?? DEFAULT_IDLE_RECONCILE_INTERVAL_MS);
-  const schedule = input.schedule ?? ((callback, delayMs) => setTimeout(callback, delayMs));
-  const cancelSchedule =
-    input.cancelSchedule ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
-  let timer: ReturnType<typeof setTimeout> | number | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let lastSignature = input.lastSignature;
 
   const stop = () => {
     if (timer === undefined) return;
-    cancelSchedule(timer);
+    clearTimeout(timer);
     timer = undefined;
+  };
+
+  const arm = () => {
+    timer = setTimeout(tick, intervalMs);
+    timer.unref?.();
   };
 
   const tick = () => {
@@ -91,12 +91,10 @@ export function startIdleNativeTuiDaemonProjectionReconcile(input: {
       .catch(() => undefined)
       .finally(() => {
         if (input.signal.aborted) return;
-        timer = schedule(tick, intervalMs);
-        (timer as { unref?: () => void }).unref?.();
+        arm();
       });
   };
 
   input.signal.addEventListener("abort", stop, { once: true });
-  timer = schedule(tick, intervalMs);
-  (timer as { unref?: () => void }).unref?.();
+  arm();
 }
