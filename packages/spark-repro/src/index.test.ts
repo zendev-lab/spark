@@ -460,6 +460,44 @@ describe("spark-repro", () => {
     ).toThrow(/cannot depend on later-stage step/u);
   });
 
+  it("replaces compatibility subgoals when complete steps are supplied", () => {
+    const original = createSparkSessionRepro("session:replace-complete-list");
+    const replacement: SparkReproStepDefinition[] = [
+      {
+        id: "precision-diff-inventory",
+        stage: "target",
+        goal: "Inventory open precision boundaries",
+        doneWhen: ["The inventory records every open boundary"],
+        evidenceRequired: ["Inventory validation evidence"],
+        authority: "safe_local",
+      },
+      {
+        id: "precision-minimal-replay",
+        stage: "target",
+        goal: "Replay inventory-confirmed boundaries",
+        doneWhen: ["The replay receipt records every selected boundary"],
+        evidenceRequired: ["Replay validation evidence"],
+        authority: "safe_local",
+        dependsOn: ["precision-diff-inventory"],
+      },
+    ];
+
+    const revised = reviseReproPlan(original, {
+      reason: "Replace the complete compatibility plan",
+      steps: replacement,
+    });
+
+    expect(revised.plan.steps.map((step) => step.id)).toEqual([
+      "precision-diff-inventory",
+      "precision-minimal-replay",
+    ]);
+    expect(revised.subgoals.map((subgoal) => subgoal.id)).toEqual([
+      "precision-diff-inventory",
+      "precision-minimal-replay",
+    ]);
+    expect(revised.subgoals).toHaveLength(2);
+  });
+
   it("includes bound task status changes in the repro progress digest", () => {
     const taskRef = "task:digest-safe-local" as TaskRef;
     const initial = createSparkSessionRepro("session:digest");
