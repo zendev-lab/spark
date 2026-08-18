@@ -934,6 +934,8 @@ export interface SparkHostContext {
   delegation?: SparkHostDelegationEnvelope;
   /** Session IDs already participating in a synchronous question chain. */
   sessionQuestionChain?: string[];
+  /** Host-resolved canonical Spark state root for Ask evidence and receipts. */
+  sparkEvidenceCwd?: string;
   /** Host-owned policy for detached asynchronous Goal/Repro evidence requests. */
   sparkAutonomousAsk?: {
     modeScope: "goal" | "repro";
@@ -1123,7 +1125,7 @@ export class NotFoundError extends PiError {
   }
 }
 
-export const DEFAULT_READY_TASK_MAX_CONCURRENCY = 4;
+export const DEFAULT_READY_TASK_MAX_CONCURRENCY = 8;
 export const DEFAULT_READY_TASK_TIMEOUT_MS = 3_600_000;
 
 export function newRef<K extends RefKind>(kind: K, id: string = randomUUID()): Ref<K> {

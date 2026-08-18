@@ -545,29 +545,72 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
         ? roleToolPolicy("read", ["plan", "execute", "fleet"])
         : roleToolPolicy("external_write", ["plan", "execute"]);
     },
-    parameters: Type.Object({
-      action: Type.String({
-        description:
-          "list | get | create | call | model_list | model_get | model_set | model_delete",
+    parameters: Type.Union([
+      Type.Object({
+        action: Type.Literal("list"),
+        source: Type.Optional(
+          Type.String({
+            description: "builtin | extension | project | user. Omit to list all loaded roles.",
+          }),
+        ),
+        includeUser: Type.Optional(Type.Boolean({ description: "Also load user roles." })),
+        limit: Type.Optional(Type.Number({ description: "Maximum role rows for list." })),
       }),
-      role: Type.Optional(Type.String({ description: "Role id or ref for get/call." })),
-      source: Type.Optional(Type.String({ description: "builtin | project | user." })),
-      includeUser: Type.Optional(Type.Boolean({ description: "Also load user roles." })),
-      limit: Type.Optional(Type.Number({ description: "Maximum role rows for list." })),
-      id: Type.Optional(Type.String({ description: "Stable role id for create." })),
-      description: Type.Optional(Type.String({ description: "Role description for create." })),
-      systemPrompt: Type.Optional(Type.String({ description: "Role system prompt for create." })),
-      rationale: Type.Optional(Type.String({ description: "Role creation rationale." })),
-      expectedUses: Type.Optional(Type.Array(Type.String())),
-      capabilities: Type.Optional(Type.Array(Type.String())),
-      modelType: Type.Optional(Type.String()),
-      allowedTools: Type.Optional(Type.Array(Type.String())),
-      instruction: Type.Optional(Type.String({ description: "Instruction for call." })),
-      launch: Type.Optional(Type.String({ description: "fresh for call." })),
-      cwd: Type.Optional(Type.String()),
-      timeoutMs: Type.Optional(Type.Number()),
-      model: Type.Optional(Type.String()),
-    }),
+      Type.Object({
+        action: Type.Literal("get"),
+        role: Type.String({ description: "Role id or full role ref." }),
+        includeUser: Type.Optional(Type.Boolean({ description: "Also load user roles." })),
+      }),
+      Type.Object({
+        action: Type.Literal("create"),
+        id: Type.String({ description: "Stable role id for create." }),
+        description: Type.String({ description: "Role description for create." }),
+        systemPrompt: Type.String({ description: "Role system prompt for create." }),
+        rationale: Type.String({ description: "Role creation rationale." }),
+        expectedUses: Type.Array(Type.String()),
+        capabilities: Type.Array(Type.String()),
+        modelType: Type.String({
+          description: "Semantic model routing key required by the persisted Role spec.",
+        }),
+        source: Type.Optional(Type.String({ description: "project | user. Defaults to project." })),
+        allowedTools: Type.Optional(Type.Array(Type.String())),
+      }),
+      Type.Object({
+        action: Type.Literal("call"),
+        role: Type.String({ description: "Role id or full role ref." }),
+        instruction: Type.String({ description: "Concrete instruction for one role call." }),
+        cwd: Type.Optional(Type.String({ description: "Working directory for the child run." })),
+        timeoutMs: Type.Optional(
+          Type.Number({ description: "Child run timeout in milliseconds." }),
+        ),
+        includeUser: Type.Optional(Type.Boolean({ description: "Also load user roles." })),
+        model: Type.Optional(
+          Type.String({ description: "Concrete Pi model override for this Invocation." }),
+        ),
+      }),
+      Type.Object({
+        action: Type.Literal("model_list"),
+        source: Type.Optional(Type.String({ description: "project | user. Omit to list both." })),
+      }),
+      Type.Object({
+        action: Type.Literal("model_get"),
+        role: Type.String({ description: "Role id or full role ref." }),
+        includeUser: Type.Optional(Type.Boolean({ description: "Also load user roles." })),
+      }),
+      Type.Object({
+        action: Type.Literal("model_set"),
+        role: Type.String({ description: "Role id or full role ref." }),
+        model: Type.String({ description: "Concrete Pi model to validate and save." }),
+        source: Type.Optional(Type.String({ description: "project | user. Defaults to project." })),
+        includeUser: Type.Optional(Type.Boolean({ description: "Also load user roles." })),
+      }),
+      Type.Object({
+        action: Type.Literal("model_delete"),
+        role: Type.String({ description: "Role id or full role ref." }),
+        source: Type.Optional(Type.String({ description: "project | user. Defaults to project." })),
+        includeUser: Type.Optional(Type.Boolean({ description: "Also load user roles." })),
+      }),
+    ]),
     renderCall(args, theme) {
       return renderToolCall(
         "role",

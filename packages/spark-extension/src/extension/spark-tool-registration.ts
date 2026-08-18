@@ -47,6 +47,8 @@ export interface SparkToolContext {
   cwd: string;
   workspaceId?: string;
   sparkStateRoot?: string;
+  /** Host-resolved canonical Spark state root for Ask evidence and receipts. */
+  sparkEvidenceCwd?: string;
   sessionId?: string;
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";

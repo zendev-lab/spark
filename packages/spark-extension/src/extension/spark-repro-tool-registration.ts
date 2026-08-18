@@ -41,12 +41,14 @@ import {
   advanceReproPhase,
   advanceReproStage,
   clearSessionRepro,
+  createReproStepAskBatchBinding,
   createReproStepAskBinding,
+  encodeReproStepAskBatchBinding,
   encodeReproStepAskBinding,
   currentPhaseAcceptance,
   currentReproStage,
   currentReproSteps,
-  decodeReproStepAskBinding,
+  decodeReproStepAskBindings,
   evaluateStageGate,
   isPhaseComplete,
   isReproRequirementSatisfied,
@@ -199,6 +201,7 @@ export function registerSparkReproTool(
       "Use repro action=start to begin the Repro (clears goal/loop); pass objective for user-supplied reproduction focus.",
       "Use repro action=plan to set difficulty (1-10), revise the Goal Contract, or append/update stage-scoped subgoals. Split each stage by its objective, experiment risk, dependencies, and required evidence; every subgoal needs a stable id, explicit doneWhen/evidenceRequired, and authority.",
       "Use repro action=step to update one step. A done step requires existing evidence that passes a typed StepVerifier; safe_local and driver_local steps require spark.repro.step-proof/v1, while ask_decision/ask_approval steps require a current bound canonical Ask receipt.",
+      "For safe_local proof, copy plan.steps[].stepProofBinding from repro action=status into the spark.repro.step-proof/v1 Evidence body; never calculate or guess definitionDigest.",
       "In the contract stage, first verify whether the named reference implementation is runnable. If it is unavailable, ask how to construct or obtain it before any baseline probe; do not invent a substitute.",
       "The owner Session owns Repro planning and reconciliation; use canonical assign to dispatch only the independent safe_local ready Task frontier in parallel. driver_local, ask_decision, and ask_approval Tasks stay with the owner and are never dispatched.",
       "When an external Bench manifest supplies a run_id, bind it at first start with reproId so the Repro, token ledger, child executions, report summary, and Artifact share one identity.",
@@ -1714,6 +1717,7 @@ async function validateReproProofEvidence(
 
 interface SparkReproStepProofEvidence {
   schema: "spark.repro.step-proof/v1";
+  reproId: string;
   planRevision: number;
   stepId: string;
   definitionDigest: string;
@@ -1746,15 +1750,20 @@ async function verifyReproStepEvidence(
 
   if (step.authority === "safe_local" || step.authority === "driver_local") {
     const expectedDigest = stepDefinitionDigest(step);
-    const proof = presentEntries.find((entry) => isStepProofEvidence(entry.body));
+    const proof = presentEntries.find(
+      (entry) => isStepProofEvidence(entry.body) && entry.provenance?.producer === "cue",
+    );
     if (!proof || !isStepProofEvidence(proof.body)) {
       return {
         verdict: "Repair",
         stepId: step.id,
-        reasons: [`${step.authority} Step requires a spark.repro.step-proof/v1 Evidence record`],
+        reasons: [
+          `${step.authority} Step requires a current cue-produced spark.repro.step-proof/v1 Evidence record`,
+        ],
       };
     }
     if (
+      proof.body.reproId !== repro.reproId ||
       proof.body.planRevision !== reproStepPlanRevision(repro, step.id) ||
       proof.body.stepId !== step.id ||
       proof.body.definitionDigest !== expectedDigest ||
@@ -1763,7 +1772,9 @@ async function verifyReproStepEvidence(
       return {
         verdict: "Repair",
         stepId: step.id,
-        reasons: ["step-proof evidence is stale or does not match the current doneWhen"],
+        reasons: [
+          "step-proof evidence is stale, belongs to another Repro, or does not match the current doneWhen",
+        ],
       };
     }
     return verifyReproStepPass(repro, step.id, {
@@ -1819,13 +1830,22 @@ async function verifyReproStepEvidence(
     }
     const verified = await verifyCanonicalAskEvidence(cwd, entry);
     if (!verified) continue;
-    const binding = decodeReproStepAskBinding(verified.request.context);
+    const bindings = decodeReproStepAskBindings(verified.request.context);
     const expectedBinding = createReproStepAskBinding(repro, step);
-    if (!binding || JSON.stringify(binding) !== JSON.stringify(expectedBinding)) continue;
+    if (!bindings?.some((binding) => JSON.stringify(binding) === JSON.stringify(expectedBinding))) {
+      continue;
+    }
     const expectedMode = step.authority === "ask_approval" ? "approval" : "decision";
-    if (verified.request.mode !== expectedMode || verified.selectedValues.length === 0) continue;
-    if (step.authority === "ask_approval" && verified.selectedValues.length !== 1) continue;
-    if (step.authority === "ask_approval" && verified.selectedValues[0] !== "approve") continue;
+    const stepAnswer =
+      bindings.length > 1
+        ? verified.answers.find((answer) => answer.questionId === step.id)
+        : undefined;
+    const selectedValues = stepAnswer
+      ? [...stepAnswer.values, ...(stepAnswer.customText ? [stepAnswer.customText] : [])]
+      : verified.selectedValues;
+    if (verified.request.mode !== expectedMode || selectedValues.length === 0) continue;
+    if (step.authority === "ask_approval" && selectedValues.length !== 1) continue;
+    if (step.authority === "ask_approval" && selectedValues[0] !== "approve") continue;
     return verifyReproStepPass(repro, step.id, {
       verdict: "Pass",
       planRevision: reproStepPlanRevision(repro, step.id),
@@ -1835,7 +1855,7 @@ async function verifyReproStepEvidence(
       verifiedDoneWhen: [...step.doneWhen],
       askRequestHash: verified.requestHash,
       acceptedAnswerHash: verified.answersHash,
-      selectedValues: [...verified.selectedValues],
+      selectedValues: [...selectedValues],
       ...(step.authority === "ask_approval" ? { approvalResult: "approved" as const } : {}),
     });
   }
@@ -1901,6 +1921,8 @@ function isStepProofEvidence(value: unknown): value is SparkReproStepProofEviden
   return (
     isRecord(value) &&
     value.schema === "spark.repro.step-proof/v1" &&
+    typeof value.reproId === "string" &&
+    value.reproId.length > 0 &&
     typeof value.planRevision === "number" &&
     Number.isInteger(value.planRevision) &&
     value.planRevision > 0 &&
@@ -2024,6 +2046,19 @@ function reproStatusResult(repro: SparkSessionRepro, loopHealth?: SparkReproLoop
       (step) =>
         `  ${step.status === "done" ? "✓" : step.status === "cancelled" ? "–" : "○"} [${step.authority}] ${step.id} — ${step.goal} (${step.status})`,
     ),
+    ...steps.flatMap((step) =>
+      step.authority === "safe_local"
+        ? [
+            `  Proof binding ${step.id}: ${JSON.stringify({
+              schema: "spark.repro.step-proof-binding/v1",
+              planRevision: reproStepPlanRevision(repro, step.id),
+              stepId: step.id,
+              definitionDigest: stepDefinitionDigest(step),
+              doneWhen: [...step.doneWhen],
+            })}`,
+          ]
+        : [],
+    ),
     "",
     "Evidence-backed requirements:",
     ...stage.acceptance.map(
@@ -2075,7 +2110,20 @@ function reproDetails(repro: SparkSessionRepro): Record<string, unknown> {
       currentRevision: repro.plan.currentRevision,
       difficulty: repro.plan.difficulty,
       revisionCount: repro.plan.revisions.length,
-      steps: currentReproSteps(repro),
+      steps: currentReproSteps(repro).map((step) => ({
+        ...step,
+        ...(step.authority === "safe_local"
+          ? {
+              stepProofBinding: {
+                schema: "spark.repro.step-proof-binding/v1",
+                planRevision: reproStepPlanRevision(repro, step.id),
+                stepId: step.id,
+                definitionDigest: stepDefinitionDigest(step),
+                doneWhen: [...step.doneWhen],
+              },
+            }
+          : {}),
+      })),
     },
     stopGuard: repro.stopGuard,
     threeLane: {
@@ -2198,14 +2246,15 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     `- Operate in the selected phase (${repro.currentPhase}); use its tool policy for plan or implement work.`,
     "- The owner Session owns planning and reconciliation; use assign only for the independent safe_local ready frontier, while driver_local, ask_decision, and ask_approval remain owner-only.",
     "- When blocked by a missing user decision, ambiguous requirement, unclear baseline/source, conflicting evidence, failing validation whose next step is unclear, or any problem the user can unblock, call ask immediately with a concrete question. Do not guess, invent substitutes, or end the turn with only a prose blocker report when ask can resolve it.",
+    "- When decisions are required, batch every currently independent decision of the same authority into one canonical ask flow with autoAnswer=true, delivery=blocking, and recordAsEvidence=true. Never emit serial one-question asks when the choices can be answered together.",
     "- Advance milestones with repro record/evaluate/advance. Never treat prose, an unverified ref, or a bare boolean as proof.",
     "- Keep the deliverable report a live dashboard, not an append-only log: current status and one blocker card first, quantified gates next, long history behind progressive disclosure. Fold or rewrite stale sections instead of only appending, so low-signal detail cannot crowd out the current frontier.",
     "- Treat a local commit as incomplete delivery. When a stage lands, push the branch and create or update its PR in the same turn, then record that PR state in the report. Do not batch PR work until the end.",
     "- Before ending every repro turn, leave a verifiable checkpoint. If the turn produced a coherent set of repository changes and committing is authorized and safe, create a small git commit promptly. Never include unrelated pre-existing changes.",
-    "- If a safe commit is not appropriate yet, show the work completed in the turn: cite concrete evidence refs or file paths, summarize the relevant diff, report commands/tests and their results, or ask about the exact blocker. Do not end with only a progress claim.",
-    "- If blocked on an external dependency the user cannot resolve, report that blocker; otherwise prefer ask over /repro stop.",
+    "- If a safe commit is not appropriate yet, show the work completed in the turn: cite concrete evidence refs or file paths, summarize the relevant diff, and report commands/tests and their results. Do not end with only a progress claim.",
+    "- If blocked on an external dependency, report the exact blocker; otherwise route all material choices through the batched reviewer auto-answer flow instead of opening repeated user prompts.",
     '- Before ending this daemon-owned tick, call repro({ action: "settle", reason: "..." }). The Loop is dormant by default; only settle may schedule the next tick.',
-    "- If settle returns Recover Ask, call canonical ask immediately with one concrete unblock question. Do not schedule around the Ask gate.",
+    "- If settle returns Recover Ask, collect all independent recover choices into one canonical auto-answer flow. Do not schedule around an unresolved Ask gate.",
   );
 
   if (repro.currentPhase === "plan") {
@@ -2215,14 +2264,14 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
       "- Each Stage entrance materializes its detailed Roadmap and Subgoal/Task DAG automatically. Use repro action=plan only for evidence-backed revisions or dynamic incidents, not to recreate the Stage skeleton.",
       "- Reassess difficulty when scope or uncertainty changes, and split dynamic incident work by experiment risk, dependencies, and required evidence rather than a numeric quota.",
       "- Classify each unknown as fact, reversible choice, material user decision, or validation uncertainty.",
-      "- Research facts from the workspace, dependencies, environment, and primary upstream sources before asking the user.",
+      "- Research facts from the workspace, dependencies, environment, and primary upstream sources before constructing the batched reviewer decision flow.",
       "- Verify whether the reference implementation named in the contract is runnable. Prove availability with concrete paths, entrypoints, or failed-lookup evidence; do not assume a paper or announcement means runnable code exists.",
-      "- If that reference is unavailable, ask the user how to construct or obtain it before any baseline probe. Do not invent a substitute baseline.",
+      "- If that reference is unavailable, include the construction/source choice in the next batched reviewer auto-answer flow before any baseline probe. Do not invent a substitute baseline.",
       "- For implementation strategy, find the owning module and compare reuse, adaptation, and new implementation with concrete code-path evidence.",
       "- For alignment strategy, inspect the real module path first and compare it with an eager probe. Treat eager as a focused diagnostic unless the evidence or user-approved target makes it the intended path.",
       "- Run a focused probe for validation uncertainty only after baseline availability or construction strategy is settled; record the command and result evidence.",
       "- Use a recommended default for reversible low-risk choices and record it in the research evidence.",
-      "- Ask exactly one material user decision at a time with canonical ask and recordAsEvidence=true; do not use reviewer auto-answer for that decision.",
+      "- Ask all currently independent material decisions together with action=flow, autoAnswer=true, delivery=blocking, and recordAsEvidence=true; preserve one question id and one Repro binding per Step.",
       "- Keep research and decision-making in the owner Session; do not spawn Role Invocations for ordinary contract research.",
     );
   } else {
@@ -2230,7 +2279,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
       "",
       "Implement-phase guidance:",
       "- Execute planned Tasks through the authority available to the owner Session; write code, run tests, and fix failures only when its Role and effect policy allow them.",
-      "- If a failure, missing credential, unclear expected behavior, or ambiguous fix path needs a user decision, call ask before inventing a workaround.",
+      "- If failures or ambiguities require choices, batch the independent choices into one reviewer auto-answer flow before inventing a workaround.",
       "- Record the matching evidence-backed requirement proof before advancing.",
     );
 
@@ -2271,7 +2320,7 @@ function renderRequirementNextStep(requirement: SparkReproRequirement): string {
     case "competitor-baseline-availability-researched":
       return `Next: verify whether the reference implementation named in the contract is runnable. Record concrete entrypoints and paths if found, or explicit failed-lookup evidence if not. Store findings as evidence, then call repro({ action: "record", requirementId: "${requirement.id}", proof: { kind: "evidence", evidenceRefs: ["evidence:..."] } }).`;
     case "baseline-construction-strategy-approved":
-      return `Next: if a runnable baseline exists, ask the user to confirm reuse (or an alternate source); if it does not exist, ask how to construct or obtain it before probing. Use ask({ mode: "decision", delivery: "blocking", recordAsEvidence: true, questions: [...] }), then call repro({ action: "record", requirementId: "${requirement.id}", proof: { kind: "decision", decisionRef: "evidence:...", selectedValue: "..." } }).`;
+      return `Next: include baseline reuse/construction in the current batched decision flow. Use ask({ action: "flow", mode: "decision", autoAnswer: true, delivery: "blocking", recordAsEvidence: true, questions: [...] }), then call repro({ action: "record", requirementId: "${requirement.id}", proof: { kind: "decision", decisionRef: "evidence:...", selectedValue: "..." } }).`;
     case "baseline-probe-passed":
       return `Next: only after baseline availability or construction strategy is settled, run the smallest real probe for "${requirement.description}", store its command output as evidence, then call repro({ action: "record", requirementId: "${requirement.id}", proof: { kind: "validation", command: "...", resultRef: "evidence:...", passed: true } }).`;
     default:
@@ -2281,7 +2330,7 @@ function renderRequirementNextStep(requirement: SparkReproRequirement): string {
     case "evidence":
       return `Next: research "${requirement.description}", store the findings as evidence, then call repro({ action: "record", requirementId: "${requirement.id}", proof: { kind: "evidence", evidenceRefs: ["evidence:..."] } }).`;
     case "decision":
-      return `Next: after research narrows the options, ask the user one material decision with ask({ mode: "decision", delivery: "blocking", recordAsEvidence: true, questions: [...] }), then call repro({ action: "record", requirementId: "${requirement.id}", proof: { kind: "decision", decisionRef: "evidence:...", selectedValue: "..." } }).`;
+      return `Next: after research narrows the options, include this choice in the current batched flow with ask({ action: "flow", mode: "decision", autoAnswer: true, delivery: "blocking", recordAsEvidence: true, questions: [...] }), then call repro({ action: "record", requirementId: "${requirement.id}", proof: { kind: "decision", decisionRef: "evidence:...", selectedValue: "..." } }).`;
     case "validation":
       return `Next: run the smallest real probe for "${requirement.description}", store its command output as evidence, then call repro({ action: "record", requirementId: "${requirement.id}", proof: { kind: "validation", command: "...", resultRef: "evidence:...", passed: true } }).`;
     default: {
@@ -2293,19 +2342,44 @@ function renderRequirementNextStep(requirement: SparkReproRequirement): string {
 
 function renderPlanStepNextAction(repro: SparkSessionRepro, step: SparkReproStep): string {
   const checkpoint = `then call repro({ action: "step", stepId: "${step.id}", stepStatus: "done", stepEvidenceRefs: ["evidence:..."] })`;
-  const askContext =
-    step.authority === "ask_decision" || step.authority === "ask_approval"
-      ? encodeReproStepAskBinding(createReproStepAskBinding(repro, step))
-      : undefined;
   switch (step.authority) {
     case "safe_local":
       return `Next typed step: ${step.goal}. Execute the smallest safe-local action that can satisfy: ${step.doneWhen.join("; ")}. Capture ${step.evidenceRequired.join("; ")}, ${checkpoint}.`;
     case "driver_local":
       return `Next typed step: ${step.goal}. The active Repro driver owns this explicitly bounded low-risk action; execute it in the owner session without another approval and without dispatching it to a worker. Do not promote a Draft PR to ready or widen the scope. Capture ${step.evidenceRequired.join("; ")}, ${checkpoint}.`;
     case "ask_decision":
-      return `Next typed step: ${step.goal}. Research enough to narrow the choice, then call canonical ask with delivery="async", mode="decision", context=${JSON.stringify(askContext)}. Continue every independent ready action while the detached EvidenceRequest is pending; after a direct user AnswerEvent is projected to canonical Evidence, ${checkpoint}.`;
-    case "ask_approval":
-      return `Next typed step: ${step.goal}. Do not perform the external, destructive, or scope-expanding action yet. Call canonical ask with delivery="async", mode="approval", context=${JSON.stringify(askContext)}, and a single approval option value="approve" or value="reject". Continue independent ready work; after a direct user AnswerEvent is projected to canonical Evidence, ${checkpoint}; only value="approve" can pass this Step.`;
+    case "ask_approval": {
+      const completed = new Set(
+        repro.plan.steps
+          .filter((candidate) => candidate.status === "done")
+          .map((candidate) => candidate.id),
+      );
+      const batch = currentReproSteps(repro).filter(
+        (candidate) =>
+          candidate.authority === step.authority &&
+          candidate.status !== "done" &&
+          candidate.status !== "cancelled" &&
+          (candidate.dependsOn ?? []).every((dependency) => completed.has(dependency)),
+      );
+      const askSteps = batch.some((candidate) => candidate.id === step.id) ? batch : [step];
+      const askContext =
+        askSteps.length === 1
+          ? encodeReproStepAskBinding(createReproStepAskBinding(repro, askSteps[0]!))
+          : encodeReproStepAskBatchBinding(createReproStepAskBatchBinding(repro, askSteps));
+      const questionIds = askSteps.map((candidate) => candidate.id);
+      const checkpoints = askSteps
+        .map(
+          (candidate) =>
+            `repro({ action: "step", stepId: "${candidate.id}", stepStatus: "done", stepEvidenceRefs: ["evidence:..."] })`,
+        )
+        .join("; ");
+      const mode = step.authority === "ask_approval" ? "approval" : "decision";
+      const approvalRule =
+        step.authority === "ask_approval"
+          ? ' Every question must expose exactly value="approve" and value="reject"; only approve passes its Step.'
+          : "";
+      return `Next typed Ask batch: ${questionIds.join(", ")}. Research enough to provide concrete options, then call ask({ action: "flow", autoAnswer: true, delivery: "blocking", recordAsEvidence: true, mode: "${mode}", context: ${JSON.stringify(askContext)}, questions: [...] }) once. Use exactly one question per Step with question ids ${JSON.stringify(questionIds)}.${approvalRule} Reuse the returned askEvidenceRef for every Step and call: ${checkpoints}.`;
+    }
     default: {
       const exhaustive: never = step.authority;
       return exhaustive;

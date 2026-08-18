@@ -19,8 +19,8 @@ export interface SparkAskEvidenceBody {
   schema: "spark.ask.evidence/v1" | "spark.ask.evidence/v2";
   request: SparkAskAutoAnswerRequest;
   result: unknown;
-  /** Explicit for v2; absent from historical v1 receipts. */
-  answerSource?: "user";
+  /** Explicit for v2; absent from historical v1 user receipts. */
+  answerSource?: "user" | "reviewer";
   autoAnswered: boolean;
   recordedAt: string;
 }
@@ -37,6 +37,7 @@ export interface VerifiedCanonicalAskEvidence {
   answers: CanonicalAskEvidenceAnswer[];
   answersHash: string;
   selectedValues: string[];
+  answerSource: "user" | "reviewer";
   approvalProof?: SparkMemoryApprovalProof;
 }
 
@@ -70,6 +71,10 @@ export function isUserAnsweredAskEvidenceBody(value: unknown): value is SparkAsk
   return normalizeUserAnsweredAskEvidence(value) !== undefined;
 }
 
+export function isCanonicalAnsweredAskEvidenceBody(value: unknown): value is SparkAskEvidenceBody {
+  return normalizeCanonicalAnsweredAskEvidence(value) !== undefined;
+}
+
 /**
  * Persist a receipt outside the public evidence surface. The receipt binds the
  * evidence ref, content hash, and normalized user answers to the canonical ask
@@ -80,15 +85,19 @@ export async function recordCanonicalAskEvidenceReceipt(
   cwd: string,
   evidence: EvidenceRecord,
 ): Promise<void> {
-  const answers = normalizeUserAnsweredAskEvidence(evidence.body);
-  if (!answers) throw new Error("canonical ask evidence requires a user-answered result");
+  const normalized = normalizeCanonicalAnsweredAskEvidence(evidence.body);
+  if (!normalized) throw new Error("canonical ask evidence requires a user or reviewer answer");
+  const { answers } = normalized;
   if (!evidence.hash) throw new Error("canonical ask evidence is missing its content hash");
   const request = normalizeCanonicalAskRequest(evidence.body);
   if (!request) throw new Error("canonical ask evidence is missing its request");
   const evidenceRef = asEvidenceRef(evidence.ref);
   const answersHash = hashAnswers(answers);
-  if (request.approvalBinding && !hasExplicitMemoryApproval(request, answers)) {
-    throw new Error("canonical memory approval evidence requires an explicit approve answer");
+  if (
+    request.approvalBinding &&
+    (normalized.answerSource !== "user" || !hasExplicitMemoryApproval(request, answers))
+  ) {
+    throw new Error("canonical memory approval evidence requires a direct-user approve answer");
   }
   const recordedAt = new Date().toISOString();
   const receipt: CanonicalAskEvidenceReceipt = request.approvalBinding
@@ -115,8 +124,9 @@ export async function verifyCanonicalAskEvidence(
   cwd: string,
   evidence: EvidenceRecord,
 ): Promise<VerifiedCanonicalAskEvidence | undefined> {
-  const answers = normalizeUserAnsweredAskEvidence(evidence.body);
-  if (!answers || !evidence.hash || !evidence.ref.startsWith("evidence:")) return undefined;
+  const normalized = normalizeCanonicalAnsweredAskEvidence(evidence.body);
+  if (!normalized || !evidence.hash || !evidence.ref.startsWith("evidence:")) return undefined;
+  const { answers, answerSource } = normalized;
   const evidenceRef = asEvidenceRef(evidence.ref);
   const raw = await readJsonFileOptional(
     canonicalAskEvidenceReceiptPath(cwd, evidenceRef),
@@ -172,6 +182,7 @@ export async function verifyCanonicalAskEvidence(
         ...(answer.customText ? [answer.customText] : []),
       ]),
     ),
+    answerSource,
     ...(approvalProof ? { approvalProof } : {}),
   };
 }
@@ -192,23 +203,33 @@ function normalizeCanonicalAskRequest(value: unknown): SparkAskAutoAnswerRequest
 function normalizeUserAnsweredAskEvidence(
   value: unknown,
 ): CanonicalAskEvidenceAnswer[] | undefined {
+  const normalized = normalizeCanonicalAnsweredAskEvidence(value);
+  return normalized?.answerSource === "user" ? normalized.answers : undefined;
+}
+
+function normalizeCanonicalAnsweredAskEvidence(
+  value: unknown,
+): { answers: CanonicalAskEvidenceAnswer[]; answerSource: "user" | "reviewer" } | undefined {
   if (
     !isRecord(value) ||
     (value.schema !== "spark.ask.evidence/v1" && value.schema !== "spark.ask.evidence/v2")
   ) {
     return undefined;
   }
-  if (
-    value.autoAnswered !== false ||
-    (value.schema === "spark.ask.evidence/v2" && value.answerSource !== "user") ||
-    !isRecord(value.request) ||
-    !isRecord(value.result)
-  ) {
-    return undefined;
-  }
+  const answerSource =
+    value.schema === "spark.ask.evidence/v1"
+      ? value.autoAnswered === false
+        ? "user"
+        : undefined
+      : value.answerSource === "user" && value.autoAnswered === false
+        ? "user"
+        : value.answerSource === "reviewer" && value.autoAnswered === true
+          ? "reviewer"
+          : undefined;
+  if (!answerSource || !isRecord(value.request) || !isRecord(value.result)) return undefined;
   if (
     value.schema === "spark.ask.evidence/v2" &&
-    (value.result.answerSource !== "user" || value.result.status !== "answered")
+    (value.result.answerSource !== answerSource || value.result.status !== "answered")
   ) {
     return undefined;
   }
@@ -249,9 +270,12 @@ function normalizeUserAnsweredAskEvidence(
     answers.push({ questionId, values, ...(customText ? { customText } : {}) });
   }
   if (answers.length === 0) return undefined;
-  return answers.sort((left, right) =>
-    left.questionId < right.questionId ? -1 : left.questionId > right.questionId ? 1 : 0,
-  );
+  return {
+    answers: answers.sort((left, right) =>
+      left.questionId < right.questionId ? -1 : left.questionId > right.questionId ? 1 : 0,
+    ),
+    answerSource,
+  };
 }
 
 function hasExplicitMemoryApproval(

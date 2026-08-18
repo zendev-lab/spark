@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createReproStepAskBinding, decodeReproStepAskBinding } from "@zendev-lab/spark-repro";
+import { createReproStepAskBinding, decodeReproStepAskBindings } from "@zendev-lab/spark-repro";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import {
   ensureSparkStateForActiveWorkspace,
@@ -276,7 +276,7 @@ async function collectFleetLifecycleMessages(ctx: SparkToolContext): Promise<
     reconcileError = reconcileError ?? (error instanceof Error ? error.message : String(error));
   }
   const mode = (await loadSparkMode(ctx.cwd, ctx)).mode;
-  if (mode !== "fleet" && mode !== "plan") return [];
+  if (mode !== "fleet") return [];
   const currentGraph = (await loadSparkGraph(ctx.cwd, ctx)) ?? graph;
   try {
     const projection = await projectSparkFleetState({
@@ -284,23 +284,15 @@ async function collectFleetLifecycleMessages(ctx: SparkToolContext): Promise<
       graph: currentGraph,
       projectRef: project.ref,
     });
-    if (mode === "plan" && !projection.recommended) return [];
-    const content =
-      mode === "fleet"
-        ? [
-            renderSparkFleetProjection(projection),
-            reconcileError ? `- reconcile error: ${reconcileError}` : undefined,
-            "Completion mail is only a wake signal; authoritative TaskRun reconciliation above is the result source.",
-            'For failures choose explicitly: task_write({ action: "recover" }) then assign, assign unrelated ready work, or ask/wait. Do not retry blindly.',
-            "Do not dispatch outside assign and do not modify files, Git, or Cue state from the Fleet owner Session.",
-          ]
-            .filter((line): line is string => Boolean(line))
-            .join("\n")
-        : [
-            renderSparkFleetProjection(projection),
-            "Preflight found at least two non-conflicting runnable Fleet lanes.",
-            "Recommend Fleet and ask the user to confirm Fleet versus ordinary Execute before switching modes. An explicit /execute or /fleet is already a decision.",
-          ].join("\n");
+    const content = [
+      renderSparkFleetProjection(projection),
+      reconcileError ? `- reconcile error: ${reconcileError}` : undefined,
+      "Completion mail is only a wake signal; authoritative TaskRun reconciliation above is the result source.",
+      'For failures choose explicitly: task_write({ action: "recover" }) then assign, assign unrelated ready work, or ask/wait. Do not retry blindly.',
+      "Do not dispatch outside assign and do not modify files, Git, or Cue state from the Fleet owner Session.",
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n");
     return [
       {
         customType: "spark-fleet-context",
@@ -377,6 +369,7 @@ async function reconcileTerminalReproLaneResultsSafely(
 
 const GOAL_DISABLED_INTERACTIVE_TOOLS = new Set(["ask_user", "ask_flow"]);
 export const SPARK_AUTONOMOUS_ASK_WAIT_TIMEOUT_MS = 15 * 60_000;
+export const SPARK_REPRO_AUTO_ANSWER_WAIT_TIMEOUT_MS = 1_000;
 export const SPARK_DEFAULT_ASK_WAIT_TIMEOUT_MS = 60 * 60_000;
 
 type PendingSparkAgentInstruction = { instruction: string; goalId?: string };
@@ -392,51 +385,69 @@ async function activePendingInstruction(
 
 export async function syncSparkGoalAskAutoAnswerPolicy(
   ctx: SparkToolContext,
-  _deps: SparkExtensionEventDeps,
+  deps: SparkExtensionEventDeps,
 ): Promise<void> {
+  ctx.sparkEvidenceCwd = sparkStateCwd(ctx.cwd, ctx);
   const activeGoal = await currentActiveSessionGoal(ctx);
   const repro = await readSessionRepro(ctx.cwd, ctx);
   const activeRepro = repro?.status === "active" ? repro : undefined;
-  ctx.askWaitTimeoutMs =
-    activeRepro || activeGoal
+  ctx.askWaitTimeoutMs = activeRepro
+    ? SPARK_REPRO_AUTO_ANSWER_WAIT_TIMEOUT_MS
+    : activeGoal
       ? SPARK_AUTONOMOUS_ASK_WAIT_TIMEOUT_MS
       : SPARK_DEFAULT_ASK_WAIT_TIMEOUT_MS;
 
   delete ctx.askAutoAnswer;
   delete ctx.askAutoAnswerResolver;
   if (activeRepro) {
+    ctx.askAutoAnswer = true;
+    ctx.askAutoAnswerResolver = await deps.createAskAutoAnswerResolver?.(ctx);
+  }
+  if (activeRepro) {
     ctx.sparkAutonomousAsk = {
       modeScope: "repro",
       goalOrReproId: activeRepro.reproId,
       ownerSessionId: sparkSessionOwnerKey(ctx),
       resolveBinding(request) {
-        const binding = decodeReproStepAskBinding(optionalString(request.context));
-        if (!binding) {
+        const bindings = decodeReproStepAskBindings(optionalString(request.context));
+        if (!bindings) {
           throw new Error(
-            "AUTONOMOUS_EVIDENCE_BINDING_REQUIRED: Repro ask context must bind the current plan step",
+            "AUTONOMOUS_EVIDENCE_BINDING_REQUIRED: Repro ask context must bind the current plan step or decision batch",
           );
         }
-        const step = activeRepro.plan.steps.find((candidate) => candidate.id === binding.stepId);
-        let expected;
-        try {
-          expected = step ? createReproStepAskBinding(activeRepro, step) : undefined;
-        } catch {
-          expected = undefined;
-        }
-        const expectedMode = binding.authority === "ask_approval" ? "approval" : "decision";
-        if (
-          !expected ||
-          JSON.stringify(binding) !== JSON.stringify(expected) ||
-          request.mode !== expectedMode
-        ) {
+        const expectedMode = bindings[0]?.authority === "ask_approval" ? "approval" : "decision";
+        const valid = bindings.every((binding) => {
+          const step = activeRepro.plan.steps.find((candidate) => candidate.id === binding.stepId);
+          let expected;
+          try {
+            expected = step ? createReproStepAskBinding(activeRepro, step) : undefined;
+          } catch {
+            expected = undefined;
+          }
+          return (
+            expected !== undefined &&
+            JSON.stringify(binding) === JSON.stringify(expected) &&
+            (binding.authority === "ask_approval" ? "approval" : "decision") === expectedMode
+          );
+        });
+        if (!valid || request.mode !== expectedMode) {
           throw new Error(
-            "AUTONOMOUS_EVIDENCE_BINDING_REQUIRED: Repro ask context must match the current plan revision, step definition, authority, and mode",
+            "AUTONOMOUS_EVIDENCE_BINDING_REQUIRED: Repro ask context must match the current plan revision, step definitions, authorities, and mode",
           );
         }
+        const [binding] = bindings;
         return {
-          planRevision: binding.planRevision,
-          ownerStepOrUnresolvedId: binding.stepId,
-          stepDefinitionDigest: binding.definitionDigest,
+          planRevision: binding!.planRevision,
+          ownerStepOrUnresolvedId:
+            bindings.length === 1
+              ? binding!.stepId
+              : `batch:${bindings.map((entry) => entry.stepId).join(",")}`,
+          stepDefinitionDigest:
+            bindings.length === 1
+              ? binding!.definitionDigest
+              : createHash("sha256")
+                  .update(JSON.stringify(bindings.map((entry) => entry.definitionDigest)))
+                  .digest("hex"),
         };
       },
     };

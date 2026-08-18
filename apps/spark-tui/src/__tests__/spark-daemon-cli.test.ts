@@ -5848,6 +5848,48 @@ test("running invocation reattach from cursor zero skips an already settled hist
   assert.equal(presentations, 0);
 });
 
+test("Spark native responder starts a reattached event stream at the requested window cursor", async () => {
+  const cursors: number[] = [];
+  const responder = createSparkDaemonNativeResponder(
+    {
+      turnStream: async (_paths, input) => {
+        cursors.push(input.after ?? 0);
+        return {
+          invocationId: input.invocationId,
+          events: [],
+          nextCursor: input.after ?? 0,
+          hasMore: false,
+        };
+      },
+      turnStatus: async (_paths, input) => ({
+        invocationId: input.invocationId,
+        sessionId: "native-window-session",
+        status: "succeeded" as const,
+        createdAt: "2026-08-17T00:00:00.000Z",
+        updatedAt: "2026-08-17T00:00:01.000Z",
+        finishedAt: "2026-08-17T00:00:01.000Z",
+        eventCursor: 654,
+      }),
+    },
+    {
+      sessionId: "native-window-session",
+      waitForCompletion: false,
+      onViewEvent: () => undefined,
+    },
+  );
+
+  await responder.observe(
+    {
+      invocationId: "inv_windowed_reattach",
+      status: "running",
+      acceptedAt: "2026-08-17T00:00:00.000Z",
+    },
+    { messages: [], afterEventCursor: 654 },
+  );
+
+  assert.deepEqual(cursors, [654]);
+});
+
 test("Spark native responder retries completion status transport failures without resubmitting", async () => {
   let submitCalls = 0;
   const statusInvocationIds: string[] = [];

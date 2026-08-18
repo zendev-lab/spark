@@ -755,7 +755,11 @@ export {
   recordCanonicalAnswerEventEvidenceReceipt,
   verifyCanonicalAnswerEventEvidence,
 } from "./answer-event-evidence.ts";
-export { isUserAnsweredAskEvidenceBody, verifyCanonicalAskEvidence } from "./evidence.ts";
+export {
+  isCanonicalAnsweredAskEvidenceBody,
+  isUserAnsweredAskEvidenceBody,
+  verifyCanonicalAskEvidence,
+} from "./evidence.ts";
 export type {
   CanonicalAskEvidenceAnswer,
   SparkAskEvidenceBody,

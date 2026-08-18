@@ -138,7 +138,7 @@ describe("autonomous canonical Ask", () => {
     expect(second?.interactionRequestId).not.toBe(first?.interactionRequestId);
   });
 
-  it("rejects omitted/blocking delivery and reviewer fallback before raw dispatch", async () => {
+  it("rejects omitted/blocking delivery before raw dispatch when auto-answer is disabled", async () => {
     const execute = vi.fn(async () => ({ status: "pending" }));
     let ask: ToolConfig | undefined;
     registerSparkAskActionTool(
@@ -158,7 +158,7 @@ describe("autonomous canonical Ask", () => {
       mode: "decision",
       questions: [{ id: "choice", prompt: "Choose?", type: "single" }],
     };
-    for (const params of [base, { ...base, delivery: "blocking" }, { ...base, autoAnswer: true }]) {
+    for (const params of [base, { ...base, delivery: "blocking" }]) {
       await expect(
         ask!.execute(
           "tool-call",
@@ -170,6 +170,77 @@ describe("autonomous canonical Ask", () => {
       ).rejects.toThrow(/AUTONOMOUS_ASYNC_ONLY/u);
     }
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("allows revision-bound autonomous reviewer auto-answer", async () => {
+    const execute = vi.fn(
+      async (
+        _toolCallId: string,
+        _params: Record<string, unknown>,
+        _signal: AbortSignal,
+        _onUpdate: unknown,
+        ctx: SparkHostContext,
+      ) =>
+        (ctx as SparkHostContext & { askAnswerSource?: string }).askAnswerSource === "reviewer"
+          ? {
+              details: {
+                result: {
+                  status: "answered",
+                  answerSource: "reviewer",
+                  answers: { choice: { values: ["a"], labels: ["A"] } },
+                },
+              },
+            }
+          : { details: { result: { status: "pending", timedOut: true } } },
+    );
+    let ask: ToolConfig | undefined;
+    registerSparkAskActionTool(
+      { registerTool: (tool) => (ask = tool) },
+      {
+        resolveTool: () =>
+          ({
+            name: "ask_user",
+            label: "Ask user",
+            description: "test",
+            parameters: {},
+            execute,
+          }) as unknown as ToolConfig,
+        autoAnswer: async () => ({
+          answers: { choice: { values: ["a"] } },
+          reason: "delegated unattended decision",
+        }),
+      },
+    );
+
+    const ctx = autonomousContext() as SparkHostContext & { askAutoAnswer?: boolean };
+    ctx.askAutoAnswer = true;
+    const result = await ask!.execute(
+      "tool-call",
+      {
+        autoAnswer: true,
+        delivery: "blocking",
+        mode: "decision",
+        context: "bound",
+        questions: [
+          {
+            id: "choice",
+            prompt: "Choose?",
+            type: "single",
+            required: true,
+            options: [
+              { value: "a", label: "A" },
+              { value: "b", label: "B" },
+            ],
+          },
+        ],
+      },
+      new AbortController().signal,
+      () => undefined,
+      ctx,
+    );
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(result.details).toMatchObject({ autoAnswered: true, answerSource: "reviewer" });
   });
 });
 

@@ -990,9 +990,10 @@ test("Spark native session admits busy input to the daemon before observing it",
   assert.deepEqual(session.daemonPending, []);
 });
 
-test("Spark native session resumes snapshot-owned invocations without resubmitting them", async () => {
+test("Spark native session resumes snapshot-owned invocations through a bounded event window", async () => {
   const admitted: string[] = [];
   const observed: string[] = [];
+  const observedCursors: Array<number | undefined> = [];
   const releases = new Map<string, () => void>();
   const responder = Object.assign(
     async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
@@ -1001,8 +1002,9 @@ test("Spark native session resumes snapshot-owned invocations without resubmitti
         admitted.push(prompt);
         throw new Error("attached work must not be resubmitted");
       },
-      observe: async (admission: SparkTurnSubmitResult) => {
+      observe: async (admission: SparkTurnSubmitResult, context: SparkNativeResponderContext) => {
         observed.push(admission.invocationId);
+        observedCursors.push(context.afterEventCursor);
         await new Promise<void>((resolve) => releases.set(admission.invocationId, resolve));
         return "";
       },
@@ -1018,7 +1020,7 @@ test("Spark native session resumes snapshot-owned invocations without resubmitti
         createdAt: "2026-07-28T00:00:00.000Z",
         updatedAt: "2026-07-28T00:00:03.000Z",
         finishedAt: "2026-07-28T00:00:03.000Z",
-        eventCursor: 0,
+        eventCursor: 200,
       }),
     },
   ) satisfies SparkNativeResponder;
@@ -1054,6 +1056,7 @@ test("Spark native session resumes snapshot-owned invocations without resubmitti
 
   assert.deepEqual(admitted, []);
   assert.deepEqual(observed, ["inv_running"]);
+  assert.deepEqual(observedCursors, [136]);
   assert.equal(session.messages.filter(({ role }) => role === "user").length, 1);
 
   releases.get("inv_running")?.();
@@ -1061,6 +1064,7 @@ test("Spark native session resumes snapshot-owned invocations without resubmitti
     await new Promise((resolve) => setImmediate(resolve));
   }
   assert.deepEqual(observed, ["inv_running", "inv_queued"]);
+  assert.deepEqual(observedCursors, [136, 136]);
 
   releases.get("inv_queued")?.();
   for (let index = 0; index < 3; index += 1) {

@@ -926,7 +926,8 @@ export function resolvePythonRunner(
   } = {},
 ): PythonRunnerResolution {
   if (options.venv) {
-    const executable = `${options.venv.replace(/\/+$/u, "")}/bin/python`;
+    const venvPath = options.venv.replace(/\/+$/u, "");
+    const executable = venvPath.endsWith("/bin/python") ? venvPath : `${venvPath}/bin/python`;
     return {
       executable: "uv",
       source: "uv",

@@ -158,6 +158,11 @@ export interface SparkReproStepAskBinding {
   authority: "ask_decision" | "ask_approval";
 }
 
+export interface SparkReproStepAskBatchBinding {
+  schema: "spark.repro.step-ask-batch/v2";
+  bindings: SparkReproStepAskBinding[];
+}
+
 export type SparkReproStepVerifierResult =
   | {
       verdict: "Pass";
@@ -488,9 +493,9 @@ export function isStageGatePassed(repro: SparkSessionRepro): boolean {
 
 export function isStageComplete(repro: SparkSessionRepro): boolean {
   const subgoals = currentReproSubgoals(repro);
-  const planComplete =
-    subgoals.length > 0 &&
-    subgoals.every((subgoal) => subgoal.status === "done" || subgoal.status === "cancelled");
+  const planComplete = subgoals.every(
+    (subgoal) => subgoal.status === "done" || subgoal.status === "cancelled",
+  );
   return isStageAcceptanceMet(repro) && isStageGatePassed(repro) && planComplete;
 }
 
@@ -610,7 +615,6 @@ export function advanceReproStage(repro: SparkSessionRepro): SparkSessionRepro |
     const completedAt = nowIso();
     return { ...repro, status: "complete", completedAt, updatedAt: completedAt };
   }
-  if (!repro.subgoals.some((subgoal) => subgoal.stage === nextStage.name)) return undefined;
   return {
     ...repro,
     currentStageIndex: repro.currentStageIndex + 1,
@@ -784,7 +788,10 @@ export function reviseReproPlan(
         },
       ]
     : repro.plan.revisions;
-  const stages = goalChanged ? clearGoalContractProof(repro.stages) : repro.stages;
+  const baseStages = goalChanged ? clearGoalContractProof(repro.stages) : repro.stages;
+  const stages = input.steps
+    ? clearLegacyAcceptanceForPlannedStages(baseStages, normalizedSteps)
+    : baseStages;
   const revised: SparkSessionRepro = {
     ...repro,
     ...(normalizedGoal ? { objective: normalizedGoal.objective } : {}),
@@ -925,8 +932,24 @@ export function createReproStepAskBinding(
   };
 }
 
+export function createReproStepAskBatchBinding(
+  repro: SparkSessionRepro,
+  steps: readonly SparkReproStep[],
+): SparkReproStepAskBatchBinding {
+  if (steps.length === 0) throw new Error("repro step ask batch requires at least one step");
+  const bindings = steps.map((step) => createReproStepAskBinding(repro, step));
+  if (new Set(bindings.map((binding) => binding.stepId)).size !== bindings.length) {
+    throw new Error("repro step ask batch contains duplicate step ids");
+  }
+  return { schema: "spark.repro.step-ask-batch/v2", bindings };
+}
+
 export function encodeReproStepAskBinding(binding: SparkReproStepAskBinding): string {
   return `spark.repro.step-ask/v1:${JSON.stringify(binding)}`;
+}
+
+export function encodeReproStepAskBatchBinding(binding: SparkReproStepAskBatchBinding): string {
+  return `spark.repro.step-ask-batch/v2:${JSON.stringify(binding)}`;
 }
 
 export function decodeReproStepAskBinding(
@@ -958,6 +981,34 @@ export function decodeReproStepAskBinding(
       doneWhen: [...binding.doneWhen],
       authority: binding.authority,
     };
+  } catch {
+    return undefined;
+  }
+}
+
+export function decodeReproStepAskBindings(
+  value: string | undefined,
+): SparkReproStepAskBinding[] | undefined {
+  const single = decodeReproStepAskBinding(value);
+  if (single) return [single];
+  const prefix = "spark.repro.step-ask-batch/v2:";
+  if (!value?.startsWith(prefix)) return undefined;
+  try {
+    const batch = JSON.parse(value.slice(prefix.length)) as Partial<SparkReproStepAskBatchBinding>;
+    if (
+      batch.schema !== "spark.repro.step-ask-batch/v2" ||
+      !Array.isArray(batch.bindings) ||
+      batch.bindings.length === 0
+    ) {
+      return undefined;
+    }
+    const bindings = batch.bindings.map((binding) =>
+      decodeReproStepAskBinding(`spark.repro.step-ask/v1:${JSON.stringify(binding)}`),
+    );
+    if (bindings.some((binding) => !binding)) return undefined;
+    const parsed = bindings as SparkReproStepAskBinding[];
+    if (new Set(parsed.map((binding) => binding.stepId)).size !== parsed.length) return undefined;
+    return parsed;
   } catch {
     return undefined;
   }
@@ -1042,7 +1093,6 @@ export function normalizeStoredSparkSessionRepro(value: unknown): SparkSessionRe
       };
     });
     const normalizedPlan = { ...repro.plan, steps };
-    const threeLane = normalizeSparkReproThreeLaneSessionState(normalizedPlan, repro.threeLane);
     const goalContract: SparkReproGoalContract = {
       ...repro.goalContract,
       authority: {
@@ -1050,6 +1100,14 @@ export function normalizeStoredSparkSessionRepro(value: unknown): SparkSessionRe
         boundedExternalWrites: "driver",
       },
     };
+    const threeLaneNeedsRebase =
+      repro.threeLane.planRevision !== normalizedPlan.currentRevision ||
+      repro.threeLane.workItems.some(
+        (workItem) => workItem.planRevision !== normalizedPlan.currentRevision,
+      );
+    const threeLane = threeLaneNeedsRebase
+      ? rebaseSparkReproThreeLaneSessionState(normalizedPlan, repro.threeLane)
+      : normalizeSparkReproThreeLaneSessionState(normalizedPlan, repro.threeLane);
     const semanticStateChanged =
       JSON.stringify(stages) !== JSON.stringify(repro.stages) ||
       JSON.stringify(steps) !== JSON.stringify(repro.plan.steps) ||
@@ -1094,7 +1152,11 @@ export function currentReproSubgoals(repro: SparkSessionRepro): SparkReproSubgoa
 export function nextReproStagePlanningBlocker(repro: SparkSessionRepro): string | undefined {
   if (!isStageComplete(repro)) return undefined;
   const nextStage = repro.stages[repro.currentStageIndex + 1];
-  if (!nextStage || repro.subgoals.some((subgoal) => subgoal.stage === nextStage.name))
+  if (
+    !nextStage ||
+    nextStage.acceptance.length > 0 ||
+    repro.subgoals.some((subgoal) => subgoal.stage === nextStage.name)
+  )
     return undefined;
   return `Stage ${nextStage.name} has no planned subgoals. Plan concrete subgoals and task experiments before advancing.`;
 }
@@ -1299,7 +1361,17 @@ function isStoredSparkSessionRepro(
         value.plan,
       );
     } catch {
-      return false;
+      try {
+        validateSparkReproThreeLaneSessionState(
+          rebaseSparkReproThreeLaneSessionState(
+            value.plan,
+            value.threeLane as SparkReproThreeLaneSessionState,
+          ),
+          value.plan,
+        );
+      } catch {
+        return false;
+      }
     }
   }
   if (
@@ -2365,6 +2437,18 @@ function assertAcyclicSteps(steps: readonly SparkReproStepDefinition[]): void {
 
 function sameStepDefinition(step: SparkReproStep, definition: SparkReproStepDefinition): boolean {
   return JSON.stringify(stepDefinition(step)) === JSON.stringify(definition);
+}
+
+function clearLegacyAcceptanceForPlannedStages(
+  stages: SparkReproStage[],
+  steps: SparkReproStepDefinition[],
+): SparkReproStage[] {
+  const plannedStages = new Set(steps.map((step) => step.stage));
+  return stages.map((stage) => {
+    if (!plannedStages.has(stage.name)) return stage;
+    const { gate: _gate, ...withoutGate } = stage;
+    return { ...withoutGate, acceptance: [] };
+  });
 }
 
 function clearGoalContractProof(stages: readonly SparkReproStage[]): SparkReproStage[] {

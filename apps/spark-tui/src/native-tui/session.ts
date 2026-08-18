@@ -42,6 +42,7 @@ import {
 
 const DAEMON_ADMISSION_RETRY_MS = 250;
 const DAEMON_STATUS_RECONCILE_MS = 500;
+const DAEMON_REATTACH_EVENT_WINDOW = 64;
 
 async function waitForDaemonRetry(
   signal: AbortSignal,
@@ -104,6 +105,7 @@ type SparkNativeDaemonObservation = {
   observerAbort?: AbortController;
   userMessageDisplayed?: boolean;
   redisplayInput?: boolean;
+  windowHistoricalEvents?: boolean;
 };
 
 type SparkNativeRetryAdmission = {
@@ -999,6 +1001,7 @@ export class SparkNativeSession {
         admission,
         admissionPromise: Promise.resolve(admission),
         userMessageDisplayed: true,
+        windowHistoricalEvents: true,
       };
       this.observedDaemonInvocationIds.add(turn.invocationId);
       this.daemonObservations.push(observation);
@@ -1141,9 +1144,23 @@ export class SparkNativeSession {
     let observationError: unknown;
     try {
       try {
+        let afterEventCursor: number | undefined;
+        if (observation.windowHistoricalEvents && this.responder.status) {
+          try {
+            const status = await this.responder.status(admission.invocationId, {
+              signal: observerAbort.signal,
+            });
+            afterEventCursor = Math.max(0, status.eventCursor - DAEMON_REATTACH_EVENT_WINDOW);
+          } catch {
+            // Status reconciliation below remains authoritative. Falling back to
+            // cursor zero preserves observability when the bootstrap read races
+            // a transient daemon transport failure.
+          }
+        }
         response = await this.responder.observe(admission, {
           messages: this.messages,
           submissionId: observation.submissionId,
+          ...(afterEventCursor === undefined ? {} : { afterEventCursor }),
           signal: observerAbort.signal,
           appendAssistantChunk: (chunk) => {
             streamedAssistant = true;

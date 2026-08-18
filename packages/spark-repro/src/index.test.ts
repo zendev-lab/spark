@@ -712,24 +712,7 @@ describe("spark-repro", () => {
     };
 
     expect(isStageComplete(repro)).toBe(true);
-    expect(advanceReproStage(repro)).toBeUndefined();
-    expect(nextReproStagePlanningBlocker(repro)).toBe(
-      "Stage reference has no planned subgoals. Plan concrete subgoals and task experiments before advancing.",
-    );
-
-    repro = reviseReproPlan(repro, {
-      reason: "Plan scaffold stage",
-      subgoals: [
-        {
-          id: "scaffold-build-layout",
-          stage: "reference",
-          goal: "Build the target project layout",
-          doneWhen: ["The project tree command matches the recorded layout"],
-          evidenceRequired: ["Project tree command output"],
-          authority: "safe_local",
-        },
-      ],
-    });
+    expect(nextReproStagePlanningBlocker(repro)).toBeUndefined();
     expect(advanceReproStage(repro)).toMatchObject({
       currentStageIndex: 1,
       currentPhase: "implement",

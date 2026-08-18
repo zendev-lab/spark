@@ -41,6 +41,7 @@ const performanceBenchmarker = "role:extension-repro-performance-benchmarker" as
 const numericalAuditor = "role:extension-repro-numerical-auditor" as RoleRef;
 const implementationExplorer = "role:extension-repro-implementation-explorer" as RoleRef;
 const exactnessInstrumentation = "role:extension-repro-exactness-instrumentation-worker" as RoleRef;
+const executor = "role:builtin-executor" as RoleRef;
 
 function task(
   id: string,

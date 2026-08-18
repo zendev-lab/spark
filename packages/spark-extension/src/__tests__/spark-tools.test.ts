@@ -5581,6 +5581,59 @@ test("canonical task project_use creates the first Spark project when graph is m
   }
 });
 
+test("task_write project_use honors canonical projectRef and the legacy project alias", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "task-tool-project-use-selector-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    const graph = (await defaultTaskGraphStore(dir).load()) ?? new TaskGraph();
+    const existing = graph.projects()[0];
+    assert.ok(existing, "fixture project must exist");
+
+    // Canonical public field: projectRef selects the existing project.
+    const viaProjectRef = await executeSparkTool(tools, "task_write", ctx, {
+      action: "project_use",
+      projectRef: existing.ref,
+    });
+    assert.match(toolText(viaProjectRef), /Selected existing Spark project/);
+    assert.equal(
+      (viaProjectRef.details as { project?: { ref?: string } }).project?.ref,
+      existing.ref,
+    );
+
+    const statusAfterRef = await executeSparkTool(tools, "task_read", ctx, {
+      action: "project_status",
+    });
+    assert.equal(
+      (statusAfterRef.details as { selectedProject?: { ref?: string } }).selectedProject?.ref,
+      existing.ref,
+    );
+
+    // Legacy compatibility alias: the `project` field still selects.
+    const viaLegacy = await executeSparkTool(tools, "task_write", ctx, {
+      action: "project_use",
+      project: existing.ref,
+    });
+    assert.match(toolText(viaLegacy), /Selected existing Spark project/);
+
+    // Canonical projectRef wins over the legacy alias when both are provided.
+    const other = graph.createProject({
+      title: "Second selector project",
+      description: "Canonical target.",
+    });
+    await defaultTaskGraphStore(dir).save(graph);
+    const both = await executeSparkTool(tools, "task_write", ctx, {
+      action: "project_use",
+      project: existing.ref,
+      projectRef: other.ref,
+    });
+    assert.match(toolText(both), /Selected existing Spark project/);
+    assert.equal((both.details as { project?: { ref?: string } }).project?.ref, other.ref);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 test("evidence tool lists and reads evidence through the canonical facade", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-artifacts-"));
   try {
@@ -7641,6 +7694,10 @@ test("active Repro binds detached Ask to its current step revision", async () =>
     const repro = await readSessionRepro(dir, ctx);
     assert.ok(repro);
     assert.equal(ctx.sparkAutonomousAsk?.modeScope, "repro");
+    assert.equal(ctx.askAutoAnswer, true);
+    // Exercise the explicit detached-user compatibility path separately from
+    // the default unattended reviewer policy.
+    ctx.askAutoAnswer = false;
 
     const base = {
       delivery: "async",
@@ -7752,8 +7809,9 @@ test("/repro command starts, reports, and stops the Repro", async () => {
     const repro = await readSessionRepro(dir, ctx);
     assert.equal(repro?.status, "active");
     assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
-    assert.equal(ctx.askWaitTimeoutMs, 15 * 60_000);
-    assert.equal(ctx.askAutoAnswer, undefined);
+    assert.equal(ctx.askWaitTimeoutMs, 1_000);
+    assert.equal(ctx.askAutoAnswer, true);
+    assert.equal(typeof ctx.askAutoAnswerResolver, "function");
     const driver = activeTestLoop(run, "repro");
     assert.equal(driver?.loopId, repro?.reproId);
     assert.equal(driver?.status, "scheduled");
@@ -8886,12 +8944,37 @@ test("repro plan, step, and settle enforce the typed protocol and bounded contin
       (step) => step.id === "freeze-source-model-weight-data-contract",
     );
     if (!reproBeforeStep || !contractStep) throw new Error("missing seeded repro contract step");
+    const status = await executeSparkTool(tools, "repro", ctx, { action: "status" });
+    const statusSteps = (
+      status.details as {
+        plan: {
+          steps: Array<{
+            id: string;
+            stepProofBinding?: {
+              schema: string;
+              planRevision: number;
+              stepId: string;
+              definitionDigest: string;
+              doneWhen: string[];
+            };
+          }>;
+        };
+      }
+    ).plan.steps;
+    assert.deepEqual(statusSteps.find((step) => step.id === contractStep.id)?.stepProofBinding, {
+      schema: "spark.repro.step-proof-binding/v1",
+      planRevision: reproStepPlanRevision(reproBeforeStep, contractStep.id),
+      stepId: contractStep.id,
+      definitionDigest: stepDefinitionDigest(contractStep),
+      doneWhen: contractStep.doneWhen,
+    });
     const evidence = await defaultEvidenceStore(dir).put({
       kind: "record",
       title: "Reviewed reproduction contract",
       format: "json",
       body: {
         schema: "spark.repro.step-proof/v1",
+        reproId: reproBeforeStep.reproId,
         planRevision: reproStepPlanRevision(reproBeforeStep, contractStep.id),
         stepId: contractStep.id,
         definitionDigest: stepDefinitionDigest(contractStep),
@@ -8899,7 +8982,7 @@ test("repro plan, step, and settle enforce the typed protocol and bounded contin
         doneWhen: contractStep.doneWhen,
         passed: true,
       },
-      provenance: { producer: "spark" },
+      provenance: { producer: "cue" },
     });
     const stepped = await executeSparkTool(tools, "repro", ctx, {
       action: "step",

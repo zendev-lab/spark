@@ -23,7 +23,19 @@ import {
   renderCueScriptResult,
   registerSparkCueTools,
   resolveCueWorkingDirectory,
+  resolvePythonRunner,
 } from "../index.ts";
+
+test("resolvePythonRunner accepts a venv root or its Python executable", () => {
+  assert.equal(
+    resolvePythonRunner({ venv: "/work/.venv", scriptMode: true }).python?.executable,
+    "/work/.venv/bin/python",
+  );
+  assert.equal(
+    resolvePythonRunner({ venv: "/work/.venv/bin/python", scriptMode: true }).python?.executable,
+    "/work/.venv/bin/python",
+  );
+});
 
 type RegisteredSparkCueTool = Parameters<SparkCueHostApi["registerTool"]>[0];
 

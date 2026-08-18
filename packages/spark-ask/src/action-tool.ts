@@ -16,8 +16,8 @@ import {
   sparkEvidenceRequestBindingSchema,
 } from "@zendev-lab/spark-protocol";
 import {
+  isCanonicalAnsweredAskEvidenceBody,
   isExplicitMemoryApprovalEvidenceBody,
-  isUserAnsweredAskEvidenceBody,
   recordCanonicalAskEvidenceReceipt,
   type SparkAskEvidenceBody,
 } from "./evidence.ts";
@@ -230,22 +230,27 @@ export function registerSparkAskActionTool(
       const autoAnswer = normalizeAskAutoAnswerMode(
         params.autoAnswer ?? contextAutoAnswerMode(ctx),
       );
+      if (autoAnswer && params.delivery === "async") {
+        params = { ...params, delivery: "blocking" };
+      }
       const autonomous = ctx.sparkAutonomousAsk;
-      if (autonomous && (params.delivery !== "async" || autoAnswer)) {
+      if (autonomous && autoAnswer && contextAutoAnswerMode(ctx) !== true) {
         throw new SparkAutonomousAsyncOnlyError(
-          autoAnswer
-            ? "autoAnswer/reviewer fallback is forbidden in active Goal/Repro"
-            : "delivery must be explicitly async in active Goal/Repro",
+          "autoAnswer/reviewer fallback is not enabled by the active Goal/Repro host policy",
+        );
+      }
+      if (autonomous && !autoAnswer && params.delivery !== "async") {
+        throw new SparkAutonomousAsyncOnlyError(
+          "delivery must be explicitly async in active Goal/Repro unless reviewer autoAnswer is enabled",
         );
       }
       if (params.recordAsEvidence === true && params.delivery === "async" && !autonomous) {
         throw new Error("ask.recordAsEvidence cannot be combined with delivery=async");
       }
-      if (params.recordAsEvidence === true && autoAnswer) {
-        throw new Error("ask.recordAsEvidence requires a direct user answer, not autoAnswer");
-      }
-      if (autoAnswer && params.delivery === "async") {
-        throw new Error("ask.autoAnswer cannot be combined with delivery=async");
+      if (autonomous && autoAnswer) {
+        await autonomous.resolveBinding(
+          decodeAutoAnswerRequest(params) as unknown as Readonly<Record<string, unknown>>,
+        );
       }
       const toSessionId = typeof params.toSessionId === "string" ? params.toSessionId.trim() : "";
       if (toSessionId) {
@@ -268,7 +273,7 @@ export function registerSparkAskActionTool(
       const tool = options.resolveTool(target);
       if (!tool) throw new Error(`ask action adapter could not find ${target}`);
       let forwarded = stripAdapterOnlyParams(params);
-      if (autonomous) {
+      if (autonomous && !autoAnswer) {
         const bound = await createAutonomousEvidenceRequest(params, autonomous);
         forwarded = {
           ...forwarded,
@@ -294,8 +299,21 @@ export function registerSparkAskActionTool(
         const result = await tool.execute(toolCallId, humanParams, signal, onUpdate, dispatchCtx);
         return autonomous ? result : maybeRecordAskEvidence(params, result, ctx);
       }
-      const humanResult = await tool.execute(toolCallId, humanParams, signal, onUpdate, ctx);
-      if (!didHumanAskTimeOut(humanResult)) return humanResult;
+      const autoAnswerDispatchCtx = autonomous
+        ? ({ ...ctx, sparkCanonicalAskDispatch: true } as SparkHostContext)
+        : ctx;
+      const humanResult = await tool.execute(
+        toolCallId,
+        humanParams,
+        signal,
+        onUpdate,
+        autoAnswerDispatchCtx,
+      );
+      if (!didHumanAskTimeOut(humanResult)) {
+        return params.recordAsEvidence === true
+          ? await maybeRecordAskEvidence(params, humanResult, ctx, "user")
+          : humanResult;
+      }
       const request = decodeAutoAnswerRequest(params);
       const autoAnswered = autoAnswerResolver
         ? await autoAnswerResolver(request, ctx)
@@ -303,9 +321,16 @@ export function registerSparkAskActionTool(
       if (!autoAnswered) return blockedAutoAnswerResult(params, missingAutoAnswerResolverReason());
       const blocked = validateAutoAnswerResult(request, autoAnswered);
       if (blocked) return blockedAutoAnswerResult(params, blocked);
-      const syntheticCtx = withSyntheticAutoAnswerUi(ctx, request, autoAnswered.answers ?? {});
+      const syntheticCtx = withSyntheticAutoAnswerUi(
+        autoAnswerDispatchCtx,
+        request,
+        autoAnswered.answers ?? {},
+      );
       const result = await tool.execute(toolCallId, forwarded, signal, onUpdate, syntheticCtx);
-      return annotateAutoAnswerResult(result, autoAnswered, waitTimeoutMs);
+      const annotated = annotateAutoAnswerResult(result, autoAnswered, waitTimeoutMs);
+      return params.recordAsEvidence === true
+        ? await maybeRecordAskEvidence(params, annotated, ctx, "reviewer")
+        : annotated;
     },
   });
 }
@@ -609,25 +634,30 @@ async function maybeRecordAskEvidence(
   params: Record<string, unknown>,
   result: Awaited<ReturnType<ToolConfig["execute"]>>,
   ctx: SparkHostContext,
+  answerSource: "user" | "reviewer" = "user",
 ) {
   if (params.recordAsEvidence !== true) return result;
-  const cwd = typeof ctx.cwd === "string" ? ctx.cwd : undefined;
+  const cwd =
+    typeof ctx.sparkEvidenceCwd === "string" && ctx.sparkEvidenceCwd.trim()
+      ? ctx.sparkEvidenceCwd
+      : typeof ctx.cwd === "string"
+        ? ctx.cwd
+        : undefined;
   if (!cwd) throw new Error("ask recordAsEvidence requires a workspace cwd");
   const askRequest = decodeAutoAnswerRequest(params);
   const body: SparkAskEvidenceBody = {
     schema: "spark.ask.evidence/v2",
     request: askRequest,
     result: isRecord(result.details) ? (result.details.result ?? null) : null,
-    answerSource: "user",
-    autoAnswered: false,
+    answerSource,
+    autoAnswered: answerSource === "reviewer",
     recordedAt: new Date().toISOString(),
   };
-  if (!isUserAnsweredAskEvidenceBody(body)) {
+  if (!isCanonicalAnsweredAskEvidenceBody(body)) {
     if (didHumanAskTimeOut(result)) return result;
     throw new Error(
-      `ask.recordAsEvidence requires a completed user-answered result (observed ${describeAskResultStatus(result, askRequest)}). ` +
-        "No evidence was recorded and no decision proof exists. Re-ask the same question when a user can answer, " +
-        "or continue with work that does not depend on this decision; never substitute a prior or synthesized approval.",
+      `ask.recordAsEvidence requires a completed user or delegated-reviewer result (observed ${describeAskResultStatus(result, askRequest)}). ` +
+        "No evidence was recorded and no decision proof exists.",
     );
   }
   if (params.approvalBinding && !isExplicitMemoryApprovalEvidenceBody(body)) {
@@ -649,6 +679,7 @@ async function maybeRecordAskEvidence(
   await recordCanonicalAskEvidenceReceipt(cwd, evidence);
   return {
     ...result,
+    content: [...result.content, { type: "text" as const, text: `Ask evidence: ${evidence.ref}` }],
     details: {
       ...(isRecord(result.details) ? result.details : {}),
       askEvidenceRef: evidence.ref,

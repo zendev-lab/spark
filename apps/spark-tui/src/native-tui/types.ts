@@ -80,6 +80,8 @@ export interface SparkNativeResponderContext {
   readonly messages: readonly SparkNativeMessage[];
   /** Stable identity for one user submit and ambiguous admission reconciliation. */
   readonly submissionId?: string;
+  /** Reattached observers start after this durable event cursor instead of replaying from zero. */
+  readonly afterEventCursor?: number;
   readonly signal?: AbortSignal;
   readonly appendAssistantChunk?: (chunk: string) => void;
   readonly finishAssistantMessage?: () => void;

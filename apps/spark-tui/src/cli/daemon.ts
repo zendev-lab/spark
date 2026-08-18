@@ -519,6 +519,7 @@ export function createSparkDaemonNativeResponder(
     if (live.onEvent) {
       await pollInvocationEvents(admission.invocationId, client, {
         signal: context?.signal,
+        after: context?.afterEventCursor,
         timeoutMs: options.timeoutMs,
         pollIntervalMs: options.pollIntervalMs,
         onEvent: live.onEvent,
@@ -2218,11 +2219,12 @@ async function pollInvocationEvents(
   handlers: {
     onEvent?: (event: SparkDaemonEvent) => void | Promise<void>;
     signal?: AbortSignal;
+    after?: number;
     timeoutMs?: number;
     pollIntervalMs?: number;
   },
 ): Promise<void> {
-  let cursor = 0;
+  let cursor = Math.max(0, handlers.after ?? 0);
   const now = client.now ?? Date.now;
   const deadline = now() + (handlers.timeoutMs ?? DEFAULT_NATIVE_TURN_WAIT_TIMEOUT_MS);
   const deadlineError = new TurnReadDeadlineError();

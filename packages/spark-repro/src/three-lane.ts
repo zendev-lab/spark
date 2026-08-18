@@ -410,6 +410,10 @@ export function rebaseSparkReproThreeLaneSessionState(
   return {
     ...cloneThreeLane(prior),
     planRevision: plan.currentRevision,
+    workItems: prior.workItems.map((workItem) => ({
+      ...workItem,
+      planRevision: plan.currentRevision,
+    })),
     formalize: {
       orderedStepIds,
       ...(orderedStepIds[0] ? { currentStepId: orderedStepIds[0] } : {}),
@@ -529,7 +533,22 @@ export function registerSparkReproWorkItem(
         `lane binding already exists with different content: ${input.workItemId}:${lane}`,
       );
     }
-    return state;
+    if (
+      existing!.status === input.status &&
+      JSON.stringify(existing!.evidenceRefs) === JSON.stringify(input.evidenceRefs)
+    ) {
+      return state;
+    }
+    const next = cloneThreeLane(state);
+    const index = next.workItems.findIndex(
+      (candidate) => candidate.workItemId === input.workItemId,
+    );
+    next.workItems[index] = {
+      ...next.workItems[index]!,
+      status: input.status,
+      evidenceRefs: [...new Set([...next.workItems[index]!.evidenceRefs, ...input.evidenceRefs])],
+    };
+    return next;
   }
   const next = cloneThreeLane(state);
   if (!existing) next.workItems.push(cloneWorkItem(input));

@@ -261,6 +261,80 @@ test("direct-call role parameters stay host-neutral", () => {
   assert.ok(roles.every((role) => role.source === "builtin" && role.revision.length > 0));
 });
 
+test("role per-action schema stops advertising model for create and launch for call", () => {
+  const parameters = registerRoleToolsForTest().get("role")?.parameters as
+    | { anyOf?: Array<Record<string, unknown>>; unionOf?: Array<Record<string, unknown>> }
+    | undefined;
+  const branches = parameters?.anyOf ?? parameters?.unionOf ?? [];
+  assert.ok(branches.length >= 8, "role parameters must declare one branch per action");
+
+  const findBranch = (action: string): Record<string, unknown> => {
+    const branch = branches.find((candidate) => {
+      const properties = (candidate as { properties?: Record<string, unknown> }).properties ?? {};
+      const actionSchema = properties.action as { const?: string; enum?: string[] } | undefined;
+      return actionSchema?.const === action || (actionSchema?.enum ?? []).includes(action);
+    });
+    assert.ok(branch, `missing role action branch: `);
+    return branch!;
+  };
+  const propertiesOf = (branch: Record<string, unknown>) =>
+    (branch as { properties?: Record<string, unknown> }).properties ?? {};
+
+  const create = propertiesOf(findBranch("create"));
+  assert.equal("model" in create, false, "create must not advertise model");
+  assert.equal("defaultModel" in create, false, "create must not advertise defaultModel");
+  assert.equal("launch" in create, false, "create must not advertise launch");
+  assert.equal(typeof create.modelType, "object", "create must keep modelType");
+
+  const call = propertiesOf(findBranch("call"));
+  assert.equal("launch" in call, false, "call must not advertise launch");
+  assert.equal("mode" in call, false, "call must not advertise mode");
+  assert.equal("dryRun" in call, false, "call must not advertise dryRun");
+  assert.equal("model" in call, true, "call keeps the per-call model override");
+  assert.equal("instruction" in call, true, "call keeps instruction");
+});
+
+test("role create and call keep defensive runtime rejections for removed or unsupported fields", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-roles-defensive-fields-"));
+  try {
+    const tools = registerRoleToolsForTest();
+    await assert.rejects(
+      executeRoleTool(
+        tools,
+        "role",
+        {
+          action: "create",
+          id: "defensive-create",
+          description: "Defensive create role.",
+          systemPrompt: "You refuse removed fields.",
+          rationale: "Lock the create surface.",
+          expectedUses: ["rejection check"],
+          capabilities: ["read"],
+          modelType: "exploration",
+          model: "test/model",
+        },
+        dir,
+      ),
+      /create_role model is not supported; use role model settings/,
+    );
+    await assert.rejects(
+      executeRoleTool(
+        tools,
+        "role",
+        {
+          action: "call",
+          role: "executor",
+          instruction: "Run the fake executor.",
+          launch: "fresh",
+        },
+        dir,
+      ),
+      /call_role launch was removed; Role calls use ephemeral Sessions/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 test("role spec tools keep patch presets out of builtin role lookup", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-no-patcher-"));
   try {

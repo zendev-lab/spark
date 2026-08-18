@@ -17,6 +17,7 @@ import {
   normalizeSparkProjectPatch,
   normalizeSparkProjectOptionalString,
   resolveSparkProject,
+  resolveSparkProjectSelector,
   saveProjectPurposeTrace,
 } from "./spark-project-tools.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
@@ -94,10 +95,7 @@ export function registerSparkProjectTools(
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = ctx.cwd;
       const intent = normalizeSparkProjectMutationIntent(params.intent);
-      const projectSelector = normalizeSparkProjectOptionalString(
-        params.projectRef ?? params.project,
-        "project",
-      );
+      const projectSelector = resolveSparkProjectSelector(params);
       const patchResult = normalizeSparkProjectIntentPatch(params, intent);
       if (patchResult.ok && patchResult.patch.kind)
         requireKnownSparkProjectKind(patchResult.patch.kind);
@@ -183,7 +181,7 @@ export function registerSparkProjectTools(
       graph ??= new TaskGraph();
       const input = normalizeSparkNewProjectInput({
         ...params,
-        project: params.project ?? params.projectRef,
+        project: resolveSparkProjectSelector(params),
       });
       if (input.kind) requireKnownSparkProjectKind(input.kind);
       let project = resolveSparkProject(graph, input.project);
