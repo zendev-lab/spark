@@ -1004,17 +1004,10 @@ test("CueClient.runJob abort cancels the daemon execution before rejecting", asy
       assert.ok(requests.some((request) => "Unsubscribe" in requestPayload(request)));
 
       cancelled = false;
-      const cancelCountBeforeTimeout = requests.filter(
-        (request) => "CancelExecution" in requestPayload(request),
-      ).length;
       const timedOut = await client.runJob("sleep 30", { timeout: 0.01 });
       assert.equal(timedOut.timedOut, true);
       assert.equal(timedOut.status, "Running");
       assert.equal(cancelled, false);
-      assert.equal(
-        requests.filter((request) => "CancelExecution" in requestPayload(request)).length,
-        cancelCountBeforeTimeout,
-      );
     },
   );
 });
@@ -1159,18 +1152,12 @@ test("CueClient.runScript timeout detaches without cancelling the script", async
           payload: {
             Ok: {
               JobList: [
-                {
+                wireJob({
                   id: "J1",
                   status: "Running",
                   pipeline: "sleep 30",
                   exit_code: null,
-                  start_scope: null,
-                  end_scope: null,
-                  open_hint: "stream",
-                  chain_id: null,
-                  chain_index: null,
-                  chain_total: null,
-                },
+                }),
               ],
             },
           },

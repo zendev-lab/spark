@@ -1568,27 +1568,22 @@ export class CueClient {
 
       const detachForeground = async () => {
         if (!settleForeground()) return;
+        let items: ScriptItemSummary[] = [];
         try {
-          let items: ScriptItemSummary[] = [];
-          try {
-            items = await snapshotItems();
-          } catch {
-            items = [];
-          }
-          await releaseOutputChannels();
-          resolve({
-            scriptId: created.script_id,
-            source: created.source ?? { kind: "inline" },
-            status: "running",
-            exitCode: null,
-            failedItemIndex: null,
-            items,
-            timedOut: true,
-          });
-        } catch (error) {
-          await releaseOutputChannels();
-          reject(error);
+          items = await snapshotItems();
+        } catch {
+          items = [];
         }
+        await releaseOutputChannels();
+        resolve({
+          scriptId: created.script_id,
+          source: created.source ?? { kind: "inline" },
+          status: "running",
+          exitCode: null,
+          failedItemIndex: null,
+          items,
+          timedOut: true,
+        });
       };
 
       const armTimeout = () => {
