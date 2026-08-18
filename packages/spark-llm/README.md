@@ -82,10 +82,26 @@ pnpm --filter @zendev-lab/spark-llm run build:dsh-plugin
 produces `dist/dsh-plugin.mjs` with `@deepseek-ai/*`, `@earendil-works/pi-ai`,
 and `@deepseek-ai/schemastery` externalized, so the hosting process must
 provide them (DSH ships `dsh-llm` 0.1.0-rc.6, `dsh-settings` 0.1.0-rc.6, and
-pi-ai 0.82.1; the APIs this entry uses are stable across those versions). A DSH
-profile then mounts the bundle through its `cordis.patch.yml` with a relative
-row (for example `name: ./plugins/spark-llm/index.mjs`). The gateway endpoint
-still honors the spark-llm environment contract (`BAIDU_ONEAPI_BASE_URL` /
+pi-ai 0.82.1; the APIs this entry uses are stable across those versions).
+
+One-command install into a DSH profile (build + copy the bundle into
+`$DSH_HOME/profiles/<name>/plugins/spark-llm/`, and idempotently append the
+`cordis.patch.yml` row and the `spark-llm:` settings section — existing user
+content is never rewritten):
+
+```sh
+pnpm --filter @zendev-lab/spark-llm run install:dsh-plugin
+# optional: pnpm --filter @zendev-lab/spark-llm run install:dsh-plugin -- --profile <name>
+```
+
+After the install, restart DSH once so the new composition row mounts, then
+store `BAIDU_ONEAPI_API_KEY` through the web Models page (hot-published to the
+credentials store; no further restart). Settings changes — the credential and
+the display name — apply live; a bundle replacement still needs a restart
+unless the host has plugin HMR enabled (DSH web keeps it disabled by default;
+a profile patch `- id: hmr / disabled: false` opts in, which reloads only the
+affected plugin entry on file change). The gateway endpoint still honors the
+spark-llm environment contract (`BAIDU_ONEAPI_BASE_URL` /
 `BAIDU_ONEAPI_OPENAI_BASE_URL`).
 
 ## Baidu OneAPI provider
