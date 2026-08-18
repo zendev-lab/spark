@@ -330,7 +330,7 @@ ssh user@example.com "cued start"
   field is the exact representation.
 - Default timeout: 300 seconds (5 min)
 - File-system commands (mv, cp, rm, ls, cat, find, ...): 10 seconds
-- Foreground aborts and timeouts cancel the daemon execution and wait for it to stop. Only an explicit `background=true` execution detaches.
+- Foreground aborts cancel the daemon execution and wait for it to stop. Foreground wait-budget expiry detaches and leaves the job or script running; stop it with abort or `cue_jobs action=stop`. `background=true` also detaches without waiting.
 - Cancelled records retain `cancelReason` (`User`, `ChainAborted`, or `Timeout`)
   even though the compatibility status string is `Cancelled`.
 - **`cue_exec`**: runs with `pty=false` by default; stdout/stderr are tailed to 16 KiB per stream by default. `tail_bytes` must be positive.

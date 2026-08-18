@@ -80,9 +80,9 @@ test("renderCueScriptResult includes source, timeout, item identity, and status"
   const result = {
     scriptId: "script:one",
     source: { kind: "inline" },
-    status: "failed",
-    exitCode: 1,
-    failedItemIndex: 1,
+    status: "running",
+    exitCode: null,
+    failedItemIndex: null,
     timedOut: true,
     items: [
       {
@@ -108,8 +108,8 @@ test("renderCueScriptResult includes source, timeout, item identity, and status"
         cronId: null,
         stdout: "ok\n",
         stderr: "bad\n",
-        status: "Failed",
-        exitCode: 2,
+        status: "Running",
+        exitCode: null,
         jobs: [],
       },
     ],
@@ -121,10 +121,10 @@ test("renderCueScriptResult includes source, timeout, item identity, and status"
     tailBytes: 1024,
   }).join("\n");
 
-  assert.match(rendered, /Script script:one: .*failed.*exit=1.*failed_item=1.*source=<inline>/);
-  assert.match(rendered, /Script timed out after 12s/);
+  assert.match(rendered, /Script script:one: .*running.*source=<inline>/);
+  assert.match(rendered, /timed_out=true/);
   assert.match(rendered, /--- item 0: echo first \[message\] .*message/);
-  assert.match(rendered, /--- item 1: run test \[job J1\] .*failed \(exit 2\)/);
+  assert.match(rendered, /--- item 1: run test \[job J1\]/);
   assert.match(rendered, /\[stderr\]\nbad/);
 });
 

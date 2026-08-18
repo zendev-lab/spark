@@ -411,7 +411,7 @@ export interface RunEvalOptions {
 }
 
 export interface RunJobOptions extends RunEvalOptions {
-  /** Timeout in seconds (default: 300 = 5 min). */
+  /** Foreground wait budget in seconds (default: 300). Expiry detaches; the job keeps running. */
   timeout?: number;
   /** Cancels the daemon-side foreground execution and waits for it to stop. */
   signal?: AbortSignal;
@@ -450,7 +450,8 @@ export interface ScriptItemSummary {
 export interface ScriptResult {
   scriptId: string;
   source: ScriptSource;
-  status: ScriptRunStatus;
+  /** Terminal ScriptFinished status, or `running` when a wait budget expired without cancel. */
+  status: ScriptInfoStatus;
   /** Aggregated exit code reported by ScriptFinished. */
   exitCode: number | null;
   failedItemIndex: number | null;

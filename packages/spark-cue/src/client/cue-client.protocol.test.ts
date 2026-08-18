@@ -1004,10 +1004,17 @@ test("CueClient.runJob abort cancels the daemon execution before rejecting", asy
       assert.ok(requests.some((request) => "Unsubscribe" in requestPayload(request)));
 
       cancelled = false;
+      const cancelCountBeforeTimeout = requests.filter(
+        (request) => "CancelExecution" in requestPayload(request),
+      ).length;
       const timedOut = await client.runJob("sleep 30", { timeout: 0.01 });
       assert.equal(timedOut.timedOut, true);
-      assert.equal(timedOut.status, "Cancelled");
-      assert.equal(cancelled, true);
+      assert.equal(timedOut.status, "Running");
+      assert.equal(cancelled, false);
+      assert.equal(
+        requests.filter((request) => "CancelExecution" in requestPayload(request)).length,
+        cancelCountBeforeTimeout,
+      );
     },
   );
 });
@@ -1072,6 +1079,136 @@ test("CueClient.runScript abort cancels the authoritative script id", async () =
         (error) => error instanceof Error && error.name === "AbortError",
       );
       assert.equal(cancelTarget, "R1");
+      assert.ok(requests.some((request) => "Unsubscribe" in requestPayload(request)));
+    },
+  );
+});
+
+test("CueClient.runScript timeout detaches without cancelling the script", async () => {
+  let cancelTarget: string | undefined;
+  await withCueServer(
+    (message, socket) => {
+      const id = message.id as number;
+      const payload = requestPayload(message);
+      if ("Subscribe" in payload || "Unsubscribe" in payload) {
+        sendFrame(socket, { type: "response", id, payload: { Ok: { Ack: {} } } });
+        return;
+      }
+      if ("RunScript" in payload) {
+        sendFrame(socket, {
+          type: "response",
+          id,
+          payload: {
+            Ok: {
+              ScriptCreated: {
+                script_id: "R1",
+                source: { kind: "inline" },
+                items: [
+                  {
+                    index: 0,
+                    source: "sleep 30",
+                    result: {
+                      kind: "job",
+                      job_id: "J1",
+                      start_scope: null,
+                      open_hint: "stream",
+                    },
+                  },
+                ],
+                submit_error: null,
+              },
+            },
+          },
+        });
+        return;
+      }
+      if ("ScriptInfo" in payload) {
+        sendFrame(socket, {
+          type: "response",
+          id,
+          payload: {
+            Ok: {
+              ScriptInfo: {
+                script_id: "R1",
+                status: "running",
+                items: [
+                  {
+                    index: 0,
+                    source: "sleep 30",
+                    result: {
+                      kind: "job",
+                      job_id: "J1",
+                      start_scope: null,
+                      open_hint: "stream",
+                    },
+                  },
+                ],
+                exit_code: null,
+                failed_item_index: null,
+                submit_error: null,
+              },
+            },
+          },
+        });
+        return;
+      }
+      if ("ListJobs" in payload) {
+        sendFrame(socket, {
+          type: "response",
+          id,
+          payload: {
+            Ok: {
+              JobList: [
+                {
+                  id: "J1",
+                  status: "Running",
+                  pipeline: "sleep 30",
+                  exit_code: null,
+                  start_scope: null,
+                  end_scope: null,
+                  open_hint: "stream",
+                  chain_id: null,
+                  chain_index: null,
+                  chain_total: null,
+                },
+              ],
+            },
+          },
+        });
+        return;
+      }
+      if ("JobOutput" in payload) {
+        sendFrame(socket, {
+          type: "response",
+          id,
+          payload: {
+            Ok: {
+              JobOutput: {
+                id: "J1",
+                stdout: { data: "", truncated: false },
+                stderr: { data: "", truncated: false },
+                stderr_pty_merged: false,
+              },
+            },
+          },
+        });
+        return;
+      }
+      if ("CancelExecution" in payload) {
+        cancelTarget = (payload.CancelExecution as { id: string }).id;
+        sendFrame(socket, { type: "response", id, payload: { Ok: { Ack: {} } } });
+      }
+    },
+    async (client, requests) => {
+      const result = await client.runScript({
+        path: "<inline>",
+        input: "sleep 30",
+        timeout: 0.01,
+      });
+      assert.equal(result.timedOut, true);
+      assert.equal(result.status, "running");
+      assert.equal(cancelTarget, undefined);
+      assert.ok(!requests.some((request) => "CancelExecution" in requestPayload(request)));
       assert.ok(requests.some((request) => "Unsubscribe" in requestPayload(request)));
     },
   );
