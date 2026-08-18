@@ -1,18 +1,14 @@
-/** `spark daemon ...` argv parsing: command constructors and option readers. */
+/** `spark daemon ...` argv parsing with one Optique grammar per resource. */
 
 import { object, or } from "@optique/core/constructs";
+import { formatMessage, message } from "@optique/core/message";
+import { map, multiple, optional, withDefault } from "@optique/core/modifiers";
 import { parse } from "@optique/core/parser";
-import { command, constant, passThrough } from "@optique/core/primitives";
+import { argument, command, constant, flag, option, passThrough } from "@optique/core/primitives";
+import { string, type ValueParser } from "@optique/core/valueparser";
 import { sparkDaemonCliStrings } from "@zendev-lab/spark-i18n/cli";
 import { readSparkSessionExportFormat } from "../host/session-navigation.ts";
-import {
-  helpFlagRequested,
-  isRecord,
-  parseSparkCliOptions,
-  readBooleanOption,
-  readNumberOption,
-  readStringOption,
-} from "./shared.ts";
+import { isRecord } from "./shared.ts";
 import type { RoleRef } from "@zendev-lab/spark-core";
 import { type SparkInvocationStatus, parseSparkModelValue } from "@zendev-lab/spark-protocol";
 import type {
@@ -30,202 +26,339 @@ import type {
 const STRINGS = sparkDaemonCliStrings();
 
 const remainingArgv = () => passThrough({ format: "greedy" });
+const helpFlag = () => withDefault(flag("-h", "--help"), false);
+const jsonFlag = () => withDefault(flag("--json"), false);
+const positionalArgs = () => multiple(argument(string()));
+const helpRequestParser = object({
+  help: helpFlag(),
+  args: positionalArgs(),
+  options: passThrough({ format: "nextToken" }),
+});
 
-const sparkDaemonActionParser = or(
-  or(
-    command("help", object({ action: constant("help" as const), argv: remainingArgv() })),
-    command("--help", object({ action: constant("help" as const), argv: remainingArgv() })),
-    command("-h", object({ action: constant("help" as const), argv: remainingArgv() })),
-    command("status", object({ action: constant("status" as const), argv: remainingArgv() })),
-    command("submit", object({ action: constant("submit" as const), argv: remainingArgv() })),
-    command(
-      "invocation",
-      object({ action: constant("invocation" as const), argv: remainingArgv() }),
-    ),
-    command("queue", object({ action: constant("queue" as const), argv: remainingArgv() })),
-    command("session", object({ action: constant("session" as const), argv: remainingArgv() })),
-    command("sessions", object({ action: constant("sessions" as const), argv: remainingArgv() })),
+const finiteNumber: ValueParser<"sync", number> = {
+  mode: "sync",
+  metavar: "NUMBER",
+  placeholder: 0,
+  parse(input) {
+    const value = Number(input);
+    return Number.isFinite(value)
+      ? { success: true, value }
+      : { success: false, error: message`Expected a finite number.` };
+  },
+  format: String,
+};
+
+function numberOption(name: `--${string}`) {
+  return optional(
+    option(name, finiteNumber, {
+      errors: {
+        endOfInput: [{ type: "text", text: `${name} requires a value` }],
+        invalidValue: [{ type: "text", text: `${name} must be a number` }],
+      },
+    }),
+  );
+}
+
+const statusParser = command(
+  "status",
+  map(
+    object({ help: helpFlag(), json: jsonFlag(), args: positionalArgs() }),
+    (value): SparkDaemonCliCommand =>
+      value.help ? { action: "help" } : { action: "status", json: value.json },
   ),
-  or(
-    command("ask", object({ action: constant("ask" as const), argv: remainingArgv() })),
-    command("human", object({ action: constant("human" as const), argv: remainingArgv() })),
-    command("channel", object({ action: constant("channel" as const), argv: remainingArgv() })),
-    command("channels", object({ action: constant("channels" as const), argv: remainingArgv() })),
-    command("run", object({ action: constant("run" as const), argv: remainingArgv() })),
-    command("runs", object({ action: constant("runs" as const), argv: remainingArgv() })),
-    command("events", object({ action: constant("events" as const), argv: remainingArgv() })),
-    command("model", object({ action: constant("model" as const), argv: remainingArgv() })),
-    command("start", object({ action: constant("start" as const), argv: remainingArgv() })),
-  ),
-  or(
-    command("stop", object({ action: constant("service" as const), argv: remainingArgv() })),
-    command("install", object({ action: constant("service" as const), argv: remainingArgv() })),
-    command("doctor", object({ action: constant("service" as const), argv: remainingArgv() })),
-    command("login", object({ action: constant("service" as const), argv: remainingArgv() })),
-    command("auth", object({ action: constant("service" as const), argv: remainingArgv() })),
-    command("workspace", object({ action: constant("service" as const), argv: remainingArgv() })),
-    command("ws", object({ action: constant("service" as const), argv: remainingArgv() })),
-    command("uplink", object({ action: constant("service" as const), argv: remainingArgv() })),
-    command("restart", object({ action: constant("restart" as const), argv: remainingArgv() })),
-    command("logs", object({ action: constant("restart" as const), argv: remainingArgv() })),
-  ),
-  object({ action: constant("empty" as const) }),
 );
 
-export function parseSparkDaemonCliArgs(argv: string[]): SparkDaemonCliCommand {
-  const classified = classifySparkDaemonAction(argv);
-  if (classified.action === "empty") {
-    return { action: "service", argv: [] };
-  }
-  if (classified.action === "help" || helpFlagRequested(argv)) {
-    return { action: "help" };
-  }
-  if (classified.action === "unknown") {
-    throw new Error(STRINGS.unknownCommand(String(argv[0])));
-  }
-  if (classified.action === "service") {
-    return { action: "service", argv };
-  }
-  if (classified.action === "restart") {
-    return { action: "service", argv: ["daemon", ...argv] };
-  }
-
-  const action = classified.action;
-  const parsed = parseSparkCliOptions([...classified.argv]);
-  const json = readBooleanOption(parsed.options, "json");
-
-  switch (action) {
-    case "status":
-      return { action: "status", json };
-    case "submit": {
-      const sessionId = readStringOption(parsed.options, "session")?.trim();
-      const prompt = readPrompt(parsed);
-      const idempotencyKey = readStringOption(parsed.options, "idempotency-key")?.trim();
+const submitParser = command(
+  "submit",
+  map(
+    object({
+      help: helpFlag(),
+      json: jsonFlag(),
+      session: optional(option("-s", "--session", string())),
+      prompt: optional(option("-p", "--prompt", string())),
+      idempotencyKey: optional(option("--idempotency-key", string())),
+      reset: withDefault(flag("--reset"), false),
+      args: positionalArgs(),
+    }),
+    (value): SparkDaemonCliCommand => {
+      if (value.help) return { action: "help" };
+      const sessionId = value.session?.trim();
+      const prompt = readPrompt(value.prompt, value.args);
+      const idempotencyKey = value.idempotencyKey?.trim();
       if (!sessionId) throw new Error(STRINGS.submitRequiresSession);
       if (!prompt) throw new Error(STRINGS.submitRequiresPrompt);
       return {
         action: "submit",
-        json,
+        json: value.json,
         sessionId,
         prompt,
         ...(idempotencyKey ? { idempotencyKey } : {}),
-        reset: readBooleanOption(parsed.options, "reset"),
+        reset: value.reset,
       };
-    }
-    case "invocation":
-      return parseSparkDaemonInvocationCommand(parsed, json);
-    case "queue":
-      throw new Error(STRINGS.unknownCommand("queue"));
-    case "session":
-    case "sessions":
-      return parseSparkDaemonSessionsCommand(parsed, json);
-    case "ask":
-    case "human":
-      return parseSparkDaemonAskCommand(parsed, json);
-    case "channel":
-    case "channels":
-      return parseSparkDaemonChannelCommand(parsed, json);
-    case "run":
-    case "runs":
-      return parseSparkDaemonRunsCommand(parsed, json);
-    case "events":
-      return parseSparkDaemonEventsCommand(parsed, json);
-    case "model":
-      return parseSparkDaemonModelCommand(parsed, json);
-    case "start":
-      return { action: "start", json };
-    default: {
-      const exhaustive: never = action;
-      return exhaustive;
-    }
-  }
+    },
+  ),
+);
+
+const invocationParser = command(
+  "invocation",
+  map(
+    object({
+      help: helpFlag(),
+      json: jsonFlag(),
+      status: optional(option("--status", string())),
+      session: optional(option("-s", "--session", string())),
+      since: optional(option("--since", string())),
+      before: optional(option("--before", string())),
+      limit: numberOption("--limit"),
+      offset: numberOption("--offset"),
+      eventLimit: numberOption("--event-limit"),
+      confirm: withDefault(flag("--confirm"), false),
+      invocation: optional(option("--invocation", string())),
+      after: numberOption("--after"),
+      reason: optional(option("--reason", string())),
+      args: positionalArgs(),
+    }),
+    (value): SparkDaemonCliCommand =>
+      value.help ? { action: "help" } : buildInvocationCommand(value),
+  ),
+);
+
+const sessionsBody = map(
+  object({
+    help: helpFlag(),
+    json: jsonFlag(),
+    session: optional(option("-s", "--session", string())),
+    workspace: optional(option("--workspace", string())),
+    allWorkspaces: withDefault(flag("--all-workspaces"), false),
+    history: withDefault(flag("--history"), false),
+    registry: withDefault(flag("--registry"), false),
+    includeArchived: withDefault(flag("--include-archived"), false),
+    query: optional(option("--query", string())),
+    tags: optional(option("--tags", string())),
+    supervisor: optional(option("--supervisor", string())),
+    roleRef: optional(option("--role-ref", string())),
+    inheritRole: withDefault(flag("--inherit-role"), false),
+    placement: optional(option("--placement", string())),
+    name: optional(option("--name", string())),
+    id: optional(option("--id", string())),
+    externalKey: optional(option("--external-key", string())),
+    all: withDefault(flag("--all"), false),
+    message: optional(option("--message", string())),
+    format: optional(option("--format", string())),
+    leaf: optional(option("--leaf", string())),
+    args: positionalArgs(),
+  }),
+  (value): SparkDaemonCliCommand => (value.help ? { action: "help" } : buildSessionsCommand(value)),
+);
+
+const askBody = map(
+  object({
+    help: helpFlag(),
+    json: jsonFlag(),
+    session: optional(option("-s", "--session", string())),
+    invocation: optional(option("--invocation", string())),
+    interaction: optional(option("--interaction", string())),
+    answers: optional(option("--answers", string())),
+    answer: optional(option("--answer", string())),
+    args: positionalArgs(),
+  }),
+  (value): SparkDaemonCliCommand => (value.help ? { action: "help" } : buildAskCommand(value)),
+);
+
+const channelBody = map(
+  object({
+    help: helpFlag(),
+    json: jsonFlag(),
+    workspace: optional(option("--workspace", string())),
+    notifyAction: optional(option("--action", string())),
+    route: optional(option("--route", string())),
+    adapter: optional(option("--adapter", string())),
+    recipient: optional(option("--recipient", string())),
+    text: optional(option("--text", string())),
+    imageUrl: optional(option("--image-url", string())),
+    imageType: optional(option("--image-type", string())),
+    args: positionalArgs(),
+  }),
+  (value): SparkDaemonCliCommand => (value.help ? { action: "help" } : buildChannelCommand(value)),
+);
+
+const runsBody = map(
+  object({
+    help: helpFlag(),
+    json: jsonFlag(),
+    state: optional(option("--state", string())),
+    limit: numberOption("--limit"),
+    run: optional(option("--run", string())),
+    args: positionalArgs(),
+  }),
+  (value): SparkDaemonCliCommand => (value.help ? { action: "help" } : buildRunsCommand(value)),
+);
+
+const eventsParser = command(
+  "events",
+  map(
+    object({
+      help: helpFlag(),
+      json: jsonFlag(),
+      limit: numberOption("--limit"),
+      args: positionalArgs(),
+    }),
+    (value): SparkDaemonCliCommand => (value.help ? { action: "help" } : buildEventsCommand(value)),
+  ),
+);
+
+const modelParser = command(
+  "model",
+  map(
+    object({
+      help: helpFlag(),
+      json: jsonFlag(),
+      session: optional(option("-s", "--session", string())),
+      useDefault: withDefault(flag("--default"), false),
+      all: withDefault(flag("--all"), false),
+      args: positionalArgs(),
+    }),
+    (value): SparkDaemonCliCommand => (value.help ? { action: "help" } : buildModelCommand(value)),
+  ),
+);
+
+const startParser = command(
+  "start",
+  map(
+    object({ help: helpFlag(), json: jsonFlag(), args: positionalArgs() }),
+    (value): SparkDaemonCliCommand =>
+      value.help ? { action: "help" } : { action: "start", json: value.json },
+  ),
+);
+
+function serviceParser(name: string, daemonPrefix = false) {
+  return command(
+    name,
+    map(object({ help: helpFlag(), argv: remainingArgv() }), (value): SparkDaemonCliCommand =>
+      value.help
+        ? { action: "help" }
+        : {
+            action: "service",
+            argv: daemonPrefix ? ["daemon", name, ...value.argv] : [name, ...value.argv],
+          },
+    ),
+  );
 }
 
-function classifySparkDaemonAction(argv: string[]) {
-  const result = parse(sparkDaemonActionParser, argv);
-  if (result.success) return result.value;
-  return { action: "unknown" as const };
+const sparkDaemonCommandParser = or(
+  or(
+    command("help", object({ action: constant("help" as const), argv: remainingArgv() })),
+    command("--help", object({ action: constant("help" as const), argv: remainingArgv() })),
+    command("-h", object({ action: constant("help" as const), argv: remainingArgv() })),
+    statusParser,
+    submitParser,
+    invocationParser,
+    command("queue", object({ action: constant("queue" as const), argv: remainingArgv() })),
+  ),
+  or(
+    command("session", sessionsBody),
+    command("sessions", sessionsBody),
+    command("ask", askBody),
+    command("human", askBody),
+    command("channel", channelBody),
+    command("channels", channelBody),
+    command("run", runsBody),
+    command("runs", runsBody),
+  ),
+  or(
+    eventsParser,
+    modelParser,
+    startParser,
+    serviceParser("stop"),
+    serviceParser("install"),
+    serviceParser("doctor"),
+    serviceParser("login"),
+    serviceParser("auth"),
+    serviceParser("workspace"),
+    serviceParser("ws"),
+    serviceParser("uplink"),
+    serviceParser("restart", true),
+    serviceParser("logs", true),
+  ),
+  object({ action: constant("empty" as const) }),
+);
+
+const knownDaemonActions = new Set([
+  "help",
+  "--help",
+  "-h",
+  "status",
+  "submit",
+  "invocation",
+  "queue",
+  "session",
+  "sessions",
+  "ask",
+  "human",
+  "channel",
+  "channels",
+  "run",
+  "runs",
+  "events",
+  "model",
+  "start",
+  "stop",
+  "install",
+  "doctor",
+  "login",
+  "auth",
+  "workspace",
+  "ws",
+  "uplink",
+  "restart",
+  "logs",
+]);
+
+export function parseSparkDaemonCliArgs(argv: string[]): SparkDaemonCliCommand {
+  const helpRequest = parse(helpRequestParser, argv);
+  if (helpRequest.success && helpRequest.value.help) return { action: "help" };
+  const result = parse(sparkDaemonCommandParser, argv);
+  if (!result.success) {
+    const action = argv[0] ?? "";
+    if (!knownDaemonActions.has(action)) throw new Error(STRINGS.unknownCommand(action));
+    if (action === "model") {
+      const unknown = findUnknownModelOption(argv.slice(1));
+      if (unknown) throw new Error(`unknown spark daemon model option: ${unknown}`);
+    }
+    throw new Error(formatMessage(result.error));
+  }
+  if (result.value.action === "empty") return { action: "service", argv: [] };
+  if (result.value.action === "queue") throw new Error(STRINGS.unknownCommand("queue"));
+  if (result.value.action === "help") return { action: "help" };
+  return result.value;
 }
 
-function parseSparkDaemonModelCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonModelCommand {
-  const [subcommand = "list", modelValue, ...extraPositionals] = parsed.positionals;
-  const sessionId = readStringOption(parsed.options, "session")?.trim();
-  if (subcommand === "list") {
-    assertOnlyModelOptions(parsed.options, ["all", "json"]);
-    if (modelValue || extraPositionals.length > 0 || sessionId) {
-      throw new Error("Usage: spark daemon model list [--all] [--json]");
-    }
-    assertBooleanModelOption(parsed.options, "all");
-    return {
-      action: "model",
-      subcommand,
-      json,
-      all: readBooleanOption(parsed.options, "all"),
-    };
-  }
-  if (subcommand === "status") {
-    assertOnlyModelOptions(parsed.options, ["session", "json"]);
-    if (modelValue || extraPositionals.length > 0) {
-      throw new Error("Usage: spark daemon model status [--session <id>] [--json]");
-    }
-    return { action: "model", subcommand, json, ...(sessionId ? { sessionId } : {}) };
-  }
-  if (subcommand === "set") {
-    assertOnlyModelOptions(parsed.options, ["session", "default", "json"]);
-    assertBooleanModelOption(parsed.options, "default");
-    if (!modelValue || extraPositionals.length > 0) {
-      throw new Error(
-        "Usage: spark daemon model set <provider/model> (--session <id>|--default) [--json]",
-      );
-    }
-    const useDefault = readBooleanOption(parsed.options, "default");
-    if (Boolean(sessionId) === useDefault) {
-      throw new Error("spark daemon model set requires exactly one of --session <id> or --default");
-    }
-    return {
-      action: "model",
-      subcommand,
-      json,
-      model: parseSparkModelValue(modelValue),
-      target: useDefault ? "default" : "session",
-      ...(sessionId ? { sessionId } : {}),
-    };
-  }
-  throw new Error(`unknown spark daemon model command: ${subcommand}`);
-}
-
-function assertOnlyModelOptions(
-  options: Record<string, string | boolean>,
-  allowed: readonly string[],
-): void {
-  const unknown = Object.keys(options).find((name) => !allowed.includes(name));
-  if (unknown) throw new Error(`unknown spark daemon model option: --${unknown}`);
-}
-
-function assertBooleanModelOption(options: Record<string, string | boolean>, name: string): void {
-  if (typeof options[name] === "string") {
-    throw new Error(`--${name} does not accept a value`);
-  }
-}
-
-function parseSparkDaemonInvocationCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonInvocationCommand {
-  const [subcommand = "list", positionalInvocationId] = parsed.positionals;
+function buildInvocationCommand(value: {
+  json: boolean;
+  status?: string;
+  session?: string;
+  since?: string;
+  before?: string;
+  limit?: number;
+  offset?: number;
+  eventLimit?: number;
+  confirm: boolean;
+  invocation?: string;
+  after?: number;
+  reason?: string;
+  args: readonly string[];
+}): SparkDaemonInvocationCommand {
+  const [subcommand = "list", positionalInvocationId] = value.args;
   if (subcommand === "list") {
     return {
       action: "invocation",
       subcommand,
-      json,
-      status: readInvocationStatus(readStringOption(parsed.options, "status")),
-      sessionId: readStringOption(parsed.options, "session")?.trim(),
-      since: readInvocationSinceOption(parsed.options),
-      limit: readNumberOption(parsed.options, "limit"),
-      offset: readNumberOption(parsed.options, "offset"),
+      json: value.json,
+      status: readInvocationStatus(value.status),
+      sessionId: value.session?.trim(),
+      since: readInvocationSince(value.since),
+      limit: value.limit,
+      offset: value.offset,
     };
   }
   if (subcommand === "retention") {
@@ -233,23 +366,19 @@ function parseSparkDaemonInvocationCommand(
     if (retentionAction !== "preview" && retentionAction !== "apply") {
       throw new Error(`unknown spark daemon invocation retention command: ${retentionAction}`);
     }
-    const before = readIsoDateTimeOption(parsed.options, "before");
+    const before = readIsoDateTime(value.before, "before");
     if (!before) throw new Error("spark daemon invocation retention requires --before <iso>");
-    if (retentionAction === "apply" && !readBooleanOption(parsed.options, "confirm")) {
+    if (retentionAction === "apply" && !value.confirm) {
       throw new Error("spark daemon invocation retention apply requires --confirm");
     }
     return {
       action: "invocation",
       subcommand,
       before,
-      limit: readNumberOption(parsed.options, "limit"),
-      json,
+      limit: value.limit,
+      json: value.json,
       ...(retentionAction === "apply"
-        ? {
-            retentionAction,
-            eventLimit: readNumberOption(parsed.options, "event-limit"),
-            confirm: true,
-          }
+        ? { retentionAction, eventLimit: value.eventLimit, confirm: true }
         : {}),
     };
   }
@@ -262,8 +391,7 @@ function parseSparkDaemonInvocationCommand(
   ) {
     throw new Error(`unknown spark daemon invocation command: ${subcommand}`);
   }
-  const invocationId =
-    readStringOption(parsed.options, "invocation")?.trim() || positionalInvocationId?.trim();
+  const invocationId = value.invocation?.trim() || positionalInvocationId?.trim();
   if (!invocationId) {
     throw new Error(`spark daemon invocation ${subcommand} requires <invocation-id>`);
   }
@@ -271,59 +399,352 @@ function parseSparkDaemonInvocationCommand(
     action: "invocation",
     subcommand,
     invocationId,
-    json,
-    ...(subcommand === "stream"
-      ? {
-          after: readNumberOption(parsed.options, "after"),
-          limit: readNumberOption(parsed.options, "limit"),
-        }
-      : {}),
-    ...(subcommand === "cancel"
-      ? { reason: readStringOption(parsed.options, "reason")?.trim() }
-      : {}),
+    json: value.json,
+    ...(subcommand === "stream" ? { after: value.after, limit: value.limit } : {}),
+    ...(subcommand === "cancel" ? { reason: value.reason?.trim() } : {}),
   };
 }
 
-function parseSparkDaemonChannelCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonChannelCommand {
-  const [subcommand = "status"] = parsed.positionals;
+function buildSessionsCommand(value: {
+  json: boolean;
+  session?: string;
+  workspace?: string;
+  allWorkspaces: boolean;
+  history: boolean;
+  registry: boolean;
+  includeArchived: boolean;
+  query?: string;
+  tags?: string;
+  supervisor?: string;
+  roleRef?: string;
+  inheritRole: boolean;
+  placement?: string;
+  name?: string;
+  id?: string;
+  externalKey?: string;
+  all: boolean;
+  message?: string;
+  format?: string;
+  leaf?: string;
+  args: readonly string[];
+}): SparkDaemonSessionsCommand {
+  const [subcommand = "list", maybeLeaf] = value.args;
+  if (subcommand === "list") {
+    const query = value.query?.trim();
+    const tags = value.tags
+      ?.split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    return {
+      action: "sessions",
+      subcommand,
+      json: value.json,
+      allWorkspaces: value.allWorkspaces,
+      history: value.history || value.allWorkspaces,
+      registry: value.registry,
+      includeArchived: value.includeArchived,
+      ...(query ? { query } : {}),
+      ...(tags?.length ? { tags } : {}),
+      workspaceId: value.workspace?.trim(),
+    };
+  }
+  if (subcommand === "create") {
+    const workspaceId = value.workspace?.trim() || maybeLeaf?.trim();
+    if (!workspaceId) throw new Error("spark daemon session create requires --workspace <id>");
+    const supervisorSessionId = value.supervisor?.trim();
+    if (!supervisorSessionId) {
+      throw new Error("spark daemon session create requires --supervisor <session-id>");
+    }
+    const rawRoleRef = value.roleRef?.trim();
+    if (rawRoleRef && !rawRoleRef.startsWith("role:")) {
+      throw new Error("spark daemon session create --role-ref must start with role:");
+    }
+    if (rawRoleRef && value.inheritRole) {
+      throw new Error(
+        "spark daemon session create accepts only one of --role-ref and --inherit-role",
+      );
+    }
+    const rawPlacement = value.placement?.trim() ?? "child";
+    if (rawPlacement !== "child" && rawPlacement !== "sibling") {
+      throw new Error("spark daemon session create --placement must be child or sibling");
+    }
+    return {
+      action: "sessions",
+      subcommand,
+      json: value.json,
+      workspaceId,
+      name: value.name?.trim(),
+      ...(rawRoleRef ? { roleRef: rawRoleRef as RoleRef } : {}),
+      inheritRole: value.inheritRole,
+      placement: rawPlacement,
+      supervisorSessionId,
+      sessionId: value.id?.trim(),
+    };
+  }
+  if (subcommand === "bind" || subcommand === "unbind") {
+    const sessionId = value.session?.trim() || maybeLeaf?.trim();
+    const externalKey = value.externalKey?.trim();
+    if (!sessionId) throw new Error(`spark daemon session ${subcommand} requires <session-id>`);
+    if (!externalKey)
+      throw new Error(`spark daemon session ${subcommand} requires --external-key <key>`);
+    return { action: "sessions", subcommand, json: value.json, sessionId, externalKey };
+  }
+  if (subcommand === "archive" || subcommand === "restore" || subcommand === "close") {
+    const sessionId = value.session?.trim() || maybeLeaf?.trim();
+    if (!sessionId) throw new Error(`spark daemon session ${subcommand} requires <session-id>`);
+    return { action: "sessions", subcommand, json: value.json, sessionId };
+  }
+  if (subcommand === "inbox") {
+    const [inboxActionOrMessageId, maybeMessageId] = value.args.slice(1);
+    const inboxAction =
+      inboxActionOrMessageId === "read" || inboxActionOrMessageId === "ack"
+        ? inboxActionOrMessageId
+        : "list";
+    const sessionId = value.session?.trim();
+    if (!sessionId) throw new Error("spark daemon session inbox requires --session <session-id>");
+    return {
+      action: "sessions",
+      subcommand,
+      json: value.json,
+      sessionId,
+      inboxAction,
+      all: value.all,
+      ...(inboxAction === "list"
+        ? {}
+        : { messageId: maybeMessageId?.trim() || value.message?.trim() }),
+    };
+  }
+  if (
+    subcommand === "show" ||
+    subcommand === "tree" ||
+    subcommand === "fork" ||
+    subcommand === "clone"
+  ) {
+    const sessionId = value.session?.trim() || maybeLeaf?.trim();
+    if (!sessionId) throw new Error(STRINGS.sessionsReplayRequiresSession);
+    const newSessionId = value.id?.trim();
+    return {
+      action: "sessions",
+      subcommand,
+      json: value.json,
+      sessionId,
+      ...(newSessionId ? { newSessionId } : {}),
+    };
+  }
+  if (subcommand === "export") {
+    const sessionId = value.session?.trim();
+    if (!sessionId) throw new Error(STRINGS.sessionsExportRequiresSession);
+    const format = readSparkSessionExportFormat(value.format ?? "jsonl");
+    const leafId = readDaemonLeafArg(value.leaf ?? maybeLeaf);
+    return {
+      action: "sessions",
+      subcommand,
+      json: value.json,
+      sessionId,
+      format,
+      ...(leafId !== undefined ? { leafId } : {}),
+    };
+  }
+  if (subcommand === "replay") {
+    const sessionId = value.session?.trim();
+    if (!sessionId) throw new Error(STRINGS.sessionsReplayRequiresSession);
+    const leafId = readDaemonLeafArg(value.leaf ?? maybeLeaf);
+    return {
+      action: "sessions",
+      subcommand,
+      json: value.json,
+      sessionId,
+      ...(leafId !== undefined ? { leafId } : {}),
+    };
+  }
+  throw new Error(STRINGS.unknownSessionsCommand(subcommand));
+}
+
+function buildAskCommand(value: {
+  json: boolean;
+  session?: string;
+  invocation?: string;
+  interaction?: string;
+  answers?: string;
+  answer?: string;
+  args: readonly string[];
+}): SparkDaemonAskCommand {
+  const [subcommand = "list", positionalInteractionRequestId] = value.args;
+  if (subcommand === "list") {
+    return { action: "ask", subcommand, json: value.json, sessionId: value.session?.trim() };
+  }
+  if (subcommand !== "answer" && subcommand !== "cancel") {
+    throw new Error(`unknown spark daemon ask command: ${subcommand}`);
+  }
+  const interactionRequestId = value.interaction?.trim() || positionalInteractionRequestId?.trim();
+  if (!interactionRequestId) {
+    throw new Error(`spark daemon ask ${subcommand} requires <interaction-request-id>`);
+  }
+  if (subcommand === "cancel") {
+    return {
+      action: "ask",
+      subcommand,
+      json: value.json,
+      interactionRequestId,
+      sessionId: value.session?.trim(),
+      invocationId: value.invocation?.trim(),
+    };
+  }
+  const rawAnswers = value.answers ?? value.answer;
+  if (!rawAnswers) throw new Error("spark daemon ask answer requires --answers <json>");
+  let parsedAnswers: unknown;
+  try {
+    parsedAnswers = JSON.parse(rawAnswers);
+  } catch (error) {
+    throw new Error("spark daemon ask answer requires valid JSON in --answers", { cause: error });
+  }
+  if (!isRecord(parsedAnswers)) {
+    throw new Error("spark daemon ask answer requires a JSON object in --answers");
+  }
+  return {
+    action: "ask",
+    subcommand,
+    json: value.json,
+    interactionRequestId,
+    sessionId: value.session?.trim(),
+    invocationId: value.invocation?.trim(),
+    answers: parsedAnswers,
+  };
+}
+
+function buildChannelCommand(value: {
+  json: boolean;
+  workspace?: string;
+  notifyAction?: string;
+  route?: string;
+  adapter?: string;
+  recipient?: string;
+  text?: string;
+  imageUrl?: string;
+  imageType?: string;
+  args: readonly string[];
+}): SparkDaemonChannelCommand {
+  const [subcommand = "status"] = value.args;
+  const workspaceId = value.workspace?.trim();
   if (subcommand === "list" || subcommand === "status" || subcommand === "reload") {
-    const workspaceId = readStringOption(parsed.options, "workspace")?.trim();
     if (!workspaceId) {
       throw new Error(`spark daemon channel ${subcommand} requires --workspace <workspaceId>`);
     }
-    return { action: "channel", subcommand, json, workspaceId };
+    return { action: "channel", subcommand, json: value.json, workspaceId };
   }
   if (subcommand !== "notify") {
     throw new Error(`unknown spark daemon channel command: ${subcommand}`);
   }
-  const notifyAction = readStringOption(parsed.options, "action") ?? "test";
+  const notifyAction = value.notifyAction ?? "test";
   if (notifyAction !== "test" && notifyAction !== "send") {
     throw new Error("spark daemon channel notify --action must be test or send");
   }
-  const workspaceId = readStringOption(parsed.options, "workspace")?.trim();
   if (!workspaceId) {
     throw new Error("spark daemon channel notify requires --workspace <workspaceId>");
   }
-  const optional = (name: string, key: string) => {
-    const value = readStringOption(parsed.options, name);
-    return value ? { [key]: value } : {};
-  };
   return {
     action: "channel",
-    subcommand: "notify",
-    json,
+    subcommand,
+    json: value.json,
     workspaceId,
     notifyAction,
-    ...optional("route", "route"),
-    ...optional("adapter", "adapter"),
-    ...optional("recipient", "recipient"),
-    ...optional("text", "text"),
-    ...optional("image-url", "imageUrl"),
-    ...optional("image-type", "imageType"),
+    ...(value.route ? { route: value.route } : {}),
+    ...(value.adapter ? { adapter: value.adapter } : {}),
+    ...(value.recipient ? { recipient: value.recipient } : {}),
+    ...(value.text ? { text: value.text } : {}),
+    ...(value.imageUrl ? { imageUrl: value.imageUrl } : {}),
+    ...(value.imageType ? { imageType: value.imageType } : {}),
   };
+}
+
+function buildRunsCommand(value: {
+  json: boolean;
+  state?: string;
+  limit?: number;
+  run?: string;
+  args: readonly string[];
+}): SparkDaemonRunsCommand {
+  const [subcommand = "list", maybeRunId] = value.args;
+  if (subcommand === "list") {
+    return {
+      action: "runs",
+      subcommand,
+      json: value.json,
+      state: readRunState(value.state ?? "all"),
+      limit: value.limit,
+    };
+  }
+  if (subcommand === "show" || subcommand === "cancel") {
+    const runId = value.run?.trim() || maybeRunId?.trim();
+    if (!runId) throw new Error(`${subcommand} requires --run <id> or a run id argument`);
+    return { action: "runs", subcommand, json: value.json, runId };
+  }
+  throw new Error(`unknown daemon run command: ${subcommand}`);
+}
+
+function buildEventsCommand(value: {
+  json: boolean;
+  limit?: number;
+  args: readonly string[];
+}): SparkDaemonEventsCommand {
+  const [subcommand = "watch"] = value.args;
+  if (subcommand !== "watch") throw new Error(`unknown daemon events command: ${subcommand}`);
+  return { action: "events", subcommand, json: value.json, limit: value.limit };
+}
+
+function buildModelCommand(value: {
+  json: boolean;
+  session?: string;
+  useDefault: boolean;
+  all: boolean;
+  args: readonly string[];
+}): SparkDaemonModelCommand {
+  const valuedFlag = value.args.find((arg) => /^--(?:all|default)=/u.test(arg));
+  if (valuedFlag) throw new Error(`${valuedFlag.split("=", 1)[0]} does not accept a value`);
+  const [subcommand = "list", modelValue, ...extraPositionals] = value.args;
+  const sessionId = value.session?.trim();
+  if (subcommand === "list") {
+    if (modelValue || extraPositionals.length > 0 || sessionId || value.useDefault) {
+      throw new Error("Usage: spark daemon model list [--all] [--json]");
+    }
+    return { action: "model", subcommand, json: value.json, all: value.all };
+  }
+  if (subcommand === "status") {
+    if (modelValue || extraPositionals.length > 0 || value.all || value.useDefault) {
+      throw new Error("Usage: spark daemon model status [--session <id>] [--json]");
+    }
+    return { action: "model", subcommand, json: value.json, ...(sessionId ? { sessionId } : {}) };
+  }
+  if (subcommand === "set") {
+    if (!modelValue || extraPositionals.length > 0 || value.all) {
+      throw new Error(
+        "Usage: spark daemon model set <provider/model> (--session <id>|--default) [--json]",
+      );
+    }
+    if (Boolean(sessionId) === value.useDefault) {
+      throw new Error("spark daemon model set requires exactly one of --session <id> or --default");
+    }
+    return {
+      action: "model",
+      subcommand,
+      json: value.json,
+      model: parseSparkModelValue(modelValue),
+      target: value.useDefault ? "default" : "session",
+      ...(sessionId ? { sessionId } : {}),
+    };
+  }
+  throw new Error(`unknown spark daemon model command: ${subcommand}`);
+}
+
+function findUnknownModelOption(argv: readonly string[]): string | undefined {
+  const known = new Set(["-h", "--help", "--json", "-s", "--session", "--all", "--default"]);
+  for (const arg of argv) {
+    if (arg === "--") return undefined;
+    if (!arg.startsWith("-")) continue;
+    const name = arg.split("=", 1)[0]!;
+    if (!known.has(name)) return name;
+  }
+  return undefined;
 }
 
 function readInvocationStatus(value: string | undefined): SparkInvocationStatus | undefined {
@@ -343,12 +764,10 @@ function readInvocationStatus(value: string | undefined): SparkInvocationStatus 
   );
 }
 
-function readInvocationSinceOption(
-  options: ReturnType<typeof parseSparkCliOptions>["options"],
-): string | undefined {
-  const value = readStringOption(options, "since")?.trim();
-  if (!value) return undefined;
-  const relative = value.match(/^(\d+)(s|m|h|d)$/iu);
+function readInvocationSince(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  const relative = normalized.match(/^(\d+)(s|m|h|d)$/iu);
   if (relative) {
     const amount = Number(relative[1]);
     const unitMs = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 }[
@@ -360,259 +779,24 @@ function readInvocationSinceOption(
     }
     return new Date(Date.now() - durationMs).toISOString();
   }
-  return readIsoDateTimeOption(options, "since");
+  return readIsoDateTime(normalized, "since");
 }
 
-function readIsoDateTimeOption(
-  options: ReturnType<typeof parseSparkCliOptions>["options"],
-  name: string,
-): string | undefined {
-  const value = readStringOption(options, name)?.trim();
-  if (!value) return undefined;
-  if (!Number.isFinite(Date.parse(value))) {
+function readIsoDateTime(value: string | undefined, name: string): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  if (!Number.isFinite(Date.parse(normalized))) {
     throw new Error(`spark daemon invocation --${name} must be an ISO date-time`);
   }
-  return new Date(value).toISOString();
-}
-
-function parseSparkDaemonSessionsCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonSessionsCommand {
-  const [subcommand = "list", maybeLeaf] = parsed.positionals;
-  if (subcommand === "list") {
-    const allWorkspaces = readBooleanOption(parsed.options, "all-workspaces");
-    const query = readStringOption(parsed.options, "query")?.trim();
-    const tagList = readStringOption(parsed.options, "tags")
-      ?.split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean);
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      allWorkspaces,
-      history: readBooleanOption(parsed.options, "history") || allWorkspaces,
-      registry: readBooleanOption(parsed.options, "registry"),
-      includeArchived: readBooleanOption(parsed.options, "include-archived"),
-      ...(query ? { query } : {}),
-      ...(tagList?.length ? { tags: tagList } : {}),
-      workspaceId: readStringOption(parsed.options, "workspace")?.trim(),
-    };
-  }
-  if (subcommand === "create") {
-    const workspaceId = readStringOption(parsed.options, "workspace")?.trim() || maybeLeaf?.trim();
-    if (!workspaceId) throw new Error("spark daemon session create requires --workspace <id>");
-    const supervisorSessionId = readStringOption(parsed.options, "supervisor")?.trim();
-    if (!supervisorSessionId) {
-      throw new Error("spark daemon session create requires --supervisor <session-id>");
-    }
-    const rawRoleRef = readStringOption(parsed.options, "role-ref")?.trim();
-    if (rawRoleRef && !rawRoleRef.startsWith("role:")) {
-      throw new Error("spark daemon session create --role-ref must start with role:");
-    }
-    const inheritRole = readBooleanOption(parsed.options, "inherit-role");
-    if (rawRoleRef && inheritRole) {
-      throw new Error(
-        "spark daemon session create accepts only one of --role-ref and --inherit-role",
-      );
-    }
-    const rawPlacement = readStringOption(parsed.options, "placement")?.trim() ?? "child";
-    if (rawPlacement !== "child" && rawPlacement !== "sibling") {
-      throw new Error("spark daemon session create --placement must be child or sibling");
-    }
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      workspaceId,
-      name: readStringOption(parsed.options, "name")?.trim(),
-      ...(rawRoleRef ? { roleRef: rawRoleRef as RoleRef } : {}),
-      inheritRole,
-      placement: rawPlacement,
-      supervisorSessionId,
-      sessionId: readStringOption(parsed.options, "id")?.trim(),
-    };
-  }
-  if (subcommand === "bind" || subcommand === "unbind") {
-    const sessionId = readStringOption(parsed.options, "session")?.trim() || maybeLeaf?.trim();
-    const externalKey = readStringOption(parsed.options, "external-key")?.trim();
-    if (!sessionId) throw new Error(`spark daemon session ${subcommand} requires <session-id>`);
-    if (!externalKey)
-      throw new Error(`spark daemon session ${subcommand} requires --external-key <key>`);
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      sessionId,
-      externalKey,
-    };
-  }
-  if (subcommand === "archive" || subcommand === "restore" || subcommand === "close") {
-    const sessionId = readStringOption(parsed.options, "session")?.trim() || maybeLeaf?.trim();
-    if (!sessionId) throw new Error(`spark daemon session ${subcommand} requires <session-id>`);
-    return { action: "sessions", subcommand, json, sessionId };
-  }
-  if (subcommand === "inbox") {
-    const [inboxActionOrMessageId, maybeMessageId] = parsed.positionals.slice(1);
-    const inboxAction =
-      inboxActionOrMessageId === "read" || inboxActionOrMessageId === "ack"
-        ? inboxActionOrMessageId
-        : "list";
-    const sessionId = readStringOption(parsed.options, "session")?.trim();
-    if (!sessionId) throw new Error("spark daemon session inbox requires --session <session-id>");
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      sessionId,
-      inboxAction,
-      all: readBooleanOption(parsed.options, "all"),
-      ...(inboxAction === "list"
-        ? {}
-        : {
-            messageId:
-              maybeMessageId?.trim() || readStringOption(parsed.options, "message")?.trim(),
-          }),
-    };
-  }
-  if (
-    subcommand === "show" ||
-    subcommand === "tree" ||
-    subcommand === "fork" ||
-    subcommand === "clone"
-  ) {
-    const sessionId = readStringOption(parsed.options, "session")?.trim() || maybeLeaf?.trim();
-    if (!sessionId) throw new Error(STRINGS.sessionsReplayRequiresSession);
-    const newSessionId = readStringOption(parsed.options, "id")?.trim();
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      sessionId,
-      ...(newSessionId ? { newSessionId } : {}),
-    };
-  }
-  if (subcommand === "export") {
-    const sessionId = readStringOption(parsed.options, "session")?.trim();
-    if (!sessionId) throw new Error(STRINGS.sessionsExportRequiresSession);
-    const format = readSparkSessionExportFormat(
-      readStringOption(parsed.options, "format") ?? "jsonl",
-    );
-    const leafId = readDaemonLeafArg(readStringOption(parsed.options, "leaf") ?? maybeLeaf);
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      sessionId,
-      format,
-      ...(leafId !== undefined ? { leafId } : {}),
-    };
-  }
-  if (subcommand === "replay") {
-    const sessionId = readStringOption(parsed.options, "session")?.trim();
-    if (!sessionId) throw new Error(STRINGS.sessionsReplayRequiresSession);
-    const leafId = readDaemonLeafArg(readStringOption(parsed.options, "leaf") ?? maybeLeaf);
-    return {
-      action: "sessions",
-      subcommand,
-      json,
-      sessionId,
-      ...(leafId !== undefined ? { leafId } : {}),
-    };
-  }
-  throw new Error(STRINGS.unknownSessionsCommand(subcommand));
-}
-
-function parseSparkDaemonRunsCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonRunsCommand {
-  const [subcommand = "list", maybeRunId] = parsed.positionals;
-  if (subcommand === "list") {
-    const state = readRunState(readStringOption(parsed.options, "state") ?? "all");
-    const limit = readNumberOption(parsed.options, "limit");
-    return { action: "runs", subcommand, json, state, limit };
-  }
-  if (subcommand === "show" || subcommand === "cancel") {
-    const runId = readStringOption(parsed.options, "run")?.trim() || maybeRunId?.trim();
-    if (!runId) throw new Error(`${subcommand} requires --run <id> or a run id argument`);
-    return { action: "runs", subcommand, json, runId };
-  }
-  throw new Error(`unknown daemon run command: ${subcommand}`);
-}
-
-function parseSparkDaemonAskCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonAskCommand {
-  const [subcommand = "list", positionalInteractionRequestId] = parsed.positionals;
-  if (subcommand === "list") {
-    return {
-      action: "ask",
-      subcommand,
-      json,
-      sessionId: readStringOption(parsed.options, "session")?.trim(),
-    };
-  }
-  if (subcommand !== "answer" && subcommand !== "cancel") {
-    throw new Error(`unknown spark daemon ask command: ${subcommand}`);
-  }
-  const interactionRequestId =
-    readStringOption(parsed.options, "interaction")?.trim() ||
-    positionalInteractionRequestId?.trim();
-  if (!interactionRequestId) {
-    throw new Error(`spark daemon ask ${subcommand} requires <interaction-request-id>`);
-  }
-  if (subcommand === "cancel") {
-    return {
-      action: "ask",
-      subcommand,
-      json,
-      interactionRequestId,
-      sessionId: readStringOption(parsed.options, "session")?.trim(),
-      invocationId: readStringOption(parsed.options, "invocation")?.trim(),
-    };
-  }
-  const rawAnswers =
-    readStringOption(parsed.options, "answers") ?? readStringOption(parsed.options, "answer");
-  if (!rawAnswers) throw new Error("spark daemon ask answer requires --answers <json>");
-  let parsedAnswers: unknown;
-  try {
-    parsedAnswers = JSON.parse(rawAnswers);
-  } catch (error) {
-    throw new Error("spark daemon ask answer requires valid JSON in --answers", { cause: error });
-  }
-  if (!isRecord(parsedAnswers)) {
-    throw new Error("spark daemon ask answer requires a JSON object in --answers");
-  }
-  return {
-    action: "ask",
-    subcommand,
-    json,
-    interactionRequestId,
-    sessionId: readStringOption(parsed.options, "session")?.trim(),
-    invocationId: readStringOption(parsed.options, "invocation")?.trim(),
-    answers: parsedAnswers,
-  };
-}
-
-function parseSparkDaemonEventsCommand(
-  parsed: ReturnType<typeof parseSparkCliOptions>,
-  json: boolean,
-): SparkDaemonEventsCommand {
-  const [subcommand = "watch"] = parsed.positionals;
-  if (subcommand !== "watch") throw new Error(`unknown daemon events command: ${subcommand}`);
-  return { action: "events", subcommand, json, limit: readNumberOption(parsed.options, "limit") };
+  return new Date(normalized).toISOString();
 }
 
 export function sparkDaemonHelpText(): string {
   return STRINGS.helpText;
 }
 
-function readPrompt(parsed: ReturnType<typeof parseSparkCliOptions>): string | undefined {
-  const fromOption = readStringOption(parsed.options, "prompt");
-  const text = fromOption ?? parsed.positionals.join(" ");
+function readPrompt(fromOption: string | undefined, positionals: readonly string[]) {
+  const text = fromOption ?? positionals.join(" ");
   return text.trim() || undefined;
 }
 
