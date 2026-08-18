@@ -55,6 +55,39 @@ surface instead of `SparkHostAPI`.
 
 `@zendev-lab/spark-llm/models-extension` registers the read-only `models` tool for inspecting the active Spark host model registry. The tool lists available models by default, can include unavailable registered models with auth status, and keeps route/provider details as catalog data rather than a separate model-selection package.
 
+## DSH plugin
+
+`@zendev-lab/spark-llm/dsh-plugin` is the host-neutral Cordis plugin entry that
+serves the same bundled provider catalog to a DeepSeek Harness profile. It is
+the dual-product seam: Spark keeps consuming this package from its workspace,
+while DSH mounts a built bundle of the entry so both products share one
+implementation of the gateway adaptations (model-id rewriting, adaptive
+thinking dialect, SSE repair, bounded retries).
+
+What the plugin registers on the host:
+
+- the `baidu-oneapi` route through `SparkProviderLlmAdapter`, with the full
+  model catalog (measured context windows, reasoning efforts, output caps);
+- a `spark-llm:` settings section (credential reference and display name per
+  route) for the host's configuration surfaces;
+- per-request API-key resolution through the host `credentials` service,
+  falling back to the launching environment (`BAIDU_ONEAPI_API_KEY`).
+
+Build and mount:
+
+```sh
+pnpm --filter @zendev-lab/spark-llm run build:dsh-plugin
+```
+
+produces `dist/dsh-plugin.mjs` with `@deepseek-ai/*`, `@earendil-works/pi-ai`,
+and `@deepseek-ai/schemastery` externalized, so the hosting process must
+provide them (DSH ships `dsh-llm` 0.1.0-rc.6, `dsh-settings` 0.1.0-rc.6, and
+pi-ai 0.82.1; the APIs this entry uses are stable across those versions). A DSH
+profile then mounts the bundle through its `cordis.patch.yml` with a relative
+row (for example `name: ./plugins/spark-llm/index.mjs`). The gateway endpoint
+still honors the spark-llm environment contract (`BAIDU_ONEAPI_BASE_URL` /
+`BAIDU_ONEAPI_OPENAI_BASE_URL`).
+
 ## Baidu OneAPI provider
 
 `@zendev-lab/spark-llm/baidu-oneapi-provider` is the bundled standalone
