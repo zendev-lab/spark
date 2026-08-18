@@ -46,7 +46,7 @@
         },
         "node": {
           "type": "string",
-          "pattern": "^v26\\."
+          "pattern": "^v24\\."
         },
         "commit": {
           "type": "string",

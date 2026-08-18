@@ -263,7 +263,7 @@ describe("npm registry projection", () => {
                 integrity: "sha512-release",
                 tarball: "https://registry.npmjs.org/spark/-/spark-0.1.1.tgz",
               },
-              engines: { node: ">=26.0.0 <27" },
+              engines: { node: ">=24.0.0" },
             },
           },
         }),
@@ -278,7 +278,7 @@ describe("npm registry projection", () => {
       version: "0.1.1",
       integrity: "sha512-release",
       tarball: "https://registry.npmjs.org/spark/-/spark-0.1.1.tgz",
-      nodeRequirement: ">=26.0.0 <27",
+      nodeRequirement: ">=24.0.0",
       etag: '"new"',
     });
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -403,7 +403,7 @@ describe("managed filesystem transaction", () => {
             integrity: `sha512-${version}`,
             tarball: `https://registry.invalid/spark-${version}.tgz`,
           },
-          engines: { node: ">=26.0.0 <27" },
+          engines: { node: ">=24.0.0" },
         }),
       );
     });
@@ -649,7 +649,7 @@ function testBuildInfo(version: string) {
     version,
     gitSha: `git-${version}`,
     protocolVersion: SPARK_PROTOCOL_VERSION,
-    minimumNodeVersion: ">=26.0.0 <27",
+    minimumNodeVersion: ">=24.0.0",
     migrationHead: "001.sql",
     migrationMode: "expand-only" as const,
     fingerprint: createBuildFingerprint({

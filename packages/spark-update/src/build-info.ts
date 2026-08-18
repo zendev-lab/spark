@@ -35,7 +35,7 @@ export function readSparkBuildInfo(
   };
   const version = typeof manifest.version === "string" ? manifest.version : "0.0.0";
   const minimumNodeVersion =
-    typeof manifest.engines?.node === "string" ? manifest.engines.node : ">=26.0.0 <27";
+    typeof manifest.engines?.node === "string" ? manifest.engines.node : ">=24.0.0";
   return {
     schemaVersion: 1,
     packageName: "@zendev-lab/spark",

@@ -88,6 +88,6 @@
     "vitest-browser-svelte": "3.0.0"
   },
   "engines": {
-    "node": ">=26.0.0 <27"
+    "node": ">=24.0.0"
   }
 }

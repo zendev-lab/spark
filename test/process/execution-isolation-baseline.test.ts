@@ -85,7 +85,7 @@ test("source process records the single-daemon execution isolation baseline", as
   assert.ok(["darwin", "linux"].includes(report.environment.platform));
   assert.ok(report.environment.release.length > 0);
   assert.ok(report.environment.arch.length > 0);
-  assert.match(report.environment.node, /^v26\./u);
+  assert.match(report.environment.node, /^v24\./u);
   assert.match(report.environment.commit, /^[0-9a-f]{40}$/u);
   assert.equal(typeof report.environment.sourceTreeDirty, "boolean");
   assert.equal(report.environment.schedulerConcurrency, 2);

@@ -36,7 +36,7 @@
   "devDependencies": {
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
-    "@types/node": "^26.1.1",
+    "@types/node": "^24.13.3",
     "@types/sanitize-html": "^2.16.1",
     "typescript": "catalog:",
     "vitest": "catalog:"

@@ -55,6 +55,7 @@
     "test:mutation": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run test:mutation",
     "bench": "vp test bench --config benchmarks/vitest.config.ts",
     "bench:codspeed": "vp test bench --config benchmarks/vitest.config.ts --run",
+    "bench:codspeed:selected": "node --experimental-strip-types scripts/run-selected-benchmarks.mts",
     "build": "pnpm --filter @zendev-lab/spark-daemon run build && pnpm --filter @zendev-lab/spark-hub run build",
     "release:pack": "node scripts/pack-release.mjs",
     "release:lint": "node scripts/lint-release-packages.mjs",
@@ -104,7 +105,7 @@
     "@codspeed/vitest-plugin": "5.7.1",
     "@earendil-works/pi-coding-agent": "^0.84.0",
     "@j178/prek": "0.4.13",
-    "@types/node": "^26.1.1",
+    "@types/node": "^24.13.3",
     "@zendev-lab/spark-daemon-client": "workspace:*",
     "@zendev-lab/spark-hub-db": "workspace:*",
     "@zendev-lab/spark-lens": "workspace:^",
@@ -125,7 +126,7 @@
     "vitest": "catalog:"
   },
   "engines": {
-    "node": ">=26.0.0 <27",
+    "node": ">=24.0.0",
     "pnpm": ">=11 <12"
   },
   "packageManager": "pnpm@11.22.0",

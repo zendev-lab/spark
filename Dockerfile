@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:26.7.0-bookworm-slim AS base
+FROM node:24.19.0-bookworm-slim AS base
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates \

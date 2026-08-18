@@ -31,17 +31,23 @@ Run the same non-interactive suite used by CodSpeed:
 pnpm run bench:codspeed
 ```
 
-The advisory job in `.github/workflows/ci-benchmarks.yml` runs the complete
-suite on pull requests, merge groups, and `main`. Default-branch runs provide
-the comparison baseline for later pull requests. The workflow grants only
-`contents: read`, pins every action to a commit SHA, and uses CodSpeed simulation
-mode. It temporarily uses Node 24 because the `@codspeed/core` 5.7.1 Linux addon
-is not yet compatible with the repository's Node 26 baseline; product
-validation remains on `.node-version`.
+The advisory job in `.github/workflows/ci-benchmarks.yml` runs all benchmark
+modules on `main` to maintain a complete CodSpeed baseline. Pull requests and
+merge groups use Vitest's changed-file dependency graph to run only affected
+benchmarks; CodSpeed Partial Runs fill the skipped results from that baseline.
+Documentation-only pull requests skip the workflow.
+
+CPU benchmarks run in CodSpeed simulation mode with a five-minute limit. Files
+named `*.walltime.bench.ts` run independently on a CodSpeed Macro Runner in
+walltime mode with a twenty-minute limit. Use the walltime suffix for workloads
+whose measured behavior includes file I/O, networking, subprocesses, or other
+system calls that simulation does not measure. Both lanes use the repository's
+Node 24 runtime, grant only `contents: read`, and pin every action to a commit
+SHA.
 
 To add another module, place its cases and `.bench.ts` file under
-`benchmarks/<module>/`, import public production exports, name every benchmark
-with its workload size, and add or extend a correctness test. The shared glob
-will enroll it automatically. Module-specific release protocols and scorecards
-remain in that module's own benchmark README rather than this microbenchmark
-harness.
+`benchmarks/<module>/`, use the `.walltime.bench.ts` suffix when appropriate,
+import public production exports, name every benchmark with its workload size,
+and add or extend a correctness test. The shared glob will enroll it
+automatically. Module-specific release protocols and scorecards remain in that
+module's own benchmark README rather than this microbenchmark harness.

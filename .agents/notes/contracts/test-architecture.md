@@ -43,9 +43,13 @@ architecture, dependency, documentation, formatting, lint, and type checks. Runt
 complete source and process suites on the Ubuntu/macOS matrix, the Repro Golden Journey on Ubuntu
 with a pinned compatible cue-shell source build, plus the browser suite for pull requests and
 `merge_group`. Merge-gate workflows do not run on branch pushes. The repository-wide benchmark
-workflow also runs on `main` to maintain CodSpeed comparison history, while the dependency audit
-uses path-filtered `main` pushes and a schedule for complete scans. Related merge-gate jobs share one
-workflow so `needs` can express intra-lane order: `ci-static-checks.yml` runs
+workflow runs every module on `main` to maintain a complete CodSpeed comparison baseline. Pull
+requests and merge groups run only benchmarks affected through Vitest's dependency graph, with
+benchmark-harness changes forcing a full run and documentation-only pull requests skipping the
+workflow. CPU simulation and I/O walltime Macro Runner jobs are independent matrix lanes with no
+`needs` edge. The dependency audit uses path-filtered `main` pushes and a schedule for complete
+scans. Related merge-gate jobs share one workflow so `needs` can express intra-lane order where
+required: `ci-static-checks.yml` runs
 `Pre-commit Checks` before `Project Checks` and `Documentation Checks`; `ci-tests.yml` runs
 both `Source Tests` jobs before both `Process Tests` jobs, `Repro Golden Journey (Ubuntu)`,
 and `Browser Tests`. There is no aggregate required job and no static-to-runtime dependency

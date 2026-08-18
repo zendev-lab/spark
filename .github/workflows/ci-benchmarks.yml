@@ -6,6 +6,9 @@ on:
     branches:
       - main
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "apps/spark-docs/**"
   merge_group:
     types:
       - checks_requested
@@ -19,23 +22,47 @@ permissions:
 
 jobs:
   benchmarks:
-    name: Repository Benchmarks
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: CPU Benchmarks
+            lane: simulation
+            mode: simulation
+            runner: ubuntu-latest
+            timeout: 5
+          - name: I/O Benchmarks
+            lane: walltime
+            mode: walltime
+            runner: codspeed-macro
+            timeout: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          # @codspeed/core 5.7.1's Linux addon is not compatible with Node 26 yet.
-          # This exception is benchmark-only; product CI remains on .node-version.
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
-      - run: pnpm install --frozen-lockfile --config.engine-strict=false
+      - run: pnpm install --frozen-lockfile
+      - name: Select relevant benchmarks
+        id: select
+        run: node --experimental-strip-types scripts/select-benchmark-files.mts
+        env:
+          BENCHMARK_ALL: ${{ github.event_name == 'push' }}
+          BENCHMARK_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || '' }}
+          BENCHMARK_LANE: ${{ matrix.lane }}
       - name: Run CodSpeed benchmarks
+        if: steps.select.outputs.has_benchmarks == 'true'
         uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8 # v5.0.3
         with:
-          mode: simulation
-          run: pnpm run bench:codspeed
+          mode: ${{ matrix.mode }}
+          run: pnpm run bench:codspeed:selected
+        env:
+          BENCHMARK_LANE: ${{ matrix.lane }}
+          SPARK_BENCHMARK_FILES: ${{ steps.select.outputs.files }}
