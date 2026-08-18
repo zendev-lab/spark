@@ -106,7 +106,7 @@ export type SparkReproRouteAction =
 export type SparkReproRouteStatus = "pending" | "acknowledged";
 
 export interface SparkReproRouteCause {
-  kind: "enqueue" | "lane_result" | "answer";
+  kind: "enqueue" | "lane_result" | "answer" | "repair";
   id: string;
   digest: string;
   evidenceRef?: EvidenceRef;
@@ -1167,6 +1167,83 @@ export function resumeSparkReproRouteFromAnswer(
   return next;
 }
 
+/**
+ * Convert a driver-rolled-back mechanical Git conflict into a same-lane repair
+ * checkpoint. The lane that produced the rejected revision owns the repair;
+ * the failed cross-lane route is retired without escalating to Root attention.
+ */
+export function resumeSparkReproRouteFromRepair(
+  state: SparkReproThreeLaneSessionState,
+  input: {
+    failedRouteId: string;
+    repairDigest: string;
+    evidenceRef: EvidenceRef;
+  },
+): SparkReproThreeLaneSessionState {
+  const failed = state.routes.find((route) => route.routeId === input.failedRouteId);
+  if (
+    !failed ||
+    failed.action === "root_attention" ||
+    failed.action === "start_binding" ||
+    failed.action === "resume_binding"
+  ) {
+    throw new Error(`unknown repairable Repro route: ${input.failedRouteId}`);
+  }
+  assertNonEmpty(input.repairDigest, "repairDigest");
+  if (!isRef(input.evidenceRef, "evidence")) throw new Error("invalid repair EvidenceRef");
+  const existing = state.routes.find(
+    (route) =>
+      route.action === "resume_binding" &&
+      route.cause.kind === "repair" &&
+      route.cause.id === failed.routeId,
+  );
+  if (existing) {
+    if (
+      existing.cause.digest !== input.repairDigest ||
+      existing.cause.evidenceRef !== input.evidenceRef
+    ) {
+      throw new Error("failed route already has a different repair checkpoint");
+    }
+    return state;
+  }
+  if (failed.status !== "pending") {
+    throw new Error("repairable Repro route is no longer pending");
+  }
+  const binding = sparkReproLaneBinding(state, failed.workItemId, failed.fromLane);
+  if (!binding || binding.bindingRevision !== failed.sourceBindingRevision) {
+    throw new Error("repair route source binding is missing or stale");
+  }
+  const routeId = `route:${digestJson({
+    failedRouteId: failed.routeId,
+    repairDigest: input.repairDigest,
+    evidenceRef: input.evidenceRef,
+  }).slice(0, 32)}`;
+  const common = {
+    routeId,
+    action: "resume_binding" as const,
+    workItemId: failed.workItemId,
+    planRevision: failed.planRevision,
+    sourceBindingRevision: binding.bindingRevision,
+    sourceRevision: binding.sourceRevision,
+    cause: {
+      kind: "repair" as const,
+      id: failed.routeId,
+      digest: input.repairDigest,
+      evidenceRef: input.evidenceRef,
+    },
+    status: "pending" as const,
+  };
+  const resume: SparkReproRoute =
+    failed.fromLane === "implementation"
+      ? { ...common, fromLane: "implementation", toLane: "implementation" }
+      : failed.fromLane === "exactness"
+        ? { ...common, fromLane: "exactness", toLane: "exactness" }
+        : { ...common, fromLane: "formalize", toLane: "formalize" };
+  let next = acknowledgeSparkReproRoute(state, failed.routeId);
+  next = recordSparkReproRoute(next, resume);
+  return next;
+}
+
 export function pendingSparkReproRoutes(state: SparkReproThreeLaneSessionState): SparkReproRoute[] {
   return state.routes.filter((route) => route.status === "pending").map((route) => ({ ...route }));
 }
@@ -1489,7 +1566,11 @@ function validateRoute(route: SparkReproRoute, state: SparkReproThreeLaneSession
   assertStableId(route.routeId, "routeId");
   assertStableId(route.cause.id, "route.cause.id");
   assertNonEmpty(route.cause.digest, "route.cause.digest");
-  assertOneOf(route.cause.kind, ["enqueue", "lane_result", "answer"] as const, "route.cause.kind");
+  assertOneOf(
+    route.cause.kind,
+    ["enqueue", "lane_result", "answer", "repair"] as const,
+    "route.cause.kind",
+  );
   if (route.cause.evidenceRef && !isRef(route.cause.evidenceRef, "evidence")) {
     throw new Error("invalid Repro route cause EvidenceRef");
   }
@@ -1524,8 +1605,12 @@ function validateRoute(route: SparkReproRoute, state: SparkReproThreeLaneSession
     return;
   }
   if (route.action === "resume_binding") {
-    if (route.cause.kind !== "answer" || route.fromLane !== route.toLane) {
-      throw new Error("resume route requires a same-lane answer cause");
+    if (
+      (route.cause.kind !== "answer" && route.cause.kind !== "repair") ||
+      !route.cause.evidenceRef ||
+      route.fromLane !== route.toLane
+    ) {
+      throw new Error("resume route requires a same-lane answer or repair cause with evidence");
     }
     return;
   }

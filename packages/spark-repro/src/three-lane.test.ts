@@ -18,6 +18,7 @@ import {
   registerSparkReproUnresolvedMismatch,
   registerSparkReproWorkItem,
   resumeSparkReproRouteFromAnswer,
+  resumeSparkReproRouteFromRepair,
   type SparkReproResolution,
   type SparkReproUnresolvedMismatch,
   type SparkReproWorkItem,
@@ -137,6 +138,79 @@ describe("Spark Repro three-lane domain", () => {
         cause: { kind: "answer", id: "answer:glm52-config" },
       },
     ]);
+  });
+
+  it("routes a rolled-back Git conflict to the lane that produced the revision", () => {
+    const repro = createSparkSessionRepro("session:repair-resume");
+    const enqueued = enqueueSparkReproWork(repro.threeLane, {
+      enqueue: {
+        schema: "spark.repro.work-enqueue/v1",
+        workItemId: "work:glm52",
+        title: "Reproduce GLM-5.2",
+        scope: "glm52",
+      },
+      sourceRevision: BASE_REVISION,
+    });
+    let state = materializeSparkReproRouteBinding(enqueued.state, {
+      routeId: enqueued.route.routeId,
+      taskRef: "task:glm52-implementation" as TaskRef,
+      gitChangeRef: "artifact:glm52-implementation" as ArtifactRef,
+    });
+    state = recordSparkReproRoute(state, {
+      routeId: "route:glm52-to-exactness",
+      action: "materialize_binding",
+      workItemId: "work:glm52",
+      fromLane: "implementation",
+      toLane: "exactness",
+      planRevision: state.planRevision,
+      sourceBindingRevision: 1,
+      sourceRevision: "2222222222222222222222222222222222222222",
+      cause: {
+        kind: "lane_result",
+        id: "result:glm52-implementation",
+        digest: "result-digest",
+        evidenceRef: evidence("implementation-result"),
+      },
+      status: "pending",
+    });
+
+    const repaired = resumeSparkReproRouteFromRepair(state, {
+      failedRouteId: "route:glm52-to-exactness",
+      repairDigest: "conflict-digest",
+      evidenceRef: evidence("git-conflict"),
+    });
+    expect(repaired.routes.at(-2)).toMatchObject({
+      routeId: "route:glm52-to-exactness",
+      status: "acknowledged",
+    });
+    expect(repaired.routes.at(-1)).toMatchObject({
+      action: "resume_binding",
+      fromLane: "implementation",
+      toLane: "implementation",
+      sourceBindingRevision: 1,
+      sourceRevision: BASE_REVISION,
+      status: "pending",
+      cause: {
+        kind: "repair",
+        id: "route:glm52-to-exactness",
+        digest: "conflict-digest",
+        evidenceRef: evidence("git-conflict"),
+      },
+    });
+    expect(
+      resumeSparkReproRouteFromRepair(repaired, {
+        failedRouteId: "route:glm52-to-exactness",
+        repairDigest: "conflict-digest",
+        evidenceRef: evidence("git-conflict"),
+      }),
+    ).toBe(repaired);
+    expect(() =>
+      resumeSparkReproRouteFromRepair(repaired, {
+        failedRouteId: "route:glm52-to-exactness",
+        repairDigest: "different-conflict",
+        evidenceRef: evidence("git-conflict"),
+      }),
+    ).toThrow("different repair checkpoint");
   });
 
   it("migrates v7 Explore into Implementation without inventing Exactness or formal proof", () => {
