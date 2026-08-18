@@ -6,6 +6,9 @@ import { dirname, join } from "node:path";
 import { writePrivateFile, type SparkPaths } from "@zendev-lab/spark-system";
 import { readSparkDaemonConfig, type SparkDaemonConfig } from "./config.js";
 
+import { errorMessage } from "./cli-shared.ts";
+import { isRecord } from "./local-rpc/is-record.ts";
+
 const serverProfilesFileVersion = 1;
 const defaultServerProfilesLockTimeoutMs = 10_000;
 const defaultServerProfilesLockRetryIntervalMs = 25;
@@ -513,10 +516,6 @@ function isErrno(error: unknown, code: string): boolean {
   return (error as NodeJS.ErrnoException | undefined)?.code === code;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function normalizeServerProfile(profile: SparkDaemonServerProfile): SparkDaemonServerProfile {
   return {
     serverUrl: normalizeSparkDaemonServerUrl(profile.serverUrl),
@@ -572,8 +571,4 @@ function readCredentialFields(
     result[key] = candidate;
   }
   return result;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

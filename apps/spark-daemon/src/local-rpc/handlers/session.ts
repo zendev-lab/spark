@@ -1,3 +1,4 @@
+import type { DatabaseSync } from "node:sqlite";
 import {
   parseSparkSessionPeerProjection,
   parseSparkSessionProjection,
@@ -28,7 +29,7 @@ import {
 import { createManagedChildSession } from "../../session-child.ts";
 import { projectSparkSessionWork } from "../../session-work-projection.ts";
 import {
-  deliverSessionNotificationFromLocalRpc,
+  isTerminalInvocationStatus,
   projectSessionMailbox,
   requireModelControl,
   sessionControlOptions,
@@ -45,7 +46,6 @@ type SessionRequest = Extract<
   LocalRpcServiceRequest,
   {
     method:
-      | "session.notification.deliver"
       | "session.list"
       | "session.get"
       | "session.lookup"
@@ -66,7 +66,6 @@ type SessionRequest = Extract<
       | "session.mail.read"
       | "session.mail.ack"
       | "session.model.set"
-      | "session.mode.set"
       | "session.thinking.set";
   }
 >;
@@ -77,17 +76,6 @@ export async function handleSessionRequest(
 ): Promise<LocalRpcServiceOutput<SessionRequest>> {
   const { paths, db, options } = ctx;
   switch (request.method) {
-    case "session.notification.deliver": {
-      if (options.mailStore) {
-        await requireSessionMail(
-          options.mailStore,
-          request.params.sessionId,
-          request.params.messageId,
-        );
-      }
-      const result = await deliverSessionNotificationFromLocalRpc(options, request.params);
-      return parseLocalRpcServiceOutput(request.method, result);
-    }
     case "session.list": {
       const executed = await executeSparkDaemonSessionControl(
         sessionControlOptions(paths, db, options),
@@ -109,16 +97,7 @@ export async function handleSessionRequest(
     }
     case "session.lookup": {
       const sessionId = request.params.sessionId;
-      const executed = await executeSparkDaemonSessionControl(
-        sessionControlOptions(paths, db, options),
-        {
-          kind: "session.get.request",
-          scope: "any",
-          sessionId,
-          payload: { sessionId },
-        },
-      );
-      const session = parseSparkSessionProjection(executed.result.session);
+      const session = await lookupSessionProjection(ctx, sessionId);
       const invocations = new SparkInvocationStore(db);
       const activity = invocations.sessionActivity(sessionId).activity;
       const latest = invocations.listPage({ sessionId, limit: 1 }).invocations[0];
@@ -381,34 +360,14 @@ export async function handleSessionRequest(
         request.params.sessionId,
         request.params.model,
       );
-      return projectSparkSessionState(
-        session,
-        new SparkInvocationStore(db).sessionActivities([session.sessionId]).get(session.sessionId)
-          ?.activity ?? "idle",
-      );
-    }
-    case "session.mode.set": {
-      const executed = await executeSparkDaemonSessionControl(
-        sessionControlOptions(paths, db, options),
-        {
-          kind: "session.mode.set.request",
-          scope: "any",
-          sessionId: request.params.sessionId,
-          payload: { ...request.params },
-        },
-      );
-      return parseLocalRpcServiceOutput(request.method, executed.result);
+      return projectSparkSessionState(session, sessionActivityOf(db, session.sessionId));
     }
     case "session.thinking.set": {
       const session = await requireModelControl(options).setSessionThinkingLevel(
         request.params.sessionId,
         request.params.thinkingLevel,
       );
-      return projectSparkSessionState(
-        session,
-        new SparkInvocationStore(db).sessionActivities([session.sessionId]).get(session.sessionId)
-          ?.activity ?? "idle",
-      );
+      return projectSparkSessionState(session, sessionActivityOf(db, session.sessionId));
     }
   }
 }
@@ -431,16 +390,7 @@ export async function admitSparkDaemonSessionSend(
       "session send must target a different session",
     );
   }
-  const targetExecuted = await executeSparkDaemonSessionControl(
-    sessionControlOptions(paths, db, options),
-    {
-      kind: "session.get.request",
-      scope: "any",
-      sessionId: params.toSessionId,
-      payload: { sessionId: params.toSessionId },
-    },
-  );
-  const target = parseSparkSessionProjection(targetExecuted.result.session);
+  const target = await lookupSessionProjection(ctx, params.toSessionId);
   if (params.origin.surface === "channel") {
     if (!params.originBinding) {
       throw new SparkSessionRegistryError(
@@ -641,13 +591,7 @@ function acceptedAdmission(message: SparkSessionMailMessage) {
 }
 
 function peerInvocationSummary(record: SparkInvocationRecord): string | undefined {
-  if (
-    record.status !== "succeeded" &&
-    record.status !== "failed" &&
-    record.status !== "cancelled"
-  ) {
-    return undefined;
-  }
+  if (!isTerminalInvocationStatus(record.status)) return undefined;
   const result = record.result;
   if (!result || typeof result !== "object" || Array.isArray(result)) return undefined;
   const text = (result as { assistantText?: unknown }).assistantText;
@@ -655,6 +599,31 @@ function peerInvocationSummary(record: SparkInvocationRecord): string | undefine
   return text.length <= SPARK_SESSION_PEER_INVOCATION_SUMMARY_MAX_BYTES
     ? text
     : text.slice(0, SPARK_SESSION_PEER_INVOCATION_SUMMARY_MAX_BYTES);
+}
+
+/** Current activity of one session without materializing every session row. */
+function sessionActivityOf(db: DatabaseSync, sessionId: string): "queued" | "running" | "idle" {
+  return (
+    new SparkInvocationStore(db).sessionActivities([sessionId]).get(sessionId)?.activity ?? "idle"
+  );
+}
+
+/** Shared daemon registry lookup behind the session.lookup and session.send surfaces. */
+async function lookupSessionProjection(
+  ctx: Pick<LocalRpcDispatchContext, "paths" | "db" | "options">,
+  sessionId: string,
+) {
+  const { paths, db, options } = ctx;
+  const executed = await executeSparkDaemonSessionControl(
+    sessionControlOptions(paths, db, options),
+    {
+      kind: "session.get.request",
+      scope: "any",
+      sessionId,
+      payload: { sessionId },
+    },
+  );
+  return parseSparkSessionProjection(executed.result.session);
 }
 
 async function requireSessionMail(

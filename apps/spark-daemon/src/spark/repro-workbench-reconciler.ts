@@ -31,6 +31,8 @@ import {
   type WorkbenchArtifactBinding,
 } from "../store/workbench-artifact-bindings.ts";
 
+import { errorMessage } from "../cli-shared.ts";
+
 const REPRO_SUMMARY_PATH = "outputs/spark-summary.json";
 
 export interface ReproWorkbenchReconcileResult {
@@ -198,10 +200,6 @@ async function reopenSealedWorkbenchAfterError(
     },
     reopen: true,
   });
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function shouldSealReproWorkbench(

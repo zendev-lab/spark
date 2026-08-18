@@ -7,6 +7,8 @@ import { contentHash, nowIso, writeJsonFileAtomic } from "@zendev-lab/spark-core
 
 import { rewriteStructuredRoleRefs } from "./role-session-data-migration.ts";
 
+import { errorMessage } from "./cli-shared.ts";
+
 interface SqliteMigrationMutation {
   table: string;
   column: string;
@@ -268,8 +270,4 @@ function sqlString(value: string): string {
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -131,12 +131,6 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       summary: os.usage.summary.handler(async ({ input: params }) =>
         invoke("usage.summary", params),
       ),
-      persistence: os.usage.persistence.handler(async ({ input: params }) =>
-        invoke("usage.persistence", params),
-      ),
-      backfill: os.usage.backfill.handler(async ({ input: params }) =>
-        invoke("usage.backfill", params),
-      ),
     },
     repro: {
       formalEvidence: {
@@ -154,7 +148,6 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       schedule: os.loop.schedule.handler(async ({ input: params }) =>
         invoke("loop.schedule", params),
       ),
-      control: os.loop.control.handler(async ({ input: params }) => invoke("loop.control", params)),
     },
     workspace: {
       list: os.workspace.list.handler(async ({ input: params }) =>
@@ -278,19 +271,9 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
           invoke("session.mail.ack", params),
         ),
       },
-      notification: {
-        deliver: os.session.notification.deliver.handler(async ({ input: params }) =>
-          invoke("session.notification.deliver", params),
-        ),
-      },
       model: {
         set: os.session.model.set.handler(async ({ input: params }) =>
           invoke("session.model.set", params),
-        ),
-      },
-      mode: {
-        set: os.session.mode.set.handler(async ({ input: params }) =>
-          invoke("session.mode.set", params),
         ),
       },
       thinking: {

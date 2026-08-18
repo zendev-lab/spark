@@ -15,6 +15,8 @@ import {
 } from "./store/workbench-artifact-bindings.ts";
 import type { DatabaseSync } from "node:sqlite";
 
+import { errorMessage } from "./cli-shared.ts";
+
 export async function executeTrustedWorkbenchLoopControl(input: {
   db: DatabaseSync;
   request: SparkLoopControlRequest;
@@ -195,10 +197,6 @@ function staleActionState(
     "workbench_action_stale",
     `Workbench action ${actionId} is unavailable for Loop ${loopId} in ${status}`,
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function safeId(value: string): string {

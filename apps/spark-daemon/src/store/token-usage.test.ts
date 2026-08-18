@@ -532,61 +532,6 @@ describe("SparkTokenUsageStore", () => {
     expect(usage.receiptCount()).toBe(0);
   });
 
-  it("backfills only explicitly attributed legacy assistant usage and is idempotent by source event", () => {
-    const invocation = invocations.submit({
-      sessionId: "sess-legacy-explicit",
-      prompt: "legacy",
-      now: "2026-08-03T00:00:01.000Z",
-    });
-    const input = {
-      sourceEventId: "assistant-entry-stable",
-      invocationId: invocation.invocationId,
-      reproId: scope.reproId,
-      kind: "root_session" as const,
-      persistence: "persistent" as const,
-      assistant: {
-        role: "assistant",
-        provider: "openai",
-        model: "legacy-model",
-        content: [{ type: "text", text: "legacy answer" }],
-        stopReason: "stop",
-        timestamp: Date.parse("2026-08-03T00:00:02.000Z"),
-        usage: tokenUsage({ input: 9, output: 4, cacheRead: 1, cacheWrite: 0 }),
-      },
-    };
-
-    expect(usage.backfillLegacyAssistantUsage(input)).toBe(true);
-    expect(usage.backfillLegacyAssistantUsage(input)).toBe(false);
-    expect(usage.receiptCount()).toBe(1);
-    expect(usage.summarize({ scope })).toMatchObject({ totalTokens: 14, responseCount: 1 });
-
-    const other = invocations.submit({
-      sessionId: "sess-legacy-other",
-      prompt: "other",
-      now: "2026-08-03T00:00:03.000Z",
-    });
-    expect(() =>
-      usage.backfillLegacyAssistantUsage({ ...input, invocationId: other.invocationId }),
-    ).toThrow(/conflicting attribution/u);
-    expect(
-      usage.backfillLegacyAssistantUsage({
-        ...input,
-        sourceEventId: "missing-provider",
-        assistant: { ...input.assistant, provider: "" },
-      }),
-    ).toBe(false);
-    expect(
-      usage.backfillLegacyAssistantUsage({
-        ...input,
-        sourceEventId: "total-only",
-        assistant: { ...input.assistant, usage: { totalTokens: 999 } },
-      }),
-    ).toBe(false);
-    expect(() => usage.backfillLegacyAssistantUsage({ ...input, sourceEventId: "" })).toThrow(
-      /stable sourceEventId/u,
-    );
-  });
-
   it("projects temporary and persistent session usage without exposing receipts", () => {
     const persistent = invocations.submit({
       sessionId: "sess-persistent",

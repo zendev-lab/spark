@@ -1,17 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
 
-import type {
-  ObservationDispositionRecord,
-  PatchProposal,
-  PatchProposalRef,
-} from "@zendev-lab/spark-lens";
+import type { PatchProposal, PatchProposalRef } from "@zendev-lab/spark-lens";
 
 interface ProposalRow {
   payload_json: string;
   status: PatchProposalStatus;
 }
 
-export type PatchProposalStatus = "proposed" | "applied" | "stale" | "rejected";
+type PatchProposalStatus = "proposed" | "applied" | "stale" | "rejected";
 
 export class DaemonLensPatchStore {
   readonly #db: DatabaseSync;
@@ -68,29 +64,5 @@ export class DaemonLensPatchStore {
          WHERE proposal_ref = ?`,
       )
       .run(status, new Date().toISOString(), ref);
-  }
-
-  saveDisposition(workspaceRoot: string, record: ObservationDispositionRecord): void {
-    this.#db
-      .prepare(
-        `INSERT INTO lens_observation_dispositions (
-           observation_ref, workspace_root, revision_digest, disposition,
-           patch_proposal_ref, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(observation_ref) DO UPDATE SET
-           workspace_root = excluded.workspace_root,
-           revision_digest = excluded.revision_digest,
-           disposition = excluded.disposition,
-           patch_proposal_ref = excluded.patch_proposal_ref,
-           updated_at = excluded.updated_at`,
-      )
-      .run(
-        record.observationRef,
-        workspaceRoot,
-        record.revisionDigest,
-        record.disposition,
-        record.patchProposalRef ?? null,
-        record.updatedAt,
-      );
   }
 }
