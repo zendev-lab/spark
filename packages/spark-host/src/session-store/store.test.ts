@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { SparkSessionStore } from "./store.ts";
+import { SparkSessionStore, stableSparkSessionContextEntries } from "./store.ts";
 
 const roots: string[] = [];
 
@@ -57,6 +57,25 @@ describe("SparkSessionStore.findAllById", () => {
         message: expect.objectContaining({ content: "canonical" }),
       }),
     ]);
+  });
+});
+
+describe("stableSparkSessionContextEntries", () => {
+  it("ends at the last completed assistant and excludes every unstable stop reason", () => {
+    const store = new SparkSessionStore({ cwd: "/workspace", sparkHome: "/spark-home" });
+    const record = store.createCanonicalSession({ id: "sess_stable_context" });
+    store.appendMessage(record, { role: "user", content: "question" });
+    store.appendMessage(record, { role: "assistant", content: "answer", stopReason: "stop" });
+    for (const stopReason of ["tooluse", "tool_use", "aborted", "error"]) {
+      store.appendMessage(record, { role: "user", content: `next-${stopReason}` });
+      store.appendMessage(record, { role: "assistant", content: stopReason, stopReason });
+    }
+
+    expect(stableSparkSessionContextEntries(record.entries)).toEqual(record.entries.slice(0, 2));
+    expect(
+      stableSparkSessionContextEntries(record.entries.slice(0, 1)),
+      "a user-only transcript has no stable assistant boundary",
+    ).toEqual([]);
   });
 });
 

@@ -2,7 +2,11 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { SparkSessionStore, type SparkSessionEntry } from "@zendev-lab/spark-host/session-store";
+import {
+  SparkSessionStore,
+  stableSparkSessionContextEntries,
+  type SparkSessionEntry,
+} from "@zendev-lab/spark-host/session-store";
 import {
   sparkSideThreadSnapshotSchema,
   sparkSideThreadExchangeSchema,
@@ -78,7 +82,7 @@ export async function createSparkDaemonSideThreadTranscript(
   if (mode === "contextual" && parent.sessionPath) {
     try {
       const parentRecord = await store.load(parent.sessionPath);
-      record.entries = stableContextEntries(parentRecord.entries).map((entry) =>
+      record.entries = stableSparkSessionContextEntries(parentRecord.entries).map((entry) =>
         structuredClone(entry),
       );
     } catch (error) {
@@ -723,25 +727,6 @@ function boundedUtf8(
 
 function encodedBytes(value: unknown): number {
   return Buffer.byteLength(JSON.stringify(value));
-}
-
-function stableContextEntries(entries: readonly SparkSessionEntry[]): SparkSessionEntry[] {
-  let lastStableAssistant = -1;
-  for (let index = 0; index < entries.length; index += 1) {
-    const entry = entries[index];
-    if (entry?.type !== "message" || entry.message.role !== "assistant") continue;
-    const stopReason = stringValue(entry.message.stopReason)?.toLowerCase();
-    if (
-      stopReason === "tooluse" ||
-      stopReason === "tool_use" ||
-      stopReason === "aborted" ||
-      stopReason === "error"
-    ) {
-      continue;
-    }
-    lastStableAssistant = index;
-  }
-  return lastStableAssistant < 0 ? [] : entries.slice(0, lastStableAssistant + 1);
 }
 
 function isFinalAssistantMessage(message: {

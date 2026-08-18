@@ -227,6 +227,7 @@ export const sparkLocalRpcSessionOrpcErrors = {
   session_snapshot_mismatch: { status: 409 },
   session_storage_unavailable: { status: 503 },
   session_transcript_cas_failed: { status: 409 },
+  session_transcript_changed: { status: 409 },
   session_transcript_conflict: { status: 409 },
   side_thread_config_empty: { status: 422 },
   workspace_cwd_unavailable: { status: 422 },

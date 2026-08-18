@@ -29,5 +29,6 @@ export {
   defaultSparkHome,
   workspaceSessionHash,
   parseSparkSessionEntries,
+  stableSparkSessionContextEntries,
   writeJsonLinesAtomically,
 } from "./store.ts";
