@@ -5,9 +5,11 @@ import { resolveEvidenceBlobPath } from "@zendev-lab/spark-artifacts";
 import type { EvidenceKind } from "@zendev-lab/spark-artifacts";
 import {
   nowIso,
+  sparkStateRootPath,
   type EvidenceRef,
   type RunRef,
   type ProjectRef,
+  type SparkStateRootContext,
   type TaskRef,
 } from "@zendev-lab/spark-core";
 import type { WorkflowRunStatus } from "@zendev-lab/spark-workflows";
@@ -120,8 +122,9 @@ export const SPARK_STATE_LARGE_EVIDENCE_THRESHOLD_BYTES = 64 * 1024;
 export async function collectSparkStateDiagnostics(
   cwd: string,
   graph: TaskGraph,
+  ctx?: SparkStateRootContext,
 ): Promise<SparkStateDiagnosticsSummary> {
-  const root = join(cwd, ".spark");
+  const root = sparkStateRootPath(cwd, ctx);
   const evidenceRoot = join(root, "evidence");
   const allTerminalProjects = graph
     .projects()

@@ -72,7 +72,7 @@ async function renderActiveSparkContextWithLanguage(
   const stateCwd = sparkStateCwd(cwd, ctx);
   const graph = await loadSparkGraph(cwd, ctx);
   if (!graph) return undefined;
-  const store = defaultTaskGraphStore(stateCwd);
+  const store = defaultTaskGraphStore(stateCwd, ctx);
   if (ensureSparkGraphInvariants(graph)) await saveSparkGraphAndTodos(cwd, graph, ctx, store);
   const sparkMd = await readActiveSparkMd(stateCwd);
   const project = await currentSparkProject(cwd, ctx, graph);
@@ -105,7 +105,7 @@ export async function ensureSparkStateForActiveWorkspace(
   cwd: string,
   ctx?: SparkSessionContext,
 ): Promise<TaskGraph | null> {
-  await ensureLocalSparkDirectory(sparkStateCwd(cwd, ctx));
+  await ensureLocalSparkDirectory(cwd, ctx);
   return loadSparkGraph(cwd, ctx);
 }
 

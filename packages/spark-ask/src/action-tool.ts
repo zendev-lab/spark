@@ -9,7 +9,7 @@ import type {
   ToolRenderComponent,
   ToolRenderTheme,
 } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 import {
   createAutonomousAskInteractionRequestId,
   parseSparkMemoryApprovalBinding,
@@ -107,18 +107,6 @@ export function registerSparkAskAutoAnswerProvider(
   return () => {
     if (providers.get(id) === provider) providers.delete(id);
   };
-}
-
-class ToolCallText implements ToolRenderComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
 }
 
 export function registerSparkAskActionTool(
@@ -639,14 +627,14 @@ async function maybeRecordAskEvidence(
   } catch (error) {
     throw new Error("ask evidence body must be JSON-serializable", { cause: error });
   }
-  const evidence = await defaultEvidenceStore(cwd).put({
+  const evidence = await defaultEvidenceStore(cwd, ctx).put({
     kind: "record",
     title: `Ask evidence: ${optionalString(params.title)?.trim() || "user decision"}`,
     format: "json",
     body: evidenceBody,
     provenance: { producer: "ask" },
   });
-  await recordCanonicalAskEvidenceReceipt(cwd, evidence);
+  await recordCanonicalAskEvidenceReceipt(cwd, evidence, ctx);
   return {
     ...result,
     details: {

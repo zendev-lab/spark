@@ -2,18 +2,20 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import { detectCopyLanguage } from "@zendev-lab/spark-core";
-import type { CopyLanguage } from "@zendev-lab/spark-core";
-import { builtinRoleRef } from "@zendev-lab/spark-roles";
 import {
+  detectCopyLanguage,
   newRef,
   nowIso,
-  type EvidenceRef,
+  sparkStateRootPath,
   type AskRef,
+  type CopyLanguage,
+  type EvidenceRef,
   type JsonValue,
-  type SparkRunTrace,
   type ProjectRef,
+  type SparkRunTrace,
+  type SparkStateRootContext,
 } from "@zendev-lab/spark-core";
+import { builtinRoleRef } from "@zendev-lab/spark-roles";
 import { defaultTaskGraphStore, TaskGraph, type TaskTodoSummary } from "@zendev-lab/spark-tasks";
 import { pathExists, readActiveSparkMd, shouldMaterializeSparkMd } from "./spark-activation.ts";
 import {
@@ -44,11 +46,12 @@ export async function initializeSparkIdea(
   cwd: string,
   idea: string,
   options: SparkInitOptions = {},
+  ctx?: SparkStateRootContext,
 ): Promise<SparkInitResult> {
-  const sparkDir = join(cwd, ".spark");
+  const sparkDir = sparkStateRootPath(cwd, ctx);
   await mkdir(sparkDir, { recursive: true });
 
-  const existingGraph = await defaultTaskGraphStore(cwd).load();
+  const existingGraph = await defaultTaskGraphStore(cwd, ctx).load();
   if (existingGraph) return sparkInitResultFromExisting(cwd, idea, existingGraph, options);
 
   const graph = new TaskGraph();
@@ -62,7 +65,7 @@ export async function initializeSparkIdea(
 
   createInitialSparkTasks(graph, project.ref, idea, options.clarification);
 
-  const store = defaultEvidenceStore(cwd);
+  const store = defaultEvidenceStore(cwd, ctx);
   const sparkMd =
     options.sparkMd ??
     renderSparkMd({ idea, workingTitle: projectTitle, clarification: options.clarification });
@@ -114,7 +117,7 @@ export async function initializeSparkIdea(
       parentEvidenceRefs: [sparkMdEvidence.ref, rolePlanEvidence.ref],
     },
   });
-  await saveSparkGraphAndTodos(cwd, graph, undefined, defaultTaskGraphStore(cwd));
+  await saveSparkGraphAndTodos(cwd, graph, ctx, defaultTaskGraphStore(cwd, ctx));
 
   const currentTask = graph.currentTask(project.ref);
   const todoSummary = currentTask ? graph.todoSummary(currentTask.ref) : emptyTodoSummary();

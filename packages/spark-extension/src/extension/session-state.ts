@@ -82,14 +82,14 @@ export async function loadSparkGraph(
   cwd: string,
   ctx?: SparkSessionContext,
 ): Promise<TaskGraph | null> {
-  return defaultTaskGraphStore(sparkStateCwd(cwd, ctx)).load();
+  return defaultTaskGraphStore(cwd, ctx).load();
 }
 
 export async function saveSparkGraphAndTodos(
   cwd: string,
   graph: TaskGraph,
   ctx?: SparkSessionContext,
-  store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx)),
+  store = defaultTaskGraphStore(cwd, ctx),
 ): Promise<void> {
   await store.save(graph);
 }
@@ -98,5 +98,5 @@ export function sparkTodoStore(
   cwd: string,
   ctx?: SparkSessionContext,
 ): ReturnType<typeof defaultTaskTodoStore> {
-  return defaultTaskTodoStore(sparkStateCwd(cwd, ctx), sparkSessionKey(ctx));
+  return defaultTaskTodoStore(cwd, sparkSessionKey(ctx), ctx);
 }

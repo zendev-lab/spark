@@ -411,7 +411,7 @@ export function registerSparkFinishTaskTool(
       const cwd = ctx.cwd;
       const stateCwd = sparkStateCwd(cwd, ctx);
       const input = normalizeSparkFinishTaskInput(params);
-      const store = defaultTaskGraphStore(stateCwd);
+      const store = defaultTaskGraphStore(stateCwd, ctx);
       let reviewEvidence: EvidenceRecord<JsonValue> | undefined;
       let reviewResult: ReviewerRunResult | undefined;
       let reviewerMode: TaskFinishReviewWorkflowMode | undefined;

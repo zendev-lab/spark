@@ -1,12 +1,14 @@
 import type { ChildProcess } from "node:child_process";
 import {
   contentHash,
+  sparkWorkspaceStatePath,
   stableId,
   writeTextFileAtomic,
   type EvidenceRef,
   type ExtensionRoleRunInputController,
   type ExtensionRoleRunner,
   type RoleRunCompletionOutcome,
+  type SparkStateRootContext,
   type ToolEffect,
 } from "@zendev-lab/spark-core";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
@@ -805,8 +807,14 @@ export class RoleModelSettingsStore {
   }
 }
 
-export function defaultProjectRoleModelSettingsStore(cwd: string): RoleModelSettingsStore {
-  return new RoleModelSettingsStore(join(cwd, ".spark", "role-model-settings.json"), "project");
+export function defaultProjectRoleModelSettingsStore(
+  cwd: string,
+  ctx?: SparkStateRootContext,
+): RoleModelSettingsStore {
+  return new RoleModelSettingsStore(
+    sparkWorkspaceStatePath(cwd, ["role-model-settings.json"], ctx),
+    "project",
+  );
 }
 
 export function defaultUserRoleModelSettingsStore(sparkHome?: string): RoleModelSettingsStore {

@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { join } from "node:path";
 
 import type { EvidenceRecord } from "@zendev-lab/spark-artifacts";
 import {
@@ -9,8 +8,10 @@ import {
 } from "@zendev-lab/spark-protocol";
 import {
   readJsonFileOptional,
+  sparkWorkspaceStatePath,
   writeJsonFileAtomic,
   type EvidenceRef,
+  type SparkStateRootContext,
 } from "@zendev-lab/spark-core";
 
 import type { SparkAskAutoAnswerRequest } from "./action-contracts.ts";
@@ -79,6 +80,7 @@ export function isUserAnsweredAskEvidenceBody(value: unknown): value is SparkAsk
 export async function recordCanonicalAskEvidenceReceipt(
   cwd: string,
   evidence: EvidenceRecord,
+  ctx?: SparkStateRootContext,
 ): Promise<void> {
   const answers = normalizeUserAnsweredAskEvidence(evidence.body);
   if (!answers) throw new Error("canonical ask evidence requires a user-answered result");
@@ -108,18 +110,19 @@ export async function recordCanonicalAskEvidenceReceipt(
         answersHash,
         recordedAt,
       };
-  await writeJsonFileAtomic(canonicalAskEvidenceReceiptPath(cwd, evidenceRef), receipt);
+  await writeJsonFileAtomic(canonicalAskEvidenceReceiptPath(cwd, evidenceRef, ctx), receipt);
 }
 
 export async function verifyCanonicalAskEvidence(
   cwd: string,
   evidence: EvidenceRecord,
+  ctx?: SparkStateRootContext,
 ): Promise<VerifiedCanonicalAskEvidence | undefined> {
   const answers = normalizeUserAnsweredAskEvidence(evidence.body);
   if (!answers || !evidence.hash || !evidence.ref.startsWith("evidence:")) return undefined;
   const evidenceRef = asEvidenceRef(evidence.ref);
   const raw = await readJsonFileOptional(
-    canonicalAskEvidenceReceiptPath(cwd, evidenceRef),
+    canonicalAskEvidenceReceiptPath(cwd, evidenceRef, ctx),
     (filePath, message) => new Error(`${filePath}: ${message}`),
   );
   const receipt = parseCanonicalAskEvidenceReceipt(raw);
@@ -273,9 +276,13 @@ function hasExplicitMemoryApproval(
   return answer?.values.length === 1 && answer.values[0] === "approve" && !answer.customText;
 }
 
-function canonicalAskEvidenceReceiptPath(cwd: string, ref: EvidenceRef): string {
+function canonicalAskEvidenceReceiptPath(
+  cwd: string,
+  ref: EvidenceRef,
+  ctx?: SparkStateRootContext,
+): string {
   const filename = `${createHash("sha256").update(ref).digest("hex")}.json`;
-  return join(cwd, ".spark", "asks", "evidence-receipts", filename);
+  return sparkWorkspaceStatePath(cwd, ["asks", "evidence-receipts", filename], ctx);
 }
 
 function parseCanonicalAskEvidenceReceipt(value: unknown): CanonicalAskEvidenceReceipt | undefined {

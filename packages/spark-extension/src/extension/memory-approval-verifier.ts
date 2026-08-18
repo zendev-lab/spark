@@ -1,8 +1,12 @@
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { verifyCanonicalAskEvidence } from "@zendev-lab/spark-ask";
-import type { EvidenceRef, SparkHostContext } from "@zendev-lab/spark-core";
+import {
+  sparkWorkspaceStatePath,
+  type EvidenceRef,
+  type SparkHostContext,
+} from "@zendev-lab/spark-core";
 import {
   createFileMemoryApprovalProofCommitter,
   createFileMemoryApprovalProofReserver,
@@ -29,12 +33,12 @@ export function createAskBackedMemoryApprovalVerifier(
     authenticateProof: async (proof) =>
       directReceipt.success && proof.proofRef === directReceipt.data.receiptId
         ? await proofMatchesDirectIntent(ctx, directReceipt.data, proof)
-        : await proofMatchesCanonicalAsk(workspaceRoot, proof),
+        : await proofMatchesCanonicalAsk(workspaceRoot, proof, ctx),
     reserveProof: createFileMemoryApprovalProofReserver(
-      join(workspaceRoot, ".spark", "memory", "approval-consumptions.json"),
+      sparkWorkspaceStatePath(workspaceRoot, ["memory", "approval-consumptions.json"], ctx),
     ),
     commitProof: createFileMemoryApprovalProofCommitter(
-      join(workspaceRoot, ".spark", "memory", "approval-consumptions.json"),
+      sparkWorkspaceStatePath(workspaceRoot, ["memory", "approval-consumptions.json"], ctx),
     ),
   });
   if (!directReceipt.success) verifierByWorkspace.set(workspaceRoot, verifier);
@@ -66,11 +70,12 @@ async function proofMatchesDirectIntent(
 async function proofMatchesCanonicalAsk(
   cwd: string,
   proof: SparkMemoryApprovalProof,
+  ctx?: SparkHostContext,
 ): Promise<boolean> {
   if (!proof.proofRef.startsWith("evidence:")) return false;
-  const evidence = await defaultEvidenceStore(cwd).tryGet(proof.proofRef as EvidenceRef);
+  const evidence = await defaultEvidenceStore(cwd, ctx).tryGet(proof.proofRef as EvidenceRef);
   if (!evidence) return false;
-  const verified = await verifyCanonicalAskEvidence(cwd, evidence);
+  const verified = await verifyCanonicalAskEvidence(cwd, evidence, ctx);
   return verified?.approvalProof !== undefined && sameCanonicalValue(verified.approvalProof, proof);
 }
 

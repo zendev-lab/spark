@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { join } from "node:path";
 
 import type { EvidenceRecord } from "@zendev-lab/spark-artifacts";
 import {
   readJsonFileOptional,
+  sparkWorkspaceStatePath,
   writeJsonFileAtomic,
   type EvidenceRef,
+  type SparkStateRootContext,
 } from "@zendev-lab/spark-core";
 import {
   matchesAutonomousAskInteractionRequestId,
@@ -30,6 +31,7 @@ export async function recordCanonicalAnswerEventEvidenceReceipt(
   cwd: string,
   evidence: EvidenceRecord,
   event: SparkEvidenceAnswerEvent,
+  ctx?: SparkStateRootContext,
 ): Promise<void> {
   const parsed = sparkEvidenceAnswerEventSchema.parse(event);
   const evidenceRef = answerEventEvidenceRef(parsed);
@@ -45,7 +47,7 @@ export async function recordCanonicalAnswerEventEvidenceReceipt(
   if (evidence.ref !== evidenceRef || !evidence.hash) {
     throw new Error("canonical AnswerEvent Evidence identity does not match its event");
   }
-  await writeJsonFileAtomic(answerEventReceiptPath(cwd, evidenceRef), {
+  await writeJsonFileAtomic(answerEventReceiptPath(cwd, evidenceRef, ctx), {
     schema: "spark.evidence-answer-event-receipt/v1",
     evidenceRef,
     evidenceHash: evidence.hash,
@@ -62,6 +64,7 @@ export async function recordCanonicalAnswerEventEvidenceReceipt(
 export async function verifyCanonicalAnswerEventEvidence(
   cwd: string,
   evidence: EvidenceRecord,
+  ctx?: SparkStateRootContext,
 ): Promise<SparkEvidenceAnswerEvent | undefined> {
   const parsed = sparkEvidenceAnswerEventSchema.safeParse(evidence.body);
   if (!parsed.success || !evidence.hash || !evidence.ref.startsWith("evidence:")) return undefined;
@@ -83,7 +86,7 @@ export async function verifyCanonicalAnswerEventEvidence(
     return undefined;
   }
   const raw = await readJsonFileOptional(
-    answerEventReceiptPath(cwd, evidenceRef),
+    answerEventReceiptPath(cwd, evidenceRef, ctx),
     (filePath, message) => new Error(`${filePath}: ${message}`),
   );
   if (!isRecord(raw)) return undefined;
@@ -108,9 +111,13 @@ function answerEventEvidenceRef(event: SparkEvidenceAnswerEvent): EvidenceRef {
   return `evidence:${event.answerEventId}` as EvidenceRef;
 }
 
-function answerEventReceiptPath(cwd: string, ref: EvidenceRef): string {
+function answerEventReceiptPath(
+  cwd: string,
+  ref: EvidenceRef,
+  ctx?: SparkStateRootContext,
+): string {
   const filename = `${createHash("sha256").update(ref).digest("hex")}.json`;
-  return join(cwd, ".spark", "asks", "answer-event-receipts", filename);
+  return sparkWorkspaceStatePath(cwd, ["asks", "answer-event-receipts", filename], ctx);
 }
 
 function hashCanonicalValue(value: unknown): string {

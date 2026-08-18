@@ -1,7 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
-import type { RunRef } from "@zendev-lab/spark-core";
+import {
+  sparkWorkspaceStatePath,
+  type RunRef,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-core";
 import type { SparkRoleRunActivityEventInput } from "./spark-role-run-observability.ts";
 
 interface RoleRunActivityEventStoreSnapshot {
@@ -11,8 +15,9 @@ interface RoleRunActivityEventStoreSnapshot {
 
 export async function loadRoleRunActivityEvents(
   cwd: string,
+  ctx?: SparkStateRootContext,
 ): Promise<SparkRoleRunActivityEventInput[]> {
-  const path = roleRunActivityEventsPath(cwd);
+  const path = roleRunActivityEventsPath(cwd, ctx);
   let raw: string;
   try {
     raw = await readFile(path, "utf8");
@@ -27,9 +32,10 @@ export async function loadRoleRunActivityEvents(
 export async function appendRoleRunActivityEvent(
   cwd: string,
   event: SparkRoleRunActivityEventInput,
+  ctx?: SparkStateRootContext,
 ): Promise<void> {
-  const path = roleRunActivityEventsPath(cwd);
-  const current = await loadRoleRunActivityEvents(cwd);
+  const path = roleRunActivityEventsPath(cwd, ctx);
+  const current = await loadRoleRunActivityEvents(cwd, ctx);
   await mkdir(dirname(path), { recursive: true });
   const snapshot: RoleRunActivityEventStoreSnapshot = {
     version: 1,
@@ -45,8 +51,8 @@ export function roleRunActivityEventsForRun(
   return events.filter((event) => event.runRef === runRef);
 }
 
-function roleRunActivityEventsPath(cwd: string): string {
-  return join(cwd, ".spark", "role-run-activity-events.json");
+function roleRunActivityEventsPath(cwd: string, ctx?: SparkStateRootContext): string {
+  return sparkWorkspaceStatePath(cwd, ["role-run-activity-events.json"], ctx);
 }
 
 function normalizeRoleRunActivityEventStoreSnapshot(

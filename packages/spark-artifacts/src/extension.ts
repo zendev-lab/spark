@@ -1,13 +1,12 @@
 import { Type } from "typebox";
 import {
-  sparkStateCwd,
   type SparkHostAPI,
   type SparkHostContext,
   type ToolConfig,
   type ToolRenderComponent,
   type ToolRenderTheme,
 } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 import {
   EVIDENCE_CURATION_STATUSES,
   EVIDENCE_FORMATS,
@@ -70,18 +69,6 @@ const EVIDENCE_PRODUCER_DESCRIPTION =
   "producer: spark | role | task | review | ask | cue | user. Prefer producer=task (+ runRef/taskRef) for execution notes; ask/review/cue when that capability owns the write.";
 const EVIDENCE_KIND_DESCRIPTION =
   "Internal ledger kinds only: record (default; one JSON fact/decision/result), trace (prunable raw output), knowledge (learning capability), document (rare long prose). Not user-facing; user-facing issue/git_change/document use artifact.";
-
-class ToolCallText implements ToolRenderComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
-}
 
 /** Register the agent-internal evidence ledger tool (`evidence`). */
 export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
@@ -211,7 +198,7 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
         throw new Error("artifactRef is not accepted by evidence; use evidenceRef");
       }
       const cwd = requireCwd(ctx, "evidence");
-      const store = defaultEvidenceStore(sparkStateCwd(cwd, ctx));
+      const store = defaultEvidenceStore(cwd, ctx);
       const action = normalizeAction(params.action);
 
       if (action === "list") {

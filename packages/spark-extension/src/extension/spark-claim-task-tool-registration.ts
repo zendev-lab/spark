@@ -183,14 +183,14 @@ export function registerSparkClaimTaskTool(
           },
         };
       const status = input.requestedStatus ?? (input.roleRef ? "pending" : "running");
-      const store = defaultTaskGraphStore(stateCwd);
+      const store = defaultTaskGraphStore(stateCwd, ctx);
       const existingGraph = await store.load();
       if (!existingGraph)
         return {
           content: [{ type: "text", text: NO_SPARK_PROJECT_FOUND_HINT }],
           details: { found: false },
         };
-      const workflowRunStatus = await defaultSparkWorkflowRunStore(stateCwd).status();
+      const workflowRunStatus = await defaultSparkWorkflowRunStore(stateCwd, ctx).status();
       const activeRoleRunProcesses = activeSparkRoleRunProcessesForCwd(cwd);
       const claimed = {
         graph: existingGraph,

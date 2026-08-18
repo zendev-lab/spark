@@ -29,7 +29,7 @@ export async function cleanupOwnedBackgroundSubroles(
   options: Pick<SparkBackgroundSubroleLifecycleOptions, "refreshSparkWidget"> = {},
 ): Promise<number> {
   const stateCwd = sparkStateCwd(cwd, ctx);
-  const store = defaultTaskGraphStore(stateCwd);
+  const store = defaultTaskGraphStore(stateCwd, ctx);
   const graph = await loadSparkGraph(cwd, ctx);
   if (!graph) return 0;
   const ownerSessionId = sparkSessionOwnerKey(ctx);
@@ -84,14 +84,14 @@ export async function resumeOwnedBackgroundSubroles(
   options: Pick<SparkBackgroundSubroleLifecycleOptions, "runTask"> = {},
 ): Promise<number> {
   const stateCwd = sparkStateCwd(cwd, ctx);
-  const store = defaultTaskGraphStore(stateCwd);
+  const store = defaultTaskGraphStore(stateCwd, ctx);
   const graph = await loadSparkGraph(cwd, ctx);
   if (!graph) return 0;
   const ownerSessionId = sparkSessionOwnerKey(ctx);
   const resumable = findResumableBackgroundRoleRunTasks(graph, ownerSessionId);
   if (resumable.length === 0) return 0;
   const registry = await createSparkRoleRegistry(stateCwd);
-  const evidenceStore = defaultEvidenceStore(stateCwd);
+  const evidenceStore = defaultEvidenceStore(stateCwd, ctx);
   let resumed = 0;
   for (const task of resumable) {
     const runName = task.claim?.runName;

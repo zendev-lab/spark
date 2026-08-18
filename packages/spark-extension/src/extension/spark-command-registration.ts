@@ -222,7 +222,7 @@ export function registerSparkCommands(
     args: string,
     commandLabel = "workflow-runs",
   ): Promise<void> {
-    const store = defaultSparkDynamicWorkflowEventStore(sparkStateCwd(ctx.cwd, ctx));
+    const store = defaultSparkDynamicWorkflowEventStore(ctx.cwd, ctx);
     await store.reconcileStale();
     const runRef = args ? parseDynamicWorkflowRunRefArg(commandLabel, args) : undefined;
     const runs = await store.listRuns();

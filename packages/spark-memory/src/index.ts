@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
+import {
+  sparkWorkspaceStatePath,
+  writeJsonFileAtomic,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-core";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
 import {
@@ -929,11 +933,12 @@ export function sparkMemoryStorePath(
   cwd: string,
   scope: SparkMemoryScope,
   paths: SparkMemoryStorePaths = {},
+  ctx?: SparkStateRootContext,
 ): string {
   const explicit = paths[scope];
   if (explicit?.trim()) return explicit;
   if (scope === "user") return resolveSparkUserPaths().memoryFile;
-  return join(cwd, ".spark", "memory", "memory.json");
+  return sparkWorkspaceStatePath(cwd, ["memory", "memory.json"], ctx);
 }
 
 export function defaultSparkMemoryStore(
@@ -941,8 +946,9 @@ export function defaultSparkMemoryStore(
   scope: SparkMemoryScope,
   paths?: SparkMemoryStorePaths,
   options?: SparkMemoryStoreOptions,
+  ctx?: SparkStateRootContext,
 ): SparkMemoryStore {
-  return new SparkMemoryStore(sparkMemoryStorePath(cwd, scope, paths), options);
+  return new SparkMemoryStore(sparkMemoryStorePath(cwd, scope, paths, ctx), options);
 }
 
 export function renderSparkMemoryPolicy(): string {

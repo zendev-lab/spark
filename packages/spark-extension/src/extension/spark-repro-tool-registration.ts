@@ -313,7 +313,7 @@ export function registerSparkReproTool(
       if (action === "sync_report") {
         const repro = await readSessionRepro(cwd, ctx);
         if (!repro) throw new Error("sync_report requires an active or completed Repro run");
-        const taskStatusByRef = await currentReproTaskStatusByRef(stateCwd, repro);
+        const taskStatusByRef = await currentReproTaskStatusByRef(cwd, ctx, repro);
         const synced = await syncSparkReproReportArtifact(stateCwd, repro.reproId, {
           reproState: repro,
           taskStatusByRef,
@@ -350,7 +350,7 @@ export function registerSparkReproTool(
       if (action === "project_report") {
         const repro = await readSessionRepro(cwd, ctx);
         if (!repro) throw new Error("project_report requires an active or completed Repro run");
-        const taskStatusByRef = await currentReproTaskStatusByRef(stateCwd, repro);
+        const taskStatusByRef = await currentReproTaskStatusByRef(cwd, ctx, repro);
         const projected = await projectSparkReproReportSummary({
           cwd: stateCwd,
           currentReproId: repro.reproId,
@@ -658,7 +658,7 @@ export function registerSparkReproTool(
             })
           : undefined;
         const graph = repro.projectRef
-          ? ((await defaultTaskGraphStore(sparkStateCwd(cwd, ctx)).load()) ?? undefined)
+          ? ((await defaultTaskGraphStore(cwd, ctx).load()) ?? undefined)
           : undefined;
         const orchestration = collectReproOrchestrationSnapshot(repro, graph);
         const settled = settleReproTick(repro, orchestration);
@@ -1883,7 +1883,7 @@ async function rebindReproToCurrentProjectForBoundTasks(
   const projectRef = await loadCurrentProjectRef(cwd, ctx);
   if (!projectRef || projectRef === repro.projectRef) return repro;
 
-  const graph = await defaultTaskGraphStore(sparkStateCwd(cwd, ctx)).load();
+  const graph = await defaultTaskGraphStore(cwd, ctx).load();
   if (!graph) return repro;
   const currentProjectTaskRefs = new Set(graph.tasks(projectRef).map((task) => task.ref));
   if (!taskRefs.every((taskRef) => currentProjectTaskRefs.has(taskRef))) return repro;
@@ -2156,10 +2156,11 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
 }
 
 async function currentReproTaskStatusByRef(
-  stateCwd: string,
+  cwd: string,
+  ctx: SparkToolContext,
   repro: SparkSessionRepro,
 ): Promise<Readonly<Record<string, string | undefined>>> {
-  const graph = await defaultTaskGraphStore(stateCwd).load();
+  const graph = await defaultTaskGraphStore(cwd, ctx).load();
   return Object.fromEntries(
     repro.subgoals.flatMap((subgoal) =>
       subgoal.taskRef ? [[subgoal.taskRef, graph?.getTask(subgoal.taskRef)?.status] as const] : [],

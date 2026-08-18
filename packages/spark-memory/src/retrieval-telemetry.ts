@@ -1,7 +1,11 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
+import {
+  sparkWorkspaceStatePath,
+  writeJsonFileAtomic,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-core";
 
 import { memoryContentDigest } from "./lifecycle.ts";
 import { withFileMutationLock } from "./mutation-lock.ts";
@@ -162,8 +166,13 @@ export class RetrievalTelemetryStore {
   }
 }
 
-export function defaultRetrievalTelemetryStore(cwd: string): RetrievalTelemetryStore {
-  return new RetrievalTelemetryStore(join(cwd, ".spark", "memory", "retrieval-telemetry.json"));
+export function defaultRetrievalTelemetryStore(
+  cwd: string,
+  ctx?: SparkStateRootContext,
+): RetrievalTelemetryStore {
+  return new RetrievalTelemetryStore(
+    sparkWorkspaceStatePath(cwd, ["memory", "retrieval-telemetry.json"], ctx),
+  );
 }
 
 function emptySnapshot(): RetrievalTelemetrySnapshot {

@@ -75,7 +75,7 @@ describe("task plan item updates", () => {
       const ctx = testContext(cwd);
       const sessionKey = sparkSessionKey(ctx);
       const stateCwd = sparkStateCwd(cwd, ctx);
-      const store = defaultTaskGraphStore(stateCwd);
+      const store = defaultTaskGraphStore(stateCwd, ctx);
       const graph = new TaskGraph();
       const project = graph.createProject({
         title: "Plan item metadata",

@@ -41,7 +41,7 @@ function captureReleaseTool(daemon: SparkTaskClaimDaemonClient): SparkRegistered
 async function createClaimedTask(cwd: string, ctx: SparkToolContext) {
   const sessionKey = sparkSessionKey(ctx);
   const stateCwd = sparkStateCwd(cwd, ctx);
-  const store = defaultTaskGraphStore(stateCwd);
+  const store = defaultTaskGraphStore(stateCwd, ctx);
   const graph = new TaskGraph();
   const project = graph.createProject({
     title: "Release contract",

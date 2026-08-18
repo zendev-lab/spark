@@ -193,7 +193,7 @@ export function registerSparkTodoTools(
           content: [{ type: "text", text: "plan item ops are required." }],
           details: { found: true, error: "missing_ops" },
         };
-      const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
+      const store = defaultTaskGraphStore(cwd, ctx);
       const updated = await store.update(
         async (graph) => {
           const project = await currentSparkProject(cwd, ctx, graph);

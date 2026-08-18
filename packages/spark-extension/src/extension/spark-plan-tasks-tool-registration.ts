@@ -146,7 +146,7 @@ export function registerSparkPlanTasksTool(
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = ctx.cwd;
-      const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
+      const store = defaultTaskGraphStore(cwd, ctx);
       const graph = await loadSparkGraph(cwd, ctx);
       if (!graph)
         return {

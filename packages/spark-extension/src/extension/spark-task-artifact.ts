@@ -10,7 +10,7 @@ export function createTaskArtifactHandler(
     const cwd = requireCwd(ctx);
     const stateCwd = sparkStateCwd(cwd, ctx);
     const artifactRef = await resolveArtifactRef(stateCwd, params.artifactRef);
-    const store = defaultTaskGraphStore(stateCwd);
+    const store = defaultTaskGraphStore(stateCwd, ctx);
     const result = await store.update((graph) => {
       const projectRef = resolveProjectRef(
         graph.projects(),

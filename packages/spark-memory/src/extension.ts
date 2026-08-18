@@ -5,13 +5,13 @@ import { basename, dirname, join } from "node:path";
 import { Type } from "typebox";
 import {
   callLeafOrDegrade,
-  sparkStateCwd,
   type SparkHostContext,
+  type SparkStateRootContext,
   type ToolConfig,
   type ToolRenderComponent,
   type ToolRenderTheme,
 } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import {
   createSparkMemoryDirectIntentApprovalProof,
@@ -142,18 +142,6 @@ type LegacyMemoryDocument = {
 };
 
 type LegacySearchResult = { label: string; path: string; score: number; snippet: string };
-
-class ToolCallText implements ToolRenderComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
-}
 
 export function registerSparkMemoryTool(
   pi: SparkMemoryExtensionApi,
@@ -326,7 +314,7 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
       return renderMemoryCall(args, theme);
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const cwd = requiredStateCwd(ctx);
+      const cwd = requiredCwd(ctx);
       await migrateSparkMemoryLayout({ cwd });
       const kind = normalizeMemoryKind(params.kind);
       let authorization = normalizeMemoryMutationAuthorization(params);
@@ -368,7 +356,7 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
           });
         }
         const telemetry =
-          options.createRetrievalTelemetryStore?.(cwd) ?? defaultRetrievalTelemetryStore(cwd);
+          options.createRetrievalTelemetryStore?.(cwd) ?? defaultRetrievalTelemetryStore(cwd, ctx);
         let recorded;
         try {
           recorded = await telemetry.record({
@@ -398,7 +386,7 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
         if (kind === "candidate") {
           throw new Error("recall candidates cannot own immutable lineage proposals");
         }
-        const proposalStore = defaultMemoryLineageProposalStore(cwd);
+        const proposalStore = defaultMemoryLineageProposalStore(cwd, ctx);
         const input = requiredRecord(params.lineageProposal, "lineageProposal");
         const previewRef = requiredString(params.previewRef, "previewRef");
         const proposal = await proposalStore.create({
@@ -437,22 +425,33 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
           );
         }
         const proposalId = requiredString(params.proposalId, "proposalId");
-        const proposalStore = defaultMemoryLineageProposalStore(cwd);
+        const proposalStore = defaultMemoryLineageProposalStore(cwd, ctx);
         if (kind === "learning") {
-          const learningStore = defaultLearningStore(cwd, normalizeOptionalScope(params.location), {
-            verifier,
-            workspaceId,
-            proposalStore,
-          });
+          const learningStore = defaultLearningStore(
+            cwd,
+            normalizeOptionalScope(params.location),
+            {
+              verifier,
+              workspaceId,
+              proposalStore,
+            },
+            ctx,
+          );
           const record = await learningStore.applyLineageProposal(proposalId, authorization);
           return result(`Committed learning lineage proposal ${proposalId}.`, { record });
         }
         const entryScope = normalizeOptionalScope(params.scope) ?? "workspace";
-        const entryStore = defaultSparkMemoryStore(cwd, entryScope, options.storePaths, {
-          verifier,
-          workspaceId,
-          proposalStore,
-        });
+        const entryStore = defaultSparkMemoryStore(
+          cwd,
+          entryScope,
+          options.storePaths,
+          {
+            verifier,
+            workspaceId,
+            proposalStore,
+          },
+          ctx,
+        );
         const entry = await entryStore.applyLineageProposal(proposalId, authorization);
         return result(`Committed memory lineage proposal ${proposalId}.`, { entry });
       }
@@ -461,11 +460,16 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
           throw new Error("recall candidates do not expose durable lineage");
         const id = requiredString(params.id, "id");
         if (kind === "learning") {
-          const learningStore = defaultLearningStore(cwd, normalizeOptionalScope(params.location), {
-            verifier,
-            workspaceId,
-            proposalStore: defaultMemoryLineageProposalStore(cwd),
-          });
+          const learningStore = defaultLearningStore(
+            cwd,
+            normalizeOptionalScope(params.location),
+            {
+              verifier,
+              workspaceId,
+              proposalStore: defaultMemoryLineageProposalStore(cwd, ctx),
+            },
+            ctx,
+          );
           const value =
             lineageAction === "lineage"
               ? await learningStore.lineage(id)
@@ -476,11 +480,17 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
           return result(`Loaded learning ${lineageAction} for ${id}.`, { value });
         }
         const entryScope = normalizeOptionalScope(params.scope) ?? "workspace";
-        const entryStore = defaultSparkMemoryStore(cwd, entryScope, options.storePaths, {
-          verifier,
-          workspaceId,
-          proposalStore: defaultMemoryLineageProposalStore(cwd),
-        });
+        const entryStore = defaultSparkMemoryStore(
+          cwd,
+          entryScope,
+          options.storePaths,
+          {
+            verifier,
+            workspaceId,
+            proposalStore: defaultMemoryLineageProposalStore(cwd, ctx),
+          },
+          ctx,
+        );
         const value =
           lineageAction === "lineage"
             ? await entryStore.lineage(id)
@@ -491,6 +501,7 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
         return executeMemoryCandidateAction({
           params,
           cwd,
+          ctx,
           storePaths: options.recallStorePaths,
           verifier,
           workspaceId,
@@ -501,6 +512,7 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
         return executeMemoryLearningAction({
           params,
           cwd,
+          ctx,
           verifier,
           workspaceId,
           authorization,
@@ -509,10 +521,16 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
 
       const action = normalizeMemoryEntryAction(params.action);
       const scope = normalizeOptionalScope(params.scope) ?? "workspace";
-      const store = defaultSparkMemoryStore(cwd, scope, options.storePaths, {
-        verifier,
-        workspaceId,
-      });
+      const store = defaultSparkMemoryStore(
+        cwd,
+        scope,
+        options.storePaths,
+        {
+          verifier,
+          workspaceId,
+        },
+        ctx,
+      );
 
       if (action === "remember") {
         const directReceipt = directIntentReceipt(ctx, "remember");
@@ -898,8 +916,8 @@ function memoryStatusTool(options: SparkMemoryToolOptions): ToolConfig {
       sourceDir: Type.Optional(Type.String({ description: "Override compatibility memory dir" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const cwd = optionalStateCwd(ctx) ?? process.cwd();
-      const store = defaultSparkMemoryStore(cwd, "workspace", options.storePaths);
+      const cwd = optionalCwd(ctx) ?? process.cwd();
+      const store = defaultSparkMemoryStore(cwd, "workspace", options.storePaths, undefined, ctx);
       const sparkStatus = await store.status();
       const sourceDir = resolveCompatMemoryDir(options, params.sourceDir);
       const documents = await collectLegacyMemoryDocuments(sourceDir);
@@ -944,7 +962,7 @@ export function registerSparkMemoryCheckpointEvents(
   options: SparkMemoryToolOptions = {},
 ): void {
   pi.on?.("session_start", async (_event, ctx) => {
-    const cwd = optionalStateCwd(ctx);
+    const cwd = optionalCwd(ctx);
     if (!cwd) return;
     await migrateSparkMemoryLayout({ cwd });
     pi.sendMessage?.(
@@ -956,7 +974,13 @@ export function registerSparkMemoryCheckpointEvents(
         trust: "trusted",
         details: {
           policyOnly: true,
-          storePath: defaultSparkMemoryStore(cwd, "workspace", options.storePaths).filePath,
+          storePath: defaultSparkMemoryStore(
+            cwd,
+            "workspace",
+            options.storePaths,
+            undefined,
+            optionalStateRootContext(ctx),
+          ).filePath,
         },
       },
       { deliverAs: "steer", triggerTurn: false },
@@ -964,12 +988,14 @@ export function registerSparkMemoryCheckpointEvents(
   });
 
   pi.on?.("session_before_compact", async (_event, ctx) => {
-    const cwd = optionalStateCwd(ctx);
+    const cwd = optionalCwd(ctx);
     if (!cwd) return;
     const checkpoint = await defaultSparkMemoryStore(
       cwd,
       "workspace",
       options.storePaths,
+      undefined,
+      optionalStateRootContext(ctx),
     ).checkpoint({
       limit: 25,
     });
@@ -994,7 +1020,7 @@ export function registerSparkMemoryCheckpointEvents(
   });
 
   pi.on?.("session_compact", (event, ctx) => {
-    const cwd = optionalStateCwd(ctx);
+    const cwd = optionalCwd(ctx);
     const compact = successfulFullCompaction(event);
     if (!cwd || !compact) return;
     const runPipeline =
@@ -1372,6 +1398,14 @@ function memoryCheckpointDeliveryId(sessionId: string, content: string): string 
   return `spark-memory-checkpoint:${digest}`;
 }
 
+function optionalStateRootContext(ctx: unknown): SparkStateRootContext | undefined {
+  const sparkStateRoot =
+    typeof (ctx as { sparkStateRoot?: unknown })?.sparkStateRoot === "string"
+      ? (ctx as { sparkStateRoot: string }).sparkStateRoot.trim()
+      : "";
+  return sparkStateRoot ? { sparkStateRoot } : undefined;
+}
+
 function optionalCwd(ctx: unknown): string | undefined {
   const cwd =
     typeof (ctx as { cwd?: unknown })?.cwd === "string" ? (ctx as { cwd: string }).cwd : "";
@@ -1380,18 +1414,6 @@ function optionalCwd(ctx: unknown): string | undefined {
 
 function requiredCwd(ctx: unknown): string {
   const cwd = optionalCwd(ctx);
-  if (!cwd) throw new Error("memory requires ctx.cwd");
-  return cwd;
-}
-
-function optionalStateCwd(ctx: unknown): string | undefined {
-  const cwd = optionalCwd(ctx);
-  if (!cwd) return undefined;
-  return sparkStateCwd(cwd, ctx as { sparkStateRoot?: string });
-}
-
-function requiredStateCwd(ctx: unknown): string {
-  const cwd = optionalStateCwd(ctx);
   if (!cwd) throw new Error("memory requires ctx.cwd");
   return cwd;
 }

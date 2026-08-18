@@ -74,7 +74,7 @@ export async function createProjectBackedSessionRepro(
           reason: "Select Repro decomposition difficulty before Stage materialization",
           difficulty: input.difficulty,
         });
-  const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
+  const store = defaultTaskGraphStore(cwd, ctx);
   const { result } = await store.update((graph): ReproProjectBindingResult => {
     const objective = repro.goalContract.objective;
     const project = graph.createProject({
@@ -104,7 +104,7 @@ export async function materializeReproStagePlan(
   stage: SparkReproStageName,
 ): Promise<ReproProjectBindingResult> {
   if (!repro.projectRef) throw new Error("Repro Stage planning requires a bound Project");
-  const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
+  const store = defaultTaskGraphStore(cwd, ctx);
   const { result } = await store.update(
     (graph): ReproProjectBindingResult => {
       const materialized = materializeStageInGraph(graph, repro, repro.projectRef!, stage);

@@ -92,7 +92,7 @@ async function executeSparkReleaseTaskClaim(
   const input = normalizeSparkReleaseTaskClaimInput(params);
   const sessionKey = sparkSessionKey(ctx);
   const stateCwd = sparkStateCwd(ctx.cwd, ctx);
-  const store = defaultTaskGraphStore(stateCwd);
+  const store = defaultTaskGraphStore(stateCwd, ctx);
   const graph = await store.load();
   if (!graph) return renderReleaseRefusal({ ok: false, error: "no_project" });
   const project = input.projectSelector

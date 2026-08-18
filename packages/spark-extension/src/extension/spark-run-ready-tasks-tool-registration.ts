@@ -110,7 +110,7 @@ export function registerSparkRunReadyTasksTool(
         "assign timeoutMs",
       );
       const requestedTaskRefs = normalizeSparkRunReadyTaskRefs(params.taskRefs);
-      const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
+      const store = defaultTaskGraphStore(cwd, ctx);
       let graph = await loadSparkGraph(cwd, ctx);
       if (!graph)
         return {
@@ -283,7 +283,7 @@ export function registerSparkRunReadyTasksTool(
             },
           };
         }
-        const runStore = defaultSparkWorkflowRunStore(sparkStateCwd(cwd, ctx));
+        const runStore = defaultSparkWorkflowRunStore(cwd, ctx);
         const existingControl = await runStore.loadControl();
         const focus =
           existingControl?.projectRef === project.ref ? existingControl.focus : undefined;
@@ -317,7 +317,7 @@ export function registerSparkRunReadyTasksTool(
         };
       }
 
-      const evidenceStore = defaultEvidenceStore(sparkStateCwd(cwd, ctx));
+      const evidenceStore = defaultEvidenceStore(cwd, ctx);
       const resourceInventory = await discoverTaskResourceInventory();
       if (fleet) {
         const candidates = (taskRefs ?? []).map((taskRef) => graph.getTask(taskRef));

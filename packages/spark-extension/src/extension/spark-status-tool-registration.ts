@@ -97,7 +97,7 @@ export function registerSparkStatusTool(
       const scope = normalizeSparkStatusScope(params);
       const view = normalizeSparkStatusView(params);
       const explicitLimit = normalizeSparkStatusLimit(params);
-      const store = defaultTaskGraphStore(stateCwd);
+      const store = defaultTaskGraphStore(stateCwd, ctx);
       const graph = await loadSparkGraph(cwd, ctx);
       if (!graph) {
         const details = { found: false, active: false, format, scope, view };
@@ -121,10 +121,13 @@ export function registerSparkStatusTool(
         scope === "workspace"
           ? (explicitLimit ?? (view === "summary" ? DEFAULT_SPARK_STATUS_ACTIVE_LIMIT : undefined))
           : undefined;
-      const runStore = defaultSparkWorkflowRunStore(stateCwd);
+      const runStore = defaultSparkWorkflowRunStore(stateCwd, ctx);
       await reconcileSparkWorkflowRunsWithActiveProcesses(runStore, graph, cwd);
       const workflowRunStatus = await runStore.status();
-      const dynamicWorkflowRuns = await defaultSparkDynamicWorkflowEventStore(stateCwd).listRuns();
+      const dynamicWorkflowRuns = await defaultSparkDynamicWorkflowEventStore(
+        stateCwd,
+        ctx,
+      ).listRuns();
       const runControl = await runStore.loadControl();
       const sessionKey = sparkSessionKey(ctx);
       const currentProject = await currentSparkProject(cwd, ctx, graph);

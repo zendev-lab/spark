@@ -143,7 +143,9 @@ export async function loadIndependentTodos(
   cwd: string,
   ctx: SparkSessionContext | undefined,
 ): Promise<SessionTodoEntry[]> {
-  return defaultTaskTodoStore(cwd, sparkSessionKey(ctx)).loadSessionTodos(sparkSessionKey(ctx));
+  return defaultTaskTodoStore(cwd, sparkSessionKey(ctx), ctx).loadSessionTodos(
+    sparkSessionKey(ctx),
+  );
 }
 
 export async function updateIndependentTodos(
@@ -152,7 +154,7 @@ export async function updateIndependentTodos(
   update: (todos: SessionTodoEntry[]) => SessionTodoEntry[],
 ): Promise<SessionTodoUpdateResult> {
   const ownerRef = sparkSessionKey(ctx);
-  return defaultTaskTodoStore(cwd, ownerRef).updateSessionTodos(ownerRef, update);
+  return defaultTaskTodoStore(cwd, ownerRef, ctx).updateSessionTodos(ownerRef, update);
 }
 
 export function visibleIndependentTodos(todos: SessionTodoEntry[]): SessionTodoEntry[] {
@@ -164,7 +166,7 @@ export async function saveIndependentTodos(
   ctx: SparkSessionContext | undefined,
   todos: SessionTodoEntry[],
 ): Promise<void> {
-  await defaultTaskTodoStore(cwd, sparkSessionKey(ctx)).saveSessionTodos(
+  await defaultTaskTodoStore(cwd, sparkSessionKey(ctx), ctx).saveSessionTodos(
     sparkSessionKey(ctx),
     todos,
   );

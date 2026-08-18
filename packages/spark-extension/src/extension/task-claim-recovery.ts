@@ -1,7 +1,12 @@
 import { readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
 
-import { nowIso, type ProjectRef, type Task } from "@zendev-lab/spark-core";
+import {
+  nowIso,
+  sparkWorkspaceStatePath,
+  type ProjectRef,
+  type SparkStateRootContext,
+  type Task,
+} from "@zendev-lab/spark-core";
 import {
   defaultEvidenceStore,
   type EvidenceRecord,
@@ -34,6 +39,7 @@ export interface SparkTaskClaimRecoveryDecision {
 
 export interface SparkTaskClaimRecoveryEvidenceInput {
   cwd: string;
+  ctx?: SparkStateRootContext;
   task: Task;
   projectRef: ProjectRef;
   decision: SparkTaskClaimRecoveryDecision;
@@ -55,6 +61,7 @@ interface OwnerSessionActivity {
 
 export async function evaluateSparkTaskClaimRecovery(input: {
   cwd: string;
+  ctx?: SparkStateRootContext;
   task: Task;
   projectRef: ProjectRef;
   currentSessionKey: string;
@@ -120,12 +127,16 @@ export async function evaluateSparkTaskClaimRecovery(input: {
       evidence: baseEvidence(input.task, now, { claimExpired }),
     };
 
-  const latestNeedsChanges = await latestNeedsChangesReview(input.cwd, input.task);
+  const latestNeedsChanges = await latestNeedsChangesReview(input.cwd, input.task, input.ctx);
   if (
     latestNeedsChanges &&
     isAtOrAfter(latestNeedsChanges.updatedAt, claim.heartbeatAt ?? claim.claimedAt)
   ) {
-    const ownerActivity = await ownerSessionActivity(input.cwd, claim.sessionId ?? claim.claimedBy);
+    const ownerActivity = await ownerSessionActivity(
+      input.cwd,
+      claim.sessionId ?? claim.claimedBy,
+      input.ctx,
+    );
     if (ownerActivity.updatedAt && isAfter(ownerActivity.updatedAt, latestNeedsChanges.updatedAt)) {
       return refusal(
         "owner_session_recent",
@@ -175,7 +186,7 @@ export async function recordSparkTaskClaimRecoveryEvidence(
     decision: input.decision,
     authorizedAt: now,
   });
-  const evidence = await defaultEvidenceStore(input.cwd).put({
+  const evidence = await defaultEvidenceStore(input.cwd, input.ctx).put({
     kind: "record",
     title: `Authorized Spark task claim recovery for @${input.task.name}`,
     format: "json",
@@ -262,8 +273,12 @@ function baseEvidence(
 async function latestNeedsChangesReview(
   cwd: string,
   task: Task,
+  ctx?: SparkStateRootContext,
 ): Promise<LatestNeedsChangesReview | undefined> {
-  const reviews = await defaultEvidenceStore(cwd).list({ taskRef: task.ref, producer: "review" });
+  const reviews = await defaultEvidenceStore(cwd, ctx).list({
+    taskRef: task.ref,
+    producer: "review",
+  });
   return reviews
     .flatMap((evidence) => {
       const outcome = reviewOutcome(evidence);
@@ -305,8 +320,16 @@ function reviewSummary(evidence: EvidenceRecord): string | undefined {
   return undefined;
 }
 
-async function ownerSessionActivity(cwd: string, owner: string): Promise<OwnerSessionActivity> {
-  const filePath = join(cwd, ".spark", "sessions", sessionDirectoryNameForKey(owner), "goal.json");
+async function ownerSessionActivity(
+  cwd: string,
+  owner: string,
+  ctx?: SparkStateRootContext,
+): Promise<OwnerSessionActivity> {
+  const filePath = sparkWorkspaceStatePath(
+    cwd,
+    ["sessions", sessionDirectoryNameForKey(owner), "goal.json"],
+    ctx,
+  );
   try {
     const text = await readFile(filePath, "utf8");
     const parsed = JSON.parse(text) as { goal?: { updatedAt?: unknown } };
