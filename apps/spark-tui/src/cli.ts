@@ -67,6 +67,10 @@ import {
   resolveDaemonModelSelection,
   type SparkDaemonModelAuthClient,
 } from "./cli/model-control.ts";
+import {
+  nativeTuiDaemonProjectionSignature,
+  startIdleNativeTuiDaemonProjectionReconcile,
+} from "./cli/native-tui-daemon-projection-reconcile.ts";
 import { createSparkPromptTemplateSlashCommands } from "./cli/prompt-template-commands.ts";
 import type { SparkCliHostServices, SparkCliHostServicesOptions } from "./host/bootstrap.ts";
 import {
@@ -1393,6 +1397,7 @@ async function runSparkCliTuiSelection(input: {
       };
     });
     let tuiExitReason: SparkNativeTuiExitReason | void;
+    const idleProjectionAbort = new AbortController();
     try {
       tuiExitReason = await runTui({
         initialMessage: input.initialMessage,
@@ -1517,9 +1522,26 @@ async function runSparkCliTuiSelection(input: {
               display: true,
             });
           }
+          startIdleNativeTuiDaemonProjectionReconcile({
+            signal: idleProjectionAbort.signal,
+            lastSignature: snapshot ? nativeTuiDaemonProjectionSignature(snapshot) : undefined,
+            isProcessing: () => session.isProcessing,
+            loadSnapshot,
+            applySnapshot: (next) => {
+              app.applyViewModelEvent({
+                version: SPARK_PROTOCOL_VERSION,
+                type: "session.snapshot",
+                session: next,
+              });
+            },
+            refreshWidget: async () => {
+              await services.runtime.emit("session_tree", {});
+            },
+          });
         },
       });
     } finally {
+      idleProjectionAbort.abort();
       activeNativeTuiApp = undefined;
       services.runtime.setSessionLeaseProvider(undefined);
       await stopSparkSessionHeartbeat(sessionHeartbeat, (message) => {

@@ -108,7 +108,12 @@ session id and only connection-local active-invocation routing is retained.
 TUI, Hub, ACP, and Channel adapters create or select daemon Sessions through
 the same protocol. They do not author lifecycle or activity: the daemon derives
 visible activity from queued/running Invocations, rolls owned child activity up
-to its parent, and emits the projection consumed by every surface.
+to its parent, and emits the projection consumed by every surface. An attached
+idle native TUI reconciles later `session.snapshot` results on a bounded
+interval so daemon-owned Goal, Loop, and Repro ticks reach the transcript,
+inspector, and widget. Occupancy heartbeat does not carry that projection. Live
+`turn.stream` owns an in-flight turn, so idle reconcile must not replace the
+transcript while the session is processing.
 
 Generated UI is artifact-backed data, never executable MDX, JS, JSX, imports,
 exports, or raw HTML. Public action-tool names remain canonical. Serialized

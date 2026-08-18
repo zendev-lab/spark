@@ -97,9 +97,11 @@ Use `/inspect` or Ctrl+K to open the local session inspector:
 /inspect off
 ```
 
-It shows projections already published to this TUI. It is not Hub Web and does
-not create another execution owner. Run `spark hub` in another
-terminal for cross-session and workspace supervision.
+It shows projections already published to this TUI. An attached idle TUI
+follows later daemon session snapshots, so Goal, Loop, and Repro progress
+appears without `/reload`. An in-flight turn still uses live `turn.stream`.
+It is not Hub Web and does not create another execution owner. Run `spark hub`
+in another terminal for cross-session and workspace supervision.
 
 When the daemon projects an active Repro, the transcript keeps a compact
 Implementation / Exactness / Formalize summary with counts, blockers, pending
