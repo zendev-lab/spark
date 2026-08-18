@@ -56,6 +56,7 @@ export const sparkSessionRegistryDomainErrorCodeOptions = [
   "session_snapshot_mismatch",
   "session_storage_unavailable",
   "session_transcript_cas_failed",
+  "session_transcript_changed",
   "session_transcript_conflict",
   "side_thread_config_empty",
   "workspace_cwd_unavailable",

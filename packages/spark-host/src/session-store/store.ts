@@ -296,6 +296,35 @@ export function parseSparkSessionEntries(content: string): SparkSessionFileEntry
   return entries;
 }
 
+/**
+ * Return the transcript prefix that is safe to seed into another Session.
+ *
+ * A tool-use, aborted, or failed assistant message is not a completed context
+ * boundary. Keeping this rule with the transcript format prevents Side Thread
+ * and managed Session forks from defining competing notions of a stable tail.
+ */
+export function stableSparkSessionContextEntries(
+  entries: readonly SparkSessionEntry[],
+): SparkSessionEntry[] {
+  let lastStableAssistant = -1;
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (entry?.type !== "message" || entry.message.role !== "assistant") continue;
+    const rawStopReason = entry.message.stopReason;
+    const stopReason = typeof rawStopReason === "string" ? rawStopReason.toLowerCase() : undefined;
+    if (
+      stopReason === "tooluse" ||
+      stopReason === "tool_use" ||
+      stopReason === "aborted" ||
+      stopReason === "error"
+    ) {
+      continue;
+    }
+    lastStableAssistant = index;
+  }
+  return lastStableAssistant < 0 ? [] : entries.slice(0, lastStableAssistant + 1);
+}
+
 async function readSessionHeader(path: string): Promise<SparkSessionHeader | undefined> {
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
