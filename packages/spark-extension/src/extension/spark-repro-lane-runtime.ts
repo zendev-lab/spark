@@ -849,15 +849,13 @@ async function prepareRouteRevision(input: {
   const expectedTargetRevision = artifact.body.revisionMaterialization?.headRevision;
   if (!expectedTargetRevision) throw new Error("GitChange has no revision materialization state");
   if (expectedTargetRevision === input.route.sourceRevision) return;
-  const sourceBinding = sparkReproLaneBinding(
-    input.repro.threeLane,
-    input.route.workItemId,
-    input.route.fromLane,
+  const workItem = input.repro.threeLane.workItems.find(
+    (candidate) => candidate.workItemId === input.route.workItemId,
   );
   const sourceBaseRevision =
     input.route.action === "refresh_binding"
       ? (input.currentBindingRevision ?? expectedTargetRevision)
-      : (sourceBinding?.sourceRevision ?? input.repro.threeLane.workItems[0]?.sourceRevision);
+      : workItem?.sourceRevision;
   if (!sourceBaseRevision) throw new Error("route has no provable source base revision");
   const supersededRevisions = input.repro.threeLane.resolutions
     .filter(
