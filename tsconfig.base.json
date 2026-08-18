@@ -16,8 +16,13 @@
     "rootDir": ".",
     "ignoreDeprecations": "6.0",
     "paths": {
+      "@zendev-lab/pi-spark": ["./packages/pi-spark/src/extension.ts"],
+      "@zendev-lab/pi-spark/extension": ["./packages/pi-spark/src/extension.ts"],
       "@zendev-lab/spark-artifacts": ["./packages/spark-artifacts/src/index.ts"],
       "@zendev-lab/spark-artifacts/extension": ["./packages/spark-artifacts/src/extension.ts"],
+      "@zendev-lab/spark-artifacts/daemon-extension": [
+        "./packages/spark-artifacts/src/daemon-extension.ts"
+      ],
       "@zendev-lab/spark-ask": ["./packages/spark-ask/src/index.ts"],
       "@zendev-lab/spark-ask/extension": ["./packages/spark-ask/src/extension.ts"],
       "@zendev-lab/spark-core": ["./packages/spark-core/src/index.ts"],
@@ -47,6 +52,7 @@
       "@zendev-lab/spark-roles/extension": ["./packages/spark-roles/src/extension-entry.ts"],
       "@zendev-lab/spark-tasks": ["./packages/spark-tasks/src/index.ts"],
       "@zendev-lab/spark-tasks/extension": ["./packages/spark-tasks/src/extension.ts"],
+      "@zendev-lab/spark-text": ["./packages/spark-text/src/index.ts"],
       "@zendev-lab/spark-workflows": ["./packages/spark-workflows/src/index.ts"],
       "@zendev-lab/spark-workflows/extension": ["./packages/spark-workflows/src/extension.ts"],
       "@zendev-lab/spark-ai": ["./packages/spark-ai/src/index.ts"],
@@ -110,15 +116,17 @@
       "@zendev-lab/spark-turn": ["./packages/spark-turn/src/agent-loop.ts"],
       "@zendev-lab/spark-update": ["./packages/spark-update/src/index.ts"],
       "@zendev-lab/spark-update/cli": ["./packages/spark-update/src/cli.ts"],
-      "@zendev-lab/spark-extension/extension": ["./packages/spark-extension/src/extension.ts"],
+      "@zendev-lab/spark-extension/extension": [
+        "./packages/spark-extension/src/extension/index.ts"
+      ],
       "@zendev-lab/spark-extension/host-support": [
         "./packages/spark-extension/src/host-support.ts"
       ],
       "@zendev-lab/spark-roles/reviewer-runner": ["./packages/spark-roles/src/reviewer-runner.ts"],
-      "@zendev-lab/spark-tui-adapter": ["./packages/spark-tui/src/index.ts"],
-      "@zendev-lab/spark-tui-adapter/input": ["./packages/spark-tui/src/input.ts"],
-      "@zendev-lab/spark-tui-adapter/pi-tui": ["./packages/spark-tui/src/pi-tui.ts"],
-      "@zendev-lab/spark-tui-adapter/text": ["./packages/spark-tui/src/text.ts"]
+      "@zendev-lab/spark-tui-adapter": ["./packages/spark-tui-adapter/src/index.ts"],
+      "@zendev-lab/spark-tui-adapter/input": ["./packages/spark-tui-adapter/src/input.ts"],
+      "@zendev-lab/spark-tui-adapter/pi-tui": ["./packages/spark-tui-adapter/src/pi-tui.ts"],
+      "@zendev-lab/spark-tui-adapter/text": ["./packages/spark-tui-adapter/src/text.ts"]
     },
     "lib": ["ES2024", "DOM", "DOM.Iterable"]
   }

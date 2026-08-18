@@ -14,7 +14,18 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test": "vp test run"
+  },
   "dependencies": {
-    "@earendil-works/pi-tui": "^0.84.0"
+    "get-east-asian-width": "1.6.0"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=26.0.0 <27"
   }
 }

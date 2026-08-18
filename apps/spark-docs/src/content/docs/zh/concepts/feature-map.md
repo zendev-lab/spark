@@ -29,6 +29,7 @@ TUI 与 Hub 也可作为独立 app package 安装。其他源码 workspace 仍�
 | --- | --- |
 | `apps/spark-cli`、`spark-tui`、`spark-daemon`、`apps/spark-hub` | 可执行分发器与交互/运行时 host |
 | `packages/spark-extension`、`spark-daemon-client` | 产品组合根与共享 daemon client 边界 |
+| `packages/pi-spark` | Pi 产品兼容适配器，不是 Spark composition root |
 | 能力与运行时 `packages/spark-*` | 文件、Web、任务、产物、记忆、工作流、模式、Role、Session 等可复用行为 |
 | `spark-protocol`、`spark-core`、`spark-runtime`、`spark-system`、`spark-tui-adapter` | 跨表面契约与低依赖基础层 |
 | `packages/spark-hub-*` | Hub 私有数据库、协调与本地化实现 |

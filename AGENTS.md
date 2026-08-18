@@ -50,8 +50,10 @@ for interpreting this file.
   capabilities, runtimes, contracts, and foundations; lower layers must not
   import application internals or product-private adapters.
 - `packages/spark-extension` is the single Spark product composition root.
-  Retain the Pi SDK kernel behind Spark boundaries; do not recreate a separate
-  Pi product facade or duplicate extension implementation.
+  `packages/pi-spark` is the Pi product compatibility adapter and the only
+  `package.json#pi` owner. Retain the Pi SDK kernel behind Spark boundaries;
+  do not duplicate Spark composition or recreate a second Spark extension
+  implementation.
 - Cross-surface schemas and semantics belong in `spark-protocol`. Transports
   validate and translate them; they do not define competing behavior.
 - Public tools use canonical `tool({ action })` surfaces when actions share one

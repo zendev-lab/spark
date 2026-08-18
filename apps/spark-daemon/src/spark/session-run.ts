@@ -241,7 +241,7 @@ export function createSparkDaemonTaskExecutor(
       throw new Error("Spark headless session module does not export a session compactor");
     }
     sessionCompactor = createSessionCompactor({
-      ...(options.paths.piAgentDir ? { sparkHome: options.paths.piAgentDir } : {}),
+      ...(options.paths.sessionRuntimeDir ? { sparkHome: options.paths.sessionRuntimeDir } : {}),
       ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
     });
     return sessionCompactor;
@@ -253,7 +253,7 @@ export function createSparkDaemonTaskExecutor(
       options.createSparkHeadlessSessionExecutor ??
       (await loadSparkHeadlessSessionModule()).createSparkHeadlessSessionExecutor;
     sessionExecutor = createSessionExecutor({
-      ...(options.paths.piAgentDir ? { sparkHome: options.paths.piAgentDir } : {}),
+      ...(options.paths.sessionRuntimeDir ? { sparkHome: options.paths.sessionRuntimeDir } : {}),
       ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
     });
     return sessionExecutor;
@@ -410,7 +410,7 @@ export function createSparkDaemonTaskExecutor(
         const frozenSessionContext = await sessionContextForTask(
           sessionTask,
           options.sessionRegistry,
-          options.paths.piAgentDir,
+          options.paths.sessionRuntimeDir,
         );
         const effectiveTask = await withEffectiveTaskProfile(
           sessionTask,
@@ -1177,7 +1177,7 @@ async function sessionExecutionIdentity(
     ...(workspaceId ? { workspaceId } : {}),
     ...(workspaceRoot ? { sparkStateRoot: join(workspaceRoot, ".spark") } : {}),
     ...(taskExecutionScope ? { taskExecutionScope } : {}),
-    sparkHome: options.paths.piAgentDir,
+    sparkHome: options.paths.sessionRuntimeDir,
     sessionId: task.sessionId,
     ...(!task.hiddenExecution && sessionContext.sessionPath
       ? { sessionPath: sessionContext.sessionPath }
@@ -1439,7 +1439,7 @@ export async function executeSparkDaemonSessionCompactTask(
   if (workspaceId && options.resolveWorkspaceCwd && !workspaceRoot) {
     throw new Error(`Workspace ${workspaceId} has no daemon-local state root.`);
   }
-  const sparkHome = options.paths.piAgentDir;
+  const sparkHome = options.paths.sessionRuntimeDir;
   if (!sparkHome) throw new Error("session.compact requires a daemon session state root");
   if (!session.sessionPath) {
     const existingPath = await resolveDaemonSessionTranscript({ session, sparkHome });
@@ -1509,7 +1509,7 @@ export async function executeSparkDaemonSessionRunTask(
 ): Promise<unknown> {
   const sessionContext =
     options.frozenSessionContext ??
-    (await sessionContextForTask(task, options.sessionRegistry, options.paths.piAgentDir));
+    (await sessionContextForTask(task, options.sessionRegistry, options.paths.sessionRuntimeDir));
   const systemPrompt = await systemPromptForSession(
     task,
     options,

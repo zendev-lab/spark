@@ -80,15 +80,7 @@
     },
     "piOwnership": {
       "productManifestOwner": "@zendev-lab/pi-spark",
-      "temporaryProductManifestExceptions": [
-        {
-          "manifest": "package.json",
-          "reason": "The root compatibility manifest remains frozen until Pi manifest ownership is cut over.",
-          "owner": "extension-host",
-          "exitTask": "task:3dc06113-d8d3-4f55-8cd2-a92cfadb955b",
-          "nonGrowth": true
-        }
-      ],
+      "temporaryProductManifestExceptions": [],
       "sdkDependencies": [
         {
           "dependency": "@earendil-works/pi-ai",
@@ -103,28 +95,25 @@
           "owner": "@zendev-lab/pi-spark"
         }
       ],
-      "temporaryDependencyExceptions": [
-        {
-          "package": "@zendev-lab/spark-text",
-          "dependency": "@earendil-works/pi-tui",
-          "reason": "Shared text helpers still re-export Pi width primitives until Pi manifest ownership is cut over.",
-          "owner": "presentation",
-          "exitTask": "task:3dc06113-d8d3-4f55-8cd2-a92cfadb955b",
-          "nonGrowth": true
-        }
-      ]
+      "temporaryDependencyExceptions": []
     },
     "packageBudget": {
-      "current": 41,
-      "approvedNext": 42,
-      "approvedPackage": "@zendev-lab/pi-spark",
-      "approvedPath": "packages/pi-spark",
-      "reason": "The dedicated Pi composition package is the next approved hard product boundary.",
-      "exitTask": "task:9e656c39-41c1-475d-8a77-cbce4fa9b174"
+      "current": 42,
+      "ceiling": 42,
+      "nonGrowth": true,
+      "reason": "The Pi product compatibility package filled the only pre-approved workspace slot; another package requires a new architecture decision."
     },
     "compositionRoots": ["@zendev-lab/spark-extension"]
   },
   "packages": {
+    "@zendev-lab/pi-spark": {
+      "path": "packages/pi-spark",
+      "layer": "application",
+      "owner": "pi-compatibility",
+      "stability": "internal",
+      "stateWriter": "none",
+      "distribution": "private"
+    },
     "@zendev-lab/spark-cli": {
       "path": "apps/spark-cli",
       "layer": "application",
@@ -386,7 +375,7 @@
       "stateWriter": "none"
     },
     "@zendev-lab/spark-tui-adapter": {
-      "path": "packages/spark-tui",
+      "path": "packages/spark-tui-adapter",
       "layer": "adapter",
       "owner": "presentation",
       "stability": "supported",

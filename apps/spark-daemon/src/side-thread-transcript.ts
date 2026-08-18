@@ -787,13 +787,13 @@ function requireSideThreadOwner(child: SparkSessionState) {
 }
 
 function requireSessionsRoot(options: SparkDaemonSessionControlOptions): string {
-  if (!options.paths.piAgentDir) {
+  if (!options.paths.sessionRuntimeDir) {
     throw transcriptError(
       "side_thread_transcript_invalid",
       "Spark daemon native session storage is unavailable",
     );
   }
-  return join(options.paths.piAgentDir, "sessions");
+  return join(options.paths.sessionRuntimeDir, "sessions");
 }
 
 function transcriptError(code: SparkSideThreadErrorCode, message: string) {

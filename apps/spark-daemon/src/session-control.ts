@@ -205,7 +205,7 @@ export async function executeSparkDaemonSessionControl(
       });
       const session = await requireSession(options, parsed.sessionId, request);
       assertOrdinarySessionVisible(session);
-      if (!options.paths.piAgentDir) {
+      if (!options.paths.sessionRuntimeDir) {
         throw new SparkDaemonControlError(
           "session_storage_unavailable",
           "Spark daemon native session storage is not available.",
@@ -226,7 +226,7 @@ export async function executeSparkDaemonSessionControl(
         ownershipSessions,
       )[0]!;
       const snapshotInput = {
-        sessionsRoot: join(options.paths.piAgentDir, "sessions"),
+        sessionsRoot: join(options.paths.sessionRuntimeDir, "sessions"),
         session,
         activity: projectedSession.activity,
       };
@@ -262,14 +262,14 @@ export async function executeSparkDaemonSessionControl(
       });
       const session = await requireSession(options, parsed.sessionId, request);
       assertOrdinarySessionVisible(session);
-      if (!options.paths.piAgentDir) {
+      if (!options.paths.sessionRuntimeDir) {
         throw new SparkDaemonControlError(
           "session_storage_unavailable",
           "Spark daemon native session storage is not available.",
         );
       }
       const chunk = await loadSparkSessionMediaChunk({
-        sessionsRoot: join(options.paths.piAgentDir, "sessions"),
+        sessionsRoot: join(options.paths.sessionRuntimeDir, "sessions"),
         session,
         messageId: parsed.messageId,
         contentIndex: parsed.contentIndex,
@@ -723,14 +723,14 @@ export async function readSparkDaemonSessionPromptHistory(
   };
   const session = await requireSession(options, parsed.sessionId, request);
   assertOrdinarySessionVisible(session);
-  if (!options.paths.piAgentDir) {
+  if (!options.paths.sessionRuntimeDir) {
     throw new SparkDaemonControlError(
       "session_storage_unavailable",
       "Spark daemon native session storage is not available.",
     );
   }
   return await loadSparkSessionPromptHistory({
-    sessionsRoot: join(options.paths.piAgentDir, "sessions"),
+    sessionsRoot: join(options.paths.sessionRuntimeDir, "sessions"),
     session,
     limit: parsed.limit,
   });

@@ -229,18 +229,16 @@ normative owner specifications and enforced owner APIs.
 ## Pi ownership and package budget
 
 The inventory assigns `package.json#pi` to the dedicated `pi-spark` product
-manifest owner. It also assigns each Pi SDK dependency (`pi-ai`, `pi-tui`, and
-`pi-coding-agent`) to one workspace manifest owner. The root compatibility
-manifest remains one frozen, exact product-manifest exception until the Pi
-manifest cutover task. Existing migration debt may appear only as an exact
-non-growing exception with an exit task; a new direct Pi manifest dependency
-anywhere else fails architecture validation.
+manifest owner. That owner must keep `pi.extensions` as exactly
+`["./src/extension.ts"]`. It also assigns each Pi SDK dependency (`pi-ai`,
+`pi-tui`, and `pi-coding-agent`) to one workspace manifest owner. Existing
+migration debt may appear only as an exact non-growing exception with an exit
+task; a new direct Pi manifest dependency anywhere else fails architecture
+validation.
 
-The current package budget is 41. The only pre-approved forty-second workspace
-is `@zendev-lab/pi-spark` at `packages/pi-spark`, bound to its inventory exit
-task. Another package at 42 or any package at 43 fails closed. Raising or
-replacing this budget requires an explicit architecture decision in the
-inventory rather than a new constant in a checker.
+The current package budget is closed at 42 after landing `@zendev-lab/pi-spark`.
+Raising or replacing that budget requires an explicit architecture decision in
+the inventory rather than a new constant in a checker.
 
 ## Deliberate boundaries
 

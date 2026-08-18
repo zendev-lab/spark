@@ -34,7 +34,7 @@ describe("architecture inventory governance", () => {
     expect(governance.validateArchitectureGovernance(inventory, manifests, rootManifest)).toEqual(
       [],
     );
-    expect(Object.keys(inventory.packages)).toHaveLength(41);
+    expect(Object.keys(inventory.packages)).toHaveLength(42);
     for (const packageInfo of Object.values(inventory.packages)) {
       expect(packageInfo).toHaveProperty("stateWriter");
       expect(packageInfo).not.toHaveProperty("stateAuthority");
@@ -142,7 +142,7 @@ describe("architecture inventory governance", () => {
       dependencyCruiserConfig.forbidden.map(({ name }: NamedRule) => name),
     );
 
-    expect(generatedRules).toHaveLength(41);
+    expect(generatedRules).toHaveLength(42);
     for (const rule of generatedRules) expect(configuredRuleNames.has(rule.name)).toBe(true);
     expect(
       governance.classifyWorkspaceDependency(
@@ -272,44 +272,23 @@ describe("architecture inventory governance", () => {
     );
   });
 
-  test("allows only the approved forty-second package", () => {
+  test("rejects any package beyond the closed budget", () => {
     const currentPackages = Object.keys(inventory.packages);
     expect(governance.validatePackageBudgetCandidate(inventory, currentPackages)).toEqual([]);
     expect(
       governance.validatePackageBudgetCandidate(inventory, [
         ...currentPackages,
-        "@zendev-lab/pi-spark",
-      ]),
-    ).toEqual([]);
-    expect(
-      governance.validatePackageBudgetCandidate(inventory, [
-        ...currentPackages,
         "@zendev-lab/spark-unapproved",
       ]),
     ).not.toEqual([]);
-    expect(
-      governance.validatePackageBudgetCandidate(inventory, [
-        ...currentPackages,
-        "@zendev-lab/pi-spark",
-        "@zendev-lab/spark-unapproved",
-      ]),
-    ).not.toEqual([]);
+    expect(governance.isClosedPackageBudget(inventory.governance.packageBudget)).toBe(true);
   });
 
   test("rejects Pi product and SDK manifest ownership outside declared owners", () => {
     const actual = governance.validatePiOwnership(inventory, manifests, rootManifest);
     expect(actual.failures).toEqual([]);
     expect(actual.violations).toEqual([]);
-    expect(actual.registeredExceptions).toEqual([
-      {
-        package: "@zendev-lab/spark-text",
-        dependency: "@earendil-works/pi-tui",
-      },
-      {
-        package: "root",
-        dependency: "package.json#pi",
-      },
-    ]);
+    expect(actual.registeredExceptions).toEqual([]);
 
     const candidateManifests = structuredClone(manifests);
     const candidate = candidateManifests["@zendev-lab/spark-core"];
@@ -329,16 +308,25 @@ describe("architecture inventory governance", () => {
       "package.json#pi",
     ]);
 
-    const noRootException = structuredClone(inventory);
-    noRootException.governance.piOwnership.temporaryProductManifestExceptions = [];
+    const rootWithPi = { ...rootManifest, pi: { extensions: ["./src/extension.ts"] } };
     expect(
-      governance.validatePiOwnership(noRootException, manifests, rootManifest).violations,
+      governance.validatePiOwnership(inventory, manifests, rootWithPi).violations,
     ).toContainEqual({
       package: "root",
       kind: "product-manifest-owner",
       dependency: "package.json#pi",
       expectedOwner: "@zendev-lab/pi-spark",
     });
+
+    const splitManifests = structuredClone(manifests);
+    splitManifests["@zendev-lab/pi-spark"].pi = {
+      extensions: ["./src/extension.ts", "./src/extra.ts"],
+    };
+    expect(
+      governance.validatePiOwnership(inventory, splitManifests, rootManifest).failures,
+    ).toEqual([
+      'Pi product manifest owner @zendev-lab/pi-spark must set pi.extensions to ["./src/extension.ts"]',
+    ]);
   });
 
   test("emits a schema-valid health report with no unregistered regressions", () => {
@@ -353,9 +341,9 @@ describe("architecture inventory governance", () => {
     const compactMarkdown = governance.formatArchitectureHealthMarkdown(report);
 
     expect(validate(report), JSON.stringify(validate.errors)).toBe(true);
-    expect(report.inventory.workspaceCount).toBe(41);
+    expect(report.inventory.workspaceCount).toBe(42);
     expect(report.layerMatrix.missingDecisionCount).toBe(0);
-    expect(report.dependencies.edgeCount).toBe(165);
+    expect(report.dependencies.edgeCount).toBe(175);
     expect(report.dependencies.registeredExceptions).toHaveLength(exceptionCount);
     expect(report.temporaryDependencyExceptionBudget).toEqual({
       current: exceptionCount,
@@ -366,7 +354,7 @@ describe("architecture inventory governance", () => {
     expect(report.dependencies.stronglyConnectedComponents).toEqual([]);
     expect(report.compositionRoots.unexpected).toEqual([]);
     expect(report.piOwnership.violations).toEqual([]);
-    expect(Object.keys(report.workspaces)).toHaveLength(41);
+    expect(Object.keys(report.workspaces)).toHaveLength(42);
     expect(report.workspaces["@zendev-lab/spark-daemon"].stateWriter).toBe("daemon");
     expect(compactMarkdown).toContain(`exceptionBudget: ${exceptionCount}/${exceptionCount}`);
     expect(digest).toMatch(/^[0-9a-f]{64}$/);

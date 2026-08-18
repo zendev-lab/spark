@@ -3126,12 +3126,12 @@ describe("Spark daemon local RPC", () => {
       });
 
       const fallbackPath = join(
-        paths.piAgentDir!,
+        paths.sessionRuntimeDir!,
         "sessions",
         "workspace-hash",
         "2026-07-10T08-00-00-000Z_sess_view.jsonl",
       );
-      mkdirSync(join(paths.piAgentDir!, "sessions", "workspace-hash"), { recursive: true });
+      mkdirSync(join(paths.sessionRuntimeDir!, "sessions", "workspace-hash"), { recursive: true });
       writeFileSync(
         fallbackPath,
         `${[
@@ -3269,12 +3269,12 @@ describe("Spark daemon local RPC", () => {
       });
 
       const preferredPath = join(
-        paths.piAgentDir!,
+        paths.sessionRuntimeDir!,
         "sessions",
         "preferred",
         "2026-07-10T09-00-00-000Z_sess_view.jsonl",
       );
-      mkdirSync(join(paths.piAgentDir!, "sessions", "preferred"), { recursive: true });
+      mkdirSync(join(paths.sessionRuntimeDir!, "sessions", "preferred"), { recursive: true });
       writeFileSync(
         preferredPath,
         `${JSON.stringify({

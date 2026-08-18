@@ -71,7 +71,8 @@ export interface SparkPaths<App extends SparkApp = SparkApp> {
   databasePath: string;
   artifactCacheDir: string;
   artifactBlobsDir: string;
-  piAgentDir: string | undefined;
+  /** Daemon session runtime directory. On disk this remains `<dataDir>/pi-agent`. */
+  sessionRuntimeDir: string | undefined;
   logDir: string;
   logFile: string;
   pidFile: string;
@@ -202,7 +203,7 @@ function resolveAppPaths<App extends SparkApp>(
       app === "daemon"
         ? join(dataDir, "artifacts", "blobs", "sha256")
         : join(artifactCacheDir, "blobs", "sha256"),
-    piAgentDir: app === "daemon" ? join(dataDir, "pi-agent") : undefined,
+    sessionRuntimeDir: app === "daemon" ? join(dataDir, "pi-agent") : undefined,
     logDir: join(stateDir, "logs"),
     logFile: join(stateDir, "logs", `${app}.jsonl`),
     pidFile: join(runtimeDir, `${app}.pid`),

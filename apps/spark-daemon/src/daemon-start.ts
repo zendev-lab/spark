@@ -326,7 +326,7 @@ async function createPreparedDaemonRuntime(
     }),
     "builtin:goal-reviewer": {
       evaluator: createGoalLoopCompletionEvaluator({
-        sparkHome: options.paths.piAgentDir,
+        sparkHome: options.paths.sessionRuntimeDir,
         controlSparkHome: userPaths.configRoot,
       }),
       checkpoints: ["after_tick"],

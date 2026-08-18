@@ -37,8 +37,8 @@ Session reflection scan/synthesis writes under `.spark/memory/reflections/` (can
 
 ## pi-memory compatibility tools
 
-Pi-memory aliases are **opt-in** via `enablePiCompatAliases: true` (the Pi product
-entrypoint `extension-entry.ts` enables them; Spark native hosts leave them off).
+Pi-memory aliases are **opt-in** via `enablePiCompatAliases: true` (`pi-spark`
+enables them; Spark native hosts leave them off).
 When enabled and the names are not already owned by `pi-memory`:
 
 - `memory_write` — write `MEMORY.md` or append a daily log.

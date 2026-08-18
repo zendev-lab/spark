@@ -31,6 +31,7 @@ For contributors, the source topology stays compact by family:
 | --- | --- |
 | `apps/spark-cli`, `spark-tui`, `spark-daemon`, `apps/spark-hub` | Executable dispatcher and presentation/runtime hosts |
 | `packages/spark-extension`, `spark-daemon-client` | Product composition and the shared daemon client boundary |
+| `packages/pi-spark` | Pi product compatibility adapter; not a Spark composition root |
 | Capability/runtime `packages/spark-*` | Files, Web, tasks, artifacts, memory, workflows, modes, roles, sessions, and other reusable behavior |
 | `spark-protocol`, `spark-core`, `spark-runtime`, `spark-system`, `spark-tui-adapter` | Cross-surface contracts and dependency-light foundations |
 | `packages/spark-hub-*` | Hub-private database, coordination, and localization implementation |

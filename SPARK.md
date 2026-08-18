@@ -2,7 +2,7 @@
 description: "spark：以 Pi SDK 为内核，统一 TUI / Hub / 消息平台的本地智能开发编排"
 owner: zrr1999
 created: 2026-05-18
-updated: 2026-08-17
+updated: 2026-08-18
 ---
 
 # `spark` 项目意图
@@ -21,8 +21,8 @@ updated: 2026-08-17
 - 以 daemon 为 `goal | loop | repro | workflow` 定时驱动的唯一自治运行时；计时、generation、重试、恢复和 fresh 隐藏执行均进入 SQLite 与现有 invocation scheduler，前端只发控制命令并展示投影。`execute` mode 与 session TODO 延续由 `spark-extension` 的受限 `agent_end` hook 协调，每个用户输入周期至多追加一次 follow-up，不进入 daemon tick。
 - 在现有 TaskGraph、TaskRun、资源调度器与 Session Registry 上提供 `fleet` Session mode：父会话只调度、核对、恢复与 Ask，worker 只消费 Task 已关联的 `git_change` worktree；重叠目标串行、独立 lane 并行，不新增 Fleet store 或调度器。
 - 在 `spark-protocol` 中沉淀跨表面交互协议（ask 判定、slash/action catalog、session status / pending turns、可展示错误），各表面只保留呈现与执行胶水。
-- 保持 Pi SDK 为内核：模型流、provider、终端 UI 原语继续建立在 `pi-ai` / `pi-tui`（经 `spark-ai` / `spark-tui` 边界）之上，不把“退场 Pi 产品”误解为剥离 SDK。
-- 由 `spark-extension` 统一拥有产品 extension 组合；`package.json#pi` 仅保留指向同一实现的兼容发现元数据，不保留第二套 facade 或 `pi-coding-agent` 运行时依赖。
+- 保持 Pi SDK 为内核：模型流、provider、终端 UI 原语继续建立在 `pi-ai` / `pi-tui`（经 `spark-ai` / `spark-tui-adapter` 边界）之上，不把“退场 Pi 产品”误解为剥离 SDK。
+- 由 `spark-extension` 统一拥有 Spark 产品 extension 组合；`@zendev-lab/pi-spark` 是唯一的 `package.json#pi` 与 `pi-coding-agent` owner，把同一套 `spark-extension` 放进外部 Pi 产品加载器。不保留第二套 Spark composition 或公开工具表面。
 - 将 side conversation、worktree/change/PR/CI/review feedback 与 provider runtime 建模为可组合的领域契约：产品表面消费同一状态与反馈闭环，而不是各自维护一套按钮、轮询器或终端启发式。
 - 将用户成果收敛为原子 `issue | git_change | document` Artifact：`git_change` 内聚一个 owning worktree 与一个原生 GitHub PR stack，Task 只通过耐久 `artifactRefs` 组织成果；preview 是 Document 的视图，不是独立 kind。
 - 为 invocation、provider、tool、delivery 与代码交付保留隐私安全的关联观测边界；执行真相仍在 daemon/SQLite，可选 exporter 或外部观察面不得成为状态所有者。
@@ -36,10 +36,10 @@ updated: 2026-08-17
 [`architecture/packages.json`](./architecture/packages.json) 为准；包创建、合并与依赖
 规则由 [`.agents/notes/contracts/package-architecture.md`](./.agents/notes/contracts/package-architecture.md) 约束。
 
-- Pi SDK 保持模型流与终端呈现内核，Spark 不重建独立的 Pi 产品 facade。
+- Pi SDK 保持模型流与终端呈现内核，Spark 不重建独立的 Pi 产品 facade。`pi-spark` 只是外部 Pi 产品的发现适配器。
 - daemon 是持久会话、调用、通道、本地执行、自治计时、重试与恢复的唯一 owner。
 - 跨表面 schema 与语义进入 `spark-protocol`，传输层只校验和翻译。
-- `packages/spark-extension` 是唯一产品 extension 组合根；兼容发现元数据只指向同一实现。
+- `packages/spark-extension` 是唯一产品 extension 组合根；`packages/pi-spark` 是唯一 `package.json#pi` owner。
 
 ## 非目标
 
@@ -61,7 +61,7 @@ updated: 2026-08-17
 - 同一 ask 的“算不算有效回答 / gate 是否满足”在 TUI、Hub、通道结算路径上共用 `spark-protocol` 语义，表面只做 UI。
 - Slash / action catalog 继续以协议为源；Hub 与 TUI 只做 i18n 与执行。
 - 新功能默认可在 TUI 或 Hub 验证，消息通道按 channel policy 收窄；无需先在 Pi 产品里跑通。
-- 兼容加载路径只指向 `spark-extension`：无第二个 facade package、无新 `"pi.extensions"` 扩张；文档与边界检查区分 SDK 内核与兼容发现元数据。宿主契约公开名为 `SparkHostAPI`（`spark-core`）；ask/tasks/context 注册入口为 `registerSpark*`。
+- 兼容加载路径为 `Pi loader → pi-spark → spark-extension`：无第二套 Spark composition，无根 `package.json#pi`，无新 `"pi.extensions"` 扩张。文档与边界检查区分 SDK 内核与 Pi 产品适配包。宿主契约公开名为 `SparkHostAPI`（`spark-core`）；ask/tasks/context 注册入口为 `registerSpark*`。
 - Spark 原生 TUI 与 Hub 通过同一 daemon controller 运行只读 Side Thread、恢复隔离历史并将全文或紧凑摘要显式 handoff 回主会话；TUI 使用单一 `/btw` 命令，Hub 提供同一组 ensure、ask、reset、model、thinking 与 handoff 操作，两个表面都不加载 `pi-coding-agent`。
 - 用户可从 npm 安装单一 `@zendev-lab/spark` 产品包并获得 `spark` 命令；发布物只包含编译后的 JavaScript、声明过的运行时依赖以及 daemon migrations、TUI 和 Hub 资产，不暴露内部 workspace 包图。
 - CI failure、review comment 与 merge conflict 能以幂等反馈事件回到创建该 change/PR 的原 session，并带可审查 evidence，而不是要求用户手工复制终端输出。
@@ -86,6 +86,4 @@ updated: 2026-08-17
 - 将 PR、CI、review 与 conflict 读取收敛成幂等 delivery feedback 事件。
 - 完善自治 driver 的部署、诊断、更新与日志运维，但不形成第二个运行时 owner。
 - Hub 能力继续留在现有 owner 中，直到独立迁移能证明新的硬边界。
-- 第 42 个 workspace 槽 `@zendev-lab/pi-spark`（`packages/pi-spark`）仍按
-  `architecture/packages.json` 预留，目录尚未创建；切割完成前根
-  `package.json#pi` 继续走现有 frozen exception，不把该槽位当成已落地包。
+- `@zendev-lab/pi-spark`（`packages/pi-spark`）已落地为 Pi 产品兼容适配器与唯一 `package.json#pi` owner；包预算关闭在 42，新增 workspace 需要新的 architecture 决策。

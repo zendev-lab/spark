@@ -2,10 +2,11 @@
 
 ## Scope
 
-Spark retains Pi SDK concepts and packages behind the `spark-ai`, `spark-tui`,
-`spark-text`, and `spark-turn` boundaries. This document governs compatibility
-with the external Pi **product loader**. It does not govern the retained SDK
-kernel.
+Spark retains Pi SDK concepts and packages behind the `spark-ai`,
+`spark-tui-adapter`, and `spark-turn` boundaries. This document governs
+compatibility with the external Pi **product loader**. It does not govern the
+retained SDK kernel. `spark-text` is Spark-owned terminal-column layout and is
+not a Pi SDK boundary.
 
 Pi product compatibility is a bounded adapter surface, not a product parity
 commitment. Spark-native TUI, Hub, channels, ACP, and daemon interfaces are
@@ -34,7 +35,7 @@ because a capability was previously discoverable by Pi.
 ## File-tool boundary
 
 External Pi owns its native `read`, `write`, `edit`, `grep`, `find`, and `ls`
-tools. The root Pi compatibility manifest must not register
+tools. The `pi-spark` compatibility profile must not register
 `@zendev-lab/spark-files` as a replacement.
 
 Spark's versioned, line-anchored, CAS-protected file tools remain supported by
@@ -72,10 +73,10 @@ client/daemon version agreement.
 
 ## Growth and removal
 
-The root `package.json#pi.extensions` list is a shrinking allowlist. Adding an
-entry requires an explicit architecture rationale and the admission evidence
-above. Removing an entry is always allowed when it reduces a compatibility
-failure domain or deletes duplicate product behavior.
+The `pi-spark` `package.json#pi.extensions` list is a shrinking allowlist.
+Adding an entry requires an explicit architecture rationale and the admission
+evidence above. Removing an entry is always allowed when it reduces a
+compatibility failure domain or deletes duplicate product behavior.
 
 A removed compatibility capability remains available only through its owning
 Spark-native surface unless a separately justified, bounded adapter is retained
@@ -86,12 +87,12 @@ awaiting removal.
 
 The enforced gates are:
 
-- the production Pi loader confirms that the Files compatibility entry
-  registers no Pi-native file-tool names and is absent from the root manifest;
+- the production Pi loader confirms that `pi-spark` registers no Pi-native
+  file-tool names and does not load `@zendev-lab/spark-files`;
 - daemon integration tests exercise a large paginated read window, versioned
   write/CAS behavior, invalid workspace cwd, exact replay, and operation-id
   conflict handling through `file.execute`;
 - daemon-client tests prove operation ids are deterministic within one context,
   distinct across contexts, bounded, and free of raw paths/tool-call ids;
-- architecture ratchets reject compatibility-manifest growth outside the frozen
-  allowlist.
+- architecture ratchets reject `package.json#pi` outside `pi-spark`, and require
+  `pi-spark` `pi.extensions` to be exactly `["./src/extension.ts"]`.

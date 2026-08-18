@@ -136,21 +136,12 @@
     "packageBudget": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "current",
-        "approvedNext",
-        "approvedPackage",
-        "approvedPath",
-        "reason",
-        "exitTask"
-      ],
+      "required": ["current", "ceiling", "nonGrowth", "reason"],
       "properties": {
         "current": { "type": "integer", "minimum": 1 },
-        "approvedNext": { "type": "integer", "minimum": 2 },
-        "approvedPackage": { "$ref": "#/$defs/packageName" },
-        "approvedPath": { "type": "string" },
-        "reason": { "type": "string" },
-        "exitTask": { "type": "string", "pattern": "^task:" }
+        "ceiling": { "type": "integer", "minimum": 1 },
+        "nonGrowth": { "const": true },
+        "reason": { "type": "string", "minLength": 24 }
       }
     },
     "workspaces": {
