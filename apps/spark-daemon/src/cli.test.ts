@@ -386,7 +386,7 @@ describe("Spark daemon CLI", () => {
   it("doctor reports daemon, credential, workspace, and hub checks", async () => {
     const capture = createCliIo();
 
-    const code = await withTempSparkEnv(async () => await main(["doctor"], capture.io));
+    const code = await withTempSparkEnv(async () => await main(["doctor", "--json"], capture.io));
 
     expect(code).toBe(0);
     const payload = JSON.parse(capture.stdout()) as {
@@ -396,6 +396,37 @@ describe("Spark daemon CLI", () => {
     expect(payload.checks.credentials).toHaveProperty("ok");
     expect(payload.checks.workspace).toHaveProperty("ok");
     expect(payload.checks.hub).toHaveProperty("ok");
+    expect(capture.stderr()).toBe("");
+  });
+
+  it("doctor prints concise readable checks by default", async () => {
+    const capture = createCliIo();
+
+    const code = await withTempSparkEnv(async () => await main(["doctor"], capture.io));
+
+    expect(code).toBe(0);
+    const output = capture.stdout();
+    expect(output).toMatch(/^Spark \d/);
+    expect(output).toContain("daemon: ");
+    expect(output).toContain("credentials: ");
+    expect(output).toContain("workspace: ");
+    expect(output).toContain("hub: ");
+    expect(output).toContain("config: ");
+    expect(output).not.toMatch(/^\s*[{[]/);
+    expect(capture.stderr()).toBe("");
+  });
+
+  it("status prints a concise readable summary by default", async () => {
+    const capture = createCliIo();
+
+    const code = await withTempSparkEnv(async () => await main(["status"], capture.io));
+
+    expect(code).toBe(0);
+    const output = capture.stdout();
+    expect(output).toContain("daemon: not running");
+    expect(output).toMatch(/servers: \d+ enrolled, \d+ connected/);
+    expect(output).toMatch(/workspaces: \d+/);
+    expect(output).not.toMatch(/^\s*[{[]/);
     expect(capture.stderr()).toBe("");
   });
 
@@ -2793,7 +2824,7 @@ describe("Spark daemon CLI", () => {
       }));
 
       const capture = createCliIo({ daemonStatusFromService });
-      await expect(main(["status"], capture.io)).resolves.toBe(0);
+      await expect(main(["status", "--json"], capture.io)).resolves.toBe(0);
 
       expect(daemonStatusFromService).toHaveBeenCalledOnce();
       expect(JSON.parse(capture.stdout())).toMatchObject({
@@ -2834,7 +2865,7 @@ describe("Spark daemon CLI", () => {
       }));
 
       const capture = createCliIo({ daemonStatusFromService });
-      await expect(main(["status"], capture.io)).resolves.toBe(0);
+      await expect(main(["status", "--json"], capture.io)).resolves.toBe(0);
 
       const status = JSON.parse(capture.stdout()) as Record<string, unknown>;
       expect(status).not.toHaveProperty("runtimeId");

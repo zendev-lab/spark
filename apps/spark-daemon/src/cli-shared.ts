@@ -72,6 +72,26 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function padColumn(value: string, width: number): string {
+  return value.length >= width ? value : `${value}${" ".repeat(width - value.length)}`;
+}
+
+export function truncateColumn(value: string, width: number): string {
+  if (value.length <= width) return value;
+  if (width <= 1) return value.slice(0, Math.max(1, width));
+  return `${value.slice(0, width - 1)}…`;
+}
+
+export function shortTimestamp(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0) return "-";
+  if (Number.isNaN(Date.parse(value))) return value;
+  return value.slice(5, 16).replace("T", " ");
+}
+
+export function yesNo(value: unknown): string {
+  return value === true ? "yes" : "no";
+}
+
 export function startSparkDaemonProcess(
   paths: ReturnType<typeof resolveSparkPaths>,
   io: CliIo,
@@ -211,7 +231,8 @@ Commands:
   uplink prefer --workspace <id> --server-url <origin>
   uplink status [--json]
   ws
-  status
+  doctor [--json]
+  status [--json]
   configure --invocation-concurrency <integer 1..64> [--json]
   start [--no-wait] [--json]
   stop [--yes] [--wait]
