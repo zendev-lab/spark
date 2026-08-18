@@ -1,5 +1,6 @@
 import {
   SPARK_PROTOCOL_VERSION,
+  isSparkInvocationTerminalStatus,
   sparkSessionInvocationReceiptSchema,
   type SparkModelRef,
   type SparkSessionInvocationReceipt,
@@ -1490,7 +1491,7 @@ export class SparkInvocationStore {
       event:
         normalizedBindings &&
         row.workspace_binding_id === null &&
-        isTerminalInvocationStatus(row.status)
+        isSparkInvocationTerminalStatus(row.status)
           ? recoveredTerminalLifecycleEvent(row)
           : invocationEvent({
               invocation_id: row.event_invocation_id,
@@ -1721,7 +1722,7 @@ export class SparkInvocationStore {
     if (candidate.legacy_projection === 1) {
       const workspaceBindingId = candidate.workspace_binding_id ?? undefined;
       if (!workspaceBindingId) return undefined;
-      const legacyTerminal = isTerminalInvocationStatus(candidate.status);
+      const legacyTerminal = isSparkInvocationTerminalStatus(candidate.status);
       return {
         invocationId: candidate.invocation_id,
         workspaceBindingId,
@@ -1879,7 +1880,7 @@ export class SparkInvocationStore {
       | undefined;
     return Boolean(
       row &&
-      isTerminalInvocationStatus(row.status) &&
+      isSparkInvocationTerminalStatus(row.status) &&
       row.payload_redacted_at === null &&
       Math.max(0, Math.floor(sequence)) === Number(row.event_cursor),
     );
@@ -2458,7 +2459,7 @@ function invocationEvent(row: InvocationEventRow): SparkInvocationEvent {
 }
 
 function recoveredTerminalLifecycleEvent(row: PendingDeliveryRow): SparkInvocationEvent {
-  if (!isTerminalInvocationStatus(row.status)) {
+  if (!isSparkInvocationTerminalStatus(row.status)) {
     throw new Error(`Cannot recover nonterminal invocation lifecycle: ${row.id}`);
   }
   const task = jsonObject(row.task_json === null ? undefined : parseJson(row.task_json));
@@ -2498,7 +2499,7 @@ function recoveredTerminalLifecycleEventFromLean(
   sequence: number,
   createdAt: string,
 ): SparkInvocationEvent {
-  if (!isTerminalInvocationStatus(row.status)) {
+  if (!isSparkInvocationTerminalStatus(row.status)) {
     throw new Error(`Cannot recover nonterminal invocation lifecycle: ${row.id}`);
   }
   const task = jsonObject(row.task_json === null ? undefined : parseJson(row.task_json));
@@ -2938,8 +2939,4 @@ function taskForExplicitRetry(task: unknown): unknown {
 
 function isInvocationStatus(value: string): value is SparkInvocationStatus {
   return sparkInvocationStatuses.includes(value as SparkInvocationStatus);
-}
-
-function isTerminalInvocationStatus(value: string): value is SparkInvocationTerminalStatus {
-  return value === "succeeded" || value === "failed" || value === "cancelled";
 }

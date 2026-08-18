@@ -23,6 +23,7 @@ import {
   sparkTurnStatusResultSchema,
   sparkTurnStreamPageSchema,
   sparkTurnSubmitResultSchema,
+  isSparkInvocationTerminalStatus,
   type SparkDaemonEvent,
   type SparkInvocationStatus,
   type SparkLocalRpcInput,
@@ -226,7 +227,7 @@ async function forwardTurn(input: {
     input.session.cursor = page.nextCursor;
     if (page.hasMore) continue;
     const status = await input.daemon.statusTurn({ invocationId });
-    if (isTerminal(status.status)) {
+    if (isSparkInvocationTerminalStatus(status.status)) {
       const result = await input.daemon.resultTurn({ invocationId });
       if (result.assistantText && !input.session.emittedAssistantText) {
         await emitTextDelta(input.client, input.session, "spark-result", result.assistantText);
@@ -403,10 +404,6 @@ function strictPromptText(blocks: ReadonlyArray<{ type?: string; text?: string }
     .trim();
   if (!text) throw RequestError.invalidParams(undefined, "ACP prompt text must not be empty");
   return text;
-}
-
-function isTerminal(status: SparkInvocationStatus): boolean {
-  return status === "succeeded" || status === "failed" || status === "cancelled";
 }
 
 function stopReason(status: SparkInvocationStatus): StopReason {

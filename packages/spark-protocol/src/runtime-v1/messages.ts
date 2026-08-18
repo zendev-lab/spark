@@ -447,6 +447,27 @@ export const invocationStatusSchema = z.enum([
   "timed_out",
   "lost",
 ]);
+export type RuntimeInvocationStatus = z.infer<typeof invocationStatusSchema>;
+export const runtimeInvocationTerminalStatuses = [
+  "succeeded",
+  "failed",
+  "cancelled",
+  "timed_out",
+  "lost",
+] as const;
+export type RuntimeInvocationTerminalStatus = (typeof runtimeInvocationTerminalStatuses)[number];
+
+export function isRuntimeInvocationTerminalStatus(
+  status: string,
+): status is RuntimeInvocationTerminalStatus {
+  return (
+    status === "succeeded" ||
+    status === "failed" ||
+    status === "cancelled" ||
+    status === "timed_out" ||
+    status === "lost"
+  );
+}
 
 export const invocationUpdatePayloadSchema = z.object({
   runtimeInvocationId: prefixedIdSchema("inv"),

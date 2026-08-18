@@ -1,5 +1,8 @@
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import type { SparkSessionState } from "@zendev-lab/spark-protocol";
+import {
+  isSparkInvocationTerminalStatus,
+  type SparkSessionState,
+} from "@zendev-lab/spark-protocol";
 
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
@@ -120,7 +123,7 @@ export async function reconcileSessionRequestCompletions(
     const claimToken = delivery.claimToken;
     if (!claimToken) continue;
     const invocation = deps.invocationStore.get(delivery.sourceInvocationId);
-    if (!invocation || !invocation.task || !isTerminalStatus(invocation.status)) {
+    if (!invocation || !invocation.task || !isSparkInvocationTerminalStatus(invocation.status)) {
       deliveryStore.recordFailure(
         delivery.sourceInvocationId,
         claimToken,
@@ -214,10 +217,6 @@ function completionFromInvocation(invocation: SparkInvocationRecord): CompleteSp
     errorCode: invocation.errorCode,
     errorMessage: invocation.errorMessage,
   };
-}
-
-function isTerminalStatus(status: SparkInvocationRecord["status"]): boolean {
-  return status === "succeeded" || status === "failed" || status === "cancelled";
 }
 
 function completionNotificationCandidate(input: {

@@ -35,9 +35,9 @@ import {
   sparkTurnStreamRequestSchema,
   sparkTurnSubmitRequestSchema,
   sparkTurnSubmitResultSchema,
+  isSparkInvocationTerminalStatus,
   type SparkAssignment,
   type SparkCommandKind,
-  type SparkInvocationStatus,
   type SparkInvocationListResult,
   type SparkProtocolJsonValue,
   type SparkSessionCreateRequest,
@@ -474,7 +474,7 @@ export async function executeSparkDaemonSessionControl(
           try {
             assertIdempotentCompactReplay(raced, parsed);
           } finally {
-            if (isTerminalInvocationStatus(raced.status)) {
+            if (isSparkInvocationTerminalStatus(raced.status)) {
               await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
             }
           }
@@ -487,7 +487,7 @@ export async function executeSparkDaemonSessionControl(
         throw error;
       }
       options.onInvocationQueued?.();
-      if (isTerminalInvocationStatus(store.require(submitted.invocationId).status)) {
+      if (isSparkInvocationTerminalStatus(store.require(submitted.invocationId).status)) {
         await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
       }
       return { result: publicObject(submitted), invocationId: submitted.invocationId };
@@ -620,7 +620,7 @@ export async function executeSparkDaemonSessionControl(
           try {
             assertIdempotentTurnReplay(raced, parsed);
           } finally {
-            if (isTerminalInvocationStatus(raced.status)) {
+            if (isSparkInvocationTerminalStatus(raced.status)) {
               await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
             }
           }
@@ -633,7 +633,7 @@ export async function executeSparkDaemonSessionControl(
         throw error;
       }
       options.onInvocationQueued?.();
-      if (isTerminalInvocationStatus(store.require(submitted.invocationId).status)) {
+      if (isSparkInvocationTerminalStatus(store.require(submitted.invocationId).status)) {
         await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
       }
       const data = publicObject(submitted);
@@ -1835,10 +1835,6 @@ function invocationSource(
       ? { parentInvocationId: parentInvocationId ?? mailParentInvocationId }
       : {}),
   };
-}
-
-function isTerminalInvocationStatus(status: SparkInvocationStatus): boolean {
-  return status === "succeeded" || status === "failed" || status === "cancelled";
 }
 
 function publicObject(value: Record<string, unknown>): Record<string, SparkProtocolJsonValue> {
