@@ -1,8 +1,8 @@
 import type {
   SparkHeadlessSessionCompactInput,
   SparkHeadlessSessionCompactResult,
+  SparkHeadlessSessionRunInput,
   SparkHeadlessTokenUsageContext,
-  SparkHeadlessUserContent,
 } from "@zendev-lab/spark-host/headless-loader";
 import {
   assistantMessageToText,
@@ -14,20 +14,13 @@ import {
   ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE,
   ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON,
   isRoleNativeExecutorCompatibilityError,
-  type ExtensionInteractionRequest,
-  type ExtensionInteractionCapabilities,
-  type ExtensionInteractionResponse,
-  type ExtensionRoleRunner,
   type ExtensionRoleRunInputControl,
   type RoleRunCompletionOutcome,
   type RoleRef,
   type RunRef,
-  type SparkHostLoopContext,
-  type SparkSessionLeaseIdentity,
   type ToolConfig,
   type ToolEffect,
 } from "@zendev-lab/spark-core";
-import type { SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
 
 import type {
   SparkCliHostDiagnostic,
@@ -38,6 +31,8 @@ import type {
 import type { SparkAgentLoopEvent, SparkRunOutcome } from "./host/agent-loop.ts";
 import { SparkAgentSession } from "./host/agent-session.ts";
 import type { SparkActiveSelection } from "./host/provider-registry.ts";
+
+export type { SparkHeadlessSessionRunInput } from "@zendev-lab/spark-host/headless-loader";
 
 export type SparkHeadlessRoleRunStatus =
   | "queued"
@@ -99,75 +94,6 @@ export interface SparkHeadlessRoleInstructionResult {
   stdout: string;
   stderr: string;
   jsonEvents: unknown[];
-}
-
-export interface SparkHeadlessSessionRunInput {
-  cwd: string;
-  workspaceId?: string;
-  /** Trusted workspace-owned state root; execution cwd may be a subdir/worktree. */
-  sparkStateRoot?: string;
-  sessionId: string;
-  /** Daemon-authoritative native transcript path for this session generation. */
-  sessionPath?: string;
-  prompt: SparkHeadlessUserContent;
-  model?: string;
-  thinkingLevel?: string;
-  reset?: boolean;
-  /** Internal transcript metadata for daemon-owned hidden execution. */
-  sessionVisibility?: "internal";
-  sessionPurpose?: "loop_tick";
-  /** Continue a turn after daemon/process interrupt using persisted session state. */
-  resumeFromInterrupt?: boolean;
-  /** Exact pending tool-call continuation captured by a planned daemon restart. */
-  restartCheckpoint?: SparkTurnResumeCheckpoint;
-  /** Persist and yield when a restart is pending; otherwise return normally. */
-  yieldForRestartIfRequested?: (checkpoint: SparkTurnResumeCheckpoint) => void;
-  signal?: AbortSignal;
-  timeoutMs?: number;
-  sparkHome?: string;
-  sessionSurface?: "local" | "channel";
-  sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
-  /** Daemon-issued lease for the exact persistent session running this turn. */
-  sessionLease?: SparkSessionLeaseIdentity;
-  channelBinding?: {
-    adapter: "feishu" | "infoflow" | "qqbot";
-    externalKey: string;
-    workspaceId?: string;
-    recipient?: string;
-    adapterId?: string;
-    adapterAccountIdentity?: string;
-  };
-  invocationId?: string;
-  stateBindingSessionId?: string;
-  /** @deprecated Compatibility input. */
-  taskExecutionScope?: import("@zendev-lab/spark-core").SparkTaskExecutionScope;
-  stateOwnerSessionId?: string;
-  loop?: SparkHostLoopContext;
-  sessionQuestionChain?: readonly string[];
-  allowedTools?: readonly string[];
-  roleRunner?: ExtensionRoleRunner;
-  roleRunRef?: string;
-  requireStructuredOutcome?: boolean;
-  /** Host-enforced effect allowlist; unknown tool effects are denied. */
-  allowedToolEffects?: readonly ToolEffect[];
-  /** Daemon-forced Session mode; managed workers always execute. */
-  mode?: "plan" | "execute" | "fleet";
-  /** Optional base identity/surface prompt; defaults to Spark host identity. */
-  systemPrompt?: string;
-  /** Display-safe metadata persisted on the submitted user message only. */
-  messageMetadata?: Record<string, unknown>;
-  /**
-   * Tool approval method for approval-required tools.
-   * Defaults to `human`; callers must opt into `skip` or `auto` explicitly.
-   */
-  approvalMethod?: "skip" | "human" | "auto";
-  approvalRejectAction?: "ask" | "deny";
-  /** Daemon-owned UI bridge; hasUI stays false because no local terminal is attached. */
-  interaction?: (request: ExtensionInteractionRequest) => Promise<ExtensionInteractionResponse>;
-  /** Exact capabilities of the daemon-owned interaction bridge. */
-  interactionCapabilities?: ExtensionInteractionCapabilities;
-  tokenUsage?: SparkHeadlessTokenUsageContext;
-  onEvent?: (event: unknown) => void | Promise<void>;
 }
 
 export interface SparkHeadlessSessionRunResult {
