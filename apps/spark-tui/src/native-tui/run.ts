@@ -3,7 +3,7 @@
 import { ProcessTerminal, TUI } from "../tui/pi-tui-adapter.ts";
 import type { SparkKeybindingContext, SparkKeybindings } from "../host/keybindings.ts";
 import type { SparkTheme } from "../host/theme.ts";
-import type { SparkHostMessageRenderer } from "../host/types.ts";
+import type { SparkHostMessageRenderer } from "@zendev-lab/spark-host/types";
 import { SparkNativeTuiApp } from "./app.ts";
 import { SparkNativeSession } from "./session.ts";
 import { nativeTuiStrings } from "./strings.ts";

@@ -14,7 +14,7 @@ import type {
   SparkToolCallView,
 } from "@zendev-lab/spark-protocol";
 import type { SparkKeybindingContext, SparkKeybindings } from "../host/keybindings.ts";
-import type { SparkHostMessageRenderer, RegisteredCommand } from "../host/types.ts";
+import type { RegisteredCommand, SparkHostMessageRenderer } from "@zendev-lab/spark-host/types";
 import type { SparkTheme } from "../host/theme.ts";
 import type { SparkNativeAppContract, SparkNativeSessionContract } from "./session-contracts.ts";
 import type { SparkNativeHubPanel } from "./hub-types.ts";

@@ -278,7 +278,7 @@ export {
   parseSparkSessionEntries,
   workspaceSessionHash,
   writeJsonLinesAtomically,
-} from "./session-store.ts";
+} from "@zendev-lab/spark-host/session-store";
 export {
   buildSparkSessionTree,
   exportSparkSessionRecord,
@@ -314,7 +314,7 @@ export type {
   SparkSessionAtomicWriteOptions,
   SparkSessionStoreOptions,
   SparkThinkingLevelChangeEntry,
-} from "./session-store.ts";
+} from "@zendev-lab/spark-host/session-store";
 export type {
   SparkSessionExportFormat,
   SparkSessionNavigationState,
@@ -344,4 +344,4 @@ export type {
   SparkHostSessionManagerStub,
   SparkHostUiTransport,
   ToolRegistrationListener,
-} from "./types.ts";
+} from "@zendev-lab/spark-host/types";

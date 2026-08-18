@@ -25,7 +25,7 @@ import { SparkKeybindings } from "../host/keybindings.ts";
 import type { SparkCliHostServices } from "../host/bootstrap.ts";
 import { SparkHostRuntime } from "../host/runtime.ts";
 import { SparkSessionMailStore } from "../host/session-mail-store.ts";
-import { SparkSessionStore, workspaceSessionHash } from "../host/session-store.ts";
+import { SparkSessionStore, workspaceSessionHash } from "@zendev-lab/spark-host/session-store";
 import { createSparkNativeTuiComponentHarness } from "../test-support/spark-native-tui-component-harness.ts";
 import {
   attachSparkWorkspaceClient,

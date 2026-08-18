@@ -60,7 +60,7 @@ import type {
   SparkHostCustomMessage,
   SparkHostMessageRenderer,
   SparkHostRenderTheme,
-} from "../host/types.ts";
+} from "@zendev-lab/spark-host/types";
 import {
   createSparkTuiActionBarComponent,
   type SparkTuiActionAvailability,
