@@ -22,6 +22,11 @@ export async function resolveTaskScopedWriteTarget(
     if (artifactRef) throw new Error("isolated_results cannot write a git_change Artifact");
     if (!scope.resultsRoot) throw new Error("isolated_results has no daemon-resolved results root");
     root = scope.resultsRoot;
+  } else if (scope.isolation === "workspace") {
+    if (artifactRef) throw new Error("workspace scope does not preselect a git_change Artifact");
+    const workspaceRoot = scope.writableRoots[0];
+    if (!workspaceRoot) throw new Error("workspace scope has no daemon-resolved root");
+    root = workspaceRoot;
   } else {
     resolvedArtifactRef = artifactRef ?? scope.primaryArtifactRef;
     if (!resolvedArtifactRef) throw new Error("isolated_worktree has no primary Artifact");

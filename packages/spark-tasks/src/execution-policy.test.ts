@@ -5,6 +5,12 @@ import { TaskGraph } from "./graph.ts";
 import { normalizeTaskExecutionPolicy } from "./internal.ts";
 
 describe("Task worktree execution authorization", () => {
+  it("keeps Workspace-scoped execution independent of a GitChange target", () => {
+    const policy = normalizeTaskExecutionPolicy({ isolation: "workspace" });
+    expect(policy.isolation).toBe("workspace");
+    expect(policy.worktreeTarget).toBeUndefined();
+  });
+
   it("preserves only explicit supported completion gates", () => {
     expect(normalizeTaskExecutionPolicy({ completionGate: "task_evidence" }).completionGate).toBe(
       "task_evidence",

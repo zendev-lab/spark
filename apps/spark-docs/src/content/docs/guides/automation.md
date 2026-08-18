@@ -94,11 +94,14 @@ resynchronization point. Repro pauses instead of guessing when a baseline,
 material authority decision, or `required` approval is missing. Use
 `/inspect repro` to inspect the bounded daemon projection in the TUI.
 
-`/repro <objective>` immediately reserves three stable child Sessions and three
-isolated Git Changes. Implementation runs first; terminal TaskRuns automatically
-advance Exactness, Formalize, and the two backward refreshes. These persisted
-routes, bindings, receipts, Evidence refs, and Git revisions are the checkpoints.
-They do not live in the Root transcript.
+`/repro <objective>` immediately reserves three stable child Sessions in the
+owning Workspace. The Workspace may contain zero, one, or many repositories;
+launch does not assume that cwd is a repository and does not preselect a Git
+Change. Each lane discovers and constructs the repository/worktree topology its
+work needs. Implementation runs first; terminal TaskRuns automatically advance
+Exactness, Formalize, and the two backward refreshes. Persisted routes, bindings,
+receipts, Evidence refs, and logical revisions are the checkpoints. They do not
+live in the Root transcript.
 
 You may compact the Root or a lane Session while Repro is active. A continuation
 reloads the durable checkpoint and reuses the same lane Sessions; it must not

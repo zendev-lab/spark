@@ -207,7 +207,11 @@ remain within one authorized canonical worktree; traversal, symlink escape,
 unlisted secondary repositories, remote Cue targets, missing/moved worktrees,
 and cross-Workspace refs fail closed. `readonly` admits only read effects.
 `isolated_results` writes only below `.spark/task-results/<jobId>` in the owning
-Workspace. Model arguments cannot widen this scope.
+Workspace. `workspace` is reserved for owner-created autonomous Tasks whose
+repository topology is not known at dispatch time; the Session inherits the
+registered owning Workspace and must discover or create GitChanges explicitly
+instead of treating cwd as a repository. Model arguments cannot widen any of
+these scopes.
 
 Task state, Goal/Repro state, and transcript summaries are not interchangeable
 sources of truth. Historical text or hook-projected context must never authorize

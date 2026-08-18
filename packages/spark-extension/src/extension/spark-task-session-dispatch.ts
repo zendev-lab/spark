@@ -1021,9 +1021,11 @@ function renderTaskExecutionPrompt(reservation: ReservedTaskSessionRun): string 
     `Execution policy: sessionLifetime=${reservation.executionPolicy.sessionLifetime}; isolation=${reservation.executionPolicy.isolation}; comparison=${reservation.executionPolicy.comparison}; maxAttempts=${reservation.executionPolicy.maxAttempts}.`,
     reservation.executionPolicy.isolation === "readonly"
       ? "Do not modify repository source or external state."
-      : reservation.executionPolicy.isolation === "isolated_worktree"
-        ? "Modify source only inside the Task-owned isolated worktree supplied by the owner workflow."
-        : `Write experiment outputs only under .spark/task-results/${execution.jobId}/.`,
+      : reservation.executionPolicy.isolation === "workspace"
+        ? "Work only inside the owning Workspace. Discover and manage its repositories explicitly; do not assume the Session cwd is a Git repository."
+        : reservation.executionPolicy.isolation === "isolated_worktree"
+          ? "Modify source only inside the Task-owned isolated worktree supplied by the owner workflow."
+          : `Write experiment outputs only under .spark/task-results/${execution.jobId}/.`,
     ...(reservation.run.resourceAllocation
       ? [
           `Resource lease: ${reservation.run.resourceAllocation.leaseId} on ${reservation.run.resourceAllocation.nodeId}.`,

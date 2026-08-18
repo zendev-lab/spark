@@ -545,6 +545,7 @@ export function normalizeTaskExecutionPolicy(
   }
   if (
     policy?.isolation !== undefined &&
+    policy.isolation !== "workspace" &&
     policy.isolation !== "isolated_worktree" &&
     policy.isolation !== "isolated_results" &&
     policy.isolation !== "readonly"
@@ -610,6 +611,7 @@ export function normalizeTaskExecutionPolicy(
     policy?.continuity ?? (sessionLifetime === "task_run" ? "fresh" : "reuse_within_revision");
   const worktreeTarget = normalizeTaskWorktreeTarget(policy?.worktreeTarget);
   const isolation =
+    policy?.isolation === "workspace" ||
     policy?.isolation === "isolated_worktree" ||
     policy?.isolation === "isolated_results" ||
     policy?.isolation === "readonly"

@@ -1,6 +1,4 @@
-import { execFileSync } from "node:child_process";
 import { closeSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 
 import {
   SPARK_SCRIPTED_PROVIDER_MODEL,
@@ -152,7 +150,7 @@ export default function registerScriptedJourneyProvider(api: {
             `Spark Repro scripted provider received unexpected ${audience} request ${audienceCursor + 1}; configured ${audienceRounds.length} round(s)`,
           );
         }
-        rememberPreviousRoundOutput(ledger, path, refs, ledger.lastLabels?.[audience]);
+        rememberPreviousRoundOutput(ledger, refs, ledger.lastLabels?.[audience]);
         const content = [
           ...(round.text
             ? [{ type: "text" as const, text: interpolate(round.text, ledger, refs) }]
@@ -389,18 +387,11 @@ function interpolate(value: string, ledger: ScriptedProviderLedger, refs: Contex
 
 function rememberPreviousRoundOutput(
   ledger: ScriptedProviderLedger,
-  ledgerPath: string,
   refs: ContextRefs,
   previous: string | undefined,
 ): void {
-  if (previous === "implementation.head" || previous === "formalize.head") {
-    const revision = bindingHeadRevision(ledgerPath, refs.binding.gitChangeRef);
-    if (previous === "implementation.head" && refs.binding.sourceRevision) {
-      (ledger.vars ??= {}).BASELINE_REVISION = refs.binding.sourceRevision;
-    }
-    (ledger.vars ??= {})[
-      previous === "implementation.head" ? "CANDIDATE_REVISION" : "CANONICAL_REVISION"
-    ] = revision;
+  if (!(ledger.vars ??= {}).BASELINE_REVISION && refs.binding.sourceRevision) {
+    ledger.vars.BASELINE_REVISION = refs.binding.sourceRevision;
   }
   const evidenceVariable =
     previous &&
@@ -420,31 +411,6 @@ function rememberPreviousRoundOutput(
     }[previous];
   const evidenceRef = refs.evidence.at(-1);
   if (evidenceVariable && evidenceRef) (ledger.vars ??= {})[evidenceVariable] = evidenceRef;
-}
-
-function bindingHeadRevision(ledgerPath: string, artifactRef: string | undefined): string {
-  if (!artifactRef?.startsWith("artifact:")) {
-    throw new Error("Scripted provider binding has no GitChangeRef");
-  }
-  const artifactPath = resolve(
-    dirname(ledgerPath),
-    "fixture-repo/.spark/artifacts",
-    `${artifactRef.slice("artifact:".length)}.json`,
-  );
-  const artifact = JSON.parse(readFileSync(artifactPath, "utf8")) as {
-    body?: { kind?: unknown; worktree?: { path?: unknown } };
-  };
-  const worktreePath = artifact.body?.worktree?.path;
-  if (artifact.body?.kind !== "git_change" || typeof worktreePath !== "string") {
-    throw new Error(`Scripted provider binding ${artifactRef} is not a GitChange`);
-  }
-  const revision = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
-    encoding: "utf8",
-  }).trim();
-  if (!/^[a-f0-9]{40}$/u.test(revision)) {
-    throw new Error(`Scripted provider received invalid ${artifactRef} HEAD`);
-  }
-  return revision;
 }
 
 function missing(name: string): never {

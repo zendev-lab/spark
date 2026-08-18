@@ -480,6 +480,134 @@ describe("daemon native session execution", () => {
     }
   });
 
+  it("derives a Workspace scope from an authoritative TaskRun without selecting a repository", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "spark-daemon-workspace-scope-"));
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Repro", description: "Repro" });
+    const taskRecord = graph.createTask({
+      projectRef: project.ref,
+      title: "Implementation lane",
+      description: "Discover the relevant repositories inside the Workspace",
+      kind: "implement",
+      roleRef: "role:builtin-executor",
+      artifactRefs: [],
+      executionPolicy: {
+        sessionLifetime: "task_revision",
+        continuity: "reuse_within_revision",
+        isolation: "workspace",
+        comparison: "single_side",
+        concurrencyKeys: ["repro:workspace-writer"],
+        maxAttempts: 2,
+      },
+      plan: normalizeTaskPlan(
+        {
+          objective: "Work from the owning Workspace without assuming its root is a Git checkout",
+          successCriteria: ["Repository discovery remains agent-owned."],
+          evidenceRequired: ["TaskRun evidence."],
+          steps: ["Inspect the Workspace."],
+        },
+        "Implementation lane",
+        "Discover the relevant repositories inside the Workspace",
+      ),
+    });
+    const runRef = "run:repro-workspace-1" as RunRef;
+    graph.recordRun({
+      ref: runRef,
+      projectRef: project.ref,
+      taskRef: taskRecord.ref,
+      roleRef: "role:builtin-executor" as RoleRef,
+      runName: "repro-implementation-attempt-1",
+      ownerSessionId: "sess_owner",
+      execution: {
+        ownerSessionId: "sess_owner",
+        executionSessionId: "sess_repro_implementation",
+        sessionGoalId: "goal-repro-implementation",
+        jobId: "task-job:repro-workspace-1",
+        attempt: 1,
+      },
+      status: "running",
+      startedAt: "2026-08-18T00:00:00.000Z",
+      outputEvidenceRefs: [],
+    });
+    await defaultTaskGraphStore(workspaceRoot).save(graph);
+    const taskSession = {
+      ...workspaceSessionRecord({
+        sessionId: "sess_repro_implementation",
+        workspaceId: "ws_repro",
+        supervisorSessionId: "sess_owner",
+        roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+        cwd: workspaceRoot,
+      }),
+      owner: {
+        kind: "task_run",
+        supervisorSessionId: "sess_owner",
+        projectRef: project.ref,
+        taskRef: taskRecord.ref,
+        runRef,
+        sessionGoalId: "goal-repro-implementation",
+        roleRef: "role:builtin-executor",
+        jobId: "task-job:repro-workspace-1",
+        attempt: 1,
+      },
+    } as never;
+    const executeSession = vi.fn(async () => ({ assistantText: "done" }));
+    const runTask = (attempt: number): SparkDaemonSessionRunTask => ({
+      type: "session.run",
+      sessionId: "sess_repro_implementation",
+      executionSessionId: "sess_repro_implementation",
+      workspaceId: "ws_repro",
+      prompt: "execute Repro implementation",
+      messageMetadata: {
+        sessionMail: {
+          fromSessionId: "sess_owner",
+          requestPayload: {
+            kind: "task_execution",
+            projectRef: project.ref,
+            taskRef: taskRecord.ref,
+            runRef,
+            jobId: "task-job:repro-workspace-1",
+            attempt,
+          },
+        },
+      },
+    });
+    const options = {
+      paths,
+      executeSession,
+      sessionRegistry: {
+        get: vi.fn(async () => taskSession),
+        recordRun: vi.fn(async () => ({}) as never),
+        recordTurnQueued: vi.fn(async () => ({}) as never),
+        recordTurnSettled: vi.fn(async () => ({}) as never),
+      },
+      resolveWorkspaceCwd: vi.fn(() => workspaceRoot),
+      resolveSessionCwd: vi.fn(async () => ({ cwd: workspaceRoot })),
+    };
+
+    try {
+      await executeSparkDaemonSessionRunTask(runTask(1), context(runTask(1)), options);
+      expect(executeSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cwd: workspaceRoot,
+          sparkStateRoot: join(workspaceRoot, ".spark"),
+          mode: "execute",
+          taskExecutionScope: {
+            isolation: "workspace",
+            writableArtifactRefs: [],
+            writableRoots: [workspaceRoot],
+          },
+        }),
+      );
+      executeSession.mockClear();
+      await expect(
+        executeSparkDaemonSessionRunTask(runTask(2), context(runTask(2)), options),
+      ).rejects.toThrow(/no longer matches its authoritative TaskRun binding/u);
+      expect(executeSession).not.toHaveBeenCalled();
+    } finally {
+      rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("keeps ordinary scoped Session tools bound to the child instead of its Administrator", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "spark-scoped-session-actor-"));
     const executeSession = vi.fn(async () => ({ assistantText: "child executed" }));

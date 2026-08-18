@@ -33,7 +33,7 @@ This contract does not create another scheduler, Task graph, Evidence store, hum
 10. A stable per-run Document Artifact is the canonical human report page. A workspace `report.md` is an optional explicit export only.
 11. A `workItemId` is stable within one Repro and survives commit rebases. TaskRef remains the scheduling identity, while one `git_change` Artifact remains the owner of its worktree and native GitHub PR stack.
 12. Forward handoffs move only Implementation → Exactness → Formalize. Typed resolutions move only Formalize → Exactness → Implementation.
-13. Session transcripts and compact summaries are non-authoritative projections. Context compaction may discard narration but cannot create, advance, or erase a Repro route, binding, receipt, TaskRun, Evidence record, or GitChange revision.
+13. Session transcripts and compact summaries are non-authoritative projections. Context compaction may discard narration but cannot create, advance, or erase a Repro route, binding, receipt, TaskRun, Evidence record, logical revision, or lane-created GitChange revision.
 
 ## Ownership
 
@@ -48,7 +48,12 @@ This contract does not create another scheduler, Task graph, Evidence store, hum
 
 Task Sessions, `assign`, and controlled Workflows reuse the daemon scheduler. A specialist may produce an observation or evidence candidate; only the owner session may reconcile it into Formalize state.
 
-Formalize binds one canonical `git_change` Artifact. Its stack-integrator Session is the only writer to that owning worktree. Other specialists are read-only or use distinct candidate GitChanges; Repro never copies raw worktree paths or becomes a writable PR-topology owner.
+When Formalize publishes source changes, it binds one canonical `git_change`
+Artifact and its integrator Session is the only writer to that owning worktree.
+A Repro that produces evidence without a source change needs no GitChange.
+Other specialists are read-only or create distinct candidate GitChanges as
+their work requires; Repro never copies raw worktree paths or becomes a writable
+PR-topology owner.
 
 ## Command launch, checkpoint, and continuation
 
@@ -58,11 +63,13 @@ internal enqueue mutation themselves. Persisting that intent precedes creation
 of its GitChanges, Tasks, TaskRun reservations, or Sessions, so every crash
 window resumes the same stable identities.
 
-One accepted enqueue immediately reserves three child Sessions and three
-isolated writable GitChanges: Implementation, Exactness, and Formalize. This is
-resource reservation, not concurrent mutation of one worktree. Only
-Implementation is initially runnable. Terminal TaskRun envelopes then drive the
-durable sequence:
+One accepted enqueue immediately reserves three child Sessions: Implementation,
+Exactness, and Formalize. All three inherit the owning Workspace, which may
+contain zero, one, or many repositories; launch never treats Session cwd as a
+repository and never chooses or creates a GitChange. Repository discovery,
+GitChange creation, and PR topology are ordinary lane work performed only when
+the evidence requires them. Only Implementation is initially runnable. Terminal
+TaskRun envelopes then drive the durable sequence:
 
 ```text
 Implementation → Exactness → Formalize → Exactness refresh → Implementation refresh
@@ -70,8 +77,9 @@ Implementation → Exactness → Formalize → Exactness refresh → Implementat
 
 The five accepted results, two forward handoffs, and two parent-ordered backward
 resolutions are checkpoints. Each binding names the exact `originRouteId`,
-TaskRef, RunRef, source revision, and GitChange; recovery never scans transcript
-text to guess them. `lane_result_record` can only replay Evidence already bound
+TaskRef, RunRef, and logical source revision; a GitChange is optional lane
+evidence rather than launch authority. Recovery never scans transcript text to
+guess these facts. `lane_result_record` can only replay Evidence already bound
 to that same terminal TaskRun and therefore does not define a second result
 semantics.
 

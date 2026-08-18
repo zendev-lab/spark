@@ -1180,7 +1180,13 @@ async function sessionExecutionIdentity(
           binding: sessionContext.fleetWorker,
           resolveSessionCwd: options.resolveSessionCwd,
         })
-      : undefined;
+      : workspaceRoot && sessionContext.taskSession
+        ? await resolveWorkspaceTaskExecutionScope({
+            task,
+            workspaceRoot,
+            executionSessionId: task.executionSessionId ?? task.sessionId,
+          })
+        : undefined;
   return {
     cwd,
     ...(workspaceId ? { workspaceId } : {}),
@@ -1292,6 +1298,36 @@ async function resolveFleetExecutionScope(input: {
     writableArtifactRefs: writableArtifactRefs as ArtifactRef[],
     writableRoots,
     ...(resultsRoot ? { resultsRoot } : {}),
+  });
+}
+
+async function resolveWorkspaceTaskExecutionScope(input: {
+  task: SparkDaemonSessionRunTask;
+  workspaceRoot: string;
+  executionSessionId: string;
+}): Promise<SparkTaskExecutionScope | undefined> {
+  const request = fleetTaskRequestMetadata(input.task);
+  if (!request) return undefined;
+  const graph = await defaultTaskGraphStore(input.workspaceRoot).load();
+  if (!graph) throw new Error("Task execution scope requires the owning Workspace TaskGraph");
+  const run = graph
+    .runs(request.projectRef as ProjectRef)
+    .find((candidate) => candidate.ref === request.runRef);
+  if (
+    !run?.execution ||
+    run.taskRef !== request.taskRef ||
+    (run.execution.sessionId ?? run.execution.executionSessionId) !== input.executionSessionId ||
+    run.execution.jobId !== request.jobId ||
+    run.execution.attempt !== request.attempt
+  ) {
+    throw new Error("Task invocation no longer matches its authoritative TaskRun binding");
+  }
+  const policy = graph.getTask(run.taskRef).executionPolicy;
+  if (policy?.isolation !== "workspace") return undefined;
+  return Object.freeze({
+    isolation: "workspace",
+    writableArtifactRefs: [],
+    writableRoots: [input.workspaceRoot],
   });
 }
 

@@ -1,16 +1,6 @@
 import { createHash } from "node:crypto";
 
-import {
-  GitRevisionMaterializationService,
-  GitLifecycleError,
-  GitLifecycleService,
-  defaultArtifactStore,
-  defaultEvidenceStore,
-  defaultGitCommandRunner,
-  gitHubRepositoryFromRemote,
-  type ArtifactRef,
-  type EvidenceRef,
-} from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore, type EvidenceRef } from "@zendev-lab/spark-artifacts";
 import {
   nowIso,
   type ExtensionUi,
@@ -33,7 +23,6 @@ import {
   rejectSparkReproLaneResult,
   resumeSparkReproRouteFromAnswer,
   resumeSparkReproRouteFromRecovery,
-  resumeSparkReproRouteFromRepair,
   SPARK_REPRO_LANES,
   sparkReproLaneBinding,
   sparkReproLaneResultEvidenceRefs,
@@ -64,7 +53,6 @@ export interface SparkReproLaneRuntimeTopology {
   lanes: Record<
     SparkReproLane,
     {
-      artifactRef: ArtifactRef;
       taskRef: TaskRef;
       runRef: RunRef;
       sessionId: string;
@@ -73,25 +61,9 @@ export interface SparkReproLaneRuntimeTopology {
 }
 
 export interface SparkReproLaneRuntimeDeps {
-  repositoryIdentity?: (cwd: string) => Promise<string>;
-  resolveSourceRevision?: (cwd: string) => Promise<string>;
   persist?: (repro: SparkSessionRepro) => Promise<void>;
   reserve?: typeof reserveManagedTaskSessions;
   dispatch?: typeof dispatchManagedTaskSessions;
-  ensureInitialArtifacts?: (input: {
-    cwd: string;
-    stateCwd: string;
-    repository: string;
-    repro: SparkSessionRepro;
-    workItemId: string;
-    sourceRevision: string;
-  }) => Promise<Record<SparkReproLane, ArtifactRef>>;
-  prepareRouteRevision?: typeof prepareRouteRevision;
-  submitFormalizeDraft?: (input: {
-    cwd: string;
-    stateCwd: string;
-    artifactRef: ArtifactRef;
-  }) => Promise<void>;
   ensureAttentionWakeLoop?: typeof ensureRootAttentionWakeLoop;
 }
 
@@ -127,10 +99,10 @@ export async function reconcileSparkReproRuntimeForSession(input: {
 }
 
 /**
- * Persist `/repro <objective>` as one WorkItem checkpoint, then idempotently
- * reserve all three lane TaskRuns and create their stable child Sessions. Only
- * the Implementation reservation is invoked until a typed route unlocks the
- * next lane.
+ * Persist `/repro <objective>` as one logical WorkItem checkpoint, then
+ * idempotently reserve all three lane TaskRuns and create their stable child
+ * Sessions. Repository discovery and GitChange creation deliberately remain
+ * lane work: a Repro Workspace commonly contains zero or many repositories.
  */
 export async function launchSparkReproThreeLaneRuntime(input: {
   cwd: string;
@@ -151,7 +123,7 @@ export async function launchSparkReproThreeLaneRuntime(input: {
   const sourceRevision =
     existingWorkItem?.sourceRevision ??
     input.repro.threeLane.formalize.formalizedTip ??
-    (await (input.deps?.resolveSourceRevision ?? resolveHeadRevision)(input.cwd));
+    workspaceCheckpointRevision(input.repro);
   const title = input.repro.goalContract.objective.trim() || input.repro.reproId;
   const enqueued = enqueueSparkReproWork(input.repro.threeLane, {
     enqueue: {
@@ -165,20 +137,10 @@ export async function launchSparkReproThreeLaneRuntime(input: {
   let repro = updateReproThreeLane(input.repro, enqueued.state);
   if (enqueued.changed) await persist(repro);
 
-  const repository = await (input.deps?.repositoryIdentity ?? resolveRepositoryIdentity)(input.cwd);
-  const artifactRefs = await (input.deps?.ensureInitialArtifacts ?? ensureInitialLaneArtifacts)({
-    cwd: input.cwd,
-    stateCwd,
-    repository,
-    repro,
-    workItemId,
-    sourceRevision,
-  });
   const taskRefs = await ensureLaneTasks({
     stateCwd,
     repro,
     workItemId,
-    artifactRefs,
   });
   const registry = await createSparkRoleRegistry(stateCwd);
   const graphBeforeReservation = await defaultTaskGraphStore(stateCwd).load();
@@ -213,7 +175,6 @@ export async function launchSparkReproThreeLaneRuntime(input: {
       materializeSparkReproRouteBinding(repro.threeLane, {
         routeId: startRoute.routeId,
         taskRef: taskRefs.implementation,
-        gitChangeRef: artifactRefs.implementation,
       }),
     );
     await persist(repro);
@@ -223,13 +184,11 @@ export async function launchSparkReproThreeLaneRuntime(input: {
     repro = updateReproThreeLane(
       repro,
       bindSparkReproFormalizeOwnership(repro.threeLane, {
-        gitChangeRef: artifactRefs.formalize,
         integratorSessionId: formalizeReservation.sessionId,
       }),
     );
     await persist(repro);
   }
-
   const implementationRun = await requireCurrentRun(stateCwd, repro, taskRefs.implementation);
   if (startRoute.status === "pending") {
     if (!implementationRun.execution?.invocationId && !isTerminalRun(implementationRun)) {
@@ -265,17 +224,14 @@ export async function launchSparkReproThreeLaneRuntime(input: {
     sourceRevision,
     lanes: {
       implementation: {
-        artifactRef: artifactRefs.implementation,
         taskRef: taskRefs.implementation,
         ...reservations.implementation,
       },
       exactness: {
-        artifactRef: artifactRefs.exactness,
         taskRef: taskRefs.exactness,
         ...reservations.exactness,
       },
       formalize: {
-        artifactRef: artifactRefs.formalize,
         taskRef: taskRefs.formalize,
         ...reservations.formalize,
       },
@@ -317,7 +273,6 @@ export async function reconcileSparkReproThreeLaneRuntime(input: {
     repro = recovered;
     await persist(repro);
   }
-  await ensureFormalizeDraft({ ...input, repro, stateCwd });
   return await advancePendingRoutes({ ...input, repro, persist, stateCwd });
 }
 
@@ -382,7 +337,6 @@ export async function replaySparkReproLaneResult(input: {
   });
   const persist = input.deps?.persist ?? ((next) => writeSessionRepro(input.cwd, next, input.ctx));
   if (repro !== input.repro) await persist(repro);
-  await ensureFormalizeDraft({ ...input, repro, stateCwd });
   return await advancePendingRoutes({ ...input, repro, persist, stateCwd });
 }
 
@@ -430,9 +384,9 @@ async function ingestSparkReproTerminalTaskRun(input: {
       });
     const formalizeSession =
       input.run.execution?.sessionId ?? input.run.execution?.executionSessionId;
+    const boundIntegrator = repro.threeLane.formalize.ownership?.integratorSessionId;
     const integratorMatches =
-      result.lane !== "formalize" ||
-      formalizeSession === repro.threeLane.formalize.ownership?.integratorSessionId;
+      result.lane !== "formalize" || !boundIntegrator || formalizeSession === boundIntegrator;
     if (!provenanceMatches || !integratorMatches) {
       const rejected = rejectSparkReproLaneResult({
         state: repro.threeLane,
@@ -487,7 +441,6 @@ async function advancePendingRoutes(input: {
   let repro = input.repro;
   const pendingRoutes = repro.threeLane.routes.filter((route) => route.status === "pending");
   if (pendingRoutes.length === 0) return repro;
-  let repository: string | undefined;
   let registry: Awaited<ReturnType<typeof createSparkRoleRegistry>> | undefined;
   for (const route of pendingRoutes) {
     if (route.action === "root_attention") {
@@ -501,56 +454,16 @@ async function advancePendingRoutes(input: {
       );
       continue;
     }
-    repository ??= await (input.deps?.repositoryIdentity ?? resolveRepositoryIdentity)(input.cwd);
     registry ??= await createSparkRoleRegistry(input.stateCwd);
     const lane = route.toLane;
     const taskRef = await laneTaskRef(input.stateCwd, repro, lane);
-    const artifactRef = laneArtifactRef(repro.reproId, primaryWorkItemId(repro.reproId), lane);
     const currentBinding = sparkReproLaneBinding(repro.threeLane, route.workItemId, lane);
-    try {
-      await (input.deps?.prepareRouteRevision ?? prepareRouteRevision)({
-        cwd: input.cwd,
-        stateCwd: input.stateCwd,
-        repository,
-        repro,
-        route,
-        artifactRef,
-      });
-    } catch (error) {
-      if (
-        !(error instanceof GitLifecycleError) ||
-        error.code !== "materialization_conflict" ||
-        (route.action !== "materialize_binding" && route.action !== "refresh_binding")
-      ) {
-        throw error;
-      }
-      const sourceTaskRef = await laneTaskRef(input.stateCwd, repro, route.fromLane);
-      const repair = await recordGitRepairEvidence({
-        stateCwd: input.stateCwd,
-        repro,
-        route,
-        taskRef: sourceTaskRef,
-        artifactRef,
-        error,
-      });
-      repro = updateReproThreeLane(
-        repro,
-        resumeSparkReproRouteFromRepair(repro.threeLane, {
-          failedRouteId: route.routeId,
-          repairDigest: repair.digest,
-          evidenceRef: repair.evidenceRef,
-        }),
-      );
-      await input.persist(repro);
-      return await advancePendingRoutes({ ...input, repro });
-    }
     if (!currentBinding || currentBinding.originRouteId !== route.routeId) {
       repro = updateReproThreeLane(
         repro,
         materializeSparkReproRouteBinding(repro.threeLane, {
           routeId: route.routeId,
           taskRef,
-          gitChangeRef: artifactRef,
           ...(route.cause.evidenceRef ? { evidenceRefs: [route.cause.evidenceRef] } : {}),
         }),
       );
@@ -580,43 +493,6 @@ async function advancePendingRoutes(input: {
     await input.persist(repro);
   }
   return repro;
-}
-
-async function ensureFormalizeDraft(input: {
-  cwd: string;
-  stateCwd: string;
-  repro: SparkSessionRepro;
-  deps?: SparkReproLaneRuntimeDeps;
-}): Promise<void> {
-  if (!input.repro.threeLane.formalize.formalizedTip) return;
-  const artifactRef = input.repro.threeLane.formalize.ownership?.gitChangeRef;
-  if (!artifactRef) throw new Error("formalized Repro has no canonical GitChange owner");
-  const artifact = await defaultArtifactStore(input.stateCwd).get(artifactRef);
-  if (artifact.kind !== "git_change" || artifact.body.kind !== "git_change") {
-    throw new Error(`${artifactRef} is not a GitChange`);
-  }
-  const activeEntries = artifact.body.stack.entries.filter((entry) => !entry.isMerged);
-  if (activeEntries.some((entry) => entry.pullRequest?.draft === false)) {
-    throw new Error("Formalize canonical stack contains a non-Draft pull request");
-  }
-  if (
-    activeEntries.length > 0 &&
-    activeEntries.every((entry) => entry.pullRequest?.draft === true)
-  ) {
-    return;
-  }
-  if (input.deps?.submitFormalizeDraft) {
-    await input.deps.submitFormalizeDraft({
-      cwd: input.cwd,
-      stateCwd: input.stateCwd,
-      artifactRef,
-    });
-    return;
-  }
-  await new GitLifecycleService({
-    cwd: input.cwd,
-    workspaceRoot: input.stateCwd,
-  }).submit(artifactRef);
 }
 
 async function resumeAnsweredAttentionRoutes(
@@ -729,43 +605,10 @@ async function ensureRootAttentionWakeLoop(input: {
   });
 }
 
-async function ensureInitialLaneArtifacts(input: {
-  cwd: string;
-  stateCwd: string;
-  repository: string;
-  repro: SparkSessionRepro;
-  workItemId: string;
-  sourceRevision: string;
-}): Promise<Record<SparkReproLane, ArtifactRef>> {
-  const service = new GitRevisionMaterializationService({
-    cwd: input.cwd,
-    workspaceRoot: input.stateCwd,
-  });
-  const entries = await Promise.all(
-    SPARK_REPRO_LANES.map(async (lane) => {
-      const artifactRef = laneArtifactRef(input.repro.reproId, input.workItemId, lane);
-      await service.materialize({
-        action: "create_candidate",
-        operationId: `repro:${input.repro.reproId}:${input.workItemId}:${lane}:launch`,
-        authority: "driver_local",
-        repository: input.repository,
-        artifactRef,
-        title: `Repro ${input.repro.reproId} ${lane}`,
-        branch: `spark/${safeName(`repro-${input.repro.reproId}-${lane}`)}`,
-        baselineRevision: input.sourceRevision,
-        repositoryPath: input.cwd,
-      });
-      return [lane, artifactRef] as const;
-    }),
-  );
-  return Object.fromEntries(entries) as Record<SparkReproLane, ArtifactRef>;
-}
-
 async function ensureLaneTasks(input: {
   stateCwd: string;
   repro: SparkSessionRepro;
   workItemId: string;
-  artifactRefs: Record<SparkReproLane, ArtifactRef>;
 }): Promise<Record<SparkReproLane, TaskRef>> {
   if (!input.repro.projectRef) throw new Error("lane Tasks require a Project");
   const updated = await defaultTaskGraphStore(input.stateCwd).update(
@@ -778,9 +621,9 @@ async function ensureLaneTasks(input: {
         if (existing) {
           if (
             existing.roleRef !== roleRef ||
-            !existing.artifactRefs.includes(input.artifactRefs[lane]) ||
             existing.executionPolicy?.completionGate !== "task_evidence" ||
-            existing.executionPolicy?.sessionRetention !== "owner_terminal"
+            existing.executionPolicy?.sessionRetention !== "owner_terminal" ||
+            existing.executionPolicy?.isolation !== "workspace"
           ) {
             throw new Error(`Repro lane Task ${name} has a conflicting owner`);
           }
@@ -796,26 +639,23 @@ async function ensureLaneTasks(input: {
           kind: "generic",
           status: "ready",
           roleRef,
-          artifactRefs: [input.artifactRefs[lane]],
+          artifactRefs: [],
           executionPolicy: {
             sessionLifetime: "task_revision",
             sessionRetention: "owner_terminal",
             continuity: "reuse_within_revision",
-            isolation: "isolated_worktree",
+            isolation: "workspace",
             comparison: "single_side",
             completionGate: "task_evidence",
-            worktreeTarget: {
-              primaryArtifactRef: input.artifactRefs[lane],
-              writableArtifactRefs: [input.artifactRefs[lane]],
-            },
-            concurrencyKeys: [`repro:${input.repro.reproId}:${lane}:writer`],
+            concurrencyKeys: [`repro:${input.repro.reproId}:workspace-writer`],
             maxAttempts: 3,
           },
           plan: {
             objective: `Produce typed ${lane} lane results for ${input.workItemId}.`,
-            contextRefs: [input.artifactRefs[lane]],
+            contextRefs: [],
             constraints: [
-              "Write only the assigned GitChange worktree.",
+              "Treat the Session cwd as a Workspace; discover zero or many repositories before selecting any Git operation.",
+              "Create or adopt GitChanges only when the concrete work requires them; Repro launch does not choose a repository.",
               "Never Ask the user directly.",
               "Bind every result to the supplied route, TaskRef, and RunRef.",
             ],
@@ -832,7 +672,7 @@ async function ensureLaneTasks(input: {
                 id: `${lane}-execute`,
                 title: `Execute bounded ${lane} work`,
                 description:
-                  "Change or inspect only the assigned GitChange at the frozen source revision.",
+                  "Inspect or change the owning Workspace. Build the repository and worktree topology required by the evidence instead of assuming cwd is a Git repository.",
                 status: "pending",
                 createdAt: planItemAt,
                 updatedAt: planItemAt,
@@ -914,62 +754,6 @@ async function dispatchRouteTask(input: {
   });
 }
 
-async function prepareRouteRevision(input: {
-  cwd: string;
-  stateCwd: string;
-  repository: string;
-  repro: SparkSessionRepro;
-  route: SparkReproRoute;
-  artifactRef: ArtifactRef;
-}): Promise<void> {
-  const artifact = await defaultArtifactStore(input.stateCwd).get(input.artifactRef);
-  if (artifact.kind !== "git_change" || artifact.body.kind !== "git_change") {
-    throw new Error(`${input.artifactRef} is not a GitChange`);
-  }
-  const materializedHead = artifact.body.revisionMaterialization?.headRevision;
-  if (!materializedHead) throw new Error("GitChange has no revision materialization state");
-  if (materializedHead === input.route.sourceRevision) return;
-  const workItem = input.repro.threeLane.workItems.find(
-    (candidate) => candidate.workItemId === input.route.workItemId,
-  );
-  const refreshDirection =
-    input.route.action === "refresh_binding"
-      ? { from: input.route.fromLane, to: input.route.toLane }
-      : undefined;
-  const resolution = refreshDirection
-    ? [...input.repro.threeLane.resolutions]
-        .reverse()
-        .find(
-          (candidate) =>
-            candidate.workItemId === input.route.workItemId &&
-            candidate.from === refreshDirection.from &&
-            candidate.to === refreshDirection.to &&
-            candidate.canonicalRevision === input.route.sourceRevision,
-        )
-    : undefined;
-  const supersededRevisions = resolution?.supersededRevisions ?? [];
-  const expectedTargetRevision =
-    input.route.action === "refresh_binding" ? supersededRevisions.at(-1) : materializedHead;
-  if (!expectedTargetRevision) throw new Error("refresh route has no superseded target revision");
-  const sourceBaseRevision =
-    input.route.action === "refresh_binding" ? expectedTargetRevision : workItem?.sourceRevision;
-  if (!sourceBaseRevision) throw new Error("route has no provable source base revision");
-  await new GitRevisionMaterializationService({
-    cwd: input.cwd,
-    workspaceRoot: input.stateCwd,
-  }).materialize({
-    action: input.route.action === "refresh_binding" ? "refresh_candidate" : "prepare_layer",
-    operationId: input.route.routeId,
-    authority: "driver_local",
-    repository: input.repository,
-    artifactRef: input.artifactRef,
-    expectedTargetRevision,
-    sourceBaseRevision,
-    sourceRevision: input.route.sourceRevision,
-    supersededRevisions: [...supersededRevisions],
-  });
-}
-
 async function reopenLaneTask(stateCwd: string, taskRef: TaskRef): Promise<void> {
   await defaultTaskGraphStore(stateCwd).update(
     (graph) => {
@@ -1036,7 +820,7 @@ function renderLaneEnvelope(
     `bindingRevision=${binding?.bindingRevision ?? route.sourceBindingRevision + 1}`,
     `taskRef=${taskRef}`,
     `runRef=${runRef}`,
-    ...(binding ? [`gitChangeRef=${binding.gitChangeRef}`] : []),
+    ...(binding?.gitChangeRef ? [`gitChangeRef=${binding.gitChangeRef}`] : []),
     `sourceRevision=${route.sourceRevision}`,
     ...(route.cause.kind === "repair"
       ? [
@@ -1049,60 +833,6 @@ function renderLaneEnvelope(
   ].join("\n");
 }
 
-async function recordGitRepairEvidence(input: {
-  stateCwd: string;
-  repro: SparkSessionRepro;
-  route: Exclude<
-    SparkReproRoute,
-    { action: "root_attention" | "start_binding" | "resume_binding" }
-  >;
-  taskRef: TaskRef;
-  artifactRef: ArtifactRef;
-  error: GitLifecycleError;
-}): Promise<{ evidenceRef: EvidenceRef; digest: string }> {
-  const body = {
-    schema: "spark.repro.git-repair/v1",
-    reproId: input.repro.reproId,
-    workItemId: input.route.workItemId,
-    failedRouteId: input.route.routeId,
-    action: input.route.action,
-    fromLane: input.route.fromLane,
-    toLane: input.route.toLane,
-    repairLane: input.route.fromLane,
-    sourceRevision: input.route.sourceRevision,
-    targetArtifactRef: input.artifactRef,
-    error: { code: input.error.code, message: input.error.message },
-  };
-  const repairDigest = digest(canonicalJson(body));
-  const evidenceRef = `evidence:repro-git-repair-${repairDigest.slice(0, 32)}` as EvidenceRef;
-  const store = defaultEvidenceStore(input.stateCwd);
-  const existing = await store.tryGet(evidenceRef);
-  if (!existing) {
-    await store.put({
-      ref: evidenceRef,
-      kind: "record",
-      title: `Repro Git repair for ${input.route.routeId}`,
-      format: "json",
-      body,
-      provenance: {
-        producer: "spark",
-        ...(input.repro.projectRef ? { projectRef: input.repro.projectRef } : {}),
-        taskRef: input.taskRef,
-        ...(input.route.cause.evidenceRef
-          ? { parentEvidenceRefs: [input.route.cause.evidenceRef] }
-          : {}),
-      },
-      links: [{ to: input.taskRef, relation: "input" }],
-      curation: {
-        status: "candidate",
-        retention: "project",
-        reason: "Mechanical Git conflict assigned to the revision-producing lane.",
-      },
-    });
-  }
-  return { evidenceRef, digest: repairDigest };
-}
-
 function parseLaneResultEvidence(evidence: {
   format: string;
   body: unknown;
@@ -1113,36 +843,24 @@ function parseLaneResultEvidence(evidence: {
   return parseSparkReproLaneResult(evidence.body);
 }
 
-async function resolveHeadRevision(cwd: string): Promise<string> {
-  const result = await defaultGitCommandRunner(
-    "git",
-    ["rev-parse", "--verify", "HEAD^{commit}"],
-    cwd,
-  );
-  const revision = result.stdout.trim();
-  if (result.code !== 0 || !/^[a-f0-9]{40}$/u.test(revision)) {
-    throw new Error(`unable to freeze Repro source revision: ${result.stderr.trim()}`);
-  }
-  return revision;
-}
-
-async function resolveRepositoryIdentity(cwd: string): Promise<string> {
-  const result = await defaultGitCommandRunner("git", ["remote", "get-url", "origin"], cwd);
-  const remote = result.stdout.trim();
-  if (result.code !== 0 || !remote) {
-    throw new Error(`unable to resolve Repro repository identity: ${result.stderr.trim()}`);
-  }
-  const repository = gitHubRepositoryFromRemote(remote);
-  if (!repository) throw new Error(`Repro requires a GitHub origin: ${remote}`);
-  return repository;
-}
-
 function primaryWorkItemId(reproId: string): string {
   return `work:primary:${digest(reproId).slice(0, 24)}`;
 }
 
-function laneArtifactRef(reproId: string, workItemId: string, lane: SparkReproLane): ArtifactRef {
-  return `artifact:repro-${digest(`${reproId}:${workItemId}:${lane}`).slice(0, 32)}` as ArtifactRef;
+/**
+ * Stable logical checkpoint for a Workspace-scoped launch. It intentionally
+ * does not inspect Git: repository discovery is lane work and a Workspace may
+ * contain zero or many independent repositories.
+ */
+function workspaceCheckpointRevision(repro: SparkSessionRepro): string {
+  return digest(
+    canonicalJson({
+      kind: "workspace",
+      reproId: repro.reproId,
+      planRevision: repro.plan.currentRevision,
+      objective: repro.goalContract.objective,
+    }),
+  ).slice(0, 40);
 }
 
 function laneTaskName(reproId: string, lane: SparkReproLane): string {

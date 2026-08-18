@@ -74,10 +74,13 @@ intermediate.
 ## Command launch and checkpoints
 
 `/repro <objective>` is the product entrypoint. The command owner derives and
-persists one strict `spark.repro.work-enqueue/v1` intent and its deterministic
-Implementation start route before it creates a GitChange, Task, lane Session,
-or TaskRun. Replaying the command or recovering after a process crash therefore
-resumes the same WorkItem and route instead of duplicating execution resources.
+persists one strict `spark.repro.work-enqueue/v1` intent, its logical Workspace
+checkpoint, and its deterministic Implementation start route before it creates
+a Task, lane Session, or TaskRun. Launch does not inspect Git: a reproduction
+Workspace may contain zero, one, or many repositories, and its agents create or
+adopt GitChanges only when concrete work requires them. Replaying the command or
+recovering after a process crash therefore resumes the same WorkItem and route
+instead of duplicating execution resources.
 
 The three lane Sessions have stable runtime identities. Implementation starts
 from the frozen trunk or current Formalize revision; Exactness and Formalize may
@@ -90,8 +93,8 @@ are never recovery authority.
 Session context compaction may remove Root or lane narration, but it must not
 rewrite, synthesize, or discard a Repro checkpoint. The bounded Session snapshot
 keeps only a projection suitable for continuation; the owner resumes from the
-persisted WorkItem, routes, bindings, receipts, TaskRun envelopes, Evidence, and
-GitChange revisions. The first turn after compaction may inspect `status`, but it
+persisted WorkItem, routes, bindings, receipts, TaskRun envelopes, Evidence,
+logical revisions, and any lane-created GitChange revisions. The first turn after compaction may inspect `status`, but it
 must not replay `/repro <objective>` or create replacement lane Sessions.
 
 An `attention_request` is a checkpoint, not a terminal lane result. The request

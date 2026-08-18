@@ -1442,7 +1442,11 @@ export interface TaskPlan {
 }
 
 export type TaskExecutionContinuity = "reuse_within_revision" | "fresh";
-export type TaskExecutionIsolation = "readonly" | "isolated_worktree" | "isolated_results";
+export type TaskExecutionIsolation =
+  | "readonly"
+  | "workspace"
+  | "isolated_worktree"
+  | "isolated_results";
 export type TaskExecutionComparison = "single_side" | "reference" | "target" | "paired";
 
 export interface TaskResourceRequest {
