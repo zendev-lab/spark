@@ -25,13 +25,8 @@ import {
   taskCompletionReadiness,
   TaskGraph,
 } from "@zendev-lab/spark-tasks";
-import {
-  currentSparkProject,
-  saveCurrentProjectRef,
-  sparkSessionKey,
-  sparkStateCwd,
-} from "./session-state.ts";
-import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
+import { currentSparkProject, saveCurrentProjectRef, sparkStateCwd } from "./session-state.ts";
+import { resolveSessionClaimedTask, sparkTaskClaimSessionKey } from "./task-claim-selection.ts";
 import { finishProjectionIssue, firstBlockingCompletionIssue } from "./task-tool-contracts.ts";
 import { compactTaskDetail, normalizeOptionalToolString } from "./task-plan-tool.ts";
 import { compactLearningDetail } from "./learning-tools.ts";
@@ -523,7 +518,7 @@ export function registerSparkFinishTaskTool(
           evidencePreviews: taskEvidenceContext.currentEvidencePreviews,
           evidencePreviewOmittedCount: taskEvidenceContext.evidencePreviewOmittedCount,
           supersededEvidenceRefs: taskEvidenceContext.supersededEvidenceRefs,
-          sessionKey: sparkSessionKey(ctx),
+          sessionKey: sparkTaskClaimSessionKey(ctx),
           forkFromSession: ctx.sessionManager?.getSessionFile?.(),
         };
         if (taskEvidenceContext.unreadableEvidence.length > 0) {
@@ -1113,7 +1108,12 @@ async function resolveFinishReviewCandidate(
   if (!graph) return { error: "no_project" };
   const project = await currentSparkProject(cwd, ctx, graph);
   if (!project) return { error: "no_project" };
-  const task = resolveSessionClaimedTask(graph, project.ref, sparkSessionKey(ctx), input.task);
+  const task = resolveSessionClaimedTask(
+    graph,
+    project.ref,
+    sparkTaskClaimSessionKey(ctx),
+    input.task,
+  );
   if (!task) return { error: "no_matching_claimed_task" };
   const candidateTask = taskWithFinishEvidenceRefs(task, input.evidenceRefs);
   return {
@@ -1140,7 +1140,7 @@ async function commitFinishedTask(
     async (graph) => {
       const project = await currentSparkProject(cwd, ctx, graph);
       if (!project) return { error: "no_project" as const };
-      const sessionKey = sparkSessionKey(ctx);
+      const sessionKey = sparkTaskClaimSessionKey(ctx);
       let task = resolveSessionClaimedTask(graph, project.ref, sessionKey, input.task);
       if (!task) return { error: "no_matching_claimed_task" as const };
       const statusBefore = task.status;
@@ -1250,7 +1250,12 @@ async function commitRoleRunFinishedTask(
     async (graph) => {
       const project = await currentSparkProject(cwd, ctx, graph);
       if (!project) return { error: "no_project" as const };
-      const task = resolveSessionClaimedTask(graph, project.ref, sparkSessionKey(ctx), taskRef);
+      const task = resolveSessionClaimedTask(
+        graph,
+        project.ref,
+        sparkTaskClaimSessionKey(ctx),
+        taskRef,
+      );
       if (!task || task.claim?.kind !== "role-run") {
         return { error: "no_matching_claimed_task" as const };
       }

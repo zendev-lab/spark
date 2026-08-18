@@ -52,6 +52,7 @@ export interface SparkExtensionEventDeps {
     | SparkToolContext["askAutoAnswerResolver"]
     | Promise<SparkToolContext["askAutoAnswerResolver"]>;
   ensureActiveReproLoop?: (ctx: SparkToolContext) => Promise<void>;
+  reconcileReproLaneRuntime?: (ctx: SparkToolContext) => Promise<void>;
 }
 
 export interface SparkExtensionEventHandlers {
@@ -180,6 +181,7 @@ export function registerSparkExtensionEvents(
   // Cross-host and exceptional lifecycle paths retain agent_end as a bounded fallback.
   pi.on?.("agent_end", async (_event: unknown, ctx: SparkToolContext) => {
     await agentEndReconciliation.reconcile(ctx);
+    await reconcileReproLaneRuntimeSafely(deps, ctx);
   });
   pi.on?.("tool_execution_start", async (_event: unknown, ctx: SparkToolContext) => {
     await syncGoalAskAutoAnswerPolicy(ctx);
@@ -191,6 +193,7 @@ export function registerSparkExtensionEvents(
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await resumeOwnedBackgroundSubroles(ctx.cwd, ctx);
     await deps.ensureActiveReproLoop?.(ctx);
+    await reconcileReproLaneRuntimeSafely(deps, ctx);
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
   pi.on?.("session_compact", async (_event: unknown, ctx: SparkToolContext) => {
@@ -230,6 +233,17 @@ export function registerSparkExtensionEvents(
   });
 
   return { queueSparkAgentInstruction, syncGoalAskAutoAnswerPolicy };
+}
+
+async function reconcileReproLaneRuntimeSafely(
+  deps: SparkExtensionEventDeps,
+  ctx: SparkToolContext,
+): Promise<void> {
+  try {
+    await deps.reconcileReproLaneRuntime?.(ctx);
+  } catch (error) {
+    console.error("[spark] Repro lane reconciliation remains checkpointed for retry", error);
+  }
 }
 
 async function collectFleetLifecycleMessages(ctx: SparkToolContext): Promise<

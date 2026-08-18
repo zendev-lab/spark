@@ -3125,6 +3125,118 @@ describe("daemon native session execution", () => {
     );
   });
 
+  it("attributes an evidence-bound child interaction to its state owner Session", async () => {
+    const requestHash = "a".repeat(64);
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "implementation-session",
+      stateBindingSessionId: "owner-session",
+      prompt: "request a Repro decision",
+    };
+    const interact = vi.fn(async (request) => ({
+      version: SPARK_PROTOCOL_VERSION,
+      requestId: request.requestId,
+      kind: "askFlow" as const,
+      status: "pending" as const,
+      humanRequestId: "human-request-1",
+      answers: {},
+      metadata: {},
+    }));
+    const executeSession = vi.fn(async (input: SparkHeadlessSessionRunInput) => {
+      await input.interaction?.({
+        requestId: "ask-repro-owner",
+        kind: "askFlow",
+        title: "Choose the reference",
+        delivery: "async",
+        questions: [
+          {
+            id: "reference",
+            prompt: "Which reference is canonical?",
+            type: "freeform",
+            required: true,
+          },
+        ],
+        evidenceRequest: {
+          schema: "spark.evidence-request/v1",
+          askRef: `ask:${requestHash}`,
+          ownerSessionId: "owner-session",
+          goalOrReproId: "repro-1",
+          modeScope: "repro",
+          planRevision: 1,
+          ownerStepOrUnresolvedId: "route:attention",
+          stepDefinitionDigest: "result-digest",
+          requestHash,
+          ownerQuestionId: "reference",
+          expectedAnswerKind: "freeform",
+        },
+      });
+      return { assistantText: "waiting" };
+    });
+
+    await executeSparkDaemonSessionRunTask(task, context(task), {
+      paths,
+      executeSession,
+      interact,
+    });
+
+    expect(interact).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: "ask-repro-owner" }),
+      expect.objectContaining({
+        sessionId: "owner-session",
+        stateBindingSessionId: "owner-session",
+      }),
+      expect.objectContaining({ invocationId: "invocation-1" }),
+    );
+  });
+
+  it("rejects an evidence-bound child interaction for a foreign owner Session", async () => {
+    const requestHash = "b".repeat(64);
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "implementation-session",
+      stateBindingSessionId: "owner-session",
+      prompt: "request a forged Repro decision",
+    };
+    const executeSession = vi.fn(async (input: SparkHeadlessSessionRunInput) => {
+      await input.interaction?.({
+        requestId: "ask-foreign-owner",
+        kind: "askFlow",
+        title: "Choose the reference",
+        delivery: "async",
+        questions: [
+          {
+            id: "reference",
+            prompt: "Which reference is canonical?",
+            type: "freeform",
+            required: true,
+          },
+        ],
+        evidenceRequest: {
+          schema: "spark.evidence-request/v1",
+          askRef: `ask:${requestHash}`,
+          ownerSessionId: "foreign-session",
+          goalOrReproId: "repro-1",
+          modeScope: "repro",
+          planRevision: 1,
+          ownerStepOrUnresolvedId: "route:attention",
+          stepDefinitionDigest: "result-digest",
+          requestHash,
+          ownerQuestionId: "reference",
+          expectedAnswerKind: "freeform",
+        },
+      });
+      return { assistantText: "waiting" };
+    });
+
+    await expect(
+      executeSparkDaemonSessionRunTask(task, context(task), {
+        paths,
+        executeSession,
+        interact: vi.fn(),
+      }),
+    ).rejects.toThrow("evidence-bound interaction owner does not match the Session state owner");
+  });
+
   it("allows only workflow for a daemon-owned workflow tick", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "spark-session-cwd-workflow-"));
     const task: SparkDaemonLoopTickTask = {

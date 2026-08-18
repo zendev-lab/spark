@@ -14,6 +14,18 @@ describe("Task Session lifetime compatibility", () => {
     });
   });
 
+  it("retains a reusable Session until its owner closes when explicitly requested", () => {
+    expect(normalizeTaskExecutionPolicy({ sessionRetention: "owner_terminal" })).toMatchObject({
+      sessionLifetime: "task_revision",
+      sessionRetention: "owner_terminal",
+    });
+    expect(() =>
+      normalizeTaskExecutionPolicy({
+        sessionRetention: "unsupported" as "task_terminal",
+      }),
+    ).toThrow(/sessionRetention is invalid/u);
+  });
+
   it("rejects conflicting canonical and legacy lifetime selectors", () => {
     expect(() =>
       normalizeTaskExecutionPolicy({

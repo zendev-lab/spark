@@ -80,6 +80,10 @@ import {
   type SparkDaemonUsageControl,
 } from "./spark-daemon-usage-client.ts";
 import { registerSparkReproRoles } from "./spark-repro-roles.ts";
+import {
+  launchSparkReproThreeLaneRuntime,
+  reconcileSparkReproRuntimeForSession,
+} from "./spark-repro-lane-runtime.ts";
 import { registerSparkDelegationTool } from "./spark-delegation-tool-registration.ts";
 
 interface SparkProductFacadeApi extends SparkCommandApi {
@@ -91,6 +95,8 @@ interface SparkProductFacadeApi extends SparkCommandApi {
   reproFormalEvidenceControl?: SparkDaemonReproFormalEvidenceControl;
   /** Test/compatible-host override; production claim authority remains daemon RPC. */
   taskClaimDaemonClient?: SparkTaskClaimDaemonClient;
+  /** Test/host override; production launches the durable three-lane runtime owner. */
+  launchReproThreeLaneRuntime?: typeof launchSparkReproThreeLaneRuntime;
   registerTool?(config: SparkRegisteredToolConfig): void;
   registerInternalTool?(config: SparkRegisteredToolConfig): void;
   registerShortcut?(
@@ -184,6 +190,9 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
       const repro = await readSessionRepro(ctx.cwd, ctx);
       if (repro?.status === "active") await ensureActiveReproLoop(ctx, loopControl, repro);
     },
+    reconcileReproLaneRuntime: async (ctx) => {
+      await reconcileSparkReproRuntimeForSession({ cwd: ctx.cwd, ctx });
+    },
   });
 
   const registeredSparkTools = new Map<string, SparkRegisteredToolConfig>();
@@ -257,6 +266,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     refreshSparkWidget,
     ensureWorkflowRunManager: (cwd, ctx) => workflowRunManagerController.ensure(cwd, ctx),
     loopControl,
+    launchReproThreeLaneRuntime: pi.launchReproThreeLaneRuntime,
     createReviewerRunner,
   });
   registerSparkReflectionCommands(pi);
@@ -308,6 +318,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
 
   registerSparkReproTool(registerSparkTool, {
     loopControl,
+    launchReproThreeLaneRuntime: pi.launchReproThreeLaneRuntime,
     usageControl,
     formalEvidenceControl: pi.reproFormalEvidenceControl ?? sparkDaemonReproFormalEvidenceControl,
     refreshSparkWidget,

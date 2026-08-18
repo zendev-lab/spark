@@ -13,11 +13,17 @@ const EXEC_TOOLS = [
   "script_run",
   "script_eval",
   "cue_jobs",
+  "evidence",
+  "impl_update_task_plan_items",
+  "impl_finish_task",
 ];
+const LANE_WRITE_TOOLS = [...EXEC_TOOLS, "git", "edit", "write"];
 
 export const SPARK_REPRO_ROLE_IDS = [
+  "repro-implementation-explorer",
   "repro-distributed-runner",
   "repro-first-divergence-localizer",
+  "repro-exactness-instrumentation-worker",
   "repro-precision-fixer",
   "repro-performance-benchmarker",
   "repro-numerical-auditor",
@@ -25,6 +31,19 @@ export const SPARK_REPRO_ROLE_IDS = [
 
 export function createSparkReproRoleSpecs(now?: string): RoleSpec[] {
   return [
+    createExtensionRoleSpec(
+      {
+        id: "repro-implementation-explorer",
+        description:
+          "Builds one reversible implementation candidate in its assigned Repro worktree.",
+        capabilities: ["read", "exec", "write"],
+        modelType: "implementation",
+        allowedTools: LANE_WRITE_TOOLS,
+        systemPrompt:
+          "You are the Repro Implementation lane. Modify only the assigned GitChange worktree and exact WorkItem binding. Start from the frozen source revision, keep experiments reversible, commit the bounded candidate, and finish with one strict spark.repro.lane-result/v1 JSON Evidence whose provenance and fields bind the supplied originRouteId, TaskRef, RunRef, and sourceRevision. Attach the carrier and every referenced Evidence to the TaskRun through impl_finish_task. Never touch the canonical stack, publish, force-push, spawn roles, or ask the user directly; emit attention_request Evidence only for a genuine user decision.",
+      },
+      now,
+    ),
     createExtensionRoleSpec(
       {
         id: "repro-distributed-runner",
@@ -52,14 +71,27 @@ export function createSparkReproRoleSpecs(now?: string): RoleSpec[] {
     ),
     createExtensionRoleSpec(
       {
+        id: "repro-exactness-instrumentation-worker",
+        description:
+          "Independently verifies a candidate and localizes its first exactness divergence.",
+        capabilities: ["read", "exec", "write"],
+        modelType: "exploration",
+        allowedTools: LANE_WRITE_TOOLS,
+        systemPrompt:
+          "You are the Repro Exactness lane. Work only in the assigned Exactness GitChange and import only revisions named by the accepted Implementation handoff. Add bounded non-interfering diagnostics, identify the first bad boundary, and require isolate plus resynchronize Evidence before a skip. Finish with one strict spark.repro.lane-result/v1 JSON Evidence bound to the supplied originRouteId, TaskRef, RunRef, sourceRevision, and TaskRun provenance. Never modify Formalize, publish, force-push, spawn roles, or ask the user directly.",
+      },
+      now,
+    ),
+    createExtensionRoleSpec(
+      {
         id: "repro-precision-fixer",
         description:
           "Implements a confirmed numerical mechanism in an isolated worktree and proves ablation.",
         capabilities: ["read", "exec", "write"],
         modelType: "implementation",
-        allowedTools: [...EXEC_TOOLS, "edit", "write"],
+        allowedTools: LANE_WRITE_TOOLS,
         systemPrompt:
-          "You are a model-reproduction precision fixer. Modify only the assigned repository and isolated worktree for a mechanism already confirmed by evidence. Keep the patch shape-independent, scoped, and default-off or explicitly configured when required. Build and run focused tests, then prove OFF reproduces the failure and ON passes the nearest formal regression on representative real shapes/layouts. Do not change acceptance criteria, edit evidence, spawn roles, ask interactively, push, create PRs, or claim broader topology/trajectory coverage than the formal run proves.",
+          "You are the Repro Formalize lane. Modify only the assigned canonical GitChange layer for a mechanism already confirmed by Exactness Evidence. Keep the patch scoped, run the required focused and numerical checks, and finish with one strict spark.repro.lane-result/v1 JSON Evidence bound to the supplied originRouteId, TaskRef, RunRef, sourceRevision, and TaskRun provenance. The runtime alone performs mechanical Git imports, refreshes, and Draft submission. Do not change acceptance criteria, edit prior Evidence, spawn roles, ask directly, publish Ready, merge, force-push, or claim broader coverage than the formal run proves.",
       },
       now,
     ),

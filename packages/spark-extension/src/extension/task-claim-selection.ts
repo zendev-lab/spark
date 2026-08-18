@@ -1,6 +1,16 @@
 import type { Task, TaskRef, ProjectRef } from "@zendev-lab/spark-core";
+import { sparkSessionKey, type SparkSessionContext } from "@zendev-lab/spark-loop";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import { isClaimOwnedBySession } from "./task-ownership.ts";
+
+export function sparkTaskClaimSessionKey(
+  ctx?: SparkSessionContext & { executionSessionId?: string },
+): string {
+  return sparkSessionKey({
+    ...ctx,
+    sessionId: ctx?.executionSessionId?.trim() || ctx?.sessionId,
+  });
+}
 
 export function resolveSessionClaimedTask(
   graph: TaskGraph,

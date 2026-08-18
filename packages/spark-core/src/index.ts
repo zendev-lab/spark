@@ -895,6 +895,8 @@ export interface SparkHostContext {
   workspaceId?: string;
   /** Current Spark view/session identity for session-scoped extension state. */
   sessionId?: string;
+  /** Actual Session executing this turn when durable state is bound to another Session. */
+  executionSessionId?: string;
   /** Optional absolute path to the Spark state root directory (`.../.spark`). */
   sparkStateRoot?: string;
   /** Execution surface policy supplied by the host for this session. */
@@ -1462,10 +1464,14 @@ export interface TaskWorktreeTarget {
 export interface TaskExecutionPolicy {
   /** Canonical owner-bounded Session lifetime for Task attempts. */
   sessionLifetime: "task_run" | "task_revision";
+  /** When the owner closes a reusable Session. Defaults to Task terminality. */
+  sessionRetention?: "task_terminal" | "owner_terminal";
   /** Legacy compatibility projection; runtime dispatch uses sessionLifetime. */
   continuity?: TaskExecutionContinuity;
   isolation: TaskExecutionIsolation;
   comparison: TaskExecutionComparison;
+  /** Completion evidence owner. Omitted means the generic Artifact Lens gate. */
+  completionGate?: "artifact_lens" | "task_evidence";
   resources?: TaskResourceRequest;
   worktreeTarget?: TaskWorktreeTarget;
   concurrencyKeys: string[];

@@ -530,6 +530,13 @@ export function normalizeTaskExecutionPolicy(
     throw new Error("task executionPolicy.continuity is invalid");
   }
   if (
+    policy?.sessionRetention !== undefined &&
+    policy.sessionRetention !== "task_terminal" &&
+    policy.sessionRetention !== "owner_terminal"
+  ) {
+    throw new Error("task executionPolicy.sessionRetention is invalid");
+  }
+  if (
     policy?.sessionLifetime !== undefined &&
     policy?.continuity !== undefined &&
     (policy.sessionLifetime === "task_run") !== (policy.continuity === "fresh")
@@ -552,6 +559,13 @@ export function normalizeTaskExecutionPolicy(
     policy.comparison !== "single_side"
   ) {
     throw new Error("task executionPolicy.comparison is invalid");
+  }
+  if (
+    policy?.completionGate !== undefined &&
+    policy.completionGate !== "artifact_lens" &&
+    policy.completionGate !== "task_evidence"
+  ) {
+    throw new Error("task executionPolicy.completionGate is invalid");
   }
   if (
     policy?.concurrencyKeys !== undefined &&
@@ -629,9 +643,13 @@ export function normalizeTaskExecutionPolicy(
       : undefined;
   return {
     sessionLifetime,
+    ...(policy?.sessionRetention === "owner_terminal"
+      ? { sessionRetention: "owner_terminal" as const }
+      : {}),
     continuity,
     isolation,
     comparison,
+    ...(policy?.completionGate ? { completionGate: policy.completionGate } : {}),
     ...(resources ? { resources } : {}),
     ...(worktreeTarget ? { worktreeTarget } : {}),
     concurrencyKeys: [...new Set(normalizeStringList(policy?.concurrencyKeys))],

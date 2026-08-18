@@ -6482,7 +6482,7 @@ test("spark_goal inference describes substantive project outcomes instead of tas
   assert.doesNotMatch(objective ?? "", /Advance project|to completion|unfinished|ready/i);
 });
 
-test("native Pi session context starts goal and repro daemon loops", async () => {
+test("native Pi session context starts a goal loop and a loop-free Repro runtime", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-native-pi-loops-"));
   try {
     await writeEmptySparkProject(dir);
@@ -6507,7 +6507,7 @@ test("native Pi session context starts goal and repro daemon loops", async () =>
       { sessionId: piSessionId, cwd: dir },
       { sessionId: piSessionId, cwd: dir },
     ]);
-    assert.equal(activeTestLoop(run, "repro")?.ownerSessionId, piSessionId);
+    assert.equal(activeTestLoop(run, "repro"), undefined);
     assert.equal((await readSessionRepro(dir, ctx))?.sessionKey, `session:${piSessionId}`);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -6540,7 +6540,7 @@ test("native Pi /repro waits for daemon owner readiness before persisting active
   }
 });
 
-test("/repro rolls back newly persisted active state when driver start fails", async () => {
+test("/repro does not allocate the retired legacy driver loop", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-start-rollback-"));
   try {
     await writeEmptySparkProject(dir);
@@ -6552,19 +6552,17 @@ test("/repro rolls back newly persisted active state when driver start fails", a
     const reproCommand = run.commands.get("repro");
     assert.ok(reproCommand, "missing /repro command");
 
-    await assert.rejects(
-      async () => await reproCommand.handler("start rollback probe", ctx),
-      /driver start failed/u,
-    );
+    await reproCommand.handler("start loop-free probe", ctx);
 
-    assert.equal(await readSessionRepro(dir, ctx), undefined);
+    assert.equal((await readSessionRepro(dir, ctx))?.status, "active");
+    assert.equal(activeTestLoop(run, "repro"), undefined);
     assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("repro tool reports driver startup failure and clears new active state", async () => {
+test("repro tool bypasses the retired driver and binds the Session Goal to Repro", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-tool-start-rollback-"));
   try {
     await writeEmptySparkProject(dir);
@@ -6596,10 +6594,11 @@ test("repro tool reports driver startup failure and clears new active state", as
       objective: "tool rollback probe",
     });
 
-    assert.equal(result.isError, true);
-    assert.match(toolText(result), /Repro did not start: tool driver start failed/u);
-    assert.equal(await readSessionRepro(dir, ctx), undefined);
-    assert.deepEqual(await loadSessionGoal(dir, ctx), previousGoal);
+    assert.equal(result.isError, undefined);
+    assert.match(toolText(result), /three durable lane Sessions/u);
+    assert.equal((await readSessionRepro(dir, ctx))?.status, "active");
+    assert.equal((await loadSessionGoal(dir, ctx))?.objective, "tool rollback probe");
+    assert.equal(activeTestLoop(run, "repro"), undefined);
     assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -7807,12 +7806,10 @@ test("/repro command starts, reports, and stops the Repro", async () => {
     assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
     assert.equal(ctx.askWaitTimeoutMs, 15 * 60_000);
     assert.equal(ctx.askAutoAnswer, undefined);
-    const driver = activeTestLoop(run, "repro");
-    assert.equal(driver?.loopId, repro?.reproId);
-    assert.equal(driver?.status, "scheduled");
+    assert.equal(activeTestLoop(run, "repro"), undefined);
 
     await reproCommand.handler("status", ctx);
-    assert.match(ctx.notifications.at(-1)?.message ?? "", /Spark repro scheduled/);
+    assert.match(ctx.notifications.at(-1)?.message ?? "", /Spark repro active/);
 
     await reproCommand.handler("stop", ctx);
     assert.equal(await readSessionRepro(dir, ctx), undefined);
@@ -7838,7 +7835,7 @@ test("/repro command treats non-action text as the repro objective", async () =>
     assert.equal(repro?.status, "active");
     assert.equal(repro?.objective, objective);
     assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
-    assert.equal(activeTestLoop(run, "repro")?.loopId, repro?.reproId);
+    assert.equal(activeTestLoop(run, "repro"), undefined);
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Spark repro active:/);
     assert.match(ctx.notifications.at(-1)?.message ?? "", new RegExp(objective));
 
@@ -7906,265 +7903,28 @@ test("repro start binds an explicit Bench run id as the accounting scope", async
   }
 });
 
-test("repro three-lane actions bind one native stack and reconcile resolutions through TaskGraph", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-repro-three-lane-actions-"));
+test("repro rejects retired manual three-lane write actions", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-retired-three-lane-actions-"));
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
     const { tools } = registerSparkToolsForTest();
     await executeSparkTool(tools, "repro", ctx, { action: "start" });
-    const initial = await readSessionRepro(dir, ctx);
-    if (!initial?.projectRef) throw new Error("missing project-backed Repro");
 
-    const taskUpdate = await defaultTaskGraphStore(dir).update((graph) =>
-      graph.createTask({
-        projectRef: initial.projectRef!,
-        title: "Retire the RMSNorm candidate",
-        description: "Carry one candidate through Exactness and Formalize.",
-        status: "running",
-        plan: executionReadyPlan("retire the RMSNorm candidate"),
-      }),
-    );
-    const task = taskUpdate.result;
-    const gitChangeRef = "artifact:repro-formalize-stack" as ArtifactRef;
-    const legacyGitChangeRef = "artifact:legacy-repro-formalize-stack" as ArtifactRef;
-    await defaultArtifactStore(dir).put({
-      ref: gitChangeRef,
-      kind: "git_change",
-      title: "Repro Formalize stack",
-      format: "json",
-      body: {
-        schemaVersion: 2,
-        kind: "git_change",
-        repository: { forge: "github", repo: "zendev-lab/spark" },
-        trunk: "main",
-        worktree: {
-          path: join(dir, "formalize-worktree"),
-          branch: "codex/repro-formalize",
-          ownership: "spark",
-          status: "attached",
-        },
-        stack: {
-          authority: "gh-stack",
-          currentBranch: "codex/repro-formalize",
-          entries: [
-            {
-              branch: "codex/repro-formalize",
-              base: "base-revision",
-              isCurrent: true,
-              isMerged: false,
-              isQueued: false,
-              needsRebase: false,
-            },
-          ],
-        },
-        lifecycle: "local",
-      },
-    });
-    await defaultArtifactStore(dir).put({
-      ref: legacyGitChangeRef,
-      kind: "git_change",
-      title: "Legacy Repro Formalize stack",
-      format: "json",
-      body: {
-        schemaVersion: 2,
-        kind: "git_change",
-        repository: { forge: "github", repo: "zendev-lab/spark" },
-        trunk: "main",
-        worktree: {
-          path: join(dir, "legacy-formalize-worktree"),
-          branch: "codex/legacy-repro-formalize",
-          ownership: "spark",
-          status: "attached",
-        },
-        stack: {
-          authority: "legacy-unbound",
-          currentBranch: "codex/legacy-repro-formalize",
-          entries: [
-            {
-              branch: "codex/legacy-repro-formalize",
-              base: "base-revision",
-              isCurrent: true,
-              isMerged: false,
-              isQueued: false,
-              needsRebase: false,
-            },
-          ],
-        },
-        lifecycle: "local",
-      },
-    });
-    for (const id of ["implementation", "rebase", "exactness", "formalize", "backprop"]) {
-      await defaultEvidenceStore(dir).put({
-        ref: `evidence:${id}` as EvidenceRef,
-        kind: "record",
-        title: id,
-        format: "json",
-        body: { passed: true },
-        provenance: { producer: "spark" },
-      });
+    for (const action of [
+      "work_register",
+      "work_rematerialize",
+      "finding_record",
+      "mismatch_record",
+      "handoff_record",
+      "formalize_bind",
+      "resolution_record",
+    ]) {
+      await assert.rejects(
+        () => executeSparkTool(tools, "repro", ctx, { action, laneInput: {} }),
+        /repro action is not supported/u,
+      );
     }
-
-    const registered = await executeSparkTool(tools, "repro", ctx, {
-      action: "work_register",
-      laneInput: {
-        lane: "implementation",
-        workItemId: "work:rmsnorm-candidate",
-        title: "Localize RMSNorm divergence",
-        scope: "layers.0.input_layernorm",
-        planRevision: initial.plan.currentRevision,
-        sourceRevision: "commit:candidate",
-        taskRef: task.ref,
-        gitChangeRef,
-      },
-    });
-    assert.equal(registered.details?.taskArtifactLinked, true);
-
-    await executeSparkTool(tools, "repro", ctx, {
-      action: "work_rematerialize",
-      laneInput: {
-        workItemId: "work:rmsnorm-candidate",
-        expectedSourceRevision: "commit:candidate",
-        sourceRevision: "commit:candidate-v2",
-        evidenceRefs: ["evidence:rebase"],
-      },
-    });
-    await assert.rejects(
-      () =>
-        executeSparkTool(tools, "repro", ctx, {
-          action: "work_rematerialize",
-          laneInput: {
-            workItemId: "work:rmsnorm-candidate",
-            expectedSourceRevision: "commit:candidate",
-            sourceRevision: "commit:stale-write",
-            evidenceRefs: ["evidence:rebase"],
-          },
-        }),
-      /stale work item materialization revision/u,
-    );
-
-    await assert.rejects(
-      () =>
-        executeSparkTool(tools, "repro", ctx, {
-          action: "mismatch_record",
-          laneInput: {
-            mismatchId: "mismatch:unsafe-skip",
-            workItemId: "work:rmsnorm-candidate",
-            firstBadBoundary: "layers.0.input_layernorm.output",
-            classification: "intrinsic_numerical",
-            disposition: "skip",
-            confidence: "confirmed",
-          },
-        }),
-      /skipped mismatch requires both isolation and resynchronization/u,
-    );
-
-    await executeSparkTool(tools, "repro", ctx, {
-      action: "handoff_record",
-      laneInput: {
-        handoffId: "handoff:implementation-exactness",
-        workItemId: "work:rmsnorm-candidate",
-        from: "implementation",
-        to: "exactness",
-        planRevision: initial.plan.currentRevision,
-        sourceRevision: "commit:candidate-v2",
-        scope: "Classify the first bad RMSNorm boundary",
-        evidenceRefs: ["evidence:implementation"],
-        candidateRevisions: ["commit:candidate-v2"],
-        doneWhen: ["The first bad boundary is recorded"],
-      },
-    });
-    await executeSparkTool(tools, "repro", ctx, {
-      action: "finding_record",
-      laneInput: {
-        findingId: "finding:rmsnorm-boundary",
-        workItemId: "work:rmsnorm-candidate",
-        firstBadBoundary: "layers.0.input_layernorm.output",
-        classification: "implementation_defect",
-        disposition: "fix",
-        confidence: "confirmed",
-        evidenceRefs: ["evidence:exactness"],
-      },
-    });
-    await assert.rejects(
-      () =>
-        executeSparkTool(tools, "repro", ctx, {
-          action: "formalize_bind",
-          laneInput: { gitChangeRef: legacyGitChangeRef },
-        }),
-      /native gh-stack topology authority/u,
-    );
-    await executeSparkTool(tools, "repro", ctx, {
-      action: "formalize_bind",
-      laneInput: { gitChangeRef },
-    });
-    await executeSparkTool(tools, "repro", ctx, {
-      action: "handoff_record",
-      laneInput: {
-        handoffId: "handoff:exactness-formalize",
-        workItemId: "work:rmsnorm-candidate",
-        from: "exactness",
-        to: "formalize",
-        planRevision: initial.plan.currentRevision,
-        sourceRevision: "commit:candidate-v2",
-        scope: "Retire the verified RMSNorm correction",
-        findingIds: ["finding:rmsnorm-boundary"],
-        evidenceRefs: ["evidence:exactness"],
-        candidateRevisions: ["commit:candidate-v2"],
-        dependsOnHandoffIds: ["handoff:implementation-exactness"],
-        doneWhen: ["The canonical stack accepts the correction"],
-        status: "accepted",
-      },
-    });
-
-    const formalResolution = {
-      resolutionId: "resolution:formalize-exactness",
-      workItemId: "work:rmsnorm-candidate",
-      from: "formalize",
-      to: "exactness",
-      status: "resolved",
-      canonicalRevision: "commit:canonical",
-      supersededRevisions: ["commit:candidate-v2"],
-      evidenceRefs: ["evidence:formalize"],
-    };
-    const resolved = await executeSparkTool(tools, "repro", ctx, {
-      action: "resolution_record",
-      laneInput: formalResolution,
-    });
-    assert.equal(resolved.details?.changed, true);
-    assert.deepEqual(resolved.details?.taskReconciliation, { changed: true, taskRef: task.ref });
-    const duplicate = await executeSparkTool(tools, "repro", ctx, {
-      action: "resolution_record",
-      laneInput: formalResolution,
-    });
-    assert.equal(duplicate.details?.changed, false);
-    assert.deepEqual(duplicate.details?.taskReconciliation, {
-      changed: false,
-      taskRef: task.ref,
-    });
-    await executeSparkTool(tools, "repro", ctx, {
-      action: "resolution_record",
-      laneInput: {
-        resolutionId: "resolution:exactness-implementation",
-        workItemId: "work:rmsnorm-candidate",
-        from: "exactness",
-        to: "implementation",
-        status: "superseded",
-        canonicalRevision: "commit:canonical",
-        supersededRevisions: ["commit:candidate-v2"],
-        evidenceRefs: ["evidence:backprop"],
-        parentResolutionId: "resolution:formalize-exactness",
-      },
-    });
-
-    const stored = await readSessionRepro(dir, ctx);
-    assert.equal(stored?.threeLane.formalize.formalizedTip, "commit:canonical");
-    assert.equal(stored?.threeLane.handoffs.length, 2);
-    assert.equal(stored?.threeLane.resolutions.length, 2);
-    assert.equal((await defaultTaskGraphStore(dir).load())?.getTask(task.ref).status, "cancelled");
-    assert.deepEqual((await defaultTaskGraphStore(dir).load())?.getTask(task.ref).artifactRefs, [
-      gitChangeRef,
-    ]);
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
@@ -13300,6 +13060,7 @@ function registerSparkToolsForTest(
     reviewerRunner?: ReviewerRunner;
     taskClaimDaemonClient?: SparkTaskClaimDaemonClient;
     usageControl?: SparkDaemonUsageControl;
+    launchReproThreeLaneRuntime?: NonNullable<SparkHostApiForTest["launchReproThreeLaneRuntime"]>;
   } = {},
 ): {
   tools: Map<string, SparkToolConfig>;
@@ -13351,6 +13112,41 @@ function registerSparkToolsForTest(
     loopControl,
     ...(options.usageControl ? { usageControl: options.usageControl } : {}),
     taskClaimDaemonClient: options.taskClaimDaemonClient ?? createTestTaskClaimDaemonClient(),
+    launchReproThreeLaneRuntime:
+      options.launchReproThreeLaneRuntime ??
+      (async (input) => {
+        const materialized = await materializeReproStagePlan(
+          input.cwd,
+          input.ctx,
+          input.repro,
+          "contract",
+        );
+        return {
+          repro: materialized.repro,
+          workItemId: "work:test-command-launch",
+          sourceRevision: "1111111111111111111111111111111111111111",
+          lanes: {
+            implementation: {
+              artifactRef: "artifact:test-implementation" as ArtifactRef,
+              taskRef: "task:test-implementation" as TaskRef,
+              runRef: "run:test-implementation" as RunRef,
+              sessionId: "sess_test_implementation",
+            },
+            exactness: {
+              artifactRef: "artifact:test-exactness" as ArtifactRef,
+              taskRef: "task:test-exactness" as TaskRef,
+              runRef: "run:test-exactness" as RunRef,
+              sessionId: "sess_test_exactness",
+            },
+            formalize: {
+              artifactRef: "artifact:test-formalize" as ArtifactRef,
+              taskRef: "task:test-formalize" as TaskRef,
+              runRef: "run:test-formalize" as RunRef,
+              sessionId: "sess_test_formalize",
+            },
+          },
+        };
+      }),
     registerCommand: (name, config) => {
       commands.set(name, config);
     },
@@ -14182,8 +13978,7 @@ test("impl_plan_tasks enforces concrete experiments for the bound reproduce proj
   }
 });
 
-test("repro command and tool start the loop with the canonical rendered prompt", async () => {
-  const prompts: string[] = [];
+test("repro command and tool both start without a legacy driver loop", async () => {
   for (const entry of ["command", "tool"] as const) {
     const dir = await mkdtemp(join(tmpdir(), "spark-repro-prompt-" + entry + "-"));
     try {
@@ -14197,16 +13992,12 @@ test("repro command and tool start the loop with the canonical rendered prompt",
       } else {
         await executeSparkTool(run.tools, "repro", ctx, { action: "start" });
       }
-      const started = run.loopControl.startInputs.at(-1);
-      assert.ok(started?.binding?.reproId);
-      assert.equal(typeof started?.prompt, "string");
-      prompts.push(started.prompt);
+      assert.equal(activeTestLoop(run, "repro"), undefined);
+      assert.equal((await readSessionRepro(dir, ctx))?.status, "active");
     } finally {
       await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
     }
   }
-  assert.equal(prompts.length, 2);
-  assert.equal(prompts[0], prompts[1]);
 });
 
 test("repro start creates a generic project with one task per bound subgoal", async () => {

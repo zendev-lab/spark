@@ -1,8 +1,8 @@
 import { createSparkDaemonClient, type SparkDaemonClient } from "@zendev-lab/spark-daemon-client";
 import type { SparkSessionLeaseIdentity } from "@zendev-lab/spark-core";
 import type { SparkLocalRpcMethod, SparkLocalRpcOutput } from "@zendev-lab/spark-protocol";
-import { sparkSessionKey } from "./session-state.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
+import { sparkTaskClaimSessionKey } from "./task-claim-selection.ts";
 
 export class SparkDaemonSessionLeaseRequiredError extends Error {
   override readonly name = "SparkDaemonSessionLeaseRequiredError";
@@ -58,7 +58,7 @@ export function createSparkTaskClaimDaemonClient(
     input: TaskClaimInput<M>,
   ): Promise<SparkLocalRpcOutput<M>> => {
     const lease = ctx.sessionLease?.() ?? options.fallbackLease?.();
-    if (!lease || lease.sessionId !== sparkSessionKey(ctx)) {
+    if (!lease || lease.sessionId !== sparkTaskClaimSessionKey(ctx)) {
       throw new SparkDaemonSessionLeaseRequiredError(
         "A current daemon-fenced persistent session lease is required for main task claim mutation.",
       );

@@ -10,7 +10,6 @@ import {
   loadSparkGraph,
   saveSparkGraphAndTodos,
   sparkStateCwd,
-  sparkSessionKey,
 } from "./session-state.ts";
 import {
   DEFAULT_SPARK_STATUS_ACTIVE_LIMIT,
@@ -28,6 +27,7 @@ import {
 } from "./spark-status.ts";
 import { sparkStateSessionScopes } from "./spark-state-tool-registration.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
+import { sparkTaskClaimSessionKey } from "./task-claim-selection.ts";
 import { NO_SPARK_PROJECT_FOUND_HINT } from "./spark-project-guidance.ts";
 import { collectSparkStateHousekeeping } from "./state-housekeeping.ts";
 
@@ -129,7 +129,7 @@ export function registerSparkStatusTool(
         ctx,
       ).listRuns();
       const runControl = await runStore.loadControl();
-      const sessionKey = sparkSessionKey(ctx);
+      const sessionKey = sparkTaskClaimSessionKey(ctx);
       const currentProject = await currentSparkProject(cwd, ctx, graph);
       const scoped = resolveSparkStatusScope(graph, currentProject, params, scope);
       if (!scoped.ok)

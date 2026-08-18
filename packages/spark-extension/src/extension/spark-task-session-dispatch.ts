@@ -48,6 +48,12 @@ export interface ManagedTaskSessionDispatchInput {
   /** Fleet uses stable target lanes and completion mail instead of per-Task Sessions. */
   fleet?: boolean;
   daemonRequest?: typeof requestSparkDaemon;
+  /** Owner-authored runtime envelope appended without changing Task revision identity. */
+  renderPromptExtension?: (input: {
+    taskRef: TaskRef;
+    runRef: RunRef;
+    sessionId: string;
+  }) => string | undefined;
 }
 
 export interface ManagedTaskSessionDispatchRecord {
@@ -59,6 +65,16 @@ export interface ManagedTaskSessionDispatchRecord {
   jobId: string;
   attempt: number;
   invocationId: string;
+}
+
+export interface ManagedTaskSessionReservationRecord {
+  runRef: RunRef;
+  taskRef: TaskRef;
+  roleRef: RoleRef;
+  sessionId: string;
+  goalId: string;
+  jobId: string;
+  attempt: number;
 }
 
 export interface ManagedTaskSessionReconcileResult {
@@ -82,6 +98,56 @@ class ManagedTaskSessionDispatchRefusal extends Error {
   }
 }
 
+/**
+ * Reserve TaskRuns and create their Task-revision Sessions without invoking a
+ * model turn. Repro uses this to make all three stable lane Sessions visible
+ * at its launch checkpoint while route authority keeps downstream lanes idle.
+ */
+export async function reserveManagedTaskSessions(
+  input: ManagedTaskSessionDispatchInput,
+): Promise<ManagedTaskSessionReservationRecord[]> {
+  const stateCwd = sparkStateCwd(input.cwd, input.ctx);
+  const daemonRequest = input.daemonRequest ?? requestSparkDaemon;
+  const store = defaultTaskGraphStore(stateCwd);
+  const uniqueTaskRefs = [...new Set(input.taskRefs)];
+  if (uniqueTaskRefs.length === 0) return [];
+  const worktreeTargets = await resolveTaskWorktreeTargets(stateCwd, store, uniqueTaskRefs, false);
+  const reserved = await store.update(
+    (graph) => reserveTaskSessionRuns(graph, input, uniqueTaskRefs),
+    { createIfMissing: false },
+  );
+  if (!reserved.graph) throw new Error("Spark task graph is unavailable");
+  const records: ManagedTaskSessionReservationRecord[] = [];
+  for (const reservation of reserved.result) {
+    const execution = reservation.run.execution;
+    if (!execution) throw new Error(`task run ${reservation.run.ref} has no execution binding`);
+    await ensureTaskExecutionSession({
+      cwd: input.cwd,
+      ctx: input.ctx,
+      projectRef: input.projectRef,
+      taskRef: reservation.run.taskRef,
+      runRef: reservation.run.ref,
+      roleRef: reservation.roleRef,
+      role: input.registry.get(reservation.roleRef),
+      goal: reservation.goal,
+      evidenceRequired: reservation.evidenceRequired,
+      execution,
+      worktreeTarget: worktreeTargets.get(reservation.run.taskRef),
+      daemonRequest,
+    });
+    records.push({
+      runRef: reservation.run.ref,
+      taskRef: reservation.run.taskRef,
+      roleRef: reservation.roleRef,
+      sessionId: taskExecutionSessionId(execution),
+      goalId: execution.sessionGoalId,
+      jobId: execution.jobId,
+      attempt: execution.attempt,
+    });
+  }
+  return records;
+}
+
 interface ReservedTaskSessionRun {
   run: TaskRun;
   roleRef: RoleRef;
@@ -99,9 +165,13 @@ export async function dispatchManagedTaskSessions(
   const uniqueTaskRefs = [...new Set(input.taskRefs)];
   await store.reconcileStaleTaskRuns({ projectRef: input.projectRef });
   if (uniqueTaskRefs.length === 0) return [];
-  const fleetTargets = input.fleet
-    ? await resolveFleetTargets(stateCwd, store, uniqueTaskRefs)
-    : undefined;
+  const worktreeTargets = await resolveTaskWorktreeTargets(
+    stateCwd,
+    store,
+    uniqueTaskRefs,
+    input.fleet === true,
+  );
+  const fleetTargets = input.fleet ? worktreeTargets : undefined;
   const reserved = await store.update(
     (graph) => reserveTaskSessionRuns(graph, input, uniqueTaskRefs, fleetTargets),
     { createIfMissing: false },
@@ -125,10 +195,18 @@ export async function dispatchManagedTaskSessions(
         goal: reservation.goal,
         evidenceRequired: reservation.evidenceRequired,
         execution,
-        fleetTarget: fleetTargets?.get(reservation.run.taskRef),
+        worktreeTarget: worktreeTargets.get(reservation.run.taskRef),
+        fleet: input.fleet,
         daemonRequest,
       });
-      const prompt = renderTaskExecutionPrompt(reservation);
+      const promptExtension = input.renderPromptExtension?.({
+        taskRef: reservation.run.taskRef,
+        runRef: reservation.run.ref,
+        sessionId,
+      });
+      const prompt = [renderTaskExecutionPrompt(reservation), promptExtension?.trim()]
+        .filter(Boolean)
+        .join("\n\n");
       const submitted = input.fleet
         ? await submitFleetTaskRequest({
             daemonRequest,
@@ -382,6 +460,7 @@ export async function reconcileManagedTaskSessions(input: {
       const task = graph.getTask(run.taskRef);
       const revisionEnded =
         task.status === "done" || task.status === "failed" || task.status === "cancelled";
+      if (task.executionPolicy?.sessionRetention === "owner_terminal") return [];
       if (run.execution.sessionLifetime !== "task_run" && !revisionEnded) return [];
       const sessionId = taskExecutionSessionId(run.execution);
       return [
@@ -492,6 +571,14 @@ function reserveTaskSessionRuns(
     if (task.projectRef !== input.projectRef) {
       throw new Error(`task ${taskRef} does not belong to project ${input.projectRef}`);
     }
+    const recoverableReservation = projectRuns.find(
+      (run) =>
+        run.taskRef === taskRef &&
+        run.status === "queued" &&
+        run.execution !== undefined &&
+        run.execution.invocationId === undefined,
+    );
+    if (recoverableReservation) continue;
     const historicalRuns = projectRuns.filter((run) => run.taskRef === taskRef && !run.dryRun);
     const attempt = historicalRuns.length + 1;
     const maxAttempts = task.executionPolicy?.maxAttempts ?? 2;
@@ -508,14 +595,11 @@ function reserveTaskSessionRuns(
     if (task.projectRef !== input.projectRef) {
       throw new Error(`task ${taskRef} does not belong to project ${input.projectRef}`);
     }
-    if (!ready.has(taskRef)) throw new Error(`task ${taskRef} is not in the ready frontier`);
     const activeRun = graph
       .runs(input.projectRef)
       .find(
         (run) => run.taskRef === taskRef && (run.status === "queued" || run.status === "running"),
       );
-    if (activeRun) throw new Error(`task ${taskRef} already has active run ${activeRun.ref}`);
-
     const roleRef = sparkTaskExecutorRoleRef(task);
     input.registry.get(roleRef);
     const subgoal = input.subgoals?.find((candidate) => candidate.taskRef === taskRef);
@@ -534,6 +618,27 @@ function reserveTaskSessionRuns(
           }
         : {}),
     });
+    if (activeRun) {
+      if (
+        activeRun.status !== "queued" ||
+        !activeRun.execution ||
+        activeRun.execution.invocationId ||
+        activeRun.execution.ownerSessionId !== input.ownerSessionId ||
+        activeRun.execution.jobId !== jobId ||
+        activeRun.roleRef !== roleRef
+      ) {
+        throw new Error(`task ${taskRef} already has active run ${activeRun.ref}`);
+      }
+      reservations.push({
+        run: activeRun,
+        roleRef,
+        goal: subgoal?.goal ?? task.plan?.objective ?? task.description,
+        evidenceRequired: subgoal?.evidenceRequired ?? task.plan?.evidenceRequired ?? [],
+        executionPolicy: task.executionPolicy!,
+      });
+      continue;
+    }
+    if (!ready.has(taskRef)) throw new Error(`task ${taskRef} is not in the ready frontier`);
     const historicalRuns = projectRuns.filter((run) => run.taskRef === taskRef && !run.dryRun);
     const attempt = historicalRuns.length + 1;
     const executionPolicy = task.executionPolicy;
@@ -625,14 +730,16 @@ async function ensureTaskExecutionSession(input: {
   goal: string;
   evidenceRequired: string[];
   execution: TaskRunExecutionBinding;
-  fleetTarget?: ResolvedFleetTarget;
+  worktreeTarget?: ResolvedFleetTarget;
+  fleet?: boolean;
   daemonRequest: typeof requestSparkDaemon;
 }): Promise<void> {
   const sessionId = taskExecutionSessionId(input.execution);
-  const fleetWorkerTarget =
-    input.fleetTarget && input.fleetTarget.writableArtifactRefs.length > 0
-      ? input.fleetTarget
+  const worktreeTarget =
+    input.worktreeTarget && input.worktreeTarget.writableArtifactRefs.length > 0
+      ? input.worktreeTarget
       : undefined;
+  const fleetWorkerTarget = input.fleet === true && worktreeTarget ? worktreeTarget : undefined;
   const owner = await input.daemonRequest("session.get", {
     sessionId: input.execution.ownerSessionId,
   });
@@ -644,11 +751,10 @@ async function ensureTaskExecutionSession(input: {
       sessionId,
       scope: { kind: "workspace", workspaceId: owner.scope.workspaceId },
       roleBinding: { kind: "explicit", roleRef: input.roleRef },
-      ...(fleetWorkerTarget
+      ...(worktreeTarget
         ? {
-            supervisorSessionId: input.execution.ownerSessionId,
-            cwd: fleetWorkerTarget.primaryRoot,
-            cwdArtifactRef: fleetWorkerTarget.primaryArtifactRef,
+            cwd: worktreeTarget.primaryRoot,
+            cwdArtifactRef: worktreeTarget.primaryArtifactRef,
           }
         : {
             ...(owner.cwd ? { cwd: owner.cwd } : {}),
@@ -725,7 +831,10 @@ async function ensureTaskExecutionSession(input: {
         existing.owner.taskRef === input.taskRef &&
         existing.owner.sessionGoalId === input.execution.sessionGoalId &&
         existing.roleBinding.kind === "explicit" &&
-        existing.roleBinding.roleRef === input.roleRef;
+        existing.roleBinding.roleRef === input.roleRef &&
+        (!worktreeTarget ||
+          (existing.cwd === worktreeTarget.primaryRoot &&
+            existing.cwdArtifactRef === worktreeTarget.primaryArtifactRef));
     if (!bindingMatches) {
       throw new Error(`managed session ${sessionId} has a conflicting owner or execution binding`);
     }
@@ -746,20 +855,23 @@ async function ensureTaskExecutionSession(input: {
   }
 }
 
-async function resolveFleetTargets(
+async function resolveTaskWorktreeTargets(
   stateCwd: string,
   store: ReturnType<typeof defaultTaskGraphStore>,
   taskRefs: TaskRef[],
+  includeImplicitTargets: boolean,
 ): Promise<Map<TaskRef, ResolvedFleetTarget>> {
   const graph = await store.load();
   if (!graph) throw new Error("Spark task graph is unavailable");
   const entries = await Promise.all(
     taskRefs.map(async (taskRef) => {
       const task = graph.getTask(taskRef);
+      if (task.executionPolicy?.isolation !== "isolated_worktree") return undefined;
+      if (!includeImplicitTargets && !task.executionPolicy.worktreeTarget) return undefined;
       return [taskRef, await resolveFleetTaskTarget({ workspaceCwd: stateCwd, task })] as const;
     }),
   );
-  return new Map(entries);
+  return new Map(entries.filter((entry) => entry !== undefined));
 }
 
 async function submitFleetTaskRequest(input: {
@@ -866,7 +978,7 @@ function taskSessionJobId(input: {
       description: input.task.description,
       kind: input.task.kind,
       roleRef: input.roleRef,
-      plan: input.task.plan,
+      plan: taskPlanRevisionDefinition(input.task.plan),
       executionPolicy: input.task.executionPolicy,
       inputEvidenceRefs: input.task.inputEvidenceRefs,
       subgoalRef: input.subgoalRef,
@@ -874,6 +986,29 @@ function taskSessionJobId(input: {
       definitionDigest: input.definitionDigest,
     }),
   )}`;
+}
+
+function taskPlanRevisionDefinition(plan: Task["plan"]): unknown {
+  if (!plan) return undefined;
+  return {
+    objective: plan.objective,
+    contextRefs: plan.contextRefs,
+    constraints: plan.constraints,
+    nonGoals: plan.nonGoals,
+    successCriteria: plan.successCriteria,
+    evidenceRequired: plan.evidenceRequired,
+    items: plan.items?.map((item) => ({
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      blockedBy: item.blockedBy,
+      deleted: item.deletedAt !== undefined,
+    })),
+    steps: plan.steps,
+    decompositionRationale: plan.decompositionRationale,
+    riskLevel: plan.riskLevel,
+    openQuestions: plan.openQuestions,
+  };
 }
 
 function renderTaskExecutionPrompt(reservation: ReservedTaskSessionRun): string {

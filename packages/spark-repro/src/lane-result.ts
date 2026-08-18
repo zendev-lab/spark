@@ -71,6 +71,29 @@ export interface SparkReproLaneResultReconciliation {
   pendingRoutes: SparkReproRoute[];
 }
 
+export function rejectSparkReproLaneResult(input: {
+  state: SparkReproThreeLaneSessionState;
+  evidenceRef: EvidenceRef;
+  result: SparkReproLaneResult;
+  reason: "missing_evidence" | "invalid_provenance";
+}): SparkReproLaneResultReconciliation {
+  const resultId = deterministicResultId(input.result);
+  const resultDigest = digest(input.result);
+  const state = recordSparkReproLaneResultReceipt(input.state, {
+    resultId,
+    resultDigest,
+    evidenceRef: input.evidenceRef,
+    status: "rejected",
+    reason: input.reason,
+  });
+  return {
+    state,
+    resultId,
+    resultDigest,
+    pendingRoutes: state.routes.filter((candidate) => candidate.status === "pending"),
+  };
+}
+
 export function parseSparkReproLaneResult(value: unknown): SparkReproLaneResult {
   return parseProtocolLaneResult(value);
 }

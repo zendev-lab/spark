@@ -5,6 +5,15 @@ import { TaskGraph } from "./graph.ts";
 import { normalizeTaskExecutionPolicy } from "./internal.ts";
 
 describe("Task worktree execution authorization", () => {
+  it("preserves only explicit supported completion gates", () => {
+    expect(normalizeTaskExecutionPolicy({ completionGate: "task_evidence" }).completionGate).toBe(
+      "task_evidence",
+    );
+    expect(() =>
+      normalizeTaskExecutionPolicy({ completionGate: "unsupported" as "artifact_lens" }),
+    ).toThrow("completionGate is invalid");
+  });
+
   it("requires the primary target to be writable and deduplicates the exact set", () => {
     expect(
       normalizeTaskExecutionPolicy({

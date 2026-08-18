@@ -49,6 +49,7 @@ export async function createProjectBackedSessionRepro(
     reproId?: string;
     difficulty?: number;
     existing?: SparkSessionRepro;
+    mode?: "stage_blueprint" | "three_lane";
   } = {},
 ): Promise<ReproProjectBindingResult> {
   const existing = input.existing;
@@ -84,6 +85,14 @@ export async function createProjectBackedSessionRepro(
         "Research the reference baseline, resolve implementation and alignment decisions, run typed experiments, and deliver inspectable reproduction evidence.",
       outputLanguage: "zh",
     });
+    if (input.mode === "three_lane") {
+      return {
+        repro: { ...repro, projectRef: project.ref },
+        projectRef: project.ref,
+        taskRefs: [],
+        readyTaskRefs: [],
+      };
+    }
     const materialized = materializeStageInGraph(graph, repro, project.ref, "contract");
     const taskRefs = materialized.taskRefs;
     const readyTaskRefs = graph.readyTasks(project.ref).map((task) => task.ref);
