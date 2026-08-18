@@ -67,6 +67,7 @@ export const invocationPostLoopMigrations = [
   {
     id: "migration.retire-daemon-error-outbox-v1",
     owner: "invocations",
+    everyOpen: true,
     up: retireLegacyDaemonErrorOutbox,
   },
 ] satisfies Migration[];

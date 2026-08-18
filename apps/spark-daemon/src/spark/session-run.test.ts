@@ -57,9 +57,9 @@ it("preloads the headless module runtime before execution admission", async () =
     preloadSparkHeadlessSessionRuntime: preload,
   }));
 
-  await preloadSparkDaemonExecutionRuntime(loadModule);
-
+  const pending = preloadSparkDaemonExecutionRuntime(loadModule);
   expect(loadModule).toHaveBeenCalledOnce();
+  await pending;
   expect(preload).toHaveBeenCalledOnce();
 });
 

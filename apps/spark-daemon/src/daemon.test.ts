@@ -383,6 +383,69 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
+  it("skips Administrator Session ensure when the caller already provisioned them", async () => {
+    const harness = makeHarness();
+    const sessionRegistry = createDaemonSessionRegistry(harness.sparkHome, {
+      resolveWorkspaceCwd: (workspaceId) => getWorkspaceById(harness.db, workspaceId)?.localPath,
+    });
+    const ensureAdministrator = vi.spyOn(sessionRegistry, "ensureWorkspaceAdministrator");
+
+    try {
+      await startSparkDaemon({
+        paths: harness.paths,
+        sparkHome: harness.sparkHome,
+        db: harness.db,
+        config: {
+          installationId: "skip-admin-ensure-startup-test",
+          displayName: "Skip admin ensure startup test daemon",
+        },
+        sessionRegistry,
+        skipWorkspaceAdministratorEnsure: true,
+        once: true,
+        runScheduler: false,
+      });
+
+      expect(ensureAdministrator).not.toHaveBeenCalled();
+    } finally {
+      harness.cleanup();
+    }
+  });
+
+  it("binds local control before waiting for execution runtime preload", async () => {
+    const harness = makeHarness();
+    const hold = deferred<void>();
+    const events: string[] = [];
+    const ready = deferred<void>();
+
+    try {
+      const running = startSparkDaemon({
+        paths: harness.paths,
+        sparkHome: harness.sparkHome,
+        db: harness.db,
+        config: {
+          installationId: "preload-before-admission-test",
+          displayName: "Preload before admission test daemon",
+        },
+        once: true,
+        runScheduler: false,
+        beforeAdmission: hold.promise.then(() => {
+          events.push("admission");
+        }),
+        onReady: () => {
+          events.push("ready");
+          ready.resolve();
+        },
+      });
+      await ready.promise;
+      expect(events).toEqual(["ready"]);
+      hold.resolve();
+      await running;
+      expect(events).toEqual(["ready", "admission"]);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
   it.each([
     {
       name: "configured five-slot capacity",
