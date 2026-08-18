@@ -764,7 +764,7 @@ describe("daemon session control admission", () => {
     }
   });
 
-  it("freezes a managed child Session's durable state owner into the invocation", async () => {
+  it("freezes only a Task-owned child Session's durable state owner into the invocation", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-state-binding-"));
     const db = openMemoryDatabase();
     migrateSparkDaemonDatabase(db);
@@ -795,6 +795,16 @@ describe("daemon session control admission", () => {
       retention: "retain",
       purpose: "interactive",
     });
+    const ordinary = await sessionRegistry.createSupervised({
+      sessionId: "session-ordinary-child",
+      scope: { kind: "workspace", workspaceId: "workspace-managed" },
+      cwd: root,
+      owner: { kind: "session", supervisorSessionId: administrator.sessionId },
+      stateBinding: { kind: "session", ref: administrator.sessionId },
+      visibility: "public",
+      retention: "retain",
+      purpose: "interactive",
+    });
 
     try {
       const submitted = await executeSparkDaemonSessionControl(
@@ -812,6 +822,19 @@ describe("daemon session control admission", () => {
         sessionId: child.sessionId,
         stateBindingSessionId: administrator.sessionId,
       });
+      const ordinarySubmission = await executeSparkDaemonSessionControl(
+        { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
+        {
+          kind: "turn.submit.request",
+          scope: "any",
+          sessionId: ordinary.sessionId,
+          payload: { sessionId: ordinary.sessionId, prompt: "continue ordinary work" },
+        },
+      );
+      const ordinaryInvocation = new SparkInvocationStore(db).require(
+        ordinarySubmission.invocationId!,
+      );
+      expect(ordinaryInvocation.task).not.toHaveProperty("stateBindingSessionId");
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });
