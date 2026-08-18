@@ -86,8 +86,11 @@ Esc 仍会优先取消正在执行的工作。session 空闲且编辑器为空�
 /inspect off
 ```
 
-这里只展示已经发布到当前 TUI 的投影，不是 Hub Web，也不会创建新的执行
-所有者。需要跨会话和工作空间监督时，在另一个终端运行 `spark hub`。
+这里只展示已经发布到当前 TUI 的投影。已附着且空闲的 TUI 会跟随后续
+daemon session snapshot，因此 Goal、Loop 和 Repro 进展无需 `/reload`
+就会出现。进行中的 turn 仍由实时 `turn.stream` 负责。这里不是 Hub Web，
+也不会创建新的执行所有者。需要跨会话和工作空间监督时，在另一个终端运行
+`spark hub`。
 
 daemon 投影活跃 Repro 时，transcript 顶部会常驻一行紧凑的 Implementation / Exactness /
 Formalize 摘要，显示计数、阻塞、待交接和最近的 `formalizedTip`。Ctrl+K 会先打开

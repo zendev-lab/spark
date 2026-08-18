@@ -1070,6 +1070,92 @@ test("Spark native session resumes snapshot-owned invocations without resubmitti
   assert.deepEqual(session.daemonPending, []);
 });
 
+test("Spark native session observes pending turns that appear on a later snapshot", async () => {
+  const admitted: string[] = [];
+  const observed: string[] = [];
+  const releases = new Map<string, () => void>();
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async (prompt: string) => {
+        admitted.push(prompt);
+        throw new Error("later snapshot work must not be resubmitted");
+      },
+      observe: async (admission: SparkTurnSubmitResult) => {
+        observed.push(admission.invocationId);
+        await new Promise<void>((resolve) => releases.set(admission.invocationId, resolve));
+        return "";
+      },
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      }),
+      status: async (invocationId: string) => ({
+        invocationId,
+        sessionId: "attached",
+        status: "succeeded" as const,
+        createdAt: "2026-07-28T00:00:00.000Z",
+        updatedAt: "2026-07-28T00:00:03.000Z",
+        finishedAt: "2026-07-28T00:00:03.000Z",
+        eventCursor: 0,
+      }),
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+  session.applySessionView({
+    ...session.toSessionView("attached"),
+    messages: [
+      {
+        version: SPARK_PROTOCOL_VERSION,
+        id: "attached-user",
+        role: "user",
+        text: "already durable",
+        status: "done",
+        metadata: {},
+      },
+    ],
+    pendingTurns: [],
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(admitted, []);
+  assert.deepEqual(observed, []);
+  assert.equal(session.isProcessing, false);
+
+  session.applySessionView({
+    ...session.toSessionView("attached"),
+    messages: [
+      {
+        version: SPARK_PROTOCOL_VERSION,
+        id: "attached-user",
+        role: "user",
+        text: "already durable",
+        status: "done",
+        metadata: {},
+      },
+    ],
+    pendingTurns: [
+      {
+        invocationId: "inv_later_tick",
+        prompt: "daemon continuation",
+        status: "running",
+        createdAt: "2026-07-28T00:00:04.000Z",
+      },
+    ],
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(admitted, []);
+  assert.deepEqual(observed, ["inv_later_tick"]);
+  assert.equal(session.isProcessing, true);
+
+  releases.get("inv_later_tick")?.();
+  for (let index = 0; index < 3; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(session.isProcessing, false);
+  assert.deepEqual(session.daemonPending, []);
+});
+
 test("Spark native session makes definitively rejected admissions recoverable", async () => {
   let releaseFirst: (() => void) | undefined;
   const observed: string[] = [];
