@@ -1731,6 +1731,69 @@ test("parseSparkDaemonCliArgs parses daemon IPC commands", async () => {
   });
 });
 
+test("parseSparkDaemonCliArgs preserves aliases, precedence, delimiters, and strict errors", () => {
+  assert.deepEqual(
+    parseSparkDaemonCliArgs(["submit", "-s", "s-short", "-p", "short prompt", "--reset"]),
+    {
+      action: "submit",
+      json: false,
+      reset: true,
+      sessionId: "s-short",
+      prompt: "short prompt",
+    },
+  );
+  assert.deepEqual(
+    parseSparkDaemonCliArgs([
+      "submit",
+      "--session",
+      "s-option",
+      "--prompt",
+      "option prompt",
+      "positional",
+      "prompt",
+    ]),
+    {
+      action: "submit",
+      json: false,
+      reset: false,
+      sessionId: "s-option",
+      prompt: "option prompt",
+    },
+  );
+  assert.deepEqual(parseSparkDaemonCliArgs(["submit", "--session", "s1", "--", "--help"]), {
+    action: "submit",
+    json: false,
+    reset: false,
+    sessionId: "s1",
+    prompt: "--help",
+  });
+  assert.deepEqual(
+    parseSparkDaemonCliArgs([
+      "session",
+      "show",
+      "positional-session",
+      "--session",
+      "option-session",
+    ]),
+    {
+      action: "sessions",
+      subcommand: "show",
+      json: false,
+      sessionId: "option-session",
+    },
+  );
+  assert.deepEqual(parseSparkDaemonCliArgs(["sessions", "--help"]), { action: "help" });
+  assert.deepEqual(parseSparkDaemonCliArgs(["stop", "--yes", "--help"]), { action: "help" });
+  assert.throws(
+    () => parseSparkDaemonCliArgs(["events", "watch", "--limit", "many"]),
+    /--limit must be a number/u,
+  );
+  assert.throws(
+    () => parseSparkDaemonCliArgs(["runs", "list", "--unknown"]),
+    /Unexpected option or subcommand:.*--unknown/u,
+  );
+});
+
 test("parseSparkDaemonCliArgs normalizes bounded relative invocation windows", () => {
   const originalNow = Date.now;
   Date.now = () => Date.parse("2026-07-15T12:00:00.000Z");
