@@ -305,6 +305,15 @@ not parse Markdown or A2UI back into Repro state, progress, evidence, or gates.
 Workspace paths, `evidence:*` refs, and `artifact:*` refs remain separate typed
 fields.
 
+`/repro <objective>` is the canonical three-lane launch. It derives one internal
+`work_enqueue` intent and reserves stable Implementation, Exactness, and
+Formalize child Sessions. Normal progress is driven only by terminal TaskRun
+envelopes; the public `lane_result_record` action can replay Evidence already
+attached to that exact run. Transcript text, compact summaries, and lifecycle
+presentation hooks are not checkpoint inputs. Context compaction and daemon
+restart reload the same durable route/binding/receipt state and must not create
+replacement Tasks, Sessions, worktrees, commits, PRs, or Asks.
+
 ## Role, Skill Worker, and Session invariants
 
 `role` must not accept lifecycle, mail, or a `sessionId`; the daemon

@@ -87,6 +87,18 @@ that created it. Terminal results, direct-user answers, forward handoffs, and
 backward refreshes form durable checkpoints; transcript text and model context
 are never recovery authority.
 
+Session context compaction may remove Root or lane narration, but it must not
+rewrite, synthesize, or discard a Repro checkpoint. The bounded Session snapshot
+keeps only a projection suitable for continuation; the owner resumes from the
+persisted WorkItem, routes, bindings, receipts, TaskRun envelopes, Evidence, and
+GitChange revisions. The first turn after compaction may inspect `status`, but it
+must not replay `/repro <objective>` or create replacement lane Sessions.
+
+An `attention_request` is a checkpoint, not a terminal lane result. The request
+is projected to Root through the existing Ask/EvidenceRequest owner. A direct
+user AnswerEvent creates a `resume_binding` route that reuses the original lane
+Session and GitChange, including across daemon restart and context compaction.
+
 `spark.repro.three-lane-session/v2` rejects stale or foreign results with a
 stable receipt without consuming a later valid result. Only a Formalize
 resolution advances `formalizedTip`, and an Exactness-to-Implementation refresh

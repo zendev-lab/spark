@@ -231,7 +231,7 @@ Inside the TUI, use:
 /execute [focus]
 /inspect
 /goal start <objective>
-/repro start <objective>
+/repro <objective>
 /workflow list
 /help commands
 ```

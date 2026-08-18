@@ -33,6 +33,7 @@ This contract does not create another scheduler, Task graph, Evidence store, hum
 10. A stable per-run Document Artifact is the canonical human report page. A workspace `report.md` is an optional explicit export only.
 11. A `workItemId` is stable within one Repro and survives commit rebases. TaskRef remains the scheduling identity, while one `git_change` Artifact remains the owner of its worktree and native GitHub PR stack.
 12. Forward handoffs move only Implementation → Exactness → Formalize. Typed resolutions move only Formalize → Exactness → Implementation.
+13. Session transcripts and compact summaries are non-authoritative projections. Context compaction may discard narration but cannot create, advance, or erase a Repro route, binding, receipt, TaskRun, Evidence record, or GitChange revision.
 
 ## Ownership
 
@@ -48,6 +49,45 @@ This contract does not create another scheduler, Task graph, Evidence store, hum
 Task Sessions, `assign`, and controlled Workflows reuse the daemon scheduler. A specialist may produce an observation or evidence candidate; only the owner session may reconcile it into Formalize state.
 
 Formalize binds one canonical `git_change` Artifact. Its stack-integrator Session is the only writer to that owning worktree. Other specialists are read-only or use distinct candidate GitChanges; Repro never copies raw worktree paths or becomes a writable PR-topology owner.
+
+## Command launch, checkpoint, and continuation
+
+`/repro <objective>` is the canonical user start. The command derives exactly one
+strict `spark.repro.work-enqueue/v1` intent; users and workers do not call the
+internal enqueue mutation themselves. Persisting that intent precedes creation
+of its GitChanges, Tasks, TaskRun reservations, or Sessions, so every crash
+window resumes the same stable identities.
+
+One accepted enqueue immediately reserves three child Sessions and three
+isolated writable GitChanges: Implementation, Exactness, and Formalize. This is
+resource reservation, not concurrent mutation of one worktree. Only
+Implementation is initially runnable. Terminal TaskRun envelopes then drive the
+durable sequence:
+
+```text
+Implementation → Exactness → Formalize → Exactness refresh → Implementation refresh
+```
+
+The five accepted results, two forward handoffs, and two parent-ordered backward
+resolutions are checkpoints. Each binding names the exact `originRouteId`,
+TaskRef, RunRef, source revision, and GitChange; recovery never scans transcript
+text to guess them. `lane_result_record` can only replay Evidence already bound
+to that same terminal TaskRun and therefore does not define a second result
+semantics.
+
+Root or lane context compaction is allowed at any checkpoint. The compacted
+Session retains a bounded Repro projection for orientation, while continuation
+reloads the authoritative WorkItem, route, binding, receipt, TaskRun, Evidence,
+and GitChange records. Compaction failure must leave those records untouched.
+After successful compaction, a status/continuation turn must not replay launch,
+duplicate a route, or replace a lane Session.
+
+An accepted `attention_request` persists a `root_attention` route, keeps the lane
+Task resumable, and projects one Ask/EvidenceRequest to Root. Daemon restart or
+context compaction may occur while it is pending. A matching direct-user
+AnswerEvent creates one `resume_binding` route and reuses the original lane
+Session and GitChange. The daemon may bind its existing Root Loop only as the
+pending AnswerEvent wake target; this is not a fourth Repro lane or coordinator.
 
 ## Data flow and single source of truth
 
@@ -240,7 +280,7 @@ The normative 3×3 legality matrix groups `running|ready` as progressing:
 - **TL-08 — Stale/duplicate/cancel:** stale, duplicate, cancelled, archived, empty, or synthetic answers remain in history/diagnostics and do not change the cursor, gate, unresolved status, or fenced action count.
 - **TL-09 — Unresolved discharge:** an open item becomes discharged only when its typed discharge criterion and formal evidence pass; an observation or successful Implementation Explore run is insufficient.
 - **TL-10 — Completion:** the reviewer derives `complete + sealed` only after all required steps/gates, target Profile, unresolved items, Tasks, hardening/recovery validations, and approvals pass.
-- **TL-11 — Restart:** daemon reconstruction re-derives all three lanes, WorkHandoffs, Resolutions, pending requests, activity, candidate buffer, and idempotency acknowledgements without duplicate dispatch or retirement.
+- **TL-11 — Restart and compaction:** daemon reconstruction and post-compaction continuation reload all three bindings, WorkHandoffs, Resolutions, pending requests, activity, candidate buffer, and idempotency acknowledgements from durable owner state without duplicate dispatch, retirement, Session replacement, or launch replay.
 - **TL-12 — Projection:** ReportModel/Artifact/A2UI revisions may change only after canonical facts change; presentation revision never changes technical gates.
 - **TL-13 — Backward resolution:** an accepted Formalize result resolves or supersedes Exactness work, then Implementation work, through two typed idempotent Resolution records.
 

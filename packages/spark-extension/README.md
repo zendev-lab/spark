@@ -35,10 +35,20 @@ Artifact share one identity; an already-active run rejects a different requested
 identifier.
 
 The same canonical `repro({ action })` surface composes the Repro-owned
-three-lane lifecycle. `work_register`, `work_rematerialize`, `finding_record`,
-`mismatch_record`, `handoff_record`, `formalize_bind`, and `resolution_record`
-delegate semantics to `spark-repro`, resolve Evidence and GitChange Artifacts
-through their stores, and reconcile temporary work through the TaskGraph owner.
-Formalize mutations require the current Session to own one attached native
-`gh-stack` GitChange. The extension does not create another scheduler, progress
-store, Git topology, or public alias.
+three-lane lifecycle. `/repro <objective>` persists one internal `work_enqueue`
+intent and immediately reserves the three stable lane Sessions and their
+isolated GitChanges. Subsequent terminal TaskRuns advance the typed
+Implementation → Exactness → Formalize → Exactness refresh → Implementation
+refresh checkpoint chain automatically. `lane_result_record` is the only
+public three-lane result mutation and may only replay Evidence already attached
+to its exact terminal TaskRun; `work_register`, `work_rematerialize`,
+`finding_record`, `mismatch_record`, `handoff_record`, `formalize_bind`, and
+`resolution_record` are not public actions.
+
+The extension resolves Evidence and GitChange Artifacts through their owners
+and reconciles temporary work through TaskGraph. Root transcript compaction does
+not own or truncate the three-lane checkpoint: continuation reloads durable
+routes, bindings, receipts, TaskRuns, and bounded Session projection. Formalize
+mutations still require the canonical integrator Session to own one attached
+native `gh-stack` GitChange. The extension does not create another scheduler,
+progress store, Git topology, or public alias.
