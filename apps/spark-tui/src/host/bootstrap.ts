@@ -4,12 +4,13 @@ import { basename, join, resolve } from "node:path";
 import { stableId, type SparkHostAPI } from "@zendev-lab/spark-core";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import {
+  adaptersFromProviderRegistry,
   createProviderRegistryLeafRunner,
-  createProviderRegistryStreamFunction,
   createProviderRegistryWorkflowModelRunner,
   type Model,
   type SparkProviderAttemptObservation,
-} from "@zendev-lab/spark-ai";
+} from "@zendev-lab/spark-llm";
+import { createSparkLlmComposition } from "@zendev-lab/spark-extension/llm-runtime";
 import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
 import {
   DEFAULT_SPARK_IDENTITY_PROMPT,
@@ -155,10 +156,12 @@ export async function createSparkCliHostServices(
     });
   }
   const authResolver = new SparkProviderAuthResolver(authStore, { env: options.authEnv });
+  const resolveApiKey = (provider: Parameters<typeof authResolver.resolveApiKeyAsync>[0]) =>
+    authResolver.resolveApiKeyAsync(provider);
   runtime.setLeafRunner(
     createProviderRegistryLeafRunner({
       registry: providerRegistry,
-      runnerOptions: { resolveApiKey: (provider) => authResolver.resolveApiKeyAsync(provider) },
+      runnerOptions: { resolveApiKey },
       ...(options.tokenUsage
         ? {
             observeProviderAttempt: (observation: SparkProviderAttemptObservation) =>
@@ -275,12 +278,15 @@ export async function createSparkCliHostServices(
     skillsCatalogPrompt,
     selectedSkillsPrompt,
   );
-  const streamFunction = createProviderRegistryStreamFunction(providerRegistry, {
-    resolveApiKey: (provider) => authResolver.resolveApiKeyAsync(provider),
+  const llmComposition = await createSparkLlmComposition({
+    adapters: adaptersFromProviderRegistry(providerRegistry, { resolveApiKey }),
+  });
+  runtime.on("session_shutdown", () => {
+    void llmComposition.dispose();
   });
   const agentLoop = new SparkAgentLoop({
     host: runtime,
-    streamFunction,
+    llm: llmComposition.llm,
     getModel: () => {
       const model = providerRegistry.buildActiveModel();
       if (!model) throw new Error("No active Spark model selected");
@@ -441,6 +447,7 @@ export async function createSparkCliHostServices(
     skillResolver,
     promptTemplates,
     agentLoop,
+    disposeLlm: () => llmComposition.dispose(),
     extensionLoadResult,
     providerLoadResult,
     diagnostics,
@@ -553,11 +560,11 @@ export {
   assistantMessageToText,
   createProviderRegistryStreamFunction,
   createProviderRegistryWorkflowModelRunner,
-} from "@zendev-lab/spark-ai";
+} from "@zendev-lab/spark-llm";
 export type {
   SparkWorkflowModelRunRequest,
   SparkWorkflowModelRunResponse,
-} from "@zendev-lab/spark-ai";
+} from "@zendev-lab/spark-llm";
 
 function formatProviderLoadError(providerLoadResult: LoadResult): string | undefined {
   const failures = providerLoadResult.outcomes.filter((outcome) => !outcome.ok);

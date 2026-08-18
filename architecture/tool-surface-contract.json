@@ -128,7 +128,7 @@
       "effect": "unclassified"
     },
     "models": {
-      "owner": "@zendev-lab/spark-ai",
+      "owner": "@zendev-lab/spark-llm",
       "kind": "capability",
       "effect": "read"
     },

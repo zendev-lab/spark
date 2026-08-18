@@ -29,7 +29,7 @@ import {
   DEFAULT_SPARK_ENABLED_MODEL_PATTERNS,
   mergeSparkProviderSpecs,
   normalizeSparkEnabledModelPatterns,
-} from "@zendev-lab/spark-ai/control";
+} from "@zendev-lab/spark-llm/control";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import {
   DEFAULT_SPARK_THINKING_LEVEL,
@@ -73,14 +73,14 @@ const LEGACY_DEFAULT_EXTENSION_CORE = [
   "@zendev-lab/spark-ask/extension",
   "@zendev-lab/spark-cue/extension",
   "@zendev-lab/spark-files/extension",
-  "@zendev-lab/spark-ai/models-extension",
+  "@zendev-lab/spark-llm/models-extension",
   "@zendev-lab/spark-roles/extension",
 ] as const;
 const SPARK_EXTENSION_PROFILE_V1 = [
   "@zendev-lab/spark-ask/extension",
   "@zendev-lab/spark-cue/extension",
   "@zendev-lab/spark-files/extension",
-  "@zendev-lab/spark-ai/models-extension",
+  "@zendev-lab/spark-llm/models-extension",
   "@zendev-lab/spark-memory/extension",
   "@zendev-lab/spark-roles/extension",
   "@zendev-lab/spark-session/extension",
@@ -91,7 +91,7 @@ const SPARK_EXTENSION_PROFILE_V2 = [
   "@zendev-lab/spark-ask/extension",
   "@zendev-lab/spark-artifacts/extension",
   "@zendev-lab/spark-cue/extension",
-  "@zendev-lab/spark-ai/models-extension",
+  "@zendev-lab/spark-llm/models-extension",
   "@zendev-lab/spark-memory/extension",
   "@zendev-lab/spark-roles/extension",
   "@zendev-lab/spark-session/extension",

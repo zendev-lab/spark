@@ -15,8 +15,8 @@ import { DEFAULT_SPARK_EXTENSION_SPECS } from "../host/extension-specs.ts";
 
 test("default Spark providers include shared Baidu OneAPI and OpenAI Codex adapters", () => {
   assert.deepEqual(DEFAULT_SPARK_CONFIG.providers, [
-    "@zendev-lab/spark-ai/baidu-oneapi-provider",
-    "@zendev-lab/spark-ai/openai-codex-provider",
+    "@zendev-lab/spark-llm/baidu-oneapi-provider",
+    "@zendev-lab/spark-llm/openai-codex-provider",
   ]);
   assert.equal(
     DEFAULT_SPARK_CONFIG.extensions.includes("@zendev-lab/spark-graft/extension"),
@@ -146,7 +146,7 @@ test("legacy bundled extension profiles migrate to current defaults without Graf
     "@zendev-lab/spark-ask/extension",
     "@zendev-lab/spark-cue/extension",
     "@zendev-lab/spark-files/extension",
-    "@zendev-lab/spark-ai/models-extension",
+    "@zendev-lab/spark-llm/models-extension",
     "@zendev-lab/spark-roles/extension",
     "@zendev-lab/spark-graft/extension",
     "@zendev-lab/pi-extension/extension",
@@ -211,7 +211,7 @@ test("persisted v1 default profile gains the current artifact and workflow capab
     "@zendev-lab/spark-ask/extension",
     "@zendev-lab/spark-cue/extension",
     "@zendev-lab/spark-files/extension",
-    "@zendev-lab/spark-ai/models-extension",
+    "@zendev-lab/spark-llm/models-extension",
     "@zendev-lab/spark-memory/extension",
     "@zendev-lab/spark-roles/extension",
     "@zendev-lab/spark-session/extension",
@@ -245,7 +245,7 @@ test("persisted v2 default profile drops standalone workflow after composition o
     "@zendev-lab/spark-ask/extension",
     "@zendev-lab/spark-artifacts/extension",
     "@zendev-lab/spark-cue/extension",
-    "@zendev-lab/spark-ai/models-extension",
+    "@zendev-lab/spark-llm/models-extension",
     "@zendev-lab/spark-memory/extension",
     "@zendev-lab/spark-roles/extension",
     "@zendev-lab/spark-session/extension",
@@ -283,7 +283,7 @@ test("unversioned Spark-native default profile also gains current capabilities",
       "@zendev-lab/spark-ask/extension",
       "@zendev-lab/spark-cue/extension",
       "@zendev-lab/spark-files/extension",
-      "@zendev-lab/spark-ai/models-extension",
+      "@zendev-lab/spark-llm/models-extension",
       "@zendev-lab/spark-memory/extension",
       "@zendev-lab/spark-roles/extension",
       "@zendev-lab/spark-session/extension",
@@ -301,7 +301,7 @@ test("unversioned legacy default profile drops formerly bundled Graft", () => {
       "@zendev-lab/spark-ask/extension",
       "@zendev-lab/spark-cue/extension",
       "@zendev-lab/spark-files/extension",
-      "@zendev-lab/spark-ai/models-extension",
+      "@zendev-lab/spark-llm/models-extension",
       "@zendev-lab/spark-memory/extension",
       "@zendev-lab/spark-roles/extension",
       "@zendev-lab/spark-session/extension",
@@ -372,7 +372,7 @@ test("loadSparkConfig + saveSparkConfig round-trip preserves user fields", async
       {
         extensionProfileVersion: CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
         extensions: ["@zendev-lab/pi-extension/extension", "@zendev-lab/spark-cue", "my-extension"],
-        providers: ["@zendev-lab/spark-ai/baidu-oneapi-provider", "my-provider"],
+        providers: ["@zendev-lab/spark-llm/baidu-oneapi-provider", "my-provider"],
         activeModelId: "baidu-oneapi/claude-opus-5",
         activeThinkingLevel: "medium",
         compact: {
@@ -395,8 +395,8 @@ test("loadSparkConfig + saveSparkConfig round-trip preserves user fields", async
       "my-extension",
     ]);
     assert.deepEqual(config.providers, [
-      "@zendev-lab/spark-ai/baidu-oneapi-provider",
-      "@zendev-lab/spark-ai/openai-codex-provider",
+      "@zendev-lab/spark-llm/baidu-oneapi-provider",
+      "@zendev-lab/spark-llm/openai-codex-provider",
       "my-provider",
     ]);
     assert.equal(config.activeModelId, "baidu-oneapi/claude-opus-5");
@@ -425,12 +425,12 @@ test("loadSparkConfig + saveSparkConfig round-trip preserves user fields", async
 
 test("mergeSparkConfigWithDefault restores bundled providers to legacy provider lists", () => {
   const merged = mergeSparkConfigWithDefault({
-    providers: ["@zendev-lab/spark-ai/baidu-oneapi-provider", "my-provider"],
+    providers: ["@zendev-lab/spark-llm/baidu-oneapi-provider", "my-provider"],
   });
 
   assert.deepEqual(merged.providers, [
-    "@zendev-lab/spark-ai/baidu-oneapi-provider",
-    "@zendev-lab/spark-ai/openai-codex-provider",
+    "@zendev-lab/spark-llm/baidu-oneapi-provider",
+    "@zendev-lab/spark-llm/openai-codex-provider",
     "my-provider",
   ]);
 });

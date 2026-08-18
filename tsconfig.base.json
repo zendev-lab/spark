@@ -55,11 +55,11 @@
       "@zendev-lab/spark-text": ["./packages/spark-text/src/index.ts"],
       "@zendev-lab/spark-workflows": ["./packages/spark-workflows/src/index.ts"],
       "@zendev-lab/spark-workflows/extension": ["./packages/spark-workflows/src/extension.ts"],
-      "@zendev-lab/spark-ai": ["./packages/spark-ai/src/index.ts"],
-      "@zendev-lab/spark-ai/baidu-oneapi-provider": [
-        "./packages/spark-ai/src/baidu-oneapi-provider.ts"
+      "@zendev-lab/spark-llm": ["./packages/spark-llm/src/index.ts"],
+      "@zendev-lab/spark-llm/baidu-oneapi-provider": [
+        "./packages/spark-llm/src/baidu-oneapi-provider.ts"
       ],
-      "@zendev-lab/spark-ai/models-extension": ["./packages/spark-ai/src/models-extension.ts"],
+      "@zendev-lab/spark-llm/models-extension": ["./packages/spark-llm/src/models-extension.ts"],
       "@zendev-lab/spark-host": ["./packages/spark-host/src/runtime.ts"],
       "@zendev-lab/spark-host/builtin-skills": ["./packages/spark-host/src/builtin-skills.ts"],
       "@zendev-lab/spark-host/context": ["./packages/spark-host/src/context-tool.ts"],
@@ -122,6 +122,7 @@
       "@zendev-lab/spark-extension/host-support": [
         "./packages/spark-extension/src/host-support.ts"
       ],
+      "@zendev-lab/spark-extension/llm-runtime": ["./packages/spark-extension/src/llm-runtime.ts"],
       "@zendev-lab/spark-roles/reviewer-runner": ["./packages/spark-roles/src/reviewer-runner.ts"],
       "@zendev-lab/spark-tui-adapter": ["./packages/spark-tui-adapter/src/index.ts"],
       "@zendev-lab/spark-tui-adapter/input": ["./packages/spark-tui-adapter/src/input.ts"],

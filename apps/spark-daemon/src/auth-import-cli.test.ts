@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test, vi } from "vitest";
-import { createSparkProviderControl } from "@zendev-lab/spark-ai/control";
+import { createSparkProviderControl } from "@zendev-lab/spark-llm/control";
 
 import { main, type CliIo } from "./cli.ts";
 

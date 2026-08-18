@@ -8,7 +8,7 @@ import {
   type SparkHostContext,
   type ToolConfig,
 } from "@zendev-lab/spark-core";
-import type { AssistantMessage, Tool, ToolCall, ToolResultMessage } from "@zendev-lab/spark-ai";
+import type { AssistantMessage, Tool, ToolCall, ToolResultMessage } from "@zendev-lab/spark-llm";
 import {
   compactToolResultContent,
   type SparkToolResultRawRecoveryDecision,

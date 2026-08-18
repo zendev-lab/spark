@@ -6,7 +6,7 @@ import { test } from "vitest";
 
 import { stableId } from "@zendev-lab/spark-core";
 import { callLeafOrDegrade } from "@zendev-lab/spark-core";
-import { DEFAULT_SPARK_PROVIDER_SPECS } from "@zendev-lab/spark-ai/control";
+import { DEFAULT_SPARK_PROVIDER_SPECS } from "@zendev-lab/spark-llm/control";
 import sparkExtension from "@zendev-lab/spark-extension/extension";
 import { parseSparkCliCommand } from "../cli.ts";
 import {
@@ -18,6 +18,7 @@ import {
   type SparkAgentStreamFunction,
   type SparkConfig,
 } from "../host/index.ts";
+import { asSparkTurnLlm } from "@zendev-lab/spark-turn";
 
 async function setModeThroughTool(
   cwd: string,
@@ -440,7 +441,7 @@ test("native submit preparation rejects concurrent submits before request contex
   };
   loop = new SparkAgentLoop({
     host,
-    streamFunction,
+    llm: asSparkTurnLlm(streamFunction),
     getModel: () => ({ id: "model", provider: "provider", api: "openai-completions" }) as never,
     prepareUserSubmit: async (content) => {
       prepared.push(content);
@@ -482,13 +483,15 @@ test("native submit preparation does not start while a trigger turn is in pre-st
   const message = assistant("background complete");
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: () =>
-      ({
-        async *[Symbol.asyncIterator]() {
-          yield { type: "done", reason: "stop", message } as never;
-        },
-        result: async () => message as never,
-      }) as ReturnType<SparkAgentStreamFunction>,
+    llm: asSparkTurnLlm(
+      () =>
+        ({
+          async *[Symbol.asyncIterator]() {
+            yield { type: "done", reason: "stop", message } as never;
+          },
+          result: async () => message as never,
+        }) as ReturnType<SparkAgentStreamFunction>,
+    ),
     getModel: () => ({ id: "model", provider: "provider", api: "openai-completions" }) as never,
     prepareUserSubmit: () => {
       prepareCalls += 1;
@@ -531,7 +534,7 @@ test("trigger turns queued during user preparation are deferred without entering
   const message = assistant("complete");
   const loop = new SparkAgentLoop({
     host,
-    streamFunction: (_model, context) => {
+    llm: asSparkTurnLlm((_model, context) => {
       contexts.push(context.messages);
       return {
         async *[Symbol.asyncIterator]() {
@@ -539,7 +542,7 @@ test("trigger turns queued during user preparation are deferred without entering
         },
         result: async () => message as never,
       } as ReturnType<SparkAgentStreamFunction>;
-    },
+    }),
     getModel: () => ({ id: "model", provider: "provider", api: "openai-completions" }) as never,
     prepareUserSubmit: async () => {
       markPrepareStarted();
@@ -750,17 +753,17 @@ test("native host registers spark-ai models tool and exposes Spark model registr
       cwd,
       sparkHome,
       config: {
-        extensions: ["@zendev-lab/spark-ai/models-extension"],
+        extensions: ["@zendev-lab/spark-llm/models-extension"],
         providers: ["fake-provider"],
       },
-      extensions: ["@zendev-lab/spark-ai/models-extension"],
+      extensions: ["@zendev-lab/spark-llm/models-extension"],
       providers: ["fake-provider"],
       providerImporter: async () => fakeProviderModule(),
     });
 
     assert.equal(
       services.extensionLoadResult.outcomes.find(
-        (outcome) => outcome.specifier === "@zendev-lab/spark-ai/models-extension",
+        (outcome) => outcome.specifier === "@zendev-lab/spark-llm/models-extension",
       )?.ok,
       true,
     );

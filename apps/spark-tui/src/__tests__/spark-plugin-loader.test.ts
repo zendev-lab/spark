@@ -81,8 +81,8 @@ test("loadPlugins resolves bundled providers without installed workspace package
     providerApi: registry,
     extensions: [],
     providers: [
-      "@zendev-lab/spark-ai/baidu-oneapi-provider",
-      "@zendev-lab/spark-ai/openai-codex-provider",
+      "@zendev-lab/spark-llm/baidu-oneapi-provider",
+      "@zendev-lab/spark-llm/openai-codex-provider",
     ],
   });
 

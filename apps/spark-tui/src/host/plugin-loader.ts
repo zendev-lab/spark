@@ -16,7 +16,7 @@
  * (`spark-cue`, `spark/extension`) and absolute file URLs.
  */
 
-import { createSparkProviderImporter } from "@zendev-lab/spark-ai/control";
+import { createSparkProviderImporter } from "@zendev-lab/spark-llm/control";
 import type { SparkHostAPI } from "@zendev-lab/spark-core";
 
 import { createSparkExtensionImporter } from "./extension-loader.ts";

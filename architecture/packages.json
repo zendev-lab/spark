@@ -84,7 +84,7 @@
       "sdkDependencies": [
         {
           "dependency": "@earendil-works/pi-ai",
-          "owner": "@zendev-lab/spark-ai"
+          "owner": "@zendev-lab/spark-llm"
         },
         {
           "dependency": "@earendil-works/pi-tui",
@@ -162,10 +162,10 @@
       "stability": "supported",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-ai": {
-      "path": "packages/spark-ai",
+    "@zendev-lab/spark-llm": {
+      "path": "packages/spark-llm",
       "layer": "capability",
-      "owner": "ai",
+      "owner": "llm",
       "stability": "supported",
       "stateWriter": "user"
     },

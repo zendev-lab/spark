@@ -81,11 +81,13 @@ function userContentText(content: SparkTurnUserContent): string {
 
 export {
   SparkTurnRunner,
+  asSparkTurnLlm,
   type SparkAgentLifecycleSource,
   type SparkAgentLoopEvent,
   type SparkAgentLoopState,
   type SparkAgentMode,
   type SparkAgentStreamFunction,
+  type SparkTurnLlm,
   type SparkPromptAuthority,
   type SparkPromptItem,
   type SparkPromptManifest,

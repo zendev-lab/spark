@@ -1,11 +1,28 @@
-# @zendev-lab/spark-ai
+# @zendev-lab/spark-llm
 
-Host-neutral Spark provider/AI plumbing built on top of `@earendil-works/pi-ai`.
+Spark's LLM **provider** owner: bundled transports (pi-ai, Baidu OneAPI, OpenAI
+Codex), model routing, auth/catalog, and the `models` tool.
 
-This package owns the Spark-side model/provider layer so any host (the native
-spark-tui host, the daemon, tests) can drive provider plugins and model routing
+This package is not the LLM abstraction owner. That role belongs to
+`@deepseek-ai/dsh-llm` (`LlmRuntime` / `LlmAdapter`). `spark-llm` implements
+those adapters and registers them on the process-local Cordis island owned by
+`spark-extension`. `spark-turn` consumes `LlmRuntime.stream`, not Cordis
+`Context`. `SparkProviderRegistry` remains the catalog/auth loader used to
+construct adapters; it is not the turn-loop injection point.
+
+The package stays host-neutral so TUI, daemon, and tests can drive providers
 without importing Spark app internals. It does not own credentials beyond
 reading configured env keys, and it never imports Spark app hosts.
+
+## LlmAdapter family
+
+- `SparkProviderLlmAdapter` wraps a registered provider's `streamSimple` and
+  emits dsh-llm `StreamChunk` values (usage before finish; failures as a
+  terminal `finish`).
+- `adaptersFromProviderRegistry` builds one adapter per loaded provider for
+  `createSparkLlmComposition({ adapters })`.
+- Bundled Baidu OneAPI and OpenAI Codex transports stay in this package and
+  are selected through `GenerateOptions.provider`.
 
 ## Model routing contracts
 
@@ -19,12 +36,14 @@ Host-neutral model routing data shapes consumed by later resolver/auth-pool laye
 
 Routes always carry both Spark-facing identity (the profile id) and pi-ai transport identity (`transportApi`, `transportModelId`, `provider`, and `authPoolId`). This makes gateway/provider adapters explicit instead of relying on TypeScript-only casts.
 
-## Provider registry + runners
+## Provider registry + runners (temporary)
 
-The higher-level provider-plugin surface used by the native host:
+The current native-host plugin surface. Treat it as compatibility, not the
+target LLM abstraction:
 
 - `SparkProviderRegistry` (`ProviderRegistrationAPI`) caches `{name, baseUrl, apiKey, api, streamSimple, models[]}` provider plugins, validates active selection, and materializes a pi-ai `Model<Api>` per provider/model.
-- `createProviderRegistryStreamFunction` adapts the active provider into a pi-ai-shaped stream function for the agent loop.
+- `createProviderRegistryStreamFunction` remains the internal pi-ai stream
+  adapter used by `SparkProviderLlmAdapter`; `spark-turn` no longer takes it.
 - `createProviderRegistryWorkflowModelRunner` runs a single read-only workflow model agent against a selected provider/model.
 - `normalizeProviderStream` / `resolveWorkflowModelSelection` / `assistantMessageToText` are the shared helpers behind those factories.
 
@@ -34,11 +53,11 @@ surface instead of `SparkHostAPI`.
 
 ## Models tool
 
-`@zendev-lab/spark-ai/models-extension` registers the read-only `models` tool for inspecting the active Spark host model registry. The tool lists available models by default, can include unavailable registered models with auth status, and keeps route/provider details as catalog data rather than a separate model-selection package.
+`@zendev-lab/spark-llm/models-extension` registers the read-only `models` tool for inspecting the active Spark host model registry. The tool lists available models by default, can include unavailable registered models with auth status, and keeps route/provider details as catalog data rather than a separate model-selection package.
 
 ## Baidu OneAPI provider
 
-`@zendev-lab/spark-ai/baidu-oneapi-provider` is the bundled standalone
+`@zendev-lab/spark-llm/baidu-oneapi-provider` is the bundled standalone
 `baidu-oneapi` provider plugin for Spark's native model runtime. It exposes local
 adaptive-friendly model ids (`claude-opus-4.6`, `claude-opus-5`,
 `deepseek-v4-flash`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`,
@@ -88,11 +107,11 @@ Authentication:
 - `BAIDU_ONEAPI_API_KEY` is supported as an environment variable.
 - `BAIDU_ONEAPI_BASE_URL` optionally overrides the endpoint; it defaults to `https://oneapi-comate.baidu-int.com`.
 
-spark-ai does not alias `oneapi` credentials or `OPENAI_API_KEY` into `baidu-oneapi`.
+spark-llm does not alias `oneapi` credentials or `OPENAI_API_KEY` into `baidu-oneapi`.
 
 ## OpenAI Codex provider
 
-`@zendev-lab/spark-ai/openai-codex-provider` is the thin Spark adapter over
+`@zendev-lab/spark-llm/openai-codex-provider` is the thin Spark adapter over
 pi-ai's maintained OpenAI Codex catalog and transport. The daemon and native
 TUI load it as a bundled provider, while Spark's shared provider control owns
 model selection and its own OAuth credential store. Configure it from Hub

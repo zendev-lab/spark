@@ -2,7 +2,7 @@
 
 ## Scope
 
-Spark retains Pi SDK concepts and packages behind the `spark-ai`,
+Spark retains Pi SDK concepts and packages behind the `spark-llm`,
 `spark-tui-adapter`, and `spark-turn` boundaries. This document governs
 compatibility with the external Pi **product loader**. It does not govern the
 retained SDK kernel. `spark-text` is Spark-owned terminal-column layout and is

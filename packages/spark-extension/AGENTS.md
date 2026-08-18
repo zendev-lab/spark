@@ -17,8 +17,10 @@ application UI, and daemon lifecycle do not.
 - Register existing capability and runtime owners; do not reimplement them.
 - Keep extension behavior host-neutral and depend on `SparkHostAPI` rather than
   concrete TUI, Hub, CLI, daemon, or `pi-coding-agent` internals.
-- Retain the Pi SDK kernel only behind the established `spark-ai`,
-  `spark-tui-adapter`, and related Spark boundaries.
+- Retain the Pi SDK kernel only behind the established `spark-llm`,
+  `spark-tui-adapter`, and related Spark boundaries. Own the process-local
+  Cordis Context used to mount `dsh-llm`; do not leak `Context` through
+  `SparkHostAPI`.
 - Do not recreate a second Spark composition root, parallel policy
   implementation, or Spark-owned `package.json#pi` discovery path.
   `@zendev-lab/pi-spark` may wrap this package for the external Pi product

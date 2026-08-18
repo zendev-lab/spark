@@ -8,7 +8,7 @@ import {
   assistantMessageToText,
   classifyProviderFailure,
   type AssistantMessage,
-} from "@zendev-lab/spark-ai";
+} from "@zendev-lab/spark-llm";
 import { join } from "node:path";
 import {
   ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE,

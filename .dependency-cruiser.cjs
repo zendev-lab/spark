@@ -34,6 +34,30 @@ module.exports = {
         path: "node_modules/.*/@earendil-works/pi-tui|/node_modules/@earendil-works/pi-tui|^@earendil-works/pi-tui",
       },
     },
+    {
+      name: "no-direct-cordis",
+      comment:
+        "Cordis is a process-local island for dsh-llm. Only spark-extension (Context owner) and spark-llm (LlmAdapter implementations) may import it.",
+      severity: "error",
+      from: {
+        pathNot: "^(packages/spark-extension/|packages/spark-llm/)",
+      },
+      to: {
+        path: "node_modules/.*/@deepseek-ai/cordis(?:/|$)|/node_modules/@deepseek-ai/cordis(?:/|$)|^@deepseek-ai/cordis(?:/|$)",
+      },
+    },
+    {
+      name: "no-direct-dsh-llm",
+      comment:
+        "dsh-llm is limited to the composition root, the provider adapter family, and the turn-loop consumer.",
+      severity: "error",
+      from: {
+        pathNot: "^(packages/spark-extension/|packages/spark-llm/|packages/spark-turn/)",
+      },
+      to: {
+        path: "node_modules/.*/@deepseek-ai/dsh-llm(?:/|$)|/node_modules/@deepseek-ai/dsh-llm(?:/|$)|^@deepseek-ai/dsh-llm(?:/|$)",
+      },
+    },
 
     // --- deep-link: @zendev-lab/*/src/* specifier (bypass package exports) ---
     {
@@ -211,13 +235,13 @@ module.exports = {
         path: [
           "^apps/",
           "^packages/pi-",
-          "^packages/spark-(?:ai|extension|fusion|host|runtime|turn|workflows)(?:/|$)",
+          "^packages/spark-(?:extension|fusion|host|llm|runtime|turn|workflows)(?:/|$)",
           "node_modules/.*/@zendev-lab/pi-",
           "/node_modules/@zendev-lab/pi-",
           "^@zendev-lab/pi-",
-          "node_modules/.*/@zendev-lab/spark-(?:ai|cli|hub|daemon|extension|fusion|host|runtime|tui-app|turn|workflows)(?:/|$)",
-          "/node_modules/@zendev-lab/spark-(?:ai|cli|hub|daemon|extension|fusion|host|runtime|tui-app|turn|workflows)(?:/|$)",
-          "^@zendev-lab/spark-(?:ai|cli|hub|daemon|extension|fusion|host|runtime|tui-app|turn|workflows)(?:/|$)",
+          "node_modules/.*/@zendev-lab/spark-(?:cli|hub|daemon|extension|fusion|host|llm|runtime|tui-app|turn|workflows)(?:/|$)",
+          "/node_modules/@zendev-lab/spark-(?:cli|hub|daemon|extension|fusion|host|llm|runtime|tui-app|turn|workflows)(?:/|$)",
+          "^@zendev-lab/spark-(?:cli|hub|daemon|extension|fusion|host|llm|runtime|tui-app|turn|workflows)(?:/|$)",
           "node_modules/.*/@earendil-works/pi-",
           "/node_modules/@earendil-works/pi-",
           "^@earendil-works/pi-",

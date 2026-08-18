@@ -38,6 +38,11 @@ catalog:
 minimumReleaseAgeExclude:
   - "@types/node"
   - "@earendil-works/*"
+  - "@deepseek-ai/dsh-attachment@0.1.0-rc.7"
+  - "@deepseek-ai/dsh-brand@0.1.0-rc.7"
+  - "@deepseek-ai/dsh-invariants@0.1.0-rc.7"
+  - "@deepseek-ai/dsh-llm@0.1.0-rc.7"
+  - "@deepseek-ai/dsh-timeout@0.1.0-rc.7"
 
 overrides:
   "@connectrpc/connect-node>undici": "8.10.0"

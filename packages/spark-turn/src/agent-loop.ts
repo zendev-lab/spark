@@ -3,10 +3,9 @@
  *
  * Design goals:
  *
- *   1. **Stream-agnostic.** The loop is parameterised on a `streamFunction`
- *      with the same shape as `pi-ai`'s `stream(model, context, options)`.
- *      The default wiring will plug in the real `stream` import; tests pass a
- *      fake stream so the loop can be exercised without a network call.
+ *   1. **LLM-agnostic.** The loop is parameterised on `llm: Pick<LlmRuntime, "stream">`.
+ *      Hosts inject the process-local dsh-llm runtime; tests pass a structured
+ *      fake so the loop can be exercised without Cordis or a network call.
  *
  *   2. **One claim per host.** Holds the current system prompt and message
  *      log. Producers call `submit(content)` to enqueue a user message; the
@@ -50,8 +49,8 @@ import type {
   ToolCall,
   ToolResultMessage,
   UserMessage,
-} from "@zendev-lab/spark-ai";
-import { MODEL_EMPTY_RESPONSE_ERROR_CODE } from "@zendev-lab/spark-ai";
+} from "@zendev-lab/spark-llm";
+import { MODEL_EMPTY_RESPONSE_ERROR_CODE } from "@zendev-lab/spark-llm";
 
 export type {
   AssistantMessage,
@@ -64,7 +63,7 @@ export type {
   ToolCall,
   ToolResultMessage,
   UserMessage,
-} from "@zendev-lab/spark-ai";
+} from "@zendev-lab/spark-llm";
 
 import { createHash } from "node:crypto";
 
@@ -191,13 +190,17 @@ export type {
   SparkTurnRegisteredTool,
 } from "./turn-types.ts";
 
-export type SparkAgentStreamFunction = (
-  model: Model<string>,
-  context: Context,
-  options?: StreamOptions,
-) => AsyncIterable<AssistantMessageEvent> & {
-  result(): Promise<AssistantMessage>;
-};
+import {
+  sparkTurnLlmStream,
+  type SparkAgentStreamFunction,
+  type SparkTurnLlm,
+} from "./turn-llm.ts";
+export {
+  asSparkTurnLlm,
+  sparkTurnLlmStream,
+  type SparkAgentStreamFunction,
+  type SparkTurnLlm,
+} from "./turn-llm.ts";
 
 export type SparkAgentLoopState = "idle" | "streaming" | "tooling" | "aborting";
 export type SparkAgentMode = "plan" | "execute" | "fleet";
@@ -582,8 +585,8 @@ export interface SparkPromptManifestOptions {
 
 export interface SparkAgentLoopOptions {
   host: SparkTurnHost;
-  /** pi-ai stream function. Pass the production `stream` import or a test fake. */
-  streamFunction: SparkAgentStreamFunction;
+  /** dsh-llm runtime stream surface. Tests may pass a structural fake. */
+  llm: SparkTurnLlm;
   /** Resolves the current model. May be replaced at runtime via setModel. */
   getModel: () => Model<string>;
   systemPrompt?: string;
@@ -639,7 +642,7 @@ export interface SparkAgentLoopOptions {
 /**
  * Turn-loop subscriber events. Discriminants are single-sourced in
  * `@zendev-lab/spark-protocol` (`SPARK_AGENT_LOOP_EVENT_TYPES`). AI message
- * payloads use spark-ai / pi-ai types (not protocol view projections);
+ * payloads use spark-llm / pi-ai types (not protocol view projections);
  * `view_event` carries protocol `SparkViewModelEvent`.
  */
 export type SparkAgentLoopEvent =
@@ -660,7 +663,7 @@ export type SparkAgentLoopEvent =
 
 export class SparkAgentLoop {
   readonly host: SparkTurnHost;
-  private readonly streamFunction: SparkAgentStreamFunction;
+  private readonly llm: SparkTurnLlm;
   private readonly getModel: () => Model<string>;
   private readonly streamTimeoutMs: number;
   private readonly streamIdleTimeoutMs: number;
@@ -709,7 +712,7 @@ export class SparkAgentLoop {
 
   constructor(options: SparkAgentLoopOptions) {
     this.host = options.host;
-    this.streamFunction = options.streamFunction;
+    this.llm = options.llm;
     this.getModel = options.getModel;
     this.systemPrompt = options.systemPrompt ?? "";
     this.promptCacheOptions = options.promptCache ?? {};
@@ -1140,7 +1143,7 @@ export class SparkAgentLoop {
             estimate,
             roundtrips,
           });
-          const stream = this.streamFunction(model, context, {
+          const stream = sparkTurnLlmStream(this.llm, model, context, {
             signal: abortController.signal,
             maxTokens: requestedOutputTokens,
             promptCacheKey: promptCache.promptCacheKey,

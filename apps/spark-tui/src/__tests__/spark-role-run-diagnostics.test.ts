@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import type { AssistantMessage } from "@zendev-lab/spark-ai";
+import type { AssistantMessage } from "@zendev-lab/spark-llm";
 import { createSparkHeadlessRoleExecutor } from "../headless-role-executor.ts";
 import {
   createSparkCliHostServices,

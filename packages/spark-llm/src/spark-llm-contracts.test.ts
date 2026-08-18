@@ -53,14 +53,14 @@ function sampleProfile(overrides: Partial<SparkModelProfile> = {}): SparkModelPr
   };
 }
 
-test("spark-ai validates a complete SparkModelProfile", () => {
+test("spark-llm validates a complete SparkModelProfile", () => {
   const profile = sampleProfile();
 
   assert.equal(validateSparkModelProfile(profile), profile);
   assert.deepEqual(collectSparkModelProfileIssues(profile), []);
 });
 
-test("spark-ai registry stores validated profiles and rejects duplicate ids", () => {
+test("spark-llm registry stores validated profiles and rejects duplicate ids", () => {
   const registry = new SparkModelRegistry([sampleProfile()]);
 
   assert.equal(registry.size, 1);
@@ -75,14 +75,14 @@ test("spark-ai registry stores validated profiles and rejects duplicate ids", ()
   );
 });
 
-test("spark-ai rejects profiles without routes", () => {
+test("spark-llm rejects profiles without routes", () => {
   assert.throws(
     () => validateSparkModelProfile(sampleProfile({ routes: [] })),
     /profile\.routes must be a non-empty array/u,
   );
 });
 
-test("spark-ai rejects routes without a transport API", () => {
+test("spark-llm rejects routes without a transport API", () => {
   const profile = sampleProfile({
     routes: [
       {
@@ -103,7 +103,7 @@ test("spark-ai rejects routes without a transport API", () => {
   );
 });
 
-test("spark-ai rejects routes when auth pools are absent or empty", () => {
+test("spark-llm rejects routes when auth pools are absent or empty", () => {
   const profileWithoutPools = sampleProfile();
   delete profileWithoutPools.authPools;
   const missingPools = collectSparkModelProfileIssues(profileWithoutPools);
@@ -119,7 +119,7 @@ test("spark-ai rejects routes when auth pools are absent or empty", () => {
   );
 });
 
-test("spark-ai rejects duplicate route ids and unknown auth pools", () => {
+test("spark-llm rejects duplicate route ids and unknown auth pools", () => {
   const profile = sampleProfile({
     routes: [
       {
@@ -153,7 +153,7 @@ test("spark-ai rejects duplicate route ids and unknown auth pools", () => {
   );
 });
 
-test("spark-ai rejects malformed auth slots without exposing secrets", () => {
+test("spark-llm rejects malformed auth slots without exposing secrets", () => {
   const profile = sampleProfile({
     authPools: [
       {

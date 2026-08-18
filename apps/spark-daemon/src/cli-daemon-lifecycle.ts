@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { createSparkProviderControl } from "@zendev-lab/spark-ai/control";
+import { createSparkProviderControl } from "@zendev-lab/spark-llm/control";
+import { createSparkLlmComposition } from "@zendev-lab/spark-extension/llm-runtime";
 import { createId } from "@zendev-lab/spark-protocol";
 import {
   resolveSparkPaths,
@@ -401,92 +402,97 @@ export async function start(
       ...(respondHumanInteraction ? { respondHumanInteraction } : {}),
     });
   try {
-    console.error("[spark-daemon] unifying session transcripts");
-    const transcriptMigration = await unifyDaemonSessionTranscripts({
-      registry: sessionRegistry,
-      transcriptSparkHome: paths.sessionRuntimeDir ?? join(paths.dataDir, "pi-agent"),
-      backupRoot: join(
-        paths.dataDir,
-        "backups",
-        "session-transcript-unification",
-        new Date().toISOString().replaceAll(":", "-"),
-      ),
-      apply: true,
-    });
-    const migratedSessions = transcriptMigration.sessions.filter((session) => session.changed);
-    if (migratedSessions.length > 0) {
-      console.error(
-        `[spark-daemon] unified ${migratedSessions.length} session transcripts; backup: ${transcriptMigration.backupRoot}`,
-      );
-    }
-    console.error("[spark-daemon] starting runtime admission and local RPC");
-    await startSparkDaemon({
-      paths,
-      ...(process.env.SPARK_HOME?.trim() ? { sparkHome: process.env.SPARK_HOME.trim() } : {}),
-      config,
-      db,
-      signal: shutdown.signal,
-      drainSignal: lifecycle.drainSignal,
-      restartSignal: lifecycle.restartSignal,
-      localEventSink: (event) => localEventBus.publish(event),
-      invocationRegistry,
-      humanWaits,
-      sessionRegistry,
-      modelControl,
-      uplinkControl,
-      managePidFile: false,
-      beforeAdmission: executionRuntimePreload,
-      skipWorkspaceAdministratorEnsure: true,
-      onDrainProgress: (progress) => {
-        drainProgress = progress;
-      },
-      onReady: async (runtime) => {
-        channelIngress = runtime.channelIngress;
-        respondHumanInteraction = runtime.respondHumanInteraction;
-        flushHumanRequestOutbox = runtime.flushHumanRequestOutbox;
-        processInvocationQueue = runtime.processInvocationQueue;
-        sessionSupervisor = runtime.sessionSupervisor;
-        // Bind status/stop while startup admission remains closed. Binding a
-        // socket is not successor readiness: the Claimed fence remains active
-        // until every daemon admission loop is live below.
-        console.error("[spark-daemon] binding local RPC socket");
-        localRpc = await startLocalControl();
-        console.error(`[spark-daemon] local RPC listening on ${localRpc.socketPath}`);
-      },
-      onServing: () => {
-        // Admission loops are live before this synchronous callback. Publish
-        // running first, then complete the exact restart fence in the same
-        // event-loop turn. If an explicit stop won the durable CAS, roll the
-        // unobservable lifecycle transition back and shut this successor down.
-        lifecycle.activate();
-        console.error("[spark-daemon] serving; restart fence completed when applicable");
-        if (!completeSparkDaemonRestartSuccessor(paths, lifecycle.processIdentity)) {
+    const llmComposition = await createSparkLlmComposition();
+    try {
+      console.error("[spark-daemon] unifying session transcripts");
+      const transcriptMigration = await unifyDaemonSessionTranscripts({
+        registry: sessionRegistry,
+        transcriptSparkHome: paths.sessionRuntimeDir ?? join(paths.dataDir, "pi-agent"),
+        backupRoot: join(
+          paths.dataDir,
+          "backups",
+          "session-transcript-unification",
+          new Date().toISOString().replaceAll(":", "-"),
+        ),
+        apply: true,
+      });
+      const migratedSessions = transcriptMigration.sessions.filter((session) => session.changed);
+      if (migratedSessions.length > 0) {
+        console.error(
+          `[spark-daemon] unified ${migratedSessions.length} session transcripts; backup: ${transcriptMigration.backupRoot}`,
+        );
+      }
+      console.error("[spark-daemon] starting runtime admission and local RPC");
+      await startSparkDaemon({
+        paths,
+        ...(process.env.SPARK_HOME?.trim() ? { sparkHome: process.env.SPARK_HOME.trim() } : {}),
+        config,
+        db,
+        signal: shutdown.signal,
+        drainSignal: lifecycle.drainSignal,
+        restartSignal: lifecycle.restartSignal,
+        localEventSink: (event) => localEventBus.publish(event),
+        invocationRegistry,
+        humanWaits,
+        sessionRegistry,
+        modelControl,
+        uplinkControl,
+        managePidFile: false,
+        beforeAdmission: executionRuntimePreload,
+        skipWorkspaceAdministratorEnsure: true,
+        onDrainProgress: (progress) => {
+          drainProgress = progress;
+        },
+        onReady: async (runtime) => {
+          channelIngress = runtime.channelIngress;
+          respondHumanInteraction = runtime.respondHumanInteraction;
+          flushHumanRequestOutbox = runtime.flushHumanRequestOutbox;
+          processInvocationQueue = runtime.processInvocationQueue;
+          sessionSupervisor = runtime.sessionSupervisor;
+          // Bind status/stop while startup admission remains closed. Binding a
+          // socket is not successor readiness: the Claimed fence remains active
+          // until every daemon admission loop is live below.
+          console.error("[spark-daemon] binding local RPC socket");
+          localRpc = await startLocalControl();
+          console.error(`[spark-daemon] local RPC listening on ${localRpc.socketPath}`);
+        },
+        onServing: () => {
+          // Admission loops are live before this synchronous callback. Publish
+          // running first, then complete the exact restart fence in the same
+          // event-loop turn. If an explicit stop won the durable CAS, roll the
+          // unobservable lifecycle transition back and shut this successor down.
+          lifecycle.activate();
+          console.error("[spark-daemon] serving; restart fence completed when applicable");
+          if (!completeSparkDaemonRestartSuccessor(paths, lifecycle.processIdentity)) {
+            clearSparkDaemonStartMarker(paths);
+            lifecycle.deactivate();
+            stopRequested = true;
+            stopIntent.abort(new Error("Spark daemon restart was cancelled before readiness."));
+            shutdown.abort();
+            return;
+          }
           clearSparkDaemonStartMarker(paths);
-          lifecycle.deactivate();
-          stopRequested = true;
-          stopIntent.abort(new Error("Spark daemon restart was cancelled before readiness."));
-          shutdown.abort();
-          return;
-        }
-        clearSparkDaemonStartMarker(paths);
-        stopBuildWatcher = watchSparkDaemonBuild({
-          entrypoint: deployedEntrypoint,
-          initialFingerprint: runningBuildFingerprint,
-          onChange: async ({ previousFingerprint, nextFingerprint }) => {
-            console.error(
-              `[spark-daemon] deployed build changed (${previousFingerprint.slice(0, 15)} -> ${nextFingerprint.slice(0, 15)}); requesting a safe drain restart`,
-            );
-            await requestSafeRestart(nextFingerprint);
-          },
-          onError: (error) => buildWatchErrors.report(error),
-        });
-      },
-    });
-    return sparkDaemonServiceExitCode({
-      managed: options.managed,
-      restartRequested: lifecycle.restartRequested,
-      stopRequested,
-    });
+          stopBuildWatcher = watchSparkDaemonBuild({
+            entrypoint: deployedEntrypoint,
+            initialFingerprint: runningBuildFingerprint,
+            onChange: async ({ previousFingerprint, nextFingerprint }) => {
+              console.error(
+                `[spark-daemon] deployed build changed (${previousFingerprint.slice(0, 15)} -> ${nextFingerprint.slice(0, 15)}); requesting a safe drain restart`,
+              );
+              await requestSafeRestart(nextFingerprint);
+            },
+            onError: (error) => buildWatchErrors.report(error),
+          });
+        },
+      });
+      return sparkDaemonServiceExitCode({
+        managed: options.managed,
+        restartRequested: lifecycle.restartRequested,
+        stopRequested,
+      });
+    } finally {
+      await llmComposition.dispose();
+    }
   } finally {
     stopBuildWatcher?.();
     clearInterval(logRotationTimer);

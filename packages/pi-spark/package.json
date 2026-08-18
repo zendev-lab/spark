@@ -20,7 +20,7 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "@zendev-lab/spark-ai": "workspace:^",
+    "@zendev-lab/spark-llm": "workspace:^",
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-ask": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",

@@ -1,8 +1,8 @@
 {
-  "name": "@zendev-lab/spark-ai",
+  "name": "@zendev-lab/spark-llm",
   "version": "0.4.0",
   "private": true,
-  "description": "Spark AI plumbing: model-routing contracts, materialization helpers, provider registry compatibility, and bundled provider plugins over @earendil-works/pi-ai.",
+  "description": "Spark LLM provider owner: model routing, auth/catalog, and bundled LlmAdapter implementations for pi-ai, Baidu OneAPI, and OpenAI Codex.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [
@@ -23,6 +23,12 @@
     "test": "vp test run"
   },
   "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-attachment": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-brand": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-invariants": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-timeout": "0.1.0-rc.7",
     "@earendil-works/pi-ai": "^0.84.0",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-retry": "workspace:^",
