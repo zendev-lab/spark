@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { TaskGraph } from "@zendev-lab/spark-tasks";
-import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
+import { resolveSessionClaimedTask, sparkTaskClaimSessionKey } from "./task-claim-selection.ts";
 
 function executionReadyPlan(subject: string) {
   return {
@@ -59,6 +59,16 @@ function claimedGraph() {
 }
 
 describe("claimed task selection", () => {
+  it("uses the execution Session when durable state belongs to a parent Session", () => {
+    expect(
+      sparkTaskClaimSessionKey({
+        sessionId: "session:state-owner",
+        executionSessionId: "session:lane-worker",
+      }),
+    ).toBe("session:lane-worker");
+    expect(sparkTaskClaimSessionKey({ sessionId: "session:ordinary" })).toBe("session:ordinary");
+  });
+
   it("prefers exact ref, name, and title over prefix matching", () => {
     const { graph, project, sessionKey, alpha, beta } = claimedGraph();
 

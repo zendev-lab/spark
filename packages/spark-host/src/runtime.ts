@@ -653,6 +653,7 @@ export class SparkHostRuntime implements SparkHostAPI {
       // A caller may supply the execution/view Session as part of a turn-local
       // context. Durable tools must nevertheless remain bound to the explicit
       // state owner selected when this host was created.
+      ...(this.sessionId ? { executionSessionId: this.sessionId } : {}),
       ...(this.stateBindingSessionId ? { sessionId: this.stateBindingSessionId } : {}),
     };
   }

@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import type { Task, TaskClaim } from "@zendev-lab/spark-core";
 import { defaultTaskGraphStore, isUnfinishedTaskStatus } from "@zendev-lab/spark-tasks";
-import { currentSparkProject, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
+import { currentSparkProject, sparkStateCwd } from "./session-state.ts";
 import { normalizeOptionalToolString } from "./task-plan-tool.ts";
 import { isClaimOwnedBySession } from "./task-ownership.ts";
 import {
@@ -11,6 +11,7 @@ import {
 } from "./spark-task-claim-daemon-client.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 import { releaseProjectionIssue } from "./task-tool-contracts.ts";
+import { sparkTaskClaimSessionKey } from "./task-claim-selection.ts";
 
 interface SparkReleaseTaskClaimToolDependencies {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
@@ -90,7 +91,7 @@ async function executeSparkReleaseTaskClaim(
   },
 ) {
   const input = normalizeSparkReleaseTaskClaimInput(params);
-  const sessionKey = sparkSessionKey(ctx);
+  const sessionKey = sparkTaskClaimSessionKey(ctx);
   const stateCwd = sparkStateCwd(ctx.cwd, ctx);
   const store = defaultTaskGraphStore(stateCwd, ctx);
   const graph = await store.load();

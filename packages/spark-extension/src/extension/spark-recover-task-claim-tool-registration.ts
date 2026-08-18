@@ -2,7 +2,7 @@ import { Type } from "typebox";
 import type { Task } from "@zendev-lab/spark-core";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { activeSparkRoleRunProcessesForCwd } from "./background-runs.ts";
-import { currentSparkProject, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
+import { currentSparkProject, sparkStateCwd } from "./session-state.ts";
 import { defaultSparkWorkflowRunStore } from "./spark-workflow-run-store.ts";
 import { taskClaimSummary } from "./task-display.ts";
 import { compactTaskDetail, normalizeOptionalToolString } from "./task-plan-tool.ts";
@@ -17,6 +17,7 @@ import {
   type SparkTaskClaimDaemonClient,
 } from "./spark-task-claim-daemon-client.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
+import { sparkTaskClaimSessionKey } from "./task-claim-selection.ts";
 
 interface SparkRecoverTaskClaimToolDependencies {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
@@ -55,7 +56,7 @@ export function registerSparkRecoverTaskClaimTool(
       const store = defaultTaskGraphStore(stateCwd, ctx);
       const workflowRunStatus = await defaultSparkWorkflowRunStore(stateCwd, ctx).status();
       const activeRoleRunProcesses = activeSparkRoleRunProcessesForCwd(cwd);
-      const sessionKey = sparkSessionKey(ctx);
+      const sessionKey = sparkTaskClaimSessionKey(ctx);
       const graph = await store.load();
       const result = await (async () => {
         if (!graph) return { error: "no_project" as const };

@@ -24,15 +24,14 @@ import {
   normalizeTaskStatus,
   taskKindDescription,
 } from "./task-plan-tool.ts";
-import {
-  currentSparkProject,
-  saveCurrentProjectRef,
-  sparkSessionKey,
-  sparkStateCwd,
-} from "./session-state.ts";
+import { currentSparkProject, saveCurrentProjectRef, sparkStateCwd } from "./session-state.ts";
 import { defaultSparkWorkflowRunStore } from "./spark-workflow-run-store.ts";
 import { isGenericInitialTaskTitle } from "./spark-graph-invariants.ts";
-import { findActiveSessionClaim, resolveSessionClaimedTask } from "./task-claim-selection.ts";
+import {
+  findActiveSessionClaim,
+  resolveSessionClaimedTask,
+  sparkTaskClaimSessionKey,
+} from "./task-claim-selection.ts";
 import { taskClaimSummary } from "./task-display.ts";
 import { syncTaskPlanItemsFromPlan, taskPlanItemTitles } from "./task-plan-items.ts";
 import { isClaimOwnedBySession, taskClaimedBy } from "./task-ownership.ts";
@@ -143,7 +142,7 @@ export function registerSparkClaimTaskTool(
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const sessionKey = sparkSessionKey(ctx);
+      const sessionKey = sparkTaskClaimSessionKey(ctx);
       if (sessionKey === "session:ephemeral")
         return {
           content: [

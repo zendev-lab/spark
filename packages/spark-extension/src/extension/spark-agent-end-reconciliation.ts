@@ -6,7 +6,6 @@ import {
   currentSparkProject,
   loadSparkGraph,
   loadSparkMode,
-  sparkSessionKey,
   sparkSessionOwnerKey,
 } from "./session-state.ts";
 import type { SparkModeMessageApi } from "./spark-mode-entry.ts";
@@ -14,7 +13,7 @@ import { loadSessionGoal } from "./spark-session-goals.ts";
 import { loadSessionLoop } from "./spark-session-loops.ts";
 import { readSessionRepro } from "./spark-session-repro.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
-import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
+import { resolveSessionClaimedTask, sparkTaskClaimSessionKey } from "./task-claim-selection.ts";
 
 const MAX_RENDERED_TODOS = 20;
 const MAX_TODO_CONTENT_LENGTH = 180;
@@ -140,7 +139,7 @@ async function loadImplementFrontier(ctx: SparkToolContext) {
   if (!graph) return undefined;
   const project = await currentSparkProject(ctx.cwd, ctx, graph);
   if (!project) return undefined;
-  const claimed = resolveSessionClaimedTask(graph, project.ref, sparkSessionKey(ctx));
+  const claimed = resolveSessionClaimedTask(graph, project.ref, sparkTaskClaimSessionKey(ctx));
   const running = claimed?.status === "running" ? claimed : undefined;
   const ready = graph.readyTasks(project.ref);
   if (!running && ready.length === 0) return undefined;

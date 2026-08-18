@@ -8,7 +8,6 @@ import {
   loadSparkMode,
   saveSparkGraphAndTodos,
   sparkStateCwd,
-  sparkSessionKey,
   type SparkSessionContext,
   type SparkSessionMode,
 } from "./session-state.ts";
@@ -18,6 +17,7 @@ import { renderSparkModeSystemPrompt } from "./mode/index.ts";
 import { renderBaseSystemPromptsCatalogPrompt } from "@zendev-lab/spark-roles/builtin-skills";
 import type { SparkModeEntryDeps, SparkModeMessageApi } from "./spark-mode-entry.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
+import { sparkTaskClaimSessionKey } from "./task-claim-selection.ts";
 
 interface SparkInputEvent {
   text: string;
@@ -76,7 +76,7 @@ async function renderActiveSparkContextWithLanguage(
   if (ensureSparkGraphInvariants(graph)) await saveSparkGraphAndTodos(cwd, graph, ctx, store);
   const sparkMd = await readActiveSparkMd(stateCwd);
   const project = await currentSparkProject(cwd, ctx, graph);
-  const sessionKey = sparkSessionKey(ctx);
+  const sessionKey = sparkTaskClaimSessionKey(ctx);
   const sessionGoal = await loadSessionGoal(cwd, ctx);
   const language = sparkLanguageForProject({
     project,

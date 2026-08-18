@@ -12,10 +12,10 @@ import {
   type TaskPlanItemStateInput,
   type TaskTodoOp,
 } from "@zendev-lab/spark-tasks";
-import { currentSparkProject, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
+import { currentSparkProject, sparkStateCwd } from "./session-state.ts";
 import { loadIndependentTodos, updateIndependentTodos } from "./session-todos.ts";
 import { NO_SPARK_PROJECT_FOUND_HINT } from "./spark-project-guidance.ts";
-import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
+import { resolveSessionClaimedTask, sparkTaskClaimSessionKey } from "./task-claim-selection.ts";
 import { normalizeOptionalToolString, normalizeToolStringArray } from "./task-plan-tool.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 import { SPARK_SESSION_TODO_CONTEXT_PROVIDER_ID } from "./spark-session-todo-context.ts";
@@ -201,7 +201,7 @@ export function registerSparkTodoTools(
           const task = resolveSessionClaimedTask(
             graph,
             project.ref,
-            sparkSessionKey(ctx),
+            sparkTaskClaimSessionKey(ctx),
             taskSelector,
           );
           if (!task) return { error: "no_matching_claimed_task" as const };

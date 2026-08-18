@@ -50,7 +50,10 @@ describe("SparkHostRuntime effect contract", () => {
 
     host.setSessionId("session:driver");
 
-    expect(host.makeContext({ sessionId: "session:view" }).sessionId).toBe("session:state-owner");
+    expect(host.makeContext({ sessionId: "session:view" })).toMatchObject({
+      sessionId: "session:state-owner",
+      executionSessionId: "session:driver",
+    });
   });
 
   it("fails closed without replacing or re-announcing a duplicate tool", () => {
