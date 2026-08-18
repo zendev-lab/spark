@@ -1,11 +1,6 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  resolveLegacyCockpitPaths,
-  resolveSparkHome,
-  resolveSparkPaths,
-  resolveSparkUserPaths,
-} from "./paths.js";
+import { resolveSparkHome, resolveSparkPaths, resolveSparkUserPaths } from "./paths.js";
 
 const home = "/Users/example";
 
@@ -43,18 +38,6 @@ describe("Spark path resolution", () => {
     expect(hub.cacheDir).toBe(join(home, ".cache", "spark", "hub"));
     expect(hub.stateDir).toBe(join(home, ".local", "state", "spark", "hub"));
     expect(hub.runtimeDir).toBe(join(home, ".local", "state", "spark", "hub", "run"));
-  });
-
-  it("resolves the retired Cockpit tree only for explicit migrations", () => {
-    const legacy = resolveLegacyCockpitPaths({ env: { HOME: home }, cwd: "/" });
-
-    expect(legacy.configFile).toBe(join(home, ".config", "spark", "cockpit.toml"));
-    expect(legacy.databasePath).toBe(
-      join(home, ".local", "share", "spark", "cockpit", "cockpit.sqlite"),
-    );
-    expect(legacy.cacheDir).toBe(join(home, ".cache", "spark", "cockpit"));
-    expect(legacy.stateDir).toBe(join(home, ".local", "state", "spark", "cockpit"));
-    expect(legacy.runtimeDir).toBe(join(home, ".local", "state", "spark", "cockpit", "run"));
   });
 
   it("honors every XDG directory independently", () => {

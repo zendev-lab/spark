@@ -30,11 +30,6 @@ spark hub
 
 打开命令输出的 URL。Hub Web 是控制与投影界面；持久执行仍由 Spark daemon 拥有。
 
-如果此安装之前运行过 Spark Cockpit，请先停止旧进程再启动 Hub。首次打开 Hub
-数据库时会迁移已退役的 XDG 或 `SPARK_HOME` 应用目录，包括 `cockpit.toml` 与
-`cockpit.sqlite`。检测到仍活动的旧锁或源/目标冲突时，迁移会拒绝覆盖。完整映射
-与环境变量兼容窗口见[配置与路径](/zh/reference/configuration-and-paths/)。
-
 如果页面无法加载会话数据，应分别检查两个进程：
 
 ```bash

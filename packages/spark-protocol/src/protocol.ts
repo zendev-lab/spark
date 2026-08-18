@@ -1146,7 +1146,7 @@ const sparkDaemonEventBaseSchema = z.object({
   version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),
   eventId: z.string().min(1).optional(),
   emittedAt: sparkIsoDateTimeSchema.optional(),
-  source: z.enum(["daemon", "runtime", "tui", "web", "hub", "cockpit", "test"]).default("daemon"),
+  source: z.enum(["daemon", "runtime", "tui", "web", "hub", "test"]).default("daemon"),
   workspaceId: sparkRefSchema.optional(),
   projectId: sparkRefSchema.optional(),
   sessionId: z.string().min(1).optional(),

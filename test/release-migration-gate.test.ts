@@ -89,26 +89,19 @@ test("release migration arguments support automatic and explicit published basel
   );
 });
 
-test("published Hub probe prefers the current command and falls back to the legacy command", async () => {
+test("published Hub probe requires the current spark-hub command", async () => {
   const baselineRoot = "/fixture/published";
   const currentHub = join(baselineRoot, "node_modules", ".bin", "spark-hub");
-  const legacyHub = join(baselineRoot, "node_modules", ".bin", "spark-cockpit");
 
   assert.deepEqual(
     await resolvePublishedHubProbe(baselineRoot, {
-      exists: async (path: string) => path === currentHub || path === legacyHub,
+      exists: async (path: string) => path === currentHub,
     }),
     { command: currentHub, listArgs: ["delegation", "list"] },
   );
-  assert.deepEqual(
-    await resolvePublishedHubProbe(baselineRoot, {
-      exists: async (path: string) => path === legacyHub,
-    }),
-    { command: legacyHub, listArgs: ["access", "list"] },
-  );
   await assert.rejects(
     resolvePublishedHubProbe(baselineRoot, { exists: async () => false }),
-    /neither spark-hub nor spark-cockpit/u,
+    /does not expose spark-hub/u,
   );
 });
 

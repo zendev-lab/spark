@@ -3,7 +3,6 @@ import {
   defaultDatabasePath,
   ensureHubInstanceId,
   migrate,
-  migrateLegacyCockpitLayout,
   openDatabase,
   type HubDatabaseLockHandle,
 } from "@zendev-lab/spark-hub-db";
@@ -27,13 +26,6 @@ const state = (globalScope.__sparkHubDatabaseState__ ??= {
   pinCount: 0,
   idleCloseMs: DATABASE_IDLE_CLOSE_MS,
 });
-
-/** Run the DB-owner migration before any Hub listener or process lock starts. */
-export function migrateLegacyHubLayout(
-  options: Parameters<typeof migrateLegacyCockpitLayout>[0] = {},
-): ReturnType<typeof migrateLegacyCockpitLayout> {
-  return migrateLegacyCockpitLayout(options);
-}
 
 /**
  * Nestable consumer pin. Opens the DB and acquires the sqlite lock on 0→1.

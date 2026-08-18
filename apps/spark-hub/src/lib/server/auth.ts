@@ -9,9 +9,7 @@ import type { Cookies } from "@sveltejs/kit";
 import type { DatabaseSync } from "node:sqlite";
 
 export const sessionCookieName = "spark_hub_session";
-export const legacyCockpitSessionCookieName = "spark_cockpit_session";
 export const sessionRefreshCookieName = "spark_hub_refresh";
-export const legacyCockpitSessionRefreshCookieName = "spark_cockpit_refresh";
 export const workspaceSessionCookieName = "spark_workspace_session";
 export const workspaceSessionRefreshCookieName = "spark_workspace_refresh";
 

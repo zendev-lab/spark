@@ -123,38 +123,6 @@ choosing one.
 
 ## Migration
 
-### Cockpit to Hub
-
-Opening the default Hub database first runs the Hub-owned, idempotent Cockpit
-layout migration. Stop old Cockpit and Hub processes before upgrading. The
-migration moves only the known app-owned paths:
-
-| Retired Cockpit path | Canonical Hub path |
-| --- | --- |
-| `$XDG_CONFIG_HOME/spark/cockpit.toml` | `$XDG_CONFIG_HOME/spark/hub.toml` |
-| `$XDG_DATA_HOME/spark/cockpit/cockpit.sqlite` | `$XDG_DATA_HOME/spark/hub/hub.sqlite` |
-| `$XDG_CACHE_HOME/spark/cockpit/` | `$XDG_CACHE_HOME/spark/hub/` |
-| `$XDG_STATE_HOME/spark/cockpit/` | `$XDG_STATE_HOME/spark/hub/` |
-| `$XDG_RUNTIME_DIR/spark/cockpit/` | `$XDG_RUNTIME_DIR/spark/hub/` |
-| `$SPARK_HOME/apps/cockpit/{data,cache,state,run}` | `$SPARK_HOME/apps/hub/{data,cache,state,run}` |
-
-Preflight happens before any rename. If both a source and target exist, or a
-live legacy database lock is present, startup fails without changing either
-tree. If a later rename fails, completed renames are reversed. Re-running after
-success is a no-op. The SQLite owner then renames active Hub tables and setting
-keys through migration `0022`; the stable legacy `cockpit_…` instance ID is
-preserved so registered daemons continue to recognize the same deployment.
-Legacy Cockpit snapshot-v1 manifests remain readable.
-
-Canonical configuration uses `SPARK_HUB_*`. Supported `SPARK_COCKPIT_*`
-aliases are read only for upgrade compatibility; specifying different values
-under both names fails closed. New files, environment documentation, cookies,
-tokens, snapshots, and database rows use Hub names only.
-
-Spark does **not** automatically move unrelated credentials, sessions, or
-user-authored files. Serialized marker names and paths under `.spark/` remain
-public persistence contracts and are not rewritten by the product rename.
-
 ### Memory layout
 
 Memory-related layout migration **is** automatic and idempotent via

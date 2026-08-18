@@ -514,9 +514,6 @@ describe("package-manager update transaction", () => {
         return { code: 0, stdout: JSON.stringify(testBuildInfo(installedVersion)), stderr: "" };
       }
       if (command === commandPath && args[0] === "hub") {
-        if (args[2] === "status" && installedVersion === "0.1.0") {
-          return { code: 2, stdout: "", stderr: "Unknown spark subcommand: hub" };
-        }
         if (args[2] === "status") {
           return {
             code: 0,
@@ -530,13 +527,6 @@ describe("package-manager update transaction", () => {
         if (args[2] === "stop") hubRunning = false;
         if (args[2] === "start") hubRunning = true;
         return { code: 0, stdout: JSON.stringify({ running: hubRunning }), stderr: "" };
-      }
-      if (command === commandPath && args[0] === "cockpit") {
-        return {
-          code: 0,
-          stdout: JSON.stringify({ running: hubRunning, url: "http://127.0.0.1:5173" }),
-          stderr: "",
-        };
       }
       if (command === commandPath && args[0] === "daemon") {
         return {
@@ -583,7 +573,7 @@ describe("package-manager update transaction", () => {
     );
     expect(run).toHaveBeenCalledWith(
       commandPath,
-      ["cockpit", "web", "status", "--json"],
+      ["hub", "web", "status", "--json"],
       expect.any(Object),
     );
     expect(run).toHaveBeenCalledWith(

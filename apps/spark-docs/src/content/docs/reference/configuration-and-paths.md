@@ -69,20 +69,6 @@ overflow slot. This setting controls root invocation admission. It does not
 create operating-system worker processes, and work in the same session remains
 serialized.
 
-## Cockpit-to-Hub upgrade
-
-On first use of the default Hub database, Spark automatically migrates the
-retired `cockpit.toml`, Cockpit XDG app directories, and `cockpit.sqlite` into
-the Hub paths above. Stop the old Cockpit and Hub processes before upgrading.
-The migration is idempotent and fail-closed: a live legacy database lock or an
-existing source **and** target stops startup without overwriting either tree.
-
-Copy any existing `SPARK_COCKPIT_*` values to their corresponding
-`SPARK_HUB_*` names. The old aliases are accepted during the upgrade window,
-but conflicting old and new values are rejected. Fresh state is written only
-under Hub names. Existing registered daemons keep their stable deployment ID;
-old Cockpit snapshot-v1 backups remain inspectable and restorable.
-
 ## Managed installation paths
 
 A managed installation uses the XDG data, configuration, state, and cache
