@@ -536,6 +536,15 @@ describe("Spark Repro three-lane domain", () => {
     ).toThrow("cannot replace the canonical GitChange");
   });
 
+  it("binds a Workspace Formalize integrator before any GitChange exists", () => {
+    const repro = createSparkSessionRepro("session:workspace-formalize-owner");
+    const ownership = { integratorSessionId: "session:workspace-integrator" };
+
+    const bound = bindSparkReproFormalizeOwnership(repro.threeLane, ownership);
+    expect(bound.formalize.ownership).toEqual({ ...ownership, generation: 1 });
+    expect(bindSparkReproFormalizeOwnership(bound, ownership)).toBe(bound);
+  });
+
   it("propagates a typed resolution backward and updates only the accepted formalized tip", () => {
     const repro = createSparkSessionRepro("session:resolution");
     const item = workItem(repro.plan.currentRevision);

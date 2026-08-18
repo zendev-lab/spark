@@ -268,7 +268,8 @@ export interface SparkReproThreeLaneSessionState {
     workItemIds: string[];
     formalizedTip?: string;
     ownership?: {
-      gitChangeRef: ArtifactRef;
+      /** Optional lane-created canonical GitChange; launch is Workspace-scoped. */
+      gitChangeRef?: ArtifactRef;
       integratorSessionId: string;
       generation: number;
     };
@@ -367,7 +368,7 @@ export function createSparkReproThreeLaneSessionState(
 
 export interface SparkReproWorkEnqueueOwnerFacts {
   enqueue: SparkReproWorkEnqueue;
-  /** Exact trunk or current Formalize commit resolved and frozen by the Git owner. */
+  /** Stable logical Workspace checkpoint; it may later be backed by lane-created Git evidence. */
   sourceRevision: string;
 }
 
@@ -391,7 +392,7 @@ export function enqueueSparkReproWork(
   assertNonEmpty(intent.title, "workItem.title");
   assertNonEmpty(intent.scope, "workItem.scope");
   if (!/^[a-f0-9]{40}$/u.test(input.sourceRevision)) {
-    throw new Error("sourceRevision must be a full lowercase commit SHA");
+    throw new Error("sourceRevision must be a 40-character lowercase checkpoint revision");
   }
   const evidenceRefs = (intent.evidenceRefs ?? []) as EvidenceRef[];
   validateEvidenceRefs(evidenceRefs, "workItem.evidenceRefs");
@@ -799,9 +800,9 @@ export function rematerializeSparkReproWorkItem(
 
 export function bindSparkReproFormalizeOwnership(
   state: SparkReproThreeLaneSessionState,
-  ownership: { gitChangeRef: ArtifactRef; integratorSessionId: string; generation?: number },
+  ownership: { gitChangeRef?: ArtifactRef; integratorSessionId: string; generation?: number },
 ): SparkReproThreeLaneSessionState {
-  if (!isRef(ownership.gitChangeRef, "artifact")) {
+  if (ownership.gitChangeRef && !isRef(ownership.gitChangeRef, "artifact")) {
     throw new Error("Formalize ownership requires a git_change Artifact ref");
   }
   assertNonEmpty(ownership.integratorSessionId, "integratorSessionId");
@@ -814,7 +815,10 @@ export function bindSparkReproFormalizeOwnership(
     if (normalized.generation <= state.formalize.ownership.generation) {
       throw new Error("Formalize ownership is already bound to another stack integrator");
     }
-    if (normalized.gitChangeRef !== state.formalize.ownership.gitChangeRef) {
+    if (
+      state.formalize.ownership.gitChangeRef &&
+      normalized.gitChangeRef !== state.formalize.ownership.gitChangeRef
+    ) {
       throw new Error("Formalize ownership generation cannot replace the canonical GitChange");
     }
   }
@@ -1419,7 +1423,10 @@ export function validateSparkReproThreeLaneSessionState(
   assertUnique(state.exactness.workItemIds, "exactness.workItemIds");
   assertUnique(state.formalize.workItemIds, "formalize.workItemIds");
   if (state.formalize.ownership) {
-    if (!isRef(state.formalize.ownership.gitChangeRef, "artifact")) {
+    if (
+      state.formalize.ownership.gitChangeRef &&
+      !isRef(state.formalize.ownership.gitChangeRef, "artifact")
+    ) {
       throw new Error("invalid Formalize gitChangeRef");
     }
     assertNonEmpty(state.formalize.ownership.integratorSessionId, "integratorSessionId");

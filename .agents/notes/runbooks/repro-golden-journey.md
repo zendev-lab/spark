@@ -13,31 +13,31 @@ For `/repro 复现 glm52`, Spark must:
 
 1. accept one Root command;
 2. persist one WorkItem and immediately reserve three stable child Sessions;
-3. give each lane its own writable GitChange worktree;
+3. start from a non-Git Workspace containing multiple repositories without selecting one;
 4. invoke only Implementation first;
 5. advance automatically through five accepted TaskRuns;
-6. publish one canonical Draft stack entry from Formalize;
+6. let lane agents create GitChanges or Drafts only when their concrete work needs them;
 7. deliver two forward handoffs and two ordered backward resolutions;
 8. survive Root context compaction without replaying launch or replacing a lane
    Session;
 9. survive daemon restart with no duplicate Task, TaskRun, Session, Artifact,
-   route, receipt, commit, PR, or Ask; and
+   route, receipt, agent-created commit/PR, or Ask; and
 10. route lane attention to Root, then resume the original lane Session and
-    GitChange after a direct user answer.
+    Workspace checkpoint after a direct user answer.
 
 The durable checkpoint is the Repro owner state plus TaskGraph, TaskRun,
-Evidence, Artifact, GitChange, and Ask records. Transcript messages and compact
-summaries are projections only.
+Evidence, optional lane-created Artifacts, and Ask records. Transcript messages
+and compact summaries are projections only.
 
 ## Canonical checkpoint chain
 
 ```text
 /repro <objective>
   -> persist work_enqueue intent
-  -> reserve Implementation + Exactness + Formalize Sessions/GitChanges
+  -> reserve Implementation + Exactness + Formalize Sessions in the Workspace
   -> Implementation TaskRun
   -> Exactness TaskRun
-  -> Formalize TaskRun + canonical Draft PR
+  -> Formalize TaskRun
   -> Exactness refresh TaskRun
   -> Implementation refresh TaskRun
   -> completed WorkItem
@@ -56,7 +56,8 @@ refresh_binding
 Only Formalize updates `formalizedTip`. The Exactness refresh resolution names
 the Formalize resolution, and the Implementation refresh resolution names that
 Exactness parent. Implementation and Exactness refreshes reuse their original
-Sessions and update their original GitChanges to the canonical revision.
+Sessions and accept the canonical logical revision. Any repository, GitChange,
+commit, or Draft creation remains explicit lane work rather than route behavior.
 
 ## Context compaction and continuation
 
@@ -111,15 +112,14 @@ The Journey uses real implementations for:
 - Repro v9 work items, routes, bindings, receipts, handoffs, and resolutions;
 - Ask persistence and AnswerEvent settlement;
 - Artifact and Evidence stores;
-- local Git repositories, isolated worktrees, commits, revision import, and
-  backward refresh; and
+- a non-Git Workspace containing multiple real local Git repositories without
+  launch-time selection; and
 - Root context compaction and bounded Session snapshots.
 
 Only nondeterministic external boundaries are substituted:
 
 - model streaming uses the file-backed scripted provider through the normal
-  provider registry and model-selection path; and
-- GitHub network operations use a forge shim while local Git remains real.
+  provider registry and model-selection path.
 
 The test must not use in-memory SQLite, direct store mutation to advance the
 workflow, or `vi.mock` to replace the production runtime under test. Scripted
@@ -131,12 +131,12 @@ and provenance boundaries as ordinary model output.
 The normal scenario requires:
 
 - one Root command and one WorkItem;
-- three Tasks, three stable lane Sessions, and three isolated GitChanges;
+- three Tasks and three stable lane Sessions inherited from one non-Git Workspace;
+- multiple fixture repositories remain lane-discovered rather than launch-selected;
 - five successful TaskRuns distributed as Implementation 2, Exactness 2,
   Formalize 1;
 - two forward handoffs and two backward resolutions;
-- one open Draft PR and no non-Draft PR creation;
-- all three worktrees at the accepted `formalizedTip` after refresh;
+- no launch-created GitChange, commit, or PR;
 - mid-run Root compaction followed by a status-first continuation; and
 - an idempotent final daemon restart with no durable or provider writes.
 
@@ -148,10 +148,12 @@ The attention scenario requires:
 - the same Implementation Session before attention and after resume.
 
 Focused owner tests retain responsibility for every individual crash window:
-enqueue persistence, TaskRun reservation, invocation acceptance, Formalize
-Draft submission, conflict rollback, revision refresh, rejected-then-corrected
-results, and zero-write repeated reconciliation. The process Journey proves the
-owners compose through real process replacement and compaction.
+enqueue persistence, TaskRun reservation, invocation acceptance,
+rejected-then-corrected results, and zero-write repeated reconciliation. Git
+materialization and Draft publication are tested by the Artifact owner and by
+lane workflows that actually request them; they are not Repro launch windows.
+The process Journey proves the owners compose through real process replacement
+and compaction.
 
 ## Running the proof
 
@@ -161,7 +163,7 @@ pnpm run test:journey:repro
 
 The lane builds the real Hub adapter-node output, creates isolated `HOME`,
 `SPARK_HOME`, XDG state, daemon/Hub databases and sockets, provider and forge
-ledgers, and a fixture Git repository. It needs the cue-shell runtime declared by
+ledgers, and a non-Git fixture Workspace with multiple Git repositories. It needs the cue-shell runtime declared by
 the Journey configuration. On failure the fixture path is printed and retained
 for inspection; successful runs remove it.
 

@@ -1,13 +1,12 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 import {
   defaultEvidenceStore,
-  defaultArtifactStore,
-  GitLifecycleError,
   type AskRef,
-  type ArtifactRef,
   type EvidenceRef,
   type JsonValue,
 } from "@zendev-lab/spark-artifacts";
@@ -41,9 +40,9 @@ import {
 } from "./spark-repro-lane-runtime.ts";
 
 const roots: string[] = [];
-const SOURCE_REVISION = "1111111111111111111111111111111111111111";
 const CANDIDATE_REVISION = "2222222222222222222222222222222222222222";
 const CANONICAL_REVISION = "3333333333333333333333333333333333333333";
+const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -60,9 +59,6 @@ describe("Repro three-lane runtime launch", () => {
         ownerSessionId: "sess_root",
         repro: fixture.repro,
         deps: {
-          resolveSourceRevision: async () => SOURCE_REVISION,
-          repositoryIdentity: async () => "acme/glm52",
-          ensureInitialArtifacts: fixture.ensureInitialArtifacts,
           reserve: fixture.reserve,
           dispatch: fixture.dispatch,
           persist: async (repro) => {
@@ -85,7 +81,7 @@ describe("Repro three-lane runtime launch", () => {
     expect(fixture.sessions).toHaveLength(3);
   });
 
-  it("opens three stable child Sessions, invokes only Implementation, and replays with zero duplicates", async () => {
+  it("opens three stable child Sessions from a non-Git Workspace containing multiple repositories", async () => {
     const fixture = await runtimeFixture();
     const persisted: SparkSessionRepro[] = [];
     const first = await launchSparkReproThreeLaneRuntime({
@@ -94,9 +90,6 @@ describe("Repro three-lane runtime launch", () => {
       ownerSessionId: "sess_root",
       repro: fixture.repro,
       deps: {
-        resolveSourceRevision: async () => SOURCE_REVISION,
-        repositoryIdentity: async () => "acme/glm52",
-        ensureInitialArtifacts: fixture.ensureInitialArtifacts,
         reserve: fixture.reserve,
         dispatch: fixture.dispatch,
         persist: async (repro) => {
@@ -106,6 +99,7 @@ describe("Repro three-lane runtime launch", () => {
     });
 
     expect(Object.values(first.lanes).map((lane) => lane.sessionId)).toHaveLength(3);
+    expect(fixture.repositories).toHaveLength(2);
     expect(new Set(Object.values(first.lanes).map((lane) => lane.sessionId)).size).toBe(3);
     expect(fixture.invocations).toHaveLength(1);
     expect(fixture.invocations[0]?.prompt).toContain("lane=implementation");
@@ -130,11 +124,6 @@ describe("Repro three-lane runtime launch", () => {
       ownerSessionId: "sess_root",
       repro: first.repro,
       deps: {
-        resolveSourceRevision: async () => {
-          throw new Error("an existing WorkItem must retain its frozen source revision");
-        },
-        repositoryIdentity: async () => "acme/glm52",
-        ensureInitialArtifacts: fixture.ensureInitialArtifacts,
         reserve: fixture.reserve,
         dispatch: fixture.dispatch,
         persist: async (repro) => {
@@ -145,20 +134,15 @@ describe("Repro three-lane runtime launch", () => {
     const graphAfterReplay = await defaultTaskGraphStore(fixture.stateCwd).load();
     expect(graphAfterReplay?.tasks(fixture.projectRef)).toHaveLength(3);
     for (const task of graphAfterReplay?.tasks(fixture.projectRef) ?? []) {
-      expect(task.artifactRefs).toHaveLength(1);
+      expect(task.artifactRefs).toEqual([]);
       expect(task.executionPolicy?.completionGate).toBe("task_evidence");
       expect(task.executionPolicy?.sessionRetention).toBe("owner_terminal");
-      expect(task.executionPolicy?.worktreeTarget?.primaryArtifactRef).toMatch(/^artifact:/u);
+      expect(task.executionPolicy?.isolation).toBe("workspace");
+      expect(task.executionPolicy?.worktreeTarget).toBeUndefined();
     }
     expect(graphAfterReplay?.runs(fixture.projectRef)).toHaveLength(3);
     expect(fixture.sessions).toHaveLength(3);
-    expect(fixture.sessionTargets).toEqual(
-      expect.arrayContaining([
-        fixture.artifactRefs.implementation,
-        fixture.artifactRefs.exactness,
-        fixture.artifactRefs.formalize,
-      ]),
-    );
+    expect(fixture.sessionTargets).toEqual([undefined, undefined, undefined]);
     expect(fixture.invocations).toHaveLength(1);
     expect(replay.lanes).toEqual(first.lanes);
   });
@@ -174,9 +158,6 @@ describe("Repro three-lane runtime launch", () => {
         ownerSessionId: "sess_root",
         repro: checkpoint,
         deps: {
-          resolveSourceRevision: async () => SOURCE_REVISION,
-          repositoryIdentity: async () => "acme/glm52",
-          ensureInitialArtifacts: fixture.ensureInitialArtifacts,
           reserve: async (input) => {
             const records = await fixture.reserve(input);
             if (failOnce) {
@@ -202,9 +183,6 @@ describe("Repro three-lane runtime launch", () => {
       ownerSessionId: "sess_root",
       repro: checkpoint,
       deps: {
-        resolveSourceRevision: async () => SOURCE_REVISION,
-        repositoryIdentity: async () => "acme/glm52",
-        ensureInitialArtifacts: fixture.ensureInitialArtifacts,
         reserve: fixture.reserve,
         dispatch: fixture.dispatch,
         persist: async (repro) => {
@@ -231,9 +209,6 @@ describe("Repro three-lane runtime launch", () => {
         ownerSessionId: "sess_root",
         repro: checkpoint,
         deps: {
-          resolveSourceRevision: async () => SOURCE_REVISION,
-          repositoryIdentity: async () => "acme/glm52",
-          ensureInitialArtifacts: fixture.ensureInitialArtifacts,
           reserve: fixture.reserve,
           dispatch: async (input) => {
             const records = await fixture.dispatch(input);
@@ -261,9 +236,6 @@ describe("Repro three-lane runtime launch", () => {
       ownerSessionId: "sess_root",
       repro: checkpoint,
       deps: {
-        resolveSourceRevision: async () => SOURCE_REVISION,
-        repositoryIdentity: async () => "acme/glm52",
-        ensureInitialArtifacts: fixture.ensureInitialArtifacts,
         reserve: fixture.reserve,
         dispatch: fixture.dispatch,
         persist: async (repro) => {
@@ -558,208 +530,11 @@ describe("Repro three-lane runtime launch", () => {
     expect(JSON.stringify(await defaultTaskGraphStore(fixture.stateCwd).load())).toBe(graphBefore);
   });
 
-  it("checkpoints a rolled-back Git conflict and resumes the revision-producing lane", async () => {
-    const fixture = await runtimeFixture();
-    const topology = await launchFixture(fixture);
-    const binding = topology.repro.threeLane.bindings.find(
-      (candidate) => candidate.lane === "implementation",
-    );
-    if (!binding?.originRouteId) throw new Error("implementation binding is missing");
-    const carrierRef = "evidence:implementation-before-conflict" as EvidenceRef;
-    await putLaneEvidence(fixture, {
-      evidenceRef: carrierRef,
-      runRef: topology.lanes.implementation.runRef,
-      taskRef: topology.lanes.implementation.taskRef,
-      body: implementationResult(topology, {
-        originRouteId: binding.originRouteId,
-        bindingRevision: binding.bindingRevision,
-      }),
-    });
-    await finishRun(fixture, topology.lanes.implementation.runRef, [carrierRef]);
-
-    const reconciled = await reconcileSparkReproThreeLaneRuntime({
-      cwd: fixture.cwd,
-      ctx: fixture.ctx,
-      ownerSessionId: "sess_root",
-      repro: topology.repro,
-      deps: {
-        ...runtimeReconcileDeps(fixture),
-        prepareRouteRevision: async ({ route }) => {
-          if (route.action === "materialize_binding") {
-            throw new GitLifecycleError(
-              "materialization_conflict",
-              "simulated cherry-pick conflict after clean rollback",
-            );
-          }
-        },
-      },
-    });
-
-    const failed = reconciled.threeLane.routes.find(
-      (route) => route.action === "materialize_binding",
-    );
-    const repair = reconciled.threeLane.routes.find(
-      (route) => route.action === "resume_binding" && route.cause.kind === "repair",
-    );
-    expect(failed?.status).toBe("acknowledged");
-    expect(repair).toMatchObject({
-      fromLane: "implementation",
-      toLane: "implementation",
-      status: "acknowledged",
-      cause: { kind: "repair", id: failed?.routeId },
-    });
-    const repairedBinding = reconciled.threeLane.bindings.find(
-      (candidate) => candidate.lane === "implementation",
-    );
-    expect(repairedBinding).toMatchObject({
-      bindingRevision: 2,
-      originRouteId: repair?.routeId,
-      taskRef: topology.lanes.implementation.taskRef,
-    });
-    expect(fixture.invocations).toHaveLength(2);
-    expect(fixture.invocations[1]?.sessionId).toBe(topology.lanes.implementation.sessionId);
-    expect(fixture.invocations[1]?.prompt).toContain("repairEvidenceRef=evidence:");
-    expect(fixture.invocations[1]?.prompt).toContain(`failedRouteId=${failed?.routeId}`);
-    if (!repair?.cause.evidenceRef) throw new Error("repair Evidence is missing");
-    const evidence = await defaultEvidenceStore(fixture.stateCwd).get(repair.cause.evidenceRef);
-    expect(evidence).toMatchObject({
-      format: "json",
-      provenance: {
-        producer: "spark",
-        taskRef: topology.lanes.implementation.taskRef,
-      },
-      body: {
-        schema: "spark.repro.git-repair/v1",
-        failedRouteId: failed?.routeId,
-        repairLane: "implementation",
-        error: { code: "materialization_conflict" },
-      },
-    });
-    expect(evidence.links).toContainEqual({
-      from: evidence.ref,
-      to: topology.lanes.implementation.taskRef,
-      relation: "input",
-    });
-  });
-
-  it("recovers a crash after Formalize Draft submission from the GitChange checkpoint", async () => {
-    const fixture = await runtimeFixture();
-    const topology = await launchFixture(fixture);
-    const artifactRef = topology.lanes.formalize.artifactRef;
-    await defaultArtifactStore(fixture.stateCwd).put({
-      ref: artifactRef,
-      kind: "git_change",
-      title: "GLM-5.2 Formalize",
-      format: "json",
-      body: {
-        schemaVersion: 2,
-        kind: "git_change",
-        repository: { forge: "github", repo: "acme/glm52" },
-        trunk: "main",
-        worktree: {
-          path: join(fixture.cwd, "formalize"),
-          branch: "spark/repro-glm52-formalize",
-          ownership: "spark",
-          status: "attached",
-        },
-        stack: {
-          authority: "gh-stack",
-          currentBranch: "spark/repro-glm52-formalize",
-          entries: [
-            {
-              branch: "spark/repro-glm52-formalize",
-              base: SOURCE_REVISION,
-              isCurrent: true,
-              isMerged: false,
-              isQueued: false,
-              needsRebase: false,
-            },
-          ],
-        },
-        lifecycle: "local",
-      },
-    });
-    const repro = {
-      ...topology.repro,
-      threeLane: {
-        ...topology.repro.threeLane,
-        formalize: {
-          ...topology.repro.threeLane.formalize,
-          formalizedTip: "3333333333333333333333333333333333333333",
-        },
-      },
-    };
-    let submitCalls = 0;
-    const submitFormalizeDraft = async () => {
-      submitCalls += 1;
-      const store = defaultArtifactStore(fixture.stateCwd);
-      const artifact = await store.get(artifactRef);
-      if (artifact.kind !== "git_change" || artifact.body.kind !== "git_change") {
-        throw new Error("Formalize artifact is invalid");
-      }
-      await store.update(artifactRef, {
-        body: {
-          ...artifact.body,
-          lifecycle: "published",
-          stack: {
-            ...artifact.body.stack,
-            entries: artifact.body.stack.entries.map((entry) => ({
-              ...entry,
-              pullRequest: {
-                forge: "github",
-                repo: "acme/glm52",
-                number: 1,
-                url: "https://example.test/acme/glm52/pull/1",
-                state: "OPEN",
-                title: "GLM-5.2 Formalize",
-                headRef: entry.branch,
-                baseRef: "main",
-                draft: true,
-              },
-            })),
-          },
-        },
-      });
-      throw new Error("simulated crash after Draft submission");
-    };
-
-    await expect(
-      reconcileSparkReproThreeLaneRuntime({
-        cwd: fixture.cwd,
-        ctx: fixture.ctx,
-        ownerSessionId: "sess_root",
-        repro,
-        deps: { ...runtimeReconcileDeps(fixture), submitFormalizeDraft },
-      }),
-    ).rejects.toThrow("simulated crash after Draft submission");
-    await expect(
-      reconcileSparkReproThreeLaneRuntime({
-        cwd: fixture.cwd,
-        ctx: fixture.ctx,
-        ownerSessionId: "sess_root",
-        repro,
-        deps: { ...runtimeReconcileDeps(fixture), submitFormalizeDraft },
-      }),
-    ).resolves.toBe(repro);
-    expect(submitCalls).toBe(1);
-    expect((await defaultArtifactStore(fixture.stateCwd).get(artifactRef)).body).toMatchObject({
-      lifecycle: "published",
-      stack: { entries: [{ pullRequest: { draft: true } }] },
-    });
-  });
-
   it("completes five ordered runs while reusing the three original lane Sessions", async () => {
     const fixture = await runtimeFixture();
     const topology = await launchFixture(fixture);
     let repro = topology.repro;
-    let draftSubmissions = 0;
-    const deps = {
-      ...runtimeReconcileDeps(fixture),
-      submitFormalizeDraft: async () => {
-        draftSubmissions += 1;
-        await markArtifactDraft(fixture, topology.lanes.formalize.artifactRef);
-      },
-    };
+    const deps = runtimeReconcileDeps(fixture);
 
     repro = await recordAndReconcileLaneResult(fixture, topology, repro, "implementation", {
       kind: "implementation_candidate",
@@ -798,8 +573,6 @@ describe("Repro three-lane runtime launch", () => {
       },
       deps,
     );
-    expect(draftSubmissions).toBe(1);
-
     repro = await recordAndReconcileLaneResult(
       fixture,
       topology,
@@ -952,9 +725,8 @@ describe("Repro three-lane runtime launch", () => {
       topology.workItemId,
       "implementation",
     );
-    expect(fixture.invocations.at(-1)?.prompt).toContain(
-      `gitChangeRef=${implementationBinding?.gitChangeRef}`,
-    );
+    expect(implementationBinding?.gitChangeRef).toBeUndefined();
+    expect(fixture.invocations.at(-1)?.prompt).not.toContain("gitChangeRef=");
   });
 });
 
@@ -967,9 +739,6 @@ async function launchFixture(
     ownerSessionId: "sess_root",
     repro: fixture.repro,
     deps: {
-      resolveSourceRevision: async () => SOURCE_REVISION,
-      repositoryIdentity: async () => "acme/glm52",
-      ensureInitialArtifacts: fixture.ensureInitialArtifacts,
       reserve: fixture.reserve,
       dispatch: fixture.dispatch,
       persist: async () => {},
@@ -979,7 +748,6 @@ async function launchFixture(
 
 function runtimeReconcileDeps(fixture: Awaited<ReturnType<typeof runtimeFixture>>) {
   return {
-    repositoryIdentity: async () => "acme/glm52",
     dispatch: fixture.dispatch,
     ensureAttentionWakeLoop: async (input: {
       stateCwd: string;
@@ -992,7 +760,6 @@ function runtimeReconcileDeps(fixture: Awaited<ReturnType<typeof runtimeFixture>
         reproId: input.repro.reproId,
       });
     },
-    prepareRouteRevision: async () => {},
     persist: async () => {},
   };
 }
@@ -1070,40 +837,6 @@ async function recordAndReconcileLaneResult(
   });
 }
 
-async function markArtifactDraft(
-  fixture: Awaited<ReturnType<typeof runtimeFixture>>,
-  artifactRef: ArtifactRef,
-): Promise<void> {
-  const store = defaultArtifactStore(fixture.stateCwd);
-  const artifact = await store.get(artifactRef);
-  if (artifact.kind !== "git_change" || artifact.body.kind !== "git_change") {
-    throw new Error(`${artifactRef} is not a GitChange`);
-  }
-  await store.update(artifactRef, {
-    body: {
-      ...artifact.body,
-      lifecycle: "published",
-      stack: {
-        ...artifact.body.stack,
-        entries: artifact.body.stack.entries.map((entry) => ({
-          ...entry,
-          pullRequest: {
-            forge: "github",
-            repo: "acme/glm52",
-            number: 1,
-            url: "https://example.test/acme/glm52/pull/1",
-            state: "OPEN",
-            title: "GLM-5.2 Formalize",
-            headRef: entry.branch,
-            baseRef: "main",
-            draft: true,
-          },
-        })),
-      },
-    },
-  });
-}
-
 async function putLaneEvidence(
   fixture: Awaited<ReturnType<typeof runtimeFixture>>,
   input: {
@@ -1153,6 +886,13 @@ async function runtimeFixture() {
   registerSparkReproRoles();
   const cwd = await mkdtemp(join(tmpdir(), "spark-repro-lane-runtime-"));
   roots.push(cwd);
+  const repositories = [join(cwd, "repos", "reference"), join(cwd, "repos", "target")];
+  await Promise.all(repositories.map((repository) => mkdir(repository, { recursive: true })));
+  await Promise.all(
+    repositories.map((repository) =>
+      execFileAsync("git", ["init", "-b", "main"], { cwd: repository }),
+    ),
+  );
   const interactions: ExtensionInteractionRequest[] = [];
   const attentionWakeLoops: Array<{
     stateCwd: string;
@@ -1233,56 +973,11 @@ async function runtimeFixture() {
     reserveManagedTaskSessions({ ...input, daemonRequest });
   const dispatch: typeof dispatchManagedTaskSessions = (input) =>
     dispatchManagedTaskSessions({ ...input, daemonRequest });
-  const artifactRefs = {
-    implementation: "artifact:glm52-implementation" as ArtifactRef,
-    exactness: "artifact:glm52-exactness" as ArtifactRef,
-    formalize: "artifact:glm52-formalize" as ArtifactRef,
-  };
-  const ensureInitialArtifacts = async () => {
-    const store = defaultArtifactStore(stateCwd);
-    for (const lane of ["implementation", "exactness", "formalize"] as const) {
-      const worktreePath = join(cwd, lane);
-      await mkdir(worktreePath, { recursive: true });
-      await store.put({
-        ref: artifactRefs[lane],
-        kind: "git_change",
-        title: `GLM-5.2 ${lane}`,
-        format: "json",
-        body: {
-          schemaVersion: 2,
-          kind: "git_change",
-          repository: { forge: "github", repo: "acme/glm52" },
-          trunk: "main",
-          worktree: {
-            path: worktreePath,
-            branch: `spark/repro-glm52-${lane}`,
-            ownership: "spark",
-            status: "attached",
-          },
-          stack: {
-            authority: "gh-stack",
-            currentBranch: `spark/repro-glm52-${lane}`,
-            entries: [
-              {
-                branch: `spark/repro-glm52-${lane}`,
-                base: SOURCE_REVISION,
-                isCurrent: true,
-                isMerged: false,
-                isQueued: false,
-                needsRebase: false,
-              },
-            ],
-          },
-          lifecycle: "local",
-        },
-      });
-    }
-    return artifactRefs;
-  };
   return {
     cwd,
     ctx,
     stateCwd,
+    repositories,
     repro,
     projectRef: project.ref,
     invocations,
@@ -1294,8 +989,6 @@ async function runtimeFixture() {
     get sessionTargets() {
       return [...sessionInputs.values()].map((input) => input.cwdArtifactRef);
     },
-    artifactRefs,
-    ensureInitialArtifacts,
     reserve,
     dispatch,
   };

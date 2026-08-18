@@ -78,9 +78,11 @@ Formalize；resolution 反向流动，用来消除临时工作。Exactness misma
 关键权限决定或 `required` 批准时，Repro 会暂停询问，而不是猜测。可以用
 `/inspect repro` 在 TUI 查看有界 daemon 投影。
 
-`/repro <目标>` 会立即预留三个稳定的子 Session 和三个隔离 Git Change。
+`/repro <目标>` 会立即在 owning Workspace 中预留三个稳定的子 Session。Workspace
+可以包含零个、一个或多个仓库；启动不会假设 cwd 是 Git 仓库，也不会预先选择 Git
+Change。各 lane 根据实际工作自主发现并构建所需的 repository/worktree topology。
 Implementation 先运行；terminal TaskRun 会自动推进 Exactness、Formalize 和两次反向
-refresh。持久化的 route、binding、receipt、Evidence ref 与 Git revision 才是
+refresh。持久化的 route、binding、receipt、Evidence ref 与逻辑 revision 才是
 checkpoint，不依赖 Root transcript。
 
 Repro 活动期间可以压缩 Root 或 lane Session 上下文。continuation 会重载持久化

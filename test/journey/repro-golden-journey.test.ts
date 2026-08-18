@@ -62,7 +62,7 @@ interface ScriptedLedger {
 
 interface JourneyFixture {
   temporary: string;
-  sourceRepo: string;
+  workspaceRoot: string;
   sparkHome: string;
   providerLedgerPath: string;
   forgeLedgerPath: string;
@@ -83,8 +83,18 @@ test("/repro opens three durable lane Sessions and completes the five-run checkp
   retainedFailureFixture = fixture.temporary;
   const observedProcessPids: number[] = [];
   try {
-    const referenceBefore = await runFixtureVerification(fixture.sourceRepo, "reference");
-    const targetBefore = await runFixtureVerification(fixture.sourceRepo, "target");
+    await assert.rejects(gitOutput(fixture.workspaceRoot, ["rev-parse", "--show-toplevel"]));
+    for (const repository of ["reference", "target"]) {
+      assert.match(
+        await gitOutput(resolve(fixture.workspaceRoot, `repos/${repository}`), [
+          "rev-parse",
+          "--show-toplevel",
+        ]),
+        new RegExp(`/repos/${repository}\\n$`, "u"),
+      );
+    }
+    const referenceBefore = await runFixtureVerification(fixture.workspaceRoot, "reference");
+    const targetBefore = await runFixtureVerification(fixture.workspaceRoot, "target");
     assert.equal(referenceBefore.exitCode, 0);
     assert.equal(targetBefore.exitCode, 1);
 
@@ -102,7 +112,7 @@ test("/repro opens three durable lane Sessions and completes the five-run checkp
       "daemon",
       "workspace",
       "register",
-      fixture.sourceRepo,
+      fixture.workspaceRoot,
       "--server-url",
       `http://127.0.0.1:${fixture.port}`,
       "--token",
@@ -150,7 +160,7 @@ test("/repro opens three durable lane Sessions and completes the five-run checkp
     );
     await waitForInvocation(fixture.target, stringField(submitted, "invocationId"), "succeeded");
 
-    const reproPath = sessionReproStorePathV2(fixture.sourceRepo, { sessionId: rootSessionId });
+    const reproPath = sessionReproStorePathV2(fixture.workspaceRoot, { sessionId: rootSessionId });
     const beforeCompact = await waitForReproCheckpoint(reproPath, (candidate) => {
       const receipts = arrayField(objectField(candidate, "threeLane"), "resultReceipts");
       return receipts.length > 0 && receipts.length < 5;
@@ -234,7 +244,7 @@ test("lane attention survives daemon restart and resumes the original Session", 
       "daemon",
       "workspace",
       "register",
-      fixture.sourceRepo,
+      fixture.workspaceRoot,
       "--server-url",
       `http://127.0.0.1:${fixture.port}`,
       "--token",
@@ -265,7 +275,7 @@ test("lane attention survives daemon restart and resumes the original Session", 
     await waitForInvocation(fixture.target, stringField(submitted, "invocationId"), "succeeded");
 
     const pendingBeforeRestart = await waitForSinglePendingAsk(fixture.target, rootSessionId);
-    const reproPath = sessionReproStorePathV2(fixture.sourceRepo, { sessionId: rootSessionId });
+    const reproPath = sessionReproStorePathV2(fixture.workspaceRoot, { sessionId: rootSessionId });
     const attentionCheckpoint = await waitForReproCheckpoint(reproPath, (candidate) =>
       arrayField(objectField(candidate, "threeLane"), "routes").some(
         (route) => route.action === "root_attention" && route.status === "pending",
@@ -321,7 +331,7 @@ test("lane attention survives daemon restart and resumes the original Session", 
     );
     assert.ok(arrayField(state, "routes").every((route) => route.status === "acknowledged"));
     assert.equal(await implementationLaneSessionId(fixture, completed), implementationSessionId);
-    const graph = await defaultTaskGraphStore(fixture.sourceRepo).load();
+    const graph = await defaultTaskGraphStore(fixture.workspaceRoot).load();
     assert.ok(graph);
     const projectRef = stringField(completed, "projectRef") as Parameters<typeof graph.runs>[0];
     const implementationTaskRef = stringField(
@@ -397,7 +407,7 @@ async function assertCompletedTopology(
 
   const formalizedTip = stringField(objectField(state, "formalize"), "formalizedTip");
   assert.equal(stringField(workItems[0]!, "sourceRevision"), formalizedTip);
-  const graph = await defaultTaskGraphStore(fixture.sourceRepo).load();
+  const graph = await defaultTaskGraphStore(fixture.workspaceRoot).load();
   assert.ok(graph);
   const projectRef = stringField(repro, "projectRef") as Parameters<typeof graph.tasks>[0];
   const tasks = graph.tasks(projectRef);
@@ -435,38 +445,14 @@ async function assertCompletedTopology(
     );
   }
 
-  const artifacts = (await defaultArtifactStore(fixture.sourceRepo).list()).filter(
+  const artifacts = (await defaultArtifactStore(fixture.workspaceRoot).list()).filter(
     isGitChangeArtifact,
   );
-  assert.equal(artifacts.length, 3);
-  const worktreePaths = artifacts.map(gitChangeWorktreePath);
-  assert.equal(new Set(worktreePaths).size, 3);
-  const refreshedArtifactRefs = new Set(
-    bindings
-      .filter((binding) => binding.lane !== "formalize")
-      .map((binding) => stringField(binding, "gitChangeRef")),
-  );
-  for (const artifact of artifacts) {
-    assert.equal(
-      await gitOutput(gitChangeWorktreePath(artifact), ["rev-parse", "HEAD"]),
-      `${formalizedTip}\n`,
-    );
-    if (refreshedArtifactRefs.has(artifact.ref)) {
-      assert.equal(artifact.body.revisionMaterialization?.headRevision, formalizedTip);
-    }
-  }
-
-  const formalizeBinding = bindings.find((binding) => binding.lane === "formalize");
-  assert.ok(formalizeBinding);
-  const formalizeRef = stringField(formalizeBinding, "gitChangeRef");
-  const formalizeArtifact = artifacts.find((artifact) => artifact.ref === formalizeRef);
-  assert.ok(formalizeArtifact);
-  assert.equal(formalizeArtifact.body.stack.entries.length, 1);
-  assert.equal(formalizeArtifact.body.stack.entries[0]?.pullRequest?.draft, true);
-  assert.equal(formalizeArtifact.body.stack.entries[0]?.pullRequest?.state, "open");
+  assert.equal(artifacts.length, 0);
+  assert.ok(bindings.every((binding) => binding.gitChangeRef === undefined));
 
   const forge = jsonObject(await readFile(fixture.forgeLedgerPath, "utf8"));
-  assert.equal(forge.draftPrCreates, 1);
+  assert.equal(forge.draftPrCreates, 0);
   assert.equal(forge.nonDraftPrCreates, 0);
 
   const provider = await readProviderLedger(fixture.providerLedgerPath);
@@ -503,10 +489,7 @@ async function assertCompletedTopology(
   assert.notEqual(provider.vars.CANDIDATE_REVISION, provider.vars.CANONICAL_REVISION);
   assert.equal(provider.vars.CANONICAL_REVISION, formalizedTip);
 
-  const targetAfter = await runFixtureVerification(
-    gitChangeWorktreePath(formalizeArtifact),
-    "target",
-  );
+  const targetAfter = await runFixtureVerification(fixture.workspaceRoot, "target");
   assert.equal(targetAfter.exitCode, 0);
 }
 
@@ -515,7 +498,7 @@ async function durableCounts(
   rootSessionId: string,
   repro: Record<string, unknown>,
 ): Promise<Record<string, number>> {
-  const graph = await defaultTaskGraphStore(fixture.sourceRepo).load();
+  const graph = await defaultTaskGraphStore(fixture.workspaceRoot).load();
   assert.ok(graph);
   const projectRef = stringField(repro, "projectRef") as Parameters<typeof graph.tasks>[0];
   const state = objectField(repro, "threeLane");
@@ -526,7 +509,7 @@ async function durableCounts(
   return {
     tasks: graph.tasks(projectRef).length,
     runs: graph.runs(projectRef).length,
-    artifacts: (await defaultArtifactStore(fixture.sourceRepo).list()).length,
+    artifacts: (await defaultArtifactStore(fixture.workspaceRoot).list()).length,
     routes: arrayField(state, "routes").length,
     receipts: arrayField(state, "resultReceipts").length,
     handoffs: arrayField(state, "handoffs").length,
@@ -651,13 +634,6 @@ function createJourneyRounds(
     ],
   });
   tool("implementation.verify", "cue_exec", { command: "node verify.mjs target", timeout: 30 });
-  tool("implementation.commit", "git", {
-    action: "commit",
-    artifactRef: "${BINDING_GIT_CHANGE_REF}",
-    message: "fix: align minimal normalization",
-    paths: ["target/normalize.mjs"],
-  });
-  tool("implementation.head", "cue_exec", { command: "git rev-parse HEAD", timeout: 30 });
   recordEvidence("implementation.validation.evidence", "Implementation validation", {
     summary: "node verify.mjs target passed after the bounded normalization repair",
   });
@@ -713,13 +689,6 @@ function createJourneyRounds(
       "# Formalized normalization mechanism\n\nThe target uses sqrt(variance + epsilon), matching the independently verified reference boundary.\n",
   });
   tool("formalize.verify", "cue_exec", { command: "node verify.mjs target", timeout: 30 });
-  tool("formalize.commit", "git", {
-    action: "commit",
-    artifactRef: "${BINDING_GIT_CHANGE_REF}",
-    message: "docs: formalize verified normalization mechanism",
-    paths: ["FORMALIZED.md"],
-  });
-  tool("formalize.head", "cue_exec", { command: "git rev-parse HEAD", timeout: 30 });
   recordEvidence("formalize.validation.evidence", "Formalize validation", {
     summary:
       "The canonical layer passed the target vectors after importing Exactness-approved history",
@@ -793,31 +762,33 @@ async function createJourneyFixture(
     await mkdtemp(join(process.platform === "darwin" ? "/tmp" : tmpdir(), "spark-repro-journey-")),
   );
   await chmod(temporary, 0o700);
-  const sourceRepo = resolve(temporary, "fixture-repo");
+  const workspaceRoot = resolve(temporary, "fixture-workspace");
   const sparkHome = resolve(temporary, "spark-home");
   const binDir = resolve(temporary, "bin");
   const providerLedgerPath = resolve(temporary, "provider-ledger.json");
   const forgeLedgerPath = resolve(temporary, "forge-ledger.json");
+  const fixtureRepositories = [
+    resolve(workspaceRoot, "repos/reference"),
+    resolve(workspaceRoot, "repos/target"),
+  ];
   await Promise.all([
-    mkdir(sourceRepo, { recursive: true }),
+    mkdir(workspaceRoot, { recursive: true }),
+    ...fixtureRepositories.map((repository) => mkdir(repository, { recursive: true })),
     mkdir(resolve(sparkHome, "apps/daemon"), { recursive: true }),
     mkdir(binDir, { recursive: true }),
     mkdir(resolve(temporary, "home"), { recursive: true }),
     mkdir(resolve(temporary, "xdg/run/cue-shell"), { recursive: true, mode: 0o700 }),
   ]);
-  await cp(fixtureRoot, sourceRepo, { recursive: true });
-  await git(sourceRepo, ["init", "-b", "main"]);
-  await git(sourceRepo, ["config", "user.name", "Spark Journey"]);
-  await git(sourceRepo, ["config", "user.email", "journey@example.invalid"]);
-  await git(sourceRepo, ["config", "commit.gpgsign", "false"]);
-  await git(sourceRepo, ["add", "."]);
-  await git(sourceRepo, ["commit", "-m", "fixture baseline"]);
-  await git(sourceRepo, [
-    "remote",
-    "add",
-    "origin",
-    "https://github.com/acme/minimal-alignment.git",
-  ]);
+  await cp(fixtureRoot, workspaceRoot, { recursive: true });
+  for (const [index, repository] of fixtureRepositories.entries()) {
+    await writeFile(resolve(repository, "README.md"), `fixture repository ${index + 1}\n`);
+    await git(repository, ["init", "-b", "main"]);
+    await git(repository, ["config", "user.name", "Spark Journey"]);
+    await git(repository, ["config", "user.email", "journey@example.invalid"]);
+    await git(repository, ["config", "commit.gpgsign", "false"]);
+    await git(repository, ["add", "."]);
+    await git(repository, ["commit", "-m", "fixture baseline"]);
+  }
 
   const ghPath = resolve(binDir, "gh");
   await cp(forgeShim, ghPath);
@@ -847,7 +818,10 @@ async function createJourneyFixture(
         cursor: 0,
         rounds,
         requests: [],
-        vars: {},
+        vars: {
+          CANDIDATE_REVISION: "2222222222222222222222222222222222222222",
+          CANONICAL_REVISION: "3333333333333333333333333333333333333333",
+        },
       } satisfies ScriptedLedger,
       null,
       2,
@@ -924,14 +898,14 @@ async function createJourneyFixture(
   } satisfies NodeJS.ProcessEnv;
   return {
     temporary,
-    sourceRepo,
+    workspaceRoot,
     sparkHome,
     providerLedgerPath,
     forgeLedgerPath,
     port,
     target: {
       command: resolve(root, "apps/spark-cli/bin/spark"),
-      cwd: sourceRepo,
+      cwd: workspaceRoot,
       env,
       timeoutMs: 120_000,
     },
@@ -986,7 +960,7 @@ async function implementationLaneSessionId(
   fixture: JourneyFixture,
   repro: Record<string, unknown>,
 ): Promise<string> {
-  const graph = await defaultTaskGraphStore(fixture.sourceRepo).load();
+  const graph = await defaultTaskGraphStore(fixture.workspaceRoot).load();
   assert.ok(graph);
   const projectRef = stringField(repro, "projectRef") as Parameters<typeof graph.runs>[0];
   const implementationBinding = arrayField(objectField(repro, "threeLane"), "bindings").find(
@@ -1213,12 +1187,6 @@ function numberField(record: Record<string, unknown>, key: string): number {
 
 function isGitChangeArtifact(artifact: Artifact): artifact is Artifact<GitChangeArtifactBody> {
   return artifact.kind === "git_change" && artifact.body.kind === "git_change";
-}
-
-function gitChangeWorktreePath(artifact: Artifact<GitChangeArtifactBody>): string {
-  const path = artifact.body.worktree.path;
-  if (!path) throw new Error(`${artifact.ref} has no attached worktree path`);
-  return path;
 }
 
 function isProcessAlive(pid: number): boolean {
