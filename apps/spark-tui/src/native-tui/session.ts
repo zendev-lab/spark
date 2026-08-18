@@ -5,6 +5,7 @@ import {
   createId,
   mergeSparkConversationToolPart,
   sparkConversationVisibleText,
+  sparkViewModelStatusFromPendingTurns,
   type SparkConversationProjection,
   type SparkConversationToolProjectionPart,
   type SparkInvocationRetryResult,
@@ -527,7 +528,8 @@ export class SparkNativeSession {
     const localPending = this.localOptimisticPendingTurns();
     const daemonPending = this.daemonPendingTurns ?? [];
     const pendingTurns = [...localPending, ...daemonPending];
-    const status = this.isProcessing ? "streaming" : pendingTurns.length > 0 ? "queued" : "idle";
+    const fromPending = sparkViewModelStatusFromPendingTurns(pendingTurns);
+    const status = this.processing || this.daemonObserverRunning ? "streaming" : fromPending;
     return {
       version: SPARK_PROTOCOL_VERSION,
       sessionId,

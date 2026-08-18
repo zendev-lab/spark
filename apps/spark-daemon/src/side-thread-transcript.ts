@@ -6,6 +6,7 @@ import { SparkSessionStore, type SparkSessionEntry } from "@zendev-lab/spark-hos
 import {
   sparkSideThreadSnapshotSchema,
   sparkSideThreadExchangeSchema,
+  sparkViewModelStatusFromPendingTurns,
   type SparkModelRef,
   type SparkSessionState,
   type SparkSideThreadErrorCode,
@@ -268,8 +269,7 @@ function hasTruncatedProjectionContent(
 function sideThreadSnapshotStatus(
   pendingTurns: ReturnType<typeof pendingSideThreadTurns>,
 ): "running" | "queued" | "idle" {
-  if (pendingTurns.some((turn) => turn.status === "running")) return "running";
-  return pendingTurns.length > 0 ? "queued" : "idle";
+  return sparkViewModelStatusFromPendingTurns(pendingTurns);
 }
 
 export async function loadSparkDaemonSideThreadExchanges(

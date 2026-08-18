@@ -36,6 +36,7 @@ import {
   sparkTurnSubmitRequestSchema,
   sparkTurnSubmitResultSchema,
   isSparkInvocationTerminalStatus,
+  sparkSessionViewStatusAfterPendingTurns,
   type SparkAssignment,
   type SparkCommandKind,
   type SparkInvocationListResult,
@@ -1584,8 +1585,6 @@ function projectPendingSessionTurns(
   const pending = activitySessionIds.flatMap((sessionId) =>
     new SparkInvocationStore(db).listPendingForSession(sessionId),
   );
-  const hasRunningTurn = pending.some((invocation) => invocation.status === "running");
-  const hasQueuedTurn = pending.some((invocation) => invocation.status === "queued");
   const messages = pending
     .filter((invocation) => invocation.sessionId === snapshot.sessionId)
     .flatMap((invocation) => {
@@ -1618,15 +1617,7 @@ function projectPendingSessionTurns(
       createdAt: invocation.createdAt,
       ...(invocation.startedAt ? { startedAt: invocation.startedAt } : {}),
     })),
-    status: hasRunningTurn
-      ? "running"
-      : hasQueuedTurn
-        ? "queued"
-        : snapshot.status === "running" ||
-            snapshot.status === "streaming" ||
-            snapshot.status === "queued"
-          ? "idle"
-          : snapshot.status,
+    status: sparkSessionViewStatusAfterPendingTurns(pending, snapshot.status),
     messages: [...snapshot.messages, ...messages],
     ...(messages.at(-1)?.createdAt
       ? { updatedAt: messages.at(-1)?.createdAt }

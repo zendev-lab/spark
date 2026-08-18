@@ -10,6 +10,7 @@ import {
   SPARK_SESSION_PROMPT_HISTORY_MAX,
   sparkSessionPendingTurnSchema,
   sparkSessionSubmittedInputTextSchema,
+  type SparkSessionActivity,
 } from "./session-assignment.ts";
 import { sparkLoopViewSchema } from "./loop.ts";
 import {
@@ -110,6 +111,43 @@ export const sparkViewModelStatusSchema = z.enum([
   "timed_out",
   "unknown",
 ]);
+
+export type SparkSessionActivityViewStatus = Extract<
+  SparkViewModelStatus,
+  "idle" | "queued" | "running"
+>;
+
+export function sparkViewModelStatusFromSessionActivity(
+  activity: SparkSessionActivity,
+): SparkSessionActivityViewStatus {
+  return activity;
+}
+
+export function sparkViewModelStatusFromPendingTurns(
+  pendingTurns: readonly { status: string }[],
+): SparkSessionActivityViewStatus {
+  if (pendingTurns.some((turn) => turn.status === "running")) return "running";
+  if (pendingTurns.length > 0) return "queued";
+  return "idle";
+}
+
+const staleBusySessionViewStatuses = new Set<SparkViewModelStatus>([
+  "running",
+  "streaming",
+  "queued",
+]);
+
+export function sparkSessionViewStatusAfterPendingTurns(
+  pendingTurns: readonly { status: string }[],
+  previousStatus?: SparkViewModelStatus,
+): SparkViewModelStatus {
+  const fromPending = sparkViewModelStatusFromPendingTurns(pendingTurns);
+  if (fromPending !== "idle") return fromPending;
+  if (previousStatus !== undefined && staleBusySessionViewStatuses.has(previousStatus)) {
+    return "idle";
+  }
+  return previousStatus ?? "idle";
+}
 
 export const sparkMessageRoleSchema = z.enum([
   "system",

@@ -1123,6 +1123,43 @@ test("SparkNativeSession maps transcript to and from Spark session view models",
   assert.equal(restored.messages[0]?.text, "from view");
 });
 
+test("SparkNativeSession view status follows pending turns and overlays streaming only in flight", async () => {
+  const session = new SparkNativeSession();
+  session.applySessionView({
+    version: SPARK_PROTOCOL_VERSION,
+    sessionId: "queued-only",
+    status: "queued",
+    pendingTurns: [
+      {
+        invocationId: "inv_queued",
+        prompt: "queued work",
+        status: "queued",
+        createdAt: "2026-07-13T00:00:00.000Z",
+      },
+    ],
+    messages: [],
+    tools: [],
+    runs: [],
+    tasks: [],
+    artifacts: [],
+    evidence: [],
+    metadata: {},
+  });
+  assert.equal(session.toSessionView("queued-only").status, "queued");
+
+  let resolveResponse: ((value: string) => void) | undefined;
+  const live = new SparkNativeSession((_input, _context) => {
+    return new Promise<string>((resolve) => {
+      resolveResponse = resolve;
+    });
+  });
+  const app = new SparkNativeTuiApp(fakeTui(), live, () => undefined);
+  assert.equal(await app.submitInput("live turn"), "started");
+  assert.equal(live.toSessionView("live").status, "streaming");
+  resolveResponse?.("done");
+  await new Promise((resolve) => setImmediate(resolve));
+});
+
 test("SparkNativeSession projects structured tool states without exposing raw input", () => {
   const session = new SparkNativeSession();
   const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
