@@ -214,6 +214,143 @@ test("/repro opens three durable lane Sessions and completes the five-run checkp
   }
 }, 240_000);
 
+test("lane attention survives daemon restart and resumes the original Session", async () => {
+  const fixture = await createJourneyFixture(
+    createJourneyRounds({ compactRoot: false, implementationAttention: true }),
+  );
+  retainedFailureFixture = fixture.temporary;
+  const observedProcessPids: number[] = [];
+  try {
+    const enrollmentToken = seedHubEnrollment(fixture.sparkHome);
+    const hubStarted = jsonObject(
+      (await runSparkProcess(fixture.target, ["hub", "web", "start", "--json"])).stdout,
+    );
+    observedProcessPids.push(numberField(hubStarted, "pid"));
+    const started = jsonObject(
+      (await runSparkProcess(fixture.target, ["daemon", "start", "--json"])).stdout,
+    );
+    observedProcessPids.push(numberField(objectField(started, "daemon"), "pid"));
+    await runSparkProcess(fixture.target, [
+      "daemon",
+      "workspace",
+      "register",
+      fixture.sourceRepo,
+      "--server-url",
+      `http://127.0.0.1:${fixture.port}`,
+      "--token",
+      enrollmentToken,
+      "--allow-insecure-http",
+    ]);
+
+    const sessions = jsonArray(
+      (await runSparkProcess(fixture.target, ["daemon", "session", "list", "--json"])).stdout,
+    );
+    assert.equal(sessions.length, 1);
+    const rootSessionId = stringField(sessions[0]!, "sessionId");
+    const submitted = jsonObject(
+      (
+        await runSparkProcess(fixture.target, [
+          "daemon",
+          "submit",
+          "--session",
+          rootSessionId,
+          "--prompt",
+          "/repro 复现 glm52",
+          "--idempotency-key",
+          "idem_repro_glm52_attention",
+          "--json",
+        ])
+      ).stdout,
+    );
+    await waitForInvocation(fixture.target, stringField(submitted, "invocationId"), "succeeded");
+
+    const pendingBeforeRestart = await waitForSinglePendingAsk(fixture.target, rootSessionId);
+    const reproPath = sessionReproStorePathV2(fixture.sourceRepo, { sessionId: rootSessionId });
+    const attentionCheckpoint = await waitForReproCheckpoint(reproPath, (candidate) =>
+      arrayField(objectField(candidate, "threeLane"), "routes").some(
+        (route) => route.action === "root_attention" && route.status === "pending",
+      ),
+    );
+    const implementationSessionId = await implementationLaneSessionId(fixture, attentionCheckpoint);
+
+    observedProcessPids.push(await restartDaemon(fixture.target));
+    const pendingAfterRestart = await waitForSinglePendingAsk(fixture.target, rootSessionId);
+    assert.equal(
+      pendingAfterRestart.interactionRequestId,
+      pendingBeforeRestart.interactionRequestId,
+    );
+    const answered = jsonObject(
+      (
+        await runSparkProcess(fixture.target, [
+          "daemon",
+          "ask",
+          "answer",
+          stringField(pendingAfterRestart, "interactionRequestId"),
+          "--session",
+          rootSessionId,
+          "--answers",
+          JSON.stringify({
+            "glm52-reference": {
+              values: [],
+              customText: "Use the official upstream GLM-5.2 implementation.",
+            },
+          }),
+          "--json",
+        ])
+      ).stdout,
+    );
+    assert.equal(answered.outcome, "accepted");
+
+    const completed = await waitForReproCheckpoint(reproPath, (candidate) => {
+      const state = objectField(candidate, "threeLane");
+      const workItem = arrayField(state, "workItems")[0];
+      return workItem?.status === "completed" && arrayField(state, "resultReceipts").length === 6;
+    });
+    const state = objectField(completed, "threeLane");
+    assert.deepEqual(
+      arrayField(state, "routes").map((route) => route.action),
+      [
+        "start_binding",
+        "root_attention",
+        "resume_binding",
+        "materialize_binding",
+        "materialize_binding",
+        "refresh_binding",
+        "refresh_binding",
+      ],
+    );
+    assert.ok(arrayField(state, "routes").every((route) => route.status === "acknowledged"));
+    assert.equal(await implementationLaneSessionId(fixture, completed), implementationSessionId);
+    const graph = await defaultTaskGraphStore(fixture.sourceRepo).load();
+    assert.ok(graph);
+    const projectRef = stringField(completed, "projectRef") as Parameters<typeof graph.runs>[0];
+    const implementationTaskRef = stringField(
+      arrayField(state, "bindings").find((binding) => binding.lane === "implementation")!,
+      "taskRef",
+    );
+    const implementationRuns = graph
+      .runs(projectRef)
+      .filter((run) => run.taskRef === implementationTaskRef);
+    assert.equal(implementationRuns.length, 3);
+    assert.equal(
+      new Set(
+        implementationRuns.map(
+          (run) => run.execution?.sessionId ?? run.execution?.executionSessionId,
+        ),
+      ).size,
+      1,
+    );
+    assert.equal((await listPendingAsks(fixture.target, rootSessionId)).length, 0);
+
+    retainedFailureFixture = undefined;
+  } finally {
+    await stopProcesses(fixture.target, observedProcessPids);
+    if (retainedFailureFixture !== fixture.temporary) {
+      await rm(fixture.temporary, { recursive: true, force: true });
+    }
+  }
+}, 240_000);
+
 async function assertCompletedTopology(
   fixture: JourneyFixture,
   rootSessionId: string,
@@ -818,6 +955,53 @@ async function waitForReproCheckpoint(
     120_000,
     "Repro durable checkpoint",
   );
+}
+
+async function listPendingAsks(
+  target: SparkProcessTarget,
+  sessionId: string,
+): Promise<Record<string, unknown>[]> {
+  const response = jsonObject(
+    (await runSparkProcess(target, ["daemon", "ask", "list", "--session", sessionId, "--json"]))
+      .stdout,
+  );
+  return arrayField(response, "waits");
+}
+
+async function waitForSinglePendingAsk(
+  target: SparkProcessTarget,
+  sessionId: string,
+): Promise<Record<string, unknown>> {
+  return await waitFor(
+    async () => {
+      const pending = await listPendingAsks(target, sessionId);
+      return pending.length === 1 ? pending[0] : undefined;
+    },
+    120_000,
+    "one Repro attention Ask",
+  );
+}
+
+async function implementationLaneSessionId(
+  fixture: JourneyFixture,
+  repro: Record<string, unknown>,
+): Promise<string> {
+  const graph = await defaultTaskGraphStore(fixture.sourceRepo).load();
+  assert.ok(graph);
+  const projectRef = stringField(repro, "projectRef") as Parameters<typeof graph.runs>[0];
+  const implementationBinding = arrayField(objectField(repro, "threeLane"), "bindings").find(
+    (binding) => binding.lane === "implementation",
+  );
+  assert.ok(implementationBinding);
+  const taskRef = stringField(implementationBinding, "taskRef");
+  const sessionIds = graph
+    .runs(projectRef)
+    .filter((run) => run.taskRef === taskRef)
+    .map((run) => run.execution?.sessionId ?? run.execution?.executionSessionId)
+    .filter((sessionId): sessionId is string => Boolean(sessionId));
+  assert.ok(sessionIds.length > 0);
+  assert.equal(new Set(sessionIds).size, 1);
+  return sessionIds[0]!;
 }
 
 async function restartDaemon(target: SparkProcessTarget): Promise<number> {

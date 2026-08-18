@@ -21,7 +21,7 @@ start work or create a fifth automation mode.
 | --- | --- | --- |
 | Continue until a defined outcome is complete | Goal | `/goal start Finish the release checklist` |
 | Repeat open-ended work | Loop | `/loop start Watch for new failures and triage them` |
-| Reproduce a model or system with evidence at each milestone | Repro | `/repro start Reproduce model X in framework Y` |
+| Reproduce a model or system with evidence at each milestone | Repro | `/repro Reproduce model X in framework Y` |
 | Execute a saved, staged procedure | Workflow | `/workflow run builtin:research Compare the two designs` |
 
 ## Authority while a driver is active
@@ -94,12 +94,26 @@ resynchronization point. Repro pauses instead of guessing when a baseline,
 material authority decision, or `required` approval is missing. Use
 `/inspect repro` to inspect the bounded daemon projection in the TUI.
 
+`/repro <objective>` immediately reserves three stable child Sessions and three
+isolated Git Changes. Implementation runs first; terminal TaskRuns automatically
+advance Exactness, Formalize, and the two backward refreshes. These persisted
+routes, bindings, receipts, Evidence refs, and Git revisions are the checkpoints.
+They do not live in the Root transcript.
+
+You may compact the Root or a lane Session while Repro is active. A continuation
+reloads the durable checkpoint and reuses the same lane Sessions; it must not
+replay the launch. If a lane needs attention, the Ask appears on Root and
+survives daemon restart or context compaction. Your answer resumes the original
+lane Session and Git Change.
+
 ```text
-/repro start <objective>
+/repro <objective>
 /repro status
 /repro stop
 /repro restart [objective]
 ```
+
+`/repro start <objective>` remains an explicit spelling of the same start.
 
 ## Workflow
 

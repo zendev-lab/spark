@@ -210,7 +210,7 @@ fail closed，不能自动 replay。
 /execute [focus]
 /inspect
 /goal start <objective>
-/repro start <objective>
+/repro <目标>
 /workflow list
 /help commands
 ```

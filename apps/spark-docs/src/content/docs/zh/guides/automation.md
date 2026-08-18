@@ -18,7 +18,7 @@ description: 只有普通 Plan 与 Implement 路径不够时，才选择 Goal、
 | --- | --- | --- |
 | 持续推进到明确结果完成 | Goal | `/goal start 完成发布检查清单` |
 | 重复开放式工作 | Loop | `/loop start 持续发现并分类新的失败` |
-| 在每个里程碑绑定证据后复现模型或系统 | Repro | `/repro start 在框架 Y 中复现模型 X` |
+| 在每个里程碑绑定证据后复现模型或系统 | Repro | `/repro 在框架 Y 中复现模型 X` |
 | 执行已保存的分阶段流程 | Workflow | `/workflow run builtin:research 比较两个设计` |
 
 ## Driver 活动期间的权限
@@ -78,12 +78,24 @@ Formalize；resolution 反向流动，用来消除临时工作。Exactness misma
 关键权限决定或 `required` 批准时，Repro 会暂停询问，而不是猜测。可以用
 `/inspect repro` 在 TUI 查看有界 daemon 投影。
 
+`/repro <目标>` 会立即预留三个稳定的子 Session 和三个隔离 Git Change。
+Implementation 先运行；terminal TaskRun 会自动推进 Exactness、Formalize 和两次反向
+refresh。持久化的 route、binding、receipt、Evidence ref 与 Git revision 才是
+checkpoint，不依赖 Root transcript。
+
+Repro 活动期间可以压缩 Root 或 lane Session 上下文。continuation 会重载持久化
+checkpoint 并复用原来的 lane Session，不会重放启动。如果某条 lane 需要人工注意，
+Ask 会投影到 Root，并能跨 daemon 重启或上下文压缩保留；回答后继续原 lane Session
+和原 Git Change。
+
 ```text
-/repro start <目标>
+/repro <目标>
 /repro status
 /repro stop
 /repro restart [目标]
 ```
+
+`/repro start <目标>` 仍是同一启动动作的显式写法。
 
 ## Workflow
 
