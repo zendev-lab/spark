@@ -31,7 +31,7 @@ import {
   SparkNativeTuiApp,
   createSparkNativeUiTransport,
 } from "../native-tui.ts";
-import type { TUI } from "../tui/pi-tui-adapter.ts";
+import type { TUI } from "@zendev-lab/spark-tui-adapter/pi-tui";
 
 type FakeStreamSimple = (
   context: {

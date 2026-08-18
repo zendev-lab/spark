@@ -5,7 +5,12 @@
  * Esc / Ctrl+C cancels without writing.
  */
 
-import { Key, matchesKey, truncateToWidth, type Component } from "./pi-tui-adapter.ts";
+import {
+  Key,
+  matchesKey,
+  truncateToWidth,
+  type Component,
+} from "@zendev-lab/spark-tui-adapter/pi-tui";
 import type { SparkNativeCustomUi } from "../native-tui/session-contracts.ts";
 import {
   selectListThemeFromTheme,

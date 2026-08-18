@@ -14,7 +14,6 @@ import {
 } from "@zendev-lab/spark-ai/baidu-oneapi-provider";
 import {
   handleSparkRpcLine,
-  parseSparkCliArgs,
   parseSparkCliCommand,
   runSparkCli,
   sparkTuiReloadArgv,
@@ -37,9 +36,9 @@ import {
 import sparkCliHostExtension from "../spark-host-extension.ts";
 import { workspaceSessionRecord } from "../../../../test/support/session-fixtures.ts";
 
-test("parseSparkCliArgs treats positional args as the initial message", () => {
-  assert.deepEqual(parseSparkCliArgs(["hello", "spark"]), {
-    help: false,
+test("parseSparkCliCommand treats positional args as the initial TUI message", () => {
+  assert.deepEqual(parseSparkCliCommand(["hello", "spark"]), {
+    kind: "tui",
     initialMessage: "hello spark",
   });
 });

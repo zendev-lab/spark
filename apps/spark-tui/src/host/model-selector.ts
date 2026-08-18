@@ -12,7 +12,7 @@
 import { resolveSparkEnabledModelIds } from "@zendev-lab/spark-ai/control";
 import type { SparkConfig, SparkConfigSaveOptions } from "./config.ts";
 import { loadSparkConfig, saveSparkConfig } from "./config.ts";
-import type { SparkKeybindingContext, SparkKeybindings } from "./keybindings.ts";
+import type { SparkKeybindingContext, SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
 import type {
   ProviderConfig,
   ProviderModelDefinition,

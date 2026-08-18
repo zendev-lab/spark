@@ -13,7 +13,7 @@ import type {
   SparkTurnSubmitResult,
   SparkToolCallView,
 } from "@zendev-lab/spark-protocol";
-import type { SparkKeybindingContext, SparkKeybindings } from "../host/keybindings.ts";
+import type { SparkKeybindingContext, SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
 import type { RegisteredCommand, SparkHostMessageRenderer } from "@zendev-lab/spark-host/types";
 import type { SparkTheme } from "../host/theme.ts";
 import type { SparkNativeAppContract, SparkNativeSessionContract } from "./session-contracts.ts";

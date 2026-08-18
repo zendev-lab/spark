@@ -8,7 +8,7 @@ import {
   visibleWidth,
   type Component,
   type SelectListTheme,
-} from "./pi-tui-adapter.ts";
+} from "@zendev-lab/spark-tui-adapter/pi-tui";
 import {
   selectListThemeFromTheme,
   type SparkModelSelectorCustomUi,

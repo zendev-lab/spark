@@ -37,7 +37,7 @@ import { createSparkPiParitySlashCommands } from "../cli/pi-parity-commands.ts";
 import type { SparkDaemonModelAuthClient } from "../cli/model-control.ts";
 import { SparkSessionMailStore } from "../host/session-mail-store.ts";
 import { createSparkTuiActionBarComponent } from "../tui/action-bar.ts";
-import type { Component } from "../tui/pi-tui-adapter.ts";
+import type { Component } from "@zendev-lab/spark-tui-adapter/pi-tui";
 import sparkExtension from "@zendev-lab/spark-extension/extension";
 type SparkDaemonLoopControl = NonNullable<Parameters<typeof sparkExtension>[0]["loopControl"]>;
 import { createSparkNativeTuiComponentHarness } from "../test-support/spark-native-tui-component-harness.ts";

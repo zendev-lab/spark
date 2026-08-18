@@ -4,7 +4,7 @@ import { expect, test } from "vitest";
 
 import type { SparkSessionProjection } from "@zendev-lab/spark-protocol";
 import { visibleWidth } from "@zendev-lab/spark-tui-adapter/text";
-import type { Component } from "../tui/pi-tui-adapter.ts";
+import type { Component } from "@zendev-lab/spark-tui-adapter/pi-tui";
 import {
   createSparkSessionSelectorComponent,
   formatSparkSessionListByWorkspace,

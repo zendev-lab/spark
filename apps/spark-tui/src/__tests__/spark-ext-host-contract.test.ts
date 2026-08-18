@@ -13,7 +13,7 @@ import type {
 } from "@zendev-lab/spark-core";
 import { resolveToolPolicy } from "@zendev-lab/spark-core";
 
-import { SparkHostRuntime } from "../host/runtime.ts";
+import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import type {
   OutboxEnvelope,
   RegisteredCommand,

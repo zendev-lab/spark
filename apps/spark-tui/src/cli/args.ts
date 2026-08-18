@@ -2,11 +2,6 @@ import { object, or } from "@optique/core/constructs";
 import { parse } from "@optique/core/parser";
 import { command, constant, passThrough } from "@optique/core/primitives";
 
-export interface SparkCliArgs {
-  initialMessage?: string;
-  help: boolean;
-}
-
 export interface SparkCliRuntimeOptions {
   provider?: string;
   model?: string;
@@ -38,12 +33,6 @@ export type SparkCliCommand =
   | { kind: "run"; prompt: string; json: boolean; options?: SparkCliRuntimeOptions }
   | { kind: "tui"; initialMessage?: string; options?: SparkCliRuntimeOptions }
   | { kind: "error"; message: string };
-
-export function parseSparkCliArgs(argv: string[]): SparkCliArgs {
-  if (argv.some((arg) => arg === "-h" || arg === "--help")) return { help: true };
-  const initialMessage = argv.join(" ").trim();
-  return { help: false, initialMessage: initialMessage || undefined };
-}
 
 const remainingArgv = () => passThrough({ format: "greedy" });
 

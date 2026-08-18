@@ -1,4 +1,4 @@
-import type { Component, OverlayOptions, TUI } from "../tui/pi-tui-adapter.ts";
+import type { Component, OverlayOptions, TUI } from "@zendev-lab/spark-tui-adapter/pi-tui";
 import {
   SparkNativeSession,
   SparkNativeTuiApp,
@@ -9,7 +9,7 @@ import {
   type SparkNativeTuiExitReason,
   type SparkNativeWorkspaceSessionState,
 } from "../native-tui.ts";
-import type { SparkKeybindings } from "../host/keybindings.ts";
+import type { SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
 import type { SparkTheme } from "../host/theme.ts";
 
 export interface FakeSparkNativeTuiState {

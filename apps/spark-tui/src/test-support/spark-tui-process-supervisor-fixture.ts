@@ -10,7 +10,7 @@ import {
   sendSparkTuiReloadHandoff,
 } from "../cli/process-supervisor.ts";
 import { SparkNativeSession, SparkNativeTuiApp } from "../native-tui.ts";
-import type { TUI } from "../tui/pi-tui-adapter.ts";
+import type { TUI } from "@zendev-lab/spark-tui-adapter/pi-tui";
 import { sparkNativeReproSessionView } from "./spark-native-repro-view-fixture.ts";
 
 interface FixtureOptions {

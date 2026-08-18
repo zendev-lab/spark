@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
-import type { MarkdownTheme } from "../tui/pi-tui-adapter.ts";
+import type { MarkdownTheme } from "@zendev-lab/spark-tui-adapter/pi-tui";
 import type { SparkHostRenderTheme } from "@zendev-lab/spark-host/types";
 
 export interface SparkThemeColors {

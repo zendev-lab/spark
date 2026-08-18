@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { SparkKeybindings } from "../host/keybindings.ts";
+import { SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
 import { createSparkNativeTuiComponentHarness } from "../test-support/spark-native-tui-component-harness.ts";
-import { visibleWidth } from "../tui/pi-tui-adapter.ts";
+import { visibleWidth } from "@zendev-lab/spark-tui-adapter/pi-tui";
 
 const CTRL_C = "\x03";
 const CTRL_D = "\x04";

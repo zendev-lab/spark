@@ -8,7 +8,7 @@ import {
   type Component,
   type Focusable,
   type SelectItem,
-} from "../tui/pi-tui-adapter.ts";
+} from "@zendev-lab/spark-tui-adapter/pi-tui";
 import type { SparkHostRenderTheme } from "@zendev-lab/spark-host/types";
 
 interface NativePromptOptions {

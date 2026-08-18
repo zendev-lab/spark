@@ -4,7 +4,7 @@ import { test } from "vitest";
 import piAskExtension from "@zendev-lab/spark-ask/extension";
 import piCueExtension from "@zendev-lab/spark-cue";
 import piGraftExtension from "@zendev-lab/spark-graft/extension";
-import { SparkHostRuntime } from "../host/runtime.ts";
+import { SparkHostRuntime } from "@zendev-lab/spark-host";
 
 test("SparkHostRuntime accepts piCueExtension(pi) without throwing", () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-cross" });

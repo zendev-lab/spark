@@ -13,7 +13,7 @@ import {
   type SelectItem,
   type SelectListLayoutOptions,
   type SelectListTheme,
-} from "./pi-tui-adapter.ts";
+} from "@zendev-lab/spark-tui-adapter/pi-tui";
 
 import {
   sparkModelSelectionFromValue,

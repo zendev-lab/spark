@@ -21,9 +21,9 @@ import {
 } from "@zendev-lab/spark-protocol";
 
 import { handleSparkRpcLine, parseSparkCliCommand, runSparkCli } from "../cli.ts";
-import { SparkKeybindings } from "../host/keybindings.ts";
+import { SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
 import type { SparkCliHostServices } from "../host/bootstrap.ts";
-import { SparkHostRuntime } from "../host/runtime.ts";
+import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import { SparkSessionMailStore } from "../host/session-mail-store.ts";
 import { SparkSessionStore, workspaceSessionHash } from "@zendev-lab/spark-host/session-store";
 import { createSparkNativeTuiComponentHarness } from "../test-support/spark-native-tui-component-harness.ts";

@@ -3,7 +3,7 @@ import { test } from "vitest";
 
 import type { SparkHostContext, ToolConfig } from "@zendev-lab/spark-core";
 
-import { SparkHostRuntime } from "../host/runtime.ts";
+import { SparkHostRuntime } from "@zendev-lab/spark-host";
 
 test("SparkHostRuntime registers tools and reflects them in getAllTools", () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-test" });

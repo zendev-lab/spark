@@ -25,7 +25,7 @@ export {
   type SparkAgentSessionRunOptions,
   type SparkAgentSessionRunResult,
 } from "./host/agent-session.ts";
-export { SparkHostRuntime, type SparkHostRuntimeOptions } from "./host/runtime.ts";
+export { SparkHostRuntime, type SparkHostRuntimeOptions } from "@zendev-lab/spark-host";
 export { SparkSessionStore, type SparkSessionRecord } from "@zendev-lab/spark-host/session-store";
 export { SparkProviderRegistry, type ProviderConfig } from "./host/provider-registry.ts";
 export { SparkModelSelector } from "./host/model-selector.ts";
@@ -33,7 +33,7 @@ export {
   SparkSkillResolver,
   type SparkSkill,
   type SparkSkillResolveResult,
-} from "./host/skill-resolver.ts";
+} from "@zendev-lab/spark-host/skill-resolver";
 export {
   loadSparkConfig,
   saveSparkConfig,

@@ -46,7 +46,7 @@ import {
   saveSparkConfig,
 } from "./config.ts";
 import { SparkExtensionLoader } from "./extension-loader.ts";
-import { SparkKeybindings } from "./keybindings.ts";
+import { SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
 import {
   SparkModelSelector,
   registerSparkModelSelectorKeybindings,
@@ -60,13 +60,13 @@ import {
   type SparkPromptTemplateResolveResult,
 } from "./prompt-templates.ts";
 import { SparkProviderRegistry, type SparkActiveSelection } from "./provider-registry.ts";
-import { SparkHostRuntime } from "./runtime.ts";
+import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
 import {
   SparkSkillResolver,
   formatSelectedSparkSkillsForPrompt,
   type SparkSkillPromptMatch,
-} from "./skill-resolver.ts";
+} from "@zendev-lab/spark-host/skill-resolver";
 import { loadSparkThemeCatalog } from "./theme.ts";
 
 import { SparkAgentLoop } from "./agent-loop.ts";
