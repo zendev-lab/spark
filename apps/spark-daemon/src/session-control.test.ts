@@ -512,7 +512,7 @@ describe("daemon session control admission", () => {
       ).resolves.toEqual({ result: { sessionId: "session-mode", mode: "fleet" } });
       await expect(
         loadSparkSessionWorkspaceState(root, { sessionId: "session-mode" }),
-      ).resolves.toMatchObject({ version: 3, mode: "fleet" });
+      ).resolves.toMatchObject({ version: 4, mode: "fleet" });
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });

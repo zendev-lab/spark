@@ -137,11 +137,16 @@ export type ToolExecutionMode = "sequential" | "parallel";
  * Static approval requirement declared by the tool owner.
  *
  * `manual_only` is a narrow capability grant: a daemon-owned continuation
- * driver may execute the call without another approval, while a manually
- * submitted turn still requires approval. It must only be used for bounded,
- * reversible low-risk effects; high-risk effects remain `required`.
+ * driver may execute the call without another approval only after the owning
+ * Session has a persisted `driverAuthority: "granted"` fact. A manually
+ * submitted turn still requires approval until that fact exists. It must only
+ * be used for bounded, reversible low-risk effects; high-risk effects remain
+ * `required`.
  */
 export type ToolApprovalPolicy = "none" | "manual_only" | "required";
+
+/** Session-scoped consent for driver `manual_only` bypass. */
+export type SparkDriverAuthority = "granted" | "denied";
 
 /**
  * Declarative tool policy owned by the package that implements the tool.
@@ -873,6 +878,17 @@ export interface SparkHostLoopContext {
   stop(input?: { reason?: string }): Promise<unknown>;
 }
 
+/**
+ * True when this loop binding is a continuation driver that *may* receive
+ * `manual_only` bypass. Binding alone is not consent; callers must also read
+ * the Session `driverAuthority` fact.
+ */
+export function hasActiveDriverBinding(loop?: SparkHostLoopContext): boolean {
+  if (!loop) return false;
+  const { goalId, reproId, workflowRunId } = loop.binding;
+  return Boolean(goalId || reproId || !workflowRunId);
+}
+
 export interface SparkSessionLeaseIdentity {
   workspaceId: string;
   clientId: string;
@@ -928,6 +944,11 @@ export interface SparkHostContext {
   verifyMemoryDirectIntent?: (value: unknown) => Promise<boolean> | boolean;
   /** Present only inside a daemon-owned autonomous loop tick. */
   loop?: SparkHostLoopContext;
+  /**
+   * Persisted Session consent for driver `manual_only` bypass. Absent means
+   * unresolved; a live loop binding must not be treated as a grant.
+   */
+  driverAuthority?: SparkDriverAuthority;
   /**
    * Host-resolved current-Session delegation authority. Child execution must
    * fail closed when this envelope is absent rather than infer parent policy.

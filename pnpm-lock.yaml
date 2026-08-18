@@ -961,6 +961,9 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-loop':
+        specifier: workspace:^
+        version: link:../spark-loop
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol

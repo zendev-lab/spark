@@ -9384,7 +9384,7 @@ test("current project store ignores legacy mode and run control blocks", async (
 
     await writeFile(stateFile, `${JSON.stringify({ projectRef: "proj:legacy" })}\n`, "utf8");
     assert.deepEqual(await loadCurrentProjectState(dir, ctx), {
-      version: 3,
+      version: 4,
       projectRef: "proj:legacy",
     });
 
@@ -9394,14 +9394,14 @@ test("current project store ignores legacy mode and run control blocks", async (
       "utf8",
     );
     assert.deepEqual(await loadCurrentProjectState(dir, ctx), {
-      version: 3,
+      version: 4,
       projectRef: "proj:demo",
       mode: "plan",
     });
 
     await writeFile(
       stateFile,
-      `${JSON.stringify({ version: 4, projectRef: "proj:demo" })}\n`,
+      `${JSON.stringify({ version: 5, projectRef: "proj:demo" })}\n`,
       "utf8",
     );
     await assert.rejects(
@@ -9409,7 +9409,7 @@ test("current project store ignores legacy mode and run control blocks", async (
       (error) =>
         error instanceof JsonStoreFormatError &&
         error.filePath === stateFile &&
-        /version must be 1, 2, or 3/.test(error.message),
+        /version must be 1, 2, 3, or 4/.test(error.message),
     );
 
     await writeFile(stateFile, `${JSON.stringify({ version: 1, projectRef: 42 })}\n`, "utf8");
@@ -9437,7 +9437,7 @@ test("current project store ignores legacy mode and run control blocks", async (
       "utf8",
     );
     assert.deepEqual(await loadCurrentProjectState(dir, ctx), {
-      version: 3,
+      version: 4,
       projectRef: "proj:demo",
     });
 
@@ -9457,7 +9457,7 @@ test("current project store ignores legacy mode and run control blocks", async (
       "utf8",
     );
     const runControlState = await loadCurrentProjectState(dir, ctx);
-    assert.deepEqual(runControlState, { version: 3, projectRef: "proj:demo" });
+    assert.deepEqual(runControlState, { version: 4, projectRef: "proj:demo" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

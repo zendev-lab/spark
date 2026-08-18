@@ -50,14 +50,14 @@ test("saveSparkMode persists the current session mode and optional project ref",
 
     assert.deepEqual(await loadSparkMode(dir, undefined), { mode: "execute" });
     assert.deepEqual(await loadCurrentProjectState(dir, undefined), {
-      version: 3,
+      version: 4,
       projectRef,
       mode: "execute",
     });
   });
 });
 
-test("v1 executionMode and planningMode blocks migrate to v3", async () => {
+test("v1 executionMode and planningMode blocks migrate to v4", async () => {
   await withTempDir(async (dir) => {
     const projectRef = "proj:test-legacy" as ProjectRef;
     await saveSparkMode(dir, undefined, { mode: "execute", projectRef });
@@ -81,7 +81,7 @@ test("v1 executionMode and planningMode blocks migrate to v3", async () => {
 
     assert.deepEqual(await loadSparkMode(dir, undefined), { mode: "execute" });
     assert.deepEqual(await loadCurrentProjectState(dir, undefined), {
-      version: 3,
+      version: 4,
       projectRef,
       mode: "execute",
     });
@@ -96,7 +96,7 @@ test("saveSparkMode without projectRef preserves existing current project select
     await saveSparkMode(dir, undefined, { mode: "plan" });
     assert.deepEqual(await loadSparkMode(dir, undefined), { mode: "plan" });
     assert.deepEqual(await loadCurrentProjectState(dir, undefined), {
-      version: 3,
+      version: 4,
       projectRef,
       mode: "plan",
     });
@@ -117,22 +117,22 @@ test("legacy persisted research phase normalizes one-way to plan", async () => {
   });
 });
 
-test("v2 plan and execute modes migrate to v3 while fleet persists natively", async () => {
+test("v2 plan and execute modes migrate to v4 while fleet persists natively", async () => {
   await withTempDir(async (dir) => {
     const statePath = currentProjectStorePath(dir, undefined);
     await mkdir(dirname(statePath), { recursive: true });
     await writeFile(statePath, '{"version":2,"mode":"execute"}\n', "utf8");
 
     assert.deepEqual(await loadCurrentProjectState(dir, undefined), {
-      version: 3,
+      version: 4,
       mode: "execute",
     });
-    assert.match(await readFile(statePath, "utf8"), /"version": 3/u);
+    assert.match(await readFile(statePath, "utf8"), /"version": 4/u);
 
     await saveSparkMode(dir, undefined, { mode: "fleet" });
     assert.deepEqual(await loadSparkMode(dir, undefined), { mode: "fleet" });
     assert.deepEqual(await loadCurrentProjectState(dir, undefined), {
-      version: 3,
+      version: 4,
       mode: "fleet",
     });
   });
@@ -142,8 +142,8 @@ test("unknown session-state versions fail closed", async () => {
   await withTempDir(async (dir) => {
     const statePath = currentProjectStorePath(dir, undefined);
     await mkdir(dirname(statePath), { recursive: true });
-    await writeFile(statePath, '{"version":4,"mode":"fleet"}\n', "utf8");
-    await assert.rejects(loadCurrentProjectState(dir, undefined), /version must be 1, 2, or 3/u);
+    await writeFile(statePath, '{"version":5,"mode":"fleet"}\n', "utf8");
+    await assert.rejects(loadCurrentProjectState(dir, undefined), /version must be 1, 2, 3, or 4/u);
   });
 });
 
@@ -159,12 +159,12 @@ test("project and mode state stay bound to the invoking Session, not its state o
     assert.deepEqual(await loadSparkMode(dir, adminContext), { mode: "fleet" });
     assert.deepEqual(await loadSparkMode(dir, childContext), { mode: "execute" });
     assert.deepEqual(await loadCurrentProjectState(dir, adminContext), {
-      version: 3,
+      version: 4,
       projectRef,
       mode: "fleet",
     });
     assert.deepEqual(await loadCurrentProjectState(dir, childContext), {
-      version: 3,
+      version: 4,
       projectRef,
       mode: "execute",
     });

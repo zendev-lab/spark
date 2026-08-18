@@ -120,9 +120,10 @@ fail closed。
 - 只有明确允许并行的纯读取调用可以并发。
 - 写入、策略变更、混合 batch 和外部副作用保持串行，除非所属契约证明了安全替代。
 - `none` 操作不需要人工批准。
-- `manual_only` 操作必须有界、低风险且可撤销。手动推进时需要请求批准；活动
-  Goal、Loop 或 Repro driver 在已确认目标与 target 范围内可以直接执行，无需重复询问。
-  创建、更新和同步 Draft PR 都属于这类操作。
+- `manual_only` 操作必须有界、低风险且可撤销。手动推进时需要请求批准。活动
+  Goal、Loop 或 Repro driver 只有在 Session 已授予 driver 权限后，才能在已确认
+  目标与 target 范围内直接执行，无需重复询问。交互启动会询问一次；CLI 与 API
+  启动会静默授权。创建、更新和同步 Draft PR 都属于这类操作。
 - `required` 操作始终需要人工批准，包括破坏性、不可逆、安全敏感、高成本、高影响或
   实质扩大范围的操作，以及发布、部署、合并和把 Draft PR 提升为 Ready。
 - WorkflowRun 不是 continuation driver；只有启动它的 driver 权限仍然有效时，它才继承

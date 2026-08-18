@@ -332,21 +332,23 @@ Every action resolves to one approval requirement:
 - `none`: proceed without another confirmation for in-scope reads, local
   edits, non-destructive validation, and other approval-free work;
 - `manual_only`: a manual continuation requires human approval for the exact
-  operation, while an active Goal, Loop, or Repro driver may execute the
-  bounded, low-risk, reversible external operation without another approval
-  when it remains within the confirmed objective, Workspace, repository, and
-  writable target;
+  operation. An active Goal, Loop, or Repro driver may execute the bounded,
+  low-risk, reversible external operation without another approval only after
+  the owning Session has persisted `driverAuthority: "granted"`, and only when
+  the call remains within the confirmed objective, Workspace, repository, and
+  writable target. Denied consent keeps per-tool approval;
 - `required`: destructive, irreversible, security-sensitive, costly,
   high-impact, materially scope-expanding, release, deployment, merge, and
   other consequential actions always require human approval.
 
-Driver authority is temporary and scoped. It cannot widen the objective or
-target, resolve unknown or conflicting policy, or survive driver stop,
-completion, or replacement. A WorkflowRun is not a continuation driver and
-inherits the authority of the driver that started it only while that authority
-remains active; it cannot create or retain driver authority by itself.
-Automated review and model confidence are safety signals, not human
-authorization.
+Driver authority is temporary and scoped. A loop binding is not consent.
+Interactive starts ask once; non-interactive starts grant silently for that
+Session. Authority cannot widen the objective or target, resolve unknown or
+conflicting policy, or survive driver stop, completion, or replacement. A
+WorkflowRun is not a continuation driver and inherits the authority of the
+driver that started it only while that authority remains active; it cannot
+create or retain driver authority by itself. Automated review and model
+confidence are safety signals, not human authorization.
 
 ## Engineering policy
 
@@ -381,7 +383,8 @@ local work
 Creating, updating, or synchronizing a Draft PR is `manual_only`. A manual
 continuation obtains human approval for the exact operation. A Goal, Loop, or
 Repro driver-owned continuation may perform the same Draft operations without
-another approval while they remain inside its bounded authority.
+another approval only while Session `driverAuthority` is `granted` and the
+operations remain inside its bounded authority.
 
 Promotion to Ready is `required`. It needs human approval for the exact PR
 stack after the gates below pass; a broad delivery objective, an active driver,

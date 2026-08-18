@@ -26,11 +26,16 @@ start work or create a fifth automation mode.
 
 ## Authority while a driver is active
 
-Starting a Goal, Loop, or Repro gives that driver bounded authority for its
-confirmed objective, Workspace, repository, and writable targets. While it is
-active, the driver may perform `manual_only` operations without asking again.
+Starting a Goal, Loop, or Repro on an interactive session asks once whether
+that Session may use driver authority. If you grant it, the driver may perform
+`manual_only` operations without asking again while it remains active. CLI,
+API, and other non-interactive starts record the same Session grant silently
+and do not prompt. If you keep per-tool approval, `manual_only` operations
+still require human approval even while a driver is active.
+
 Those operations must be low-risk and reversible; creating, updating, and
-synchronizing a Draft PR are examples.
+synchronizing a Draft PR are examples. Driver authority stays inside the
+confirmed objective, Workspace, repository, and writable targets.
 
 This does not authorize `required` operations. Destructive, irreversible,
 security-sensitive, costly, high-impact, or materially scope-expanding actions
