@@ -678,7 +678,7 @@ describe("daemon native session execution", () => {
     const cwd = join(root, "workspace");
     mkdirSync(cwd, { recursive: true });
     const compactPaths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
-    const store = new SparkSessionStore({ cwd, sparkHome: compactPaths.piAgentDir });
+    const store = new SparkSessionStore({ cwd, sparkHome: compactPaths.sessionRuntimeDir });
     const record = store.createCanonicalSession({ id: "sess_compact" });
     await store.save(record);
     const release = vi.fn();
@@ -775,7 +775,7 @@ describe("daemon native session execution", () => {
         customInstructions: "keep exact decisions",
         model: "openai/test-model",
         thinkingLevel: "medium",
-        sparkHome: compactPaths.piAgentDir,
+        sparkHome: compactPaths.sessionRuntimeDir,
         sessionLease: {
           workspaceId: "workspace-compact",
           clientId: "client-compact",
@@ -873,7 +873,7 @@ describe("daemon native session execution", () => {
     const compactSession = vi.fn();
     const bindTranscriptPath = vi.fn(async () => ({}) as never);
     const commitTranscriptReplacement = vi.fn(async () => ({}) as never);
-    const store = new SparkSessionStore({ cwd, sparkHome: compactPaths.piAgentDir });
+    const store = new SparkSessionStore({ cwd, sparkHome: compactPaths.sessionRuntimeDir });
     const canonicalPath = store.createCanonicalSession({ id: task.sessionId }).path;
 
     try {
@@ -917,7 +917,7 @@ describe("daemon native session execution", () => {
     const cwd = join(root, "workspace");
     mkdirSync(cwd, { recursive: true });
     const compactPaths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
-    const store = new SparkSessionStore({ cwd, sparkHome: compactPaths.piAgentDir });
+    const store = new SparkSessionStore({ cwd, sparkHome: compactPaths.sessionRuntimeDir });
     const record = store.createCanonicalSession({ id: "sess_compact_cas" });
     await store.save(record);
     const task: SparkDaemonSessionCompactTask = {

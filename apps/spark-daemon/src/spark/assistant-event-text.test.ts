@@ -1,29 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createSparkDaemonResourceLoader } from "./resource-loader.js";
-import { extractFinalAssistantText, extractTextDelta } from "./session.js";
 
-describe("Spark daemon session compatibility surface", () => {
-  it("uses a daemon-owned resource loader with no extension discovery by default", () => {
-    const loader = createSparkDaemonResourceLoader();
+import { extractFinalAssistantText, extractTextDelta } from "./assistant-event-text.ts";
 
-    expect(loader.getExtensions().extensions).toEqual([]);
-    expect(loader.getSkills().skills).toEqual([]);
-    expect(loader.getPrompts().prompts).toEqual([]);
-    expect(loader.getThemes().themes).toEqual([]);
-  });
-
-  it("loads Spark headless session execution through spark-host", async () => {
-    const { loadSparkHeadlessSessionModule } =
-      await import("@zendev-lab/spark-host/headless-loader");
-    const headless = await loadSparkHeadlessSessionModule({
-      importModule: async () => ({
-        createSparkHeadlessSessionExecutor: () => async () => ({ sessionId: "test" }),
-      }),
-    });
-
-    expect(typeof headless.createSparkHeadlessSessionExecutor).toBe("function");
-  });
-
+describe("assistant event text extraction", () => {
   it("extracts text deltas from Spark headless stream events and legacy Pi events", () => {
     expect(
       extractTextDelta({ type: "stream_event", event: { type: "text_delta", delta: "spark" } }),

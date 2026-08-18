@@ -865,8 +865,8 @@ export async function enrichInboundMessageReferenceFromSession(input: {
       (input.getSession ? await input.getSession(input.session.sessionId) : undefined) ??
       input.session;
     const paths = resolveSparkPaths({ app: "daemon", sparkHome: input.sparkHome });
-    const sessionsRoot = paths.piAgentDir
-      ? join(paths.piAgentDir, "sessions")
+    const sessionsRoot = paths.sessionRuntimeDir
+      ? join(paths.sessionRuntimeDir, "sessions")
       : join(input.sparkHome, "sessions");
     const snapshot = await loadSparkSessionSnapshot({
       sessionsRoot,

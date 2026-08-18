@@ -282,8 +282,8 @@ function parseSparkPathsCommand(json: boolean, argv: readonly string[]): SparkDi
 function formatSparkPaths(payload: {
   sparkHome: string | null;
   user: ReturnType<typeof resolveSparkUserPaths>;
-  hub: Omit<ReturnType<typeof resolveSparkPaths>, "piAgentDir">;
-  daemon: Omit<ReturnType<typeof resolveSparkPaths>, "piAgentDir">;
+  hub: Omit<ReturnType<typeof resolveSparkPaths>, "sessionRuntimeDir">;
+  daemon: Omit<ReturnType<typeof resolveSparkPaths>, "sessionRuntimeDir">;
 }): string {
   const lines = [`SPARK_HOME=${payload.sparkHome ?? "<unset>"}`, "", "user:"];
   for (const [key, value] of Object.entries(payload.user)) lines.push(`  ${key}=${value}`);
@@ -317,8 +317,8 @@ function isSparkTuiHeadlessCompatibilityCommand(argv: readonly string[]): boolea
 
 function publicSparkPaths(
   paths: ReturnType<typeof resolveSparkPaths>,
-): Omit<ReturnType<typeof resolveSparkPaths>, "piAgentDir"> {
-  const { piAgentDir: _piAgentDir, ...publicPaths } = paths;
+): Omit<ReturnType<typeof resolveSparkPaths>, "sessionRuntimeDir"> {
+  const { sessionRuntimeDir: _sessionRuntimeDir, ...publicPaths } = paths;
   return publicPaths;
 }
 

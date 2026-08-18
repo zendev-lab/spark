@@ -17,10 +17,12 @@ application UI, and daemon lifecycle do not.
 - Register existing capability and runtime owners; do not reimplement them.
 - Keep extension behavior host-neutral and depend on `SparkHostAPI` rather than
   concrete TUI, Hub, CLI, daemon, or `pi-coding-agent` internals.
-- Retain the Pi SDK kernel only behind the established `spark-ai`, `spark-tui`,
-  and related Spark boundaries.
-- Do not recreate a Pi product facade, parallel extension package, discovery
-  path, or second policy implementation.
+- Retain the Pi SDK kernel only behind the established `spark-ai`,
+  `spark-tui-adapter`, and related Spark boundaries.
+- Do not recreate a second Spark composition root, parallel policy
+  implementation, or Spark-owned `package.json#pi` discovery path.
+  `@zendev-lab/pi-spark` may wrap this package for the external Pi product
+  loader; it must not own Spark commands, tools, or host policy.
 - Builtin loading for Spark-native hosts remains explicit. Compatibility
   discovery may resolve to the same Spark implementation but must not grow a
   separate product surface.

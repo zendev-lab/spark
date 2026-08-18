@@ -1,24 +1,19 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { discoverAndLoadExtensions } from "@earendil-works/pi-coding-agent";
 import { test } from "vitest";
 
-const COMPATIBILITY_EXTENSION = resolve("packages/spark-ai/src/baidu-oneapi-compat-extension.ts");
-const NATIVE_PROVIDER_EXTENSION = resolve("packages/spark-ai/src/baidu-oneapi-provider.ts");
-const FILE_COMPATIBILITY_EXTENSION = resolve("packages/spark-files/src/extension-entry.ts");
+const PI_SPARK_EXTENSION = fileURLToPath(new URL("./extension.ts", import.meta.url));
 const PI_NATIVE_FILE_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
 
-test("the production Pi surface keeps Pi-native file tools authoritative", async () => {
-  const agentDir = await mkdtemp(join(tmpdir(), "spark-pi-files-loader-"));
+test("the production Pi loader loads pi-spark without registering Pi-native file tools", async () => {
+  const agentDir = await mkdtemp(join(tmpdir(), "spark-pi-spark-files-"));
   try {
-    const loaded = await discoverAndLoadExtensions(
-      [FILE_COMPATIBILITY_EXTENSION],
-      process.cwd(),
-      agentDir,
-    );
+    const loaded = await discoverAndLoadExtensions([PI_SPARK_EXTENSION], process.cwd(), agentDir);
     assert.deepEqual(loaded.errors, []);
     const registeredFileTools = loaded.extensions
       .flatMap((extension) => [...extension.tools.keys()])
@@ -29,14 +24,10 @@ test("the production Pi surface keeps Pi-native file tools authoritative", async
   }
 });
 
-test("the production Pi loader resolves the Spark-native Baidu provider without corrupting API subpaths", async () => {
-  const agentDir = await mkdtemp(join(tmpdir(), "spark-pi-native-provider-loader-"));
+test("the production Pi loader resolves the Spark-native Baidu provider through pi-spark", async () => {
+  const agentDir = await mkdtemp(join(tmpdir(), "spark-pi-spark-provider-"));
   try {
-    const loaded = await discoverAndLoadExtensions(
-      [NATIVE_PROVIDER_EXTENSION],
-      process.cwd(),
-      agentDir,
-    );
+    const loaded = await discoverAndLoadExtensions([PI_SPARK_EXTENSION], process.cwd(), agentDir);
     assert.deepEqual(loaded.errors, []);
     assert.equal(
       loaded.runtime.pendingProviderRegistrations.filter(
@@ -49,8 +40,8 @@ test("the production Pi loader resolves the Spark-native Baidu provider without 
   }
 });
 
-test("the production Pi loader executes both Baidu OneAPI lazy transports", async () => {
-  const agentDir = await mkdtemp(join(tmpdir(), "spark-pi-loader-"));
+test("the production Pi loader executes both Baidu OneAPI lazy transports through pi-spark", async () => {
+  const agentDir = await mkdtemp(join(tmpdir(), "spark-pi-spark-loader-"));
   const previousBaiduApiKey = process.env.BAIDU_ONEAPI_API_KEY;
   const previousOpenAiLog = process.env.OPENAI_LOG;
   const previousFetch = globalThis.fetch;
@@ -65,11 +56,7 @@ test("the production Pi loader executes both Baidu OneAPI lazy transports", asyn
   }) as typeof fetch;
 
   try {
-    const loaded = await discoverAndLoadExtensions(
-      [COMPATIBILITY_EXTENSION],
-      process.cwd(),
-      agentDir,
-    );
+    const loaded = await discoverAndLoadExtensions([PI_SPARK_EXTENSION], process.cwd(), agentDir);
     assert.deepEqual(loaded.errors, []);
 
     const registrations = loaded.runtime.pendingProviderRegistrations.filter(

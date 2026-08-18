@@ -404,7 +404,7 @@ export async function start(
     console.error("[spark-daemon] unifying session transcripts");
     const transcriptMigration = await unifyDaemonSessionTranscripts({
       registry: sessionRegistry,
-      transcriptSparkHome: paths.piAgentDir ?? join(paths.dataDir, "pi-agent"),
+      transcriptSparkHome: paths.sessionRuntimeDir ?? join(paths.dataDir, "pi-agent"),
       backupRoot: join(
         paths.dataDir,
         "backups",

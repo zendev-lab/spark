@@ -280,36 +280,22 @@
     "packageBudget": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "current",
-        "approvedNext",
-        "approvedPackage",
-        "approvedPath",
-        "reason",
-        "exitTask"
-      ],
+      "required": ["current", "ceiling", "nonGrowth", "reason"],
       "properties": {
         "current": {
           "type": "integer",
           "minimum": 1
         },
-        "approvedNext": {
+        "ceiling": {
           "type": "integer",
-          "minimum": 2
+          "minimum": 1
         },
-        "approvedPackage": {
-          "$ref": "#/$defs/packageName"
-        },
-        "approvedPath": {
-          "type": "string",
-          "pattern": "^(?:apps|packages)/[a-z0-9-]+$"
+        "nonGrowth": {
+          "const": true
         },
         "reason": {
           "type": "string",
           "minLength": 24
-        },
-        "exitTask": {
-          "$ref": "#/$defs/taskRef"
         }
       }
     },

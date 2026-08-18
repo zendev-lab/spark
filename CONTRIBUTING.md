@@ -173,9 +173,8 @@ Create a workspace only for a hard runtime, state, permission, protocol,
 adapter, or experimental-lifecycle boundary. Otherwise add a module to the
 existing owner. Adding, removing, renaming, or reclassifying a workspace
 requires updating `architecture/packages.json` and passing the architecture and
-boundary checks. The budget permits 41 current workspaces and only
-`@zendev-lab/pi-spark` as the pre-approved forty-second package. Raising or
-replacing that budget requires an architecture rationale and inventory change.
+boundary checks. The budget is closed at 42 after landing `@zendev-lab/pi-spark`.
+Raising or replacing that budget requires an architecture rationale and inventory change.
 
 ## Documentation ownership
 

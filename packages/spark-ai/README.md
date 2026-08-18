@@ -49,11 +49,10 @@ while rewriting outbound payloads back to the gateway-required model ids
 Default `enabledModels` is the current frontier (`grok-4.6`, not `grok-4.5`);
 the predecessor stays in the catalog for explicit opt-in.
 
-The root Pi compatibility profile loads the separate
-`@zendev-lab/spark-ai/baidu-oneapi-compat-extension` adapter. Only that entrypoint
-imports Pi's temporary `compat` API factories; the native provider uses modern
-public `pi-ai` API subpaths. Both adapters share the model catalog, payload
-rewrites, normalization, and bounded retry behavior from `baidu-oneapi.ts`.
+The Pi compatibility profile in `@zendev-lab/pi-spark` loads this same native
+provider. Both Spark-native hosts and the Pi product loader share the model
+catalog, payload rewrites, normalization, and bounded retry behavior from
+`baidu-oneapi.ts`.
 
 Claude and DeepSeek V4 Flash use Anthropic Messages. GPT-5.6, Grok 4.5, and
 Grok 4.6 use OpenAI Responses (DeepSeek's Responses path is not implemented on

@@ -818,9 +818,9 @@ async function createFixture() {
   migrateSparkDaemonDatabase(db);
   const paths = {
     ...resolveSparkPaths({ app: "daemon", env: { HOME: root } }),
-    piAgentDir: join(root, "agent"),
+    sessionRuntimeDir: join(root, "agent"),
   };
-  const sessionsRoot = join(paths.piAgentDir, "sessions");
+  const sessionsRoot = join(paths.sessionRuntimeDir, "sessions");
   const store = new SparkSessionStore({ cwd: root, sessionsRoot });
   const parentSessionId = "parent-session";
   const parentRecord = store.createSession({ id: parentSessionId });

@@ -86,7 +86,7 @@ import {
   type serverCommandEnvelopeSchema,
 } from "@zendev-lab/spark-protocol";
 import type { SparkPaths } from "@zendev-lab/spark-system";
-import { extractFinalAssistantText, extractTextDelta } from "../pi/session.ts";
+import { extractFinalAssistantText, extractTextDelta } from "./assistant-event-text.ts";
 import type { SparkDaemonWorkspace } from "../store/workspaces.js";
 import {
   commandAck,
@@ -281,7 +281,9 @@ export async function runSparkCommandBridge(
       ...(spark
         ? {
             roleExecutor: spark.createSparkHeadlessRoleExecutor({
-              ...(input.paths.piAgentDir ? { sparkHome: input.paths.piAgentDir } : {}),
+              ...(input.paths.sessionRuntimeDir
+                ? { sparkHome: input.paths.sessionRuntimeDir }
+                : {}),
               ...(input.controlSparkHome ? { controlSparkHome: input.controlSparkHome } : {}),
             }),
           }

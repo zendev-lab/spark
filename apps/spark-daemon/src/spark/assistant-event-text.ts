@@ -1,40 +1,4 @@
-import { join } from "node:path";
-import { loadSparkHeadlessSessionModule } from "@zendev-lab/spark-host/headless-loader";
-import type { SparkPaths } from "@zendev-lab/spark-system";
-
 export type SparkDaemonPromptEvent = unknown;
-
-export interface RunSparkPromptOptions {
-  cwd: string;
-  prompt: string;
-  paths: SparkPaths;
-  tools: string[];
-  invocationId: string;
-  persistSession?: boolean;
-  onEvent?: (event: SparkDaemonPromptEvent) => void;
-}
-
-/**
- * Compatibility entry point for older daemon callers.
- *
- * Despite the historical name, this now runs through Spark's own host/turn
- * stack via the headless Spark session executor. The daemon no longer creates
- * a pi-coding-agent AgentSession for core prompt execution.
- */
-export async function runSparkPrompt(options: RunSparkPromptOptions): Promise<unknown> {
-  const sparkHome = options.paths.piAgentDir ?? join(options.paths.dataDir, "pi-agent");
-  const { createSparkHeadlessSessionExecutor } = await loadSparkHeadlessSessionModule();
-  const executeSession = createSparkHeadlessSessionExecutor({ sparkHome });
-  return await executeSession({
-    cwd: options.cwd,
-    sparkHome,
-    sessionId: options.persistSession
-      ? safeSegment(options.invocationId)
-      : `transient-${safeSegment(options.invocationId)}`,
-    prompt: options.prompt,
-    onEvent: options.onEvent,
-  });
-}
 
 export function extractTextDelta(event: SparkDaemonPromptEvent): string | null {
   if (!event || typeof event !== "object") return null;
@@ -102,8 +66,4 @@ function messageContentText(content: unknown): string | null {
     .join("")
     .trim();
   return text || null;
-}
-
-function safeSegment(value: string): string {
-  return value.replaceAll(/[^A-Za-z0-9._-]/g, "_");
 }

@@ -61,11 +61,11 @@ describe("Spark path resolution", () => {
     expect(daemon.stateDir).toBe("/xdg/state/spark/daemon");
     expect(daemon.runtimeDir).toBe("/xdg/runtime/spark/daemon");
     expect(daemon.artifactBlobsDir).toBe("/xdg/data/spark/daemon/artifacts/blobs/sha256");
-    expect(daemon.piAgentDir).toBe("/xdg/data/spark/daemon/pi-agent");
+    expect(daemon.sessionRuntimeDir).toBe("/xdg/data/spark/daemon/pi-agent");
 
     const hub = resolveSparkPaths({ app: "hub", env, cwd: "/" });
     expect(hub.artifactBlobsDir).toBe("/xdg/cache/spark/hub/artifacts/blobs/sha256");
-    expect(hub.piAgentDir).toBeUndefined();
+    expect(hub.sessionRuntimeDir).toBeUndefined();
   });
 
   it("trims SPARK_HOME and empty XDG overrides", () => {

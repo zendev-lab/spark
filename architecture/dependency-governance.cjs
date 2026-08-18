@@ -302,6 +302,16 @@ function generateLayerRules(inventory) {
   return rules;
 }
 
+function isClosedPackageBudget(budget) {
+  return (
+    budget?.nonGrowth === true &&
+    Number.isInteger(budget.current) &&
+    Number.isInteger(budget.ceiling) &&
+    budget.current === budget.ceiling &&
+    budget.approvedPackage === undefined
+  );
+}
+
 function validatePackageBudgetCandidate(inventory, candidatePackageNames) {
   const budget = inventory.governance.packageBudget;
   const currentNames = new Set(Object.keys(inventory.packages));
@@ -318,6 +328,7 @@ function validatePackageBudgetCandidate(inventory, candidatePackageNames) {
     .sort((left, right) => left.localeCompare(right));
   if (candidateNames.size === budget.current && additions.length === 0) return failures;
   if (
+    !isClosedPackageBudget(budget) &&
     candidateNames.size === budget.approvedNext &&
     additions.length === 1 &&
     additions[0] === budget.approvedPackage
@@ -325,7 +336,9 @@ function validatePackageBudgetCandidate(inventory, candidatePackageNames) {
     return failures;
   }
   failures.push(
-    `Package budget allows ${budget.current} current packages or only ${budget.approvedPackage} as package ${budget.approvedNext}; received ${candidateNames.size} packages with additions ${additions.join(", ") || "none"}`,
+    isClosedPackageBudget(budget)
+      ? `Package budget is closed at ${budget.current}; received ${candidateNames.size} packages with additions ${additions.join(", ") || "none"}`
+      : `Package budget allows ${budget.current} current packages or only ${budget.approvedPackage} as package ${budget.approvedNext}; received ${candidateNames.size} packages with additions ${additions.join(", ") || "none"}`,
   );
   return failures;
 }
@@ -402,6 +415,16 @@ function validatePiOwnership(inventory, manifests, rootManifest) {
         dependency: "package.json#pi",
         expectedOwner: policy.productManifestOwner,
       });
+    }
+    if (packageName === policy.productManifestOwner) {
+      const extensions = Array.isArray(manifest.pi?.extensions)
+        ? manifest.pi.extensions
+        : undefined;
+      if (!extensions || extensions.length !== 1 || extensions[0] !== "./src/extension.ts") {
+        failures.push(
+          `Pi product manifest owner ${packageName} must set pi.extensions to ["./src/extension.ts"]`,
+        );
+      }
     }
     const dependencies = allManifestDependencies(manifest);
     for (const [dependency, owner] of sdkOwners) {
@@ -524,14 +547,22 @@ function validateArchitectureGovernance(inventory, manifests, rootManifest) {
       `Package budget current=${budget.current} does not match inventory count ${packageNames.length}`,
     );
   }
-  if (budget.approvedNext !== budget.current + 1) {
-    failures.push("Package budget approvedNext must be exactly current + 1");
-  }
-  if (packageNameSet.has(budget.approvedPackage)) {
-    failures.push(`Approved next package ${budget.approvedPackage} already exists`);
-  }
-  if (Object.values(inventory.packages).some((entry) => entry.path === budget.approvedPath)) {
-    failures.push(`Approved next path ${budget.approvedPath} already exists`);
+  if (isClosedPackageBudget(budget)) {
+    if (budget.ceiling !== packageNames.length) {
+      failures.push(
+        `Closed package budget ceiling=${budget.ceiling} does not match inventory count ${packageNames.length}`,
+      );
+    }
+  } else {
+    if (budget.approvedNext !== budget.current + 1) {
+      failures.push("Package budget approvedNext must be exactly current + 1");
+    }
+    if (packageNameSet.has(budget.approvedPackage)) {
+      failures.push(`Approved next package ${budget.approvedPackage} already exists`);
+    }
+    if (Object.values(inventory.packages).some((entry) => entry.path === budget.approvedPath)) {
+      failures.push(`Approved next path ${budget.approvedPath} already exists`);
+    }
   }
 
   for (const compositionRoot of inventory.governance.compositionRoots) {
@@ -738,6 +769,7 @@ module.exports = {
   classifyWorkspaceDependency,
   decideLayerDependency,
   formatArchitectureHealthMarkdown,
+  isClosedPackageBudget,
   generateArchitectureHealthReport,
   generateLayerRules,
   loadArchitectureInventory,

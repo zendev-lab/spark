@@ -15,6 +15,7 @@
     ".": "./src/index.ts",
     "./evidence-migration": "./src/evidence-migration.ts",
     "./extension": "./src/extension.ts",
+    "./daemon-extension": "./src/daemon-extension.ts",
     "./preview-renderer": "./src/artifact/preview-renderer.ts",
     "./artifact": "./src/artifact/index.ts"
   },
