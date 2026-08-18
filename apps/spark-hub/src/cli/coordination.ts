@@ -1,6 +1,9 @@
 import { object, or } from "@optique/core/constructs";
+import { formatMessage, message } from "@optique/core/message";
+import { map, multiple, optional, withDefault } from "@optique/core/modifiers";
 import { parse } from "@optique/core/parser";
-import { command, constant, passThrough } from "@optique/core/primitives";
+import { argument, command, constant, flag, option, passThrough } from "@optique/core/primitives";
+import { string, type ValueParser } from "@optique/core/valueparser";
 import { type TaskGraph } from "@zendev-lab/spark-tasks";
 import type { Project, ProjectRef, Task, TaskRef } from "@zendev-lab/spark-core";
 import { createId, parseSparkAssignment } from "@zendev-lab/spark-protocol";
@@ -8,12 +11,7 @@ import { createId, parseSparkAssignment } from "@zendev-lab/spark-protocol";
 import {
   consoleSparkCliErrorOutput,
   consoleSparkCliOutput,
-  helpFlagRequested,
-  parseSparkCliOptions,
   printSparkCliResult,
-  readBooleanOption,
-  readNumberOption,
-  readStringOption,
   type SparkCliOutput,
 } from "./shared.ts";
 import type { HubAccessCliResult } from "./access.ts";
@@ -215,147 +213,257 @@ export interface SparkHubWorkflowListResult {
 }
 
 const remainingArgv = () => passThrough({ format: "greedy" });
+const helpFlag = () => withDefault(flag("-h", "--help"), false);
+const jsonFlag = () => withDefault(flag("--json"), false);
+const positionalArgs = () => multiple(argument(string()));
 
-const sparkHubResourceParser = or(
-  or(
-    command("help", object({ resource: constant("help" as const), argv: remainingArgv() })),
-    command("--help", object({ resource: constant("help" as const), argv: remainingArgv() })),
-    command("-h", object({ resource: constant("help" as const), argv: remainingArgv() })),
-    command("status", object({ resource: constant("status" as const), argv: remainingArgv() })),
-    command("project", object({ resource: constant("project" as const), argv: remainingArgv() })),
-    command("task", object({ resource: constant("task" as const), argv: remainingArgv() })),
-    command("goal", object({ resource: constant("goal" as const), argv: remainingArgv() })),
-    command("artifact", object({ resource: constant("artifact" as const), argv: remainingArgv() })),
-    command("review", object({ resource: constant("review" as const), argv: remainingArgv() })),
-  ),
-  or(
-    command("workflow", object({ resource: constant("workflow" as const), argv: remainingArgv() })),
-    command("assign", object({ resource: constant("assign" as const), argv: remainingArgv() })),
-    command("instance", object({ resource: constant("instance" as const), argv: remainingArgv() })),
-    command("access", object({ resource: constant("access" as const), argv: remainingArgv() })),
-    command(
-      "workspace",
-      object({ resource: constant("workspace" as const), argv: remainingArgv() }),
+const finiteNumber: ValueParser<"sync", number> = {
+  mode: "sync",
+  metavar: "NUMBER",
+  placeholder: 0,
+  parse(input) {
+    const value = Number(input);
+    return Number.isFinite(value)
+      ? { success: true, value }
+      : { success: false, error: message`Expected a finite number.` };
+  },
+  format: String,
+};
+
+const limitOption = () =>
+  optional(
+    option("--limit", finiteNumber, {
+      errors: {
+        endOfInput: message`--limit requires a value`,
+        invalidValue: message`--limit must be a number`,
+      },
+    }),
+  );
+
+function listResourceParser<
+  const TResource extends "project" | "task" | "goal" | "artifact" | "review" | "workflow",
+>(resource: TResource) {
+  return command(
+    resource,
+    map(
+      object({
+        help: helpFlag(),
+        json: jsonFlag(),
+        limit: limitOption(),
+        project: optional(option("--project", string())),
+        task: optional(option("--task", string())),
+        args: positionalArgs(),
+      }),
+      (value): SparkHubCliCommand => {
+        if (value.help) return { resource: "help" };
+        const [verb = defaultHubVerb(resource), positionalSelector] = value.args;
+        return {
+          resource,
+          verb,
+          json: value.json,
+          limit: value.limit,
+          selector: value.project ?? value.task ?? positionalSelector,
+        };
+      },
     ),
+  );
+}
+
+const statusParser = command(
+  "status",
+  map(
+    object({ help: helpFlag(), json: jsonFlag(), limit: limitOption() }),
+    (value): SparkHubCliCommand =>
+      value.help
+        ? { resource: "help" }
+        : { resource: "status", verb: "show", json: value.json, limit: value.limit },
   ),
-  object({ resource: constant("empty" as const) }),
 );
 
-export function parseSparkHubCliArgs(argv: string[]): SparkHubCliCommand {
-  const classified = classifySparkHubResource(argv);
-  if (classified.resource === "empty") return { resource: "status", json: false };
-  if (classified.resource === "help" || helpFlagRequested(argv)) {
-    return { resource: "help" };
-  }
-  if (classified.resource === "unknown") {
-    throw new Error(`unknown spark hub resource: ${classified.command}`);
-  }
-  const resourceToken = classified.resource;
-  const parsed = parseSparkCliOptions([...classified.argv]);
-  const json = readBooleanOption(parsed.options, "json");
-  const limit = readNumberOption(parsed.options, "limit");
-  const selector =
-    readStringOption(parsed.options, "project") ?? readStringOption(parsed.options, "task");
-  const [verb = defaultHubVerb(resourceToken), positionalSelector] = parsed.positionals;
-  switch (resourceToken) {
-    case "status":
-      return { resource: "status", verb: "show", json, limit };
-    case "project":
-    case "task":
-    case "goal":
-    case "artifact":
-    case "review":
-    case "workflow":
-      return {
-        resource: resourceToken,
-        verb,
-        json,
-        limit,
-        selector: selector ?? positionalSelector,
-      };
-    case "assign": {
-      const sessionId =
-        readStringOption(parsed.options, "session")?.trim() || positionalSelector?.trim();
+const assignParser = command(
+  "assign",
+  map(
+    object({
+      help: helpFlag(),
+      json: jsonFlag(),
+      session: optional(option("-s", "--session", string())),
+      goal: optional(option("--goal", string())),
+      title: optional(option("--title", string())),
+      role: optional(option("--role", string())),
+      workspace: optional(option("--workspace", string())),
+      args: positionalArgs(),
+    }),
+    (value): SparkHubCliCommand => {
+      if (value.help) return { resource: "help" };
+      const [rawVerb = defaultHubVerb("assign"), positionalSelector] = value.args;
       const goal =
-        readStringOption(parsed.options, "goal")?.trim() ||
-        parsed.positionals
-          .slice(verb === "create" || verb === "run" ? 1 : 0)
+        value.goal?.trim() ||
+        value.args
+          .slice(rawVerb === "create" || rawVerb === "run" ? 1 : 0)
           .join(" ")
           .trim();
       return {
         resource: "assign",
-        verb: verb === "create" || verb === "run" ? verb : "create",
-        json,
-        sessionId,
+        verb: rawVerb === "create" || rawVerb === "run" ? rawVerb : "create",
+        json: value.json,
+        sessionId: value.session?.trim() || positionalSelector?.trim(),
         goal: goal || undefined,
-        title: readStringOption(parsed.options, "title")?.trim(),
-        role: readStringOption(parsed.options, "role")?.trim(),
-        workspaceId: readStringOption(parsed.options, "workspace")?.trim(),
+        title: value.title?.trim(),
+        role: value.role?.trim(),
+        workspaceId: value.workspace?.trim(),
       };
-    }
-    case "instance":
+    },
+  ),
+);
+
+const instanceParser = command(
+  "instance",
+  map(
+    object({
+      help: helpFlag(),
+      json: jsonFlag(),
+      snapshot: optional(option("--snapshot", string())),
+      database: optional(option("--database", string())),
+      rollbackRoot: optional(option("--rollback-root", string())),
+      yes: withDefault(flag("-y", "--yes"), false),
+      args: positionalArgs(),
+    }),
+    (value): SparkHubCliCommand => {
+      if (value.help) return { resource: "help" };
+      const [verb = defaultHubVerb("instance"), positionalSelector] = value.args;
       return {
         resource: "instance",
         verb,
-        json,
-        snapshotPath:
-          readStringOption(parsed.options, "snapshot")?.trim() || positionalSelector?.trim(),
-        databasePath: readStringOption(parsed.options, "database")?.trim(),
-        rollbackRoot: readStringOption(parsed.options, "rollback-root")?.trim(),
-        yes: readBooleanOption(parsed.options, "yes") || readBooleanOption(parsed.options, "y"),
+        json: value.json,
+        snapshotPath: value.snapshot?.trim() || positionalSelector?.trim(),
+        databasePath: value.database?.trim(),
+        rollbackRoot: value.rollbackRoot?.trim(),
+        yes: value.yes,
       };
-    case "access":
+    },
+  ),
+);
+
+const accessParser = command(
+  "access",
+  map(
+    object({
+      help: helpFlag(),
+      json: jsonFlag(),
+      database: optional(option("--database", string())),
+      label: optional(option("--label", string())),
+      id: optional(option("--id", string())),
+      args: positionalArgs(),
+    }),
+    (value): SparkHubCliCommand => {
+      if (value.help) return { resource: "help" };
+      const [verb = defaultHubVerb("access"), positionalSelector] = value.args;
       return {
         resource: "access",
         verb,
-        json,
-        databasePath: readStringOption(parsed.options, "database")?.trim(),
-        label: readStringOption(parsed.options, "label")?.trim(),
-        tokenId:
-          readStringOption(parsed.options, "id")?.trim() ||
-          (verb === "revoke" ? positionalSelector?.trim() : undefined),
+        json: value.json,
+        databasePath: value.database?.trim(),
+        label: value.label?.trim(),
+        tokenId: value.id?.trim() || (verb === "revoke" ? positionalSelector?.trim() : undefined),
       };
-    case "workspace": {
-      const [topic, operation, ...rest] = parsed.positionals;
-      if (topic !== "access") {
-        throw new Error(
-          "Usage: spark hub workspace access create|list|revoke --workspace <id> [...]",
-        );
-      }
-      const workspaceFromFlag = readStringOption(parsed.options, "workspace")?.trim();
-      const idFromFlag = readStringOption(parsed.options, "id")?.trim();
-      let workspaceRef = workspaceFromFlag;
-      let tokenId = idFromFlag;
-      if (!workspaceRef && rest[0]) {
-        workspaceRef = rest[0].trim();
-        if (operation === "revoke" && !tokenId && rest[1]) tokenId = rest[1].trim();
-      } else if (operation === "revoke" && !tokenId && rest[0]) {
-        tokenId = rest[0].trim();
-      }
-      return {
-        resource: "workspace-access",
-        verb: operation ?? "list",
-        json,
-        workspaceRef,
-        databasePath: readStringOption(parsed.options, "database")?.trim(),
-        label: readStringOption(parsed.options, "label")?.trim(),
-        tokenId,
-      };
-    }
-    default: {
-      const exhaustive: never = resourceToken;
-      return exhaustive;
-    }
-  }
-}
+    },
+  ),
+);
 
-function classifySparkHubResource(argv: string[]) {
-  const result = parse(sparkHubResourceParser, argv);
-  if (result.success) {
-    if (result.value.resource === "empty") return result.value;
-    return { ...result.value, argv: [...result.value.argv] };
+const workspaceAccessParser = command(
+  "workspace",
+  command(
+    "access",
+    map(
+      object({
+        help: helpFlag(),
+        json: jsonFlag(),
+        workspace: optional(option("--workspace", string())),
+        database: optional(option("--database", string())),
+        label: optional(option("--label", string())),
+        id: optional(option("--id", string())),
+        args: positionalArgs(),
+      }),
+      (value): SparkHubCliCommand => {
+        if (value.help) return { resource: "help" };
+        const [operation = "list", ...rest] = value.args;
+        let workspaceRef = value.workspace?.trim();
+        let tokenId = value.id?.trim();
+        if (!workspaceRef && rest[0]) {
+          workspaceRef = rest[0].trim();
+          if (operation === "revoke" && !tokenId && rest[1]) tokenId = rest[1].trim();
+        } else if (operation === "revoke" && !tokenId && rest[0]) {
+          tokenId = rest[0].trim();
+        }
+        return {
+          resource: "workspace-access",
+          verb: operation,
+          json: value.json,
+          workspaceRef,
+          databasePath: value.database?.trim(),
+          label: value.label?.trim(),
+          tokenId,
+        };
+      },
+    ),
+    {
+      errors: {
+        notMatched: message`Usage: spark hub workspace access create|list|revoke --workspace <id> [...]`,
+      },
+    },
+  ),
+);
+
+const sparkHubCommandParser = or(
+  or(
+    command("help", object({ resource: constant("help" as const), argv: remainingArgv() })),
+    command("--help", object({ resource: constant("help" as const), argv: remainingArgv() })),
+    command("-h", object({ resource: constant("help" as const), argv: remainingArgv() })),
+    statusParser,
+    listResourceParser("project"),
+    listResourceParser("task"),
+    listResourceParser("goal"),
+    listResourceParser("artifact"),
+  ),
+  or(
+    listResourceParser("review"),
+    listResourceParser("workflow"),
+    assignParser,
+    instanceParser,
+    accessParser,
+    workspaceAccessParser,
+  ),
+  object({ resource: constant("empty" as const) }),
+);
+
+const knownHubResources = new Set([
+  "help",
+  "--help",
+  "-h",
+  "status",
+  "project",
+  "task",
+  "goal",
+  "artifact",
+  "review",
+  "workflow",
+  "assign",
+  "instance",
+  "access",
+  "workspace",
+]);
+
+export function parseSparkHubCliArgs(argv: string[]): SparkHubCliCommand {
+  const result = parse(sparkHubCommandParser, argv);
+  if (!result.success) {
+    const resource = argv[0] ?? "";
+    if (!knownHubResources.has(resource))
+      throw new Error(`unknown spark hub resource: ${resource}`);
+    throw new Error(formatMessage(result.error));
   }
-  return { resource: "unknown" as const, command: argv[0] ?? "" };
+  if (result.value.resource === "empty") return { resource: "status", json: false };
+  if (result.value.resource === "help") return { resource: "help" };
+  return result.value;
 }
 
 export async function handleSparkHubCliCommand(
