@@ -116,7 +116,7 @@ export async function reconcileSparkReproRuntimeForSession(input: {
     const repro = await readSessionRepro(input.cwd, ownerCtx);
     if (!repro?.projectRef || repro.status !== "active") return repro;
     return await reconcileSparkReproThreeLaneRuntime({
-      cwd: input.cwd,
+      cwd: stateCwd,
       ctx: ownerCtx,
       ownerSessionId,
       repro,
