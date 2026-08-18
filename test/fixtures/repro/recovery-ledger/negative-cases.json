@@ -1,0 +1,44 @@
+[
+  {
+    "id": "operation-id-mismatch",
+    "path": ["daemon", "checkpoints", 2, "operationId"],
+    "value": "report.synced",
+    "expected": "Expected values to be strictly equal"
+  },
+  {
+    "id": "stale-process-generation",
+    "path": ["daemon", "checkpoints", 1, "after", "generation"],
+    "copyFrom": ["daemon", "checkpoints", 1, "before", "generation"],
+    "expected": "strictly unequal"
+  },
+  {
+    "id": "duplicate-provider-replay",
+    "path": ["daemon", "checkpoints", 3, "providerHighWaterAfter"],
+    "value": 141,
+    "expected": "Expected values to be strictly equal"
+  },
+  {
+    "id": "cursor-advanced-before-owner-recovery",
+    "path": ["daemon", "checkpoints", 4, "cursorAfter"],
+    "value": 145,
+    "expected": "Expected values to be strictly equal"
+  },
+  {
+    "id": "missing-answer-event-evidence",
+    "path": ["report", "evidenceRefs"],
+    "value": ["evidence:ordinary-proof"],
+    "expected": "falsy value"
+  },
+  {
+    "id": "conflicting-checkpoint-order",
+    "path": ["daemon", "checkpoints", 1, "id"],
+    "value": "git.post_pr",
+    "expected": "Expected values to be strictly deep-equal"
+  },
+  {
+    "id": "cue-daemon-pid-alias",
+    "path": ["teardown", "cueDaemon", "pid"],
+    "copyFrom": ["teardown", "hubPid"],
+    "expected": "strictly unequal"
+  }
+]

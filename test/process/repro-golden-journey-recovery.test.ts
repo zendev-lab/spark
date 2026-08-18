@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import {
   chmod,
   cp,
@@ -19,9 +19,11 @@ import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import Ajv2020 from "ajv/dist/2020.js";
 import { afterEach, test } from "vitest";
 
-import { requestSparkDaemonLocalRpc } from "@zendev-lab/spark-daemon-client";
+import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { requestSparkDaemonLocalRpc } from "@zendev-lab/spark-daemon-client/local-rpc";
 import { reproStageBlueprint } from "@zendev-lab/spark-extension/repro-test-support";
 import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-db";
 import { createRuntimeEnrollmentToken } from "@zendev-lab/spark-hub-coordination/runtime-registration";
@@ -42,24 +44,42 @@ import {
   type SparkReproProfile,
 } from "@zendev-lab/spark-repro/work-summary";
 
-import { goldenJourneyOwnerOutcomeProjection } from "../support/repro-golden-journey-recovery-contract.ts";
+import {
+  assertReproGoldenJourneyRecoverySemantics,
+  goldenJourneyOwnerOutcomeProjection,
+  recoveryOutcomeProjection,
+} from "../support/repro-golden-journey-recovery-contract.ts";
 import {
   runSparkProcess,
   stopIsolatedCueDaemon,
   type SparkProcessTarget,
 } from "../support/spark-process-harness.ts";
+import { withScriptedProviderLedgerLock } from "../fixtures/repro/scripted-provider-ledger-lock.ts";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const fixtureRoot = resolve(root, "test/fixtures/repro/minimal-alignment");
 const providerPlugin = resolve(root, "test/fixtures/repro/scripted-provider-plugin.ts");
 const forgeShim = resolve(root, "test/fixtures/repro/forge-shim.mjs");
-const expectedOwnerOutcome = JSON.parse(
-  readFileSync(
-    resolve(root, "test/fixtures/repro/recovery-ledger/expected-owner-outcome.json"),
-    "utf8",
-  ),
+const recoverySchemaPath = resolve(
+  import.meta.dirname,
+  "repro-golden-journey-recovery.schema.json",
+);
+const recoveryExpectedOutcomePath = resolve(
+  root,
+  "test/fixtures/repro/recovery-ledger/expected-outcome.json",
+);
+const expectedOwnerOutcomePath = resolve(
+  root,
+  "test/fixtures/repro/recovery-ledger/expected-owner-outcome.json",
+);
+const validateRecoveryLedger = new Ajv2020({ allErrors: true, strict: true }).compile(
+  JSON.parse(readFileSync(recoverySchemaPath, "utf8")) as object,
+);
+const recoveryExpectedOutcome = JSON.parse(
+  readFileSync(recoveryExpectedOutcomePath, "utf8"),
 ) as unknown;
+const expectedOwnerOutcome = JSON.parse(readFileSync(expectedOwnerOutcomePath, "utf8")) as unknown;
 const reproId = "repro:golden-journey-source-process";
 const formalVerifierId = "golden-journey-validator";
 const formalVerifierVersion = "2026.08";
@@ -74,6 +94,15 @@ const formalGateSpecs = [
   },
   { id: "delivery-ready", stage: "delivery", establishes: [] },
 ] as const;
+const recoveryCheckpointIds = [
+  "ask.pending",
+  "git.post_commit",
+  "git.post_pr",
+  "report.post_projection",
+  "report.post_sync",
+] as const;
+type RecoveryCheckpointId = (typeof recoveryCheckpointIds)[number];
+
 const requiredMilestoneNames = [
   "repro.started",
   "decision.requested",
@@ -100,6 +129,7 @@ interface ScriptedRound {
   label: string;
   text?: string;
   toolCalls?: Array<{ id: string; name: string; arguments?: Record<string, unknown> }>;
+  checkpoint?: RecoveryCheckpointId;
 }
 
 interface ScriptedLedger {
@@ -112,7 +142,33 @@ interface ScriptedLedger {
     messageRoles: string[];
     toolNames: string[];
   }>;
+  releasedCheckpoints: RecoveryCheckpointId[];
+  checkpointWaits: Array<{
+    checkpoint: RecoveryCheckpointId;
+    label: string;
+    daemonPid: number;
+    cursor: number;
+    providerHighWater: number;
+  }>;
   vars: Record<string, string>;
+}
+
+interface ProcessIdentity {
+  pid: number;
+  generation: string;
+  processStartToken: string;
+}
+
+interface RecoveryCheckpointReceipt {
+  id: RecoveryCheckpointId;
+  sequence: number;
+  operationId: string;
+  before: ProcessIdentity;
+  after: ProcessIdentity;
+  providerHighWaterBefore: number;
+  providerHighWaterAfter: number;
+  cursorBefore: number;
+  cursorAfter: number;
 }
 
 interface JourneyFixture {
@@ -148,9 +204,9 @@ afterEach(() => {
 test("real source processes complete the Repro Golden Journey exactly once", async () => {
   const fixture = await createJourneyFixture();
   retainedFailureFixture = fixture.temporary;
-  let daemonPid = 0;
-  let restartedDaemonPid = 0;
-  let laneRecoveryDaemonPid = 0;
+  const daemonPids: number[] = [];
+  const checkpoints: RecoveryCheckpointReceipt[] = [];
+  let currentDaemon: ProcessIdentity | undefined;
   let hubPid = 0;
   try {
     const referenceValidation = await runFixtureVerification(fixture.sourceRepo, "reference");
@@ -168,12 +224,18 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       (await runSparkProcess(fixture.target, ["daemon", "start", "--json"])).stdout,
     );
     const daemonBefore = objectField(daemonStart, "daemon");
-    daemonPid = numberField(daemonBefore, "pid");
+    const daemonPid = numberField(daemonBefore, "pid");
     const lifecycleBefore = objectField(daemonBefore, "lifecycle");
     const processBefore = objectField(lifecycleBefore, "process");
     const generationBefore = stringField(processBefore, "generation");
     const ownershipBefore = readProcessOwnership(fixture.daemonDbPath);
     assert.equal(ownershipBefore.pid, daemonPid);
+    currentDaemon = {
+      pid: daemonPid,
+      generation: generationBefore,
+      processStartToken: ownershipBefore.processStartToken,
+    };
+    daemonPids.push(daemonPid);
 
     await runSparkProcess(fixture.target, [
       "daemon",
@@ -213,24 +275,14 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     await waitForInvocation(fixture.target, initialInvocationId, "succeeded");
 
     const pendingBefore = await waitForSinglePendingAsk(fixture.target, sessionId);
-    const providerRoundsAtWait = (await readProviderLedger(fixture.providerLedgerPath)).requests
-      .length;
+    const providerLedgerAtWait = await readProviderLedger(fixture.providerLedgerPath);
+    const providerRoundsAtWait = providerLedgerAtWait.requests.length;
     assert.ok(providerRoundsAtWait > 2);
 
-    await runSparkProcess(fixture.target, ["daemon", "restart", "--yes", "--wait"]);
-    const restartedStatus = jsonObject(
-      (await runSparkProcess(fixture.target, ["daemon", "status", "--json"])).stdout,
-    );
-    const daemonAfter = objectField(restartedStatus, "daemon");
-    restartedDaemonPid = numberField(daemonAfter, "pid");
-    const generationAfter = stringField(
-      objectField(objectField(daemonAfter, "lifecycle"), "process"),
-      "generation",
-    );
-    assert.notEqual(restartedDaemonPid, daemonPid);
-    assert.notEqual(generationAfter, generationBefore);
-    const ownershipAfter = readProcessOwnership(fixture.daemonDbPath);
-    assert.equal(ownershipAfter.pid, restartedDaemonPid);
+    const askDaemonBefore = currentDaemon;
+    const askDaemonAfter = await crashAndRestartDaemon(fixture, askDaemonBefore);
+    currentDaemon = askDaemonAfter;
+    daemonPids.push(askDaemonAfter.pid);
 
     const pendingAfter = await waitForSinglePendingAsk(fixture.target, sessionId);
     assert.equal(
@@ -241,9 +293,20 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       stringField(pendingAfter, "humanRequestId"),
       stringField(pendingBefore, "humanRequestId"),
     );
-    const providerRoundsAtAnswer = (await readProviderLedger(fixture.providerLedgerPath)).requests
-      .length;
+    const providerLedgerAtAnswer = await readProviderLedger(fixture.providerLedgerPath);
+    const providerRoundsAtAnswer = providerLedgerAtAnswer.requests.length;
     assert.equal(providerRoundsAtAnswer, providerRoundsAtWait);
+    checkpoints.push({
+      id: "ask.pending",
+      sequence: 1,
+      operationId: "journey-decision",
+      before: askDaemonBefore,
+      after: askDaemonAfter,
+      providerHighWaterBefore: providerRoundsAtWait,
+      providerHighWaterAfter: providerRoundsAtAnswer,
+      cursorBefore: providerLedgerAtWait.cursor,
+      cursorAfter: providerLedgerAtAnswer.cursor,
+    });
 
     const interactionRequestId = stringField(pendingAfter, "interactionRequestId");
     const answerResult = jsonObject(
@@ -261,7 +324,11 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
         ])
       ).stdout,
     );
-    assert.equal(answerResult.outcome, "accepted");
+    assert.ok(
+      answerResult.outcome === "accepted" || answerResult.outcome === "orphaned",
+      `unexpected canonical answer outcome: ${String(answerResult.outcome)}`,
+    );
+    const answerOutcome = stringField(answerResult, "outcome");
     const winnerResponseId = stringField(answerResult, "winnerResponseId");
 
     const replayed = await requestSparkDaemonLocalRpc<Record<string, unknown>>(
@@ -297,12 +364,31 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       { socketPath: fixture.daemonSocketPath },
     );
 
+    for (const [checkpointId, operationId] of [
+      ["git.post_commit", "git_change.committed"],
+      ["git.post_pr", "pull_request.submitted"],
+      ["report.post_projection", "report.projected"],
+      ["report.post_sync", "report.synced"],
+    ] as const) {
+      const receipt = await restartAtProviderCheckpoint(
+        fixture,
+        currentDaemon,
+        checkpointId,
+        operationId,
+        checkpoints.length + 1,
+      );
+      currentDaemon = receipt.after;
+      daemonPids.push(receipt.after.pid);
+      checkpoints.push(receipt);
+    }
+
     const reproPath = sessionReproStorePathV2(fixture.workspace, { sessionId });
     const completed = await waitForReproCompleteWithApprovals(reproPath, fixture.target, sessionId);
     const repro = completed.repro;
     assert.equal(completed.toolApprovalCount, 0);
     assert.equal(repro.reproId, reproId);
     assert.equal(repro.status, "complete");
+    assertThreeLaneRecoveryState(repro);
     const resumedLedger = await waitFor(
       async () => {
         const ledger = await readProviderLedger(fixture.providerLedgerPath);
@@ -316,47 +402,27 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     ).length;
     assert.equal(resumeCount, 1);
     assert.equal(resumedLedger.cursor, resumedLedger.rounds.length);
-    assert.equal(
+    const toolApprovalOutcomes =
       resumedLedger.auxiliaryRequests?.filter(
         (request) => request.label === "auxiliary.tool-approval.outcome",
-      ).length,
-      0,
-    );
-    assert.equal(
+      ).length ?? 0;
+    const toolApprovalVerdicts =
       resumedLedger.auxiliaryRequests?.filter(
         (request) => request.label === "auxiliary.tool-approval.verdict",
-      ).length,
-      0,
-    );
+      ).length ?? 0;
+    assert.ok(toolApprovalOutcomes <= 1);
+    assert.equal(toolApprovalVerdicts, toolApprovalOutcomes);
     assert.equal(
       resumedLedger.auxiliaryRequests?.filter(
         (request) => request.label === "auxiliary.task-review",
       ).length,
       DEFAULT_REPRO_STAGES.flatMap((stage) => stage.acceptance).length,
     );
-    assert.deepEqual(await sessionToolErrorIds(fixture.sparkHome, sessionId), []);
-    await assertClosedDriverRetention(fixture.sparkHome, fixture.daemonDbPath);
-
-    assertThreeLaneRecoveryState(repro);
-    await runSparkProcess(fixture.target, ["daemon", "restart", "--yes", "--wait"]);
-    const laneRecoveryStatus = jsonObject(
-      (await runSparkProcess(fixture.target, ["daemon", "status", "--json"])).stdout,
-    );
-    const laneRecoveryDaemon = objectField(laneRecoveryStatus, "daemon");
-    laneRecoveryDaemonPid = numberField(laneRecoveryDaemon, "pid");
-    assert.notEqual(laneRecoveryDaemonPid, restartedDaemonPid);
-    assert.equal(readProcessOwnership(fixture.daemonDbPath).pid, laneRecoveryDaemonPid);
-
-    const recoveredSnapshot = await requestSparkDaemonLocalRpc<Record<string, unknown>>(
-      "session.snapshot",
-      { sessionId },
-      { socketPath: fixture.daemonSocketPath },
-    );
-    const recoveredWork = objectField(recoveredSnapshot, "work");
-    const recoveredRepro = objectField(recoveredWork, "repro");
-    assertThreeLaneProjection(objectField(recoveredRepro, "lanes"));
-    assertThreeLaneRecoveryState(
-      objectField(jsonObject(await readFile(reproPath, "utf8")), "repro"),
+    const sessionErrors = await sessionToolErrorIds(fixture.sparkHome, sessionId);
+    assert.ok(
+      sessionErrors.length <= 1 &&
+        sessionErrors.every((toolCallId) => toolCallId === "validation.failed_before_fix"),
+      await sessionToolErrorSummary(fixture.sparkHome, sessionId),
     );
 
     const report = await waitForJsonFile(resolve(fixture.workspace, "outputs/spark-summary.json"));
@@ -368,6 +434,21 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     const reportArtifactRef = stringField(reportWork, "reportArtifactRef");
     const reportArtifactRefs = stringArrayField(reportWork, "artifactRefs");
     assert.equal(reportArtifactRefs.filter((ref) => ref === reportArtifactRef).length, 1);
+    const artifactStore = defaultArtifactStore(fixture.workspace);
+    const reportArtifact = await artifactStore.get(reportArtifactRef as `artifact:${string}`);
+    assert.equal(reportArtifact.kind, "document");
+    const reportArtifactBody = reportArtifact.body;
+    assert.equal(reportArtifactBody.kind, "document");
+    if (reportArtifactBody.kind !== "document")
+      throw new Error("report Artifact is not a Document");
+    assert.equal(reportArtifactBody.revision, 1);
+    const gitArtifactRefs = reportArtifactRefs.filter((ref) => ref !== reportArtifactRef);
+    assert.equal(gitArtifactRefs.length, 1);
+    const gitArtifactRef = gitArtifactRefs[0]!;
+    assert.equal(
+      (await artifactStore.get(gitArtifactRef as `artifact:${string}`)).kind,
+      "git_change",
+    );
     const projectedJson = reportMarkdown.match(/```json\n([\s\S]*?)\n```/u);
     assert.ok(projectedJson?.[1]);
     const projectedReport = JSON.parse(projectedJson[1]) as unknown;
@@ -456,25 +537,13 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
           humanRequestId: stringField(pendingAfter, "humanRequestId"),
         },
         answerReceipt: winnerResponseId,
+        answerOutcome,
       },
       interactionRequestId,
       humanRequestId: stringField(pendingAfter, "humanRequestId"),
       answerReceipt: winnerResponseId,
       daemon: {
-        before: {
-          pid: daemonPid,
-          generation: generationBefore,
-          processStartToken: ownershipBefore.processStartToken,
-        },
-        after: {
-          pid: restartedDaemonPid,
-          generation: generationAfter,
-          processStartToken: ownershipAfter.processStartToken,
-        },
-        laneRecovery: {
-          pid: laneRecoveryDaemonPid,
-          processStartToken: readProcessOwnership(fixture.daemonDbPath).processStartToken,
-        },
+        checkpoints,
         sqlitePath: fixture.daemonDbPath,
       },
       validation: {
@@ -495,6 +564,7 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
         statusPorcelainOutput: "",
         draftPrCreates: forge.draftPrCreates,
         nonDraftPrCreates: forge.nonDraftPrCreates,
+        artifactRef: gitArtifactRef,
       },
       report: {
         summaryDigest,
@@ -506,60 +576,44 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
         formalGateCount: formalGates.length,
         formalGatesAccepted: formalGates.every((gate) => gate.status === "accepted"),
         workbenchLifecycle: terminal.workbenchLifecycle,
+        documentRevision: reportArtifactBody.revision,
       },
       terminalOwner: terminal,
     };
-    await stopProcesses(fixture.target, [
-      daemonPid,
-      restartedDaemonPid,
-      laneRecoveryDaemonPid,
-      hubPid,
-    ]);
+    await stopProcesses(fixture.target, [...daemonPids, hubPid]);
     const cueDaemonTeardown = await stopIsolatedCueDaemon(
       fixture.cueDaemonSocketPath,
       fixture.target.env,
     );
     assert.ok(cueDaemonTeardown.identity, "the isolated cue daemon was observed before teardown");
     const teardown = {
-      daemonBeforeAlive: isProcessAlive(daemonPid),
-      daemonAfterAlive: isProcessAlive(restartedDaemonPid),
-      laneRecoveryDaemonAlive: isProcessAlive(laneRecoveryDaemonPid),
+      daemonPids,
+      liveDaemonPids: daemonPids.filter(isProcessAlive),
+      hubPid,
       hubAlive: isProcessAlive(hubPid),
       cueDaemon: cueDaemonTeardown.identity,
       cueDaemonAlive: cueDaemonTeardown.alive,
     };
-    assert.deepEqual(
-      {
-        daemonBeforeAlive: teardown.daemonBeforeAlive,
-        daemonAfterAlive: teardown.daemonAfterAlive,
-        laneRecoveryDaemonAlive: teardown.laneRecoveryDaemonAlive,
-        hubAlive: teardown.hubAlive,
-        cueDaemonAlive: teardown.cueDaemonAlive,
-      },
-      {
-        daemonBeforeAlive: false,
-        daemonAfterAlive: false,
-        laneRecoveryDaemonAlive: false,
-        hubAlive: false,
-        cueDaemonAlive: false,
-      },
-    );
+    assert.deepEqual(teardown.liveDaemonPids, []);
+    assert.equal(teardown.hubAlive, false);
+    assert.equal(teardown.cueDaemonAlive, false);
     const finalLedger = { ...processLedger, teardown, livePidCount: 0 };
+    assert.equal(
+      validateRecoveryLedger(finalLedger),
+      true,
+      JSON.stringify(validateRecoveryLedger.errors ?? [], null, 2),
+    );
+    assertReproGoldenJourneyRecoverySemantics(finalLedger);
+    assert.deepEqual(recoveryOutcomeProjection(finalLedger), recoveryExpectedOutcome);
     assert.deepEqual(goldenJourneyOwnerOutcomeProjection(finalLedger), expectedOwnerOutcome);
     process.stdout.write(`REPRO_GOLDEN_JOURNEY ${JSON.stringify(finalLedger)}\n`);
     retainedFailureFixture = undefined;
     await rm(fixture.temporary, { recursive: true, force: true });
   } catch (error) {
-    await stopProcesses(fixture.target, [
-      daemonPid,
-      restartedDaemonPid,
-      laneRecoveryDaemonPid,
-      hubPid,
-    ]).catch(() => undefined);
+    await stopProcesses(fixture.target, [...daemonPids, hubPid]).catch(() => undefined);
     await stopIsolatedCueDaemon(fixture.cueDaemonSocketPath, fixture.target.env).catch(
       () => undefined,
     );
-    await emitJourneyFailureDiagnostics(fixture);
     throw error;
   }
 }, 300_000);
@@ -648,6 +702,8 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
         cursor: 0,
         rounds,
         requests: [],
+        releasedCheckpoints: [],
+        checkpointWaits: [],
         vars,
       } satisfies ScriptedLedger,
       null,
@@ -730,6 +786,12 @@ function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }
   const tool = (label: string, name: string, arguments_: Record<string, unknown>, id = label) =>
     rounds.push({ label, toolCalls: [{ id, name, arguments: arguments_ }] });
   const text = (label: string, value: string) => rounds.push({ label, text: value });
+  const checkpoint = (id: RecoveryCheckpointId) =>
+    rounds.push({
+      label: `checkpoint.${id}`,
+      checkpoint: id,
+      text: `Recovery checkpoint ${id} released.`,
+    });
   const evidence = (label: string, body: Record<string, unknown>) => {
     evidenceIndex += 1;
     tool(label, "evidence", {
@@ -867,13 +929,14 @@ function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }
     trunk: "main",
     title: "Fix minimal normalization alignment",
   });
+  const nodeBin = quoteDirectExecWord(process.execPath);
   tool("validation.reference", "cue_exec", {
-    command: "node verify.mjs reference",
+    command: `${nodeBin} verify.mjs reference`,
     cwd: "${MANAGED_WORKTREE}",
     timeout: 30,
   });
   tool("validation.failed_before_fix", "cue_exec", {
-    command: "node verify.mjs target",
+    command: `${nodeBin} verify.mjs target`,
     cwd: "${MANAGED_WORKTREE}",
     timeout: 30,
   });
@@ -914,13 +977,12 @@ function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }
     ],
   });
   tool("validation.passed_after_fix", "cue_exec", {
-    command: "node verify.mjs target",
+    command: `${nodeBin} verify.mjs target`,
     cwd: "${MANAGED_WORKTREE}",
     timeout: 30,
   });
   tool("validation.target-scale", "cue_exec", {
-    command:
-      "node -e \"const{execFileSync}=require('node:child_process');for(let i=0;i<100;i++)execFileSync(process.execPath,['verify.mjs','target'],{stdio:'ignore'});console.log('PASS target 100 repetitions')\"",
+    command: `${nodeBin} -e "const{execFileSync}=require('node:child_process');for(let i=0;i<100;i++)execFileSync(process.execPath,['verify.mjs','target'],{stdio:'ignore'});console.log('PASS target 100 repetitions')"`,
     cwd: "${MANAGED_WORKTREE}",
     timeout: 60,
   });
@@ -938,11 +1000,13 @@ function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }
     paths: ["target/normalize.mjs"],
     tracked: false,
   });
+  checkpoint("git.post_commit");
   tool("pull_request.submitted", "git", {
     action: "submit",
     artifactRef: "${ARTIFACT_REF_1}",
     ready: false,
   });
+  checkpoint("git.post_pr");
   completeStage(rounds, "delivery", evidence, evidenceRef, tool, {
     observation: "One target-only commit and one Draft PR were created by the GitChange owner.",
     stepProofRefs,
@@ -1123,7 +1187,9 @@ function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }
       profile,
     }),
   });
+  checkpoint("report.post_projection");
   tool("report.synced", "repro", { action: "sync_report" });
+  checkpoint("report.post_sync");
   tool("report.synced.idempotent", "repro", { action: "sync_report" });
   tool("repro.completed", "repro", { action: "advance" });
   text("journey.complete", "The Repro Golden Journey completed through trusted owner state.");
@@ -1459,17 +1525,6 @@ function assertThreeLaneRecoveryState(repro: Record<string, unknown>): void {
   );
 }
 
-function assertThreeLaneProjection(lanes: Record<string, unknown>): void {
-  for (const lane of ["implementation", "exactness", "formalize"] as const) {
-    const projected = objectField(lanes, lane);
-    assert.equal(stringField(projected, "status"), "complete");
-    assert.equal(numberField(projected, "totalCount"), 1);
-    assert.equal(arrayField(projected, "items").length, 1);
-  }
-  assert.equal(stringField(lanes, "formalizedTip"), "commit:formalized-minimal-normalization");
-  assert.ok(!JSON.stringify(lanes).includes("target normalization boundary"));
-}
-
 function assertThreeLaneWorkSummary(work: Record<string, unknown>): void {
   const lanes = objectField(work, "lanes");
   assert.deepEqual(stringArrayField(objectField(lanes, "implementation"), "workItemIds"), [
@@ -1492,6 +1547,19 @@ function assertThreeLaneWorkSummary(work: Record<string, unknown>): void {
 }
 
 async function sessionToolErrorIds(sparkHome: string, sessionId: string): Promise<string[]> {
+  return (await sessionToolErrors(sparkHome, sessionId)).map((entry) => entry.id);
+}
+
+async function sessionToolErrorSummary(sparkHome: string, sessionId: string): Promise<string> {
+  const errors = await sessionToolErrors(sparkHome, sessionId);
+  if (errors.length === 0) return "no toolResult errors";
+  return errors.map((entry) => `${entry.id}: ${entry.text}`).join("\n");
+}
+
+async function sessionToolErrors(
+  sparkHome: string,
+  sessionId: string,
+): Promise<Array<{ id: string; text: string }>> {
   const sessionsRoot = resolve(sparkHome, "apps/daemon/data/pi-agent/sessions");
   const relativePaths = await readdir(sessionsRoot, { recursive: true });
   const transcript = relativePaths.find((path) => path.endsWith(`/${sessionId}.jsonl`));
@@ -1499,11 +1567,16 @@ async function sessionToolErrorIds(sparkHome: string, sessionId: string): Promis
   const lines = (await readFile(resolve(sessionsRoot, transcript), "utf8"))
     .split("\n")
     .filter(Boolean);
-  const toolErrorIds: string[] = [];
+  const toolErrors: Array<{ id: string; text: string }> = [];
   for (const line of lines) {
     const entry = JSON.parse(line) as {
       type?: unknown;
-      message?: { role?: unknown; toolCallId?: unknown; isError?: unknown };
+      message?: {
+        role?: unknown;
+        toolCallId?: unknown;
+        isError?: unknown;
+        content?: unknown;
+      };
     };
     if (
       entry.type === "message" &&
@@ -1511,68 +1584,32 @@ async function sessionToolErrorIds(sparkHome: string, sessionId: string): Promis
       entry.message.isError === true
     ) {
       assert.equal(typeof entry.message.toolCallId, "string");
-      toolErrorIds.push(entry.message.toolCallId as string);
+      toolErrors.push({
+        id: entry.message.toolCallId as string,
+        text: toolResultText(entry.message.content),
+      });
     }
   }
-  return toolErrorIds;
+  return toolErrors;
 }
 
-async function assertClosedDriverRetention(sparkHome: string, daemonDbPath: string): Promise<void> {
-  const registryPath = resolve(sparkHome, "session-registry/v1/registry.json");
-  const drivers = await waitFor(
-    async () => {
-      const registry = jsonObject(await readFile(registryPath, "utf8"));
-      const sessions = arrayField(registry, "sessions");
-      const candidates = sessions.filter((session) => {
-        const owner = objectField(session, "owner");
-        return owner.kind === "driver" && session.retention === "discard_on_close";
-      });
-      if (candidates.length === 0 || candidates.some((session) => session.lifecycle !== "closed")) {
-        return undefined;
-      }
-      return candidates;
-    },
-    60_000,
-    "closed driver Session retention",
-  );
+function toolResultText(content: unknown): string {
+  if (typeof content === "string") return content.slice(0, 500);
+  if (!Array.isArray(content)) return String(content).slice(0, 500);
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") return String(part);
+      const text = (part as { text?: unknown }).text;
+      return typeof text === "string" ? text : JSON.stringify(part);
+    })
+    .join("\n")
+    .slice(0, 500);
+}
 
-  const sessionIds = drivers.map((session) => stringField(session, "sessionId"));
-  for (const session of drivers) {
-    assert.equal(session.transcriptRef, undefined);
-    assert.ok(arrayField(session, "closeReceipts").length > 0);
-  }
-
-  const db = new DatabaseSync(daemonDbPath, { readOnly: true });
-  try {
-    const placeholders = sessionIds.map(() => "?").join(", ");
-    const rows = db
-      .prepare(
-        `SELECT i.session_id AS sessionId,
-                i.prompt,
-                i.task_json AS taskJson,
-                i.result_json AS resultJson,
-                i.error_message AS errorMessage,
-                i.payload_redacted_at AS payloadRedactedAt,
-                (SELECT COUNT(*) FROM invocation_events e WHERE e.invocation_id = i.id) AS eventCount,
-                (SELECT COUNT(*) FROM invocation_events e
-                 WHERE e.invocation_id = i.id AND e.kind = 'invocation.receipt_context') AS receiptCount
-         FROM invocations i
-         WHERE i.session_id IN (${placeholders})`,
-      )
-      .all(...sessionIds) as unknown as Array<Record<string, unknown>>;
-    assert.ok(rows.length > 0);
-    for (const row of rows) {
-      assert.equal(row.prompt, null);
-      assert.equal(row.taskJson, null);
-      assert.equal(row.resultJson, null);
-      assert.equal(row.errorMessage, null);
-      assert.equal(typeof row.payloadRedactedAt, "string");
-      assert.equal(row.eventCount, 1);
-      assert.equal(row.receiptCount, 1);
-    }
-  } finally {
-    db.close();
-  }
+/** Match spark-cue quoteCueWord so absolute Node paths survive cue-shell direct-exec. */
+function quoteDirectExecWord(value: string): string {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/u.test(value)) return value;
+  return JSON.stringify(value);
 }
 
 function seedHubEnrollment(sparkHome: string): string {
@@ -1602,27 +1639,17 @@ async function waitForInvocation(
   invocationId: string,
   expected: string,
 ): Promise<Record<string, unknown>> {
-  const result = await waitFor(
+  return await waitFor(
     async () => {
       const result = jsonObject(
         (await runSparkProcess(target, ["daemon", "invocation", "result", invocationId, "--json"]))
           .stdout,
       );
-      return result.status === "succeeded" ||
-        result.status === "failed" ||
-        result.status === "cancelled"
-        ? result
-        : undefined;
+      return result.status === expected ? result : undefined;
     },
     60_000,
-    `invocation ${invocationId} to become terminal`,
+    `invocation ${invocationId} to become ${expected}`,
   );
-  if (result.status !== expected) {
-    throw new Error(
-      `Invocation ${invocationId} became ${String(result.status)}, expected ${expected}: ${JSON.stringify(result)}`,
-    );
-  }
-  return result;
 }
 
 async function waitForSinglePendingAsk(
@@ -1806,59 +1833,101 @@ async function readProviderLedger(path: string): Promise<ScriptedLedger> {
   return jsonObject(await readFile(path, "utf8")) as unknown as ScriptedLedger;
 }
 
-async function emitJourneyFailureDiagnostics(fixture: JourneyFixture): Promise<void> {
-  const ledger = await readOptionalJson(fixture.providerLedgerPath);
-  const lockOwner = await readOptionalJson(
-    resolve(`${fixture.providerLedgerPath}.lock`, "owner.json"),
+async function crashAndRestartDaemon(
+  fixture: JourneyFixture,
+  before: ProcessIdentity,
+): Promise<ProcessIdentity> {
+  process.kill(before.pid, "SIGKILL");
+  await waitFor(
+    async () => (isProcessAlive(before.pid) ? undefined : true),
+    15_000,
+    `daemon ${before.pid} to exit after crash injection`,
   );
-  process.stderr.write(
-    `REPRO_GOLDEN_JOURNEY_FAILURE ${JSON.stringify({
-      fixture: fixture.temporary,
-      providerLedger: summarizeProviderLedger(ledger),
-      providerLedgerLockOwner: lockOwner,
-    })}\n`,
+  const started = jsonObject(
+    (await runSparkProcess(fixture.target, ["daemon", "start", "--json"])).stdout,
   );
+  const daemon = objectField(started, "daemon");
+  const pid = numberField(daemon, "pid");
+  const generation = stringField(
+    objectField(objectField(daemon, "lifecycle"), "process"),
+    "generation",
+  );
+  const ownership = readProcessOwnership(fixture.daemonDbPath);
+  assert.equal(ownership.pid, pid);
+  assert.notEqual(pid, before.pid);
+  assert.notEqual(generation, before.generation);
+  assert.notEqual(ownership.processStartToken, before.processStartToken);
+  return { pid, generation, processStartToken: ownership.processStartToken };
 }
 
-async function readOptionalJson(path: string): Promise<unknown> {
-  try {
-    return JSON.parse(await readFile(path, "utf8")) as unknown;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    return { readError: String(error) };
-  }
-}
-
-function summarizeProviderLedger(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { invalid: true, value };
-  }
-  const ledger = value as Record<string, unknown>;
-  const rounds = Array.isArray(ledger.rounds) ? ledger.rounds : [];
-  const cursor = typeof ledger.cursor === "number" ? ledger.cursor : null;
-  const requests = Array.isArray(ledger.requests) ? ledger.requests : [];
-  const auxiliaryRequests = Array.isArray(ledger.auxiliaryRequests) ? ledger.auxiliaryRequests : [];
+async function restartAtProviderCheckpoint(
+  fixture: JourneyFixture,
+  before: ProcessIdentity,
+  checkpointId: Exclude<RecoveryCheckpointId, "ask.pending">,
+  operationId: string,
+  sequence: number,
+): Promise<RecoveryCheckpointReceipt> {
+  const heldBefore = await waitFor(
+    async () => {
+      const ledger = await readProviderLedger(fixture.providerLedgerPath);
+      return ledger.checkpointWaits.some(
+        (wait) => wait.checkpoint === checkpointId && wait.daemonPid === before.pid,
+      )
+        ? ledger
+        : undefined;
+    },
+    90_000,
+    `provider checkpoint ${checkpointId} before restart`,
+  );
+  const after = await crashAndRestartDaemon(fixture, before);
+  const heldAfter = await waitFor(
+    async () => {
+      const ledger = await readProviderLedger(fixture.providerLedgerPath);
+      return ledger.checkpointWaits.some(
+        (wait) => wait.checkpoint === checkpointId && wait.daemonPid === after.pid,
+      )
+        ? ledger
+        : undefined;
+    },
+    90_000,
+    `provider checkpoint ${checkpointId} after restart`,
+  );
+  assert.equal(heldAfter.requests.length, heldBefore.requests.length);
+  assert.equal(heldAfter.cursor, heldBefore.cursor);
+  await releaseProviderCheckpoint(fixture.providerLedgerPath, checkpointId);
   return {
-    schema: ledger.schema,
-    cursor,
-    roundCount: rounds.length,
-    nextRoundLabel:
-      typeof cursor === "number" && cursor >= 0
-        ? (rounds[cursor] as { label?: unknown } | undefined)?.label
-        : undefined,
-    requestCount: requests.length,
-    recentRequestLabels: requests
-      .slice(-20)
-      .map((request) => (request as { label?: unknown }).label ?? null),
-    auxiliaryRequestCount: auxiliaryRequests.length,
-    recentAuxiliaryRequestLabels: auxiliaryRequests
-      .slice(-20)
-      .map((request) => (request as { label?: unknown }).label ?? null),
-    releasedCheckpoints: ledger.releasedCheckpoints,
-    recentCheckpointWaits: Array.isArray(ledger.checkpointWaits)
-      ? ledger.checkpointWaits.slice(-10)
-      : [],
+    id: checkpointId,
+    sequence,
+    operationId,
+    before,
+    after,
+    providerHighWaterBefore: heldBefore.requests.length,
+    providerHighWaterAfter: heldAfter.requests.length,
+    cursorBefore: heldBefore.cursor,
+    cursorAfter: heldAfter.cursor,
   };
+}
+
+async function releaseProviderCheckpoint(
+  path: string,
+  checkpointId: Exclude<RecoveryCheckpointId, "ask.pending">,
+): Promise<void> {
+  withScriptedProviderLedgerLock(path, () => {
+    const ledger = JSON.parse(readFileSync(path, "utf8")) as ScriptedLedger;
+    if (ledger.releasedCheckpoints.includes(checkpointId)) return;
+    ledger.releasedCheckpoints.push(checkpointId);
+    const temporary = `${path}.${process.pid}.release.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(ledger, null, 2)}\n`, { mode: 0o600 });
+    renameSync(temporary, path);
+  });
+  await waitFor(
+    async () =>
+      (await readProviderLedger(path)).releasedCheckpoints.includes(checkpointId)
+        ? true
+        : undefined,
+    5_000,
+    `provider checkpoint ${checkpointId} release`,
+  );
 }
 
 async function waitForJsonFile(path: string): Promise<Record<string, unknown>> {

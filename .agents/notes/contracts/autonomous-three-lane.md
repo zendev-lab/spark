@@ -432,7 +432,7 @@ The Artifact is presentation, not a technical state owner. Artifact content uses
 
 A bench may explicitly export `outputs/report.md` for offline handoff. The export must be a byte-identical derivative of ReportModel and may be checked for staleness. It is not required for the live Artifact page, must not be parsed into UI/state, and must not be simultaneously hand-maintained.
 
-The compatibility `sync_file` path remains bounded to a cwd-local regular non-symlink UTF-8 file and the product size limit. Artifact-only projection does not require a temporary report file.
+The public compatibility `sync_file` path remains bounded to a cwd-local regular non-symlink UTF-8 file and 32 KiB. Artifact-only projection does not require a temporary report file. A trusted Spark-generated Repro report may use an owner-controlled sync bound of at most 128 KiB; this is not a public argument, accepts only a positive safe integer, and cannot relax the 32 KiB public path.
 
 ## Reference namespaces
 
@@ -511,6 +511,10 @@ Backfill is idempotent per Repro id, source schema, source digest, and migration
 ## Recovery, stagnation, and rollout
 
 Daemon restart reconstructs activity and idempotency from existing owners. No frontend timer reactivates work. Pending evidence requests survive restart and do not by themselves count as semantic stagnation.
+
+The source-process recovery contract injects `SIGKILL` at exactly five owner boundaries: `ask.pending`, `git.post_commit`, `git.post_pr`, `report.post_projection`, and `report.post_sync`. Every boundary records the operation id, provider cursor/high-water mark, and daemon PID, generation, and process-start token before and after restart. PID, generation, and start token must change; cursor and high-water must not advance until the recovered owner resumes. The recovered outcome must contain one decision request and AnswerEvent, one commit, one Draft PR, one report Artifact binding, accepted formal receipts, a sealed Workbench, and no live fixture process.
+
+The versioned ledger is `spark.repro-golden-journey-process/v1`, validated by [`test/process/repro-golden-journey-recovery.schema.json`](../../../test/process/repro-golden-journey-recovery.schema.json) plus semantic verification. Duplicate or conflicting answers, stale generations, cursor/high-water drift, operation-id mismatch, missing AnswerEvent Evidence, failed StepVerifier/formal receipt, unclean Git state, duplicate PR/report ownership, or live cleanup PIDs fail closed. The normal and recovery lanes independently project to the same immutable owner-outcome vector with zero diff; recovery also matches its checkpoint-specific vector. Volatile ids, paths, timestamps, and content digests are excluded rather than used to weaken the comparison.
 
 A Repro settlement is unchanged only when all three lanes have no ready work, there is no Handoff, Resolution, candidate, or AnswerEvent to reconcile, and the semantic fingerprint is unchanged. A pending request can coexist with dormant only when every remaining action depends on it.
 

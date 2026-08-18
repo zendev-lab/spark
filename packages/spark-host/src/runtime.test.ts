@@ -194,4 +194,33 @@ describe("SparkHostRuntime effect contract", () => {
     await host.emit("session_start", {});
     expect(invoked).toEqual(["unknown", "write"]);
   });
+
+  it("carries extension-owned autonomous Ask policy into fresh tool contexts", async () => {
+    const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-context-policy-test" });
+    host.on("before_agent_start", (_event, ctx) => {
+      ctx.sparkAutonomousAsk = {
+        modeScope: "repro",
+        goalOrReproId: "repro:runtime-policy",
+        ownerSessionId: "session:runtime-policy",
+        resolveBinding: () => ({
+          planRevision: 1,
+          ownerStepOrUnresolvedId: "decision",
+          stepDefinitionDigest: "digest",
+        }),
+      };
+    });
+
+    await host.emit("before_agent_start", {});
+    expect(host.makeContext().sparkAutonomousAsk).toMatchObject({
+      modeScope: "repro",
+      goalOrReproId: "repro:runtime-policy",
+      ownerSessionId: "session:runtime-policy",
+    });
+
+    host.on("turn_start", (_event, ctx) => {
+      delete ctx.sparkAutonomousAsk;
+    });
+    await host.emit("turn_start", {});
+    expect(host.makeContext().sparkAutonomousAsk).toBeUndefined();
+  });
 });

@@ -27,9 +27,13 @@ Atomic Artifacts (`issue` / `git_change` / `document`) for users, plus an
   and `application/vnd.a2ui+json`. Plain-text, JSON, unknown media types, and
   the removed Spark UI wire format cannot be created or previewed.
 - `artifact({ action: "sync_file" })` updates an existing Document from a
-  cwd-local regular, non-symlink UTF-8 file. The first report slice is capped
-  at 32 KiB. A repeated identical sync is a no-op; metadata-only changes keep
-  the content revision, while content or media-type changes advance it.
+  cwd-local regular, non-symlink UTF-8 file. The public path is capped by
+  `ARTIFACT_SYNC_FILE_MAX_BYTES` (32 KiB). A repeated identical sync is a no-op;
+  metadata-only changes keep the content revision, while content or media-type
+  changes advance it. Trusted Spark-generated report projection may pass an
+  owner-controlled override no larger than
+  `ARTIFACT_TRUSTED_SYNC_FILE_MAX_BYTES` (128 KiB). Invalid, caller-selected,
+  or larger overrides fail closed and never change the public limit.
 - Hub artifact pages embed safe document views. Markdown can render in an
   attached TUI; other supported media receive an expiring, tokenized
   `127.0.0.1` URL only on a local browser-capable surface.

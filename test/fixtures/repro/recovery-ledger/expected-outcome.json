@@ -1,0 +1,62 @@
+{
+  "milestones": [
+    { "name": "repro.started", "count": 1, "sequence": 1 },
+    { "name": "decision.requested", "count": 1, "sequence": 2 },
+    { "name": "decision.persisted_across_restart", "count": 1, "sequence": 3 },
+    { "name": "decision.answered", "count": 1, "sequence": 4 },
+    { "name": "repro.resumed", "count": 1, "sequence": 5 },
+    { "name": "validation.failed_before_fix", "count": 1, "sequence": 6 },
+    { "name": "validation.passed_after_fix", "count": 1, "sequence": 7 },
+    { "name": "git_change.committed", "count": 1, "sequence": 8 },
+    { "name": "pull_request.submitted", "count": 1, "sequence": 9 },
+    { "name": "implementation.work_registered", "count": 1, "sequence": 10 },
+    { "name": "handoff.implementation_exactness", "count": 1, "sequence": 11 },
+    { "name": "exactness.finding_recorded", "count": 1, "sequence": 12 },
+    { "name": "handoff.exactness_formalize", "count": 1, "sequence": 13 },
+    { "name": "formalize.resolved", "count": 1, "sequence": 14 },
+    { "name": "report.projected", "count": 1, "sequence": 15 },
+    { "name": "report.synced", "count": 1, "sequence": 16 },
+    { "name": "repro.completed", "count": 1, "sequence": 17 },
+    { "name": "workbench.sealed", "count": 1, "sequence": 18 },
+    { "name": "three_lane.recovered", "count": 1, "sequence": 19 }
+  ],
+  "checkpoints": [
+    { "id": "ask.pending", "sequence": 1, "operationId": "journey-decision" },
+    { "id": "git.post_commit", "sequence": 2, "operationId": "git_change.committed" },
+    { "id": "git.post_pr", "sequence": 3, "operationId": "pull_request.submitted" },
+    { "id": "report.post_projection", "sequence": 4, "operationId": "report.projected" },
+    { "id": "report.post_sync", "sequence": 5, "operationId": "report.synced" }
+  ],
+  "interaction": {
+    "stableRequest": true,
+    "answerRecorded": true,
+    "resumeCount": 1
+  },
+  "validation": {
+    "reference": 0,
+    "targetBeforeRepair": 1,
+    "targetAfterRepair": 0
+  },
+  "git": {
+    "commitCount": 1,
+    "changedPaths": ["target/normalize.mjs"],
+    "draftPrCreates": 1,
+    "nonDraftPrCreates": 0,
+    "artifactRecorded": true
+  },
+  "report": {
+    "projectionMatchesSummary": true,
+    "reportArtifactCount": 1,
+    "formalGateCount": 5,
+    "formalGatesAccepted": true,
+    "workbenchLifecycle": "sealed",
+    "documentRevision": 1
+  },
+  "terminal": {
+    "pendingAskCount": 0,
+    "toolApprovalRequestCount": 0,
+    "activeInvocationCount": 0,
+    "writableWorkbenchCount": 0,
+    "livePidCount": 0
+  }
+}

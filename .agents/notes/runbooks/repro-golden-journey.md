@@ -104,7 +104,13 @@ daemon database and socket, local port, provider ledger, forge ledger, and
 fixture Git repository. The file-backed provider plugin is loaded through the
 normal provider registry and active-model selection path. Zero-tool auxiliary
 requests, such as compaction, are recorded separately and do not advance the
-Journey cursor.
+Journey cursor. Every provider-ledger read-modify-write is serialized through an
+adjacent lock directory, re-reads state while holding the lock, and retains the
+atomic temporary-file rename. Lock acquisition is bounded and fail-closed; a
+confirmed-dead or PID-reused owner is identified by its OS process-start token and
+first atomically quarantined before reclamation, while a matching live or unreadable
+owner is never stolen. A failure prints the current owner plus
+a bounded cursor/request/checkpoint summary before retaining the fixture.
 
 The first Ask opens asynchronously so the daemon can restart while the durable
 request is pending. The test answers it through `spark daemon ask answer`, then
@@ -129,7 +135,9 @@ operations and records exactly one Draft PR. The typed summary is compared with
 the canonical JSON embedded in the Markdown projection, every accepted formal
 gate must carry Evidence, two report synchronizations converge on one stable
 Document Artifact ref, and the terminal assertions require a sealed Workbench,
-no pending interaction, no active invocation, and no live Hub or daemon PID.
+no pending interaction, no active invocation, and no live Hub, Spark daemon, or
+isolated cue daemon PID. Cleanup records the cue daemon PID and process-start
+token before stopping its fixture-local socket, so PID reuse cannot mask a leak.
 
 The source dispatcher must preserve Node IPC while forwarding daemon lifecycle
 commands. Otherwise the daemon-owned restart helper cannot transfer ownership
@@ -225,6 +233,32 @@ repeat migration, stale revision rejection, skip-without-resync rejection, and
 all invalid handoff or resolution directions. The process Journey proves that
 their accepted state survives real daemon process replacement.
 
+## Recovery and idempotency lane
+
+Run the five-boundary crash/restart contract with:
+
+```sh
+pnpm run test:journey:repro:recovery
+```
+
+The script builds the source Hub owner and runs the fixture, composition-reachability, versioned ledger contract, and real source-process recovery tests. It uses isolated `HOME`, `SPARK_HOME`, XDG roots, ports, SQLite, Git repository/worktree, forge ledger, and scripted provider state; no model or forge credential is required.
+
+| Sequence | Checkpoint | Bound operation | Required observation |
+| ---: | --- | --- | --- |
+| 1 | `ask.pending` | `journey-decision` | Same interaction and human request; no provider cursor advance before answer |
+| 2 | `git.post_commit` | `git_change.committed` | One target-only commit; replay creates no second commit |
+| 3 | `git.post_pr` | `pull_request.submitted` | One Draft PR forge write; no non-Draft write |
+| 4 | `report.post_projection` | `report.projected` | Typed summary and Markdown digest remain paired |
+| 5 | `report.post_sync` | `report.synced` | One stable report Document at revision one; repeated sync is a no-op |
+
+Every restart changes daemon PID, generation, and process-start token while provider cursor and high-water remain unchanged. The restarted daemon reconstructs the interrupted invocation before the harness releases the provider checkpoint; the harness does not create a competing wake.
+
+A passing test prints `REPRO_GOLDEN_JOURNEY` followed by a ledger conforming to [`test/process/repro-golden-journey-recovery.schema.json`](../../../test/process/repro-golden-journey-recovery.schema.json). The semantic verifier rejects checkpoint/operation mismatch, stale process identity, cursor/high-water replay, missing AnswerEvent Evidence, duplicate Git/PR/report ownership, unsealed Workbench, and live Spark, Hub, or cue cleanup PIDs. Recovery-specific fields must exactly match the immutable [`expected-outcome.json`](../../../test/fixtures/repro/recovery-ledger/expected-outcome.json), while both the normal and recovery lanes must match [`expected-owner-outcome.json`](../../../test/fixtures/repro/recovery-ledger/expected-owner-outcome.json) with zero diff. Volatile ids, paths, timestamps, and hashes are excluded rather than copied into expected data.
+
+On failure, inspect the retained fixture in this order: `provider-ledger.json`; daemon SQLite human wait/AnswerEvent/invocation/formal receipt/Workbench rows; Session JSONL; daemon logs; Git and forge ledgers; then typed summary/Markdown digests. Never repair a fixture by mutating an owner store, receipt, terminal state, or expected output.
+
+Public `artifact({ action: "sync_file" })` remains capped at 32 KiB. Only the trusted Spark Repro projector may request the internal 128 KiB bound for its own generated report; invalid, larger, caller-selected, symlink, non-regular, or non-UTF-8 input fails closed.
+
 ## CI position
 
 The final shape is:
@@ -237,7 +271,9 @@ smoke                   packed public product lifecycle
 test:mutation           sensitivity of focused owner tests
 ```
 
-The journey lane should initially run once on relevant pull requests. Repetition,
-flake classification, and duration variance belong in a separate non-blocking CE
-lane after the deterministic happy path is stable. Its external cue-shell runtime is
-provisioned only in this lane; the ordinary source-process matrix remains hermetic.
+The dedicated journey job runs both `test:journey:repro` and
+`test:journey:repro:recovery` once on relevant pull requests. Repetition, flake
+classification, and duration variance belong in a separate non-blocking CE lane
+after the deterministic paths are stable. Its external cue-shell runtime is
+provisioned only in this job; the ordinary source-process matrix excludes the
+cue-dependent recovery process test and remains hermetic.

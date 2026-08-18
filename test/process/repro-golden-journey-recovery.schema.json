@@ -1,0 +1,354 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.zendev-lab.dev/schemas/repro-golden-journey-process/v1.json",
+  "title": "Spark Repro Golden Journey recovery ledger v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "reproId",
+    "milestones",
+    "providerRoundsAtWait",
+    "providerRoundsAtAnswer",
+    "resumeCount",
+    "toolApprovalCount",
+    "interaction",
+    "interactionRequestId",
+    "humanRequestId",
+    "answerReceipt",
+    "daemon",
+    "validation",
+    "git",
+    "report",
+    "terminalOwner",
+    "teardown",
+    "livePidCount"
+  ],
+  "properties": {
+    "schema": { "const": "spark.repro-golden-journey-process/v1" },
+    "reproId": { "type": "string", "pattern": "^repro:[A-Za-z0-9._:-]+$" },
+    "milestones": {
+      "type": "array",
+      "minItems": 19,
+      "maxItems": 19,
+      "items": { "$ref": "#/$defs/milestone" }
+    },
+    "providerRoundsAtWait": { "type": "integer", "minimum": 1 },
+    "providerRoundsAtAnswer": { "type": "integer", "minimum": 1 },
+    "resumeCount": { "const": 1 },
+    "toolApprovalCount": { "const": 0 },
+    "interaction": { "$ref": "#/$defs/interaction" },
+    "interactionRequestId": { "$ref": "#/$defs/interactionRequestId" },
+    "humanRequestId": { "$ref": "#/$defs/humanRequestId" },
+    "answerReceipt": { "$ref": "#/$defs/humanResponseId" },
+    "daemon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checkpoints", "sqlitePath"],
+      "properties": {
+        "checkpoints": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/checkpoint" }
+        },
+        "sqlitePath": { "type": "string", "minLength": 1 }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference", "targetBeforeRepair", "targetAfterRepair"],
+      "properties": {
+        "reference": { "$ref": "#/$defs/commandReceipt" },
+        "targetBeforeRepair": { "$ref": "#/$defs/commandReceipt" },
+        "targetAfterRepair": { "$ref": "#/$defs/commandReceipt" }
+      }
+    },
+    "git": { "$ref": "#/$defs/git" },
+    "report": { "$ref": "#/$defs/report" },
+    "terminalOwner": { "$ref": "#/$defs/terminalOwner" },
+    "teardown": { "$ref": "#/$defs/teardown" },
+    "livePidCount": { "const": 0 }
+  },
+  "$defs": {
+    "milestone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "reproId", "count", "sequence"],
+      "properties": {
+        "name": {
+          "enum": [
+            "repro.started",
+            "decision.requested",
+            "decision.persisted_across_restart",
+            "decision.answered",
+            "repro.resumed",
+            "validation.failed_before_fix",
+            "validation.passed_after_fix",
+            "git_change.committed",
+            "pull_request.submitted",
+            "implementation.work_registered",
+            "handoff.implementation_exactness",
+            "exactness.finding_recorded",
+            "handoff.exactness_formalize",
+            "formalize.resolved",
+            "report.projected",
+            "report.synced",
+            "repro.completed",
+            "workbench.sealed",
+            "three_lane.recovered"
+          ]
+        },
+        "reproId": { "type": "string", "pattern": "^repro:[A-Za-z0-9._:-]+$" },
+        "count": { "const": 1 },
+        "sequence": { "type": "integer", "minimum": 1, "maximum": 19 }
+      }
+    },
+    "interactionRequestId": {
+      "type": "string",
+      "pattern": "^ask_[0-9a-f]{32}$"
+    },
+    "humanRequestId": {
+      "type": "string",
+      "pattern": "^hreq_[A-Za-z0-9]+$"
+    },
+    "humanResponseId": {
+      "type": "string",
+      "pattern": "^hres_[A-Za-z0-9]+$"
+    },
+    "interactionIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interactionRequestId", "humanRequestId"],
+      "properties": {
+        "interactionRequestId": { "$ref": "#/$defs/interactionRequestId" },
+        "humanRequestId": { "$ref": "#/$defs/humanRequestId" }
+      }
+    },
+    "interaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["beforeRestart", "afterRestart", "answerReceipt", "answerOutcome"],
+      "properties": {
+        "beforeRestart": { "$ref": "#/$defs/interactionIdentity" },
+        "afterRestart": { "$ref": "#/$defs/interactionIdentity" },
+        "answerReceipt": { "$ref": "#/$defs/humanResponseId" },
+        "answerOutcome": { "enum": ["accepted", "orphaned"] }
+      }
+    },
+    "processIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pid", "generation", "processStartToken"],
+      "properties": {
+        "pid": { "type": "integer", "minimum": 1 },
+        "generation": { "type": "string", "minLength": 1 },
+        "processStartToken": { "type": "string", "minLength": 1 }
+      }
+    },
+    "auxiliaryProcessIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pid", "processStartToken"],
+      "properties": {
+        "pid": { "type": "integer", "minimum": 1 },
+        "processStartToken": { "type": "string", "minLength": 1 }
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sequence",
+        "operationId",
+        "before",
+        "after",
+        "providerHighWaterBefore",
+        "providerHighWaterAfter",
+        "cursorBefore",
+        "cursorAfter"
+      ],
+      "properties": {
+        "id": {
+          "enum": [
+            "ask.pending",
+            "git.post_commit",
+            "git.post_pr",
+            "report.post_projection",
+            "report.post_sync"
+          ]
+        },
+        "sequence": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "operationId": {
+          "enum": [
+            "journey-decision",
+            "git_change.committed",
+            "pull_request.submitted",
+            "report.projected",
+            "report.synced"
+          ]
+        },
+        "before": { "$ref": "#/$defs/processIdentity" },
+        "after": { "$ref": "#/$defs/processIdentity" },
+        "providerHighWaterBefore": { "type": "integer", "minimum": 0 },
+        "providerHighWaterAfter": { "type": "integer", "minimum": 0 },
+        "cursorBefore": { "type": "integer", "minimum": 0 },
+        "cursorAfter": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "commandReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "exitCode", "stdout", "stderr"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "exitCode": { "type": "integer", "minimum": 0 },
+        "stdout": { "type": "string" },
+        "stderr": { "type": "string" }
+      }
+    },
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "worktreePath",
+        "baseCommitSha",
+        "headCommitSha",
+        "commitSha",
+        "revisionRange",
+        "commitCount",
+        "revListOutput",
+        "changedPaths",
+        "diffNameOnlyOutput",
+        "statusPorcelainOutput",
+        "draftPrCreates",
+        "nonDraftPrCreates",
+        "artifactRef"
+      ],
+      "properties": {
+        "worktreePath": { "type": "string", "minLength": 1 },
+        "baseCommitSha": { "$ref": "#/$defs/commitSha" },
+        "headCommitSha": { "$ref": "#/$defs/commitSha" },
+        "commitSha": { "$ref": "#/$defs/commitSha" },
+        "revisionRange": { "const": "main..HEAD" },
+        "commitCount": { "const": 1 },
+        "revListOutput": { "const": "1" },
+        "changedPaths": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "const": "target/normalize.mjs" }
+        },
+        "diffNameOnlyOutput": { "const": "target/normalize.mjs" },
+        "statusPorcelainOutput": { "const": "" },
+        "draftPrCreates": { "const": 1 },
+        "nonDraftPrCreates": { "const": 0 },
+        "artifactRef": { "$ref": "#/$defs/artifactRef" }
+      }
+    },
+    "commitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "artifactRef": {
+      "type": "string",
+      "pattern": "^artifact:[A-Za-z0-9._:-]+$"
+    },
+    "evidenceRef": {
+      "type": "string",
+      "pattern": "^evidence:[A-Za-z0-9._:-]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summaryDigest",
+        "projectedReportDigest",
+        "markdownDigest",
+        "reportArtifactRef",
+        "artifactRefs",
+        "evidenceRefs",
+        "formalGateCount",
+        "formalGatesAccepted",
+        "workbenchLifecycle",
+        "documentRevision"
+      ],
+      "properties": {
+        "summaryDigest": { "$ref": "#/$defs/digest" },
+        "projectedReportDigest": { "$ref": "#/$defs/digest" },
+        "markdownDigest": { "$ref": "#/$defs/digest" },
+        "reportArtifactRef": { "$ref": "#/$defs/artifactRef" },
+        "artifactRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/artifactRef" }
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/evidenceRef" }
+        },
+        "formalGateCount": { "const": 5 },
+        "formalGatesAccepted": { "const": true },
+        "workbenchLifecycle": { "const": "sealed" },
+        "documentRevision": { "const": 1 }
+      }
+    },
+    "terminalOwner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pendingAskCount",
+        "canonicalDecisionRequestCount",
+        "toolApprovalRequestCount",
+        "activeInvocationCount",
+        "workbenchLifecycle",
+        "writableWorkbenchCount",
+        "formalEvidenceReceiptCount"
+      ],
+      "properties": {
+        "pendingAskCount": { "const": 0 },
+        "canonicalDecisionRequestCount": { "const": 1 },
+        "toolApprovalRequestCount": { "const": 0 },
+        "activeInvocationCount": { "const": 0 },
+        "workbenchLifecycle": { "const": "sealed" },
+        "writableWorkbenchCount": { "const": 0 },
+        "formalEvidenceReceiptCount": { "const": 5 }
+      }
+    },
+    "teardown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "daemonPids",
+        "liveDaemonPids",
+        "hubPid",
+        "hubAlive",
+        "cueDaemon",
+        "cueDaemonAlive"
+      ],
+      "properties": {
+        "daemonPids": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1 }
+        },
+        "liveDaemonPids": { "type": "array", "maxItems": 0 },
+        "hubPid": { "type": "integer", "minimum": 1 },
+        "hubAlive": { "const": false },
+        "cueDaemon": { "$ref": "#/$defs/auxiliaryProcessIdentity" },
+        "cueDaemonAlive": { "const": false }
+      }
+    }
+  }
+}
