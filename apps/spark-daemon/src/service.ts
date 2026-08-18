@@ -36,6 +36,9 @@ const processOwnershipMutexName = "daemon.identity.lock";
 const startMarkerFileName = "daemon.starting.json";
 const restartStartRetryBaseMs = 100;
 const restartStartRetryMaxMs = 5_000;
+const sparkDaemonDarwinSupervisorGraceMs = 5_000;
+const sparkDaemonLinuxSupervisorGraceMs = 2_000;
+const sparkDaemonLaunchdThrottleIntervalSeconds = 1;
 
 interface SparkDaemonStartMarker {
   token: string;
@@ -825,7 +828,9 @@ export async function runSparkDaemonRestartSuccessor(
   const supervisorDeadline =
     now() +
     (options.supervisorGraceMs ??
-      (supervisorMayRestart ? (process.platform === "darwin" ? 30_000 : 2_000) : 0));
+      sparkDaemonSupervisorGraceMs({
+        supervisorMayRestart,
+      }));
   while (now() < supervisorDeadline) {
     if (!restartClaimActive()) return null;
     const replacementPid = runningPid();
@@ -901,6 +906,16 @@ export function matchesSparkDaemonRestartReplacement(
     processIdentity.protocolVersion === SPARK_PROTOCOL_VERSION &&
     processIdentity.acceptedRestartId === expected.expectedRestartId
   );
+}
+
+export function sparkDaemonSupervisorGraceMs(input: {
+  supervisorMayRestart: boolean;
+  platform?: NodeJS.Platform;
+}): number {
+  if (!input.supervisorMayRestart) return 0;
+  return (input.platform ?? process.platform) === "darwin"
+    ? sparkDaemonDarwinSupervisorGraceMs
+    : sparkDaemonLinuxSupervisorGraceMs;
 }
 
 function restartIntentPath(paths: SparkPaths): string {
@@ -1668,6 +1683,8 @@ ${Object.entries(environment)
     <key>SuccessfulExit</key>
     <false/>
   </dict>
+  <key>ThrottleInterval</key>
+  <integer>${sparkDaemonLaunchdThrottleIntervalSeconds}</integer>
   <key>WorkingDirectory</key>
   <string>${xmlEscape(process.cwd())}</string>
   <key>StandardOutPath</key>
