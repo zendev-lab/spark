@@ -504,7 +504,6 @@ async function advancePendingRoutes(input: {
         repro,
         route,
         artifactRef,
-        currentBindingRevision: currentBinding?.sourceRevision,
       });
     } catch (error) {
       if (
@@ -885,30 +884,39 @@ async function prepareRouteRevision(input: {
   repro: SparkSessionRepro;
   route: SparkReproRoute;
   artifactRef: ArtifactRef;
-  currentBindingRevision?: string;
 }): Promise<void> {
   const artifact = await defaultArtifactStore(input.stateCwd).get(input.artifactRef);
   if (artifact.kind !== "git_change" || artifact.body.kind !== "git_change") {
     throw new Error(`${input.artifactRef} is not a GitChange`);
   }
-  const expectedTargetRevision = artifact.body.revisionMaterialization?.headRevision;
-  if (!expectedTargetRevision) throw new Error("GitChange has no revision materialization state");
-  if (expectedTargetRevision === input.route.sourceRevision) return;
+  const materializedHead = artifact.body.revisionMaterialization?.headRevision;
+  if (!materializedHead) throw new Error("GitChange has no revision materialization state");
+  if (materializedHead === input.route.sourceRevision) return;
   const workItem = input.repro.threeLane.workItems.find(
     (candidate) => candidate.workItemId === input.route.workItemId,
   );
-  const sourceBaseRevision =
+  const refreshDirection =
     input.route.action === "refresh_binding"
-      ? (input.currentBindingRevision ?? expectedTargetRevision)
-      : workItem?.sourceRevision;
+      ? { from: input.route.fromLane, to: input.route.toLane }
+      : undefined;
+  const resolution = refreshDirection
+    ? [...input.repro.threeLane.resolutions]
+        .reverse()
+        .find(
+          (candidate) =>
+            candidate.workItemId === input.route.workItemId &&
+            candidate.from === refreshDirection.from &&
+            candidate.to === refreshDirection.to &&
+            candidate.canonicalRevision === input.route.sourceRevision,
+        )
+    : undefined;
+  const supersededRevisions = resolution?.supersededRevisions ?? [];
+  const expectedTargetRevision =
+    input.route.action === "refresh_binding" ? supersededRevisions.at(-1) : materializedHead;
+  if (!expectedTargetRevision) throw new Error("refresh route has no superseded target revision");
+  const sourceBaseRevision =
+    input.route.action === "refresh_binding" ? expectedTargetRevision : workItem?.sourceRevision;
   if (!sourceBaseRevision) throw new Error("route has no provable source base revision");
-  const supersededRevisions = input.repro.threeLane.resolutions
-    .filter(
-      (resolution) =>
-        resolution.workItemId === input.route.workItemId &&
-        resolution.canonicalRevision === input.route.sourceRevision,
-    )
-    .flatMap((resolution) => resolution.supersededRevisions);
   await new GitRevisionMaterializationService({
     cwd: input.cwd,
     workspaceRoot: input.stateCwd,
@@ -921,7 +929,7 @@ async function prepareRouteRevision(input: {
     expectedTargetRevision,
     sourceBaseRevision,
     sourceRevision: input.route.sourceRevision,
-    supersededRevisions: [...new Set(supersededRevisions)],
+    supersededRevisions: [...supersededRevisions],
   });
 }
 
