@@ -14,9 +14,10 @@
  *   `SparkProviderLlmAdapter`, exposing the full spark-llm model catalog
  *   (gateway ids rewritten internally, measured context windows, reasoning
  *   efforts, per-model output caps).
- * - Resolves the API key per request through the host `credentials` service
- *   (the web Models page writes `BAIDU_ONEAPI_API_KEY` there), falling back
- *   to the launching environment — the same reference spark-llm reads.
+ * - Resolves the API key per request: the host `credentials` service (the web
+ *   Models page writes `BAIDU_ONEAPI_API_KEY` there), then the launching
+ *   environment, then Spark's own `auth.json` store — so a machine where
+ *   Spark already logged in works in DSH without re-entering the key.
  * - Declares a `spark-llm:` settings section (credential reference and
  *   display name per provider route) so configuration surfaces can render
  *   and edit the profile without hand-editing YAML.
@@ -40,6 +41,9 @@ import { assertUsableApiKey, type LlmAdapter } from "@deepseek-ai/dsh-llm";
 import z from "@deepseek-ai/schemastery";
 import { anthropicMessagesApi, openAIResponsesApi } from "@earendil-works/pi-ai/compat";
 import type { Context } from "@deepseek-ai/cordis";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { readFileSync } from "node:fs";
 
 import { createBaiduOneApiProviderAdapter, silenceOpenAiSdkTransportLogs } from "./baidu-oneapi.ts";
 import { SparkProviderLlmAdapter } from "./llm-adapter.ts";
@@ -86,6 +90,95 @@ async function resolveCredentialRef(ctx: Context, ref: string): Promise<string |
   }
   const envValue = process.env[ref];
   if (envValue !== undefined && envValue.length > 0) return envValue;
+  const sparkKey = sparkAuthApiKeyFromFiles(sparkAuthCandidates(), [BAIDU_ONEAPI_PROVIDER, ref]);
+  if (sparkKey !== undefined) return sparkKey;
+  return undefined;
+}
+
+/**
+ * The Spark auth store shape this plugin reads (a strict subset; unknown
+ * fields are ignored so a future Spark format does not break resolution).
+ */
+interface SparkAuthFileShape {
+  version?: unknown;
+  credentials?: Record<string, { type?: unknown; apiKey?: unknown } | undefined>;
+}
+
+/**
+ * Read a Spark-owned api key out of one parsed `auth.json` document.
+ *
+ * Spark's own resolver looks up a stored credential by provider id first,
+ * then by the environment-variable reference name; this mirrors that order.
+ * @param authJson - the parsed document (or anything else; tolerated).
+ * @param keys - lookup keys, provider id first, reference name second.
+ * @returns the stored api key, or undefined when absent or not api-key typed.
+ */
+export function sparkAuthApiKey(authJson: unknown, keys: readonly string[]): string | undefined {
+  if (typeof authJson !== "object" || authJson === null) return undefined;
+  const file = authJson as SparkAuthFileShape;
+  if (file.version !== 1 || typeof file.credentials !== "object" || file.credentials === null) {
+    return undefined;
+  }
+  for (const key of keys) {
+    const credential = file.credentials[key];
+    if (
+      credential !== undefined &&
+      credential.type === "api_key" &&
+      typeof credential.apiKey === "string" &&
+      credential.apiKey.length > 0
+    ) {
+      return credential.apiKey;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The candidate `auth.json` locations, in the order Spark resolves them:
+ * explicit `SPARK_HOME`, the XDG config root, the XDG default, and the
+ * legacy `~/.spark` home used by earlier Spark versions. First hit wins.
+ */
+export function sparkAuthCandidates(): string[] {
+  const home = homedir();
+  const candidates: string[] = [];
+  const sparkHome = process.env.SPARK_HOME;
+  if (sparkHome !== undefined && sparkHome.length > 0)
+    candidates.push(join(sparkHome, "auth.json"));
+  const xdgConfig = process.env.XDG_CONFIG_HOME;
+  if (xdgConfig !== undefined && xdgConfig.length > 0) {
+    candidates.push(join(xdgConfig, "spark", "auth.json"));
+  }
+  candidates.push(join(home, ".config", "spark", "auth.json"));
+  candidates.push(join(home, ".spark", "auth.json"));
+  return candidates;
+}
+
+/**
+ * Read the first parseable Spark `auth.json` that holds one of the requested
+ * keys. Missing files, malformed JSON, and documents without a match are all
+ * skipped silently — this is the last-resort fallback of the credential
+ * chain, so it must never throw or log.
+ */
+export function sparkAuthApiKeyFromFiles(
+  paths: readonly string[],
+  keys: readonly string[],
+): string | undefined {
+  for (const path of paths) {
+    let raw: string;
+    try {
+      raw = readFileSync(path, "utf8");
+    } catch {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    const hit = sparkAuthApiKey(parsed, keys);
+    if (hit !== undefined) return hit;
+  }
   return undefined;
 }
 

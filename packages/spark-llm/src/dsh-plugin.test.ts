@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "vitest";
 
 import { Context } from "@deepseek-ai/cordis";
 import LlmRuntime from "@deepseek-ai/dsh-llm";
 
-import plugin, { BAIDU_ONEAPI_PROVIDER } from "./dsh-plugin.ts";
+import plugin, {
+  BAIDU_ONEAPI_PROVIDER,
+  sparkAuthApiKey,
+  sparkAuthApiKeyFromFiles,
+} from "./dsh-plugin.ts";
 
 const CATALOG_IDS = [
   "claude-opus-4.6",
@@ -69,4 +76,62 @@ test("dsh-plugin honors the configured display name in the settings directory", 
   assert.equal(entry.settingsNs, "spark-llm");
   assert.deepEqual(entry.settingsPath, ["providers", BAIDU_ONEAPI_PROVIDER]);
   assert.equal(entry.declared, false, "the route ships with the plugin, not from configuration");
+});
+
+const SPARK_AUTH = {
+  version: 1,
+  credentials: {
+    "baidu-oneapi": {
+      type: "api_key",
+      provider: "baidu-oneapi",
+      apiKey: "sk-spark-key",
+      updatedAt: "2026-01-01",
+    },
+    cursor: { type: "api_key", apiKey: "crsr-other" },
+  },
+};
+
+test("sparkAuthApiKey reads an api_key by provider id, then by reference name", () => {
+  assert.equal(
+    sparkAuthApiKey(SPARK_AUTH, ["baidu-oneapi", "BAIDU_ONEAPI_API_KEY"]),
+    "sk-spark-key",
+  );
+  const byRef = {
+    version: 1,
+    credentials: { BAIDU_ONEAPI_API_KEY: { type: "api_key", apiKey: "sk-ref" } },
+  };
+  assert.equal(sparkAuthApiKey(byRef, ["baidu-oneapi", "BAIDU_ONEAPI_API_KEY"]), "sk-ref");
+});
+
+test("sparkAuthApiKey rejects wrong version, non-api-key types, and missing keys", () => {
+  assert.equal(
+    sparkAuthApiKey({ version: 2, credentials: SPARK_AUTH.credentials }, ["baidu-oneapi"]),
+    undefined,
+  );
+  assert.equal(
+    sparkAuthApiKey({ version: 1, credentials: { "baidu-oneapi": { type: "oauth" } } }, [
+      "baidu-oneapi",
+    ]),
+    undefined,
+  );
+  assert.equal(sparkAuthApiKey({ version: 1, credentials: {} }, ["baidu-oneapi"]), undefined);
+  assert.equal(sparkAuthApiKey("not an object", ["baidu-oneapi"]), undefined);
+});
+
+test("sparkAuthApiKeyFromFiles tolerates missing and malformed files, first hit wins", () => {
+  const dir = mkdtempSync(join(tmpdir(), "spark-auth-test-"));
+  try {
+    const missing = join(dir, "missing.json");
+    const malformed = join(dir, "malformed.json");
+    const good = join(dir, "auth.json");
+    writeFileSync(malformed, "{not json");
+    writeFileSync(good, JSON.stringify(SPARK_AUTH));
+    assert.equal(
+      sparkAuthApiKeyFromFiles([missing, malformed, good], ["baidu-oneapi"]),
+      "sk-spark-key",
+    );
+    assert.equal(sparkAuthApiKeyFromFiles([missing, malformed], ["baidu-oneapi"]), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
