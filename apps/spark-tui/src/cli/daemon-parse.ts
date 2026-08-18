@@ -1,5 +1,8 @@
 /** `spark daemon ...` argv parsing: command constructors and option readers. */
 
+import { object, or } from "@optique/core/constructs";
+import { parse } from "@optique/core/parser";
+import { command, constant, passThrough } from "@optique/core/primitives";
 import { sparkDaemonCliStrings } from "@zendev-lab/spark-i18n/cli";
 import { readSparkSessionExportFormat } from "../host/session-navigation.ts";
 import {
@@ -26,20 +29,69 @@ import type {
 
 const STRINGS = sparkDaemonCliStrings();
 
+const remainingArgv = () => passThrough({ format: "greedy" });
+
+const sparkDaemonActionParser = or(
+  or(
+    command("help", object({ action: constant("help" as const), argv: remainingArgv() })),
+    command("--help", object({ action: constant("help" as const), argv: remainingArgv() })),
+    command("-h", object({ action: constant("help" as const), argv: remainingArgv() })),
+    command("status", object({ action: constant("status" as const), argv: remainingArgv() })),
+    command("submit", object({ action: constant("submit" as const), argv: remainingArgv() })),
+    command(
+      "invocation",
+      object({ action: constant("invocation" as const), argv: remainingArgv() }),
+    ),
+    command("queue", object({ action: constant("queue" as const), argv: remainingArgv() })),
+    command("session", object({ action: constant("session" as const), argv: remainingArgv() })),
+    command("sessions", object({ action: constant("sessions" as const), argv: remainingArgv() })),
+  ),
+  or(
+    command("ask", object({ action: constant("ask" as const), argv: remainingArgv() })),
+    command("human", object({ action: constant("human" as const), argv: remainingArgv() })),
+    command("channel", object({ action: constant("channel" as const), argv: remainingArgv() })),
+    command("channels", object({ action: constant("channels" as const), argv: remainingArgv() })),
+    command("run", object({ action: constant("run" as const), argv: remainingArgv() })),
+    command("runs", object({ action: constant("runs" as const), argv: remainingArgv() })),
+    command("events", object({ action: constant("events" as const), argv: remainingArgv() })),
+    command("model", object({ action: constant("model" as const), argv: remainingArgv() })),
+    command("start", object({ action: constant("start" as const), argv: remainingArgv() })),
+  ),
+  or(
+    command("stop", object({ action: constant("service" as const), argv: remainingArgv() })),
+    command("install", object({ action: constant("service" as const), argv: remainingArgv() })),
+    command("doctor", object({ action: constant("service" as const), argv: remainingArgv() })),
+    command("login", object({ action: constant("service" as const), argv: remainingArgv() })),
+    command("auth", object({ action: constant("service" as const), argv: remainingArgv() })),
+    command("workspace", object({ action: constant("service" as const), argv: remainingArgv() })),
+    command("ws", object({ action: constant("service" as const), argv: remainingArgv() })),
+    command("uplink", object({ action: constant("service" as const), argv: remainingArgv() })),
+    command("restart", object({ action: constant("restart" as const), argv: remainingArgv() })),
+    command("logs", object({ action: constant("restart" as const), argv: remainingArgv() })),
+  ),
+  object({ action: constant("empty" as const) }),
+);
+
 export function parseSparkDaemonCliArgs(argv: string[]): SparkDaemonCliCommand {
-  if (argv.length === 0) {
+  const classified = classifySparkDaemonAction(argv);
+  if (classified.action === "empty") {
     return { action: "service", argv: [] };
   }
-
-  const [action, ...rest] = argv;
-  if (action === "help" || action === "--help" || action === "-h") {
+  if (classified.action === "help" || helpFlagRequested(argv)) {
     return { action: "help" };
   }
-  if (helpFlagRequested(argv)) {
-    return { action: "help" };
+  if (classified.action === "unknown") {
+    throw new Error(STRINGS.unknownCommand(String(argv[0])));
+  }
+  if (classified.action === "service") {
+    return { action: "service", argv };
+  }
+  if (classified.action === "restart") {
+    return { action: "service", argv: ["daemon", ...argv] };
   }
 
-  const parsed = parseSparkCliOptions(rest);
+  const action = classified.action;
+  const parsed = parseSparkCliOptions([...classified.argv]);
   const json = readBooleanOption(parsed.options, "json");
 
   switch (action) {
@@ -82,21 +134,17 @@ export function parseSparkDaemonCliArgs(argv: string[]): SparkDaemonCliCommand {
       return parseSparkDaemonModelCommand(parsed, json);
     case "start":
       return { action: "start", json };
-    case "stop":
-    case "install":
-    case "doctor":
-    case "login":
-    case "auth":
-    case "workspace":
-    case "ws":
-    case "uplink":
-      return { action: "service", argv };
-    case "restart":
-    case "logs":
-      return { action: "service", argv: ["daemon", ...argv] };
-    default:
-      throw new Error(STRINGS.unknownCommand(String(action)));
+    default: {
+      const exhaustive: never = action;
+      return exhaustive;
+    }
   }
+}
+
+function classifySparkDaemonAction(argv: string[]) {
+  const result = parse(sparkDaemonActionParser, argv);
+  if (result.success) return result.value;
+  return { action: "unknown" as const };
 }
 
 function parseSparkDaemonModelCommand(

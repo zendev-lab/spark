@@ -477,6 +477,9 @@ importers:
 
   apps/spark-tui:
     dependencies:
+      '@optique/core':
+        specifier: 'catalog:'
+        version: 1.2.0
       '@zendev-lab/spark-ai':
         specifier: workspace:^
         version: link:../../packages/spark-ai

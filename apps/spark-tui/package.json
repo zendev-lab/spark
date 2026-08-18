@@ -23,6 +23,7 @@
     "test": "vp test run --config vitest.config.ts"
   },
   "dependencies": {
+    "@optique/core": "catalog:",
     "@zendev-lab/spark-ai": "workspace:^",
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-ask": "workspace:^",
