@@ -80,8 +80,8 @@ copying, migrating, or repairing state.
 - Successful commands exit `0`.
 - Invalid syntax or an unknown command exits non-zero and prints actionable
   usage.
-- State-changing commands should use `--json` when an automation needs a
-  stable machine-readable result.
+- Commands print concise human-readable output by default. Pass `--json` for
+  the full machine-readable payload; automations should always use `--json`.
 - Inspect owner state before retrying an operation whose outcome is unknown.
   Browser appearance, transcript text, and elapsed time are not execution
   truth.

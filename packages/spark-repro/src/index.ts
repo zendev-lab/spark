@@ -792,7 +792,14 @@ export function reviseReproPlan(
   };
   return {
     ...revised,
-    subgoals: reconcileReproSubgoals(repro, revised, normalizedSubgoals, goalChanged, timestamp),
+    subgoals: reconcileReproSubgoals(
+      repro,
+      revised,
+      normalizedSubgoals,
+      input.steps !== undefined,
+      goalChanged,
+      timestamp,
+    ),
     ...(planChanged || goalChanged
       ? {
           threeLane: rebaseSparkReproThreeLaneSessionState(revised.plan, repro.threeLane),
@@ -1866,11 +1873,16 @@ function reconcileReproSubgoals(
   before: SparkSessionRepro,
   after: SparkSessionRepro,
   inputs: SparkReproSubgoalPlanInput[] | undefined,
+  replaceAll: boolean,
   goalChanged: boolean,
   timestamp: string,
 ): SparkReproSubgoal[] {
   const inputById = new Map((inputs ?? []).map((input) => [input.id, input]));
-  const targetIds = new Set([...before.subgoals.map((subgoal) => subgoal.id), ...inputById.keys()]);
+  const targetIds = new Set(
+    replaceAll
+      ? after.plan.steps.map((step) => step.id)
+      : [...before.subgoals.map((subgoal) => subgoal.id), ...inputById.keys()],
+  );
   return [...targetIds].map((id) => {
     const prior = before.subgoals.find((subgoal) => subgoal.id === id);
     const step = after.plan.steps.find((candidate) => candidate.id === id);

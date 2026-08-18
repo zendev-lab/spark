@@ -80,11 +80,10 @@ import {
   userSenderLabelFromDetails,
 } from "./message-view.ts";
 import {
-  addFooterMetrics,
   footerMetricsFromRecord,
-  footerMetricsFromRun,
+  footerTokensPerSecond,
   formatFooterMetrics,
-  mergeFooterMetrics,
+  ownerTreeRunDurationMs,
   runTimeMs,
 } from "./footer-metrics.ts";
 import {
@@ -204,7 +203,6 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private activeActionBar: SparkTuiActionBarComponent | undefined;
   private actionBarHandle: { hide(): void } | undefined;
   private sessionFooterMetrics: SparkNativeFooterMetrics = {};
-  private readonly runFooterMetrics = new Map<string, SparkNativeFooterMetrics>();
   private workingSpinnerFrame = 0;
   private workingSpinnerTimer: ReturnType<typeof setInterval> | undefined;
   private lastEscapeAt = 0;
@@ -1362,7 +1360,6 @@ export class SparkNativeTuiApp implements Component, Focusable {
       view.updatedAt,
     );
     this.sessionFooterMetrics = view.usage ? footerMetricsFromRecord(view.usage) : {};
-    this.runFooterMetrics.clear();
     this.hub.runs.clear();
     this.hub.tasks.clear();
     this.hub.artifacts.clear();
@@ -1371,7 +1368,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
     for (const loop of view.loops ?? []) {
       this.hub.loops.set(loop.loopId, loop);
     }
-    for (const run of view.runs) this.recordRunView(run, false);
+    for (const run of view.runs) this.recordRunView(run);
     if (view.runs.length === 0) this.recordActiveRunStatus();
     for (const task of view.tasks) this.hub.tasks.set(task.ref, task);
     for (const artifact of view.artifacts) {
@@ -1468,9 +1465,9 @@ export class SparkNativeTuiApp implements Component, Focusable {
     }
   }
 
-  private recordRunView(run: SparkRunView, includeUsage = true): void {
+  private recordRunView(run: SparkRunView): void {
     this.hub.runs.set(run.id, run);
-    this.recordCacheUsageStatus(run, includeUsage);
+    this.recordCacheUsageStatus(run);
     this.recordActiveRunStatus();
     if (run.kind === "workflow") {
       const selector = stringFromRecord(run.metadata, "selector") ?? run.id;
@@ -1484,16 +1481,10 @@ export class SparkNativeTuiApp implements Component, Focusable {
     }
   }
 
-  private recordCacheUsageStatus(run: SparkRunView, includeUsage: boolean): void {
+  private recordCacheUsageStatus(run: SparkRunView): void {
     if (run.summary && /\bcache read=\d+ write=\d+/iu.test(run.summary)) {
       this.statuses.set("cache-usage", run.summary);
     }
-    if (!includeUsage) return;
-    const next = footerMetricsFromRun(run);
-    if (!Object.values(next).some((value) => value !== undefined)) return;
-    const current = this.runFooterMetrics.get(run.id) ?? {};
-    this.runFooterMetrics.delete(run.id);
-    this.runFooterMetrics.set(run.id, mergeFooterMetrics(current, next));
   }
 
   private taskCompletionEvidenceSummary(task: SparkTaskView): string | undefined {
@@ -2556,10 +2547,17 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private currentFooterMetrics(): SparkNativeFooterMetrics {
-    let metrics = { ...this.sessionFooterMetrics };
-    for (const run of this.runFooterMetrics.values()) metrics = addFooterMetrics(metrics, run);
+    const metrics = { ...this.sessionFooterMetrics };
     const contextWindow = this.statusContext?.contextWindow?.() ?? metrics.contextWindow;
-    return contextWindow ? { ...metrics, contextWindow } : metrics;
+    const tokensPerSecond = footerTokensPerSecond(
+      metrics.outputTokens,
+      ownerTreeRunDurationMs(this.hub.runs.values()),
+    );
+    return {
+      ...metrics,
+      ...(contextWindow ? { contextWindow } : {}),
+      ...(tokensPerSecond !== undefined ? { tokensPerSecond } : {}),
+    };
   }
 
   private runtimeModelIdentity(): { full?: string; compact?: string } {

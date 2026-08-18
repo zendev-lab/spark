@@ -77,6 +77,8 @@ export interface SparkCliHostServicesOptions {
   taskExecutionScope?: SparkHostRuntimeOptions["taskExecutionScope"];
   /** Host-private test/bootstrap seam; never exposed to extensions or model tools. */
   memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
+  /** Host-private Skill discovery seam for isolated hosts and tests. */
+  skillResolver?: SparkSkillResolver;
   tokenUsage?: SparkHeadlessTokenUsageContext;
   stateBindingSessionId?: string;
   /** @deprecated Compatibility input. */

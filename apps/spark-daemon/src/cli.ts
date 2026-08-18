@@ -202,9 +202,9 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
       case "install":
         return install(paths, io);
       case "doctor":
-        return await doctor(paths, io);
+        return await doctor(paths, args.slice(1), io);
       case "status":
-        return await status(paths, io);
+        return await status(paths, args.slice(1), io);
       case "logs":
         return await logs(paths, classified.argv, io);
       case "login":
@@ -720,7 +720,26 @@ function serverProfileStatus(
   };
 }
 
-async function doctor(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo): Promise<number> {
+async function doctor(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  args: string[],
+  io: CliIo,
+): Promise<number> {
+  if (args.some((arg) => arg !== "--json")) {
+    io.stderr.write('spark daemon doctor accepts only the optional "--json" flag\n');
+    return 2;
+  }
+  const report = await buildDoctorReport(paths, io);
+  io.stdout.write(
+    args.includes("--json") ? `${JSON.stringify(report, null, 2)}\n` : renderDoctorText(report),
+  );
+  return 0;
+}
+
+async function buildDoctorReport(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  io: CliIo,
+): Promise<DoctorReport> {
   prepareSparkDaemonState(paths);
   const config = readSparkDaemonConfig(paths);
   const profiles = listSparkDaemonServerProfiles(paths);
@@ -731,47 +750,119 @@ async function doctor(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo): P
     credentialServers.length > 0 && credentialServers.every((server) => server.runnable);
   const primary = profiles[0];
   const hub = buildDoctorHubStatus();
-  io.stdout.write(
-    JSON.stringify(
-      {
-        version: sparkDaemonVersion,
-        checks: {
-          daemon: {
-            ok: daemon.running === true,
-            running: daemon.running,
-            socketPath: daemon.socketPath,
-            ...(daemon.running ? { invocations: daemon.invocations } : {}),
-            ...("unreachable" in daemon && daemon.unreachable
-              ? { unreachable: true, error: daemon.error }
-              : {}),
-          },
-          credentials: {
-            ok: credentialsOk,
-            enrolled: credentialServers.some((server) => server.enrolled),
-            servers: credentialServers,
-          },
-          workspace,
-          hub,
-        },
-        paths,
-        config: {
-          installationId: config.installationId,
-          displayName: config.displayName,
-          // Retain the single-server fields as a compatibility projection when
-          // exactly one profile exists; `servers` is authoritative.
-          serverUrl: profiles.length === 1 ? primary?.serverUrl : undefined,
-          runtimeId: profiles.length === 1 ? primary?.runtimeId : undefined,
-          runtimeTokenExpiresAt: profiles.length === 1 ? primary?.runtimeTokenExpiresAt : undefined,
-          refreshTokenExpiresAt: profiles.length === 1 ? primary?.refreshTokenExpiresAt : undefined,
-          enrolled: credentialServers.some((server) => server.enrolled),
-          servers: credentialServers,
-        },
+  return {
+    version: sparkDaemonVersion,
+    checks: {
+      daemon: {
+        ok: daemon.running === true,
+        running: daemon.running,
+        socketPath: daemon.socketPath,
+        ...(daemon.running ? { invocations: daemon.invocations } : {}),
+        ...("unreachable" in daemon && daemon.unreachable
+          ? { unreachable: true, error: daemon.error }
+          : {}),
       },
-      null,
-      2,
-    ) + "\n",
+      credentials: {
+        ok: credentialsOk,
+        enrolled: credentialServers.some((server) => server.enrolled),
+        servers: credentialServers,
+      },
+      workspace,
+      hub,
+    },
+    paths,
+    config: {
+      installationId: config.installationId,
+      displayName: config.displayName,
+      // Retain the single-server fields as a compatibility projection when
+      // exactly one profile exists; `servers` is authoritative.
+      serverUrl: profiles.length === 1 ? primary?.serverUrl : undefined,
+      runtimeId: profiles.length === 1 ? primary?.runtimeId : undefined,
+      runtimeTokenExpiresAt: profiles.length === 1 ? primary?.runtimeTokenExpiresAt : undefined,
+      refreshTokenExpiresAt: profiles.length === 1 ? primary?.refreshTokenExpiresAt : undefined,
+      enrolled: credentialServers.some((server) => server.enrolled),
+      servers: credentialServers,
+    },
+  };
+}
+
+type DoctorReport = {
+  version: string;
+  checks: {
+    daemon: {
+      ok: boolean;
+      running: boolean | undefined;
+      socketPath: string;
+      invocations?: {
+        queued: number;
+        running: number;
+        succeeded: number;
+        failed: number;
+        cancelled: number;
+      };
+      unreachable?: boolean;
+      error?: string;
+    };
+    credentials: {
+      ok: boolean;
+      enrolled: boolean;
+      servers: Array<{ runnable: boolean }>;
+    };
+    workspace: Record<string, unknown>;
+    hub: Record<string, unknown>;
+  };
+  paths: ReturnType<typeof resolveSparkPaths>;
+  config: {
+    installationId: string;
+    displayName: string;
+    serverUrl?: string;
+    runtimeId?: string;
+    runtimeTokenExpiresAt?: string;
+    refreshTokenExpiresAt?: string;
+    enrolled: boolean;
+    servers: unknown[];
+  };
+};
+
+function renderDoctorText(report: DoctorReport): string {
+  const { daemon, credentials, workspace, hub } = report.checks;
+  const daemonDetail = daemon.running
+    ? `running, socket ${daemon.socketPath}, ${daemon.invocations?.running ?? 0} running / ${daemon.invocations?.queued ?? 0} queued invocations`
+    : (daemon.error ?? `not running (socket ${daemon.socketPath})`);
+  const credentialsDetail = credentials.enrolled
+    ? `${credentials.servers.filter((server) => server.runnable).length}/${credentials.servers.length} servers runnable`
+    : "not enrolled";
+  const workspaceDetail =
+    typeof workspace.detail === "string"
+      ? workspace.detail
+      : workspace.reachable === true
+        ? `${typeof workspace.workspaces === "number" ? workspace.workspaces : 0} workspaces`
+        : typeof workspace.error === "string"
+          ? workspace.error
+          : "unreachable";
+  const hubDetail =
+    [
+      hub.packageAvailable === true ? "package available" : undefined,
+      hub.commandAvailable === true && typeof hub.command === "string"
+        ? `${hub.command} on PATH`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join(", ") || (typeof hub.error === "string" ? hub.error : "unavailable");
+  return (
+    [
+      `Spark ${report.version}`,
+      checkLine("daemon", daemon.ok, daemonDetail),
+      checkLine("credentials", credentials.ok, credentialsDetail),
+      checkLine("workspace", workspace.ok === true, workspaceDetail),
+      checkLine("hub", hub.ok === true, hubDetail),
+      `config: ${report.paths.configFile} (${report.config.installationId}, ${report.config.displayName})`,
+    ].join("\n") + "\n"
   );
-  return 0;
+}
+
+function checkLine(label: string, ok: boolean, detail: string): string {
+  return `${label}: ${ok ? "ok" : "FAIL"} — ${detail}`;
 }
 
 async function buildDoctorWorkspaceStatus(
@@ -824,7 +915,25 @@ function buildDoctorHubStatus(): Record<string, unknown> {
   };
 }
 
-async function status(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo): Promise<number> {
+async function status(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  args: string[],
+  io: CliIo,
+): Promise<number> {
+  if (args.some((arg) => arg !== "--json")) {
+    io.stderr.write('spark daemon status accepts only the optional "--json" flag\n');
+    return 2;
+  }
+  const report = await buildStatusReport(paths, io);
+  io.stdout.write(
+    args.includes("--json")
+      ? `${JSON.stringify(report, null, 2)}\n`
+      : renderDaemonStatusText(report),
+  );
+  return 0;
+}
+
+async function buildStatusReport(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo) {
   prepareSparkDaemonState(paths);
   const config = readSparkDaemonConfig(paths);
   const profiles = listSparkDaemonServerProfiles(paths);
@@ -834,36 +943,61 @@ async function status(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo): P
   const workspaceCount = daemon.running
     ? daemon.servers.reduce((sum, server) => sum + server.workspaceCount, 0)
     : 0;
-  io.stdout.write(
-    JSON.stringify(
-      {
-        action: "status",
-        daemon,
-        enrolled: credentialServers.some((server) => server.enrolled),
-        runtimeId: profiles.length === 1 ? primary?.runtimeId : undefined,
-        serverUrl: profiles.length === 1 ? primary?.serverUrl : undefined,
-        runtimeTokenExpiresAt: profiles.length === 1 ? primary?.runtimeTokenExpiresAt : undefined,
-        refreshTokenExpiresAt: profiles.length === 1 ? primary?.refreshTokenExpiresAt : undefined,
-        servers: credentialServers.map((server) => ({
-          ...server,
-          ...(daemon.running
-            ? {
-                connection:
-                  daemon.servers.find((current) => current.url === server.serverUrl) ?? null,
-              }
-            : {}),
-        })),
-        workspaceCount,
-        daemonRunning: daemon.running,
-        invocations: daemon.running ? daemon.invocations : undefined,
-        lifecycle: daemon.running ? daemon.lifecycle : undefined,
-        pidFile: paths.pidFile,
-      },
-      null,
-      2,
-    ) + "\n",
+  return {
+    action: "status" as const,
+    daemon,
+    enrolled: credentialServers.some((server) => server.enrolled),
+    runtimeId: profiles.length === 1 ? primary?.runtimeId : undefined,
+    serverUrl: profiles.length === 1 ? primary?.serverUrl : undefined,
+    runtimeTokenExpiresAt: profiles.length === 1 ? primary?.runtimeTokenExpiresAt : undefined,
+    refreshTokenExpiresAt: profiles.length === 1 ? primary?.refreshTokenExpiresAt : undefined,
+    servers: credentialServers.map((server) => ({
+      ...server,
+      ...(daemon.running
+        ? {
+            connection: daemon.servers.find((current) => current.url === server.serverUrl) ?? null,
+          }
+        : {}),
+    })),
+    workspaceCount,
+    daemonRunning: daemon.running,
+    invocations: daemon.running ? daemon.invocations : undefined,
+    lifecycle: daemon.running ? daemon.lifecycle : undefined,
+    pidFile: paths.pidFile,
+  };
+}
+
+type DaemonStatusReport = Awaited<ReturnType<typeof buildStatusReport>>;
+
+function renderDaemonStatusText(report: DaemonStatusReport): string {
+  const lines: string[] = [];
+  if (report.daemon.running) {
+    const daemon = report.daemon;
+    lines.push(`daemon: running (pid ${daemon.pid}, socket ${daemon.socketPath})`);
+    if (daemon.lifecycle?.state) lines.push(`lifecycle: ${daemon.lifecycle.state}`);
+    if (daemon.build.runningVersion ?? daemon.build.availableVersion) {
+      lines.push(
+        `build: ${daemon.build.runningVersion ?? daemon.build.availableVersion}${daemon.build.updateAvailable ? ` (update available: ${daemon.build.availableVersion})` : ""}`,
+      );
+    }
+  } else if ("unreachable" in report.daemon && report.daemon.unreachable) {
+    lines.push(`daemon: unreachable (pid ${report.daemon.pid}) — ${report.daemon.error}`);
+  } else {
+    lines.push(`daemon: not running (socket ${report.daemon.socketPath})`);
+  }
+  const connected = report.servers.filter(
+    (server) => server.connection?.wsConnected === true,
+  ).length;
+  lines.push(
+    `servers: ${report.servers.filter((server) => server.enrolled).length} enrolled, ${connected} connected`,
   );
-  return 0;
+  lines.push(`workspaces: ${report.workspaceCount}`);
+  if (report.invocations) {
+    lines.push(
+      `invocations: ${report.invocations.running} running, ${report.invocations.queued} queued`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 async function workspace(

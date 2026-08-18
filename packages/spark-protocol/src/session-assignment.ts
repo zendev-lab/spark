@@ -329,6 +329,30 @@ export function sparkSessionLifetimeForOwner(
   return "scoped";
 }
 
+/** Owning Session id for owner-tree walks. Workspace owners are roots. */
+export function sparkSessionOwnerSessionId(
+  owner: z.infer<typeof sparkSessionOwnerSchema>,
+): string | undefined {
+  switch (owner.kind) {
+    case "workspace":
+      return undefined;
+    case "side_thread":
+      return owner.parentSessionId;
+    case "session":
+    case "invocation":
+    case "task_run":
+    case "task_revision":
+    case "workflow_run":
+    case "driver":
+    case "driver_tick":
+      return owner.supervisorSessionId;
+    default: {
+      const exhaustive: never = owner;
+      return exhaustive;
+    }
+  }
+}
+
 const sparkSessionStateShape = {
   sessionId: z.string().min(1),
   name: z.string().trim().min(1).optional(),
