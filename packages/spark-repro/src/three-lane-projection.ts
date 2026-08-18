@@ -6,7 +6,9 @@ import {
 } from "@zendev-lab/spark-protocol";
 
 import type {
+  SparkReproLaneBinding,
   SparkReproLane,
+  SparkReproRoute,
   SparkReproResolution,
   SparkReproThreeLaneSessionState,
   SparkReproWorkHandoff,
@@ -28,6 +30,7 @@ const STATUS_PRIORITY: Record<SparkReproWorkItem["status"], number> = {
  */
 export function projectSparkReproLanesView(
   state: SparkReproThreeLaneSessionState,
+  runtime: SparkReproLaneProjectionRuntime = {},
 ): SparkSessionReproLanesView {
   return projectLanesView({
     workItemIds: {
@@ -38,6 +41,11 @@ export function projectSparkReproLanesView(
     workItems: state.workItems,
     handoffs: state.handoffs,
     resolutions: state.resolutions,
+    bindings: state.bindings,
+    routes: state.routes,
+    ...(runtime.latestRunRefByTaskRef
+      ? { latestRunRefByTaskRef: runtime.latestRunRefByTaskRef }
+      : {}),
     ...(state.formalize.formalizedTip ? { formalizedTip: state.formalize.formalizedTip } : {}),
   });
 }
@@ -66,7 +74,15 @@ interface SparkReproLaneProjectionSource {
   workItems: SparkReproWorkItem[];
   handoffs: SparkReproWorkHandoff[];
   resolutions: SparkReproResolution[];
+  bindings?: SparkReproLaneBinding[];
+  routes?: SparkReproRoute[];
+  latestRunRefByTaskRef?: ReadonlyMap<string, string>;
   formalizedTip?: string;
+}
+
+export interface SparkReproLaneProjectionRuntime {
+  /** Daemon-owned TaskRun projection joined by the binding TaskRef. */
+  latestRunRefByTaskRef?: ReadonlyMap<string, string>;
 }
 
 function projectLanesView(source: SparkReproLaneProjectionSource): SparkSessionReproLanesView {
@@ -106,6 +122,11 @@ function projectLane(
         : counts.open > 0
           ? "active"
           : "complete";
+  const bindings = new Map(
+    (source.bindings ?? [])
+      .filter((binding) => binding.lane === lane)
+      .map((binding) => [binding.workItemId, binding]),
+  );
   return {
     status,
     totalCount: workItems.length,
@@ -119,20 +140,54 @@ function projectLane(
     resolutionCount: source.resolutions.filter((resolution) =>
       workItemIdSet.has(resolution.workItemId),
     ).length,
-    items: workItems.slice(0, SPARK_SESSION_REPRO_LANE_ITEM_LIMIT).map((item) => ({
-      workItemId: item.workItemId,
-      title: truncate(item.title, 160),
-      status: item.status,
-      ...(item.taskRef ? { taskRef: item.taskRef } : {}),
-      ...(item.runRef ? { runRef: item.runRef } : {}),
-      ...(item.gitChangeRef ? { gitChangeRef: item.gitChangeRef } : {}),
-      evidenceRefs: item.evidenceRefs.slice(0, SPARK_SESSION_REPRO_LANE_ITEM_LIMIT),
-      handoffCount: source.handoffs.filter((handoff) => handoff.workItemId === item.workItemId)
-        .length,
-      resolutionCount: source.resolutions.filter(
-        (resolution) => resolution.workItemId === item.workItemId,
-      ).length,
-    })),
+    items: workItems.slice(0, SPARK_SESSION_REPRO_LANE_ITEM_LIMIT).map((item) => {
+      const binding = bindings.get(item.workItemId);
+      const taskRef = binding?.taskRef ?? item.taskRef;
+      const route = [...(source.routes ?? [])]
+        .reverse()
+        .find(
+          (candidate) =>
+            candidate.workItemId === item.workItemId &&
+            ((candidate.action !== "root_attention" && candidate.toLane === lane) ||
+              candidate.fromLane === lane),
+        );
+      const runRef = taskRef ? source.latestRunRefByTaskRef?.get(taskRef) : undefined;
+      const evidenceRefs = [
+        ...new Set([...(binding?.evidenceRefs ?? []), ...item.evidenceRefs]),
+      ].slice(0, SPARK_SESSION_REPRO_LANE_ITEM_LIMIT);
+      return {
+        workItemId: item.workItemId,
+        title: truncate(item.title, 160),
+        status: item.status,
+        ...(taskRef ? { taskRef } : {}),
+        ...(runRef ? { runRef } : !binding && item.runRef ? { runRef: item.runRef } : {}),
+        ...(binding?.gitChangeRef
+          ? { gitChangeRef: binding.gitChangeRef }
+          : item.gitChangeRef
+            ? { gitChangeRef: item.gitChangeRef }
+            : {}),
+        ...(binding
+          ? {
+              bindingRevision: binding.bindingRevision,
+              bindingStatus: binding.status,
+              sourceRevision: truncate(binding.sourceRevision, 256),
+            }
+          : {}),
+        ...(route
+          ? {
+              routeId: truncate(route.routeId, 256),
+              routeAction: route.action,
+              routeStatus: route.status,
+            }
+          : {}),
+        evidenceRefs,
+        handoffCount: source.handoffs.filter((handoff) => handoff.workItemId === item.workItemId)
+          .length,
+        resolutionCount: source.resolutions.filter(
+          (resolution) => resolution.workItemId === item.workItemId,
+        ).length,
+      };
+    }),
   };
 }
 

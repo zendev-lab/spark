@@ -655,6 +655,20 @@ export const sparkSessionReproLaneItemViewSchema = z.object({
     .string()
     .regex(/^artifact:.+/u)
     .optional(),
+  bindingRevision: z.number().int().positive().optional(),
+  bindingStatus: z.enum(["active", "refreshing", "converged", "superseded"]).optional(),
+  sourceRevision: z.string().min(1).max(256).optional(),
+  routeId: z.string().min(1).max(256).optional(),
+  routeAction: z
+    .enum([
+      "start_binding",
+      "materialize_binding",
+      "refresh_binding",
+      "resume_binding",
+      "root_attention",
+    ])
+    .optional(),
+  routeStatus: z.enum(["pending", "acknowledged"]).optional(),
   evidenceRefs: z.array(z.string().regex(/^evidence:.+/u)).max(6),
   handoffCount: z.number().int().nonnegative(),
   resolutionCount: z.number().int().nonnegative(),

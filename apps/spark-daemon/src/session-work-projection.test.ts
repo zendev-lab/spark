@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { EvidenceRef } from "@zendev-lab/spark-core";
+import type { EvidenceRef, TaskRef } from "@zendev-lab/spark-core";
 import {
   sessionGoalStorePathV2,
   sessionReproStorePathV2,
@@ -303,6 +303,7 @@ describe("session work projection", () => {
       planRevision: repro.plan.currentRevision,
       sourceRevision: "commit:candidate",
       status: "open",
+      taskRef: "task:restart-implementation" as TaskRef,
       evidenceRefs: [],
       unresolvedIds: [],
     });
@@ -320,6 +321,10 @@ describe("session work projection", () => {
       dependsOnHandoffIds: [],
       doneWhen: ["The first bad boundary is classified"],
       status: "accepted",
+    });
+    threeLane = registerSparkReproWorkItem(threeLane, "exactness", {
+      ...threeLane.workItems[0]!,
+      taskRef: "task:restart-exactness" as TaskRef,
     });
     threeLane = recordSparkReproWorkHandoff(threeLane, {
       handoffId: "handoff:exactness-formalize",

@@ -2,8 +2,17 @@ import type { ArtifactRef, EvidenceRef, RunRef, TaskRef } from "@zendev-lab/spar
 import { describe, expect, it } from "vitest";
 
 import { createSparkSessionRepro } from "./index.ts";
+import { parseSparkReproLaneResult, reconcileSparkReproLaneResult } from "./lane-result.ts";
 import { projectSparkReproLanesView } from "./three-lane-projection.ts";
-import { registerSparkReproWorkItem, type SparkReproWorkItem } from "./three-lane.ts";
+import {
+  enqueueSparkReproWork,
+  materializeSparkReproRouteBinding,
+  registerSparkReproWorkItem,
+  type SparkReproWorkItem,
+} from "./three-lane.ts";
+
+const BASE_REVISION = "1111111111111111111111111111111111111111";
+const CANDIDATE_REVISION = "2222222222222222222222222222222222222222";
 
 describe("three-lane session projection", () => {
   it("prioritizes blocked work and caps every lane at six display-safe items", () => {
@@ -17,7 +26,9 @@ describe("three-lane session projection", () => {
       );
     }
 
-    const projected = projectSparkReproLanesView(state);
+    const projected = projectSparkReproLanesView(state, {
+      latestRunRefByTaskRef: new Map([["task:item-7", "run:item-7"]]),
+    });
 
     expect(projected.implementation).toMatchObject({
       status: "blocked",
@@ -49,6 +60,60 @@ describe("three-lane session projection", () => {
       formalize: { status: "empty", totalCount: 0, items: [] },
     });
     expect(projected).not.toHaveProperty("formalizedTip");
+  });
+
+  it("projects the lane binding, daemon-owned latest run, and pending route", () => {
+    const repro = createSparkSessionRepro("session:binding-projection");
+    const enqueued = enqueueSparkReproWork(repro.threeLane, {
+      enqueue: {
+        schema: "spark.repro.work-enqueue/v1",
+        workItemId: "work:item-0",
+        title: "Candidate 0",
+        scope: "component-0",
+      },
+      sourceRevision: BASE_REVISION,
+    });
+    let state = materializeSparkReproRouteBinding(enqueued.state, {
+      routeId: enqueued.route.routeId,
+      taskRef: "task:item-0" as TaskRef,
+    });
+    const result = parseSparkReproLaneResult({
+      schema: "spark.repro.lane-result/v1",
+      kind: "implementation_candidate",
+      reproId: repro.reproId,
+      workItemId: "work:item-0",
+      lane: "implementation",
+      planRevision: repro.plan.currentRevision,
+      bindingRevision: 1,
+      taskRef: "task:item-0",
+      runRef: "run:terminal",
+      originRouteId: enqueued.route.routeId,
+      sourceRevision: BASE_REVISION,
+      evidenceRefs: [],
+      scope: "component-0",
+      candidateRevisions: [CANDIDATE_REVISION],
+      dependsOnHandoffIds: [],
+      doneWhen: ["checked"],
+    });
+    state = reconcileSparkReproLaneResult({
+      state,
+      reproId: repro.reproId,
+      evidenceRef: "evidence:result" as EvidenceRef,
+      result,
+    }).state;
+
+    const projected = projectSparkReproLanesView(state, {
+      latestRunRefByTaskRef: new Map([["task:item-0", "run:terminal"]]),
+    });
+
+    expect(projected.implementation.items[0]).toMatchObject({
+      bindingRevision: 1,
+      bindingStatus: "active",
+      sourceRevision: BASE_REVISION,
+      runRef: "run:terminal",
+      routeAction: "materialize_binding",
+      routeStatus: "pending",
+    });
   });
 });
 
