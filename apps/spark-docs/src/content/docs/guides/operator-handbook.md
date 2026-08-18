@@ -159,22 +159,23 @@ binding display name.
 
 ## 5. Create, inspect, and attach a session
 
-Read the server workspace ID from `spark daemon workspace ls --json`, then
-create a managed session:
+Read the protected Administrator Session ID from
+`spark daemon session list --registry --json`, select an exact static RoleRef,
+then create an empty managed child:
 
 ```bash
-spark daemon session create \
-  --workspace <server-workspace-id> \
-  --role operator \
+spark daemon session spawn \
+  --supervisor <administrator-session-id> \
+  --role-ref role:builtin-executor \
   --json
 
 spark daemon session list --registry --json
 spark daemon session show <session-id> --json
 ```
 
-For managed sessions, `role` is the stable division-of-labour identity and is
-also used as the compatibility title. Run attach commands from the same
-canonical workspace:
+`spawn` creates no Invocation. Use `fork` with the same flags only when the
+child needs an independent copy of the supervisor's stable transcript prefix.
+Run attach commands from the same canonical workspace:
 
 ```bash
 spark tui --session-id <session-id>
@@ -291,7 +292,8 @@ Help is read-only at every nested surface:
 ```bash
 spark doctor --help
 spark hub web start --help
-spark daemon session create --help
+spark daemon session spawn --help
+spark daemon session fork --help
 ```
 
 If a packaged installation behaves differently, compare `spark version --json`

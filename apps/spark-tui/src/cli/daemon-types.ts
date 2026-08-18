@@ -5,7 +5,6 @@ import type { SparkSessionExportFormat } from "../host/session-navigation.ts";
 import type { SparkNativeResponder, SparkNativeResponderContext } from "../native-tui.ts";
 import type { ChannelStatusSnapshot } from "./channel-status.ts";
 import type {
-  DaemonSessionForkResult,
   DaemonSessionListResult,
   DaemonSessionShowResult,
   DaemonSessionTreeResult,
@@ -434,12 +433,11 @@ export interface SparkDaemonSessionsCommand extends SparkDaemonCliCommandBase {
     | "list"
     | "show"
     | "tree"
+    | "spawn"
     | "fork"
-    | "clone"
     | "export"
     | "replay"
     | "inbox"
-    | "create"
     | "bind"
     | "unbind"
     | "archive"
@@ -454,16 +452,15 @@ export interface SparkDaemonSessionsCommand extends SparkDaemonCliCommandBase {
   includeArchived?: boolean;
   query?: string;
   tags?: string[];
-  newSessionId?: string;
   inboxAction?: "list" | "read" | "ack";
   messageId?: string;
   all?: boolean;
   workspaceId?: string;
   name?: string;
   roleRef?: RoleRef;
-  inheritRole?: boolean;
-  placement?: "child" | "sibling";
   supervisorSessionId?: string;
+  cwd?: string;
+  cwdArtifactRef?: string;
   externalKey?: string;
 }
 
@@ -581,14 +578,13 @@ export interface SparkDaemonSessionsResult {
     | DaemonSessionListResult
     | DaemonSessionShowResult
     | DaemonSessionTreeResult
-    | DaemonSessionForkResult
     | ManagedSessionRegistryResult;
 }
 
 export interface ManagedSessionRegistryResult {
   plane: "daemon";
   resource: "session";
-  subcommand: "create" | "bind" | "unbind" | "archive" | "restore" | "close" | "list";
+  subcommand: "spawn" | "fork" | "bind" | "unbind" | "archive" | "restore" | "close" | "list";
   sessions?: Array<Record<string, unknown>>;
   session?: Record<string, unknown>;
   text: string;

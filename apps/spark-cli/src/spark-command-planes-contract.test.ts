@@ -170,7 +170,6 @@ test("deprecation map covers legacy slash aliases and only advertises real CLI t
     "/workflow-pause",
     "/workflow-resume",
     "/workflow-stop",
-    "/fork",
   ]) {
     const row = byLegacy.get(legacy);
     assert.equal(Boolean(row), true, legacy);
@@ -179,7 +178,7 @@ test("deprecation map covers legacy slash aliases and only advertises real CLI t
   }
   assert.equal(byLegacy.get("/sessions")?.canonicalCliTarget, "spark daemon session list");
   assert.equal(byLegacy.get("/tasks")?.canonicalCliTarget, undefined);
-  assert.equal(byLegacy.get("/fork")?.canonicalCliTarget, "spark daemon session fork --current");
+  assert.equal(byLegacy.has("/fork"), false);
   assert.equal(byLegacy.get("/workflow-runs")?.canonicalCliTarget, undefined);
   assert.equal(byLegacy.get("/workflow-pause")?.canonicalCliTarget, undefined);
   assert.equal(byLegacy.get("/workflow-resume")?.canonicalCliTarget, undefined);

@@ -74,6 +74,41 @@ references from that incarnation. If no valid semantic result exists, Spark
 stores a deterministic metadata-only fallback and still removes the content.
 The receipt is queryable Session metadata, not Evidence or Memory.
 
+## Creating Role-bound Sessions
+
+Create or select a static Role first. From a tool-enabled Session, `spawn`
+creates an empty child and `fork` creates a child with an independent copy of
+the current Session's stable transcript prefix:
+
+```ts
+session({ action: "spawn", roleRef: "role:project-executor", name: "Implementation" })
+session({ action: "fork", roleRef: "role:builtin-reviewer", name: "Review" })
+```
+
+CLI callers name the supervisor explicitly:
+
+```bash
+spark daemon session spawn --supervisor <session-id> --role-ref <RoleRef> --json
+spark daemon session fork --supervisor <session-id> --role-ref <RoleRef> --json
+```
+
+Neither command sends an instruction or creates an Invocation. Trigger work in
+the returned child separately:
+
+```ts
+session({
+  action: "send",
+  kind: "request",
+  toSessionId: "<child-session-id>",
+  message: "Run the focused verification and report evidence."
+})
+```
+
+A fork never shares a writable transcript tail with its parent. Parent and
+child append and compact independently. If the parent transcript changes while
+the stable prefix is copied, Spark retries once and then returns
+`session_transcript_changed` rather than creating a torn child.
+
 ## Sending work between Sessions
 
 A Session request without `onActive` is an idle-only attempt. Spark submits it immediately when the target is idle. If the target is queued or running, Spark persists nothing and returns `session_mail_target_active`, prompting the caller to retry with one explicit policy:

@@ -601,6 +601,29 @@ const sparkWorkspaceSessionCreateRequestSchema = sparkSessionCreateRequestBaseSc
 
 export const sparkSessionCreateRequestSchema = sparkWorkspaceSessionCreateRequestSchema;
 
+const sparkManagedChildSessionRequestSchema = z
+  .object({
+    supervisorSessionId: z.string().trim().min(1),
+    roleRef: z
+      .string()
+      .trim()
+      .regex(/^role:.+/u),
+    name: z.string().trim().min(1).optional(),
+    cwd: z.string().trim().min(1).optional(),
+    cwdArtifactRef: z
+      .string()
+      .trim()
+      .regex(/^artifact:.+/u)
+      .optional(),
+  })
+  .strict();
+
+/** Create an empty Role-bound child without admitting an Invocation. */
+export const sparkSessionSpawnRequestSchema = sparkManagedChildSessionRequestSchema;
+
+/** Copy the supervisor's stable transcript prefix into a new Role-bound child. */
+export const sparkSessionForkRequestSchema = sparkManagedChildSessionRequestSchema;
+
 const sparkSessionListRequestBaseSchema = z
   .object({
     includeArchived: z.boolean().optional(),
@@ -926,6 +949,8 @@ export type SparkEphemeralSessionTombstone = z.infer<typeof sparkEphemeralSessio
 export type SparkSessionStoredRecord = z.infer<typeof sparkSessionStoredRecordSchema>;
 export type SparkSessionProjection = z.infer<typeof sparkSessionProjectionSchema>;
 export type SparkSessionCreateRequest = z.input<typeof sparkSessionCreateRequestSchema>;
+export type SparkSessionSpawnRequest = z.infer<typeof sparkSessionSpawnRequestSchema>;
+export type SparkSessionForkRequest = z.infer<typeof sparkSessionForkRequestSchema>;
 export type SparkSessionListRequest =
   | z.infer<typeof sparkSessionListRequestSchema>
   | {

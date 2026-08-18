@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultArtifactStore, defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
+import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
 import {
   sparkLocalRpcProcedureSchemas,
   type SparkLocalRpcMethod,
@@ -90,6 +91,75 @@ describe("transport-neutral local RPC service", () => {
       },
     });
     expect(onInvocationQueued).toHaveBeenCalledOnce();
+    db.close();
+  });
+
+  it("routes spawn and fork into child creation without admitting an Invocation", async () => {
+    const { paths, db } = createFixture();
+    const cwd = join(paths.dataDir, "managed-child-workspace");
+    mkdirSync(cwd, { recursive: true });
+    const workspace = registerWorkspace(db, { localPath: cwd });
+    const registry = createDaemonSessionRegistry(join(paths.dataDir, ".spark"), {
+      daemonId: "managed-child-service-test",
+      daemonCwd: cwd,
+      resolveWorkspaceCwd: (workspaceId) =>
+        workspaceId === workspace.id ? workspace.localPath : undefined,
+    });
+    const supervisor = await registry.ensureWorkspaceAdministrator(workspace.id);
+    const store = new SparkSessionStore({
+      cwd: supervisor.cwd!,
+      sparkHome: paths.sessionRuntimeDir!,
+    });
+    const parent = store.createCanonicalSession({ id: supervisor.sessionId });
+    store.appendMessage(parent, { role: "user", content: "stable question" });
+    store.appendMessage(parent, {
+      role: "assistant",
+      content: "stable answer",
+      stopReason: "stop",
+    });
+    store.appendMessage(parent, { role: "user", content: "unstable tail" });
+    await store.save(parent);
+    await registry.bindTranscriptPath({
+      sessionId: supervisor.sessionId,
+      sessionPath: parent.path,
+    });
+    const service = { paths, db, handlerOptions: { sessionRegistry: registry } };
+
+    const spawned = await invokeLocalRpcService(
+      "session.spawn",
+      {
+        supervisorSessionId: supervisor.sessionId,
+        roleRef: "role:builtin-executor",
+        name: "Fresh executor",
+      },
+      service,
+    );
+    const forked = await invokeLocalRpcService(
+      "session.fork",
+      {
+        supervisorSessionId: supervisor.sessionId,
+        roleRef: "role:builtin-reviewer",
+      },
+      service,
+    );
+
+    expect(spawned).toMatchObject({
+      name: "Fresh executor",
+      roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
+      owner: { kind: "session", supervisorSessionId: supervisor.sessionId },
+      activity: "idle",
+    });
+    expect(forked).toMatchObject({
+      roleBinding: { kind: "explicit", roleRef: "role:builtin-reviewer" },
+      owner: { kind: "session", supervisorSessionId: supervisor.sessionId },
+      activity: "idle",
+    });
+    expect((await store.load(spawned.sessionPath!)).entries).toEqual([]);
+    expect((await store.load(forked.sessionPath!)).entries.map((entry) => entry.id)).toEqual(
+      parent.entries.slice(0, 2).map((entry) => entry.id),
+    );
+    expect((await store.load(parent.path)).entries).toHaveLength(3);
+    expect(new SparkInvocationStore(db).list()).toEqual([]);
     db.close();
   });
 

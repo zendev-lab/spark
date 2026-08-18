@@ -141,19 +141,21 @@ spark daemon workspace ls --json
 
 ## 5. 创建、检查并附着会话
 
-从 `spark daemon workspace ls --json` 读取 server workspace ID，然后创建托管会话：
+从 `spark daemon session list --registry --json` 读取受保护的 Administrator Session
+ID，选择精确静态 RoleRef，然后创建空的托管子 Session：
 
 ```bash
-spark daemon session create \
-  --workspace <server-workspace-id> \
-  --role operator \
+spark daemon session spawn \
+  --supervisor <administrator-session-id> \
+  --role-ref role:builtin-executor \
   --json
 
 spark daemon session list --registry --json
 spark daemon session show <session-id> --json
 ```
 
-对托管会话，`role` 是稳定的职责身份，也会用作兼容 title。请在同一个规范工作区目录中附着：
+`spawn` 不会创建 Invocation。只有子 Session 需要 supervisor 稳定 transcript 前缀的
+独立副本时，才使用同一组 flag 调用 `fork`。请在同一个规范工作区目录中附着：
 
 ```bash
 spark tui --session-id <session-id>
@@ -263,7 +265,8 @@ spark hub workspace access create --workspace <hub-workspace-id>
 ```bash
 spark doctor --help
 spark hub web start --help
-spark daemon session create --help
+spark daemon session spawn --help
+spark daemon session fork --help
 ```
 
 如果已发布安装的行为不同，先对比 `spark version --json` 与预期源码或包版本。

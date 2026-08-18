@@ -210,36 +210,30 @@ async function sessionCommand(paths: SparkPaths, parsed: ParsedArgs, io: CliIo):
       result = await localRpcRequest(paths, "session.get", { sessionId });
       break;
     }
-    case "create": {
-      const workspaceId = option(parsed, "workspace") ?? sessionArgument;
-      if (!workspaceId) throw new Error("spark daemon session create requires --workspace <id>");
+    case "spawn":
+    case "fork": {
+      if (sessionArgument) {
+        throw new Error(`spark daemon session ${action} does not accept a source Session argument`);
+      }
       const supervisorSessionId = option(parsed, "supervisor");
       if (!supervisorSessionId) {
-        throw new Error("spark daemon session create requires --supervisor <session-id>");
+        throw new Error(`spark daemon session ${action} requires --supervisor <session-id>`);
       }
       const roleRef = option(parsed, "role-ref");
-      if (roleRef && !roleRef.startsWith("role:")) {
-        throw new Error("spark daemon session create --role-ref must start with role:");
+      if (!roleRef) {
+        throw new Error(`spark daemon session ${action} requires --role-ref <RoleRef>`);
       }
-      if (roleRef && flag(parsed, "inherit-role")) {
-        throw new Error("spark daemon session create accepts only one role binding");
+      if (!roleRef.startsWith("role:")) {
+        throw new Error(`spark daemon session ${action} --role-ref must start with role:`);
       }
-      const placement = option(parsed, "placement") ?? "child";
-      if (placement !== "child" && placement !== "sibling") {
-        throw new Error("spark daemon session create --placement must be child or sibling");
-      }
-      result = await localRpcRequest(paths, "session.create", {
-        scope: { kind: "workspace", workspaceId },
+      result = await localRpcRequest(paths, `session.${action}`, {
         supervisorSessionId,
-        placement,
-        roleBinding: roleRef
-          ? { kind: "explicit", roleRef }
-          : flag(parsed, "inherit-role")
-            ? { kind: "inherit" }
-            : { kind: "none" },
-        cwd: process.cwd(),
-        ...(option(parsed, "id") ? { sessionId: option(parsed, "id") } : {}),
+        roleRef,
         ...(option(parsed, "name") ? { name: option(parsed, "name") } : {}),
+        ...(option(parsed, "cwd") ? { cwd: option(parsed, "cwd") } : {}),
+        ...(option(parsed, "cwd-artifact-ref")
+          ? { cwdArtifactRef: option(parsed, "cwd-artifact-ref") }
+          : {}),
       });
       break;
     }
@@ -291,9 +285,7 @@ async function sessionCommand(paths: SparkPaths, parsed: ParsedArgs, io: CliIo):
       break;
     }
     default:
-      throw new Error(
-        `unknown spark daemon session command: ${action}; history tree/fork/export/replay remain TUI-local views`,
-      );
+      throw new Error(`unknown spark daemon session command: ${action}`);
   }
   return writeResult(io, result, flag(parsed, "json"), renderSessionValue);
 }

@@ -25,6 +25,7 @@ import {
   MAX_PENDING_SESSION_REQUEST_QUEUE,
   submitSessionMailTurn,
 } from "../../session-mail-execution.ts";
+import { createManagedChildSession } from "../../session-child.ts";
 import { projectSparkSessionWork } from "../../session-work-projection.ts";
 import {
   deliverSessionNotificationFromLocalRpc,
@@ -32,6 +33,7 @@ import {
   requireModelControl,
   sessionControlOptions,
 } from "../helpers.ts";
+import { requireSessionRegistry } from "../session-notification-helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
 import {
   parseLocalRpcServiceOutput,
@@ -51,6 +53,8 @@ type SessionRequest = Extract<
       | "session.prompt-history"
       | "session.retry-target"
       | "session.create"
+      | "session.spawn"
+      | "session.fork"
       | "session.bind"
       | "session.unbind"
       | "session.archive"
@@ -243,6 +247,27 @@ export async function handleSessionRequest(
         { kind: "session.create.request", scope: "any", payload: { ...request.params } },
       );
       return parseLocalRpcServiceOutput(request.method, executed.result.session);
+    }
+    case "session.spawn":
+    case "session.fork": {
+      if (!paths.sessionRuntimeDir) {
+        throw new SparkSessionRegistryError(
+          "session_storage_unavailable",
+          "Spark daemon Session transcript storage is unavailable.",
+        );
+      }
+      const session = await createManagedChildSession({
+        db,
+        registry: requireSessionRegistry(options),
+        sparkHome: paths.sessionRuntimeDir,
+        supervisorSessionId: request.params.supervisorSessionId,
+        roleRef: request.params.roleRef,
+        seed: request.method === "session.spawn" ? "fresh" : "fork",
+        ...(request.params.name ? { name: request.params.name } : {}),
+        ...(request.params.cwd ? { cwd: request.params.cwd } : {}),
+        ...(request.params.cwdArtifactRef ? { cwdArtifactRef: request.params.cwdArtifactRef } : {}),
+      });
+      return parseLocalRpcServiceOutput(request.method, projectSparkSessionState(session, "idle"));
     }
     case "session.archive": {
       const executed = await executeSparkDaemonSessionControl(

@@ -50,7 +50,7 @@ async function sessionSendRpc(
   };
 }
 
-test("session tool exposes persistent lifecycle, calls, classification, and mail", () => {
+test("session tool exposes explicit spawn/fork lifecycle and mail", () => {
   const tool = registerTestTool({
     request: async () => assert.fail("request should not run during registration"),
   });
@@ -64,8 +64,8 @@ test("session tool exposes persistent lifecycle, calls, classification, and mail
   for (const action of [
     "list",
     "get",
-    "create",
-    "call",
+    "spawn",
+    "fork",
     "bind",
     "unbind",
     "archive",
@@ -80,6 +80,11 @@ test("session tool exposes persistent lifecycle, calls, classification, and mail
   ]) {
     assert.match(schema, new RegExp(action));
   }
+  assert.doesNotMatch(schema, /\bcreate\b/u);
+  assert.doesNotMatch(schema, /\bcall\b/u);
+  assert.equal("instruction" in properties, false);
+  assert.equal("roleBinding" in properties, false);
+  assert.ok("roleRef" in properties);
   assert.deepEqual(tool.resolvePolicy?.({ action: "list" }), {
     effect: "read",
     executionMode: "parallel",
@@ -101,7 +106,7 @@ test("session tool exposes persistent lifecycle, calls, classification, and mail
     modes: ["plan", "execute", "fleet"],
     approval: "none",
   });
-  assert.deepEqual(tool.resolvePolicy?.({ action: "call" }), {
+  assert.deepEqual(tool.resolvePolicy?.({ action: "spawn" }), {
     effect: "external_write",
     executionMode: "sequential",
     domains: ["sessions"],
@@ -138,13 +143,14 @@ test("session tool routes managed actions through daemon RPC and classifies surf
     if (method === "workspace.ensure-local") return { id: "workspace:test" } as T;
     if (method === "session.list") return [...records.values()] as T;
     if (method === "session.get") return records.get(String(input.sessionId)) as T;
-    if (method === "session.create") {
-      const record = sessionRecord(
-        typeof input.sessionId === "string" ? input.sessionId : "session:new",
-        {
+    if (method === "session.spawn" || method === "session.fork") {
+      const record = {
+        ...sessionRecord(method === "session.spawn" ? "session:spawned" : "session:forked", {
           title: typeof input.name === "string" ? input.name : undefined,
-        },
-      );
+        }),
+        roleBinding: { kind: "explicit" as const, roleRef: String(input.roleRef) },
+        owner: { kind: "session" as const, supervisorSessionId: String(input.supervisorSessionId) },
+      };
       records.set(record.sessionId, record);
       return record as T;
     }
@@ -231,38 +237,52 @@ test("session tool routes managed actions through daemon RPC and classifies surf
     "session:a",
   );
 
-  const created = await execute(tool, ctx, {
-    action: "create",
-    sessionId: "session:new",
+  const spawned = await execute(tool, ctx, {
+    action: "spawn",
+    roleRef: "role:project-verifier",
     name: "Verification",
   });
   assert.equal(
-    (created.details as { session: { sessionId: string } }).session.sessionId,
-    "session:new",
+    (spawned.details as { session: { sessionId: string } }).session.sessionId,
+    "session:spawned",
   );
-  assert.deepEqual(calls.find((call) => call.method === "session.create")?.params, {
-    sessionId: "session:new",
-    name: "Verification",
-    roleBinding: { kind: "none" },
-    placement: "child",
+  assert.equal((spawned.details as { executionTriggered: boolean }).executionTriggered, false);
+  assert.deepEqual(calls.find((call) => call.method === "session.spawn")?.params, {
     supervisorSessionId: "session:a",
-    cwd: "/workspace/test",
-    scope: { kind: "workspace", workspaceId: "workspace:test" },
+    roleRef: "role:project-verifier",
+    name: "Verification",
+  });
+  const forked = await execute(tool, ctx, {
+    action: "fork",
+    roleRef: "role:project-verifier",
+    cwd: "/workspace/test-copy",
+    cwdArtifactRef: "artifact:git-change-copy",
+  });
+  assert.equal(
+    (forked.details as { session: { sessionId: string } }).session.sessionId,
+    "session:forked",
+  );
+  assert.equal((forked.details as { executionTriggered: boolean }).executionTriggered, false);
+  assert.deepEqual(calls.find((call) => call.method === "session.fork")?.params, {
+    supervisorSessionId: "session:a",
+    roleRef: "role:project-verifier",
+    cwd: "/workspace/test-copy",
+    cwdArtifactRef: "artifact:git-change-copy",
   });
 
   await execute(tool, ctx, {
     action: "bind",
-    sessionId: "session:new",
+    sessionId: "session:spawned",
     externalKey: "infoflow:user:u1",
   });
   await execute(tool, ctx, {
     action: "unbind",
-    sessionId: "session:new",
+    sessionId: "session:spawned",
     externalKey: "infoflow:user:u1",
   });
   const archived = await execute(tool, ctx, {
     action: "archive",
-    sessionId: "session:new",
+    sessionId: "session:spawned",
   });
   assert.equal(
     (archived.details as { session: { placement: string } }).session.placement,
@@ -280,8 +300,8 @@ test("session tool routes managed actions through daemon RPC and classifies surf
       "workspace.ensure-local",
       "session.list",
       "session.get",
-      "workspace.ensure-local",
-      "session.create",
+      "session.spawn",
+      "session.fork",
       "session.bind",
       "session.unbind",
       "session.archive",
@@ -380,7 +400,7 @@ test("channel sessions can inspect same-workspace local and channel sessions", a
     [channelCurrent.sessionId, channelPeer.sessionId],
   );
 
-  for (const action of ["create", "call", "bind", "unbind", "archive"] as const) {
+  for (const action of ["spawn", "fork", "bind", "unbind", "archive"] as const) {
     await assert.rejects(
       () => execute(tool, ctx, { action }),
       new RegExp(`cannot use session action=${action}`, "u"),
@@ -388,81 +408,15 @@ test("channel sessions can inspect same-workspace local and channel sessions", a
   }
 });
 
-test("session call uses daemon turn.submit for persistent continuity", async () => {
-  const calls: Array<{ method: string; params: unknown }> = [];
-  const request = async <T>(method: string, params?: unknown): Promise<T> => {
-    calls.push({ method, params });
-    if (method === "session.get") return sessionRecord("session:persistent") as T;
-    if (method === "turn.submit")
-      return {
-        invocationId: "inv_persistentcall",
-        status: "queued",
-        acceptedAt: NOW,
-      } as T;
-    return assert.fail(`unexpected RPC method: ${method}`);
-  };
+test("legacy create and call actions are unknown and never reach the daemon", async () => {
+  const request = async () => assert.fail("legacy actions must not reach the daemon");
   const tool = registerTestTool({ request });
-
-  const result = await execute(tool, context("session:caller"), {
-    action: "call",
-    sessionId: "session:persistent",
-    instruction: "Continue the investigation",
-  });
-  assert.match(toolText(result), /Queued Spark Session call/u);
-  assert.match(toolText(result), /invocation inv_persistentcall was accepted/u);
-  assert.equal((result.details as { sessionLifetime: string }).sessionLifetime, "scoped");
-  assert.deepEqual(calls, [
-    { method: "session.get", params: { sessionId: "session:persistent" } },
-    {
-      method: "turn.submit",
-      params: {
-        sessionId: "session:persistent",
-        prompt: "Continue the investigation",
-        messageMetadata: {
-          origin: {
-            kind: "session",
-            sessionId: "session:caller",
-            surface: "local",
-            host: "session",
-          },
-        },
-      },
-    },
-  ]);
-
-  await assert.rejects(
-    () =>
-      execute(
-        tool,
-        { ...context("session:caller"), sessionSurface: "channel" },
-        {
-          action: "call",
-          sessionId: "session:persistent",
-          instruction: "Channel sessions must forward",
-        },
-      ),
-    /message-platform sessions cannot use session action=call/u,
-  );
-  await assert.rejects(
-    () =>
-      execute(tool, context("session:caller"), {
-        action: "call",
-        sessionId: "session:persistent",
-        instruction: "Ambiguous options",
-        timeoutMs: 5_000,
-      }),
-    /session call does not accept timeoutMs/u,
-  );
-  await assert.rejects(
-    () =>
-      execute(tool, context("session:caller"), {
-        action: "call",
-        sessionId: "session:persistent",
-        instruction: "Invalid reset",
-        reset: "yes",
-      }),
-    /session reset must be a boolean/u,
-  );
+  for (const action of ["create", "call"]) {
+    await assert.rejects(
+      () => execute(tool, context("session:caller"), { action }),
+      /session\.action must be list, get, spawn, fork/u,
+    );
+  }
 });
 
 test("session request delegates durable admission context to the daemon", async () => {

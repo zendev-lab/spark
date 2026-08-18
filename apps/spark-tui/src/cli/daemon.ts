@@ -12,11 +12,9 @@ import {
 } from "../native-tui.ts";
 import type { ChannelStatusSnapshot } from "./channel-status.ts";
 import {
-  type DaemonSessionForkResult,
   type DaemonSessionListResult,
   type DaemonSessionShowResult,
   type DaemonSessionTreeResult,
-  forkDaemonSession,
   listDaemonSessions,
   listLiveDaemonSessions,
   showDaemonSession,
@@ -1038,41 +1036,26 @@ async function clientSessions(
   | DaemonSessionListResult
   | DaemonSessionShowResult
   | DaemonSessionTreeResult
-  | DaemonSessionForkResult
   | ManagedSessionRegistryResult
 > {
   const paths = resolveSparkDaemonClientPaths(client);
   const managedSessions = clientManagedSessions(client);
-  if (command.subcommand === "create") {
-    const workspaceId = command.workspaceId!;
-    const supervisorSessionId =
-      command.supervisorSessionId ??
-      (
-        await managedSessions.list({
-          scope: { kind: "workspace", workspaceId },
-          includeArchived: true,
-        })
-      ).find((session) => session.owner.kind === "workspace")?.sessionId;
-    if (!supervisorSessionId) {
-      throw new Error(`workspace ${workspaceId} has no reconciled Administrator Session`);
-    }
-    const session = await managedSessions.create({
-      scope: { kind: "workspace", workspaceId },
-      supervisorSessionId,
-      placement: command.placement ?? "child",
-      roleBinding: command.inheritRole
-        ? { kind: "inherit" }
-        : command.roleRef
-          ? { kind: "explicit", roleRef: command.roleRef }
-          : { kind: "none" },
+  if (command.subcommand === "spawn" || command.subcommand === "fork") {
+    const input = {
+      supervisorSessionId: command.supervisorSessionId!,
+      roleRef: command.roleRef!,
       ...(command.name ? { name: command.name } : {}),
-      sessionId: command.sessionId,
-      cwd: process.cwd(),
-    });
+      ...(command.cwd ? { cwd: command.cwd } : {}),
+      ...(command.cwdArtifactRef ? { cwdArtifactRef: command.cwdArtifactRef } : {}),
+    };
+    const session =
+      command.subcommand === "spawn"
+        ? await requestSparkDaemonControl("session.spawn", input, client)
+        : await requestSparkDaemonControl("session.fork", input, client);
     return {
       plane: "daemon",
       resource: "session",
-      subcommand: "create",
+      subcommand: command.subcommand,
       session,
       text: renderManagedSession(session),
       observedAt: observedAt(client),
@@ -1209,12 +1192,6 @@ async function clientSessions(
   }
   if (command.subcommand === "tree") {
     return await treeDaemonSession(createLocalSessionStore(client), command.sessionId!, {
-      observedAt: observedAt(client),
-    });
-  }
-  if (command.subcommand === "fork" || command.subcommand === "clone") {
-    return await forkDaemonSession(createLocalSessionStore(client), command.sessionId!, {
-      id: command.newSessionId,
       observedAt: observedAt(client),
     });
   }

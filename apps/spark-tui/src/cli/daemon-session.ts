@@ -80,24 +80,10 @@ export interface DaemonSessionTreeNode {
   active: boolean;
 }
 
-export interface DaemonSessionForkResult {
-  plane: "daemon";
-  resource: "session";
-  sessionKey: string;
-  id: string;
-  path: string;
-  parentSessionKey: string;
-  parentSessionPath: string;
-  entryCount: number;
-  text: string;
-  observedAt: string;
-}
-
 export type DaemonSessionResult =
   | DaemonSessionListResult
   | DaemonSessionShowResult
-  | DaemonSessionTreeResult
-  | DaemonSessionForkResult;
+  | DaemonSessionTreeResult;
 
 export async function listDaemonSessions(
   store: SparkSessionStore,
@@ -175,28 +161,6 @@ export async function treeDaemonSession(
     id: record.header.id,
     nodes,
     text: renderSessionTree(record, nodes),
-    observedAt: options.observedAt,
-  };
-}
-
-export async function forkDaemonSession(
-  store: SparkSessionStore,
-  sessionRef: string,
-  options: { id?: string; observedAt: string },
-): Promise<DaemonSessionForkResult> {
-  const parent = await store.loadByRef(sessionRef);
-  const fork = store.forkSession(parent, { id: options.id, timestamp: options.observedAt });
-  await store.save(fork);
-  return {
-    plane: "daemon",
-    resource: "session",
-    sessionKey: sessionKey(fork.header.id),
-    id: fork.header.id,
-    path: fork.path,
-    parentSessionKey: sessionKey(parent.header.id),
-    parentSessionPath: parent.path,
-    entryCount: fork.entries.length,
-    text: `${sessionKey(fork.header.id)} forked from ${sessionKey(parent.header.id)}\n`,
     observedAt: options.observedAt,
   };
 }

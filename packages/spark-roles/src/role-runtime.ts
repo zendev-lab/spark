@@ -1784,7 +1784,7 @@ export async function runRole(input: RoleRunLauncherInput): Promise<RoleRunResul
   const effectiveRoleRevision =
     composition?.compositionRevision ?? input.roleRevision ?? "unversioned";
   const effectiveSystemPrompt = composition?.systemPrompt ?? input.systemPrompt;
-  // Preserve the recursion guard for nested role calls even when the run is
+  // Preserve the recursion guard for nested Role execution even when the run is
   // daemon-native rather than process-backed.
   const nativeEnv = roleRunChildEnv(input.env);
   const nativeExecutor = await resolveRoleNativeExecutor({ runRole: input.nativeExecutor });

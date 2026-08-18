@@ -1810,8 +1810,6 @@ test("Spark native Pi parity slash commands are discoverable and route represent
     "name",
     "changelog",
     "hotkeys",
-    "fork",
-    "clone",
     "tree",
     "trust",
     "login",
@@ -1828,14 +1826,12 @@ test("Spark native Pi parity slash commands are discoverable and route represent
     /\/reload — restart the TUI process and keep this session/,
   );
   assert.match(stripAnsi(harness.render()), /\/resume \[session-id\|path\] —/u);
-  assert.match(stripAnsi(harness.render()), /\/fork —/u);
+  assert.doesNotMatch(stripAnsi(harness.render()), /\/fork —/u);
+  assert.doesNotMatch(stripAnsi(harness.render()), /\/clone —/u);
 
   await submitEditorText(harness, "/clear");
   await submitEditorText(harness, "/help all");
-  assert.match(
-    stripAnsi(harness.render()),
-    /\/fork — [\s\S]*?→\s*spark daemon session fork --current/u,
-  );
+  assert.doesNotMatch(stripAnsi(harness.render()), /spark daemon session fork --current/u);
   harness.session.appendAssistantChunk("assistant reply to copy");
   harness.session.finishAssistantMessage();
 

@@ -205,7 +205,7 @@ test("standalone Pi ask, cue, and role tools render parameter-aware tool calls",
       { name: "role", args: { action: "list", source: "builtin" } },
       { name: "role", args: { action: "get", role: "worker" } },
       { name: "role", args: { action: "create", id: "repo-inspector" } },
-      { name: "role", args: { action: "call", role: "worker" } },
+      { name: "role", args: { action: "model_set", role: "worker" } },
     ]),
   ).toMatchFileSnapshot(join(snapshotDir, "tool-rendering-role.txt"));
 

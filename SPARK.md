@@ -14,7 +14,7 @@ updated: 2026-08-18
 ## 目标
 
 - 以 daemon 为 Session registry、Owner 派生生命周期、关闭级联与 Invocation 调度真源；TUI、Hub、消息通道、本地 RPC 共用一套状态机，不维护并行会话状态。
-- 将 Role 固定为可选行为/能力类型叠加，Session 固定为执行上下文，Invocation 固定为一次执行；默认 `roleBinding=none` 不注入额外 Role prompt，`role call` 只实例化不可恢复的 ephemeral Session 并留下 receipt。
+- 将 Role 固定为静态行为/能力定义，Session 固定为执行上下文，Invocation 固定为一次执行；公开流程统一为创建 Role → `session spawn|fork` 创建 Role-bound Session → `session send(kind=request)` 触发 Invocation，三个阶段互不隐式代办。
 - Session Owner 只表达生命周期与资源归属，不表达 Role 能力或子 Session 创建授权；Registry 只持久化严格 state，`lifetime` 与 `activity` 分别由 Owner 和 Invocation 真相投影。
 - 以 Spark Hub 作为同一 Hub 内跨 workspace 的逻辑协调真源；Hub 持有 registry、委托状态、投递幂等、审计和有限回执，目标 daemon/workspace 始终持有执行、工具副作用与本地成果真相，Hub 只负责呈现和收集决策。
 - 本地 daemon 控制面以 `spark-protocol` 类型化契约和 oRPC 为唯一主路径；兼容传输只翻译旧 wire，不拥有业务语义或状态。

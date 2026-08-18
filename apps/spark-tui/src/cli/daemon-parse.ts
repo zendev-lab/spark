@@ -137,10 +137,9 @@ const sessionsBody = map(
     tags: optional(option("--tags", string())),
     supervisor: optional(option("--supervisor", string())),
     roleRef: optional(option("--role-ref", string())),
-    inheritRole: withDefault(flag("--inherit-role"), false),
-    placement: optional(option("--placement", string())),
     name: optional(option("--name", string())),
-    id: optional(option("--id", string())),
+    cwd: optional(option("--cwd", string())),
+    cwdArtifactRef: optional(option("--cwd-artifact-ref", string())),
     externalKey: optional(option("--external-key", string())),
     all: withDefault(flag("--all"), false),
     message: optional(option("--message", string())),
@@ -417,10 +416,9 @@ function buildSessionsCommand(value: {
   tags?: string;
   supervisor?: string;
   roleRef?: string;
-  inheritRole: boolean;
-  placement?: string;
   name?: string;
-  id?: string;
+  cwd?: string;
+  cwdArtifactRef?: string;
   externalKey?: string;
   all: boolean;
   message?: string;
@@ -448,37 +446,32 @@ function buildSessionsCommand(value: {
       workspaceId: value.workspace?.trim(),
     };
   }
-  if (subcommand === "create") {
-    const workspaceId = value.workspace?.trim() || maybeLeaf?.trim();
-    if (!workspaceId) throw new Error("spark daemon session create requires --workspace <id>");
-    const supervisorSessionId = value.supervisor?.trim();
-    if (!supervisorSessionId) {
-      throw new Error("spark daemon session create requires --supervisor <session-id>");
-    }
-    const rawRoleRef = value.roleRef?.trim();
-    if (rawRoleRef && !rawRoleRef.startsWith("role:")) {
-      throw new Error("spark daemon session create --role-ref must start with role:");
-    }
-    if (rawRoleRef && value.inheritRole) {
+  if (subcommand === "spawn" || subcommand === "fork") {
+    if (maybeLeaf?.trim()) {
       throw new Error(
-        "spark daemon session create accepts only one of --role-ref and --inherit-role",
+        `spark daemon session ${subcommand} does not accept a source Session argument`,
       );
     }
-    const rawPlacement = value.placement?.trim() ?? "child";
-    if (rawPlacement !== "child" && rawPlacement !== "sibling") {
-      throw new Error("spark daemon session create --placement must be child or sibling");
+    const supervisorSessionId = value.supervisor?.trim();
+    if (!supervisorSessionId) {
+      throw new Error(`spark daemon session ${subcommand} requires --supervisor <session-id>`);
+    }
+    const rawRoleRef = value.roleRef?.trim();
+    if (!rawRoleRef) {
+      throw new Error(`spark daemon session ${subcommand} requires --role-ref <RoleRef>`);
+    }
+    if (!rawRoleRef.startsWith("role:")) {
+      throw new Error(`spark daemon session ${subcommand} --role-ref must start with role:`);
     }
     return {
       action: "sessions",
       subcommand,
       json: value.json,
-      workspaceId,
       name: value.name?.trim(),
-      ...(rawRoleRef ? { roleRef: rawRoleRef as RoleRef } : {}),
-      inheritRole: value.inheritRole,
-      placement: rawPlacement,
+      roleRef: rawRoleRef as RoleRef,
       supervisorSessionId,
-      sessionId: value.id?.trim(),
+      cwd: value.cwd?.trim(),
+      cwdArtifactRef: value.cwdArtifactRef?.trim(),
     };
   }
   if (subcommand === "bind" || subcommand === "unbind") {
@@ -514,21 +507,14 @@ function buildSessionsCommand(value: {
         : { messageId: maybeMessageId?.trim() || value.message?.trim() }),
     };
   }
-  if (
-    subcommand === "show" ||
-    subcommand === "tree" ||
-    subcommand === "fork" ||
-    subcommand === "clone"
-  ) {
+  if (subcommand === "show" || subcommand === "tree") {
     const sessionId = value.session?.trim() || maybeLeaf?.trim();
     if (!sessionId) throw new Error(STRINGS.sessionsReplayRequiresSession);
-    const newSessionId = value.id?.trim();
     return {
       action: "sessions",
       subcommand,
       json: value.json,
       sessionId,
-      ...(newSessionId ? { newSessionId } : {}),
     };
   }
   if (subcommand === "export") {

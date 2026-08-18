@@ -17,8 +17,8 @@ over copied prose.
 - `ask` is the only structured question surface; cancellation is not
   approval. User-addressed asks remain Hub Inbox / TUI / channel. Session-addressed
   asks use `toSessionId` and `ask({ action: "answer" })` and must not enter Inbox.
-- `task_read`, `task_write`, and `assign` operate on Task/Project work. Direct
-  role/session calls do not create task attribution.
+- `task_read`, `task_write`, and `assign` operate on Task/Project work.
+  Role-bound Session requests do not create task attribution.
 - `todo` owns the session-bound standalone checklist. TODO state is independent
   from Project Tasks.
 - `artifact` owns product-facing `issue | git_change | document` deliverables.
@@ -27,10 +27,10 @@ over copied prose.
 - `memory` owns durable memory, learnings, candidates, and reflection state.
   `context` only exposes registered bounded providers; it accepts no arbitrary
   provider prompt.
-- `role` owns reusable definitions and semantic Model Type settings. Calls
-  instantiate owner-bound child Sessions; `RoleRun` is a compatibility query
-  projection only.
-  `session` owns identity, lifecycle, bindings, calls, and mail.
+- `role` owns reusable static definitions and semantic Model Type settings.
+  `session spawn|fork` creates Role-bound children; `session send(kind=request)`
+  triggers their Invocations. `RoleRun` is a compatibility query projection only.
+  `session` owns identity, lifecycle, bindings, continuity, and mail.
   `skill_agent` instantiates one owned child Session and does not create a
   parallel Agent lifecycle.
 - `mode`, `goal`, `loop`, `workflow`, and `repro` bind capability contracts to
@@ -167,7 +167,7 @@ when optional fields are absent, and a target with multiple `in_progress`
 items fails before mutation. Event-style checklist verbs are decoder-only
 compatibility and are absent from the model schema.
 
-Direct Role Invocations and Session calls do not create Task attribution.
+Role-bound Session requests do not create Task attribution.
 
 Task execution policy may constrain continuity, isolation, comparison side,
 GPU count/memory/topology, exclusivity, concurrency keys, timeout, and bounded

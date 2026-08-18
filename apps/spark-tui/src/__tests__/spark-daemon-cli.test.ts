@@ -715,23 +715,29 @@ test("daemon managed session commands wait for the daemon-owned RPC client", asy
       return { ...session, placement: "archived" };
     },
   };
-  const client = { managedSessions } satisfies SparkDaemonClientOptions;
+  const client = {
+    managedSessions,
+    controlRequest: async (method: string, params: unknown) => {
+      if (method !== "session.spawn") throw new Error(`unexpected control request: ${method}`);
+      const input = params as { supervisorSessionId: string; roleRef: string };
+      calls.push(`spawn:${input.supervisorSessionId}:${input.roleRef}`);
+      return session;
+    },
+  } satisfies SparkDaemonClientOptions;
 
-  const created = await handleSparkDaemonCliCommand(
+  const spawned = await handleSparkDaemonCliCommand(
     {
       action: "sessions",
-      subcommand: "create",
+      subcommand: "spawn",
       json: true,
-      workspaceId: "ws_rpc",
-      sessionId: "sess_rpc",
       supervisorSessionId: "administrator:ws_rpc",
-      placement: "child",
+      roleRef: "role:project-verifier",
     },
     client,
   );
-  assert.equal(created.action, "sessions");
-  if (created.action !== "sessions") throw new Error("expected sessions result");
-  assert.equal((created.result as ManagedSessionRegistryResult).session?.sessionId, "sess_rpc");
+  assert.equal(spawned.action, "sessions");
+  if (spawned.action !== "sessions") throw new Error("expected sessions result");
+  assert.equal((spawned.result as ManagedSessionRegistryResult).session?.sessionId, "sess_rpc");
   await handleSparkDaemonCliCommand(
     {
       action: "sessions",
@@ -763,7 +769,7 @@ test("daemon managed session commands wait for the daemon-owned RPC client", asy
   );
 
   assert.deepEqual(calls, [
-    "create:ws_rpc",
+    "spawn:administrator:ws_rpc:role:project-verifier",
     "bind:sess_rpc:feishu:chat:oc_rpc",
     "list:ws_rpc",
     "archive:sess_rpc",
@@ -794,11 +800,17 @@ test("daemon managed session mutation fails explicitly when daemon RPC is unavai
     handleSparkDaemonCliCommand(
       {
         action: "sessions",
-        subcommand: "create",
+        subcommand: "spawn",
         json: true,
-        workspaceId: "ws_rpc",
+        supervisorSessionId: "administrator:ws_rpc",
+        roleRef: "role:project-verifier",
       },
-      { managedSessions },
+      {
+        managedSessions,
+        controlRequest: async () => {
+          throw new Error("Spark daemon is offline");
+        },
+      },
     ),
     /Spark daemon is offline/u,
   );
@@ -1373,39 +1385,6 @@ test("daemon session list history flag preserves persisted session listing", asy
     assert.equal(treeResult.nodes[1]?.depth, 1);
     assert.equal(treeResult.nodes[1]?.active, true);
 
-    const fork = await handleSparkDaemonCliCommand(
-      {
-        action: "sessions",
-        subcommand: "fork",
-        json: true,
-        sessionId: "fixture-a",
-        newSessionId: "fixture-fork",
-      },
-      client,
-    );
-    assert.equal(fork.action, "sessions");
-    const forkResult = fork.result as {
-      sessionKey: string;
-      parentSessionKey: string;
-      entryCount: number;
-    };
-    assert.equal(forkResult.sessionKey, "session:fixture-fork");
-    assert.equal(forkResult.parentSessionKey, "session:fixture-a");
-    assert.equal(forkResult.entryCount, 2);
-
-    const clone = await handleSparkDaemonCliCommand(
-      {
-        action: "sessions",
-        subcommand: "clone",
-        json: true,
-        sessionId: "fixture-a",
-        newSessionId: "fixture-clone",
-      },
-      client,
-    );
-    assert.equal(clone.action, "sessions");
-    assert.equal((clone.result as { sessionKey: string }).sessionKey, "session:fixture-clone");
-
     const exported = await handleSparkDaemonCliCommand(
       {
         action: "sessions",
@@ -1681,14 +1660,61 @@ test("parseSparkDaemonCliArgs parses daemon IPC commands", async () => {
     sessionId: "fixture-a",
   });
   assert.deepEqual(
-    parseSparkDaemonCliArgs(["session", "fork", "fixture-a", "--id", "fixture-fork", "--json"]),
+    parseSparkDaemonCliArgs([
+      "session",
+      "spawn",
+      "--supervisor",
+      "session:administrator",
+      "--role-ref",
+      "role:project-verifier",
+      "--name",
+      "Verifier",
+      "--json",
+    ]),
     {
       action: "sessions",
       json: true,
-      subcommand: "fork",
-      sessionId: "fixture-a",
-      newSessionId: "fixture-fork",
+      subcommand: "spawn",
+      supervisorSessionId: "session:administrator",
+      roleRef: "role:project-verifier",
+      name: "Verifier",
+      cwd: undefined,
+      cwdArtifactRef: undefined,
     },
+  );
+  assert.deepEqual(
+    parseSparkDaemonCliArgs([
+      "session",
+      "fork",
+      "--supervisor",
+      "session:administrator",
+      "--role-ref",
+      "role:project-verifier",
+      "--cwd",
+      "/workspace/fork",
+    ]),
+    {
+      action: "sessions",
+      json: false,
+      subcommand: "fork",
+      supervisorSessionId: "session:administrator",
+      roleRef: "role:project-verifier",
+      name: undefined,
+      cwd: "/workspace/fork",
+      cwdArtifactRef: undefined,
+    },
+  );
+  assert.throws(
+    () => parseSparkDaemonCliArgs(["session", "fork", "fixture-a"]),
+    /does not accept a source Session argument/u,
+  );
+  assert.throws(
+    () => parseSparkDaemonCliArgs(["session", "create"]),
+    /unknown spark daemon session command: create/u,
+  );
+  assert.throws(
+    () => parseSparkDaemonCliArgs(["session", "clone"]),
+    /unknown spark daemon session command: clone/u,
   );
   assert.deepEqual(parseSparkDaemonCliArgs(["run", "list", "--state", "all", "--json"]), {
     action: "runs",
@@ -1719,6 +1745,10 @@ test("parseSparkDaemonCliArgs parses daemon IPC commands", async () => {
   assert.doesNotMatch(daemonHelp.text, /spark daemon queue/u);
   assert.match(daemonHelp.text, /spark daemon events watch/u);
   assert.match(daemonHelp.text, /spark daemon logs/u);
+  assert.match(daemonHelp.text, /spark daemon session spawn --supervisor/u);
+  assert.match(daemonHelp.text, /spark daemon session fork --supervisor/u);
+  assert.doesNotMatch(daemonHelp.text, /spark daemon session create/u);
+  assert.doesNotMatch(daemonHelp.text, /spark daemon session clone/u);
   assert.doesNotMatch(daemonHelp.text, /spark daemon task/u);
   assert.doesNotMatch(daemonHelp.text, /spark daemon goal/u);
   assert.deepEqual(parseSparkDaemonCliArgs(["stop", "--yes"]), {
@@ -3298,8 +3328,6 @@ test("Spark TUI and headless print attach and release workspace clients", async 
       "name",
       "changelog",
       "hotkeys",
-      "fork",
-      "clone",
       "tree",
       "trust",
       "login",
@@ -3310,6 +3338,8 @@ test("Spark TUI and headless print attach and release workspace clients", async 
     ]) {
       assert.equal(Boolean(slashCommands?.[command]), true, `Pi parity /${command} is wired`);
     }
+    assert.equal(Boolean(slashCommands?.fork), false, "retired /fork stays removed");
+    assert.equal(Boolean(slashCommands?.clone), false, "retired /clone stays removed");
     assert.equal(Boolean(slashCommands?.reload), false, "system /reload is not extension-owned");
     const statusContext = (
       capturedTuiOptions as {

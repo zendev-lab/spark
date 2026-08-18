@@ -90,6 +90,8 @@ describe("SparkCommand vocabulary", () => {
       "session.prompt-history",
       "session.retry-target",
       "session.create",
+      "session.spawn",
+      "session.fork",
       "session.bind",
       "session.unbind",
       "session.archive",
@@ -142,6 +144,8 @@ describe("SparkCommand vocabulary", () => {
     );
     expect(sparkCommandKindForRuntimeServerCommand("workspace.relocate.request")).toBeNull();
     expect(sparkCommandKindForLocalRpcMethod("session.create")).toBe("session.create.request");
+    expect(sparkCommandKindForLocalRpcMethod("session.spawn")).toBe("session.spawn.request");
+    expect(sparkCommandKindForLocalRpcMethod("session.fork")).toBe("session.fork.request");
     expect(sparkCommandKindForLocalRpcMethod("session.lookup")).toBe("session.lookup.request");
     expect(sparkCommandKindForLocalRpcMethod("session.snapshot")).toBe("session.snapshot.request");
     expect(sparkCommandKindForLocalRpcMethod("session.prompt-history")).toBe(
@@ -190,6 +194,8 @@ describe("SparkCommand vocabulary", () => {
       "session.snapshot.request",
       "session.media.read.request",
       "session.create.request",
+      "session.spawn.request",
+      "session.fork.request",
       "session.bind.request",
       "session.unbind.request",
       "session.archive.request",

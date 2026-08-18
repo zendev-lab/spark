@@ -8,4 +8,4 @@ role action=get worker
 role action=create id=repo-inspector
 
 # role
-role action=call worker
+role action=model_set worker

@@ -58,4 +58,4 @@ Plan-phase research-first guidance:
 - Run a focused probe for validation uncertainty only after baseline availability or construction strategy is settled; record the command and result evidence.
 - Use a recommended default for reversible low-risk choices and record it in the research evidence.
 - Ask exactly one material user decision at a time with canonical ask and recordAsEvidence=true; do not use reviewer auto-answer for that decision.
-- Keep research and decision-making in the main session; do not spawn owned role calls for ordinary contract research.
+- Keep research and decision-making in the main session; do not create Role-bound child Sessions for ordinary contract research.

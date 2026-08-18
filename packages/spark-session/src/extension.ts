@@ -24,9 +24,10 @@ export function registerSparkSessionTool(
     name: "session",
     label: "Session",
     description:
-      "Canonical scoped Session capability. A Session is an owned execution context; Role binding is an optional behavior type, and the Workspace Administrator is the only persistent Session.",
+      "Canonical scoped Session capability. Create a static Role first, spawn or fork a Role-bound Session, then send a request to trigger execution.",
     promptGuidelines: [
-      "Use session create to instantiate a scoped child or sibling under an existing supervising Session. Give it an independent name and choose roleBinding=none, inherit, or an explicit RoleRef; none is the default and adds no Role prompt or Role capability ceiling.",
+      "Use session spawn with an exact RoleRef to create an empty child of the current Session. Use session fork to create a child with an independent copy of the current Session's stable transcript prefix. Neither action sends a message or creates an Invocation.",
+      "After spawn or fork, use session send with kind=request and toSessionId to trigger the existing mail, wake, Invocation, and idempotency flow.",
       "The Workspace Administrator is persistent and protected. Never attempt to archive, close, or replace it. Administrator delegates execution; it is not an executor.",
       "session list is paginated and labels lifecycle, placement, owner-derived lifetime, Role binding, surface, and Invocation-derived activity. Archived Sessions remain searchable with includeArchived=true and can be restored; closed Sessions are terminal.",
       "session send is one-way. kind=notification persists without triggering the target. kind=request submits immediately only when the local target is idle. If the target is active and onActive is omitted, the send fails without persisting mail; onActive=queue durably FIFO-admits up to three pending requests, and onActive=interrupt cancels current work before submitting. wake=true is optional and legal only for request; the daemon then wakes the sender with a completion summary. Do not wait on send.",
@@ -49,23 +50,16 @@ export function registerSparkSessionTool(
     parameters: Type.Object({
       action: Type.String({
         description:
-          "list | get | create | call | bind | unbind | archive | restore | close | send | lookup | wait | inbox | read | ack",
+          "list | get | spawn | fork | bind | unbind | archive | restore | close | send | lookup | wait | inbox | read | ack",
       }),
       sessionId: Type.Optional(
         Type.String({
-          description:
-            "Target for get/call/bind/unbind/archive/restore/close/lookup/inbox/read/ack, or requested id for create.",
+          description: "Target for get/bind/unbind/archive/restore/close/lookup/inbox/read/ack.",
         }),
-      ),
-      instruction: Type.Optional(
-        Type.String({ description: "Instruction for an explicit Session call." }),
-      ),
-      reset: Type.Optional(
-        Type.Boolean({ description: "Session call only; reset before submitting the turn." }),
       ),
       workspaceId: Type.Optional(
         Type.String({
-          description: "Workspace override for create/list; defaults to the current workspace.",
+          description: "Workspace override for list; defaults to the current workspace.",
         }),
       ),
       includeArchived: Type.Optional(Type.Boolean()),
@@ -93,26 +87,13 @@ export function registerSparkSessionTool(
       ),
       limit: Type.Optional(Type.Number({ description: "Maximum rows. Defaults to 20." })),
       offset: Type.Optional(Type.Number({ description: "List offset. Defaults to 0." })),
-      name: Type.Optional(Type.String({ description: "Independent display name for create." })),
-      roleBinding: Type.Optional(
-        Type.Any({
-          description: "Create binding: {kind:'none'|'inherit'} or {kind:'explicit', roleRef}.",
-        }),
+      name: Type.Optional(Type.String({ description: "Display name for spawn or fork." })),
+      roleRef: Type.Optional(
+        Type.String({ description: "Exact static RoleRef required for spawn or fork." }),
       ),
-      placement: Type.Optional(
-        Type.String({ description: "Create placement: child (default) or sibling." }),
-      ),
-      supervisorSessionId: Type.Optional(
-        Type.String({
-          description: "Supervising Session for create; defaults to current Session.",
-        }),
-      ),
-      cwd: Type.Optional(Type.String({ description: "Optional working directory for create." })),
-      purpose: Type.Optional(
-        Type.String({ description: "Optional bounded purpose for the created Session." }),
-      ),
+      cwd: Type.Optional(Type.String({ description: "Working directory for spawn or fork." })),
       cwdArtifactRef: Type.Optional(
-        Type.String({ description: "Optional GitChange root for create cwd." }),
+        Type.String({ description: "Optional GitChange root for spawn or fork cwd." }),
       ),
       externalKey: Type.Optional(Type.String()),
       toSessionId: Type.Optional(Type.String({ description: "Target session for send." })),
@@ -228,8 +209,8 @@ function normalizeSessionAction(value: unknown): SparkSessionAction {
   if (
     value === "list" ||
     value === "get" ||
-    value === "create" ||
-    value === "call" ||
+    value === "spawn" ||
+    value === "fork" ||
     value === "bind" ||
     value === "unbind" ||
     value === "archive" ||
@@ -244,7 +225,7 @@ function normalizeSessionAction(value: unknown): SparkSessionAction {
   )
     return value;
   throw new Error(
-    "session.action must be list, get, create, call, bind, unbind, archive, restore, close, send, lookup, wait, inbox, read, or ack",
+    "session.action must be list, get, spawn, fork, bind, unbind, archive, restore, close, send, lookup, wait, inbox, read, or ack",
   );
 }
 

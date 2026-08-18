@@ -252,6 +252,8 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       create: os.session.create.handler(async ({ input: params }) =>
         invoke("session.create", params),
       ),
+      spawn: os.session.spawn.handler(async ({ input: params }) => invoke("session.spawn", params)),
+      fork: os.session.fork.handler(async ({ input: params }) => invoke("session.fork", params)),
       bind: os.session.bind.handler(async ({ input: params }) => invoke("session.bind", params)),
       unbind: os.session.unbind.handler(async ({ input: params }) =>
         invoke("session.unbind", params),

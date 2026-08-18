@@ -109,7 +109,7 @@ describe("session list and inbox progressive disclosure", () => {
     expect(second.content[0]!.text).toContain("next offset=none; remaining=0");
   });
 
-  it("rejects the retired daemon scope for public list and create actions", async () => {
+  it("rejects the retired daemon scope for public list", async () => {
     const request = vi.fn(async () => {
       throw new Error("daemon RPC must not be reached");
     });
@@ -122,12 +122,6 @@ describe("session list and inbox progressive disclosure", () => {
     await expect(
       executeSparkSessionAction(
         { ...base, action: "list", params: { scope: "daemon" } },
-        { request: request as never },
-      ),
-    ).rejects.toThrow(/workspace scope only/u);
-    await expect(
-      executeSparkSessionAction(
-        { ...base, action: "create", params: { scope: "daemon" } },
         { request: request as never },
       ),
     ).rejects.toThrow(/workspace scope only/u);
