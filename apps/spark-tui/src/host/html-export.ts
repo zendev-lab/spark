@@ -12,7 +12,7 @@ import type {
   SparkSessionMessage,
   SparkSessionMessageEntry,
   SparkSessionRecord,
-} from "./session-store.ts";
+} from "@zendev-lab/spark-host/session-store";
 
 export interface SparkHtmlTranscriptMessage {
   role: string;
