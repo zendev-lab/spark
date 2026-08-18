@@ -1,46 +1,23 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
-import { readFileSync } from "node:fs";
-import {
-  chmod,
-  cp,
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, test } from "vitest";
 
-import { requestSparkDaemonLocalRpc } from "@zendev-lab/spark-daemon-client";
-import { reproStageBlueprint } from "@zendev-lab/spark-extension/repro-test-support";
+import {
+  defaultArtifactStore,
+  type Artifact,
+  type GitChangeArtifactBody,
+} from "@zendev-lab/spark-artifacts";
+import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-db";
 import { createRuntimeEnrollmentToken } from "@zendev-lab/spark-hub-coordination/runtime-registration";
 import { sessionReproStorePathV2 } from "@zendev-lab/spark-loop";
-import {
-  sparkReproFormalEvidenceAttestationPayload,
-  type SparkReproFormalEvidenceAttestation,
-} from "@zendev-lab/spark-protocol/repro-formal-evidence";
-import {
-  DEFAULT_REPRO_STAGES,
-  encodeReproStepAskBinding,
-  stepDefinitionDigest,
-  type SparkReproStepDefinition,
-} from "@zendev-lab/spark-repro";
-import {
-  sparkReproProfileDigest,
-  sparkReproTopologyDigest,
-  type SparkReproProfile,
-} from "@zendev-lab/spark-repro/work-summary";
+import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 
 import { runSparkProcess, type SparkProcessTarget } from "../support/spark-process-harness.ts";
 
@@ -49,80 +26,48 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const fixtureRoot = resolve(root, "test/fixtures/repro/minimal-alignment");
 const providerPlugin = resolve(root, "test/fixtures/repro/scripted-provider-plugin.ts");
 const forgeShim = resolve(root, "test/fixtures/repro/forge-shim.mjs");
-const reproId = "repro:golden-journey-source-process";
-const formalVerifierId = "golden-journey-validator";
-const formalVerifierVersion = "2026.08";
-const formalGateSpecs = [
-  { id: "contract-frozen", stage: "contract", establishes: [] },
-  { id: "reference-ready", stage: "reference", establishes: ["reference_ready"] },
-  { id: "target-ready", stage: "target", establishes: ["target_ready"] },
-  {
-    id: "required-alignment",
-    stage: "alignment",
-    establishes: ["required_steps_aligned", "reference_parity"],
-  },
-  { id: "delivery-ready", stage: "delivery", establishes: [] },
-] as const;
-const requiredMilestoneNames = [
-  "repro.started",
-  "decision.requested",
-  "decision.persisted_across_restart",
-  "decision.answered",
-  "repro.resumed",
-  "validation.failed_before_fix",
-  "validation.passed_after_fix",
-  "git_change.committed",
-  "pull_request.submitted",
-  "implementation.work_registered",
-  "handoff.implementation_exactness",
-  "exactness.finding_recorded",
-  "handoff.exactness_formalize",
-  "formalize.resolved",
-  "report.projected",
-  "report.synced",
-  "repro.completed",
-  "workbench.sealed",
-  "three_lane.recovered",
-] as const;
+
+interface ScriptedToolCall {
+  id: string;
+  name: string;
+  arguments?: Record<string, unknown>;
+}
 
 interface ScriptedRound {
   label: string;
+  audience: "root" | "implementation" | "exactness" | "formalize";
   text?: string;
-  toolCalls?: Array<{ id: string; name: string; arguments?: Record<string, unknown> }>;
+  toolCalls?: ScriptedToolCall[];
 }
 
 interface ScriptedLedger {
   schema: "spark.repro.scripted-provider-ledger/v1";
   cursor: number;
   rounds: ScriptedRound[];
-  requests: Array<{ round: number; label?: string; messageRoles: string[]; toolNames: string[] }>;
+  requests: Array<{
+    round: number;
+    label?: string;
+    messageRoles: string[];
+    toolNames: string[];
+  }>;
   auxiliaryRequests?: Array<{
     label: string;
     messageRoles: string[];
     toolNames: string[];
   }>;
   vars: Record<string, string>;
+  cursors?: Record<string, number>;
+  lastLabels?: Record<string, string>;
 }
 
 interface JourneyFixture {
   temporary: string;
-  workspace: string;
   sourceRepo: string;
-  managedWorktree: string;
   sparkHome: string;
-  daemonDbPath: string;
-  daemonSocketPath: string;
   providerLedgerPath: string;
   forgeLedgerPath: string;
   target: SparkProcessTarget;
   port: number;
-}
-
-interface FixtureVerificationReceipt {
-  command: string;
-  exitCode: number;
-  stdout: string;
-  stderr: string;
 }
 
 let retainedFailureFixture: string | undefined;
@@ -133,41 +78,31 @@ afterEach(() => {
   }
 });
 
-test("real source processes complete the Repro Golden Journey exactly once", async () => {
+test("/repro opens three durable lane Sessions and completes the five-run checkpoint chain", async () => {
   const fixture = await createJourneyFixture();
   retainedFailureFixture = fixture.temporary;
-  let daemonPid = 0;
-  let restartedDaemonPid = 0;
-  let laneRecoveryDaemonPid = 0;
-  let hubPid = 0;
+  const observedProcessPids: number[] = [];
   try {
-    const referenceValidation = await runFixtureVerification(fixture.sourceRepo, "reference");
-    const targetValidationBeforeRepair = await runFixtureVerification(fixture.sourceRepo, "target");
-    assert.equal(referenceValidation.exitCode, 0);
-    assert.equal(targetValidationBeforeRepair.exitCode, 1);
+    const referenceBefore = await runFixtureVerification(fixture.sourceRepo, "reference");
+    const targetBefore = await runFixtureVerification(fixture.sourceRepo, "target");
+    assert.equal(referenceBefore.exitCode, 0);
+    assert.equal(targetBefore.exitCode, 1);
 
     const enrollmentToken = seedHubEnrollment(fixture.sparkHome);
-    const hubStart = jsonObject(
+    const hubStarted = jsonObject(
       (await runSparkProcess(fixture.target, ["hub", "web", "start", "--json"])).stdout,
     );
-    hubPid = numberField(hubStart, "pid");
-
-    const daemonStart = jsonObject(
+    observedProcessPids.push(numberField(hubStarted, "pid"));
+    const started = jsonObject(
       (await runSparkProcess(fixture.target, ["daemon", "start", "--json"])).stdout,
     );
-    const daemonBefore = objectField(daemonStart, "daemon");
-    daemonPid = numberField(daemonBefore, "pid");
-    const lifecycleBefore = objectField(daemonBefore, "lifecycle");
-    const processBefore = objectField(lifecycleBefore, "process");
-    const generationBefore = stringField(processBefore, "generation");
-    const ownershipBefore = readProcessOwnership(fixture.daemonDbPath);
-    assert.equal(ownershipBefore.pid, daemonPid);
+    observedProcessPids.push(numberField(objectField(started, "daemon"), "pid"));
 
     await runSparkProcess(fixture.target, [
       "daemon",
       "workspace",
       "register",
-      fixture.workspace,
+      fixture.sourceRepo,
       "--server-url",
       `http://127.0.0.1:${fixture.port}`,
       "--token",
@@ -177,391 +112,562 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       "--allow-insecure-http",
     ]);
 
-    const sessions = jsonArray(
+    const sessionsBefore = jsonArray(
       (await runSparkProcess(fixture.target, ["daemon", "session", "list", "--json"])).stdout,
     );
-    assert.equal(sessions.length, 1);
-    const sessionId = stringField(sessions[0]!, "sessionId");
+    assert.equal(sessionsBefore.length, 1);
+    const rootSessionId = stringField(sessionsBefore[0]!, "sessionId");
+    const seeded = jsonObject(
+      (
+        await runSparkProcess(fixture.target, [
+          "daemon",
+          "submit",
+          "--session",
+          rootSessionId,
+          "--prompt",
+          "Prepare a clean context boundary before starting Repro.",
+          "--idempotency-key",
+          "idem_repro_glm52_compaction_seed",
+          "--json",
+        ])
+      ).stdout,
+    );
+    await waitForInvocation(fixture.target, stringField(seeded, "invocationId"), "succeeded");
     const submitted = jsonObject(
       (
         await runSparkProcess(fixture.target, [
           "daemon",
           "submit",
           "--session",
-          sessionId,
+          rootSessionId,
           "--prompt",
-          "Run the deterministic Repro Golden Journey.",
+          "/repro 复现 glm52",
           "--idempotency-key",
-          "idem_repro_golden_journey",
+          "idem_repro_glm52_three_lane",
           "--json",
         ])
       ).stdout,
     );
-    const initialInvocationId = stringField(submitted, "invocationId");
-    await waitForInvocation(fixture.target, initialInvocationId, "succeeded");
+    await waitForInvocation(fixture.target, stringField(submitted, "invocationId"), "succeeded");
 
-    const pendingBefore = await waitForSinglePendingAsk(fixture.target, sessionId);
-    const providerRoundsAtWait = (await readProviderLedger(fixture.providerLedgerPath)).requests
-      .length;
-    assert.ok(providerRoundsAtWait > 2);
-
-    await runSparkProcess(fixture.target, ["daemon", "restart", "--yes", "--wait"]);
-    const restartedStatus = jsonObject(
-      (await runSparkProcess(fixture.target, ["daemon", "status", "--json"])).stdout,
-    );
-    const daemonAfter = objectField(restartedStatus, "daemon");
-    restartedDaemonPid = numberField(daemonAfter, "pid");
-    const generationAfter = stringField(
-      objectField(objectField(daemonAfter, "lifecycle"), "process"),
-      "generation",
-    );
-    assert.notEqual(restartedDaemonPid, daemonPid);
-    assert.notEqual(generationAfter, generationBefore);
-    const ownershipAfter = readProcessOwnership(fixture.daemonDbPath);
-    assert.equal(ownershipAfter.pid, restartedDaemonPid);
-
-    const pendingAfter = await waitForSinglePendingAsk(fixture.target, sessionId);
-    assert.equal(
-      stringField(pendingAfter, "interactionRequestId"),
-      stringField(pendingBefore, "interactionRequestId"),
-    );
-    assert.equal(
-      stringField(pendingAfter, "humanRequestId"),
-      stringField(pendingBefore, "humanRequestId"),
-    );
-    const providerRoundsAtAnswer = (await readProviderLedger(fixture.providerLedgerPath)).requests
-      .length;
-    assert.equal(providerRoundsAtAnswer, providerRoundsAtWait);
-
-    const interactionRequestId = stringField(pendingAfter, "interactionRequestId");
-    const answerResult = jsonObject(
+    const reproPath = sessionReproStorePathV2(fixture.sourceRepo, { sessionId: rootSessionId });
+    const beforeCompact = await waitForReproCheckpoint(reproPath, (candidate) => {
+      const receipts = arrayField(objectField(candidate, "threeLane"), "resultReceipts");
+      return receipts.length > 0 && receipts.length < 5;
+    });
+    assert.ok(arrayField(objectField(beforeCompact, "threeLane"), "resultReceipts").length < 5);
+    await compactReproRootSession(fixture, rootSessionId);
+    const continued = jsonObject(
       (
         await runSparkProcess(fixture.target, [
           "daemon",
-          "ask",
-          "answer",
-          interactionRequestId,
+          "submit",
           "--session",
-          sessionId,
-          "--answers",
-          JSON.stringify({ decision: { values: ["approve"], labels: ["Approve repair"] } }),
+          rootSessionId,
+          "--prompt",
+          "Continue the durable Repro checkpoint after context compaction.",
+          "--idempotency-key",
+          "idem_repro_glm52_after_compaction",
           "--json",
         ])
       ).stdout,
     );
-    assert.equal(answerResult.outcome, "accepted");
-    const winnerResponseId = stringField(answerResult, "winnerResponseId");
+    await waitForInvocation(fixture.target, stringField(continued, "invocationId"), "succeeded");
 
-    const replayed = await requestSparkDaemonLocalRpc<Record<string, unknown>>(
-      "human.interaction.respond",
-      {
-        interactionRequestId,
-        sessionId,
-        humanResponseId: winnerResponseId,
-        status: "answered",
-        answers: { decision: { values: ["approve"], labels: ["Approve repair"] } },
-        responseArtifactRefs: [],
-      },
-      { socketPath: fixture.daemonSocketPath },
-    );
-    assert.equal(replayed.outcome, "replayed");
-    const conflict = await requestSparkDaemonLocalRpc<Record<string, unknown>>(
-      "human.interaction.respond",
-      {
-        interactionRequestId,
-        sessionId,
-        humanResponseId: "hres_00000000000000000000000000000000",
-        status: "answered",
-        answers: { decision: { values: ["stop"], labels: ["Stop"] } },
-        responseArtifactRefs: [],
-      },
-      { socketPath: fixture.daemonSocketPath },
-    );
-    assert.equal(conflict.outcome, "already_resolved");
-
-    await requestSparkDaemonLocalRpc(
-      "loop.wake",
-      { loopId: reproId, reason: "canonical Journey decision answered" },
-      { socketPath: fixture.daemonSocketPath },
-    );
-
-    const reproPath = sessionReproStorePathV2(fixture.workspace, { sessionId });
-    const completed = await waitForReproCompleteWithApprovals(reproPath, fixture.target, sessionId);
-    const repro = completed.repro;
-    assert.equal(completed.toolApprovalCount, 0);
-    assert.equal(repro.reproId, reproId);
-    assert.equal(repro.status, "complete");
-    const resumedLedger = await waitFor(
-      async () => {
-        const ledger = await readProviderLedger(fixture.providerLedgerPath);
-        return ledger.cursor === ledger.rounds.length ? ledger : undefined;
-      },
-      60_000,
-      "provider ledger completion",
-    );
-    const resumeCount = resumedLedger.requests.filter(
-      (request) => request.label === "decision.replayed",
-    ).length;
-    assert.equal(resumeCount, 1);
-    assert.equal(resumedLedger.cursor, resumedLedger.rounds.length);
-    assert.equal(
-      resumedLedger.auxiliaryRequests?.filter(
-        (request) => request.label === "auxiliary.tool-approval.outcome",
-      ).length,
-      0,
-    );
-    assert.equal(
-      resumedLedger.auxiliaryRequests?.filter(
-        (request) => request.label === "auxiliary.tool-approval.verdict",
-      ).length,
-      0,
-    );
-    assert.equal(
-      resumedLedger.auxiliaryRequests?.filter(
-        (request) => request.label === "auxiliary.task-review",
-      ).length,
-      DEFAULT_REPRO_STAGES.flatMap((stage) => stage.acceptance).length,
-    );
-    assert.deepEqual(await sessionToolErrorIds(fixture.sparkHome, sessionId), []);
-    await assertClosedDriverRetention(fixture.sparkHome, fixture.daemonDbPath);
-
-    assertThreeLaneRecoveryState(repro);
-    await runSparkProcess(fixture.target, ["daemon", "restart", "--yes", "--wait"]);
-    const laneRecoveryStatus = jsonObject(
-      (await runSparkProcess(fixture.target, ["daemon", "status", "--json"])).stdout,
-    );
-    const laneRecoveryDaemon = objectField(laneRecoveryStatus, "daemon");
-    laneRecoveryDaemonPid = numberField(laneRecoveryDaemon, "pid");
-    assert.notEqual(laneRecoveryDaemonPid, restartedDaemonPid);
-    assert.equal(readProcessOwnership(fixture.daemonDbPath).pid, laneRecoveryDaemonPid);
-
-    const recoveredSnapshot = await requestSparkDaemonLocalRpc<Record<string, unknown>>(
-      "session.snapshot",
-      { sessionId },
-      { socketPath: fixture.daemonSocketPath },
-    );
-    const recoveredWork = objectField(recoveredSnapshot, "work");
-    const recoveredRepro = objectField(recoveredWork, "repro");
-    assertThreeLaneProjection(objectField(recoveredRepro, "lanes"));
-    assertThreeLaneRecoveryState(
-      objectField(jsonObject(await readFile(reproPath, "utf8")), "repro"),
-    );
-
-    const report = await waitForJsonFile(resolve(fixture.workspace, "outputs/spark-summary.json"));
-    const reportMarkdown = await readFile(resolve(fixture.workspace, "outputs/report.md"), "utf8");
-    const reportWork = objectField(report, "work");
-    assert.equal(stringField(reportWork, "reproId"), reproId);
-    assert.equal(stringField(reportWork, "schema"), "spark.repro.work-summary/v3");
-    assertThreeLaneWorkSummary(reportWork);
-    const reportArtifactRef = stringField(reportWork, "reportArtifactRef");
-    const reportArtifactRefs = stringArrayField(reportWork, "artifactRefs");
-    assert.equal(reportArtifactRefs.filter((ref) => ref === reportArtifactRef).length, 1);
-    const projectedJson = reportMarkdown.match(/```json\n([\s\S]*?)\n```/u);
-    assert.ok(projectedJson?.[1]);
-    const projectedReport = JSON.parse(projectedJson[1]) as unknown;
-    assert.deepEqual(projectedReport, report);
-    const summaryDigest = sha256(JSON.stringify(report));
-    const projectedReportDigest = sha256(JSON.stringify(projectedReport));
-    const markdownDigest = sha256(reportMarkdown);
-    assert.equal(projectedReportDigest, summaryDigest);
-    const formalGates = arrayField(reportWork, "gates");
-    assert.ok(formalGates.length > 0);
-    assert.ok(
-      formalGates.every(
-        (gate) => gate.status === "accepted" && arrayField(gate, "evidenceRefs").length > 0,
-      ),
-    );
-    assert.match(reportMarkdown, new RegExp(reproId.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
-
-    const terminal = await waitForTerminalOwnerState(fixture.daemonDbPath, reproId);
-    assert.equal(terminal.pendingAskCount, 0);
-    assert.equal(terminal.canonicalDecisionRequestCount, 1);
-    assert.equal(terminal.toolApprovalRequestCount, 0);
-    assert.equal(terminal.activeInvocationCount, 0);
-    assert.equal(terminal.workbenchLifecycle, "sealed");
-    assert.equal(terminal.writableWorkbenchCount, 0);
-    assert.equal(terminal.formalEvidenceReceiptCount, formalGates.length);
-
-    const forge = jsonObject(await readFile(fixture.forgeLedgerPath, "utf8"));
-    assert.equal(forge.draftPrCreates, 1);
-    assert.equal(forge.nonDraftPrCreates, 0);
-    const commitCount = await gitOutput(fixture.managedWorktree, [
-      "rev-list",
-      "--count",
-      "main..HEAD",
-    ]);
-    assert.equal(commitCount.trim(), "1");
-    const changedPaths = (
-      await gitOutput(fixture.managedWorktree, ["diff", "--name-only", "main..HEAD"])
-    ).trim();
-    assert.equal(changedPaths, "target/normalize.mjs");
-    assert.equal((await gitOutput(fixture.managedWorktree, ["status", "--porcelain"])).trim(), "");
-    const baseCommitSha = (await gitOutput(fixture.managedWorktree, ["rev-parse", "main"])).trim();
-    const headCommitSha = (await gitOutput(fixture.managedWorktree, ["rev-parse", "HEAD"])).trim();
-    const targetValidationAfterRepair = await runFixtureVerification(
-      fixture.managedWorktree,
-      "target",
-    );
-    assert.equal(targetValidationAfterRepair.exitCode, 0);
-
-    const evidenceRefs = uniqueMatches(JSON.stringify(report), /evidence:[a-z0-9-]+/giu);
-    const artifactRefs = uniqueMatches(JSON.stringify(report), /artifact:[a-z0-9-]+/giu);
-    assert.ok(evidenceRefs.length > 0);
-    assert.ok(artifactRefs.length > 0);
-
-    const milestones = requiredMilestoneNames.map((name, index) => ({
-      name,
-      reproId,
-      count: 1,
-      sequence: index + 1,
-    }));
-    assert.deepEqual(
-      milestones.map((milestone) => milestone.name),
-      [...requiredMilestoneNames],
-    );
-    assert.ok(
-      milestones.every((milestone) => milestone.reproId === reproId && milestone.count === 1),
-    );
-
-    const processLedger = {
-      schema: "spark.repro-golden-journey-process/v1",
-      reproId,
-      milestones,
-      providerRoundsAtWait,
-      providerRoundsAtAnswer,
-      resumeCount,
-      toolApprovalCount: completed.toolApprovalCount,
-      interaction: {
-        beforeRestart: {
-          interactionRequestId: stringField(pendingBefore, "interactionRequestId"),
-          humanRequestId: stringField(pendingBefore, "humanRequestId"),
-        },
-        afterRestart: {
-          interactionRequestId,
-          humanRequestId: stringField(pendingAfter, "humanRequestId"),
-        },
-        answerReceipt: winnerResponseId,
-      },
-      interactionRequestId,
-      humanRequestId: stringField(pendingAfter, "humanRequestId"),
-      answerReceipt: winnerResponseId,
-      daemon: {
-        before: {
-          pid: daemonPid,
-          generation: generationBefore,
-          processStartToken: ownershipBefore.processStartToken,
-        },
-        after: {
-          pid: restartedDaemonPid,
-          generation: generationAfter,
-          processStartToken: ownershipAfter.processStartToken,
-        },
-        laneRecovery: {
-          pid: laneRecoveryDaemonPid,
-          processStartToken: readProcessOwnership(fixture.daemonDbPath).processStartToken,
-        },
-        sqlitePath: fixture.daemonDbPath,
-      },
-      validation: {
-        reference: referenceValidation,
-        targetBeforeRepair: targetValidationBeforeRepair,
-        targetAfterRepair: targetValidationAfterRepair,
-      },
-      git: {
-        worktreePath: fixture.managedWorktree,
-        baseCommitSha,
-        headCommitSha,
-        commitSha: headCommitSha,
-        revisionRange: "main..HEAD",
-        commitCount: Number.parseInt(commitCount.trim(), 10),
-        revListOutput: commitCount.trim(),
-        changedPaths: changedPaths.split("\n"),
-        diffNameOnlyOutput: changedPaths,
-        statusPorcelainOutput: "",
-        draftPrCreates: forge.draftPrCreates,
-        nonDraftPrCreates: forge.nonDraftPrCreates,
-      },
-      report: {
-        summaryDigest,
-        projectedReportDigest,
-        markdownDigest,
-        reportArtifactRef,
-        artifactRefs,
-        evidenceRefs,
-        formalGateCount: formalGates.length,
-        formalGatesAccepted: formalGates.every((gate) => gate.status === "accepted"),
-        workbenchLifecycle: terminal.workbenchLifecycle,
-      },
-      terminalOwner: terminal,
-    };
-    await stopProcesses(fixture.target, [
-      daemonPid,
-      restartedDaemonPid,
-      laneRecoveryDaemonPid,
-      hubPid,
-    ]);
-    const teardown = {
-      daemonBeforeAlive: isProcessAlive(daemonPid),
-      daemonAfterAlive: isProcessAlive(restartedDaemonPid),
-      laneRecoveryDaemonAlive: isProcessAlive(laneRecoveryDaemonPid),
-      hubAlive: isProcessAlive(hubPid),
-    };
-    assert.deepEqual(teardown, {
-      daemonBeforeAlive: false,
-      daemonAfterAlive: false,
-      laneRecoveryDaemonAlive: false,
-      hubAlive: false,
+    const repro = await waitForReproCheckpoint(reproPath, (candidate) => {
+      const state = objectField(candidate, "threeLane");
+      const workItem = arrayField(state, "workItems")[0];
+      return workItem?.status === "completed" && arrayField(state, "resultReceipts").length === 5;
     });
-    process.stdout.write(
-      `REPRO_GOLDEN_JOURNEY ${JSON.stringify({ ...processLedger, teardown, livePidCount: 0 })}\n`,
-    );
-    retainedFailureFixture = undefined;
-    await rm(fixture.temporary, { recursive: true, force: true });
-  } catch (error) {
-    await stopProcesses(fixture.target, [
-      daemonPid,
-      restartedDaemonPid,
-      laneRecoveryDaemonPid,
-      hubPid,
-    ]).catch(() => undefined);
-    throw error;
-  }
-}, 300_000);
+    await assertCompletedTopology(fixture, rootSessionId, repro);
 
-async function createJourneyFixture(): Promise<JourneyFixture> {
+    const beforeFinalRestart = await durableCounts(fixture, rootSessionId, repro);
+    const providerBeforeFinalRestart = await readProviderLedger(fixture.providerLedgerPath);
+    assert.equal(
+      providerBeforeFinalRestart.requests.filter(
+        (request) => request.label === "root.repro.continued.status",
+      ).length,
+      1,
+      "the first post-compaction action must reload Repro from the durable owner",
+    );
+    assert.equal(
+      providerBeforeFinalRestart.requests.filter(
+        (request) => request.label === "root.repro.continued",
+      ).length,
+      1,
+    );
+    observedProcessPids.push(await restartDaemon(fixture.target));
+    const afterFinalRestart = await durableCounts(fixture, rootSessionId, repro);
+    const providerAfterFinalRestart = await readProviderLedger(fixture.providerLedgerPath);
+    assert.deepEqual(afterFinalRestart, beforeFinalRestart);
+    assert.equal(
+      providerAfterFinalRestart.requests.length,
+      providerBeforeFinalRestart.requests.length,
+    );
+
+    retainedFailureFixture = undefined;
+  } finally {
+    await stopProcesses(fixture.target, observedProcessPids);
+    if (retainedFailureFixture !== fixture.temporary) {
+      await rm(fixture.temporary, { recursive: true, force: true });
+    }
+  }
+}, 240_000);
+
+async function assertCompletedTopology(
+  fixture: JourneyFixture,
+  rootSessionId: string,
+  repro: Record<string, unknown>,
+): Promise<void> {
+  assert.equal(repro.version, 9);
+  assert.equal(repro.objective, "复现 glm52");
+  const state = objectField(repro, "threeLane");
+  assert.equal(state.schema, "spark.repro.three-lane-session/v2");
+
+  const workItems = arrayField(state, "workItems");
+  const routes = arrayField(state, "routes");
+  const bindings = arrayField(state, "bindings");
+  const receipts = arrayField(state, "resultReceipts");
+  const handoffs = arrayField(state, "handoffs");
+  const resolutions = arrayField(state, "resolutions");
+  assert.equal(workItems.length, 1);
+  assert.equal(workItems[0]?.status, "completed");
+  assert.deepEqual(
+    routes.map((route) => route.action),
+    [
+      "start_binding",
+      "materialize_binding",
+      "materialize_binding",
+      "refresh_binding",
+      "refresh_binding",
+    ],
+  );
+  assert.ok(routes.every((route) => route.status === "acknowledged"));
+  assert.equal(bindings.length, 3);
+  assert.equal(receipts.length, 5);
+  assert.ok(receipts.every((receipt) => receipt.status === "accepted"));
+  assert.equal(handoffs.length, 2);
+  assert.deepEqual(
+    handoffs.map((handoff) => `${String(handoff.from)}:${String(handoff.to)}`),
+    ["implementation:exactness", "exactness:formalize"],
+  );
+  assert.equal(resolutions.length, 2);
+  assert.deepEqual(
+    resolutions.map((resolution) => `${String(resolution.from)}:${String(resolution.to)}`),
+    ["formalize:exactness", "exactness:implementation"],
+  );
+  assert.equal(resolutions[1]?.parentResolutionId, resolutions[0]?.resolutionId);
+
+  const formalizedTip = stringField(objectField(state, "formalize"), "formalizedTip");
+  assert.equal(stringField(workItems[0]!, "sourceRevision"), formalizedTip);
+  const graph = await defaultTaskGraphStore(fixture.sourceRepo).load();
+  assert.ok(graph);
+  const projectRef = stringField(repro, "projectRef") as Parameters<typeof graph.tasks>[0];
+  const tasks = graph.tasks(projectRef);
+  const runs = graph.runs(projectRef);
+  assert.equal(tasks.length, 3);
+  assert.equal(runs.length, 5);
+  assert.ok(runs.every((run) => run.status === "succeeded"));
+
+  const runSessionIds = runs.map((run) => {
+    const sessionId = run.execution?.sessionId ?? run.execution?.executionSessionId;
+    assert.ok(sessionId);
+    return sessionId;
+  });
+  assert.equal(new Set(runSessionIds).size, 3);
+  assert.ok(!runSessionIds.includes(rootSessionId));
+  const activeSessions = jsonArray(
+    (await runSparkProcess(fixture.target, ["daemon", "session", "list", "--json"])).stdout,
+  );
+  assert.equal(activeSessions.length, 4);
+  assert.ok(activeSessions.some((session) => session.sessionId === rootSessionId));
+  assert.ok(
+    runSessionIds.every((sessionId) =>
+      activeSessions.some((session) => session.sessionId === sessionId),
+    ),
+  );
+  for (const binding of bindings) {
+    const taskRef = stringField(binding, "taskRef");
+    const laneRuns = runs.filter((run) => run.taskRef === taskRef);
+    const lane = stringField(binding, "lane");
+    assert.equal(laneRuns.length, lane === "formalize" ? 1 : 2);
+    assert.equal(
+      new Set(laneRuns.map((run) => run.execution?.sessionId ?? run.execution?.executionSessionId))
+        .size,
+      1,
+    );
+  }
+
+  const artifacts = (await defaultArtifactStore(fixture.sourceRepo).list()).filter(
+    isGitChangeArtifact,
+  );
+  assert.equal(artifacts.length, 3);
+  const worktreePaths = artifacts.map(gitChangeWorktreePath);
+  assert.equal(new Set(worktreePaths).size, 3);
+  const refreshedArtifactRefs = new Set(
+    bindings
+      .filter((binding) => binding.lane !== "formalize")
+      .map((binding) => stringField(binding, "gitChangeRef")),
+  );
+  for (const artifact of artifacts) {
+    assert.equal(
+      await gitOutput(gitChangeWorktreePath(artifact), ["rev-parse", "HEAD"]),
+      `${formalizedTip}\n`,
+    );
+    if (refreshedArtifactRefs.has(artifact.ref)) {
+      assert.equal(artifact.body.revisionMaterialization?.headRevision, formalizedTip);
+    }
+  }
+
+  const formalizeBinding = bindings.find((binding) => binding.lane === "formalize");
+  assert.ok(formalizeBinding);
+  const formalizeRef = stringField(formalizeBinding, "gitChangeRef");
+  const formalizeArtifact = artifacts.find((artifact) => artifact.ref === formalizeRef);
+  assert.ok(formalizeArtifact);
+  assert.equal(formalizeArtifact.body.stack.entries.length, 1);
+  assert.equal(formalizeArtifact.body.stack.entries[0]?.pullRequest?.draft, true);
+  assert.equal(formalizeArtifact.body.stack.entries[0]?.pullRequest?.state, "open");
+
+  const forge = jsonObject(await readFile(fixture.forgeLedgerPath, "utf8"));
+  assert.equal(forge.draftPrCreates, 1);
+  assert.equal(forge.nonDraftPrCreates, 0);
+
+  const provider = await readProviderLedger(fixture.providerLedgerPath);
+  assert.equal(provider.cursor, provider.rounds.length);
+  assert.deepEqual(
+    provider.requests
+      .map((request) => request.label)
+      .toSorted((left, right) => (left ?? "").localeCompare(right ?? "")),
+    provider.rounds
+      .map((round) => round.label)
+      .toSorted((left, right) => left.localeCompare(right)),
+  );
+  assert.equal(
+    provider.rounds
+      .filter((round) => round.label === "root.repro.start")
+      .flatMap((round) => round.toolCalls ?? [])
+      .filter((call) => call.name === "repro").length,
+    1,
+  );
+  assert.equal(
+    provider.rounds
+      .filter((round) => round.label === "root.repro.continued.status")
+      .flatMap((round) => round.toolCalls ?? [])
+      .filter((call) => call.name === "repro").length,
+    1,
+  );
+  assert.equal(
+    provider.requests.filter((request) => request.label === "root.repro.start").length,
+    1,
+  );
+  assert.match(provider.vars.BASELINE_REVISION ?? "", /^[a-f0-9]{40}$/u);
+  assert.match(provider.vars.CANDIDATE_REVISION ?? "", /^[a-f0-9]{40}$/u);
+  assert.notEqual(provider.vars.BASELINE_REVISION, provider.vars.CANDIDATE_REVISION);
+  assert.notEqual(provider.vars.CANDIDATE_REVISION, provider.vars.CANONICAL_REVISION);
+  assert.equal(provider.vars.CANONICAL_REVISION, formalizedTip);
+
+  const targetAfter = await runFixtureVerification(
+    gitChangeWorktreePath(formalizeArtifact),
+    "target",
+  );
+  assert.equal(targetAfter.exitCode, 0);
+}
+
+async function durableCounts(
+  fixture: JourneyFixture,
+  rootSessionId: string,
+  repro: Record<string, unknown>,
+): Promise<Record<string, number>> {
+  const graph = await defaultTaskGraphStore(fixture.sourceRepo).load();
+  assert.ok(graph);
+  const projectRef = stringField(repro, "projectRef") as Parameters<typeof graph.tasks>[0];
+  const state = objectField(repro, "threeLane");
+  const sessions = jsonArray(
+    (await runSparkProcess(fixture.target, ["daemon", "session", "list", "--json"])).stdout,
+  );
+  assert.ok(sessions.some((session) => session.sessionId === rootSessionId));
+  return {
+    tasks: graph.tasks(projectRef).length,
+    runs: graph.runs(projectRef).length,
+    artifacts: (await defaultArtifactStore(fixture.sourceRepo).list()).length,
+    routes: arrayField(state, "routes").length,
+    receipts: arrayField(state, "resultReceipts").length,
+    handoffs: arrayField(state, "handoffs").length,
+    resolutions: arrayField(state, "resolutions").length,
+  };
+}
+
+function createJourneyRounds(
+  options: { compactRoot?: boolean; implementationAttention?: boolean } = {},
+): ScriptedRound[] {
+  const rounds: ScriptedRound[] = [];
+  const audience = (label: string): ScriptedRound["audience"] => {
+    if (label.startsWith("root.")) return "root";
+    if (label.startsWith("implementation")) return "implementation";
+    if (label.startsWith("exactness")) return "exactness";
+    return "formalize";
+  };
+  const tool = (label: string, name: string, arguments_: Record<string, unknown>) => {
+    rounds.push({
+      label,
+      audience: audience(label),
+      toolCalls: [{ id: label, name, arguments: arguments_ }],
+    });
+  };
+  const text = (label: string, value: string) =>
+    rounds.push({ label, audience: audience(label), text: value });
+  const provenance = {
+    producer: "role",
+    taskRef: "${BINDING_TASK_REF}",
+    runRef: "${BINDING_RUN_REF}",
+  };
+  const common = (lane: "implementation" | "exactness" | "formalize") => ({
+    schema: "spark.repro.lane-result/v1",
+    reproId: "${BINDING_REPRO_ID}",
+    workItemId: "${BINDING_WORK_ITEM_ID}",
+    lane,
+    planRevision: "${BINDING_PLAN_REVISION}",
+    bindingRevision: "${BINDING_REVISION}",
+    taskRef: "${BINDING_TASK_REF}",
+    runRef: "${BINDING_RUN_REF}",
+    sourceRevision: "${BINDING_SOURCE_REVISION}",
+    originRouteId: "${BINDING_ROUTE_ID}",
+  });
+  const recordEvidence = (label: string, title: string, body: Record<string, unknown>) => {
+    tool(label, "evidence", {
+      action: "record",
+      kind: "record",
+      title,
+      format: "json",
+      body,
+      provenance,
+    });
+  };
+  const complete = (
+    prefix: string,
+    lane: "implementation" | "exactness" | "formalize",
+    validationRef: string,
+    resultRef: string,
+  ) => {
+    tool(`${prefix}.plan`, "impl_update_task_plan_items", {
+      ops: [
+        { op: "done", id: `${lane}-execute`, evidenceRefs: [validationRef] },
+        { op: "done", id: `${lane}-validate`, evidenceRefs: [validationRef] },
+        { op: "done", id: `${lane}-record`, evidenceRefs: [resultRef] },
+      ],
+    });
+    tool(`${prefix}.finish`, "impl_finish_task", {
+      summary: `${lane} checkpoint completed with strict TaskRun-bound Evidence.`,
+      evidenceRefs: [validationRef, resultRef],
+    });
+    text(`${prefix}.complete`, `${lane} checkpoint is terminal; the daemon owner may advance.`);
+  };
+
+  if (options.compactRoot !== false) {
+    text("root.compaction.seed", "The next turn may start a durable Repro workflow.");
+  }
+  tool("root.repro.start", "repro", {
+    action: "start",
+    objective: "复现 glm52",
+  });
+  text("root.repro.started", "The daemon owns the three-lane checkpoint chain.");
+  if (options.implementationAttention) {
+    text("root.attention.waiting", "The Root attention checkpoint is durable and dormant.");
+    text("root.attention.answered", "The direct user AnswerEvent resumed the owner checkpoint.");
+  }
+  if (options.compactRoot !== false) {
+    tool("root.repro.continued.status", "repro", { action: "status" });
+    text(
+      "root.repro.continued",
+      "The compacted transcript resumed from the daemon-owned Repro checkpoint without replaying launch.",
+    );
+  }
+
+  if (options.implementationAttention) {
+    recordEvidence("implementation-attention.context", "Implementation attention context", {
+      summary: "Two runnable GLM-5.2 references disagree and require a direct user decision",
+    });
+    recordEvidence("implementation-attention.result", "Implementation attention request", {
+      ...common("implementation"),
+      kind: "attention_request",
+      evidenceRefs: ["${IMPLEMENTATION_ATTENTION_CONTEXT_EVIDENCE}"],
+      decisionKey: "glm52-reference",
+      question: "Which GLM-5.2 reference should be authoritative?",
+      reason: "Two runnable references disagree on the attention contract.",
+      expectedAnswerKind: "freeform",
+    });
+    complete(
+      "implementation-attention",
+      "implementation",
+      "${IMPLEMENTATION_ATTENTION_CONTEXT_EVIDENCE}",
+      "${IMPLEMENTATION_ATTENTION_RESULT_EVIDENCE}",
+    );
+  }
+
+  tool("implementation.edit", "edit", {
+    path: "target/normalize.mjs",
+    edits: [
+      {
+        oldText: "  const denominator = variance + epsilon;",
+        newText: "  const denominator = Math.sqrt(variance + epsilon);",
+      },
+    ],
+  });
+  tool("implementation.verify", "cue_exec", { command: "node verify.mjs target", timeout: 30 });
+  tool("implementation.commit", "git", {
+    action: "commit",
+    artifactRef: "${BINDING_GIT_CHANGE_REF}",
+    message: "fix: align minimal normalization",
+    paths: ["target/normalize.mjs"],
+  });
+  tool("implementation.head", "cue_exec", { command: "git rev-parse HEAD", timeout: 30 });
+  recordEvidence("implementation.validation.evidence", "Implementation validation", {
+    summary: "node verify.mjs target passed after the bounded normalization repair",
+  });
+  recordEvidence("implementation.result", "Implementation lane result", {
+    ...common("implementation"),
+    kind: "implementation_candidate",
+    evidenceRefs: ["${IMPLEMENTATION_VALIDATION_EVIDENCE}"],
+    scope: "glm52 normalization boundary",
+    candidateRevisions: ["${CANDIDATE_REVISION}"],
+    dependsOnHandoffIds: [],
+    doneWhen: ["Exactness independently validates the candidate revision"],
+  });
+  complete(
+    "implementation",
+    "implementation",
+    "${IMPLEMENTATION_VALIDATION_EVIDENCE}",
+    "${IMPLEMENTATION_RESULT_EVIDENCE}",
+  );
+
+  tool("exactness.verify", "cue_exec", { command: "node verify.mjs target", timeout: 30 });
+  recordEvidence("exactness.validation.evidence", "Exactness validation", {
+    summary: "Exactness independently reproduced the passing target vectors",
+    firstBadBoundary: "target.normalize.denominator",
+  });
+  recordEvidence("exactness.result", "Exactness lane result", {
+    ...common("exactness"),
+    kind: "exactness_finding",
+    evidenceRefs: ["${EXACTNESS_VALIDATION_EVIDENCE}"],
+    finding: {
+      findingId: "finding:glm52-normalization-denominator",
+      firstBadBoundary: "target.normalize.denominator",
+      classification: "implementation_defect",
+      disposition: "fix",
+      confidence: "confirmed",
+      evidenceRefs: ["${EXACTNESS_VALIDATION_EVIDENCE}"],
+    },
+    scope: "glm52 normalization exactness",
+    candidateRevisions: ["${CANDIDATE_REVISION}"],
+    dependsOnHandoffIds: [],
+    doneWhen: ["Formalize records the confirmed mechanism in the canonical layer"],
+  });
+  complete(
+    "exactness",
+    "exactness",
+    "${EXACTNESS_VALIDATION_EVIDENCE}",
+    "${EXACTNESS_RESULT_EVIDENCE}",
+  );
+
+  tool("formalize.write", "write", {
+    path: "FORMALIZED.md",
+    expectedVersion: "missing",
+    content:
+      "# Formalized normalization mechanism\n\nThe target uses sqrt(variance + epsilon), matching the independently verified reference boundary.\n",
+  });
+  tool("formalize.verify", "cue_exec", { command: "node verify.mjs target", timeout: 30 });
+  tool("formalize.commit", "git", {
+    action: "commit",
+    artifactRef: "${BINDING_GIT_CHANGE_REF}",
+    message: "docs: formalize verified normalization mechanism",
+    paths: ["FORMALIZED.md"],
+  });
+  tool("formalize.head", "cue_exec", { command: "git rev-parse HEAD", timeout: 30 });
+  recordEvidence("formalize.validation.evidence", "Formalize validation", {
+    summary:
+      "The canonical layer passed the target vectors after importing Exactness-approved history",
+  });
+  recordEvidence("formalize.result", "Formalize lane result", {
+    ...common("formalize"),
+    kind: "formalized",
+    evidenceRefs: ["${FORMALIZE_VALIDATION_EVIDENCE}"],
+    canonicalRevision: "${CANONICAL_REVISION}",
+    supersededRevisions: ["${CANDIDATE_REVISION}"],
+  });
+  complete(
+    "formalize",
+    "formalize",
+    "${FORMALIZE_VALIDATION_EVIDENCE}",
+    "${FORMALIZE_RESULT_EVIDENCE}",
+  );
+
+  tool("exactness-refresh.verify", "cue_exec", {
+    command: "node verify.mjs target && test -f FORMALIZED.md",
+    timeout: 30,
+  });
+  recordEvidence("exactness-refresh.validation.evidence", "Exactness refresh validation", {
+    summary: "Exactness worktree refreshed to and validated the canonical revision",
+  });
+  recordEvidence("exactness-refresh.result", "Exactness refresh result", {
+    ...common("exactness"),
+    kind: "refresh",
+    evidenceRefs: ["${EXACTNESS_REFRESH_VALIDATION_EVIDENCE}"],
+    canonicalRevision: "${CANONICAL_REVISION}",
+    supersededRevisions: ["${CANDIDATE_REVISION}"],
+    outcome: "refreshed",
+  });
+  complete(
+    "exactness-refresh",
+    "exactness",
+    "${EXACTNESS_REFRESH_VALIDATION_EVIDENCE}",
+    "${EXACTNESS_REFRESH_RESULT_EVIDENCE}",
+  );
+
+  tool("implementation-refresh.verify", "cue_exec", {
+    command: "node verify.mjs target && test -f FORMALIZED.md",
+    timeout: 30,
+  });
+  recordEvidence(
+    "implementation-refresh.validation.evidence",
+    "Implementation refresh validation",
+    { summary: "Implementation worktree refreshed to and validated the canonical revision" },
+  );
+  recordEvidence("implementation-refresh.result", "Implementation refresh result", {
+    ...common("implementation"),
+    kind: "refresh",
+    evidenceRefs: ["${IMPLEMENTATION_REFRESH_VALIDATION_EVIDENCE}"],
+    canonicalRevision: "${CANONICAL_REVISION}",
+    supersededRevisions: ["${CANDIDATE_REVISION}"],
+    outcome: "refreshed",
+  });
+  complete(
+    "implementation-refresh",
+    "implementation",
+    "${IMPLEMENTATION_REFRESH_VALIDATION_EVIDENCE}",
+    "${IMPLEMENTATION_REFRESH_RESULT_EVIDENCE}",
+  );
+  return rounds;
+}
+
+async function createJourneyFixture(
+  rounds: ScriptedRound[] = createJourneyRounds(),
+): Promise<JourneyFixture> {
   const temporary = await realpath(
     await mkdtemp(join(process.platform === "darwin" ? "/tmp" : tmpdir(), "spark-repro-journey-")),
   );
   await chmod(temporary, 0o700);
-  const workspace = resolve(temporary, "ws");
-  const sourceRepo = resolve(workspace, "fixture-repo");
+  const sourceRepo = resolve(temporary, "fixture-repo");
   const sparkHome = resolve(temporary, "spark-home");
   const binDir = resolve(temporary, "bin");
   const providerLedgerPath = resolve(temporary, "provider-ledger.json");
   const forgeLedgerPath = resolve(temporary, "forge-ledger.json");
   await Promise.all([
-    mkdir(workspace, { recursive: true }),
     mkdir(sourceRepo, { recursive: true }),
-    mkdir(sparkHome, { recursive: true }),
     mkdir(resolve(sparkHome, "apps/daemon"), { recursive: true }),
     mkdir(binDir, { recursive: true }),
     mkdir(resolve(temporary, "home"), { recursive: true }),
     mkdir(resolve(temporary, "xdg/run/cue-shell"), { recursive: true, mode: 0o700 }),
   ]);
-  await writeFile(
-    resolve(sparkHome, "role-model-settings.json"),
-    `${JSON.stringify(
-      {
-        version: 2,
-        modelTypes: {
-          coordination: "spark-scripted/spark-scripted-provider",
-          verification: "spark-scripted/spark-scripted-provider",
-        },
-      },
-      null,
-      2,
-    )}\n`,
-  );
   await cp(fixtureRoot, sourceRepo, { recursive: true });
   await git(sourceRepo, ["init", "-b", "main"]);
   await git(sourceRepo, ["config", "user.name", "Spark Journey"]);
@@ -596,14 +702,6 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     )}\n`,
     { mode: 0o600 },
   );
-
-  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
-  const rounds = createJourneyRounds({ workspace, privateKey });
-  const managedWorktree = resolve(
-    workspace,
-    ".agents/worktrees/acme/minimal-alignment/fix-minimal-normalization",
-  );
-  const vars = { SOURCE_REPO: sourceRepo, MANAGED_WORKTREE: managedWorktree, REPRO_ID: reproId };
   await writeFile(
     providerLedgerPath,
     `${JSON.stringify(
@@ -612,12 +710,28 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
         cursor: 0,
         rounds,
         requests: [],
-        vars,
+        vars: {},
       } satisfies ScriptedLedger,
       null,
       2,
     )}\n`,
     { mode: 0o600 },
+  );
+  await writeFile(
+    resolve(sparkHome, "role-model-settings.json"),
+    `${JSON.stringify(
+      {
+        version: 2,
+        modelTypes: {
+          coordination: "spark-scripted/spark-scripted-provider",
+          verification: "spark-scripted/spark-scripted-provider",
+          implementation: "spark-scripted/spark-scripted-provider",
+          exploration: "spark-scripted/spark-scripted-provider",
+        },
+      },
+      null,
+      2,
+    )}\n`,
   );
   await writeFile(
     resolve(sparkHome, "config.json"),
@@ -628,27 +742,25 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
         activeModelId: "spark-scripted/spark-scripted-provider",
         activeThinkingLevel: "off",
         skills: [],
+        compact: { keepRecentTokens: 1 },
       },
       null,
       2,
     )}\n`,
     { mode: 0o600 },
   );
-  const formalPublicKeysJson = JSON.stringify({
-    [formalVerifierId]: publicKey.export({ format: "der", type: "spki" }).toString("base64"),
-  });
   await writeFile(
     resolve(sparkHome, "apps/daemon/config.toml"),
     [
       'installationId = "spark-daemon-repro-golden-journey"',
       'displayName = "Repro Golden Journey"',
-      `reproFormalEvidencePublicKeysJson = "${formalPublicKeysJson.replaceAll('"', '\\"')}"`,
       "",
     ].join("\n"),
     { mode: 0o600 },
   );
 
   const port = await reservePort();
+  const originalHome = process.env.HOME;
   const env = {
     ...process.env,
     HOME: resolve(temporary, "home"),
@@ -657,931 +769,131 @@ async function createJourneyFixture(): Promise<JourneyFixture> {
     XDG_STATE_HOME: resolve(temporary, "xdg/state"),
     XDG_DATA_HOME: resolve(temporary, "xdg/data"),
     XDG_RUNTIME_DIR: resolve(temporary, "xdg/run"),
+    ...(originalHome
+      ? {
+          COREPACK_HOME: process.env.COREPACK_HOME ?? resolve(originalHome, ".cache/node/corepack"),
+        }
+      : {}),
     SPARK_DAEMON_SERVICE_MODE: "detached",
     SPARK_HEADLESS_EXECUTOR_MODULE: resolve(root, "apps/spark-tui/src/headless-role-executor.ts"),
     SPARK_REPRO_SCRIPTED_PROVIDER_LEDGER: providerLedgerPath,
     SPARK_REPRO_FORGE_LEDGER: forgeLedgerPath,
-    PATH: `${binDir}:${process.env.PATH ?? ""}`,
+    PATH: [binDir, originalHome ? resolve(originalHome, ".cargo/bin") : undefined, process.env.PATH]
+      .filter((entry): entry is string => Boolean(entry))
+      .join(delimiter),
     HOST: "127.0.0.1",
     PORT: String(port),
     SPARK_HUB_PUBLIC_URL: `http://127.0.0.1:${port}`,
   } satisfies NodeJS.ProcessEnv;
   return {
     temporary,
-    workspace,
     sourceRepo,
-    managedWorktree,
     sparkHome,
-    daemonDbPath: resolve(sparkHome, "apps/daemon/data/daemon.sqlite"),
-    daemonSocketPath: resolve(sparkHome, "apps/daemon/run/daemon.sock"),
     providerLedgerPath,
     forgeLedgerPath,
+    port,
     target: {
       command: resolve(root, "apps/spark-cli/bin/spark"),
-      cwd: workspace,
+      cwd: sourceRepo,
       env,
       timeoutMs: 120_000,
     },
-    port,
   };
 }
 
-function createJourneyRounds(input: { workspace: string; privateKey: KeyObject }): ScriptedRound[] {
-  const rounds: ScriptedRound[] = [];
-  let evidenceIndex = 1;
-  const stepProofRefs = new Map<string, string>();
-  const tool = (label: string, name: string, arguments_: Record<string, unknown>, id = label) =>
-    rounds.push({ label, toolCalls: [{ id, name, arguments: arguments_ }] });
-  const text = (label: string, value: string) => rounds.push({ label, text: value });
-  const evidence = (label: string, body: Record<string, unknown>) => {
-    evidenceIndex += 1;
-    tool(label, "evidence", {
-      action: "record",
-      kind: "record",
-      title: label,
-      format: "json",
-      body,
-      provenance: { producer: "task" },
-    });
-    return evidenceIndex;
-  };
-  const evidenceRef = (index: number) => `\${EVIDENCE_REF_${index}}`;
-
-  tool("repro.start", "repro", {
-    action: "start",
-    reproId: "${REPRO_ID}",
-    difficulty: 5,
-    objective:
-      "Align the target normalization behavior with the runnable reference and deliver a validated Draft PR.",
-  });
-  text("initial-turn.complete", "Repro started; the daemon-owned Loop will continue the Journey.");
-
-  const contractSteps = minimalStageSteps("contract");
-  const plannedContractSteps = contractSteps.map((step) =>
-    step.authority === "ask_decision" && step.id !== "baseline-construction-strategy-approved"
-      ? {
-          ...step,
-          authority: "safe_local" as const,
-          evidenceRequired: ["At least one inspectable evidence ref"],
-        }
-      : step,
-  );
-  tool("repro.plan", "repro", {
-    action: "plan",
-    difficulty: 5,
-    reason: "Freeze the immutable minimal-alignment Journey contract.",
-    goalContract: {
-      objective:
-        "Align the target normalization behavior with the runnable reference and deliver a validated Draft PR.",
-      constraints: [
-        "Expected outputs come only from immutable test-vectors.json.",
-        "Only target/normalize.mjs may change.",
-        "Delivery must remain a Draft PR.",
-      ],
-      nonGoals: ["live model inference", "real GitHub writes"],
-      successCriteria: [
-        "reference passes",
-        "target fails before repair and passes after repair",
-        "one commit and one Draft PR",
-      ],
-      evidenceRequired: ["command receipts", "Git Artifact", "canonical Ask receipt"],
-    },
-    steps: plannedContractSteps,
-  });
-
-  const askStep = contractSteps.find(
-    (step) => step.id === "baseline-construction-strategy-approved",
-  )!;
-  const askBinding = encodeReproStepAskBinding({
-    schema: "spark.repro.step-ask/v1",
-    planRevision: 3,
-    stepId: askStep.id,
-    definitionDigest: stepDefinitionDigest(askStep),
-    doneWhen: askStep.doneWhen,
-    authority: "ask_decision",
-  });
-  tool(
-    "decision.requested",
-    "ask",
-    {
-      action: "ask",
-      delivery: "async",
-      mode: "decision",
-      flow: "repro-golden-journey-repair",
-      title: "Approve localized target repair",
-      context: askBinding,
-      recordAsEvidence: false,
-      questions: [
-        {
-          id: "decision",
-          type: "single",
-          required: true,
-          prompt: "Apply the localized normalization repair to the target implementation?",
-          options: [
-            { value: "approve", label: "Approve repair" },
-            { value: "stop", label: "Stop" },
-          ],
-        },
-      ],
-    },
-    "journey-decision",
-  );
-  tool("decision.waiting", "repro", {
-    action: "settle",
-    reason: "Wait for the canonical repair decision without further model rounds.",
-  });
-  text("decision.waiting.complete", "Waiting for the canonical decision.");
-
-  tool(
-    "decision.replayed",
-    "ask",
-    {
-      action: "ask",
-      delivery: "blocking",
-      timeoutMs: 30_000,
-      mode: "decision",
-      flow: "repro-golden-journey-repair",
-      title: "Approve localized target repair",
-      context: askBinding,
-      recordAsEvidence: true,
-      questions: [
-        {
-          id: "decision",
-          type: "single",
-          required: true,
-          prompt: "Apply the localized normalization repair to the target implementation?",
-          options: [
-            { value: "approve", label: "Approve repair" },
-            { value: "stop", label: "Stop" },
-          ],
-        },
-      ],
-    },
-    "journey-decision",
-  );
-  tool("decision.evidence.list", "evidence", {
-    action: "list",
-    kind: "record",
-    producer: "ask",
-    includeRaw: true,
-    view: "summary",
-    limit: 10,
-  });
-  const askEvidenceRef = evidenceRef(1);
-  stepProofRefs.set(askStep.id, askEvidenceRef);
-  tool("decision.step.done", "repro", {
-    action: "step",
-    stepId: askStep.id,
-    stepStatus: "done",
-    stepEvidenceRefs: [askEvidenceRef],
-  });
-  for (const requirement of DEFAULT_REPRO_STAGES[0]!.acceptance.filter(
-    (candidate) => candidate.kind === "decision",
-  )) {
-    tool(`decision.record.${requirement.id}`, "repro", {
-      action: "record",
-      requirementId: requirement.id,
-      proof: {
-        kind: "decision",
-        decisionRef: askEvidenceRef,
-        selectedValue: "approve",
-        rationale: "The user approved the localized target-only repair.",
-      },
-    });
-  }
-
-  tool("git_change.created", "git", {
-    action: "init",
-    repositoryPath: "${SOURCE_REPO}",
-    branch: "fix/minimal-normalization",
-    trunk: "main",
-    title: "Fix minimal normalization alignment",
-  });
-  tool("validation.reference", "cue_exec", {
-    command: "node verify.mjs reference",
-    cwd: "${MANAGED_WORKTREE}",
-    timeout: 30,
-  });
-  tool("validation.failed_before_fix", "cue_exec", {
-    command: "node verify.mjs target",
-    cwd: "${MANAGED_WORKTREE}",
-    timeout: 30,
-  });
-
-  completeStage(rounds, "contract", evidence, evidenceRef, tool, {
-    askRequirementId: askStep.id,
-    observation:
-      "Frozen contract, runnable reference, and expected failing target baseline observed.",
-    stepProofRefs,
-  });
-  tool("stage.contract.advance", "repro", { action: "advance" });
-
-  completeStage(rounds, "reference", evidence, evidenceRef, tool, {
-    observation: "The zero-dependency reference verifier passed.",
-    stepProofRefs,
-  });
-  tool("stage.reference.advance", "repro", { action: "advance" });
-
-  completeStage(rounds, "target", evidence, evidenceRef, tool, {
-    observation: "The target probe produced the contractually expected pre-repair failure.",
-    stepProofRefs,
-  });
-  tool("stage.target.evaluate", "repro", { action: "evaluate" });
-  tool("stage.target.advance", "repro", { action: "advance" });
-
-  tool("mode.execute", "mode", {
-    action: "execute",
-    focus: "Apply the already-approved target-only normalization repair.",
-  });
-  tool("repair.applied", "edit", {
-    artifactRef: "${ARTIFACT_REF_1}",
-    path: "target/normalize.mjs",
-    edits: [
-      {
-        oldText: "  const denominator = variance + epsilon;",
-        newText: "  const denominator = Math.sqrt(variance + epsilon);",
-      },
-    ],
-  });
-  tool("validation.passed_after_fix", "cue_exec", {
-    command: "node verify.mjs target",
-    cwd: "${MANAGED_WORKTREE}",
-    timeout: 30,
-  });
-  tool("validation.target-scale", "cue_exec", {
-    command:
-      "node -e \"const{execFileSync}=require('node:child_process');for(let i=0;i<100;i++)execFileSync(process.execPath,['verify.mjs','target'],{stdio:'ignore'});console.log('PASS target 100 repetitions')\"",
-    cwd: "${MANAGED_WORKTREE}",
-    timeout: 60,
-  });
-  completeStage(rounds, "alignment", evidence, evidenceRef, tool, {
-    observation: "The repaired target passed once and across 100 deterministic repetitions.",
-    stepProofRefs,
-  });
-  tool("stage.alignment.evaluate", "repro", { action: "evaluate" });
-  tool("stage.alignment.advance", "repro", { action: "advance" });
-
-  tool("git_change.committed", "git", {
-    action: "commit",
-    artifactRef: "${ARTIFACT_REF_1}",
-    message: "fix: align minimal normalization",
-    paths: ["target/normalize.mjs"],
-    tracked: false,
-  });
-  tool("pull_request.submitted", "git", {
-    action: "submit",
-    artifactRef: "${ARTIFACT_REF_1}",
-    ready: false,
-  });
-  completeStage(rounds, "delivery", evidence, evidenceRef, tool, {
-    observation: "One target-only commit and one Draft PR were created by the GitChange owner.",
-    stepProofRefs,
-  });
-  tool("stage.delivery.evaluate", "repro", { action: "evaluate" });
-
-  const currentPlanSteps = [
-    ...plannedContractSteps,
-    ...DEFAULT_REPRO_STAGES.slice(1).flatMap((stage) => minimalStageSteps(stage.name)),
-  ];
-  const formalOwnerStep = currentPlanSteps.find((step) => step.id === "no-runtime-patches");
-  assert.ok(formalOwnerStep);
-  const profile = goldenJourneyProfile();
-  const formalEvidenceRefs = formalGateSpecs.map((gate) => {
-    const index = evidence(
-      `formal-evidence.${gate.id}`,
-      createFormalAttestation({
-        workspace: input.workspace,
-        privateKey: input.privateKey,
-        requirementId: gate.id,
-        step: formalOwnerStep,
-        profile,
-      }),
-    );
-    return evidenceRef(index);
-  });
-
-  // The final plan revision rebases the durable Normative cursor. Re-run the
-  // already-passing StepVerifiers in current plan order so each exact step is
-  // retired by owner state instead of being trusted from a legacy summary.
-  // Complete each bound Task through the canonical Task owner on the same
-  // evidence before projecting the strict completion summary.
-  for (const step of currentPlanSteps) {
-    const proofRef = stepProofRefs.get(step.id);
-    if (!proofRef) throw new Error(`Missing Golden Journey StepVerifier proof: ${step.id}`);
-    const taskRef = goldenJourneyTaskRef(step.id);
-    const verificationRefs =
-      step.id === formalOwnerStep.id ? [proofRef, ...formalEvidenceRefs] : [proofRef];
-    tool(`task.${step.id}.claim`, "task_write", {
-      action: "claim",
-      taskRef,
-    });
-    tool(`task.${step.id}.plan.complete`, "task_write", {
-      action: "plan_update",
-      scope: "task",
-      taskRef,
-      ops: [
-        { op: "done", id: "item-1", evidenceRefs: verificationRefs },
-        { op: "done", id: "item-2", evidenceRefs: verificationRefs },
-      ],
-    });
-    tool(`task.${step.id}.finish`, "task_write", {
-      action: "finish",
-      taskRef,
-      status: "done",
-      summary: `Golden Journey verified ${step.id} through current owner evidence.`,
-      evidenceRefs: verificationRefs,
-    });
-    tool(`retirement.${step.id}`, "repro", {
-      action: "step",
-      stepId: step.id,
-      stepStatus: "done",
-      stepEvidenceRefs: verificationRefs,
-    });
-  }
-
-  const laneEvidenceRef = formalEvidenceRefs[3]!;
-  const laneWorkItemId = "work:minimal-normalization";
-  const candidateRevision = "commit:candidate-minimal-normalization";
-  const canonicalRevision = "commit:formalized-minimal-normalization";
-  tool("three-lane.work.registered", "repro", {
-    action: "work_register",
-    laneInput: {
-      lane: "implementation",
-      workItemId: laneWorkItemId,
-      title: "Align the minimal normalization boundary",
-      scope: "target normalization boundary",
-      planRevision: 8,
-      sourceRevision: candidateRevision,
-      status: "completed",
-      gitChangeRef: "${ARTIFACT_REF_1}",
-      evidenceRefs: [laneEvidenceRef],
-    },
-  });
-  tool("three-lane.handoff.implementation-exactness", "repro", {
-    action: "handoff_record",
-    laneInput: {
-      handoffId: "handoff:minimal-implementation-exactness",
-      workItemId: laneWorkItemId,
-      from: "implementation",
-      to: "exactness",
-      planRevision: 8,
-      sourceRevision: candidateRevision,
-      scope: "Classify the first failing normalization boundary",
-      evidenceRefs: [laneEvidenceRef],
-      candidateRevisions: [candidateRevision],
-      doneWhen: ["The first bad boundary is confirmed"],
-      status: "accepted",
-    },
-  });
-  tool("three-lane.finding.recorded", "repro", {
-    action: "finding_record",
-    laneInput: {
-      findingId: "finding:minimal-normalization-boundary",
-      workItemId: laneWorkItemId,
-      firstBadBoundary: "target.normalize.output",
-      classification: "implementation_defect",
-      disposition: "fix",
-      confidence: "confirmed",
-      evidenceRefs: [laneEvidenceRef],
-    },
-  });
-  tool("three-lane.formalize.bound", "repro", {
-    action: "formalize_bind",
-    laneInput: { gitChangeRef: "${ARTIFACT_REF_1}" },
-  });
-  tool("three-lane.handoff.exactness-formalize", "repro", {
-    action: "handoff_record",
-    laneInput: {
-      handoffId: "handoff:minimal-exactness-formalize",
-      workItemId: laneWorkItemId,
-      from: "exactness",
-      to: "formalize",
-      planRevision: 8,
-      sourceRevision: candidateRevision,
-      scope: "Accept the verified normalization repair",
-      findingIds: ["finding:minimal-normalization-boundary"],
-      evidenceRefs: [laneEvidenceRef],
-      candidateRevisions: [candidateRevision],
-      dependsOnHandoffIds: ["handoff:minimal-implementation-exactness"],
-      doneWhen: ["The canonical stack accepts the repair"],
-      status: "accepted",
-    },
-  });
-  const formalResolution = {
-    resolutionId: "resolution:minimal-formalize-exactness",
-    workItemId: laneWorkItemId,
-    from: "formalize",
-    to: "exactness",
-    status: "resolved",
-    canonicalRevision,
-    supersededRevisions: [candidateRevision],
-    evidenceRefs: [laneEvidenceRef],
-  };
-  tool("three-lane.resolution.formalize-exactness", "repro", {
-    action: "resolution_record",
-    laneInput: formalResolution,
-  });
-  tool("three-lane.resolution.formalize-exactness.duplicate", "repro", {
-    action: "resolution_record",
-    laneInput: formalResolution,
-  });
-  tool("three-lane.resolution.exactness-implementation", "repro", {
-    action: "resolution_record",
-    laneInput: {
-      resolutionId: "resolution:minimal-exactness-implementation",
-      workItemId: laneWorkItemId,
-      from: "exactness",
-      to: "implementation",
-      status: "superseded",
-      canonicalRevision,
-      supersededRevisions: [candidateRevision],
-      evidenceRefs: [laneEvidenceRef],
-      parentResolutionId: formalResolution.resolutionId,
-    },
-  });
-  tool("three-lane.resolution.replayed-idempotently", "repro", {
-    action: "resolution_record",
-    laneInput: formalResolution,
-  });
-
-  tool("report.projected", "repro", {
-    action: "project_report",
-    workSummary: completeWorkSummary({
-      currentPlanSteps,
-      stepProofRefs,
-      formalEvidenceRefs,
-      profile,
-    }),
-  });
-  tool("report.synced", "repro", { action: "sync_report" });
-  tool("report.synced.idempotent", "repro", { action: "sync_report" });
-  tool("repro.completed", "repro", { action: "advance" });
-  text("journey.complete", "The Repro Golden Journey completed through trusted owner state.");
-  return rounds;
-}
-
-function completeStage(
-  _rounds: ScriptedRound[],
-  stageName: (typeof DEFAULT_REPRO_STAGES)[number]["name"],
-  evidence: (label: string, body: Record<string, unknown>) => number,
-  evidenceRef: (index: number) => string,
-  tool: (label: string, name: string, arguments_: Record<string, unknown>, id?: string) => void,
-  options: {
-    askRequirementId?: string;
-    observation: string;
-    stepProofRefs: Map<string, string>;
-  },
-): void {
-  const stage = DEFAULT_REPRO_STAGES.find((candidate) => candidate.name === stageName)!;
-  for (const requirement of stage.acceptance) {
-    if (requirement.id === options.askRequirementId) continue;
-    const baseStep = minimalStageSteps(stageName).find(
-      (candidate) => candidate.id === requirement.id,
-    );
-    if (!baseStep) throw new Error(`Missing minimal ${stageName} step ${requirement.id}`);
-    const step =
-      requirement.kind === "decision"
-        ? {
-            ...baseStep,
-            authority: "safe_local" as const,
-            evidenceRequired: ["At least one inspectable evidence ref"],
-          }
-        : baseStep;
-    const planRevision =
-      stageName === "contract"
-        ? requirement.kind === "decision"
-          ? 4
-          : 3
-        : { reference: 5, target: 6, alignment: 7, delivery: 8 }[stageName];
-    const index = evidence(`evidence.${stageName}.${requirement.id}`, {
-      schema: "spark.repro.step-proof/v1",
-      planRevision,
-      stepId: step.id,
-      definitionDigest: stepDefinitionDigest(step),
-      proofKind: "evidence",
-      passed: true,
-      doneWhen: step.doneWhen,
-      observation: options.observation,
-    });
-    const ref = evidenceRef(index);
-    options.stepProofRefs.set(step.id, ref);
-    tool(`step.${stageName}.${requirement.id}.done`, "repro", {
-      action: "step",
-      stepId: requirement.id,
-      stepStatus: "done",
-      stepEvidenceRefs: [ref],
-    });
-    if (requirement.kind === "decision") continue;
-    tool(`requirement.${stageName}.${requirement.id}.record`, "repro", {
-      action: "record",
-      requirementId: requirement.id,
-      proof:
-        requirement.kind === "validation"
-          ? {
-              kind: "validation",
-              command: `Golden Journey ${stageName} validation`,
-              resultRef: ref,
-              passed: true,
-            }
-          : { kind: "evidence", evidenceRefs: [ref] },
-    });
-  }
-}
-
-function minimalStageSteps(
-  stage: (typeof DEFAULT_REPRO_STAGES)[number]["name"],
-): SparkReproStepDefinition[] {
-  const acceptanceIds = new Set(
-    DEFAULT_REPRO_STAGES.find((candidate) => candidate.name === stage)!.acceptance.map(
-      (requirement) => requirement.id,
-    ),
-  );
-  return reproStageBlueprint(stage)
-    .tasks.filter((task) => acceptanceIds.has(task.id))
-    .map((task) => ({
-      id: task.id,
-      stage,
-      goal: task.goal,
-      doneWhen: [...task.doneWhen],
-      evidenceRequired: [...task.evidenceRequired],
-      authority: task.authority,
-      ...(task.dependsOn.some((dependency) => acceptanceIds.has(dependency))
-        ? { dependsOn: task.dependsOn.filter((dependency) => acceptanceIds.has(dependency)) }
-        : {}),
-    }));
-}
-
-function goldenJourneyTaskRef(stepId: string): string {
-  const taskIds = DEFAULT_REPRO_STAGES.flatMap((stage) =>
-    stage.acceptance.map((requirement) => requirement.id),
-  );
-  const index = taskIds.indexOf(stepId);
-  if (index < 0) throw new Error(`Missing Golden Journey task placeholder: ${stepId}`);
-  return `\${TASK_REF_${index + 1}}`;
-}
-
-function goldenJourneyProfile(): SparkReproProfile {
-  const topology = {
-    dp: 1,
-    tp: 1,
-    pp: 1,
-    ep: 1,
-    etp: 1,
-    cp: 1,
-    sp: false,
-    worldSize: 1,
-    strategies: [],
-  };
-  return {
-    id: "minimum-complete",
-    model: "minimum_complete",
-    compute: "optimizer",
-    modelScope: "minimum_complete",
-    computeScope: "optimizer",
-    steps: { completed: 100, target: 100 },
-    topology,
-    validationTopology: structuredClone(topology),
-    runtime: {
-      framework: "node",
-      device: "cpu",
-      dtype: "float64",
-      hardware: "deterministic-fixture",
-      modelRevision: "minimal-alignment-v1",
-      configDigest: "sha256:minimal-alignment-v1",
-    },
-  };
-}
-
-function createFormalAttestation(input: {
-  workspace: string;
-  privateKey: KeyObject;
-  requirementId: string;
-  step: SparkReproStepDefinition;
-  profile: SparkReproProfile;
-}): SparkReproFormalEvidenceAttestation {
-  const topology = input.profile.validationTopology ?? input.profile.topology;
-  const unsigned = {
-    schema: "spark.repro.formal-evidence-attestation/v1" as const,
-    verifierId: formalVerifierId,
-    verifierVersion: formalVerifierVersion,
-    verifiedAt: "2026-08-10T00:00:00.000Z",
-    binding: {
-      workspaceCwd: input.workspace,
-      reproId,
-      requirementId: input.requirementId,
-      stepId: input.step.id,
-      planRevision: 8,
-      stepDefinitionDigest: stepDefinitionDigest(input.step),
-      invocationClass: "owning_entrypoint" as const,
-      evidenceClass: "entrypoint" as const,
-      profileDigest: sparkReproProfileDigest(input.profile),
-      topologyDigest: sparkReproTopologyDigest(topology),
-    },
-    verdict: "accepted" as const,
-    resultDigest: sha256(
-      JSON.stringify({ fixture: "minimal-alignment", requirementId: input.requirementId }),
-    ),
-  };
-  return {
-    ...unsigned,
-    signature: sign(
-      null,
-      Buffer.from(sparkReproFormalEvidenceAttestationPayload(unsigned)),
-      input.privateKey,
-    ).toString("base64"),
-  };
-}
-
-function completeWorkSummary(input: {
-  currentPlanSteps: SparkReproStepDefinition[];
-  stepProofRefs: ReadonlyMap<string, string>;
-  formalEvidenceRefs: string[];
-  profile: SparkReproProfile;
-}): Record<string, unknown> {
-  const { currentPlanSteps, formalEvidenceRefs, profile } = input;
-  const topology = profile.validationTopology ?? profile.topology;
-  const profileDigest = sparkReproProfileDigest(profile);
-  const taskIds = DEFAULT_REPRO_STAGES.flatMap((stage) =>
-    stage.acceptance.map((requirement) => requirement.id),
-  );
-  const evidenceRefsForStep = (step: SparkReproStepDefinition): string[] => {
-    const proofRef = input.stepProofRefs.get(step.id);
-    if (!proofRef) throw new Error(`Missing Golden Journey proof ref: ${step.id}`);
-    return step.id === "no-runtime-patches" ? [proofRef, ...formalEvidenceRefs] : [proofRef];
-  };
-  const candidates = currentPlanSteps.map((step) => ({
-    id: `candidate:${step.id}`,
-    stepId: step.id,
-    dependsOn: [...(step.dependsOn ?? [])],
-    planRevision: 8,
-    stepDefinitionDigest: stepDefinitionDigest(step),
-    verdict: "accepted",
-    profile,
-    evidenceRefs: evidenceRefsForStep(step),
-    unresolvedIds: [],
-  }));
-  const gates = formalGateSpecs.map((gate, index) => ({
-    id: gate.id,
-    title: gate.id,
-    stage: gate.stage,
-    evidenceClass: "formal",
-    status: "accepted",
-    weight: 1,
-    evidenceRefs: [formalEvidenceRefs[index]!],
-    ...(gate.establishes.length > 0 ? { establishes: [...gate.establishes] } : {}),
-    ...(gate.stage === "reference" || gate.stage === "target" || gate.stage === "alignment"
-      ? { profile }
-      : {}),
-  }));
-  return {
-    schema: "spark.repro.work-summary/v2",
-    reproId: "${REPRO_ID}",
-    title: "Minimal normalization Golden Journey",
-    stage: "delivery",
-    target: {
-      model: "minimum_complete",
-      requiredSteps: 100,
-      referenceStrategies: [],
-      validationTopology: topology,
-      acceptanceProfile: profile,
-    },
-    profile,
-    artifactRefs: ["${ARTIFACT_REF_1}"],
-    gates,
-    validationMatrix: {
-      denominators: { contract: 1, reference: 1, target: 1, alignment: 1, delivery: 1 },
-      rows: formalGateSpecs.map((gate, index) => ({
-        id: `entrypoint:${gate.id}`,
-        gateId: gate.id,
-        stage: gate.stage,
-        invocationClass: "owning_entrypoint",
-        evidenceClass: "entrypoint",
-        ownerStepId: "no-runtime-patches",
-        verdict: "accepted",
-        profile,
-        repetitions: gate.stage === "alignment" ? 100 : 1,
-        exactScope: "immutable minimal-alignment owner entrypoint",
-        evidenceRefs: [formalEvidenceRefs[index]!],
-        artifactRefs: [],
-      })),
-    },
-    exploreFrontier: {
-      stage: "delivery",
-      profile,
-      planRevision: 8,
-      evidenceRefs: [],
-      unresolvedIds: [],
-    },
-    normativeCursor: {
-      planRevision: 8,
-      orderedStepIds: currentPlanSteps.map((step) => step.id),
-      stepDefinitionDigests: Object.fromEntries(
-        currentPlanSteps.map((step) => [step.id, stepDefinitionDigest(step)]),
-      ),
-      stepDependencies: Object.fromEntries(
-        currentPlanSteps.map((step) => [step.id, [...(step.dependsOn ?? [])]]),
-      ),
-      retiredStepIds: currentPlanSteps.map((step) => step.id),
-      candidateBuffer: candidates,
-      retirementLog: currentPlanSteps.map((step) => ({
-        stepId: step.id,
-        candidateId: `candidate:${step.id}`,
-        planRevision: 8,
-        stepDefinitionDigest: stepDefinitionDigest(step),
-        profile,
-        profileDigest,
-        evidenceRefs: evidenceRefsForStep(step),
-      })),
-    },
-    schedulerActivity: "sealed",
-    independentReadyCount: 0,
-    tasks: taskIds.map((id) => {
-      const step = currentPlanSteps.find((candidate) => candidate.id === id);
-      if (!step) throw new Error(`Missing Golden Journey task binding: ${id}`);
-      return {
-        id,
-        taskRef: goldenJourneyTaskRef(id),
-        title: step.goal,
-        stage: step.stage,
-        status: "done",
-      };
-    }),
-    retirementBlocks: [],
-    unresolved: [],
-    nextAction: {
-      id: "sealed",
-      summary: "No further action",
-      passCriterion: "The trusted daemon keeps the completed Workbench sealed",
-    },
-    conclusions: [
-      {
-        id: "target-aligned",
-        claim: "The localized target repair matches all immutable fixture vectors.",
-        verdict: "confirmed",
-        profile,
-        evidenceRefs: [formalEvidenceRefs[3]!],
-      },
-    ],
-  };
-}
-
-function assertThreeLaneRecoveryState(repro: Record<string, unknown>): void {
-  assert.equal(numberField(repro, "version"), 9);
-  const threeLane = objectField(repro, "threeLane");
-  assert.equal(stringField(threeLane, "schema"), "spark.repro.three-lane-session/v2");
-  assert.deepEqual(
-    arrayField(threeLane, "workItems").map((item) => stringField(item, "workItemId")),
-    ["work:minimal-normalization"],
-  );
-  assert.deepEqual(
-    arrayField(threeLane, "handoffs").map((handoff) => stringField(handoff, "handoffId")),
-    [],
-  );
-  assert.deepEqual(arrayField(threeLane, "bindings"), []);
-  assert.deepEqual(
-    arrayField(threeLane, "compatibilityBindings").map((binding) => ({
-      workItemId: stringField(binding, "workItemId"),
-      schedulable: binding.schedulable,
-      reason: stringField(binding, "reason"),
-    })),
-    [
-      {
-        workItemId: "work:minimal-normalization",
-        schedulable: false,
-        reason: "missing_task_ref",
-      },
-    ],
-  );
-  assert.deepEqual(arrayField(threeLane, "routes"), []);
-  assert.deepEqual(arrayField(threeLane, "resultReceipts"), []);
-  assert.deepEqual(
-    arrayField(threeLane, "resolutions").map((resolution) =>
-      stringField(resolution, "resolutionId"),
-    ),
-    ["resolution:minimal-formalize-exactness", "resolution:minimal-exactness-implementation"],
-  );
-  assert.equal(
-    stringField(objectField(threeLane, "formalize"), "formalizedTip"),
-    "commit:formalized-minimal-normalization",
-  );
-}
-
-function assertThreeLaneProjection(lanes: Record<string, unknown>): void {
-  for (const lane of ["implementation", "exactness"] as const) {
-    const projected = objectField(lanes, lane);
-    assert.equal(stringField(projected, "status"), "complete");
-    assert.equal(numberField(projected, "totalCount"), 1);
-    assert.equal(arrayField(projected, "items").length, 1);
-  }
-  const formalize = objectField(lanes, "formalize");
-  assert.equal(stringField(formalize, "status"), "empty");
-  assert.equal(numberField(formalize, "totalCount"), 0);
-  assert.deepEqual(arrayField(formalize, "items"), []);
-  assert.equal(stringField(lanes, "formalizedTip"), "commit:formalized-minimal-normalization");
-  assert.ok(!JSON.stringify(lanes).includes("target normalization boundary"));
-}
-
-function assertThreeLaneWorkSummary(work: Record<string, unknown>): void {
-  const lanes = objectField(work, "lanes");
-  assert.deepEqual(stringArrayField(objectField(lanes, "implementation"), "workItemIds"), [
-    "work:minimal-normalization",
-  ]);
-  assert.deepEqual(stringArrayField(objectField(lanes, "exactness"), "workItemIds"), [
-    "work:minimal-normalization",
-  ]);
-  assert.deepEqual(stringArrayField(objectField(lanes, "formalize"), "workItemIds"), []);
-  assert.equal(
-    stringField(objectField(lanes, "formalize"), "formalizedTip"),
-    "commit:formalized-minimal-normalization",
-  );
-  assert.equal(arrayField(work, "workItems").length, 1);
-  assert.equal(arrayField(work, "findings").length, 1);
-  assert.equal(arrayField(work, "handoffs").length, 0);
-  assert.equal(arrayField(work, "resolutions").length, 2);
-}
-
-async function sessionToolErrorIds(sparkHome: string, sessionId: string): Promise<string[]> {
-  const sessionsRoot = resolve(sparkHome, "apps/daemon/data/pi-agent/sessions");
-  const relativePaths = await readdir(sessionsRoot, { recursive: true });
-  const transcript = relativePaths.find((path) => path.endsWith(`/${sessionId}.jsonl`));
-  assert.ok(transcript, `missing daemon session transcript for ${sessionId}`);
-  const lines = (await readFile(resolve(sessionsRoot, transcript), "utf8"))
-    .split("\n")
-    .filter(Boolean);
-  const toolErrorIds: string[] = [];
-  for (const line of lines) {
-    const entry = JSON.parse(line) as {
-      type?: unknown;
-      message?: { role?: unknown; toolCallId?: unknown; isError?: unknown };
-    };
-    if (
-      entry.type === "message" &&
-      entry.message?.role === "toolResult" &&
-      entry.message.isError === true
-    ) {
-      assert.equal(typeof entry.message.toolCallId, "string");
-      toolErrorIds.push(entry.message.toolCallId as string);
-    }
-  }
-  return toolErrorIds;
-}
-
-async function assertClosedDriverRetention(sparkHome: string, daemonDbPath: string): Promise<void> {
-  const registryPath = resolve(sparkHome, "session-registry/v1/registry.json");
-  const drivers = await waitFor(
+async function waitForReproCheckpoint(
+  path: string,
+  predicate: (repro: Record<string, unknown>) => boolean,
+): Promise<Record<string, unknown>> {
+  return await waitFor(
     async () => {
-      const registry = jsonObject(await readFile(registryPath, "utf8"));
-      const sessions = arrayField(registry, "sessions");
-      const candidates = sessions.filter((session) => {
-        const owner = objectField(session, "owner");
-        return owner.kind === "driver" && session.retention === "discard_on_close";
-      });
-      if (candidates.length === 0 || candidates.some((session) => session.lifecycle !== "closed")) {
+      try {
+        const snapshot = jsonObject(await readFile(path, "utf8"));
+        const repro = objectField(snapshot, "repro");
+        return predicate(repro) ? repro : undefined;
+      } catch {
         return undefined;
       }
-      return candidates;
+    },
+    120_000,
+    "Repro durable checkpoint",
+  );
+}
+
+async function restartDaemon(target: SparkProcessTarget): Promise<number> {
+  await runSparkProcess(target, ["daemon", "restart", "--yes", "--wait"]);
+  const status = jsonObject((await runSparkProcess(target, ["daemon", "status", "--json"])).stdout);
+  return numberField(objectField(status, "daemon"), "pid");
+}
+
+async function compactReproRootSession(fixture: JourneyFixture, sessionId: string): Promise<void> {
+  const submitted = await requestSparkDaemon(
+    "session.compact",
+    {
+      sessionId,
+      customInstructions:
+        "Preserve only durable identifiers; Repro continuation must reload owner checkpoints.",
+      idempotencyKey: "idem_repro_glm52_root_compaction",
+    },
+    { env: fixture.target.env },
+  );
+  const terminal = await waitForInvocation(fixture.target, submitted.invocationId, "succeeded");
+  assert.match(stringField(terminal, "assistantText"), /Compacted daemon session/u);
+  const snapshot = await requestSparkDaemon(
+    "session.snapshot",
+    { sessionId, messageLimit: 10_000 },
+    { env: fixture.target.env },
+  );
+  assert.ok(snapshot.work?.repro, "compacted snapshot must retain the Repro work projection");
+  assert.ok(
+    JSON.stringify(snapshot.work.repro).length < 32_000,
+    "compacted snapshot must expose only the bounded Repro projection",
+  );
+}
+
+async function waitForInvocation(
+  target: SparkProcessTarget,
+  invocationId: string,
+  expected: string,
+): Promise<Record<string, unknown>> {
+  const result = await waitFor(
+    async () => {
+      const value = jsonObject(
+        (await runSparkProcess(target, ["daemon", "invocation", "result", invocationId, "--json"]))
+          .stdout,
+      );
+      return value.status === "succeeded" ||
+        value.status === "failed" ||
+        value.status === "cancelled"
+        ? value
+        : undefined;
     },
     60_000,
-    "closed driver Session retention",
+    `invocation ${invocationId} to become terminal`,
   );
-
-  const sessionIds = drivers.map((session) => stringField(session, "sessionId"));
-  for (const session of drivers) {
-    assert.equal(session.transcriptRef, undefined);
-    assert.ok(arrayField(session, "closeReceipts").length > 0);
+  if (result.status !== expected) {
+    throw new Error(
+      `Invocation ${invocationId} became ${String(result.status)}: ${JSON.stringify(result)}`,
+    );
   }
+  return result;
+}
 
-  const db = new DatabaseSync(daemonDbPath, { readOnly: true });
-  try {
-    const placeholders = sessionIds.map(() => "?").join(", ");
-    const rows = db
-      .prepare(
-        `SELECT i.session_id AS sessionId,
-                i.prompt,
-                i.task_json AS taskJson,
-                i.result_json AS resultJson,
-                i.error_message AS errorMessage,
-                i.payload_redacted_at AS payloadRedactedAt,
-                (SELECT COUNT(*) FROM invocation_events e WHERE e.invocation_id = i.id) AS eventCount,
-                (SELECT COUNT(*) FROM invocation_events e
-                 WHERE e.invocation_id = i.id AND e.kind = 'invocation.receipt_context') AS receiptCount
-         FROM invocations i
-         WHERE i.session_id IN (${placeholders})`,
-      )
-      .all(...sessionIds) as unknown as Array<Record<string, unknown>>;
-    assert.ok(rows.length > 0);
-    for (const row of rows) {
-      assert.equal(row.prompt, null);
-      assert.equal(row.taskJson, null);
-      assert.equal(row.resultJson, null);
-      assert.equal(row.errorMessage, null);
-      assert.equal(typeof row.payloadRedactedAt, "string");
-      assert.equal(row.eventCount, 1);
-      assert.equal(row.receiptCount, 1);
-    }
-  } finally {
-    db.close();
-  }
+async function stopProcesses(target: SparkProcessTarget, pids: number[]): Promise<void> {
+  await runSparkProcess(target, ["daemon", "stop", "--yes"]).catch(() => undefined);
+  await runSparkProcess(target, ["hub", "web", "stop", "--json"]).catch(() => undefined);
+  await runSparkProcess(target, ["hub", "web", "stop", "--json"]).catch(() => undefined);
+  await Promise.all(
+    [...new Set(pids)]
+      .filter((pid) => pid > 0)
+      .map(async (pid) => {
+        await waitFor(
+          async () => (isProcessAlive(pid) ? undefined : true),
+          10_000,
+          `daemon process ${pid} to stop`,
+        ).catch(() => undefined);
+      }),
+  );
 }
 
 function seedHubEnrollment(sparkHome: string): string {
@@ -1606,227 +918,8 @@ function seedHubEnrollment(sparkHome: string): string {
   }
 }
 
-async function waitForInvocation(
-  target: SparkProcessTarget,
-  invocationId: string,
-  expected: string,
-): Promise<Record<string, unknown>> {
-  const result = await waitFor(
-    async () => {
-      const result = jsonObject(
-        (await runSparkProcess(target, ["daemon", "invocation", "result", invocationId, "--json"]))
-          .stdout,
-      );
-      return result.status === "succeeded" ||
-        result.status === "failed" ||
-        result.status === "cancelled"
-        ? result
-        : undefined;
-    },
-    60_000,
-    `invocation ${invocationId} to become terminal`,
-  );
-  if (result.status !== expected) {
-    throw new Error(
-      `Invocation ${invocationId} became ${String(result.status)}, expected ${expected}: ${JSON.stringify(result)}`,
-    );
-  }
-  return result;
-}
-
-async function waitForSinglePendingAsk(
-  target: SparkProcessTarget,
-  sessionId: string,
-): Promise<Record<string, unknown>> {
-  return await waitFor(
-    async () => {
-      const value = jsonObject(
-        (await runSparkProcess(target, ["daemon", "ask", "list", "--session", sessionId, "--json"]))
-          .stdout,
-      );
-      const interactions = arrayField(value, "waits");
-      return interactions.length === 1 ? interactions[0] : undefined;
-    },
-    90_000,
-    "one pending canonical Ask",
-  );
-}
-
-async function waitForReproCompleteWithApprovals(
-  path: string,
-  target: SparkProcessTarget,
-  sessionId: string,
-): Promise<{ repro: Record<string, unknown>; toolApprovalCount: number }> {
-  const answered = new Set<string>();
-  return await waitFor(
-    async () => {
-      try {
-        const snapshot = jsonObject(await readFile(path, "utf8"));
-        const repro = objectField(snapshot, "repro");
-        if (repro.status === "complete") {
-          return { repro, toolApprovalCount: answered.size };
-        }
-      } catch {
-        // The Repro snapshot may not exist until the first owner write commits.
-      }
-      const pending = jsonObject(
-        (await runSparkProcess(target, ["daemon", "ask", "list", "--session", sessionId, "--json"]))
-          .stdout,
-      );
-      for (const wait of arrayField(pending, "waits")) {
-        const requestId = stringField(wait, "interactionRequestId");
-        const context = objectField(wait, "context");
-        if (context.interactionKind !== "toolApproval" || answered.has(requestId)) continue;
-        const result = jsonObject(
-          (
-            await runSparkProcess(target, [
-              "daemon",
-              "ask",
-              "answer",
-              requestId,
-              "--session",
-              sessionId,
-              "--answers",
-              JSON.stringify({ approval: { values: ["approve"], labels: ["Approve"] } }),
-              "--json",
-            ])
-          ).stdout,
-        );
-        assert.equal(result.outcome, "accepted");
-        answered.add(requestId);
-      }
-      return undefined;
-    },
-    120_000,
-    "Repro completion",
-  );
-}
-
-async function waitForTerminalOwnerState(dbPath: string, id: string) {
-  return await waitFor(
-    async () => {
-      try {
-        const db = new DatabaseSync(dbPath, { readOnly: true });
-        try {
-          const pendingAskCount = numberResult(
-            db
-              .prepare("SELECT COUNT(*) AS count FROM daemon_human_waits WHERE status = 'pending'")
-              .get(),
-          );
-          const canonicalDecisionRequestCount = numberResult(
-            db
-              .prepare(
-                "SELECT COUNT(*) AS count FROM daemon_human_waits WHERE json_extract(request_json, '$.context.interactionKind') = 'askFlow'",
-              )
-              .get(),
-          );
-          const toolApprovalRequestCount = numberResult(
-            db
-              .prepare(
-                "SELECT COUNT(*) AS count FROM daemon_human_waits WHERE json_extract(request_json, '$.context.interactionKind') = 'toolApproval'",
-              )
-              .get(),
-          );
-          const activeInvocationCount = numberResult(
-            db
-              .prepare(
-                "SELECT COUNT(*) AS count FROM invocations WHERE status IN ('queued', 'running')",
-              )
-              .get(),
-          );
-          const binding = db
-            .prepare("SELECT lifecycle FROM workbench_artifact_bindings WHERE repro_id = ?")
-            .get(id) as { lifecycle?: string } | undefined;
-          const writableWorkbenchCount = numberResult(
-            db
-              .prepare(
-                "SELECT COUNT(*) AS count FROM workbench_artifact_bindings WHERE lifecycle <> 'sealed'",
-              )
-              .get(),
-          );
-          const formalEvidenceReceiptCount = numberResult(
-            db
-              .prepare(
-                "SELECT COUNT(*) AS count FROM daemon_repro_formal_evidence_receipts WHERE repro_id = ?",
-              )
-              .get(id),
-          );
-          if (
-            pendingAskCount === 0 &&
-            activeInvocationCount === 0 &&
-            binding?.lifecycle === "sealed" &&
-            writableWorkbenchCount === 0
-          ) {
-            return {
-              pendingAskCount,
-              canonicalDecisionRequestCount,
-              toolApprovalRequestCount,
-              activeInvocationCount,
-              workbenchLifecycle: binding.lifecycle,
-              writableWorkbenchCount,
-              formalEvidenceReceiptCount,
-            };
-          }
-        } finally {
-          db.close();
-        }
-      } catch {
-        return undefined;
-      }
-      return undefined;
-    },
-    60_000,
-    "terminal owner state and sealed Workbench",
-  );
-}
-
-function readProcessOwnership(dbPath: string): {
-  pid: number;
-  processStartToken: string;
-  instanceId: string;
-  generation: string;
-} {
-  const path = resolve(dirname(dirname(dbPath)), "run/daemon.identity.json");
-  return jsonObjectSync(path) as {
-    pid: number;
-    processStartToken: string;
-    instanceId: string;
-    generation: string;
-  };
-}
-
-async function stopProcesses(target: SparkProcessTarget, pids: number[] = []): Promise<void> {
-  await runSparkProcess(target, ["daemon", "stop", "--yes"]).catch(() => undefined);
-  await runSparkProcess(target, ["hub", "web", "stop", "--json"]).catch(() => undefined);
-  await Promise.all(
-    pids
-      .filter((pid) => pid > 0)
-      .map(async (pid) => {
-        await waitFor(
-          async () => (isProcessAlive(pid) ? undefined : true),
-          10_000,
-          `process ${pid} to exit after stop`,
-        );
-      }),
-  );
-}
-
 async function readProviderLedger(path: string): Promise<ScriptedLedger> {
   return jsonObject(await readFile(path, "utf8")) as unknown as ScriptedLedger;
-}
-
-async function waitForJsonFile(path: string): Promise<Record<string, unknown>> {
-  return await waitFor(
-    async () => {
-      try {
-        return jsonObject(await readFile(path, "utf8"));
-      } catch {
-        return undefined;
-      }
-    },
-    60_000,
-    path,
-  );
 }
 
 async function waitFor<T>(
@@ -1845,12 +938,7 @@ async function waitFor<T>(
     }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
   }
-  const detail =
-    lastError instanceof Error
-      ? lastError.message
-      : lastError === undefined
-        ? ""
-        : JSON.stringify(lastError);
+  const detail = lastError instanceof Error ? lastError.message : "";
   throw new Error(`Timed out waiting for ${label}${detail ? `: ${detail}` : ""}`);
 }
 
@@ -1865,8 +953,7 @@ async function reservePort(): Promise<number> {
         reject(new Error("failed to reserve a TCP port"));
         return;
       }
-      const port = address.port;
-      server.close((error) => (error ? reject(error) : resolvePort(port)));
+      server.close((error) => (error ? reject(error) : resolvePort(address.port)));
     });
   });
 }
@@ -1874,38 +961,23 @@ async function reservePort(): Promise<number> {
 async function runFixtureVerification(
   cwd: string,
   implementation: "reference" | "target",
-): Promise<FixtureVerificationReceipt> {
-  const command = `node verify.mjs ${implementation}`;
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   try {
     const result = await execFileAsync(
       process.execPath,
       [resolve(cwd, "verify.mjs"), implementation],
-      {
-        cwd,
-        env: process.env,
-        encoding: "utf8",
-      },
+      { cwd, env: process.env, encoding: "utf8" },
     );
-    return {
-      command,
-      exitCode: 0,
-      stdout: result.stdout.trim(),
-      stderr: result.stderr.trim(),
-    };
+    return { exitCode: 0, stdout: result.stdout.trim(), stderr: result.stderr.trim() };
   } catch (error) {
     const failure = error as { code?: number | string; stdout?: string; stderr?: string };
     const exitCode = typeof failure.code === "number" ? failure.code : Number(failure.code);
     return {
-      command,
       exitCode: Number.isInteger(exitCode) ? exitCode : 1,
       stdout: failure.stdout?.trim() ?? "",
       stderr: failure.stderr?.trim() ?? "",
     };
   }
-}
-
-function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }
 
 async function git(cwd: string, args: string[]): Promise<void> {
@@ -1928,55 +1000,44 @@ function jsonArray(value: string): Record<string, unknown>[] {
   return parsed as Record<string, unknown>[];
 }
 
-function jsonObjectSync(path: string): Record<string, unknown> {
-  return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-}
-
 function objectField(record: Record<string, unknown>, key: string): Record<string, unknown> {
   const value = record[key];
-  assert.ok(value && typeof value === "object" && !Array.isArray(value), `${key} is an object`);
+  assert.ok(
+    value && typeof value === "object" && !Array.isArray(value),
+    `${key} must be an object`,
+  );
   return value as Record<string, unknown>;
 }
 
 function arrayField(record: Record<string, unknown>, key: string): Record<string, unknown>[] {
   const value = record[key];
-  assert.ok(Array.isArray(value), `${key} is an array`);
+  assert.ok(Array.isArray(value), `${key} must be an array`);
   return value as Record<string, unknown>[];
-}
-
-function stringArrayField(record: Record<string, unknown>, key: string): string[] {
-  const value = record[key];
-  assert.ok(Array.isArray(value), `${key} is an array`);
-  assert.ok(
-    value.every((entry) => typeof entry === "string"),
-    `${key} contains strings`,
-  );
-  return value as string[];
 }
 
 function stringField(record: Record<string, unknown>, key: string): string {
   const value = record[key];
-  assert.equal(typeof value, "string", `${key} is a string`);
-  return value as string;
+  if (typeof value !== "string") throw new TypeError(`${key} must be a string`);
+  return value;
 }
 
 function numberField(record: Record<string, unknown>, key: string): number {
   const value = record[key];
-  assert.equal(typeof value, "number", `${key} is a number`);
-  return value as number;
+  if (typeof value !== "number") throw new TypeError(`${key} must be a number`);
+  return value;
 }
 
-function numberResult(value: unknown): number {
-  const record = value as { count?: number } | undefined;
-  return Number(record?.count ?? 0);
+function isGitChangeArtifact(artifact: Artifact): artifact is Artifact<GitChangeArtifactBody> {
+  return artifact.kind === "git_change" && artifact.body.kind === "git_change";
 }
 
-function uniqueMatches(value: string, pattern: RegExp): string[] {
-  return [...new Set(value.match(pattern) ?? [])];
+function gitChangeWorktreePath(artifact: Artifact<GitChangeArtifactBody>): string {
+  const path = artifact.body.worktree.path;
+  if (!path) throw new Error(`${artifact.ref} has no attached worktree path`);
+  return path;
 }
 
 function isProcessAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
