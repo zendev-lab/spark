@@ -19,6 +19,7 @@
     "./daemon-rpc-errors": "./src/daemon-rpc-errors.ts",
     "./model-control": "./src/model-control.ts",
     "./repro-formal-evidence": "./src/repro-formal-evidence.ts",
+    "./repro-lane": "./src/repro-lane.ts",
     "./role-session": "./src/role-session.ts",
     "./session-assignment": "./src/session-assignment.ts",
     "./session-errors": "./src/session-errors.ts",
