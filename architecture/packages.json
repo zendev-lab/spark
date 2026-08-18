@@ -72,7 +72,6 @@
         "nonGrowth": true
       }
     ],
-
     "temporaryDependencyExceptionBudget": {
       "current": 4,
       "ceiling": 4,
@@ -114,60 +113,12 @@
       "stateWriter": "none",
       "distribution": "private"
     },
-    "@zendev-lab/spark-cli": {
-      "path": "apps/spark-cli",
-      "layer": "application",
-      "owner": "cli",
-      "stability": "supported",
-      "stateWriter": "none",
-      "distribution": "public-npm"
-    },
-    "@zendev-lab/spark-hub": {
-      "path": "apps/spark-hub",
-      "layer": "application",
-      "owner": "hub",
-      "stability": "supported",
-      "stateWriter": "hub",
-      "distribution": "public-npm"
-    },
-    "@zendev-lab/spark-daemon": {
-      "path": "apps/spark-daemon",
-      "layer": "application",
-      "owner": "daemon",
-      "stability": "supported",
-      "stateWriter": "daemon",
-      "distribution": "public-npm"
-    },
-    "@zendev-lab/spark-docs": {
-      "path": "apps/spark-docs",
-      "layer": "application",
-      "owner": "docs",
-      "stability": "supported",
-      "stateWriter": "none",
-      "allowedWorkspaceDependencies": [],
-      "distribution": "private"
-    },
-    "@zendev-lab/spark-tui": {
-      "path": "apps/spark-tui",
-      "layer": "application",
-      "owner": "tui",
-      "stability": "supported",
-      "stateWriter": "host",
-      "distribution": "public-npm"
-    },
     "@zendev-lab/spark-acp": {
       "path": "packages/spark-acp",
       "layer": "adapter",
       "owner": "acp",
       "stability": "supported",
       "stateWriter": "none"
-    },
-    "@zendev-lab/spark-llm": {
-      "path": "packages/spark-llm",
-      "layer": "capability",
-      "owner": "llm",
-      "stability": "supported",
-      "stateWriter": "user"
     },
     "@zendev-lab/spark-artifacts": {
       "path": "packages/spark-artifacts",
@@ -190,26 +141,13 @@
       "stability": "supported",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-hub-coordination": {
-      "path": "packages/spark-hub-coordination",
-      "layer": "private-adapter",
-      "owner": "hub",
-      "stability": "private",
-      "stateWriter": "hub"
-    },
-    "@zendev-lab/spark-hub-db": {
-      "path": "packages/spark-hub-db",
-      "layer": "private-adapter",
-      "owner": "hub",
-      "stability": "private",
-      "stateWriter": "hub"
-    },
-    "@zendev-lab/spark-ui": {
-      "path": "packages/spark-ui",
-      "layer": "private-adapter",
-      "owner": "presentation",
-      "stability": "private",
-      "stateWriter": "none"
+    "@zendev-lab/spark-cli": {
+      "path": "apps/spark-cli",
+      "layer": "application",
+      "owner": "cli",
+      "stability": "supported",
+      "stateWriter": "none",
+      "distribution": "public-npm"
     },
     "@zendev-lab/spark-core": {
       "path": "packages/spark-core",
@@ -225,12 +163,29 @@
       "stability": "supported",
       "stateWriter": "external"
     },
+    "@zendev-lab/spark-daemon": {
+      "path": "apps/spark-daemon",
+      "layer": "application",
+      "owner": "daemon",
+      "stability": "supported",
+      "stateWriter": "daemon",
+      "distribution": "public-npm"
+    },
     "@zendev-lab/spark-daemon-client": {
       "path": "packages/spark-daemon-client",
       "layer": "client",
       "owner": "daemon",
       "stability": "internal",
       "stateWriter": "none"
+    },
+    "@zendev-lab/spark-docs": {
+      "path": "apps/spark-docs",
+      "layer": "application",
+      "owner": "docs",
+      "stability": "supported",
+      "stateWriter": "none",
+      "allowedWorkspaceDependencies": [],
+      "distribution": "private"
     },
     "@zendev-lab/spark-extension": {
       "path": "packages/spark-extension",
@@ -267,6 +222,28 @@
       "stability": "supported",
       "stateWriter": "host"
     },
+    "@zendev-lab/spark-hub": {
+      "path": "apps/spark-hub",
+      "layer": "application",
+      "owner": "hub",
+      "stability": "supported",
+      "stateWriter": "hub",
+      "distribution": "public-npm"
+    },
+    "@zendev-lab/spark-hub-coordination": {
+      "path": "packages/spark-hub-coordination",
+      "layer": "private-adapter",
+      "owner": "hub",
+      "stability": "private",
+      "stateWriter": "hub"
+    },
+    "@zendev-lab/spark-hub-db": {
+      "path": "packages/spark-hub-db",
+      "layer": "private-adapter",
+      "owner": "hub",
+      "stability": "private",
+      "stateWriter": "hub"
+    },
     "@zendev-lab/spark-i18n": {
       "path": "packages/spark-i18n",
       "layer": "foundation",
@@ -274,19 +251,26 @@
       "stability": "supported",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-loop": {
-      "path": "packages/spark-loop",
-      "layer": "capability",
-      "owner": "goals",
-      "stability": "supported",
-      "stateWriter": "workspace"
-    },
     "@zendev-lab/spark-lens": {
       "path": "packages/spark-lens",
       "layer": "capability",
       "owner": "lens",
       "stability": "internal",
       "stateWriter": "none"
+    },
+    "@zendev-lab/spark-llm": {
+      "path": "packages/spark-llm",
+      "layer": "capability",
+      "owner": "llm",
+      "stability": "supported",
+      "stateWriter": "user"
+    },
+    "@zendev-lab/spark-loop": {
+      "path": "packages/spark-loop",
+      "layer": "capability",
+      "owner": "goals",
+      "stability": "supported",
+      "stateWriter": "workspace"
     },
     "@zendev-lab/spark-mcp": {
       "path": "packages/spark-mcp",
@@ -374,6 +358,14 @@
       "stability": "supported",
       "stateWriter": "none"
     },
+    "@zendev-lab/spark-tui": {
+      "path": "apps/spark-tui",
+      "layer": "application",
+      "owner": "tui",
+      "stability": "supported",
+      "stateWriter": "host",
+      "distribution": "public-npm"
+    },
     "@zendev-lab/spark-tui-adapter": {
       "path": "packages/spark-tui-adapter",
       "layer": "adapter",
@@ -388,6 +380,13 @@
       "stability": "supported",
       "stateWriter": "none"
     },
+    "@zendev-lab/spark-ui": {
+      "path": "packages/spark-ui",
+      "layer": "private-adapter",
+      "owner": "presentation",
+      "stability": "private",
+      "stateWriter": "none"
+    },
     "@zendev-lab/spark-update": {
       "path": "packages/spark-update",
       "layer": "foundation",
@@ -398,6 +397,13 @@
     },
     "@zendev-lab/spark-web": {
       "path": "packages/spark-web",
+      "layer": "capability",
+      "owner": "web",
+      "stability": "supported",
+      "stateWriter": "user"
+    },
+    "@zendev-lab/spark-web-dsh": {
+      "path": "packages/spark-web-dsh",
       "layer": "capability",
       "owner": "web",
       "stability": "supported",

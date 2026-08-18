@@ -21,6 +21,7 @@
 import { build } from "esbuild";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -169,6 +170,15 @@ export async function ensureSparkLlmBundle(profileDir: string): Promise<SparkLlm
   return { entry, bundle, rebuilt };
 }
 
+const SPARK_WEB_DHS_PACKAGE = "@zendev-lab/spark-web-dsh";
+
+/** Locate the installed `@zendev-lab/spark-web-dsh` package root. */
+export function resolveSparkWebDshPackageDir(): string {
+  const pkgJson = require.resolve(`${SPARK_WEB_DHS_PACKAGE}/package.json`);
+  return dirname(pkgJson);
+}
+
+
 export interface SparkWebPatch {
   /** Patch rows: the spark-llm plugin insert and any overrides. */
   rows: string[];
@@ -187,6 +197,74 @@ export interface SparkWebPatch {
  *   DSH default — this is the documented way to bind 0.0.0.0, which the
  *   `dsh` CLI rejects outright.
  */
+export interface SparkWebClientResult {
+  packageDir: string;
+  bundle: string;
+  rebuilt: boolean;
+  linked: boolean;
+}
+
+/**
+ * Build the spark-web-dsh client bundle (when stale) and link the package
+ * into the profile's node_modules so the DSH client-modules host can resolve
+ * it as a `dsh.client` package. Idempotent on both halves.
+ */
+export async function ensureSparkWebClient(profileDir: string): Promise<SparkWebClientResult> {
+  const packageDir = resolveSparkWebDshPackageDir();
+  const entry = join(packageDir, "src", "client.tsx");
+  const bundle = join(packageDir, "lib", "client.js");
+  let rebuilt = false;
+  if (
+    existsSync(entry) &&
+    (!existsSync(bundle) || statSync(entry).mtimeMs > statSync(bundle).mtimeMs)
+  ) {
+    await build({
+      entryPoints: [entry],
+      bundle: true,
+      format: "cjs",
+      platform: "browser",
+      jsx: "automatic",
+      outfile: bundle,
+      external: ["react", "react/jsx-runtime", "@deepseek-ai/*"],
+      banner: {
+        js: `window.__ModuleLoader__.load({ id: ${JSON.stringify(SPARK_WEB_DHS_PACKAGE)}, factory: (require) => { var module = { exports: {} }; var exports = module.exports;`,
+      },
+      footer: { js: "} });" },
+      logLevel: "silent",
+    });
+    rebuilt = true;
+  }
+  let linked = false;
+  try {
+    if (resolveFromDirectory(profileDir, SPARK_WEB_DHS_PACKAGE) === undefined) throw new Error("not linked");
+  } catch {
+    const dsh = spawnSync("dsh", ["plugin", "--profile", "web", "add", `link:${packageDir}`], {
+      stdio: "inherit",
+    });
+    if (dsh.status !== 0) {
+      throw new Error(
+        `spark web: failed to link ${SPARK_WEB_DHS_PACKAGE} into the DSH profile (dsh plugin add exited ${dsh.status ?? "with signal"})`,
+      );
+    }
+    linked = true;
+  }
+  return { packageDir, bundle, rebuilt, linked };
+}
+
+/**
+ * Compose the patch overlay for one `spark web` run and write it to a
+ * temporary file. Rows:
+ *
+ * - `spark-llm` host plugin (relative to the profile root, so the DSH loader
+ *   resolves it without an install);
+ * - `spark-web-dsh` client plugin (package name; the client-modules host
+ *   resolves it from the profile's node_modules and serves its bundle);
+ * - `hmr` re-enabled (the web-app bundle ships it disabled);
+ * - the `webserver` row restated with the requested host when it is not the
+ *   DSH default — this is the documented way to bind 0.0.0.0, which the
+ *   `dsh` CLI rejects outright.
+ */
+
 export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): SparkWebPatch {
   // The Loader rejects duplicate ids inside insert lists, so entries the
   // user profile already declares are skipped here (the patch layer only
@@ -199,6 +277,12 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
       "    # spark-llm Baidu OneAPI provider, loaded automatically by `spark web`.",
       "    - id: spark-llm",
       "      name: ./plugins/spark-llm/index.mjs",
+    );
+  }
+  if (!userPatch.includes("id: spark-web-dsh")) {
+    rows.push(
+      "    - id: spark-web-dsh",
+      `      name: ${JSON.stringify(SPARK_WEB_DHS_PACKAGE)}`,
     );
   }
   rows.push("- id: hmr", "  disabled: false");
@@ -232,6 +316,14 @@ export async function prepareSparkWebDispatch(args: SparkWebArgs): Promise<strin
   if (bundle.rebuilt) {
     process.stderr.write(`[spark web] built spark-llm plugin bundle -> ${bundle.bundle}\n`);
   }
+  const client = await ensureSparkWebClient(profileDir);
+  if (client.rebuilt) {
+    process.stderr.write(`[spark web] built spark-web-dsh client bundle -> ${client.bundle}\n`);
+  }
+  if (client.linked) {
+    process.stderr.write(`[spark web] linked ${SPARK_WEB_DHS_PACKAGE} into the DSH profile\n`);
+  }
+
   const patch = composeSparkWebPatch(profileDir, args);
   const dshArgv = ["web", "--patch", patch.path];
   if (args.port !== undefined) dshArgv.push("--port", String(args.port));

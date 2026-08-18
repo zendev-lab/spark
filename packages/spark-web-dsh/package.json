@@ -1,0 +1,38 @@
+{
+  "name": "@zendev-lab/spark-web-dsh",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Spark web client plugin for the DSH web profile: replaces the DeepSeek-key onboarding step with a provider selection and configuration step.",
+  "license": "MIT",
+  "files": [
+    "lib/**/*.js",
+    "README.md"
+  ],
+  "type": "module",
+  "exports": {
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test": "vp test run"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "esbuild": "^0.28.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "slots",
+        "locale",
+        "connection",
+        "remote"
+      ]
+    }
+  }
+}
