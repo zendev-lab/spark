@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 
 import { SPARK_PROTOCOL_VERSION, type SparkSessionView } from "@zendev-lab/spark-protocol";
 
@@ -215,8 +215,8 @@ test("idle TUI reconcile refreshes the widget when the daemon snapshot is unavai
 });
 
 test("idle TUI reconcile loop applies a later snapshot then stops on abort", async () => {
+  vi.useFakeTimers();
   const controller = new AbortController();
-  const queued: Array<() => void> = [];
   const snapshots = [
     projectionView({ updatedAt: "2026-08-17T00:00:00.000Z" }),
     projectionView({
@@ -233,32 +233,27 @@ test("idle TUI reconcile loop applies a later snapshot then stops on abort", asy
   ];
   let loads = 0;
   let applied = 0;
-  startIdleNativeTuiDaemonProjectionReconcile({
-    signal: controller.signal,
-    lastSignature: nativeTuiDaemonProjectionSignature(snapshots[0]!),
-    isProcessing: () => false,
-    loadSnapshot: async () => snapshots[Math.min(loads++, snapshots.length - 1)]!,
-    applySnapshot: () => {
-      applied += 1;
-    },
-    refreshWidget: async () => undefined,
-    intervalMs: 250,
-    schedule: (callback) => {
-      queued.push(callback);
-      return queued.length;
-    },
-    cancelSchedule: () => {
-      queued.length = 0;
-    },
-  });
-  assert.equal(queued.length, 1);
-  queued.shift()?.();
-  await drainMicrotasks();
-  assert.equal(applied, 0);
-  assert.equal(queued.length, 1);
-  queued.shift()?.();
-  await drainMicrotasks();
-  assert.equal(applied, 1);
-  controller.abort();
-  assert.equal(queued.length, 0);
+  try {
+    startIdleNativeTuiDaemonProjectionReconcile({
+      signal: controller.signal,
+      lastSignature: nativeTuiDaemonProjectionSignature(snapshots[0]!),
+      isProcessing: () => false,
+      loadSnapshot: async () => snapshots[Math.min(loads++, snapshots.length - 1)]!,
+      applySnapshot: () => {
+        applied += 1;
+      },
+      refreshWidget: async () => undefined,
+      intervalMs: 250,
+    });
+    await vi.advanceTimersByTimeAsync(250);
+    await drainMicrotasks();
+    assert.equal(applied, 0);
+    await vi.advanceTimersByTimeAsync(250);
+    await drainMicrotasks();
+    assert.equal(applied, 1);
+    controller.abort();
+    assert.equal(vi.getTimerCount(), 0);
+  } finally {
+    vi.useRealTimers();
+  }
 });
