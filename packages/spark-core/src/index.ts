@@ -1468,6 +1468,8 @@ export interface TaskExecutionPolicy {
   continuity?: TaskExecutionContinuity;
   isolation: TaskExecutionIsolation;
   comparison: TaskExecutionComparison;
+  /** Completion evidence owner. Omitted means the generic Artifact Lens gate. */
+  completionGate?: "artifact_lens" | "task_evidence";
   resources?: TaskResourceRequest;
   worktreeTarget?: TaskWorktreeTarget;
   concurrencyKeys: string[];

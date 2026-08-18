@@ -554,6 +554,13 @@ export function normalizeTaskExecutionPolicy(
     throw new Error("task executionPolicy.comparison is invalid");
   }
   if (
+    policy?.completionGate !== undefined &&
+    policy.completionGate !== "artifact_lens" &&
+    policy.completionGate !== "task_evidence"
+  ) {
+    throw new Error("task executionPolicy.completionGate is invalid");
+  }
+  if (
     policy?.concurrencyKeys !== undefined &&
     (!Array.isArray(policy.concurrencyKeys) ||
       policy.concurrencyKeys.some((key) => typeof key !== "string"))
@@ -632,6 +639,7 @@ export function normalizeTaskExecutionPolicy(
     continuity,
     isolation,
     comparison,
+    ...(policy?.completionGate ? { completionGate: policy.completionGate } : {}),
     ...(resources ? { resources } : {}),
     ...(worktreeTarget ? { worktreeTarget } : {}),
     concurrencyKeys: [...new Set(normalizeStringList(policy?.concurrencyKeys))],

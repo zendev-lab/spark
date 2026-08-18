@@ -17,7 +17,7 @@ const EXEC_TOOLS = [
   "impl_update_task_plan_items",
   "impl_finish_task",
 ];
-const LANE_WRITE_TOOLS = [...EXEC_TOOLS, "git", "edit", "write", "lens"];
+const LANE_WRITE_TOOLS = [...EXEC_TOOLS, "git", "edit", "write"];
 
 export const SPARK_REPRO_ROLE_IDS = [
   "repro-implementation-explorer",

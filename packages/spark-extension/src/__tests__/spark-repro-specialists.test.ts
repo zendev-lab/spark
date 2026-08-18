@@ -42,7 +42,6 @@ test("Repro extension roles are bounded specialists without ask or spawn authori
     assert.equal(role.allowedTools?.includes("edit"), writableLaneRoles.has(role.id));
     assert.equal(role.allowedTools?.includes("write"), writableLaneRoles.has(role.id));
     assert.equal(role.allowedTools?.includes("git"), writableLaneRoles.has(role.id));
-    assert.equal(role.allowedTools?.includes("lens"), writableLaneRoles.has(role.id));
   }
   registerSparkReproRoles();
   const registry = createDefaultRoleRegistry();

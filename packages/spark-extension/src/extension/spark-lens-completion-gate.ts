@@ -7,6 +7,7 @@ import type { Task } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 
 export async function requireTaskLensPasses(cwd: string, task: Task): Promise<void> {
+  if (task.executionPolicy?.completionGate === "task_evidence") return;
   await requireArtifactLensPasses(cwd, task.artifactRefs);
 }
 
