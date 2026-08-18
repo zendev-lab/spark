@@ -6,9 +6,7 @@ export interface DaemonInvocationCounts {
   cancelled: number;
 }
 
-/** Hard control-plane gates while 50 real AgentLoops occupy every root slot. */
-export const DAEMON_ORPC_CAPACITY_MAX_EVENT_LOOP_GAP_MS = 100;
-export const DAEMON_ORPC_CAPACITY_MAX_RPC_MS = 500;
+/** Production-shaped cardinality while 50 real AgentLoops occupy every root slot. */
 export const DAEMON_ORPC_CAPACITY_MIN_STREAM_SAMPLES = 20;
 export const DAEMON_ORPC_CAPACITY_CONCURRENCY = 50;
 export const DAEMON_ORPC_CAPACITY_SESSION_COUNT = 50;

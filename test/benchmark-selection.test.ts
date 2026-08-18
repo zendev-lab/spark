@@ -9,6 +9,7 @@ import { parseSelectedBenchmarks } from "../scripts/run-selected-benchmarks.mts"
 
 describe("CodSpeed benchmark selection", () => {
   it("routes file I/O benchmarks to walltime and CPU benchmarks to simulation", () => {
+    expect(benchmarkLane("benchmarks/daemon/orpc-capacity.walltime.bench.ts")).toBe("walltime");
     expect(benchmarkLane("benchmarks/session/hot-paths.walltime.bench.ts")).toBe("walltime");
     expect(benchmarkLane("benchmarks/lens/hot-paths.bench.ts")).toBe("simulation");
     expect(

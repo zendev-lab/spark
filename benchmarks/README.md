@@ -5,8 +5,9 @@ Each measured module has a directory under this root; the shared
 `vitest.config.ts` discovers every `benchmarks/**/*.bench.ts` file without a
 second module inventory.
 
-The current suite covers real production paths in three owners:
+The current suite covers real production paths in four owners:
 
+- Daemon: 50-way fake-provider execution, direct oRPC, and streaming persistence;
 - Lens: canonical serialization, diagnostic aggregation, and patch proposal
   normalization and hashing;
 - Protocol: session-view parsing, conversation projection, A2UI normalization,
@@ -18,6 +19,14 @@ Benchmark inputs live in adjacent `*-cases.ts` files and are reused by
 output contract so a faster result cannot come from silently doing less work.
 Cases stay deterministic and offline: do not start providers, access the
 network, read credentials, or depend on mutable repository state.
+
+The daemon capacity benchmark uses the same source-process case and semantic
+assertions as `test/process/daemon-orpc-capacity.test.ts`. It deliberately runs
+one bounded walltime round without warmup because every round starts an isolated
+daemon, creates 50 Sessions, projects 2,500 streaming deltas, and completes 120
+loaded status RPCs. CodSpeed owns the end-to-end performance comparison; the
+source-process lane continues to fail on an incorrect workload, RPC failure,
+timeout, or persistence result.
 
 Run the local Vitest benchmark UI:
 
