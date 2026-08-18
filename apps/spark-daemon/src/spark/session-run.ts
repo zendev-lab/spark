@@ -1129,13 +1129,22 @@ function interactionForSessionRun(
 ) {
   if (!options.interact) return undefined;
   return (request: unknown) => {
-    const presentationSessionId = task.presentationSessionId?.trim();
+    const parsed = parseSparkInteractionRequest(request);
+    const evidenceOwnerSessionId =
+      parsed.kind === "askFlow" ? parsed.evidenceRequest?.ownerSessionId.trim() : undefined;
+    if (
+      evidenceOwnerSessionId &&
+      evidenceOwnerSessionId !== task.sessionId &&
+      evidenceOwnerSessionId !== task.stateBindingSessionId
+    ) {
+      throw new Error("evidence-bound interaction owner does not match the Session state owner");
+    }
+    const presentationSessionId = evidenceOwnerSessionId ?? task.presentationSessionId?.trim();
     const interactionTask =
       presentationSessionId && presentationSessionId !== task.sessionId
         ? { ...task, sessionId: presentationSessionId }
         : task;
-    const operation = () =>
-      options.interact!(parseSparkInteractionRequest(request), interactionTask, context);
+    const operation = () => options.interact!(parsed, interactionTask, context);
     return context.withPausedTimeout ? context.withPausedTimeout(operation) : operation();
   };
 }
