@@ -67,6 +67,11 @@ drift, flakes, and duration violations as distinct failures. Mutation CE evaluat
 kill plausible source changes. Both publish reports without weakening the binary contracts used by
 pull-request verification.
 
+The daemon capacity source-process case keeps its direct-oRPC, concurrency, provider-cardinality,
+event-ordering, and persistence contracts binary. Its event-loop and RPC diagnostics remain in the
+source-process report, while CodSpeed compares the production-shaped end-to-end walltime instead
+of applying absolute latency thresholds on shared hosted runners.
+
 ## Test ownership and discovery
 
 Test ownership is structural instead of ledger-driven:
