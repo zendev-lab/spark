@@ -764,6 +764,60 @@ describe("daemon session control admission", () => {
     }
   });
 
+  it("freezes a managed child Session's durable state owner into the invocation", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-session-state-binding-"));
+    const db = openMemoryDatabase();
+    migrateSparkDaemonDatabase(db);
+    const paths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const sessionRegistry = createDaemonSessionRegistry(join(root, ".spark"), {
+      daemonId: "state-binding-test",
+      daemonCwd: root,
+    });
+    const administrator = await sessionRegistry.ensureWorkspaceAdministrator("workspace-managed");
+    const child = await sessionRegistry.createSupervised({
+      sessionId: "session-managed-child",
+      scope: { kind: "workspace", workspaceId: "workspace-managed" },
+      cwd: join(root, "isolated-worktree"),
+      owner: {
+        kind: "task_revision",
+        supervisorSessionId: administrator.sessionId,
+        projectRef: "proj:managed",
+        taskRef: "task:managed",
+        revisionRef: "job:managed",
+        originatingRunRef: "run:managed",
+        sessionGoalId: "goal:managed",
+        roleRef: "role:builtin-executor",
+        jobId: "job:managed",
+        attempt: 1,
+      },
+      stateBinding: { kind: "session", ref: administrator.sessionId },
+      visibility: "public",
+      retention: "retain",
+      purpose: "interactive",
+    });
+
+    try {
+      const submitted = await executeSparkDaemonSessionControl(
+        { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
+        {
+          kind: "turn.submit.request",
+          scope: "any",
+          sessionId: child.sessionId,
+          payload: { sessionId: child.sessionId, prompt: "complete the managed task" },
+        },
+      );
+      const invocation = new SparkInvocationStore(db).require(submitted.invocationId!);
+      expect(invocation.task).toMatchObject({
+        type: "session.run",
+        sessionId: child.sessionId,
+        stateBindingSessionId: administrator.sessionId,
+      });
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("persists an explicit causal parent for a child turn and rejects replay ancestry drift", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-parent-invocation-"));
     const db = openMemoryDatabase();

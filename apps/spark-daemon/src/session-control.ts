@@ -583,6 +583,9 @@ export async function executeSparkDaemonSessionControl(
           {
             type: "session.run",
             sessionId: parsed.sessionId,
+            ...(session?.stateBinding.kind === "session"
+              ? { stateBindingSessionId: session.stateBinding.ref }
+              : {}),
             prompt: parsed.prompt,
             ...(model ? { model } : {}),
             ...(thinkingLevel ? { thinkingLevel } : {}),
