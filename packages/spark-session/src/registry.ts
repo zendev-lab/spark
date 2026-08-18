@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
   channelAdapterFromExternalKey,
@@ -186,10 +186,20 @@ export class SparkSessionRegistryError extends Error {
   }
 }
 
+interface RegistryFileFingerprint {
+  mtimeMs: number;
+  size: number;
+}
+
+type RegistryFileCache =
+  | { kind: "missing" }
+  | { kind: "present"; fingerprint: RegistryFileFingerprint; file: SparkSessionRegistryFile };
+
 export class SparkSessionRegistry {
   readonly rootDir: string;
   readonly filePath: string;
   #migration: Promise<SparkSessionRegistryFile> | undefined;
+  #cache: RegistryFileCache | undefined;
 
   constructor(options: SparkSessionRegistryOptions) {
     this.rootDir = options.rootDir;
@@ -1327,13 +1337,30 @@ export class SparkSessionRegistry {
   }
 
   private async loadFile(): Promise<SparkSessionRegistryFile> {
+    const fingerprint = await this.readFingerprint();
+    if (!fingerprint) {
+      const empty = emptyRegistryFile();
+      this.#cache = { kind: "missing" };
+      return cloneRegistryFile(empty);
+    }
+    if (
+      this.#cache?.kind === "present" &&
+      fingerprintsEqual(this.#cache.fingerprint, fingerprint)
+    ) {
+      return cloneRegistryFile(this.#cache.file);
+    }
     try {
       const source = await readFile(this.filePath, "utf8");
       const raw = JSON.parse(source) as unknown;
       if (registryVersion(raw) === SPARK_SESSION_REGISTRY_VERSION) {
         const current = parseRegistryFile(raw);
         validateRegistryOwnership(current.sessions);
-        return current;
+        this.#cache = {
+          kind: "present",
+          fingerprint: (await this.readFingerprint()) ?? fingerprint,
+          file: current,
+        };
+        return cloneRegistryFile(current);
       }
       if (!this.#migration) {
         this.#migration = migrateLegacyRegistryFile({
@@ -1345,15 +1372,17 @@ export class SparkSessionRegistry {
           this.#migration = undefined;
         });
       }
-      return await this.#migration;
+      const migrated = await this.#migration;
+      this.#cache = {
+        kind: "present",
+        fingerprint: (await this.readFingerprint()) ?? fingerprint,
+        file: migrated,
+      };
+      return cloneRegistryFile(migrated);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return {
-          version: SPARK_SESSION_REGISTRY_VERSION,
-          revision: 0,
-          sessions: [],
-          tombstones: [],
-        };
+        this.#cache = { kind: "missing" };
+        return cloneRegistryFile(emptyRegistryFile());
       }
       throw error;
     }
@@ -1361,15 +1390,7 @@ export class SparkSessionRegistry {
 
   private async saveFile(file: SparkSessionRegistryFile): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
-    let currentRevision = 0;
-    try {
-      const current = parseRegistryFile(
-        JSON.parse(await readFile(this.filePath, "utf8")) as unknown,
-      );
-      currentRevision = current.revision;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
+    const currentRevision = await this.readCurrentRevision();
     if (currentRevision !== file.revision) {
       throw new SparkSessionRegistryError(
         "session_registry_conflict",
@@ -1391,17 +1412,51 @@ export class SparkSessionRegistry {
     };
     await writeFile(tempPath, `${JSON.stringify(stored, null, 2)}\n`, "utf8");
     await rename(tempPath, this.filePath);
-    const readback = parseRegistryFile(
-      JSON.parse(await readFile(this.filePath, "utf8")) as unknown,
-    );
-    const expected = parseRegistryFile(stored);
-    if (JSON.stringify(readback) !== JSON.stringify(expected)) {
+    const readbackRaw = JSON.parse(await readFile(this.filePath, "utf8")) as unknown;
+    if (JSON.stringify(readbackRaw) !== JSON.stringify(stored)) {
       throw new SparkSessionRegistryError(
         "invalid_registry",
         `session registry write readback mismatch: ${this.filePath}`,
       );
     }
+    const readback = parseRegistryFile(readbackRaw);
+    this.#cache = {
+      kind: "present",
+      fingerprint: (await this.readFingerprint()) ?? {
+        mtimeMs: 0,
+        size: 0,
+      },
+      file: readback,
+    };
     file.revision = next.revision;
+  }
+
+  private async readCurrentRevision(): Promise<number> {
+    const fingerprint = await this.readFingerprint();
+    if (!fingerprint) return 0;
+    if (
+      this.#cache?.kind === "present" &&
+      fingerprintsEqual(this.#cache.fingerprint, fingerprint)
+    ) {
+      return this.#cache.file.revision;
+    }
+    try {
+      return parseRegistryFile(JSON.parse(await readFile(this.filePath, "utf8")) as unknown)
+        .revision;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+      throw error;
+    }
+  }
+
+  private async readFingerprint(): Promise<RegistryFileFingerprint | undefined> {
+    try {
+      const stats = await stat(this.filePath);
+      return { mtimeMs: stats.mtimeMs, size: stats.size };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    }
   }
 }
 
@@ -1409,6 +1464,23 @@ export function defaultSparkSessionRegistryRoot(sparkHome: string): string {
   // Keep the established directory so existing installations are migrated in
   // place; registry.json carries its own independently versioned file format.
   return join(sparkHome, "session-registry", "v1");
+}
+
+function emptyRegistryFile(): SparkSessionRegistryFile {
+  return {
+    version: SPARK_SESSION_REGISTRY_VERSION,
+    revision: 0,
+    sessions: [],
+    tombstones: [],
+  };
+}
+
+function cloneRegistryFile(file: SparkSessionRegistryFile): SparkSessionRegistryFile {
+  return structuredClone(file);
+}
+
+function fingerprintsEqual(left: RegistryFileFingerprint, right: RegistryFileFingerprint): boolean {
+  return left.mtimeMs === right.mtimeMs && left.size === right.size;
 }
 
 function parseRegistryFile(value: unknown): SparkSessionRegistryFile {
