@@ -33,6 +33,7 @@ import {
   resumeSparkReproRouteFromAnswer,
   resumeSparkReproRouteFromRecovery,
   resumeSparkReproRouteFromRepair,
+  SPARK_REPRO_LANES,
   sparkReproLaneBinding,
   sparkReproLaneResultEvidenceRefs,
   type SparkReproLane,
@@ -50,7 +51,6 @@ import {
 } from "./spark-task-session-dispatch.ts";
 import { readSessionRepro, writeSessionRepro } from "./spark-session-repro.ts";
 
-const LANES = ["implementation", "exactness", "formalize"] as const;
 const TERMINAL_RUN_STATUSES = new Set(["succeeded", "blocked", "failed", "cancelled", "stale"]);
 const OWNER_RECONCILIATIONS = new Map<string, Promise<void>>();
 
@@ -181,7 +181,7 @@ export async function launchSparkReproThreeLaneRuntime(input: {
   const registry = await createSparkRoleRegistry(stateCwd);
   const graphBeforeReservation = await defaultTaskGraphStore(stateCwd).load();
   if (!graphBeforeReservation) throw new Error("three-lane Repro TaskGraph is unavailable");
-  const reservable = LANES.map((lane) => taskRefs[lane]).filter((taskRef) => {
+  const reservable = SPARK_REPRO_LANES.map((lane) => taskRefs[lane]).filter((taskRef) => {
     const active = graphBeforeReservation
       .runs(repro.projectRef)
       .find(
@@ -706,7 +706,7 @@ async function ensureInitialLaneArtifacts(input: {
     workspaceRoot: input.stateCwd,
   });
   const entries = await Promise.all(
-    LANES.map(async (lane) => {
+    SPARK_REPRO_LANES.map(async (lane) => {
       const artifactRef = laneArtifactRef(input.repro.reproId, input.workItemId, lane);
       await service.materialize({
         action: "create_candidate",
@@ -735,7 +735,7 @@ async function ensureLaneTasks(input: {
   const updated = await defaultTaskGraphStore(input.stateCwd).update(
     (graph) => {
       const refs = {} as Record<SparkReproLane, TaskRef>;
-      for (const lane of LANES) {
+      for (const lane of SPARK_REPRO_LANES) {
         const name = laneTaskName(input.repro.reproId, lane);
         const existing = graph.tasks(input.repro.projectRef!).find((task) => task.name === name);
         const roleRef = roleForLane(lane);
@@ -843,7 +843,7 @@ async function currentLaneReservations(
   const graph = await defaultTaskGraphStore(stateCwd).load();
   if (!graph) throw new Error("Repro lane TaskGraph is unavailable");
   const result = {} as Record<SparkReproLane, { runRef: RunRef; sessionId: string }>;
-  for (const lane of LANES) {
+  for (const lane of SPARK_REPRO_LANES) {
     const run = graph
       .runs(repro.projectRef)
       .filter((candidate) => candidate.taskRef === taskRefs[lane])
