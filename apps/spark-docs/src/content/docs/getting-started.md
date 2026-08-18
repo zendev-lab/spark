@@ -7,7 +7,7 @@ sidebar:
 
 ## Requirements
 
-Spark currently requires Node.js `>=26 <27`. `@zendev-lab/spark` is the complete
+Spark currently requires Node.js `>=24`. `@zendev-lab/spark` is the complete
 installation and brings matching daemon, TUI, and Hub app packages. Those apps
 can also be installed independently for single-process deployments.
 

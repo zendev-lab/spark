@@ -23,7 +23,7 @@ describe("Spark daemon release identity", () => {
           version: "9.8.7",
           gitSha: "test-sha",
           protocolVersion: 1,
-          minimumNodeVersion: ">=26.0.0 <27",
+          minimumNodeVersion: ">=24.0.0",
           migrationHead: "test",
           migrationMode: "expand-only",
           fingerprint: "sha256:test",

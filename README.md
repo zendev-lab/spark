@@ -15,7 +15,7 @@ browser supervision.
 
 ## Quick start
 
-Spark requires Node.js `>=26 <27`. The managed installation is recommended
+Spark requires Node.js `>=24`. The managed installation is recommended
 because it supports atomic upgrades and rollback:
 
 ```bash

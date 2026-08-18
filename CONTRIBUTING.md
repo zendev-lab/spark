@@ -9,7 +9,7 @@ and pull-request expectations. Coding agents must also follow
 
 Source development requires:
 
-- Node.js `>=26 <27`;
+- Node.js `>=24`;
 - pnpm `>=11 <12`, matching the version pinned in `package.json`;
 - the Vite+ `vp` CLI used by repository formatting, lint, and type-aware checks;
 - Git.

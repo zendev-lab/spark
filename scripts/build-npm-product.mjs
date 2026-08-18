@@ -60,7 +60,7 @@ async function bundle(entry, output) {
     "--bundle",
     "--platform=node",
     "--format=esm",
-    "--target=node26",
+    "--target=node24",
     ...(output.endsWith("spark-headless-role-executor.js")
       ? [`--banner:js=${esmRequireBanner}`]
       : []),

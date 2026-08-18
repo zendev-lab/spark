@@ -302,7 +302,7 @@ async function readSessionHeader(path: string): Promise<SparkSessionHeader | und
     handle = await open(path, "r");
     const buffer = Buffer.allocUnsafe(64 * 1024);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    const newline = buffer.indexOf(0x0a, 0, bytesRead);
+    const newline = buffer.subarray(0, bytesRead).indexOf(0x0a);
     if (newline < 0 && bytesRead === buffer.length) return undefined;
     return parseSessionHeaderLine(buffer.subarray(0, newline >= 0 ? newline : bytesRead));
   } catch {

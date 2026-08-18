@@ -33,7 +33,7 @@ const require = __sparkCreateRequire(import.meta.url);`,
   format: "esm",
   outfile: temporaryCli,
   platform: "node",
-  target: "node26",
+  target: "node24",
 });
 
 await chmod(temporaryCli, 0o755);

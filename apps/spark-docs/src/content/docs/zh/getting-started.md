@@ -7,7 +7,7 @@ sidebar:
 
 ## 环境要求
 
-Spark 当前要求 Node.js `>=26 <27`。`@zendev-lab/spark` 是完整安装包，并会
+Spark 当前要求 Node.js `>=24`。`@zendev-lab/spark` 是完整安装包，并会
 安装版本匹配的 daemon、TUI 与 Hub app package。仅部署单个进程时，也可以独立
 安装对应 app。
 

@@ -42,12 +42,20 @@ and generated npm product from drifting while keeping failures attributable to d
 architecture, dependency, documentation, formatting, lint, and type checks. Runtime CI runs the
 complete source and process suites on the Ubuntu/macOS matrix, the Repro Golden Journey on Ubuntu
 with a pinned compatible cue-shell source build, plus the browser suite for pull requests and
-`merge_group`. CI workflows do not run on branch pushes. Related merge-gate jobs share one
-workflow so `needs` can express intra-lane order: `ci-static-checks.yml` runs
+`merge_group`. Those source, process, journey, and browser jobs are independent because each owns
+its checkout, installation, and runtime setup. Merge-gate workflows do not run on branch pushes.
+The repository-wide benchmark workflow runs every CPU benchmark on `main`. Pull requests, merge
+groups, and `main` pushes select affected I/O benchmarks through Vitest's dependency graph, while a
+daily schedule and manual dispatch refresh the complete suite. Benchmark-harness changes force a
+full run and documentation-only pull requests skip the workflow. A regular Ubuntu selector is the
+necessary `needs` predecessor of the I/O walltime job so an unaffected change never allocates a
+CodSpeed Macro Runner. The CPU simulation job remains independent. The dependency audit uses
+path-filtered `main` pushes and a schedule for complete scans. Related merge-gate jobs share one
+workflow so `needs` can express intra-lane order where required: `ci-static-checks.yml` runs
 `Pre-commit Checks` before `Project Checks` and `Documentation Checks`; `ci-tests.yml` runs
-both `Source Tests` jobs before both `Process Tests` jobs, `Repro Golden Journey (Ubuntu)`,
-and `Browser Tests`. There is no aggregate required job and no static-to-runtime dependency
-chain. Benchmark, Mutation CE, Capability CE, and Dependency Audit jobs remain advisory.
+Source, Process, Repro Golden Journey, and Browser jobs concurrently. There is no aggregate
+required job and no static-to-runtime dependency chain. Benchmark, Mutation CE, Capability CE,
+and Dependency Audit jobs remain advisory.
 
 `prek` is the local fast-fix boundary: use native pre-commit integrations for file-format and
 workflow checks, plus the repository's `spark-check-fix` hook. Actionlint parses workflow syntax

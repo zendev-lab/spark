@@ -278,7 +278,7 @@ describe("daemon migration registry", () => {
         outfile: outputPath,
         packages: "external",
         platform: "node",
-        target: "node26",
+        target: "node24",
       });
       const packaged = (await import(`${pathToFileURL(outputPath).href}?test=${Date.now()}`)) as {
         migrateSparkDaemonDatabase(db: DatabaseSync): void;
