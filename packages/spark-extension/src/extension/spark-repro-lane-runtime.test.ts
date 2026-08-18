@@ -929,6 +929,14 @@ describe("Repro three-lane runtime launch", () => {
     expect(repro.threeLane.routes.every((route) => route.status === "acknowledged")).toBe(true);
     expect(fixture.invocations.at(-1)?.prompt).toContain("lane=implementation");
     expect(fixture.invocations.at(-1)?.prompt).toContain("originRouteId=route:");
+    const implementationBinding = sparkReproLaneBinding(
+      repro.threeLane,
+      topology.workItemId,
+      "implementation",
+    );
+    expect(fixture.invocations.at(-1)?.prompt).toContain(
+      `gitChangeRef=${implementationBinding?.gitChangeRef}`,
+    );
   });
 });
 

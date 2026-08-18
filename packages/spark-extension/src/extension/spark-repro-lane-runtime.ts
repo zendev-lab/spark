@@ -987,6 +987,7 @@ function renderLaneEnvelope(
     `bindingRevision=${binding?.bindingRevision ?? route.sourceBindingRevision + 1}`,
     `taskRef=${taskRef}`,
     `runRef=${runRef}`,
+    ...(binding ? [`gitChangeRef=${binding.gitChangeRef}`] : []),
     `sourceRevision=${route.sourceRevision}`,
     ...(route.cause.kind === "repair"
       ? [
