@@ -1,6 +1,10 @@
 name: "CI - Benchmarks"
 
 on:
+  # CodSpeed needs successful default-branch runs as PR comparison baselines.
+  push:
+    branches:
+      - main
   pull_request:
   merge_group:
     types:
@@ -14,8 +18,8 @@ permissions:
   contents: read
 
 jobs:
-  lens:
-    name: Lens Production Paths
+  benchmarks:
+    name: Repository Benchmarks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -33,4 +37,4 @@ jobs:
         uses: CodSpeedHQ/action@4296e51e7041e24dadb86d1d6e8b9320d223dbe8 # v5.0.3
         with:
           mode: simulation
-          run: pnpm run bench:lens:codspeed
+          run: pnpm run bench:codspeed
