@@ -1,5 +1,12 @@
 # @zendev-lab/spark-protocol
 
+Repro launch and terminal lane output use the strict
+`spark.repro.work-enqueue/v1` and `spark.repro.lane-result/v1` schemas exported
+from `@zendev-lab/spark-protocol/repro-lane`. `/repro <objective>` generates the
+enqueue payload internally; lane, revision, Task/Run, route, and GitChange
+identity remain owner-derived. Lane results reject unknown fields and require
+the exact route, TaskRun, binding revision, and Git revision provenance.
+
 JSON-safe schemas and types shared by native TUI, daemon, runtime WebSocket, and Hub surfaces. This package owns refs/errors, command/event envelopes, RoleSpec and Session lifecycle contracts, invocation lifecycle, registration, projections, interactions, and view models.
 
 View-model protocol v2 is a coordinated daemon/TUI hard cut. It adds bounded
