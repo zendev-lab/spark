@@ -47,8 +47,8 @@ import {
   type OverlayOptions,
   type SlashCommand,
   type TUI,
-} from "../tui/pi-tui-adapter.ts";
-import type { SparkKeybindingContext, SparkKeybindings } from "../host/keybindings.ts";
+} from "@zendev-lab/spark-tui-adapter/pi-tui";
+import type { SparkKeybindingContext, SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
 import {
   createSparkHostRenderTheme,
   createSparkMarkdownTheme,

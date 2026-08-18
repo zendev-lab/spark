@@ -6,7 +6,7 @@ import {
   type Component,
   type SelectItem,
   type SelectListTheme,
-} from "./pi-tui-adapter.ts";
+} from "@zendev-lab/spark-tui-adapter/pi-tui";
 
 import type { SparkSessionTreeRow } from "../host/session-navigation.ts";
 

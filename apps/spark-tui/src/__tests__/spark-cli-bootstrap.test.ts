@@ -8,7 +8,7 @@ import { stableId } from "@zendev-lab/spark-core";
 import { callLeafOrDegrade } from "@zendev-lab/spark-core";
 import { DEFAULT_SPARK_PROVIDER_SPECS } from "@zendev-lab/spark-ai/control";
 import sparkExtension from "@zendev-lab/spark-extension/extension";
-import { parseSparkCliArgs, parseSparkCliCommand } from "../cli.ts";
+import { parseSparkCliCommand } from "../cli.ts";
 import {
   assistantMessageToText,
   createProviderRegistryWorkflowModelRunner,
@@ -154,10 +154,10 @@ function fakeProviderModule(
   };
 }
 
-test("parseSparkCliArgs keeps help separate from initial message", () => {
-  assert.deepEqual(parseSparkCliArgs(["--help"]), { help: true });
-  assert.deepEqual(parseSparkCliArgs(["build", "this"]), {
-    help: false,
+test("parseSparkCliCommand keeps help separate from initial message", () => {
+  assert.deepEqual(parseSparkCliCommand(["--help"]), { kind: "help" });
+  assert.deepEqual(parseSparkCliCommand(["build", "this"]), {
+    kind: "tui",
     initialMessage: "build this",
   });
 });

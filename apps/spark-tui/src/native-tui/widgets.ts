@@ -1,6 +1,6 @@
 /** Native widget normalization and TUI bridge helpers. */
 
-import type { Component, TUI } from "../tui/pi-tui-adapter.ts";
+import type { Component, TUI } from "@zendev-lab/spark-tui-adapter/pi-tui";
 import type { SparkHostRenderTheme } from "@zendev-lab/spark-host/types";
 import { nativeTuiStrings } from "./strings.ts";
 import { MAX_NATIVE_WIDGET_LINES, type SparkNativeWidgetComponent } from "./types.ts";

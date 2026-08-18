@@ -19,10 +19,10 @@ const projectionFixture = JSON.parse(
   ),
 ) as { message: unknown; tool: unknown };
 
-import type { Component, Focusable, TUI } from "../tui/pi-tui-adapter.ts";
+import type { Component, Focusable, TUI } from "@zendev-lab/spark-tui-adapter/pi-tui";
 
-import { SparkKeybindings } from "../host/keybindings.ts";
-import { SparkHostRuntime } from "../host/runtime.ts";
+import { SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
+import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import type { SparkHostMessageRenderer } from "@zendev-lab/spark-host/types";
 import { createSparkDaemonNativeCommands } from "../cli/daemon.ts";
 import { maskNativeSecretRender } from "../native-tui/prompt.ts";

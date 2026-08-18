@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import { visibleWidth } from "@zendev-lab/spark-tui-adapter/text";
-import type { Component } from "../tui/pi-tui-adapter.ts";
+import type { Component } from "@zendev-lab/spark-tui-adapter/pi-tui";
 
 import {
   SparkKeybindings,

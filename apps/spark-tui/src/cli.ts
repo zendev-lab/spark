@@ -103,18 +103,12 @@ import {
   type SparkTuiReloadHandoff,
 } from "./cli/process-supervisor.ts";
 import {
-  parseSparkCliArgs as parseSparkCliArgsShared,
   parseSparkCliCommand as parseSparkCliCommandShared,
-  type SparkCliArgs,
   type SparkCliCommand,
   type SparkCliRuntimeOptions,
 } from "./cli/args.ts";
 
-export {
-  type SparkCliArgs,
-  type SparkCliCommand,
-  type SparkCliRuntimeOptions,
-} from "./cli/args.ts";
+export { type SparkCliCommand, type SparkCliRuntimeOptions } from "./cli/args.ts";
 
 const tuiCliStrings = sparkTuiCliStrings();
 
@@ -155,10 +149,6 @@ export interface SparkSessionCwdSelectorOptions {
 type SparkCliHostServicesFactory = (
   options?: SparkCliHostServicesOptions,
 ) => Promise<SparkCliHostServices>;
-
-export function parseSparkCliArgs(argv: string[]): SparkCliArgs {
-  return parseSparkCliArgsShared(argv);
-}
 
 export function parseSparkCliCommand(argv: string[]): SparkCliCommand {
   return parseSparkCliCommandShared(argv);

@@ -7,15 +7,15 @@ import type {
 } from "@zendev-lab/spark-core";
 import type { SparkConfig } from "./config.ts";
 import type { SparkExtensionLoadResult } from "./extension-loader.ts";
-import type { SparkKeybindings } from "./keybindings.ts";
+import type { SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
 import type { SparkModelSelector, SparkModelPicker } from "./model-selector.ts";
 import type { SparkHostModelRegistry } from "./model-registry.ts";
 import type { LoadResult } from "./plugin-loader.ts";
 import type { SparkPromptTemplateResolveResult } from "./prompt-templates.ts";
 import type { SparkProviderRegistry } from "./provider-registry.ts";
-import type { SparkHostRuntime, SparkHostRuntimeOptions } from "./runtime.ts";
+import type { SparkHostRuntime, SparkHostRuntimeOptions } from "@zendev-lab/spark-host";
 import type { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
-import type { SparkSkillResolver } from "./skill-resolver.ts";
+import type { SparkSkillResolver } from "@zendev-lab/spark-host/skill-resolver";
 import type { SparkTheme, SparkThemeCatalog } from "./theme.ts";
 import type { SparkAgentLoop } from "./agent-loop.ts";
 import type { SparkAuthStore, SparkProviderAuthResolver } from "./auth.ts";

@@ -11,7 +11,7 @@ import {
   loadSparkHeadlessSessionModule,
   type SparkHeadlessTokenUsageObservation,
 } from "@zendev-lab/spark-host/headless-loader";
-import { SparkHostRuntime } from "../host/runtime.ts";
+import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import {
   preloadSparkHeadlessSessionRuntime,
   runSparkHeadlessRoleInstruction,

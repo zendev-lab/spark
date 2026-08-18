@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import { composeSparkNativeFrame } from "../apps/spark-tui/src/native-tui/layout.ts";
-import { visibleWidth } from "../apps/spark-tui/src/tui/pi-tui-adapter.ts";
+import { visibleWidth } from "@zendev-lab/spark-tui-adapter/pi-tui";
 
 const viewports = [
   [60, 18],

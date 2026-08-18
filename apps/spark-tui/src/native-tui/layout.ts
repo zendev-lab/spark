@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth } from "../tui/pi-tui-adapter.ts";
+import { truncateToWidth, visibleWidth } from "@zendev-lab/spark-tui-adapter/pi-tui";
 
 export interface SparkNativeRenderedSections {
   header: readonly string[];

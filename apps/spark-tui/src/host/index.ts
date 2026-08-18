@@ -9,8 +9,8 @@
  * extend the runtime in place.
  */
 
-export { SparkHostRuntime, createSparkHostRuntime } from "./runtime.ts";
-export type { SparkHostRuntimeOptions } from "./runtime.ts";
+export { SparkHostRuntime, createSparkHostRuntime } from "@zendev-lab/spark-host";
+export type { SparkHostRuntimeOptions } from "@zendev-lab/spark-host";
 export { SparkAgentLoop } from "./agent-loop.ts";
 export {
   SparkAuthStore,
@@ -61,14 +61,14 @@ export {
   SparkKeybindings,
   defaultKeybindingsPath,
   defaultSparkKeybindings,
-} from "./keybindings.ts";
+} from "@zendev-lab/spark-host/keybindings";
 export type {
   SparkKeybindingContext,
   SparkKeybindingDefinition,
   SparkKeybindingId,
   SparkKeybindingsOptions,
   SparkKeybindingsSnapshot,
-} from "./keybindings.ts";
+} from "@zendev-lab/spark-host/keybindings";
 export { SparkProviderRegistry } from "./provider-registry.ts";
 export type {
   ProviderConfig,
@@ -209,7 +209,7 @@ export {
   loadMatchingSparkSkillsForPrompt,
   loadSkillsFromDir,
   parseSkillFrontmatter,
-} from "./skill-resolver.ts";
+} from "@zendev-lab/spark-host/skill-resolver";
 export type {
   SparkCliHostDiagnostic,
   SparkCliHostServices,
@@ -269,7 +269,7 @@ export type {
   SparkSkillPromptMatch,
   SparkSkillResolveResult,
   SparkSkillResolverOptions,
-} from "./skill-resolver.ts";
+} from "@zendev-lab/spark-host/skill-resolver";
 export {
   CURRENT_SPARK_SESSION_VERSION,
   SparkSessionStore,
