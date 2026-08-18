@@ -8,6 +8,7 @@ import {
   parseSparkSessionState,
   projectSparkSessionState,
   sparkSessionLifetimeForOwner,
+  sparkSessionOwnerSessionId,
   sparkInvocationListRequestSchema,
   sparkInvocationListResultSchema,
   parseSparkSessionView,
@@ -44,6 +45,7 @@ import {
   type SparkSessionRetryTarget,
   type SparkSessionProjection,
   type SparkSessionState,
+  type SparkSessionUsage,
   type SparkSessionView,
 } from "@zendev-lab/spark-protocol";
 import {
@@ -213,6 +215,11 @@ export async function executeSparkDaemonSessionControl(
         includeArchived: false,
         includeSideThreads: true,
       });
+      const usageSessions = await options.sessionRegistry?.list({
+        includeArchived: true,
+        includeClosed: true,
+        includeSideThreads: true,
+      });
       const projectedSession = projectSessionInvocationActivity(
         new SparkInvocationStore(options.db),
         [session],
@@ -226,10 +233,15 @@ export async function executeSparkDaemonSessionControl(
       const activitySessionIds = descendantActivitySessionIds(session.sessionId, ownershipSessions);
       const window = parsed.beforeMessageId
         ? boundedSessionSnapshot(
-            projectPendingSessionTurns(
-              options.db,
-              await loadSparkSessionSnapshot(snapshotInput),
-              activitySessionIds,
+            await projectOwnerTreeSessionUsage(
+              projectPendingSessionTurns(
+                options.db,
+                await loadSparkSessionSnapshot(snapshotInput),
+                activitySessionIds,
+              ),
+              snapshotInput.sessionsRoot,
+              session.sessionId,
+              usageSessions,
             ),
             parsed,
           )
@@ -238,6 +250,7 @@ export async function executeSparkDaemonSessionControl(
             snapshotInput,
             parsed.messageLimit ?? defaultSessionSnapshotMessages,
             activitySessionIds,
+            usageSessions,
           );
       const data = publicObject(window);
       return { result: data, projection: { kind: "session.snapshot", data } };
@@ -1489,12 +1502,18 @@ async function loadLatestSessionSnapshotWindow(
   snapshotInput: { sessionsRoot: string; session: SparkSessionState },
   requestedLimit: number,
   activitySessionIds: string[] = [snapshotInput.session.sessionId],
+  usageSessions?: SparkSessionState[],
 ) {
   const tail = await loadSparkSessionSnapshotTail({
     ...snapshotInput,
     messageLimit: requestedLimit,
   });
-  const snapshot = projectPendingSessionTurns(db, tail.snapshot, activitySessionIds);
+  const snapshot = await projectOwnerTreeSessionUsage(
+    projectPendingSessionTurns(db, tail.snapshot, activitySessionIds),
+    snapshotInput.sessionsRoot,
+    snapshotInput.session.sessionId,
+    usageSessions,
+  );
   const pendingMessages = snapshot.messages.length - tail.snapshot.messages.length;
   return boundedLatestSessionSnapshot(
     snapshot,
@@ -1685,6 +1704,89 @@ function descendantActivitySessionIds(
     }
   }
   return [...result];
+}
+
+async function projectOwnerTreeSessionUsage(
+  snapshot: SparkSessionView,
+  sessionsRoot: string,
+  sessionId: string,
+  sessions: SparkSessionState[] | undefined,
+): Promise<SparkSessionView> {
+  if (!sessions) return snapshot;
+  const descendants = ownerTreeDescendantSessions(sessionId, sessions);
+  if (descendants.length === 0) return snapshot;
+  const descendantUsages: SparkSessionUsage[] = [];
+  for (const descendant of descendants) {
+    const childSnapshot = await loadSparkSessionSnapshot({
+      sessionsRoot,
+      session: descendant,
+    });
+    if (childSnapshot.usage) descendantUsages.push(childSnapshot.usage);
+  }
+  if (descendantUsages.length === 0) return snapshot;
+  const usage = sumOwnerTreeTranscriptUsage(snapshot.usage, descendantUsages);
+  if (!usage) return snapshot;
+  return parseSparkSessionView({
+    ...snapshot,
+    usage,
+  });
+}
+
+function ownerTreeDescendantSessions(
+  rootSessionId: string,
+  sessions: readonly SparkSessionState[],
+): SparkSessionState[] {
+  const childrenByParent = new Map<string, SparkSessionState[]>();
+  for (const session of sessions) {
+    const parentSessionId = sparkSessionOwnerSessionId(session.owner);
+    if (!parentSessionId || parentSessionId === session.sessionId) continue;
+    const siblings = childrenByParent.get(parentSessionId);
+    if (siblings) siblings.push(session);
+    else childrenByParent.set(parentSessionId, [session]);
+  }
+  const descendants: SparkSessionState[] = [];
+  const pending = [...(childrenByParent.get(rootSessionId) ?? [])];
+  const visited = new Set<string>([rootSessionId]);
+  while (pending.length > 0) {
+    const session = pending.pop()!;
+    if (visited.has(session.sessionId)) continue;
+    visited.add(session.sessionId);
+    descendants.push(session);
+    pending.push(...(childrenByParent.get(session.sessionId) ?? []));
+  }
+  return descendants;
+}
+
+function sumOwnerTreeTranscriptUsage(
+  parent: SparkSessionUsage | undefined,
+  descendants: readonly SparkSessionUsage[],
+): SparkSessionUsage | undefined {
+  if (!parent && descendants.length === 0) return undefined;
+  let inputTokens = parent?.inputTokens ?? 0;
+  let outputTokens = parent?.outputTokens ?? 0;
+  let cacheReadTokens = parent?.cacheReadTokens ?? 0;
+  let cacheWriteTokens = parent?.cacheWriteTokens ?? 0;
+  let costUsd = parent?.costUsd ?? 0;
+  for (const usage of descendants) {
+    inputTokens += usage.inputTokens;
+    outputTokens += usage.outputTokens;
+    cacheReadTokens += usage.cacheReadTokens;
+    cacheWriteTokens += usage.cacheWriteTokens;
+    costUsd += usage.costUsd;
+  }
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    costUsd,
+    ...(parent?.latestCacheHitPercent !== undefined
+      ? { latestCacheHitPercent: parent.latestCacheHitPercent }
+      : {}),
+    ...(parent?.contextTokens !== undefined ? { contextTokens: parent.contextTokens } : {}),
+    ...(parent?.contextTokenSource ? { contextTokenSource: parent.contextTokenSource } : {}),
+    ...(parent?.contextWindow !== undefined ? { contextWindow: parent.contextWindow } : {}),
+  };
 }
 
 async function settleManagedSessionTurn(

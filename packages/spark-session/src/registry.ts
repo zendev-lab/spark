@@ -6,6 +6,7 @@ import {
   parseSparkSessionState,
   parseSparkSessionStoredRecord,
   sparkSessionLifetimeForOwner,
+  sparkSessionOwnerSessionId,
   sparkSessionCloseReceiptSchema,
   SPARK_SESSION_CLOSE_RECEIPT_HISTORY_LIMIT,
   type SparkSessionArchiveEvent,
@@ -2096,14 +2097,7 @@ function requireAdministratorOwner(
 }
 
 function ownerSessionId(owner: SparkSessionOwner): string | undefined {
-  switch (owner.kind) {
-    case "workspace":
-      return undefined;
-    case "side_thread":
-      return owner.parentSessionId;
-    default:
-      return owner.supervisorSessionId;
-  }
+  return sparkSessionOwnerSessionId(owner);
 }
 
 function assertOwnerWithinScope(
