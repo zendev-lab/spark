@@ -64,18 +64,6 @@ spark daemon status --json
 以及为阻塞式问题保留的 1 个 overflow slot。该设置只控制 root invocation 的接纳，
 不会创建操作系统 worker 进程；同一 session 内的工作仍然串行执行。
 
-## Cockpit 到 Hub 的升级迁移
-
-首次使用默认 Hub 数据库时，Spark 会自动把已退役的 `cockpit.toml`、
-Cockpit XDG 应用目录和 `cockpit.sqlite` 迁移到上面的 Hub 路径。升级前应停止旧
-Cockpit 与 Hub 进程。迁移可重复执行并采用 fail-closed 策略：检测到仍活动的旧
-数据库锁，或源路径与目标路径同时存在时，启动会停止，不会覆盖任一目录。
-
-请把已有 `SPARK_COCKPIT_*` 值复制到对应的 `SPARK_HUB_*` 名称。升级窗口内
-仍会读取旧别名，但新旧名称的值发生冲突时会拒绝启动。新状态只写入 Hub 名称。
-已经注册的 daemon 会保留稳定 deployment ID；旧 Cockpit snapshot-v1 备份仍可
-检查与恢复。
-
 ## Managed installation 路径
 
 Managed installation 使用 XDG data、configuration、state 与 cache 根目录，

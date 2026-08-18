@@ -76,22 +76,11 @@ export function resolveReleaseMigrationExemption(sparkRelease, candidateVersion)
 
 export async function resolvePublishedHubProbe(baselineRoot, dependencies = {}) {
   const pathExists = dependencies.exists ?? exists;
-  const candidates = [
-    {
-      command: join(baselineRoot, "node_modules", ".bin", "spark-hub"),
-      listArgs: ["delegation", "list"],
-    },
-    {
-      command: join(baselineRoot, "node_modules", ".bin", "spark-cockpit"),
-      listArgs: ["access", "list"],
-    },
-  ];
-  for (const candidate of candidates) {
-    if (await pathExists(candidate.command)) return candidate;
+  const command = join(baselineRoot, "node_modules", ".bin", "spark-hub");
+  if (await pathExists(command)) {
+    return { command, listArgs: ["delegation", "list"] };
   }
-  throw new Error(
-    `Published Spark baseline under ${baselineRoot} exposes neither spark-hub nor spark-cockpit.`,
-  );
+  throw new Error(`Published Spark baseline under ${baselineRoot} does not expose spark-hub.`);
 }
 
 export async function readCandidateArtifactIdentity(

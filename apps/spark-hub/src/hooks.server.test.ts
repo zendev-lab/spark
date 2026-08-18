@@ -130,13 +130,13 @@ describe("Hub workspace access boundary", () => {
 });
 
 describe("Hub request dependency boundary", () => {
-  it("returns a structured 503 when Hub database initialization cannot migrate", async () => {
+  it("returns a structured 503 when Hub database initialization is locked", async () => {
     database.pinDatabase.mockImplementation(() => {
-      const migrationConflict = new Error(
-        "Cannot migrate legacy state: /private/source -> /private/hub",
+      const locked = new Error(
+        "Spark Hub database is locked by process 999: /private/hub.sqlite.lock",
       );
-      migrationConflict.name = "HubLayoutMigrationConflictError";
-      throw migrationConflict;
+      locked.name = "HubDatabaseLockedError";
+      throw locked;
     });
     const resolve = vi.fn();
 

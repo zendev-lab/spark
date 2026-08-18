@@ -139,13 +139,11 @@ dispatcher. A retired product name must not remain as another public executable
 or dispatcher namespace merely to avoid updating callers.
 
 The Hub source directory, private packages, i18n subpath, environment variables,
-and state writer all use the canonical `hub` name. The Hub database owner
-performs one explicit, idempotent migration from retired Cockpit XDG and
-`SPARK_HOME` trees, `cockpit.toml`, and `cockpit.sqlite`. Migration preflights
-all destinations, refuses live legacy locks and source/target conflicts, and
-rolls back completed renames if a later move fails. Historical SQLite migration
-filenames, snapshot-v1 manifests, cookies, and instance IDs remain compatibility
-inputs until their documented exit gate; new writes use Hub names only.
+and state writer all use the canonical `hub` name. Historical SQLite migration
+filenames that still contain `cockpit` remain applied schema history. Retired
+Cockpit paths, environment aliases, cookies, snapshot-v1 manifests, command
+sources, and instance IDs are rejected; operators must use Hub names and
+re-register daemons that still hold a `cockpit_` deployment ID.
 
 ### Distributions
 

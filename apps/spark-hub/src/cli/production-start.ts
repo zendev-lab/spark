@@ -1,5 +1,3 @@
-import { resolveRenamedEnvironmentVariable } from "@zendev-lab/spark-system";
-import { migrateLegacyHubLayout } from "../lib/server/db.ts";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -12,11 +10,7 @@ const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
  * Mirrors package script `start:custom` without going through pnpm.
  */
 export async function startHubProductionHost(args: string[] = []): Promise<number> {
-  migrateLegacyHubLayout();
-  const packagedServerEntry = resolveRenamedEnvironmentVariable(process.env, {
-    canonical: "SPARK_HUB_SERVER_ENTRYPOINT",
-    legacy: "SPARK_COCKPIT_SERVER_ENTRYPOINT",
-  });
+  const packagedServerEntry = process.env.SPARK_HUB_SERVER_ENTRYPOINT?.trim();
   if (packagedServerEntry && existsSync(packagedServerEntry)) {
     return await runHubHost(
       process.execPath,

@@ -17,13 +17,10 @@ import { DatabaseSync } from "node:sqlite";
 import { loadMigrations, migrate } from "./migrate.js";
 
 export const hubInstanceIdSettingKey = "spark_hub:instance_id";
-export const legacyCockpitInstanceIdSettingKey = "spark_cockpit:instance_id";
 export const hubWebPushSubscriptionSettingKey = "spark_hub:web_push_subscription";
-export const legacyCockpitSnapshotFormat = "spark.cockpit.snapshot.v1" as const;
 export const hubSnapshotFormat = "spark.hub.snapshot.v1" as const;
 
 const snapshotDatabaseFile = "hub.sqlite";
-const legacySnapshotDatabaseFile = "cockpit.sqlite";
 const snapshotManifestFile = "manifest.json";
 
 export interface HubSnapshotMigration {
@@ -32,12 +29,12 @@ export interface HubSnapshotMigration {
 }
 
 export interface HubSnapshotManifest {
-  format: typeof hubSnapshotFormat | typeof legacyCockpitSnapshotFormat;
+  format: typeof hubSnapshotFormat;
   createdAt: string;
   instanceId: string;
   schemaMigrations: HubSnapshotMigration[];
   database: {
-    file: typeof snapshotDatabaseFile | typeof legacySnapshotDatabaseFile;
+    file: typeof snapshotDatabaseFile;
     sha256: string;
     sizeBytes: number;
   };
@@ -185,18 +182,12 @@ export function ensureHubInstanceId(
 
 export function readHubInstanceId(db: DatabaseSync): string | null {
   const row = db
-    .prepare(
-      "SELECT key, value_json AS valueJson FROM app_settings WHERE key IN (?, ?) ORDER BY key = ? DESC LIMIT 1",
-    )
-    .get(hubInstanceIdSettingKey, legacyCockpitInstanceIdSettingKey, hubInstanceIdSettingKey) as
-    | { key: string; valueJson: string }
-    | undefined;
+    .prepare("SELECT value_json AS valueJson FROM app_settings WHERE key = ? LIMIT 1")
+    .get(hubInstanceIdSettingKey) as { valueJson: string } | undefined;
   if (!row) return null;
   try {
     const value = JSON.parse(row.valueJson) as unknown;
-    return typeof value === "string" && /^(?:hub|cockpit)_[a-f0-9]{32}$/u.test(value)
-      ? value
-      : null;
+    return typeof value === "string" && /^hub_[a-f0-9]{32}$/u.test(value) ? value : null;
   } catch {
     return null;
   }
@@ -564,19 +555,15 @@ function parseSnapshotManifest(raw: string): HubSnapshotManifest {
   } catch {
     throw new HubSnapshotValidationError("Snapshot manifest is not valid JSON.");
   }
-  if (
-    !isRecord(value) ||
-    (value.format !== hubSnapshotFormat && value.format !== legacyCockpitSnapshotFormat)
-  ) {
+  if (!isRecord(value) || value.format !== hubSnapshotFormat) {
     throw new HubSnapshotValidationError("Snapshot manifest format is unsupported.");
   }
   if (
     typeof value.createdAt !== "string" ||
     typeof value.instanceId !== "string" ||
     !isRecord(value.database) ||
-    (value.format === hubSnapshotFormat
-      ? value.database.file !== snapshotDatabaseFile
-      : value.database.file !== legacySnapshotDatabaseFile) ||
+    typeof value.database.file !== "string" ||
+    value.database.file !== snapshotDatabaseFile ||
     typeof value.database.sha256 !== "string" ||
     typeof value.database.sizeBytes !== "number" ||
     !Array.isArray(value.schemaMigrations) ||
@@ -611,7 +598,7 @@ function parseSnapshotManifest(raw: string): HubSnapshotManifest {
     instanceId: requireInstanceId(value.instanceId),
     schemaMigrations,
     database: {
-      file: value.format === hubSnapshotFormat ? snapshotDatabaseFile : legacySnapshotDatabaseFile,
+      file: snapshotDatabaseFile,
       sha256: value.database.sha256,
       sizeBytes: value.database.sizeBytes,
     },
@@ -630,7 +617,7 @@ function stringArray(value: unknown[], field: string): string[] {
 }
 
 function requireInstanceId(value: string | null): string {
-  if (!value || !/^(?:hub|cockpit)_[a-f0-9]{32}$/u.test(value)) {
+  if (!value || !/^hub_[a-f0-9]{32}$/u.test(value)) {
     throw new HubSnapshotValidationError("Hub database has no valid stable instance id.");
   }
   return value;

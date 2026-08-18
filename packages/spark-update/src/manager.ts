@@ -16,7 +16,6 @@ import {
 import { basename, dirname, join, relative } from "node:path";
 
 import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
-import { resolveRenamedEnvironmentVariable } from "@zendev-lab/spark-system";
 
 import { isSparkBuildInfo, readSparkBuildInfo } from "./build-info.ts";
 import { readSparkUpdateConfig, writeSparkUpdateConfig } from "./config.ts";
@@ -984,23 +983,14 @@ child.on("exit", (code, signal) => {
   }
 
   private async healthCheckHub(hubUrl?: string): Promise<void> {
-    const healthUrl =
-      hubUrl ??
-      resolveRenamedEnvironmentVariable(this.#env, {
-        canonical: "SPARK_HUB_HEALTH_URL",
-        legacy: "SPARK_COCKPIT_HEALTH_URL",
-      });
+    const healthUrl = hubUrl ?? this.#env.SPARK_HUB_HEALTH_URL?.trim();
     if (!healthUrl) return;
     const response = await this.#fetch(healthUrl, {
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(10_000),
     });
     const body = (await response.json()) as { service?: unknown; status?: unknown };
-    if (
-      !response.ok ||
-      (body.service !== "spark-hub" && body.service !== "spark-cockpit") ||
-      body.status !== "ok"
-    ) {
+    if (!response.ok || body.service !== "spark-hub" || body.status !== "ok") {
       throw new Error(`Spark Hub health check failed at ${healthUrl}`);
     }
   }
@@ -1064,19 +1054,10 @@ child.on("exit", (code, signal) => {
     action: "start" | "status" | "stop",
     timeoutMs: number,
   ): Promise<Awaited<ReturnType<typeof runCommand>>> {
-    const canonical = await this.#run(launcher, ["hub", "web", action, "--json"], {
+    return await this.#run(launcher, ["hub", "web", action, "--json"], {
       env: this.#env,
       timeoutMs,
     });
-    if (canonical.code === 0) return canonical;
-
-    // Published Cockpit builds predate the Hub namespace. This fallback is
-    // updater-only and never exposes Cockpit through the current dispatcher.
-    const legacy = await this.#run(launcher, ["cockpit", "web", action, "--json"], {
-      env: this.#env,
-      timeoutMs,
-    });
-    return legacy.code === 0 ? legacy : canonical;
   }
 
   private async restorePackageManagerVersion(

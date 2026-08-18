@@ -30,8 +30,7 @@ source/unit/process or Hub browser suites owned by CI.
 
 For release compatibility, the gate queries the canonical npm registry, selects
 the newest published stable `@zendev-lab/spark` version strictly older than the
-candidate, and adapts to either the current `spark-hub`
-or legacy `spark-cockpit` command contract. An explicit `--baseline-version`
+candidate, and requires that baseline to expose `spark-hub`. An explicit `--baseline-version`
 remains available for local incident reproduction, but production publication
 does not pin a historical baseline. For the first split release, `v0.3.0`, the
 automatic selection resolved to the legacy all-in-one
