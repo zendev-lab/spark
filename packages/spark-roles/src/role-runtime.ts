@@ -1956,6 +1956,54 @@ export function parsePiJsonlEvents(text: string): unknown[] {
   return events;
 }
 
+export function finalAssistantTextFromRoleRunEvents(
+  events: readonly unknown[],
+): string | undefined {
+  for (let eventIndex = events.length - 1; eventIndex >= 0; eventIndex -= 1) {
+    const event = events[eventIndex];
+    const direct = assistantTextFromRoleRunMessage(eventMessage(event));
+    if (direct) return direct;
+
+    const messages = eventMessages(event);
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+      const text = assistantTextFromRoleRunMessage(messages[messageIndex]);
+      if (text) return text;
+    }
+  }
+  return undefined;
+}
+
+function eventMessage(event: unknown): unknown {
+  if (!event || typeof event !== "object") return undefined;
+  return (event as { message?: unknown }).message;
+}
+
+function eventMessages(event: unknown): unknown[] {
+  if (!event || typeof event !== "object") return [];
+  const messages = (event as { messages?: unknown }).messages;
+  return Array.isArray(messages) ? messages : [];
+}
+
+function assistantTextFromRoleRunMessage(message: unknown): string | undefined {
+  if (!message || typeof message !== "object") return undefined;
+  if ((message as { role?: unknown }).role !== "assistant") return undefined;
+  return roleRunMessageContentText((message as { content?: unknown }).content);
+}
+
+function roleRunMessageContentText(content: unknown): string | undefined {
+  if (typeof content === "string") return content.trim() || undefined;
+  if (!Array.isArray(content)) return undefined;
+  const text = content
+    .map((block) => {
+      if (!block || typeof block !== "object") return "";
+      const item = block as { type?: unknown; text?: unknown };
+      return item.type === "text" && typeof item.text === "string" ? item.text : "";
+    })
+    .join("")
+    .trim();
+  return text || undefined;
+}
+
 function abortSignalReason(signal: AbortSignal | undefined): string {
   const reason = (signal as { reason?: unknown } | undefined)?.reason;
   if (reason instanceof Error) return reason.message;
