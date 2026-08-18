@@ -1,11 +1,11 @@
 import { object, or } from "@optique/core/constructs";
+import { withDefault } from "@optique/core/modifiers";
 import { parse } from "@optique/core/parser";
-import { command, constant, passThrough } from "@optique/core/primitives";
+import { command, constant, flag, passThrough } from "@optique/core/primitives";
 
 import { sparkHubHelpText } from "./cli/coordination.ts";
 import { runSparkHubCli as runHubCoordinationCli } from "./cli/hub.ts";
 import { startHubProductionHost } from "./cli/production-start.ts";
-import { helpFlagRequested } from "./cli/shared.ts";
 import { runHubWebCli } from "./cli/web-cli.ts";
 
 const remainingArgv = () => passThrough({ format: "greedy" });
@@ -14,7 +14,14 @@ const sparkHubAppParser = or(
   command("help", object({ kind: constant("help" as const), argv: remainingArgv() })),
   command("--help", object({ kind: constant("help" as const), argv: remainingArgv() })),
   command("-h", object({ kind: constant("help" as const), argv: remainingArgv() })),
-  command("start", object({ kind: constant("start" as const), argv: remainingArgv() })),
+  command(
+    "start",
+    object({
+      kind: constant("start" as const),
+      help: withDefault(flag("-h", "--help"), false),
+      argv: remainingArgv(),
+    }),
+  ),
   command("web", object({ kind: constant("web" as const), argv: remainingArgv() })),
 );
 
@@ -28,12 +35,11 @@ export async function runSparkHubAppCli(argv: string[] = process.argv.slice(2)):
       process.stdout.write(sparkHubAppHelpText());
       return 0;
     case "start": {
-      const rest = [...classified.argv];
-      if (helpFlagRequested(rest)) {
+      if (classified.help) {
         process.stdout.write(sparkHubAppHelpText());
         return 0;
       }
-      return await startHubProductionHost(rest);
+      return await startHubProductionHost([...classified.argv]);
     }
     case "web":
       return await runHubWebCli([...classified.argv]);

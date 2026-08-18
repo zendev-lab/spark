@@ -25,7 +25,7 @@ import { SparkKeybindings } from "../host/keybindings.ts";
 import type { SparkCliHostServices } from "../host/bootstrap.ts";
 import { SparkHostRuntime } from "../host/runtime.ts";
 import { SparkSessionMailStore } from "../host/session-mail-store.ts";
-import { SparkSessionStore, workspaceSessionHash } from "../host/session-store.ts";
+import { SparkSessionStore, workspaceSessionHash } from "@zendev-lab/spark-host/session-store";
 import { createSparkNativeTuiComponentHarness } from "../test-support/spark-native-tui-component-harness.ts";
 import {
   attachSparkWorkspaceClient,
@@ -1729,6 +1729,69 @@ test("parseSparkDaemonCliArgs parses daemon IPC commands", async () => {
     action: "service",
     argv: ["daemon", "restart", "--yes"],
   });
+});
+
+test("parseSparkDaemonCliArgs preserves aliases, precedence, delimiters, and strict errors", () => {
+  assert.deepEqual(
+    parseSparkDaemonCliArgs(["submit", "-s", "s-short", "-p", "short prompt", "--reset"]),
+    {
+      action: "submit",
+      json: false,
+      reset: true,
+      sessionId: "s-short",
+      prompt: "short prompt",
+    },
+  );
+  assert.deepEqual(
+    parseSparkDaemonCliArgs([
+      "submit",
+      "--session",
+      "s-option",
+      "--prompt",
+      "option prompt",
+      "positional",
+      "prompt",
+    ]),
+    {
+      action: "submit",
+      json: false,
+      reset: false,
+      sessionId: "s-option",
+      prompt: "option prompt",
+    },
+  );
+  assert.deepEqual(parseSparkDaemonCliArgs(["submit", "--session", "s1", "--", "--help"]), {
+    action: "submit",
+    json: false,
+    reset: false,
+    sessionId: "s1",
+    prompt: "--help",
+  });
+  assert.deepEqual(
+    parseSparkDaemonCliArgs([
+      "session",
+      "show",
+      "positional-session",
+      "--session",
+      "option-session",
+    ]),
+    {
+      action: "sessions",
+      subcommand: "show",
+      json: false,
+      sessionId: "option-session",
+    },
+  );
+  assert.deepEqual(parseSparkDaemonCliArgs(["sessions", "--help"]), { action: "help" });
+  assert.deepEqual(parseSparkDaemonCliArgs(["stop", "--yes", "--help"]), { action: "help" });
+  assert.throws(
+    () => parseSparkDaemonCliArgs(["events", "watch", "--limit", "many"]),
+    /--limit must be a number/u,
+  );
+  assert.throws(
+    () => parseSparkDaemonCliArgs(["runs", "list", "--unknown"]),
+    /Unexpected option or subcommand:.*--unknown/u,
+  );
 });
 
 test("parseSparkDaemonCliArgs normalizes bounded relative invocation windows", () => {

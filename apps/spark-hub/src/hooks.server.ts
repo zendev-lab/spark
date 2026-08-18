@@ -5,8 +5,6 @@ import {
   getCurrentHubSession,
   getCurrentWorkspaceSession,
   isRemoteWorkspaceDataPath,
-  legacyCockpitSessionCookieName,
-  legacyCockpitSessionRefreshCookieName,
   refreshHubSession,
   refreshWorkspaceSession,
   sessionCookieName,
@@ -24,16 +22,11 @@ import {
   presentHubServerError,
 } from "$lib/server/error-presentation";
 import { INVOCATION_ROUTE_UNAVAILABLE_ERROR_CODE } from "$lib/error-codes";
-import { legacyCockpitLocaleCookieName, localeCookieName, resolveRequestLocale } from "$lib/i18n";
-import {
-  activeWorkspaceCookieName,
-  legacyCockpitActiveWorkspaceCookieName,
-} from "$lib/server/active-workspace";
+import { localeCookieName, resolveRequestLocale } from "$lib/i18n";
 import { remoteAccessDecision } from "$lib/server/remote-access";
 import { loadWorkspaceByRouteId } from "$lib/server/workspace-routing";
 
 export const handle: Handle = async ({ event, resolve }) => {
-  migrateLegacyHubCookies(event);
   event.locals.requestId = createId("msg");
   event.locals.hasControlPlaneAccess = false;
   let databasePinned = false;
@@ -146,46 +139,6 @@ export const handleError: HandleServerError = ({ error, event, status, message }
   }
   return presented;
 };
-
-function migrateLegacyHubCookies(event: RequestEvent): void {
-  const secure = event.url.protocol === "https:";
-  migrateLegacyCookie(event, sessionCookieName, legacyCockpitSessionCookieName, {
-    httpOnly: true,
-    secure,
-    maxAge: 15 * 60,
-  });
-  migrateLegacyCookie(event, sessionRefreshCookieName, legacyCockpitSessionRefreshCookieName, {
-    httpOnly: true,
-    secure,
-    maxAge: 30 * 24 * 60 * 60,
-  });
-  migrateLegacyCookie(event, localeCookieName, legacyCockpitLocaleCookieName, {
-    httpOnly: false,
-    secure,
-    maxAge: 365 * 24 * 60 * 60,
-  });
-  migrateLegacyCookie(event, activeWorkspaceCookieName, legacyCockpitActiveWorkspaceCookieName, {
-    httpOnly: true,
-    secure,
-    maxAge: 365 * 24 * 60 * 60,
-  });
-}
-
-function migrateLegacyCookie(
-  event: RequestEvent,
-  canonical: string,
-  legacy: string,
-  options: { httpOnly: boolean; secure: boolean; maxAge: number },
-): void {
-  if (event.cookies.get(canonical)) return;
-  const value = event.cookies.get(legacy);
-  if (!value) return;
-  event.cookies.set(canonical, value, {
-    path: "/",
-    sameSite: "lax",
-    ...options,
-  });
-}
 
 function getClientAddress(event: RequestEvent): string | null {
   try {

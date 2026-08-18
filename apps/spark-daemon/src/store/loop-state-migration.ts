@@ -33,7 +33,7 @@ export async function migrateLegacyLoopState(input: {
   now?: string;
 }): Promise<LoopStateMigrationReport | undefined> {
   if (!input.sessionRegistry) return undefined;
-  const migrateRuntimeFields = !migrationComplete(input.db);
+  if (migrationComplete(input.db)) return undefined;
   const now = input.now ?? new Date().toISOString();
   const sessions = await input.sessionRegistry.list({ includeArchived: false });
   const report: LoopStateMigrationReport = {
@@ -110,23 +110,13 @@ export async function migrateLegacyLoopState(input: {
         report.imported.repro += 1;
     }
 
-    if (migrateRuntimeFields) {
-      report.strippedLegacyRuntimeFields += await stripRuntimeFields(
-        goalPath,
-        goalSnapshot,
-        "goal",
-      );
-      report.strippedLegacyRuntimeFields += await stripRuntimeFields(
-        loopPath,
-        loopSnapshot,
-        "loop",
-      );
-      report.strippedLegacyRuntimeFields += await stripRuntimeFields(
-        reproPath,
-        reproSnapshot,
-        "repro",
-      );
-    }
+    report.strippedLegacyRuntimeFields += await stripRuntimeFields(goalPath, goalSnapshot, "goal");
+    report.strippedLegacyRuntimeFields += await stripRuntimeFields(loopPath, loopSnapshot, "loop");
+    report.strippedLegacyRuntimeFields += await stripRuntimeFields(
+      reproPath,
+      reproSnapshot,
+      "repro",
+    );
 
     if (!migratedWorkflowCwds.has(cwd)) {
       const control = await defaultWorkflowRunStore(cwd).loadControl();
@@ -148,11 +138,8 @@ export async function migrateLegacyLoopState(input: {
     }
   }
 
-  if (migrateRuntimeFields) {
-    writeMigrationReport(input.db, report, now);
-    return report;
-  }
-  return undefined;
+  writeMigrationReport(input.db, report, now);
+  return report;
 }
 
 function importLegacyLoop(

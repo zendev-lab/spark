@@ -9,6 +9,7 @@ import {
   defaultProjectRoleStore,
   defaultUserRoleModelSettingsStore,
   defaultUserRoleStore,
+  finalAssistantTextFromRoleRunEvents,
   hydrateDefaultRoleRegistry,
   normalizeRoleLaunchMode,
   resolveRoleModelSetting,
@@ -357,7 +358,7 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       const stdoutTail = result.stdout ? tailText(result.stdout, 12_000) : undefined;
       const stderrTail = result.stderr ? tailText(result.stderr, 8_000) : undefined;
       const stdoutNonJsonTail = nonJsonStdoutTail(result.stdout, 12_000);
-      const finalAssistantText = extractFinalAssistantText(result.jsonEvents);
+      const finalAssistantText = finalAssistantTextFromRoleRunEvents(result.jsonEvents);
       const delivery = summarizeRoleCallDelivery({
         finalAssistantText,
         stdoutNonJsonTail,
@@ -981,51 +982,6 @@ function renderRoleCallDelivery(delivery: RoleCallDeliverySummary): string | und
   return delivery.jsonEventCount > 0
     ? `delivery: empty — no final assistant message found (${delivery.jsonEventCount} JSON events captured).`
     : "delivery: empty — child process exited without assistant output.";
-}
-
-function extractFinalAssistantText(events: unknown[]): string | undefined {
-  for (const event of [...events].reverse()) {
-    const direct = extractAssistantText(eventMessage(event));
-    if (direct) return direct;
-
-    const messages = eventMessages(event);
-    for (const message of [...messages].reverse()) {
-      const text = extractAssistantText(message);
-      if (text) return text;
-    }
-  }
-  return undefined;
-}
-
-function eventMessage(event: unknown): unknown {
-  if (!event || typeof event !== "object") return undefined;
-  return (event as { message?: unknown }).message;
-}
-
-function eventMessages(event: unknown): unknown[] {
-  if (!event || typeof event !== "object") return [];
-  const messages = (event as { messages?: unknown }).messages;
-  return Array.isArray(messages) ? messages : [];
-}
-
-function extractAssistantText(message: unknown): string | undefined {
-  if (!message || typeof message !== "object") return undefined;
-  if ((message as { role?: unknown }).role !== "assistant") return undefined;
-  return messageContentText((message as { content?: unknown }).content);
-}
-
-function messageContentText(content: unknown): string | undefined {
-  if (typeof content === "string") return content.trim() || undefined;
-  if (!Array.isArray(content)) return undefined;
-  const text = content
-    .map((block) => {
-      if (!block || typeof block !== "object") return "";
-      const item = block as { type?: unknown; text?: unknown };
-      return item.type === "text" && typeof item.text === "string" ? item.text : "";
-    })
-    .join("")
-    .trim();
-  return text || undefined;
 }
 
 function nonJsonStdoutTail(value: string, maxLength: number): string | undefined {

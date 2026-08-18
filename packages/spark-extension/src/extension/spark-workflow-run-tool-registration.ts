@@ -5,6 +5,7 @@ import {
   type JsonValue,
 } from "@zendev-lab/spark-artifacts";
 import { sparkStateCwd, type EvidenceRef, type RoleRef, type RunRef } from "@zendev-lab/spark-core";
+import { finalAssistantTextFromRoleRunEvents } from "@zendev-lab/spark-roles";
 import {
   parseWorkflowScript,
   readSavedWorkflow,
@@ -1176,54 +1177,10 @@ function workflowRunUsageText(
 
 function roleRunText(result: SparkRoleRunResult): string {
   const text =
-    extractFinalAssistantText(result.jsonEvents) ??
+    finalAssistantTextFromRoleRunEvents(result.jsonEvents) ??
     nonJsonStdoutText(result.stdout) ??
     result.stderr.trim();
   return text || `role run finished with status ${result.record.status}`;
-}
-
-function extractFinalAssistantText(events: unknown[]): string | undefined {
-  for (const event of [...events].reverse()) {
-    const direct = extractAssistantText(eventMessage(event));
-    if (direct) return direct;
-    const messages = eventMessages(event);
-    for (const message of [...messages].reverse()) {
-      const text = extractAssistantText(message);
-      if (text) return text;
-    }
-  }
-  return undefined;
-}
-
-function eventMessage(event: unknown): unknown {
-  if (!event || typeof event !== "object") return undefined;
-  return (event as { message?: unknown }).message;
-}
-
-function eventMessages(event: unknown): unknown[] {
-  if (!event || typeof event !== "object") return [];
-  const messages = (event as { messages?: unknown }).messages;
-  return Array.isArray(messages) ? messages : [];
-}
-
-function extractAssistantText(message: unknown): string | undefined {
-  if (!message || typeof message !== "object") return undefined;
-  if ((message as { role?: unknown }).role !== "assistant") return undefined;
-  return messageContentText((message as { content?: unknown }).content);
-}
-
-function messageContentText(content: unknown): string | undefined {
-  if (typeof content === "string") return content.trim() || undefined;
-  if (!Array.isArray(content)) return undefined;
-  const text = content
-    .map((block) => {
-      if (!block || typeof block !== "object") return "";
-      const item = block as { type?: unknown; text?: unknown };
-      return item.type === "text" && typeof item.text === "string" ? item.text : "";
-    })
-    .join("")
-    .trim();
-  return text || undefined;
 }
 
 function nonJsonStdoutText(value: string): string | undefined {

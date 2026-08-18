@@ -46,10 +46,11 @@ The application formerly named Cockpit is the Hub application because it
 contains the control plane, daemon gateway, authentication boundary, and its
 embedded Web UI in one deployment. Source directories, private packages, the
 `@zendev-lab/spark-i18n/hub` catalog, public process names, environment
-variables, and fresh XDG/SQLite state all use `hub`. The Hub database owner
-migrates retired Cockpit paths and filenames explicitly; historical wire,
-snapshot, cookie, instance-ID, and schema markers remain bounded compatibility
-inputs.
+variables, and XDG/SQLite state all use `hub`. Historical SQLite migration
+filenames that still contain `cockpit` remain applied schema history and are
+not rewritten. Retired Cockpit CLI names, environment aliases, cookies,
+snapshot-v1 manifests, and `cockpit_` instance IDs are rejected rather than
+translated.
 
 The retired `spark-cockpit` executable and `spark cockpit` dispatcher namespace
 are not compatibility routes. Keeping them would preserve the incorrect model

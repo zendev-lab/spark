@@ -181,6 +181,53 @@ describe("daemon migration registry", () => {
     }
   });
 
+  it("runs once migrations only until they are marked complete", () => {
+    const db = new DatabaseSync(":memory:");
+    const calls: string[] = [];
+    try {
+      runDaemonMigrations(db, [
+        {
+          id: "schema.current-foundation",
+          owner: "test",
+          up(target) {
+            calls.push("foundation");
+            target.exec(`
+              CREATE TABLE IF NOT EXISTS daemon_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+              );
+            `);
+          },
+        },
+        { id: "once.example", owner: "test", up: () => calls.push("once") },
+        {
+          id: "every.example",
+          owner: "test",
+          everyOpen: true,
+          up: () => calls.push("every"),
+        },
+      ]);
+      runDaemonMigrations(db, [
+        {
+          id: "schema.current-foundation",
+          owner: "test",
+          up: () => calls.push("foundation"),
+        },
+        { id: "once.example", owner: "test", up: () => calls.push("once") },
+        {
+          id: "every.example",
+          owner: "test",
+          everyOpen: true,
+          up: () => calls.push("every"),
+        },
+      ]);
+      expect(calls).toEqual(["foundation", "once", "every", "every"]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("runs migrations sequentially and rejects duplicate ids before any write", () => {
     const db = new DatabaseSync(":memory:");
     const calls: string[] = [];
@@ -202,6 +249,20 @@ describe("daemon migration registry", () => {
     expect(daemonMigrations[0]?.id).toBe("schema.current-foundation");
     expect(daemonMigrations.at(-1)?.id).toBe("workspaces.daemon-registration-backfill");
     expect(daemonMigrations.every((migration) => typeof migration.up === "function")).toBe(true);
+  });
+
+  it("keeps late-write scrubs everyOpen and dual-write backfills once", () => {
+    expect(
+      daemonMigrations
+        .filter((migration) => migration.everyOpen)
+        .map((migration) => migration.id)
+        .sort(),
+    ).toEqual(["migration.driver-to-loop-v1", "migration.retire-daemon-error-outbox-v1"]);
+    expect(
+      daemonMigrations.find(
+        (migration) => migration.id === "workspaces.daemon-registration-backfill",
+      )?.everyOpen,
+    ).toBeUndefined();
   });
 
   it("bundles the complete registry into the packaged daemon graph", async () => {

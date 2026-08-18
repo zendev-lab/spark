@@ -9,7 +9,7 @@ import {
   type Focusable,
   type SelectItem,
 } from "../tui/pi-tui-adapter.ts";
-import type { SparkHostRenderTheme } from "../host/types.ts";
+import type { SparkHostRenderTheme } from "@zendev-lab/spark-host/types";
 
 interface NativePromptOptions {
   title: string;

@@ -1,4 +1,3 @@
-import { migrateLegacyCockpitLayout } from "@zendev-lab/spark-hub-db";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { configureHubPublicUrl } from "../src/lib/server/public-url.js";
 import { closeDatabase, getDatabase, pinDatabase, unpinDatabase } from "../src/lib/server/db.js";
@@ -9,7 +8,6 @@ import {
 import { startWebPushEventDispatcher } from "../src/lib/server/web-push.js";
 import { WebSocketServer } from "ws";
 
-migrateLegacyCockpitLayout();
 const host = process.env.HOST ?? "127.0.0.1";
 const port = Number(process.env.PORT ?? "5173");
 const publicUrl = configureHubPublicUrl(process.env, { host, port });

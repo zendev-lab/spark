@@ -1,4 +1,4 @@
-/** Small shared helpers for the native Spark TUI command surface. */
+/** Shared output helpers for Spark Hub command surfaces. */
 
 export interface SparkCliOutput {
   write(text: string): void;
@@ -15,83 +15,6 @@ export const consoleSparkCliErrorOutput: SparkCliOutput = {
     process.stderr.write(text.endsWith("\n") ? text : `${text}\n`);
   },
 };
-
-export interface ParsedSparkCliOptions {
-  options: Record<string, string | boolean>;
-  positionals: string[];
-}
-
-export function parseSparkCliOptions(argv: string[]): ParsedSparkCliOptions {
-  const options: Record<string, string | boolean> = {};
-  const positionals: string[] = [];
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]!;
-    if (arg === "--") {
-      positionals.push(...argv.slice(index + 1));
-      break;
-    }
-    if (!arg.startsWith("-")) {
-      positionals.push(arg);
-      continue;
-    }
-
-    const [rawName, inlineValue] = arg.replace(/^-+/, "").split("=", 2);
-    const name = normalizeOptionName(rawName ?? "");
-    if (!name) throw new Error(`invalid option: ${arg}`);
-    if (inlineValue !== undefined) {
-      options[name] = inlineValue;
-      continue;
-    }
-    if (BOOLEAN_OPTIONS.has(name)) {
-      options[name] = true;
-      continue;
-    }
-    const next = argv[index + 1];
-    if (next !== undefined && !next.startsWith("-")) {
-      options[name] = next;
-      index += 1;
-    } else {
-      options[name] = true;
-    }
-  }
-
-  return { options, positionals };
-}
-
-export function readStringOption(
-  options: Record<string, string | boolean>,
-  name: string,
-): string | undefined {
-  const value = options[name];
-  if (value === undefined || value === false) return undefined;
-  if (value === true) throw new Error(`--${name} requires a value`);
-  return value;
-}
-
-export function readBooleanOption(
-  options: Record<string, string | boolean>,
-  name: string,
-): boolean {
-  return options[name] === true;
-}
-
-export function readNumberOption(
-  options: Record<string, string | boolean>,
-  name: string,
-): number | undefined {
-  const raw = readStringOption(options, name);
-  if (raw === undefined) return undefined;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) throw new Error(`--${name} must be a number`);
-  return parsed;
-}
-
-export function helpFlagRequested(argv: readonly string[]): boolean {
-  const delimiterIndex = argv.indexOf("--");
-  const options = delimiterIndex < 0 ? argv : argv.slice(0, delimiterIndex);
-  return options.some((arg) => arg === "--help" || arg === "-h");
-}
 
 export function printSparkCliResult(
   output: SparkCliOutput,
@@ -124,28 +47,4 @@ export function formatSparkCliHuman(value: unknown): string {
     }
   }
   return lines.join("\n");
-}
-
-const BOOLEAN_OPTIONS = new Set([
-  "help",
-  "json",
-  "once",
-  "reset",
-  "all-workspaces",
-  "all",
-  "yes",
-  "y",
-]);
-
-function normalizeOptionName(name: string): string {
-  switch (name) {
-    case "p":
-      return "prompt";
-    case "s":
-      return "session";
-    case "h":
-      return "help";
-    default:
-      return name;
-  }
 }

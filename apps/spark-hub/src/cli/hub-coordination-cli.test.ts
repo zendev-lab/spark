@@ -55,6 +55,46 @@ test("parseSparkHubCliArgs routes Hub coordination resources", () => {
   });
 });
 
+test("parseSparkHubCliArgs preserves aliases, delimiters, and parser errors", () => {
+  assert.deepEqual(
+    parseSparkHubCliArgs([
+      "assign",
+      "create",
+      "positional-session",
+      "--goal",
+      " delegated work ",
+      "-s",
+      " managed-session ",
+      "--json",
+    ]),
+    {
+      resource: "assign",
+      verb: "create",
+      json: true,
+      sessionId: "managed-session",
+      goal: "delegated work",
+      title: undefined,
+      role: undefined,
+      workspaceId: undefined,
+    },
+  );
+  assert.deepEqual(parseSparkHubCliArgs(["project", "status", "--", "--help"]), {
+    resource: "project",
+    verb: "status",
+    json: false,
+    limit: undefined,
+    selector: "--help",
+  });
+  assert.throws(
+    () => parseSparkHubCliArgs(["status", "--limit", "not-a-number"]),
+    /--limit must be a number/u,
+  );
+  assert.throws(
+    () => parseSparkHubCliArgs(["status", "--unknown"]),
+    /Unexpected option or subcommand: `--unknown`/u,
+  );
+});
+
 test("spark hub help documents only the Web presentation lifecycle", () => {
   const help = sparkHubHelpText();
   assert.match(help, /spark hub - Spark Hub Web presentation host/u);
@@ -131,6 +171,17 @@ test("spark-hub thin bin routes through the TypeScript surface entry", async () 
   const missingWeb = await runBin(bin, ["web", "not-a-real-op"]);
   assert.notEqual(missingWeb.code, 0);
   assert.match(`${missingWeb.stdout}${missingWeb.stderr}`, /Unknown spark hub web command/u);
+
+  const nestedHelp = await runBin(bin, ["web", "status", "--help"]);
+  assert.equal(nestedHelp.code, 0);
+  assert.match(nestedHelp.stdout, /spark hub web - manage the background Hub Web service/u);
+
+  const invalidLines = await runBin(bin, ["web", "logs", "--lines", "not-a-number"]);
+  assert.notEqual(invalidLines.code, 0);
+  assert.match(
+    `${invalidLines.stdout}${invalidLines.stderr}`,
+    /Invalid --lines value\. Pass a non-negative integer\./u,
+  );
 }, 60_000);
 
 test("spark hub status/project/task/goal/artifact/review/workflow expose stable JSON", async () => {

@@ -29,15 +29,44 @@ export function runDaemonMigrations(
   db: DatabaseSync,
   migrations: readonly Migration[] = daemonMigrations,
 ): void {
-  // These steps remain idempotent and intentionally run on every open. Some
-  // compatibility owners scrub late writes or backfill newly registered rows;
-  // only migrations that historically used daemon_meta keep durable markers.
   const seen = new Set<string>();
   for (const migration of migrations) {
     if (seen.has(migration.id)) throw new Error(`Duplicate daemon migration id: ${migration.id}`);
     seen.add(migration.id);
   }
+  const applied = readAppliedMigrationIds(db);
+  const now = new Date().toISOString();
   for (const migration of migrations) {
+    if (!migration.everyOpen && applied.has(migration.id)) continue;
     migration.up(db);
+    if (!migration.everyOpen) markMigrationApplied(db, migration.id, now);
   }
+}
+
+function readAppliedMigrationIds(db: DatabaseSync): Set<string> {
+  if (!daemonMetaTableExists(db)) return new Set();
+  const rows = db.prepare("SELECT key, value FROM daemon_meta").all() as Array<{
+    key: string;
+    value: string;
+  }>;
+  return new Set(rows.filter((row) => row.value === "complete").map((row) => row.key));
+}
+
+function markMigrationApplied(db: DatabaseSync, id: string, now: string): void {
+  if (!daemonMetaTableExists(db)) return;
+  db.prepare(
+    `INSERT INTO daemon_meta (key, value, updated_at)
+     VALUES (?, 'complete', ?)
+     ON CONFLICT(key) DO UPDATE SET
+       value = excluded.value,
+       updated_at = excluded.updated_at`,
+  ).run(id, now);
+}
+
+function daemonMetaTableExists(db: DatabaseSync): boolean {
+  return Boolean(
+    db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'daemon_meta' LIMIT 1")
+      .get(),
+  );
 }

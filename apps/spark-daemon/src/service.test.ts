@@ -39,6 +39,7 @@ import {
   stopSparkDaemonPidFileProcess,
   stopSparkDaemonRestartStartedService,
   writeSparkDaemonLaunchdPlist,
+  sparkDaemonSupervisorGraceMs,
 } from "./service.ts";
 
 const paths = resolveSparkPaths({ app: "daemon", env: { HOME: "/tmp/spark-service-test" } });
@@ -1293,11 +1294,24 @@ setInterval(() => {}, 1000);
       expect(plist).toContain(
         "<key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>",
       );
+      expect(plist).toContain("<key>ThrottleInterval</key>\n  <integer>1</integer>");
       expect(plist).not.toContain("<key>KeepAlive</key>\n  <true/>");
       expect(plist).toContain("<string>__service-start</string>");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("waits five seconds for Darwin launchd and two seconds for other supervisors", () => {
+    expect(sparkDaemonSupervisorGraceMs({ supervisorMayRestart: true, platform: "darwin" })).toBe(
+      5_000,
+    );
+    expect(sparkDaemonSupervisorGraceMs({ supervisorMayRestart: true, platform: "linux" })).toBe(
+      2_000,
+    );
+    expect(sparkDaemonSupervisorGraceMs({ supervisorMayRestart: false, platform: "darwin" })).toBe(
+      0,
+    );
   });
 
   it("pins launchd to the version-independent managed launcher", () => {

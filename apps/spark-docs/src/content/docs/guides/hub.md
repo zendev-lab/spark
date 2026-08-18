@@ -35,13 +35,6 @@ spark hub
 Open the URL printed by the command. Hub Web is a control and projection
 surface; durable execution remains owned by Spark daemons.
 
-If this installation previously ran Spark Cockpit, stop it before starting Hub.
-The first Hub database open migrates the retired XDG or `SPARK_HOME` app tree,
-including `cockpit.toml` and `cockpit.sqlite`. Migration refuses live legacy
-locks and source/target conflicts instead of overwriting state. See
-[Configuration and paths](/reference/configuration-and-paths/) for the complete
-mapping and environment-variable compatibility window.
-
 If the page cannot load session data, check both processes separately:
 
 ```bash

@@ -467,9 +467,7 @@ export function sparkDaemonWorkspace(value: unknown): SparkDaemonWorkspace {
   const hubBindingState =
     value.hubBindingState === "bound" || value.hubBindingState === "unbound"
       ? value.hubBindingState
-      : value.cockpitBindingState === "bound" || value.cockpitBindingState === "unbound"
-        ? value.cockpitBindingState
-        : undefined;
+      : undefined;
   const workspace: SparkDaemonWorkspace = {
     id: value.id,
     ...(typeof value.serverWorkspaceId === "string"

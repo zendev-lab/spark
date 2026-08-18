@@ -10,6 +10,7 @@ export const loopMigrations = [
   {
     id: "migration.driver-to-loop-v1",
     owner: "loops",
+    everyOpen: true,
     up: migrateLegacyDriverTables,
   },
 ] satisfies Migration[];

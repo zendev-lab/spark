@@ -1,7 +1,4 @@
-import {
-  HubLayoutMigrationConflictError,
-  HubLayoutMigrationLockedError,
-} from "@zendev-lab/spark-hub-db";
+import { HubDatabaseLockedError } from "@zendev-lab/spark-hub-db";
 import {
   SparkDaemonLocalRpcUnavailableError,
   SparkDaemonPreDispatchUnavailableError,
@@ -44,8 +41,7 @@ export function presentHubServerError(input: {
 
 export function isHubServiceUnavailableError(error: unknown): boolean {
   if (
-    error instanceof HubLayoutMigrationConflictError ||
-    error instanceof HubLayoutMigrationLockedError ||
+    error instanceof HubDatabaseLockedError ||
     error instanceof SparkDaemonLocalRpcUnavailableError ||
     error instanceof SparkDaemonPreDispatchUnavailableError ||
     error instanceof SparkDaemonProtocolMismatchError
@@ -54,8 +50,7 @@ export function isHubServiceUnavailableError(error: unknown): boolean {
   }
   if (!(error instanceof Error)) return false;
   return (
-    error.name === "HubLayoutMigrationConflictError" ||
-    error.name === "HubLayoutMigrationLockedError" ||
+    error.name === "HubDatabaseLockedError" ||
     error.name === "HubRuntimeSessionUnavailableError" ||
     error.name === "SparkDaemonUnavailableError" ||
     error.name === "SparkDaemonPreDispatchUnavailableError" ||

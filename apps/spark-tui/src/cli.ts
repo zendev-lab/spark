@@ -85,7 +85,7 @@ import {
 import { loadSparkConfig, type SparkConfig } from "./host/config.ts";
 import type { SparkActiveSelection } from "./host/provider-registry.ts";
 import { registerSparkSessionsCommand } from "./host/session-navigation.ts";
-import { SparkSessionStore, workspaceSessionHash } from "./host/session-store.ts";
+import { SparkSessionStore, workspaceSessionHash } from "@zendev-lab/spark-host/session-store";
 import {
   createSparkModelPickerFromCustomUi,
   type SparkModelSelectorCustomUi,

@@ -18,7 +18,7 @@ import type {
   SparkSessionMessageEntry,
   SparkSessionRecord,
   SparkSessionStore,
-} from "./session-store.ts";
+} from "@zendev-lab/spark-host/session-store";
 
 export interface SparkSessionTreeNode {
   entry: SparkSessionEntry;

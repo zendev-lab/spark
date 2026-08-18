@@ -176,6 +176,48 @@ describe("daemon session transcript ownership", () => {
       sessionPath: record.path,
     });
   });
+
+  it("indexes each workspace transcript directory once for many sessions", async () => {
+    const harness = await createHarness("index-once");
+    const sessionIds = ["sess_index_a", "sess_index_b", "sess_index_c"];
+    for (const sessionId of sessionIds) {
+      const session = await createDaemonWorkspaceSession(harness.registry, {
+        sessionId,
+        workspaceId: "workspace",
+      });
+      const record = harness.store.createCanonicalSession({
+        id: session.sessionId,
+        timestamp: "2026-07-21T00:00:00.000Z",
+      });
+      harness.store.appendMessage(record, { role: "user", content: sessionId });
+      await harness.store.save(record);
+      await harness.registry.bindTranscriptPath({
+        sessionId: session.sessionId,
+        sessionPath: harness.store.canonicalSessionPath(session.sessionId),
+      });
+    }
+
+    let directoryScans = 0;
+    class CountingStore extends SparkSessionStore {
+      override async indexSessionPathsById(): Promise<ReadonlyMap<string, readonly string[]>> {
+        directoryScans += 1;
+        return await super.indexSessionPathsById();
+      }
+    }
+
+    const result = await unifyDaemonSessionTranscripts({
+      registry: harness.registry,
+      transcriptSparkHome: harness.transcriptSparkHome,
+      backupRoot: join(harness.root, "unused-index-backup"),
+      apply: true,
+      createStore: (cwd) => new CountingStore({ cwd, sparkHome: harness.transcriptSparkHome }),
+    });
+
+    expect(directoryScans).toBe(1);
+    expect(
+      result.sessions.filter((session) => sessionIds.includes(session.sessionId)),
+    ).toHaveLength(3);
+  });
 });
 
 async function createHarness(label: string) {

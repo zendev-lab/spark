@@ -5,7 +5,6 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
-  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -215,62 +214,16 @@ describe("Hub instance snapshots", () => {
     }
   });
 
-  it("inspects and restores a legacy Cockpit snapshot without changing its stable instance id", async () => {
-    const root = createRoot();
-    const sourcePath = join(root, "legacy-source.sqlite");
-    const snapshotPath = join(root, "legacy.snapshot");
-    const targetPath = join(root, "restored.sqlite");
-    const legacyInstanceId = "cockpit_33333333333333333333333333333333";
-    const source = openDatabase({ path: sourcePath });
-    migrate(
-      source,
-      loadMigrations().filter((migration) => migration.version <= "0021"),
-    );
-    source
-      .prepare("INSERT INTO app_settings (key, value_json, updated_at) VALUES (?, ?, ?)")
-      .run("spark_cockpit:instance_id", JSON.stringify(legacyInstanceId), now);
-    source
-      .prepare(
-        `INSERT INTO cockpit_access_tokens
-        (id, token_hash, label, created_at, expires_at)
-       VALUES ('catok_legacy', 'legacy-hash', 'Legacy browser', ?, ?)`,
-      )
-      .run(now, "2026-08-15T00:00:00.000Z");
-    await createHubSnapshot({ sourceDb: source, destination: snapshotPath, now });
-    source.close();
-
-    renameSync(join(snapshotPath, "hub.sqlite"), join(snapshotPath, "cockpit.sqlite"));
+  it("rejects retired Cockpit snapshot manifests", async () => {
+    const { snapshotPath } = await snapshotAndTarget();
     const manifestPath = join(snapshotPath, "manifest.json");
-    const manifest = parseJson(readFileSync(manifestPath, "utf8"), "legacy manifest") as {
+    const manifest = parseJson(readFileSync(manifestPath, "utf8"), "hub manifest") as {
       format: string;
-      database: { file: string };
     };
     manifest.format = "spark.cockpit.snapshot.v1";
-    manifest.database.file = "cockpit.sqlite";
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 
-    expect(inspectHubSnapshot(snapshotPath).manifest).toMatchObject({
-      format: "spark.cockpit.snapshot.v1",
-      instanceId: legacyInstanceId,
-      database: { file: "cockpit.sqlite" },
-    });
-    const restored = await restoreHubSnapshot({ snapshotPath, databasePath: targetPath });
-    expect(restored.instanceId).toBe(legacyInstanceId);
-    const target = new DatabaseSync(targetPath, { readOnly: true });
-    try {
-      expect(setting(target, "spark_hub:instance_id")).toBe(legacyInstanceId);
-      expect(count(target, "hub_access_tokens")).toBe(0);
-      expect(
-        target
-          .prepare("SELECT type FROM sqlite_master WHERE name = ?")
-          .get("cockpit_access_tokens"),
-      ).toEqual({ type: "table" });
-      expect(
-        target.prepare("SELECT type FROM sqlite_master WHERE name = ?").get("hub_access_tokens"),
-      ).toEqual({ type: "view" });
-    } finally {
-      target.close();
-    }
+    expect(() => inspectHubSnapshot(snapshotPath)).toThrow(/unsupported/u);
   });
 
   it("rejects a corrupted snapshot before changing the target", async () => {

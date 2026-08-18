@@ -14,7 +14,11 @@ import type {
 import { resolveToolPolicy } from "@zendev-lab/spark-core";
 
 import { SparkHostRuntime } from "../host/runtime.ts";
-import type { OutboxEnvelope, RegisteredCommand, RegisteredTool } from "../host/types.ts";
+import type {
+  OutboxEnvelope,
+  RegisteredCommand,
+  RegisteredTool,
+} from "@zendev-lab/spark-host/types";
 
 interface ContractObservation {
   registeredTools: string[];

@@ -23,7 +23,7 @@ import type { Component, Focusable, TUI } from "../tui/pi-tui-adapter.ts";
 
 import { SparkKeybindings } from "../host/keybindings.ts";
 import { SparkHostRuntime } from "../host/runtime.ts";
-import type { SparkHostMessageRenderer } from "../host/types.ts";
+import type { SparkHostMessageRenderer } from "@zendev-lab/spark-host/types";
 import { createSparkDaemonNativeCommands } from "../cli/daemon.ts";
 import { maskNativeSecretRender } from "../native-tui/prompt.ts";
 import {

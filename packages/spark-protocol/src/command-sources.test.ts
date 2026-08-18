@@ -6,11 +6,11 @@ import {
 } from "./command-sources.ts";
 
 describe("Spark command payload sources", () => {
-  it("keeps the historical agents source value behind the Hub-named API", () => {
-    expect(sparkAgentsHubSource).toBe("agents-cockpit");
-    expect(sparkCommandPayloadSourceOptions).toEqual(["agents-cockpit"]);
-    expect(isSparkCommandPayloadSource("agents-cockpit")).toBe(true);
-    expect(isSparkCommandPayloadSource("agents-hub")).toBe(false);
+  it("uses the Hub-named wire value and rejects the retired Cockpit source", () => {
+    expect(sparkAgentsHubSource).toBe("agents-hub");
+    expect(sparkCommandPayloadSourceOptions).toEqual(["agents-hub"]);
+    expect(isSparkCommandPayloadSource("agents-hub")).toBe(true);
+    expect(isSparkCommandPayloadSource("agents-cockpit")).toBe(false);
     expect(isSparkCommandPayloadSource("project-chat")).toBe(false);
   });
 });

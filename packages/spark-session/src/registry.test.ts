@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
@@ -476,5 +476,66 @@ describe("SparkSessionRegistry v6 migration", () => {
     expect(persisted.version).toBe(6);
     expect(persisted.sessions).toHaveLength(2);
     expect(JSON.stringify(persisted.sessions)).not.toMatch(/"authority"|"activity"|"lifetime"/u);
+  });
+});
+
+describe("SparkSessionRegistry file cache", () => {
+  it("reuses one on-disk parse across repeated reads", async () => {
+    const registry = await tempRegistry();
+    const admin = await administrator(registry);
+    await chmod(registry.filePath, 0);
+
+    try {
+      await expect(registry.get(admin.sessionId)).resolves.toMatchObject({
+        sessionId: admin.sessionId,
+        name: "Administrator",
+      });
+      await expect(registry.list()).resolves.toEqual(
+        expect.arrayContaining([expect.objectContaining({ sessionId: admin.sessionId })]),
+      );
+    } finally {
+      await chmod(registry.filePath, 0o600);
+    }
+  });
+
+  it("exposes the persisted revision after a save", async () => {
+    const registry = await tempRegistry();
+    const first = await administrator(registry);
+    const child = await registry.create({
+      sessionId: "sess_cached_child",
+      scope: first.scope,
+      owner: { kind: "session", supervisorSessionId: first.sessionId },
+      cwd: "/repo",
+    });
+
+    await expect(registry.get(child.sessionId)).resolves.toMatchObject({
+      sessionId: child.sessionId,
+      owner: { kind: "session", supervisorSessionId: first.sessionId },
+    });
+    const persisted = JSON.parse(await readFile(registry.filePath, "utf8")) as {
+      revision: number;
+    };
+    expect(persisted.revision).toBeGreaterThan(0);
+  });
+
+  it("reloads when another writer changes the registry file", async () => {
+    const registry = await tempRegistry();
+    const admin = await administrator(registry);
+    const persisted = JSON.parse(await readFile(registry.filePath, "utf8")) as {
+      version: number;
+      revision: number;
+      sessions: Array<Record<string, unknown>>;
+    };
+    persisted.sessions = persisted.sessions.map((session) =>
+      session.sessionId === admin.sessionId
+        ? { ...session, name: "Reloaded Administrator" }
+        : session,
+    );
+    await writeFile(registry.filePath, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
+
+    await expect(registry.get(admin.sessionId)).resolves.toMatchObject({
+      sessionId: admin.sessionId,
+      name: "Reloaded Administrator",
+    });
   });
 });

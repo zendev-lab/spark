@@ -765,10 +765,15 @@ async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<
   // Durable execution recovery must finish before admission opens so a
   // successor generation cannot claim work that still looks live under a
   // previous generation.
+  if (runtime.options.beforeAdmission) await runtime.options.beforeAdmission;
   reconcileDaemonExecutionState(runtime, "startup");
-  await runtime.sessionSupervisor?.reconcile({
-    workspaceIds: listWorkspaces(runtime.options.db).map((workspace) => workspace.id),
-  });
+  await runtime.sessionSupervisor?.reconcile(
+    runtime.options.skipWorkspaceAdministratorEnsure
+      ? {}
+      : {
+          workspaceIds: listWorkspaces(runtime.options.db).map((workspace) => workspace.id),
+        },
+  );
   runtime.loopStore.reconcileTerminalTicks();
   await reconcileLoopGoalSettlements(runtime.loopStore, { retryErrors: true });
   await reconcileReproWorkbenches(runtime);

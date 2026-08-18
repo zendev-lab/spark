@@ -68,6 +68,9 @@ export interface SparkHeadlessTokenUsageContext extends Omit<
 
 export interface SparkHeadlessSessionRunInput {
   cwd: string;
+  workspaceId?: string;
+  /** Trusted workspace-owned state root; execution cwd may be a subdir/worktree. */
+  sparkStateRoot?: string;
   sessionId: string;
   /** Daemon-authoritative native transcript path for this session generation. */
   sessionPath?: string;
@@ -78,6 +81,8 @@ export interface SparkHeadlessSessionRunInput {
   /** Internal transcript metadata for daemon-owned hidden execution. */
   sessionVisibility?: "internal";
   sessionPurpose?: "loop_tick";
+  /** Continue a turn after daemon/process interrupt using persisted session state. */
+  resumeFromInterrupt?: boolean;
   /** Exact pending tool-call continuation captured by a planned daemon restart. */
   restartCheckpoint?: SparkTurnResumeCheckpoint;
   /** Persist and yield when a restart is pending; otherwise return normally. */

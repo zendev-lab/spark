@@ -1,11 +1,6 @@
-import { resolveRenamedEnvironmentVariable } from "@zendev-lab/spark-system";
-
 const publicUrlEnvName = "SPARK_HUB_PUBLIC_URL";
-const legacyPublicUrlEnvName = "SPARK_COCKPIT_PUBLIC_URL";
 const trustProxyEnvName = "SPARK_HUB_TRUST_PROXY";
-const legacyTrustProxyEnvName = "SPARK_COCKPIT_TRUST_PROXY";
 const proxyHopsEnvName = "SPARK_HUB_PROXY_HOPS";
-const legacyProxyHopsEnvName = "SPARK_COCKPIT_PROXY_HOPS";
 
 export type HubPublicUrlMode = "local" | "fixed" | "proxy";
 
@@ -19,12 +14,9 @@ export function configureHubPublicUrl(
   env: Record<string, string | undefined>,
   input: { host: string; port: number },
 ): HubPublicUrlConfig {
-  const productValue = renamedEnv(env, publicUrlEnvName, legacyPublicUrlEnvName);
+  const productValue = trimmed(env[publicUrlEnvName]);
   const adapterValue = trimmed(env.ORIGIN);
-  const trustProxy = resolveTrustProxy(
-    renamedEnv(env, trustProxyEnvName, legacyTrustProxyEnvName),
-    input.host,
-  );
+  const trustProxy = resolveTrustProxy(trimmed(env[trustProxyEnvName]), input.host);
   const requested = resolveRequestedPublicUrl(productValue, adapterValue);
 
   if (requested === "auto") {
@@ -121,7 +113,7 @@ function resolveTrustProxy(value: string | undefined, host: string): boolean {
 }
 
 function configureAdapterProxyHeaders(env: Record<string, string | undefined>): void {
-  const hops = parseProxyHops(renamedEnv(env, proxyHopsEnvName, legacyProxyHopsEnvName));
+  const hops = parseProxyHops(trimmed(env[proxyHopsEnvName]));
   env.ADDRESS_HEADER = "x-forwarded-for";
   env.PROTOCOL_HEADER = "x-forwarded-proto";
   env.XFF_DEPTH = String(hops);
@@ -146,14 +138,6 @@ function localListenOrigin(host: string, port: number): string {
 
 function isLoopbackHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname === "::1" || /^127(?:\.\d{1,3}){3}$/.test(hostname);
-}
-
-function renamedEnv(
-  env: Record<string, string | undefined>,
-  canonical: string,
-  legacy: string,
-): string | undefined {
-  return resolveRenamedEnvironmentVariable(env, { canonical, legacy });
 }
 
 function trimmed(value: string | undefined): string | undefined {

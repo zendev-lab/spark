@@ -13,6 +13,7 @@ export interface UnifyDaemonSessionTranscriptsInput {
   transcriptSparkHome: string;
   backupRoot: string;
   apply?: boolean;
+  createStore?: (cwd: string) => SparkSessionStore;
 }
 
 export interface UnifiedDaemonSessionTranscript {
@@ -41,7 +42,15 @@ export async function unifyDaemonSessionTranscripts(
     includeArchived: true,
     includeSideThreads: true,
   });
+  const createStore =
+    input.createStore ??
+    ((cwd: string) =>
+      new SparkSessionStore({
+        cwd,
+        sparkHome: input.transcriptSparkHome,
+      }));
   const results: UnifiedDaemonSessionTranscript[] = [];
+  const sessionsByCwd = new Map<string, SparkSessionState[]>();
 
   for (const session of sessions) {
     // Closing Sessions are completed by SessionSupervisor. Copying a
@@ -54,8 +63,19 @@ export async function unifyDaemonSessionTranscripts(
     ) {
       continue;
     }
-    const result = await unifySessionTranscript(input, session);
-    if (result) results.push(result);
+    const cwd = resolve(session.cwd);
+    const group = sessionsByCwd.get(cwd) ?? [];
+    group.push(session);
+    sessionsByCwd.set(cwd, group);
+  }
+
+  for (const [cwd, group] of sessionsByCwd) {
+    const store = createStore(cwd);
+    const index = await store.indexSessionPathsById();
+    for (const session of group) {
+      const result = await unifySessionTranscript(input, store, index, session);
+      if (result) results.push(result);
+    }
   }
 
   return { backupRoot: input.backupRoot, sessions: results };
@@ -63,13 +83,11 @@ export async function unifyDaemonSessionTranscripts(
 
 async function unifySessionTranscript(
   input: UnifyDaemonSessionTranscriptsInput,
+  store: SparkSessionStore,
+  index: ReadonlyMap<string, readonly string[]>,
   session: SparkSessionState,
 ): Promise<UnifiedDaemonSessionTranscript | undefined> {
-  const store = new SparkSessionStore({
-    cwd: session.cwd!,
-    sparkHome: input.transcriptSparkHome,
-  });
-  const records = await store.findAllById(session.sessionId);
+  const records = await store.loadAllFromIndex(index, session.sessionId);
   if (
     session.sessionPath &&
     !records.some((record) => resolve(record.path) === resolve(session.sessionPath!))

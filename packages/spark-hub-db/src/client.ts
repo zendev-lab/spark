@@ -7,14 +7,11 @@ import {
   resolveSparkPaths,
 } from "@zendev-lab/spark-system";
 
-import { migrateLegacyCockpitLayout } from "./layout-migration.js";
-
 export interface OpenDatabaseOptions {
   path?: string;
 }
 
 export function defaultDatabasePath(): string {
-  migrateLegacyCockpitLayout();
   return resolveSparkPaths({ app: "hub" }).databasePath;
 }
 

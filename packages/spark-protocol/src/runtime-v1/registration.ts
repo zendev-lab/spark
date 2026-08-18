@@ -74,11 +74,7 @@ export const runtimeTokenRefreshResponseSchema = z.object({
   refreshedAt: isoDateTimeSchema,
 });
 
-export const legacyCockpitInstanceIdSchema = z.string().regex(/^cockpit_[a-f0-9]{32}$/u);
-export const hubInstanceIdSchema = z.union([
-  z.string().regex(/^hub_[a-f0-9]{32}$/u),
-  legacyCockpitInstanceIdSchema,
-]);
+export const hubInstanceIdSchema = z.string().regex(/^hub_[a-f0-9]{32}$/u);
 
 export const hubRuntimeRelocationMetadataSchema = z.object({
   instanceId: hubInstanceIdSchema,

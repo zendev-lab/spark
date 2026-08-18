@@ -157,42 +157,60 @@ export class SparkSessionStore {
   }
 
   async findAllById(sessionId: string): Promise<SparkSessionRecord[]> {
-    const normalized = normalizeSessionRef(sessionId);
-    const acceptedIds = new Set([sessionId, normalized]);
-    const paths = await this.findSessionPathsById(acceptedIds);
-    return await Promise.all(paths.map(async (path) => await this.load(path)));
+    const index = await this.indexSessionPathsById();
+    return await this.loadAllFromIndex(index, sessionId);
   }
 
   /**
-   * Find transcript generations without parsing their complete JSONL bodies.
-   * Startup migrations call this once per registry session, so using list()
-   * here would repeatedly parse the entire workspace transcript directory.
+   * Header-scan the workspace transcript directory once.
+   * Startup unification uses this so N sessions in one cwd do not readdir
+   * that directory N times.
    */
-  private async findSessionPathsById(acceptedIds: ReadonlySet<string>): Promise<string[]> {
+  async indexSessionPathsById(): Promise<ReadonlyMap<string, readonly string[]>> {
     let names: string[];
     try {
       names = await readdir(this.sessionDir);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return new Map();
       throw error;
     }
 
-    const matches: Array<{ path: string; header: SparkSessionHeader }> = [];
+    const matchesById = new Map<string, Array<{ path: string; header: SparkSessionHeader }>>();
     for (const name of names) {
       if (!name.endsWith(".jsonl")) continue;
       const path = join(this.sessionDir, name);
       const header = await readSessionHeader(path);
-      if (header && acceptedIds.has(header.id) && header.visibility !== "internal") {
-        matches.push({ path, header });
-      }
+      if (!header || header.visibility === "internal") continue;
+      const matches = matchesById.get(header.id) ?? [];
+      matches.push({ path, header });
+      matchesById.set(header.id, matches);
     }
-    return matches
-      .sort(
-        (left, right) =>
-          right.header.timestamp.localeCompare(left.header.timestamp) ||
-          right.path.localeCompare(left.path),
-      )
-      .map((match) => match.path);
+
+    const index = new Map<string, string[]>();
+    for (const [id, matches] of matchesById) {
+      index.set(
+        id,
+        matches
+          .sort(
+            (left, right) =>
+              right.header.timestamp.localeCompare(left.header.timestamp) ||
+              right.path.localeCompare(left.path),
+          )
+          .map((match) => match.path),
+      );
+    }
+    return index;
+  }
+
+  async loadAllFromIndex(
+    index: ReadonlyMap<string, readonly string[]>,
+    sessionId: string,
+  ): Promise<SparkSessionRecord[]> {
+    const paths = new Set<string>();
+    for (const id of [sessionId, normalizeSessionRef(sessionId)]) {
+      for (const path of index.get(id) ?? []) paths.add(path);
+    }
+    return await Promise.all([...paths].map(async (path) => await this.load(path)));
   }
 
   async loadByRef(sessionRef: string): Promise<SparkSessionRecord> {

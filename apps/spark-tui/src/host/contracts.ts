@@ -14,7 +14,7 @@ import type { LoadResult } from "./plugin-loader.ts";
 import type { SparkPromptTemplateResolveResult } from "./prompt-templates.ts";
 import type { SparkProviderRegistry } from "./provider-registry.ts";
 import type { SparkHostRuntime, SparkHostRuntimeOptions } from "./runtime.ts";
-import type { SparkSessionStore } from "./session-store.ts";
+import type { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
 import type { SparkSkillResolver } from "./skill-resolver.ts";
 import type { SparkTheme, SparkThemeCatalog } from "./theme.ts";
 import type { SparkAgentLoop } from "./agent-loop.ts";

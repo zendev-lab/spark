@@ -60,7 +60,7 @@ export interface ResolveSparkPathsOptions extends ResolveSparkHomeOptions {
   overrides?: SparkPathOverrides;
 }
 
-export interface SparkPaths<App extends SparkApp | "cockpit" = SparkApp> {
+export interface SparkPaths<App extends SparkApp = SparkApp> {
   app: App;
   configDir: string;
   configFile: string;
@@ -150,14 +150,7 @@ export function resolveSparkPaths(options: ResolveSparkPathsOptions): SparkPaths
   return resolveAppPaths(options.app, appDatabaseNames[options.app], options);
 }
 
-/** Resolve the retired Cockpit layout for explicit, read-only migration probes. */
-export function resolveLegacyCockpitPaths(
-  options: ResolveSparkHomeOptions = {},
-): SparkPaths<"cockpit"> {
-  return resolveAppPaths("cockpit", "cockpit.sqlite", options);
-}
-
-function resolveAppPaths<App extends SparkApp | "cockpit">(
+function resolveAppPaths<App extends SparkApp>(
   app: App,
   databaseName: string,
   options: ResolveSparkHomeOptions & { overrides?: SparkPathOverrides },

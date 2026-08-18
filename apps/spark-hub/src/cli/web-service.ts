@@ -15,8 +15,7 @@ import { createConnection } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { resolveRenamedEnvironmentVariable, resolveSparkPaths } from "@zendev-lab/spark-system";
-import { migrateLegacyHubLayout } from "../lib/server/db.ts";
+import { resolveSparkPaths } from "@zendev-lab/spark-system";
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const lockFileName = "hub-web.lock";
@@ -30,10 +29,8 @@ function serviceWorkingDirectory(env: NodeJS.ProcessEnv): string {
 
 function webServiceEntrypoint(env: NodeJS.ProcessEnv): string {
   return (
-    resolveRenamedEnvironmentVariable(env, {
-      canonical: "SPARK_HUB_WEB_SERVICE_ENTRYPOINT",
-      legacy: "SPARK_COCKPIT_WEB_SERVICE_ENTRYPOINT",
-    }) ?? fileURLToPath(new URL("./web-service-entry.ts", import.meta.url))
+    env.SPARK_HUB_WEB_SERVICE_ENTRYPOINT?.trim() ||
+    fileURLToPath(new URL("./web-service-entry.ts", import.meta.url))
   );
 }
 
@@ -93,7 +90,6 @@ interface WebServicePaths {
 }
 
 function servicePaths(env: NodeJS.ProcessEnv = process.env): WebServicePaths {
-  migrateLegacyHubLayout({ env });
   const paths = resolveSparkPaths({ app: "hub", env });
   return {
     runtimeDir: paths.runtimeDir,
@@ -345,15 +341,9 @@ function acquireRunnerLock(
 }
 
 function serverCommand(env: NodeJS.ProcessEnv): { command: string; args: string[] } {
-  const testEntry = resolveRenamedEnvironmentVariable(env, {
-    canonical: "SPARK_HUB_WEB_TEST_SERVER_ENTRY",
-    legacy: "SPARK_COCKPIT_WEB_TEST_SERVER_ENTRY",
-  });
+  const testEntry = env.SPARK_HUB_WEB_TEST_SERVER_ENTRY?.trim();
   if (testEntry) return { command: process.execPath, args: [testEntry] };
-  const productEntry = resolveRenamedEnvironmentVariable(env, {
-    canonical: "SPARK_HUB_SERVER_ENTRYPOINT",
-    legacy: "SPARK_COCKPIT_SERVER_ENTRYPOINT",
-  });
+  const productEntry = env.SPARK_HUB_SERVER_ENTRYPOINT?.trim();
   if (productEntry) return { command: process.execPath, args: [productEntry] };
   return { command: "pnpm", args: ["exec", "tsx", join(appDir, "server", "index.ts")] };
 }
