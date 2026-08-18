@@ -58,6 +58,7 @@ export interface SparkNativeFooterMetrics {
   latestCacheHitPercent?: number;
   contextTokens?: number;
   contextWindow?: number;
+  tokensPerSecond?: number;
 }
 
 export interface SparkNativeHubSnapshot {
