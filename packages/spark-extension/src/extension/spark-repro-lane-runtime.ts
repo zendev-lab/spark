@@ -31,6 +31,7 @@ import {
   reconcileSparkReproLaneResult,
   rejectSparkReproLaneResult,
   resumeSparkReproRouteFromAnswer,
+  resumeSparkReproRouteFromRecovery,
   resumeSparkReproRouteFromRepair,
   sparkReproLaneBinding,
   sparkReproLaneResultEvidenceRefs,
@@ -309,8 +310,48 @@ export async function reconcileSparkReproThreeLaneRuntime(input: {
       await persist(repro);
     }
   }
+  const recovered = checkpointUnacceptedTerminalRuns(repro, graph.runs(repro.projectRef));
+  if (recovered !== repro) {
+    repro = recovered;
+    await persist(repro);
+  }
   await ensureFormalizeDraft({ ...input, repro, stateCwd });
   return await advancePendingRoutes({ ...input, repro, persist, stateCwd });
+}
+
+function checkpointUnacceptedTerminalRuns(
+  repro: SparkSessionRepro,
+  runs: TaskRun[],
+): SparkSessionRepro {
+  let state = repro.threeLane;
+  const acceptedEvidenceRefs = new Set(
+    state.resultReceipts
+      .filter((receipt) => receipt.status === "accepted")
+      .map((receipt) => receipt.evidenceRef),
+  );
+  for (const binding of state.bindings) {
+    const run = runs.filter((candidate) => candidate.taskRef === binding.taskRef).at(-1);
+    if (!run || !isTerminalRun(run)) continue;
+    const outputEvidenceRefs = [
+      ...run.outputEvidenceRefs,
+      ...(run.completionSummary?.evidenceRefs ?? []),
+    ];
+    if (outputEvidenceRefs.some((ref) => acceptedEvidenceRefs.has(ref))) continue;
+    state = resumeSparkReproRouteFromRecovery(state, {
+      workItemId: binding.workItemId,
+      lane: binding.lane,
+      runRef: run.ref,
+      recoveryDigest: digest(
+        canonicalJson({
+          runRef: run.ref,
+          status: run.status,
+          finishedAt: run.finishedAt,
+          outputEvidenceRefs: [...new Set(outputEvidenceRefs)].sort(),
+        }),
+      ),
+    });
+  }
+  return updateReproThreeLane(repro, state);
 }
 
 /** Manual replay resolves the exact TaskRun and delegates to terminal ingestion. */
@@ -883,9 +924,10 @@ async function prepareRouteRevision(input: {
 async function reopenLaneTask(stateCwd: string, taskRef: TaskRef): Promise<void> {
   await defaultTaskGraphStore(stateCwd).update(
     (graph) => {
-      const task = graph.getTask(taskRef);
-      if (task.status === "ready" || task.status === "pending" || task.status === "running") return;
-      graph.updateTask(taskRef, { status: "ready", claim: undefined });
+      let task = graph.getTask(taskRef);
+      if (task.claim) task = graph.releaseTaskClaim(taskRef, task.claim.claimedBy);
+      if (task.status === "ready" || task.status === "pending") return;
+      graph.updateTask(taskRef, { status: "ready" });
     },
     { createIfMissing: false },
   );

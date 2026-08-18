@@ -20,7 +20,11 @@ import type {
 import { requestSparkDaemon, SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
 import { sparkStateCwd, type SparkSessionContext } from "@zendev-lab/spark-loop";
 import { sparkEvidenceAnswerEventSchema } from "@zendev-lab/spark-protocol";
-import { createSparkSessionRepro, type SparkSessionRepro } from "@zendev-lab/spark-repro";
+import {
+  createSparkSessionRepro,
+  sparkReproLaneBinding,
+  type SparkSessionRepro,
+} from "@zendev-lab/spark-repro";
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -266,6 +270,59 @@ describe("Repro three-lane runtime launch", () => {
     expect(recovered.repro.threeLane.routes[0]?.status).toBe("acknowledged");
   });
 
+  it("checkpoints a terminal lane Run without an accepted result and resumes its Session", async () => {
+    const fixture = await runtimeFixture();
+    const topology = await launchFixture(fixture);
+    await defaultTaskGraphStore(fixture.stateCwd).update(
+      (graph) => {
+        const run = graph
+          .runs(fixture.projectRef)
+          .find((candidate) => candidate.ref === topology.lanes.implementation.runRef);
+        if (!run) throw new Error("implementation TaskRun is missing");
+        graph.recordRun({
+          ...run,
+          status: "cancelled",
+          finishedAt: "2026-08-18T00:00:30.000Z",
+        });
+        const task = graph.getTask(run.taskRef);
+        if (task.claim) graph.releaseTaskClaim(run.taskRef, task.claim.claimedBy);
+        graph.updateTask(run.taskRef, { status: "ready" });
+      },
+      { createIfMissing: false },
+    );
+
+    const recovered = await reconcileSparkReproThreeLaneRuntime({
+      cwd: fixture.cwd,
+      ctx: fixture.ctx,
+      ownerSessionId: "sess_root",
+      repro: topology.repro,
+      deps: runtimeReconcileDeps(fixture),
+    });
+
+    const implementationRuns = (await defaultTaskGraphStore(fixture.stateCwd).load())
+      ?.runs(fixture.projectRef)
+      .filter((run) => run.taskRef === topology.lanes.implementation.taskRef);
+    expect(implementationRuns).toHaveLength(2);
+    expect(
+      new Set(
+        implementationRuns?.map(
+          (run) => run.execution?.sessionId ?? run.execution?.executionSessionId,
+        ),
+      ).size,
+    ).toBe(1);
+    expect(fixture.sessions).toHaveLength(3);
+    expect(fixture.invocations).toHaveLength(2);
+    expect(recovered.threeLane.routes.map((route) => route.action)).toEqual([
+      "start_binding",
+      "resume_binding",
+    ]);
+    expect(recovered.threeLane.routes.every((route) => route.status === "acknowledged")).toBe(true);
+    expect(recovered.threeLane.routes[1]?.cause).toMatchObject({
+      kind: "recovery",
+      id: topology.lanes.implementation.runRef,
+    });
+  });
+
   it.each(["runRef", "taskRef"] as const)(
     "rejects a carrier whose declared %s does not match the terminal envelope",
     async (mismatch) => {
@@ -306,7 +363,8 @@ describe("Repro three-lane runtime launch", () => {
           reason: "invalid_provenance",
         }),
       );
-      expect(fixture.invocations).toHaveLength(1);
+      expect(fixture.invocations).toHaveLength(2);
+      expect(fixture.invocations[1]?.prompt).toContain("lane=implementation");
     },
   );
 
@@ -430,16 +488,29 @@ describe("Repro three-lane runtime launch", () => {
       status: "rejected",
     });
 
+    const recoveredBinding = sparkReproLaneBinding(
+      repro.threeLane,
+      topology.workItemId,
+      "implementation",
+    );
+    if (!recoveredBinding?.originRouteId) throw new Error("recovered binding is missing");
+    const recoveredRun = (await defaultTaskGraphStore(fixture.stateCwd).load())
+      ?.runs(fixture.projectRef)
+      .filter((candidate) => candidate.taskRef === recoveredBinding.taskRef)
+      .at(-1);
+    if (!recoveredRun) throw new Error("recovered TaskRun is missing");
     await putLaneEvidence(fixture, {
       evidenceRef: acceptedRef,
-      runRef: topology.lanes.implementation.runRef,
+      runRef: recoveredRun.ref,
       taskRef: topology.lanes.implementation.taskRef,
       body: implementationResult(topology, {
-        originRouteId: binding.originRouteId,
-        bindingRevision: binding.bindingRevision,
+        originRouteId: recoveredBinding.originRouteId,
+        bindingRevision: recoveredBinding.bindingRevision,
+        runRef: recoveredRun.ref,
+        sourceRevision: recoveredBinding.sourceRevision,
       }),
     });
-    await finishRun(fixture, topology.lanes.implementation.runRef, [rejectedRef, acceptedRef]);
+    await finishRun(fixture, recoveredRun.ref, [acceptedRef]);
     let writes = 0;
     repro = await reconcileSparkReproThreeLaneRuntime({
       cwd: fixture.cwd,
@@ -457,8 +528,8 @@ describe("Repro three-lane runtime launch", () => {
       evidenceRef: acceptedRef,
       status: "accepted",
     });
-    expect(fixture.invocations).toHaveLength(2);
-    expect(fixture.invocations[1]?.prompt).toContain("lane=exactness");
+    expect(fixture.invocations).toHaveLength(3);
+    expect(fixture.invocations[2]?.prompt).toContain("lane=exactness");
     expect(writes).toBeGreaterThan(0);
 
     writes = 0;
@@ -477,7 +548,7 @@ describe("Repro three-lane runtime launch", () => {
     });
     expect(replayed).toBe(repro);
     expect(writes).toBe(0);
-    expect(fixture.invocations).toHaveLength(2);
+    expect(fixture.invocations).toHaveLength(3);
     expect(JSON.stringify(await defaultTaskGraphStore(fixture.stateCwd).load())).toBe(graphBefore);
   });
 
