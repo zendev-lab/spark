@@ -57,7 +57,7 @@ status 变更。未知或歧义 selector、已取消或跨 Project 的前置 Tas
 - Role 定义类型化能力与责任叠加，包括语义 Model Type。它可以声明最多八个有序
   Skill；Spark 在创建子 Session 前解析并预载完整指令正文。Role 不决定 Session
   生命周期。
-- Session 是拥有 continuity、binding、call 和 mail 的运行实例。唯一
+- Session 是拥有 continuity、binding 和 mail 的运行实例。唯一
   Owner 推导出 `persistent | scoped | ephemeral` 生命周期。
 - `skill_agent({ skills, instruction, inputs?, timeoutMs?, model?, thinking?, allowedTools?, allowedToolEffects? })`
   按精确名称解析一到八个 Skill，在一个全新的 owned 子 Session 中各加载一次。
@@ -76,6 +76,13 @@ Role 子 Session 通过语义 Model Type 选择模型。Skill Agent 则默认继
 Session 运维元数据，不是 Evidence。
 
 父 Session 仍负责拆解、持久协调、验证重要结论和面向用户的综合。
+
+Role 执行严格分成三个阶段：创建或选择静态 Role；通过
+`session({ action: "spawn", roleRef })` 或
+`session({ action: "fork", roleRef })` 创建 Role-bound 子 Session；最后用
+`session({ action: "send", kind: "request", toSessionId, message })` 触发工作。
+`spawn` 从空 transcript 开始，`fork` 把当前 Session 的稳定 transcript 前缀复制到
+一份独立 JSONL。两个创建 action 都不会发送 mail，也不会创建 Invocation。
 
 `session({ action: "send" })` 是单向投递。`kind=notification` 只持久化、不触发目标；
 `kind=request` 持久化并准入一次 invocation。目标忙碌时必须显式给出

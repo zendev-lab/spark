@@ -26,7 +26,7 @@ A scratch is daemon-instance-scoped. Use `graft_scratch_pin` when a scratch must
 
 spark-graft registers no slash commands. Human users should run the ordinary `graft ...` CLI directly; agents should use the `graft_*` tools below.
 
-spark-graft also registers the explicit extension role `role:extension-patcher` (`id: patcher`) with `spark-roles`. This replaces the removed `graft_patch` public tool: call it through the canonical `role({ action: "call", role: "role:extension-patcher", instruction: ... })` surface when a patcher child run is appropriate. The role allowlist contains only Graft scratch/candidate/validation/evidence/repository/materialization tools; it has no `ask`, `task`, `task_write`, `goal`, `assign`, `role`, `workflow`, or `graft_patch` surface. If a patch request is unclear, the patcher reports the blocker upward instead of asking interactively or changing files.
+spark-graft also registers the explicit extension role `role:extension-patcher` (`id: patcher`) with `spark-roles`. This replaces the removed `graft_patch` public tool: create a patcher Session with `session({ action: "spawn", roleRef: "role:extension-patcher" })`, then send its patch brief with `session({ action: "send", kind: "request", toSessionId, message })`. The role allowlist contains only Graft scratch/candidate/validation/evidence/repository/materialization tools; it has no `ask`, `task`, `task_write`, `goal`, `assign`, `role`, `workflow`, or `graft_patch` surface. If a patch request is unclear, the patcher reports the blocker upward instead of asking interactively or changing files.
 
 ## Tools
 

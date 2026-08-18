@@ -78,8 +78,6 @@ const PI_COMMANDS = [
   "inbox",
   "changelog",
   "hotkeys",
-  "fork",
-  "clone",
   "tree",
   "trust",
   "login",
@@ -156,14 +154,6 @@ export function createSparkPiParitySlashCommands(
       description: STRINGS.descriptions.hotkeys,
       handler: () => renderHotkeys(services),
     },
-    fork: {
-      description: STRINGS.descriptions.fork,
-      handler: async (_args, ctx) => forkVisibleTranscript(services, ctx.session.messages),
-    },
-    clone: {
-      description: STRINGS.descriptions.clone,
-      handler: async (_args, ctx) => cloneVisibleTranscript(services, ctx.session.messages),
-    },
     tree: {
       description: STRINGS.descriptions.tree,
       argumentHint: "[session-id|path] [summarize <entry-id> [instructions]]",
@@ -232,12 +222,7 @@ function piParityCommandMetadata(
     source: "extension",
     extensionId: "spark-pi-parity",
     plane: canonical.startsWith("spark daemon") ? "daemon" : "tui",
-    resource:
-      name === "fork" || name === "clone" || name === "tree"
-        ? "session"
-        : providerAuthCommand
-          ? "auth"
-          : name,
+    resource: name === "tree" ? "session" : providerAuthCommand ? "auth" : name,
     verbs: [name],
     canonicalCliTarget: canonical,
   };
@@ -247,10 +232,6 @@ function piParityCanonicalCliTarget(name: string): string {
   switch (name) {
     case "inbox":
       return "spark daemon session inbox --session <session>";
-    case "fork":
-      return "spark daemon session fork --current";
-    case "clone":
-      return "spark daemon session clone --current";
     case "tree":
       return "spark daemon session tree <session>";
     case "resume":
@@ -668,38 +649,6 @@ function renderHotkeys(services: SparkCliHostServices): string {
     .snapshot()
     .bindings.map((binding) => `${binding.key} — ${binding.id}: ${binding.description}`)
     .join("\n");
-}
-
-async function forkVisibleTranscript(
-  services: SparkCliHostServices,
-  messages: readonly SparkNativeMessage[],
-): Promise<string> {
-  const record = services.sessionStore.createSession({ id: `fork-${randomUUID()}` });
-  for (const message of exportableMessages(messages)) {
-    services.sessionStore.appendMessage(record, {
-      role: message.role,
-      content: message.text,
-      timestamp: Date.now(),
-    });
-  }
-  await services.sessionStore.save(record);
-  return `Forked visible transcript into Spark session ${record.header.id}`;
-}
-
-async function cloneVisibleTranscript(
-  services: SparkCliHostServices,
-  messages: readonly SparkNativeMessage[],
-): Promise<string> {
-  const record = services.sessionStore.createSession({ id: `clone-${randomUUID()}` });
-  for (const message of exportableMessages(messages)) {
-    services.sessionStore.appendMessage(record, {
-      role: message.role,
-      content: message.text,
-      timestamp: Date.now(),
-    });
-  }
-  await services.sessionStore.save(record);
-  return `Cloned visible transcript into Spark session ${record.header.id}`;
 }
 
 async function handleTreeCommand(services: SparkCliHostServices, args: string): Promise<string> {

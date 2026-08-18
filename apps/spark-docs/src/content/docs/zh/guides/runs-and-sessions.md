@@ -68,6 +68,38 @@ Invocation、Evidence 与 Artifact 引用。没有有效语义结果时，Spark 
 的确定性 fallback，并继续清理内容。该 receipt 是可查询的 Session 元数据，不是
 Evidence 或 Memory。
 
+## 创建 Role-bound Session
+
+先创建或选择静态 Role。在可使用工具的 Session 中，`spawn` 创建空子 Session，
+`fork` 则把当前 Session 的稳定 transcript 前缀复制到一份独立子 Session：
+
+```ts
+session({ action: "spawn", roleRef: "role:project-executor", name: "实现" })
+session({ action: "fork", roleRef: "role:builtin-reviewer", name: "审查" })
+```
+
+CLI 调用必须显式指定 supervisor：
+
+```bash
+spark daemon session spawn --supervisor <session-id> --role-ref <RoleRef> --json
+spark daemon session fork --supervisor <session-id> --role-ref <RoleRef> --json
+```
+
+两个命令都不接收 instruction，也不会创建 Invocation。拿到子 Session 后，再单独触发工作：
+
+```ts
+session({
+  action: "send",
+  kind: "request",
+  toSessionId: "<child-session-id>",
+  message: "运行聚焦验证并报告证据。"
+})
+```
+
+fork 不会与父 Session 共享可写 transcript tail；父子后续 append 与 compact 完全独立。
+复制稳定前缀期间父 transcript 若发生变化，Spark 会重试一次，之后返回
+`session_transcript_changed`，不会创建撕裂快照。
+
 ## 在 Session 之间发送工作
 
 未设置 `onActive` 的 Session request 只尝试投递给空闲目标。目标空闲时，Spark 会立即提交；目标处于 queued 或 running 状态时，Spark 不会持久化消息，并返回 `session_mail_target_active`，提示调用方显式选择一种重试策略：

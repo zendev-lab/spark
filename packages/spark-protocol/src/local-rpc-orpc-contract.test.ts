@@ -410,6 +410,8 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     const declaredCases = [
       ["session.create", "daemon_identity_unavailable"],
       ["session.create", "daemon_cwd_unavailable"],
+      ["session.spawn", "invalid_session_role"],
+      ["session.fork", "session_transcript_changed"],
       ["session.bind", "side_thread_mutation_forbidden"],
       ["session.snapshot", "invalid_session_snapshot"],
       ["session.snapshot", "session_snapshot_mismatch"],
@@ -432,6 +434,36 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("loop.start", "session_not_found")).toBe(false);
     expect(
       isSparkLocalRpcOrpcErrorCodeForMethod("session.create", "relocation_source_not_found"),
+    ).toBe(false);
+  });
+
+  it("keeps managed child inputs exact and rejects arbitrary fork sources", () => {
+    const valid = {
+      supervisorSessionId: "session:supervisor",
+      roleRef: "role:project-verifier",
+      name: "Verifier",
+      cwd: "/workspace/verifier",
+      cwdArtifactRef: "artifact:git-change-verifier",
+    };
+    expect(sparkLocalRpcProcedureSchemas["session.spawn"].input.parse(valid)).toEqual(valid);
+    expect(sparkLocalRpcProcedureSchemas["session.fork"].input.parse(valid)).toEqual(valid);
+    expect(
+      sparkLocalRpcProcedureSchemas["session.spawn"].input.safeParse({
+        ...valid,
+        roleRef: "verifier",
+      }).success,
+    ).toBe(false);
+    expect(
+      sparkLocalRpcProcedureSchemas["session.fork"].input.safeParse({
+        ...valid,
+        sourceSessionId: "session:arbitrary",
+      }).success,
+    ).toBe(false);
+    expect(
+      sparkLocalRpcProcedureSchemas["session.fork"].input.safeParse({
+        ...valid,
+        instruction: "run immediately",
+      }).success,
     ).toBe(false);
   });
 

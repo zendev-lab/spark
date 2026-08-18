@@ -70,6 +70,17 @@ spark hub --help
 支持的认证与模型操作。复制、迁移或修复状态前，先阅读
 [配置与路径](/zh/reference/configuration-and-paths/)。
 
+创建 Role-bound Session 时，CLI 必须显式指定 supervisor 与精确静态 RoleRef：
+
+```bash
+spark daemon session spawn --supervisor <session-id> --role-ref <RoleRef> --json
+spark daemon session fork --supervisor <session-id> --role-ref <RoleRef> --json
+```
+
+`spawn` 创建空子 Session；`fork` 只把 supervisor 的稳定 transcript 前缀复制到一份
+独立子 JSONL。两者都不会创建 Invocation。已删除的 `session create`、
+`session clone` 与带源 Session 参数的 transcript fork 不提供 alias。
+
 ## 退出行为与自动化
 
 - 成功命令退出码为 `0`。

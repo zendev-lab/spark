@@ -448,6 +448,16 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.create"].output,
       client.session.create(input, options),
     ),
+  "session.spawn": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.spawn"].output,
+      client.session.spawn(input, options),
+    ),
+  "session.fork": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.fork"].output,
+      client.session.fork(input, options),
+    ),
   "session.bind": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.bind"].output,
@@ -527,6 +537,8 @@ const sessionInvokers = {
   | "session.prompt-history"
   | "session.retry-target"
   | "session.create"
+  | "session.spawn"
+  | "session.fork"
   | "session.bind"
   | "session.unbind"
   | "session.archive"

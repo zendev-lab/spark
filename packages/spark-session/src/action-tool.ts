@@ -9,17 +9,14 @@ import {
   sparkSessionMailMutationResultSchema,
   sparkSessionSendResultSchema,
   type SparkChannelAdapter,
-  type SparkSessionCreateRequest,
   type SparkSessionListRequest,
   type SparkSessionMailKind,
   type SparkSessionMailMessage,
   type SparkSessionPeerProjection,
-  sparkTurnSubmitResultSchema,
   sparkTurnResultSchema,
   sparkTurnStatusResultSchema,
   isSparkInvocationTerminalStatus,
   type SparkSessionProjection,
-  type SparkTurnSubmitResult,
   type SparkTurnResult,
   type SparkTurnStatusResult,
 } from "@zendev-lab/spark-protocol";
@@ -56,8 +53,8 @@ export type SparkSessionToolProjection = SparkSessionProjection & {
 export type SparkSessionAction =
   | "list"
   | "get"
-  | "create"
-  | "call"
+  | "spawn"
+  | "fork"
   | "bind"
   | "unbind"
   | "archive"
@@ -162,18 +159,40 @@ export async function executeSparkSessionAction(
       const session = projectSession(record);
       return sessionResult(renderSession(session), { action, session });
     }
-    case "create": {
-      const createRequest = await sessionCreateRequest(params, ctx, request, signal);
+    case "spawn":
+    case "fork": {
+      const supervisorSessionId = await requireCurrentSessionId(ctx, action);
+      const roleRef = requiredString(params.roleRef, `session ${action} requires roleRef`);
+      if (!roleRef.startsWith("role:")) {
+        throw new Error(`session ${action} roleRef must start with role:`);
+      }
+      const name = optionalString(params.name, "name");
+      const cwd = optionalString(params.cwd, "cwd");
+      const cwdArtifactRef = optionalString(params.cwdArtifactRef, "cwdArtifactRef");
       const session = projectSession(
-        parseSparkSessionProjection(await request("session.create", createRequest, { signal })),
+        parseSparkSessionProjection(
+          await request(
+            `session.${action}`,
+            {
+              supervisorSessionId,
+              roleRef,
+              ...(name ? { name } : {}),
+              ...(cwd ? { cwd } : {}),
+              ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
+            },
+            { signal },
+          ),
+        ),
       );
-      return sessionResult(`Created scoped Spark session.\n${renderSession(session)}`, {
-        action,
-        session,
-      });
+      return sessionResult(
+        `${action === "spawn" ? "Spawned empty" : "Forked stable context into"} Spark Session; no Invocation was created.\n${renderSession(session)}`,
+        {
+          action,
+          session,
+          executionTriggered: false,
+        },
+      );
     }
-    case "call":
-      return await executeSessionCall({ params, signal, ctx }, deps);
     case "bind":
     case "unbind": {
       const sessionId = requiredString(params.sessionId, `session ${action} requires sessionId`);
@@ -472,66 +491,6 @@ export async function executeSparkSessionAction(
   }
 }
 
-export async function executeSessionCall(
-  input: {
-    params: Record<string, unknown>;
-    signal: AbortSignal;
-    ctx: SparkSessionToolContext;
-  },
-  deps: SparkSessionActionDeps = {},
-) {
-  if (input.ctx.sessionSurface === "channel") {
-    throw new Error(
-      "message-platform sessions cannot call another session directly; forward the request with session action=send",
-    );
-  }
-  const request = deps.request ?? defaultDaemonRequest;
-  const sessionId = requiredString(input.params.sessionId, "session call requires sessionId");
-  const instruction = requiredString(
-    input.params.instruction,
-    "session call instruction is required",
-  );
-  for (const field of [
-    "timeoutMs",
-    "cwd",
-    "model",
-    "role",
-    "launch",
-    "includeUser",
-    "sessionDir",
-    "piCommand",
-  ]) {
-    if (input.params[field] !== undefined) throw new Error(`session call does not accept ${field}`);
-  }
-  const reset = optionalBooleanValue(input.params.reset, "reset");
-  const session = await requestSession(request, sessionId, input.signal);
-  if (session.placement === "archived" || session.lifecycle !== "open")
-    throw new Error(`cannot call unavailable scoped session: ${sessionId}`);
-  const currentSessionId = await requireCurrentSessionId(input.ctx, "call");
-  const submitted = parseTurnSubmitResult(
-    await request(
-      "turn.submit",
-      {
-        sessionId,
-        prompt: instruction,
-        ...(reset === undefined ? {} : { reset }),
-        messageMetadata: sessionOriginMessageMetadata(input.ctx, currentSessionId),
-      },
-      { signal: input.signal },
-    ),
-  );
-  return sessionResult(
-    `Queued Spark Session call: ${sessionId}; invocation ${submitted.invocationId} was accepted.`,
-    {
-      action: "call",
-      session: projectSession(session),
-      sessionId,
-      sessionLifetime: session.lifetime,
-      submitted,
-    },
-  );
-}
-
 async function listRequest(
   params: Record<string, unknown>,
   ctx: SparkSessionToolContext,
@@ -565,48 +524,6 @@ async function listRequest(
   return {
     scope: { kind: "workspace", workspaceId: resolvedWorkspaceId },
     ...filters,
-  };
-}
-
-async function sessionCreateRequest(
-  params: Record<string, unknown>,
-  ctx: SparkSessionToolContext,
-  request: SparkSessionDaemonRequest,
-  signal: AbortSignal,
-): Promise<SparkSessionCreateRequest> {
-  const scope = optionalScope(params.scope) ?? "workspace";
-  const sessionId = optionalString(params.sessionId, "sessionId");
-  if (params.title !== undefined || params.role !== undefined || params.status !== undefined) {
-    throw new Error("session create no longer accepts title, role, or status");
-  }
-  const name = optionalString(params.name, "name");
-  const roleBinding = normalizeRoleBinding(params.roleBinding);
-  const placement = normalizeCreatePlacement(params.placement);
-  if (scope === "daemon") {
-    throw new Error("session create supports workspace scope only");
-  }
-  const supervisorSessionId =
-    optionalString(params.supervisorSessionId, "supervisorSessionId") ?? ctx.sessionId?.trim();
-  if (!supervisorSessionId) {
-    throw new Error("session create requires a supervising Session");
-  }
-  const cwd = optionalString(params.cwd, "cwd") ?? ctx.cwd;
-  const cwdArtifactRef = optionalString(params.cwdArtifactRef, "cwdArtifactRef");
-  const common = {
-    ...(sessionId ? { sessionId } : {}),
-    ...(name ? { name } : {}),
-    roleBinding,
-    placement,
-    supervisorSessionId,
-    ...(cwd ? { cwd } : {}),
-    ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
-  };
-  const workspaceId =
-    optionalString(params.workspaceId, "workspaceId") ??
-    (await currentWorkspaceId(ctx, request, signal));
-  return {
-    ...common,
-    scope: { kind: "workspace", workspaceId },
   };
 }
 
@@ -937,28 +854,6 @@ function renderSession(session: SparkSessionToolProjection): string {
   return `${session.sessionId} lifecycle=${session.lifecycle} placement=${session.placement} activity=${session.activity} lifetime=${session.lifetime} owner=${session.owner.kind} surface=${session.surface} channels=${channels} scope=${scope}${session.name ? ` name=${JSON.stringify(session.name)}` : ""} roleBinding=${JSON.stringify(role)}`;
 }
 
-function normalizeRoleBinding(value: unknown): SparkSessionCreateRequest["roleBinding"] {
-  if (value === undefined || value === null) return { kind: "none" };
-  if (!isRecord(value) || typeof value.kind !== "string") {
-    throw new Error("session roleBinding must be none, inherit, or explicit");
-  }
-  if (value.kind === "none" || value.kind === "inherit") return { kind: value.kind };
-  if (
-    value.kind === "explicit" &&
-    typeof value.roleRef === "string" &&
-    value.roleRef.startsWith("role:")
-  ) {
-    return { kind: "explicit", roleRef: value.roleRef };
-  }
-  throw new Error("session explicit roleBinding requires roleRef");
-}
-
-function normalizeCreatePlacement(value: unknown): "child" | "sibling" {
-  if (value === undefined || value === null) return "child";
-  if (value === "child" || value === "sibling") return value;
-  throw new Error("session placement must be child or sibling");
-}
-
 function withMailStatus(message: SparkSessionMailMessage) {
   return { ...message, status: sessionMailStatus(message) };
 }
@@ -1000,20 +895,6 @@ function renderMailMessage(
   ].join("\n");
 }
 
-function sessionOriginMessageMetadata(
-  ctx: SparkSessionToolContext,
-  sessionId: string,
-): Record<string, unknown> {
-  return {
-    origin: {
-      kind: "session",
-      sessionId,
-      surface: ctx.sessionSurface ?? "local",
-      host: ctx.sessionSource ?? (ctx.sessionSurface === "channel" ? "channel" : "session"),
-    },
-  };
-}
-
 function normalizeRequestTimeoutMs(value: unknown): number {
   if (value === undefined || value === null) return DEFAULT_REQUEST_TIMEOUT_MS;
   if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)) {
@@ -1025,14 +906,6 @@ function normalizeRequestTimeoutMs(value: unknown): number {
     );
   }
   return value;
-}
-
-function parseTurnSubmitResult(value: unknown): SparkTurnSubmitResult {
-  const parsed = sparkTurnSubmitResultSchema.safeParse(value);
-  if (!parsed.success) {
-    throw new Error("Spark daemon returned an invalid turn.submit receipt");
-  }
-  return parsed.data;
 }
 
 type RequestCompletion =

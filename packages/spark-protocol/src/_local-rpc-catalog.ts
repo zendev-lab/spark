@@ -78,6 +78,7 @@ import {
   sparkSessionCloseRequestSchema,
   sparkSessionCompactRequestSchema,
   sparkSessionCreateRequestSchema,
+  sparkSessionForkRequestSchema,
   sparkSessionGetRequestSchema,
   sparkSessionListRequestSchema,
   sparkSessionPromptHistoryRequestSchema,
@@ -85,6 +86,7 @@ import {
   sparkSessionRetryTargetSchema,
   sparkSessionPeerProjectionSchema,
   sparkSessionProjectionSchema,
+  sparkSessionSpawnRequestSchema,
   sparkSessionSetModelRequestSchema,
   sparkSessionSetThinkingRequestSchema,
   sparkSessionSnapshotRequestSchema,
@@ -431,6 +433,23 @@ const sparkLocalRpcSessionCreateOrpcErrors = {
   session_exists: sparkLocalRpcSessionOrpcErrors.session_exists,
   session_local_path_forbidden: sparkLocalRpcSessionOrpcErrors.session_local_path_forbidden,
   session_scope_mismatch: sparkLocalRpcSessionOrpcErrors.session_scope_mismatch,
+  workspace_cwd_unavailable: sparkLocalRpcSessionOrpcErrors.workspace_cwd_unavailable,
+} as const;
+
+const sparkLocalRpcManagedChildSessionOrpcErrors = {
+  ...sparkLocalRpcSessionRegistryBaseOrpcErrors,
+  invalid_scope: sparkLocalRpcSessionOrpcErrors.invalid_scope,
+  invalid_session_role: sparkLocalRpcSessionOrpcErrors.invalid_session_role,
+  session_archived: sparkLocalRpcSessionOrpcErrors.session_archived,
+  session_channel_bound: sparkLocalRpcSessionOrpcErrors.session_channel_bound,
+  session_closed: sparkLocalRpcSessionOrpcErrors.session_closed,
+  session_closing: sparkLocalRpcSessionOrpcErrors.session_closing,
+  session_exists: sparkLocalRpcSessionOrpcErrors.session_exists,
+  session_owner_not_found: sparkLocalRpcSessionOrpcErrors.session_owner_not_found,
+  session_owner_scope_mismatch: sparkLocalRpcSessionOrpcErrors.session_owner_scope_mismatch,
+  session_storage_unavailable: sparkLocalRpcSessionOrpcErrors.session_storage_unavailable,
+  session_transcript_changed: sparkLocalRpcSessionOrpcErrors.session_transcript_changed,
+  session_transcript_conflict: sparkLocalRpcSessionOrpcErrors.session_transcript_conflict,
   workspace_cwd_unavailable: sparkLocalRpcSessionOrpcErrors.workspace_cwd_unavailable,
 } as const;
 
@@ -1624,6 +1643,14 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkSessionCreateRequestSchema,
     output: sparkSessionProjectionSchema,
   },
+  "session.spawn": {
+    input: sparkSessionSpawnRequestSchema,
+    output: sparkSessionProjectionSchema,
+  },
+  "session.fork": {
+    input: sparkSessionForkRequestSchema,
+    output: sparkSessionProjectionSchema,
+  },
   "session.bind": {
     input: sparkSessionBindRequestSchema,
     output: sparkSessionProjectionSchema,
@@ -2121,6 +2148,18 @@ export const sparkLocalRpcOrpcContract = {
       "/session/create",
       p["session.create"],
       sparkLocalRpcSessionCreateOrpcErrors,
+    ),
+    spawn: procedure(
+      "POST",
+      "/session/spawn",
+      p["session.spawn"],
+      sparkLocalRpcManagedChildSessionOrpcErrors,
+    ),
+    fork: procedure(
+      "POST",
+      "/session/fork",
+      p["session.fork"],
+      sparkLocalRpcManagedChildSessionOrpcErrors,
     ),
     bind: procedure("POST", "/session/bind", p["session.bind"], sparkLocalRpcSessionBindOrpcErrors),
     unbind: procedure(

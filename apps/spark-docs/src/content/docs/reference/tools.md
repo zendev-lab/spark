@@ -23,7 +23,7 @@ they share one owner, state, permission, rendering, and result contract.
 | Files and execution | Read, search, edit, and approved local execution | Host adapters operating in the selected workspace |
 | Work coordination | Tasks, Session `plan`/`execute`/`fleet` modes, Goals, Loops, Repros, and Workflows | Their domain owner; durable scheduling remains daemon-owned |
 | Result ownership | User-facing outcomes and internal Evidence | Artifact and Evidence stores remain separate |
-| Agent composition | Role definitions, ephemeral Role calls, owner-derived scoped Sessions, and Skill Agents | Session/Role registry and Skill loader |
+| Agent composition | Static Role definitions, explicit Role-bound Sessions, and Skill Agents | Session/Role registry and Skill loader |
 | External adapters | Channels, ACP, MCP, Git, and provider-specific capabilities | The owning adapter behind Spark contracts |
 
 `ask` validates the host interaction capability before async delivery or
@@ -66,8 +66,8 @@ a failed replacement does not write Task graph state.
   semantic Model Type. It can declare up to eight ordered Skills; Spark resolves
   and preloads their complete instruction bodies before creating the child
   Session. It does not choose Session lifetime.
-- A Session is the runtime instance that owns continuity, bindings, calls, and
-  mail. Its single Owner derives `persistent | scoped | ephemeral` lifetime.
+- A Session is the runtime instance that owns continuity, bindings, and mail.
+  Its single Owner derives `persistent | scoped | ephemeral` lifetime.
 - `skill_agent({ skills, instruction, inputs?, timeoutMs?, model?, thinking?, allowedTools?, allowedToolEffects? })`
   resolves one to eight exact Skills and runs one fresh owned child Session with
   every selected Skill body loaded once. It receives the explicit packet, not
@@ -89,6 +89,14 @@ Evidence.
 
 The parent Session remains responsible for decomposition, durable coordination,
 verification of consequential claims, and user-facing synthesis.
+
+Role execution has three explicit stages: create or select a static Role,
+create a Role-bound child with `session({ action: "spawn", roleRef })` or
+`session({ action: "fork", roleRef })`, then trigger work with
+`session({ action: "send", kind: "request", toSessionId, message })`. `spawn`
+starts empty; `fork` copies the current Session's stable transcript prefix into
+an independent JSONL. Neither creation action sends mail or creates an
+Invocation.
 
 `session({ action: "send" })` is one-way. `kind=notification` persists without
 running the target; `kind=request` persists and admits one invocation. An active

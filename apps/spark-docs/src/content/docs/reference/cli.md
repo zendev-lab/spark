@@ -120,11 +120,18 @@ codes, never credential values.
 
 ```text
 spark daemon session list --json
+spark daemon session spawn --supervisor <session-id> --role-ref <RoleRef> [--name <text>] [--cwd <path>] [--cwd-artifact-ref <artifact:ref>] --json
+spark daemon session fork --supervisor <session-id> --role-ref <RoleRef> [--name <text>] [--cwd <path>] [--cwd-artifact-ref <artifact:ref>] --json
 spark daemon submit --session <id> --prompt <text> --json
 spark daemon invocation status <invocation-id> --json
 spark daemon invocation stream <invocation-id> --after <cursor> --limit 500 --json
 spark daemon invocation cancel <invocation-id> --reason <text> --json
 ```
+
+`spawn` creates an empty child; `fork` copies only the supervisor's stable
+transcript prefix into an independent child JSONL. Both require an exact static
+RoleRef and create no Invocation. The retired `session create`, `session clone`,
+and source-argument transcript fork commands are not aliases.
 
 ## Hub and workspace delegations
 

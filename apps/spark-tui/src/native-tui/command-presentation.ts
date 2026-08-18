@@ -35,7 +35,6 @@ const SESSION_COMMANDS = new Set([
   "new",
   "compact",
   "btw",
-  "clone",
   "tree",
   "export",
   "import",

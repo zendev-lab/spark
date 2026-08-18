@@ -34,7 +34,6 @@ export {
   type SparkSessionSnapshotTail,
 } from "./snapshot.ts";
 export {
-  executeSessionCall,
   executeSparkSessionAction,
   type ExecuteSparkSessionActionInput,
   type SparkSessionAction,
