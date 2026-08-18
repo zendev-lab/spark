@@ -789,14 +789,11 @@ export function rematerializeSparkReproWorkItem(
       (candidate) => candidate.workItemId !== input.workItemId,
     );
   }
-  next.handoffs = next.handoffs.map((handoff) =>
-    handoff.workItemId === input.workItemId &&
-    handoff.from === (binding?.lane ?? input.lane) &&
-    handoff.sourceRevision === input.expectedSourceRevision &&
-    handoff.status !== "superseded"
-      ? { ...handoff, status: "stale" }
-      : handoff,
-  );
+  staleOutgoingHandoffs(next, {
+    workItemId: input.workItemId,
+    lane: binding?.lane ?? input.lane,
+    sourceRevision: input.expectedSourceRevision,
+  });
   return next;
 }
 
@@ -1027,6 +1024,13 @@ export function materializeSparkReproRouteBinding(
       (candidate) => candidate.workItemId === route.workItemId && candidate.lane === route.toLane,
     );
     next.bindings[index] = binding;
+    if (existing.sourceRevision !== binding.sourceRevision) {
+      staleOutgoingHandoffs(next, {
+        workItemId: route.workItemId,
+        lane: route.toLane,
+        sourceRevision: existing.sourceRevision,
+      });
+    }
   } else {
     next.bindings.push(binding);
   }
@@ -1743,6 +1747,24 @@ function cloneWorkItem(item: SparkReproWorkItem): SparkReproWorkItem {
 
 function cloneThreeLane(state: SparkReproThreeLaneSessionState): SparkReproThreeLaneSessionState {
   return structuredClone(state);
+}
+
+function staleOutgoingHandoffs(
+  state: SparkReproThreeLaneSessionState,
+  input: {
+    workItemId: string;
+    lane: SparkReproLane | undefined;
+    sourceRevision: string;
+  },
+): void {
+  state.handoffs = state.handoffs.map((handoff) =>
+    handoff.workItemId === input.workItemId &&
+    handoff.from === input.lane &&
+    handoff.sourceRevision === input.sourceRevision &&
+    handoff.status !== "superseded"
+      ? { ...handoff, status: "stale" }
+      : handoff,
+  );
 }
 
 function digestJson(value: unknown): string {

@@ -8,6 +8,7 @@ import {
   type SparkSessionReproV7,
 } from "./index.ts";
 import {
+  acknowledgeSparkReproRoute,
   bindSparkReproFormalizeOwnership,
   enqueueSparkReproWork,
   materializeSparkReproRouteBinding,
@@ -20,6 +21,7 @@ import {
   resumeSparkReproRouteFromAnswer,
   resumeSparkReproRouteFromRecovery,
   resumeSparkReproRouteFromRepair,
+  validateSparkReproThreeLaneSessionState,
   type SparkReproResolution,
   type SparkReproUnresolvedMismatch,
   type SparkReproWorkItem,
@@ -399,6 +401,71 @@ describe("Spark Repro three-lane domain", () => {
         evidenceRefs: [evidence("stale")],
       }),
     ).toThrow("stale work item materialization revision");
+  });
+
+  it("keeps a refreshed binding checkpoint reloadable", () => {
+    const repro = createSparkSessionRepro("session:refresh-checkpoint");
+    const item = workItem(repro.plan.currentRevision);
+    let state = registerSparkReproWorkItem(repro.threeLane, "exactness", {
+      ...item,
+      taskRef: "task:exactness" as TaskRef,
+    });
+    state = registerSparkReproWorkItem(state, "formalize", {
+      ...item,
+      taskRef: "task:formalize" as TaskRef,
+    });
+    state = recordSparkReproWorkHandoff(state, {
+      handoffId: "handoff:exactness-formalize",
+      workItemId: item.workItemId,
+      from: "exactness",
+      to: "formalize",
+      planRevision: repro.plan.currentRevision,
+      sourceRevision: item.sourceRevision,
+      scope: item.scope,
+      findingIds: [],
+      evidenceRefs: [evidence("exactness-result")],
+      candidateRevisions: [item.sourceRevision],
+      dependsOnHandoffIds: [],
+      doneWhen: ["Formalize the accepted candidate"],
+      status: "accepted",
+    });
+    const canonicalRevision = "commit:canonical";
+    state = recordSparkReproResolution(state, {
+      resolutionId: "resolution:formalize-exactness",
+      workItemId: item.workItemId,
+      from: "formalize",
+      to: "exactness",
+      status: "resolved",
+      canonicalRevision,
+      supersededRevisions: [item.sourceRevision],
+      evidenceRefs: [evidence("formalize-result")],
+    });
+    state = recordSparkReproRoute(state, {
+      routeId: "route:formalize-exactness-refresh",
+      action: "refresh_binding",
+      workItemId: item.workItemId,
+      fromLane: "formalize",
+      toLane: "exactness",
+      planRevision: repro.plan.currentRevision,
+      sourceBindingRevision: 1,
+      sourceRevision: canonicalRevision,
+      cause: {
+        kind: "lane_result",
+        id: "result:formalize",
+        digest: "formalize-result-digest",
+        evidenceRef: evidence("formalize-result"),
+      },
+      status: "pending",
+    });
+    state = materializeSparkReproRouteBinding(state, {
+      routeId: "route:formalize-exactness-refresh",
+      taskRef: "task:exactness" as TaskRef,
+      evidenceRefs: [evidence("formalize-result")],
+    });
+    state = acknowledgeSparkReproRoute(state, "route:formalize-exactness-refresh");
+
+    expect(state.handoffs[0]?.status).toBe("stale");
+    expect(() => validateSparkReproThreeLaneSessionState(state, repro.plan)).not.toThrow();
   });
 
   it("isolates source and binding revisions by WorkItem lane", () => {
