@@ -18,6 +18,8 @@ export {
   type GitChangeArtifactBody,
   type GitChangeEntry,
   type GitChangeLifecycle,
+  type GitRevisionMaterializationAction,
+  type GitRevisionMaterializationState,
   type GitChangeRepository,
   type GitChangeStack,
   type GitChangeWorktreeStatus,

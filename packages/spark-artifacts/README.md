@@ -20,6 +20,13 @@ Atomic Artifacts (`issue` / `git_change` / `document`) for users, plus an
 - `gh stack` is the sole writable topology authority. Submissions are draft by
   default; Spark does not add routine PR comments or boilerplate saying a PR
   is stacked/tested.
+- Repro drivers prepare candidate code only through
+  `GitRevisionMaterializationService.materialize`. Its
+  `create_candidate | prepare_layer | refresh_candidate` union accepts exact
+  commit oids, enforces repository and linear-ancestry ownership, records a
+  driver-local CAS receipt on the owning `git_change`, and restores the clean
+  prior candidate when an import conflicts. It reuses the normal Git lifecycle
+  policy; it is not a second public Git tool or topology authority.
 - `document` owns typed content, revision, and optional progress. Preview is a
   view opened with `artifact({ action: "open_preview" })`, not an Artifact
   kind.
