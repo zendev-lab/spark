@@ -235,6 +235,15 @@ describe("Spark daemon CLI", () => {
     expect(capture.stderr()).toBe("");
   });
 
+  it("rejects unknown top-level commands with exit 2", async () => {
+    const capture = createCliIo();
+
+    await expect(main(["not-a-daemon-command"], capture.io)).resolves.toBe(2);
+
+    expect(capture.stderr().length).toBeGreaterThan(0);
+    expect(capture.stdout()).toContain("Usage: spark daemon <command>");
+  });
+
   it("lists pending daemon human interactions through the public CLI", async () => {
     const humanInteractionListFromService = vi.fn(
       async (
