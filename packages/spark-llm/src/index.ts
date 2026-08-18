@@ -91,3 +91,18 @@ export {
   createProviderRegistryLeafRunner,
   type SparkLeafHostRunnerOptions,
 } from "./leaf-host-runner.ts";
+export {
+  SparkProviderLlmAdapter,
+  adaptersFromProviderRegistry,
+  createBaiduOneApiLlmAdapter,
+  createOpenAiCodexLlmAdapter,
+} from "./llm-adapter.ts";
+export {
+  generateOptionsToPiContext,
+  generateOptionsToPiModel,
+  generateOptionsToPiStreamOptions,
+  llmChunksToPiAiStream,
+  piEventsToLlmChunks,
+  readSparkPiGenerateCarrier,
+  sparkContextToGenerateOptions,
+} from "./dsh-pi-bridge.ts";

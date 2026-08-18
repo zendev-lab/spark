@@ -1,4 +1,4 @@
-import type { AssistantMessage, ProviderRegistrationAPI } from "@zendev-lab/spark-ai";
+import type { AssistantMessage, ProviderRegistrationAPI } from "@zendev-lab/spark-llm";
 
 export const CAPACITY_PROVIDER_ID = "capacity-fake";
 export const CAPACITY_MODEL_ID = "capacity-model";

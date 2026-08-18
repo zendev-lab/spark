@@ -5,10 +5,12 @@ import type {
   Message,
   Model,
   SparkAgentStreamFunction,
+  SparkTurnLlm,
   StreamOptions,
   Tool,
   ToolCall,
 } from "../agent-loop.ts";
+import { asSparkTurnLlm } from "../turn-llm.ts";
 
 export interface SparkScriptedProviderRequest {
   round: number;
@@ -87,6 +89,7 @@ export type SparkScriptedProviderRound =
 
 export interface SparkScriptedProvider {
   readonly streamFunction: SparkAgentStreamFunction;
+  readonly llm: SparkTurnLlm;
   readonly requests: readonly SparkScriptedProviderRequest[];
   readonly trace: readonly SparkScriptedProviderTraceEvent[];
   readonly consumedRounds: number;
@@ -209,6 +212,7 @@ export function createSparkScriptedProvider(
 
   return {
     streamFunction,
+    llm: asSparkTurnLlm(streamFunction),
     get requests() {
       return requests;
     },

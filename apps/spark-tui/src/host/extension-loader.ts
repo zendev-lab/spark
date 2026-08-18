@@ -22,7 +22,7 @@ import sparkWorkflowsExtension from "@zendev-lab/spark-workflows/extension";
 import { DEFAULT_SPARK_EXTENSION_SPECS } from "./extension-specs.ts";
 
 export { DEFAULT_SPARK_EXTENSION_SPECS } from "./extension-specs.ts";
-import sparkModelsExtension from "@zendev-lab/spark-ai/models-extension";
+import sparkModelsExtension from "@zendev-lab/spark-llm/models-extension";
 import sparkExtension from "@zendev-lab/spark-extension/extension";
 import { createAskBackedMemoryApprovalVerifier } from "@zendev-lab/spark-extension/extension/memory-approval-verifier";
 
@@ -38,7 +38,7 @@ export type SparkBuiltinExtensionName =
   | "@zendev-lab/spark-session"
   | "@zendev-lab/spark-web"
   | "@zendev-lab/spark-workflows"
-  | "@zendev-lab/spark-ai"
+  | "@zendev-lab/spark-llm"
   | "spark";
 
 export type SparkCapabilityFactory = (api: SparkHostAPI) => void | Promise<void>;
@@ -97,8 +97,8 @@ const BUILTIN_EXTENSION_FACTORIES: readonly SparkBuiltinCapabilityFactory[] = [
     factory: sparkFusionExtension as SparkCapabilityFactory,
   },
   {
-    name: "@zendev-lab/spark-ai",
-    specifier: "@zendev-lab/spark-ai/models-extension",
+    name: "@zendev-lab/spark-llm",
+    specifier: "@zendev-lab/spark-llm/models-extension",
     factory: sparkModelsExtension as SparkCapabilityFactory,
   },
   {

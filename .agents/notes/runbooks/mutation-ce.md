@@ -26,7 +26,7 @@ Weekly/manual [Stryker](https://stryker-mutator.io/) runs evaluate whether Vites
 | `@zendev-lab/spark-extension` | selected task/TODO/selector policy modules |
 | `@zendev-lab/spark-tasks` | task/TODO store modules shared by extension tests |
 
-Out of scope: root `test/*.test.ts` (Vitest integration suite; not in mutation CE), Hub/daemon full trees, and packages whose behavior is only covered by root integration tests (`spark-host`, `spark-turn`, `spark-ai`, …).
+Out of scope: root `test/*.test.ts` (Vitest integration suite; not in mutation CE), Hub/daemon full trees, and packages whose behavior is only covered by root integration tests (`spark-host`, `spark-turn`, `spark-llm`, …).
 
 ## Commands
 

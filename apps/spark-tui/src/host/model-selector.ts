@@ -9,7 +9,7 @@
  * injected through `picker` when the real boot path wires Ctrl+L.
  */
 
-import { resolveSparkEnabledModelIds } from "@zendev-lab/spark-ai/control";
+import { resolveSparkEnabledModelIds } from "@zendev-lab/spark-llm/control";
 import type { SparkConfig, SparkConfigSaveOptions } from "./config.ts";
 import { loadSparkConfig, saveSparkConfig } from "./config.ts";
 import type { SparkKeybindingContext, SparkKeybindings } from "@zendev-lab/spark-host/keybindings";

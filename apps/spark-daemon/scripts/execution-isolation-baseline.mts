@@ -9,6 +9,7 @@ import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import {
   SparkAgentLoop,
+  asSparkTurnLlm,
   type AssistantMessage,
   type Model,
   type SparkAgentStreamFunction,
@@ -768,7 +769,7 @@ async function runAgentLoopFixture(
   configureHost?.(host);
   const loop = new SparkAgentLoop({
     host,
-    streamFunction,
+    llm: asSparkTurnLlm(streamFunction),
     getModel: () => TEST_MODEL,
     streamIdleTimeoutMs: 0,
     toolTimeoutMs: 0,

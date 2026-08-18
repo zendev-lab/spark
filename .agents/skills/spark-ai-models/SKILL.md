@@ -8,7 +8,7 @@ description: >
 
 # Spark AI model catalog
 
-Owner: `packages/spark-ai`. Catalog, gateway rewrites, and measured windows live
+Owner: `packages/spark-llm`. Catalog, gateway rewrites, and measured windows live
 in `baidu-oneapi.ts`. Do not guess vendor ids, context, or prices.
 
 ## Workflow
@@ -20,7 +20,7 @@ in `baidu-oneapi.ts`. Do not guess vendor ids, context, or prices.
 3. Edit the existing provider owner. For Baidu, follow
    [reference.md](reference.md). Do not add a second catalog or public alias.
 4. If this is a successor model, replace the predecessor in default enable
-   (see Baidu OneAPI). Update tests and `packages/spark-ai/README.md`.
+   (see Baidu OneAPI). Update tests and `packages/spark-llm/README.md`.
 5. Run the package and registry tests listed in the reference.
 
 ## Research rules

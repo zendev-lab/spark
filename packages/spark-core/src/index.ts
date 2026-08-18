@@ -956,7 +956,7 @@ export interface SparkHostContext {
   ui?: ExtensionUi;
   isIdle?: () => boolean;
   /**
-   * Optional single-shot spark-ai leaf runner supplied by Spark hosts. High-level
+   * Optional single-shot spark-llm leaf runner supplied by Spark hosts. High-level
    * tools call `ctx.runLeaf?.(request)` to add bounded reasoning (synthesis,
    * rerank, extraction) and fall back to mechanical output when it is absent or
    * returns `{ degraded: true }`.

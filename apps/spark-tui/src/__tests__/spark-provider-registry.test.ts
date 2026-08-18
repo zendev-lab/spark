@@ -9,7 +9,7 @@ import {
   registerOpenAICodexProvider,
   type AssistantMessageEvent,
   type ProviderConfig,
-} from "@zendev-lab/spark-ai";
+} from "@zendev-lab/spark-llm";
 
 function fakeStream(_model: unknown, _context: unknown, _options?: unknown) {
   return {} as unknown;

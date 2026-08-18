@@ -7,7 +7,7 @@ import type {
   Model,
   ToolResultMessage,
   UserMessage,
-} from "@zendev-lab/spark-ai";
+} from "@zendev-lab/spark-llm";
 import {
   sparkPromptItemFromProviderMessage,
   sparkRuntimePromptItem,

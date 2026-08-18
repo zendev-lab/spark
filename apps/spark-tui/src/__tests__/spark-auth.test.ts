@@ -21,7 +21,7 @@ import {
   type SparkCliHostServices,
   type SparkOAuthProviderInterface,
 } from "../host/index.ts";
-import { createProviderRegistryStreamFunction } from "@zendev-lab/spark-ai";
+import { createProviderRegistryStreamFunction } from "@zendev-lab/spark-llm";
 import type { SparkAuthFlow, SparkModelControlSnapshot } from "@zendev-lab/spark-protocol";
 
 const oauthCredentials = { refresh: "refresh-token", access: "access-token", expires: 9_999 };
@@ -1257,7 +1257,7 @@ test("daemon-backed /logout removes the OAuth credential reference", async () =>
   assert.match(String(result), /Removed stored Spark credential: test-oauth/);
 });
 
-test("provider runner injects resolved apiKey without spark-ai depending on auth store", async () => {
+test("provider runner injects resolved apiKey without spark-llm depending on auth store", async () => {
   await withAuthDir(async (_dir, authPath) => {
     registerSparkOAuthProvider(testOAuthProvider());
     const store = new SparkAuthStore({ path: authPath });

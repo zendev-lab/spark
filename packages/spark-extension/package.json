@@ -15,6 +15,7 @@
     "./extension": "./src/extension/index.ts",
     "./extension/memory-approval-verifier": "./src/extension/memory-approval-verifier.ts",
     "./host-support": "./src/host-support.ts",
+    "./llm-runtime": "./src/llm-runtime.ts",
     "./repro-test-support": "./src/repro-test-support.ts"
   },
   "scripts": {
@@ -23,6 +24,12 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-attachment": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-brand": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-invariants": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-llm": "0.1.0-rc.7",
+    "@deepseek-ai/dsh-timeout": "0.1.0-rc.7",
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-ask": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",

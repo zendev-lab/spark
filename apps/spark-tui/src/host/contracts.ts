@@ -55,6 +55,7 @@ export interface SparkCliHostServices {
   skillResolver: SparkSkillResolver;
   promptTemplates?: SparkPromptTemplateResolveResult;
   agentLoop: SparkAgentLoop;
+  disposeLlm?: () => Promise<void>;
   extensionLoadResult: SparkExtensionLoadResult;
   providerLoadResult: LoadResult;
   diagnostics: SparkCliHostDiagnostic[];

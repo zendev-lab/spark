@@ -9,8 +9,8 @@ import registerOpenAiCodexProvider from "../openai-codex-provider.ts";
 import { withPathMutation } from "./path-mutation.ts";
 
 export const DEFAULT_SPARK_PROVIDER_SPECS = [
-  "@zendev-lab/spark-ai/baidu-oneapi-provider",
-  "@zendev-lab/spark-ai/openai-codex-provider",
+  "@zendev-lab/spark-llm/baidu-oneapi-provider",
+  "@zendev-lab/spark-llm/openai-codex-provider",
 ] as const;
 
 /** Initial enabled-model policy for daemon-selectable models. */
@@ -290,10 +290,10 @@ export function createSparkProviderImporter(
     // daemon or TUI executes without private workspace packages in node_modules,
     // so dynamically importing these public specifiers would silently remove the
     // bundled provider catalog from installed headless reviewer sessions.
-    if (specifier === "@zendev-lab/spark-ai/baidu-oneapi-provider") {
+    if (specifier === "@zendev-lab/spark-llm/baidu-oneapi-provider") {
       return Promise.resolve({ default: registerBaiduOneApiProvider });
     }
-    if (specifier === "@zendev-lab/spark-ai/openai-codex-provider") {
+    if (specifier === "@zendev-lab/spark-llm/openai-codex-provider") {
       return Promise.resolve({ default: registerOpenAiCodexProvider });
     }
     return fallbackImporter(specifier);

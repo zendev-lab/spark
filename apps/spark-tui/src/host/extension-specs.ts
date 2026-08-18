@@ -8,7 +8,7 @@ export const DEFAULT_SPARK_EXTENSION_SPECS = [
   "@zendev-lab/spark-artifacts/extension",
   "@zendev-lab/spark-cue/extension",
   "@zendev-lab/spark-files/extension",
-  "@zendev-lab/spark-ai/models-extension",
+  "@zendev-lab/spark-llm/models-extension",
   "@zendev-lab/spark-memory/extension",
   "@zendev-lab/spark-roles/extension",
   "@zendev-lab/spark-session/extension",

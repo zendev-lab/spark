@@ -5,7 +5,7 @@ import {
   createProviderRegistryLeafRunner,
   SparkProviderRegistry,
   type ProviderConfig,
-} from "@zendev-lab/spark-ai";
+} from "@zendev-lab/spark-llm";
 import { createSparkFusionTool } from "@zendev-lab/spark-fusion/extension";
 import { SparkHostRuntime } from "../host/index.ts";
 

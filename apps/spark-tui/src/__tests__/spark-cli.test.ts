@@ -11,7 +11,7 @@ import {
   resolveBaiduOneApiKey,
   streamBaiduOneApiAnthropic,
   streamBaiduOneApiOpenAIResponses,
-} from "@zendev-lab/spark-ai/baidu-oneapi-provider";
+} from "@zendev-lab/spark-llm/baidu-oneapi-provider";
 import {
   handleSparkRpcLine,
   parseSparkCliCommand,

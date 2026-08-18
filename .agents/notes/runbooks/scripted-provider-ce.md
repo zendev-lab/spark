@@ -121,6 +121,6 @@ case.
 
 This lane does not evaluate model intelligence, prompt quality, HTTP/SSE adapter
 serialization, transport retry policy, or live-provider availability. Transport
-retry remains owned by `spark-ai`; a future fake HTTP provider server can test
+retry remains owned by `spark-llm`; a future fake HTTP provider server can test
 that adapter boundary separately. Live-provider canaries must remain a distinct
 secret-backed lane with explicit request, token, cost, and wall-clock budgets.
