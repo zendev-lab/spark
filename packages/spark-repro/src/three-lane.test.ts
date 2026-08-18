@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ArtifactRef, EvidenceRef, TaskRef } from "@zendev-lab/spark-core";
+import type { ArtifactRef, EvidenceRef, RunRef, TaskRef } from "@zendev-lab/spark-core";
 
 import {
   createSparkSessionRepro,
@@ -18,6 +18,7 @@ import {
   registerSparkReproUnresolvedMismatch,
   registerSparkReproWorkItem,
   resumeSparkReproRouteFromAnswer,
+  resumeSparkReproRouteFromRecovery,
   resumeSparkReproRouteFromRepair,
   type SparkReproResolution,
   type SparkReproUnresolvedMismatch,
@@ -211,6 +212,51 @@ describe("Spark Repro three-lane domain", () => {
         evidenceRef: evidence("git-conflict"),
       }),
     ).toThrow("different repair checkpoint");
+  });
+
+  it("turns an interrupted TaskRun into one deterministic same-lane recovery route", () => {
+    const repro = createSparkSessionRepro("session:task-run-recovery");
+    const enqueued = enqueueSparkReproWork(repro.threeLane, {
+      enqueue: {
+        schema: "spark.repro.work-enqueue/v1",
+        workItemId: "work:glm52",
+        title: "Reproduce GLM-5.2",
+        scope: "glm52",
+      },
+      sourceRevision: BASE_REVISION,
+    });
+    const bound = materializeSparkReproRouteBinding(enqueued.state, {
+      routeId: enqueued.route.routeId,
+      taskRef: "task:glm52-implementation" as TaskRef,
+      gitChangeRef: "artifact:glm52-implementation" as ArtifactRef,
+    });
+    const input = {
+      workItemId: "work:glm52",
+      lane: "implementation" as const,
+      runRef: "run:interrupted-implementation" as RunRef,
+      recoveryDigest: "cancelled-task-run-digest",
+    };
+    const recovered = resumeSparkReproRouteFromRecovery(bound, input);
+    expect(recovered.routes.at(-1)).toMatchObject({
+      action: "resume_binding",
+      fromLane: "implementation",
+      toLane: "implementation",
+      sourceBindingRevision: 1,
+      sourceRevision: BASE_REVISION,
+      status: "pending",
+      cause: {
+        kind: "recovery",
+        id: "run:interrupted-implementation",
+        digest: "cancelled-task-run-digest",
+      },
+    });
+    expect(resumeSparkReproRouteFromRecovery(recovered, input)).toBe(recovered);
+    expect(() =>
+      resumeSparkReproRouteFromRecovery(recovered, {
+        ...input,
+        recoveryDigest: "different-recovery-digest",
+      }),
+    ).toThrow("different recovery checkpoint");
   });
 
   it("migrates v7 Explore into Implementation without inventing Exactness or formal proof", () => {

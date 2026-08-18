@@ -106,7 +106,7 @@ export type SparkReproRouteAction =
 export type SparkReproRouteStatus = "pending" | "acknowledged";
 
 export interface SparkReproRouteCause {
-  kind: "enqueue" | "lane_result" | "answer" | "repair";
+  kind: "enqueue" | "lane_result" | "answer" | "repair" | "recovery";
   id: string;
   digest: string;
   evidenceRef?: EvidenceRef;
@@ -1244,6 +1244,61 @@ export function resumeSparkReproRouteFromRepair(
   return next;
 }
 
+/** Convert one terminal TaskRun without an accepted result into a same-lane retry checkpoint. */
+export function resumeSparkReproRouteFromRecovery(
+  state: SparkReproThreeLaneSessionState,
+  input: {
+    workItemId: string;
+    lane: SparkReproLane;
+    runRef: RunRef;
+    recoveryDigest: string;
+  },
+): SparkReproThreeLaneSessionState {
+  if (!isRef(input.runRef, "run")) throw new Error("invalid recovery TaskRun ref");
+  assertNonEmpty(input.recoveryDigest, "recoveryDigest");
+  const binding = sparkReproLaneBinding(state, input.workItemId, input.lane);
+  if (!binding) throw new Error("recovery route source binding is missing");
+  const existing = state.routes.find(
+    (route) =>
+      route.action === "resume_binding" &&
+      route.cause.kind === "recovery" &&
+      route.cause.id === input.runRef,
+  );
+  if (existing) {
+    if (existing.cause.digest !== input.recoveryDigest) {
+      throw new Error("TaskRun already has a different recovery checkpoint");
+    }
+    return state;
+  }
+  const routeId = `route:${digestJson({
+    workItemId: input.workItemId,
+    lane: input.lane,
+    runRef: input.runRef,
+    recoveryDigest: input.recoveryDigest,
+  }).slice(0, 32)}`;
+  const common = {
+    routeId,
+    action: "resume_binding" as const,
+    workItemId: input.workItemId,
+    planRevision: state.planRevision,
+    sourceBindingRevision: binding.bindingRevision,
+    sourceRevision: binding.sourceRevision,
+    cause: {
+      kind: "recovery" as const,
+      id: input.runRef,
+      digest: input.recoveryDigest,
+    },
+    status: "pending" as const,
+  };
+  const resume: SparkReproRoute =
+    input.lane === "implementation"
+      ? { ...common, fromLane: "implementation", toLane: "implementation" }
+      : input.lane === "exactness"
+        ? { ...common, fromLane: "exactness", toLane: "exactness" }
+        : { ...common, fromLane: "formalize", toLane: "formalize" };
+  return recordSparkReproRoute(state, resume);
+}
+
 export function pendingSparkReproRoutes(state: SparkReproThreeLaneSessionState): SparkReproRoute[] {
   return state.routes.filter((route) => route.status === "pending").map((route) => ({ ...route }));
 }
@@ -1568,7 +1623,7 @@ function validateRoute(route: SparkReproRoute, state: SparkReproThreeLaneSession
   assertNonEmpty(route.cause.digest, "route.cause.digest");
   assertOneOf(
     route.cause.kind,
-    ["enqueue", "lane_result", "answer", "repair"] as const,
+    ["enqueue", "lane_result", "answer", "repair", "recovery"] as const,
     "route.cause.kind",
   );
   if (route.cause.evidenceRef && !isRef(route.cause.evidenceRef, "evidence")) {
@@ -1606,11 +1661,16 @@ function validateRoute(route: SparkReproRoute, state: SparkReproThreeLaneSession
   }
   if (route.action === "resume_binding") {
     if (
-      (route.cause.kind !== "answer" && route.cause.kind !== "repair") ||
-      !route.cause.evidenceRef ||
+      (route.cause.kind !== "answer" &&
+        route.cause.kind !== "repair" &&
+        route.cause.kind !== "recovery") ||
+      (route.cause.kind !== "recovery" && !route.cause.evidenceRef) ||
+      (route.cause.kind === "recovery" && route.cause.evidenceRef) ||
       route.fromLane !== route.toLane
     ) {
-      throw new Error("resume route requires a same-lane answer or repair cause with evidence");
+      throw new Error(
+        "resume route requires a same-lane answer/repair Evidence or TaskRun recovery cause",
+      );
     }
     return;
   }
