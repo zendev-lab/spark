@@ -5581,6 +5581,59 @@ test("canonical task project_use creates the first Spark project when graph is m
   }
 });
 
+test("task_write project_use honors canonical projectRef and the legacy project alias", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "task-tool-project-use-selector-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    const graph = (await defaultTaskGraphStore(dir).load()) ?? new TaskGraph();
+    const existing = graph.projects()[0];
+    assert.ok(existing, "fixture project must exist");
+
+    // Canonical public field: projectRef selects the existing project.
+    const viaProjectRef = await executeSparkTool(tools, "task_write", ctx, {
+      action: "project_use",
+      projectRef: existing.ref,
+    });
+    assert.match(toolText(viaProjectRef), /Selected existing Spark project/);
+    assert.equal(
+      (viaProjectRef.details as { project?: { ref?: string } }).project?.ref,
+      existing.ref,
+    );
+
+    const statusAfterRef = await executeSparkTool(tools, "task_read", ctx, {
+      action: "project_status",
+    });
+    assert.equal(
+      (statusAfterRef.details as { selectedProject?: { ref?: string } }).selectedProject?.ref,
+      existing.ref,
+    );
+
+    // Legacy compatibility alias: the `project` field still selects.
+    const viaLegacy = await executeSparkTool(tools, "task_write", ctx, {
+      action: "project_use",
+      project: existing.ref,
+    });
+    assert.match(toolText(viaLegacy), /Selected existing Spark project/);
+
+    // Canonical projectRef wins over the legacy alias when both are provided.
+    const other = graph.createProject({
+      title: "Second selector project",
+      description: "Canonical target.",
+    });
+    await defaultTaskGraphStore(dir).save(graph);
+    const both = await executeSparkTool(tools, "task_write", ctx, {
+      action: "project_use",
+      project: existing.ref,
+      projectRef: other.ref,
+    });
+    assert.match(toolText(both), /Selected existing Spark project/);
+    assert.equal((both.details as { project?: { ref?: string } }).project?.ref, other.ref);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 test("evidence tool lists and reads evidence through the canonical facade", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-artifacts-"));
   try {
