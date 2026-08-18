@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import type { ToolConfig, ToolRenderComponent, ToolRenderTheme } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 
 export type SparkContextAction = "list" | "preview";
 
@@ -84,18 +84,6 @@ export function createSparkContextRegistry(
       return bundles.filter((bundle): bundle is SparkContextBundle => Boolean(bundle));
     },
   };
-}
-
-class ToolCallText implements ToolRenderComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
 }
 
 export function registerSparkContextTool(

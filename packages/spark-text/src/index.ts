@@ -3,3 +3,4 @@
  */
 
 export { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "./layout.ts";
+export { ToolCallText } from "./tool-call-text.ts";

@@ -6,7 +6,7 @@ import type {
   ExtensionEvidenceRequestBinding,
   SparkHostContext,
 } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 import {
   SPARK_PROTOCOL_VERSION,
   createId,
@@ -145,18 +145,6 @@ interface ToolCallRenderTheme {
 
 interface ToolCallComponent {
   render(width: number): string[];
-}
-
-class ToolCallText implements ToolCallComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
 }
 
 export function createAskUserRequest(input: SparkAskRequest): SparkAskRequest {

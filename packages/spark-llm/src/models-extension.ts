@@ -1,5 +1,5 @@
 import type { ToolConfig, ToolRenderComponent, ToolRenderTheme } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 import { Type } from "typebox";
 
 export interface SparkModelsExtensionApi {
@@ -42,18 +42,6 @@ interface ModelDisplayRow {
   thinking: string;
   images: string;
   auth?: string;
-}
-
-class ToolCallText implements ToolRenderComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
 }
 
 export function registerSparkModelsTool(pi: SparkModelsExtensionApi): void {
