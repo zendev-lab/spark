@@ -85,6 +85,13 @@ export interface StartSparkDaemonOptions {
   onDrainProgress?: (progress: SparkDaemonDrainProgress) => void;
   onServing?: () => void;
   managePidFile?: boolean;
+  /**
+   * Finish this work after local RPC may bind and before admission opens so
+   * the first turn cannot stall on module evaluation.
+   */
+  beforeAdmission?: Promise<void>;
+  /** Set when the caller already provisioned workspace Administrator Sessions. */
+  skipWorkspaceAdministratorEnsure?: boolean;
 }
 
 export interface MessageContext {

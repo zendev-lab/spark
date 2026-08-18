@@ -164,6 +164,9 @@ export async function start(
     );
   }
   console.error("[spark-daemon] opening database and preparing process ownership");
+  console.error("[spark-daemon] preloading execution runtime");
+  const executionRuntimePreload = preloadSparkDaemonExecutionRuntime();
+  void executionRuntimePreload.then(undefined, () => undefined);
   const db = openSparkDaemonDatabase(paths);
   const userPaths = resolveSparkUserPaths();
   const sparkHome = userPaths.dataRoot;
@@ -416,11 +419,6 @@ export async function start(
         `[spark-daemon] unified ${migratedSessions.length} session transcripts; backup: ${transcriptMigration.backupRoot}`,
       );
     }
-    // The headless host is intentionally loaded through a dynamic owner seam.
-    // Resolve that graph before the local socket binds so the first concurrent
-    // turn cannot stall oRPC admission with module compilation and evaluation.
-    console.error("[spark-daemon] preloading execution runtime");
-    await preloadSparkDaemonExecutionRuntime();
     console.error("[spark-daemon] starting runtime admission and local RPC");
     await startSparkDaemon({
       paths,
@@ -437,6 +435,8 @@ export async function start(
       modelControl,
       uplinkControl,
       managePidFile: false,
+      beforeAdmission: executionRuntimePreload,
+      skipWorkspaceAdministratorEnsure: true,
       onDrainProgress: (progress) => {
         drainProgress = progress;
       },
