@@ -13,6 +13,7 @@ import {
   type GitChecksVerdict,
   type GitPullRequestCheck,
   type GitPullRequestSnapshot,
+  type GitRevisionMaterializationState,
 } from "../artifact/index.ts";
 import { requireCurrentLensPass } from "./verification-gate.ts";
 
@@ -53,6 +54,14 @@ export interface CreateGitChangeInput {
   trunk?: string;
   /** Explicit local repository root. Required when the session cwd is not the target repository. */
   repositoryPath?: string;
+  /** Exact 40-character commit used instead of a moving trunk ref. */
+  startRevision?: string;
+  /** Expected GitHub repository identity for owner-internal materialization. */
+  expectedRepository?: string;
+  /** Pre-reserved Artifact identity for crash-safe owner workflows. */
+  artifactRef?: ArtifactRef;
+  /** Owner receipt persisted atomically with the created GitChange. */
+  revisionMaterialization?: GitRevisionMaterializationState;
 }
 
 export interface CheckoutGitChangeInput {
@@ -149,14 +158,26 @@ export class GitLifecycleService {
     const branch = explicitBranch || `spark/${semanticName}`;
     assertBranch(branch);
 
-    const ref = newArtifactRef();
+    const ref = input.artifactRef ?? newArtifactRef();
     const repository = await this.repositoryIdentity(repositoryPath);
+    if (input.expectedRepository && repository.repo !== input.expectedRepository) {
+      throw new GitLifecycleError(
+        "repository_mismatch",
+        `expected ${input.expectedRepository}, got ${repository.repo}`,
+      );
+    }
     const trunk = input.trunk?.trim() || (await this.defaultTrunk(repositoryPath));
     const worktreePath = this.managedWorktreePath(repository.repo, semanticName);
     await this.assertWorktreeTargetAvailable(worktreePath);
     await mkdir(dirname(worktreePath), { recursive: true });
 
-    const startPoint = await this.trunkStartPoint(repositoryPath, trunk);
+    const trunkStartPoint = await this.trunkStartPoint(repositoryPath, trunk);
+    const startPoint = input.startRevision
+      ? await this.requireExactCommit(repositoryPath, input.startRevision)
+      : trunkStartPoint;
+    if (input.startRevision) {
+      await this.requireAncestor(repositoryPath, startPoint, trunkStartPoint);
+    }
     await this.runChecked(
       "git",
       ["worktree", "add", "--detach", worktreePath, startPoint],
@@ -170,7 +191,11 @@ export class GitLifecycleService {
         worktreePath,
         "stack_init_failed",
       );
-      const body = await this.inspectWorktree(worktreePath, "spark");
+      const inspected = await this.inspectWorktree(worktreePath, "spark");
+      const body: GitChangeArtifactBody = {
+        ...inspected,
+        revisionMaterialization: input.revisionMaterialization,
+      };
       return this.store.put({
         ref,
         kind: "git_change",
@@ -301,7 +326,12 @@ export class GitLifecycleService {
       artifact.body.worktree.ownership,
       artifact.body.cleanupBlockers,
     );
-    return this.store.update(artifact.ref, { body });
+    return this.store.update(artifact.ref, {
+      body: {
+        ...body,
+        revisionMaterialization: artifact.body.revisionMaterialization,
+      },
+    });
   }
 
   async submit(
@@ -623,7 +653,7 @@ export class GitLifecycleService {
       "origin_required",
     );
     const remote = result.stdout.trim();
-    const repo = githubRepoFromRemote(remote);
+    const repo = gitHubRepositoryFromRemote(remote);
     if (!repo) {
       throw new GitLifecycleError(
         "github_required",
@@ -720,6 +750,44 @@ export class GitLifecycleService {
       throw new GitLifecycleError(
         "dirty_worktree",
         "worktree must be clean before changing stack topology",
+      );
+    }
+  }
+
+  private async requireExactCommit(cwd: string, revision: string): Promise<string> {
+    const normalized = revision.trim().toLowerCase();
+    if (!/^[0-9a-f]{40}$/u.test(normalized)) {
+      throw new GitLifecycleError(
+        "exact_revision_required",
+        `revision must be a full 40-character commit oid: ${revision}`,
+      );
+    }
+    const result = await this.runChecked(
+      "git",
+      ["rev-parse", "--verify", `${normalized}^{commit}`],
+      cwd,
+      "revision_missing",
+    );
+    const resolved = result.stdout.trim().toLowerCase();
+    if (resolved !== normalized) {
+      throw new GitLifecycleError(
+        "revision_mismatch",
+        `revision ${revision} resolved to ${resolved}`,
+      );
+    }
+    return resolved;
+  }
+
+  private async requireAncestor(cwd: string, ancestor: string, descendant: string): Promise<void> {
+    const result = await this.runner(
+      "git",
+      ["merge-base", "--is-ancestor", ancestor, descendant],
+      cwd,
+    );
+    if (result.code !== 0) {
+      throw new GitLifecycleError(
+        "non_ancestor_revision",
+        `${ancestor} is not an ancestor of ${descendant}`,
       );
     }
   }
@@ -983,7 +1051,8 @@ function requireAttachedWorktree(artifact: Artifact<GitChangeArtifactBody>): str
   return path;
 }
 
-function githubRepoFromRemote(remote: string): string | undefined {
+/** Normalize one GitHub origin URL into the repository identity used by Git owners. */
+export function gitHubRepositoryFromRemote(remote: string): string | undefined {
   const match =
     /^(?:https?:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([^/]+)\/(.+?)(?:\.git)?$/iu.exec(
       remote.trim(),

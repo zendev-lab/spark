@@ -1141,6 +1141,8 @@ export {
   type GitChangeArtifactBody,
   type GitChangeEntry,
   type GitChangeLifecycle,
+  type GitRevisionMaterializationAction,
+  type GitRevisionMaterializationState,
   type GitChangeRepository,
   type GitChangeStack,
   type GitChangeWorktreeStatus,
@@ -1201,6 +1203,7 @@ export {
   GitLifecycleError,
   GitLifecycleService,
   defaultGitCommandRunner,
+  gitHubRepositoryFromRemote,
   type AdoptGitChangeInput,
   type CheckoutGitChangeInput,
   type CommitGitChangeInput,
@@ -1217,3 +1220,12 @@ export {
 } from "./git/extension.ts";
 
 export { requireCurrentLensPass } from "./git/verification-gate.ts";
+
+export {
+  GitRevisionMaterializationService,
+  type ApplyCandidateRevisionInput,
+  type CreateCandidateRevisionInput,
+  type GitRevisionMaterializationInput,
+  type GitRevisionMaterializationResult,
+  type GitRevisionMaterializationServiceOptions,
+} from "./git/revision-materialization.ts";
