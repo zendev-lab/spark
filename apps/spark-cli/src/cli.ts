@@ -10,9 +10,11 @@ import { command, constant, option, passThrough } from "@optique/core/primitives
 import { sparkCliDispatcherStrings } from "@zendev-lab/spark-i18n/cli";
 import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
+import { parseSparkWebArgs, runSparkWeb } from "./web.ts";
+
 const dispatcherStrings = sparkCliDispatcherStrings();
 
-export type SparkDispatcherTarget = "tui" | "daemon" | "hub" | "acp" | "mcp" | "update";
+export type SparkDispatcherTarget = "tui" | "daemon" | "hub" | "acp" | "mcp" | "update" | "web";
 
 export type SparkDispatcherCommand =
   | {
@@ -69,6 +71,7 @@ const sparkDispatcherParser = or(
     command("acp", object({ kind: constant("acp" as const), argv: remainingArgv() })),
     command("mcp", object({ kind: constant("mcp" as const), argv: remainingArgv() })),
     command("server", object({ kind: constant("server" as const), argv: remainingArgv() })),
+    command("web", object({ kind: constant("web" as const), argv: remainingArgv() })),
   ),
   object({ kind: constant("empty" as const) }),
 );
@@ -92,6 +95,7 @@ const knownDispatcherCommands = new Set([
   "acp",
   "mcp",
   "server",
+  "web",
 ]);
 
 export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand {
@@ -138,6 +142,8 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
       return { kind: "dispatch", target: "mcp", argv: [...parsed.argv] };
     case "server":
       return errorCommand('The "spark server" namespace was removed. Use "spark hub" instead.');
+    case "web":
+      return { kind: "dispatch", target: "web", argv: [...parsed.argv] };
     default: {
       const exhaustive: never = parsed;
       return exhaustive;
@@ -183,6 +189,14 @@ export async function runSparkDispatcher(
       ) {
         stderr.write(`${dispatcherStrings.tuiRequiresTty}\n`);
         return 2;
+      }
+      if (command.target === "web") {
+        try {
+          return await runSparkWeb(parseSparkWebArgs(dispatchArgv), launcher);
+        } catch (error) {
+          stderr.write(`spark web: ${error instanceof Error ? error.message : String(error)}\n`);
+          return 1;
+        }
       }
       return await launcher.run(
         command.target,
@@ -450,6 +464,7 @@ function packagedTargetCommand(target: SparkDispatcherTarget): string | undefine
     mcp: "SPARK_MCP_COMMAND",
     tui: "SPARK_TUI_COMMAND",
     update: "SPARK_UPDATE_COMMAND",
+    web: "SPARK_WEB_COMMAND",
   };
   const variable = variableByTarget[target];
   return variable ? process.env[variable]?.trim() : undefined;
@@ -467,7 +482,7 @@ function adjacentTargetCommand(target: SparkDispatcherTarget): string | undefine
 
 function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | undefined {
   const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-  const entryByTarget: Record<SparkDispatcherTarget, string> = {
+  const entryByTarget: Partial<Record<SparkDispatcherTarget, string>> = {
     tui: "../spark-tui/bin/spark-tui",
     daemon: "../spark-daemon/bin/spark-daemon",
     hub: "../spark-hub/bin/spark-hub",
@@ -475,10 +490,12 @@ function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | un
     mcp: "../../packages/spark-mcp/bin/spark-mcp.ts",
     update: "../../packages/spark-update/bin/spark-update",
   };
-  return resolve(cliRoot, entryByTarget[target]);
+  const entry = entryByTarget[target];
+  return entry ? resolve(cliRoot, entry) : undefined;
 }
 
 function targetExecutable(target: SparkDispatcherTarget): string {
+  if (target === "web") return "dsh";
   return `spark-${target}`;
 }
 
