@@ -20,6 +20,7 @@ import {
   type TaskRun,
 } from "@zendev-lab/spark-core";
 import { verifyCanonicalAnswerEventEvidence } from "@zendev-lab/spark-ask";
+import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import { sparkStateCwd, type SparkSessionContext } from "@zendev-lab/spark-loop";
 import { createAutonomousAskInteractionRequestId } from "@zendev-lab/spark-protocol";
 import {
@@ -91,6 +92,7 @@ export interface SparkReproLaneRuntimeDeps {
     stateCwd: string;
     artifactRef: ArtifactRef;
   }) => Promise<void>;
+  ensureAttentionWakeLoop?: typeof ensureRootAttentionWakeLoop;
 }
 
 /** Route a Root startup or one completed child Session to its owning Repro. */
@@ -459,7 +461,9 @@ async function ingestSparkReproTerminalTaskRun(input: {
     });
     repro = updateReproThreeLane(repro, accepted.state);
     if (
-      (result.kind === "implementation_candidate" || result.kind === "exactness_finding") &&
+      (result.kind === "implementation_candidate" ||
+        result.kind === "exactness_finding" ||
+        result.kind === "attention_request") &&
       accepted.state.resultReceipts.some(
         (receipt) => receipt.resultId === accepted.resultId && receipt.status === "accepted",
       )
@@ -487,7 +491,14 @@ async function advancePendingRoutes(input: {
   let registry: Awaited<ReturnType<typeof createSparkRoleRegistry>> | undefined;
   for (const route of pendingRoutes) {
     if (route.action === "root_attention") {
-      await requestRootAttention(input.ctx, input.ownerSessionId, repro, route);
+      await requestRootAttention(
+        input.ctx,
+        input.ownerSessionId,
+        repro,
+        route,
+        input.stateCwd,
+        input.deps?.ensureAttentionWakeLoop,
+      );
       continue;
     }
     repository ??= await (input.deps?.repositoryIdentity ?? resolveRepositoryIdentity)(input.cwd);
@@ -647,6 +658,8 @@ async function requestRootAttention(
   ownerSessionId: string,
   repro: SparkSessionRepro,
   route: Extract<SparkReproRoute, { action: "root_attention" }>,
+  stateCwd: string,
+  ensureWakeLoop: typeof ensureRootAttentionWakeLoop = ensureRootAttentionWakeLoop,
 ): Promise<void> {
   if (!ctx.ui?.interaction) return;
   const requestHash = digest(
@@ -689,6 +702,30 @@ async function requestRootAttention(
       },
     ],
     allowElaborate: true,
+  });
+  await ensureWakeLoop({ stateCwd, ownerSessionId, repro });
+}
+
+async function ensureRootAttentionWakeLoop(input: {
+  stateCwd: string;
+  ownerSessionId: string;
+  repro: SparkSessionRepro;
+}): Promise<void> {
+  const listed = await requestSparkDaemon("loop.status", {
+    loopId: input.repro.reproId,
+    includeTerminal: true,
+  });
+  const current = listed.loops[0];
+  if (current && current.status !== "completed" && current.status !== "stopped") return;
+  await requestSparkDaemon("loop.start", {
+    loopId: input.repro.reproId,
+    ownerSessionId: input.ownerSessionId,
+    sessionLifetime: "driver",
+    binding: { reproId: input.repro.reproId },
+    cwd: input.stateCwd,
+    prompt:
+      "Reload the durable Repro owner checkpoint. Resume an answered attention route through owner reconciliation; otherwise leave the checkpoint dormant.",
+    reason: "Repro root attention requires a durable AnswerEvent wake target",
   });
 }
 

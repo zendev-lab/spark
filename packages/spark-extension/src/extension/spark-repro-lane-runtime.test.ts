@@ -876,6 +876,18 @@ describe("Repro three-lane runtime launch", () => {
       },
     );
     expect(fixture.interactions).toHaveLength(1);
+    expect(fixture.attentionWakeLoops).toEqual([
+      {
+        stateCwd: fixture.stateCwd,
+        ownerSessionId: "sess_root",
+        reproId: topology.repro.reproId,
+      },
+    ]);
+    expect(
+      (await defaultTaskGraphStore(fixture.stateCwd).load())?.getTask(
+        topology.lanes.implementation.taskRef,
+      ).status,
+    ).toBe("ready");
     const request = fixture.interactions[0];
     if (request?.kind !== "askFlow" || !request.evidenceRequest) {
       throw new Error("Root attention request is missing its Evidence binding");
@@ -969,6 +981,17 @@ function runtimeReconcileDeps(fixture: Awaited<ReturnType<typeof runtimeFixture>
   return {
     repositoryIdentity: async () => "acme/glm52",
     dispatch: fixture.dispatch,
+    ensureAttentionWakeLoop: async (input: {
+      stateCwd: string;
+      ownerSessionId: string;
+      repro: SparkSessionRepro;
+    }) => {
+      fixture.attentionWakeLoops.push({
+        stateCwd: input.stateCwd,
+        ownerSessionId: input.ownerSessionId,
+        reproId: input.repro.reproId,
+      });
+    },
     prepareRouteRevision: async () => {},
     persist: async () => {},
   };
@@ -1131,6 +1154,11 @@ async function runtimeFixture() {
   const cwd = await mkdtemp(join(tmpdir(), "spark-repro-lane-runtime-"));
   roots.push(cwd);
   const interactions: ExtensionInteractionRequest[] = [];
+  const attentionWakeLoops: Array<{
+    stateCwd: string;
+    ownerSessionId: string;
+    reproId: string;
+  }> = [];
   const ctx: SparkSessionContext & { ui: ExtensionUi } = {
     sessionId: "sess_root",
     ui: {
@@ -1259,6 +1287,7 @@ async function runtimeFixture() {
     projectRef: project.ref,
     invocations,
     interactions,
+    attentionWakeLoops,
     get sessions() {
       return [...sessionInputs.keys()];
     },
