@@ -1,3 +1,7 @@
+import { object, or } from "@optique/core/constructs";
+import { parse } from "@optique/core/parser";
+import { command, constant, passThrough } from "@optique/core/primitives";
+
 import { readSparkBuildInfo } from "./build-info.ts";
 import { parseChannel, parsePolicy } from "./config.ts";
 import { SparkUpdateManager } from "./manager.ts";
@@ -49,13 +53,41 @@ export async function runSparkUpdateCommand(
   io: SparkUpdateCliIo = {},
 ): Promise<number> {
   return await guarded(io, async () => {
-    const [action = "status", ...rest] = argv;
+    const classified = classifySparkUpdateAction(argv);
+    if (classified.action === "unknown") {
+      throw new Error(`Unknown spark update action: ${classified.command}`);
+    }
+    const rest = classified.argv;
     const prefix = optionValue(rest, "--prefix");
     const manager = new SparkUpdateManager({ prefix });
-    const handler = UPDATE_COMMAND_HANDLERS[action];
-    if (!handler) throw new Error(`Unknown spark update action: ${action}`);
-    await handler({ manager, rest, stdout: io.stdout ?? process.stdout });
+    await UPDATE_COMMAND_HANDLERS[classified.action]({
+      manager,
+      rest,
+      stdout: io.stdout ?? process.stdout,
+    });
   });
+}
+
+const remainingArgv = () => passThrough({ format: "greedy" });
+
+const sparkUpdateActionParser = or(
+  command("status", object({ action: constant("status" as const), argv: remainingArgv() })),
+  command("check", object({ action: constant("check" as const), argv: remainingArgv() })),
+  command("__tick", object({ action: constant("__tick" as const), argv: remainingArgv() })),
+  command("configure", object({ action: constant("configure" as const), argv: remainingArgv() })),
+  command("apply", object({ action: constant("apply" as const), argv: remainingArgv() })),
+  command("rollback", object({ action: constant("rollback" as const), argv: remainingArgv() })),
+  command("retry", object({ action: constant("retry" as const), argv: remainingArgv() })),
+  object({ action: constant("empty" as const) }),
+);
+
+function classifySparkUpdateAction(argv: string[]) {
+  const result = parse(sparkUpdateActionParser, argv);
+  if (result.success) {
+    if (result.value.action === "empty") return { action: "status" as const, argv: [] as string[] };
+    return { ...result.value, argv: [...result.value.argv] };
+  }
+  return { action: "unknown" as const, command: argv[0] ?? "" };
 }
 
 interface UpdateCommandContext {

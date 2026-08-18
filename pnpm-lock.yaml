@@ -583,6 +583,9 @@ importers:
       '@agentclientprotocol/sdk':
         specifier: 'catalog:'
         version: 1.3.0(zod@4.4.3)
+      '@optique/core':
+        specifier: 'catalog:'
+        version: 1.2.0
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:^
         version: link:../spark-daemon-client
@@ -1082,6 +1085,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
         version: 1.30.0(supports-color@10.2.2)(zod@4.4.3)
+      '@optique/core':
+        specifier: 'catalog:'
+        version: 1.2.0
       '@zendev-lab/spark-memory':
         specifier: workspace:^
         version: link:../spark-memory
@@ -1435,6 +1441,9 @@ importers:
 
   packages/spark-update:
     dependencies:
+      '@optique/core':
+        specifier: 'catalog:'
+        version: 1.2.0
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
