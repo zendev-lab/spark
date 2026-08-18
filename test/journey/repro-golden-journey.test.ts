@@ -1426,17 +1426,34 @@ function completeWorkSummary(input: {
 }
 
 function assertThreeLaneRecoveryState(repro: Record<string, unknown>): void {
-  assert.equal(numberField(repro, "version"), 8);
+  assert.equal(numberField(repro, "version"), 9);
   const threeLane = objectField(repro, "threeLane");
-  assert.equal(stringField(threeLane, "schema"), "spark.repro.three-lane-session/v1");
+  assert.equal(stringField(threeLane, "schema"), "spark.repro.three-lane-session/v2");
   assert.deepEqual(
     arrayField(threeLane, "workItems").map((item) => stringField(item, "workItemId")),
     ["work:minimal-normalization"],
   );
   assert.deepEqual(
     arrayField(threeLane, "handoffs").map((handoff) => stringField(handoff, "handoffId")),
-    ["handoff:minimal-implementation-exactness", "handoff:minimal-exactness-formalize"],
+    [],
   );
+  assert.deepEqual(arrayField(threeLane, "bindings"), []);
+  assert.deepEqual(
+    arrayField(threeLane, "compatibilityBindings").map((binding) => ({
+      workItemId: stringField(binding, "workItemId"),
+      schedulable: binding.schedulable,
+      reason: stringField(binding, "reason"),
+    })),
+    [
+      {
+        workItemId: "work:minimal-normalization",
+        schedulable: false,
+        reason: "missing_task_ref",
+      },
+    ],
+  );
+  assert.deepEqual(arrayField(threeLane, "routes"), []);
+  assert.deepEqual(arrayField(threeLane, "resultReceipts"), []);
   assert.deepEqual(
     arrayField(threeLane, "resolutions").map((resolution) =>
       stringField(resolution, "resolutionId"),
@@ -1450,12 +1467,16 @@ function assertThreeLaneRecoveryState(repro: Record<string, unknown>): void {
 }
 
 function assertThreeLaneProjection(lanes: Record<string, unknown>): void {
-  for (const lane of ["implementation", "exactness", "formalize"] as const) {
+  for (const lane of ["implementation", "exactness"] as const) {
     const projected = objectField(lanes, lane);
     assert.equal(stringField(projected, "status"), "complete");
     assert.equal(numberField(projected, "totalCount"), 1);
     assert.equal(arrayField(projected, "items").length, 1);
   }
+  const formalize = objectField(lanes, "formalize");
+  assert.equal(stringField(formalize, "status"), "empty");
+  assert.equal(numberField(formalize, "totalCount"), 0);
+  assert.deepEqual(arrayField(formalize, "items"), []);
   assert.equal(stringField(lanes, "formalizedTip"), "commit:formalized-minimal-normalization");
   assert.ok(!JSON.stringify(lanes).includes("target normalization boundary"));
 }
@@ -1468,16 +1489,14 @@ function assertThreeLaneWorkSummary(work: Record<string, unknown>): void {
   assert.deepEqual(stringArrayField(objectField(lanes, "exactness"), "workItemIds"), [
     "work:minimal-normalization",
   ]);
-  assert.deepEqual(stringArrayField(objectField(lanes, "formalize"), "workItemIds"), [
-    "work:minimal-normalization",
-  ]);
+  assert.deepEqual(stringArrayField(objectField(lanes, "formalize"), "workItemIds"), []);
   assert.equal(
     stringField(objectField(lanes, "formalize"), "formalizedTip"),
     "commit:formalized-minimal-normalization",
   );
   assert.equal(arrayField(work, "workItems").length, 1);
   assert.equal(arrayField(work, "findings").length, 1);
-  assert.equal(arrayField(work, "handoffs").length, 2);
+  assert.equal(arrayField(work, "handoffs").length, 0);
   assert.equal(arrayField(work, "resolutions").length, 2);
 }
 

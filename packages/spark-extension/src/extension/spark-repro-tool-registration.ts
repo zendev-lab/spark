@@ -63,6 +63,7 @@ import {
   reproStepPlanRevision,
   reviseReproPlan,
   settleReproTick,
+  sparkReproLaneBinding,
   stepDefinitionDigest,
   updateReproStep,
   verifyReproStepPass,
@@ -1082,7 +1083,28 @@ async function applyThreeLaneReproAction(input: {
       const handoff = normalizeReproHandoff(value);
       if (handoff.to === "formalize") requireFormalizeIntegrator(state, input.actorSessionId);
       await validateSparkReproEvidenceRefs(input.cwd, handoff.evidenceRefs);
+      const sourceBinding = sparkReproLaneBinding(state, handoff.workItemId, handoff.from);
       state = recordSparkReproWorkHandoff(state, handoff);
+      // Compatibility only for the public manual write actions removed by the
+      // runtime layer. The v9 owner path materializes every binding from a
+      // typed route and never enters this adapter.
+      if (sourceBinding && !sparkReproLaneBinding(state, handoff.workItemId, handoff.to)) {
+        const item = state.workItems.find(
+          (candidate) => candidate.workItemId === handoff.workItemId,
+        );
+        if (!item) throw new Error(`unknown Repro work item: ${handoff.workItemId}`);
+        const gitChangeRef =
+          handoff.to === "formalize"
+            ? state.formalize.ownership?.gitChangeRef
+            : sourceBinding.gitChangeRef;
+        state = registerSparkReproWorkItem(state, handoff.to, {
+          ...item,
+          sourceRevision: handoff.sourceRevision,
+          taskRef: sourceBinding.taskRef,
+          ...(gitChangeRef ? { gitChangeRef } : {}),
+          evidenceRefs: [...new Set([...item.evidenceRefs, ...handoff.evidenceRefs])],
+        });
+      }
       message = `Recorded ${handoff.from} → ${handoff.to} handoff ${handoff.handoffId}.`;
       refs = { workItemId: handoff.workItemId, handoffId: handoff.handoffId };
       break;

@@ -52,11 +52,11 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     return createSparkSessionRepro("test-session");
   }
 
-  it("starts a v7 research-first setup with typed Goal Contract, plan, and subgoals", () => {
+  it("starts a v9 research-first setup with typed Goal Contract, plan, and subgoals", () => {
     const repro = makeRepro();
     const setup = currentReproStage(repro);
 
-    assert.equal(repro.version, 8);
+    assert.equal(repro.version, 9);
     assert.equal(repro.projectRef, undefined);
     assert.equal(
       repro.subgoals.length,
@@ -296,7 +296,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       await writeFile(path, `${JSON.stringify({ version: 1, repro: legacy })}\n`, "utf8");
 
       const migrated = await readSessionRepro(dir);
-      assert.equal(migrated?.version, 8);
+      assert.equal(migrated?.version, 9);
       assert.equal(migrated?.currentPhase, "plan");
       assert.deepEqual(migrated?.stages[0]?.phases, ["plan"]);
       assert.deepEqual(migrated?.stages[0]?.acceptance[0], {
@@ -348,7 +348,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       await writeFile(path, `${JSON.stringify({ version: 3, repro })}\n`, "utf8");
 
       const sanitized = await readSessionRepro(dir);
-      assert.equal(sanitized?.version, 8);
+      assert.equal(sanitized?.version, 9);
       assert.equal(sanitized?.goalContract.status, "draft");
       assert.equal(
         sanitized?.plan.steps.find((step) => step.id === "repro-contract-frozen")?.status,
@@ -451,7 +451,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
         await writeFile(path, `${JSON.stringify({ version, repro: legacy })}\n`, "utf8");
 
         const migrated = await readSessionRepro(dir);
-        assert.equal(migrated?.version, 8);
+        assert.equal(migrated?.version, 9);
         assert.equal(migrated?.status, "active");
         assert.equal(migrated?.completedAt, undefined);
         assert.equal(migrated?.currentStageIndex, 0);
@@ -489,7 +489,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     });
   }
 
-  it("migrates a v6 snapshot to v8 idempotently without promoting proof authority", async () => {
+  it("migrates a v6 snapshot to v9 idempotently without promoting proof authority", async () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-repro-v6-three-lane-migration-"));
     try {
       const current = makeRepro();
@@ -502,9 +502,9 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       const first = await readSessionRepro(dir);
       const second = await readSessionRepro(dir);
       assert.deepEqual(second, first);
-      assert.equal(first?.version, 8);
+      assert.equal(first?.version, 9);
       assert.deepEqual(first?.threeLane, {
-        schema: "spark.repro.three-lane-session/v1",
+        schema: "spark.repro.three-lane-session/v2",
         planRevision: legacy.plan.currentRevision,
         implementation: { stage: "contract", observationIds: [], workItemIds: [] },
         exactness: { workItemIds: [], findingIds: [], mismatchIds: [] },
@@ -516,6 +516,10 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
           workItemIds: [],
         },
         workItems: [],
+        bindings: [],
+        compatibilityBindings: [],
+        routes: [],
+        resultReceipts: [],
         findings: [],
         mismatches: [],
         handoffs: [],
@@ -627,7 +631,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       await writeFile(path, `${JSON.stringify({ version: 4, repro: v4 })}\n`, "utf8");
 
       const migrated = await readSessionRepro(dir);
-      assert.equal(migrated?.version, 8);
+      assert.equal(migrated?.version, 9);
       assert.equal(migrated?.projectRef, undefined);
       assert.deepEqual(migrated?.stages, v4.stages);
       assert.deepEqual(migrated?.goalContract, v4.goalContract);

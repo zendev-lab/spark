@@ -14168,7 +14168,7 @@ test("repro start creates a generic project with one task per bound subgoal", as
     });
 
     const repro = await readSessionRepro(dir, ctx);
-    assert.equal(repro?.version, 8);
+    assert.equal(repro?.version, 9);
     assert.ok(repro?.projectRef);
     const graph = await defaultTaskGraphStore(dir).load();
     assert.ok(graph);
