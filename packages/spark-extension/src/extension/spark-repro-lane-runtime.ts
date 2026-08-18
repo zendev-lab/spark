@@ -743,7 +743,8 @@ async function ensureLaneTasks(input: {
           if (
             existing.roleRef !== roleRef ||
             !existing.artifactRefs.includes(input.artifactRefs[lane]) ||
-            existing.executionPolicy?.completionGate !== "task_evidence"
+            existing.executionPolicy?.completionGate !== "task_evidence" ||
+            existing.executionPolicy?.sessionRetention !== "owner_terminal"
           ) {
             throw new Error(`Repro lane Task ${name} has a conflicting owner`);
           }
@@ -762,6 +763,7 @@ async function ensureLaneTasks(input: {
           artifactRefs: [input.artifactRefs[lane]],
           executionPolicy: {
             sessionLifetime: "task_revision",
+            sessionRetention: "owner_terminal",
             continuity: "reuse_within_revision",
             isolation: "isolated_worktree",
             comparison: "single_side",

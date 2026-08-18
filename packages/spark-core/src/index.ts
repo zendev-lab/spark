@@ -1464,6 +1464,8 @@ export interface TaskWorktreeTarget {
 export interface TaskExecutionPolicy {
   /** Canonical owner-bounded Session lifetime for Task attempts. */
   sessionLifetime: "task_run" | "task_revision";
+  /** When the owner closes a reusable Session. Defaults to Task terminality. */
+  sessionRetention?: "task_terminal" | "owner_terminal";
   /** Legacy compatibility projection; runtime dispatch uses sessionLifetime. */
   continuity?: TaskExecutionContinuity;
   isolation: TaskExecutionIsolation;

@@ -591,12 +591,31 @@ describe("managed Task Session dispatch", () => {
       await defaultTaskGraphStore(cwd).update(
         (next) => {
           const run = next.runs(project.ref).at(-1)!;
+          const currentTask = next.getTask(task.ref);
           next.recordRun({
             ...run,
             status: "failed",
             failureKind: "runtime_error",
             finishedAt: "2026-07-29T00:01:00.000Z",
           });
+          if (reusesSession && currentTask.plan?.items?.[0]) {
+            next.updateTask(task.ref, {
+              plan: {
+                ...currentTask.plan,
+                items: currentTask.plan.items.map((item, index) =>
+                  index === 0
+                    ? {
+                        ...item,
+                        status: "done",
+                        notes: ["attempt progress"],
+                        evidenceRefs: ["evidence:attempt-progress" as EvidenceRef],
+                        updatedAt: "2026-07-29T00:01:00.000Z",
+                      }
+                    : item,
+                ),
+              },
+            });
+          }
           next.releaseTaskClaim(task.ref);
           next.setTaskStatus(task.ref, "ready");
         },

@@ -530,6 +530,13 @@ export function normalizeTaskExecutionPolicy(
     throw new Error("task executionPolicy.continuity is invalid");
   }
   if (
+    policy?.sessionRetention !== undefined &&
+    policy.sessionRetention !== "task_terminal" &&
+    policy.sessionRetention !== "owner_terminal"
+  ) {
+    throw new Error("task executionPolicy.sessionRetention is invalid");
+  }
+  if (
     policy?.sessionLifetime !== undefined &&
     policy?.continuity !== undefined &&
     (policy.sessionLifetime === "task_run") !== (policy.continuity === "fresh")
@@ -636,6 +643,9 @@ export function normalizeTaskExecutionPolicy(
       : undefined;
   return {
     sessionLifetime,
+    ...(policy?.sessionRetention === "owner_terminal"
+      ? { sessionRetention: "owner_terminal" as const }
+      : {}),
     continuity,
     isolation,
     comparison,

@@ -147,6 +147,7 @@ describe("Repro three-lane runtime launch", () => {
     for (const task of graphAfterReplay?.tasks(fixture.projectRef) ?? []) {
       expect(task.artifactRefs).toHaveLength(1);
       expect(task.executionPolicy?.completionGate).toBe("task_evidence");
+      expect(task.executionPolicy?.sessionRetention).toBe("owner_terminal");
       expect(task.executionPolicy?.worktreeTarget?.primaryArtifactRef).toMatch(/^artifact:/u);
     }
     expect(graphAfterReplay?.runs(fixture.projectRef)).toHaveLength(3);

@@ -460,6 +460,7 @@ export async function reconcileManagedTaskSessions(input: {
       const task = graph.getTask(run.taskRef);
       const revisionEnded =
         task.status === "done" || task.status === "failed" || task.status === "cancelled";
+      if (task.executionPolicy?.sessionRetention === "owner_terminal") return [];
       if (run.execution.sessionLifetime !== "task_run" && !revisionEnded) return [];
       const sessionId = taskExecutionSessionId(run.execution);
       return [
@@ -977,7 +978,7 @@ function taskSessionJobId(input: {
       description: input.task.description,
       kind: input.task.kind,
       roleRef: input.roleRef,
-      plan: input.task.plan,
+      plan: taskPlanRevisionDefinition(input.task.plan),
       executionPolicy: input.task.executionPolicy,
       inputEvidenceRefs: input.task.inputEvidenceRefs,
       subgoalRef: input.subgoalRef,
@@ -985,6 +986,29 @@ function taskSessionJobId(input: {
       definitionDigest: input.definitionDigest,
     }),
   )}`;
+}
+
+function taskPlanRevisionDefinition(plan: Task["plan"]): unknown {
+  if (!plan) return undefined;
+  return {
+    objective: plan.objective,
+    contextRefs: plan.contextRefs,
+    constraints: plan.constraints,
+    nonGoals: plan.nonGoals,
+    successCriteria: plan.successCriteria,
+    evidenceRequired: plan.evidenceRequired,
+    items: plan.items?.map((item) => ({
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      blockedBy: item.blockedBy,
+      deleted: item.deletedAt !== undefined,
+    })),
+    steps: plan.steps,
+    decompositionRationale: plan.decompositionRationale,
+    riskLevel: plan.riskLevel,
+    openQuestions: plan.openQuestions,
+  };
 }
 
 function renderTaskExecutionPrompt(reservation: ReservedTaskSessionRun): string {
