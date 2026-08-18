@@ -1205,8 +1205,9 @@ export class CueClient {
   }
 
   /**
-   * Run a command and wait for it to complete, collecting all output.
-   * Returns job info + stdout/stderr + exit code.
+   * Run a command and wait up to `timeout` seconds for it to complete.
+   * Wait-budget expiry detaches (job keeps running) and returns `timedOut`.
+   * AbortSignal still cancels the daemon execution.
    */
   async runJob(command: string, opts?: RunJobOptions): Promise<JobResult> {
     const timeoutMs = (opts?.timeout ?? 300) * 1000;
@@ -1499,6 +1500,24 @@ export class CueClient {
         reject(error);
       };
 
+      const snapshotItems = async (): Promise<ScriptItemSummary[]> => {
+        const itemResults: ScriptItemSummary[] = [];
+        const authoritativeItems = [...scriptItems.values()].sort(
+          (left, right) => left.index - right.index,
+        );
+        for (const item of authoritativeItems) {
+          itemResults.push(
+            await this.#summarizeScriptItem(
+              item,
+              itemJobIds.get(item.index) ?? [],
+              stdoutByJob,
+              stderrByJob,
+            ),
+          );
+        }
+        return itemResults;
+      };
+
       const finalize = async () => {
         if (resolved) return;
         if (!finished || !snapshotTerminalReconciled) return;
@@ -1510,20 +1529,7 @@ export class CueClient {
         await Promise.all([...pendingItemRegistrations]);
 
         try {
-          const itemResults: ScriptItemSummary[] = [];
-          const authoritativeItems = [...scriptItems.values()].sort(
-            (left, right) => left.index - right.index,
-          );
-          for (const item of authoritativeItems) {
-            const summary = await this.#summarizeScriptItem(
-              item,
-              itemJobIds.get(item.index) ?? [],
-              stdoutByJob,
-              stderrByJob,
-            );
-            itemResults.push(summary);
-          }
-
+          const itemResults = await snapshotItems();
           await releaseOutputChannels();
           resolve({
             scriptId: created.script_id,
@@ -1540,42 +1546,54 @@ export class CueClient {
         }
       };
 
-      const stopForeground = async (kind: "abort" | "timeout") => {
-        if (resolved) return;
+      const settleForeground = () => {
+        if (resolved) return false;
         resolved = true;
         if (timer) clearTimeout(timer);
         cleanupListeners();
+        return true;
+      };
+
+      const abortForeground = async (abortSignal: AbortSignal) => {
+        if (!settleForeground()) return;
         try {
           await this.cancelExecution(created.script_id, cueOperationStep(opts.operation, "cancel"));
           await releaseOutputChannels();
-          if (kind === "abort" && signal) {
-            reject(abortError(signal));
-            return;
-          }
-          resolve({
-            scriptId: created.script_id,
-            source: created.source ?? { kind: "inline" },
-            status: "failed",
-            exitCode: null,
-            failedItemIndex: null,
-            items: [],
-            timedOut: true,
-          });
+          reject(abortError(abortSignal));
         } catch (error) {
           await releaseOutputChannels();
           reject(error);
         }
       };
 
+      const detachForeground = async () => {
+        if (!settleForeground()) return;
+        let items: ScriptItemSummary[] = [];
+        try {
+          items = await snapshotItems();
+        } catch {
+          items = [];
+        }
+        await releaseOutputChannels();
+        resolve({
+          scriptId: created.script_id,
+          source: created.source ?? { kind: "inline" },
+          status: "running",
+          exitCode: null,
+          failedItemIndex: null,
+          items,
+          timedOut: true,
+        });
+      };
+
       const armTimeout = () => {
         if (resolved || timerArmed) return;
         timerArmed = true;
-        timer = setTimeout(
-          () => void stopForeground("timeout"),
-          Math.max(0, waitDeadline - Date.now()),
-        );
+        timer = setTimeout(() => void detachForeground(), Math.max(0, waitDeadline - Date.now()));
       };
-      const onAbort = () => void stopForeground("abort");
+      const onAbort = () => {
+        if (signal) void abortForeground(signal);
+      };
       signal?.addEventListener("abort", onAbort, { once: true });
 
       const onOutput = (event: EventPayload) => {
@@ -2566,18 +2584,28 @@ export class CueClient {
       let poll: ReturnType<typeof setInterval> | undefined;
       const terminal: JobStatus[] = ["Done", "Failed", "Killed", "Cancelled"];
 
-      const stopForeground = async (kind: "abort" | "timeout") => {
-        if (resolved) return;
+      const settleForeground = () => {
+        if (resolved) return false;
         resolved = true;
         clearTimeout(timer);
         if (poll) clearInterval(poll);
         cleanup();
+        return true;
+      };
+
+      const abortForeground = async (abortSignal: AbortSignal) => {
+        if (!settleForeground()) return;
         try {
           await this.cancelExecution(cancelTarget, cueOperationStep(operation, "cancel"));
-          if (kind === "abort" && signal) {
-            reject(abortError(signal));
-            return;
-          }
+          reject(abortError(abortSignal));
+        } catch (error) {
+          reject(error);
+        }
+      };
+
+      const detachForeground = async () => {
+        if (!settleForeground()) return;
+        try {
           const result = await this.#readBufferedJobResult(firstJobId, chainJobIds, warnings);
           resolve({ ...result, timedOut: true });
         } catch (error) {
@@ -2585,8 +2613,10 @@ export class CueClient {
         }
       };
 
-      const timer = setTimeout(() => void stopForeground("timeout"), timeoutMs);
-      const onAbort = () => void stopForeground("abort");
+      const timer = setTimeout(() => void detachForeground(), timeoutMs);
+      const onAbort = () => {
+        if (signal) void abortForeground(signal);
+      };
       signal?.addEventListener("abort", onAbort, { once: true });
 
       const unsubs: Array<() => void> = [];

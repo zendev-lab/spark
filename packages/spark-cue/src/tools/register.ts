@@ -208,7 +208,7 @@ export function renderCueScriptResult(
 ): string[] {
   const sourceLabel = result.source.kind === "file" ? result.source.path : options.pathLabel;
   const headerParts = [
-    `Script ${result.scriptId}: ${result.status === "done" ? "✅ done" : "❌ failed"}`,
+    `Script ${result.scriptId}: ${result.status === "done" ? "✅ done" : result.status === "running" ? "⏳ running" : "❌ failed"}`,
   ];
   if (result.exitCode !== null) headerParts.push(`exit=${result.exitCode}`);
   if (result.failedItemIndex !== null) headerParts.push(`failed_item=${result.failedItemIndex}`);
@@ -218,7 +218,7 @@ export function renderCueScriptResult(
   const lines: string[] = [headerParts.join("  |  ")];
   if (result.timedOut) {
     lines.push(
-      `Script timed out after ${options.timeout}s and its active execution was cancelled.`,
+      `Script wait budget elapsed after ${options.timeout}s; the script remains running. Track with cue_jobs.`,
     );
   }
 
@@ -864,7 +864,10 @@ async function runPythonScriptJob(
   const stderr = normalizeCueStderrForDisplay(result.stderr, stdout);
   const lines = [`Script job ${result.jobId}: ${result.status}`];
   if (result.exitCode !== null) lines[0] += ` (exit ${result.exitCode})`;
-  if (result.timedOut) lines[0] += ` — timed out after ${options.timeout}s`;
+  if (result.timedOut) {
+    lines[0] += ` — timed out after ${options.timeout}s`;
+    lines.push("", `Track with cue_jobs action=status/wait using id ${result.jobId}.`);
+  }
   if (stdout.trim()) {
     const out = tailStr(stdout, options.tailBytes);
     lines.push("", out.text.trimEnd());
@@ -1096,6 +1099,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
       "Prefer direct-exec commands and Pi file tools; do not use shell wrappers for shell-only syntax. " +
       "Use Spark grep/find tools for repository search; do not rely on environment wrappers such as rtk to translate find/rg flags. " +
       "Set background=true to start without waiting; track with cue_jobs action=status/wait, stop with cue_jobs action=stop. " +
+      "Foreground timeout is a wait budget: expiry detaches and leaves the job running. " +
       "For resource-gated jobs, pass needs={ gpu: 1, gpu_mem: '24GiB' } instead of embedding :run(need...) in command. " +
       "Runs without a PTY by default; set pty=true only for commands that genuinely need terminal semantics. " +
       "File-system commands (mv, cp, rm, ls, cat, find, ...) get a short 10s timeout by default.",
@@ -1113,7 +1117,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
       timeout: Type.Optional(
         Type.Number({
           description:
-            "Timeout in seconds. Default: 300 (or 10 for file ops). Ignored when background=true.",
+            "Foreground wait budget in seconds. Default: 300 (or 10 for file ops). Ignored when background=true. On expiry the tool detaches; the job keeps running.",
           default: 300,
         }),
       ),
@@ -1243,7 +1247,8 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
         const stdout = normalizeCueTerminalOutput(result.stdout);
         const stderr = normalizeCueStderrForDisplay(result.stderr, stdout);
         const lines = [
-          `Job ${result.jobId}: Cancelled after timing out at ${effectiveTimeout}s.`,
+          `Job ${result.jobId}: Timed out after ${effectiveTimeout}s waiting; job remains ${result.status}.`,
+          `Track with cue_jobs action=status/wait using id ${result.jobId}.`,
           ...warningLines(result.warnings),
         ];
         if (stdout.trim()) {
@@ -1265,7 +1270,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
           details: {
             jobId: result.jobId,
             timedOut: true,
-            switchedToBackground: false,
+            switchedToBackground: true,
             warnings: result.warnings,
             stdoutEncoding: result.stdoutEncoding,
             stderrEncoding: result.stderrEncoding,
@@ -1431,7 +1436,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
       "Top-level items execute sequentially with fail-fast semantics inside a fresh isolated scope forked from HEAD. " +
       "Each item may use cue-shell composition operators (`|>`, `&&`, `||`, `->`, `~>`, `|||`, `|?|`) but must not use bash-shell syntax (`;`, redirection). " +
       "For inline bodies (no file on disk) use cue_script instead. " +
-      "Foreground only: blocks until ScriptFinished or `timeout` seconds elapse; timeout cancels the active script execution before returning.",
+      "Foreground only: blocks until ScriptFinished or `timeout` seconds elapse; timeout detaches and leaves the script running.",
     parameters: Type.Object({
       path: Type.String({
         description:
@@ -1440,7 +1445,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
       timeout: Type.Optional(
         Type.Number({
           description:
-            "Foreground wait budget in seconds. Default: 300. On timeout the active script execution is cancelled before the tool returns timedOut=true.",
+            "Foreground wait budget in seconds. Default: 300. On expiry the tool detaches; the script keeps running.",
           default: 300,
         }),
       ),
@@ -1517,7 +1522,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
       "Each item may use cue-shell composition operators (`|>`, `&&`, `||`, `->`, `~>`, `|||`, `|?|`) but must not use bash-shell syntax (`;`, redirection). " +
       "If you have a real .cue file on disk, prefer cue_run. " +
       "Optionally provide `pathLabel` to label the inline script in TUI history. " +
-      "Foreground only: blocks until ScriptFinished or `timeout` seconds elapse; timeout cancels the active script execution before returning.",
+      "Foreground only: blocks until ScriptFinished or `timeout` seconds elapse; timeout detaches and leaves the script running.",
     parameters: Type.Object({
       script: Type.String({
         description:
@@ -1531,7 +1536,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
       timeout: Type.Optional(
         Type.Number({
           description:
-            "Foreground wait budget in seconds. Default: 300. On timeout the active script execution is cancelled before the tool returns timedOut=true.",
+            "Foreground wait budget in seconds. Default: 300. On expiry the tool detaches; the script keeps running.",
           default: 300,
         }),
       ),
