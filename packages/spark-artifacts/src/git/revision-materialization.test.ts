@@ -3,10 +3,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { defaultArtifactStore, newArtifactRef } from "../artifact/index.ts";
-import { defaultGitCommandRunner, type GitCommandRunner } from "./lifecycle.ts";
+import {
+  defaultGitCommandRunner,
+  gitHubRepositoryFromRemote,
+  type GitCommandRunner,
+} from "./lifecycle.ts";
 import { GitRevisionMaterializationService } from "./revision-materialization.ts";
 
 describe("GitRevisionMaterializationService", () => {
+  it.each([
+    ["https://github.com/zendev-lab/spark.git", "zendev-lab/spark"],
+    ["ssh://git@github.com/zendev-lab/spark.git", "zendev-lab/spark"],
+    ["git@github.com:zendev-lab/spark.git", "zendev-lab/spark"],
+    ["https://gitlab.com/zendev-lab/spark.git", undefined],
+  ])("normalizes GitHub origin %s", (remote, expected) => {
+    expect(gitHubRepositoryFromRemote(remote)).toBe(expected);
+  });
+
   it("creates a candidate at the exact frozen baseline and replays its receipt", async () => {
     const fixture = await revisionFixture();
     const service = fixture.service();

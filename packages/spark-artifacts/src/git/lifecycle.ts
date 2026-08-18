@@ -653,7 +653,7 @@ export class GitLifecycleService {
       "origin_required",
     );
     const remote = result.stdout.trim();
-    const repo = githubRepoFromRemote(remote);
+    const repo = gitHubRepositoryFromRemote(remote);
     if (!repo) {
       throw new GitLifecycleError(
         "github_required",
@@ -1051,7 +1051,8 @@ function requireAttachedWorktree(artifact: Artifact<GitChangeArtifactBody>): str
   return path;
 }
 
-function githubRepoFromRemote(remote: string): string | undefined {
+/** Normalize one GitHub origin URL into the repository identity used by Git owners. */
+export function gitHubRepositoryFromRemote(remote: string): string | undefined {
   const match =
     /^(?:https?:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([^/]+)\/(.+?)(?:\.git)?$/iu.exec(
       remote.trim(),

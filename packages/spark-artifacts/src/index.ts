@@ -1203,6 +1203,7 @@ export {
   GitLifecycleError,
   GitLifecycleService,
   defaultGitCommandRunner,
+  gitHubRepositoryFromRemote,
   type AdoptGitChangeInput,
   type CheckoutGitChangeInput,
   type CommitGitChangeInput,
