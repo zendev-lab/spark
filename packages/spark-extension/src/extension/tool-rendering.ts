@@ -1,4 +1,4 @@
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText, truncateToWidth } from "@zendev-lab/spark-text";
 
 export interface ToolCallRenderTheme {
   fg?: (color: string, text: string) => string;
@@ -7,18 +7,6 @@ export interface ToolCallRenderTheme {
 
 export interface ToolCallComponent {
   render(width: number): string[];
-}
-
-class ToolCallText implements ToolCallComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
 }
 
 export function renderSparkToolCall(

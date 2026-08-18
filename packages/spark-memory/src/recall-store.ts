@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
+import {
+  sparkWorkspaceStatePath,
+  writeJsonFileAtomic,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-core";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
 import {
@@ -560,12 +564,13 @@ export function recallStorePath(
   cwd: string,
   scope: RecallScope,
   paths: RecallStorePaths = {},
+  ctx?: SparkStateRootContext,
 ): string {
   const explicitPath = paths[scope];
   if (explicitPath?.trim()) return explicitPath;
   return scope === "user"
     ? resolveSparkUserPaths().recallFile
-    : join(cwd, ".spark", "memory", "recall-candidates.json");
+    : sparkWorkspaceStatePath(cwd, ["memory", "recall-candidates.json"], ctx);
 }
 
 export function defaultRecallStore(
@@ -573,8 +578,9 @@ export function defaultRecallStore(
   scope: RecallScope,
   paths?: RecallStorePaths,
   options?: RecallStoreOptions,
+  ctx?: SparkStateRootContext,
 ): RecallStore {
-  return new RecallStore(recallStorePath(cwd, scope, paths), options);
+  return new RecallStore(recallStorePath(cwd, scope, paths, ctx), options);
 }
 
 export function scoreRecallCandidate(

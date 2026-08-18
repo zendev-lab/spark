@@ -10,6 +10,14 @@ export const sparkInvocationStatusSchema = z.enum([
   "failed",
   "cancelled",
 ]);
+export const sparkInvocationTerminalStatuses = ["succeeded", "failed", "cancelled"] as const;
+export type SparkInvocationTerminalStatus = (typeof sparkInvocationTerminalStatuses)[number];
+
+export function isSparkInvocationTerminalStatus(
+  status: string,
+): status is SparkInvocationTerminalStatus {
+  return status === "succeeded" || status === "failed" || status === "cancelled";
+}
 
 export const sparkTurnOriginBindingSchema = z.object({
   workspaceId: z.string().min(1),

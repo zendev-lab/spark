@@ -31,8 +31,9 @@ and the same code runs on either host.
 
 The package is mostly TypeScript declarations for `SparkHostAPI` and related
 shapes, plus a small set of dependency-light runtime helpers (refs, stable IDs,
-JSON file IO, copy-language detection). Host implementations speak supersets of
-these types:
+JSON file IO, copy-language detection, and workspace Spark state path helpers
+`sparkStateRootPath` / `sparkWorkspaceStatePath`). Host implementations speak
+supersets of these types:
 
 - Spark native host family — `@zendev-lab/spark-host` provides `SparkHostRuntime`, implementing the retained
   surface needed by `@zendev-lab/spark-ask`, `@zendev-lab/spark-cue`, `@zendev-lab/spark-roles`, `@zendev-lab/spark-graft`, and `@zendev-lab/spark-extension`,

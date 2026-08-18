@@ -302,8 +302,8 @@ export function registerSparkWorkflowRunsTool(
         };
       }
       const stateCwd = sparkStateCwd(cwd, ctx);
-      const runStore = defaultSparkWorkflowRunStore(stateCwd);
-      const dynamicRunStore = defaultSparkDynamicWorkflowEventStore(stateCwd);
+      const runStore = defaultSparkWorkflowRunStore(stateCwd, ctx);
+      const dynamicRunStore = defaultSparkDynamicWorkflowEventStore(stateCwd, ctx);
       await dynamicRunStore.reconcileStale();
       const currentProject = await currentSparkProject(cwd, ctx, graph);
       const currentProjectRef = currentProject?.ref;
@@ -683,7 +683,7 @@ export function registerSparkWorkflowRunsTool(
             createdAt: now,
           }),
         ) as JsonValue;
-        const evidence = await defaultEvidenceStore(stateCwd).put({
+        const evidence = await defaultEvidenceStore(stateCwd, ctx).put({
           kind: "record",
           title: `Spark role-run ${action} control for ${target.runRef}`,
           format: "json",

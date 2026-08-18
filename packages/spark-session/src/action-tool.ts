@@ -17,6 +17,7 @@ import {
   sparkTurnSubmitResultSchema,
   sparkTurnResultSchema,
   sparkTurnStatusResultSchema,
+  isSparkInvocationTerminalStatus,
   type SparkSessionProjection,
   type SparkTurnSubmitResult,
   type SparkTurnResult,
@@ -1057,7 +1058,7 @@ async function waitForRequestResult(input: {
         { signal: input.signal },
       ),
     );
-    if (isTerminalStatus(status.status)) {
+    if (isSparkInvocationTerminalStatus(status.status)) {
       const result = sparkTurnResultSchema.parse(
         await input.request(
           "turn.result",
@@ -1141,10 +1142,6 @@ function renderPeerProjection(projection: SparkSessionPeerProjection): string {
     );
   }
   return lines.join("\n");
-}
-
-function isTerminalStatus(status: SparkTurnStatusResult["status"]): boolean {
-  return status === "succeeded" || status === "failed" || status === "cancelled";
 }
 
 function previewMailBody(body: string): string {

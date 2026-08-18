@@ -11,11 +11,13 @@ import {
   isFileNotFoundError,
   nowIso,
   parseJsonFileText,
+  sparkWorkspaceStatePath,
   stableId,
   writeJsonFileAtomic,
   type Project,
   type ProjectRef,
   type ProjectRoadmap,
+  type SparkStateRootContext,
   type Task,
   type TaskDependency,
   type TaskRef,
@@ -241,8 +243,8 @@ export class TaskGraphStore {
   }
 }
 
-export function defaultTaskGraphStore(cwd: string): TaskGraphStore {
-  return new TaskGraphStore(join(cwd, ".spark", "projects"));
+export function defaultTaskGraphStore(cwd: string, ctx?: SparkStateRootContext): TaskGraphStore {
+  return new TaskGraphStore(sparkWorkspaceStatePath(cwd, ["projects"], ctx));
 }
 
 interface LoadedTaskGraphStoreSnapshot {

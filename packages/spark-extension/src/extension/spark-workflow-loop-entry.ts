@@ -124,7 +124,7 @@ async function resolveInteractiveWorkflowSelection(
 
   const stateCwd = sparkStateCwd(ctx.cwd, ctx);
   const listing = await listSparkWorkflowRegistry(stateCwd);
-  const dynamicStore = defaultSparkDynamicWorkflowEventStore(stateCwd);
+  const dynamicStore = defaultSparkDynamicWorkflowEventStore(stateCwd, ctx);
   await dynamicStore.reconcileStale();
   const dynamicRunViews = await dynamicStore.listRuns();
   if (dynamicRunViews.length > 0) {
@@ -285,7 +285,7 @@ export async function executeDynamicWorkflowNavigatorAction(
   selection: { dynamicAction: SparkWorkflowNavigatorAction; runRef: RunRef },
 ): Promise<void> {
   const stateCwd = sparkStateCwd(ctx.cwd, ctx);
-  const store = defaultSparkDynamicWorkflowEventStore(stateCwd);
+  const store = defaultSparkDynamicWorkflowEventStore(stateCwd, ctx);
   await store.reconcileStale();
   const existing = await store.get(selection.runRef);
   const manager = defaultSparkDynamicWorkflowManager();

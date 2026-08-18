@@ -32,7 +32,7 @@ export function registerSparkTaskDependencyReplacementTool(
         assertDependencyOnlyRequest(params);
         const taskSelector = exactlyOneTaskSelector(params);
         const dependencySelectors = dependencySelectorList(params.dependsOn);
-        const store = defaultTaskGraphStore(sparkStateCwd(ctx.cwd, ctx));
+        const store = defaultTaskGraphStore(ctx.cwd, ctx);
         const update = await store.update(
           (graph) => {
             const task = resolveUniqueTask(graph.tasks(), taskSelector, "task");

@@ -6,7 +6,7 @@ import {
   type ToolRenderComponent,
   type ToolRenderTheme,
 } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 import {
   defaultSparkWebContentStore,
   fetchSparkWebContent,
@@ -36,18 +36,6 @@ export interface SparkWebExtensionOptions {
 export const SPARK_WEB_TOOL_OUTPUT_MAX_CHARS = 32_000;
 const DEFAULT_WEB_TOOL_FETCH_MAX_BYTES = 1_000_000;
 const DEFAULT_WEB_TOOL_LEAF_MAX_TOKENS = Math.floor(SPARK_WEB_TOOL_OUTPUT_MAX_CHARS / 4);
-
-class ToolCallText implements ToolRenderComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
-}
 
 export default function sparkWebExtension(
   api: SparkWebExtensionApi,
@@ -108,7 +96,7 @@ function webSearchTool(options: SparkWebExtensionOptions): ToolConfig {
       return renderCall(theme, `web_search ${queryLabel(args)}`);
     },
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const store = defaultSparkWebContentStore(requiredCwd(ctx), options.contentStorePath);
+      const store = defaultSparkWebContentStore(requiredCwd(ctx), options.contentStorePath, ctx);
       const result = await searchSparkWeb(normalizeQueriesParam(params), store, {
         provider: options.searchProvider,
         providers: options.searchProviders,
@@ -184,7 +172,7 @@ function codeSearchTool(options: SparkWebExtensionOptions): ToolConfig {
         normalizePositiveInteger(params.maxTokens, 5000, "maxTokens"),
         Math.floor(SPARK_WEB_TOOL_OUTPUT_MAX_CHARS / 4),
       );
-      const store = defaultSparkWebContentStore(requiredCwd(ctx), options.contentStorePath);
+      const store = defaultSparkWebContentStore(requiredCwd(ctx), options.contentStorePath, ctx);
       const result = await searchSparkWeb(
         [`${query} code examples documentation API reference`],
         store,
@@ -287,7 +275,7 @@ function fetchContentTool(options: SparkWebExtensionOptions): ToolConfig {
       return renderCall(theme, `fetch_content ${urlLabel(args)}`);
     },
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const store = defaultSparkWebContentStore(requiredCwd(ctx), options.contentStorePath);
+      const store = defaultSparkWebContentStore(requiredCwd(ctx), options.contentStorePath, ctx);
       const urls = normalizeUrlsParam(params);
       const fetched = [];
       for (const url of urls) {
@@ -401,7 +389,7 @@ function getSearchContentTool(options: SparkWebExtensionOptions): ToolConfig {
       return renderCall(theme, `get_search_content ${id}`);
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const store = defaultSparkWebContentStore(requiredCwd(ctx), options.contentStorePath);
+      const store = defaultSparkWebContentStore(requiredCwd(ctx), options.contentStorePath, ctx);
       const responseId = requiredString(params.responseId, "responseId");
       const record = await store.get(responseId);
       if (!record) throw new Error(`Spark web content not found: ${responseId}`);

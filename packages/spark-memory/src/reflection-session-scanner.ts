@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+import { sparkWorkspaceStatePath, type SparkStateRootContext } from "@zendev-lab/spark-core";
+
 export const REFLECTION_SCAN_CURSOR_VERSION = 1;
 
 export interface ReflectionScanCursorFile {
@@ -106,8 +108,12 @@ export function emptyReflectionScanCursor(_since?: string): ReflectionScanCursor
   return { version: REFLECTION_SCAN_CURSOR_VERSION, files: {} };
 }
 
-export function reflectionScanCursorPath(cwd: string, name = "session-scan-cursor"): string {
-  return join(cwd, ".spark", "memory", "reflections", `${name}.json`);
+export function reflectionScanCursorPath(
+  cwd: string,
+  name = "session-scan-cursor",
+  ctx?: SparkStateRootContext,
+): string {
+  return sparkWorkspaceStatePath(cwd, ["memory", "reflections", `${name}.json`], ctx);
 }
 
 export async function loadReflectionScanCursor(path: string): Promise<ReflectionScanCursor> {

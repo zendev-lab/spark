@@ -1,7 +1,11 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
+import {
+  sparkWorkspaceStatePath,
+  writeJsonFileAtomic,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-core";
 
 import type { MemoryMutationAuthorization } from "./approval.ts";
 import { memoryContentDigest, type MemoryLifecycleScope, type MemoryRisk } from "./lifecycle.ts";
@@ -227,8 +231,13 @@ export class MemoryLineageProposalStore {
   }
 }
 
-export function defaultMemoryLineageProposalStore(cwd: string): MemoryLineageProposalStore {
-  return new MemoryLineageProposalStore(join(cwd, ".spark", "memory", "lineage-proposals.json"));
+export function defaultMemoryLineageProposalStore(
+  cwd: string,
+  ctx?: SparkStateRootContext,
+): MemoryLineageProposalStore {
+  return new MemoryLineageProposalStore(
+    sparkWorkspaceStatePath(cwd, ["memory", "lineage-proposals.json"], ctx),
+  );
 }
 
 export function createMemoryLineageProposal(

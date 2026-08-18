@@ -1,6 +1,6 @@
-import { join, relative } from "node:path";
+import { relative } from "node:path";
 
-import { nowIso } from "@zendev-lab/spark-core";
+import { nowIso, sparkStateRootPath, type SparkStateRootContext } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   collectSparkProtectedStoreSummaries,
@@ -60,8 +60,9 @@ export async function collectSparkStateHousekeeping(
   cwd: string,
   scopes: SparkStateSessionScopes,
   graph: TaskGraph,
+  ctx?: SparkStateRootContext,
 ): Promise<SparkStateHousekeepingSummary> {
-  const root = join(cwd, ".spark");
+  const root = sparkStateRootPath(cwd, ctx);
   const staleCutoffMs = Date.now() - 30 * 24 * 60 * 60 * 1_000;
   return {
     root: relative(cwd, root) || ".spark",
@@ -77,8 +78,9 @@ export async function collectSparkStateCleanupPlan(
   scopes: SparkStateSessionScopes,
   graph: TaskGraph,
   options: { dryRun: boolean; olderThanDays: number; includeBroken: boolean },
+  ctx?: SparkStateRootContext,
 ): Promise<SparkStateCleanupPlan> {
-  const root = join(cwd, ".spark");
+  const root = sparkStateRootPath(cwd, ctx);
   const staleCutoffMs = Date.now() - options.olderThanDays * 24 * 60 * 60 * 1_000;
   const [protectedStores, candidates, caches] = await Promise.all([
     collectSparkProtectedStoreSummaries(root),

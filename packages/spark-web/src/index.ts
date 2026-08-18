@@ -4,7 +4,11 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isIP } from "node:net";
 
-import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
+import {
+  sparkWorkspaceStatePath,
+  writeJsonFileAtomic,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-core";
 
 export type SparkWebContentExtractor = "direct" | "jina";
 
@@ -128,8 +132,14 @@ export class SparkWebContentStore {
   }
 }
 
-export function defaultSparkWebContentStore(cwd: string, filePath?: string): SparkWebContentStore {
-  return new SparkWebContentStore(filePath ?? join(cwd, ".spark", "web", "content.json"));
+export function defaultSparkWebContentStore(
+  cwd: string,
+  filePath?: string,
+  ctx?: SparkStateRootContext,
+): SparkWebContentStore {
+  return new SparkWebContentStore(
+    filePath ?? sparkWorkspaceStatePath(cwd, ["web", "content.json"], ctx),
+  );
 }
 
 export async function fetchSparkWebContent(

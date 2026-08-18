@@ -62,8 +62,8 @@ Do not write long markdown essays into evidence. Use `artifact` for anything the
 
 Import Artifact helpers from `@zendev-lab/spark-artifacts/artifact` or the package root.
 
-- `defaultArtifactStore(cwd)` → `.spark/artifacts/` (Artifact kinds only)
-- `defaultEvidenceStore(cwd)` → `.spark/evidence/` and `evidence:…` refs only
+- `defaultArtifactStore(cwd, ctx?)` → workspace Spark state `artifacts/` (Artifact kinds only)
+- `defaultEvidenceStore(cwd, ctx?)` → workspace Spark state `evidence/` and `evidence:…` refs only
 
 The two surfaces are not aliases. The `evidence` tool never scans
 `.spark/artifacts/`, never accepts an `artifact:…` ref, and never publishes

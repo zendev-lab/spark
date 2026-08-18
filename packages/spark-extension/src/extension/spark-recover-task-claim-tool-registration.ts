@@ -52,8 +52,8 @@ export function registerSparkRecoverTaskClaimTool(
       const cwd = ctx.cwd;
       const stateCwd = sparkStateCwd(cwd, ctx);
       const input = normalizeSparkRecoverTaskClaimInput(params);
-      const store = defaultTaskGraphStore(stateCwd);
-      const workflowRunStatus = await defaultSparkWorkflowRunStore(stateCwd).status();
+      const store = defaultTaskGraphStore(stateCwd, ctx);
+      const workflowRunStatus = await defaultSparkWorkflowRunStore(stateCwd, ctx).status();
       const activeRoleRunProcesses = activeSparkRoleRunProcessesForCwd(cwd);
       const sessionKey = sparkSessionKey(ctx);
       const graph = await store.load();

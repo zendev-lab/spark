@@ -35,9 +35,10 @@ import {
   sparkTurnStreamRequestSchema,
   sparkTurnSubmitRequestSchema,
   sparkTurnSubmitResultSchema,
+  isSparkInvocationTerminalStatus,
+  sparkSessionViewStatusAfterPendingTurns,
   type SparkAssignment,
   type SparkCommandKind,
-  type SparkInvocationStatus,
   type SparkInvocationListResult,
   type SparkProtocolJsonValue,
   type SparkSessionCreateRequest,
@@ -474,7 +475,7 @@ export async function executeSparkDaemonSessionControl(
           try {
             assertIdempotentCompactReplay(raced, parsed);
           } finally {
-            if (isTerminalInvocationStatus(raced.status)) {
+            if (isSparkInvocationTerminalStatus(raced.status)) {
               await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
             }
           }
@@ -487,7 +488,7 @@ export async function executeSparkDaemonSessionControl(
         throw error;
       }
       options.onInvocationQueued?.();
-      if (isTerminalInvocationStatus(store.require(submitted.invocationId).status)) {
+      if (isSparkInvocationTerminalStatus(store.require(submitted.invocationId).status)) {
         await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
       }
       return { result: publicObject(submitted), invocationId: submitted.invocationId };
@@ -620,7 +621,7 @@ export async function executeSparkDaemonSessionControl(
           try {
             assertIdempotentTurnReplay(raced, parsed);
           } finally {
-            if (isTerminalInvocationStatus(raced.status)) {
+            if (isSparkInvocationTerminalStatus(raced.status)) {
               await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
             }
           }
@@ -633,7 +634,7 @@ export async function executeSparkDaemonSessionControl(
         throw error;
       }
       options.onInvocationQueued?.();
-      if (isTerminalInvocationStatus(store.require(submitted.invocationId).status)) {
+      if (isSparkInvocationTerminalStatus(store.require(submitted.invocationId).status)) {
         await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
       }
       const data = publicObject(submitted);
@@ -1584,8 +1585,6 @@ function projectPendingSessionTurns(
   const pending = activitySessionIds.flatMap((sessionId) =>
     new SparkInvocationStore(db).listPendingForSession(sessionId),
   );
-  const hasRunningTurn = pending.some((invocation) => invocation.status === "running");
-  const hasQueuedTurn = pending.some((invocation) => invocation.status === "queued");
   const messages = pending
     .filter((invocation) => invocation.sessionId === snapshot.sessionId)
     .flatMap((invocation) => {
@@ -1618,15 +1617,7 @@ function projectPendingSessionTurns(
       createdAt: invocation.createdAt,
       ...(invocation.startedAt ? { startedAt: invocation.startedAt } : {}),
     })),
-    status: hasRunningTurn
-      ? "running"
-      : hasQueuedTurn
-        ? "queued"
-        : snapshot.status === "running" ||
-            snapshot.status === "streaming" ||
-            snapshot.status === "queued"
-          ? "idle"
-          : snapshot.status,
+    status: sparkSessionViewStatusAfterPendingTurns(pending, snapshot.status),
     messages: [...snapshot.messages, ...messages],
     ...(messages.at(-1)?.createdAt
       ? { updatedAt: messages.at(-1)?.createdAt }
@@ -1835,10 +1826,6 @@ function invocationSource(
       ? { parentInvocationId: parentInvocationId ?? mailParentInvocationId }
       : {}),
   };
-}
-
-function isTerminalInvocationStatus(status: SparkInvocationStatus): boolean {
-  return status === "succeeded" || status === "failed" || status === "cancelled";
 }
 
 function publicObject(value: Record<string, unknown>): Record<string, SparkProtocolJsonValue> {

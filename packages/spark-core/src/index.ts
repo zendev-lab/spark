@@ -14,8 +14,9 @@ import { isNativeError } from "node:util/types";
  *
  * Runtime impact: intentionally tiny. Besides type declarations, this package
  * exposes dependency-light generic helpers for refs, stable IDs, JSON file IO,
- * and copy-language detection. This is not a revival of the retired spark-core
- * capability bag — only the host contract and those small primitives live here.
+ * copy-language detection, and workspace Spark state path helpers. This is not
+ * a revival of the retired spark-core capability bag — only the host contract
+ * and those small primitives live here.
  *
  * Design rules:
  *   - Every method is `optional` so extensions must guard each call. This lets
@@ -981,6 +982,15 @@ export interface SparkStateRootContext {
 /** Resolve the durable workspace-owned Spark state directory for a host context. */
 export function sparkStateRootPath(cwd: string, ctx?: SparkStateRootContext): string {
   return ctx?.sparkStateRoot?.trim() || join(cwd, ".spark");
+}
+
+/** Resolve a path under the workspace Spark state root, honoring `sparkStateRoot`. */
+export function sparkWorkspaceStatePath(
+  cwd: string,
+  segments: readonly string[],
+  ctx?: SparkStateRootContext,
+): string {
+  return join(sparkStateRootPath(cwd, ctx), ...segments);
 }
 
 /** Convert the explicit `.spark` state root back to the owning workspace directory. */

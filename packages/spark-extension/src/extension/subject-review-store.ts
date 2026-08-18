@@ -3,10 +3,12 @@ import { dirname, join, relative, sep } from "node:path";
 
 import {
   nowIso,
+  sparkStateRootPath,
   type EvidenceRef,
   type JsonValue,
   type ProjectRef,
   type RoleRef,
+  type SparkStateRootContext,
   type Task,
 } from "@zendev-lab/spark-core";
 import type { EvidenceRecord } from "@zendev-lab/spark-artifacts";
@@ -259,8 +261,9 @@ export async function rebuildSubjectReviewIndex(
 export async function quarantineLegacyArtifactSubjectReviews(
   cwd: string,
   options: { apply: boolean },
+  ctx?: SparkStateRootContext,
 ): Promise<LegacyArtifactSubjectReviewQuarantineResult> {
-  const root = join(cwd, ".spark");
+  const root = sparkStateRootPath(cwd, ctx);
   const quarantineRoot = join(cwd, LEGACY_ARTIFACT_REVIEW_QUARANTINE);
   const manifestPath = join(quarantineRoot, "manifest.json");
   const existingValue = await readJsonFileOptional<Record<string, unknown>>(manifestPath);
@@ -358,8 +361,9 @@ function parseLegacyArtifactSubjectReviewQuarantineResult(
 
 export async function rebuildWorkspaceReviewIndex(
   cwd: string,
+  ctx?: SparkStateRootContext,
 ): Promise<WorkspaceSubjectReviewIndexSnapshot> {
-  const root = join(cwd, ".spark");
+  const root = sparkStateRootPath(cwd, ctx);
   const files = [
     ...(await findSubjectReviewRecordFiles(join(root, "projects"))),
     ...(await findSubjectReviewRecordFiles(join(root, "sessions"))),

@@ -1,7 +1,12 @@
 import { randomUUID, createHash } from "node:crypto";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import { writeJsonFileAtomic, writeTextFileAtomic } from "@zendev-lab/spark-core";
+import {
+  sparkWorkspaceStatePath,
+  writeJsonFileAtomic,
+  writeTextFileAtomic,
+  type SparkStateRootContext,
+} from "@zendev-lab/spark-core";
 import { isArtifactKind } from "./artifact/types.ts";
 
 export { writeJsonFileAtomic, writeTextFileAtomic };
@@ -558,8 +563,8 @@ function evidenceListDiagnostic(filePath: string, error: unknown): EvidenceListD
  * `.spark/evidence`. Artifact issue/git_change/document live under `.spark/artifacts`
  * and are never scanned by this store.
  */
-export function defaultEvidenceStore(cwd: string): EvidenceStore {
-  return new EvidenceStore({ rootDir: join(cwd, ".spark", "evidence") });
+export function defaultEvidenceStore(cwd: string, ctx?: SparkStateRootContext): EvidenceStore {
+  return new EvidenceStore({ rootDir: sparkWorkspaceStatePath(cwd, ["evidence"], ctx) });
 }
 
 export async function readEvidenceMetadataFile(filePath: string): Promise<EvidenceRecord> {

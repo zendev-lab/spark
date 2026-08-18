@@ -1,12 +1,11 @@
 import { Type } from "typebox";
 import {
-  sparkStateCwd,
   type SparkHostAPI,
   type SparkHostContext,
   type ToolConfig,
   type ToolRenderComponent,
 } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 import {
   defaultArtifactStore,
   type Artifact,
@@ -20,18 +19,6 @@ import { gitChangeReviewState } from "./review-state.ts";
 
 export interface GitLifecycleExtensionApi {
   registerTool(config: ToolConfig): void;
-}
-
-class ToolCallText implements ToolRenderComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
 }
 
 const GIT_ACTIONS = [
@@ -166,9 +153,8 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = requireCwd(ctx);
-      const workspaceRoot = sparkStateCwd(cwd, ctx);
-      const store = defaultArtifactStore(workspaceRoot);
-      const service = new GitLifecycleService({ cwd, workspaceRoot, store });
+      const store = defaultArtifactStore(cwd, ctx);
+      const service = new GitLifecycleService({ cwd, workspaceRoot: cwd, store });
       const action = normalizeGitAction(params.action);
       params = authorizeTaskGitAction(ctx, action, params);
 

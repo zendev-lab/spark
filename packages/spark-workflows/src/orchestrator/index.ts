@@ -2,7 +2,14 @@ import { mkdir, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { delay } from "es-toolkit";
 
-import { newRef, nowIso, type RunRef, writeJsonFileAtomic } from "@zendev-lab/spark-core";
+import {
+  newRef,
+  nowIso,
+  sparkWorkspaceStatePath,
+  type RunRef,
+  type SparkStateRootContext,
+  writeJsonFileAtomic,
+} from "@zendev-lab/spark-core";
 
 import type {
   WorkflowRunAcknowledgeInput,
@@ -484,12 +491,15 @@ async function removeStaleWorkflowRunStoreLock(lockPath: string, staleMs: number
   }
 }
 
-export function sparkWorkflowRunStorePath(cwd: string): string {
-  return join(cwd, ".spark", "workflow-runs.json");
+export function sparkWorkflowRunStorePath(cwd: string, ctx?: SparkStateRootContext): string {
+  return sparkWorkspaceStatePath(cwd, ["workflow-runs.json"], ctx);
 }
 
-export function defaultWorkflowRunStore(cwd: string): WorkflowRunStore {
-  return new WorkflowRunStore(sparkWorkflowRunStorePath(cwd));
+export function defaultWorkflowRunStore(
+  cwd: string,
+  ctx?: SparkStateRootContext,
+): WorkflowRunStore {
+  return new WorkflowRunStore(sparkWorkflowRunStorePath(cwd, ctx));
 }
 
 export function summarizeWorkflowRuns(

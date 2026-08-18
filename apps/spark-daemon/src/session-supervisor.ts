@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
+import { isSparkInvocationTerminalStatus } from "@zendev-lab/spark-protocol";
 import {
   sparkSessionCloseCandidateSchema,
   sparkSessionCloseReceiptSchema,
@@ -1024,7 +1025,7 @@ function isPresentString(value: string | undefined): value is string {
 }
 
 function isTerminalInvocation(invocation: SparkInvocationRecord): boolean {
-  return invocation.status !== "queued" && invocation.status !== "running";
+  return isSparkInvocationTerminalStatus(invocation.status);
 }
 
 function assistantText(result: unknown): string | undefined {

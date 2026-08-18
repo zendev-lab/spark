@@ -108,7 +108,7 @@ export function registerSparkProjectTools(
           isError: true,
         };
 
-      const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
+      const store = defaultTaskGraphStore(cwd, ctx);
       const updated = await store.update(
         async (graph) => {
           const project = projectSelector?.trim()
@@ -177,8 +177,8 @@ export function registerSparkProjectTools(
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = ctx.cwd;
-      await ensureLocalSparkDirectory(sparkStateCwd(cwd, ctx));
-      const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
+      await ensureLocalSparkDirectory(cwd, ctx);
+      const store = defaultTaskGraphStore(cwd, ctx);
       let graph = await loadSparkGraph(cwd, ctx);
       graph ??= new TaskGraph();
       const input = normalizeSparkNewProjectInput({

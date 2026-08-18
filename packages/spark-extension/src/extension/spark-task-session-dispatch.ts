@@ -95,7 +95,7 @@ export async function dispatchManagedTaskSessions(
 ): Promise<ManagedTaskSessionDispatchRecord[]> {
   const stateCwd = sparkStateCwd(input.cwd, input.ctx);
   const daemonRequest = input.daemonRequest ?? requestSparkDaemon;
-  const store = defaultTaskGraphStore(stateCwd);
+  const store = defaultTaskGraphStore(stateCwd, input.ctx);
   const uniqueTaskRefs = [...new Set(input.taskRefs)];
   await store.reconcileStaleTaskRuns({ projectRef: input.projectRef });
   if (uniqueTaskRefs.length === 0) return [];
@@ -207,7 +207,7 @@ export async function reconcileManagedTaskSessions(input: {
   daemonRequest?: typeof requestSparkDaemon;
 }): Promise<ManagedTaskSessionReconcileResult> {
   const stateCwd = sparkStateCwd(input.cwd, input.ctx);
-  const store = defaultTaskGraphStore(stateCwd);
+  const store = defaultTaskGraphStore(stateCwd, input.ctx);
   const snapshot = await store.load();
   const active =
     snapshot

@@ -257,7 +257,7 @@ export function registerSparkStateTool(
         };
       }
       if (action === "workflow_run_prune") {
-        const runStore = defaultSparkWorkflowRunStore(stateCwd);
+        const runStore = defaultSparkWorkflowRunStore(stateCwd, ctx);
         const prune = await runStore.pruneRuns({
           dryRun,
           olderThanDays,

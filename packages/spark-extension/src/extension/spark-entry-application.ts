@@ -7,7 +7,6 @@ import { initializeSparkIdea } from "./spark-initialization.ts";
 import {
   loadSparkGraph,
   saveCurrentProjectRef,
-  sparkStateCwd,
   type SparkPlanningModeSource,
 } from "./session-state.ts";
 import {
@@ -99,12 +98,17 @@ async function startSparkNewProject(
     nextAction: "analyze_then_targeted_ask",
   } satisfies SparkInitClarificationData;
 
-  const result = await initializeSparkIdea(sparkStateCwd(ctx.cwd, ctx), idea, {
-    projectTitle: clarification.workingTitle,
-    outputLanguage: clarification.outputLanguage,
-    clarification,
-    materializeSparkMd: options.materializeSparkMd,
-  });
+  const result = await initializeSparkIdea(
+    ctx.cwd,
+    idea,
+    {
+      projectTitle: clarification.workingTitle,
+      outputLanguage: clarification.outputLanguage,
+      clarification,
+      materializeSparkMd: options.materializeSparkMd,
+    },
+    ctx,
+  );
 
   await saveCurrentProjectRef(ctx.cwd, ctx, result.projectRef as ProjectRef);
   await deps.refreshSparkWidget(ctx.cwd, ctx);

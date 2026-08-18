@@ -1,12 +1,11 @@
 import { Type } from "typebox";
 import {
-  sparkStateCwd,
   type SparkHostAPI,
   type SparkHostContext,
   type ToolConfig,
   type ToolRenderComponent,
 } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-text";
+import { ToolCallText } from "@zendev-lab/spark-text";
 import {
   isSparkDocumentMediaType,
   type SparkDocumentMediaType,
@@ -34,18 +33,6 @@ export interface PiArtifactsExtensionApi {
 }
 
 type ArtifactAction = "create" | "update" | "list" | "read" | "sync" | "sync_file" | "open_preview";
-
-class ToolCallText implements ToolRenderComponent {
-  private readonly text: string;
-
-  constructor(text: string) {
-    this.text = text;
-  }
-
-  render(width: number): string[] {
-    return [truncateToWidth(this.text, Math.max(1, width), "…")];
-  }
-}
 
 const ARTIFACT_KIND_DESCRIPTION =
   "issue (forge issue), git_change (one worktree plus its native PR stack), or document (typed content).";
@@ -114,7 +101,7 @@ export function registerArtifactTool(pi: PiArtifactsExtensionApi): void {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = requireCwd(ctx, "artifact");
-      const store = defaultArtifactStore(sparkStateCwd(cwd, ctx));
+      const store = defaultArtifactStore(cwd, ctx);
       const action = normalizeAction(params.action);
 
       if (action === "list") {

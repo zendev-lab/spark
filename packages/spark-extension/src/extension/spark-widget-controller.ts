@@ -16,7 +16,6 @@ import {
   saveSparkGraphAndTodos,
   sparkSessionKey,
   sparkSessionOwnerKey,
-  sparkStateCwd,
 } from "./session-state.ts";
 import {
   assignTodoDisplayNumber,
@@ -38,8 +37,8 @@ import { deriveTaskRoleLabel, isClaimOwnedBySession, taskClaimedBy } from "./tas
 export type { SparkWidgetControllerContext };
 
 const piExtensionWidgetControllerDeps: SparkWidgetControllerDeps = {
-  ensureLocalSparkDirectory: (cwd, ctx) => ensureLocalSparkDirectory(sparkStateCwd(cwd, ctx)),
-  defaultTaskGraphStore: (cwd, ctx) => defaultTaskGraphStore(sparkStateCwd(cwd, ctx)),
+  ensureLocalSparkDirectory: (cwd, ctx) => ensureLocalSparkDirectory(cwd, ctx),
+  defaultTaskGraphStore: (cwd, ctx) => defaultTaskGraphStore(cwd, ctx),
   loadSparkGraph: (cwd, ctx) => loadSparkGraph(cwd, ctx),
   ensureSparkGraphInvariants,
   saveSparkGraphAndTodos: (cwd, graph, ctx, store) =>
@@ -47,10 +46,10 @@ const piExtensionWidgetControllerDeps: SparkWidgetControllerDeps = {
   sparkSessionKey: (ctx) => sparkSessionKey(ctx),
   sparkSessionOwnerKey: (ctx) => sparkSessionOwnerKey(ctx),
   activeSparkRoleRunProcessesForCwd,
-  defaultSparkWorkflowRunStore: (cwd, ctx) => defaultSparkWorkflowRunStore(sparkStateCwd(cwd, ctx)),
+  defaultSparkWorkflowRunStore: (cwd, ctx) => defaultSparkWorkflowRunStore(cwd, ctx),
   listDynamicWorkflowRuns: async (cwd, ctx) =>
     projectSparkDynamicWorkflowRuns({
-      runs: await defaultSparkDynamicWorkflowEventStore(sparkStateCwd(cwd, ctx)).listRuns(),
+      runs: await defaultSparkDynamicWorkflowEventStore(cwd, ctx).listRuns(),
       includeHistory: false,
     }),
   loadTodoDisplayNumberState: (cwd, ctx) => loadTodoDisplayNumberState(cwd, ctx),

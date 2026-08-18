@@ -136,7 +136,7 @@ test("finish honors taskRef and text instead of finishing the current claimed ta
     const ctx = testContext(cwd);
     const sessionKey = sparkSessionKey(ctx);
     const stateCwd = sparkStateCwd(cwd, ctx);
-    const store = defaultTaskGraphStore(stateCwd);
+    const store = defaultTaskGraphStore(stateCwd, ctx);
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Finish contract", description: "selector" });
     const target = graph.createTask({
@@ -363,7 +363,7 @@ test("finish never reports committed when daemon no-op leaves the task unfinishe
     const ctx = testContext(cwd);
     const sessionKey = sparkSessionKey(ctx);
     const stateCwd = sparkStateCwd(cwd, ctx);
-    const store = defaultTaskGraphStore(stateCwd);
+    const store = defaultTaskGraphStore(stateCwd, ctx);
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Finish projection", description: "authority" });
     const task = graph.createTask({

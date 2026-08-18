@@ -1356,4 +1356,14 @@ describe("loadSparkSessionSnapshot", () => {
       fullTranscriptRead: false,
     });
   });
+
+  it("projects queued session activity as view status queued", async () => {
+    const { root, session } = await createLinearTranscript(2, "sess_queued_view");
+    const snapshot = await loadSparkSessionSnapshot({
+      sessionsRoot: root,
+      session,
+      activity: "queued",
+    });
+    expect(snapshot.status).toBe("queued");
+  });
 });

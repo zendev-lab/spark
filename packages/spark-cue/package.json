@@ -24,7 +24,7 @@
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-retry": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
-    "@zendev-lab/spark-tui-adapter": "workspace:^",
+    "@zendev-lab/spark-text": "workspace:^",
     "typebox": "catalog:"
   },
   "devDependencies": {

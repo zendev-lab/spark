@@ -5,6 +5,8 @@ import {
   humanQuestionOptionSchema,
   humanRequestCreatedPayloadSchema,
   humanResponseRecordedEnvelopeSchema,
+  invocationStatusSchema,
+  isRuntimeInvocationTerminalStatus,
   maxRuntimeCommandPayloadBytes,
   runtimeCommandResultEnvelopeSchema,
   runtimeMessageEnvelopeSchema,
@@ -345,5 +347,21 @@ describe("human question option identity", () => {
         ],
       }).questions[0]?.options,
     ).toEqual([{ value: "mvp", label: "MVP" }]);
+  });
+
+  it.each(invocationStatusSchema.options)(
+    "classifies runtime invocation status %s as terminal or live",
+    (status) => {
+      expect(isRuntimeInvocationTerminalStatus(status)).toBe(
+        status !== "queued" && status !== "running",
+      );
+    },
+  );
+
+  it("rejects unproduced runtime invocation aliases as non-terminal", () => {
+    expect(isRuntimeInvocationTerminalStatus("completed")).toBe(false);
+    expect(isRuntimeInvocationTerminalStatus("done")).toBe(false);
+    expect(isRuntimeInvocationTerminalStatus("timeout")).toBe(false);
+    expect(isRuntimeInvocationTerminalStatus("canceled")).toBe(false);
   });
 });

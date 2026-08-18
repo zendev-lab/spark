@@ -164,7 +164,7 @@ export function registerSparkExtensionEvents(
     };
   });
   pi.on?.("turn_start", async (_event: unknown, ctx: SparkToolContext) => {
-    await ensureLocalSparkDirectory(sparkStateCwd(ctx.cwd, ctx));
+    await ensureLocalSparkDirectory(ctx.cwd, ctx);
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await syncGoalAskAutoAnswerPolicy(ctx);
     await syncGoalInteractiveToolAvailability(pi, ctx, goalToolBaselines);
@@ -187,7 +187,7 @@ export function registerSparkExtensionEvents(
   pi.on?.("session_start", async (_event: unknown, ctx: SparkToolContext) => {
     deps.turnContextController?.reset(ctx);
     await deps.sessionHeartbeatController?.start(ctx);
-    await ensureLocalSparkDirectory(sparkStateCwd(ctx.cwd, ctx));
+    await ensureLocalSparkDirectory(ctx.cwd, ctx);
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await resumeOwnedBackgroundSubroles(ctx.cwd, ctx);
     await deps.ensureActiveReproLoop?.(ctx);
@@ -219,10 +219,10 @@ export function registerSparkExtensionEvents(
     agentEndReconciliation.reset(ctx);
     deps.turnContextController?.reset(ctx);
     const stateCwd = sparkStateCwd(ctx.cwd, ctx);
-    await ensureLocalSparkDirectory(stateCwd);
+    await ensureLocalSparkDirectory(stateCwd, ctx);
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await resumeOwnedBackgroundSubroles(ctx.cwd, ctx);
-    const store = defaultTaskGraphStore(stateCwd);
+    const store = defaultTaskGraphStore(stateCwd, ctx);
     const graph = await loadSparkGraph(ctx.cwd, ctx);
     if (!graph) return;
     if (ensureSparkGraphInvariants(graph)) await saveSparkGraphAndTodos(ctx.cwd, graph, ctx, store);

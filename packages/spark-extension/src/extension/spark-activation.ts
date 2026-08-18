@@ -1,12 +1,20 @@
 import { access, mkdir, readFile, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-export async function ensureLocalSparkDirectory(cwd: string): Promise<void> {
-  await mkdir(join(cwd, ".spark"), { recursive: true });
+import { sparkStateRootPath, type SparkStateRootContext } from "@zendev-lab/spark-core";
+
+export async function ensureLocalSparkDirectory(
+  cwd: string,
+  ctx?: SparkStateRootContext,
+): Promise<void> {
+  await mkdir(sparkStateRootPath(cwd, ctx), { recursive: true });
 }
 
-export async function hasLocalSparkDirectory(cwd: string): Promise<boolean> {
-  return pathExists(join(cwd, ".spark"));
+export async function hasLocalSparkDirectory(
+  cwd: string,
+  ctx?: SparkStateRootContext,
+): Promise<boolean> {
+  return pathExists(sparkStateRootPath(cwd, ctx));
 }
 
 export async function hasNonSparkProjectFiles(cwd: string): Promise<boolean> {

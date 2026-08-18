@@ -5,8 +5,10 @@ import { DatabaseSync } from "node:sqlite";
 import {
   nowIso,
   readJsonFileOptional,
+  sparkWorkspaceStatePath,
   stableId,
   type ProjectRef,
+  type SparkStateRootContext,
   type TaskRef,
   type TaskTodo,
   type TaskTodoStatus,
@@ -235,8 +237,12 @@ export class TaskTodoStore {
   }
 }
 
-export function defaultTaskTodoStore(cwd: string, _scope?: string): TaskTodoStore {
-  return new TaskTodoStore(join(cwd, ".spark", "todos", "todos.sqlite"));
+export function defaultTaskTodoStore(
+  cwd: string,
+  _scope?: string,
+  ctx?: SparkStateRootContext,
+): TaskTodoStore {
+  return new TaskTodoStore(sparkWorkspaceStatePath(cwd, ["todos", "todos.sqlite"], ctx));
 }
 
 function taskTodoRowInput(

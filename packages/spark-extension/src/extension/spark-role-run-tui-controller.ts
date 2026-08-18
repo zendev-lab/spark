@@ -58,7 +58,7 @@ export class SparkRoleRunTuiController {
 
   async refresh(cwd: string, ctx?: SparkToolContext): Promise<void> {
     const stateCwd = sparkStateCwd(cwd, ctx);
-    await ensureLocalSparkDirectory(stateCwd);
+    await ensureLocalSparkDirectory(stateCwd, ctx);
     const graph = await loadSparkGraph(cwd, ctx);
     const project = graph ? await currentSparkProject(cwd, ctx, graph) : undefined;
     if (!graph || !project) {

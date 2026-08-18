@@ -56,7 +56,9 @@ override workspace binding or permission checks.
 
 Every workspace has one protected Administrator root Session. Role, Skill,
 Task, and Workflow work runs in owner-bound child Sessions. Their active state
-comes from queued/running Invocations, not UI timers. Owned temporary children
+comes from queued/running Invocations, not UI timers. Native session view
+`status` uses the same three values (`idle`, `queued`, `running`); a queued
+Invocation is not collapsed to `running`. Owned temporary children
 close with their owner and normally discard full transcripts; retained public
 Sessions alone can be restored with the same stable ID, incarnation, and transcript.
 New TUI, Hub, and ACP conversations are retained scoped children of that root.

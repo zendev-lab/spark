@@ -57,7 +57,7 @@ export class SparkWorkflowRunManagerController {
   async ensure(cwd: string, ctx: SparkWorkflowRunManagerContext): Promise<void> {
     const stateCwd = sparkStateCwd(cwd, ctx);
     if (!(await hasLocalSparkDirectory(stateCwd))) return;
-    const control = await defaultSparkWorkflowRunStore(stateCwd).loadControl();
+    const control = await defaultSparkWorkflowRunStore(stateCwd, ctx).loadControl();
     if (!control || control.status !== "running") return;
     const ownerSessionId = ctx.sessionId?.trim();
     if (!ownerSessionId) throw new Error("Spark Workflow requires a daemon-owned session");
@@ -84,13 +84,13 @@ export class SparkWorkflowRunManagerController {
     ctx: SparkWorkflowRunManagerContext,
   ): Promise<SparkWorkflowRunManagerTickResult> {
     const stateCwd = sparkStateCwd(cwd, ctx);
-    const store = defaultTaskGraphStore(stateCwd);
+    const store = defaultTaskGraphStore(stateCwd, ctx);
     const graph = await loadSparkGraph(cwd, ctx);
     if (!graph) return { continuePolling: false };
     const registry = await createSparkRoleRegistry(stateCwd);
-    const evidenceStore = defaultEvidenceStore(stateCwd);
+    const evidenceStore = defaultEvidenceStore(stateCwd, ctx);
     const touched = new Set<TaskRef>();
-    const runStore = defaultSparkWorkflowRunStore(stateCwd);
+    const runStore = defaultSparkWorkflowRunStore(stateCwd, ctx);
     const currentProject = await currentSparkProject(cwd, ctx, graph);
     const control = await runStore.loadControl();
     if (control && control.status !== "running") return { continuePolling: false };

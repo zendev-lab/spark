@@ -763,9 +763,9 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
-      '@zendev-lab/spark-tui-adapter':
+      '@zendev-lab/spark-text':
         specifier: workspace:^
-        version: link:../spark-tui-adapter
+        version: link:../spark-text
       typebox:
         specifier: 'catalog:'
         version: 1.3.14

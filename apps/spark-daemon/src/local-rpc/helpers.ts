@@ -1,10 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
 import { ChannelDeliveryError, channelDeliveryFailureCertainty } from "@zendev-lab/spark-channels";
 import {
+  isSparkInvocationTerminalStatus,
   parseSparkSessionView,
   sparkInvocationListRequestSchema,
   sparkTurnResultSchema,
-  type SparkInvocationStatus,
   type SparkSessionMailChannelDeliveryView,
   type SparkSessionView,
 } from "@zendev-lab/spark-protocol";
@@ -220,7 +220,7 @@ export function invocationResult(
   invocationId: string,
 ): LocalTurnResult {
   const invocation = store.require(invocationId);
-  if (!isTerminalInvocationStatus(invocation.status)) {
+  if (!isSparkInvocationTerminalStatus(invocation.status)) {
     throw new SparkDaemonControlError(
       "invocation_not_terminal",
       `Invocation ${invocationId} is ${invocation.status}, not terminal.`,
@@ -255,10 +255,6 @@ export function invocationListResult(
   params: ReturnType<typeof sparkInvocationListRequestSchema.parse>,
 ): LocalInvocationListResult {
   return invocationListControlResult(store, params);
-}
-
-export function isTerminalInvocationStatus(status: SparkInvocationStatus): boolean {
-  return status === "succeeded" || status === "failed" || status === "cancelled";
 }
 
 export async function settleManagedSessionTurn(
