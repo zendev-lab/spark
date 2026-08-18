@@ -3,6 +3,7 @@ import type { ReviewerRunner } from "./reviewer-runner.ts";
 import type { SparkEntryApplicationDeps } from "./spark-entry-application.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 import type { SparkDaemonLoopControl } from "./spark-daemon-loop-client.ts";
+import type { launchSparkReproThreeLaneRuntime } from "./spark-repro-lane-runtime.ts";
 
 export type SparkGoalLoopContext = SparkToolContext & {
   waitForIdle?: () => Promise<void>;
@@ -50,6 +51,8 @@ export interface SparkCommandApi {
 
 export interface SparkCommandRegistrationDeps extends SparkEntryApplicationDeps {
   loopControl: SparkDaemonLoopControl;
+  /** Test/host seam; production uses the durable three-lane runtime owner. */
+  launchReproThreeLaneRuntime?: typeof launchSparkReproThreeLaneRuntime;
   createReviewerRunner?: (
     cwd: string,
     ctx: SparkToolContext,

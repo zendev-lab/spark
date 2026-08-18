@@ -16,6 +16,7 @@ import { startOrInferSessionGoal } from "./spark-goal-tool-registration.ts";
 import {
   clearSessionGoal,
   loadSessionGoal,
+  setSessionGoal,
   updateSessionGoalStatus,
   type SparkSessionGoal,
 } from "./spark-session-goals.ts";
@@ -34,7 +35,7 @@ import {
   writeSessionRepro,
 } from "./spark-session-repro.ts";
 import { createProjectBackedSessionRepro } from "./spark-repro-project.ts";
-import { renderReproTickInstruction } from "./spark-repro-tool-registration.ts";
+import { launchSparkReproThreeLaneRuntime } from "./spark-repro-lane-runtime.ts";
 import { goalNotifications, sparkLanguageForProject, type SparkLanguage } from "./spark-i18n.ts";
 import { goalContextStrings, goalInstructions } from "./spark-model-prompts.ts";
 import { renderSparkGoalLoopPrompt } from "./spark-phase-prompts.ts";
@@ -413,7 +414,6 @@ export function registerSparkCommands(
     }
 
     const ownerSessionId = await prepareSparkDaemonLoopOwner(ctx, deps.loopControl);
-    const previousRepro = await readSessionRepro(ctx.cwd, ctx);
     await stopLoopForDomain(ctx, "goal", "replaced by repro");
     await stopLoopForDomain(ctx, "loop", "replaced by repro");
     await clearSessionGoal(ctx.cwd, ctx);
@@ -428,8 +428,18 @@ export function registerSparkCommands(
       existing?.status === "active"
         ? existing.projectRef
           ? existing
-          : (await createProjectBackedSessionRepro(ctx.cwd, ctx, { existing })).repro
-        : (await createProjectBackedSessionRepro(ctx.cwd, ctx, { objective })).repro;
+          : (
+              await createProjectBackedSessionRepro(ctx.cwd, ctx, {
+                existing,
+                mode: "three_lane",
+              })
+            ).repro
+        : (
+            await createProjectBackedSessionRepro(ctx.cwd, ctx, {
+              objective,
+              mode: "three_lane",
+            })
+          ).repro;
     const repro =
       objective && active.objective !== objective
         ? reviseReproPlan(active, {
@@ -445,32 +455,28 @@ export function registerSparkCommands(
         : active;
     if (repro !== active) await writeSessionRepro(ctx.cwd, repro, ctx);
 
-    const stage = currentReproStage(repro);
-    const objectivePrefix = repro.objective ? `${compactInline(repro.objective)} · ` : "";
-    const visible = `Spark repro active: ${objectivePrefix}${stage.title} (${repro.currentStageIndex + 1}/${repro.stages.length}), phase=${repro.currentPhase}`;
-    try {
-      await startLoop(
-        ctx,
-        {
-          loopId: repro.reproId,
-          domain: "repro",
-          prompt: renderReproTickInstruction(repro),
-          reason: "repro started",
-        },
-        ownerSessionId,
-      );
-    } catch (error) {
-      if (action === "restart" || previousRepro?.status !== "active") {
-        await clearSessionRepro(ctx.cwd, ctx);
-        ctx.sparkActiveMode = sparkActiveMode(ctx.sparkActiveMode?.mode ?? "plan");
-      } else {
-        await writeSessionRepro(ctx.cwd, previousRepro, ctx);
-        ctx.sparkActiveMode = sparkActiveMode(reproPhaseToSessionMode(previousRepro.currentPhase));
-      }
-      await deps.refreshSparkWidget(ctx.cwd, ctx);
-      throw error;
-    }
-    ctx.sparkActiveMode = sparkActiveMode(reproPhaseToSessionMode(repro.currentPhase));
+    const topology = await (deps.launchReproThreeLaneRuntime ?? launchSparkReproThreeLaneRuntime)({
+      cwd: ctx.cwd,
+      ctx,
+      ownerSessionId,
+      repro,
+    });
+    const launchedRepro = topology.repro;
+    await writeSessionRepro(ctx.cwd, launchedRepro, ctx);
+    await setSessionGoal(ctx.cwd, ctx, {
+      objective: launchedRepro.goalContract.objective,
+      source: "explicit",
+      status: launchedRepro.status === "complete" ? "complete" : "active",
+      contract: launchedRepro.goalContract,
+      workflowSelector: "builtin:repro",
+    });
+
+    const stage = currentReproStage(launchedRepro);
+    const objectivePrefix = launchedRepro.objective
+      ? `${compactInline(launchedRepro.objective)} · `
+      : "";
+    const visible = `Spark repro active: ${objectivePrefix}${stage.title} (${launchedRepro.currentStageIndex + 1}/${launchedRepro.stages.length}), phase=${launchedRepro.currentPhase} · lanes=3`;
+    ctx.sparkActiveMode = sparkActiveMode(reproPhaseToSessionMode(launchedRepro.currentPhase));
     await deps.refreshSparkWidget(ctx.cwd, ctx);
     ctx.ui?.notify?.(visible, "info");
   }

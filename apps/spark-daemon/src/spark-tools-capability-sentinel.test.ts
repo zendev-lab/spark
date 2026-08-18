@@ -4,7 +4,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { stableId, type SparkHostLoopContext } from "@zendev-lab/spark-core";
+import {
+  stableId,
+  type ArtifactRef,
+  type RunRef,
+  type SparkHostLoopContext,
+  type TaskRef,
+} from "@zendev-lab/spark-core";
 import {
   clearSessionGoal,
   loadSessionGoal,
@@ -15,6 +21,7 @@ import {
   sparkLoopConditionReceiptSchema,
   type SparkLoopConditionReceipt,
 } from "@zendev-lab/spark-protocol";
+import { enqueueSparkReproWork } from "@zendev-lab/spark-repro";
 import sparkExtension from "@zendev-lab/spark-extension/extension";
 import { describe, expect, it, vi } from "vitest";
 
@@ -227,11 +234,11 @@ describe("zero-token capability sentinels", () => {
       expect(started.details).toMatchObject({
         status: "active",
         reproId: "capability-sentinel-repro",
+        lanes: 3,
       });
-      expect(harness.loops.require("capability-sentinel-repro")).toMatchObject({
-        binding: { reproId: "capability-sentinel-repro" },
-        status: "scheduled",
-      });
+      expect(
+        harness.loops.list({ loopId: "capability-sentinel-repro", includeTerminal: true }),
+      ).toEqual([]);
 
       const status = await harness.execute("repro", { action: "status" });
       expect(status.isError).toBeUndefined();
@@ -244,7 +251,9 @@ describe("zero-token capability sentinels", () => {
       const stopped = await harness.execute("repro", { action: "stop" });
       expect(stopped.isError).toBeUndefined();
       expect(stopped.details).toMatchObject({ stopped: true });
-      expect(harness.loops.require("capability-sentinel-repro").status).toBe("stopped");
+      expect(
+        harness.loops.list({ loopId: "capability-sentinel-repro", includeTerminal: true }),
+      ).toEqual([]);
 
       const inactive = await harness.execute("repro", { action: "status" });
       expect(inactive.details).toMatchObject({ active: false });
@@ -338,6 +347,7 @@ async function createHarness(): Promise<SentinelHarness> {
         throw new Error("capability sentinels use deterministic daemon receipts, not reviewers");
       },
     }),
+    launchReproThreeLaneRuntime: sentinelReproLaunch,
   };
   sparkExtension(host);
 
@@ -405,6 +415,36 @@ async function createHarness(): Promise<SentinelHarness> {
   };
   return harness;
 }
+
+const sentinelReproLaunch: NonNullable<HostApi["launchReproThreeLaneRuntime"]> = async (input) => {
+  const workItemId = `work:sentinel:${input.repro.reproId}`;
+  const sourceRevision = "1111111111111111111111111111111111111111";
+  const enqueued = enqueueSparkReproWork(input.repro.threeLane, {
+    enqueue: {
+      schema: "spark.repro.work-enqueue/v1",
+      workItemId,
+      title: input.repro.goalContract.objective,
+      scope: input.repro.goalContract.objective,
+    },
+    sourceRevision,
+  });
+  const lane = (name: "implementation" | "exactness" | "formalize") => ({
+    artifactRef: `artifact:sentinel-${name}` as ArtifactRef,
+    taskRef: `task:sentinel-${name}` as TaskRef,
+    runRef: `run:sentinel-${name}` as RunRef,
+    sessionId: `sess_sentinel_${name}`,
+  });
+  return {
+    repro: { ...input.repro, threeLane: enqueued.state },
+    workItemId,
+    sourceRevision,
+    lanes: {
+      implementation: lane("implementation"),
+      exactness: lane("exactness"),
+      formalize: lane("formalize"),
+    },
+  };
+};
 
 async function completeGoalLoopToPendingSettlement(
   harness: SentinelHarness,
