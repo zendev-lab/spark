@@ -1,5 +1,6 @@
 import {
   requestSparkDaemon,
+  SparkDaemonConnectedTransportError,
   SparkDaemonRemoteError,
   SparkDaemonRpcError,
   SparkDaemonUnavailableError,
@@ -26,6 +27,9 @@ export async function localRpcRequest<M extends SparkLocalRpcMethod>(
     }
     if (error instanceof SparkDaemonRemoteError) {
       throw localRpcResponseError(error.payload);
+    }
+    if (error instanceof SparkDaemonConnectedTransportError) {
+      throw new LocalRpcUnavailableError(error.message);
     }
     if (error instanceof SparkDaemonRpcError) {
       throw new Error(error.message);
