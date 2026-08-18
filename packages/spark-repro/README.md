@@ -12,7 +12,7 @@ Spark supplies the generic state, scheduling, and evidence boundaries.
 The normative three-lane, asynchronous-evidence, Profile/progress, numerical
 frontier, ReportModel, and completion semantics are defined in
 [`../../.agents/notes/contracts/autonomous-three-lane.md`](../../.agents/notes/contracts/autonomous-three-lane.md).
-`SparkSessionRepro` v8 implements that contract as structured state, while the
+`SparkSessionRepro` v9 implements that contract as structured state, while the
 `./three-lane-work-summary` entrypoint defines the pure
 `spark.repro.work-summary/v2 -> v3` migration used by projection adopters.
 Legacy work-summary/v1-v2 and session v1-v7 records migrate only through
@@ -71,10 +71,31 @@ Markdown Document. A standard-Markdown workspace export may be produced for
 offline handoff, but it is not a state source or a required live-Artifact
 intermediate.
 
+## Command launch and checkpoints
+
+`/repro <objective>` is the product entrypoint. The command owner derives and
+persists one strict `spark.repro.work-enqueue/v1` intent and its deterministic
+Implementation start route before it creates a GitChange, Task, lane Session,
+or TaskRun. Replaying the command or recovering after a process crash therefore
+resumes the same WorkItem and route instead of duplicating execution resources.
+
+The three lane Sessions have stable runtime identities. Implementation starts
+from the frozen trunk or current Formalize revision; Exactness and Formalize may
+be reserved immediately but become runnable only after their typed upstream
+route is materialized. Each binding revision records the exact `originRouteId`
+that created it. Terminal results, direct-user answers, forward handoffs, and
+backward refreshes form durable checkpoints; transcript text and model context
+are never recovery authority.
+
+`spark.repro.three-lane-session/v2` rejects stale or foreign results with a
+stable receipt without consuming a later valid result. Only a Formalize
+resolution advances `formalizedTip`, and an Exactness-to-Implementation refresh
+must name its parent Formalize resolution.
+
 ## Versioned session protocol
 
 The package root remains the compatibility execution and persistence model for
-session snapshots. SparkSessionRepro v8 adds a versioned three-lane binding over
+session snapshots. SparkSessionRepro v9 adds a versioned three-lane binding over
 the existing five-stage plan/subgoal protocol. Migrating v7 maps Explore
 observations into Implementation, creates empty Exactness state, and does not
 promote legacy proof into Formalize retirement. A later plan revision preserves observation and
@@ -120,10 +141,13 @@ the next tick; three unchanged settlements stop automatic continuation and
 require one concrete canonical Ask. Safe transient execution retry/backoff
 remains daemon-owned and is deliberately separate from semantic stagnation.
 
-Stored v1-v7 snapshots migrate to v8. Invalid legacy proof is removed,
+Stored v1-v8 snapshots migrate to v9. Invalid legacy proof is removed,
 affected contracts/steps/gates reopen, and no legacy boolean or proof is promoted
 into a user decision, passing validation, Implementation observation, Exactness
-finding, candidate, unresolved discharge, or Formalize retirement.
+finding, candidate, unresolved discharge, or Formalize retirement. V8 lane
+bindings remain read-only compatibility facts because their originating route
+cannot be proven; an explicit command-derived enqueue may safely rematerialize
+the same WorkItem.
 
 The setup stage first verifies whether the reference implementation named in
 the contract is runnable. An unavailable reference is a blocking user decision:

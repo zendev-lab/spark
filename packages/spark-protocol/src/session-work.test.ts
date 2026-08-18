@@ -83,6 +83,12 @@ describe("SparkSessionView work projection", () => {
                   taskRef: "task:implementation",
                   runRef: "run:probe",
                   gitChangeRef: "artifact:candidate",
+                  bindingRevision: 2,
+                  bindingStatus: "active",
+                  sourceRevision: "1111111111111111111111111111111111111111",
+                  routeId: "route:rmsnorm-exactness",
+                  routeAction: "materialize_binding",
+                  routeStatus: "pending",
                   evidenceRefs: ["evidence:probe"],
                   handoffCount: 1,
                   resolutionCount: 0,
@@ -112,6 +118,9 @@ describe("SparkSessionView work projection", () => {
     expect(parsed.work?.repro?.lanes?.implementation.items[0]).toMatchObject({
       workItemId: "work:rmsnorm",
       taskRef: "task:implementation",
+      bindingRevision: 2,
+      routeAction: "materialize_binding",
+      routeStatus: "pending",
     });
     expect(parsed.work?.repro?.lanes?.formalizedTip).toBe("commit:canonical");
   });

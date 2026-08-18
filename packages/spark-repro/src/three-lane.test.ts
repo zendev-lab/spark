@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ArtifactRef, EvidenceRef } from "@zendev-lab/spark-core";
+import type { ArtifactRef, EvidenceRef, RunRef, TaskRef } from "@zendev-lab/spark-core";
 
 import {
   createSparkSessionRepro,
@@ -8,20 +8,259 @@ import {
   type SparkSessionReproV7,
 } from "./index.ts";
 import {
+  acknowledgeSparkReproRoute,
   bindSparkReproFormalizeOwnership,
+  enqueueSparkReproWork,
+  materializeSparkReproRouteBinding,
+  recordSparkReproRoute,
   recordSparkReproResolution,
   recordSparkReproWorkHandoff,
   rematerializeSparkReproWorkItem,
   registerSparkReproUnresolvedMismatch,
   registerSparkReproWorkItem,
+  resumeSparkReproRouteFromAnswer,
+  resumeSparkReproRouteFromRecovery,
+  resumeSparkReproRouteFromRepair,
+  validateSparkReproThreeLaneSessionState,
   type SparkReproResolution,
   type SparkReproUnresolvedMismatch,
   type SparkReproWorkItem,
 } from "./three-lane.ts";
 
 const evidence = (id: string) => `evidence:${id}` as EvidenceRef;
+const BASE_REVISION = "1111111111111111111111111111111111111111";
 
 describe("Spark Repro three-lane domain", () => {
+  it("persists a deterministic launch checkpoint before owner side effects", () => {
+    const repro = createSparkSessionRepro("session:enqueue-checkpoint");
+    const input = {
+      enqueue: {
+        schema: "spark.repro.work-enqueue/v1" as const,
+        workItemId: "work:glm52",
+        title: "Reproduce GLM-5.2",
+        scope: "glm52",
+      },
+      sourceRevision: BASE_REVISION,
+    };
+
+    const first = enqueueSparkReproWork(repro.threeLane, input);
+    expect(first.changed).toBe(true);
+    expect(first.route).toMatchObject({
+      action: "start_binding",
+      fromLane: "implementation",
+      toLane: "implementation",
+      sourceBindingRevision: 0,
+      status: "pending",
+      cause: { kind: "enqueue", id: "work:glm52" },
+    });
+
+    const replay = enqueueSparkReproWork(first.state, input);
+    expect(replay.changed).toBe(false);
+    expect(replay.state).toBe(first.state);
+    expect(replay.route.routeId).toBe(first.route.routeId);
+    expect(() =>
+      enqueueSparkReproWork(first.state, {
+        ...input,
+        enqueue: { ...input.enqueue, title: "Different intent" },
+      }),
+    ).toThrow("different identity");
+
+    const materialized = materializeSparkReproRouteBinding(first.state, {
+      routeId: first.route.routeId,
+      taskRef: "task:glm52-implementation" as TaskRef,
+      gitChangeRef: "artifact:glm52-implementation" as ArtifactRef,
+    });
+    expect(materialized.bindings[0]).toMatchObject({
+      lane: "implementation",
+      bindingRevision: 1,
+      originRouteId: first.route.routeId,
+    });
+    expect(
+      materializeSparkReproRouteBinding(materialized, {
+        routeId: first.route.routeId,
+        taskRef: "task:glm52-implementation" as TaskRef,
+        gitChangeRef: "artifact:glm52-implementation" as ArtifactRef,
+      }),
+    ).toBe(materialized);
+  });
+
+  it("turns one answered attention checkpoint into a same-lane resume route", () => {
+    const repro = createSparkSessionRepro("session:attention-resume");
+    const enqueued = enqueueSparkReproWork(repro.threeLane, {
+      enqueue: {
+        schema: "spark.repro.work-enqueue/v1",
+        workItemId: "work:glm52",
+        title: "Reproduce GLM-5.2",
+        scope: "glm52",
+      },
+      sourceRevision: BASE_REVISION,
+    });
+    let state = materializeSparkReproRouteBinding(enqueued.state, {
+      routeId: enqueued.route.routeId,
+      taskRef: "task:glm52-implementation" as TaskRef,
+      gitChangeRef: "artifact:glm52-implementation" as ArtifactRef,
+    });
+    state = recordSparkReproRoute(state, {
+      routeId: "route:glm52-attention",
+      action: "root_attention",
+      workItemId: "work:glm52",
+      fromLane: "implementation",
+      planRevision: state.planRevision,
+      sourceBindingRevision: 1,
+      sourceRevision: BASE_REVISION,
+      cause: {
+        kind: "lane_result",
+        id: "result:glm52-attention",
+        digest: "attention-digest",
+        evidenceRef: evidence("attention"),
+      },
+      decisionKey: "decision:glm52-config",
+      attention: {
+        question: "Which GLM-5.2 checkpoint?",
+        reason: "The model source must be frozen",
+        expectedAnswerKind: "single",
+      },
+      status: "pending",
+    });
+
+    const resumed = resumeSparkReproRouteFromAnswer(state, {
+      attentionRouteId: "route:glm52-attention",
+      answerId: "answer:glm52-config",
+      answerDigest: "answer-digest",
+      evidenceRef: evidence("answer"),
+    });
+    expect(resumed.routes).toMatchObject([
+      { action: "start_binding", status: "pending" },
+      { action: "root_attention", status: "acknowledged" },
+      {
+        action: "resume_binding",
+        fromLane: "implementation",
+        toLane: "implementation",
+        sourceBindingRevision: 1,
+        status: "pending",
+        cause: { kind: "answer", id: "answer:glm52-config" },
+      },
+    ]);
+  });
+
+  it("routes a rolled-back Git conflict to the lane that produced the revision", () => {
+    const repro = createSparkSessionRepro("session:repair-resume");
+    const enqueued = enqueueSparkReproWork(repro.threeLane, {
+      enqueue: {
+        schema: "spark.repro.work-enqueue/v1",
+        workItemId: "work:glm52",
+        title: "Reproduce GLM-5.2",
+        scope: "glm52",
+      },
+      sourceRevision: BASE_REVISION,
+    });
+    let state = materializeSparkReproRouteBinding(enqueued.state, {
+      routeId: enqueued.route.routeId,
+      taskRef: "task:glm52-implementation" as TaskRef,
+      gitChangeRef: "artifact:glm52-implementation" as ArtifactRef,
+    });
+    state = recordSparkReproRoute(state, {
+      routeId: "route:glm52-to-exactness",
+      action: "materialize_binding",
+      workItemId: "work:glm52",
+      fromLane: "implementation",
+      toLane: "exactness",
+      planRevision: state.planRevision,
+      sourceBindingRevision: 1,
+      sourceRevision: "2222222222222222222222222222222222222222",
+      cause: {
+        kind: "lane_result",
+        id: "result:glm52-implementation",
+        digest: "result-digest",
+        evidenceRef: evidence("implementation-result"),
+      },
+      status: "pending",
+    });
+
+    const repaired = resumeSparkReproRouteFromRepair(state, {
+      failedRouteId: "route:glm52-to-exactness",
+      repairDigest: "conflict-digest",
+      evidenceRef: evidence("git-conflict"),
+    });
+    expect(repaired.routes.at(-2)).toMatchObject({
+      routeId: "route:glm52-to-exactness",
+      status: "acknowledged",
+    });
+    expect(repaired.routes.at(-1)).toMatchObject({
+      action: "resume_binding",
+      fromLane: "implementation",
+      toLane: "implementation",
+      sourceBindingRevision: 1,
+      sourceRevision: BASE_REVISION,
+      status: "pending",
+      cause: {
+        kind: "repair",
+        id: "route:glm52-to-exactness",
+        digest: "conflict-digest",
+        evidenceRef: evidence("git-conflict"),
+      },
+    });
+    expect(
+      resumeSparkReproRouteFromRepair(repaired, {
+        failedRouteId: "route:glm52-to-exactness",
+        repairDigest: "conflict-digest",
+        evidenceRef: evidence("git-conflict"),
+      }),
+    ).toBe(repaired);
+    expect(() =>
+      resumeSparkReproRouteFromRepair(repaired, {
+        failedRouteId: "route:glm52-to-exactness",
+        repairDigest: "different-conflict",
+        evidenceRef: evidence("git-conflict"),
+      }),
+    ).toThrow("different repair checkpoint");
+  });
+
+  it("turns an interrupted TaskRun into one deterministic same-lane recovery route", () => {
+    const repro = createSparkSessionRepro("session:task-run-recovery");
+    const enqueued = enqueueSparkReproWork(repro.threeLane, {
+      enqueue: {
+        schema: "spark.repro.work-enqueue/v1",
+        workItemId: "work:glm52",
+        title: "Reproduce GLM-5.2",
+        scope: "glm52",
+      },
+      sourceRevision: BASE_REVISION,
+    });
+    const bound = materializeSparkReproRouteBinding(enqueued.state, {
+      routeId: enqueued.route.routeId,
+      taskRef: "task:glm52-implementation" as TaskRef,
+      gitChangeRef: "artifact:glm52-implementation" as ArtifactRef,
+    });
+    const input = {
+      workItemId: "work:glm52",
+      lane: "implementation" as const,
+      runRef: "run:interrupted-implementation" as RunRef,
+      recoveryDigest: "cancelled-task-run-digest",
+    };
+    const recovered = resumeSparkReproRouteFromRecovery(bound, input);
+    expect(recovered.routes.at(-1)).toMatchObject({
+      action: "resume_binding",
+      fromLane: "implementation",
+      toLane: "implementation",
+      sourceBindingRevision: 1,
+      sourceRevision: BASE_REVISION,
+      status: "pending",
+      cause: {
+        kind: "recovery",
+        id: "run:interrupted-implementation",
+        digest: "cancelled-task-run-digest",
+      },
+    });
+    expect(resumeSparkReproRouteFromRecovery(recovered, input)).toBe(recovered);
+    expect(() =>
+      resumeSparkReproRouteFromRecovery(recovered, {
+        ...input,
+        recoveryDigest: "different-recovery-digest",
+      }),
+    ).toThrow("different recovery checkpoint");
+  });
+
   it("migrates v7 Explore into Implementation without inventing Exactness or formal proof", () => {
     const current = createSparkSessionRepro("session:migrate-v7");
     const { version: _version, threeLane: _threeLane, ...legacyBase } = current;
@@ -48,9 +287,9 @@ describe("Spark Repro three-lane domain", () => {
     const migrated = migrateSparkSessionReproV7(legacy);
 
     expect(migrated).toMatchObject({
-      version: 8,
+      version: 9,
       threeLane: {
-        schema: "spark.repro.three-lane-session/v1",
+        schema: "spark.repro.three-lane-session/v2",
         implementation: { stage: "reference", observationIds: ["obs:1"], workItemIds: [] },
         exactness: { workItemIds: [], findingIds: [], mismatchIds: [] },
         workItems: [],
@@ -140,12 +379,14 @@ describe("Spark Repro three-lane domain", () => {
 
     const rematerialized = rematerializeSparkReproWorkItem(withHandoff, {
       workItemId: item.workItemId,
+      lane: "implementation",
+      expectedBindingRevision: 1,
       expectedSourceRevision: item.sourceRevision,
       sourceRevision: "commit:candidate-after-rebase",
       evidenceRefs: [evidence("rebase")],
     });
 
-    expect(rematerialized.workItems[0]).toMatchObject({
+    expect(rematerialized.bindings[0]).toMatchObject({
       workItemId: item.workItemId,
       sourceRevision: "commit:candidate-after-rebase",
     });
@@ -153,11 +394,111 @@ describe("Spark Repro three-lane domain", () => {
     expect(() =>
       rematerializeSparkReproWorkItem(rematerialized, {
         workItemId: item.workItemId,
+        lane: "implementation",
+        expectedBindingRevision: 1,
         expectedSourceRevision: item.sourceRevision,
         sourceRevision: "commit:stale-write",
         evidenceRefs: [evidence("stale")],
       }),
     ).toThrow("stale work item materialization revision");
+  });
+
+  it("keeps a refreshed binding checkpoint reloadable", () => {
+    const repro = createSparkSessionRepro("session:refresh-checkpoint");
+    const item = workItem(repro.plan.currentRevision);
+    let state = registerSparkReproWorkItem(repro.threeLane, "exactness", {
+      ...item,
+      taskRef: "task:exactness" as TaskRef,
+    });
+    state = registerSparkReproWorkItem(state, "formalize", {
+      ...item,
+      taskRef: "task:formalize" as TaskRef,
+    });
+    state = recordSparkReproWorkHandoff(state, {
+      handoffId: "handoff:exactness-formalize",
+      workItemId: item.workItemId,
+      from: "exactness",
+      to: "formalize",
+      planRevision: repro.plan.currentRevision,
+      sourceRevision: item.sourceRevision,
+      scope: item.scope,
+      findingIds: [],
+      evidenceRefs: [evidence("exactness-result")],
+      candidateRevisions: [item.sourceRevision],
+      dependsOnHandoffIds: [],
+      doneWhen: ["Formalize the accepted candidate"],
+      status: "accepted",
+    });
+    const canonicalRevision = "commit:canonical";
+    state = recordSparkReproResolution(state, {
+      resolutionId: "resolution:formalize-exactness",
+      workItemId: item.workItemId,
+      from: "formalize",
+      to: "exactness",
+      status: "resolved",
+      canonicalRevision,
+      supersededRevisions: [item.sourceRevision],
+      evidenceRefs: [evidence("formalize-result")],
+    });
+    state = recordSparkReproRoute(state, {
+      routeId: "route:formalize-exactness-refresh",
+      action: "refresh_binding",
+      workItemId: item.workItemId,
+      fromLane: "formalize",
+      toLane: "exactness",
+      planRevision: repro.plan.currentRevision,
+      sourceBindingRevision: 1,
+      sourceRevision: canonicalRevision,
+      cause: {
+        kind: "lane_result",
+        id: "result:formalize",
+        digest: "formalize-result-digest",
+        evidenceRef: evidence("formalize-result"),
+      },
+      status: "pending",
+    });
+    state = materializeSparkReproRouteBinding(state, {
+      routeId: "route:formalize-exactness-refresh",
+      taskRef: "task:exactness" as TaskRef,
+      evidenceRefs: [evidence("formalize-result")],
+    });
+    state = acknowledgeSparkReproRoute(state, "route:formalize-exactness-refresh");
+
+    expect(state.handoffs[0]?.status).toBe("stale");
+    expect(() => validateSparkReproThreeLaneSessionState(state, repro.plan)).not.toThrow();
+  });
+
+  it("isolates source and binding revisions by WorkItem lane", () => {
+    const repro = createSparkSessionRepro("session:binding-isolation");
+    const item = workItem(repro.plan.currentRevision);
+    let state = registerSparkReproWorkItem(repro.threeLane, "implementation", item);
+    state = registerSparkReproWorkItem(state, "exactness", {
+      ...item,
+      taskRef: "task:exactness" as TaskRef,
+      gitChangeRef: "artifact:exactness" as ArtifactRef,
+    });
+
+    const updated = rematerializeSparkReproWorkItem(state, {
+      workItemId: item.workItemId,
+      lane: "exactness",
+      expectedBindingRevision: 1,
+      expectedSourceRevision: item.sourceRevision,
+      sourceRevision: "commit:exactness-only",
+      taskRef: "task:exactness-refresh" as TaskRef,
+      evidenceRefs: [evidence("exactness-refresh")],
+    });
+
+    expect(updated.bindings.find((binding) => binding.lane === "implementation")).toMatchObject({
+      bindingRevision: 1,
+      sourceRevision: item.sourceRevision,
+      taskRef: item.taskRef,
+    });
+    expect(updated.bindings.find((binding) => binding.lane === "exactness")).toMatchObject({
+      bindingRevision: 2,
+      sourceRevision: "commit:exactness-only",
+      taskRef: "task:exactness-refresh",
+    });
+    expect(updated.workItems[0]?.sourceRevision).toBe(item.sourceRevision);
   });
 
   it("binds Formalize to one stack integrator idempotently", () => {
@@ -168,7 +509,7 @@ describe("Spark Repro three-lane domain", () => {
     };
 
     const bound = bindSparkReproFormalizeOwnership(repro.threeLane, ownership);
-    expect(bound.formalize.ownership).toEqual(ownership);
+    expect(bound.formalize.ownership).toEqual({ ...ownership, generation: 1 });
     expect(bindSparkReproFormalizeOwnership(bound, ownership)).toBe(bound);
     expect(() =>
       bindSparkReproFormalizeOwnership(bound, {
@@ -176,6 +517,23 @@ describe("Spark Repro three-lane domain", () => {
         integratorSessionId: "session:specialist",
       }),
     ).toThrow("another stack integrator");
+
+    const replaced = bindSparkReproFormalizeOwnership(bound, {
+      ...ownership,
+      integratorSessionId: "session:integrator-recovered",
+      generation: 2,
+    });
+    expect(replaced.formalize.ownership).toMatchObject({
+      integratorSessionId: "session:integrator-recovered",
+      generation: 2,
+    });
+    expect(() =>
+      bindSparkReproFormalizeOwnership(bound, {
+        gitChangeRef: "artifact:other-stack" as ArtifactRef,
+        integratorSessionId: "session:integrator-recovered",
+        generation: 2,
+      }),
+    ).toThrow("cannot replace the canonical GitChange");
   });
 
   it("propagates a typed resolution backward and updates only the accepted formalized tip", () => {
@@ -222,6 +580,7 @@ function workItem(planRevision: number): SparkReproWorkItem {
     scope: "layers.0.input_layernorm",
     planRevision,
     sourceRevision: "commit:candidate-a",
+    taskRef: "task:rmsnorm-boundary" as TaskRef,
     status: "open",
     evidenceRefs: [],
     unresolvedIds: [],

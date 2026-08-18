@@ -1,6 +1,6 @@
 /**
  * Persistence adapter for the host-neutral @zendev-lab/spark-repro state machine.
- * Legacy v1-v7 snapshots are migrated fail-closed into the v8 three-lane session protocol.
+ * Legacy v1-v8 session values are migrated fail-closed into the v9 three-lane protocol.
  */
 
 import type { EvidenceRef } from "@zendev-lab/spark-core";
@@ -491,7 +491,7 @@ function normalizeLegacyStageNames<
       name: normalizeReproStageName(stage.name),
     })),
     ...(plan ? { plan } : {}),
-    ...(repro.version === 5 || repro.version === 6 || repro.version === 8
+    ...(repro.version === 5 || repro.version === 6 || repro.version === 9
       ? { subgoals: repro.subgoals.map(normalizeDefinition) }
       : {}),
   } as T;
