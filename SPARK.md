@@ -2,7 +2,7 @@
 description: "spark：以 Pi SDK 为内核，统一 TUI / Hub / 消息平台的本地智能开发编排"
 owner: zrr1999
 created: 2026-05-18
-updated: 2026-08-13
+updated: 2026-08-17
 ---
 
 # `spark` 项目意图
@@ -80,6 +80,7 @@ updated: 2026-08-13
 
 ## 当前方向
 
+- 公共 CLI argv 只使用 Optique 作为解析器。
 - 对齐跨表面的 ask、gate 与 submit 语义，让协议成为唯一判定来源。
 - 为本地 RPC 兼容层定义可验证的退出条件，不向兼容传输增加新行为。
 - 将 PR、CI、review 与 conflict 读取收敛成幂等 delivery feedback 事件。
