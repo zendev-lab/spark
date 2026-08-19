@@ -14,7 +14,6 @@ import plugin, {
 } from "./dsh-plugin.ts";
 
 const CATALOG_IDS = [
-  "claude-opus-4.6",
   "claude-opus-5",
   "deepseek-v4-flash",
   "gpt-5.6-sol",

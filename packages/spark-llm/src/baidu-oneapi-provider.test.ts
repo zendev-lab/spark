@@ -19,7 +19,6 @@ import {
 import { SparkProviderRegistry } from "./provider-registry.ts";
 
 const BAIDU_MODEL_IDS = [
-  "claude-opus-4.6",
   "claude-opus-5",
   "deepseek-v4-flash",
   "gpt-5.6-sol",
@@ -343,4 +342,110 @@ test("Baidu Anthropic keeps the caller system block while remapping the gateway 
     model: "Opus 5",
     system: [{ type: "text", text: systemPrompt }],
   });
+});
+
+test("Baidu Anthropic enables thinking by default for catalog reasoning models", async () => {
+  let capturedOptions: Record<string, unknown> | undefined;
+  let capturedPayload: unknown;
+  const anthropicMessages: ProviderStreams = {
+    stream: (model, context, options) =>
+      terminalStream(model, async () => {
+        capturedOptions = options as Record<string, unknown>;
+        const payload = {
+          model: model.id,
+          messages: [],
+          thinking: { type: "enabled", budget_tokens: 1024, display: "summarized" },
+        };
+        capturedPayload = await options?.onPayload?.(payload, model);
+      }),
+    streamSimple: (model) => terminalStream(model),
+  };
+  const openAIResponses: ProviderStreams = {
+    stream: (model) => terminalStream(model),
+    streamSimple: (model) => terminalStream(model),
+  };
+  const adapter = createBaiduOneApiProviderAdapter({ anthropicMessages, openAIResponses });
+
+  await consume(
+    adapter.streamAnthropic(testModel("deepseek-v4-flash"), { messages: [], tools: [] }),
+  );
+
+  // No explicit level: keep thinking on with Spark's default effort so the
+  // model's chain-of-thought arrives as reasoning blocks, not plain text.
+  expect(capturedOptions?.thinkingEnabled).toBe(true);
+  expect(capturedOptions?.effort).toBe("high");
+  expect(capturedPayload).toMatchObject({
+    model: "deepseek-v4-flash-0731-internal",
+    thinking: { type: "adaptive", display: "summarized" },
+    output_config: { effort: "high" },
+  });
+});
+
+test("Baidu Anthropic honors an explicit thinking level and maps it to effort", async () => {
+  let capturedOptions: Record<string, unknown> | undefined;
+  const anthropicMessages: ProviderStreams = {
+    stream: (model, _context, options) =>
+      terminalStream(model, async () => {
+        capturedOptions = options as Record<string, unknown>;
+      }),
+    streamSimple: (model) => terminalStream(model),
+  };
+  const openAIResponses: ProviderStreams = {
+    stream: (model) => terminalStream(model),
+    streamSimple: (model) => terminalStream(model),
+  };
+  const adapter = createBaiduOneApiProviderAdapter({ anthropicMessages, openAIResponses });
+  // The catalog deepseek-v4-flash row collapses xhigh onto the gateway's high effort.
+  const model = {
+    ...testModel("deepseek-v4-flash"),
+    thinkingLevelMap: {
+      minimal: "low",
+      low: "low",
+      medium: "medium",
+      high: "high",
+      xhigh: "high",
+    },
+  } as Model<Api>;
+
+  await consume(
+    adapter.streamAnthropic(
+      model,
+      { messages: [], tools: [] },
+      {
+        reasoning: "xhigh",
+      },
+    ),
+  );
+
+  expect(capturedOptions?.thinkingEnabled).toBe(true);
+  expect(capturedOptions?.effort).toBe("high");
+});
+
+test("Baidu Anthropic disables thinking for an explicit off level", async () => {
+  let capturedOptions: Record<string, unknown> | undefined;
+  const anthropicMessages: ProviderStreams = {
+    stream: (model, _context, options) =>
+      terminalStream(model, async () => {
+        capturedOptions = options as Record<string, unknown>;
+      }),
+    streamSimple: (model) => terminalStream(model),
+  };
+  const openAIResponses: ProviderStreams = {
+    stream: (model) => terminalStream(model),
+    streamSimple: (model) => terminalStream(model),
+  };
+  const adapter = createBaiduOneApiProviderAdapter({ anthropicMessages, openAIResponses });
+
+  await consume(
+    adapter.streamAnthropic(
+      testModel("deepseek-v4-flash"),
+      { messages: [], tools: [] },
+      {
+        reasoning: "off" as never,
+      },
+    ),
+  );
+
+  expect(capturedOptions?.thinkingEnabled).toBe(false);
+  expect(capturedOptions?.effort).toBeUndefined();
 });

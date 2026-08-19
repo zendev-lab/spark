@@ -277,4 +277,11 @@ style, for example:
 ♻️ refactor(protocol): centralize shared semantics
 ```
 
+PR bodies are also checked by CI against `.github/pull_request_template.md`:
+the body's `##` headings must be a subset of the template's headings, appear in
+template order, and include every required heading (`动机`, `解决方案`). Do not
+invent extra `##` sections — fold content such as validation results into the
+required sections instead. Optional template headings (`说明`, `后续工作`) are
+declared with `<!-- pr-body:optional -->` in the template and may be omitted.
+
 Create a Draft PR until the change and its required validation are complete.

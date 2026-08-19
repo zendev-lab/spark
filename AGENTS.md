@@ -93,6 +93,9 @@ for interpreting this file.
    [`CONTRIBUTING.md`](./CONTRIBUTING.md#validation) and report exactly what ran.
 8. Review the final diff for unrelated edits, generated output, secrets,
    runtime state, and accidental package-boundary changes.
+9. For a PR, follow the title and body checks documented in
+   [`CONTRIBUTING.md`](./CONTRIBUTING.md#pull-requests); the body's `##`
+   headings must match the template exactly (CI enforces it).
 
 ## Architecture discipline
 
