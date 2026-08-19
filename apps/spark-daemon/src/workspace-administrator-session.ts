@@ -115,15 +115,15 @@ export function assertWorkspaceAdministratorSession(
   sessionId: string,
 ): asserts session is SparkSessionState & {
   scope: { kind: "workspace"; workspaceId: string };
-  owner: { kind: "workspace"; workspaceId: string };
+  lineage: { kind: "root"; workspaceId: string };
   roleBinding: { kind: "explicit"; roleRef: "role:builtin-administrator" };
 } {
   if (
     !session ||
     session.sessionId !== sessionId ||
     session.scope.kind !== "workspace" ||
-    session.owner.kind !== "workspace" ||
-    session.owner.workspaceId !== session.scope.workspaceId ||
+    session.lineage.kind !== "root" ||
+    session.lineage.workspaceId !== session.scope.workspaceId ||
     session.roleBinding.kind !== "explicit" ||
     session.roleBinding.roleRef !== "role:builtin-administrator"
   ) {

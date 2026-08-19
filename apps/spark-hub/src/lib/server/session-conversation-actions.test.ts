@@ -139,7 +139,11 @@ const session = {
   placement: "active" as const,
   lifetime: "scoped" as const,
   roleBinding: { kind: "none" as const },
-  owner: { kind: "session" as const, supervisorSessionId: "sess_administrator" },
+  lineage: {
+    kind: "child" as const,
+    parentSessionId: "sess_administrator",
+    origin: { kind: "session" },
+  },
   bindings: [],
   tags: [],
   archiveHistory: [],
@@ -156,7 +160,7 @@ const administrator = {
     kind: "explicit" as const,
     roleRef: "role:builtin-administrator" as const,
   },
-  owner: { kind: "workspace" as const, workspaceId: "ws_demo" },
+  lineage: { kind: "root" as const, workspaceId: "ws_demo" },
 };
 
 beforeEach(() => {

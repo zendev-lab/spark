@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { SPARK_SESSION_MEDIA_CHUNK_MAX_BYTES } from "@zendev-lab/spark-protocol";
+import { sparkSessionLineageOriginKind } from "@zendev-lab/spark-protocol/session-assignment";
 import type {
   SparkSessionBindRequest,
   SparkSessionMediaReadRequest,
@@ -430,15 +431,16 @@ function isHubWorkspaceSession(
     options.scope?.kind === "workspace" ? options.scope.workspaceId : options.workspaceId;
   if (requestedWorkspaceId && session.scope.workspaceId !== requestedWorkspaceId) return false;
   if (!options.includeArchived && session.placement === "archived") return false;
+  const originKind = sparkSessionLineageOriginKind(session.lineage);
   if (
-    session.owner.kind === "task_run" ||
-    session.owner.kind === "task_revision" ||
-    session.owner.kind === "workflow_run" ||
-    session.owner.kind === "driver" ||
-    session.owner.kind === "driver_tick" ||
-    session.owner.kind === "invocation"
+    originKind === "task_run" ||
+    originKind === "task_revision" ||
+    originKind === "workflow_run" ||
+    originKind === "driver" ||
+    originKind === "driver_tick" ||
+    originKind === "invocation"
   ) {
     return false;
   }
-  return session.owner.kind !== "side_thread" || options.related === true;
+  return originKind !== "side_thread" || options.related === true;
 }

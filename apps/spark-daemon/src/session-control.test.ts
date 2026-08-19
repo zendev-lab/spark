@@ -41,8 +41,11 @@ describe("daemon session control admission", () => {
       sessionId: "session-closing-reconcile",
       scope: { kind: "workspace", workspaceId: "ws-reconcile" },
       cwd: root,
-      owner: { kind: "session", supervisorSessionId: administrator.sessionId },
-      stateBinding: { kind: "session", ref: administrator.sessionId },
+      lineage: {
+        kind: "child",
+        parentSessionId: administrator.sessionId,
+        origin: { kind: "session" },
+      },
       visibility: "internal",
       retention: "discard_on_close",
       purpose: "task_run",
@@ -459,17 +462,20 @@ describe("daemon session control admission", () => {
       const first = await create("ui-admin-one", "Release planning");
       await create("ui-admin-two", "Architecture review");
       const sessions = await sessionRegistry.list({ includeArchived: true });
-      const workspaceRoot = sessions.find((session) => session.owner.kind === "workspace");
+      const workspaceRoot = sessions.find((session) => session.lineage.kind === "root");
 
       expect(workspaceRoot).toBeTruthy();
-      expect(sessions.filter((session) => session.owner.kind === "workspace")).toHaveLength(1);
+      expect(sessions.filter((session) => session.lineage.kind === "root")).toHaveLength(1);
       expect(first.result.session).toMatchObject({
         sessionId: "ui-admin-one",
         name: "Release planning",
         roleBinding: { kind: "none" },
         lifetime: "scoped",
-        owner: { kind: "session", supervisorSessionId: administrator.sessionId },
-        stateBinding: { kind: "session", ref: workspaceRoot?.sessionId },
+        lineage: {
+          kind: "child",
+          parentSessionId: administrator.sessionId,
+          origin: { kind: "session" },
+        },
         lifecycle: "open",
       });
     } finally {
@@ -568,12 +574,11 @@ describe("daemon session control admission", () => {
         scope: { kind: "workspace", workspaceId },
         cwd: root,
         roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
-        owner: {
-          kind: "invocation",
-          invocationId,
-          supervisorSessionId: administrator.sessionId,
+        lineage: {
+          kind: "child",
+          parentSessionId: administrator.sessionId,
+          origin: { kind: "invocation", invocationId },
         },
-        stateBinding: { kind: "session", ref: administrator.sessionId },
         visibility: "internal",
         retention: "discard_on_close",
         purpose: "role_call",
@@ -764,7 +769,7 @@ describe("daemon session control admission", () => {
     }
   });
 
-  it("freezes only a Task-owned child Session's durable state owner into the invocation", async () => {
+  it("keeps managed and ordinary turns bound to their own Session identity", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-state-binding-"));
     const db = openMemoryDatabase();
     migrateSparkDaemonDatabase(db);
@@ -778,19 +783,21 @@ describe("daemon session control admission", () => {
       sessionId: "session-managed-child",
       scope: { kind: "workspace", workspaceId: "workspace-managed" },
       cwd: join(root, "isolated-worktree"),
-      owner: {
-        kind: "task_revision",
-        supervisorSessionId: administrator.sessionId,
-        projectRef: "proj:managed",
-        taskRef: "task:managed",
-        revisionRef: "job:managed",
-        originatingRunRef: "run:managed",
-        sessionGoalId: "goal:managed",
-        roleRef: "role:builtin-executor",
-        jobId: "job:managed",
-        attempt: 1,
+      lineage: {
+        kind: "child",
+        parentSessionId: administrator.sessionId,
+        origin: {
+          kind: "task_revision",
+          projectRef: "proj:managed",
+          taskRef: "task:managed",
+          revisionRef: "job:managed",
+          originatingRunRef: "run:managed",
+          sessionGoalId: "goal:managed",
+          roleRef: "role:builtin-executor",
+          jobId: "job:managed",
+          attempt: 1,
+        },
       },
-      stateBinding: { kind: "session", ref: administrator.sessionId },
       visibility: "public",
       retention: "retain",
       purpose: "interactive",
@@ -799,8 +806,11 @@ describe("daemon session control admission", () => {
       sessionId: "session-ordinary-child",
       scope: { kind: "workspace", workspaceId: "workspace-managed" },
       cwd: root,
-      owner: { kind: "session", supervisorSessionId: administrator.sessionId },
-      stateBinding: { kind: "session", ref: administrator.sessionId },
+      lineage: {
+        kind: "child",
+        parentSessionId: administrator.sessionId,
+        origin: { kind: "session" },
+      },
       visibility: "public",
       retention: "retain",
       purpose: "interactive",
@@ -817,11 +827,8 @@ describe("daemon session control admission", () => {
         },
       );
       const invocation = new SparkInvocationStore(db).require(submitted.invocationId!);
-      expect(invocation.task).toMatchObject({
-        type: "session.run",
-        sessionId: child.sessionId,
-        stateBindingSessionId: administrator.sessionId,
-      });
+      expect(invocation.task).toMatchObject({ type: "session.run", sessionId: child.sessionId });
+      expect(invocation.task).not.toHaveProperty("stateBindingSessionId");
       const ordinarySubmission = await executeSparkDaemonSessionControl(
         { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
         {
@@ -1139,7 +1146,7 @@ describe("daemon session control admission", () => {
     }
   });
 
-  it("rolls owned child Invocation activity into the parent Session without exposing its prompt", async () => {
+  it("keeps child Invocation activity out of the parent Session", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-owned-activity-"));
     const db = openMemoryDatabase();
     migrateSparkDaemonDatabase(db);
@@ -1157,18 +1164,16 @@ describe("daemon session control admission", () => {
       const child = await sessionRegistry.createSupervised({
         sessionId: "activity-child",
         scope: parent.scope,
-        owner: {
-          kind: "driver",
-          driverId: "loop:activity",
-          generation: 1,
-          supervisorSessionId: parent.sessionId,
+        lineage: {
+          kind: "child",
+          parentSessionId: parent.sessionId,
+          origin: { kind: "driver", driverId: "loop:activity", generation: 1 },
         },
-        stateBinding: { kind: "session", ref: parent.sessionId },
         visibility: "internal",
         retention: "discard_on_close",
         purpose: "driver",
       });
-      const invocation = new SparkInvocationStore(db).submit({
+      new SparkInvocationStore(db).submit({
         sessionId: child.sessionId,
         prompt: "private managed prompt",
         task: {
@@ -1188,7 +1193,7 @@ describe("daemon session control admission", () => {
           payload: { sessionId: parent.sessionId },
         },
       );
-      expect(detail.result.session).toMatchObject({ activity: "queued" });
+      expect(detail.result.session).toMatchObject({ activity: "idle" });
 
       const response = await executeSparkDaemonSessionControl(
         { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
@@ -1200,13 +1205,7 @@ describe("daemon session control admission", () => {
         },
       );
       const snapshot = sparkSessionSnapshotPageSchema.parse(response.result).snapshot;
-      expect(snapshot.pendingTurns).toMatchObject([
-        {
-          invocationId: invocation.invocationId,
-          status: "queued",
-          prompt: "Owned Session activity (loop.tick)",
-        },
-      ]);
+      expect(snapshot.pendingTurns).toEqual([]);
       expect(JSON.stringify(snapshot.messages)).not.toContain("private managed prompt");
     } finally {
       db.close();
@@ -1351,7 +1350,7 @@ describe("daemon session control admission", () => {
             scope: { kind: "workspace", workspaceId: hubWorkspaceId },
           }),
           expect.objectContaining({
-            owner: { kind: "workspace", workspaceId: hubWorkspaceId },
+            lineage: { kind: "root", workspaceId: hubWorkspaceId },
             roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
           }),
         ]),
@@ -1459,7 +1458,7 @@ describe("daemon session control admission", () => {
     }
   });
 
-  it("rolls owner-tree transcript usage onto the parent snapshot", async () => {
+  it("keeps child transcript usage out of the parent snapshot", async () => {
     const harness = await createUsageSnapshotHarness("spark-session-usage-rollup-");
     try {
       const parent = await createDaemonWorkspaceSession(harness.sessionRegistry, {
@@ -1471,7 +1470,7 @@ describe("daemon session control admission", () => {
         sessionId: "session-usage-child",
         scope: { kind: "workspace", workspaceId: "workspace-usage" },
         cwd: harness.root,
-        owner: { kind: "session", supervisorSessionId: parent.sessionId },
+        lineage: { kind: "child", parentSessionId: parent.sessionId, origin: { kind: "session" } },
       });
       const parentTranscript = join(harness.root, "parent.jsonl");
       const childTranscript = join(harness.root, "child.jsonl");
@@ -1502,13 +1501,13 @@ describe("daemon session control admission", () => {
 
       const page = await requestSessionSnapshot(harness, parent.sessionId);
       expect(page.snapshot.usage).toMatchObject({
-        inputTokens: 140,
-        outputTokens: 30,
-        cacheReadTokens: 210,
-        cacheWriteTokens: 15,
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheReadTokens: 50,
+        cacheWriteTokens: 10,
         contextTokens: 999,
       });
-      expect(page.snapshot.usage?.costUsd).toBeCloseTo(0.3);
+      expect(page.snapshot.usage?.costUsd).toBeCloseTo(0.1);
       expect(page.snapshot.usage?.latestCacheHitPercent).toBeCloseTo((50 / 160) * 100);
       expect(page.snapshot.usage).not.toHaveProperty("contextTokenSource");
     } finally {
@@ -1552,7 +1551,7 @@ describe("daemon session control admission", () => {
     }
   });
 
-  it("includes closed child transcript usage in the parent rollup", async () => {
+  it("keeps closed child transcript usage out of the parent snapshot", async () => {
     const harness = await createUsageSnapshotHarness("spark-session-usage-closed-child-");
     try {
       const parent = await createDaemonWorkspaceSession(harness.sessionRegistry, {
@@ -1564,7 +1563,7 @@ describe("daemon session control admission", () => {
         sessionId: "session-usage-closed-child",
         scope: { kind: "workspace", workspaceId: "workspace-usage-closed" },
         cwd: harness.root,
-        owner: { kind: "session", supervisorSessionId: parent.sessionId },
+        lineage: { kind: "child", parentSessionId: parent.sessionId, origin: { kind: "session" } },
       });
       const parentTranscript = join(harness.root, "parent.jsonl");
       const childTranscript = join(harness.root, "child.jsonl");
@@ -1604,13 +1603,13 @@ describe("daemon session control admission", () => {
 
       const page = await requestSessionSnapshot(harness, parent.sessionId);
       expect(page.snapshot.usage).toMatchObject({
-        inputTokens: 15,
-        outputTokens: 11,
-        cacheReadTokens: 17,
-        cacheWriteTokens: 3,
+        inputTokens: 12,
+        outputTokens: 4,
+        cacheReadTokens: 8,
+        cacheWriteTokens: 2,
         contextTokens: 400,
       });
-      expect(page.snapshot.usage?.costUsd).toBeCloseTo(0.07);
+      expect(page.snapshot.usage?.costUsd).toBeCloseTo(0.05);
     } finally {
       harness.close();
     }

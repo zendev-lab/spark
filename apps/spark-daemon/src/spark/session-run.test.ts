@@ -461,6 +461,14 @@ describe("daemon native session execution", () => {
           mode: "execute",
           taskExecutionScope: {
             isolation: "isolated_worktree",
+            binding: {
+              ownerSessionId: "sess_owner",
+              projectRef: project.ref,
+              taskRef: taskRecord.ref,
+              runRef,
+              jobId: "task-job:fleet-1",
+              attempt: 1,
+            },
             primaryArtifactRef: firstRef,
             writableArtifactRefs: [firstRef, secondRef],
             writableRoots: [firstRoot, secondRoot],
@@ -538,16 +546,19 @@ describe("daemon native session execution", () => {
         roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
         cwd: workspaceRoot,
       }),
-      owner: {
-        kind: "task_run",
-        supervisorSessionId: "sess_owner",
-        projectRef: project.ref,
-        taskRef: taskRecord.ref,
-        runRef,
-        sessionGoalId: "goal-repro-implementation",
-        roleRef: "role:builtin-executor",
-        jobId: "task-job:repro-workspace-1",
-        attempt: 1,
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_owner",
+        origin: {
+          kind: "task_run",
+          projectRef: project.ref,
+          taskRef: taskRecord.ref,
+          runRef,
+          sessionGoalId: "goal-repro-implementation",
+          roleRef: "role:builtin-executor",
+          jobId: "task-job:repro-workspace-1",
+          attempt: 1,
+        },
       },
     } as never;
     const executeSession = vi.fn(async () => ({ assistantText: "done" }));
@@ -558,17 +569,12 @@ describe("daemon native session execution", () => {
       workspaceId: "ws_repro",
       prompt: "execute Repro implementation",
       messageMetadata: {
-        sessionMail: {
-          fromSessionId: "sess_owner",
-          requestPayload: {
-            kind: "task_execution",
-            projectRef: project.ref,
-            taskRef: taskRecord.ref,
-            runRef,
-            jobId: "task-job:repro-workspace-1",
-            attempt,
-          },
-        },
+        kind: "task_execution",
+        projectRef: project.ref,
+        taskRef: taskRecord.ref,
+        runRef,
+        jobId: "task-job:repro-workspace-1",
+        attempt,
       },
     });
     const options = {
@@ -593,6 +599,14 @@ describe("daemon native session execution", () => {
           mode: "execute",
           taskExecutionScope: {
             isolation: "workspace",
+            binding: {
+              ownerSessionId: "sess_owner",
+              projectRef: project.ref,
+              taskRef: taskRecord.ref,
+              runRef,
+              jobId: "task-job:repro-workspace-1",
+              attempt: 1,
+            },
             writableArtifactRefs: [],
             writableRoots: [workspaceRoot],
           },
@@ -662,16 +676,19 @@ describe("daemon native session execution", () => {
         workspaceId: "workspace-task",
         roleBinding: { kind: "explicit", roleRef: "role:builtin-explorer" },
       }),
-      owner: {
-        kind: "task_run",
-        supervisorSessionId: "sess_owner",
-        projectRef: "proj:repro",
-        taskRef: "task:probe",
-        runRef: "run:probe-1",
-        sessionGoalId: "goal-probe-1",
-        roleRef: "role:builtin-explorer",
-        jobId: "task-job:probe",
-        attempt: 1,
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_owner",
+        origin: {
+          kind: "task_run",
+          projectRef: "proj:repro",
+          taskRef: "task:probe",
+          runRef: "run:probe-1",
+          sessionGoalId: "goal-probe-1",
+          roleRef: "role:builtin-explorer",
+          jobId: "task-job:probe",
+          attempt: 1,
+        },
       },
     } as never;
     let runRecorded = false;
@@ -2710,10 +2727,10 @@ describe("daemon native session execution", () => {
             updatedAt: "2026-07-22T00:00:00.000Z",
           }),
           sessionId: task.sessionId,
-          owner: {
-            kind: "side_thread" as const,
+          lineage: {
+            kind: "child" as const,
             parentSessionId: "sess_parent",
-            generation: 1,
+            origin: { kind: "side_thread" as const, generation: 1 },
           },
           sideThreadMode: "contextual" as const,
         })),
@@ -2971,16 +2988,19 @@ describe("daemon native session execution", () => {
             sessionId: "owner-session",
             workspaceId: "workspace-fresh",
           }),
-          owner: {
-            kind: "task_run",
-            supervisorSessionId: "managed-owner-session",
-            projectRef: "proj:loop-owner",
-            taskRef: "task:loop-owner",
-            runRef: "run:loop-owner",
-            sessionGoalId: "goal:loop-owner",
-            roleRef: "role:builtin-explorer",
-            jobId: "task-job:loop-owner",
-            attempt: 1,
+          lineage: {
+            kind: "child",
+            parentSessionId: "managed-owner-session",
+            origin: {
+              kind: "task_run",
+              projectRef: "proj:loop-owner",
+              taskRef: "task:loop-owner",
+              runRef: "run:loop-owner",
+              sessionGoalId: "goal:loop-owner",
+              roleRef: "role:builtin-explorer",
+              jobId: "task-job:loop-owner",
+              attempt: 1,
+            },
           },
         }) as never,
     );
@@ -3174,13 +3194,15 @@ describe("daemon native session execution", () => {
               sessionId: "driver_repro_1",
               workspaceId: "workspace-repro",
             }),
-            owner: {
-              kind: "driver" as const,
-              driverId: "driver-repro",
-              generation: 1,
-              supervisorSessionId: "owner-session",
+            lineage: {
+              kind: "child" as const,
+              parentSessionId: "owner-session",
+              origin: {
+                kind: "driver" as const,
+                driverId: "driver-repro",
+                generation: 1,
+              },
             },
-            stateBinding: { kind: "session" as const, ref: "owner-session" },
             retention: "discard_on_close" as const,
           })),
           recordRun: vi.fn(async () => ({}) as never),

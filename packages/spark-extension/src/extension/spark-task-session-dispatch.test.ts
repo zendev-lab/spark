@@ -13,7 +13,7 @@ import type {
   TaskRun,
 } from "@zendev-lab/spark-core";
 import { loadSessionGoal } from "@zendev-lab/spark-loop";
-import type { SparkFleetWorkerBinding, SparkSessionOwner } from "@zendev-lab/spark-protocol";
+import type { SparkFleetWorkerBinding, SparkSessionLineage } from "@zendev-lab/spark-protocol";
 import { createSparkSessionRepro } from "@zendev-lab/spark-repro";
 import { RoleRegistry } from "@zendev-lab/spark-roles";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";
@@ -294,7 +294,11 @@ describe("managed Task Session dispatch", () => {
             updatedAt: "2026-07-29T00:00:00.000Z",
           }),
           sessionId: String(input.sessionId),
-          owner: { kind: "task_run", ...(input.taskExecution as Record<string, unknown>) },
+          lineage: {
+            kind: "child",
+            parentSessionId: String(input.supervisorSessionId),
+            origin: { kind: "task_run", ...(input.taskExecution as Record<string, unknown>) },
+          },
         };
       }
       if (method === "turn.submit") {
@@ -368,7 +372,7 @@ describe("managed Task Session dispatch", () => {
       .filter((candidate) => candidate.method === "session.create")
       .entries()) {
       expect(call.input.taskExecution).toMatchObject({
-        ownerKind: "task_revision",
+        originKind: "task_revision",
         projectRef: project.ref,
         taskRef: tasks[index]!.ref,
         revisionRef: records[index]!.jobId,
@@ -497,10 +501,7 @@ describe("managed Task Session dispatch", () => {
         exclusiveNode: false,
         allocatedAt: "2026-07-29T00:00:00.000Z",
       };
-      const sessions = new Map<
-        string,
-        Extract<SparkSessionOwner, { kind: "task_run" | "task_revision" }>
-      >();
+      const sessions = new Map<string, Extract<SparkSessionLineage, { kind: "child" }>>();
       const closeInputs: Record<string, unknown>[] = [];
       let invocation = 0;
       const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
@@ -518,7 +519,7 @@ describe("managed Task Session dispatch", () => {
               updatedAt: "2026-07-29T00:00:00.000Z",
             }),
             sessionId,
-            ...(sessions.has(sessionId) ? { owner: sessions.get(sessionId)! } : {}),
+            ...(sessions.has(sessionId) ? { lineage: sessions.get(sessionId)! } : {}),
           };
         }
         if (method === "session.create") {
@@ -527,14 +528,15 @@ describe("managed Task Session dispatch", () => {
             throw new SparkDaemonRemoteError("session exists", { code: "session_exists" });
           }
           const taskExecution = input.taskExecution as Record<string, unknown> & {
-            ownerKind: "task_run" | "task_revision";
+            originKind: "task_run" | "task_revision";
           };
-          const { ownerKind, kind: _legacyKind, ...fields } = taskExecution;
-          const owner = { kind: ownerKind, ...fields } as Extract<
-            SparkSessionOwner,
-            { kind: "task_run" | "task_revision" }
-          >;
-          sessions.set(sessionId, owner);
+          const { originKind, kind: _legacyKind, ...fields } = taskExecution;
+          const lineage = {
+            kind: "child",
+            parentSessionId: String(input.supervisorSessionId),
+            origin: { kind: originKind, ...fields },
+          } as Extract<SparkSessionLineage, { kind: "child" }>;
+          sessions.set(sessionId, lineage);
           return {
             ...workspaceSessionRecord({
               sessionId,
@@ -548,7 +550,7 @@ describe("managed Task Session dispatch", () => {
               updatedAt: "2026-07-29T00:00:00.000Z",
             }),
             sessionId,
-            owner,
+            lineage,
           };
         }
         if (method === "turn.submit") {
@@ -733,10 +735,7 @@ describe("managed Task Session dispatch", () => {
     });
     await defaultTaskGraphStore(cwd).save(graph);
 
-    const sessions = new Map<
-      string,
-      Extract<SparkSessionOwner, { kind: "task_run" | "task_revision" }>
-    >();
+    const sessions = new Map<string, Extract<SparkSessionLineage, { kind: "child" }>>();
     const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
       if (method === "session.get") {
         const sessionId = String(input.sessionId);
@@ -748,19 +747,20 @@ describe("managed Task Session dispatch", () => {
             createdAt: "2026-07-29T00:00:00.000Z",
             updatedAt: "2026-07-29T00:00:00.000Z",
           }),
-          owner: sessions.get(sessionId),
+          ...(sessions.has(sessionId) ? { lineage: sessions.get(sessionId)! } : {}),
         };
       }
       if (method === "session.create") {
         const sessionId = String(input.sessionId);
         const taskExecution = input.taskExecution as Record<string, unknown> & {
-          ownerKind: "task_run" | "task_revision";
+          originKind: "task_run" | "task_revision";
         };
-        const { ownerKind, kind: _legacyKind, ...fields } = taskExecution;
-        sessions.set(sessionId, { kind: ownerKind, ...fields } as Extract<
-          SparkSessionOwner,
-          { kind: "task_run" | "task_revision" }
-        >);
+        const { originKind, kind: _legacyKind, ...fields } = taskExecution;
+        sessions.set(sessionId, {
+          kind: "child",
+          parentSessionId: String(input.supervisorSessionId),
+          origin: { kind: originKind, ...fields },
+        } as Extract<SparkSessionLineage, { kind: "child" }>);
         return {
           ...workspaceSessionRecord({
             sessionId,
@@ -769,7 +769,7 @@ describe("managed Task Session dispatch", () => {
             createdAt: "2026-07-29T00:00:00.000Z",
             updatedAt: "2026-07-29T00:00:00.000Z",
           }),
-          owner: sessions.get(sessionId),
+          lineage: sessions.get(sessionId)!,
         };
       }
       if (method === "turn.submit") {
@@ -1015,7 +1015,11 @@ describe("managed Task Session dispatch", () => {
             updatedAt: "2026-07-29T00:00:00.000Z",
           }),
           sessionId: String(input.sessionId),
-          owner: { kind: "task_run", ...(input.taskExecution as Record<string, unknown>) },
+          lineage: {
+            kind: "child",
+            parentSessionId: String(input.supervisorSessionId),
+            origin: { kind: "task_run", ...(input.taskExecution as Record<string, unknown>) },
+          },
         };
       }
       if (method === "turn.submit") {

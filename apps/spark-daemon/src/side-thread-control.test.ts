@@ -68,7 +68,7 @@ describe("daemon Side Thread control", () => {
         expect.arrayContaining([
           expect.objectContaining({ sessionId: fixture.parentSessionId }),
           expect.objectContaining({
-            owner: { kind: "workspace", workspaceId: "workspace-side-thread" },
+            lineage: { kind: "root", workspaceId: "workspace-side-thread" },
           }),
         ]),
       );
@@ -86,7 +86,7 @@ describe("daemon Side Thread control", () => {
         expect.arrayContaining([
           expect.objectContaining({ sessionId: fixture.parentSessionId }),
           expect.objectContaining({
-            owner: { kind: "workspace", workspaceId: "workspace-side-thread" },
+            lineage: { kind: "root", workspaceId: "workspace-side-thread" },
           }),
         ]),
       );
@@ -373,7 +373,10 @@ describe("daemon Side Thread control", () => {
       );
       await expect(fixture.sessionRegistry.get(ensured.sessionId)).resolves.toMatchObject({
         lifecycle: "closed",
-        owner: { kind: "side_thread", generation: 1 },
+        lineage: expect.objectContaining({
+          kind: "child",
+          origin: { kind: "side_thread", generation: 1 },
+        }),
         closeReceipts: [expect.objectContaining({ incarnation: 1 })],
       });
 
@@ -578,7 +581,8 @@ describe("daemon Side Thread control", () => {
         includeSideThreads: true,
       });
       const sideThreadGenerations = generations.filter(
-        (session) => session.owner.kind === "side_thread",
+        (session) =>
+          session.lineage.kind === "child" && session.lineage.origin.kind === "side_thread",
       );
       expect(
         sideThreadGenerations.filter((session) => session.lifecycle === "closed"),
@@ -632,7 +636,10 @@ describe("daemon Side Thread control", () => {
       expect(retired).toMatchObject({
         lifecycle: "closed",
         incarnation: 1,
-        owner: { kind: "side_thread", generation: 1 },
+        lineage: expect.objectContaining({
+          kind: "child",
+          origin: { kind: "side_thread", generation: 1 },
+        }),
         closeReceipts: [
           expect.objectContaining({
             source: "terminal_result",
@@ -647,7 +654,10 @@ describe("daemon Side Thread control", () => {
       expect(persisted).toMatchObject({
         lifecycle: "open",
         incarnation: 1,
-        owner: { kind: "side_thread", generation: 2 },
+        lineage: expect.objectContaining({
+          kind: "child",
+          origin: { kind: "side_thread", generation: 2 },
+        }),
         closeReceipts: [],
       });
       expect(existsSync(oldPath)).toBe(false);
@@ -677,7 +687,10 @@ describe("daemon Side Thread control", () => {
       await expect(fixture.sessionRegistry.get(child.sessionId)).resolves.toMatchObject({
         lifecycle: "open",
         incarnation: 1,
-        owner: { kind: "side_thread", generation: 1 },
+        lineage: expect.objectContaining({
+          kind: "child",
+          origin: { kind: "side_thread", generation: 1 },
+        }),
         closeReceipts: [],
       });
       expect(existsSync(child.sessionPath ?? "")).toBe(true);

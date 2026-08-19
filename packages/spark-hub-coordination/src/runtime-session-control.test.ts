@@ -73,9 +73,12 @@ function workspaceSession(workspaceId: string): SparkSessionProjection {
     activity: "idle",
     lifetime: "scoped",
     roleBinding: { kind: "none" },
-    owner: { kind: "session", supervisorSessionId: `sess_admin_${workspaceId}` },
+    lineage: {
+      kind: "child",
+      parentSessionId: `sess_admin_${workspaceId}`,
+      origin: { kind: "session" },
+    },
     incarnation: 1,
-    stateBinding: { kind: "session", ref: `sess_admin_${workspaceId}` },
     visibility: "public",
     retention: "retain",
     purpose: "interactive",
@@ -97,13 +100,15 @@ function daemonSession(): SparkSessionProjection {
     activity: "idle",
     lifetime: "ephemeral",
     roleBinding: { kind: "none" },
-    owner: {
-      kind: "invocation",
-      invocationId: "migration:daemon-session",
-      supervisorSessionId: "migration:closed-daemon-audit",
+    lineage: {
+      kind: "child",
+      parentSessionId: "migration:closed-daemon-audit",
+      origin: {
+        kind: "invocation",
+        invocationId: "migration:daemon-session",
+      },
     },
     incarnation: 1,
-    stateBinding: { kind: "session", ref: "migration:closed-daemon-audit" },
     visibility: "internal",
     retention: "audit",
     purpose: "migration_closed_daemon_audit",
@@ -172,10 +177,10 @@ describe("runtime session projections", () => {
     const child = parseSparkSessionProjection({
       ...workspaceSession(h.workspaceId),
       roleBinding: { kind: "inherit" },
-      owner: {
-        kind: "side_thread",
+      lineage: {
+        kind: "child",
         parentSessionId: parent.sessionId,
-        generation: 1,
+        origin: { kind: "side_thread", generation: 1 },
       },
       retention: "discard_on_close",
       sideThreadMode: "contextual",

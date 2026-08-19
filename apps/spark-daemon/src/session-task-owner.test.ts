@@ -2,13 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { Task, TaskRun } from "@zendev-lab/spark-core";
 import { isTaskSessionOwnerValid } from "./session-task-owner.ts";
 
-describe("Task Session owner validity", () => {
+describe("Task Session origin validity", () => {
   it("accepts only the active run bound to the exact Session", async () => {
     const run = taskRun();
     const subject = {
-      owner: {
+      origin: {
         kind: "task_run",
-        supervisorSessionId: "session-owner",
         projectRef: run.projectRef,
         taskRef: run.taskRef,
         runRef: run.ref,
@@ -39,9 +38,8 @@ describe("Task Session owner validity", () => {
   it("keeps a revision Session only while its Task remains unfinished", async () => {
     const run = taskRun({ sessionLifetime: "task_revision", status: "succeeded" });
     const subject = {
-      owner: {
+      origin: {
         kind: "task_revision",
-        supervisorSessionId: "session-owner",
         projectRef: run.projectRef,
         taskRef: run.taskRef,
         revisionRef: run.execution!.jobId,

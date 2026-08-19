@@ -5,7 +5,7 @@ import {
   type SparkModelRef,
   type SparkSessionInvocationReceipt,
   type SparkSessionLifetime,
-  type SparkSessionOwner,
+  type SparkSessionLineageOriginKind,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
 import { Buffer } from "node:buffer";
@@ -224,7 +224,7 @@ export interface SparkInvocationRetryTarget {
 
 export interface SparkInvocationReceiptContext {
   lifetime: SparkSessionLifetime;
-  ownerKind: SparkSessionOwner["kind"];
+  originKind: "root" | SparkSessionLineageOriginKind;
   effectiveRoleRef?: string;
   effectiveRoleRevision?: string;
   model?: SparkModelRef;
@@ -1342,7 +1342,7 @@ export class SparkInvocationStore {
       invocationId,
       sessionId: invocation.sessionId,
       lifetime: context.lifetime,
-      ownerKind: context.ownerKind,
+      originKind: context.originKind,
       effectiveRoleRef: context.effectiveRoleRef,
       effectiveRoleRevision: context.effectiveRoleRevision,
       model: context.model,

@@ -61,6 +61,10 @@ import {
   type SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
 import {
+  sparkSessionLineageOriginKind,
+  sparkSessionParentId,
+} from "@zendev-lab/spark-protocol/session-assignment";
+import {
   parseSessionSnapshotWindow,
   type SessionSnapshotWindow,
 } from "../session-snapshot-window.ts";
@@ -279,11 +283,13 @@ async function appendLiveSideThreads(
   sessions: SparkSessionProjection[],
   deadline: number | undefined,
 ): Promise<SparkSessionProjection[]> {
-  const parentSessions = sessions.filter((session) => session.owner?.kind !== "side_thread");
+  const parentSessions = sessions.filter(
+    (session) => sparkSessionLineageOriginKind(session.lineage) !== "side_thread",
+  );
   const sideThreadsByParent = new Map(
     sessions.flatMap((session) =>
-      session.owner?.kind === "side_thread"
-        ? [[session.owner.parentSessionId, session] as const]
+      sparkSessionLineageOriginKind(session.lineage) === "side_thread"
+        ? [[sparkSessionParentId(session.lineage)!, session] as const]
         : [],
     ),
   );
@@ -355,12 +361,11 @@ function sideThreadProjection(
     roleBinding: { kind: "inherit" },
     incarnation: 1,
     bindings: [],
-    owner: {
-      kind: "side_thread",
+    lineage: {
+      kind: "child",
       parentSessionId: parent.sessionId,
-      generation: snapshot.generation,
+      origin: { kind: "side_thread", generation: snapshot.generation },
     },
-    stateBinding: { kind: "session", ref: parent.sessionId },
     visibility: "public",
     retention: "discard_on_close",
     purpose: "side_thread",
@@ -422,7 +427,9 @@ async function listRouteSessions(
     ...(route.workspaceId ? { workspaceId: route.workspaceId } : {}),
     includeArchived: true,
   })
-    .filter((projection) => projection.session.owner?.kind !== "side_thread")
+    .filter(
+      (projection) => sparkSessionLineageOriginKind(projection.session.lineage) !== "side_thread",
+    )
     .map((projection) => projection.session.sessionId);
   const sessions: SparkSessionProjection[] = [];
   let cursor: string | undefined;
@@ -746,7 +753,7 @@ async function submitTurn(
   },
 ): Promise<SparkTurnSubmitResult> {
   const projected = getRuntimeSessionProjection(db, input.sessionId)?.session;
-  if (projected?.owner?.kind === "side_thread") {
+  if (projected && sparkSessionLineageOriginKind(projected.lineage) === "side_thread") {
     throw new RuntimeControlCommandError(
       "Side Threads accept prompts only through their parent-authorized controller.",
       "side_thread_direct_submit_forbidden",
@@ -892,7 +899,9 @@ function projectedSessions(
           : { scope: "workspace" as const }),
       includeArchived: request.includeArchived,
     }).map(({ session }) => session),
-  ).filter((session) => related || session.owner?.kind !== "side_thread");
+  ).filter(
+    (session) => related || sparkSessionLineageOriginKind(session.lineage) !== "side_thread",
+  );
 }
 
 function requireProjectedSession(

@@ -1,6 +1,6 @@
 {
   "message": {
-    "version": 2,
+    "version": 3,
     "id": "assistant-parts",
     "role": "assistant",
     "text": "Legacy text must not duplicate.",
@@ -52,7 +52,7 @@
     "metadata": {}
   },
   "tool": {
-    "version": 2,
+    "version": 3,
     "id": "read-structured",
     "name": "read",
     "status": "succeeded",

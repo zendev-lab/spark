@@ -89,8 +89,11 @@ function managedSessionFixture(input: {
     activity: "idle",
     roleBinding: { kind: "none" },
     incarnation: 1,
-    owner: { kind: "session", supervisorSessionId: `administrator:${input.workspaceId}` },
-    stateBinding: { kind: "session", ref: `administrator:${input.workspaceId}` },
+    lineage: {
+      kind: "child",
+      parentSessionId: `administrator:${input.workspaceId}`,
+      origin: { kind: "session" },
+    },
     visibility: "public",
     retention: "retain",
     purpose: "interactive",
@@ -119,8 +122,7 @@ function administratorSessionFixture(workspaceId: string): SparkSessionProjectio
     activity: "idle",
     roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
     incarnation: 1,
-    owner: { kind: "workspace", workspaceId },
-    stateBinding: { kind: "session", ref: `administrator:${workspaceId}` },
+    lineage: { kind: "root", workspaceId },
     visibility: "public",
     retention: "audit",
     purpose: "workspace_administrator",
@@ -248,7 +250,7 @@ test("native TUI tool approvals are returned to the daemon-owned wait", async ()
   await handleSparkDaemonHumanInteractionRequest(request, event, {
     currentSessionId: "session-tool-approval",
     interaction: async () => ({
-      version: 2,
+      version: 3,
       kind: "toolApproval",
       requestId: request.requestId,
       status: "answered",
@@ -315,7 +317,7 @@ test("native TUI refuses to settle an empty answered Ask as direct-user evidence
   await handleSparkDaemonHumanInteractionRequest(request, event, {
     currentSessionId: "session-empty",
     interaction: async () => ({
-      version: 2,
+      version: 3,
       kind: "askFlow",
       requestId: request.requestId,
       status: "answered",
@@ -370,7 +372,7 @@ test("a not-found Ask race retries the same answer without reopening the interac
     interaction: async () => {
       presentations += 1;
       return {
-        version: 2,
+        version: 3,
         kind: "askFlow",
         requestId: request.requestId,
         status: "answered",
@@ -440,7 +442,7 @@ test("a persistently undelivered Ask stays visible and reopens after bounded ret
     interaction: async () => {
       presentations += 1;
       return {
-        version: 2,
+        version: 3,
         kind: "askFlow",
         requestId: request.requestId,
         status: "answered",
@@ -554,7 +556,7 @@ test("Ask presentation waits for daemon owner recovery instead of replaying or d
     interaction: async () => {
       presentations += 1;
       return {
-        version: 2,
+        version: 3,
         kind: "askFlow",
         requestId: request.requestId,
         status: "answered",
@@ -1509,17 +1511,17 @@ test("daemon run and events plane commands expose stable JSON resources", async 
 
 function daemonViewEventFixture(id: string, text: string) {
   return {
-    version: 2 as const,
+    version: 3 as const,
     source: "test" as const,
     metadata: {},
     type: "daemon.view_event" as const,
     timestamp: "2026-07-08T00:05:00.000Z",
     view: {
-      version: 2 as const,
+      version: 3 as const,
       type: "session.message" as const,
       sessionId: "fixture-a",
       message: {
-        version: 2 as const,
+        version: 3 as const,
         id,
         role: "assistant" as const,
         status: "streaming" as const,
@@ -3128,7 +3130,7 @@ test("Spark TUI and headless print attach and release workspace clients", async 
         assert.equal(method, "session.snapshot");
         assert.deepEqual(params, { sessionId: "generated-3" });
         return {
-          version: 2,
+          version: 3,
           sessionId: "generated-3",
           status: "idle",
           cwd: dir,
@@ -3159,14 +3161,14 @@ test("Spark TUI and headless print attach and release workspace clients", async 
             sequence: 1,
             kind: "daemon.view_event",
             payload: {
-              version: 2,
+              version: 3,
               type: "daemon.view_event",
               source: "daemon",
               emittedAt: "2026-06-19T00:00:01.000Z",
               sessionId: "generated-3",
               invocationId: "inv_turn",
               view: {
-                version: 2,
+                version: 3,
                 type: "session.message",
                 sessionId: "generated-3",
                 message: {
@@ -3279,7 +3281,7 @@ test("Spark TUI and headless print attach and release workspace clients", async 
           );
           assert.equal(options.sessions.length, 3);
           assert.equal(
-            options.sessions.filter((session) => session.owner.kind === "workspace").length,
+            options.sessions.filter((session) => session.lineage.kind === "root").length,
             1,
           );
           return { kind: "create", workspaceId: workspace.id };
@@ -3491,7 +3493,7 @@ test("native TUI hydrates a delayed History Session snapshot before its initial 
         snapshotRequested = true;
         await snapshotGate.promise;
         return {
-          version: 2,
+          version: 3,
           sessionId: existing.sessionId,
           title: existing.name,
           status: "idle",
@@ -3501,7 +3503,7 @@ test("native TUI hydrates a delayed History Session snapshot before its initial 
           thinkingLevel: "xhigh",
           messages: [
             {
-              version: 2,
+              version: 3,
               id: "message-history-prompt",
               role: "user",
               text: "Earlier durable prompt",
@@ -3510,7 +3512,7 @@ test("native TUI hydrates a delayed History Session snapshot before its initial 
               metadata: {},
             },
             {
-              version: 2,
+              version: 3,
               id: "message-1",
               role: "assistant",
               text: "Restored from daemon",
@@ -3617,7 +3619,7 @@ test("native TUI recalls durable user prompts older than the bounded transcript 
       updatedAt: now,
     });
     const messages = Array.from({ length: 240 }, (_, index) => ({
-      version: 2 as const,
+      version: 3 as const,
       id: `history-message-${index}`,
       role: (index % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
       text: `${index % 2 === 0 ? "durable prompt" : "non-user reply"} ${Math.floor(index / 2)}`,
@@ -3643,7 +3645,7 @@ test("native TUI recalls durable user prompts older than the bounded transcript 
         if (method === "session.snapshot") {
           assert.deepEqual(params, { sessionId });
           return {
-            version: 2,
+            version: 3,
             sessionId,
             status: "idle",
             cwd: dir,
@@ -3781,7 +3783,7 @@ test("native status is unified while new, resume, and sessions keep their direct
         const selected = sessions.find((session) => session.sessionId === sessionId);
         assert.ok(selected, `snapshot requested for an unknown session: ${sessionId}`);
         return {
-          version: 2,
+          version: 3,
           sessionId: selected.sessionId,
           title: selected.name,
           status: "idle",
@@ -3963,7 +3965,7 @@ test("native TUI lists all daemon sessions and routes a cross-workspace selectio
         assert.equal(method, "session.snapshot");
         assert.deepEqual(params, { sessionId: other.sessionId });
         return {
-          version: 2,
+          version: 3,
           sessionId: other.sessionId,
           title: other.name,
           status: "idle",
@@ -5530,7 +5532,7 @@ test("production TUI Shift+Tab overrides extension shortcut and updates session 
         controlCalls.push({ method, params });
         if (method === "session.snapshot") {
           return {
-            version: 2,
+            version: 3,
             sessionId,
             status: "idle",
             cwd: dir,
@@ -5650,14 +5652,14 @@ test("Spark native responder streams daemon view events as assistant chunks", as
           sequence: index + 1,
           kind: "daemon.view_event",
           payload: {
-            version: 2,
+            version: 3,
             type: "daemon.view_event",
             source: "daemon",
             emittedAt: "2026-06-19T00:00:00.000Z",
             sessionId: "native-session",
             invocationId: "inv_stream",
             view: {
-              version: 2,
+              version: 3,
               type: "session.message",
               sessionId: "native-session",
               message: { id: "assistant", role: "assistant", text, status: "streaming" },
@@ -5764,13 +5766,13 @@ test("Spark native responder pauses event polling for a visible interaction hand
             sequence: 1,
             kind: "daemon.interaction.request",
             payload: {
-              version: 2,
+              version: 3,
               type: "daemon.interaction.request",
               source: "daemon",
               sessionId: "native-interaction-session",
               invocationId: "inv_interaction",
               request: {
-                version: 2,
+                version: 3,
                 requestId: "ask-visible",
                 kind: "askFlow",
                 title: "Choose a path",
@@ -5837,13 +5839,13 @@ test("running invocation reattach from cursor zero skips an already settled hist
           sequence: 1,
           kind: "daemon.interaction.request",
           payload: {
-            version: 2,
+            version: 3,
             type: "daemon.interaction.request",
             source: "daemon",
             sessionId: "native-reattach-session",
             invocationId: input.invocationId,
             request: {
-              version: 2,
+              version: 3,
               requestId: "ask-settled-before-reattach",
               kind: "askFlow",
               title: "Already answered",
@@ -5869,13 +5871,13 @@ test("running invocation reattach from cursor zero skips an already settled hist
           sequence: 2,
           kind: "daemon.interaction.response",
           payload: {
-            version: 2,
+            version: 3,
             type: "daemon.interaction.response",
             source: "daemon",
             sessionId: "native-reattach-session",
             invocationId: input.invocationId,
             response: {
-              version: 2,
+              version: 3,
               requestId: "ask-settled-before-reattach",
               kind: "askFlow",
               status: "answered",
@@ -6036,14 +6038,14 @@ test("Spark native responder retries stream and terminal status from stable invo
               sequence: 1,
               kind: "daemon.view_event",
               payload: {
-                version: 2,
+                version: 3,
                 type: "daemon.view_event",
                 source: "daemon",
                 emittedAt: "2026-07-15T00:00:00.000Z",
                 sessionId: "stream-transport-retry-session",
                 invocationId: "inv_stream_transport_retry",
                 view: {
-                  version: 2,
+                  version: 3,
                   type: "session.message",
                   sessionId: "stream-transport-retry-session",
                   message: {
@@ -6366,14 +6368,14 @@ test("Spark native responder reconnects from its durable cursor without duplicat
     sequence,
     kind: "daemon.view_event",
     payload: {
-      version: 2,
+      version: 3,
       type: "daemon.view_event",
       source: "daemon",
       emittedAt: "2026-06-19T00:00:00.000Z",
       sessionId: "native-reconnect",
       invocationId: "inv_reconnect",
       view: {
-        version: 2,
+        version: 3,
         type: "session.message",
         sessionId: "native-reconnect",
         message: { id: "assistant", role: "assistant", text, status: "streaming" },
@@ -6457,7 +6459,7 @@ test("Spark native responder drains 10,000 bounded invocation events without sta
     sequence: index + 1,
     kind: "daemon.task.lifecycle",
     payload: {
-      version: 2,
+      version: 3,
       type: "daemon.task.lifecycle",
       source: "daemon",
       emittedAt: "2026-06-19T00:00:00.000Z",

@@ -10,12 +10,11 @@ import {
 export const TRANSCRIPT_ENTRY_COUNT = 10_000;
 export const TAIL_MESSAGE_LIMIT = 32;
 
-function sessionControlFields(supervisorSessionId: string) {
+function sessionControlFields() {
   return {
     incarnation: 1,
     activity: "idle" as const,
     lifetime: "scoped" as const,
-    stateBinding: { kind: "session" as const, ref: supervisorSessionId },
     visibility: "public" as const,
     retention: "retain" as const,
     purpose: "interactive",
@@ -55,8 +54,12 @@ export async function createIndexedTranscript(sessionId: string) {
     lifecycle: "open",
     placement: "active",
     roleBinding: { kind: "none" },
-    owner: { kind: "session", supervisorSessionId: "sess_admin_ws_bench" },
-    ...sessionControlFields("sess_admin_ws_bench"),
+    lineage: {
+      kind: "child",
+      parentSessionId: "sess_admin_ws_bench",
+      origin: { kind: "session" },
+    },
+    ...sessionControlFields(),
     sessionPath: transcriptPath,
     bindings: [],
     createdAt: "2026-08-03T00:00:00.000Z",

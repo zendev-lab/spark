@@ -32,7 +32,7 @@ import {
   parseReproFormalEvidencePublicKeys,
 } from "./repro-formal-evidence-verifier.ts";
 import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
-import { migrateSessionRegistryOwnership } from "./session-registry-migration.ts";
+import { migrateSessionRegistryLineage } from "./session-registry-migration.ts";
 import { migrateRoleSessionStructuredData } from "./role-session-data-migration.ts";
 import { migrateRoleSessionSqliteData } from "./role-session-sqlite-migration.ts";
 import { unifyDaemonSessionTranscripts } from "./session-transcript-unification.ts";
@@ -174,7 +174,7 @@ export async function start(
     // The daemon process lock is held and the registry owner does not exist yet,
     // so the migration has exclusive mutation authority over registry.json.
     console.error("[spark-daemon] migrating session registry ownership");
-    await migrateSessionRegistryOwnership({ sparkHome });
+    await migrateSessionRegistryLineage({ sparkHome });
     console.error("[spark-daemon] migrating role session sqlite data");
     await migrateRoleSessionSqliteData({
       db,

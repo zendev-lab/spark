@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import {
   DEFAULT_READY_TASK_MAX_CONCURRENCY,
+  type SparkTaskExecutionScope,
   type ProjectRef,
   type TaskRef,
 } from "@zendev-lab/spark-core";
@@ -121,11 +122,13 @@ export async function saveSessionMode(
 
 export async function currentSparkProject(
   cwd: string,
-  ctx: SparkSessionContext | undefined,
+  ctx: (SparkSessionContext & { taskExecutionScope?: SparkTaskExecutionScope }) | undefined,
   graph: TaskGraph,
 ): Promise<ReturnType<TaskGraph["projects"]>[number] | undefined> {
   const projects = graph.projects();
   if (projects.length === 0) return undefined;
+  const boundProjectRef = ctx?.taskExecutionScope?.binding?.projectRef;
+  if (boundProjectRef) return projects.find((project) => project.ref === boundProjectRef);
   const stored = await loadCurrentProjectRef(cwd, ctx);
   if (!stored) return undefined;
   const selected = projects.find((project) => project.ref === stored);

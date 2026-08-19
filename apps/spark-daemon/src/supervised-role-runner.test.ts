@@ -134,7 +134,11 @@ describe("supervised Role runner", () => {
         recordKind: "ephemeral_tombstone",
         lifecycle: "closed",
         placement: "archived",
-        owner: { kind: "invocation", supervisorSessionId: administrator.sessionId },
+        lineage: {
+          kind: "child",
+          parentSessionId: administrator.sessionId,
+          origin: { kind: "invocation", invocationId: childInvocation.invocationId },
+        },
       });
       expect(tombstone).not.toHaveProperty("roleBinding");
       expect(tombstone?.closeReceipts).toEqual([

@@ -1307,7 +1307,7 @@ export async function ensureSparkDaemonWorkspaceSession(
     (session) =>
       session.scope.kind === "workspace" &&
       session.scope.workspaceId === input.workspaceId &&
-      session.owner.kind === "workspace",
+      session.lineage.kind === "root",
   );
   if (!administrator) {
     throw new Error(`workspace ${input.workspaceId} has no reconciled Administrator Session`);

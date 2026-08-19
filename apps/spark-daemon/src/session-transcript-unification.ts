@@ -58,7 +58,7 @@ export async function unifyDaemonSessionTranscripts(
     // runs would turn ephemeral content into a permanent retained artifact.
     if (
       (session.lifecycle !== "open" && session.retention === "discard_on_close") ||
-      session.owner?.kind === "side_thread" ||
+      (session.lineage.kind === "child" && session.lineage.origin.kind === "side_thread") ||
       !session.cwd?.trim()
     ) {
       continue;

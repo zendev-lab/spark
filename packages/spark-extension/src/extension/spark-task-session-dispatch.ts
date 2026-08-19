@@ -750,6 +750,7 @@ async function ensureTaskExecutionSession(input: {
     await input.daemonRequest("session.create", {
       sessionId,
       scope: { kind: "workspace", workspaceId: owner.scope.workspaceId },
+      supervisorSessionId: input.execution.ownerSessionId,
       roleBinding: { kind: "explicit", roleRef: input.roleRef },
       ...(worktreeTarget
         ? {
@@ -775,15 +776,14 @@ async function ensureTaskExecutionSession(input: {
             taskExecution: {
               ...(input.execution.sessionLifetime === "task_revision"
                 ? {
-                    ownerKind: "task_revision" as const,
+                    originKind: "task_revision" as const,
                     revisionRef: input.execution.jobId,
                     originatingRunRef: input.runRef,
                   }
                 : {
-                    ownerKind: "task_run" as const,
+                    originKind: "task_run" as const,
                     runRef: input.runRef,
                   }),
-              supervisorSessionId: input.execution.ownerSessionId,
               projectRef: input.projectRef,
               taskRef: input.taskRef,
               sessionGoalId: input.execution.sessionGoalId,
@@ -811,8 +811,9 @@ async function ensureTaskExecutionSession(input: {
       );
     }
     const bindingMatches = fleetWorkerTarget
-      ? existing.owner.kind === "session" &&
-        existing.owner.supervisorSessionId === input.execution.ownerSessionId &&
+      ? existing.lineage.kind === "child" &&
+        existing.lineage.parentSessionId === input.execution.ownerSessionId &&
+        existing.lineage.origin.kind === "session" &&
         existing.roleBinding.kind === "explicit" &&
         existing.roleBinding.roleRef === input.roleRef &&
         existing.fleetWorker?.ownerSessionId === input.execution.ownerSessionId &&
@@ -824,12 +825,15 @@ async function ensureTaskExecutionSession(input: {
           existing.fleetWorker?.writableArtifactRefs ?? [],
           fleetWorkerTarget.writableArtifactRefs,
         )
-      : (existing.owner.kind === "task_run" || existing.owner.kind === "task_revision") &&
-        existing.owner.kind ===
+      : existing.lineage.kind === "child" &&
+        existing.lineage.parentSessionId === input.execution.ownerSessionId &&
+        (existing.lineage.origin.kind === "task_run" ||
+          existing.lineage.origin.kind === "task_revision") &&
+        existing.lineage.origin.kind ===
           (input.execution.sessionLifetime === "task_revision" ? "task_revision" : "task_run") &&
-        existing.owner.jobId === input.execution.jobId &&
-        existing.owner.taskRef === input.taskRef &&
-        existing.owner.sessionGoalId === input.execution.sessionGoalId &&
+        existing.lineage.origin.jobId === input.execution.jobId &&
+        existing.lineage.origin.taskRef === input.taskRef &&
+        existing.lineage.origin.sessionGoalId === input.execution.sessionGoalId &&
         existing.roleBinding.kind === "explicit" &&
         existing.roleBinding.roleRef === input.roleRef &&
         (!worktreeTarget ||

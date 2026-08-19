@@ -51,7 +51,7 @@ export async function createManagedChildSession(
       "managed child Sessions require a workspace supervisor",
     );
   }
-  if (supervisor.owner.kind === "invocation") {
+  if (supervisor.lineage.kind === "child" && supervisor.lineage.origin.kind === "invocation") {
     throw new SparkSessionRegistryError(
       "invalid_scope",
       "ephemeral invocation Sessions cannot supervise managed child Sessions",

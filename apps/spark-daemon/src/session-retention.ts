@@ -1,4 +1,4 @@
-import { sparkSessionLifetimeForOwner, type SparkSessionState } from "@zendev-lab/spark-protocol";
+import { sparkSessionLifetimeForLineage, type SparkSessionState } from "@zendev-lab/spark-protocol";
 
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import type { SparkLoopStore } from "./store/loops.ts";
@@ -100,7 +100,7 @@ function isUnassignedRetentionCandidate(session: SparkSessionState): boolean {
   return (
     session.lifecycle === "open" &&
     session.placement === "active" &&
-    sparkSessionLifetimeForOwner(session.owner) === "scoped" &&
+    sparkSessionLifetimeForLineage(session.lineage) === "scoped" &&
     session.roleBinding.kind === "none" &&
     session.bindings.length === 0
   );

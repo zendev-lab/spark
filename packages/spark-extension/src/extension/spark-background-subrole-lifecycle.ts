@@ -45,16 +45,13 @@ export async function cleanupOwnedBackgroundSubroles(
 
   const killedRunRefs = new Set(killed.map((run) => run.runRef));
   const killedRoleNames = new Set(killed.flatMap((run) => (run.runName ? [run.runName] : [])));
+  if (killedRunRefs.size === 0 && killedRoleNames.size === 0) return 0;
   let changed = false;
   for (const task of owned) {
     const runRef = task.claim?.runRef;
-    if (killedRunRefs.size > 0 && (!runRef || !killedRunRefs.has(runRef))) continue;
-    if (
-      killedRunRefs.size === 0 &&
-      killedRoleNames.size > 0 &&
-      !killedRoleNames.has(task.claim?.runName ?? "")
-    )
-      continue;
+    const killedByRef = Boolean(runRef && killedRunRefs.has(runRef));
+    const killedByName = killedRoleNames.has(task.claim?.runName ?? "");
+    if (!killedByRef && !killedByName) continue;
     if (runRef) {
       const run = graph.runs(task.projectRef).find((candidate) => candidate.ref === runRef);
       if (run?.status === "running" || run?.status === "queued") {

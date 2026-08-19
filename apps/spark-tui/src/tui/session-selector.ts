@@ -38,9 +38,9 @@ function isUserFacingWorkspaceSession(session: SparkSessionProjection): boolean 
     legacy.status === undefined &&
     session.scope.kind === "workspace" &&
     session.visibility === "public" &&
-    (session.owner.kind === "workspace" ||
-      session.owner.kind === "session" ||
-      session.owner.kind === "side_thread")
+    (session.lineage.kind === "root" ||
+      session.lineage.origin.kind === "session" ||
+      session.lineage.origin.kind === "side_thread")
   );
 }
 
@@ -356,18 +356,19 @@ function sessionSelectionGroups(
     );
     const byId = new Map(workspaceSessions.map((session) => [session.sessionId, session]));
     const roots = workspaceSessions
-      .filter((session) => session.owner?.kind !== "side_thread")
+      .filter((session) => sideThreadRelation(session) === undefined)
       .sort(compareSessions);
     const children = new Map<string, SparkSessionProjection[]>();
     for (const session of workspaceSessions) {
-      if (session.owner?.kind !== "side_thread") continue;
-      if (!byId.has(session.owner.parentSessionId)) {
+      const sideThread = sideThreadRelation(session);
+      if (!sideThread) continue;
+      if (!byId.has(sideThread.parentSessionId)) {
         orphans.push(sessionSelectionItem(session, true));
         continue;
       }
-      const siblings = children.get(session.owner.parentSessionId) ?? [];
+      const siblings = children.get(sideThread.parentSessionId) ?? [];
       siblings.push(session);
-      children.set(session.owner.parentSessionId, siblings);
+      children.set(sideThread.parentSessionId, siblings);
     }
     for (const root of roots) {
       group.items.push(sessionSelectionItem(root, false));
@@ -446,7 +447,7 @@ function sessionSelectionItem(
     throw new Error(`Session selector cannot render daemon session ${session.sessionId}.`);
   }
   const channel = session.bindings[0];
-  const sideThread = session.owner?.kind === "side_thread" ? session.owner : undefined;
+  const sideThread = sideThreadRelation(session);
   const archived = session.placement === "archived" ? " [archived]" : "";
   return {
     value: session.sessionId,
@@ -499,7 +500,13 @@ function compareSessions(left: SparkSessionProjection, right: SparkSessionProjec
 }
 
 function compareSideThreads(left: SparkSessionProjection, right: SparkSessionProjection): number {
-  const leftGeneration = left.owner?.kind === "side_thread" ? left.owner.generation : 0;
-  const rightGeneration = right.owner?.kind === "side_thread" ? right.owner.generation : 0;
+  const leftGeneration = sideThreadRelation(left)?.generation ?? 0;
+  const rightGeneration = sideThreadRelation(right)?.generation ?? 0;
   return leftGeneration - rightGeneration || compareSessions(left, right);
+}
+
+function sideThreadRelation(session: SparkSessionProjection) {
+  return session.lineage.kind === "child" && session.lineage.origin.kind === "side_thread"
+    ? { ...session.lineage.origin, parentSessionId: session.lineage.parentSessionId }
+    : undefined;
 }

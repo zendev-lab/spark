@@ -80,7 +80,7 @@ async function ensureSparkDaemonOwnerSession(input: {
     scope: { kind: "workspace", workspaceId },
     includeArchived: true,
   });
-  const administrator = sessions.find((candidate) => candidate.owner.kind === "workspace");
+  const administrator = sessions.find((candidate) => candidate.lineage.kind === "root");
   if (!administrator) {
     throw new Error(`Spark workspace ${workspaceId} has no reconciled Administrator Session`);
   }

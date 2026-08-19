@@ -105,7 +105,7 @@ describe("SparkInvocationScheduler", () => {
     const { db, store, scheduler } = harness(
       async (_task, context) => {
         void context.emitEvent?.({
-          version: 2,
+          version: 3,
           type: "daemon.view_event",
           source: "daemon",
           invocationId: context.invocationId,
@@ -313,7 +313,7 @@ describe("SparkInvocationScheduler", () => {
     const { db, store, scheduler, executionAttemptStore } = harness(
       async (_task, context) => {
         void context.emitEvent?.({
-          version: 2,
+          version: 3,
           type: "daemon.view_event",
           source: "daemon",
           invocationId: context.invocationId,
@@ -1278,7 +1278,7 @@ describe("SparkInvocationScheduler", () => {
       const { db, store, scheduler } = harness(async (_task, context) => {
         for (let index = 0; index < jsonEvents.length; index += 1) {
           void context.emitEvent?.({
-            version: 2,
+            version: 3,
             type: "daemon.view_event",
             source: "daemon",
             emittedAt: "2026-07-30T00:00:00.000Z",
@@ -1349,18 +1349,18 @@ describe("SparkInvocationScheduler", () => {
     const { db, store, scheduler } = harness(async (_task, context) => {
       for (let index = 0; index < 200; index += 1) {
         void context.emitEvent?.({
-          version: 2,
+          version: 3,
           type: "daemon.view_event",
           source: "daemon",
           invocationId: context.invocationId,
           sessionId,
           metadata: {},
           view: {
-            version: 2,
+            version: 3,
             type: "session.message",
             sessionId,
             message: {
-              version: 2,
+              version: 3,
               id: "message-coalesced",
               role: "assistant",
               text: `partial-${index}`,
@@ -1371,18 +1371,18 @@ describe("SparkInvocationScheduler", () => {
         });
       }
       void context.emitEvent?.({
-        version: 2,
+        version: 3,
         type: "daemon.view_event",
         source: "daemon",
         invocationId: context.invocationId,
         sessionId,
         metadata: {},
         view: {
-          version: 2,
+          version: 3,
           type: "session.message",
           sessionId,
           message: {
-            version: 2,
+            version: 3,
             id: "message-coalesced",
             role: "assistant",
             text: "partial-199",
@@ -2135,18 +2135,18 @@ function streamingAssistantMessage(
   text: string,
 ) {
   return {
-    version: 2 as const,
+    version: 3 as const,
     type: "daemon.view_event" as const,
     source: "daemon" as const,
     invocationId,
     sessionId,
     metadata: {},
     view: {
-      version: 2 as const,
+      version: 3 as const,
       type: "session.message" as const,
       sessionId,
       message: {
-        version: 2 as const,
+        version: 3 as const,
         id: messageId,
         role: "assistant" as const,
         text,

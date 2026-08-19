@@ -43,7 +43,11 @@ describe("managed child Sessions", () => {
       lifecycle: "open",
       placement: "active",
       roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
-      owner: { kind: "session", supervisorSessionId: fixture.administrator.sessionId },
+      lineage: {
+        kind: "child",
+        parentSessionId: fixture.administrator.sessionId,
+        origin: { kind: "session" },
+      },
       purpose: "interactive",
       retention: "retain",
       visibility: "public",
@@ -224,10 +228,10 @@ describe("managed child Sessions", () => {
     const fixture = await createFixture();
     const ephemeral = {
       ...fixture.administrator,
-      owner: {
-        kind: "invocation",
-        invocationId: "inv-managed-child-test",
-        supervisorSessionId: fixture.administrator.sessionId,
+      lineage: {
+        kind: "child",
+        parentSessionId: fixture.administrator.sessionId,
+        origin: { kind: "invocation", invocationId: "inv-managed-child-test" },
       },
       purpose: "role_call",
     } satisfies SparkSessionState;

@@ -111,8 +111,8 @@ describe("migrations", () => {
     const runtimeSessionSchema = db
       .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
       .get("runtime_session_projections") as { sql: string };
-    for (const ownerKind of [
-      "workspace",
+    for (const lineageOriginKind of [
+      "root",
       "session",
       "side_thread",
       "task_run",
@@ -122,8 +122,10 @@ describe("migrations", () => {
       "driver_tick",
       "invocation",
     ]) {
-      expect(runtimeSessionSchema.sql).toContain(`'${ownerKind}'`);
+      expect(runtimeSessionSchema.sql).toContain(`'${lineageOriginKind}'`);
     }
+    expect(runtimeSessionSchema.sql).toContain("lineage_origin_kind");
+    expect(runtimeSessionSchema.sql).not.toContain("owner_kind");
     expect(runtimeSessionSchema.sql).not.toContain("'driver_generation'");
 
     const versions = db
@@ -154,6 +156,7 @@ describe("migrations", () => {
       "0021",
       "0022",
       "0023",
+      "0024",
     ]);
 
     const bindingColumns = db
@@ -177,7 +180,7 @@ describe("migrations", () => {
       count: number;
     };
 
-    expect(migrationCount.count).toBe(23);
+    expect(migrationCount.count).toBe(24);
     db.close();
   });
 

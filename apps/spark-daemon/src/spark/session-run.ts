@@ -6,7 +6,9 @@ import {
   parseSparkDaemonEvent,
   parseSparkInteractionRequest,
   parseSparkViewModelEvent,
-  sparkSessionLifetimeForOwner,
+  sparkSessionLifetimeForLineage,
+  sparkSessionLineageOriginKind,
+  sparkSessionParentId,
   sparkThinkingLevelSchema,
   type SparkDaemonEvent,
   type SparkJsonObject,
@@ -331,22 +333,19 @@ export function createSparkDaemonTaskExecutor(
         await options.sessionSupervisor.instantiateOwnedContext({
           sessionId: loopTask.sessionId,
           parentSessionId: loopTask.ownerSessionId,
-          owner:
+          origin:
             sessionLifetime === "driver"
               ? {
                   kind: "driver",
                   driverId: loopTask.loopId,
                   generation: loopTask.generation,
-                  supervisorSessionId: loopTask.ownerSessionId,
                 }
               : {
                   kind: "driver_tick",
                   driverId: loopTask.loopId,
                   generation: loopTask.generation,
                   tickInvocationId: context.invocationId,
-                  supervisorSessionId: loopTask.ownerSessionId,
                 },
-          stateBinding: { kind: "session", ref: loopTask.ownerSessionId },
           purpose: sessionLifetime,
           cwd: loopTask.cwd,
         });
@@ -1129,6 +1128,7 @@ function interactionForSessionRun(
   options: SparkDaemonTaskExecutorOptions,
   task: SparkDaemonSessionRunTask,
   context: SparkDaemonTaskExecutionContext,
+  taskOwnerSessionId?: string,
 ) {
   if (!options.interact) return undefined;
   return (request: unknown) => {
@@ -1138,7 +1138,8 @@ function interactionForSessionRun(
     if (
       evidenceOwnerSessionId &&
       evidenceOwnerSessionId !== task.sessionId &&
-      evidenceOwnerSessionId !== task.stateBindingSessionId
+      evidenceOwnerSessionId !== task.stateBindingSessionId &&
+      evidenceOwnerSessionId !== taskOwnerSessionId
     ) {
       throw new Error("evidence-bound interaction owner does not match the Session state owner");
     }
@@ -1297,6 +1298,7 @@ async function resolveFleetExecutionScope(input: {
   }
   return Object.freeze({
     isolation: policy.isolation,
+    binding: taskExecutionBinding(request, run.execution.ownerSessionId),
     primaryArtifactRef: input.binding.primaryArtifactRef as ArtifactRef,
     writableArtifactRefs: writableArtifactRefs as ArtifactRef[],
     writableRoots,
@@ -1329,9 +1331,24 @@ async function resolveWorkspaceTaskExecutionScope(input: {
   if (policy?.isolation !== "workspace") return undefined;
   return Object.freeze({
     isolation: "workspace",
+    binding: taskExecutionBinding(request, run.execution.ownerSessionId),
     writableArtifactRefs: [],
     writableRoots: [input.workspaceRoot],
   });
+}
+
+function taskExecutionBinding(
+  request: NonNullable<ReturnType<typeof fleetTaskRequestMetadata>>,
+  ownerSessionId: string,
+): NonNullable<SparkTaskExecutionScope["binding"]> {
+  return {
+    ownerSessionId,
+    projectRef: request.projectRef as ProjectRef,
+    taskRef: request.taskRef as NonNullable<SparkTaskExecutionScope["binding"]>["taskRef"],
+    runRef: request.runRef as NonNullable<SparkTaskExecutionScope["binding"]>["runRef"],
+    jobId: request.jobId,
+    attempt: request.attempt,
+  };
 }
 
 function fleetTaskRequestMetadata(task: SparkDaemonSessionRunTask):
@@ -1344,7 +1361,7 @@ function fleetTaskRequestMetadata(task: SparkDaemonSessionRunTask):
     }
   | undefined {
   const mail = recordValue(task.messageMetadata?.sessionMail);
-  const payload = recordValue(mail?.requestPayload);
+  const payload = recordValue(mail?.requestPayload) ?? recordValue(task.messageMetadata);
   if (
     payload?.kind !== "task_execution" ||
     typeof payload.projectRef !== "string" ||
@@ -1460,7 +1477,7 @@ export async function executeSparkDaemonSessionCompactTask(
   ) {
     throw sessionCompactionFenceError(task, session);
   }
-  if (session.owner.kind === "side_thread") {
+  if (session.lineage.kind === "child" && session.lineage.origin.kind === "side_thread") {
     throw new SparkSessionRegistryError(
       "side_thread_mutation_forbidden",
       `session.compact cannot mutate side thread ${task.sessionId}`,
@@ -1567,7 +1584,13 @@ export async function executeSparkDaemonSessionRunTask(
   );
   const messageMetadata = sessionRunMessageMetadata(task, context.invocationId);
   const binding = completeChannelBinding(task);
-  const interaction = interactionForSessionRun(options, task, context);
+  const executionIdentity = await sessionExecutionIdentity(task, options, sessionContext);
+  const interaction = interactionForSessionRun(
+    options,
+    task,
+    context,
+    executionIdentity.taskExecutionScope?.binding?.ownerSessionId,
+  );
   const checkpointRestart =
     typeof context.yieldForRestartIfRequested === "function"
       ? (checkpoint: SparkTurnResumeCheckpoint) => context.yieldForRestartIfRequested?.(checkpoint)
@@ -1579,7 +1602,6 @@ export async function executeSparkDaemonSessionRunTask(
     : sessionContext.taskSession
       ? "task_execution"
       : "root_session";
-  const executionIdentity = await sessionExecutionIdentity(task, options, sessionContext);
   const roleRunner =
     options.sessionSupervisor && executionIdentity.workspaceId
       ? createSupervisedRoleRunner({
@@ -1934,8 +1956,11 @@ async function sessionContextForTask(
     ...(session.scope?.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
     ...(session.cwdArtifactRef ? { cwdArtifactRef: session.cwdArtifactRef } : {}),
     ...(role ? { role } : {}),
-    ...(session.owner.kind === "side_thread" ? { sideThread: true } : {}),
-    ...(session.owner.kind === "task_run" || session.owner.kind === "task_revision"
+    ...(session.lineage.kind === "child" && session.lineage.origin.kind === "side_thread"
+      ? { sideThread: true }
+      : {}),
+    ...(session.lineage.kind === "child" &&
+    (session.lineage.origin.kind === "task_run" || session.lineage.origin.kind === "task_revision")
       ? { taskSession: true }
       : {}),
     ...(session.fleetWorker ? { taskSession: true, fleetWorker: session.fleetWorker } : {}),
@@ -1952,7 +1977,7 @@ async function inheritedSessionModel(
   let current = session;
   const visited = new Set<string>();
   while (current) {
-    const supervisorId = supervisorSessionIdForOwner(current);
+    const supervisorId = sparkSessionParentId(current.lineage);
     if (!supervisorId || visited.has(supervisorId)) return undefined;
     visited.add(supervisorId);
     current = await registry?.get?.(supervisorId);
@@ -1968,7 +1993,7 @@ async function inheritedSessionThinkingLevel(
   let current = session;
   const visited = new Set<string>();
   while (current) {
-    const supervisorId = supervisorSessionIdForOwner(current);
+    const supervisorId = sparkSessionParentId(current.lineage);
     if (!supervisorId || visited.has(supervisorId)) return undefined;
     visited.add(supervisorId);
     current = await registry?.get?.(supervisorId);
@@ -1998,8 +2023,8 @@ function recordInvocationReceiptContext(
     surface: context.surface ?? "local",
   };
   store.recordReceiptContext(invocationId, {
-    lifetime: sparkSessionLifetimeForOwner(session.owner),
-    ownerKind: session.owner.kind,
+    lifetime: sparkSessionLifetimeForLineage(session.lineage),
+    originKind: sparkSessionLineageOriginKind(session.lineage),
     ...(context.role ? { effectiveRoleRef: context.role.ref } : {}),
     ...(context.role ? { effectiveRoleRevision: context.role.revision } : {}),
     ...(task.model ? { model: modelRefFromValue(task.model) } : {}),
@@ -2041,7 +2066,7 @@ async function resolveInvocationRole(
       if (!role) throw new Error(`Session Role is not defined: ${current.roleBinding.roleRef}`);
       return role;
     }
-    const supervisorSessionId = supervisorSessionIdForOwner(current);
+    const supervisorSessionId = sparkSessionParentId(current.lineage);
     if (!supervisorSessionId) {
       throw new Error(`Session ${current.sessionId} cannot inherit Role without a supervisor`);
     }
@@ -2053,23 +2078,6 @@ async function resolveInvocationRole(
     }
   }
   return undefined;
-}
-
-function supervisorSessionIdForOwner(session: SparkSessionState): string | undefined {
-  switch (session.owner.kind) {
-    case "session":
-    case "task_run":
-    case "task_revision":
-    case "workflow_run":
-    case "driver":
-    case "driver_tick":
-    case "invocation":
-      return session.owner.supervisorSessionId;
-    case "side_thread":
-      return session.owner.parentSessionId;
-    case "workspace":
-      return undefined;
-  }
 }
 
 async function systemPromptForChannelSession(
@@ -2456,7 +2464,7 @@ async function assignRoleAfterCompletedSessionRun(
   if (!task.model || !generateSessionName || !get || !setNameIfMissing) return;
   try {
     const current = await get(task.sessionId);
-    if (current?.owner?.kind === "side_thread") return;
+    if (current?.lineage.kind === "child" && current.lineage.origin.kind === "side_thread") return;
     const session = await assignCompletedSessionName(
       {
         sessionId: task.sessionId,
@@ -2534,10 +2542,16 @@ async function wakeTaskExecutionOwner(
     // Loop ticks can target a different owner Session, so they use the last
     // atomic visibility snapshot without waiting behind unrelated recordRun work.
     const session = knownSession ?? (await readVisibilitySnapshot!(sessionId));
-    if (session?.owner?.kind !== "task_run" && session?.owner?.kind !== "task_revision") return;
-    await options.loopControl.wakeOwner(session.owner.supervisorSessionId, {
+    if (
+      session?.lineage.kind !== "child" ||
+      (session.lineage.origin.kind !== "task_run" &&
+        session.lineage.origin.kind !== "task_revision")
+    ) {
+      return;
+    }
+    await options.loopControl.wakeOwner(session.lineage.parentSessionId, {
       target: "repro",
-      reason: `managed Task Session ${sessionId} settled; reconcile ${session.owner.taskRef}`,
+      reason: `managed Task Session ${sessionId} settled; reconcile ${session.lineage.origin.taskRef}`,
     });
   } catch (error) {
     console.error(`[spark-daemon] failed to wake Task Session owner for ${sessionId}`, error);

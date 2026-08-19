@@ -899,6 +899,15 @@ export interface SparkSessionLeaseIdentity {
 /** Host-private immutable write boundary for one daemon-owned Task Invocation. */
 export interface SparkTaskExecutionScope {
   isolation: TaskExecutionIsolation;
+  /** Daemon-validated TaskRun provenance for project-bound tools and owner callbacks. */
+  binding?: {
+    ownerSessionId: string;
+    projectRef: ProjectRef;
+    taskRef: TaskRef;
+    runRef: RunRef;
+    jobId: string;
+    attempt: number;
+  };
   primaryArtifactRef?: ArtifactRef;
   writableArtifactRefs: ArtifactRef[];
   writableRoots: string[];
