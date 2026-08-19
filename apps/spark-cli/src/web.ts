@@ -174,7 +174,7 @@ const SPARK_WEB_DHS_PACKAGE = "@zendev-lab/spark-web-dsh";
 
 /** Locate the installed `@zendev-lab/spark-web-dsh` package root. */
 export function resolveSparkWebDshPackageDir(): string {
-  return dirname(resolvePackageJson(`${SPARK_WEB_DHS_PACKAGE}/package.json`));
+  return resolvePackageDir(SPARK_WEB_DHS_PACKAGE);
 }
 
 export interface SparkWebPatch {
