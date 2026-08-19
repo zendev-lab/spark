@@ -30,11 +30,33 @@ window.__ModuleLoader__.load({
       apply: () => apply,
       default: () => client_default,
       inject: () => inject,
+      installRandomUuidPolyfill: () => installRandomUuidPolyfill,
       name: () => name,
     });
     module.exports = __toCommonJS(client_exports);
     var import_react = require("react");
     var import_jsx_runtime = require("react/jsx-runtime");
+    function installRandomUuidPolyfill(cryptoApi = globalThis.crypto) {
+      if (cryptoApi === void 0 || typeof cryptoApi.randomUUID === "function") return;
+      Object.defineProperty(cryptoApi, "randomUUID", {
+        configurable: true,
+        value: () => {
+          const bytes = new Uint8Array(16);
+          cryptoApi.getRandomValues(bytes);
+          bytes[6] = (bytes[6] & 15) | 64;
+          bytes[8] = (bytes[8] & 63) | 128;
+          const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+          return [
+            hex.slice(0, 4).join(""),
+            hex.slice(4, 6).join(""),
+            hex.slice(6, 8).join(""),
+            hex.slice(8, 10).join(""),
+            hex.slice(10, 16).join(""),
+          ].join("-");
+        },
+      });
+    }
+    installRandomUuidPolyfill();
     var BAIDU_ONEAPI_PROVIDER = "baidu-oneapi";
     var DEFAULT_API_KEY_ENV = "BAIDU_ONEAPI_API_KEY";
     function deriveKeyRef(provider) {
