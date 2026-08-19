@@ -62,6 +62,8 @@ test("composeSparkWebPatch mounts spark-llm, enables HMR, and overrides webserve
     const defaultText = defaultPatch.rows.join("\n");
     assert.match(defaultText, /- id: spark-llm/);
     assert.match(defaultText, /name: \.\/plugins\/spark-llm\/index\.mjs/);
+    assert.match(defaultText, /- id: spark-web-dsh/);
+    assert.match(defaultText, /name: ["']@zendev-lab\/spark-web-dsh["']/);
     assert.match(defaultText, /- id: hmr\n  disabled: false/);
     assert.doesNotMatch(defaultText, /- id: webserver/);
     assert.ok(existsSync(defaultPatch.path), "patch file written");
