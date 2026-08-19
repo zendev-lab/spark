@@ -939,12 +939,16 @@ async function runtimeFixture() {
       const stored = sessionInputs.get(sessionId);
       if (!stored) throw new Error(`unknown Session ${sessionId}`);
       const execution = stored.taskExecution as Record<string, unknown>;
-      const { ownerKind, ...owner } = execution;
+      const { originKind, ...origin } = execution;
       return {
         lifecycle: "open",
         placement: "active",
         scope: stored.scope,
-        owner: { kind: ownerKind, ...owner },
+        lineage: {
+          kind: "child",
+          parentSessionId: stored.supervisorSessionId,
+          origin: { kind: originKind, ...origin },
+        },
         roleBinding: stored.roleBinding,
         cwd: stored.cwd,
         cwdArtifactRef: stored.cwdArtifactRef,

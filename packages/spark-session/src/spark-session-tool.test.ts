@@ -149,7 +149,11 @@ test("session tool routes managed actions through daemon RPC and classifies surf
           title: typeof input.name === "string" ? input.name : undefined,
         }),
         roleBinding: { kind: "explicit" as const, roleRef: String(input.roleRef) },
-        owner: { kind: "session" as const, supervisorSessionId: String(input.supervisorSessionId) },
+        lineage: {
+          kind: "child" as const,
+          parentSessionId: String(input.supervisorSessionId),
+          origin: { kind: "session" as const },
+        },
       };
       records.set(record.sessionId, record);
       return record as T;
@@ -336,7 +340,11 @@ test("channel sessions can inspect same-workspace local and channel sessions", a
   const otherWorkspace: SparkSessionProjection = {
     ...sessionRecord("session:other-workspace"),
     scope: { kind: "workspace", workspaceId: "workspace:other" },
-    owner: { kind: "session", supervisorSessionId: "sess_admin_workspace_other" },
+    lineage: {
+      kind: "child",
+      parentSessionId: "sess_admin_workspace_other",
+      origin: { kind: "session" },
+    },
   };
   const records = new Map(
     [channelCurrent, localTarget, channelPeer, otherWorkspace].map((record) => [

@@ -588,7 +588,7 @@ async function ensureLegacyManagedSession(
     (session) =>
       session.scope.kind === "workspace" &&
       session.scope.workspaceId === workspaceId &&
-      session.owner.kind === "workspace",
+      session.lineage.kind === "root",
   );
   if (!administrator) {
     throw new Error(`workspace ${workspaceId} has no reconciled Administrator Session`);
@@ -1184,7 +1184,7 @@ async function runSparkCliTuiSelection(input: {
             (session) =>
               session.scope.kind === "workspace" &&
               session.scope.workspaceId === lease.workspace.id &&
-              session.owner.kind === "workspace",
+              session.lineage.kind === "root",
           );
           if (!administrator) {
             throw new Error(

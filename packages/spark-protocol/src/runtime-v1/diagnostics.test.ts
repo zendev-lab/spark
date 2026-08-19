@@ -52,12 +52,12 @@ describe("Spark protocol version diagnostics", () => {
         field: "version",
         label: "workspace snapshot",
         received: "1",
-        expected: "2",
+        expected: "3",
         action:
           "Upgrade Spark or migrate the payload to the supported schema version before retrying.",
       });
       expect(error.message).toContain(
-        "unsupported Spark protocol version at workspace snapshot: received 1; expected 2",
+        "unsupported Spark protocol version at workspace snapshot: received 1; expected 3",
       );
       expect(error.message).toContain("Action:");
     }

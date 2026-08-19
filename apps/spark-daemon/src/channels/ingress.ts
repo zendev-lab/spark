@@ -461,11 +461,11 @@ export function createChannelIngressController(input: {
       create: {
         scope: { kind: "workspace", workspaceId: input.workspaceId },
         name: channelSessionTitle(message),
-        owner: {
-          kind: "session",
-          supervisorSessionId: (
-            await sessionRegistry.ensureWorkspaceAdministrator(input.workspaceId)
-          ).sessionId,
+        lineage: {
+          kind: "child",
+          parentSessionId: (await sessionRegistry.ensureWorkspaceAdministrator(input.workspaceId))
+            .sessionId,
+          origin: { kind: "session" },
         },
         roleBinding: { kind: "none" },
       },

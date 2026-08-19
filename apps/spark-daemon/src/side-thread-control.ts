@@ -220,8 +220,8 @@ export async function executeSparkDaemonSideThreadControl(
         const replay = store.findByIdempotencyKey(idempotencyKey);
         if (replay) {
           assertHandoffReplay(replay, parsed);
-          if (child.owner?.kind === "side_thread") {
-            if (child.owner.generation === parsed.expectedGeneration) {
+          if (child.lineage.kind === "child" && child.lineage.origin.kind === "side_thread") {
+            if (child.lineage.origin.generation === parsed.expectedGeneration) {
               child = await resetSideThreadGeneration(
                 options,
                 parent,
@@ -229,10 +229,10 @@ export async function executeSparkDaemonSideThreadControl(
                 parsed.expectedGeneration,
                 requireSideThreadMode(child),
               );
-            } else if (child.owner.generation < parsed.expectedGeneration) {
+            } else if (child.lineage.origin.generation < parsed.expectedGeneration) {
               throw sideThreadError(
                 "side_thread_generation_conflict",
-                `expected generation ${parsed.expectedGeneration}, found ${child.owner.generation}`,
+                `expected generation ${parsed.expectedGeneration}, found ${child.lineage.origin.generation}`,
               );
             }
           }
@@ -287,7 +287,7 @@ export async function executeSparkDaemonSideThreadControl(
           },
         });
         const acceptedAt = requiredString(submitted.result.acceptedAt, "acceptedAt");
-        if (child.owner?.kind !== "side_thread") {
+        if (child.lineage.kind !== "child" || child.lineage.origin.kind !== "side_thread") {
           throw sideThreadError("side_thread_not_found", `not a side thread: ${child.sessionId}`);
         }
         child = await resetSideThreadGeneration(
@@ -348,7 +348,7 @@ async function requireParent(
       `unknown side-thread parent: ${parentSessionId}`,
     );
   }
-  if (parent.owner?.kind === "side_thread") {
+  if (parent.lineage.kind === "child" && parent.lineage.origin.kind === "side_thread") {
     throw sideThreadError(
       "side_thread_nesting_forbidden",
       `side threads cannot be nested under ${parentSessionId}`,
@@ -375,7 +375,9 @@ async function findSideThread(
   return sessions
     .filter(
       (session) =>
-        session.owner?.kind === "side_thread" && session.owner.parentSessionId === parentSessionId,
+        session.lineage.kind === "child" &&
+        session.lineage.origin.kind === "side_thread" &&
+        session.lineage.parentSessionId === parentSessionId,
     )
     .sort(
       (left, right) =>
@@ -515,10 +517,10 @@ function assertGeneration(child: SparkSessionState, expectedGeneration: number):
 }
 
 function requireSideThreadOwner(child: SparkSessionState) {
-  if (child.owner?.kind !== "side_thread") {
+  if (child.lineage.kind !== "child" || child.lineage.origin.kind !== "side_thread") {
     throw sideThreadError("side_thread_not_found", `not a side thread: ${child.sessionId}`);
   }
-  return child.owner;
+  return child.lineage.origin;
 }
 
 function requireSideThreadMode(child: SparkSessionState): SparkSideThreadMode {

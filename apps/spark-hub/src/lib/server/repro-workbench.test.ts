@@ -168,7 +168,7 @@ function setup() {
   db.prepare(
     `INSERT INTO runtime_session_projections
       (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
-       lifecycle, placement, activity, lifetime, owner_kind,
+       lifecycle, placement, activity, lifetime, lineage_origin_kind,
        record_json, snapshot_json, projected_at)
      VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'scoped', 'session', ?, ?, ?)`,
   ).run(

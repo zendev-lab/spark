@@ -72,7 +72,11 @@ const channelTitleSession = sessionRecord(
 const otherWorkspaceSession: SparkSessionProjection = {
   ...sessionRecord("session-other-workspace", "Other workspace", "2026-07-13T03:00:00.000Z"),
   scope: { kind: "workspace", workspaceId: "workspace-2" },
-  owner: { kind: "session", supervisorSessionId: "administrator:workspace-2" },
+  lineage: {
+    kind: "child",
+    parentSessionId: "administrator:workspace-2",
+    origin: { kind: "session" },
+  },
   cwd: "/workspace/other",
   activity: "running",
 };
@@ -80,31 +84,37 @@ const otherWorkspaceSession: SparkSessionProjection = {
 const legacyWorkspaceSession: SparkSessionProjection = {
   ...sessionRecord("session-legacy-workspace", "Legacy workspace", "2026-07-13T03:30:00.000Z"),
   scope: { kind: "workspace", workspaceId: "spark" },
-  owner: { kind: "session", supervisorSessionId: "administrator:spark" },
+  lineage: {
+    kind: "child",
+    parentSessionId: "administrator:spark",
+    origin: { kind: "session" },
+  },
   cwd: "/workspace/spark",
 };
 
 const taskExecutionSession: SparkSessionProjection = {
   ...sessionRecord("session-task-worker", undefined, "2026-07-13T04:00:00.000Z"),
   roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
-  owner: {
-    kind: "task_run",
-    supervisorSessionId: "session-recent",
-    projectRef: "proj:demo",
-    taskRef: "task:demo",
-    runRef: "run:demo",
-    sessionGoalId: "goal-demo",
-    roleRef: "role:builtin-executor",
-    jobId: "job-demo",
-    attempt: 1,
+  lineage: {
+    kind: "child",
+    parentSessionId: "session-recent",
+    origin: {
+      kind: "task_run",
+      projectRef: "proj:demo",
+      taskRef: "task:demo",
+      runRef: "run:demo",
+      sessionGoalId: "goal-demo",
+      roleRef: "role:builtin-executor",
+      jobId: "job-demo",
+      attempt: 1,
+    },
   },
 };
 
 const fleetWorkerSession: SparkSessionProjection = {
   ...sessionRecord("session-fleet-worker", undefined, "2026-07-13T04:00:00.000Z"),
   roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
-  owner: { kind: "session", supervisorSessionId: "session-recent" },
-  stateBinding: { kind: "session", ref: "session-recent" },
+  lineage: { kind: "child", parentSessionId: "session-recent", origin: { kind: "session" } },
   visibility: "internal",
   retention: "retain",
   purpose: "fleet_worker",
@@ -128,12 +138,11 @@ const daemonSession: SparkSessionProjection = {
   activity: "idle",
   roleBinding: { kind: "none" },
   incarnation: 1,
-  owner: {
-    kind: "invocation",
-    invocationId: "migration:session-daemon",
-    supervisorSessionId: "migration:closed-daemon-audit",
+  lineage: {
+    kind: "child",
+    parentSessionId: "migration:closed-daemon-audit",
+    origin: { kind: "invocation", invocationId: "migration:session-daemon" },
   },
-  stateBinding: { kind: "session", ref: "migration:closed-daemon-audit" },
   visibility: "internal",
   retention: "audit",
   purpose: "migration_audit",
@@ -514,8 +523,11 @@ function sessionRecord(
     activity: "idle",
     roleBinding: { kind: "none" },
     incarnation: 1,
-    owner: { kind: "session", supervisorSessionId: "administrator:workspace-1" },
-    stateBinding: { kind: "session", ref: "administrator:workspace-1" },
+    lineage: {
+      kind: "child",
+      parentSessionId: "administrator:workspace-1",
+      origin: { kind: "session" },
+    },
     visibility: "public",
     retention: "retain",
     purpose: "interactive",
@@ -536,7 +548,11 @@ function sideThreadRecord(
   return {
     ...sessionRecord(sessionId, title, `2026-07-20T0${generation}:00:00.000Z`),
     roleBinding: { kind: "inherit" },
-    owner: { kind: "side_thread", parentSessionId, generation },
+    lineage: {
+      kind: "child",
+      parentSessionId,
+      origin: { kind: "side_thread", generation },
+    },
     sideThreadMode: mode,
   };
 }

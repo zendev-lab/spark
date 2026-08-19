@@ -13,11 +13,10 @@ export interface WorkbenchSessionScopeLike {
 export interface WorkbenchSessionRailLike extends WorkbenchSessionScopeLike {
   sessionId: string;
   placement?: string;
-  owner?: {
-    kind: string;
+  lineage?: {
+    kind: "root" | "child";
     parentSessionId?: string;
-    generation?: number;
-    mode?: string;
+    origin?: { kind: string; generation?: number };
   };
 }
 
@@ -90,14 +89,19 @@ export function buildSessionRailTree<T extends WorkbenchSessionRailLike>(
   const visible = sessions.filter(
     (session) => options.includeArchived || session.placement !== "archived",
   );
-  const parents = visible.filter((session) => session.owner?.kind !== "side_thread");
+  const parents = visible.filter(
+    (session) =>
+      session.lineage?.kind !== "child" || session.lineage.origin?.kind !== "side_thread",
+  );
   const parentIds = new Set(parents.map((session) => session.sessionId));
   const childrenByParent = new Map<string, T[]>();
   const orphans: T[] = [];
 
   for (const session of visible) {
-    if (session.owner?.kind !== "side_thread") continue;
-    const parentSessionId = session.owner.parentSessionId?.trim();
+    if (session.lineage?.kind !== "child" || session.lineage.origin?.kind !== "side_thread") {
+      continue;
+    }
+    const parentSessionId = session.lineage.parentSessionId?.trim();
     if (!parentSessionId || !parentIds.has(parentSessionId)) {
       orphans.push(session);
       continue;
@@ -123,7 +127,8 @@ export function buildSessionRailTree<T extends WorkbenchSessionRailLike>(
     rows.push({
       session: orphan,
       ariaLevel: 2,
-      parentSessionId: orphan.owner?.parentSessionId,
+      parentSessionId:
+        orphan.lineage?.kind === "child" ? orphan.lineage.parentSessionId : undefined,
       orphaned: true,
     });
   }

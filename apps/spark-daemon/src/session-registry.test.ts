@@ -30,7 +30,7 @@ describe("daemon Session registry", () => {
     expect(new Set(ensured.map((session) => session.sessionId))).toHaveLength(1);
     await expect(registry.list({ includeArchived: true })).resolves.toEqual([
       expect.objectContaining({
-        owner: { kind: "workspace", workspaceId: "ws_demo" },
+        lineage: { kind: "root", workspaceId: "ws_demo" },
       }),
     ]);
   });
@@ -301,8 +301,7 @@ describe("daemon Session registry", () => {
     const session = await registry.createSupervised({
       sessionId: "sess_closed_discard",
       scope: admin.scope,
-      owner: { kind: "session", supervisorSessionId: admin.sessionId },
-      stateBinding: { kind: "session", ref: admin.sessionId },
+      lineage: { kind: "child", parentSessionId: admin.sessionId, origin: { kind: "session" } },
       visibility: "internal",
       retention: "retain",
       purpose: "task_run",
@@ -365,8 +364,7 @@ describe("daemon session registry cwd ownership", () => {
     expect(channel).toMatchObject({
       scope: { kind: "workspace", workspaceId: "ws_channel" },
       roleBinding: { kind: "none" },
-      owner: { kind: "session", supervisorSessionId: root.sessionId },
-      stateBinding: { kind: "channel", ref: "feishu:chat:oc_operations" },
+      lineage: { kind: "child", parentSessionId: root.sessionId, origin: { kind: "session" } },
       visibility: "public",
       retention: "retain",
       purpose: "channel",
@@ -388,7 +386,7 @@ describe("daemon session registry cwd ownership", () => {
     expect(ensured).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          owner: { kind: "workspace", workspaceId: "ws_main" },
+          lineage: { kind: "root", workspaceId: "ws_main" },
           scope: { kind: "workspace", workspaceId: "ws_main" },
         }),
       ]),
@@ -399,7 +397,7 @@ describe("daemon session registry cwd ownership", () => {
         (session) =>
           session.scope.kind === "workspace" &&
           session.scope.workspaceId === "ws_main" &&
-          session.owner.kind === "workspace",
+          session.lineage.kind === "root",
       ),
     ).toHaveLength(1);
     await expect(registry.archive(ensured[0]!.sessionId)).rejects.toMatchObject({
@@ -452,13 +450,21 @@ describe("daemon session registry cwd ownership", () => {
       supervisorSessionId: parent.sessionId,
       placement: "child",
     });
-    expect(child.owner).toEqual({ kind: "session", supervisorSessionId: parent.sessionId });
+    expect(child.lineage).toEqual({
+      kind: "child",
+      parentSessionId: parent.sessionId,
+      origin: { kind: "session" },
+    });
     const sibling = await registry.create({
       scope,
       supervisorSessionId: child.sessionId,
       placement: "sibling",
     });
-    expect(sibling.owner).toEqual(child.owner);
+    expect(sibling.lineage).toEqual({
+      kind: "child",
+      parentSessionId: parent.sessionId,
+      origin: { kind: "session" },
+    });
     await expect(
       registry.create({
         scope,

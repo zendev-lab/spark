@@ -37,7 +37,11 @@ async function createRegistryWorkspaceSession(
   const administrator = await registry.ensureWorkspaceAdministrator({ workspaceId });
   return await registry.create({
     scope: { kind: "workspace", workspaceId },
-    owner: { kind: "session", supervisorSessionId: administrator.sessionId },
+    lineage: {
+      kind: "child",
+      parentSessionId: administrator.sessionId,
+      origin: { kind: "session" },
+    },
     name,
   });
 }
@@ -849,9 +853,10 @@ describe("channel ingress", () => {
       create: {
         scope: { kind: "workspace", workspaceId: "ws_owned" },
         name: "channel infoflow:user:u_owned",
-        owner: {
-          kind: "session",
-          supervisorSessionId: "sess_admin_ws_owned",
+        lineage: {
+          kind: "child",
+          parentSessionId: "sess_admin_ws_owned",
+          origin: { kind: "session" },
         },
         roleBinding: { kind: "none" },
       },
@@ -1059,7 +1064,7 @@ describe("channel quote enrichment", () => {
       findChannelMessagePreviewById(
         [
           {
-            version: 2,
+            version: 3,
             id: "1",
             role: "user",
             text: "先说一声",
@@ -1068,7 +1073,7 @@ describe("channel quote enrichment", () => {
             metadata: { channel: { messageId: "m-old" } },
           },
           {
-            version: 2,
+            version: 3,
             id: "2",
             role: "assistant",
             text: "收到",

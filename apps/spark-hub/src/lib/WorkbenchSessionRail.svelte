@@ -1,7 +1,7 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
   import { Icon } from "@zendev-lab/spark-ui";
-  import type { SparkSessionOwner } from "@zendev-lab/spark-protocol/session-assignment";
+  import type { SparkSessionLineage } from "@zendev-lab/spark-protocol/session-assignment";
   import ChannelSessionIcon from "$lib/ChannelSessionIcon.svelte";
   import {
     channelSessionPresentation,
@@ -33,7 +33,7 @@
     activity?: "idle" | "queued" | "running";
     activityUpdatedAt?: string;
     bindings?: Array<{ kind: string; adapter?: string; externalKey?: string }>;
-    owner: SparkSessionOwner;
+    lineage: SparkSessionLineage;
     createdAt: string;
     updatedAt: string;
   };
@@ -213,7 +213,9 @@
   }
 
   function sideThreadRelation(session: SessionRecord) {
-    return session.owner.kind === "side_thread" ? session.owner : null;
+    return session.lineage.kind === "child" && session.lineage.origin.kind === "side_thread"
+      ? { ...session.lineage.origin, parentSessionId: session.lineage.parentSessionId }
+      : null;
   }
 
   function sideThreadLabel(session: SessionRecord) {
@@ -331,7 +333,7 @@
                 sessionControlAvailable &&
                 isSelected &&
                 !relation &&
-                session.owner.kind !== "workspace" &&
+                session.lineage.kind !== "root" &&
                 session.lifecycle === "open" &&
                 session.placement !== "archived" &&
                 !sessionHasChannelBinding(session)}
@@ -339,7 +341,7 @@
                 sessionControlAvailable &&
                 isSelected &&
                 !relation &&
-                session.owner.kind !== "workspace" &&
+                session.lineage.kind !== "root" &&
                 session.lifecycle === "open"}
               <div
                 class="session-item-row"

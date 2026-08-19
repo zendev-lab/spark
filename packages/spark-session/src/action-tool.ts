@@ -851,7 +851,8 @@ function renderSession(session: SparkSessionToolProjection): string {
     session.roleBinding.kind === "explicit"
       ? session.roleBinding.roleRef
       : session.roleBinding.kind;
-  return `${session.sessionId} lifecycle=${session.lifecycle} placement=${session.placement} activity=${session.activity} lifetime=${session.lifetime} owner=${session.owner.kind} surface=${session.surface} channels=${channels} scope=${scope}${session.name ? ` name=${JSON.stringify(session.name)}` : ""} roleBinding=${JSON.stringify(role)}`;
+  const origin = session.lineage.kind === "root" ? "root" : session.lineage.origin.kind;
+  return `${session.sessionId} lifecycle=${session.lifecycle} placement=${session.placement} activity=${session.activity} lifetime=${session.lifetime} origin=${origin} surface=${session.surface} channels=${channels} scope=${scope}${session.name ? ` name=${JSON.stringify(session.name)}` : ""} roleBinding=${JSON.stringify(role)}`;
 }
 
 function withMailStatus(message: SparkSessionMailMessage) {

@@ -84,10 +84,10 @@ describe("workbench session scope", () => {
     const child = {
       sessionId: "child-a",
       placement: "active",
-      owner: {
-        kind: "side_thread",
+      lineage: {
+        kind: "child",
         parentSessionId: parentA.sessionId,
-        generation: 2,
+        origin: { kind: "side_thread", generation: 2 },
       },
     };
     const archived = {
@@ -98,7 +98,7 @@ describe("workbench session scope", () => {
     const orphan = {
       ...child,
       sessionId: "child-orphan",
-      owner: { ...child.owner, parentSessionId: "missing-parent" },
+      lineage: { ...child.lineage, parentSessionId: "missing-parent" },
     };
 
     expect(buildSessionRailTree([parentA, child, parentB, archived, orphan])).toEqual([

@@ -23,13 +23,15 @@ const baseInput = {
       activity: "idle",
       lifetime: "ephemeral",
       roleBinding: { kind: "none" },
-      owner: {
-        kind: "invocation",
-        invocationId: "inv_legacy_daemon_audit",
-        supervisorSessionId: "sess_legacy_daemon_audit",
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_legacy_daemon_audit",
+        origin: {
+          kind: "invocation",
+          invocationId: "inv_legacy_daemon_audit",
+        },
       },
       incarnation: 1,
-      stateBinding: { kind: "session", ref: "sess_legacy_daemon_audit" },
       visibility: "internal",
       retention: "audit",
       purpose: "migration_closed_daemon_audit",

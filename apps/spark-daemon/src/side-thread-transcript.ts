@@ -447,8 +447,11 @@ function sideThreadTranscriptIdentity(
   sessionPath: string,
 ): SideThreadTranscriptIndex["identity"] {
   const owner = requireSideThreadOwner(child);
+  if (child.lineage.kind !== "child") {
+    throw transcriptError("side_thread_not_found", `not a side thread: ${child.sessionId}`);
+  }
   return {
-    parentSessionId: owner.parentSessionId,
+    parentSessionId: child.lineage.parentSessionId,
     sessionId: child.sessionId,
     generation: owner.generation,
     transcriptPath: resolve(sessionPath),
@@ -765,10 +768,10 @@ async function effectiveModelState(
 }
 
 function requireSideThreadOwner(child: SparkSessionState) {
-  if (child.owner?.kind !== "side_thread") {
+  if (child.lineage.kind !== "child" || child.lineage.origin.kind !== "side_thread") {
     throw transcriptError("side_thread_not_found", `not a side thread: ${child.sessionId}`);
   }
-  return child.owner;
+  return child.lineage.origin;
 }
 
 function requireSessionsRoot(options: SparkDaemonSessionControlOptions): string {

@@ -38,7 +38,11 @@ const sessions = [
     lifecycle: "open" as const,
     placement: "active" as const,
     activity: "idle" as const,
-    owner: { kind: "session" as const, supervisorSessionId: "workspace-1-administrator" },
+    lineage: {
+      kind: "child" as const,
+      parentSessionId: "workspace-1-administrator",
+      origin: { kind: "session" },
+    },
     createdAt: now,
     updatedAt: now,
   },
@@ -50,7 +54,11 @@ const sessions = [
     lifecycle: "open" as const,
     placement: "active" as const,
     activity: "idle" as const,
-    owner: { kind: "session" as const, supervisorSessionId: "workspace-1-administrator" },
+    lineage: {
+      kind: "child" as const,
+      parentSessionId: "workspace-1-administrator",
+      origin: { kind: "session" },
+    },
     bindings: [{ kind: "channel", adapter: "qqbot", externalKey: "qqbot:group:reviewers" }],
     createdAt: now,
     updatedAt: now,
@@ -61,7 +69,7 @@ const administrator = {
   ...sessions[0]!,
   sessionId: "workspace-1-administrator",
   name: "Administrator",
-  owner: { kind: "workspace" as const, workspaceId: "workspace-1" },
+  lineage: { kind: "root" as const, workspaceId: "workspace-1" },
 };
 
 const hierarchySessions = [
@@ -85,7 +93,11 @@ function sideThread(
     sessionId,
     name: `${mode} ${generation}`,
     placement,
-    owner: { kind: "side_thread" as const, parentSessionId, generation },
+    lineage: {
+      kind: "child" as const,
+      parentSessionId,
+      origin: { kind: "side_thread" as const, generation },
+    },
   };
 }
 

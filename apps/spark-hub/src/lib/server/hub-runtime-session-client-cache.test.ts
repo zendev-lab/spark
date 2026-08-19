@@ -66,13 +66,13 @@ describe("hub runtime session cache", () => {
       updatedAt: now,
     });
     const snapshot = {
-      version: 2 as const,
+      version: 3 as const,
       sessionId: session.sessionId,
       title: session.name,
       status: "idle" as const,
       messages: [
         {
-          version: 2 as const,
+          version: 3 as const,
           id: "msg_cached",
           role: "assistant" as const,
           text: "Cached response",
@@ -90,7 +90,7 @@ describe("hub runtime session cache", () => {
     db.prepare(
       `INSERT INTO runtime_session_projections
         (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
-         lifecycle, placement, activity, lifetime, owner_kind,
+         lifecycle, placement, activity, lifetime, lineage_origin_kind,
          record_json, snapshot_json, snapshot_total_messages, snapshot_loaded_messages,
          snapshot_hidden_messages, projected_at)
        VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'scoped', 'session',
@@ -168,10 +168,10 @@ describe("hub runtime session cache", () => {
         updatedAt: now,
       }),
       roleBinding: { kind: "inherit" as const },
-      owner: {
-        kind: "side_thread" as const,
+      lineage: {
+        kind: "child" as const,
         parentSessionId: "sess_parent",
-        generation: 1,
+        origin: { kind: "side_thread" as const, generation: 1 },
       },
       visibility: "internal" as const,
       retention: "discard_on_close" as const,
@@ -181,7 +181,7 @@ describe("hub runtime session cache", () => {
     db.prepare(
       `INSERT INTO runtime_session_projections
         (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
-         lifecycle, placement, activity, lifetime, owner_kind,
+         lifecycle, placement, activity, lifetime, lineage_origin_kind,
          record_json, projected_at)
        VALUES (?, ?, 'workspace', ?, ?, 'open', 'active', 'idle', 'scoped', 'side_thread', ?, ?)`,
     ).run(runtimeId, child.sessionId, workspace.id, bindingId, JSON.stringify(child), now);

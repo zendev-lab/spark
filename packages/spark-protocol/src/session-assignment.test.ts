@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   parseSparkSessionProjection,
   parseSparkSessionState,
-  sparkSessionLifetimeForOwner,
-  sparkSessionOwnerSessionId,
+  sparkSessionLifetimeForLineage,
+  sparkSessionParentId,
   SPARK_SESSION_CLOSE_RECEIPT_HISTORY_LIMIT,
   SPARK_SESSION_CLOSE_RECEIPT_MAX_BYTES,
   SPARK_SESSION_COMPACT_CUSTOM_INSTRUCTIONS_MAX_LENGTH,
@@ -21,23 +21,26 @@ const timestamps = {
   updatedAt: "2026-07-10T06:00:01.000Z",
 };
 
-function workspaceRecord(owner: Record<string, unknown>, extra: Record<string, unknown> = {}) {
+function workspaceRecord(lineage: Record<string, unknown>, extra: Record<string, unknown> = {}) {
   return {
     sessionId: "sess_test",
     scope: { kind: "workspace", workspaceId: "ws_test" },
     lifecycle: "open",
     placement: "active",
     activity: "idle",
-    lifetime: sparkSessionLifetimeForOwner(owner as never),
+    lifetime: sparkSessionLifetimeForLineage(lineage as never),
     roleBinding:
-      owner.kind === "workspace"
+      lineage.kind === "root"
         ? { kind: "explicit", roleRef: "role:builtin-administrator" }
         : { kind: "none" },
-    owner,
+    lineage,
     incarnation: 1,
-    stateBinding: { kind: "session", ref: "sess_test" },
-    visibility: owner.kind === "invocation" ? "internal" : "public",
-    retention: owner.kind === "workspace" ? "audit" : "retain",
+    visibility:
+      lineage.kind === "child" &&
+      (lineage.origin as { kind?: string } | undefined)?.kind === "invocation"
+        ? "internal"
+        : "public",
+    retention: lineage.kind === "root" ? "audit" : "retain",
     purpose: "protocol test",
     bindings: [],
     ...timestamps,
@@ -45,44 +48,53 @@ function workspaceRecord(owner: Record<string, unknown>, extra: Record<string, u
   };
 }
 
-describe("session ownership protocol", () => {
+describe("session lineage protocol", () => {
   it.each([
-    [{ kind: "workspace", workspaceId: "ws_test" }, "persistent"],
-    [{ kind: "session", supervisorSessionId: "sess_admin" }, "scoped"],
-    [{ kind: "side_thread", parentSessionId: "sess_parent", generation: 2 }, "scoped"],
+    [{ kind: "root", workspaceId: "ws_test" }, "persistent"],
+    [{ kind: "child", parentSessionId: "sess_admin", origin: { kind: "session" } }, "scoped"],
     [
       {
-        kind: "task_run",
-        supervisorSessionId: "sess_admin",
-        projectRef: "proj:repro",
-        taskRef: "task:trace",
-        runRef: "run:trace-1",
-        sessionGoalId: "goal-trace-1",
-        roleRef: "role:builtin-explorer",
-        jobId: "task-job:trace",
-        attempt: 1,
+        kind: "child",
+        parentSessionId: "sess_parent",
+        origin: { kind: "side_thread", generation: 2 },
       },
       "scoped",
     ],
     [
       {
-        kind: "driver",
-        driverId: "driver-1",
-        generation: 3,
-        supervisorSessionId: "sess_admin",
+        kind: "child",
+        parentSessionId: "sess_admin",
+        origin: {
+          kind: "task_run",
+          projectRef: "proj:repro",
+          taskRef: "task:trace",
+          runRef: "run:trace-1",
+          sessionGoalId: "goal-trace-1",
+          roleRef: "role:builtin-explorer",
+          jobId: "task-job:trace",
+          attempt: 1,
+        },
       },
       "scoped",
     ],
     [
       {
-        kind: "invocation",
-        invocationId: "inv-1",
-        supervisorSessionId: "sess_admin",
+        kind: "child",
+        parentSessionId: "sess_admin",
+        origin: { kind: "driver", driverId: "driver-1", generation: 3 },
+      },
+      "scoped",
+    ],
+    [
+      {
+        kind: "child",
+        parentSessionId: "sess_admin",
+        origin: { kind: "invocation", invocationId: "inv-1" },
       },
       "ephemeral",
     ],
-  ] as const)("derives %s owner lifetime as %s and round-trips it", (owner, lifetime) => {
-    const record = parseSparkSessionProjection(workspaceRecord(owner));
+  ] as const)("derives %s lineage lifetime as %s and round-trips it", (lineage, lifetime) => {
+    const record = parseSparkSessionProjection(workspaceRecord(lineage));
     expect(record.lifetime).toBe(lifetime);
     expect(parseSparkSessionProjection(record)).toEqual(record);
     expect(() =>
@@ -94,77 +106,95 @@ describe("session ownership protocol", () => {
   });
 
   it.each([
-    [{ kind: "workspace", workspaceId: "ws_test" }, undefined],
-    [{ kind: "session", supervisorSessionId: "sess_admin" }, "sess_admin"],
-    [{ kind: "side_thread", parentSessionId: "sess_parent", generation: 2 }, "sess_parent"],
+    [{ kind: "root", workspaceId: "ws_test" }, undefined],
+    [{ kind: "child", parentSessionId: "sess_admin", origin: { kind: "session" } }, "sess_admin"],
     [
       {
-        kind: "task_run",
-        supervisorSessionId: "sess_admin",
-        projectRef: "proj:repro",
-        taskRef: "task:trace",
-        runRef: "run:trace-1",
-        sessionGoalId: "goal-trace-1",
-        roleRef: "role:builtin-explorer",
-        jobId: "task-job:trace",
-        attempt: 1,
+        kind: "child",
+        parentSessionId: "sess_parent",
+        origin: { kind: "side_thread", generation: 2 },
+      },
+      "sess_parent",
+    ],
+    [
+      {
+        kind: "child",
+        parentSessionId: "sess_admin",
+        origin: {
+          kind: "task_run",
+          projectRef: "proj:repro",
+          taskRef: "task:trace",
+          runRef: "run:trace-1",
+          sessionGoalId: "goal-trace-1",
+          roleRef: "role:builtin-explorer",
+          jobId: "task-job:trace",
+          attempt: 1,
+        },
       },
       "sess_admin",
     ],
     [
       {
-        kind: "task_revision",
-        supervisorSessionId: "sess_admin",
-        projectRef: "proj:repro",
-        taskRef: "task:trace",
-        sessionGoalId: "goal-trace-1",
-        roleRef: "role:builtin-explorer",
-        jobId: "task-job:trace",
-        attempt: 1,
-        revisionRef: "rev:trace-1",
-        originatingRunRef: "run:trace-1",
+        kind: "child",
+        parentSessionId: "sess_admin",
+        origin: {
+          kind: "task_revision",
+          projectRef: "proj:repro",
+          taskRef: "task:trace",
+          sessionGoalId: "goal-trace-1",
+          roleRef: "role:builtin-explorer",
+          jobId: "task-job:trace",
+          attempt: 1,
+          revisionRef: "rev:trace-1",
+          originatingRunRef: "run:trace-1",
+        },
       },
       "sess_admin",
     ],
     [
       {
-        kind: "workflow_run",
-        supervisorSessionId: "sess_admin",
-        workflowRef: "workflow:trace",
-        runRef: "run:workflow-1",
-        generation: 1,
+        kind: "child",
+        parentSessionId: "sess_admin",
+        origin: {
+          kind: "workflow_run",
+          workflowRef: "workflow:trace",
+          runRef: "run:workflow-1",
+          generation: 1,
+        },
       },
       "sess_admin",
     ],
     [
       {
-        kind: "invocation",
-        invocationId: "inv-1",
-        supervisorSessionId: "sess_admin",
+        kind: "child",
+        parentSessionId: "sess_admin",
+        origin: { kind: "invocation", invocationId: "inv-1" },
       },
       "sess_admin",
     ],
     [
       {
-        kind: "driver",
-        driverId: "driver-1",
-        generation: 3,
-        supervisorSessionId: "sess_admin",
+        kind: "child",
+        parentSessionId: "sess_admin",
+        origin: { kind: "driver", driverId: "driver-1", generation: 3 },
       },
       "sess_admin",
     ],
     [
       {
-        kind: "driver_tick",
-        driverId: "driver-1",
-        generation: 3,
-        tickInvocationId: "inv-tick-1",
-        supervisorSessionId: "sess_admin",
+        kind: "child",
+        parentSessionId: "sess_admin",
+        origin: {
+          kind: "driver_tick",
+          driverId: "driver-1",
+          generation: 3,
+          tickInvocationId: "inv-tick-1",
+        },
       },
       "sess_admin",
     ],
-  ] as const)("resolves %s owner session id", (owner, sessionId) => {
-    expect(sparkSessionOwnerSessionId(owner)).toBe(sessionId);
+  ] as const)("resolves %s parent session id", (lineage, sessionId) => {
+    expect(sparkSessionParentId(lineage as never)).toBe(sessionId);
   });
 
   it("normalizes bounded manual compaction instructions", () => {
@@ -188,7 +218,11 @@ describe("session ownership protocol", () => {
   });
 
   it("hard-rejects retired writable role, relation, status, and workspaceId fields", () => {
-    const canonical = workspaceRecord({ kind: "session", supervisorSessionId: "sess_admin" });
+    const canonical = workspaceRecord({
+      kind: "child",
+      parentSessionId: "sess_admin",
+      origin: { kind: "session" },
+    });
     for (const retired of [
       { workspaceId: "ws_test" },
       { role: "explorer" },
@@ -202,14 +236,18 @@ describe("session ownership protocol", () => {
   });
 
   it("requires the workspace-owned Administrator projection to remain audit-retained", () => {
-    const administrator = workspaceRecord({ kind: "workspace", workspaceId: "ws_test" });
+    const administrator = workspaceRecord({ kind: "root", workspaceId: "ws_test" });
     expect(() => parseSparkSessionProjection({ ...administrator, retention: "retain" })).toThrow(
       /audit-retained/u,
     );
   });
 
   it("keeps derived fields out of strict stored state", () => {
-    const projection = workspaceRecord({ kind: "session", supervisorSessionId: "sess_admin" });
+    const projection = workspaceRecord({
+      kind: "child",
+      parentSessionId: "sess_admin",
+      origin: { kind: "session" },
+    });
     const { activity: _activity, lifetime: _lifetime, ...state } = projection;
     expect(parseSparkSessionState(state)).not.toHaveProperty("activity");
     expect(() => parseSparkSessionState(projection)).toThrow(/unrecognized_/u);
@@ -224,13 +262,12 @@ describe("session ownership protocol", () => {
       activity: "idle",
       lifetime: "ephemeral",
       roleBinding: { kind: "none" },
-      owner: {
-        kind: "invocation",
-        invocationId: "inv_legacy_audit",
-        supervisorSessionId: "sess_legacy_audit",
+      lineage: {
+        kind: "child",
+        parentSessionId: "sess_legacy_audit",
+        origin: { kind: "invocation", invocationId: "inv_legacy_audit" },
       },
       incarnation: 1,
-      stateBinding: { kind: "session", ref: "sess_global_audit" },
       visibility: "internal",
       retention: "audit",
       purpose: "legacy daemon audit",
@@ -246,7 +283,7 @@ describe("session ownership protocol", () => {
   it("preserves configured and stable account identities on channel bindings", () => {
     const record = parseSparkSessionProjection(
       workspaceRecord(
-        { kind: "session", supervisorSessionId: "sess_admin" },
+        { kind: "child", parentSessionId: "sess_admin", origin: { kind: "session" } },
         {
           bindings: [
             {
@@ -321,8 +358,7 @@ describe("session ownership protocol", () => {
 
   it("accepts the internal TaskRun binding with a supervisor and no relation alias", () => {
     const taskExecution = {
-      ownerKind: "task_run" as const,
-      supervisorSessionId: "sess_owner",
+      originKind: "task_run" as const,
       projectRef: "proj:model-repro",
       taskRef: "task:trace-reference",
       subgoalRef: "subgoal:trace-reference",
@@ -337,17 +373,26 @@ describe("session ownership protocol", () => {
     expect(
       sparkSessionCreateRequestSchema.parse({
         scope: { kind: "workspace", workspaceId: "ws_repro" },
+        supervisorSessionId: "sess_owner",
         roleBinding: { kind: "explicit", roleRef: "role:builtin-explorer" },
         taskExecution,
       }),
     ).toMatchObject({ taskExecution });
 
-    const { ownerKind: _ownerKind, ...taskRunOwner } = taskExecution;
+    const { originKind: _originKind, ...taskRunOrigin } = taskExecution;
     const record = parseSparkSessionProjection({
-      ...workspaceRecord({ kind: "task_run", ...taskRunOwner }),
+      ...workspaceRecord({
+        kind: "child",
+        parentSessionId: "sess_owner",
+        origin: { kind: "task_run", ...taskRunOrigin },
+      }),
       roleBinding: { kind: "explicit", roleRef: "role:builtin-explorer" },
     });
-    expect(record.owner).toEqual({ kind: "task_run", ...taskRunOwner });
+    expect(record.lineage).toEqual({
+      kind: "child",
+      parentSessionId: "sess_owner",
+      origin: { kind: "task_run", ...taskRunOrigin },
+    });
     expect(record).not.toHaveProperty("relation");
   });
 
@@ -371,7 +416,7 @@ describe("session ownership protocol", () => {
     expect(
       parseSparkSessionProjection(
         workspaceRecord(
-          { kind: "session", supervisorSessionId: "sess_owner" },
+          { kind: "child", parentSessionId: "sess_owner", origin: { kind: "session" } },
           {
             sessionId: "sess_fleet_worker",
             scope: { kind: "workspace", workspaceId: "ws_fleet" },
@@ -399,8 +444,7 @@ describe("session ownership protocol", () => {
         supervisorSessionId: "sess_owner",
         roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
         taskExecution: {
-          ownerKind: "task_run",
-          supervisorSessionId: "sess_owner",
+          originKind: "task_run",
           projectRef: "proj:fleet",
           taskRef: "task:one",
           runRef: "run:one",

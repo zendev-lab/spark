@@ -69,7 +69,11 @@ function sideThread(
     sessionId,
     name: `${mode} ${generation}`,
     placement,
-    owner: { kind: "side_thread" as const, parentSessionId, generation },
+    lineage: {
+      kind: "child" as const,
+      parentSessionId,
+      origin: { kind: "side_thread" as const, generation },
+    },
     sideThreadMode: mode,
   };
 }

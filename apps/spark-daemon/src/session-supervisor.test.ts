@@ -31,7 +31,7 @@ describe("SessionSupervisor", () => {
     const supervisor = new SessionSupervisor({
       registry: harness.registry,
       invocations: harness.invocations,
-      ownerExists: async () => true,
+      originExists: async () => true,
       resolveWorkspaceBindingId: () => "rtwb_22222222222222222222222222222222",
     });
 
@@ -57,7 +57,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: taskRunOwner("run:closing-admission", root.sessionId),
+      origin: taskRunOwner("run:closing-admission", root.sessionId),
       sessionId: "closing-admission",
       purpose: "task_run",
     });
@@ -81,7 +81,7 @@ describe("SessionSupervisor", () => {
         },
       },
       invocations: harness.invocations,
-      ownerExists: async () => true,
+      originExists: async () => true,
     });
 
     const invoking = supervisor.invoke({
@@ -108,7 +108,7 @@ describe("SessionSupervisor", () => {
     expect(second.sessionId).toBe(first.sessionId);
     expect(first).toMatchObject({
       lifecycle: "open",
-      owner: { kind: "workspace", workspaceId: "ws-test" },
+      lineage: { kind: "root", workspaceId: "ws-test" },
       roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
       purpose: "workspace_administrator",
     });
@@ -119,27 +119,27 @@ describe("SessionSupervisor", () => {
       task: { type: "session.run", sessionId: first.sessionId, prompt: "own a Role call" },
     });
 
-    const owners = [
-      { kind: "session", supervisorSessionId: first.sessionId },
-      { kind: "invocation", invocationId: "inv-role", supervisorSessionId: first.sessionId },
+    const origins = [
+      { kind: "session" },
+      { kind: "invocation", invocationId: "inv-role" },
       taskRunOwner("run:task", first.sessionId),
       taskRevisionOwner("task:revision:2", first.sessionId),
       workflowOwner("workflow:run", first.sessionId),
       driverOwner("driver:loop", first.sessionId),
       driverTickOwner("driver:tick:1", first.sessionId),
     ] as const;
-    for (const [index, owner] of owners.entries()) {
+    for (const [index, origin] of origins.entries()) {
       const session = await harness.supervisor.instantiate({
         workspaceId: "ws-test",
         role: executorRole,
         parentSessionId: first.sessionId,
-        owner,
+        origin,
         sessionId: `owned-${index}`,
-        purpose: owner.kind,
+        purpose: origin.kind,
       });
       expect(session).toMatchObject({
         lifecycle: "open",
-        owner,
+        lineage: { kind: "child", parentSessionId: first.sessionId, origin },
         retention: "discard_on_close",
         visibility: "internal",
         roleBinding: { kind: "explicit", roleRef: executorRole.ref },
@@ -151,7 +151,7 @@ describe("SessionSupervisor", () => {
         workspaceId: "ws-test",
         role: administratorRole,
         parentSessionId: first.sessionId,
-        owner: driverOwner("driver:invalid", first.sessionId),
+        origin: driverOwner("driver:invalid", first.sessionId),
         purpose: "invalid persistent owner",
       }),
     ).rejects.toMatchObject({ code: "session_owner_invalid" });
@@ -160,10 +160,9 @@ describe("SessionSupervisor", () => {
         workspaceId: "ws-test",
         role: executorRole,
         parentSessionId: first.sessionId,
-        owner: {
+        origin: {
           kind: "invocation",
           invocationId: "inv-missing",
-          supervisorSessionId: first.sessionId,
         },
         purpose: "invalid role-call owner",
       }),
@@ -180,7 +179,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: taskRunOwner("run:owned", root.sessionId),
+      origin: taskRunOwner("run:owned", root.sessionId),
       sessionId: "owned-close",
       purpose: "task_run",
       transcriptRef: transcript,
@@ -267,7 +266,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: taskRunOwner("run:loop-owner", root.sessionId),
+      origin: taskRunOwner("run:loop-owner", root.sessionId),
       sessionId: "loop-owner",
       purpose: "task_run",
     });
@@ -287,7 +286,7 @@ describe("SessionSupervisor", () => {
     const supervisor = new SessionSupervisor({
       registry: harness.registry,
       invocations: harness.invocations,
-      ownerExists: async () => true,
+      originExists: async () => true,
       quiesceOwnedLoops: (session, reason) =>
         quiesceLoopsForClosingSession(loops, harness.invocations, session, reason),
     });
@@ -312,7 +311,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: taskRunOwner("run:superseded-loop-owner", root.sessionId),
+      origin: taskRunOwner("run:superseded-loop-owner", root.sessionId),
       sessionId: "superseded-loop-owner",
       purpose: "task_run",
     });
@@ -331,7 +330,7 @@ describe("SessionSupervisor", () => {
     const supervisor = new SessionSupervisor({
       registry: harness.registry,
       invocations: harness.invocations,
-      ownerExists: async () => true,
+      originExists: async () => true,
       quiesceOwnedLoops: (session, reason) =>
         quiesceLoopsForClosingSession(loops, harness.invocations, session, reason),
     });
@@ -354,7 +353,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: taskRunOwner("run:legacy-closed-loop", root.sessionId),
+      origin: taskRunOwner("run:legacy-closed-loop", root.sessionId),
       sessionId: "legacy-closed-loop",
       purpose: "task_run",
       transcriptRef: transcript,
@@ -382,7 +381,7 @@ describe("SessionSupervisor", () => {
     const restarted = new SessionSupervisor({
       registry: harness.registry,
       invocations: harness.invocations,
-      ownerExists: async () => true,
+      originExists: async () => true,
       quiesceOwnedLoops: (session, reason) =>
         quiesceLoopsForClosingSession(loops, harness.invocations, session, reason),
     });
@@ -417,7 +416,7 @@ describe("SessionSupervisor", () => {
         workspaceId: "ws-test",
         role: executorRole,
         parentSessionId: root.sessionId,
-        owner: taskRunOwner("run:missing", root.sessionId),
+        origin: taskRunOwner("run:missing", root.sessionId),
         purpose: "task_run",
       }),
     ).rejects.toMatchObject({ code: "session_owner_invalid" });
@@ -431,7 +430,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: taskRunOwner("run:invalid-completion", root.sessionId),
+      origin: taskRunOwner("run:invalid-completion", root.sessionId),
       sessionId: "invalid-completion",
       purpose: "task_run",
     });
@@ -487,7 +486,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: taskRunOwner("run:parent", root.sessionId),
+      origin: taskRunOwner("run:parent", root.sessionId),
       sessionId: "owned-parent",
       purpose: "task_run",
     });
@@ -546,7 +545,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: taskRunOwner("run:persist-failure", root.sessionId),
+      origin: taskRunOwner("run:persist-failure", root.sessionId),
       sessionId: "persist-failure",
       purpose: "task_run",
       transcriptRef: transcript,
@@ -569,7 +568,7 @@ describe("SessionSupervisor", () => {
         },
       },
       invocations: harness.invocations,
-      ownerExists: async () => true,
+      originExists: async () => true,
     });
 
     await expect(supervisor.close({ sessionId: owned.sessionId })).rejects.toThrow(
@@ -597,7 +596,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: taskRunOwner("run:late-bound", root.sessionId),
+      origin: taskRunOwner("run:late-bound", root.sessionId),
       sessionId: "late-bound",
       purpose: "task_run",
       retention: "discard_on_close",
@@ -616,7 +615,7 @@ describe("SessionSupervisor", () => {
         },
       },
       invocations: harness.invocations,
-      ownerExists: async () => true,
+      originExists: async () => true,
     });
 
     const closed = await supervisor.close({ sessionId: owned.sessionId });
@@ -642,7 +641,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: taskRunOwner("run:relocated-transcript", root.sessionId),
+      origin: taskRunOwner("run:relocated-transcript", root.sessionId),
       sessionId: "relocated-transcript",
       purpose: "task_run",
       transcriptRef: legacyTranscript,
@@ -803,7 +802,7 @@ describe("SessionSupervisor", () => {
         },
       },
       invocations: harness.invocations,
-      ownerExists: async () => true,
+      originExists: async () => true,
       quiesceOwnedLoops: async (session) => {
         if (session.sessionId === child.sessionId) {
           childQuiesceCount += 1;
@@ -903,8 +902,7 @@ describe("SessionSupervisor", () => {
     const input = {
       sessionId: "driver-session",
       parentSessionId: root.sessionId,
-      owner: driverOwner("loop:test", root.sessionId),
-      stateBinding: { kind: "session", ref: root.sessionId } as const,
+      origin: driverOwner("loop:test", root.sessionId),
       purpose: "driver",
     };
     const first = await harness.supervisor.instantiateOwnedContext(input);
@@ -912,8 +910,11 @@ describe("SessionSupervisor", () => {
 
     expect(second.sessionId).toBe(first.sessionId);
     expect(first).toMatchObject({
-      owner: input.owner,
-      stateBinding: input.stateBinding,
+      lineage: {
+        kind: "child",
+        parentSessionId: root.sessionId,
+        origin: input.origin,
+      },
       visibility: "internal",
       retention: "discard_on_close",
     });
@@ -923,14 +924,14 @@ describe("SessionSupervisor", () => {
   it("validates a driver owner against the requested child Session identity", async () => {
     const harness = await createHarness();
     const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");
-    const owner = driverOwner("loop:validated", root.sessionId);
+    const origin = driverOwner("loop:validated", root.sessionId);
     const supervisor = new SessionSupervisor({
       registry: harness.registry,
       invocations: harness.invocations,
-      ownerExists: async (candidateOwner, session) =>
-        candidateOwner.kind === owner.kind &&
-        candidateOwner.kind === "driver" &&
-        candidateOwner.driverId === owner.driverId &&
+      originExists: async (candidateOrigin, session) =>
+        candidateOrigin.kind === origin.kind &&
+        candidateOrigin.kind === "driver" &&
+        candidateOrigin.driverId === origin.driverId &&
         session.sessionId === "driver-session-validated" &&
         session.scope.kind === "workspace" &&
         session.scope.workspaceId === "ws-test",
@@ -940,13 +941,12 @@ describe("SessionSupervisor", () => {
       supervisor.instantiateOwnedContext({
         sessionId: "driver-session-validated",
         parentSessionId: root.sessionId,
-        owner,
-        stateBinding: { kind: "session", ref: root.sessionId },
+        origin,
         purpose: "driver",
       }),
     ).resolves.toMatchObject({
       sessionId: "driver-session-validated",
-      owner,
+      lineage: { kind: "child", parentSessionId: root.sessionId, origin },
     });
     harness.close();
   });
@@ -1000,10 +1000,9 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: {
+      origin: {
         kind: "invocation",
         invocationId: parentInvocation.invocationId,
-        supervisorSessionId: root.sessionId,
       },
       sessionId: "orphan-role",
       purpose: "role_call",
@@ -1023,7 +1022,11 @@ describe("SessionSupervisor", () => {
       recordKind: "ephemeral_tombstone",
       lifecycle: "closed",
       placement: "archived",
-      owner: { kind: "invocation", invocationId: parentInvocation.invocationId },
+      lineage: {
+        kind: "child",
+        parentSessionId: root.sessionId,
+        origin: { kind: "invocation", invocationId: parentInvocation.invocationId },
+      },
     });
     harness.close();
   });
@@ -1039,7 +1042,7 @@ describe("SessionSupervisor", () => {
         workspaceId: "ws-test",
         role: executorRole,
         parentSessionId: root.sessionId,
-        owner: taskRunOwner(`run:${phase}`, root.sessionId),
+        origin: taskRunOwner(`run:${phase}`, root.sessionId),
         sessionId: `interrupted-${phase}`,
         purpose: "task_run",
         transcriptRef: transcript,
@@ -1085,7 +1088,7 @@ describe("SessionSupervisor", () => {
     const restarted = new SessionSupervisor({
       registry: harness.registry,
       invocations: harness.invocations,
-      ownerExists: async () => true,
+      originExists: async () => true,
     });
     const first = await restarted.reconcile({ workspaceIds: ["ws-test"] });
     expect(first.closedSessionIds).toEqual(
@@ -1158,10 +1161,9 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: administrator.sessionId,
-      owner: {
+      origin: {
         kind: "invocation",
         invocationId: parent.invocationId,
-        supervisorSessionId: administrator.sessionId,
       },
       sessionId: "structured-child",
       purpose: "role_call",
@@ -1192,7 +1194,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: administrator.sessionId,
-      owner: taskRunOwner("run:abort-ignore", administrator.sessionId),
+      origin: taskRunOwner("run:abort-ignore", administrator.sessionId),
       sessionId: "abort-ignore",
       purpose: "task_run",
     });
@@ -1212,7 +1214,7 @@ describe("SessionSupervisor", () => {
       registry: harness.registry,
       invocations: harness.invocations,
       scheduler,
-      ownerExists: async () => true,
+      originExists: async () => true,
     });
     const invocation = await supervisor.invoke({
       sessionId: owned.sessionId,
@@ -1265,7 +1267,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: taskRunOwner("run:delivery", root.sessionId),
+      origin: taskRunOwner("run:delivery", root.sessionId),
       sessionId: "owned-delivery",
       purpose: "task_run",
     });
@@ -1311,7 +1313,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: taskRunOwner("run:legacy-delivery-blocked", root.sessionId),
+      origin: taskRunOwner("run:legacy-delivery-blocked", root.sessionId),
       sessionId: "legacy-delivery-blocked",
       purpose: "task_run",
       transcriptRef: transcript,
@@ -1344,7 +1346,7 @@ describe("SessionSupervisor", () => {
     const restarted = new SessionSupervisor({
       registry: harness.registry,
       invocations: harness.invocations,
-      ownerExists: async () => true,
+      originExists: async () => true,
     });
 
     await restarted.reconcile({ workspaceIds: ["ws-test"] });
@@ -1371,7 +1373,7 @@ describe("SessionSupervisor", () => {
       workspaceId: "ws-test",
       role: executorRole,
       parentSessionId: root.sessionId,
-      owner: taskRunOwner("run:delivery-blocked-close", root.sessionId),
+      origin: taskRunOwner("run:delivery-blocked-close", root.sessionId),
       sessionId: "delivery-blocked-close",
       purpose: "task_run",
     });
@@ -1515,7 +1517,7 @@ async function createHarness() {
   const supervisor = new SessionSupervisor({
     registry,
     invocations,
-    ownerExists: async () => true,
+    originExists: async () => true,
   });
   return {
     root,
@@ -1535,10 +1537,9 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function taskRunOwner(runRef: string, supervisorSessionId: string) {
+function taskRunOwner(runRef: string, _parentSessionId: string) {
   return {
     kind: "task_run" as const,
-    supervisorSessionId,
     projectRef: "proj:test",
     taskRef: `task:${runRef}`,
     runRef,
@@ -1549,10 +1550,9 @@ function taskRunOwner(runRef: string, supervisorSessionId: string) {
   };
 }
 
-function taskRevisionOwner(revisionRef: string, supervisorSessionId: string) {
+function taskRevisionOwner(revisionRef: string, _parentSessionId: string) {
   return {
     kind: "task_revision" as const,
-    supervisorSessionId,
     projectRef: "proj:test",
     taskRef: `task:${revisionRef}`,
     revisionRef,
@@ -1564,27 +1564,25 @@ function taskRevisionOwner(revisionRef: string, supervisorSessionId: string) {
   };
 }
 
-function workflowOwner(runRef: string, supervisorSessionId: string) {
+function workflowOwner(runRef: string, _parentSessionId: string) {
   return {
     kind: "workflow_run" as const,
     workflowRef: "workflow:test",
     runRef,
     generation: 1,
-    supervisorSessionId,
   };
 }
 
-function driverOwner(driverId: string, supervisorSessionId: string) {
-  return { kind: "driver" as const, driverId, generation: 1, supervisorSessionId };
+function driverOwner(driverId: string, _parentSessionId: string) {
+  return { kind: "driver" as const, driverId, generation: 1 };
 }
 
-function driverTickOwner(tickInvocationId: string, supervisorSessionId: string) {
+function driverTickOwner(tickInvocationId: string, _parentSessionId: string) {
   return {
     kind: "driver_tick" as const,
     driverId: "driver:test",
     generation: 1,
     tickInvocationId,
-    supervisorSessionId,
   };
 }
 

@@ -190,10 +190,10 @@ test("remote Hub controls workspace sessions without a daemon socket", async () 
       scope: { kind: "workspace", workspaceId: hubWorkspace.id },
       related: true,
     });
-    assert.deepEqual(related.find(({ sessionId }) => sessionId === sideThread.sessionId)?.owner, {
-      kind: "side_thread",
+    assert.deepEqual(related.find(({ sessionId }) => sessionId === sideThread.sessionId)?.lineage, {
+      kind: "child",
       parentSessionId: workspaceSessionId,
-      generation: sideThread.generation,
+      origin: { kind: "side_thread", generation: sideThread.generation },
     });
     assert.equal(
       related.find(({ sessionId }) => sessionId === sideThread.sessionId)?.sideThreadMode,
@@ -206,11 +206,11 @@ test("remote Hub controls workspace sessions without a daemon socket", async () 
           related: true,
         },
         hubDb,
-      ).sessions.find(({ sessionId }) => sessionId === sideThread.sessionId)?.owner,
+      ).sessions.find(({ sessionId }) => sessionId === sideThread.sessionId)?.lineage,
       {
-        kind: "side_thread",
+        kind: "child",
         parentSessionId: workspaceSessionId,
-        generation: sideThread.generation,
+        origin: { kind: "side_thread", generation: sideThread.generation },
       },
     );
     await assert.rejects(

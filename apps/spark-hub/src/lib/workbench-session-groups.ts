@@ -21,7 +21,7 @@ export type WorkbenchSessionType =
 export type WorkbenchSessionGroupLike = WorkbenchSessionOrderLike &
   WorkbenchSessionScopeLike & {
     name?: string | null;
-    owner?: { kind?: string } | null;
+    lineage?: { kind?: string } | null;
     bindings?: Array<{
       kind?: string;
       adapter?: string;
@@ -48,7 +48,7 @@ export function workbenchSessionType(
   session: WorkbenchSessionGroupLike,
   options: { channelLabels: ChannelSessionLabels; fallback: string },
 ): WorkbenchSessionType | null {
-  if (session.owner?.kind === "workspace") return "administrator";
+  if (session.lineage?.kind === "root") return "administrator";
   const presentation = channelSessionPresentation(session, {
     labels: options.channelLabels,
     fallback: options.fallback,

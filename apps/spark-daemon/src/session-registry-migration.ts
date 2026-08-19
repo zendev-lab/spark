@@ -18,9 +18,9 @@ export interface SessionRegistryMigrationResult {
 /**
  * Trigger the registry-owned hard-cut migration before daemon service starts.
  * The registry creates the backup, journal, staged file and performs the
- * ownership validation; this wrapper deliberately has no second write path.
+ * lineage validation; this wrapper deliberately has no second write path.
  */
-export async function migrateSessionRegistryOwnership(input: {
+export async function migrateSessionRegistryLineage(input: {
   sparkHome: string;
 }): Promise<SessionRegistryMigrationResult> {
   const rootDir = defaultSparkSessionRegistryRoot(input.sparkHome);

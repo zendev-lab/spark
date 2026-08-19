@@ -335,9 +335,8 @@ export function createDaemonSessionRegistry(
         });
         create = {
           ...create,
-          owner: { kind: "session", supervisorSessionId: root.sessionId },
+          lineage: { kind: "child", parentSessionId: root.sessionId, origin: { kind: "session" } },
           roleBinding: { kind: "none" },
-          stateBinding: { kind: "channel", ref: input.externalKey },
           visibility: "public",
           retention: "retain",
           purpose: "channel",
@@ -445,10 +444,9 @@ async function resolveCreateRequest(
     ...ordinaryInput,
     ...(taskExecution
       ? {
-          stateBinding: { kind: "task", ref: taskExecution.taskRef } as const,
           visibility: "internal" as const,
           retention: "discard_on_close" as const,
-          purpose: taskExecution.ownerKind,
+          purpose: taskExecution.originKind,
           roleBinding: { kind: "explicit", roleRef: taskExecution.roleRef } as const,
         }
       : fleetWorker
@@ -467,10 +465,28 @@ async function resolveCreateRequest(
       "session create requires an explicit workspace scope",
     );
   }
-  let owner: CreateSparkSessionInput["owner"];
+  let lineage: CreateSparkSessionInput["lineage"];
   if (taskExecution) {
-    const { ownerKind, ...ownerFields } = taskExecution;
-    owner = { kind: ownerKind, ...ownerFields } as CreateSparkSessionInput["owner"];
+    const parentSessionId = supervisorSessionId?.trim();
+    if (!parentSessionId) {
+      throw new SparkSessionRegistryError(
+        "session_owner_not_found",
+        "Task Session create requires supervisorSessionId",
+      );
+    }
+    const supervisor = await registry.get(parentSessionId);
+    if (!supervisor) {
+      throw new SparkSessionRegistryError(
+        "session_owner_not_found",
+        `unknown supervising Session: ${parentSessionId}`,
+      );
+    }
+    const { originKind, ...originFields } = taskExecution;
+    lineage = {
+      kind: "child",
+      parentSessionId,
+      origin: { kind: originKind, ...originFields },
+    } as CreateSparkSessionInput["lineage"];
   } else {
     const supervisorId = fleetWorker?.ownerSessionId ?? supervisorSessionId?.trim();
     if (!supervisorId) {
@@ -487,22 +503,30 @@ async function resolveCreateRequest(
       );
     }
     if (placement === "sibling") {
-      if (supervisor.owner.kind === "workspace") {
+      if (supervisor.lineage.kind === "root") {
         throw new SparkSessionRegistryError(
           "workspace_administrator_session_mutation_forbidden",
           "the Workspace Administrator has no persistent sibling owner",
         );
       }
-      owner = supervisor.owner;
+      lineage = {
+        kind: "child",
+        parentSessionId: supervisor.lineage.parentSessionId,
+        origin: { kind: "session" },
+      };
     } else {
-      owner = { kind: "session", supervisorSessionId: supervisorId };
+      lineage = {
+        kind: "child",
+        parentSessionId: supervisorId,
+        origin: { kind: "session" },
+      };
     }
   }
   return await resolveRegistryCreateInput(
     {
       ...ordinaryInput,
       scope,
-      owner,
+      lineage,
       placement: "active",
     },
     options,

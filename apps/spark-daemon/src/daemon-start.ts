@@ -408,9 +408,9 @@ async function createPreparedDaemonRuntime(
         },
         resolveWorkspaceBindingId: (workspaceId) =>
           resolveWorkspaceBindingId(options.db, workspaceId),
-        ownerExists: async (owner, session) => {
-          if (owner.kind === "driver") {
-            const loop = loopStore.get(owner.driverId);
+        originExists: async (origin, session) => {
+          if (origin.kind === "driver") {
+            const loop = loopStore.get(origin.driverId);
             return Boolean(
               loop &&
               loop.driverSessionId === session.sessionId &&
@@ -418,8 +418,8 @@ async function createPreparedDaemonRuntime(
               loop.status !== "stopped",
             );
           }
-          if (owner.kind === "driver_tick") {
-            const invocation = invocationStore.getSummary(owner.tickInvocationId);
+          if (origin.kind === "driver_tick") {
+            const invocation = invocationStore.getSummary(origin.tickInvocationId);
             return Boolean(
               invocation &&
               invocation.sessionId === session.sessionId &&
@@ -427,12 +427,12 @@ async function createPreparedDaemonRuntime(
             );
           }
           if (
-            (owner.kind === "task_run" || owner.kind === "task_revision") &&
+            (origin.kind === "task_run" || origin.kind === "task_revision") &&
             session.scope.kind === "workspace"
           ) {
             return await isTaskSessionOwnerValid(
               {
-                owner,
+                origin,
                 workspaceId: session.scope.workspaceId,
                 sessionId: session.sessionId,
               },

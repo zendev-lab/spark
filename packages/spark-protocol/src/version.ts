@@ -8,7 +8,7 @@
 import { runtimeProtocolVersion } from "./runtime-v1/envelope.ts";
 
 /** Numeric schema version for view-model / daemon event payloads. */
-export const SPARK_PROTOCOL_VERSION = 2 as const;
+export const SPARK_PROTOCOL_VERSION = 3 as const;
 
 /** Runtime WebSocket control-plane protocol identifier. */
 export const SPARK_RUNTIME_PROTOCOL_VERSION = runtimeProtocolVersion;

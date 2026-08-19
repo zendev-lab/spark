@@ -68,7 +68,8 @@ export function renderManagedSession(record: SparkSessionProjection): string {
       ? "none"
       : record.bindings.map((binding) => binding.externalKey).join(", ");
   const tags = record.tags?.length ? ` tags=${JSON.stringify(record.tags)}` : "";
-  return `${record.sessionId} ${record.lifecycle}/${record.placement}/${record.activity ?? "idle"} workspace=${record.scope.kind === "workspace" ? record.scope.workspaceId : "daemon"} owner=${record.owner.kind} bindings=${bindings}${
+  const origin = record.lineage.kind === "root" ? "root" : record.lineage.origin.kind;
+  return `${record.sessionId} ${record.lifecycle}/${record.placement}/${record.activity ?? "idle"} workspace=${record.scope.kind === "workspace" ? record.scope.workspaceId : "daemon"} origin=${origin} bindings=${bindings}${
     record.name ? ` name=${JSON.stringify(record.name)}` : ""
   }${tags}\n`;
 }

@@ -146,12 +146,20 @@ describe("transport-neutral local RPC service", () => {
     expect(spawned).toMatchObject({
       name: "Fresh executor",
       roleBinding: { kind: "explicit", roleRef: "role:builtin-executor" },
-      owner: { kind: "session", supervisorSessionId: supervisor.sessionId },
+      lineage: {
+        kind: "child",
+        parentSessionId: supervisor.sessionId,
+        origin: { kind: "session" },
+      },
       activity: "idle",
     });
     expect(forked).toMatchObject({
       roleBinding: { kind: "explicit", roleRef: "role:builtin-reviewer" },
-      owner: { kind: "session", supervisorSessionId: supervisor.sessionId },
+      lineage: {
+        kind: "child",
+        parentSessionId: supervisor.sessionId,
+        origin: { kind: "session" },
+      },
       activity: "idle",
     });
     expect((await store.load(spawned.sessionPath!)).entries).toEqual([]);

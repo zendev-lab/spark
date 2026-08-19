@@ -588,7 +588,7 @@ function message(
   overrides: Partial<SparkMessageView> & { parts?: SparkMessageView["parts"] } = {},
 ): SparkMessageView {
   return {
-    version: 2,
+    version: 3,
     id: "message-1",
     role: "assistant",
     text: "",

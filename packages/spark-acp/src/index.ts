@@ -459,7 +459,7 @@ function orpcDaemon(handle: SparkDaemonOrpcClientHandle): SparkAcpDaemon {
         scope: { kind: "workspace", workspaceId: input.workspaceId },
         includeArchived: true,
       });
-      const administrator = sessions.find((candidate) => candidate.owner.kind === "workspace");
+      const administrator = sessions.find((candidate) => candidate.lineage.kind === "root");
       if (!administrator) {
         throw new Error(`Spark workspace ${input.workspaceId} has no Administrator Session`);
       }

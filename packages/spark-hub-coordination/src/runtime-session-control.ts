@@ -19,6 +19,10 @@ import {
   type SparkTurnStreamPage,
   type SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
+import {
+  sparkSessionLineageOriginKind,
+  sparkSessionParentId,
+} from "@zendev-lab/spark-protocol/session-assignment";
 
 import {
   dispatchRuntimeControlCommands,
@@ -503,7 +507,7 @@ function upsertRuntimeSessionProjection(
   db.prepare(
     `INSERT INTO runtime_session_projections
       (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id,
-       lifecycle, placement, activity, lifetime, owner_kind, record_json, projected_at)
+       lifecycle, placement, activity, lifetime, lineage_origin_kind, record_json, projected_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(runtime_id, session_id) DO UPDATE SET
        scope = excluded.scope,
@@ -513,7 +517,7 @@ function upsertRuntimeSessionProjection(
        placement = excluded.placement,
        activity = excluded.activity,
        lifetime = excluded.lifetime,
-       owner_kind = excluded.owner_kind,
+       lineage_origin_kind = excluded.lineage_origin_kind,
        record_json = excluded.record_json,
        projected_at = excluded.projected_at`,
   ).run(
@@ -526,7 +530,7 @@ function upsertRuntimeSessionProjection(
     session.placement,
     session.activity ?? "idle",
     session.lifetime,
-    session.owner.kind,
+    sparkSessionLineageOriginKind(session.lineage),
     JSON.stringify(session),
     projectedAt,
   );
@@ -548,7 +552,8 @@ export function replaceRuntimeSideThreadProjection(
   }
   if (
     session &&
-    (session.owner?.kind !== "side_thread" || session.owner.parentSessionId !== parentSessionId)
+    (sparkSessionLineageOriginKind(session.lineage) !== "side_thread" ||
+      sparkSessionParentId(session.lineage) !== parentSessionId)
   ) {
     throw new RuntimeControlCommandError(
       "Side Thread projection does not belong to the requested parent.",
@@ -562,8 +567,8 @@ export function replaceRuntimeSideThreadProjection(
        WHERE runtime_id = ?
          AND scope = 'workspace'
          AND workspace_id = ?
-         AND json_extract(record_json, '$.owner.kind') = 'side_thread'
-         AND json_extract(record_json, '$.owner.parentSessionId') = ?`,
+         AND json_extract(record_json, '$.lineage.origin.kind') = 'side_thread'
+         AND json_extract(record_json, '$.lineage.parentSessionId') = ?`,
     ).run(route.runtimeId, route.workspaceId, parentSessionId);
     if (session) upsertRuntimeSessionProjection(db, route, session, projectedAt);
     db.exec("COMMIT");

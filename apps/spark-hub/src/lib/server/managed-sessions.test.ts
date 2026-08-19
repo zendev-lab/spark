@@ -26,8 +26,7 @@ const session: SparkSessionProjection = {
   activity: "idle",
   roleBinding: { kind: "none" },
   incarnation: 1,
-  owner: { kind: "session", supervisorSessionId: "sess_admin" },
-  stateBinding: { kind: "session", ref: "sess_a" },
+  lineage: { kind: "child", parentSessionId: "sess_admin", origin: { kind: "session" } },
   visibility: "public",
   retention: "retain",
   purpose: "test",
@@ -42,10 +41,10 @@ const daemonSession: SparkSessionProjection = {
   sessionId: "sess_daemon",
   scope: { kind: "daemon", daemonId: "daemon-a" },
   lifecycle: "closed",
-  owner: {
-    kind: "invocation",
-    invocationId: "migration:sess_daemon",
-    supervisorSessionId: "migration:closed-daemon-audit",
+  lineage: {
+    kind: "child",
+    parentSessionId: "migration:closed-daemon-audit",
+    origin: { kind: "invocation", invocationId: "migration:sess_daemon" },
   },
   lifetime: "ephemeral",
 };
@@ -71,20 +70,24 @@ function sideThread(
     sessionId,
     name: `${mode} child`,
     roleBinding: { kind: "inherit" },
-    owner: { kind: "side_thread", parentSessionId, generation },
+    lineage: {
+      kind: "child",
+      parentSessionId,
+      origin: { kind: "side_thread", generation },
+    },
     sideThreadMode: mode,
     ...overrides,
   });
 }
 
 const snapshot = {
-  version: 2 as const,
+  version: 3 as const,
   sessionId: "sess_a",
   title: "Alpha",
   status: "idle" as const,
   messages: [
     {
-      version: 2 as const,
+      version: 3 as const,
       id: "msg_user",
       role: "user" as const,
       text: "Message from Infoflow",

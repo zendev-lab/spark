@@ -138,8 +138,11 @@ describe("daemon session transcript ownership", () => {
     const session = await harness.registry.createSupervised({
       sessionId: "sess_closing_discard",
       scope: administrator.scope,
-      owner: { kind: "session", supervisorSessionId: administrator.sessionId },
-      stateBinding: { kind: "session", ref: administrator.sessionId },
+      lineage: {
+        kind: "child",
+        parentSessionId: administrator.sessionId,
+        origin: { kind: "session" },
+      },
       visibility: "internal",
       retention: "discard_on_close",
       purpose: "task_run",

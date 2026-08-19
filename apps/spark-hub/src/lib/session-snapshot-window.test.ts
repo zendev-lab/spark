@@ -48,7 +48,7 @@ describe("session snapshot cursor pages", () => {
           ...initial.snapshot.messages,
           message(70),
           {
-            version: 2,
+            version: 3,
             id: "invocation:inv_live:failure",
             role: "system",
             text: "The session was interrupted.",
@@ -208,7 +208,7 @@ function processHeavyPage(input: {
 function processHeavyMessage(index: number, userAnchors: ReadonlySet<number>) {
   if (userAnchors.has(index)) {
     return {
-      version: 2 as const,
+      version: 3 as const,
       id: `msg_${index}`,
       role: "user" as const,
       text: `prompt ${index}`,
@@ -219,7 +219,7 @@ function processHeavyMessage(index: number, userAnchors: ReadonlySet<number>) {
   const toolCallId = `call_${Math.floor(index / 2)}`;
   if (index % 2 === 0) {
     return {
-      version: 2 as const,
+      version: 3 as const,
       id: `msg_${index}`,
       role: "assistant" as const,
       text: "",
@@ -239,7 +239,7 @@ function processHeavyMessage(index: number, userAnchors: ReadonlySet<number>) {
     };
   }
   return {
-    version: 2 as const,
+    version: 3 as const,
     id: `msg_${index}`,
     role: "tool" as const,
     text: "Delegated session is still running.",
@@ -263,7 +263,7 @@ function processHeavyMessage(index: number, userAnchors: ReadonlySet<number>) {
 
 function message(index: number) {
   return {
-    version: 2 as const,
+    version: 3 as const,
     id: `msg_${index}`,
     role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
     text: `message ${index}`,

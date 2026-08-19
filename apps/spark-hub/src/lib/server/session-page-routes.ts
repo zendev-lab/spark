@@ -68,9 +68,7 @@ export async function loadSessionsPage(
   if (url?.pathname === "/sessions" && parentData.activeWorkspace) {
     redirect(303, `${workspaceSessionsPath(parentData.activeWorkspace)}${url.search}`);
   }
-  const administrator = parentData.sessions.find(
-    (session: { owner?: { kind?: string } }) => session.owner?.kind === "workspace",
-  );
+  const administrator = parentData.sessions.find((session) => session.lineage.kind === "root");
   if (!url.searchParams.has("new") && administrator && parentData.activeWorkspace) {
     redirect(
       303,
@@ -210,7 +208,7 @@ export const actions = {
         workspaceId,
         includeArchived: true,
         related: true,
-      }).sessions.find((candidate) => candidate.owner.kind === "workspace");
+      }).sessions.find((candidate) => candidate.lineage.kind === "root");
       if (!administrator) {
         throw new Error(`Workspace ${workspaceId} Administrator Session is still provisioning.`);
       }

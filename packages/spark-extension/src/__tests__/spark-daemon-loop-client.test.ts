@@ -25,7 +25,11 @@ const ownerSession = {
   placement: "active" as const,
   lifetime: "scoped" as const,
   roleBinding: { kind: "none" as const },
-  owner: { kind: "session" as const, supervisorSessionId: "sess_administrator" },
+  lineage: {
+    kind: "child" as const,
+    parentSessionId: "sess_administrator",
+    origin: { kind: "session" as const },
+  },
   cwd: ownerInput.cwd,
   bindings: [],
   tags: [],
@@ -43,7 +47,7 @@ const administratorSession = {
     kind: "explicit" as const,
     roleRef: "role:builtin-administrator" as const,
   },
-  owner: { kind: "workspace" as const, workspaceId: "workspace-1" },
+  lineage: { kind: "root" as const, workspaceId: "workspace-1" },
 };
 
 describe("Spark daemon Pi owner compatibility", () => {
