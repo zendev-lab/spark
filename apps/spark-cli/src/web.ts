@@ -174,10 +174,8 @@ const SPARK_WEB_DHS_PACKAGE = "@zendev-lab/spark-web-dsh";
 
 /** Locate the installed `@zendev-lab/spark-web-dsh` package root. */
 export function resolveSparkWebDshPackageDir(): string {
-  const pkgJson = require.resolve(`${SPARK_WEB_DHS_PACKAGE}/package.json`);
-  return dirname(pkgJson);
+  return dirname(resolvePackageJson(`${SPARK_WEB_DHS_PACKAGE}/package.json`));
 }
-
 
 export interface SparkWebPatch {
   /** Patch rows: the spark-llm plugin insert and any overrides. */
@@ -236,7 +234,8 @@ export async function ensureSparkWebClient(profileDir: string): Promise<SparkWeb
   }
   let linked = false;
   try {
-    if (resolveFromDirectory(profileDir, SPARK_WEB_DHS_PACKAGE) === undefined) throw new Error("not linked");
+    if (resolveFromDirectory(profileDir, SPARK_WEB_DHS_PACKAGE) === undefined)
+      throw new Error("not linked");
   } catch {
     const dsh = spawnSync("dsh", ["plugin", "--profile", "web", "add", `link:${packageDir}`], {
       stdio: "inherit",
@@ -280,10 +279,7 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
     );
   }
   if (!userPatch.includes("id: spark-web-dsh")) {
-    rows.push(
-      "    - id: spark-web-dsh",
-      `      name: ${JSON.stringify(SPARK_WEB_DHS_PACKAGE)}`,
-    );
+    rows.push("    - id: spark-web-dsh", `      name: ${JSON.stringify(SPARK_WEB_DHS_PACKAGE)}`);
   }
   rows.push("- id: hmr", "  disabled: false");
   if (args.host !== undefined && args.host !== "127.0.0.1") {
