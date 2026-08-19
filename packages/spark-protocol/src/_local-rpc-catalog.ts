@@ -60,7 +60,6 @@ import {
   sparkPiAuthImportRequestSchema,
 } from "./model-control.ts";
 import { isoDateTimeSchema, prefixedIdSchema } from "./refs.ts";
-import { sparkSessionModeResultSchema, sparkSessionSetModeRequestSchema } from "./session-mode.ts";
 import {
   executorClientProjectionSchema,
   runtimeWorkspaceBindingStatusSchema,
@@ -119,11 +118,7 @@ import {
   sparkTaskClaimReleaseRequestSchema,
 } from "./task-claim.ts";
 import {
-  sparkLegacyTokenUsageBackfillRequestSchema,
-  sparkLegacyTokenUsageBackfillResultSchema,
   sparkTokenUsageAggregateSchema,
-  sparkTokenUsageByPersistenceSchema,
-  sparkTokenUsagePersistenceRequestSchema,
   sparkTokenUsageSummaryRequestSchema,
 } from "./token-usage.ts";
 import {
@@ -1278,21 +1273,6 @@ export const sparkLocalRpcUplinkStatusResultSchema = z.object({
   ),
 });
 
-export const sparkLocalRpcSessionNotificationDeliverResultSchema = z.object({
-  deliveries: z.array(
-    z.object({
-      adapter: z.string().min(1),
-      externalKey: z.string().min(1),
-      adapterId: z.string().min(1).optional(),
-      adapterAccountIdentity: z.string().min(1).optional(),
-      status: z.enum(["pending", "delivered", "failed", "uncertain"]),
-      attemptCount: z.number().int().nonnegative(),
-      receipt: sparkProtocolJsonValueSchema.optional(),
-      error: z.string().optional(),
-    }),
-  ),
-});
-
 export const sparkLocalRpcHumanInteractionListRequestSchema = z.object({
   sessionId: z.string().trim().min(1).optional(),
 });
@@ -1481,14 +1461,6 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkTokenUsageSummaryRequestSchema,
     output: sparkTokenUsageAggregateSchema,
   },
-  "usage.persistence": {
-    input: sparkTokenUsagePersistenceRequestSchema,
-    output: sparkTokenUsageByPersistenceSchema,
-  },
-  "usage.backfill": {
-    input: sparkLegacyTokenUsageBackfillRequestSchema,
-    output: sparkLegacyTokenUsageBackfillResultSchema,
-  },
   "repro.start": {
     input: sparkReproStartRequestSchema,
     output: sparkReproMutationResultSchema,
@@ -1674,20 +1646,9 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkSessionMailMutationRequestSchema,
     output: sparkSessionMailMutationResultSchema,
   },
-  "session.notification.deliver": {
-    input: z.object({
-      sessionId: z.string().min(1),
-      messageId: z.string().min(1),
-    }),
-    output: sparkLocalRpcSessionNotificationDeliverResultSchema,
-  },
   "session.model.set": {
     input: sparkSessionSetModelRequestSchema,
     output: sparkSessionProjectionSchema,
-  },
-  "session.mode.set": {
-    input: sparkSessionSetModeRequestSchema,
-    output: sparkSessionModeResultSchema,
   },
   "session.thinking.set": {
     input: sparkSessionSetThinkingRequestSchema,
@@ -1908,13 +1869,6 @@ export const sparkLocalRpcOrpcContract = {
   },
   usage: {
     summary: procedure("GET", "/usage/summary", p["usage.summary"], sparkLocalRpcNoOrpcErrors),
-    persistence: procedure(
-      "GET",
-      "/usage/persistence",
-      p["usage.persistence"],
-      sparkLocalRpcNoOrpcErrors,
-    ),
-    backfill: procedure("POST", "/usage/backfill", p["usage.backfill"], sparkLocalRpcNoOrpcErrors),
   },
   repro: {
     start: procedure("POST", "/repro/start", p["repro.start"], sparkLocalRpcReadinessOrpcErrors),
@@ -2194,27 +2148,11 @@ export const sparkLocalRpcOrpcContract = {
         sparkLocalRpcSessionMailMutationOrpcErrors,
       ),
     },
-    notification: {
-      deliver: procedure(
-        "POST",
-        "/session/notification/deliver",
-        p["session.notification.deliver"],
-        sparkLocalRpcReadinessSessionChannelOrpcErrors,
-      ),
-    },
     model: {
       set: procedure(
         "POST",
         "/session/model/set",
         p["session.model.set"],
-        sparkLocalRpcReadinessSessionModelOrpcErrors,
-      ),
-    },
-    mode: {
-      set: procedure(
-        "POST",
-        "/session/mode/set",
-        p["session.mode.set"],
         sparkLocalRpcReadinessSessionModelOrpcErrors,
       ),
     },

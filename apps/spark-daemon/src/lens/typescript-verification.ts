@@ -31,7 +31,7 @@ import {
 import { inspectTypeScriptLspProfile } from "./typescript-lsp-profile.ts";
 import { inspectPythonRustProfiles } from "./language-toolchains.ts";
 
-export interface RunTypeScriptDiagnosticsInput {
+interface RunTypeScriptDiagnosticsInput {
   cwd: string;
   stateCwd?: string;
   artifactRef?: string;
@@ -44,7 +44,7 @@ export interface TypeScriptVerificationResult {
   evidenceRef?: EvidenceRef;
 }
 
-export interface AdditionalLensVerification {
+interface AdditionalLensVerification {
   provider: string;
   subjectRevision: string;
   verdict: LensVerificationReceipt["verdict"];

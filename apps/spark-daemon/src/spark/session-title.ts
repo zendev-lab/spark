@@ -19,14 +19,14 @@ const UNSAFE_TITLE_CONTROL_PATTERN = new RegExp(
   "gu",
 );
 
-export interface AssignCompletedSessionNameInput {
+interface AssignCompletedSessionNameInput {
   sessionId: string;
   prompt: string;
   model: SparkModelRef;
   signal?: AbortSignal;
 }
 
-export interface CompletedSessionNameDependencies {
+interface CompletedSessionNameDependencies {
   modelControl: {
     generateSessionName(input: {
       prompt: string;

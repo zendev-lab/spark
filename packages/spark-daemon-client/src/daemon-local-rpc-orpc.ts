@@ -228,16 +228,6 @@ const invocationLoopInvokers = {
       sparkLocalRpcProcedureSchemas["usage.summary"].output,
       client.usage.summary(input, options),
     ),
-  "usage.persistence": (client, input, options) =>
-    parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["usage.persistence"].output,
-      client.usage.persistence(input, options),
-    ),
-  "usage.backfill": (client, input, options) =>
-    parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["usage.backfill"].output,
-      client.usage.backfill(input, options),
-    ),
   "repro.start": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["repro.start"].output,
@@ -290,8 +280,6 @@ const invocationLoopInvokers = {
   | "invocation.retention.preview"
   | "invocation.retention.apply"
   | "usage.summary"
-  | "usage.persistence"
-  | "usage.backfill"
   | "repro.start"
   | "repro.status"
   | "repro.stop"
@@ -514,20 +502,10 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.mail.ack"].output,
       client.session.mail.ack(input, options),
     ),
-  "session.notification.deliver": (client, input, options) =>
-    parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["session.notification.deliver"].output,
-      client.session.notification.deliver(input, options),
-    ),
   "session.model.set": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.model.set"].output,
       client.session.model.set(input, options),
-    ),
-  "session.mode.set": (client, input, options) =>
-    parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["session.mode.set"].output,
-      client.session.mode.set(input, options),
     ),
   "session.thinking.set": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
@@ -555,9 +533,7 @@ const sessionInvokers = {
   | "session.inbox"
   | "session.mail.read"
   | "session.mail.ack"
-  | "session.notification.deliver"
   | "session.model.set"
-  | "session.mode.set"
   | "session.thinking.set"
 >;
 

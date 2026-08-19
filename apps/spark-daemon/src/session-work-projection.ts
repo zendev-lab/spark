@@ -23,6 +23,8 @@ import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { projectSparkReproV10 } from "./repro-owner.ts";
 import { SparkReproV10Store } from "./store/repro-v10.ts";
 
+import { isRecord } from "./local-rpc/is-record.ts";
+
 export interface SparkSessionWorkProjectionDiagnostic {
   code:
     | "goal_state_unavailable"

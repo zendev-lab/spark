@@ -22,6 +22,8 @@ import {
 } from "./server-profiles.js";
 import { refreshSparkDaemonCredentials, shouldRefreshSparkDaemonToken } from "./token-refresh.js";
 
+import { isRecord } from "./local-rpc/is-record.ts";
+
 export class RegistrationGrantRefusedError extends Error {}
 
 export class DeviceAuthorizationError extends Error {
@@ -715,8 +717,4 @@ async function readHttpFailure(response: Response): Promise<{ code: string; mess
 function stringProperty(value: Record<string, unknown>, key: string): string | undefined {
   const candidate = value[key];
   return typeof candidate === "string" && candidate.trim() ? candidate.trim() : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

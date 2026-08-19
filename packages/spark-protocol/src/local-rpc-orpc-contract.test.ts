@@ -501,7 +501,6 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["task.claim.recover", "task_claim_recovery_refused"],
       ["uplink.prefer", "uplink_transfer_rejected"],
       ["human.interaction.respond", "human_wait_registry_unavailable"],
-      ["session.notification.deliver", "channel_delivery_not_sent"],
       ["session.model.set", "model_control_unavailable"],
       ["session.model.set", "model_not_enabled"],
       ["model.default.set", "model_not_enabled"],

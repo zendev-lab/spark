@@ -382,14 +382,14 @@ describe("SparkSessionMailStore request queue", () => {
     });
     void notice;
 
-    await expect(store.pendingRequests()).resolves.toEqual([first.message]);
+    await expect(store.pendingRequestHeads()).resolves.toEqual([first.message]);
     await expect(store.pendingRequestsForSession("session:worker")).resolves.toEqual([
       first.message,
     ]);
 
     // The frozen execution envelope survives a reload from disk.
     const reloaded = new SparkSessionMailStore({ sparkHome: store.sparkHome });
-    const persisted = await reloaded.pendingRequests();
+    const persisted = await reloaded.pendingRequestHeads();
     expect(persisted[0]).toMatchObject({
       id: first.message.id,
       requestExecution: {

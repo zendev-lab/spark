@@ -7,7 +7,7 @@ import type { SparkPaths } from "@zendev-lab/spark-system";
 import { localRpcError } from "./helpers.ts";
 import { isRecord } from "./is-record.ts";
 import { parseLocalRpcRequest } from "./parse.ts";
-import { invokeLocalRpcServiceRequest } from "./service.ts";
+import { invokeParsedLocalRpcService } from "./service.ts";
 import type { LocalRpcHandlerOptions, LocalRpcResponse } from "./types.ts";
 
 export async function handleLocalRpcLine(
@@ -31,7 +31,7 @@ export async function handleLocalRpcLine(
     const request = parseLocalRpcRequest(line);
     parsedMethod = request.method;
     requestId = request.id;
-    const result = await invokeLocalRpcServiceRequest(request, {
+    const result = await invokeParsedLocalRpcService(request, {
       paths,
       db,
       ...(onStop ? { onStop } : {}),
