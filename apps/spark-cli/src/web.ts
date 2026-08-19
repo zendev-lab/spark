@@ -29,10 +29,12 @@ import {
   realpathSync,
   statSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { spawn } from "node:child_process";
+import { createServer } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -355,24 +357,28 @@ export async function ensureSparkWebClient(profileDir: string): Promise<SparkWeb
       banner: {
         js: `window.__ModuleLoader__.load({ id: ${JSON.stringify(SPARK_WEB_DHS_PACKAGE)}, factory: (require) => { var module = { exports: {} }; var exports = module.exports;`,
       },
-      footer: { js: "} });" },
+      footer: {
+        js: `module.exports = { default: { name, inject, apply }, name, inject, apply };
+return module.exports;
+}
+});`,
+      },
       logLevel: "silent",
     });
     rebuilt = true;
   }
   // The DSH loader imports the package main entry, so the host half must
   // exist next to the client bundle (mirror of the package build script).
-  const hostHalf = join(packageDir, "lib", "index.js");
-  if (!existsSync(hostHalf)) {
-    writeFileSync(hostHalf, "function apply() {}\nexport { apply };\n");
-  }
   let linked = false;
-  try {
-    if (resolveFromDirectory(profileDir, SPARK_WEB_DHS_PACKAGE) === undefined)
-      throw new Error("not linked");
-  } catch {
-    linkClientIntoProfile(profileDir, packageDir);
-    linked = true;
+  const before = resolveFromDirectory(profileDir, SPARK_WEB_DHS_PACKAGE);
+  const beforeReal = before === undefined ? undefined : realpathSync(dirname(before));
+  linkClientIntoProfile(profileDir, packageDir);
+  if (beforeReal !== realpathSync(packageDir)) linked = true;
+  // The loader imports the package main entry; if the host half is missing or
+  // empty, the plugin load fails with "invalid plugin ... received undefined".
+  const hostHalf = join(packageDir, "lib", "index.js");
+  if (!existsSync(hostHalf) || !readFileSync(hostHalf, "utf8").includes("apply")) {
+    writeFileSync(hostHalf, "function apply() {}\nexport { apply };\n");
   }
   return { packageDir, bundle, rebuilt, linked };
 }
@@ -403,7 +409,11 @@ function linkClientIntoProfile(profileDir: string, packageDir: string): void {
     if (!lstatSync(target).isSymbolicLink()) {
       throw new Error(`spark web: ${target} exists and is not a symlink`);
     }
-    return;
+    // The profile may still point at an older checkout (a worktree from a
+    // previous session). Re-link whenever the source moved so the DSH loader
+    // always imports the package this invocation builds from.
+    if (realpathSync(target) === realpathSync(packageDir)) return;
+    unlinkSync(target);
   }
   symlinkSync(packageDir, target, "junction");
 }
@@ -438,12 +448,30 @@ export function sparkWebBootScript(
     "  throw new Error(`spark web: no profile-boot module found under ${libDir}`);",
     "}",
     "const { runProfile } = await import(pathToFileURL(join(libDir, entry)).href);",
-    "await runProfile({",
-    '  environment: loadLayeredEnv("spark"),',
-    '  profile: "web",',
-    "  patchFiles,",
-    "  args: webArgs,",
-    "});",
+    "",
+    "try {",
+    "  await runProfile({",
+    '    environment: loadLayeredEnv("spark"),',
+    '    profile: "web",',
+    "    patchFiles,",
+    "    args: webArgs,",
+    "  });",
+    "} catch (error) {",
+    "  let deepest = error;",
+    "  while (deepest instanceof Error && deepest.cause !== undefined) deepest = deepest.cause;",
+    '  if (deepest instanceof Error && deepest.code === "EADDRINUSE") {',
+    '    const target = /address already in use (.+)/.exec(deepest.message ?? "")?.[1];',
+    "    console.error(target === undefined",
+    '      ? "spark web: cannot start the web server because its port is already in use."',
+    "      : `spark web: cannot start the web server — ${target} is already in use.`);",
+    '    console.error("spark web: pick a free port with --port <port> (default 3080 is taken by a running harness).");',
+    "    process.exitCode = 1;",
+    "  } else {",
+    "    console.error(error instanceof Error ? error.message : String(error));",
+    '    console.error("spark web: server failed to start; see the message above for details.");',
+    "    process.exitCode = 1;",
+    "  }",
+    "}",
   ];
   return lines.join("\n");
 }
@@ -529,8 +557,31 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
 }
 
 /** Compose the arguments handed to the web app after the patch overlays. */
-export function composeWebArgs(args: SparkWebArgs): string[] {
-  const webArgs = [`--port=${args.port ?? 3080}`];
+/** True when nothing is bound to `port` on the loopback interface. */
+function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once("error", () => resolve(false));
+    probe.once("listening", () => probe.close(() => resolve(true)));
+    probe.listen(port, "127.0.0.1");
+  });
+}
+
+/**
+ * The next free port at or above `preferred`. The DSH web server defaults to
+ * 3080, which an already-running harness keeps occupied; `spark web` then
+ * shifts to the first free port so a plain `spark web` invocation always
+ * works on the developer machine.
+ */
+export async function nextFreeWebPort(preferred = 3080, attempts = 100): Promise<number> {
+  for (let port = preferred; port < preferred + attempts; port++) {
+    if (await isPortFree(port)) return port;
+  }
+  throw new Error(`spark web: no free port found from ${preferred} to ${preferred + attempts - 1}`);
+}
+
+export function composeWebArgs(args: SparkWebArgs, port = args.port ?? 3080): string[] {
+  const webArgs = [`--port=${port}`];
   for (const trusted of args.trustedHosts) webArgs.push(`--trusted-host=${trusted}`);
   webArgs.push(...args.argv);
   return webArgs;
@@ -583,7 +634,11 @@ export async function prepareSparkWebDispatch(
   }
 
   const patch = composeSparkWebPatch(profileDir, args);
-  return { profileDir, patches: [patch.path], webArgs: composeWebArgs(args) };
+  const port = args.port ?? (await nextFreeWebPort(3080));
+  if (port !== 3080 && args.port === undefined) {
+    process.stderr.write(`[spark web] port 3080 is in use — serving on ${port}\n`);
+  }
+  return { profileDir, patches: [patch.path], webArgs: composeWebArgs(args, port) };
 }
 
 /** Boot the DSH web profile through the dispatcher launcher. */

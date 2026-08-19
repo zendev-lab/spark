@@ -24,7 +24,7 @@ window.__ModuleLoader__.load({
     };
     var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-    // src/client.tsx
+    // packages/spark-web-dsh/src/client.tsx
     var client_exports = {};
     __export(client_exports, {
       apply: () => apply,
@@ -236,5 +236,7 @@ window.__ModuleLoader__.load({
       );
     }
     var client_default = { name, inject, apply };
+    module.exports = { default: { name, inject, apply }, name, inject, apply };
+    return module.exports;
   },
 });
