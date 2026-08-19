@@ -1125,6 +1125,7 @@ function interactionForSessionRun(
   options: SparkDaemonTaskExecutorOptions,
   task: SparkDaemonSessionRunTask,
   context: SparkDaemonTaskExecutionContext,
+  taskOwnerSessionId?: string,
 ) {
   if (!options.interact) return undefined;
   return (request: unknown) => {
@@ -1134,7 +1135,8 @@ function interactionForSessionRun(
     if (
       evidenceOwnerSessionId &&
       evidenceOwnerSessionId !== task.sessionId &&
-      evidenceOwnerSessionId !== task.stateBindingSessionId
+      evidenceOwnerSessionId !== task.stateBindingSessionId &&
+      evidenceOwnerSessionId !== taskOwnerSessionId
     ) {
       throw new Error("evidence-bound interaction owner does not match the Session state owner");
     }
@@ -1293,6 +1295,7 @@ async function resolveFleetExecutionScope(input: {
   }
   return Object.freeze({
     isolation: policy.isolation,
+    binding: taskExecutionBinding(request, run.execution.ownerSessionId),
     primaryArtifactRef: input.binding.primaryArtifactRef as ArtifactRef,
     writableArtifactRefs: writableArtifactRefs as ArtifactRef[],
     writableRoots,
@@ -1325,9 +1328,24 @@ async function resolveWorkspaceTaskExecutionScope(input: {
   if (policy?.isolation !== "workspace") return undefined;
   return Object.freeze({
     isolation: "workspace",
+    binding: taskExecutionBinding(request, run.execution.ownerSessionId),
     writableArtifactRefs: [],
     writableRoots: [input.workspaceRoot],
   });
+}
+
+function taskExecutionBinding(
+  request: NonNullable<ReturnType<typeof fleetTaskRequestMetadata>>,
+  ownerSessionId: string,
+): NonNullable<SparkTaskExecutionScope["binding"]> {
+  return {
+    ownerSessionId,
+    projectRef: request.projectRef as ProjectRef,
+    taskRef: request.taskRef as NonNullable<SparkTaskExecutionScope["binding"]>["taskRef"],
+    runRef: request.runRef as NonNullable<SparkTaskExecutionScope["binding"]>["runRef"],
+    jobId: request.jobId,
+    attempt: request.attempt,
+  };
 }
 
 function fleetTaskRequestMetadata(task: SparkDaemonSessionRunTask):
@@ -1340,7 +1358,7 @@ function fleetTaskRequestMetadata(task: SparkDaemonSessionRunTask):
     }
   | undefined {
   const mail = recordValue(task.messageMetadata?.sessionMail);
-  const payload = recordValue(mail?.requestPayload);
+  const payload = recordValue(mail?.requestPayload) ?? recordValue(task.messageMetadata);
   if (
     payload?.kind !== "task_execution" ||
     typeof payload.projectRef !== "string" ||
@@ -1563,7 +1581,13 @@ export async function executeSparkDaemonSessionRunTask(
   );
   const messageMetadata = sessionRunMessageMetadata(task, context.invocationId);
   const binding = completeChannelBinding(task);
-  const interaction = interactionForSessionRun(options, task, context);
+  const executionIdentity = await sessionExecutionIdentity(task, options, sessionContext);
+  const interaction = interactionForSessionRun(
+    options,
+    task,
+    context,
+    executionIdentity.taskExecutionScope?.binding?.ownerSessionId,
+  );
   const checkpointRestart =
     typeof context.yieldForRestartIfRequested === "function"
       ? (checkpoint: SparkTurnResumeCheckpoint) => context.yieldForRestartIfRequested?.(checkpoint)
@@ -1575,7 +1599,6 @@ export async function executeSparkDaemonSessionRunTask(
     : sessionContext.taskSession
       ? "task_execution"
       : "root_session";
-  const executionIdentity = await sessionExecutionIdentity(task, options, sessionContext);
   const roleRunner =
     options.sessionSupervisor && executionIdentity.workspaceId
       ? createSupervisedRoleRunner({

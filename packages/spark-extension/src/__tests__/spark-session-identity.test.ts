@@ -11,6 +11,7 @@ import {
   saveCurrentProjectRef,
 } from "../extension/current-project-state.ts";
 import { currentSparkProject, loadSparkGraph } from "../extension/session-state.ts";
+import { reproOwnerContext } from "../extension/spark-extension-events.ts";
 import {
   rebuildSessionIndex as rebuildSparkLoopSessionIndex,
   sessionGoalStorePath,
@@ -46,6 +47,39 @@ test("sparkSessionKey prefers host sessionId over sessionManager stubs", () => {
     }),
     "session:already-qualified",
   );
+});
+
+test("TaskRun binding selects its Project without rewriting the child Session identity", async () => {
+  const graph = new TaskGraph();
+  const project = graph.createProject({ title: "Bound", description: "bound" });
+  const ctx = {
+    cwd: "/workspace",
+    sessionId: "session:lane",
+    executionSessionId: "session:lane",
+    taskExecutionScope: {
+      isolation: "workspace" as const,
+      binding: {
+        ownerSessionId: "session:root",
+        projectRef: project.ref,
+        taskRef: "task:bound" as const,
+        runRef: "run:bound" as const,
+        jobId: "job:bound",
+        attempt: 1,
+      },
+      writableArtifactRefs: [],
+      writableRoots: ["/workspace"],
+    },
+  };
+
+  assert.deepEqual(await currentSparkProject(ctx.cwd, ctx, graph), project);
+  assert.deepEqual(
+    {
+      sessionId: reproOwnerContext(ctx).sessionId,
+      executionSessionId: reproOwnerContext(ctx).executionSessionId,
+    },
+    { sessionId: "session:root", executionSessionId: "session:lane" },
+  );
+  assert.equal(ctx.sessionId, "session:lane");
 });
 
 test("sparkSessionKey uses the native Pi session id before file or leaf fallbacks", () => {
