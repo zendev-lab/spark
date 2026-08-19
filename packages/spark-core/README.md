@@ -52,7 +52,7 @@ supersets of these types:
 3. **Keep the runtime surface tiny.** Prefer types; only add dependency-light
    helpers that belong next to the host contract.
 4. **Keep slices narrow.** If a feature is only needed by the native Spark TUI
-   host, put it behind host-only helpers in `apps/spark-tui/src/host/`
+   host, put it behind host-only helpers in `packages/spark-extension/src/host/`
    rather than widening this contract. If an extension package needs it on
    both hosts, add the smallest optional method here and test both hosts.
 

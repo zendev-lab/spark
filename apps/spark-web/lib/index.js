@@ -1,2 +1,0 @@
-function apply() {}
-export { apply };

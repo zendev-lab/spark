@@ -36,10 +36,10 @@ supported packages.
 | Path | Responsibility |
 | --- | --- |
 | `apps/spark-cli` | Thin public `spark` command dispatcher |
-| `apps/spark-tui` | Native terminal host and interaction adapters |
+| `apps/spark-tui` | Native terminal host and interaction adapters (retiring; execution host rehomes to spark-extension) |
 | `apps/spark-daemon` | Durable sessions, invocations, channels, and execution |
-| `apps/spark-hub` | Browser presentation and control |
-| `apps/spark-web` | DSH web profile boot |
+| `apps/spark-web` | Local single-workspace browser workbench, loopback daemon gateway |
+| `apps/spark-hub` | Cross-workspace browser presentation and Hub coordination |
 | `apps/spark-docs` | Public bilingual user documentation |
 | `packages/spark-*` | Shared contracts, capabilities, runtimes, clients, and adapters |
 | `architecture/packages.json` | Machine-readable layer, state-writer, exception, Pi ownership, composition-root, and package-budget inventory |
@@ -66,8 +66,9 @@ and keep transports and presentation layers thin.
 | Cross-workspace registry, delegation, delivery, and bounded receipts | Hub modules in `spark-hub-coordination` and `spark-hub-db` |
 | Cross-surface schemas and semantics | `packages/spark-protocol` |
 | Product extension composition and policy | `packages/spark-extension` |
-| Terminal presentation | `apps/spark-tui` behind shared TUI boundaries |
-| Browser presentation | `apps/spark-hub` |
+| Terminal presentation | `apps/spark-tui` behind shared TUI boundaries (retiring) |
+| Local browser workbench | `apps/spark-web` via daemon-client |
+| Cross-workspace browser presentation | `apps/spark-hub` |
 
 When behavior is shared by multiple surfaces, define its schema and semantics in
 the existing protocol or owner API before adding surface-specific adapters.

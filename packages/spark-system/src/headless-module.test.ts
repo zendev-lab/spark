@@ -8,7 +8,7 @@ import {
 describe("headless executor module resolution", () => {
   test("keeps the product headless executor as the default", () => {
     expect(DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE).toBe(
-      "@zendev-lab/spark-tui/headless-role-executor",
+      "@zendev-lab/spark-extension/headless-role-executor",
     );
   });
 

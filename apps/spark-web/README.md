@@ -1,13 +1,12 @@
-# @zendev-lab/spark-web
+# Spark Web
 
-Spark-owned **web application**. `spark web` / `spark-web` boot the installed
-DeepSeek Harness web profile with Cue, LLM, and provider-onboarding plugins.
-Search/fetch tools live in `@zendev-lab/spark-tool-web`.
+Local single-workspace browser workbench. It binds loopback only, requires a
+one-shot token, and talks to the Spark daemon through `spark-daemon-client`.
 
-```sh
+```bash
 spark web
-spark web --host 0.0.0.0 --trusted-host workstation.example:3080
+# http://127.0.0.1:4310/?token=...
 ```
 
-Initialize the DSH profile once with `dsh web` before the first Spark boot.
-`pnpm --filter @zendev-lab/spark-web run build` writes `lib/client.js`.
+Non-loopback hosts including `0.0.0.0` are rejected. Hub remains the
+cross-workspace browser UI. Shared presentation lives in `@zendev-lab/spark-ui`.

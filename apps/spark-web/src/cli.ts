@@ -1,0 +1,95 @@
+import { existsSync } from "node:fs";
+import { createServer } from "node:http";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { ensureSparkDaemonRunning } from "@zendev-lab/spark-daemon-client";
+import { createServer as createViteServer } from "vite";
+
+import { resolveSparkWebToken, SPARK_WEB_TOKEN_ENV } from "./lib/server/auth.ts";
+import { parseSparkWebBindArgs } from "./lib/server/bind.ts";
+import {
+  attachSparkWebLease,
+  heartbeatSparkWebLease,
+  releaseSparkWebLease,
+} from "./lib/server/lease.ts";
+
+const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+export async function runSparkWebCli(argv: string[] = process.argv.slice(2)): Promise<number> {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    process.stdout.write(sparkWebHelpText());
+    return 0;
+  }
+
+  const bind = parseSparkWebBindArgs(argv);
+  const token = resolveSparkWebToken();
+  process.env[SPARK_WEB_TOKEN_ENV] = token;
+
+  await ensureSparkDaemonRunning();
+  const lease = await attachSparkWebLease({ localPath: process.cwd() });
+  const heartbeat = setInterval(() => {
+    void heartbeatSparkWebLease(lease).catch(() => undefined);
+  }, 15_000);
+  heartbeat.unref();
+
+  const origin = `http://${bind.host}:${bind.port}`;
+  const url = `${origin}/?token=${encodeURIComponent(token)}`;
+
+  const stop = async () => {
+    clearInterval(heartbeat);
+    await releaseSparkWebLease(lease).catch(() => undefined);
+  };
+  process.once("SIGINT", () => {
+    void stop().then(() => process.exit(0));
+  });
+  process.once("SIGTERM", () => {
+    void stop().then(() => process.exit(0));
+  });
+
+  const handlerPath = join(appDir, "build", "handler.js");
+  if (existsSync(handlerPath)) {
+    const { handler } = (await import(handlerPath)) as {
+      handler: (
+        request: import("node:http").IncomingMessage,
+        response: import("node:http").ServerResponse,
+      ) => void;
+    };
+    await new Promise<void>((resolveListen, reject) => {
+      const server = createServer(handler);
+      server.on("error", reject);
+      server.listen(bind.port, bind.host, () => resolveListen());
+    });
+  } else {
+    const vite = await createViteServer({
+      configFile: join(appDir, "vite.config.ts"),
+      root: appDir,
+      server: {
+        host: bind.host,
+        port: bind.port,
+        strictPort: true,
+        allowedHosts: ["127.0.0.1", "localhost"],
+      },
+    });
+    await vite.listen();
+  }
+
+  process.stdout.write(`Spark web listening on ${url}\n`);
+  if (bind.open) {
+    process.stdout.write(
+      "Open that loopback URL in a local browser. The token is single-host only.\n",
+    );
+  }
+  return await new Promise<number>(() => undefined);
+}
+
+export function sparkWebHelpText(): string {
+  return `spark-web - local Spark workbench
+
+Usage:
+  spark-web [--host 127.0.0.1] [--port 4310] [--no-open]
+
+Binds loopback only. Non-loopback hosts including 0.0.0.0 are rejected.
+Requires a reachable Spark daemon and a one-shot access token.
+`;
+}

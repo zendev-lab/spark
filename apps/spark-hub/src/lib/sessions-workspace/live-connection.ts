@@ -17,6 +17,16 @@ export type SessionLiveConnectionHandlers = {
   onRefreshActivity: () => void;
 };
 
+export type AttachSessionLiveEventSourceOptions = {
+  eventsUrl?: (input: { sessionId: string; cursor: string | null }) => string;
+};
+
+function defaultHubEventsUrl(input: { cursor: string | null }): string {
+  const url = new URL("/api/v1/events", window.location.origin);
+  if (input.cursor) url.searchParams.set("cursor", input.cursor);
+  return url.toString();
+}
+
 /**
  * Attach an EventSource live feed for one session id. Returns a cleanup that
  * closes the socket and removes online/offline listeners.
@@ -24,6 +34,7 @@ export type SessionLiveConnectionHandlers = {
 export function attachSessionLiveEventSource(
   streamSessionId: string,
   handlers: SessionLiveConnectionHandlers,
+  options: AttachSessionLiveEventSourceOptions = {},
 ): () => void {
   let closed = false;
   let eventSource: EventSource | null = null;
@@ -45,9 +56,10 @@ export function attachSessionLiveEventSource(
     const nextState = handlers.getLiveEventState();
     if (!nextState || nextState.sessionId !== streamSessionId) return;
     handlers.setLiveConnection(openingSessionEventConnectionState(handlers.getLiveConnection()));
-    const url = new URL("/api/v1/events", window.location.origin);
-    if (nextState.cursor) url.searchParams.set("cursor", nextState.cursor);
-    eventSource = new EventSource(url);
+    const eventsUrl =
+      options.eventsUrl?.({ sessionId: streamSessionId, cursor: nextState.cursor }) ??
+      defaultHubEventsUrl({ cursor: nextState.cursor });
+    eventSource = new EventSource(eventsUrl);
     eventSource.onopen = () => {
       reconnectAttempt = 0;
       handlers.setLiveConnection("live");

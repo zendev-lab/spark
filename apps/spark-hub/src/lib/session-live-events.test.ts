@@ -1775,8 +1775,8 @@ describe("session live events", () => {
   });
 
   it("keeps event cursors isolated by selected session", () => {
-    expect(sessionEventCursorStorageKey(" sess_a ")).toBe("spark-hub:session:sess_a:events-cursor");
-    expect(sessionEventCursorStorageKey("sess_b")).toBe("spark-hub:session:sess_b:events-cursor");
+    expect(sessionEventCursorStorageKey(" sess_a ")).toBe("spark:hub:session:sess_a:events-cursor");
+    expect(sessionEventCursorStorageKey("sess_b")).toBe("spark:hub:session:sess_b:events-cursor");
     expect(sessionEventCursorStorageKey("   ")).toBeNull();
   });
 

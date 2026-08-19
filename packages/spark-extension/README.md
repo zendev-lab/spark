@@ -3,6 +3,11 @@
 Spark product extension composition root for native TUI, headless, and
 structurally compatible extension hosts.
 
+The composition-coupled headless role executor and host bootstrap live here
+(`./headless-role-executor`, `./host`) because they statically import this
+package's LLM island and extension factories. `spark-host` remains the
+host-neutral runtime and must not import composition.
+
 The package registers commands, tools, Roles, renderers, and host adapters. It
 does not own persistent Session, Invocation, Task, Evidence, or Repro state.
 

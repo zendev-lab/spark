@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { SparkExtensionLoader, SparkHostRuntime } from "../apps/spark-tui/src/host/index.ts";
+import { SparkExtensionLoader, SparkHostRuntime } from "@zendev-lab/spark-extension/host";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const contractPath = resolve(repositoryRoot, "architecture/tool-surface-contract.json");

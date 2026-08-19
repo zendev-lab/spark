@@ -1,4 +1,6 @@
 import {
+  sessionEventCursor as protocolSessionEventCursor,
+  sessionEventCursorStorageKey as protocolSessionEventCursorStorageKey,
   SPARK_PROTOCOL_VERSION,
   isRuntimeInvocationTerminalStatus,
   parseSparkDaemonEvent,
@@ -47,8 +49,7 @@ export interface SessionActivityRefreshState {
 const MAX_REPLAY_EVENT_IDS = 512;
 
 export function sessionEventCursorStorageKey(sessionId: string): string | null {
-  const normalized = sessionId.trim();
-  return normalized ? `spark-hub:session:${normalized}:events-cursor` : null;
+  return protocolSessionEventCursorStorageKey("hub", sessionId);
 }
 
 export function createSessionActivityRefreshState(): SessionActivityRefreshState {
@@ -433,9 +434,7 @@ function rememberEventId(eventIds: Set<string>, eventId: string) {
 export function sessionEventCursor(
   event: Pick<SessionSerializedEvent, "createdAt" | "id" | "sequence">,
 ): string {
-  return event.sequence === null
-    ? `${event.createdAt}|${event.id}`
-    : `${event.sequence}|${event.createdAt}|${event.id}`;
+  return protocolSessionEventCursor(event);
 }
 
 type DaemonEventType = SparkDaemonEvent["type"];

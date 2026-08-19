@@ -583,22 +583,43 @@ importers:
 
   apps/spark-web:
     dependencies:
-      '@zendev-lab/dsh-tool-cue':
-        specifier: workspace:^
-        version: link:../../packages/dsh-tool-cue
-      '@zendev-lab/spark-llm':
-        specifier: workspace:^
-        version: link:../../packages/spark-llm
-      esbuild:
-        specifier: ^0.28.0
-        version: 0.28.2
-      react:
-        specifier: ^19.0.0
-        version: 19.2.8
+      '@sveltejs/adapter-node':
+        specifier: ^5.3.1
+        version: 5.5.7(@sveltejs/kit@2.70.2(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.3.0(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9))(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9)(typescript@6.0.3))
+      '@sveltejs/kit':
+        specifier: ^2.28.0
+        version: 2.70.2(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.3.0(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9))(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9)(typescript@6.0.3)
+      '@zendev-lab/spark-daemon-client':
+        specifier: workspace:*
+        version: link:../../packages/spark-daemon-client
+      '@zendev-lab/spark-i18n':
+        specifier: workspace:*
+        version: link:../../packages/spark-i18n
+      '@zendev-lab/spark-protocol':
+        specifier: workspace:*
+        version: link:../../packages/spark-protocol
+      '@zendev-lab/spark-system':
+        specifier: workspace:*
+        version: link:../../packages/spark-system
+      '@zendev-lab/spark-ui':
+        specifier: workspace:*
+        version: link:../../packages/spark-ui
+      svelte:
+        specifier: ^5.38.8
+        version: 5.56.9
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.2.9
+        version: '@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0)'
     devDependencies:
-      '@types/react':
-        specifier: ^19.0.0
-        version: 19.2.18
+      '@sveltejs/vite-plugin-svelte':
+        specifier: ^7.2.0
+        version: 7.3.0(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9)
+      svelte-check:
+        specifier: ^4.3.1
+        version: 4.7.6(picomatch@4.0.5)(svelte@5.56.9)(typescript@6.0.3)
+      tsx:
+        specifier: ^4.20.5
+        version: 4.23.12
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -899,15 +920,30 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-cue':
+        specifier: workspace:^
+        version: link:../spark-cue
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:^
         version: link:../spark-daemon-client
+      '@zendev-lab/spark-files':
+        specifier: workspace:^
+        version: link:../spark-files
+      '@zendev-lab/spark-fusion':
+        specifier: workspace:^
+        version: link:../spark-fusion
+      '@zendev-lab/spark-graft':
+        specifier: workspace:^
+        version: link:../spark-graft
       '@zendev-lab/spark-host':
         specifier: workspace:^
         version: link:../spark-host
       '@zendev-lab/spark-i18n':
         specifier: workspace:^
         version: link:../spark-i18n
+      '@zendev-lab/spark-llm':
+        specifier: workspace:^
+        version: link:../spark-llm
       '@zendev-lab/spark-loop':
         specifier: workspace:^
         version: link:../spark-loop
@@ -932,12 +968,21 @@ importers:
       '@zendev-lab/spark-session':
         specifier: workspace:^
         version: link:../spark-session
+      '@zendev-lab/spark-system':
+        specifier: workspace:^
+        version: link:../spark-system
       '@zendev-lab/spark-tasks':
         specifier: workspace:^
         version: link:../spark-tasks
       '@zendev-lab/spark-text':
         specifier: workspace:^
         version: link:../spark-text
+      '@zendev-lab/spark-tool-web':
+        specifier: workspace:^
+        version: link:../spark-tool-web
+      '@zendev-lab/spark-turn':
+        specifier: workspace:^
+        version: link:../spark-turn
       '@zendev-lab/spark-workflows':
         specifier: workspace:^
         version: link:../spark-workflows
@@ -7808,10 +7853,6 @@ packages:
   react-is@17.0.1:
     resolution: {integrity: sha512-NAnt2iGDXohE5LI7uBnLnqvLQMtzhkiAOLXTmv+qnF9Ky7xAPcX8Up/xWIhxvLVGJvuLiNc4xQLtuqDRzb4fSA==}
 
-  react@19.2.8:
-    resolution: {integrity: sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==}
-    engines: {node: '>=0.10.0'}
-
   readdirp@4.1.2:
     resolution: {integrity: sha512-GDhwkLfywWL2s6vEjyhri+eXmfH6j1L7JE27WhqLeYzoh/A3DBaYGEj2H/HFZCn/kMfim73FXxEJTw06WtxQwg==}
     engines: {node: '>= 14.18.0'}
@@ -11791,6 +11832,15 @@ snapshots:
       '@sveltejs/kit': 2.70.2(@opentelemetry/api@1.9.0)(@sveltejs/vite-plugin-svelte@7.3.0(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9))(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9)(typescript@6.0.3)
       rollup: 4.62.3
 
+  '@sveltejs/adapter-node@5.5.7(@sveltejs/kit@2.70.2(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.3.0(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9))(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9)(typescript@6.0.3))':
+    dependencies:
+      '@rollup/plugin-commonjs': 29.0.3(rollup@4.62.3)
+      '@rollup/plugin-json': 6.1.0(rollup@4.62.3)
+      '@rollup/plugin-node-resolve': 16.0.3(rollup@4.62.3)
+      '@rollup/plugin-replace': 6.0.3(rollup@4.62.3)
+      '@sveltejs/kit': 2.70.2(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.3.0(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9))(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9)(typescript@6.0.3)
+      rollup: 4.62.3
+
   '@sveltejs/kit@2.70.2(@opentelemetry/api@1.9.0)(@sveltejs/vite-plugin-svelte@7.3.0(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9))(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(svelte@5.56.9)(typescript@6.0.3)':
     dependencies:
       '@standard-schema/spec': 1.1.0
@@ -11832,7 +11882,6 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       typescript: 6.0.3
-    optional: true
 
   '@sveltejs/load-config@0.2.3': {}
 
@@ -15347,8 +15396,6 @@ snapshots:
       unpipe: 1.0.0
 
   react-is@17.0.1: {}
-
-  react@19.2.8: {}
 
   readdirp@4.1.2: {}
 

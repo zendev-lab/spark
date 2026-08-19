@@ -10,6 +10,7 @@ that pins this package and the executable apps.
 ```sh
 spark
 spark tui "initial Spark goal"
+spark web
 spark run --wait --json "headless Spark prompt"
 spark daemon auth import pi --json
 spark daemon model status --json
@@ -21,6 +22,7 @@ spark --help
 The dispatcher does not own terminal rendering, daemon execution, provider/model state, or host runtime code. It only routes:
 
 - `spark` and `spark tui ...` to the interactive Spark TUI surface.
+- `spark web ...` to the local loopback browser workbench.
 - `spark run ...` and `spark bg ...` to daemon-native headless execution.
 - `spark daemon ...` to daemon execution, authentication, model, session, and
   administration surfaces.
@@ -34,6 +36,6 @@ for daemon/Hub.
 
 Unknown subcommands fail loudly and suggest `spark tui ...` for prompt text. The
 dispatcher has no direct implementation dependency on companion app CLIs. A
-generated complete installation injects exact daemon, TUI, and Hub app
+generated complete installation injects exact daemon, TUI, Hub, and web app
 entrypoints; source checkouts use adjacent executables and standalone installs
 may resolve canonical `spark-*` commands from `PATH`.

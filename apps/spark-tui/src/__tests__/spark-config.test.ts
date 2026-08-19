@@ -215,7 +215,7 @@ test("persisted v1 default profile gains the current artifact and workflow capab
     "@zendev-lab/spark-memory/extension",
     "@zendev-lab/spark-roles/extension",
     "@zendev-lab/spark-session/extension",
-    "@zendev-lab/spark-web/extension",
+    "@zendev-lab/spark-tool-web/extension",
     "@zendev-lab/spark-extension/extension",
   ];
 
@@ -249,7 +249,7 @@ test("persisted v2 default profile drops standalone workflow after composition o
     "@zendev-lab/spark-memory/extension",
     "@zendev-lab/spark-roles/extension",
     "@zendev-lab/spark-session/extension",
-    "@zendev-lab/spark-web/extension",
+    "@zendev-lab/spark-tool-web/extension",
     "@zendev-lab/spark-workflows/extension",
     "@zendev-lab/spark-extension/extension",
   ];
@@ -304,7 +304,7 @@ test("unversioned Spark-native default profile also gains current capabilities",
       "@zendev-lab/spark-memory/extension",
       "@zendev-lab/spark-roles/extension",
       "@zendev-lab/spark-session/extension",
-      "@zendev-lab/spark-web/extension",
+      "@zendev-lab/spark-tool-web/extension",
       "@zendev-lab/spark-extension/extension",
     ],
   });
@@ -322,7 +322,7 @@ test("unversioned legacy default profile drops formerly bundled Graft", () => {
       "@zendev-lab/spark-memory/extension",
       "@zendev-lab/spark-roles/extension",
       "@zendev-lab/spark-session/extension",
-      "@zendev-lab/spark-web/extension",
+      "@zendev-lab/spark-tool-web/extension",
       "@zendev-lab/spark-graft/extension",
       "@zendev-lab/spark-extension/extension",
       "my-extension",

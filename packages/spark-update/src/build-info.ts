@@ -14,6 +14,7 @@ const DISTRIBUTION_PACKAGE_NAMES = new Set<SparkDistributionPackageName>([
   "@zendev-lab/spark-daemon",
   "@zendev-lab/spark-hub",
   "@zendev-lab/spark-tui",
+  "@zendev-lab/spark-web",
 ]);
 
 export function readSparkBuildInfo(

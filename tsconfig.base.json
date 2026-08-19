@@ -77,9 +77,10 @@
       "@zendev-lab/spark-i18n/cli": ["./packages/spark-i18n/src/cli.ts"],
       "@zendev-lab/spark-i18n/hub": ["./packages/spark-i18n/src/hub/index.ts"],
       "@zendev-lab/spark-i18n/extension": ["./packages/spark-i18n/src/extension.ts"],
-      "@zendev-lab/spark-tui/headless-role-executor": [
-        "./apps/spark-tui/src/headless-role-executor.ts"
+      "@zendev-lab/spark-extension/headless-role-executor": [
+        "./packages/spark-extension/src/headless-role-executor.ts"
       ],
+      "@zendev-lab/spark-extension/host": ["./packages/spark-extension/src/host/index.ts"],
       "@zendev-lab/spark-protocol": ["./packages/spark-protocol/src/index.ts"],
       "@zendev-lab/spark-runtime": ["./packages/spark-runtime/src/index.ts"],
       "@zendev-lab/spark-hub-coordination": ["./packages/spark-hub-coordination/src/index.ts"],

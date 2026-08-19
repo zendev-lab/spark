@@ -2,54 +2,43 @@
   "name": "@zendev-lab/spark-web",
   "version": "0.4.0",
   "private": true,
-  "description": "Spark web application: boots the DeepSeek Harness web profile with Spark-owned Cue, LLM, and provider-onboarding plugins.",
+  "description": "Local single-workspace Spark browser workbench bound to the daemon.",
   "license": "MIT",
   "author": "zrr1999",
   "bin": {
     "spark-web": "./bin/spark-web"
   },
-  "files": [
-    "bin/**/*",
-    "lib/**/*.js",
-    "src/**/*.ts",
-    "src/**/*.tsx",
-    "README.md"
-  ],
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./client": "./lib/client.js",
-    "./executable": "./bin/spark-web",
-    "./package.json": "./package.json"
+    "./executable": "./bin/spark-web"
   },
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "dev": "vp dev --host 127.0.0.1 --port 4310",
+    "build": "vp build",
+    "preview": "vp preview --host 127.0.0.1 --port 4310",
+    "start": "node build",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vp test run"
   },
   "dependencies": {
-    "@zendev-lab/dsh-tool-cue": "workspace:^",
-    "@zendev-lab/spark-llm": "workspace:^",
-    "esbuild": "^0.28.0",
-    "react": "^19.0.0"
+    "@sveltejs/adapter-node": "^5.3.1",
+    "@sveltejs/kit": "^2.28.0",
+    "@zendev-lab/spark-daemon-client": "workspace:*",
+    "@zendev-lab/spark-i18n": "workspace:*",
+    "@zendev-lab/spark-protocol": "workspace:*",
+    "@zendev-lab/spark-system": "workspace:*",
+    "@zendev-lab/spark-ui": "workspace:*",
+    "svelte": "^5.38.8",
+    "vite": "catalog:"
   },
   "devDependencies": {
-    "@types/react": "^19.0.0",
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "svelte-check": "^4.3.1",
+    "tsx": "^4.20.5",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "engines": {
     "node": ">=24.0.0"
-  },
-  "dsh": {
-    "client": {
-      "platform": "web",
-      "inject": [
-        "slots",
-        "locale",
-        "connection",
-        "remote"
-      ]
-    }
   }
 }

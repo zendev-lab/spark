@@ -15,7 +15,7 @@ export const npmDistributions = [
     id: "spark",
     packageName: "@zendev-lab/spark",
     description:
-      "Complete Spark installation metadata that pins the CLI, daemon, TUI, and Hub apps.",
+      "Complete Spark installation metadata that pins the CLI, daemon, TUI, Hub, and web apps.",
     directory: resolve(productsDirectory, "spark"),
     assetName: `spark-v${releaseVersion}.tgz`,
     manifestName: "release-manifest.json",
@@ -27,6 +27,7 @@ export const npmDistributions = [
       "@zendev-lab/spark-daemon",
       "@zendev-lab/spark-hub",
       "@zendev-lab/spark-tui",
+      "@zendev-lab/spark-web",
     ],
     exports: {},
   },
@@ -44,6 +45,7 @@ export const npmDistributions = [
       "spark-hub": "spark-hub-companion.js",
       "spark-mcp": "spark-mcp.js",
       "spark-tui": "spark-tui-companion.js",
+      "spark-web": "spark-web-companion.js",
       "spark-update": "spark-update.js",
       "spark-web": "spark-web.js",
     },
@@ -59,6 +61,7 @@ export const npmDistributions = [
       "@zendev-lab/spark-daemon",
       "@zendev-lab/spark-hub",
       "@zendev-lab/spark-tui",
+      "@zendev-lab/spark-web",
     ],
     exports: {
       "./cli": "./dist/spark-cli.js",
@@ -79,7 +82,7 @@ export const npmDistributions = [
     manifestName: "daemon-release-manifest.json",
     bins: { "spark-daemon": "spark-daemon.js" },
     bundles: {
-      "spark-headless-role-executor.js": "apps/spark-tui/src/headless-role-executor.ts",
+      "spark-headless-role-executor.js": "packages/spark-extension/src/headless-role-executor.ts",
     },
     files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
@@ -132,6 +135,21 @@ export const npmDistributions = [
     exactDependencies: [],
     exports: { "./executable": "./bin/spark-hub" },
     migrationSource: resolve(root, "packages/spark-hub-db/src/migrations"),
+  },
+  {
+    id: "web",
+    packageName: "@zendev-lab/spark-web",
+    description: "Local single-workspace Spark browser workbench bound to the daemon.",
+    directory: resolve(productsDirectory, "web"),
+    assetName: `spark-web-v${releaseVersion}.tgz`,
+    manifestName: "web-release-manifest.json",
+    bins: { "spark-web": "spark-web.js" },
+    bundles: {
+      "spark-web.js": "apps/spark-web/src/cli-entry.ts",
+    },
+    files: ["bin", "dist", "build", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    exactDependencies: [],
+    exports: { "./executable": "./bin/spark-web" },
   },
 ];
 

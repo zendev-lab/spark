@@ -77,6 +77,14 @@ describe("architecture inventory governance", () => {
         inventory,
         "application",
         "private-adapter",
+        "@zendev-lab/spark-web",
+      ).allowed,
+    ).toBe(true);
+    expect(
+      governance.decideLayerDependency(
+        inventory,
+        "application",
+        "private-adapter",
         "@zendev-lab/spark-tui",
       ).allowed,
     ).toBe(false);
@@ -343,7 +351,7 @@ describe("architecture inventory governance", () => {
     expect(validate(report), JSON.stringify(validate.errors)).toBe(true);
     expect(report.inventory.workspaceCount).toBe(44);
     expect(report.layerMatrix.missingDecisionCount).toBe(0);
-    expect(report.dependencies.edgeCount).toBe(179);
+    expect(report.dependencies.edgeCount).toBe(190);
     expect(report.dependencies.registeredExceptions).toHaveLength(exceptionCount);
     expect(report.temporaryDependencyExceptionBudget).toEqual({
       current: exceptionCount,

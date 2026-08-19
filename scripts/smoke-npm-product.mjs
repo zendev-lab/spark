@@ -345,22 +345,25 @@ try {
   );
   const allIds = npmDistributions.map(({ id }) => id);
   const cliIds = allIds.filter((id) => id !== "spark");
-  const [completeRoot, cliRoot, daemonRoot, tuiRoot, hubRoot] = await Promise.all([
+  const [completeRoot, cliRoot, daemonRoot, tuiRoot, hubRoot, webRoot] = await Promise.all([
     installCandidates(temporary, "complete", allIds, tarballs),
     installCandidates(temporary, "cli", cliIds, tarballs),
     installCandidates(temporary, "daemon", ["daemon"], tarballs),
     installCandidates(temporary, "tui", ["tui", "daemon"], tarballs),
     installCandidates(temporary, "hub", ["hub"], tarballs),
+    installCandidates(temporary, "web", ["web"], tarballs),
   ]);
 
   const spark = installedBin(completeRoot, "@zendev-lab/spark", "spark");
   const completeDaemon = installedBin(completeRoot, "@zendev-lab/spark-daemon", "spark-daemon");
   const completeHub = installedBin(completeRoot, "@zendev-lab/spark-hub", "spark-hub");
   const completeTui = installedBin(completeRoot, "@zendev-lab/spark-tui", "spark-tui");
+  const completeWeb = installedBin(completeRoot, "@zendev-lab/spark-web", "spark-web");
   const cli = installedBin(cliRoot, "@zendev-lab/spark-cli", "spark");
   const daemon = installedBin(daemonRoot, "@zendev-lab/spark-daemon", "spark-daemon");
   const tui = installedBin(tuiRoot, "@zendev-lab/spark-tui", "spark-tui");
   const hub = installedBin(hubRoot, "@zendev-lab/spark-hub", "spark-hub");
+  const web = installedBin(webRoot, "@zendev-lab/spark-web", "spark-web");
   const nodeEnvironment = {
     ...process.env,
     PATH: cleanPath(),
@@ -429,6 +432,10 @@ try {
       cwd: completeRoot,
       env: nodeEnvironment,
     }),
+    run(completeWeb.command, [...completeWeb.argvPrefix, "--help"], {
+      cwd: completeRoot,
+      env: nodeEnvironment,
+    }),
   ]);
   await run(cli.command, [...cli.argvPrefix, "--help"], {
     cwd: cliRoot,
@@ -452,6 +459,10 @@ try {
     cwd: completeRoot,
     env: nodeEnvironment,
   });
+  await run(spark.command, [...spark.argvPrefix, "web", "--help"], {
+    cwd: completeRoot,
+    env: nodeEnvironment,
+  });
   await exerciseSparkDaemonLifecycle({
     command: spark.command,
     argvPrefix: spark.argvPrefix,
@@ -468,6 +479,10 @@ try {
   await run(tui.command, [...tui.argvPrefix, "--help"], {
     cwd: tuiRoot,
     env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-tui-home") },
+  });
+  await run(web.command, [...web.argvPrefix, "--help"], {
+    cwd: webRoot,
+    env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-web-home") },
   });
 
   const port = await availablePort();

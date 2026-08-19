@@ -25,7 +25,7 @@
         {
           "targetLayer": "private-adapter",
           "allowedFromLayers": ["private-adapter"],
-          "allowedFromPackages": ["@zendev-lab/spark-hub"]
+          "allowedFromPackages": ["@zendev-lab/spark-hub", "@zendev-lab/spark-web"]
         },
         {
           "targetLayer": "experiment",
@@ -100,7 +100,7 @@
       "current": 44,
       "ceiling": 44,
       "nonGrowth": true,
-      "reason": "The DSH runtime adapter is a separate host ABI, permission, presentation, and lifecycle boundary from spark-cue's Cue semantics owner; budget raised by one for the private rc.7 adapter after the spark-web application boundary."
+      "reason": "apps/spark-web remains after retiring spark-web-dsh. Later retirement of spark-tui, spark-tui-adapter, and pi-spark is expected to net-reduce the inventory."
     },
     "compositionRoots": ["@zendev-lab/spark-extension"]
   },
@@ -415,8 +415,8 @@
       "layer": "application",
       "owner": "web",
       "stability": "supported",
-      "stateWriter": "user",
-      "distribution": "private"
+      "stateWriter": "none",
+      "distribution": "public-npm"
     },
     "@zendev-lab/spark-workflows": {
       "path": "packages/spark-workflows",
