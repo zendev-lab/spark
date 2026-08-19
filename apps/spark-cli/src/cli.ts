@@ -192,7 +192,7 @@ export async function runSparkDispatcher(
       }
       if (command.target === "web") {
         try {
-          return await runSparkWeb(parseSparkWebArgs(dispatchArgv), launcher);
+          return await runSparkWeb(parseSparkWebArgs(dispatchArgv));
         } catch (error) {
           stderr.write(`spark web: ${error instanceof Error ? error.message : String(error)}\n`);
           return 1;

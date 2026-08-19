@@ -1,17 +1,21 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { isAbsolute } from "node:path";
 import { join } from "node:path";
 import { test } from "vitest";
 
 import { parseSparkDispatcherArgs } from "./cli.ts";
 import {
   composeSparkWebPatch,
+  composeWebArgs,
   ensureDshToolCueBundle,
   ensureSparkLlmBundle,
   parseSparkWebArgs,
+  prepareSparkWebDispatch,
   resolveDshProfileDir,
   resolveSparkLlmPackageDir,
+  sparkWebBootScript,
 } from "./web.ts";
 
 test("parseSparkWebArgs reads host, port, trusted hosts, and forwards the rest", () => {
@@ -122,4 +126,24 @@ test("spark-llm package resolves from the workspace and exposes the plugin entry
 
 test("resolveDshProfileDir honors DSH_HOME", () => {
   assert.equal(resolveDshProfileDir("/tmp/dsh-home"), "/tmp/dsh-home/profiles/web");
+});
+
+test("sparkWebBootScript imports the dsh runtime without a CLI spawn", () => {
+  const script = sparkWebBootScript(["/tmp/patch-a.yml"], ["--trusted-host=127.0.0.1"]);
+  assert.match(script, /@deepseek-ai\/dsh-app-boot/, "imports the stable app-boot runtime");
+  assert.match(script, /profile-boot-/, "scans the dsh package for its boot entry");
+  assert.match(script, /"\/tmp\/patch-a\.yml"/, "passes patch paths through");
+  assert.match(script, /--trusted-host=127\.0\.0\.1/, "passes web args through");
+  assert.doesNotMatch(script, /spawn\(/, "never shells out");
+});
+
+test("composeWebArgs carries port, trusted hosts, and forwards the rest", () => {
+  const webArgs = composeWebArgs({
+    host: undefined,
+    port: 3100,
+    trustedHosts: ["10.0.0.2"],
+    argv: ["--flag"],
+  });
+  assert.deepEqual(webArgs, ["--port=3100", "--trusted-host=10.0.0.2", "--flag"]);
+  assert.ok(!webArgs.some((arg) => arg === "--patch"), "no --patch argv anymore");
 });
