@@ -4,6 +4,13 @@ Reusable Spark extension package that exposes cue-shell as a durable, observable
 
 `@zendev-lab/spark-cue` is infrastructure: it stays independent from Spark product packages and can be reused by Spark extension hosts.
 
+Host adapters consume `@zendev-lab/spark-cue/operations`. Its
+`createCueToolRuntime(config)` API is the single host-neutral owner of parameter
+normalization, IPC, connection reuse, idempotent retries, cancellation,
+environment filtering, SSH cwd selection, and daemon lifecycle. The Spark/Pi
+extension and the private DSH adapter translate their host contracts into this
+runtime rather than reimplementing Cue behavior.
+
 ## Transport profiles
 
 `@zendev-lab/spark-cue` uses cue-shell's client transport resolver (`cue-client target resolve --json`, falling back to `cue client target resolve --json`). It supports both local Unix socket profiles and SSH profiles.

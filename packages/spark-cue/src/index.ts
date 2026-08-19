@@ -71,6 +71,7 @@ export type {
   SparkCueNotifyLevel,
   SparkCueToolContext,
   SparkCueToolConfig,
+  SparkCueToolRegistration,
 } from "./tools/host-types.ts";
 export {
   __resetSparkCueClientForTests,

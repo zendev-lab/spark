@@ -148,6 +148,8 @@ export interface CueSessionOptions {
   env?: Record<string, string | undefined>;
   /** Explicitly refresh an existing cue-shell session from this cwd/env snapshot. */
   refresh?: boolean;
+  /** Forward keys normally treated as sensitive. Defaults to false. */
+  forwardSensitiveEnv?: boolean;
 }
 
 export interface JobCreatedPayload {

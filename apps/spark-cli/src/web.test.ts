@@ -7,6 +7,7 @@ import { test } from "vitest";
 import { parseSparkDispatcherArgs } from "./cli.ts";
 import {
   composeSparkWebPatch,
+  ensureDshToolCueBundle,
   ensureSparkLlmBundle,
   parseSparkWebArgs,
   resolveDshProfileDir,
@@ -63,6 +64,9 @@ test("composeSparkWebPatch mounts spark-llm, enables HMR, and overrides webserve
     assert.match(defaultText, /- id: spark-llm/);
     assert.match(defaultText, /name: \.\/plugins\/spark-llm\/index\.mjs/);
     assert.match(defaultText, /- id: spark-web-dsh/);
+    assert.match(defaultText, /- id: dsh-tool-cue/);
+    assert.match(defaultText, /name: \.\/plugins\/dsh-tool-cue\/index\.mjs/);
+    assert.match(defaultText, /- id: agent-presets\n  config:\n    default: spark-standard/);
     assert.match(defaultText, /name: ["']@zendev-lab\/spark-web-dsh["']/);
     assert.match(defaultText, /- id: hmr\n  disabled: false/);
     assert.doesNotMatch(defaultText, /- id: webserver/);
@@ -87,6 +91,25 @@ test("ensureSparkLlmBundle builds the plugin bundle into the profile and is idem
 
     const second = await ensureSparkLlmBundle(profile);
     assert.equal(second.rebuilt, false, "no rebuild when the bundle is newer than the source");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("ensureDshToolCueBundle uses a source digest and never writes the source checkout", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "spark-cue-bundle-"));
+  const profile = join(dir, "profiles", "web");
+  mkdirSync(join(profile, "plugins"), { recursive: true });
+  try {
+    const first = await ensureDshToolCueBundle(profile);
+    assert.equal(first.rebuilt, true);
+    assert.match(first.sourceDigest, /^[a-f0-9]{64}$/);
+    assert.ok(existsSync(first.bundle));
+    assert.ok(existsSync(join(profile, "plugins", "dsh-tool-cue", ".source-sha256")));
+
+    const second = await ensureDshToolCueBundle(profile);
+    assert.equal(second.rebuilt, false);
+    assert.equal(second.sourceDigest, first.sourceDigest);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

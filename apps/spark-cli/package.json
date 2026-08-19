@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@optique/core": "catalog:",
+    "@zendev-lab/dsh-tool-cue": "workspace:^",
     "@zendev-lab/spark-i18n": "workspace:^",
     "@zendev-lab/spark-llm": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",

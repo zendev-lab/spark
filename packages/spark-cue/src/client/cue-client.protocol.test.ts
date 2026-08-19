@@ -523,6 +523,20 @@ test("CueClient.connect sends session Handshake before protocol Ping", async () 
       env: { PATH: "/node26/bin" },
       refresh: true,
     });
+
+    await client.handshake({
+      sessionId: "test-session",
+      cwd: "/workspace/project-node26",
+      env: { PATH: "/node26/bin", OPENAI_API_KEY: "explicitly-forwarded" },
+      forwardSensitiveEnv: true,
+    });
+    const forwarded = requestPayload(server.handshakes[2]!);
+    assert.deepEqual(forwarded.Handshake, {
+      session_id: "test-session",
+      cwd: "/workspace/project-node26",
+      env: { PATH: "/node26/bin", OPENAI_API_KEY: "explicitly-forwarded" },
+      refresh: false,
+    });
   } finally {
     client.close();
     await server.close();

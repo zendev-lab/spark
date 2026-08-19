@@ -66,6 +66,42 @@ spark daemon --help
 spark hub --help
 ```
 
+## Cue-first DSH Web
+
+`spark web` 启动已安装的 DeepSeek Harness Web profile，目前只支持
+`@deepseek-ai/dsh@0.1.0-rc.7`。先用 `dsh web` 初始化一次 profile，再启动：
+
+```bash
+spark web
+spark web --host 0.0.0.0 --trusted-host workstation.example:3080
+```
+
+DSH 启动前，Spark 会校验已安装 package metadata 与锁定的 upstream preset
+摘要，把私有 Cue adapter 打包进 profile，并原子安装
+`$DSH_HOME/.agent-presets/{spark-standard,spark-code}`。两个 preset 都移除
+DSH Bash、Pwsh 和 Jobs 工具；Native 与 Code Mode 使用同一组 10 个 Cue
+工具。部署默认值是 `spark-standard`，但用户已有的
+`agent-presets.default` setting 仍优先。Upstream `standard` / `code` 仍可选，
+但不保证只通过 Cue 执行。
+
+只有当前 Session 权限解析为 `danger-full-access` 时才允许调用 Cue。这是有意的
+fail-closed 边界：`cued` 是外部进程，Spark 不声称 DSH 文件沙箱会约束它。前台
+timeout 只是等待预算，Cue job 会继续运行；使用 `cue_jobs` 检查或停止。
+
+使用 SSH Cue profile 时，在 `$DSH_HOME/profiles/web/cordis.patch.yml` 中显式
+挂载插件并配置远端路径：
+
+```yaml
+- insert:
+    - id: dsh-tool-cue
+      name: ./plugins/dsh-tool-cue/index.mjs
+      config:
+        remoteCwd: /absolute/path/on/remote
+```
+
+adapter 不会把本地 Session cwd 映射到 SSH，也不会自动启动远端 daemon。敏感环境
+变量默认过滤；只有完全信任目标时才显式配置 `forwardSensitiveEnv: true`。
+
 使用 `spark daemon auth --help` 和 `spark daemon model --help` 发现当前版本
 支持的认证与模型操作。复制、迁移或修复状态前，先阅读
 [配置与路径](/zh/reference/configuration-and-paths/)。
