@@ -1,7 +1,8 @@
 # Daemon-owned Loops
 
-Spark daemon is the sole owner of recurring execution. Goal, WorkflowRun, and
-Repro may bind to a Loop, but they do not create different executor kinds.
+Spark daemon is the sole owner of recurring execution. Goal and WorkflowRun may
+bind to a Loop, but they do not create different executor kinds. Repro v10 is a
+separate fixed checkpoint owner and never binds to Loop.
 Closing or reconnecting a frontend cannot pause, advance, retry, or duplicate a
 Loop.
 
@@ -14,7 +15,7 @@ Loop.
 - Goal owns the objective and completion contract.
 - WorkflowRun owns Workflow stages and definition identity.
 - Loop owns cadence, retry, generation, and cycle execution.
-- Repro is the domain facade over Goal, `builtin:repro`, and Loop.
+- Repro owns its fixed five-checkpoint state outside this Loop protocol.
 
 Workflow stages are not Session modes. A Session has at most one non-terminal
 Loop. A Goal or bare Loop can run without a Workflow binding.
@@ -37,7 +38,6 @@ type SparkLoopCycleStep = "before_tick" | "invoke" | "after_tick" | "settle";
 interface SparkLoopBinding {
   goalId?: string;
   workflowRunId?: string;
-  reproId?: string;
 }
 
 type SparkLoopSessionLifetime = "driver" | "driver_tick";
@@ -69,8 +69,8 @@ and settles that durable row. Successful main work is never replayed merely
 because a later checkpoint needs recovery.
 
 Startup performs a one-way migration from legacy `driver_wakeups` and
-`driver_hidden_sessions`. Supported Goal, bare Loop, Repro, and Workflow rows
-become bindings. Retired implementation and session-TODO rows are cancelled and
+`driver_hidden_sessions`. Supported Goal, bare Loop, and Workflow rows become
+bindings. Legacy Repro, implementation, and session-TODO rows are cancelled and
 cannot be scheduled again. Migrated hidden-session cleanup receipts move into
 `loop_hidden_sessions`, which receives no new runtime writes and exists only
 until their transcript files are garbage-collected. The old driver tables are
@@ -78,18 +78,21 @@ dropped after the migration transaction commits.
 
 ## Execution boundary
 
-Implementation-phase and session-TODO continuation are lifecycle-hook owned,
-not recurring Loops. Frontends do not contain timers, retry maps, generations,
-or Workflow polling. If daemon control is unavailable, Loop operations fail
+Implementation-phase and session-TODO continuation are lifecycle-hook owned for
+ordinary execute Sessions, not recurring Loops. Repro projects are explicitly
+excluded because only the daemon Repro owner may advance a sibling checkpoint.
+Frontends do not contain timers, retry maps, generations, or Workflow polling.
+If daemon control is unavailable, Loop operations fail
 explicitly rather than falling back to browser or TUI scheduling.
 
 A `driver` Loop owns one internal child Session for its non-terminal
 incarnation. Restart after `completed` or `stopped` creates a new child ID; it
-never reopens a closed child. A `driver_tick` Loop creates one internal child
-Session per tick. The child owns the Invocation execution context while
-`stateBinding` points at the public parent Session, so TUI, Hub, ACP, and
-Channel projections show the same parent activity without exposing the child
-prompt. Tick children close after terminal settlement and discard transcript
+never reopens a closed child. A `driver_tick` Loop creates one child Session per
+tick. The child owns its Invocation, transcript, state, and activity. Its
+durable Invocation `serialization_key` is the parent Session ID, so a manual
+parent turn and tick are admitted FIFO and never run concurrently. TUI, Hub,
+ACP, and Channel projections keep parent self activity separate from bounded
+descendant activity. Tick children close after terminal settlement and discard transcript
 and content payloads according to the Supervisor retention contract. Before
 that removal, a `driver_tick` child seals a close receipt from its terminal tick
 result. A `driver` child remains open across ticks and seals one receipt from

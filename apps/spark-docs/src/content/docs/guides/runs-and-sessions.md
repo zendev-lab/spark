@@ -54,17 +54,27 @@ spark tui --session-id <session-id>
 Session identity preserves conversation and execution continuity. It does not
 override workspace binding or permission checks.
 
-Every workspace has one protected Administrator root Session. Role, Skill,
-Task, and Workflow work runs in owner-bound child Sessions. Their active state
+Every workspace has one protected Administrator root Session. Every runtime
+conversation is a Session. Role is only a definition binding, and any Session
+with child lineage is a subsession regardless of whether its origin is a
+Side Thread, TaskRun, Workflow, driver, driver tick, or Invocation. Their active state
 comes from queued/running Invocations, not UI timers. Native session view
 `status` uses the same three values (`idle`, `queued`, `running`); a queued
 Invocation is not collapsed to `running`. Owned temporary children
 close with their owner and normally discard full transcripts; retained public
 Sessions alone can be restored with the same stable ID, incarnation, and transcript.
 New TUI, Hub, and ACP conversations are retained scoped children of that root.
-Channel conversations use the same parent but keep Channel routing and state
-binding. Loop activity rolls up from its `driver` or `driver_tick`
-child without exposing the child's private prompt.
+Channel conversations use the same parent but keep Channel routing. Parent self
+activity remains separate from bounded descendant activity. A driver or
+driver-tick child shares the parent's durable FIFO serialization key, so a tick
+and manual input queue instead of running concurrently; ordinary children and
+Repro lanes serialize independently on their own Session IDs.
+
+Spark 0.4.0 performs the one supported on-disk upgrade: Session registry v6 to
+v7 and Repro v9 to v10. The daemon creates a backup, stages the migration, and
+reads the staged result back before committing it. Older registries or Repro
+snapshots fail closed; upgrade through Spark 0.4.0 before starting a newer
+daemon.
 
 Before an owned temporary Session discards content, Spark seals one bounded
 close receipt. Role and Skill children reuse their reported outcome and final

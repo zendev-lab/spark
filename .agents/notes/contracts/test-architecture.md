@@ -16,6 +16,7 @@ its normal check and mutation evaluation can exercise it.
 | Browser component | `pnpm run test:browser:hub` | Browser-only interaction and DOM behavior |
 | Product process | `pnpm run smoke` | Packed, clean-installed public product lifecycle and Hub HTTP/client-asset smoke |
 | Capability CE | `pnpm run test:capability:ce` | Repeated zero-token Goal, Loop, and Repro sentinels, inventory stability, flakes, and duration variance |
+| Repro live capability | `pnpm run test:capability:repro-live` | Credentialed real-model multi-repository discovery, Role/tool choice, Evidence, compaction, and five-checkpoint continuation |
 | Mutation CE | `pnpm run test:mutation` | Whether focused package tests detect plausible implementation faults |
 
 Do not move package unit tests into `test/` merely to share setup. Put reusable fixtures or a
@@ -55,7 +56,8 @@ workflow so `needs` can express intra-lane order where required: `ci-static-chec
 `Pre-commit Checks` before `Project Checks` and `Documentation Checks`; `ci-tests.yml` runs
 Source, Process, Repro Golden Journey, and Browser jobs concurrently. There is no aggregate
 required job and no static-to-runtime dependency chain. Benchmark, Mutation CE, Capability CE,
-and Dependency Audit jobs remain advisory.
+and Dependency Audit jobs remain advisory. Repro live capability is excluded from ordinary
+pull-request checks but its latest Nightly result is a release gate.
 
 `prek` is the local fast-fix boundary: use native pre-commit integrations for file-format and
 workflow checks, plus the repository's `spark-check-fix` hook. Actionlint parses workflow syntax

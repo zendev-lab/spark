@@ -15,7 +15,7 @@ description: 启动 Hub Web 界面，理解它与 daemon 的关系，并保护�
 
 进入对话后，会话检查器把摘要、产物、变更、任务和 Lanes 分开。活跃 Repro 的
 Lanes 会显示 Implementation、Exactness、Formalize 三张有界卡片，以及向前 handoff、
-向后 resolution 和 `formalizedTip`。该文档来自 daemon 已有的 A2UI 投影；Hub 不保存
+checkpoint receipt 和 `formalizedRevision`。该文档来自 daemon 已有的 A2UI 投影；Hub 不保存
 第二份 Repro store，也不调度 lane 工作。摘要先显示状态与数量；工作目录、模型、
 session ID 和时间放在默认折叠的技术详情中。
 

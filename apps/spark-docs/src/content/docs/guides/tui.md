@@ -105,7 +105,7 @@ in another terminal for cross-session and workspace supervision.
 
 When the daemon projects an active Repro, the transcript keeps a compact
 Implementation / Exactness / Formalize summary with counts, blockers, pending
-handoffs, and the last `formalizedTip`. Ctrl+K opens the Repro panel first;
+receipts, and the last `formalizedRevision`. Ctrl+K opens the Repro panel first;
 Shift+Ctrl+K cycles inspector panels. In the Repro panel, press 1, 2, or 3 to
 select a lane, use the arrow keys or J/K to select a bounded work item, and
 press Enter to open its existing Task, Run, Git Change, and Evidence

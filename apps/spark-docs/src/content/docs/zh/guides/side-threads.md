@@ -3,8 +3,9 @@ title: Side Threads
 description: 在只读的旁支会话中提问，并有意识地把有用上下文交回主会话。
 ---
 
-Side Threads 是由 daemon 拥有、附属于主 TUI 会话的只读子对话。
-它适合调查旁支问题，同时避免污染主对话。
+Side Thread 是 daemon 拥有、附属于父 Session 的只读子 Session 功能，不是另一种
+运行时实体；子 Session 会作为 subsession 显示在普通 Session tree 中。它适合调查
+旁支问题，同时避免污染父对话。
 
 ## 基本流程
 

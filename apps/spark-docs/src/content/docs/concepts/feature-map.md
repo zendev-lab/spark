@@ -87,18 +87,20 @@ Goal, Loop, Repro, and Workflow add daemon-owned continuation for work
 that must persist or repeat. `/automate` is only a picker for those existing
 modes.
 
-Repro owns three lanes: Implementation Explore, Exactness Explore, and
-Formalize. Explore work can proceed in parallel without advancing normative
-progress; only Formalize can update the accepted `formalizedTip`. Goal remains
-a single TaskGraph-derived runtime projection rather than adopting those lanes.
+Repro owns three stable child Sessions: Implementation, Exactness, and
+Formalize. The daemon advances their fixed five-checkpoint chain, and only
+Formalize can set `formalizedRevision`. Goal remains a separate
+TaskGraph-derived runtime projection.
 
 Start with [plan and implement](/guides/plan-and-execute/), then read
 [long-running automation](/guides/automation/).
 
 ## 5. Channels and multi-session collaboration
 
-Spark distinguishes reusable Roles, durable Sessions, read-only Side Threads,
-and message-platform Channels. Feishu, Infoflow, and QQ Bot conversations bind
+Spark has one runtime conversation entity: Session. Roles are reusable
+definitions; subsession means any Session with child lineage. The Side Thread
+feature creates a read-only child Session, and message-platform Channels are
+routing aliases. Feishu, Infoflow, and QQ Bot conversations bind
 to daemon sessions instead of creating another execution owner. Sessions can
 send requests or notifications and receive completion summaries through their
 Inbox.

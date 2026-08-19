@@ -23,15 +23,10 @@ test("Repro extension roles are bounded specialists without ask or spawn authori
       false,
     );
   }
-  const writableLaneRoles = new Set([
-    "repro-implementation-explorer",
-    "repro-exactness-instrumentation-worker",
-    "repro-precision-fixer",
-  ]);
   for (const role of roles) {
-    assert.equal(role.allowedTools?.includes("edit"), writableLaneRoles.has(role.id));
-    assert.equal(role.allowedTools?.includes("write"), writableLaneRoles.has(role.id));
-    assert.equal(role.allowedTools?.includes("git"), writableLaneRoles.has(role.id));
+    assert.equal(role.allowedTools?.includes("edit"), true);
+    assert.equal(role.allowedTools?.includes("write"), true);
+    assert.equal(role.allowedTools?.includes("git"), true);
   }
   registerSparkReproRoles();
   const registry = createDefaultRoleRegistry();

@@ -28,7 +28,11 @@ import {
   defaultUserRoleModelSettingsStore,
   resolveRoleModelSetting,
 } from "@zendev-lab/spark-roles";
-import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+import {
+  sparkSessionWorkspaceState,
+  writeSparkSessionWorkspaceState,
+} from "@zendev-lab/spark-loop";
+import { defaultTaskGraphStore, isUnfinishedTaskStatus } from "@zendev-lab/spark-tasks";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import type { SessionSupervisor } from "./session-supervisor.ts";
@@ -66,7 +70,7 @@ export interface SparkReproOwnerOptions {
       source: { kind: "internal"; externalRef: string };
       title: string;
     };
-    messageMetadata: Record<string, string | number>;
+    messageMetadata: Record<string, unknown>;
   }): Promise<{ invocationId: string }>;
   onProjectionNeeded?: (repro: SparkSessionRepro) => void | Promise<void>;
 }
@@ -154,6 +158,11 @@ export class SparkReproOwner {
       await this.#project(current);
       return { repro: current, changed };
     }
+    if (current.status === "stopped") {
+      await this.#cleanupStopped(current, "Repro stopped by user");
+      await this.#project(current);
+      return { repro: current, changed };
+    }
     if (current.status !== "active") {
       await this.#project(current);
       return { repro: current, changed };
@@ -174,6 +183,87 @@ export class SparkReproOwner {
       .find((candidate) => candidate.ref === checkpoint.runRef);
     if (!run)
       return await this.#blockRejectedRun(current, `TaskRun ${checkpoint.runRef} is missing`);
+    if (!TERMINAL_RUN_STATUSES.has(run.status)) {
+      const task = graph?.getTask(run.taskRef);
+      if (
+        task &&
+        (task.status === "done" || task.status === "failed" || task.status === "cancelled")
+      ) {
+        const evidenceStore = defaultEvidenceStore(this.#options.workspace.localPath);
+        const evidenceRecords = await Promise.all(
+          task.outputEvidenceRefs.map(async (ref) => ({
+            ref,
+            record: await evidenceStore.tryGet(ref),
+          })),
+        );
+        const terminalEvidenceRefs = new Set(
+          evidenceRecords
+            .filter(
+              ({ record }) =>
+                record?.provenance.taskRef === checkpoint.taskRef &&
+                record.provenance.runRef === checkpoint.runRef,
+            )
+            .map(({ ref }) => ref),
+        );
+        const timestamp = now();
+        const updated = await graphStore.update(
+          (mutable) => {
+            const latest = mutable
+              .runs(current.projectRef)
+              .find((candidate) => candidate.ref === checkpoint.runRef);
+            if (!latest || TERMINAL_RUN_STATUSES.has(latest.status)) return latest;
+            const latestTask = mutable.getTask(latest.taskRef);
+            if (
+              latestTask.status !== "done" &&
+              latestTask.status !== "failed" &&
+              latestTask.status !== "cancelled"
+            ) {
+              return latest;
+            }
+            const status =
+              latestTask.status === "done"
+                ? "succeeded"
+                : latestTask.status === "failed"
+                  ? "failed"
+                  : "cancelled";
+            const summary = `Repro checkpoint Task ${latestTask.ref} finished with status ${latestTask.status}.`;
+            const outputEvidenceRefs = latestTask.outputEvidenceRefs.filter((ref) =>
+              terminalEvidenceRefs.has(ref),
+            );
+            return mutable.recordRun({
+              ...latest,
+              status,
+              ...(status === "succeeded"
+                ? { errorMessage: undefined, failureKind: undefined }
+                : {
+                    errorMessage: summary,
+                    failureKind: status === "cancelled" ? "runtime_cancelled" : "runtime_error",
+                  }),
+              outputEvidenceRefs,
+              completionSummary: {
+                runRef: latest.ref,
+                taskRef: latest.taskRef,
+                roleRef: latest.roleRef,
+                runName: latest.runName,
+                status,
+                summary,
+                evidenceRefs: outputEvidenceRefs,
+                createdAt: timestamp,
+              },
+              finishedAt: timestamp,
+              updatedAt: timestamp,
+            });
+          },
+          { createIfMissing: false },
+        );
+        graph = updated.graph;
+        run = graph
+          ?.runs(current.projectRef)
+          .find((candidate) => candidate.ref === checkpoint.runRef);
+      }
+    }
+    if (!run)
+      return await this.#blockRejectedRun(current, `TaskRun ${checkpoint.runRef} disappeared`);
     if (!TERMINAL_RUN_STATUSES.has(run.status) && run.execution?.invocationId) {
       const invocation = new SparkInvocationStore(this.#options.db).getSummary(
         run.execution.invocationId,
@@ -224,12 +314,22 @@ export class SparkReproOwner {
   async stop(ownerSessionId: string, reason = "Repro stopped by user"): Promise<SparkSessionRepro> {
     const current = this.#store.currentForOwner(ownerSessionId);
     if (!current) throw new Error("no Repro is owned by this Session");
-    if (current.status === "stopped") return current;
-    const graph = await defaultTaskGraphStore(this.#options.workspace.localPath).load();
+    const stopped = current.status === "stopped" ? current : stopSparkReproV10(current, now());
+    if (stopped !== current && !this.#store.replace(stopped, current.updatedAt)) {
+      throw new Error("Repro changed while stopping");
+    }
+    await this.#cleanupStopped(stopped, reason);
+    await this.#project(stopped);
+    return stopped;
+  }
+
+  async #cleanupStopped(repro: SparkSessionRepro, reason: string): Promise<void> {
     const invocations = new SparkInvocationStore(this.#options.db);
-    for (const run of graph?.runs(current.projectRef) ?? []) {
+    const graphStore = defaultTaskGraphStore(this.#options.workspace.localPath);
+    const graph = await graphStore.load();
+    for (const run of graph?.runs(repro.projectRef) ?? []) {
       if (
-        run.execution?.ownerSessionId !== ownerSessionId ||
+        run.execution?.ownerSessionId !== repro.ownerSessionId ||
         TERMINAL_RUN_STATUSES.has(run.status)
       ) {
         continue;
@@ -238,7 +338,37 @@ export class SparkReproOwner {
         invocations.requestCancellation(run.execution.invocationId, reason);
       }
     }
-    for (const lane of Object.values(current.lanes)) {
+    await graphStore.update(
+      (mutable) => {
+        const timestamp = now();
+        for (const run of mutable.runs(repro.projectRef)) {
+          if (
+            run.execution?.ownerSessionId !== repro.ownerSessionId ||
+            TERMINAL_RUN_STATUSES.has(run.status)
+          ) {
+            continue;
+          }
+          mutable.recordRun({
+            ...run,
+            status: "cancelled",
+            failureKind: "runtime_cancelled",
+            errorMessage: reason,
+            finishedAt: timestamp,
+            updatedAt: timestamp,
+          });
+        }
+        for (const lane of Object.values(repro.lanes)) {
+          const task = mutable.getTask(lane.taskRef);
+          if (!isUnfinishedTaskStatus(task.status)) continue;
+          mutable.setTaskStatus(task.ref, "cancelled", {
+            cancelledBy: repro.ownerSessionId,
+            cancellationReason: reason,
+          });
+        }
+      },
+      { createIfMissing: false },
+    );
+    for (const lane of Object.values(repro.lanes)) {
       const session = await this.#options.sessionRegistry.get(lane.sessionId);
       if (!session || session.lifecycle === "closed") continue;
       if (this.#options.sessionSupervisor) {
@@ -247,10 +377,6 @@ export class SparkReproOwner {
         await this.#options.sessionRegistry.close({ sessionId: lane.sessionId, reason });
       }
     }
-    const stopped = stopSparkReproV10(current, now());
-    this.#store.replace(stopped, current.updatedAt);
-    await this.#project(stopped);
-    return stopped;
   }
 
   async ingestTerminalTaskRun(run: TaskRun): Promise<SparkSessionRepro> {
@@ -420,11 +546,46 @@ export class SparkReproOwner {
               concurrencyKeys: [],
             },
           });
+          const firstCheckpoint = repro.checkpoints.find(
+            (checkpoint) => checkpoint.lane === lane.lane,
+          )!;
+          const runRef = `run:repro-${stableId(firstCheckpoint.checkpointId, "1")}` as RunRef;
+          if (!graph.runs(repro.projectRef).some((run) => run.ref === runRef)) {
+            graph.recordRun({
+              ref: runRef,
+              projectRef: repro.projectRef,
+              taskRef: lane.taskRef,
+              roleRef: lane.roleRef,
+              runName: `${firstCheckpoint.kind}-attempt-1`,
+              ownerSessionId: repro.ownerSessionId,
+              execution: {
+                ownerSessionId: repro.ownerSessionId,
+                sessionId: lane.sessionId,
+                executionSessionId: lane.sessionId,
+                sessionGoalId: `goal:${stableId(repro.reproId, lane.lane)}`,
+                sessionLifetime: "task_revision",
+                jobId: `repro-checkpoint:${firstCheckpoint.checkpointId}`,
+                attempt: 1,
+              },
+              status: "queued",
+              startedAt: now(),
+              updatedAt: now(),
+              outputEvidenceRefs: [],
+            });
+          }
         }
       },
       { createIfMissing: true },
     );
     for (const lane of Object.values(repro.lanes)) {
+      const firstCheckpoint = repro.checkpoints.find(
+        (checkpoint) => checkpoint.lane === lane.lane,
+      )!;
+      const sessionGoalId = `goal:${stableId(repro.reproId, lane.lane)}`;
+      const originatingRunRef = `run:repro-${stableId(
+        firstCheckpoint.checkpointId,
+        "1",
+      )}` as RunRef;
       const existing = await this.#options.sessionRegistry.get(lane.sessionId);
       if (!existing) {
         await this.#options.sessionRegistry.create({
@@ -435,10 +596,24 @@ export class SparkReproOwner {
           roleBinding: { kind: "explicit", roleRef: lane.roleRef },
           placement: "child",
           cwd: this.#options.workspace.localPath,
+          taskExecution: {
+            originKind: "task_revision",
+            projectRef: repro.projectRef,
+            taskRef: lane.taskRef,
+            revisionRef: `repro-lane:${repro.reproId}:${lane.lane}`,
+            originatingRunRef,
+            sessionGoalId,
+            roleRef: lane.roleRef,
+            jobId: `repro-checkpoint:${firstCheckpoint.checkpointId}`,
+            attempt: 1,
+          },
         });
       } else if (
         existing.lineage.kind !== "child" ||
         existing.lineage.parentSessionId !== repro.ownerSessionId ||
+        existing.lineage.origin.kind !== "task_revision" ||
+        existing.lineage.origin.projectRef !== repro.projectRef ||
+        existing.lineage.origin.taskRef !== lane.taskRef ||
         existing.roleBinding.kind !== "explicit" ||
         existing.roleBinding.roleRef !== lane.roleRef
       ) {
@@ -454,6 +629,15 @@ export class SparkReproOwner {
           lane.model.thinkingLevel as Parameters<DaemonSessionRegistry["setThinkingLevel"]>[1],
         );
       }
+      await writeSparkSessionWorkspaceState(
+        this.#options.workspace.localPath,
+        { sessionId: lane.sessionId },
+        sparkSessionWorkspaceState({
+          projectRef: repro.projectRef,
+          currentTaskRef: lane.taskRef,
+          mode: "execute",
+        }),
+      );
     }
   }
 
@@ -470,7 +654,7 @@ export class SparkReproOwner {
     const reserved = await graphStore.update(
       (graph) => {
         const existing = graph.runs(repro.projectRef).find((run) => run.ref === runRef);
-        if (existing) return existing;
+        if (existing && checkpoint.status === "running") return existing;
         const task = graph.getTask(checkpoint.taskRef);
         if (task.status !== "ready") graph.setTaskStatus(task.ref, "ready");
         const jobId = `repro-checkpoint:${checkpoint.checkpointId}`;
@@ -483,6 +667,7 @@ export class SparkReproOwner {
           runRef,
           leaseMs: 7_200_000,
         });
+        if (existing) return existing;
         return graph.recordRun({
           ref: runRef,
           projectRef: repro.projectRef,
@@ -548,6 +733,16 @@ export class SparkReproOwner {
           taskRef: checkpoint.taskRef,
           runRef,
           attempt,
+          sessionMail: {
+            requestPayload: {
+              kind: "task_execution",
+              projectRef: repro.projectRef,
+              taskRef: checkpoint.taskRef,
+              runRef,
+              jobId: run.execution.jobId,
+              attempt,
+            },
+          },
         },
       });
       await graphStore.update(
@@ -708,6 +903,7 @@ function renderCheckpointPrompt(
     `WorkItem: ${repro.workItem.workItemId}`,
     `Checkpoint: ${checkpoint.checkpointId}`,
     `Source checkpoint: ${checkpoint.sourceCheckpointId ?? "none"}`,
+    `Parent checkpoint: ${checkpoint.parentCheckpointId ?? "none"}`,
     `Session: ${checkpoint.sessionId}`,
     `TaskRef: ${checkpoint.taskRef}`,
     `RunRef: ${checkpoint.runRef}`,

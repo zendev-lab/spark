@@ -268,7 +268,7 @@ write paths expose revision, lease, or equivalent conflict validation.
 ## Role and Session invariants
 
 - `role` manages reusable definitions/model settings. A call instantiates an explicit-Role ephemeral Session, invokes it once, closes it, and retains only its receipt. It does not accept Session lifecycle, persistence, mail, or identity inputs.
-- `session` manages Owner-derived scoped lifecycle, role binding, calls, bindings, and mail. List/get expose Owner, lifetime, lifecycle, placement, Invocation activity, adapters, and external keys. The Workspace Administrator is provisioned separately and is protected from lifecycle mutation.
+- `session` manages lineage-derived scoped lifecycle, Role binding, calls, channel bindings, and mail. List/get expose lineage, lifetime, lifecycle, placement, self/descendant Invocation activity, adapters, and external keys. The Workspace Administrator root is provisioned separately and is protected from lifecycle mutation.
 - `send kind=request` asynchronously submits the exact body to an unarchived local session and returns a one-way admission receipt. Optional `wake=true` later wakes the sender with a completion summary; the default is `wake=false`. `session({ action: "wait", invocationId })` polls for a bounded terminal result without cancelling execution on wait timeout. `session({ action: "lookup", sessionId })` returns a bounded peer projection and must not wait or alias `get`.
 
 Both call paths share `SessionRuntime.instantiate -> invoke -> close`; only lifetime and continuity differ. Full policy is in [`sessions-and-channels.md`](./sessions-and-channels.md).
@@ -312,14 +312,14 @@ not parse Markdown or A2UI back into Repro state, progress, evidence, or gates.
 Workspace paths, `evidence:*` refs, and `artifact:*` refs remain separate typed
 fields.
 
-`/repro <objective>` is the canonical three-lane launch. It derives one internal
-`work_enqueue` intent and reserves stable Implementation, Exactness, and
-Formalize child Sessions. Normal progress is driven only by terminal TaskRun
-envelopes; the public `lane_result_record` action can replay Evidence already
-attached to that exact run. Transcript text, compact summaries, and lifecycle
-presentation hooks are not checkpoint inputs. Context compaction and daemon
-restart reload the same durable route/binding/receipt state and must not create
-replacement Tasks, Sessions, worktrees, commits, PRs, or Asks.
+`/repro <objective>` is the canonical three-lane launch. The extension forwards
+`start | status | stop` to the daemon-owned v10 owner, which reserves stable
+Implementation, Exactness, and Formalize child Sessions. Normal progress is
+driven only by strict terminal TaskRun Evidence envelopes; there is no public
+lane-result action. Transcript text, compact summaries, and lifecycle hooks are
+not checkpoint inputs. Context compaction and daemon restart reload the same
+v10 checkpoint, Task, Run, Session, and Evidence state and must not create
+replacement Tasks, Sessions, repositories, commits, PRs, or Asks.
 
 ## Role, Skill Worker, and Session invariants
 
@@ -339,9 +339,10 @@ self-contained delegation packet rather than the parent transcript. Its direct
 work profile is bounded and cannot recurse into Roles/Skills, manage Sessions,
 mutate Tasks, or publish Git/Artifact/Evidence state.
 
-Side Threads are daemon-owned Sessions with a read-only effect boundary. TUI and
-Hub may control/project them but do not own their lifecycle, generation,
-transcript, isolation, or handoff semantics.
+The Side Thread feature creates daemon-owned child Sessions with a read-only
+effect boundary. It is not another runtime entity. TUI and Hub may control and
+project those Sessions but do not own their lifecycle, generation, transcript,
+isolation, or handoff semantics.
 
 ## Files, execution, and external data
 

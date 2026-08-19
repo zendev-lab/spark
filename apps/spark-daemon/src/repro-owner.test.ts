@@ -133,7 +133,10 @@ describe("daemon-owned Repro v10", () => {
         const update = await defaultTaskGraphStore(root).update(
           (graph) => {
             const run = graph.runs(repro.projectRef).find((candidate) => candidate.ref === runRef)!;
+            graph.attachOutputEvidence(checkpoint.taskRef, carrierRef);
+            graph.attachOutputEvidence(checkpoint.taskRef, proofRef);
             graph.setTaskStatus(checkpoint.taskRef, "done");
+            if (index === 0) return run;
             return graph.recordRun({
               ...run,
               status: "succeeded",
@@ -144,8 +147,14 @@ describe("daemon-owned Repro v10", () => {
           },
           { createIfMissing: false },
         );
-        if (index === 0) failProjection = true;
-        repro = await owner.ingestTerminalTaskRun(update.result);
+        if (index === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 2));
+          failProjection = true;
+        }
+        repro =
+          index === 0
+            ? (await owner.reconcile(repro.reproId)).repro
+            : await owner.ingestTerminalTaskRun(update.result);
         if (index === 0) {
           const reproStore = new SparkReproV10Store(db);
           expect(reproStore.projection(repro.reproId)?.stateUpdatedAt).not.toBe(repro.updatedAt);
