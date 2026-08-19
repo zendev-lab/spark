@@ -250,7 +250,6 @@ export async function runSparkHeadlessSession(
     invocationId: input.invocationId,
     taskExecutionScope: input.taskExecutionScope,
     tokenUsage: input.tokenUsage,
-    stateBindingSessionId: input.stateBindingSessionId ?? input.stateOwnerSessionId,
     loop: input.loop,
     sessionQuestionChain: input.sessionQuestionChain,
     allowedTools: input.roleRunRef

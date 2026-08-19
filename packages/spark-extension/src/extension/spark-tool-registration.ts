@@ -48,7 +48,6 @@ export interface SparkToolContext {
   workspaceId?: string;
   sparkStateRoot?: string;
   sessionId?: string;
-  executionSessionId?: string;
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
   sessionLease?: () => SparkSessionLeaseIdentity | undefined;

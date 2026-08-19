@@ -15,6 +15,7 @@ export function prepareCurrentDaemonSchema(db: DatabaseSync): void {
       command_id TEXT,
       workspace_binding_id TEXT,
       session_id TEXT,
+      serialization_key TEXT,
       idempotency_key TEXT,
       status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
       prompt TEXT,
@@ -976,6 +977,7 @@ export function addMissingInvocationColumns(db: DatabaseSync): void {
   const additions = [
     ["workspace_binding_id", "TEXT"],
     ["session_id", "TEXT"],
+    ["serialization_key", "TEXT"],
     ["idempotency_key", "TEXT"],
     ["task_json", "TEXT"],
     ["result_json", "TEXT"],
@@ -1000,6 +1002,16 @@ export function addMissingInvocationColumns(db: DatabaseSync): void {
   for (const [name, type] of additions) {
     if (!columns.has(name)) db.exec(`ALTER TABLE invocations ADD COLUMN ${name} ${type}`);
   }
+  db.exec(`
+    UPDATE invocations
+    SET serialization_key = COALESCE(
+      NULLIF(json_extract(task_json, '$.ownerSessionId'), ''),
+      NULLIF(json_extract(task_json, '$.stateBindingSessionId'), ''),
+      NULLIF(session_id, ''),
+      id
+    )
+    WHERE serialization_key IS NULL OR serialization_key = ''
+  `);
   if (!columns.has("event_cursor")) {
     db.exec(`ALTER TABLE invocations ADD COLUMN event_cursor INTEGER NOT NULL DEFAULT 0`);
     // One-time backfill so listSummaryPage can avoid scanning invocation_events.
@@ -1022,6 +1034,8 @@ export function addMissingInvocationColumns(db: DatabaseSync): void {
       PRIMARY KEY (invocation_id, sequence)
     );
     CREATE INDEX IF NOT EXISTS invocations_session_status_idx ON invocations(session_id, status);
+    CREATE INDEX IF NOT EXISTS invocations_serialization_status_fifo_idx
+      ON invocations(serialization_key, status, created_at);
     CREATE INDEX IF NOT EXISTS invocations_claim_class_status_idx
       ON invocations(claim_class, status, created_at);
     CREATE INDEX IF NOT EXISTS invocations_session_updated_idx

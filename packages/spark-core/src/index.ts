@@ -867,8 +867,6 @@ export interface SparkHostLoopContext {
   };
   generation: number;
   ownerSessionId: string;
-  /** @deprecated Compatibility projection; host execution uses Session stateBinding. */
-  stateOwnerSessionId?: string;
   schedule(input: {
     delayMs?: number;
     dueAt?: string;
@@ -920,8 +918,6 @@ export interface SparkHostContext {
   workspaceId?: string;
   /** Current Spark view/session identity for session-scoped extension state. */
   sessionId?: string;
-  /** Actual Session executing this turn when durable state is bound to another Session. */
-  executionSessionId?: string;
   /** Optional absolute path to the Spark state root directory (`.../.spark`). */
   sparkStateRoot?: string;
   /** Execution surface policy supplied by the host for this session. */

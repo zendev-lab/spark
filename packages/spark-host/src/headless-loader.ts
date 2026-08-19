@@ -103,10 +103,8 @@ export interface SparkHeadlessSessionRunInput {
     adapterAccountIdentity?: string;
   };
   invocationId?: string;
-  stateBindingSessionId?: string;
   /** @deprecated Compatibility input; normalized before host construction. */
   taskExecutionScope?: import("@zendev-lab/spark-core").SparkTaskExecutionScope;
-  stateOwnerSessionId?: string;
   loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
   allowedTools?: readonly string[];

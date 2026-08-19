@@ -258,7 +258,6 @@ describe("daemon Session lease", () => {
         task: {
           ...sessionTask(workspace.id),
           sessionId: "driver_tick_owned",
-          stateBindingSessionId: "sess_workspace_administrator",
         },
         context: executionContext(),
         sessionRegistry: {

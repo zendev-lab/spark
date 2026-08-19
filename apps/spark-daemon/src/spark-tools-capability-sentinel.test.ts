@@ -383,7 +383,6 @@ async function createHarness(): Promise<SentinelHarness> {
         binding: view.binding,
         generation: view.generation,
         ownerSessionId: view.ownerSessionId,
-        stateOwnerSessionId: view.ownerSessionId,
         async schedule(input) {
           metrics.loopSchedules += 1;
           const current = loops.require(loopId);

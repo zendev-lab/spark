@@ -469,12 +469,13 @@ async function hasActiveCurrentSessionGoal(ctx: SparkToolContext): Promise<boole
  * child Session identity used by ordinary tools, transcripts, or claims.
  */
 export function reproOwnerContext(ctx: SparkToolContext): SparkToolContext {
-  const ownerSessionId = ctx.taskExecutionScope?.binding?.ownerSessionId?.trim();
+  const ownerSessionId =
+    ctx.taskExecutionScope?.binding?.ownerSessionId?.trim() ??
+    (ctx.loop?.binding.reproId ? ctx.loop.ownerSessionId.trim() : undefined);
   if (!ownerSessionId || ownerSessionId === ctx.sessionId) return ctx;
   return {
     ...ctx,
     sessionId: ownerSessionId,
-    executionSessionId: ctx.executionSessionId?.trim() || ctx.sessionId,
   };
 }
 

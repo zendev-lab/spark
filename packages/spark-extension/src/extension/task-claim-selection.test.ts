@@ -59,13 +59,7 @@ function claimedGraph() {
 }
 
 describe("claimed task selection", () => {
-  it("uses the execution Session when durable state belongs to a parent Session", () => {
-    expect(
-      sparkTaskClaimSessionKey({
-        sessionId: "session:state-owner",
-        executionSessionId: "session:lane-worker",
-      }),
-    ).toBe("session:lane-worker");
+  it("uses the current Session as the only claim identity", () => {
     expect(sparkTaskClaimSessionKey({ sessionId: "session:ordinary" })).toBe("session:ordinary");
   });
 

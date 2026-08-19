@@ -131,6 +131,7 @@ export interface SparkInvocationRecord {
   commandId?: string;
   workspaceBindingId?: string;
   sessionId?: string;
+  serializationKey: string;
   idempotencyKey?: string;
   status: SparkInvocationStatus;
   prompt?: string;
@@ -283,6 +284,7 @@ export interface SubmitSparkInvocationInput {
   commandId?: string;
   workspaceBindingId?: string;
   sessionId?: string;
+  serializationKey?: string;
   idempotencyKey?: string;
   prompt?: string;
   task?: unknown;
@@ -351,6 +353,7 @@ interface InvocationRow {
   command_id: string | null;
   workspace_binding_id: string | null;
   session_id: string | null;
+  serialization_key: string | null;
   idempotency_key: string | null;
   status: string;
   prompt: string | null;
@@ -530,20 +533,22 @@ export class SparkInvocationStore {
     }
 
     const invocationId = input.invocationId ?? `inv_${randomUUID().replaceAll("-", "")}`;
+    const serializationKey = invocationSerializationKey(input, invocationId);
     try {
       this.db
         .prepare(
           `INSERT INTO invocations
-            (id, command_id, workspace_binding_id, session_id, idempotency_key, status, prompt,
+            (id, command_id, workspace_binding_id, session_id, serialization_key, idempotency_key, status, prompt,
              task_json, source_kind, source_ref, parent_invocation_id, retry_of_invocation_id,
              claim_class, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           invocationId,
           input.commandId ?? null,
           input.workspaceBindingId ?? null,
           input.sessionId ?? null,
+          serializationKey,
           input.idempotencyKey ?? null,
           input.prompt ?? null,
           serializeJson(input.task),
@@ -590,10 +595,10 @@ export class SparkInvocationStore {
         .prepare(
           `SELECT id
            FROM invocations
-           WHERE session_id = ? AND status IN ('queued', 'running')
+           WHERE serialization_key = ? AND status IN ('queued', 'running')
            LIMIT 1`,
         )
-        .get(sessionId) as { id: string } | undefined;
+        .get(invocationSerializationKey(input, sessionId)) as { id: string } | undefined;
       if (pending) {
         throw new SparkDaemonControlError(
           "session_not_idle",
@@ -617,19 +622,20 @@ export class SparkInvocationStore {
     this.db
       .prepare(
         `INSERT INTO invocations
-          (id, command_id, workspace_binding_id, session_id, idempotency_key, status, prompt,
+          (id, command_id, workspace_binding_id, session_id, serialization_key, idempotency_key, status, prompt,
            task_json, result_json, source_kind, source_ref, parent_invocation_id,
            retry_of_invocation_id, claim_class, execution_profile_json, retention_summary_json,
            payload_redacted_at, worker_id,
            attempt_count, cancel_reason, error_code, error_message, created_at, updated_at,
            claimed_at, started_at, finished_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       )
       .run(
         input.invocationId,
         input.commandId ?? null,
         input.workspaceBindingId ?? null,
         input.sessionId ?? null,
+        invocationSerializationKey(input, input.invocationId),
         input.idempotencyKey ?? null,
         input.status,
         input.prompt ?? null,
@@ -931,16 +937,49 @@ export class SparkInvocationStore {
     return row ? invocationRecord(row) : undefined;
   }
 
+  blockingSessionId(invocation: SparkInvocationRecord): string | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT blocker.session_id
+         FROM invocations blocker
+         JOIN invocations current ON current.id = ?
+         WHERE blocker.serialization_key = current.serialization_key
+           AND blocker.id <> current.id
+           AND (
+             blocker.status = 'running'
+             OR (
+               blocker.status = 'queued'
+               AND (
+                 blocker.created_at < current.created_at
+                 OR (
+                   blocker.created_at = current.created_at
+                   AND blocker.rowid < current.rowid
+                 )
+               )
+             )
+           )
+         ORDER BY CASE blocker.status WHEN 'running' THEN 0 ELSE 1 END,
+                  blocker.created_at,
+                  blocker.rowid
+         LIMIT 1`,
+      )
+      .get(invocation.invocationId) as { session_id: string | null } | undefined;
+    const blockingSessionId = row?.session_id?.trim();
+    return blockingSessionId && blockingSessionId !== invocation.sessionId
+      ? blockingSessionId
+      : undefined;
+  }
+
   claimNext(
     workerId: string,
     now = new Date().toISOString(),
-    blockedSessionIds: readonly string[] = [],
+    blockedSerializationKeys: readonly string[] = [],
     options: { sourceKind?: string } = {},
   ): SparkInvocationRecord | undefined {
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      const blockedClause = blockedSessionIds.length
-        ? `AND (session_id IS NULL OR session_id NOT IN (${blockedSessionIds.map(() => "?").join(", ")}))`
+      const blockedClause = blockedSerializationKeys.length
+        ? `AND serialization_key NOT IN (${blockedSerializationKeys.map(() => "?").join(", ")})`
         : "";
       const sourceClause = options.sourceKind ? "AND source_kind = ?" : "";
       const candidate = this.db
@@ -950,9 +989,9 @@ export class SparkInvocationStore {
              AND claim_class = 'root'
              ${sourceClause}
              AND (
-               session_id IS NULL OR NOT EXISTS (
+               serialization_key IS NULL OR NOT EXISTS (
                  SELECT 1 FROM invocations active
-                 WHERE active.session_id = invocations.session_id
+                 WHERE active.serialization_key = invocations.serialization_key
                    AND active.status = 'running'
                )
              )
@@ -961,7 +1000,7 @@ export class SparkInvocationStore {
                     created_at, rowid
            LIMIT 1`,
         )
-        .get(...(options.sourceKind ? [options.sourceKind] : []), ...blockedSessionIds) as
+        .get(...(options.sourceKind ? [options.sourceKind] : []), ...blockedSerializationKeys) as
         | InvocationRow
         | undefined;
       if (!candidate) {
@@ -1933,6 +1972,7 @@ export class SparkInvocationStore {
       commandId: original.commandId,
       workspaceBindingId: original.workspaceBindingId,
       sessionId: original.sessionId,
+      serializationKey: original.serializationKey,
       idempotencyKey: `invocation.retry:${invocationId}`,
       prompt: original.prompt,
       task: taskForExplicitRetry(original.task),
@@ -2324,6 +2364,7 @@ function invocationSelectColumns(alias?: string, includeResult = true): string {
       "command_id",
       "workspace_binding_id",
       "session_id",
+      "serialization_key",
       "idempotency_key",
       "status",
       "prompt",
@@ -2364,6 +2405,7 @@ function invocationRecord(row: InvocationRow): SparkInvocationRecord {
     ...(row.command_id ? { commandId: row.command_id } : {}),
     ...(row.workspace_binding_id ? { workspaceBindingId: row.workspace_binding_id } : {}),
     ...(row.session_id ? { sessionId: row.session_id } : {}),
+    serializationKey: row.serialization_key?.trim() || row.session_id?.trim() || row.id,
     ...(row.idempotency_key ? { idempotencyKey: row.idempotency_key } : {}),
     status: row.status,
     ...(row.prompt !== null ? { prompt: row.prompt } : {}),
@@ -2847,6 +2889,7 @@ function assertIdempotentSubmission(
 ): void {
   if (
     existing.sessionId !== input.sessionId ||
+    existing.serializationKey !== invocationSerializationKey(input, existing.invocationId) ||
     existing.prompt !== input.prompt ||
     existing.commandId !== input.commandId ||
     existing.workspaceBindingId !== input.workspaceBindingId ||
@@ -2860,6 +2903,13 @@ function assertIdempotentSubmission(
       `Invocation idempotency conflict: ${input.idempotencyKey}`,
     );
   }
+}
+
+function invocationSerializationKey(
+  input: Pick<SubmitSparkInvocationInput, "serializationKey" | "sessionId">,
+  fallback: string,
+): string {
+  return input.serializationKey?.trim() || input.sessionId?.trim() || fallback;
 }
 
 export function isRetryableInvocationError(errorCode: string | undefined): boolean {

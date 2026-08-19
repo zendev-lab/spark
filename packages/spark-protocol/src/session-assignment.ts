@@ -836,6 +836,7 @@ export const sparkSessionPendingTurnSchema = z.object({
   status: z.enum(["queued", "running"]),
   createdAt: isoDateTimeSchema,
   startedAt: isoDateTimeSchema.optional(),
+  blockedBySessionId: z.string().trim().min(1).optional(),
 });
 
 export const sparkSessionRetryTargetRequestSchema = z.object({

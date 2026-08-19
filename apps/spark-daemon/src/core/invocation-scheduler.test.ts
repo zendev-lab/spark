@@ -600,6 +600,7 @@ describe("SparkInvocationScheduler", () => {
         scope: { kind: "repro", reproId: "repro-driver-1" },
         kind: "root_session",
         persistence: "anonymous",
+        sessionId: "driver-session-repro",
         status: "complete",
       });
       expect(
@@ -656,9 +657,8 @@ describe("SparkInvocationScheduler", () => {
           loopId: "repro-usage-persistence-failure",
           binding: { reproId: "repro-usage-persistence-failure" },
           ownerSessionId: "session-usage-persistence-failure",
-          stateOwnerSessionId: "session-usage-persistence-failure",
           generation: 1,
-          continuity: "session",
+          sessionLifetime: "driver",
           cwd: process.cwd(),
           prompt: "record usage fail closed",
         },

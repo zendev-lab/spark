@@ -8715,7 +8715,6 @@ test("repro plan, step, and settle enforce the typed protocol and bounded contin
       binding: { reproId: "repro-driver" },
       generation: 1,
       ownerSessionId: ctx.sessionId,
-      stateOwnerSessionId: ctx.sessionId,
       async schedule(input) {
         scheduled.push(input);
         return input;
@@ -13434,7 +13433,6 @@ function reproScheduleSpy(
     binding: { reproId: "repro-schedule-spy" },
     generation: 1,
     ownerSessionId,
-    stateOwnerSessionId: ownerSessionId,
     async schedule(input) {
       scheduled.push(input);
       return input;

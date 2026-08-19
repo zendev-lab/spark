@@ -1007,12 +1007,10 @@ function closedRepairSessionIds(invocation: SparkInvocationRecord): string[] {
   const sessionIds = new Set<string>();
   if (invocation.sessionId) sessionIds.add(invocation.sessionId);
   if (invocation.task && typeof invocation.task === "object" && !Array.isArray(invocation.task)) {
-    const task = invocation.task as {
-      ownerSessionId?: unknown;
-      stateOwnerSessionId?: unknown;
-    };
-    for (const candidate of [task.ownerSessionId, task.stateOwnerSessionId]) {
-      if (typeof candidate === "string" && candidate.trim()) sessionIds.add(candidate.trim());
+    const task = invocation.task as { ownerSessionId?: unknown };
+    const ownerSessionId = task.ownerSessionId;
+    if (typeof ownerSessionId === "string" && ownerSessionId.trim()) {
+      sessionIds.add(ownerSessionId.trim());
     }
   }
   return [...sessionIds];

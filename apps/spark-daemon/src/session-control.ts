@@ -61,7 +61,6 @@ import {
   createSparkRoleRegistry,
   defaultProjectRoleModelSettingsStore,
   defaultUserRoleModelSettingsStore,
-  RoleModelTypeUnconfiguredError,
   resolveRoleModelSetting,
 } from "@zendev-lab/spark-roles";
 
@@ -409,7 +408,7 @@ export async function executeSparkDaemonSessionControl(
       if (existing) {
         assertIdempotentCompactReplay(existing, parsed);
         return {
-          result: publicObject(turnSubmitResultForInvocation(existing)),
+          result: publicObject(turnSubmitResultForInvocation(existing, store)),
           invocationId: existing.invocationId,
         };
       }
@@ -437,6 +436,7 @@ export async function executeSparkDaemonSessionControl(
           },
           idempotencyKey,
           { kind: "session.compact" },
+          sessionSerializationKey(session),
         );
       } catch (error) {
         raced = idempotencyKey ? store.findByIdempotencyKey(idempotencyKey) : undefined;
@@ -449,7 +449,7 @@ export async function executeSparkDaemonSessionControl(
             }
           }
           return {
-            result: publicObject(turnSubmitResultForInvocation(raced)),
+            result: publicObject(turnSubmitResultForInvocation(raced, store)),
             invocationId: raced.invocationId,
           };
         }
@@ -531,13 +531,7 @@ export async function executeSparkDaemonSessionControl(
       if (existing) {
         assertIdempotentTurnReplay(existing, parsed);
         return {
-          result: publicObject(
-            sparkTurnSubmitResultSchema.parse({
-              invocationId: existing.invocationId,
-              status: "queued",
-              acceptedAt: existing.createdAt,
-            }),
-          ),
+          result: publicObject(turnSubmitResultForInvocation(existing, store)),
           invocationId: existing.invocationId,
         };
       }
@@ -587,6 +581,7 @@ export async function executeSparkDaemonSessionControl(
           },
           idempotencyKey,
           invocationSource(parsed.messageMetadata, parsed.parentInvocationId),
+          sessionSerializationKey(session),
         );
       } catch (error) {
         raced = idempotencyKey ? store.findByIdempotencyKey(idempotencyKey) : undefined;
@@ -599,7 +594,7 @@ export async function executeSparkDaemonSessionControl(
             }
           }
           return {
-            result: publicObject(turnSubmitResultForInvocation(raced)),
+            result: publicObject(turnSubmitResultForInvocation(raced, store)),
             invocationId: raced.invocationId,
           };
         }
@@ -1186,13 +1181,11 @@ async function effectiveTurnModel(
         projectStore: defaultProjectRoleModelSettingsStore(session.cwd ?? process.cwd()),
         userStore: defaultUserRoleModelSettingsStore(),
       });
-      if (!resolved) throw new RoleModelTypeUnconfiguredError(role.ref, role.modelType);
-      model = modelRefFromSelector(resolved.model);
+      if (resolved) model = modelRefFromSelector(resolved.model);
     }
   }
-  if (!model && session && session.roleBinding.kind === "none") {
+  if (!model && session) {
     model = await inheritedSessionSetting(options.sessionRegistry, session, "model");
-    model ??= await options.modelControl.effectiveModel();
   }
   model ??= await options.modelControl.effectiveModel();
   await options.modelControl.prepareModel(model);
@@ -1343,10 +1336,12 @@ async function submitInvocationTask(
   task: SparkDaemonSessionRunTask | SparkDaemonSessionCompactTask,
   idempotencyKey?: string,
   source?: { kind: string; ref?: string; parentInvocationId?: string },
+  serializationKey?: string,
 ) {
   const store = new SparkInvocationStore(db);
   const input = {
     sessionId: task.sessionId,
+    serializationKey,
     workspaceBindingId: task.workspaceBindingId,
     idempotencyKey,
     prompt: task.prompt,
@@ -1359,14 +1354,28 @@ async function submitInvocationTask(
   const invocation = registry
     ? await registry.commitInvocationAdmission(task.sessionId, admit)
     : admit();
-  return turnSubmitResultForInvocation(invocation);
+  return turnSubmitResultForInvocation(invocation, store);
 }
 
-function turnSubmitResultForInvocation(invocation: SparkInvocationRecord) {
+function sessionSerializationKey(session: SparkSessionState | undefined): string | undefined {
+  if (!session) return undefined;
+  return session.lineage.kind === "child" &&
+    (session.lineage.origin.kind === "driver" || session.lineage.origin.kind === "driver_tick")
+    ? session.lineage.parentSessionId
+    : session.sessionId;
+}
+
+function turnSubmitResultForInvocation(
+  invocation: SparkInvocationRecord,
+  store?: SparkInvocationStore,
+) {
+  const blockedBySessionId =
+    invocation.status === "queued" ? store?.blockingSessionId(invocation) : undefined;
   return sparkTurnSubmitResultSchema.parse({
     invocationId: invocation.invocationId,
     status: "queued",
     acceptedAt: invocation.createdAt,
+    ...(blockedBySessionId ? { blockedBySessionId } : {}),
   });
 }
 
@@ -1544,7 +1553,8 @@ function projectPendingSessionTurns(
   db: DatabaseSync,
   snapshot: SparkSessionView,
 ): SparkSessionView {
-  const pending = new SparkInvocationStore(db).listPendingForSession(snapshot.sessionId);
+  const store = new SparkInvocationStore(db);
+  const pending = store.listPendingForSession(snapshot.sessionId);
   const messages = pending
     .filter((invocation) => invocation.sessionId === snapshot.sessionId)
     .flatMap((invocation) => {
@@ -1573,6 +1583,9 @@ function projectPendingSessionTurns(
       status: invocation.status,
       createdAt: invocation.createdAt,
       ...(invocation.startedAt ? { startedAt: invocation.startedAt } : {}),
+      ...(store.blockingSessionId(invocation)
+        ? { blockedBySessionId: store.blockingSessionId(invocation) }
+        : {}),
     })),
     status: sparkSessionViewStatusAfterPendingTurns(pending, snapshot.status),
     messages: [...snapshot.messages, ...messages],
