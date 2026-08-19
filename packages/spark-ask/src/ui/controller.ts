@@ -1,5 +1,3 @@
-import { decodeKittyPrintable, parseKey } from "@zendev-lab/spark-tui-adapter/input";
-
 import type { AskAction } from "../state/reducer.ts";
 import { reduce } from "../state/reducer.ts";
 import type { AskState, ExtendedOption } from "../state/state.ts";
@@ -11,6 +9,7 @@ import {
 } from "../state/state.ts";
 import type { SparkAskFlowResult, SparkAskFlowRequest, SparkAskFlowQuestion } from "../schema.ts";
 import { validateSparkAskFlowRequest } from "../schema.ts";
+import { normalizeAskKey, printableAskText } from "./keys.ts";
 import type { RenderTheme } from "./render.ts";
 import { renderAskScreen, normalizeRenderTheme, type AskUILanguage } from "./render.ts";
 
@@ -328,15 +327,6 @@ export class SparkAskFlowController {
   }
 }
 
-export function normalizeAskKey(key: string): string {
-  return (parseKey(key) ?? key)
-    .toLowerCase()
-    .replace(/escape/g, "esc")
-    .replace(/return/g, "enter")
-    .replace(/control\+/g, "ctrl+")
-    .trim();
-}
-
 function isNavigationKey(normalized: string): boolean {
   return ["up", "down", "left", "right", "tab", "shift+tab"].includes(normalized);
 }
@@ -350,12 +340,4 @@ function isInputControlKey(normalized: string): boolean {
   );
 }
 
-export function printableAskText(data: string): string | undefined {
-  const decoded = decodeKittyPrintable(data);
-  if (decoded) return decoded;
-  if (data.includes("\x1b")) return undefined;
-  if (data.length === 0) return undefined;
-  if (data === "\r" || data === "\n" || data === "\t" || data === "\x7f") return undefined;
-  if (data.length === 1 && data < " ") return undefined;
-  return data;
-}
+export { normalizeAskKey, printableAskText } from "./keys.ts";
