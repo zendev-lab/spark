@@ -1,8 +1,8 @@
 {
-  "name": "@zendev-lab/spark-web",
+  "name": "@zendev-lab/spark-tool-web",
   "version": "0.4.0",
   "private": true,
-  "description": "Native Spark web search and content fetch capability with safe URL checks and recoverable content cache.",
+  "description": "Native Spark web search and content fetch tool family with safe URL checks and recoverable content cache.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [

@@ -100,7 +100,7 @@
       "current": 44,
       "ceiling": 44,
       "nonGrowth": true,
-      "reason": "The DSH runtime adapter is a separate host ABI, permission, presentation, and lifecycle boundary from spark-cue's Cue semantics owner; budget raised by one for the private rc.7 adapter after the spark-web-dsh client boundary."
+      "reason": "The DSH runtime adapter is a separate host ABI, permission, presentation, and lifecycle boundary from spark-cue's Cue semantics owner; budget raised by one for the private rc.7 adapter after the spark-web application boundary."
     },
     "compositionRoots": ["@zendev-lab/spark-extension"]
   },
@@ -366,6 +366,13 @@
       "stability": "supported",
       "stateWriter": "none"
     },
+    "@zendev-lab/spark-tool-web": {
+      "path": "packages/spark-tool-web",
+      "layer": "capability",
+      "owner": "web",
+      "stability": "supported",
+      "stateWriter": "user"
+    },
     "@zendev-lab/spark-tui": {
       "path": "apps/spark-tui",
       "layer": "application",
@@ -404,18 +411,12 @@
       "allowedWorkspaceDependencies": ["@zendev-lab/spark-protocol", "@zendev-lab/spark-system"]
     },
     "@zendev-lab/spark-web": {
-      "path": "packages/spark-web",
-      "layer": "capability",
+      "path": "apps/spark-web",
+      "layer": "application",
       "owner": "web",
       "stability": "supported",
-      "stateWriter": "user"
-    },
-    "@zendev-lab/spark-web-dsh": {
-      "path": "packages/spark-web-dsh",
-      "layer": "capability",
-      "owner": "web",
-      "stability": "supported",
-      "stateWriter": "user"
+      "stateWriter": "user",
+      "distribution": "private"
     },
     "@zendev-lab/spark-workflows": {
       "path": "packages/spark-workflows",

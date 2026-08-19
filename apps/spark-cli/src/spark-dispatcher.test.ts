@@ -53,6 +53,11 @@ test("parseSparkDispatcherArgs routes canonical planes and rejects removed alias
     target: "mcp",
     argv: ["--help"],
   });
+  assert.deepEqual(parseSparkDispatcherArgs(["web", "--host", "0.0.0.0"]), {
+    kind: "dispatch",
+    target: "web",
+    argv: ["--host", "0.0.0.0"],
+  });
   for (const removed of [
     ["sessions", "list", "--all-workspaces"],
     ["session", "replay", "--session", "s1"],
@@ -194,6 +199,9 @@ test("dispatcher resolves source companion executables without importing app CLI
   const update = resolveTargetCommand("update");
   assert.match(update.command, /packages\/spark-update\/bin\/spark-update$/u);
   assert.deepEqual(update.args, []);
+  const web = resolveTargetCommand("web");
+  assert.match(web.command, /apps\/spark-web\/bin\/spark-web$/u);
+  assert.deepEqual(web.args, []);
 });
 
 test("dispatcher honors an explicit packaged updater command", () => {
@@ -208,6 +216,25 @@ test("dispatcher honors an explicit packaged updater command", () => {
     if (previous === undefined) delete process.env.SPARK_UPDATE_COMMAND;
     else process.env.SPARK_UPDATE_COMMAND = previous;
   }
+});
+
+test("runSparkDispatcher dispatches web to the spark-web companion", async () => {
+  const calls: Array<{ target: string; argv: string[]; options: unknown }> = [];
+  const code = await runSparkDispatcher(
+    ["web", "--host", "0.0.0.0"],
+    {},
+    {
+      run: async (target, argv, options) => {
+        calls.push({ target, argv, options });
+        return 0;
+      },
+    },
+  );
+
+  assert.equal(code, 0);
+  assert.deepEqual(calls, [
+    { target: "web", argv: ["--host", "0.0.0.0"], options: { stdio: "inherit" } },
+  ]);
 });
 
 test("runSparkDispatcher invokes injected launcher with the selected target", async () => {

@@ -11,11 +11,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute } from "node:path";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { parseSparkDispatcherArgs } from "./cli.ts";
 import {
   composeSparkWebPatch,
   composeWebArgs,
@@ -27,6 +25,7 @@ import {
   resolveDshProfileDir,
   resolveFromDirectory,
   resolveSparkLlmPackageDir,
+  resolveSparkWebDshPackageDir,
   sparkWebBootErrorLines,
   sparkWebBootNodeArgs,
   sparkWebBootScript,
@@ -64,14 +63,6 @@ test("parseSparkWebArgs reads host, port, trusted hosts, and forwards the rest",
   });
   assert.throws(() => parseSparkWebArgs(["--port", "abc"]), /must be a number/);
   assert.throws(() => parseSparkWebArgs(["--host"]), /requires a value/);
-});
-
-test("parseSparkDispatcherArgs routes spark web to the web target", () => {
-  assert.deepEqual(parseSparkDispatcherArgs(["web", "--host", "0.0.0.0"]), {
-    kind: "dispatch",
-    target: "web",
-    argv: ["--host", "0.0.0.0"],
-  });
 });
 
 test("composeSparkWebPatch mounts spark-llm, enables HMR, and overrides webserver host for 0.0.0.0", () => {
@@ -136,6 +127,12 @@ test("ensureDshToolCueBundle uses a source digest and never writes the source ch
 test("spark-llm package resolves from the workspace and exposes the plugin entry", () => {
   const llmDir = resolveSparkLlmPackageDir();
   assert.ok(existsSync(join(llmDir, "src", "dsh-plugin.ts")), "plugin entry exists");
+});
+
+test("spark-web application resolves as the DSH client plugin package root", () => {
+  const webDir = resolveSparkWebDshPackageDir();
+  assert.ok(existsSync(join(webDir, "src", "client.tsx")), "client plugin entry exists");
+  assert.ok(existsSync(join(webDir, "bin", "spark-web")), "spark-web executable exists");
 });
 
 test("resolveDshProfileDir honors DSH_HOME", () => {

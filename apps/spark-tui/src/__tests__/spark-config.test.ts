@@ -264,6 +264,23 @@ test("persisted v2 default profile drops standalone workflow after composition o
   assert.equal(migrated.extensionProfileVersion, CURRENT_SPARK_EXTENSION_PROFILE_VERSION);
 });
 
+test("current profiles rewrite the retired spark-web search-tool specifier", () => {
+  const migrated = mergeSparkConfigWithDefault({
+    extensionProfileVersion: CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
+    extensions: [
+      "@zendev-lab/spark-web/extension",
+      "@zendev-lab/spark-extension/extension",
+      "my-extension",
+    ],
+  });
+
+  assert.deepEqual(migrated.extensions, [
+    "@zendev-lab/spark-tool-web/extension",
+    "@zendev-lab/spark-extension/extension",
+    "my-extension",
+  ]);
+});
+
 test("current profiles remove a conflicting standalone workflow entry", () => {
   const migrated = mergeSparkConfigWithDefault({
     extensionProfileVersion: CURRENT_SPARK_EXTENSION_PROFILE_VERSION,

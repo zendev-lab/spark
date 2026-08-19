@@ -18,7 +18,7 @@
       "effect": "external_write"
     },
     "code_search": {
-      "owner": "@zendev-lab/spark-web",
+      "owner": "@zendev-lab/spark-tool-web",
       "kind": "compatibility",
       "effect": "network_read"
     },
@@ -83,7 +83,7 @@
       "effect": "local_write"
     },
     "fetch_content": {
-      "owner": "@zendev-lab/spark-web",
+      "owner": "@zendev-lab/spark-tool-web",
       "kind": "capability",
       "effect": "network_read"
     },
@@ -93,7 +93,7 @@
       "effect": "read"
     },
     "get_search_content": {
-      "owner": "@zendev-lab/spark-web",
+      "owner": "@zendev-lab/spark-tool-web",
       "kind": "capability",
       "effect": "read"
     },
@@ -183,7 +183,7 @@
       "effect": "unclassified"
     },
     "web_search": {
-      "owner": "@zendev-lab/spark-web",
+      "owner": "@zendev-lab/spark-tool-web",
       "kind": "capability",
       "effect": "network_read"
     },

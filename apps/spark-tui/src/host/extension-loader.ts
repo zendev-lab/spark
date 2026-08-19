@@ -16,7 +16,7 @@ import sparkMemoryExtension, {
 } from "@zendev-lab/spark-memory/extension";
 import sparkRolesExtension from "@zendev-lab/spark-roles/extension";
 import sparkSessionExtension from "@zendev-lab/spark-session/extension";
-import sparkWebExtension from "@zendev-lab/spark-web/extension";
+import sparkWebExtension from "@zendev-lab/spark-tool-web/extension";
 import sparkWorkflowsExtension from "@zendev-lab/spark-workflows/extension";
 
 import { DEFAULT_SPARK_EXTENSION_SPECS } from "./extension-specs.ts";
@@ -36,7 +36,7 @@ export type SparkBuiltinExtensionName =
   | "@zendev-lab/spark-memory"
   | "@zendev-lab/spark-roles"
   | "@zendev-lab/spark-session"
-  | "@zendev-lab/spark-web"
+  | "@zendev-lab/spark-tool-web"
   | "@zendev-lab/spark-workflows"
   | "@zendev-lab/spark-llm"
   | "spark";
@@ -117,8 +117,8 @@ const BUILTIN_EXTENSION_FACTORIES: readonly SparkBuiltinCapabilityFactory[] = [
     factory: sparkSessionExtension as SparkCapabilityFactory,
   },
   {
-    name: "@zendev-lab/spark-web",
-    specifier: "@zendev-lab/spark-web/extension",
+    name: "@zendev-lab/spark-tool-web",
+    specifier: "@zendev-lab/spark-tool-web/extension",
     factory: sparkWebExtension as SparkCapabilityFactory,
   },
   {
