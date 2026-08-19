@@ -1,22 +1,39 @@
 /**
- * `spark web` — temporary replacement for `dsh web`.
+ * `spark web` — Spark-owned boot of the DeepSeek Harness web profile.
  *
- * Boots the DeepSeek Harness web profile through the installed `dsh` CLI,
- * with three spark-owned additions:
+ * The profile is booted directly: a plain `node` child imports the installed
+ * `@deepseek-ai/dsh` package's `profile-boot-*` module and calls `runProfile`
+ * — no `dsh` CLI on the PATH, no dsh-managed wrapper. On top of the stock
+ * profile Spark owns five additions:
  *
  * 1. **spark-llm plugin, loaded automatically.** The Baidu OneAPI provider
  *    bundle is built from `@zendev-lab/spark-llm` (esbuild, host externals
  *    resolved by the DSH process) and placed under the profile's
  *    `plugins/spark-llm/`, then mounted through a generated patch overlay —
  *    no manual install or copy step.
- * 2. **Any bind host, including 0.0.0.0.** `dsh web` rejects `--host 0.0.0.0`
+ * 2. **dsh-tool-cue plugin plus the managed spark-standard / spark-code
+ *    presets**, so Cue replaces DSH Bash/Pwsh/Jobs without manual setup.
+ * 3. **spark-web-dsh client plugin**, linked into the profile's node_modules
+ *    so the onboarding flow offers Spark's provider selection step.
+ * 4. **Any bind host, including 0.0.0.0.** `dsh web` rejects `--host 0.0.0.0`
  *    outright for safety; the patch overlay restates the `webserver` row with
  *    the requested host instead. This is a deliberate bypass of that guard —
  *    a 0.0.0.0-bound harness exposes agent code execution to the network.
- * 3. **Host plugin HMR enabled**, so bundle replacements reload the affected
+ * 5. **Host plugin HMR enabled**, so bundle replacements reload the affected
  *    plugin entry instead of requiring a restart.
  *
- * Everything else is forwarded to `dsh web` (ports, trusted hosts, app args).
+ * Boot independence notes:
+ *
+ * - The child runs with `--expose-internals` so the cordis loader resolves
+ *   bare plugin specifiers through Node's internal ESM loader. Its documented
+ *   fallback, the `node-addon-require-builtin` native addon, breaks under
+ *   pnpm store-link layouts (its optional platform package is unreachable
+ *   from the loader's real location) and takes down every bare loader entry.
+ * - Boot failures print the full AggregateError / cause chain; the loader's
+ *   one-line summary names no failing entry and is not actionable.
+ *
+ * Everything else is forwarded to the web app (ports, trusted hosts, app
+ * args).
  */
 import { build } from "esbuild";
 import { createHash } from "node:crypto";
@@ -27,6 +44,7 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
+  rmdirSync,
   statSync,
   symlinkSync,
   unlinkSync,
@@ -71,7 +89,7 @@ function resolvePackageDir(specifier: string): string {
  * package installed into a DSH profile without `createRequire` (which the
  * publish esbuild bundle cannot provide).
  */
-function resolveFromDirectory(dir: string, specifier: string): string | undefined {
+export function resolveFromDirectory(dir: string, specifier: string): string | undefined {
   let current = dir;
   while (true) {
     const candidate = join(current, "node_modules", specifier, "package.json");
@@ -308,23 +326,12 @@ export function resolveSparkWebDshPackageDir(): string {
 }
 
 export interface SparkWebPatch {
-  /** Patch rows: the spark-llm plugin insert and any overrides. */
+  /** Patch rows: spark plugin inserts, the preset default, and overrides. */
   rows: string[];
   /** Path the patch overlay was written to. */
   path: string;
 }
 
-/**
- * Compose the patch overlay for one `spark web` run and write it to a
- * temporary file. Rows:
- *
- * - `spark-llm` and `dsh-tool-cue` host plugins (relative to the profile root, so the DSH loader
- *   resolves it without an install);
- * - `hmr` re-enabled (the web-app bundle ships it disabled);
- * - the `webserver` row restated with the requested host when it is not the
- *   DSH default — this is the documented way to bind 0.0.0.0, which the
- *   `dsh` CLI rejects outright.
- */
 export interface SparkWebClientResult {
   packageDir: string;
   bundle: string;
@@ -384,26 +391,21 @@ return module.exports;
 }
 
 /**
- * Compose the patch overlay for one `spark web` run and write it to a
- * temporary file. Rows:
- *
- * - `spark-llm` host plugin (relative to the profile root, so the DSH loader
- *   resolves it without an install);
- * - `spark-web-dsh` client plugin (package name; the client-modules host
- *   resolves it from the profile's node_modules and serves its bundle);
- * - `hmr` re-enabled (the web-app bundle ships it disabled);
- * - the `webserver` row restated with the requested host when it is not the
- *   DSH default — this is the documented way to bind 0.0.0.0, which the
- *   `dsh` CLI rejects outright.
- */
-
-/**
  * Link a workspace package into a DSH profile's node_modules with a plain
  * directory symlink (equivalent to `dsh plugin add link:<dir>`), so booting
  * never needs the external `dsh` CLI on the PATH.
  */
 function linkClientIntoProfile(profileDir: string, packageDir: string): void {
-  const target = join(profileDir, "node_modules", "@zendev-lab", SPARK_WEB_DHS_PACKAGE);
+  // Early builds nested the scope directory twice
+  // (`@zendev-lab/@zendev-lab/spark-web-dsh`); that link is invisible to
+  // package resolution. Remove it idempotently so stale profiles heal.
+  const legacyScope = join(profileDir, "node_modules", "@zendev-lab", "@zendev-lab");
+  const legacyLink = join(legacyScope, "spark-web-dsh");
+  if (existsSync(legacyLink) && lstatSync(legacyLink).isSymbolicLink()) {
+    unlinkSync(legacyLink);
+    if (readdirSync(legacyScope).length === 0) rmdirSync(legacyScope);
+  }
+  const target = join(profileDir, "node_modules", SPARK_WEB_DHS_PACKAGE);
   mkdirSync(dirname(target), { recursive: true });
   if (existsSync(target)) {
     if (!lstatSync(target).isSymbolicLink()) {
@@ -416,6 +418,32 @@ function linkClientIntoProfile(profileDir: string, packageDir: string): void {
     unlinkSync(target);
   }
   symlinkSync(packageDir, target, "junction");
+}
+
+/**
+ * Flatten one boot failure into printable lines: AggregateError inner errors
+ * and `cause` chains, depth-capped and total-bounded so a loader blowup stays
+ * readable. The generated boot script embeds this exact implementation via
+ * `Function#toString`, so the child process and the unit tests run one and
+ * the same code. Keep it self-contained: no module-scope references.
+ */
+export function sparkWebBootErrorLines(error: unknown, limit = 40): string[] {
+  const lines: string[] = [];
+  const seen = new Set<unknown>();
+  const visit = (failure: unknown, depth: number): void => {
+    if (lines.length >= limit || seen.has(failure)) return;
+    seen.add(failure);
+    lines.push(
+      `${"  ".repeat(Math.min(depth, 6))}${failure instanceof Error ? failure.message : String(failure)}`,
+    );
+    if (failure instanceof AggregateError) {
+      for (const inner of failure.errors) visit(inner, depth + 1);
+    }
+    if (failure instanceof Error && failure.cause !== undefined) visit(failure.cause, depth + 1);
+  };
+  visit(error, 0);
+  if (lines.length >= limit) lines.push("… (further nested failures truncated)");
+  return lines;
 }
 
 /**
@@ -443,11 +471,17 @@ export function sparkWebBootScript(
     "",
     "const dshPackageDir = process.argv[2];",
     'const libDir = join(dshPackageDir, "lib");',
-    'const entry = readdirSync(libDir).find((file) => file.startsWith("profile-boot-") && file.endsWith(".js"));',
+    "// Sorted: the package ships a re-export shim next to the real module (both",
+    "// export runProfile); a deterministic pick keeps boots reproducible.",
+    "const entry = readdirSync(libDir)",
+    '  .filter((file) => file.startsWith("profile-boot-") && file.endsWith(".js"))',
+    "  .sort()[0];",
     "if (entry === undefined) {",
     "  throw new Error(`spark web: no profile-boot module found under ${libDir}`);",
     "}",
     "const { runProfile } = await import(pathToFileURL(join(libDir, entry)).href);",
+    "",
+    `const sparkWebBootErrorLines = ${sparkWebBootErrorLines.toString()};`,
     "",
     "try {",
     "  await runProfile({",
@@ -467,8 +501,12 @@ export function sparkWebBootScript(
     '    console.error("spark web: pick a free port with --port <port> (default 3080 is taken by a running harness).");',
     "    process.exitCode = 1;",
     "  } else {",
-    "    console.error(error instanceof Error ? error.message : String(error));",
-    '    console.error("spark web: server failed to start; see the message above for details.");',
+    "    // Loader failures arrive as an AggregateError whose top-level message",
+    "    // names no failing entry; print the whole chain so the report is actionable.",
+    '    console.error("spark web: server failed to start; failure chain:");',
+    "    for (const line of sparkWebBootErrorLines(error)) {",
+    "      console.error(`spark web:   ${line}`);",
+    "    }",
     "    process.exitCode = 1;",
     "  }",
     "}",
@@ -485,6 +523,19 @@ export function resolveDshPackageDir(profileDir: string): string {
   return dirname(pkgJson);
 }
 
+/**
+ * Process arguments for the boot child. `--expose-internals` is the cordis
+ * loader's first-class path for resolving bare plugin specifiers: it uses
+ * Node's internal ESM loader instead of the optional
+ * `node-addon-require-builtin` native addon, whose platform binding is not
+ * reliably resolvable under pnpm store-link layouts (without it, every bare
+ * loader entry fails inside one opaque AggregateError). The child is the DSH
+ * host process itself, which the loader already expects to run this way.
+ */
+export function sparkWebBootNodeArgs(scriptPath: string, dshPackageDir: string): string[] {
+  return ["--expose-internals", scriptPath, dshPackageDir];
+}
+
 /** Spawn the DSH web profile through bare node running the boot script. */
 export async function runSparkWebDirect(
   profileDir: string,
@@ -496,7 +547,9 @@ export async function runSparkWebDirect(
   mkdirSync(dirname(scriptPath), { recursive: true });
   writeFileSync(scriptPath, sparkWebBootScript(patches, webArgs));
   return await new Promise<number>((resolve) => {
-    const child = spawn(process.execPath, [scriptPath, dshPackageDir], { stdio: "inherit" });
+    const child = spawn(process.execPath, sparkWebBootNodeArgs(scriptPath, dshPackageDir), {
+      stdio: "inherit",
+    });
     child.on("error", (error: NodeJS.ErrnoException) => {
       const detail = error.code === "ENOENT" ? "node was not found" : error.message;
       process.stderr.write(`spark web: failed to start the web server: ${detail}\n`);
@@ -513,6 +566,20 @@ export async function runSparkWebDirect(
   });
 }
 
+/**
+ * Compose the patch overlay for one `spark web` run and write it to a
+ * temporary file. Rows:
+ *
+ * - `spark-llm` and `dsh-tool-cue` host plugins (paths relative to the
+ *   profile root, so the DSH loader resolves them without an install);
+ * - `spark-web-dsh` client plugin (package name; the client-modules host
+ *   resolves it from the profile's node_modules and serves its bundle);
+ * - `agent-presets` defaulting to spark-standard;
+ * - `hmr` re-enabled (the web-app bundle ships it disabled);
+ * - the `webserver` row restated with the requested host when it is not the
+ *   DSH default — this is the documented way to bind 0.0.0.0, which the
+ *   `dsh` CLI rejects outright.
+ */
 export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): SparkWebPatch {
   // The Loader rejects duplicate ids inside insert lists, so entries the
   // user profile already declares are skipped here (the patch layer only

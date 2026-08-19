@@ -98,3 +98,18 @@ For SSH, configure an explicit `remoteCwd` and start `cued` on the remote host.
 A local cwd is never reused remotely and only a local unreachable daemon may be
 auto-started. Connection/protocol errors are infrastructure failures; a failed
 or cancelled job is instead returned as a structured Cue result.
+
+## `spark web` prints a loader failure chain
+
+When the DSH plugin tree fails to load, Spark prints the whole
+AggregateError/cause chain as indented `spark web:` lines. Read the innermost
+lines, not the top-line summary: each names the failing loader entry and the
+underlying cause (for example a package that cannot be found from the
+profile). Fix the named entry — a stale plugin link or a profile edited by
+hand — rather than retrying blindly.
+
+Spark boots the profile with Node's `--expose-internals` so bare plugin
+specifiers resolve through Node's internal ESM loader; the loader's optional
+native addon is not required. If you bypass `spark web` and spawn the
+generated boot script yourself, keep that flag — without it, every
+bare-package entry fails at once inside one AggregateError.

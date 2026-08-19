@@ -88,3 +88,16 @@ adapter 不会发起 approval，因为外部 daemon 不在 DSH 文件沙箱内�
 SSH 模式必须配置显式 `remoteCwd`，并在远端先启动 `cued`。本地 cwd 永不复用于
 远端，只有本地 daemon 不可达时才可能自动启动。连接或协议错误属于基础设施失败；
 job 失败或取消则作为可检查的结构化 Cue 结果返回。
+
+## `spark web` 打印 loader 失败链
+
+DSH 插件树加载失败时，Spark 会把完整的 AggregateError/cause 链打印为逐层
+缩进的 `spark web:` 行。读最内层，而不是首行摘要：每一层都指明失败的
+loader entry 和底层原因（例如某个 package 无法从 profile 解析）。应修复
+被点名的 entry——通常是失效的插件链接或被手工改过的 profile——而不是
+盲目重试。
+
+Spark 以 Node `--expose-internals` 拉起 profile，裸插件名经 Node 内部 ESM
+loader 解析，不依赖 loader 的可选原生 addon。如果绕过 `spark web` 直接运行
+生成的 boot 脚本，必须保留该 flag——否则所有裸包名 entry 会同时失败并
+汇成一个 AggregateError。
