@@ -7,9 +7,9 @@
  *
  * - completes immediately when a credential is already configured (DSH's own
  *   `deepseek-official` step then also auto-completes, so no dialog appears);
- * - otherwise shows a provider picker plus an API-key field; saving stores
- *   the key through the host credentials service (the derived reference, e.g.
- *   `BAIDU_ONEAPI_API_KEY` for `baidu-oneapi`) and completes the step.
+ * - otherwise shows the configured provider routes (Baidu OneAPI, Kimi Coding,
+ *   and OpenAI Codex); API-key routes can be configured here while OAuth routes
+ *   remain managed by Spark's OAuth flow;
  *
  * The bundle is built with `pnpm --filter @zendev-lab/spark-web-dsh run build`
  * into `lib/client.js` as a `window.__ModuleLoader__.load({...})` module;
@@ -47,13 +47,24 @@ export function installRandomUuidPolyfill(cryptoApi: Crypto | undefined = global
 
 installRandomUuidPolyfill();
 
-/** The provider route spark-llm registers, and its conventional key ref. */
+/** Provider routes already wired into the Spark DSH plugin. */
 const BAIDU_ONEAPI_PROVIDER = "baidu-oneapi";
+const KIMI_CODING_PROVIDER = "kimi-coding";
+const OPENAI_CODEX_PROVIDER = "openai-codex";
 const DEFAULT_API_KEY_ENV = "BAIDU_ONEAPI_API_KEY";
+const KIMI_API_KEY_ENV = "KIMI_API_KEY";
 
 /** Mirror of the DSH Models page convention: route id -> credential ref. */
 function deriveKeyRef(provider: string): string {
   return `${provider.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`;
+}
+
+/** API-key reference for a provider; OAuth-only routes return undefined. */
+function apiKeyRef(provider: string): string | undefined {
+  if (provider === OPENAI_CODEX_PROVIDER) return undefined;
+  if (provider === BAIDU_ONEAPI_PROVIDER) return DEFAULT_API_KEY_ENV;
+  if (provider === KIMI_CODING_PROVIDER) return KIMI_API_KEY_ENV;
+  return deriveKeyRef(provider);
 }
 
 interface ProviderRow {
@@ -62,6 +73,10 @@ interface ProviderRow {
   settingsNs: string;
   settingsPath: string[];
   declared: boolean;
+}
+
+function isOAuthProvider(provider: string): boolean {
+  return provider === OPENAI_CODEX_PROVIDER;
 }
 
 interface WireResult<T> {
@@ -141,25 +156,34 @@ function ProviderSelectOnboarding({ complete, api }: OnboardingProps) {
     void (async () => {
       try {
         const pv = await api.llm.providers({});
-        let cv: WireResult<{ credentials: Record<string, unknown> }>;
+        const rows = pv.result.ok ? pv.result.value.providers : [];
+        const refs = rows.flatMap((row) => {
+          const ref = apiKeyRef(row.provider);
+          return ref === undefined ? [] : [ref];
+        });
+        let cv: WireResult<{ credentials: Record<string, unknown> }> | undefined;
         try {
-          cv = await api.credentials.describe({ refs: [DEFAULT_API_KEY_ENV] });
+          cv = refs.length > 0 ? await api.credentials.describe({ refs }) : undefined;
         } catch (caught) {
           // DSH keeps credential reads loopback-only. A remote browser uses
           // credentials already resolved by the Spark host instead of opening
           // or failing the local secret configuration UI.
           if (isCredentialsAccessDenied(caught)) {
+            if (stale) return;
             complete();
             return;
           }
           throw caught;
         }
         if (stale) return;
-        if (cv.result.ok && cv.result.value.credentials[DEFAULT_API_KEY_ENV] !== undefined) {
+        if (
+          cv?.result.ok &&
+          Object.values(cv.result.value.credentials).some((credential) => credential !== undefined)
+        ) {
           complete();
           return;
         }
-        const rows = pv.result.ok ? pv.result.value.providers : [];
+        if (stale) return;
         const preferred = rows.some((row) => row.provider === BAIDU_ONEAPI_PROVIDER)
           ? BAIDU_ONEAPI_PROVIDER
           : (rows[0]?.provider ?? "");
@@ -182,7 +206,12 @@ function ProviderSelectOnboarding({ complete, api }: OnboardingProps) {
     setSaving(true);
     setSaveError(null);
     try {
-      const ref = selected === BAIDU_ONEAPI_PROVIDER ? DEFAULT_API_KEY_ENV : deriveKeyRef(selected);
+      const ref = apiKeyRef(selected);
+      if (ref === undefined) {
+        setSaveError("该 provider 使用 OAuth，请通过 Spark 的 OAuth 登录流程配置。");
+        setSaving(false);
+        return;
+      }
       const response = await api.credentials.set({ ref, value: key.trim() });
       if (!response.result.ok) {
         setSaveError(response.result.error?.message ?? "保存失败");
@@ -203,7 +232,8 @@ function ProviderSelectOnboarding({ complete, api }: OnboardingProps) {
       <div style={cardStyle}>
         <h2 style={{ margin: "0 0 4px", fontSize: "18px" }}>选择 Provider 并配置</h2>
         <p style={{ margin: "0 0 12px", fontSize: "13px", color: "#666" }}>
-          {error ?? "选择一个模型提供商并填入 API Key 开始使用。"}
+          {error ??
+            "选择一个已配置的模型提供商。API Key provider 可直接在这里配置，OAuth provider 请使用登录流程。"}
         </p>
         {!error && providers.length === 0 ? (
           <p style={{ fontSize: "13px", color: "#b45309" }}>当前没有可配置的 provider。</p>
@@ -224,8 +254,11 @@ function ProviderSelectOnboarding({ complete, api }: OnboardingProps) {
             <input
               style={fieldStyle}
               type="password"
-              placeholder="API Key"
+              placeholder={
+                isOAuthProvider(selected) ? "OAuth provider，请使用 Spark 登录" : "API Key"
+              }
               value={key}
+              disabled={isOAuthProvider(selected)}
               onChange={(event) => setKey(event.target.value)}
             />
             {saveError !== null ? (
@@ -256,10 +289,10 @@ function ProviderSelectOnboarding({ complete, api }: OnboardingProps) {
                 color: "#fff",
                 cursor: "pointer",
               }}
-              disabled={saving || !selected || key.trim().length === 0}
+              disabled={saving || isOAuthProvider(selected) || !selected || key.trim().length === 0}
               onClick={save}
             >
-              {saving ? "保存中…" : "保存并开始"}
+              {saving ? "保存中…" : isOAuthProvider(selected) ? "需要 OAuth 登录" : "保存并开始"}
             </button>
           ) : null}
         </div>

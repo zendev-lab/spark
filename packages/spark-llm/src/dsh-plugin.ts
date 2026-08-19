@@ -36,7 +36,7 @@ import {
   installSettingsSection,
   deepEqualJson,
 } from "@deepseek-ai/dsh-settings";
-import { assertUsableApiKey, type LlmAdapter } from "@deepseek-ai/dsh-llm";
+import { assertUsableApiKey } from "@deepseek-ai/dsh-llm";
 import z from "@deepseek-ai/schemastery";
 import { anthropicMessagesApi, openAIResponsesApi } from "@earendil-works/pi-ai/compat";
 import type { Context } from "@deepseek-ai/cordis";
@@ -45,15 +45,19 @@ import { join } from "node:path";
 import { readFileSync } from "node:fs";
 
 import { createBaiduOneApiProviderAdapter, silenceOpenAiSdkTransportLogs } from "./baidu-oneapi.ts";
+import registerKimiCodingProvider from "./kimi-coding-provider.ts";
 import { SparkProviderLlmAdapter } from "./llm-adapter.ts";
+import registerOpenAiCodexProvider from "./openai-codex-provider.ts";
+import type { ProviderConfig } from "./provider-registry.ts";
 import { SparkProviderRegistry } from "./provider-registry.ts";
+import { SparkAuthStore, SparkProviderAuthResolver } from "./control/auth.ts";
 
 export const name = "spark-llm";
 export const inject = ["llm"];
 
 /** The provider route this plugin owns, matching `createBaiduOneApiProviderAdapter`. */
 export const BAIDU_ONEAPI_PROVIDER = "baidu-oneapi";
-/** The credential reference the provider names when none is configured. */
+/** The credential reference the Baidu route names when none is configured. */
 const DEFAULT_API_KEY_ENV = "BAIDU_ONEAPI_API_KEY";
 /** The settings namespace this plugin's section lives in. */
 const NS = settingsNamespace("spark-llm");
@@ -80,8 +84,13 @@ export const Config = z.object({
   providers: z.dict(providerProfile).default({}),
 }) as unknown as z<SparkLlmConfig>;
 
-/** A credential lookup that never throws for an absent value. */
-async function resolveCredentialRef(ctx: Context, ref: string): Promise<string | undefined> {
+/** Resolve DSH-managed credentials first, then Spark's configured auth store. */
+async function resolveCredentialRef(
+  ctx: Context,
+  provider: ProviderConfig,
+  ref: string,
+  sparkAuth: SparkProviderAuthResolver,
+): Promise<string | undefined> {
   const credentials = ctx.get("credentials");
   if (credentials !== undefined) {
     const hit = await credentials.resolve(ref);
@@ -89,9 +98,9 @@ async function resolveCredentialRef(ctx: Context, ref: string): Promise<string |
   }
   const envValue = process.env[ref];
   if (envValue !== undefined && envValue.length > 0) return envValue;
-  const sparkKey = sparkAuthApiKeyFromFiles(sparkAuthCandidates(), [BAIDU_ONEAPI_PROVIDER, ref]);
-  if (sparkKey !== undefined) return sparkKey;
-  return undefined;
+  const sparkValue = await sparkAuth.resolveApiKeyAsync(provider);
+  if (sparkValue !== undefined) return sparkValue;
+  return sparkAuthApiKeyFromFiles(sparkAuthCandidates(), [provider.name, ref]);
 }
 
 /**
@@ -188,40 +197,44 @@ export function apply(ctx: Context, config: SparkLlmConfig): void {
   });
   const registry = new SparkProviderRegistry();
   provider.register(registry);
+  registerKimiCodingProvider(registry);
+  registerOpenAiCodexProvider(registry);
 
   let current = () => config;
   const profiles = () => current().providers;
-
-  const adapter: LlmAdapter = new SparkProviderLlmAdapter(registry, BAIDU_ONEAPI_PROVIDER, {
-    resolveApiKey: async (providerConfig) => {
-      const profile = profiles()[BAIDU_ONEAPI_PROVIDER];
-      const ref = profile?.apiKeyEnv ?? providerConfig.apiKey ?? DEFAULT_API_KEY_ENV;
-      const value = await resolveCredentialRef(ctx, ref);
+  const authStore = new SparkAuthStore();
+  const sparkAuth = new SparkProviderAuthResolver(authStore);
+  const runnerOptions = {
+    resolveApiKey: async (providerConfig: ProviderConfig) => {
+      const profile = profiles()[providerConfig.name];
+      const ref =
+        profile?.apiKeyEnv ??
+        providerConfig.apiKey ??
+        (providerConfig.name === BAIDU_ONEAPI_PROVIDER ? DEFAULT_API_KEY_ENV : providerConfig.name);
+      const value = await resolveCredentialRef(ctx, providerConfig, ref, sparkAuth);
       if (value === undefined) return undefined;
       return assertUsableApiKey(value, "spark-llm", ref);
     },
-  });
-
-  let registration: ReturnType<typeof ctx.llm.registerAdapter> | undefined;
-  const ensureRegistration = () => {
-    if (registration !== undefined) return;
-    registration = ctx.llm.registerAdapter([BAIDU_ONEAPI_PROVIDER], adapter);
   };
-  ensureRegistration();
+
+  for (const providerConfig of registry.listProviders()) {
+    ctx.llm.registerAdapter(
+      [providerConfig.name],
+      new SparkProviderLlmAdapter(registry, providerConfig.name, runnerOptions),
+    );
+  }
 
   let directory: ReturnType<typeof ctx.llm.registerConfigurableProviders> | undefined;
   let directoryFacts: unknown;
   const ensureDirectory = () => {
-    const profile = profiles()[BAIDU_ONEAPI_PROVIDER];
-    const entries = [
-      {
-        provider: BAIDU_ONEAPI_PROVIDER,
-        displayName: profile?.displayName ?? "Baidu OneAPI",
-        settingsNs: NS,
-        settingsPath: ["providers", BAIDU_ONEAPI_PROVIDER],
-        declared: false,
-      },
-    ];
+    const entries = registry.listProviders().map((providerConfig) => ({
+      provider: providerConfig.name,
+      displayName:
+        profiles()[providerConfig.name]?.displayName ?? providerConfig.label ?? providerConfig.name,
+      settingsNs: NS,
+      settingsPath: ["providers", providerConfig.name],
+      declared: false,
+    }));
     if (deepEqualJson(entries, directoryFacts)) return;
     if (directory === undefined) directory = ctx.llm.registerConfigurableProviders(entries);
     else directory.replace(entries);
