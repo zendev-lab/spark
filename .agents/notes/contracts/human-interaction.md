@@ -6,7 +6,7 @@ Canonical contract for structured human asks and approvals across daemon, Hub, c
 
 - **Daemon is truth** for durable waits (`daemon_human_waits`) and whether an interaction is still open.
 - **Hub** owns a read model (`human_requests`, inbox items) plus an outbox for operator responses (`human_responses` delivery).
-- **`spark-ask`** owns only the in-turn terminal UI state machine (tabs, drafts, focus). It must not become a second durable store.
+- **`spark-ask`** owns only the in-turn terminal UI state machine (tabs, drafts, focus) and its own key decode. It must not import `spark-tui-adapter` or pi-tui, and must not become a second durable store.
 - **Channels** (e.g. QQ buttons) project and settle the same daemon wait; they do not invent terminal statuses.
 
 ## Supported interaction kinds (daemon broker)

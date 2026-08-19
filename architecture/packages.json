@@ -61,20 +61,11 @@
         "owner": "sessions",
         "exitTask": "task:6a9bde44-5cfe-4e78-9a0e-ead159701b55",
         "nonGrowth": true
-      },
-      {
-        "from": "@zendev-lab/spark-ask",
-        "to": "@zendev-lab/spark-tui-adapter",
-        "toLayer": "adapter",
-        "reason": "Ask rendering still imports TUI primitives until the presentation port is inverted.",
-        "owner": "interaction",
-        "exitTask": "task:8eccaf5a-cb45-4993-8268-9e2aba1987a2",
-        "nonGrowth": true
       }
     ],
     "temporaryDependencyExceptionBudget": {
-      "current": 4,
-      "ceiling": 4,
+      "current": 3,
+      "ceiling": 3,
       "nonGrowth": true
     },
     "piOwnership": {
