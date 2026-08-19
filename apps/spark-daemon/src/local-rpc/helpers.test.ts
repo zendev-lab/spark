@@ -2,7 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SparkInvocationStore } from "../store/invocations.ts";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
-import { invocationListResult, invocationResult } from "./helpers.ts";
+import { invocationListControlResult } from "../session-control.ts";
+import { invocationResult } from "./helpers.ts";
 
 describe("daemon local RPC invocation payload boundaries", () => {
   it("keeps list/status payload-free and reads terminal result only for turn.result", () => {
@@ -21,7 +22,9 @@ describe("daemon local RPC invocation payload boundaries", () => {
         result: { assistantText: "a".repeat(300_000) },
       });
 
-      expect(invocationListResult(store, { limit: 20, offset: 0 }).invocations).toHaveLength(1);
+      expect(invocationListControlResult(store, { limit: 20, offset: 0 }).invocations).toHaveLength(
+        1,
+      );
       expect(store.getSummary(invocation.invocationId)).toMatchObject({ status: "succeeded" });
       expect(invocationResult(store, invocation.invocationId).assistantText).toHaveLength(262_144);
 
@@ -29,7 +32,7 @@ describe("daemon local RPC invocation payload boundaries", () => {
         "{invalid terminal result",
         invocation.invocationId,
       );
-      expect(() => invocationListResult(store, { limit: 20, offset: 0 })).not.toThrow();
+      expect(() => invocationListControlResult(store, { limit: 20, offset: 0 })).not.toThrow();
       expect(store.getSummary(invocation.invocationId)).toMatchObject({ status: "succeeded" });
       expect(() => invocationResult(store, invocation.invocationId)).toThrow(
         /Invalid persisted JSON/u,

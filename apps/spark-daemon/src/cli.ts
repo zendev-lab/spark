@@ -96,6 +96,8 @@ import {
   startSparkDaemonProcess,
   syncSparkDaemonIfConfigured,
   errorMessage,
+  padColumn,
+  truncateColumn,
   readStdinLine,
   promptSecret,
   promptWithDefault,
@@ -1423,18 +1425,18 @@ async function listWorkspaceCommand(
 
   const idWidth = Math.max(37, ...workspaces.map((entry) => entry.id.length));
   io.stdout.write(
-    `${pad("ID", idWidth)} ${pad("NAME", 20)} ${pad("SERVER", 30)} ${pad("STATUS", 24)} ${pad("PATH", 38)} ${pad("PROJECTS", 8)} ${pad("INBOX", 5)} LAST SESSION\n`,
+    `${padColumn("ID", idWidth)} ${padColumn("NAME", 20)} ${padColumn("SERVER", 30)} ${padColumn("STATUS", 24)} ${padColumn("PATH", 38)} ${padColumn("PROJECTS", 8)} ${padColumn("INBOX", 5)} LAST SESSION\n`,
   );
   for (const workspace of workspaces) {
     const listItem = workspaceListItem(workspace, statusContext);
     io.stdout.write(
-      `${pad(workspace.id, idWidth)} ` +
-        `${pad(truncate(workspace.displayName, 20), 20)} ` +
-        `${pad(formatServerForList(workspace.serverUrl, flags.full === "true"), 30)} ` +
-        `${pad(workspaceStatusLabel(workspace, statusContext), 24)} ` +
-        `${pad(formatPathForList(workspace.localPath, flags.full === "true"), 38)} ` +
-        `${pad(countColumn(listItem.counts.projects), 8)} ` +
-        `${pad(countColumn(listItem.counts.unresolvedInbox), 5)} ` +
+      `${padColumn(workspace.id, idWidth)} ` +
+        `${padColumn(truncateColumn(workspace.displayName, 20), 20)} ` +
+        `${padColumn(formatServerForList(workspace.serverUrl, flags.full === "true"), 30)} ` +
+        `${padColumn(workspaceStatusLabel(workspace, statusContext), 24)} ` +
+        `${padColumn(formatPathForList(workspace.localPath, flags.full === "true"), 38)} ` +
+        `${padColumn(countColumn(listItem.counts.projects), 8)} ` +
+        `${padColumn(countColumn(listItem.counts.unresolvedInbox), 5)} ` +
         `${lastSessionColumn(listItem.lastSessionAt)}\n`,
     );
   }
@@ -2291,22 +2293,8 @@ function normalizeLocalPath(localPath: string): string {
   }
 }
 
-function pad(value: string, width: number): string {
-  return value.length >= width ? value : value + " ".repeat(width - value.length);
-}
-
-function truncate(value: string, width: number): string {
-  if (value.length <= width) {
-    return value;
-  }
-  if (width <= 1) {
-    return value.slice(0, width);
-  }
-  return `${value.slice(0, width - 1)}…`;
-}
-
 function formatServerForList(serverUrl: string, full: boolean): string {
-  return full ? serverUrl : truncate(serverUrl, 30);
+  return full ? serverUrl : truncateColumn(serverUrl, 30);
 }
 
 function formatPathForList(localPath: string, full: boolean): string {
@@ -2314,7 +2302,7 @@ function formatPathForList(localPath: string, full: boolean): string {
     return localPath;
   }
 
-  return truncate(abbreviateHome(localPath), 38);
+  return truncateColumn(abbreviateHome(localPath), 38);
 }
 
 function formatPathForDisplay(localPath: string): string {

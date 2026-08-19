@@ -4,6 +4,8 @@ import type { DaemonSessionRegistry } from "./session-registry.ts";
 import type { SparkLoopStore } from "./store/loops.ts";
 import type { SparkInvocationStore } from "./store/invocations.ts";
 
+import { errorMessage } from "./text.ts";
+
 export const INACTIVE_UNASSIGNED_SESSION_RETENTION_DAYS = 30;
 export const INACTIVE_UNASSIGNED_SESSION_RETENTION_MS =
   INACTIVE_UNASSIGNED_SESSION_RETENTION_DAYS * 24 * 60 * 60 * 1_000;
@@ -102,8 +104,4 @@ function isUnassignedRetentionCandidate(session: SparkSessionState): boolean {
     session.roleBinding.kind === "none" &&
     session.bindings.length === 0
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

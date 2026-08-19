@@ -173,6 +173,8 @@ export interface SparkInvocationEventPage {
 
 export interface SparkInvocationListInput {
   status?: SparkInvocationStatus;
+  /** Terminal-only convenience filter; `status` takes precedence when both are set. */
+  terminalOnly?: boolean;
   sessionId?: string;
   since?: string;
   limit?: number;
@@ -706,6 +708,8 @@ export class SparkInvocationStore {
     if (input.status) {
       conditions.push("status = ?");
       values.push(input.status);
+    } else if (input.terminalOnly) {
+      conditions.push("status NOT IN ('queued', 'running')");
     }
     if (input.sessionId?.trim()) {
       conditions.push("session_id = ?");
