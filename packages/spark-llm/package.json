@@ -17,7 +17,8 @@
     "./baidu-oneapi-provider": "./src/baidu-oneapi-provider.ts",
     "./openai-codex-provider": "./src/openai-codex-provider.ts",
     "./models-extension": "./src/models-extension.ts",
-    "./dsh-plugin": "./src/dsh-plugin.ts"
+    "./dsh-plugin": "./src/dsh-plugin.ts",
+    "./package.json": "./package.json"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",

@@ -26,6 +26,7 @@ const externalPackages = [
   "@core-workspace/infoflow-sdk-nodejs",
   "@earendil-works/pi-ai",
   "@earendil-works/pi-tui",
+  "esbuild",
   "@sveltejs/kit",
   "marked",
   "sanitize-html",

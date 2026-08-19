@@ -233,9 +233,15 @@ importers:
       '@zendev-lab/spark-i18n':
         specifier: workspace:^
         version: link:../../packages/spark-i18n
+      '@zendev-lab/spark-llm':
+        specifier: workspace:^
+        version: link:../../packages/spark-llm
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../../packages/spark-system
+      esbuild:
+        specifier: ^0.28.0
+        version: 0.28.2
     devDependencies:
       typescript:
         specifier: 'catalog:'
