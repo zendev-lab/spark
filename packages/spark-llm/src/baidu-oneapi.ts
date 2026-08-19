@@ -23,9 +23,14 @@ const BAIDU_ONEAPI_BASE_URL = "https://oneapi-comate.baidu-int.com";
 const BAIDU_ONEAPI_OPENAI_BASE_URL = `${BAIDU_ONEAPI_BASE_URL}/v1`;
 const BAIDU_ONEAPI_STREAM_MAX_RETRIES = 3;
 const OPENAI_RESPONSES_FALLBACK_INSTRUCTIONS = "You are a helpful assistant.";
+// Catalog anthropic rows always reason (claude-opus-*, deepseek-v4-flash).
+// When a caller omits a thinking level, keep thinking enabled with Spark's
+// session default ("high") instead of silently producing a text-only stream:
+// the Baidu gateway does not honor `thinking: {type:"adaptive"}` without an
+// output effort, and the model's chain-of-thought would leak into plain text.
+const BAIDU_ONEAPI_DEFAULT_REASONING_LEVEL = "high" as const;
 
 const GATEWAY_MODEL_BY_ID: Record<string, string> = {
-  "claude-opus-4.6": "Claude Opus 4.6",
   "claude-opus-5": "Opus 5",
   "deepseek-v4-flash": "deepseek-v4-flash-0731-internal",
   "gpt-5.6-luna": "gpt-5.6-luna",
@@ -41,6 +46,11 @@ const BAIDU_ONEAPI_OPENAI_RESPONSES_MODEL_IDS = new Set([
   "grok-4.5",
   "grok-4.6",
 ]);
+// Note (measured 2026-08-19): grok-* rows keep the Responses route, but the
+// gateway currently 404s /v1/responses for them ("Unknown endpoint") — this
+// is an upstream limitation reported by the gateway operator, not something
+// this adapter can route around. DeepSeek stays on anthropic-messages because
+// the Responses translation drops its thinking entirely (see deepseek row).
 
 function gatewayModelId(modelId: string): string {
   return GATEWAY_MODEL_BY_ID[modelId] ?? modelId;
@@ -97,6 +107,11 @@ export function createBaiduOneApiProviderAdapter(
 const GPT_5_6_LUNA_COST = { input: 0.1, output: 0.6, cacheRead: 0.01, cacheWrite: 0.125 };
 const GPT_5_6_TERRA_COST = { input: 0.25, output: 1.5, cacheRead: 0.025, cacheWrite: 0.3125 };
 const GPT_5_6_SOL_COST = { input: 0.5, output: 3, cacheRead: 0.05, cacheWrite: 0.625 };
+// Responses-row thinking map. Measured on the gateway (2026-08-19):
+// gpt-5.6-sol/luna/terra accept every effort (minimal..max) syntactically and
+// emit real response.reasoning items once the output budget allows. Spark's
+// minimal is still forwarded as the lowest real level (low) because the
+// gateway produced no reasoning items at minimal in the sampled calls.
 const GPT_THINKING_LEVEL_MAP = { minimal: "low", xhigh: "xhigh" };
 const CLAUDE_OPUS_COST = {
   input: 5.5,
@@ -180,7 +195,7 @@ function acquireOpenAiSdkLogGuard(): () => void {
 
 function mapThinkingEffort(
   model: Model<Api>,
-  reasoning: SimpleStreamOptions["reasoning"],
+  reasoning: SimpleStreamOptions["reasoning"] | "off" | undefined,
 ): AnthropicEffort | undefined {
   const mapped = reasoning ? model.thinkingLevelMap?.[reasoning] : undefined;
   if (typeof mapped === "string") return mapped as AnthropicEffort;
@@ -348,7 +363,14 @@ function streamBaiduOneApiAnthropicWith(
   const gatewayModel = gatewayModelId(model.id);
   const apiKey = resolveBaiduOneApiKey(options?.apiKey);
   const transportModel = withBaiduOneApiTransportApi(model, "anthropic-messages");
-  const effort = mapThinkingEffort(model, options?.reasoning);
+  // Catalog anthropic rows always reason. Keep thinking enabled even when the
+  // caller does not send an explicit level, so DeepSeek V4 Flash chain-of-
+  // thought is streamed as reasoning blocks instead of plain assistant text.
+  // An explicit "off" (used by Spark thinking control) still disables it.
+  const requested = options?.reasoning as SimpleStreamOptions["reasoning"] | "off" | undefined;
+  const reasoning =
+    requested ?? (model.reasoning ? BAIDU_ONEAPI_DEFAULT_REASONING_LEVEL : undefined);
+  const effort = mapThinkingEffort(model, reasoning);
 
   return startBaiduOneApiStream(
     model,
@@ -356,7 +378,7 @@ function streamBaiduOneApiAnthropicWith(
       transports.anthropicMessages.stream(transportModel, context, {
         ...options,
         ...(apiKey !== undefined ? { apiKey } : {}),
-        thinkingEnabled: options?.reasoning !== undefined,
+        thinkingEnabled: reasoning !== undefined && reasoning !== "off",
         ...(effort !== undefined ? { effort } : {}),
         async onPayload(payload: unknown) {
           const remapped = remapBaiduOneApiPayload(payload, gatewayModel, effort);
@@ -495,24 +517,6 @@ function registerBaiduOneApiProvider(
     streamSimple,
     models: [
       {
-        id: "claude-opus-4.6",
-        name: "Claude Opus 4.6",
-        transportApi: "anthropic-messages",
-        transportModelId: gatewayModelId("claude-opus-4.6"),
-        reasoning: true,
-        thinkingLevelMap: {
-          minimal: "low",
-          low: "low",
-          medium: "medium",
-          high: "high",
-          xhigh: "max",
-        },
-        input: ["text", "image"],
-        cost: CLAUDE_OPUS_COST,
-        contextWindow: 200000,
-        maxTokens: 32000,
-      },
-      {
         id: "claude-opus-5",
         name: "Claude Opus 5",
         transportApi: "anthropic-messages",
@@ -537,6 +541,9 @@ function registerBaiduOneApiProvider(
         transportApi: "anthropic-messages",
         transportModelId: gatewayModelId("deepseek-v4-flash"),
         reasoning: true,
+        // Measured low/medium/high/xhigh all accepted by the gateway via the
+        // adaptive-thinking dialect; xhigh produces no additional thinking over
+        // high for this model, so both collapse onto the gateway's high effort.
         thinkingLevelMap: {
           minimal: "low",
           low: "low",
@@ -551,6 +558,14 @@ function registerBaiduOneApiProvider(
         // usage.input=767994 with stopReason=length and output=0. Register the
         // hard ceiling so Spark compaction/preflight trigger before empty
         // completions (do not advertise 1M).
+        //
+        // Transport: anthropic-messages stays mandatory for thinking. The
+        // gateway's Responses translation for this model accepts requests but
+        // never emits reasoning items — even with
+        // reasoning:{effort,summary} + include reasoning.encrypted_content the
+        // chain-of-thought is flattened into output_text, which reproduces the
+        // "thinking not recognized" bug. Only /v1/messages returns thinking as
+        // separate content blocks for deepseek-v4-flash (measured 2026-08-19).
         contextWindow: 768_000,
         maxTokens: 32_768,
       },

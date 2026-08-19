@@ -108,14 +108,17 @@ spark-llm environment contract (`BAIDU_ONEAPI_BASE_URL` /
 
 `@zendev-lab/spark-llm/baidu-oneapi-provider` is the bundled standalone
 `baidu-oneapi` provider plugin for Spark's native model runtime. It exposes local
-adaptive-friendly model ids (`claude-opus-4.6`, `claude-opus-5`,
+adaptive-friendly model ids (`claude-opus-5`,
 `deepseek-v4-flash`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`,
 `grok-4.5`, `grok-4.6`) with provider-specific prices in USD per million tokens,
 while rewriting outbound payloads back to the gateway-required model ids
-(`Claude Opus 4.6`, `Opus 5`, `deepseek-v4-flash-0731-internal`, `gpt-5.6-sol`,
+(`Opus 5`, `deepseek-v4-flash-0731-internal`, `gpt-5.6-sol`,
 `gpt-5.6-luna`, `gpt-5.6-terra`, `grok-4.5`, `grok-4.6`).
 Default `enabledModels` is the current frontier (`grok-4.6`, not `grok-4.5`);
 the predecessor stays in the catalog for explicit opt-in.
+`claude-opus-4.6` was removed (measured 2026-08-19): the gateway no longer
+serves `Claude Opus 4.6` and replies 503 to every request shape; its actual
+Claude rows are `Opus 5`, `Opus 4.8`, `Claude Sonnet 5/4.6`, `Claude Haiku 4.5`.
 
 The Pi compatibility profile in `@zendev-lab/pi-spark` loads this same native
 provider. Both Spark-native hosts and the Pi product loader share the model
@@ -123,8 +126,16 @@ catalog, payload rewrites, normalization, and bounded retry behavior from
 `baidu-oneapi.ts`.
 
 Claude and DeepSeek V4 Flash use Anthropic Messages. GPT-5.6, Grok 4.5, and
-Grok 4.6 use OpenAI Responses (DeepSeek's Responses path is not implemented on
-this gateway).
+Grok 4.6 use OpenAI Responses. DeepSeek must stay on Anthropic Messages: the
+gateway's Responses translation for `deepseek-v4-flash-0731-internal` accepts
+requests but never emits reasoning items — even with
+`reasoning:{effort,summary}` and `include: reasoning.encrypted_content` — and
+flattens the chain-of-thought into `output_text` (measured 2026-08-19).
+Anthropic row models always reason: when a caller omits a
+thinking level, the adapter still enables thinking with Spark's default effort
+(`high`) so DeepSeek V4 Flash chain-of-thought is delivered as separate
+reasoning blocks instead of leaking into the visible text stream; an explicit
+`off` disables thinking.
 Measured gateway `contextWindow` values (provider input is authoritative):
 
 - `deepseek-v4-flash`: **768k** (not 1M). Ok ~663k; hard-fail near
