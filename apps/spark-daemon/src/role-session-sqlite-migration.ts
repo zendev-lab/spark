@@ -7,7 +7,7 @@ import { contentHash, nowIso, writeJsonFileAtomic } from "@zendev-lab/spark-core
 
 import { rewriteStructuredRoleRefs } from "./role-session-data-migration.ts";
 
-import { errorMessage } from "./cli-shared.ts";
+import { errorMessage } from "./text.ts";
 
 interface SqliteMigrationMutation {
   table: string;

@@ -15,7 +15,7 @@ import {
 } from "./store/workbench-artifact-bindings.ts";
 import type { DatabaseSync } from "node:sqlite";
 
-import { errorMessage } from "./cli-shared.ts";
+import { errorMessage } from "./text.ts";
 
 export async function executeTrustedWorkbenchLoopControl(input: {
   db: DatabaseSync;

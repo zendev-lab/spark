@@ -9,7 +9,7 @@ import type { SparkSessionCloseCandidate } from "@zendev-lab/spark-protocol/sess
 import { parseSparkRoleSpec } from "@zendev-lab/spark-protocol/role-session";
 import type { SessionSupervisor } from "./session-supervisor.ts";
 
-import { stringValue } from "./cli-shared.ts";
+import { stringValue } from "./text.ts";
 
 export interface SupervisedRoleRunnerOptions {
   supervisor: SessionSupervisor;

@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { writePrivateFile, type SparkPaths } from "@zendev-lab/spark-system";
 import { readSparkDaemonConfig, type SparkDaemonConfig } from "./config.js";
 
-import { errorMessage } from "./cli-shared.ts";
+import { errorMessage } from "./text.ts";
 import { isRecord } from "./local-rpc/is-record.ts";
 
 const serverProfilesFileVersion = 1;

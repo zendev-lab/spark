@@ -9,7 +9,7 @@ import {
   writeTextFileAtomic,
 } from "@zendev-lab/spark-core";
 
-import { errorMessage } from "./cli-shared.ts";
+import { errorMessage } from "./text.ts";
 import { isRecord } from "./local-rpc/is-record.ts";
 
 const LEGACY_ROLE_REFS = new Map([

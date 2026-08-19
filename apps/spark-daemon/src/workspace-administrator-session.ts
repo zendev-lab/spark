@@ -3,7 +3,7 @@ import type { SparkSessionState } from "@zendev-lab/spark-protocol";
 import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 
-import { errorMessage } from "./cli-shared.ts";
+import { errorMessage } from "./text.ts";
 
 export interface WorkspaceAdministratorSessionBinding {
   workspaceId: string;

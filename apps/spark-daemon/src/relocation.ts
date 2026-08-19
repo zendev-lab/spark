@@ -22,7 +22,7 @@ import {
   type SparkDaemonServerProfile,
 } from "./server-profiles.ts";
 
-import { stringValue } from "./cli-shared.ts";
+import { stringValue } from "./text.ts";
 import { isRecord } from "./local-rpc/is-record.ts";
 
 export interface SparkDaemonRelocationRequest {

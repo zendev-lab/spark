@@ -68,13 +68,7 @@ export function prepareSparkDaemonState(paths: ReturnType<typeof resolveSparkPat
   ensureSparkPathDirs(paths);
 }
 
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-export function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
+export { errorMessage, stringValue } from "./text.ts";
 
 export function padColumn(value: string, width: number): string {
   return value.length >= width ? value : `${value}${" ".repeat(width - value.length)}`;

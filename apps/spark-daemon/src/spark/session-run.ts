@@ -91,7 +91,7 @@ import { assignCompletedSessionName } from "./session-title.ts";
 import type { SessionSupervisor } from "../session-supervisor.ts";
 import { createSupervisedRoleRunner } from "../supervised-role-runner.ts";
 
-import { errorMessage } from "../cli-shared.ts";
+import { errorMessage } from "../text.ts";
 import { isRecord } from "../local-rpc/is-record.ts";
 
 export const CHANNEL_REPLY_EMPTY_ERROR_CODE = "CHANNEL_REPLY_EMPTY";

@@ -31,7 +31,7 @@ import {
   type WorkbenchArtifactBinding,
 } from "../store/workbench-artifact-bindings.ts";
 
-import { errorMessage } from "../cli-shared.ts";
+import { errorMessage } from "../text.ts";
 
 const REPRO_SUMMARY_PATH = "outputs/spark-summary.json";
 

@@ -4,7 +4,7 @@ import type { DaemonSessionRegistry } from "./session-registry.ts";
 import type { SparkLoopStore } from "./store/loops.ts";
 import type { SparkInvocationStore } from "./store/invocations.ts";
 
-import { errorMessage } from "./cli-shared.ts";
+import { errorMessage } from "./text.ts";
 
 export const INACTIVE_UNASSIGNED_SESSION_RETENTION_DAYS = 30;
 export const INACTIVE_UNASSIGNED_SESSION_RETENTION_MS =

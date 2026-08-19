@@ -35,7 +35,7 @@ import {
 } from "./side-thread-transcript.ts";
 import { SparkInvocationStore, type SparkInvocationRecord } from "./store/invocations.ts";
 
-import { stringValue } from "./cli-shared.ts";
+import { stringValue } from "./text.ts";
 
 const MAX_HANDOFF_BYTES = 48 * 1024;
 const sideThreadMutationTails = new Map<string, Promise<void>>();

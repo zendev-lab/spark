@@ -29,7 +29,7 @@ import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { SparkDaemonSessionControlOptions } from "./session-control.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 
-import { errorMessage, stringValue } from "./cli-shared.ts";
+import { errorMessage, stringValue } from "./text.ts";
 
 const DEFAULT_EXCHANGE_LIMIT = 32;
 const SIDE_THREAD_SEED_BOUNDARY = "spark.side-thread.seed-boundary";
