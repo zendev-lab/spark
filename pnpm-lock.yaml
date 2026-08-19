@@ -656,9 +656,6 @@ importers:
       '@zendev-lab/spark-cue':
         specifier: workspace:^
         version: link:../spark-cue
-      '@zendev-lab/spark-extension':
-        specifier: workspace:^
-        version: link:../spark-extension
       '@zendev-lab/spark-llm':
         specifier: workspace:^
         version: link:../spark-llm

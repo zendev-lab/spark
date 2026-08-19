@@ -22,7 +22,7 @@ updated: 2026-08-18
 - 在现有 TaskGraph、TaskRun、资源调度器与 Session Registry 上提供 `fleet` Session mode：父会话只调度、核对、恢复与 Ask，worker 只消费 Task 已关联的 `git_change` worktree；重叠目标串行、独立 lane 并行，不新增 Fleet store 或调度器。
 - 在 `spark-protocol` 中沉淀跨表面交互协议（ask 判定、slash/action catalog、session status / pending turns、可展示错误），各表面只保留呈现与执行胶水。
 - 保持 Pi SDK 为 transport 内核：provider 实现继续建立在 `pi-ai` 之上（经 `spark-llm` 边界），终端 UI 原语继续建立在 `pi-tui`（经 `spark-tui-adapter` 边界）之上。LLM *abstraction* 收敛到 `dsh-llm` 的 `LlmRuntime`；不把“退场 Pi 产品”误解为剥离 SDK。
-- 由 `spark-extension` 统一拥有 Spark 产品 extension 组合；`@zendev-lab/pi-spark` 是唯一的 `package.json#pi` 与 `pi-coding-agent` owner，把同一套 `spark-extension` 放进外部 Pi 产品加载器。不保留第二套 Spark composition 或公开工具表面。
+- 由 `spark-extension` 统一拥有 Spark 产品 extension 组合；`@zendev-lab/pi-spark` 是唯一的 `package.json#pi` 与 `pi-coding-agent` owner，只向外部 Pi 产品加载器提供 Cue 等经准入的 additive 共性能力，不加载 driver、Goal、Loop、Repro 或完整 `spark-extension`。
 - 将 side conversation、worktree/change/PR/CI/review feedback 与 provider runtime 建模为可组合的领域契约：产品表面消费同一状态与反馈闭环，而不是各自维护一套按钮、轮询器或终端启发式。
 - 将用户成果收敛为原子 `issue | git_change | document` Artifact：`git_change` 内聚一个 owning worktree 与一个原生 GitHub PR stack，Task 只通过耐久 `artifactRefs` 组织成果；preview 是 Document 的视图，不是独立 kind。
 - 为 invocation、provider、tool、delivery 与代码交付保留隐私安全的关联观测边界；执行真相仍在 daemon/SQLite，可选 exporter 或外部观察面不得成为状态所有者。
@@ -61,7 +61,7 @@ updated: 2026-08-18
 - 同一 ask 的“算不算有效回答 / gate 是否满足”在 TUI、Hub、通道结算路径上共用 `spark-protocol` 语义，表面只做 UI。
 - Slash / action catalog 继续以协议为源；Hub 与 TUI 只做 i18n 与执行。
 - 新功能默认可在 TUI 或 Hub 验证，消息通道按 channel policy 收窄；无需先在 Pi 产品里跑通。
-- 兼容加载路径为 `Pi loader → pi-spark → spark-extension`：无第二套 Spark composition，无根 `package.json#pi`，无新 `"pi.extensions"` 扩张。文档与边界检查区分 SDK 内核与 Pi 产品适配包。宿主契约公开名为 `SparkHostAPI`（`spark-core`）；ask/tasks/context 注册入口为 `registerSpark*`。
+- 兼容加载路径为 `Pi loader → pi-spark → bounded capability extensions`：无 Spark driver、Goal、Loop、Repro 或第二套产品 composition，无根 `package.json#pi`，无新 `"pi.extensions"` 扩张。文档与边界检查区分 SDK 内核与 Pi 产品适配包。宿主契约公开名为 `SparkHostAPI`（`spark-core`）；ask/tasks/context 注册入口为 `registerSpark*`。
 - Spark 原生 TUI 与 Hub 通过同一 daemon controller 运行只读 Side Thread、恢复隔离历史并将全文或紧凑摘要显式 handoff 回主会话；TUI 使用单一 `/btw` 命令，Hub 提供同一组 ensure、ask、reset、model、thinking 与 handoff 操作，两个表面都不加载 `pi-coding-agent`。
 - 用户可从 npm 安装单一 `@zendev-lab/spark` 产品包并获得 `spark` 命令；发布物只包含编译后的 JavaScript、声明过的运行时依赖以及 daemon migrations、TUI 和 Hub 资产，不暴露内部 workspace 包图。
 - CI failure、review comment 与 merge conflict 能以幂等反馈事件回到创建该 change/PR 的原 session，并带可审查 evidence，而不是要求用户手工复制终端输出。

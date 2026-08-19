@@ -8,12 +8,11 @@ import sparkRolesExtension from "@zendev-lab/spark-roles/extension";
 import sparkSessionExtension from "@zendev-lab/spark-session/extension";
 import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
 import sparkWebExtension from "@zendev-lab/spark-web/extension";
-import sparkExtension from "@zendev-lab/spark-extension/extension";
 
 /**
- * Single Pi product discovery entry. Registration order matches the previous
- * root `package.json#pi.extensions` list, with the native Baidu provider in
- * place of the deleted compatibility shim.
+ * Minimal Pi product discovery entry for additive, host-neutral capabilities.
+ * Spark product policy, driver lifecycle, Goal, and Repro stay in Spark-native
+ * composition and are intentionally absent here.
  */
 export default function piSpark(api: SparkHostAPI): void {
   const host = api as never;
@@ -26,5 +25,4 @@ export default function piSpark(api: SparkHostAPI): void {
   sparkMemoryExtension(host, { enablePiCompatAliases: true });
   sparkWebExtension(host);
   registerNativeBaiduOneApiProvider(host);
-  sparkExtension(host);
 }
