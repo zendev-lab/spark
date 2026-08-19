@@ -14,7 +14,6 @@ import {
 } from "./command-events.ts";
 import {
   sparkLoopListResultSchema,
-  sparkLoopControlRequestSchema,
   sparkLoopMutationRequestSchema,
   sparkLoopMutationResultSchema,
   sparkLoopScheduleRequestSchema,
@@ -128,9 +127,12 @@ import {
   sparkTokenUsageSummaryRequestSchema,
 } from "./token-usage.ts";
 import {
-  sparkReproFormalEvidenceRecordRequestSchema,
-  sparkReproFormalEvidenceRecordResultSchema,
-} from "./repro-formal-evidence.ts";
+  sparkReproMutationResultSchema,
+  sparkReproStartRequestSchema,
+  sparkReproStatusRequestSchema,
+  sparkReproStatusResultSchema,
+  sparkReproStopRequestSchema,
+} from "./repro.ts";
 import { sparkSessionPromptHistorySchema, sparkSessionViewSchema } from "./protocol.ts";
 import { SPARK_PROTOCOL_VERSION } from "./version.ts";
 import {
@@ -278,10 +280,6 @@ export const sparkLocalRpcLoopOrpcErrors = {
   loop_not_found: { status: 404 },
   loop_schedule_invalid: { status: 422 },
   loop_generation_conflict: { status: 409 },
-  workbench_binding_not_found: { status: 404 },
-  workbench_action_stale: { status: 409 },
-  workbench_action_untrusted: { status: 403 },
-  workbench_action_conflict: { status: 409 },
 } as const satisfies Record<SparkLoopRpcErrorCode, SparkLocalRpcErrorSpec>;
 
 export const sparkLocalRpcInvocationOrpcErrors = {
@@ -555,16 +553,6 @@ const sparkLocalRpcReadinessLoopScheduleOrpcErrors = {
   ...sparkLocalRpcReadinessOrpcErrors,
   loop_schedule_invalid: sparkLocalRpcLoopOrpcErrors.loop_schedule_invalid,
   loop_generation_conflict: sparkLocalRpcLoopOrpcErrors.loop_generation_conflict,
-} as const;
-
-const sparkLocalRpcReadinessLoopControlOrpcErrors = {
-  ...sparkLocalRpcReadinessLoopMutationOrpcErrors,
-  loop_schedule_invalid: sparkLocalRpcLoopOrpcErrors.loop_schedule_invalid,
-  loop_generation_conflict: sparkLocalRpcLoopOrpcErrors.loop_generation_conflict,
-  workbench_binding_not_found: sparkLocalRpcLoopOrpcErrors.workbench_binding_not_found,
-  workbench_action_stale: sparkLocalRpcLoopOrpcErrors.workbench_action_stale,
-  workbench_action_untrusted: sparkLocalRpcLoopOrpcErrors.workbench_action_untrusted,
-  workbench_action_conflict: sparkLocalRpcLoopOrpcErrors.workbench_action_conflict,
 } as const;
 
 const sparkLocalRpcSessionInvocationNotFoundOrpcErrors = {
@@ -1501,9 +1489,17 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkLegacyTokenUsageBackfillRequestSchema,
     output: sparkLegacyTokenUsageBackfillResultSchema,
   },
-  "repro.formal-evidence.record": {
-    input: sparkReproFormalEvidenceRecordRequestSchema,
-    output: sparkReproFormalEvidenceRecordResultSchema,
+  "repro.start": {
+    input: sparkReproStartRequestSchema,
+    output: sparkReproMutationResultSchema,
+  },
+  "repro.status": {
+    input: sparkReproStatusRequestSchema,
+    output: sparkReproStatusResultSchema,
+  },
+  "repro.stop": {
+    input: sparkReproStopRequestSchema,
+    output: sparkReproMutationResultSchema,
   },
   "loop.start": { input: sparkLoopStartRequestSchema, output: sparkLoopMutationResultSchema },
   "loop.status": { input: sparkLoopStatusRequestSchema, output: sparkLoopListResultSchema },
@@ -1518,10 +1514,6 @@ export const sparkLocalRpcProcedureSchemas = {
   "loop.wake": { input: sparkLoopWakeRequestSchema, output: sparkLoopMutationResultSchema },
   "loop.schedule": {
     input: sparkLoopScheduleRequestSchema,
-    output: sparkLoopMutationResultSchema,
-  },
-  "loop.control": {
-    input: sparkLoopControlRequestSchema,
     output: sparkLoopMutationResultSchema,
   },
   "workspace.list": {
@@ -1925,14 +1917,9 @@ export const sparkLocalRpcOrpcContract = {
     backfill: procedure("POST", "/usage/backfill", p["usage.backfill"], sparkLocalRpcNoOrpcErrors),
   },
   repro: {
-    formalEvidence: {
-      record: procedure(
-        "POST",
-        "/repro/formal-evidence/record",
-        p["repro.formal-evidence.record"],
-        sparkLocalRpcReadinessOrpcErrors,
-      ),
-    },
+    start: procedure("POST", "/repro/start", p["repro.start"], sparkLocalRpcReadinessOrpcErrors),
+    status: procedure("GET", "/repro/status", p["repro.status"], sparkLocalRpcReadinessOrpcErrors),
+    stop: procedure("POST", "/repro/stop", p["repro.stop"], sparkLocalRpcReadinessOrpcErrors),
   },
   loop: {
     start: procedure(
@@ -1965,12 +1952,6 @@ export const sparkLocalRpcOrpcContract = {
       "/loop/schedule",
       p["loop.schedule"],
       sparkLocalRpcReadinessLoopScheduleOrpcErrors,
-    ),
-    control: procedure(
-      "POST",
-      "/loop/control",
-      p["loop.control"],
-      sparkLocalRpcReadinessLoopControlOrpcErrors,
     ),
   },
   workspace: {

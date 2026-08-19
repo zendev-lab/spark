@@ -25,7 +25,7 @@ import { registerSparkReleaseTaskClaimTool } from "./spark-release-task-claim-to
 import { registerSparkRunReadyTasksTool } from "./spark-run-ready-tasks-tool-registration.ts";
 import { registerSparkGoalTool } from "./spark-goal-tool-registration.ts";
 import { registerSparkLoopTool } from "./spark-loop-tool-registration.ts";
-import { ensureActiveReproLoop, registerSparkReproTool } from "./spark-repro-tool-registration.ts";
+import { registerSparkReproTool } from "./spark-repro-tool-registration.ts";
 import { registerSparkStatusTool } from "./spark-status-tool-registration.ts";
 import { registerSparkPlanTasksTool } from "./spark-plan-tasks-tool-registration.ts";
 import { registerSparkTaskDependencyReplacementTool } from "./spark-task-dependency-replacement.ts";
@@ -69,34 +69,21 @@ import { createSparkLensToolConfig } from "./spark-lens-tool.ts";
 import { createTaskArtifactHandler } from "./spark-task-artifact.ts";
 import { sparkActiveModeValue } from "./spark-mode-state.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
-import { readSessionRepro } from "./spark-session-repro.ts";
 import { sparkDaemonLoopControl, type SparkDaemonLoopControl } from "./spark-daemon-loop-client.ts";
 import {
-  sparkDaemonReproFormalEvidenceControl,
-  type SparkDaemonReproFormalEvidenceControl,
-} from "./spark-daemon-repro-formal-evidence-client.ts";
-import {
-  sparkDaemonUsageControl,
-  type SparkDaemonUsageControl,
-} from "./spark-daemon-usage-client.ts";
+  sparkDaemonReproControl,
+  type SparkDaemonReproControl,
+} from "./spark-daemon-repro-client.ts";
 import { registerSparkReproRoles } from "./spark-repro-roles.ts";
-import {
-  launchSparkReproThreeLaneRuntime,
-  reconcileSparkReproRuntimeForSession,
-} from "./spark-repro-lane-runtime.ts";
 import { registerSparkDelegationTool } from "./spark-delegation-tool-registration.ts";
 
 interface SparkProductFacadeApi extends SparkCommandApi {
   /** Host/test override; production defaults to the daemon local RPC client. */
   loopControl?: SparkDaemonLoopControl;
-  /** Host/test override; production reads the daemon-owned token ledger projection. */
-  usageControl?: SparkDaemonUsageControl;
-  /** Test/host override; production asks the daemon registered verifier and receipt store. */
-  reproFormalEvidenceControl?: SparkDaemonReproFormalEvidenceControl;
+  /** Host/test override; production uses the daemon-owned Repro v10 runtime. */
+  reproControl?: SparkDaemonReproControl;
   /** Test/compatible-host override; production claim authority remains daemon RPC. */
   taskClaimDaemonClient?: SparkTaskClaimDaemonClient;
-  /** Test/host override; production launches the durable three-lane runtime owner. */
-  launchReproThreeLaneRuntime?: typeof launchSparkReproThreeLaneRuntime;
   registerTool?(config: SparkRegisteredToolConfig): void;
   registerInternalTool?(config: SparkRegisteredToolConfig): void;
   registerShortcut?(
@@ -126,7 +113,7 @@ interface SparkProductFacadeApi extends SparkCommandApi {
 export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkReproRoles();
   const loopControl = pi.loopControl ?? sparkDaemonLoopControl;
-  const usageControl = pi.usageControl ?? sparkDaemonUsageControl;
+  const reproControl = pi.reproControl ?? sparkDaemonReproControl;
   const widgetController = new SparkWidgetController();
   const roleRunTuiController = new SparkRoleRunTuiController(pi);
   const contextProviders: SparkContextProvider[] = [
@@ -186,13 +173,6 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     sessionHeartbeatController,
     createAskAutoAnswerResolver: (ctx) => (request, askCtx) =>
       answerAskWithReviewer(request, askCtx, ctx),
-    ensureActiveReproLoop: async (ctx) => {
-      const repro = await readSessionRepro(ctx.cwd, ctx);
-      if (repro?.status === "active") await ensureActiveReproLoop(ctx, loopControl, repro);
-    },
-    reconcileReproLaneRuntime: async (ctx) => {
-      await reconcileSparkReproRuntimeForSession({ cwd: ctx.cwd, ctx });
-    },
   });
 
   const registeredSparkTools = new Map<string, SparkRegisteredToolConfig>();
@@ -266,7 +246,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     refreshSparkWidget,
     ensureWorkflowRunManager: (cwd, ctx) => workflowRunManagerController.ensure(cwd, ctx),
     loopControl,
-    launchReproThreeLaneRuntime: pi.launchReproThreeLaneRuntime,
+    reproControl,
     createReviewerRunner,
   });
   registerSparkReflectionCommands(pi);
@@ -317,11 +297,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkLoopTool(registerSparkTool, { loopControl, refreshSparkWidget });
 
   registerSparkReproTool(registerSparkTool, {
-    loopControl,
-    launchReproThreeLaneRuntime: pi.launchReproThreeLaneRuntime,
-    usageControl,
-    formalEvidenceControl: pi.reproFormalEvidenceControl ?? sparkDaemonReproFormalEvidenceControl,
-    refreshSparkWidget,
+    reproControl,
   });
 
   let workflowRunAdapter: SparkRegisteredToolConfig | undefined;

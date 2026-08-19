@@ -21,7 +21,8 @@ describe("daemon migration registry", () => {
         "invocations.workspace-projection-index",
         "migration.driver-to-loop-v1",
         "migration.retire-daemon-error-outbox-v1",
-        "repro.formal-evidence-receipts",
+        "repro.v10-owner-store",
+        "repro.v10-remove-legacy-runtime",
       ]),
     );
   });
@@ -296,7 +297,7 @@ describe("daemon migration registry", () => {
         expect(
           db
             .prepare(
-              "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'daemon_repro_formal_evidence_receipts'",
+              "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'daemon_repro_runs'",
             )
             .get(),
         ).toEqual({ present: 1 });

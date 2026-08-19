@@ -68,9 +68,6 @@ describe("daemon Hub relocation", () => {
         installationId: "install-relocation",
         displayName: "Relocation daemon",
         invocationConcurrency: 8,
-        reproFormalEvidencePublicKeysJson: JSON.stringify({
-          "formal:fixture": "fixture-key",
-        }),
       });
       expect(getSparkDaemonServerProfile(h.paths, targetUrl)).toMatchObject({
         runtimeId,
@@ -306,9 +303,6 @@ describe("daemon Hub relocation", () => {
         installationId: "install-relocation",
         displayName: "Relocation daemon",
         invocationConcurrency: 8,
-        reproFormalEvidencePublicKeysJson: JSON.stringify({
-          "formal:fixture": "fixture-key",
-        }),
       });
       expect(getSparkDaemonServerProfile(h.paths, sourceUrl)).toBeUndefined();
       expect(getSparkDaemonServerProfile(h.paths, targetUrl)?.runtimeId).toBe(runtimeId);
@@ -392,7 +386,6 @@ async function setup(options: SetupOptions = {}): Promise<Harness> {
     installationId: "install-relocation",
     displayName: "Relocation daemon",
     invocationConcurrency: 8,
-    reproFormalEvidencePublicKeysJson: JSON.stringify({ "formal:fixture": "fixture-key" }),
   };
   writeSparkDaemonConfig(paths, identity);
   if (options.includeThirdProfile !== false) {

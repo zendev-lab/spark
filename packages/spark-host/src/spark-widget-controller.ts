@@ -1,9 +1,4 @@
 import type { Project, ProjectRef, RunRef, Task, TaskRun } from "@zendev-lab/spark-core";
-import {
-  isReproRequirementSatisfied,
-  type SparkReproRequirement,
-  type SparkSessionRepro,
-} from "@zendev-lab/spark-repro";
 import type {
   WorkflowRunReconcileInput,
   WorkflowRunStatusSummary,
@@ -99,10 +94,6 @@ export interface SparkWidgetControllerDeps {
     ctx?: SparkWidgetControllerContext,
   ) => Promise<SparkSessionLoopProjection | undefined>;
   clearSessionLoop: (cwd: string, ctx?: SparkWidgetControllerContext) => Promise<void>;
-  readSessionRepro: (
-    cwd: string,
-    ctx?: SparkWidgetControllerContext,
-  ) => Promise<SparkSessionRepro | undefined>;
   loadSparkMode: (
     cwd: string,
     ctx?: SparkWidgetControllerContext,
@@ -190,8 +181,7 @@ export class SparkWidgetController {
       await this.deps.clearSessionLoop(cwd, ctx);
       sessionLoop = undefined;
     }
-    const sessionRepro = await this.deps.readSessionRepro(cwd, ctx);
-    const foregroundLoop = sparkForegroundLoopWidgetEntries(sessionGoal, sessionLoop, sessionRepro);
+    const foregroundLoop = sparkForegroundLoopWidgetEntries(sessionGoal, sessionLoop);
     const mode = (await this.deps.loadSparkMode(cwd, ctx)).mode;
     const activeLens = this.deps.sparkActiveMode(mode);
     const independentTodoEntries = independentTodos.map((todo) => ({
@@ -367,30 +357,7 @@ function mapTodoStatus(status: string): SessionTodoEntry["status"] {
 function sparkForegroundLoopWidgetEntries(
   sessionGoal: SparkSessionGoalProjection | undefined,
   sessionLoop: SparkSessionLoopProjection | undefined,
-  sessionRepro?: SparkSessionRepro,
-): Pick<SparkWidgetState, "goal" | "loop" | "repro"> {
-  if (sessionRepro?.status === "active") {
-    const stage = sessionRepro.stages[sessionRepro.currentStageIndex];
-    return {
-      repro: {
-        status: sessionRepro.status,
-        objective: sessionRepro.objective
-          ? compactGoalObjective(sessionRepro.objective)
-          : undefined,
-        stageName: stage.name,
-        stageIndex: sessionRepro.currentStageIndex,
-        totalStages: sessionRepro.stages.length,
-        phase: sessionRepro.currentPhase,
-        acceptance: stage.acceptance.map((requirement: SparkReproRequirement) => ({
-          description: requirement.description,
-          satisfied: isReproRequirementSatisfied(requirement),
-        })),
-        gate: stage.gate
-          ? { id: stage.gate.id, passed: stage.gate.evaluation?.passed === true }
-          : undefined,
-      },
-    };
-  }
+): Pick<SparkWidgetState, "goal" | "loop"> {
   if (sessionGoal && sessionGoal.status !== "complete") {
     return {
       goal: {

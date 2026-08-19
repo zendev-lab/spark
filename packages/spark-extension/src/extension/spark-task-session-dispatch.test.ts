@@ -14,7 +14,6 @@ import type {
 } from "@zendev-lab/spark-core";
 import { loadSessionGoal } from "@zendev-lab/spark-loop";
 import type { SparkFleetWorkerBinding, SparkSessionLineage } from "@zendev-lab/spark-protocol";
-import { createSparkSessionRepro } from "@zendev-lab/spark-repro";
 import { RoleRegistry } from "@zendev-lab/spark-roles";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";
 import {
@@ -239,7 +238,7 @@ describe("managed Task Session dispatch", () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-dispatch-"));
     roots.push(cwd);
     const graph = new TaskGraph();
-    const project = graph.createProject({ title: "Repro", description: "Repro" });
+    const project = graph.createProject({ title: "Managed", description: "Managed" });
     const tasks = ["Trace reference", "Probe resource envelope"].map((title) =>
       graph.createTask({
         projectRef: project.ref,
@@ -267,11 +266,6 @@ describe("managed Task Session dispatch", () => {
     );
     for (const task of tasks) graph.setTaskStatus(task.ref, "ready");
     await defaultTaskGraphStore(cwd).save(graph);
-    const repro = createSparkSessionRepro("sess_owner");
-    const safeSubgoals = repro.subgoals
-      .filter((subgoal) => subgoal.authority === "safe_local")
-      .slice(0, tasks.length)
-      .map((subgoal, index) => ({ ...subgoal, taskRef: tasks[index]!.ref }));
     const calls: Array<{ method: string; input: Record<string, unknown> }> = [];
     const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
       calls.push({ method, input });
@@ -330,11 +324,10 @@ describe("managed Task Session dispatch", () => {
       cwd,
       ctx: { sessionId: "sess_owner" },
       ownerSessionId: "sess_owner",
-      parentInvocationId: "inv_parent_repro_turn",
+      parentInvocationId: "inv_parent_turn",
       projectRef: project.ref as ProjectRef,
       taskRefs: tasks.map((task) => task.ref as TaskRef),
       registry: new RoleRegistry(),
-      subgoals: safeSubgoals,
       daemonRequest,
     });
 
@@ -351,7 +344,6 @@ describe("managed Task Session dispatch", () => {
           ownerSessionId: "sess_owner",
           executionSessionId: record.sessionId,
           sessionGoalId: record.goalId,
-          subgoalRef: safeSubgoals[index]!.ref,
           jobId: record.jobId,
           attempt: 1,
           invocationId: expect.stringMatching(/^inv_/u),
@@ -363,7 +355,7 @@ describe("managed Task Session dispatch", () => {
       });
       await expect(loadSessionGoal(cwd, { sessionId: record.sessionId })).resolves.toMatchObject({
         goalId: record.goalId,
-        objective: safeSubgoals[index]!.goal,
+        objective: tasks[index]!.plan!.objective,
         status: "active",
       });
     }
@@ -378,13 +370,12 @@ describe("managed Task Session dispatch", () => {
         revisionRef: records[index]!.jobId,
         originatingRunRef: records[index]!.runRef,
         sessionGoalId: records[index]!.goalId,
-        subgoalRef: safeSubgoals[index]!.ref,
         attempt: 1,
       });
     }
     expect(calls.filter((call) => call.method === "turn.submit")).toHaveLength(2);
     for (const call of calls.filter((candidate) => candidate.method === "turn.submit")) {
-      expect(call.input.parentInvocationId).toBe("inv_parent_repro_turn");
+      expect(call.input.parentInvocationId).toBe("inv_parent_turn");
     }
 
     const rawTaskEvidenceRef = "evidence:task-output" as EvidenceRef;
@@ -396,7 +387,6 @@ describe("managed Task Session dispatch", () => {
       cwd,
       ctx: { sessionId: "sess_owner" },
       projectRef: project.ref,
-      subgoals: safeSubgoals,
       daemonRequest,
     });
     expect(reconciled).toMatchObject({
@@ -416,9 +406,7 @@ describe("managed Task Session dispatch", () => {
     });
     const succeededRun = finalGraph?.runs(project.ref).find((run) => run.taskRef === tasks[0]!.ref);
     expect(succeededRun?.outputEvidenceRefs).toEqual([rawTaskEvidenceRef]);
-    expect(succeededRun?.completionSummary?.summary).toContain(
-      "Subgoal still requires verifier promotion",
-    );
+    expect(succeededRun?.completionSummary?.summary).toContain("terminal TaskRun was reconciled");
     const closeCalls = calls.filter((call) => call.method === "session.close");
     expect(closeCalls).toHaveLength(1);
     expect(
@@ -427,20 +415,18 @@ describe("managed Task Session dispatch", () => {
       source: "domain_completion",
       status: "completed",
       code: "task_session_completed",
-      summary: expect.stringContaining("Subgoal still requires verifier promotion"),
+      summary: expect.stringContaining("terminal TaskRun was reconciled"),
       evidenceRefs: [rawTaskEvidenceRef],
       artifactRefs: [],
       sourceInvocationIds: [records[0]!.invocationId],
     });
     expect(closeCalls.some((call) => call.input.sessionId === records[1]!.sessionId)).toBe(false);
-    expect(safeSubgoals.every((subgoal) => subgoal.status !== "done")).toBe(true);
     await expect(
       reconcileManagedTaskSessions({
         cwd,
         ctx: { sessionId: "sess_owner" },
         projectRef: project.ref,
         ownerSessionId: "sess_owner",
-        subgoals: safeSubgoals,
         daemonRequest,
       }),
     ).resolves.toEqual({

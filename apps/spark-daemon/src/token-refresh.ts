@@ -118,9 +118,6 @@ export async function refreshSparkDaemonCredentials(options: {
       ...(identity.invocationConcurrency !== undefined
         ? { invocationConcurrency: identity.invocationConcurrency }
         : {}),
-      ...(identity.reproFormalEvidencePublicKeysJson
-        ? { reproFormalEvidencePublicKeysJson: identity.reproFormalEvidencePublicKeysJson }
-        : {}),
     });
   }
 

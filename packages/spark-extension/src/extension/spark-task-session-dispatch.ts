@@ -8,7 +8,6 @@ import {
   type ProjectRef,
   type RoleRef,
   type RunRef,
-  type SubgoalRef,
   type Task,
   type TaskRef,
   type TaskExecutionPolicy,
@@ -20,14 +19,12 @@ import {
   setSessionGoal,
   sparkSessionKey,
   sparkStateCwd,
-  subgoalDefinitionDigest,
   type SparkSessionContext,
 } from "@zendev-lab/spark-loop";
 import type { SparkSessionCloseCandidate } from "@zendev-lab/spark-protocol/session-assignment";
 import type { RoleRegistry, RoleSpec } from "@zendev-lab/spark-roles";
 import { sparkTaskExecutorRoleRef } from "@zendev-lab/spark-runtime";
 import { defaultTaskGraphStore, type TaskGraph } from "@zendev-lab/spark-tasks";
-import type { SparkReproSubgoal } from "./spark-session-repro.ts";
 import {
   fleetLaneKey,
   resolveFleetTaskTarget,
@@ -38,12 +35,11 @@ export interface ManagedTaskSessionDispatchInput {
   cwd: string;
   ctx: SparkSessionContext;
   ownerSessionId: string;
-  /** Causal owning turn; required for repro usage attribution across Task Sessions. */
+  /** Causal owning turn retained for usage attribution across Task Sessions. */
   parentInvocationId?: string;
   projectRef: ProjectRef;
   taskRefs: TaskRef[];
   registry: RoleRegistry;
-  subgoals?: readonly SparkReproSubgoal[];
   resourceAllocations?: Partial<Record<TaskRef, TaskResourceAllocation>>;
   /** Fleet uses stable target lanes and completion mail instead of per-Task Sessions. */
   fleet?: boolean;
@@ -281,7 +277,6 @@ export async function reconcileManagedTaskSessions(input: {
   projectRef: ProjectRef;
   /** Reconcile only TaskRuns owned by this Session (Fleet completion wake path). */
   ownerSessionId?: string;
-  subgoals?: readonly SparkReproSubgoal[];
   daemonRequest?: typeof requestSparkDaemon;
 }): Promise<ManagedTaskSessionReconcileResult> {
   const stateCwd = sparkStateCwd(input.cwd, input.ctx);
@@ -344,35 +339,12 @@ export async function reconcileManagedTaskSessions(input: {
         if (timeoutRequestedAt && !run.timeoutRequestedAt) {
           graph.recordRun({ ...run, timeoutRequestedAt });
         }
-        const currentSubgoal = run.execution.subgoalRef
-          ? input.subgoals?.find((candidate) => candidate.ref === run.execution?.subgoalRef)
-          : undefined;
-        const definitionChanged =
-          Boolean(run.execution.subgoalRef) &&
-          (!currentSubgoal ||
-            currentSubgoal.taskRef !== run.taskRef ||
-            currentSubgoal.planRevision !== run.execution.planRevision ||
-            subgoalDefinitionDigest(currentSubgoal) !== run.execution.definitionDigest);
-        if (definitionChanged) {
-          const message =
-            "superseded: the bound Subgoal revision or definition changed before reconciliation";
-          graph.recordRun(
-            terminalManagedRun(run, "cancelled", message, task.outputEvidenceRefs, {
-              failureKind: "runtime_cancelled",
-            }),
-          );
-          result.terminal += 1;
-          result.cancelled += 1;
-          result.superseded += 1;
-          continue;
-        }
-
         if (task.status === "done") {
           graph.recordRun(
             terminalManagedRun(
               run,
               "succeeded",
-              `Task ${task.ref} finished; Subgoal still requires verifier promotion.`,
+              `Task ${task.ref} finished and its terminal TaskRun was reconciled.`,
               task.outputEvidenceRefs,
             ),
           );
@@ -602,21 +574,9 @@ function reserveTaskSessionRuns(
       );
     const roleRef = sparkTaskExecutorRoleRef(task);
     input.registry.get(roleRef);
-    const subgoal = input.subgoals?.find((candidate) => candidate.taskRef === taskRef);
-    if (subgoal?.status === "done" || subgoal?.status === "cancelled") {
-      throw new Error(`subgoal ${subgoal.ref} is already ${subgoal.status}`);
-    }
-    const definitionDigest = subgoal ? subgoalDefinitionDigest(subgoal) : undefined;
     const jobId = taskSessionJobId({
       task,
       roleRef,
-      ...(subgoal
-        ? {
-            subgoalRef: subgoal.ref,
-            planRevision: subgoal.planRevision,
-            definitionDigest,
-          }
-        : {}),
     });
     if (activeRun) {
       if (
@@ -632,8 +592,8 @@ function reserveTaskSessionRuns(
       reservations.push({
         run: activeRun,
         roleRef,
-        goal: subgoal?.goal ?? task.plan?.objective ?? task.description,
-        evidenceRequired: subgoal?.evidenceRequired ?? task.plan?.evidenceRequired ?? [],
+        goal: task.plan?.objective ?? task.description,
+        evidenceRequired: task.plan?.evidenceRequired ?? [],
         executionPolicy: task.executionPolicy!,
       });
       continue;
@@ -675,8 +635,6 @@ function reserveTaskSessionRuns(
       executionSessionId: sessionId,
       sessionGoalId,
       sessionLifetime: executionPolicy?.sessionLifetime ?? "task_revision",
-      ...(subgoal ? { subgoalRef: subgoal.ref, planRevision: subgoal.planRevision } : {}),
-      ...(definitionDigest ? { definitionDigest } : {}),
       jobId,
       attempt,
       ...(workerLaneKey ? { workerLaneKey } : {}),
@@ -711,8 +669,8 @@ function reserveTaskSessionRuns(
     reservations.push({
       run,
       roleRef,
-      goal: subgoal?.goal ?? task.plan?.objective ?? task.description,
-      evidenceRequired: subgoal?.evidenceRequired ?? task.plan?.evidenceRequired ?? [],
+      goal: task.plan?.objective ?? task.description,
+      evidenceRequired: task.plan?.evidenceRequired ?? [],
       executionPolicy: task.executionPolicy!,
     });
   }
@@ -787,14 +745,7 @@ async function ensureTaskExecutionSession(input: {
               projectRef: input.projectRef,
               taskRef: input.taskRef,
               sessionGoalId: input.execution.sessionGoalId,
-              ...(input.execution.subgoalRef ? { subgoalRef: input.execution.subgoalRef } : {}),
               roleRef: input.roleRef,
-              ...(input.execution.planRevision
-                ? { planRevision: input.execution.planRevision }
-                : {}),
-              ...(input.execution.definitionDigest
-                ? { definitionDigest: input.execution.definitionDigest }
-                : {}),
               jobId: input.execution.jobId,
               attempt: input.execution.attempt,
             },
@@ -971,9 +922,6 @@ async function updateReservedRun(
 function taskSessionJobId(input: {
   task: ReturnType<TaskGraph["getTask"]>;
   roleRef: RoleRef;
-  subgoalRef?: SubgoalRef;
-  planRevision?: number;
-  definitionDigest?: string;
 }): string {
   return `task-job:${stableId(
     JSON.stringify({
@@ -985,9 +933,6 @@ function taskSessionJobId(input: {
       plan: taskPlanRevisionDefinition(input.task.plan),
       executionPolicy: input.task.executionPolicy,
       inputEvidenceRefs: input.task.inputEvidenceRefs,
-      subgoalRef: input.subgoalRef,
-      planRevision: input.planRevision,
-      definitionDigest: input.definitionDigest,
     }),
   )}`;
 }

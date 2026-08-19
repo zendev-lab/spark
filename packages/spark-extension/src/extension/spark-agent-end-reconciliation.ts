@@ -11,7 +11,6 @@ import {
 import type { SparkModeMessageApi } from "./spark-mode-entry.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { loadSessionLoop } from "./spark-session-loops.ts";
-import { readSessionRepro } from "./spark-session-repro.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 import { resolveSessionClaimedTask, sparkTaskClaimSessionKey } from "./task-claim-selection.ts";
 
@@ -126,12 +125,11 @@ async function collectImplementReconciliation(
 }
 
 async function hasActiveForegroundDrive(ctx: SparkToolContext): Promise<boolean> {
-  const [goal, loop, repro] = await Promise.all([
+  const [goal, loop] = await Promise.all([
     loadSessionGoal(ctx.cwd, ctx),
     loadSessionLoop(ctx.cwd, ctx),
-    readSessionRepro(ctx.cwd, ctx),
   ]);
-  return goal?.status === "active" || loop?.status === "active" || repro?.status === "active";
+  return goal?.status === "active" || loop?.status === "active";
 }
 
 async function loadImplementFrontier(ctx: SparkToolContext) {

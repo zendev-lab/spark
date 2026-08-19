@@ -49,7 +49,6 @@ test("widget refresh surfaces dynamic workflow read failures", async () => {
     loadSessionGoal: async () => undefined,
     loadSessionLoop: async () => undefined,
     clearSessionLoop: async () => undefined,
-    readSessionRepro: async () => undefined,
     loadSparkMode: async () => ({ mode: "execute" }),
     sparkActiveMode: (mode) => ({ mode }),
     renderSparkProjectKindDisplay: () => undefined,

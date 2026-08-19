@@ -238,10 +238,20 @@ const invocationLoopInvokers = {
       sparkLocalRpcProcedureSchemas["usage.backfill"].output,
       client.usage.backfill(input, options),
     ),
-  "repro.formal-evidence.record": (client, input, options) =>
+  "repro.start": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["repro.formal-evidence.record"].output,
-      client.repro.formalEvidence.record(input, options),
+      sparkLocalRpcProcedureSchemas["repro.start"].output,
+      client.repro.start(input, options),
+    ),
+  "repro.status": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["repro.status"].output,
+      client.repro.status(input, options),
+    ),
+  "repro.stop": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["repro.stop"].output,
+      client.repro.stop(input, options),
     ),
   "loop.start": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
@@ -273,11 +283,6 @@ const invocationLoopInvokers = {
       sparkLocalRpcProcedureSchemas["loop.schedule"].output,
       client.loop.schedule(input, options),
     ),
-  "loop.control": (client, input, options) =>
-    parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["loop.control"].output,
-      client.loop.control(input, options),
-    ),
 } satisfies Pick<
   SparkDaemonOrpcProcedureInvokerMap,
   | "invocation.list"
@@ -287,14 +292,15 @@ const invocationLoopInvokers = {
   | "usage.summary"
   | "usage.persistence"
   | "usage.backfill"
-  | "repro.formal-evidence.record"
+  | "repro.start"
+  | "repro.status"
+  | "repro.stop"
   | "loop.start"
   | "loop.status"
   | "loop.stop"
   | "loop.restart"
   | "loop.wake"
   | "loop.schedule"
-  | "loop.control"
 >;
 
 const workspaceInvokers = {

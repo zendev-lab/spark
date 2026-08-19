@@ -11,7 +11,6 @@ import {
   saveCurrentProjectRef,
 } from "../extension/current-project-state.ts";
 import { currentSparkProject, loadSparkGraph } from "../extension/session-state.ts";
-import { reproOwnerContext } from "../extension/spark-extension-events.ts";
 import {
   rebuildSessionIndex as rebuildSparkLoopSessionIndex,
   sessionGoalStorePath,
@@ -71,7 +70,6 @@ test("TaskRun binding selects its Project without rewriting the child Session id
   };
 
   assert.deepEqual(await currentSparkProject(ctx.cwd, ctx, graph), project);
-  assert.equal(reproOwnerContext(ctx).sessionId, "session:root");
   assert.equal(ctx.sessionId, "session:lane");
 });
 

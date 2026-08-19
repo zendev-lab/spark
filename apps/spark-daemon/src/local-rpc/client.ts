@@ -4,7 +4,6 @@ import {
   type SparkLocalRpcOutput,
   type SparkSessionView,
   type SparkLoopListResult,
-  type SparkLoopControlRequest,
   type SparkLoopMutationRequest,
   type SparkLoopMutationResult,
   type SparkLoopScheduleRequest,
@@ -195,13 +194,6 @@ export async function requestLoopSchedule(
   params: SparkLoopScheduleRequest,
 ): Promise<SparkLoopMutationResult> {
   return localRpcRequest(paths, "loop.schedule", params);
-}
-
-export async function requestLoopControl(
-  paths: SparkPaths,
-  params: SparkLoopControlRequest,
-): Promise<SparkLoopMutationResult> {
-  return localRpcRequest(paths, "loop.control", params);
 }
 
 export async function requestChannelStatus(

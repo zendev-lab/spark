@@ -139,11 +139,9 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       ),
     },
     repro: {
-      formalEvidence: {
-        record: os.repro.formalEvidence.record.handler(async ({ input: params }) =>
-          invoke("repro.formal-evidence.record", params),
-        ),
-      },
+      start: os.repro.start.handler(async ({ input: params }) => invoke("repro.start", params)),
+      status: os.repro.status.handler(async ({ input: params }) => invoke("repro.status", params)),
+      stop: os.repro.stop.handler(async ({ input: params }) => invoke("repro.stop", params)),
     },
     loop: {
       start: os.loop.start.handler(async ({ input: params }) => invoke("loop.start", params)),
@@ -154,7 +152,6 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       schedule: os.loop.schedule.handler(async ({ input: params }) =>
         invoke("loop.schedule", params),
       ),
-      control: os.loop.control.handler(async ({ input: params }) => invoke("loop.control", params)),
     },
     workspace: {
       list: os.workspace.list.handler(async ({ input: params }) =>

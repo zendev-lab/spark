@@ -2,8 +2,6 @@ import {
   createId,
   normalizeServerCommandForExecution,
   serverCommandEnvelopeSchema,
-  sparkLoopControlRequestSchema,
-  sparkProtocolJsonObjectSchema,
   type RuntimeCommandResultPayload,
   type SparkCommand,
   type SparkProtocolJsonValue,
@@ -46,8 +44,6 @@ import {
   workspaceSummaries,
 } from "./store/workspaces.js";
 import { executeWorkspaceDelegationDelivery } from "./workspace-delegation-control.ts";
-import { executeTrustedWorkbenchLoopControl } from "./workbench-loop-control.ts";
-import { SparkDaemonControlError } from "./control-error.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 
 type ClaimedCommand = ReturnType<typeof serverCommandEnvelopeSchema.parse>;
@@ -183,11 +179,6 @@ async function executeAcceptedClaimedCommand(input: ClaimedCommandExecution): Pr
 
   if (isRuntimeSideThreadControlKind(sparkCommand.kind)) {
     await handleRuntimeSideThreadControlCommand(input);
-    return;
-  }
-
-  if (sparkCommand.kind === "loop.control.request") {
-    await handleRuntimeLoopControlCommand(input);
     return;
   }
 
@@ -416,28 +407,6 @@ async function handleRuntimeSideThreadControlCommand(
     },
   );
   sendControlledCommandResult({ ws, command, route, executed, includeProjection: false });
-}
-
-async function handleRuntimeLoopControlCommand(input: ClaimedCommandExecution): Promise<void> {
-  const { ws, command, context, route, sparkCommand } = input;
-  if (!command.sessionId) {
-    throw new SparkDaemonControlError(
-      "workbench_action_untrusted",
-      "Workbench Loop control requires a routed owning Session.",
-    );
-  }
-  const result = await executeTrustedWorkbenchLoopControl({
-    db: context.db,
-    request: sparkLoopControlRequestSchema.parse(sparkCommand.payload),
-    expectedOwnerSessionId: command.sessionId,
-  });
-  sendControlledCommandResult({
-    ws,
-    command,
-    route,
-    executed: { result: sparkProtocolJsonObjectSchema.parse(result) },
-    includeProjection: false,
-  });
 }
 
 function daemonSessionControlDependencies(context: MessageContext) {

@@ -7,7 +7,6 @@ import {
   runtimeProtocolVersion,
 } from "@zendev-lab/spark-protocol";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { resolveSparkUserPaths, writePrivateFile } from "@zendev-lab/spark-system";
 import { resolveWorkflowDefinition } from "@zendev-lab/spark-workflows";
 import {
@@ -100,26 +99,21 @@ import {
   type SparkInvocationRecord,
 } from "./store/invocations.ts";
 import { SparkTokenUsageStore } from "./store/token-usage.ts";
-import { SparkReproFormalEvidenceReceiptStore } from "./store/repro-formal-evidence.ts";
+import { resolveActiveSessionReproUsageScope } from "./session-work-projection.ts";
 import {
-  readSessionReproForDaemon,
-  resolveActiveSessionReproUsageScope,
-} from "./session-work-projection.ts";
+  reconcileDaemonSparkRepros,
+  resumeDaemonSparkReproAnswer,
+  type DaemonSparkReproRuntimeDeps,
+} from "./repro-owner-runtime.ts";
+import { migrateLegacyReproV9Snapshots } from "./repro-v9-migration.ts";
 import { loopUpdateEvent, SparkLoopStore, type SparkLoopRecord } from "./store/loops.ts";
 import { SparkLoopEvaluatorRegistry } from "./store/loop-evaluators.ts";
-import { WorkbenchArtifactBindingStore } from "./store/workbench-artifact-bindings.ts";
 import { migrateLegacyLoopState } from "./store/loop-state-migration.ts";
 import { createGoalLoopCompletionEvaluator } from "./spark/goal-loop-evaluator.ts";
 import {
   createGitHubMergedPrsLoopEvaluator,
   GITHUB_MERGED_PRS_LOOP_EVALUATOR,
 } from "./spark/github-merged-prs-loop-evaluator.ts";
-import {
-  createReproCompletionEvaluator,
-  reproPendingDecisionEvaluator,
-  validateAcceptedFormalEvidenceAuthority,
-} from "./spark/repro-loop-evaluator.ts";
-import { reconcileReproWorkbenchArtifacts } from "./spark/repro-workbench-reconciler.ts";
 import { reconcileLoopGoalSettlements } from "./spark/loop-goal-settlements.ts";
 import {
   getWorkspaceById,
@@ -243,9 +237,7 @@ interface PreparedDaemonRuntime {
   invocationStore: SparkInvocationStore;
   loopStore: SparkLoopStore;
   loopEvaluators: SparkLoopEvaluatorRegistry;
-  workbenchBindings: WorkbenchArtifactBindingStore;
   nextLoopGcAtMs: number;
-  nextWorkbenchReconcileAtMs: number;
   nextStorageMaintenanceAtMs: number;
   channelReplyDeliveryStore: ChannelReplyDeliveryStore;
   executionAttemptStore: ExecutionAttemptStore;
@@ -302,6 +294,7 @@ async function createPreparedDaemonRuntime(
   let onAnswerEvidenceProjected: (
     event: Parameters<typeof ensureHumanAnswerEventEvidence>[1],
   ) => boolean | Promise<boolean> = () => false;
+  let sessionSupervisorForRepro: SessionSupervisor | undefined;
   const sessionAskDelivery: {
     ctx?: Pick<LocalRpcDispatchContext, "paths" | "db" | "options">;
   } = {};
@@ -331,17 +324,6 @@ async function createPreparedDaemonRuntime(
       }),
       checkpoints: ["after_tick"],
     },
-    "builtin:repro-pending-decision": {
-      evaluator: reproPendingDecisionEvaluator,
-      checkpoints: ["before_tick"],
-    },
-    "builtin:repro-reviewer": {
-      evaluator: createReproCompletionEvaluator(
-        new SparkReproFormalEvidenceReceiptStore(options.db),
-        resolveReproFormalStepState,
-      ),
-      checkpoints: ["after_tick"],
-    },
   });
   const loopStore = new SparkLoopStore(options.db, invocationStore, loopEvaluators, {
     async resolve({ cwd, selector }) {
@@ -349,12 +331,14 @@ async function createPreparedDaemonRuntime(
       return { digest: definition.digest, policy: definition.loop };
     },
   });
-  onAnswerEvidenceProjected = (event) => {
+  onAnswerEvidenceProjected = async (event) => {
     const wake = wakeHumanAnswerEvidenceOwner(loopStore, event, humanWaits);
     for (const loop of wake.woken) {
       emitLoopUpdate({ invocationStore, eventHub }, loop, loop.lastInvocationId);
     }
-    return wake.completed;
+    const reproDeps = daemonReproRuntimeDeps(options, humanWaits, sessionSupervisorForRepro);
+    const reproResumed = reproDeps ? await resumeDaemonSparkReproAnswer(reproDeps, event) : false;
+    return wake.completed || reproResumed;
   };
   await reconcileHumanAnswerEventEvidence(
     humanWaits,
@@ -362,7 +346,6 @@ async function createPreparedDaemonRuntime(
     (error) => console.error("[spark-daemon] failed to reconcile AnswerEvent Evidence", error),
     (event) => onAnswerEvidenceProjected(event),
   );
-  const workbenchBindings = new WorkbenchArtifactBindingStore(options.db);
   const channelReplyDeliveryStore = new ChannelReplyDeliveryStore(options.db, invocationStore);
   channelReplyDeliveryStore.recoverInterrupted();
   recoverInterruptedRuntimeCommandReceipts(options.db);
@@ -446,6 +429,7 @@ async function createPreparedDaemonRuntime(
         },
       })
     : null;
+  sessionSupervisorForRepro = sessionSupervisor ?? undefined;
   sessionAskDelivery.ctx = {
     paths: options.paths,
     db: options.db,
@@ -475,6 +459,7 @@ async function createPreparedDaemonRuntime(
     mailStore,
     sessionCompletionDeliveryStore,
     sessionSupervisor,
+    humanWaits,
     executionAttemptStore,
     executionAttemptGeneration,
   });
@@ -524,9 +509,7 @@ async function createPreparedDaemonRuntime(
     invocationStore,
     loopStore,
     loopEvaluators,
-    workbenchBindings,
     nextLoopGcAtMs: Date.now() + 60_000,
-    nextWorkbenchReconcileAtMs: Date.now(),
     nextStorageMaintenanceAtMs: Date.now(),
     channelReplyDeliveryStore,
     executionAttemptStore,
@@ -774,9 +757,17 @@ async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<
           workspaceIds: listWorkspaces(runtime.options.db).map((workspace) => workspace.id),
         },
   );
+  const reproDeps = daemonReproRuntimeDeps(
+    runtime.options,
+    runtime.humanWaits,
+    runtime.sessionSupervisor ?? undefined,
+  );
+  if (reproDeps) {
+    await migrateLegacyReproV9Snapshots(reproDeps);
+    await reconcileDaemonSparkRepros(reproDeps);
+  }
   runtime.loopStore.reconcileTerminalTicks();
   await reconcileLoopGoalSettlements(runtime.loopStore, { retryErrors: true });
-  await reconcileReproWorkbenches(runtime);
   runtime.scheduler?.activateAdmission();
   runtime.invocationRegistry.activateAdmission();
   runtime.admission.open = true;
@@ -904,9 +895,6 @@ async function runSchedulerLoop(runtime: PreparedDaemonRuntime): Promise<void> {
     }
     if (runtime.admission.open) await reconcilePendingHumanAnswerEvidence(runtime);
     if (runtime.admission.open) await reconcileLoopGoalSettlements(runtime.loopStore);
-    if (runtime.admission.open && Date.now() >= runtime.nextWorkbenchReconcileAtMs) {
-      await reconcileReproWorkbenches(runtime);
-    }
     if (runtime.admission.open) await reconcileLoopHiddenSessionGc(runtime);
     const materialized = runtime.admission.open ? await materializeLoopDue(runtime) : undefined;
     const didWork = (runtime.scheduler?.processBatch() ?? false) || Boolean(materialized);
@@ -945,7 +933,6 @@ async function runDaemonOnce(runtime: PreparedDaemonRuntime): Promise<void> {
   if (scheduler) {
     await reconcileLoopHiddenSessionGc(runtime, true);
     await reconcileLoopGoalSettlements(runtime.loopStore, { retryErrors: true });
-    await reconcileReproWorkbenches(runtime);
     await materializeLoopDue(runtime);
     scheduler.processBatch();
     await scheduler.wait();
@@ -962,74 +949,6 @@ async function runDaemonOnce(runtime: PreparedDaemonRuntime): Promise<void> {
     );
   }
   await runSparkDaemonServerConnectionsOnce(daemonServerConnectionOptions(runtime));
-}
-
-async function resolveReproFormalStepState(cwd: string, ownerSessionId: string) {
-  const repro = await readSessionReproForDaemon(cwd, ownerSessionId);
-  if (!repro) return undefined;
-  const graph = await defaultTaskGraphStore(cwd).load();
-  return {
-    reproId: repro.reproId,
-    threeLane: {
-      planRevision: repro.threeLane.planRevision,
-      formalize: {
-        orderedStepIds: [...repro.threeLane.formalize.orderedStepIds],
-        ...(repro.threeLane.formalize.currentStepId
-          ? { currentStepId: repro.threeLane.formalize.currentStepId }
-          : {}),
-        retiredStepIds: [...repro.threeLane.formalize.retiredStepIds],
-      },
-    },
-    subgoals: repro.subgoals.map((subgoal) => ({
-      id: subgoal.id,
-      planRevision: subgoal.planRevision,
-      ...(subgoal.taskRef ? { taskRef: subgoal.taskRef } : {}),
-    })),
-    taskStatusByRef: Object.fromEntries(
-      repro.subgoals.flatMap((subgoal) =>
-        subgoal.taskRef
-          ? [[subgoal.taskRef, graph?.getTask(subgoal.taskRef)?.status] as const]
-          : [],
-      ),
-    ),
-    plan: {
-      currentRevision: repro.plan.currentRevision,
-      steps: repro.plan.steps.map((step) => ({
-        id: step.id,
-        status: step.status,
-        authority: step.authority,
-        doneWhen: [...step.doneWhen],
-        evidenceRefs: [...step.evidenceRefs],
-        ...(step.verification ? { verification: step.verification } : {}),
-      })),
-    },
-  };
-}
-
-async function reconcileReproWorkbenches(runtime: PreparedDaemonRuntime): Promise<void> {
-  runtime.nextWorkbenchReconcileAtMs = Date.now() + 1_000;
-  try {
-    const result = await reconcileReproWorkbenchArtifacts({
-      loopStore: runtime.loopStore,
-      bindings: runtime.workbenchBindings,
-      resolveWorkspaceCwd: (workspaceId) =>
-        resolveWorkspaceLocalPath(runtime.options.db, workspaceId),
-      validateFormalEvidence: async ({ cwd, ownerSessionId, work }) =>
-        await validateAcceptedFormalEvidenceAuthority(
-          cwd,
-          work,
-          new SparkReproFormalEvidenceReceiptStore(runtime.options.db),
-          await resolveReproFormalStepState(cwd, ownerSessionId),
-        ),
-    });
-    for (const failure of result.errors) {
-      console.error(
-        `[spark-daemon] Repro Workbench reconcile failed for ${failure.loopId}: ${failure.message}`,
-      );
-    }
-  } catch (error) {
-    console.error("[spark-daemon] Repro Workbench reconciliation failed", error);
-  }
 }
 
 async function runSessionCompletionReconcileLoop(runtime: PreparedDaemonRuntime): Promise<void> {
@@ -1161,6 +1080,7 @@ function createDaemonScheduler(input: {
   mailStore: SparkSessionMailStore;
   sessionCompletionDeliveryStore: SessionRequestCompletionDeliveryStore;
   sessionSupervisor: SessionSupervisor | null;
+  humanWaits: SparkDaemonHumanWaitRegistry;
   executionAttemptStore: ExecutionAttemptStore;
   executionAttemptGeneration: number;
 }): SparkInvocationScheduler | null {
@@ -1191,7 +1111,7 @@ function createDaemonScheduler(input: {
     resolveReproUsageScope: async (task) =>
       task.type === "session.run"
         ? await resolveActiveSessionReproUsageScope({
-            cwd: task.cwd ?? process.cwd(),
+            db: options.db,
             sessionId: task.sessionId,
           })
         : undefined,
@@ -1396,6 +1316,23 @@ function completeScheduledInvocation(
       console.error("[spark-daemon] session request completion notify failed", error);
     });
   }
+  if (invocation.sessionId) {
+    const reproDeps = daemonReproRuntimeDeps(
+      input.options,
+      input.humanWaits,
+      input.sessionSupervisor ?? undefined,
+    );
+    if (reproDeps) {
+      void reconcileDaemonSparkRepros({ ...reproDeps, sessionId: invocation.sessionId }).catch(
+        (error) => {
+          console.error(
+            `[spark-daemon] Repro terminal TaskRun reconcile failed for ${invocation.invocationId}`,
+            error,
+          );
+        },
+      );
+    }
+  }
   return completed;
 }
 
@@ -1578,7 +1515,7 @@ async function reconcilePendingHumanAnswerEvidence(runtime: PreparedDaemonRuntim
     (wait) =>
       resolveWorkspaceLocalPath(runtime.options.db, wait.workspaceBindingId || wait.workspaceId),
     (error) => console.error("[spark-daemon] failed to reconcile AnswerEvent Evidence", error),
-    (event) => {
+    async (event) => {
       const wake = wakeHumanAnswerEvidenceOwner(runtime.loopStore, event, runtime.humanWaits);
       for (const loop of wake.woken) {
         emitLoopUpdate(
@@ -1587,9 +1524,31 @@ async function reconcilePendingHumanAnswerEvidence(runtime: PreparedDaemonRuntim
           loop.lastInvocationId,
         );
       }
-      return wake.completed;
+      const reproDeps = daemonReproRuntimeDeps(
+        runtime.options,
+        runtime.humanWaits,
+        runtime.sessionSupervisor ?? undefined,
+      );
+      const reproResumed = reproDeps ? await resumeDaemonSparkReproAnswer(reproDeps, event) : false;
+      return wake.completed || reproResumed;
     },
   );
+}
+
+function daemonReproRuntimeDeps(
+  options: StartSparkDaemonOptions,
+  humanWaits: SparkDaemonHumanWaitRegistry,
+  sessionSupervisor?: SessionSupervisor,
+): DaemonSparkReproRuntimeDeps | undefined {
+  if (!options.sessionRegistry || !options.modelControl) return undefined;
+  return {
+    paths: options.paths,
+    db: options.db,
+    sessionRegistry: options.sessionRegistry,
+    modelControl: options.modelControl,
+    humanWaits,
+    ...(sessionSupervisor ? { sessionSupervisor } : {}),
+  };
 }
 
 async function handleChannelInteraction(

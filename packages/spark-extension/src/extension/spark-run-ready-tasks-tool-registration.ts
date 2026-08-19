@@ -30,8 +30,6 @@ import { ensureSparkGraphInvariants } from "./spark-graph-invariants.ts";
 import { NO_SPARK_PROJECT_FOUND_HINT } from "./spark-project-guidance.ts";
 import { createSparkRuntimeReadyTaskRunner } from "./spark-ready-task-runtime.ts";
 import { createSparkRoleRegistry } from "./spark-role-registry.ts";
-import { collectReproOrchestrationSnapshot } from "./spark-repro-orchestration.ts";
-import { readSessionRepro } from "./spark-session-repro.ts";
 import {
   dispatchManagedTaskSessions,
   reconcileManagedTaskSessions,
@@ -145,22 +143,11 @@ export function registerSparkRunReadyTasksTool(
         graph = (await loadSparkGraph(cwd, ctx)) ?? graph;
       }
       const registry = await createSparkRoleRegistry(sparkStateCwd(cwd, ctx));
-      const repro = await readSessionRepro(cwd, ctx);
-      const orchestration =
-        repro?.projectRef === project.ref
-          ? collectReproOrchestrationSnapshot(repro, graph)
-          : undefined;
-      if (orchestration && requestedTaskRefs === undefined) {
-        throw new Error(
-          "active Repro assignment requires an explicit safe-frontier taskRefs allowlist",
-        );
-      }
       const taskRefs = requestedTaskRefs
         ? validateTaskAllowlist({
             graph,
             projectRef: project.ref,
             taskRefs: requestedTaskRefs,
-            safeTaskRefs: orchestration?.dispatchableTaskRefs,
           })
         : fleet
           ? graph.readyTasks(project.ref).map((task) => task.ref)
@@ -260,7 +247,6 @@ export function registerSparkRunReadyTasksTool(
             taskRefs: packing.scheduled.map((packed) => packed.taskRef),
             registry,
             resourceAllocations,
-            ...(orchestration && repro ? { subgoals: repro.subgoals } : {}),
             ...(fleet ? { fleet: true } : {}),
           } satisfies ManagedTaskSessionDispatchInput);
           await deps.refreshSparkWidget?.(cwd, ctx);

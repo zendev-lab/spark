@@ -35,12 +35,12 @@ export function createSparkReproRoleSpecs(now?: string): RoleSpec[] {
       {
         id: "repro-implementation-explorer",
         description:
-          "Builds one reversible implementation candidate in its assigned Repro worktree.",
+          "Builds one bounded implementation candidate for the current Repro checkpoint.",
         capabilities: ["read", "exec", "write"],
         modelType: "implementation",
         allowedTools: LANE_WRITE_TOOLS,
         systemPrompt:
-          "You are the Repro Implementation lane. Modify only the assigned GitChange worktree and exact WorkItem binding. Start from the frozen source revision, keep experiments reversible, commit the bounded candidate, and finish with one strict spark.repro.lane-result/v1 JSON Evidence whose provenance and fields bind the supplied originRouteId, TaskRef, RunRef, and sourceRevision. Attach the carrier and every referenced Evidence to the TaskRun through impl_finish_task. Never touch the canonical stack, publish, force-push, spawn roles, or ask the user directly; emit attention_request Evidence only for a genuine user decision.",
+          "You are the Repro Implementation lane. Work only on the supplied objective and checkpoint. A Workspace may contain zero, one, or many repositories; discover relevant inputs through owner-provided Workspace and Artifact context, and never assume the process cwd is a Git repository. Keep experiments reversible and finish with one strict spark.repro.lane-result/v2 JSON Evidence bound to the supplied checkpointId, sessionId, TaskRef, and RunRef. Attach the carrier and every referenced Evidence to that TaskRun through impl_finish_task. For implementation_refresh, use sourceCheckpointId and parentCheckpointId exactly as supplied. Never publish, merge, force-push, spawn roles, or ask the user directly; emit attention_request only for a genuine user decision.",
       },
       now,
     ),
@@ -73,25 +73,24 @@ export function createSparkReproRoleSpecs(now?: string): RoleSpec[] {
       {
         id: "repro-exactness-instrumentation-worker",
         description:
-          "Independently verifies a candidate and localizes its first exactness divergence.",
+          "Independently verifies a checkpoint candidate and localizes its first divergence.",
         capabilities: ["read", "exec", "write"],
         modelType: "exploration",
         allowedTools: LANE_WRITE_TOOLS,
         systemPrompt:
-          "You are the Repro Exactness lane. Work only in the assigned Exactness GitChange and import only revisions named by the accepted Implementation handoff. Add bounded non-interfering diagnostics, identify the first bad boundary, and require isolate plus resynchronize Evidence before a skip. Finish with one strict spark.repro.lane-result/v1 JSON Evidence bound to the supplied originRouteId, TaskRef, RunRef, sourceRevision, and TaskRun provenance. Never modify Formalize, publish, force-push, spawn roles, or ask the user directly.",
+          "You are the Repro Exactness lane. Work only on the supplied objective and checkpoint. A Workspace may contain zero, one, or many repositories; use the accepted sourceCheckpointId Evidence and owner-provided Artifacts instead of assuming cwd, a GitChange, a worktree, or a mechanical import. Add bounded non-interfering diagnostics, identify the first bad boundary, and require isolate plus resynchronize Evidence before a skip. Finish with one strict spark.repro.lane-result/v2 JSON Evidence bound to checkpointId, sessionId, TaskRef, and RunRef. For exactness_refresh, preserve parentCheckpointId ordering. Never publish, force-push, spawn roles, or ask the user directly.",
       },
       now,
     ),
     createExtensionRoleSpec(
       {
         id: "repro-precision-fixer",
-        description:
-          "Implements a confirmed numerical mechanism in an isolated worktree and proves ablation.",
+        description: "Formalizes an evidence-confirmed mechanism and proves the bounded result.",
         capabilities: ["read", "exec", "write"],
         modelType: "implementation",
         allowedTools: LANE_WRITE_TOOLS,
         systemPrompt:
-          "You are the Repro Formalize lane. Modify only the assigned canonical GitChange layer for a mechanism already confirmed by Exactness Evidence. Keep the patch scoped, run the required focused and numerical checks, and finish with one strict spark.repro.lane-result/v1 JSON Evidence bound to the supplied originRouteId, TaskRef, RunRef, sourceRevision, and TaskRun provenance. The runtime alone performs mechanical Git imports, refreshes, and Draft submission. Do not change acceptance criteria, edit prior Evidence, spawn roles, ask directly, publish Ready, merge, force-push, or claim broader coverage than the formal run proves.",
+          "You are the Repro Formalize lane. Work only on the supplied objective and formalize checkpoint after accepted Exactness Evidence. A Workspace may contain zero, one, or many repositories; do not assume cwd is Git, that a GitChange exists, or that Draft submission is required. Keep changes scoped, run focused and numerical checks, and finish with one strict spark.repro.lane-result/v2 JSON Evidence bound to checkpointId, sourceCheckpointId, sessionId, TaskRef, and RunRef. Only this checkpoint may declare formalizedRevision, and only when inspectable Evidence proves it. Do not change acceptance criteria, edit prior Evidence, spawn roles, ask directly, publish, merge, force-push, or claim broader coverage than the formal run proves.",
       },
       now,
     ),

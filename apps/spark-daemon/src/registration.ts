@@ -674,9 +674,6 @@ async function persistSparkDaemonCredentials(
     ...(current.invocationConcurrency !== undefined
       ? { invocationConcurrency: current.invocationConcurrency }
       : {}),
-    ...(current.reproFormalEvidencePublicKeysJson
-      ? { reproFormalEvidencePublicKeysJson: current.reproFormalEvidencePublicKeysJson }
-      : {}),
   });
 }
 

@@ -261,9 +261,6 @@ async function applyLocalRelocation(
     ...(current.invocationConcurrency !== undefined
       ? { invocationConcurrency: current.invocationConcurrency }
       : {}),
-    ...(current.reproFormalEvidencePublicKeysJson
-      ? { reproFormalEvidencePublicKeysJson: current.reproFormalEvidencePublicKeysJson }
-      : {}),
   };
   let targetProfileWritten = false;
   let configWritten = false;

@@ -347,7 +347,6 @@ export function createSparkDaemonTaskExecutor(
           cwd: loopTask.cwd,
         });
       }
-      const presentationSessionId = sessionTask.sessionId;
       let projectedFailure = false;
       let terminalProjectionBundleOpen = false;
       let terminalProjectionClosing: Promise<void> | undefined;
@@ -365,10 +364,10 @@ export function createSparkDaemonTaskExecutor(
         emitEvent: (event) => {
           const projected = canonicalSessionFailureEvent(
             event,
-            presentationSessionId,
+            sessionTask.sessionId,
             context.invocationId,
           );
-          if (isProjectedSessionFailure(projected, presentationSessionId)) projectedFailure = true;
+          if (isProjectedSessionFailure(projected, sessionTask.sessionId)) projectedFailure = true;
           const opensTerminalBundle = opensTerminalProjectionBundle(projected);
           const closesTerminalBundle = closesTerminalProjectionBundle(projected);
           terminalProjectionBundleOpen ||= opensTerminalBundle;

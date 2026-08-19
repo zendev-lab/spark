@@ -4,13 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  stableId,
-  type ArtifactRef,
-  type RunRef,
-  type SparkHostLoopContext,
-  type TaskRef,
-} from "@zendev-lab/spark-core";
+import { stableId, type SparkHostLoopContext } from "@zendev-lab/spark-core";
 import {
   clearSessionGoal,
   loadSessionGoal,
@@ -20,8 +14,8 @@ import {
 import {
   sparkLoopConditionReceiptSchema,
   type SparkLoopConditionReceipt,
+  type SparkSessionReproWorkView,
 } from "@zendev-lab/spark-protocol";
-import { enqueueSparkReproWork } from "@zendev-lab/spark-repro";
 import sparkExtension from "@zendev-lab/spark-extension/extension";
 import { describe, expect, it, vi } from "vitest";
 
@@ -234,7 +228,7 @@ describe("zero-token capability sentinels", () => {
       expect(started.details).toMatchObject({
         status: "active",
         reproId: "capability-sentinel-repro",
-        lanes: 3,
+        progress: { accepted: 0, total: 5 },
       });
       expect(
         harness.loops.list({ loopId: "capability-sentinel-repro", includeTerminal: true }),
@@ -246,17 +240,17 @@ describe("zero-token capability sentinels", () => {
         status: "active",
         reproId: "capability-sentinel-repro",
       });
-      expect(text(status)).toContain("Contract");
+      expect(text(status)).toContain("implementation:running");
 
       const stopped = await harness.execute("repro", { action: "stop" });
       expect(stopped.isError).toBeUndefined();
-      expect(stopped.details).toMatchObject({ stopped: true });
+      expect(stopped.details).toMatchObject({ status: "stopped" });
       expect(
         harness.loops.list({ loopId: "capability-sentinel-repro", includeTerminal: true }),
       ).toEqual([]);
 
       const inactive = await harness.execute("repro", { action: "status" });
-      expect(inactive.details).toMatchObject({ active: false });
+      expect(inactive.details).toMatchObject({ status: "stopped" });
 
       expectInvocationCounts(harness.db, { tick: 0, evaluate: 0 });
       expectZeroTokenBudget(harness, { maxSurfaceCalls: 4, maxInvocations: 0 });
@@ -282,6 +276,7 @@ async function createHarness(): Promise<SentinelHarness> {
     loopStops: 0,
   };
   const sessionFile = join(dir, ".pi-sessions", "main.json");
+  let reproProjection: SparkSessionReproWorkView | undefined;
   const ctx: ToolContext = {
     cwd: dir,
     sessionId: `session:${stableId(sessionFile)}`,
@@ -304,6 +299,22 @@ async function createHarness(): Promise<SentinelHarness> {
     },
   };
   const host: TestHostApi = {
+    reproControl: {
+      async start(input) {
+        const next = sentinelReproProjection(input.reproId ?? "repro:sentinel", input.objective);
+        const changed = reproProjection === undefined;
+        reproProjection ??= next;
+        return { repro: reproProjection, changed };
+      },
+      async status() {
+        return { ...(reproProjection ? { repro: reproProjection } : {}) };
+      },
+      async stop() {
+        if (!reproProjection) throw new Error("no Repro is owned by this Session");
+        reproProjection = { ...reproProjection, status: "stopped" };
+        return { repro: reproProjection, changed: true };
+      },
+    },
     loopControl: {
       async start(input: Parameters<SparkLoopStore["start"]>[0]) {
         return loops.mutationResult(loops.start(input));
@@ -347,7 +358,6 @@ async function createHarness(): Promise<SentinelHarness> {
         throw new Error("capability sentinels use deterministic daemon receipts, not reviewers");
       },
     }),
-    launchReproThreeLaneRuntime: sentinelReproLaunch,
   };
   sparkExtension(host);
 
@@ -415,35 +425,38 @@ async function createHarness(): Promise<SentinelHarness> {
   return harness;
 }
 
-const sentinelReproLaunch: NonNullable<HostApi["launchReproThreeLaneRuntime"]> = async (input) => {
-  const workItemId = `work:sentinel:${input.repro.reproId}`;
-  const sourceRevision = "1111111111111111111111111111111111111111";
-  const enqueued = enqueueSparkReproWork(input.repro.threeLane, {
-    enqueue: {
-      schema: "spark.repro.work-enqueue/v1",
-      workItemId,
-      title: input.repro.goalContract.objective,
-      scope: input.repro.goalContract.objective,
-    },
-    sourceRevision,
-  });
+function sentinelReproProjection(reproId: string, objective: string): SparkSessionReproWorkView {
   const lane = (name: "implementation" | "exactness" | "formalize") => ({
-    artifactRef: `artifact:sentinel-${name}` as ArtifactRef,
-    taskRef: `task:sentinel-${name}` as TaskRef,
-    runRef: `run:sentinel-${name}` as RunRef,
-    sessionId: `sess_sentinel_${name}`,
+    sessionId: `session:repro-${name}`,
+    taskRef: `task:repro-${name}` as const,
+    roleRef: `role:repro-${name}` as const,
   });
   return {
-    repro: { ...input.repro, threeLane: enqueued.state },
-    workItemId,
-    sourceRevision,
+    version: 10 as const,
+    reproId,
+    status: "active" as const,
+    objective,
+    workItemId: `work:${reproId}`,
     lanes: {
       implementation: lane("implementation"),
       exactness: lane("exactness"),
       formalize: lane("formalize"),
     },
+    checkpoint: {
+      checkpointId: "checkpoint:implementation",
+      kind: "implementation" as const,
+      lane: "implementation" as const,
+      status: "running" as const,
+      sessionId: "session:repro-implementation",
+      taskRef: "task:repro-implementation" as const,
+      runRef: "run:repro-implementation" as const,
+      attempt: 1,
+      evidenceRefs: [],
+    },
+    progress: { accepted: 0, total: 5 as const },
+    updatedAt: "2099-01-01T00:00:00.000Z",
   };
-};
+}
 
 async function completeGoalLoopToPendingSettlement(
   harness: SentinelHarness,

@@ -1,59 +1,66 @@
-import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import type { EvidenceRef } from "@zendev-lab/spark-core";
-import type { SparkReproFormalEvidenceReceipt } from "@zendev-lab/spark-protocol/repro-formal-evidence";
-import { SparkReproFormalEvidenceReceiptStore } from "../../store/repro-formal-evidence.ts";
-import { getWorkspaceByPath } from "../../store/workspaces.ts";
+import { projectSparkReproV10 } from "../../repro-owner.ts";
+import { createDaemonSparkReproOwner } from "../../repro-owner-runtime.ts";
+import { getWorkspaceById } from "../../store/workspaces.ts";
+import { requireModelControl, requireSessionRegistry } from "../helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
-import type { LocalRpcServiceOutput, LocalRpcServiceRequest } from "../types.ts";
+import {
+  parseLocalRpcServiceOutput,
+  type LocalRpcServiceOutput,
+  type LocalRpcServiceRequest,
+} from "../types.ts";
 
-type ReproRequest = Extract<LocalRpcServiceRequest, { method: "repro.formal-evidence.record" }>;
+type ReproRequest = Extract<
+  LocalRpcServiceRequest,
+  { method: "repro.start" | "repro.status" | "repro.stop" }
+>;
 
 export async function handleReproRequest(
   ctx: LocalRpcDispatchContext,
   request: ReproRequest,
 ): Promise<LocalRpcServiceOutput<ReproRequest>> {
-  const verifier = ctx.options.reproFormalEvidenceVerifier;
-  if (!verifier) {
-    throw new Error("no registered daemon formal Evidence verifier is configured");
+  const sessionRegistry = requireSessionRegistry(ctx.options);
+  const ownerSession = await sessionRegistry.get(request.params.ownerSessionId);
+  if (!ownerSession || ownerSession.scope.kind !== "workspace") {
+    throw new Error("Repro owner must be a registered Workspace Session");
   }
-  const workspace = getWorkspaceByPath(ctx.db, request.params.workspaceCwd);
-  if (!workspace) {
-    throw new Error("formal Evidence workspace is not an exact registered daemon workspace");
+  const workspace = getWorkspaceById(ctx.db, ownerSession.scope.workspaceId);
+  if (!workspace || workspace.lifecycle) throw new Error("Repro Workspace is unavailable");
+  const owner = createDaemonSparkReproOwner({
+    paths: ctx.paths,
+    db: ctx.db,
+    workspace,
+    sessionRegistry,
+    ...(ctx.options.sessionSupervisor ? { sessionSupervisor: ctx.options.sessionSupervisor } : {}),
+    modelControl: requireModelControl(ctx.options),
+    ...(ctx.options.humanWaits ? { humanWaits: ctx.options.humanWaits } : {}),
+    ...(ctx.options.onInvocationQueued
+      ? { onInvocationQueued: ctx.options.onInvocationQueued }
+      : {}),
+  });
+  if (request.method === "repro.start") {
+    const started = await owner.start({
+      ownerSessionId: request.params.ownerSessionId,
+      objective: request.params.objective,
+      ...(request.params.reproId ? { reproId: request.params.reproId } : {}),
+    });
+    return parseLocalRpcServiceOutput(request.method, {
+      repro: projectSparkReproV10(started.repro),
+      changed: started.changed,
+    });
   }
-  if (request.params.candidate.workspaceCwd !== request.params.workspaceCwd) {
-    throw new Error("formal Evidence candidate workspace binding does not match request");
+  if (request.method === "repro.status") {
+    const repro = owner.status(request.params.ownerSessionId);
+    return parseLocalRpcServiceOutput(request.method, {
+      ...(repro ? { repro: projectSparkReproV10(repro) } : {}),
+    });
   }
-  const evidence = await defaultEvidenceStore(workspace.localPath).tryGet(
-    request.params.candidate.evidenceRef as EvidenceRef,
+  const before = owner.status(request.params.ownerSessionId);
+  const stopped = await owner.stop(
+    request.params.ownerSessionId,
+    request.params.reason ?? "Repro stopped by user",
   );
-  if (!evidence || evidence.hash !== request.params.candidate.evidenceHash) {
-    throw new Error("formal Evidence candidate does not match durable workspace Evidence");
-  }
-  if (
-    evidence.curation?.status === "superseded" ||
-    (evidence.curation?.supersededBy?.length ?? 0) > 0
-  ) {
-    throw new Error("formal Evidence candidate is superseded");
-  }
-
-  const verified = await verifier.verify(request.params.candidate, evidence.body);
-  if (verified.verdict !== "accepted") {
-    throw new Error("registered daemon formal Evidence verifier did not accept the candidate");
-  }
-  const receipt: SparkReproFormalEvidenceReceipt = {
-    schema: "spark.repro.formal-evidence-receipt/v1",
-    ...request.params.candidate,
-    workspaceCwd: workspace.localPath,
-    verifierId: verified.verifierId,
-    verifierVersion: verified.verifierVersion,
-    verdict: "accepted",
-    verifiedAt: verified.verifiedAt,
-    stale: false,
-    superseded: false,
-  };
-  const recorded = new SparkReproFormalEvidenceReceiptStore(ctx.db).record(
-    workspace.localPath,
-    receipt,
-  );
-  return { recorded: true, receipt: recorded };
+  return parseLocalRpcServiceOutput(request.method, {
+    repro: projectSparkReproV10(stopped),
+    changed: before?.status !== "stopped",
+  });
 }

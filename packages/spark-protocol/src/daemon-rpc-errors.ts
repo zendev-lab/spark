@@ -31,10 +31,6 @@ export const sparkLoopRpcErrorCodeOptions = [
   "loop_not_found",
   "loop_schedule_invalid",
   "loop_generation_conflict",
-  "workbench_binding_not_found",
-  "workbench_action_stale",
-  "workbench_action_untrusted",
-  "workbench_action_conflict",
 ] as const;
 
 export const sparkInvocationRpcErrorCodeOptions = [

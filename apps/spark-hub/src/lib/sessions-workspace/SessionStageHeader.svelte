@@ -39,7 +39,10 @@
   let objective = $derived(sessionWorkObjective(host.liveSessionView));
   let primaryLoop = $derived(primarySessionLoop(host.liveSessionView));
   let semanticStatus = $derived(sessionWorkStatus(host.liveSessionView));
-  let currentStep = $derived(host.liveSessionView?.work?.repro?.plan.currentStep?.goal);
+  let currentStep = $derived(
+    host.liveSessionView?.work?.repro?.checkpoint?.summary ??
+      host.liveSessionView?.work?.repro?.checkpoint?.kind,
+  );
   let modeLabel = $derived(
     host.liveSessionView?.work?.repro
       ? host.copy.reproMode

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeSparkA2uiDocument, sparkWorkbenchActionRequestSchema } from "./a2ui.ts";
+import { normalizeSparkA2uiDocument } from "./a2ui.ts";
 
 describe("A2UI v0.9.1 protocol", () => {
   it("normalizes official surface messages and applies JSON pointer updates", () => {
@@ -99,38 +99,5 @@ describe("A2UI v0.9.1 protocol", () => {
 
     expect(Object.keys(document.surfaces[0]!.components)).toHaveLength(500);
     expect(document.diagnostics).toEqual(["surface bounded: total component count capped at 500"]);
-  });
-
-  it("accepts only the closed Workbench action set and requires stop confirmation", () => {
-    const base = {
-      version: "v0.9.1",
-      action: {
-        name: "spark.loop.control",
-        surfaceId: "workbench",
-        sourceComponentId: "pause",
-        timestamp: "2026-08-04T00:00:00.000Z",
-        context: {
-          actionId: "pause",
-          artifactRef: "artifact:workbench",
-          revision: 2,
-          loopId: "loop-1",
-          generation: 4,
-          idempotencyKey: "action-1",
-        },
-      },
-    };
-    expect(sparkWorkbenchActionRequestSchema.safeParse(base).success).toBe(true);
-    expect(() =>
-      sparkWorkbenchActionRequestSchema.parse({
-        ...base,
-        action: { ...base.action, context: { ...base.action.context, actionId: "stop" } },
-      }),
-    ).toThrow("stop requires explicit confirmation");
-    expect(() =>
-      sparkWorkbenchActionRequestSchema.parse({
-        ...base,
-        action: { ...base.action, context: { ...base.action.context, actionId: "complete" } },
-      }),
-    ).toThrow();
   });
 });
