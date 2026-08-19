@@ -524,10 +524,7 @@ export class SparkInvocationScheduler {
           ? { detailKind: "loop_evaluator" }
           : {}),
       persistence: rootUsagePersistence,
-      sessionId:
-        task.type === "loop.tick" || task.type === "loop.evaluate"
-          ? task.ownerSessionId
-          : task.sessionId,
+      sessionId: task.sessionId,
     });
     const registerRootUsageExecution = (scope?: SparkReproUsageScope): void => {
       if (!this.tokenUsageStore || rootUsageExecution) return;
@@ -555,11 +552,7 @@ export class SparkInvocationScheduler {
           kind: observation.kind ?? "root_session",
           ...(observation.detailKind ? { detailKind: observation.detailKind } : {}),
           persistence: observation.persistence ?? rootUsagePersistence,
-          sessionId:
-            observation.sessionId ??
-            (task.type === "loop.tick" || task.type === "loop.evaluate"
-              ? task.ownerSessionId
-              : task.sessionId),
+          sessionId: observation.sessionId ?? task.sessionId,
           ...(observation.parentExecutionId
             ? { parentExecutionId: observation.parentExecutionId }
             : {}),
@@ -590,11 +583,7 @@ export class SparkInvocationScheduler {
               ? { detailKind: "loop_evaluator" }
               : {}),
         persistence: observation.persistence ?? rootUsagePersistence,
-        sessionId:
-          observation.sessionId ??
-          (task.type === "loop.tick" || task.type === "loop.evaluate"
-            ? task.ownerSessionId
-            : task.sessionId),
+        sessionId: observation.sessionId ?? task.sessionId,
         ...(observation.parentExecutionId
           ? { parentExecutionId: observation.parentExecutionId }
           : {}),

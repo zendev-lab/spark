@@ -75,6 +75,24 @@ test("TaskRun binding selects its Project without rewriting the child Session id
   assert.equal(ctx.sessionId, "session:lane");
 });
 
+test("Repro driver ticks reconcile through their explicit owner without rewriting the child Session", () => {
+  const ctx = {
+    cwd: "/workspace",
+    sessionId: "session:driver-tick",
+    loop: {
+      loopId: "repro:active",
+      binding: { reproId: "repro:active" },
+      generation: 1,
+      ownerSessionId: "session:root",
+      schedule: async () => undefined,
+      stop: async () => undefined,
+    },
+  };
+
+  assert.equal(reproOwnerContext(ctx).sessionId, "session:root");
+  assert.equal(ctx.sessionId, "session:driver-tick");
+});
+
 test("sparkSessionKey uses the native Pi session id before file or leaf fallbacks", () => {
   assert.equal(
     sparkSessionKey({
