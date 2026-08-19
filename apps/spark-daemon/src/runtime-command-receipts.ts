@@ -12,14 +12,14 @@ import {
 import { assertIdempotentTurnPayloadReplay } from "./session-control.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 
-export type RuntimeCommandReceiptClaim =
+type RuntimeCommandReceiptClaim =
   | { kind: "new"; claimToken: string }
   | { kind: "replay"; ack?: unknown; terminal?: unknown }
   | { kind: "conflict" };
 
-export const DEFAULT_RUNTIME_COMMAND_RECEIPT_LEASE_MS = 30_000;
+const DEFAULT_RUNTIME_COMMAND_RECEIPT_LEASE_MS = 30_000;
 
-export interface RuntimeCommandReceiptRoute {
+interface RuntimeCommandReceiptRoute {
   runtimeId: string;
   serverUrl: string | null;
 }

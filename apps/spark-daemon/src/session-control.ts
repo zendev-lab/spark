@@ -910,7 +910,10 @@ export function assertIdempotentTurnPayloadReplay(
   );
 }
 
-function requireSessionRegistry(options: SparkDaemonSessionControlOptions): DaemonSessionRegistry {
+/** Owner-side registry gate shared by every daemon control surface. */
+export function requireSessionRegistry(
+  options: Pick<SparkDaemonSessionControlOptions, "sessionRegistry">,
+): DaemonSessionRegistry {
   if (!options.sessionRegistry) {
     throw new SparkDaemonControlError(
       "session_registry_unavailable",

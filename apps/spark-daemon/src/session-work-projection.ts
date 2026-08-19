@@ -28,6 +28,8 @@ import {
 import { projectSparkReproLanesView } from "@zendev-lab/spark-repro/three-lane-projection";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 
+import { isRecord } from "./local-rpc/is-record.ts";
+
 export interface SparkSessionWorkProjectionDiagnostic {
   code:
     | "goal_state_unavailable"
@@ -359,8 +361,4 @@ function recordDiagnostic(
     return;
   }
   console.warn(`[spark-daemon] ${code}`, { domain, sessionId: input.sessionId });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

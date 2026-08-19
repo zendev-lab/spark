@@ -33,7 +33,7 @@ interface VerificationResult {
   evidenceRef?: `evidence:${string}`;
 }
 
-export interface DaemonLensPatchServiceOptions {
+interface DaemonLensPatchServiceOptions {
   store: DaemonLensPatchStore;
   verifyOverlay: (input: {
     overlayRoot: string;
@@ -204,7 +204,6 @@ export class DaemonLensPatchService {
       }
     }
     const record = { ...input, updatedAt: new Date().toISOString() };
-    this.#store.saveDisposition(workspaceRoot, record);
     return record;
   }
 }
