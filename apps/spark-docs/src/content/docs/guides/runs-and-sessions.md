@@ -48,7 +48,7 @@ List daemon sessions and attach from the same workspace:
 
 ```bash
 spark daemon session list --json
-spark tui --session-id <session-id>
+spark web
 ```
 
 Session identity preserves conversation and execution continuity. It does not
@@ -132,5 +132,5 @@ Notifications still persist without triggering target execution.
 
 - Use `spark run` for one foreground result.
 - Use `spark bg` when the shell should return after durable submission.
-- Use `spark` or `spark tui` for interactive exploration and steering.
+- Use `spark web` for interactive exploration and steering.
 - Use Hub Web to observe and control existing daemon work from the browser.

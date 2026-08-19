@@ -42,7 +42,7 @@ for interpreting this file.
 - Hub owns cross-workspace registry, delegation, delivery, idempotency, audit,
   and bounded receipts. It does not own target execution, repositories, local
   artifacts, or internal evidence.
-- TUI, the Hub Web UI, channels, ACP, RPC, and compatibility transports are
+- Local web, the Hub Web UI, channels, ACP, RPC, and compatibility transports are
   presentations or adapters. They must translate through owner APIs and must
   not infer execution state from prompts, transcript text, elapsed time, or
   frontend timers.
@@ -50,10 +50,9 @@ for interpreting this file.
   capabilities, runtimes, contracts, and foundations; lower layers must not
   import application internals or product-private adapters.
 - `packages/spark-extension` is the single Spark product composition root.
-  `packages/pi-spark` is the Pi product compatibility adapter and the only
-  `package.json#pi` owner. Retain the Pi SDK kernel behind Spark boundaries;
-  do not duplicate Spark composition or recreate a second Spark extension
-  implementation.
+  Retain the Pi SDK kernel behind Spark boundaries; do not duplicate Spark
+  composition, recreate a second Spark extension implementation, or add a
+  Spark-owned `package.json#pi` discovery path.
 - Cross-surface schemas and semantics belong in `spark-protocol`. Transports
   validate and translate them; they do not define competing behavior.
 - Public tools use canonical `tool({ action })` surfaces when actions share one

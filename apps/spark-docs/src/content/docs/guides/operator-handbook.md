@@ -10,8 +10,8 @@ also defines the checks to run before changing state when something goes wrong.
 
 - The **daemon** owns execution, sessions, invocations, workspace bindings, and
   recovery.
-- The **TUI** is the interactive terminal host. It presents daemon state and
-  sends user intent to the daemon.
+- The **local web workbench** is the interactive host. It presents daemon state
+  and sends user intent to the daemon.
 - **Hub Web** is the browser coordination and projection surface. It does not
   infer execution state from browser timers or transcript text.
 - Product artifacts are exactly Issues, Git changes, and Documents. A Git change
@@ -178,7 +178,7 @@ child needs an independent copy of the supervisor's stable transcript prefix.
 Run attach commands from the same canonical workspace:
 
 ```bash
-spark tui --session-id <session-id>
+spark web
 ```
 
 Hub Web lists the same daemon-owned session under Conversations. Creating a
@@ -224,27 +224,13 @@ unknown mutation or delivery outcome must fail closed rather than replay.
 
 ## 7. Exercise the product workflow
 
-Inside the TUI, use:
-
-```text
-/plan <goal>
-/execute [focus]
-/inspect
-/goal start <objective>
-/repro <objective>
-/workflow list
-/help commands
-```
-
-`/help` is rendered locally and is never submitted as an agent prompt. Bare
-slash controls enter their final surface directly, and normal selector or
-palette actions execute on one Enter. The TUI owns prompt history, transcript
-viewport scrolling, and idle double-Esc session navigation; use the [TUI
-guide](/guides/tui/) for the current keyboard contract.
+Describe the intended outcome in the [local web workbench](/guides/web/) or
+with `spark run`. Plan, implement, inspect, Goal, Repro, and Workflow remain
+daemon-owned operations; discover their CLI forms with `spark daemon --help`.
 
 Use these surfaces together:
 
-- **Conversations** and the TUI show daemon-owned sessions and turns.
+- **Conversations** and the local web workbench show daemon-owned sessions and turns.
 - **Inbox** shows inline questions and approvals without moving Ask into a
   global modal.
 - **Artifacts** contains only Issues, Git changes, and Documents.
@@ -253,16 +239,8 @@ Use these surfaces together:
 - Goal, Repro, Workflow, and background loops remain distinct; do not collapse
   scheduled, running, retry-waiting, dormant, blocked, and stopped states.
 
-Continue with [TUI](/guides/tui/), [runs and sessions](/guides/runs-and-sessions/),
+Continue with [local web](/guides/web/), [runs and sessions](/guides/runs-and-sessions/),
 [Hub Web](/guides/hub/), and [long-running work](/guides/automation/).
-
-### Renderer status
-
-Spark 0.2.0 keeps the Pi TUI kernel behind the private
-`SparkTerminalController`. OpenTUI is an isolated candidate, not a production
-dependency. A renderer change requires a separate architecture decision and
-evidence from the component, Direct PTY, packaged-product, and supported
-platform validation lanes.
 
 ## 8. Remote access
 

@@ -19,26 +19,14 @@ spark hub --help
 嵌套命令同样接受 `--help`。运行时 `--help` 由 Optique 解析器生成。Help 必须是
 只读的：它只描述所选命令，不能启动 daemon、Hub 或 workflow。
 
-在 TUI 中使用：
-
-```text
-/help
-/help commands
-/help all
-```
-
-`/help` 提供面向任务的说明，`/help commands` 展示 slash command，
-`/help all` 展示完整的当前 active 命令表面。归档文档保持对应版本的冻结状态；
-升级后应以当前运行时帮助为准。
-
 ## 命令命名空间
 
 | 表面 | 用途 | 发现方式 |
 | --- | --- | --- |
-| `spark` | 启动 TUI，或调用前台、后台、安装、诊断和版本工作流 | `spark --help` |
+| `spark` | 打印帮助，或调用前台、后台、安装、诊断和版本工作流 | `spark --help` |
+| `spark web` | 打开绑定 daemon 的本地回环浏览器工作台 | `spark web --help` |
 | `spark daemon` | 操作 daemon 拥有的执行、会话、工作区、模型、认证和 Channel 状态 | `spark daemon --help` |
 | `spark hub` | 运行和管理 Hub 协调与 Web 表面 | `spark hub --help` |
-| TUI slash command | 操作当前交互式 Session | `/help commands` |
 | ACP 与 MCP adapter | 通过配置好的 Spark adapter 连接兼容客户端 | 阅读[协作与客户端](/zh/guides/collaboration/) |
 
 daemon 拥有持久执行状态。顶层 dispatcher 与 Hub 命令只把用户意图翻译给对应
@@ -49,7 +37,7 @@ runtime，不维护并行的 Session 或执行状态。
 以下是有代表性的起点，不是穷举目录：
 
 ```bash
-# 打开交互式终端。
+# 打印分发器帮助。交互式工作请使用 spark web。
 spark
 
 # 前台运行，或排入持久后台任务。
@@ -66,45 +54,16 @@ spark daemon --help
 spark hub --help
 ```
 
-## Cue-first DSH Web
+## 本地 Web 工作台
 
-`spark web` 启动已安装的 DeepSeek Harness Web profile，目前只支持
-`@deepseek-ai/dsh@0.1.0-rc.7`。先用 `dsh web` 初始化一次 profile，再启动：
+`spark web` 启动本地单 workspace 浏览器工作台。它只绑定回环、需要一次性
+token，并通过 `spark-daemon-client` 连接 Spark daemon。Hub 仍是跨
+workspace 的浏览器界面。
 
 ```bash
 spark web
-spark web --host 0.0.0.0 --trusted-host workstation.example:3080
+spark web --port 4310 --no-open
 ```
-
-启动本身不要求 `PATH` 上存在 `dsh` CLI：Spark 直接以带 `--expose-internals`
-的 Node 子进程拉起 profile，裸插件名通过 Node 内部 ESM loader 解析，不依赖
-可选原生 addon（其平台绑定在 pnpm store-link 布局下会失效）。
-
-DSH 启动前，Spark 会校验已安装 package metadata 与锁定的 upstream preset
-摘要，把私有 Cue adapter 打包进 profile，并原子安装
-`$DSH_HOME/.agent-presets/{spark-standard,spark-code}`。两个 preset 都移除
-DSH Bash、Pwsh 和 Jobs 工具；Native 与 Code Mode 使用同一组 10 个 Cue
-工具。部署默认值是 `spark-standard`，但用户已有的
-`agent-presets.default` setting 仍优先。Upstream `standard` / `code` 仍可选，
-但不保证只通过 Cue 执行。
-
-只有当前 Session 权限解析为 `danger-full-access` 时才允许调用 Cue。这是有意的
-fail-closed 边界：`cued` 是外部进程，Spark 不声称 DSH 文件沙箱会约束它。前台
-timeout 只是等待预算，Cue job 会继续运行；使用 `cue_jobs` 检查或停止。
-
-使用 SSH Cue profile 时，在 `$DSH_HOME/profiles/web/cordis.patch.yml` 中显式
-挂载插件并配置远端路径：
-
-```yaml
-- insert:
-    - id: dsh-tool-cue
-      name: ./plugins/dsh-tool-cue/index.mjs
-      config:
-        remoteCwd: /absolute/path/on/remote
-```
-
-adapter 不会把本地 Session cwd 映射到 SSH，也不会自动启动远端 daemon。敏感环境
-变量默认过滤；只有完全信任目标时才显式配置 `forwardSensitiveEnv: true`。
 
 使用 `spark daemon auth --help` 和 `spark daemon model --help` 发现当前版本
 支持的认证与模型操作。复制、迁移或修复状态前，先阅读

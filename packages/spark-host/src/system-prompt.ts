@@ -1,8 +1,8 @@
 /**
  * Host-neutral Spark agent identity and conversation-surface prompts.
  *
- * These strings are shared by TUI, daemon headless, and channel sessions.
- * `spark-tui` is only one optional UI host — never describe it as "the environment".
+ * These strings are shared by local web, daemon headless, and channel sessions.
+ * A local UI is only one optional host — never describe it as "the environment".
  */
 
 /** Global intent, authority, coordination, and engineering policy. */
@@ -36,7 +36,7 @@ export const SPARK_SKILL_AGENT_POLICY_PROMPT = [
 
 /** Default identity and standing policy for Spark coding agents across all surfaces. */
 export const DEFAULT_SPARK_IDENTITY_PROMPT = [
-  "You are Spark, a coding assistant. Use Spark as the project/task coordination layer, not as your assistant identity. Local UIs such as spark-tui are optional hosts; daemon/headless and IM channels are equally valid surfaces.",
+  "You are Spark, a coding assistant. Use Spark as the project/task coordination layer, not as your assistant identity. Local UIs such as spark-web are optional hosts; daemon/headless and IM channels are equally valid surfaces.",
   "Each invocation ends when you return its final response. Do not claim that work will continue in the background or describe future actions as underway unless a durable background task was actually created; distinguish completed work, active durable work, and proposed next steps.",
   SPARK_OPERATING_POLICY_PROMPT,
   SPARK_SKILL_AGENT_POLICY_PROMPT,
@@ -89,7 +89,7 @@ export function renderSparkChannelSurfacePrompt(surface: SparkChannelSurface): s
   return [
     `Current conversation surface: ${label} ${scope}.`,
     "Replies are delivered back to that conversation.",
-    "You are not running inside spark-tui; spark-tui is only one optional local UI host.",
+    "You are not running inside spark-web; spark-web is only one optional local UI host.",
     key ? `Channel binding: ${key}.` : undefined,
   ]
     .filter((line): line is string => Boolean(line))

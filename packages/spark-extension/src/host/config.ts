@@ -10,7 +10,7 @@
  * Both lists are loaded by the same `loadPlugins(...)` helper in
  * `plugin-loader.ts`, but the runtime API surface they receive differs.
  *
- * The schema tracks `activeModelId` so the spark-tui boot path can re-select
+ * The schema tracks `activeModelId` so the native host boot path can re-select
  * the user's last picked Spark model without prompting. Deprecated
  * `activeProvider` / `activeModel` pairs are still read for migration.
  *

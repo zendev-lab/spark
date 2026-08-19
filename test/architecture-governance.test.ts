@@ -34,7 +34,7 @@ describe("architecture inventory governance", () => {
     expect(governance.validateArchitectureGovernance(inventory, manifests, rootManifest)).toEqual(
       [],
     );
-    expect(Object.keys(inventory.packages)).toHaveLength(44);
+    expect(Object.keys(inventory.packages)).toHaveLength(41);
     for (const packageInfo of Object.values(inventory.packages)) {
       expect(packageInfo).toHaveProperty("stateWriter");
       expect(packageInfo).not.toHaveProperty("stateAuthority");
@@ -85,7 +85,7 @@ describe("architecture inventory governance", () => {
         inventory,
         "application",
         "private-adapter",
-        "@zendev-lab/spark-tui",
+        "@zendev-lab/spark-cli",
       ).allowed,
     ).toBe(false);
   });
@@ -150,7 +150,7 @@ describe("architecture inventory governance", () => {
       dependencyCruiserConfig.forbidden.map(({ name }: NamedRule) => name),
     );
 
-    expect(generatedRules).toHaveLength(44);
+    expect(generatedRules).toHaveLength(41);
     for (const rule of generatedRules) expect(configuredRuleNames.has(rule.name)).toBe(true);
     expect(
       governance.classifyWorkspaceDependency(
@@ -304,15 +304,11 @@ describe("architecture inventory governance", () => {
     candidate.dependencies = {
       ...(candidate.dependencies ?? {}),
       "@earendil-works/pi-ai": "0.0.0-test",
-      "@earendil-works/pi-coding-agent": "0.0.0-test",
-      "@earendil-works/pi-tui": "0.0.0-test",
     };
     const result = governance.validatePiOwnership(inventory, candidateManifests, rootManifest);
-    expect(result.violations).toHaveLength(4);
+    expect(result.violations).toHaveLength(2);
     expect(result.violations.map(({ dependency }: PiViolation) => dependency)).toEqual([
       "@earendil-works/pi-ai",
-      "@earendil-works/pi-coding-agent",
-      "@earendil-works/pi-tui",
       "package.json#pi",
     ]);
 
@@ -323,18 +319,21 @@ describe("architecture inventory governance", () => {
       package: "root",
       kind: "product-manifest-owner",
       dependency: "package.json#pi",
-      expectedOwner: "@zendev-lab/pi-spark",
+      expectedOwner: null,
     });
 
     const splitManifests = structuredClone(manifests);
-    splitManifests["@zendev-lab/pi-spark"].pi = {
-      extensions: ["./src/extension.ts", "./src/extra.ts"],
+    splitManifests["@zendev-lab/spark-extension"].pi = {
+      extensions: ["./src/extension.ts"],
     };
     expect(
-      governance.validatePiOwnership(inventory, splitManifests, rootManifest).failures,
-    ).toEqual([
-      'Pi product manifest owner @zendev-lab/pi-spark must set pi.extensions to ["./src/extension.ts"]',
-    ]);
+      governance.validatePiOwnership(inventory, splitManifests, rootManifest).violations,
+    ).toContainEqual({
+      package: "@zendev-lab/spark-extension",
+      kind: "product-manifest-owner",
+      dependency: "package.json#pi",
+      expectedOwner: null,
+    });
   });
 
   test("emits a schema-valid health report with no unregistered regressions", () => {
@@ -349,9 +348,9 @@ describe("architecture inventory governance", () => {
     const compactMarkdown = governance.formatArchitectureHealthMarkdown(report);
 
     expect(validate(report), JSON.stringify(validate.errors)).toBe(true);
-    expect(report.inventory.workspaceCount).toBe(44);
+    expect(report.inventory.workspaceCount).toBe(41);
     expect(report.layerMatrix.missingDecisionCount).toBe(0);
-    expect(report.dependencies.edgeCount).toBe(190);
+    expect(report.dependencies.edgeCount).toBe(154);
     expect(report.dependencies.registeredExceptions).toHaveLength(exceptionCount);
     expect(report.temporaryDependencyExceptionBudget).toEqual({
       current: exceptionCount,
@@ -362,7 +361,7 @@ describe("architecture inventory governance", () => {
     expect(report.dependencies.stronglyConnectedComponents).toEqual([]);
     expect(report.compositionRoots.unexpected).toEqual([]);
     expect(report.piOwnership.violations).toEqual([]);
-    expect(Object.keys(report.workspaces)).toHaveLength(44);
+    expect(Object.keys(report.workspaces)).toHaveLength(41);
     expect(report.workspaces["@zendev-lab/spark-daemon"].stateWriter).toBe("daemon");
     expect(report.workspaces["@zendev-lab/spark-web"].layer).toBe("application");
     expect(report.workspaces["@zendev-lab/spark-tool-web"].layer).toBe("capability");

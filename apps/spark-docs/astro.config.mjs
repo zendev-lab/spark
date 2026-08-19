@@ -17,7 +17,7 @@ export default defineConfig({
         "zh-CN": "Spark 文档",
       },
       description:
-        "Install, operate, and understand Spark across its CLI, TUI, daemon, and Hub surfaces.",
+        "Install, operate, and understand Spark across its CLI, local web workbench, daemon, and Hub surfaces.",
       tagline: "User documentation for the Spark coding-agent suite.",
       favicon: "/spark.svg",
       editLink: {
@@ -95,9 +95,9 @@ export default defineConfig({
           translations: { zh: "使用 Spark" },
           items: [
             {
-              label: "TUI",
-              translations: { zh: "TUI" },
-              link: "/guides/tui/",
+              label: "Local web",
+              translations: { zh: "本地 Web" },
+              link: "/guides/web/",
             },
             {
               label: "Runs and sessions",

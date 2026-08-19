@@ -71,10 +71,8 @@ the predecessor stays in the catalog for explicit opt-in.
 serves `Claude Opus 4.6` and replies 503 to every request shape; its actual
 Claude rows are `Opus 5`, `Opus 4.8`, `Claude Sonnet 5/4.6`, `Claude Haiku 4.5`.
 
-The Pi compatibility profile in `@zendev-lab/pi-spark` loads this same native
-provider. Both Spark-native hosts and the Pi product loader share the model
-catalog, payload rewrites, normalization, and bounded retry behavior from
-`baidu-oneapi.ts`.
+Spark-native hosts load this same native provider. The model catalog, payload
+rewrites, normalization, and bounded retry behavior live in `baidu-oneapi.ts`.
 
 Claude and DeepSeek V4 Flash use Anthropic Messages. GPT-5.6, Grok 4.5, and
 Grok 4.6 use OpenAI Responses. DeepSeek must stay on Anthropic Messages: the

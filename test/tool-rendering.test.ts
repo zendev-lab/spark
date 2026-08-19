@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
-import { visibleWidth } from "@zendev-lab/spark-tui-adapter/text";
+import { visibleWidth } from "@zendev-lab/spark-text";
 
 import piAskExtension from "@zendev-lab/spark-ask/extension";
 import { registerSparkCueTools } from "@zendev-lab/spark-cue";
@@ -187,7 +187,7 @@ test("standalone Pi ask, cue, and role tools render parameter-aware tool calls",
     "cue_exec",
     {
       command:
-        "pnpm exec node -e \"import('@zendev-lab/spark-tui-adapter/text').then(m=>console.log(m.visibleWidth('你好'))).catch(e=>{console.error(e);process.exit(1)})\"",
+        "pnpm exec node -e \"import('@zendev-lab/spark-text').then(m=>console.log(m.visibleWidth('你好'))).catch(e=>{console.error(e);process.exit(1)})\"",
       cwd: "/workspace/spark",
     },
     80,

@@ -9,7 +9,6 @@ that pins this package and the executable apps.
 
 ```sh
 spark
-spark tui "initial Spark goal"
 spark web
 spark run --wait --json "headless Spark prompt"
 spark daemon auth import pi --json
@@ -19,9 +18,9 @@ spark daemon workspace ls --json
 spark --help
 ```
 
-The dispatcher does not own terminal rendering, daemon execution, provider/model state, or host runtime code. It only routes:
+The dispatcher does not own browser rendering, daemon execution, provider/model state, or host runtime code. It only routes:
 
-- `spark` and `spark tui ...` to the interactive Spark TUI surface.
+- `spark` to this help text.
 - `spark web ...` to the local loopback browser workbench.
 - `spark run ...` and `spark bg ...` to daemon-native headless execution.
 - `spark daemon ...` to daemon execution, authentication, model, session, and
@@ -32,10 +31,10 @@ The dispatcher does not own terminal rendering, daemon execution, provider/model
 Spark 0.2 rejects the former Pi-style `--print`, `--mode`, `--list-models`,
 root session aliases, and resource-management commands. Provider authentication
 is under `spark daemon auth`; `spark daemon login` remains machine connectivity
-for daemon/Hub.
+for daemon/Hub. The former `spark tui` surface has been removed.
 
-Unknown subcommands fail loudly and suggest `spark tui ...` for prompt text. The
-dispatcher has no direct implementation dependency on companion app CLIs. A
-generated complete installation injects exact daemon, TUI, Hub, and web app
-entrypoints; source checkouts use adjacent executables and standalone installs
-may resolve canonical `spark-*` commands from `PATH`.
+Unknown subcommands fail loudly. The dispatcher has no direct implementation
+dependency on companion app CLIs. A generated complete installation injects
+exact daemon, Hub, and web app entrypoints; source checkouts use adjacent
+executables and standalone installs may resolve canonical `spark-*` commands
+from `PATH`.

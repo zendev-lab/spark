@@ -132,11 +132,7 @@
               "$ref": "#/$defs/packageName"
             },
             "dependency": {
-              "enum": [
-                "@earendil-works/pi-ai",
-                "@earendil-works/pi-tui",
-                "@earendil-works/pi-coding-agent"
-              ]
+              "enum": ["@earendil-works/pi-ai"]
             },
             "reason": true,
             "owner": true,
@@ -239,7 +235,14 @@
       ],
       "properties": {
         "productManifestOwner": {
-          "$ref": "#/$defs/packageName"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/packageName"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "temporaryProductManifestExceptions": {
           "type": "array",
@@ -249,7 +252,7 @@
         },
         "sdkDependencies": {
           "type": "array",
-          "minItems": 3,
+          "minItems": 1,
           "uniqueItems": true,
           "items": {
             "type": "object",
@@ -257,11 +260,7 @@
             "required": ["dependency", "owner"],
             "properties": {
               "dependency": {
-                "enum": [
-                  "@earendil-works/pi-ai",
-                  "@earendil-works/pi-tui",
-                  "@earendil-works/pi-coding-agent"
-                ]
+                "enum": ["@earendil-works/pi-ai"]
               },
               "owner": {
                 "$ref": "#/$defs/packageName"

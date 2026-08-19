@@ -12,7 +12,7 @@ capabilities, not the product taxonomy.
 | You use | What it is for | State owner |
 | --- | --- | --- |
 | `spark` CLI | Install, dispatch, script, diagnose, and open another surface | Dispatcher only |
-| TUI | Describe work, steer one session, and inspect its local projection | Terminal presentation |
+| Local web | Describe work, steer one session, and inspect its local projection | Browser presentation |
 | Daemon | Keep sessions and work running after a frontend disconnects | Execution truth |
 | Hub | Supervise workspaces and conversations from the browser | Web presentation and coordination |
 | ACP | Connect compatible editor clients to daemon-owned sessions | Adapter only |
@@ -20,7 +20,7 @@ capabilities, not the product taxonomy.
 
 The complete installation meta package is `@zendev-lab/spark`; it pins the
 lockstep packages but contains no dispatcher implementation.
-`@zendev-lab/spark-cli` owns the real `spark` command. Daemon, TUI, and Hub are
+`@zendev-lab/spark-cli` owns the real `spark` command. Daemon, Hub, and local web are
 also independently installable app packages. Other source workspaces are private
 implementation boundaries rather than supported products. See
 [surfaces and ownership](/concepts/surfaces/) and the [CLI reference](/reference/cli/).
@@ -29,11 +29,10 @@ For contributors, the source topology stays compact by family:
 
 | Source family | Responsibility |
 | --- | --- |
-| `apps/spark-cli`, `spark-tui`, `spark-daemon`, `apps/spark-hub` | Executable dispatcher and presentation/runtime hosts |
+| `apps/spark-cli`, `spark-daemon`, `apps/spark-web`, `apps/spark-hub` | Executable dispatcher and presentation/runtime hosts |
 | `packages/spark-extension`, `spark-daemon-client` | Product composition and the shared daemon client boundary |
-| `packages/pi-spark` | Minimal Pi adapter for additive tools such as Cue; no Spark driver, Goal, or Repro |
 | Capability/runtime `packages/spark-*` | Files, Web, tasks, artifacts, memory, workflows, modes, roles, sessions, and other reusable behavior |
-| `spark-protocol`, `spark-core`, `spark-runtime`, `spark-system`, `spark-tui-adapter` | Cross-surface contracts and dependency-light foundations |
+| `spark-protocol`, `spark-core`, `spark-runtime`, `spark-system`, `spark-text` | Cross-surface contracts and dependency-light foundations |
 | `packages/spark-hub-*` | Hub-private database, coordination, and localization implementation |
 
 Contributors can inspect `.agents/notes/contracts/package-architecture.md` for dependency
@@ -44,22 +43,22 @@ inventory. Ordinary users do not need to learn individual workspace packages.
 
 The daemon owns durable sessions, queued and running work, event streams,
 recovery, workspace binding, channel listeners, and autonomous continuation.
-Foreground runs, background submissions, TUI prompts, and Hub Web messages all
+Foreground runs, background submissions, local web prompts, and Hub Web messages all
 reach this same execution owner.
 
 Use `spark doctor` and `spark daemon status --json` for health. Use
 [runs and sessions](/guides/runs-and-sessions/) for foreground, background,
 attach, resume, and cancellation.
 
-## 2. Interactive design: Hub Web and TUI
+## 2. Interactive design: Hub Web and local web
 
-- Use the [TUI](/guides/tui/) for fast local conversation, Plan/Implement,
-  steering, model selection, and the current session inspector.
+- Use the [local web workbench](/guides/web/) for fast local conversation,
+  steering, and the current session inspector.
 - Use [Hub Web](/guides/hub/) for workspace overview, conversations,
   Inbox, artifacts, resources, and cross-daemon supervision.
 - Use the CLI when you already know the operation and want a scriptable result.
 
-The TUI's `/inspect` panel is local to the current session. `spark hub`
+The workbench session page is local to the current session. `spark hub`
 opens the separate browser control surface.
 
 ## 3. Base agent tools

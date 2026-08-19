@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sparkNativeTuiStrings, sparkTuiCliStrings } from "./cli";
-import { sparkCliDispatcherStrings } from "./dispatcher";
+import { sparkCliDispatcherStrings, sparkDaemonCliStrings } from "./cli";
 import {
   defaultLocale,
   detectSparkLanguage,
@@ -90,64 +89,21 @@ describe("spark-i18n messages and formatting", () => {
   });
 });
 
-describe("CLI/TUI strings", () => {
+describe("CLI strings", () => {
   it("exposes entry strings from the shared package", () => {
     const dispatcher = sparkCliDispatcherStrings();
     expect(dispatcher.helpText).toContain("spark - Spark command dispatcher");
     expect(dispatcher.helpText).toContain("spark-hub");
     expect(dispatcher.helpText).toContain("spark hub [command]");
     expect(dispatcher.helpText).not.toContain("spark cockpit");
+    expect(dispatcher.helpText).toContain("spark web");
     expect(sparkCliDispatcherStrings("zh").unknownSubcommand("foo", ["foo"])).toContain(
       "未知 spark 子命令",
     );
-    expect(sparkTuiCliStrings().helpText).toContain("spark-tui - Spark terminal UI");
-    expect(sparkTuiCliStrings().helpText).toContain("spark run [--json] <prompt>");
-    expect(sparkTuiCliStrings().helpText).toContain("spark daemon session list --json");
-    expect(sparkTuiCliStrings().helpText).toContain("--session-id <session-id>");
-    expect(sparkTuiCliStrings().helpText).toContain("workspace-bound");
-    expect(sparkTuiCliStrings("zh").noModelsRegistered).toContain("尚未注册 Spark 模型");
-    const commandHelpInput = {
-      mode: "commands" as const,
-      groups: [
-        {
-          id: "common" as const,
-          commands: [{ name: "plan", description: "Plan verifiable work" }],
-        },
-        {
-          id: "automation" as const,
-          commands: [{ name: "goal", description: "Continue until done" }],
-        },
-      ],
-      registeredCount: 2,
-      hiddenAliasCount: 1,
-    };
-    expect(sparkNativeTuiStrings().commandHelp(commandHelpInput)).toContain("Common");
-    expect(sparkNativeTuiStrings().commandHelp(commandHelpInput)).toContain("Automation");
-    expect(sparkNativeTuiStrings().commandHelp(commandHelpInput)).toContain(
-      "1 compatibility alias hidden",
-    );
-    expect(sparkNativeTuiStrings("zh").commandHelp(commandHelpInput)).toContain("常用");
-    expect(sparkNativeTuiStrings("zh").commandHelp(commandHelpInput)).toContain("自动推进");
-    expect(sparkNativeTuiStrings("zh").emptyCommand).toContain("空命令");
-    expect(
-      sparkNativeTuiStrings().statusLine({
-        session: "demo",
-        model: "openai-codex/gpt-5.4",
-        thinkingLevel: "high",
-        state: "running",
-        queue: { steer: 1, followUp: 2 },
-      }),
-    ).toBe(
-      "session demo • model openai-codex/gpt-5.4 • thinking high • state running • queue steer=1 follow-up=2",
-    );
-    expect(
-      sparkNativeTuiStrings("zh").statusLine({
-        session: "示例",
-        state: "timed-out",
-        queue: { steer: 1, followUp: 0 },
-      }),
-    ).toBe("会话 示例 • 状态 已超时 • 队列 引导=1 下一轮=0");
-    expect(sparkNativeTuiStrings("zh").busyFooter(true)).toContain("Alt+Up 恢复本地队列");
-    expect(sparkNativeTuiStrings("zh").queuedInput("steer", 1)).not.toMatch(/turn|queued input/u);
+    const daemon = sparkDaemonCliStrings();
+    expect(daemon.helpText).toContain("spark daemon - daemon execution plane");
+    expect(daemon.helpText).toContain("spark daemon submit");
+    expect(daemon.displayName.interactive).toBe("Spark local web");
+    expect(sparkDaemonCliStrings("zh").submitRequiresSession).toContain("需要 --session");
   });
 });

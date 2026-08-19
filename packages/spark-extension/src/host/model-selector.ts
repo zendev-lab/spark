@@ -1,12 +1,10 @@
 /**
- * Spark model selector — host-side state and keybinding glue for the native
- * spark-cli pi-tui host.
+ * Spark model selector — host-side state and keybinding glue.
  *
  * This module intentionally keeps UI rendering at arm's length. It owns the
  * model-id selection rules, persistence into SparkConfig, and concrete
- * keybinding handlers. Provider/route remains internal routing detail. The
- * pi-tui SelectList wrapper lives in `../tui/model-selector.ts` and can be
- * injected through `picker` when the real boot path wires Ctrl+L.
+ * keybinding handlers. Provider/route remains internal routing detail. A host
+ * can inject a picker through `picker` when wiring Ctrl+L.
  */
 
 import { resolveSparkEnabledModelIds } from "@zendev-lab/spark-llm/control";
@@ -79,7 +77,7 @@ export interface SparkModelSelectorOptions {
   config?: SparkConfig;
   loadConfig?: SparkConfigLoader;
   saveConfig?: SparkConfigSaver;
-  /** UI picker hook, typically backed by apps/spark-tui/src/tui/model-selector.ts. */
+  /** UI picker hook for the host's model selector surface. */
   picker?: SparkModelPicker;
 }
 

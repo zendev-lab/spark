@@ -61,46 +61,29 @@
         "owner": "sessions",
         "exitTask": "task:6a9bde44-5cfe-4e78-9a0e-ead159701b55",
         "nonGrowth": true
-      },
-      {
-        "from": "@zendev-lab/spark-ask",
-        "to": "@zendev-lab/spark-tui-adapter",
-        "toLayer": "adapter",
-        "reason": "Ask rendering still imports TUI primitives until the presentation port is inverted.",
-        "owner": "interaction",
-        "exitTask": "task:8eccaf5a-cb45-4993-8268-9e2aba1987a2",
-        "nonGrowth": true
       }
     ],
     "temporaryDependencyExceptionBudget": {
-      "current": 4,
-      "ceiling": 4,
+      "current": 3,
+      "ceiling": 3,
       "nonGrowth": true
     },
     "piOwnership": {
-      "productManifestOwner": "@zendev-lab/pi-spark",
+      "productManifestOwner": null,
       "temporaryProductManifestExceptions": [],
       "sdkDependencies": [
         {
           "dependency": "@earendil-works/pi-ai",
           "owner": "@zendev-lab/spark-llm"
-        },
-        {
-          "dependency": "@earendil-works/pi-tui",
-          "owner": "@zendev-lab/spark-tui-adapter"
-        },
-        {
-          "dependency": "@earendil-works/pi-coding-agent",
-          "owner": "@zendev-lab/pi-spark"
         }
       ],
       "temporaryDependencyExceptions": []
     },
     "packageBudget": {
-      "current": 44,
-      "ceiling": 44,
+      "current": 41,
+      "ceiling": 41,
       "nonGrowth": true,
-      "reason": "apps/spark-web remains after retiring spark-web-dsh. Later retirement of spark-tui, spark-tui-adapter, and pi-spark is expected to net-reduce the inventory."
+      "reason": "Retired spark-tui, spark-tui-adapter, and pi-spark after the local spark-web workbench became the interactive surface."
     },
     "compositionRoots": ["@zendev-lab/spark-extension"]
   },
@@ -109,14 +92,6 @@
       "path": "packages/dsh-tool-cue",
       "layer": "adapter",
       "owner": "execution-adapters",
-      "stability": "internal",
-      "stateWriter": "none",
-      "distribution": "private"
-    },
-    "@zendev-lab/pi-spark": {
-      "path": "packages/pi-spark",
-      "layer": "application",
-      "owner": "pi-compatibility",
       "stability": "internal",
       "stateWriter": "none",
       "distribution": "private"
@@ -372,21 +347,6 @@
       "owner": "web",
       "stability": "supported",
       "stateWriter": "user"
-    },
-    "@zendev-lab/spark-tui": {
-      "path": "apps/spark-tui",
-      "layer": "application",
-      "owner": "tui",
-      "stability": "supported",
-      "stateWriter": "host",
-      "distribution": "public-npm"
-    },
-    "@zendev-lab/spark-tui-adapter": {
-      "path": "packages/spark-tui-adapter",
-      "layer": "adapter",
-      "owner": "presentation",
-      "stability": "supported",
-      "stateWriter": "none"
     },
     "@zendev-lab/spark-turn": {
       "path": "packages/spark-turn",

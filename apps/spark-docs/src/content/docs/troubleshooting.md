@@ -1,14 +1,15 @@
 ---
 title: Troubleshooting
-description: Diagnose TUI, daemon, session, path, and Hub failures in the right order.
+description: Diagnose local web, daemon, session, path, and Hub failures in the right order.
 ---
 
-## The TUI says it needs an interactive terminal
+## `spark tui` reports that the TUI was removed
 
-`spark` and `spark tui` require TTY stdin and stdout. For scripts or redirected
-output, use a headless surface:
+The terminal UI is no longer shipped. Use the local workbench or a headless
+surface:
 
 ```bash
+spark web
 spark run --json "Inspect the repository."
 ```
 
@@ -32,7 +33,7 @@ create the session, then retry:
 
 ```bash
 spark daemon session list --json
-spark tui --session-id <session-id>
+spark web
 ```
 
 ## Spark is reading unexpected configuration
@@ -77,39 +78,3 @@ browser-key scope independently.
 Do not assume a timeout means nothing was sent. Spark fails closed when an
 external delivery outcome is uncertain. Retry only when the recorded result
 proves the work was not sent or the provider supplies a deduplicated identity.
-
-## `spark web` stops before DSH starts
-
-The Cue adapter deliberately fails before writing a bundle or preset when the
-installed DSH package is not exactly `0.1.0-rc.7` or its shipped preset sources
-do not match the pinned digest. Install the supported DSH version; do not edit
-its shipped preset directory.
-
-Spark also refuses to overwrite an unmarked `spark-standard` or `spark-code`
-directory, or a managed directory whose files changed after installation. Move
-the conflicting directory to a different preset id, then retry. Spark never
-silently replaces user edits.
-
-If a Cue call says it requires `danger-full-access`, change the current DSH
-session policy before retrying. Approval is not offered by this adapter because
-the external daemon is outside DSH's file sandbox.
-
-For SSH, configure an explicit `remoteCwd` and start `cued` on the remote host.
-A local cwd is never reused remotely and only a local unreachable daemon may be
-auto-started. Connection/protocol errors are infrastructure failures; a failed
-or cancelled job is instead returned as a structured Cue result.
-
-## `spark web` prints a loader failure chain
-
-When the DSH plugin tree fails to load, Spark prints the whole
-AggregateError/cause chain as indented `spark web:` lines. Read the innermost
-lines, not the top-line summary: each names the failing loader entry and the
-underlying cause (for example a package that cannot be found from the
-profile). Fix the named entry — a stale plugin link or a profile edited by
-hand — rather than retrying blindly.
-
-Spark boots the profile with Node's `--expose-internals` so bare plugin
-specifiers resolve through Node's internal ESM loader; the loader's optional
-native addon is not required. If you bypass `spark web` and spawn the
-generated boot script yourself, keep that flag — without it, every
-bare-package entry fails at once inside one AggregateError.

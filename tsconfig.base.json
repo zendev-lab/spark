@@ -16,8 +16,6 @@
     "rootDir": ".",
     "ignoreDeprecations": "6.0",
     "paths": {
-      "@zendev-lab/pi-spark": ["./packages/pi-spark/src/extension.ts"],
-      "@zendev-lab/pi-spark/extension": ["./packages/pi-spark/src/extension.ts"],
       "@zendev-lab/spark-artifacts": ["./packages/spark-artifacts/src/index.ts"],
       "@zendev-lab/spark-artifacts/extension": ["./packages/spark-artifacts/src/extension.ts"],
       "@zendev-lab/spark-artifacts/daemon-extension": [
@@ -124,11 +122,7 @@
         "./packages/spark-extension/src/host-support.ts"
       ],
       "@zendev-lab/spark-extension/llm-runtime": ["./packages/spark-extension/src/llm-runtime.ts"],
-      "@zendev-lab/spark-roles/reviewer-runner": ["./packages/spark-roles/src/reviewer-runner.ts"],
-      "@zendev-lab/spark-tui-adapter": ["./packages/spark-tui-adapter/src/index.ts"],
-      "@zendev-lab/spark-tui-adapter/input": ["./packages/spark-tui-adapter/src/input.ts"],
-      "@zendev-lab/spark-tui-adapter/pi-tui": ["./packages/spark-tui-adapter/src/pi-tui.ts"],
-      "@zendev-lab/spark-tui-adapter/text": ["./packages/spark-tui-adapter/src/text.ts"]
+      "@zendev-lab/spark-roles/reviewer-runner": ["./packages/spark-roles/src/reviewer-runner.ts"]
     },
     "lib": ["ES2024", "DOM", "DOM.Iterable"]
   }

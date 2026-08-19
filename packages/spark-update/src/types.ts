@@ -7,7 +7,6 @@ export type SparkDistributionPackageName =
   | "@zendev-lab/spark-cli"
   | "@zendev-lab/spark-daemon"
   | "@zendev-lab/spark-hub"
-  | "@zendev-lab/spark-tui"
   | "@zendev-lab/spark-web";
 export type SparkInstallMethod =
   | "managed"

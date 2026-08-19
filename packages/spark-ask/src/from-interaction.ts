@@ -1,9 +1,9 @@
-/** Ask-flow normalization for native TUI interaction presentation. */
-
-import type { SparkAskFlowRequest, SparkAskFlowResult } from "@zendev-lab/spark-ask";
 import type { SparkInteractionRequest, SparkJsonObject } from "@zendev-lab/spark-protocol";
 
-export function nativeAskFlowRequest(
+import type { SparkAskFlowRequest, SparkAskFlowResult } from "./schema.ts";
+
+/** Map a protocol askFlow interaction onto the ask overlay request contract. */
+export function askFlowRequestFromInteraction(
   request: Extract<SparkInteractionRequest, { kind: "askFlow" }>,
 ): SparkAskFlowRequest {
   return {
@@ -41,7 +41,7 @@ export function nativeAskFlowRequest(
   };
 }
 
-export function nativeAskAnswers(result: SparkAskFlowResult): SparkJsonObject {
+export function askFlowAnswersFromResult(result: SparkAskFlowResult): SparkJsonObject {
   return Object.fromEntries(
     Object.entries(result.answers).map(([questionId, answer]) => [
       questionId,
@@ -54,9 +54,4 @@ export function nativeAskAnswers(result: SparkAskFlowResult): SparkJsonObject {
       },
     ]),
   );
-}
-
-export function nativeAskLanguage(): "zh" | "en" {
-  const locale = `${process.env.LC_ALL ?? ""} ${process.env.LC_MESSAGES ?? ""} ${process.env.LANG ?? ""}`;
-  return /(?:^|[._\s-])zh(?:[._\s-]|$)/iu.test(locale) ? "zh" : "en";
 }

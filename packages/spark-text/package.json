@@ -2,7 +2,7 @@
   "name": "@zendev-lab/spark-text",
   "version": "0.4.0",
   "private": true,
-  "description": "Spark-owned text layout helpers decoupled from spark-tui presentation.",
+  "description": "Spark-owned text layout helpers decoupled from presentation hosts.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [

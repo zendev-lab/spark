@@ -1,12 +1,12 @@
 /**
- * SparkHostRuntime — the native spark-tui implementation of the
+ * SparkHostRuntime — the native Spark implementation of the
  * `spark-core` SparkHostAPI surface.
  *
  * This file owns the *contract surface* exposed to extensions plus the minimum
  * internal plumbing needed to make the existing 5 retained extensions
  * (`spark`, `spark-cue`, `spark-graft`, `spark-roles`, `spark-ask`) load and run without
  * crashing. Wiring it into a real agent turn loop, model selector, session
- * store, and TUI rendering is split into follow-up tasks
+ * store, and presentation is split into follow-up tasks
  * (`agent-turn-loop`, `model-selector-ui`, `session-format-and-store`,
  * `tool-and-thinking-rendering`); this skeleton intentionally keeps those
  * surfaces minimal:
@@ -400,7 +400,7 @@ export class SparkHostRuntime implements SparkHostAPI {
   // ── Host-only surface ───────────────────────────────────────────────────
 
   /**
-   * Plug a real UI transport (typically the spark-cli pi-tui shell) into the
+   * Plug a real UI transport (typically the local spark-web workbench) into the
    * runtime after construction. Until this is called, all UI calls are
    * no-ops; extensions using optional chaining (`ctx.ui?.notify?.(...)`)
    * remain safe.

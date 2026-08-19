@@ -47,7 +47,7 @@ spark daemon invocation cancel <invocation-id> --reason "不再需要" --json
 
 ```bash
 spark daemon session list --json
-spark tui --session-id <session-id>
+spark web
 ```
 
 会话标识会保留对话与执行连续性，但不会绕过 workspace 绑定或权限检查。
@@ -122,5 +122,5 @@ Notification 仍然只做持久化，不会触发目标执行。
 
 - 只要一个前台结果时使用 `spark run`。
 - 希望 shell 在持久提交后立即返回时使用 `spark bg`。
-- 需要交互探索与 steering 时使用 `spark` 或 `spark tui`。
+- 需要交互探索与 steering 时使用 `spark web`。
 - 需要从浏览器观察和控制现有 daemon 工作时使用 Hub Web。

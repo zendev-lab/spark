@@ -15,7 +15,7 @@ export const npmDistributions = [
     id: "spark",
     packageName: "@zendev-lab/spark",
     description:
-      "Complete Spark installation metadata that pins the CLI, daemon, TUI, Hub, and web apps.",
+      "Complete Spark installation metadata that pins the CLI, daemon, Hub, and web apps.",
     directory: resolve(productsDirectory, "spark"),
     assetName: `spark-v${releaseVersion}.tgz`,
     manifestName: "release-manifest.json",
@@ -26,7 +26,6 @@ export const npmDistributions = [
       "@zendev-lab/spark-cli",
       "@zendev-lab/spark-daemon",
       "@zendev-lab/spark-hub",
-      "@zendev-lab/spark-tui",
       "@zendev-lab/spark-web",
     ],
     exports: {},
@@ -44,7 +43,6 @@ export const npmDistributions = [
       "spark-daemon": "spark-daemon-companion.js",
       "spark-hub": "spark-hub-companion.js",
       "spark-mcp": "spark-mcp.js",
-      "spark-tui": "spark-tui-companion.js",
       "spark-web": "spark-web-companion.js",
       "spark-update": "spark-update.js",
       "spark-web": "spark-web.js",
@@ -60,7 +58,6 @@ export const npmDistributions = [
     exactDependencies: [
       "@zendev-lab/spark-daemon",
       "@zendev-lab/spark-hub",
-      "@zendev-lab/spark-tui",
       "@zendev-lab/spark-web",
     ],
     exports: {
@@ -93,30 +90,6 @@ export const npmDistributions = [
     },
     skills: true,
     migrationSource: resolve(root, "apps/spark-daemon/dist/migrations"),
-  },
-  {
-    id: "tui",
-    packageName: "@zendev-lab/spark-tui",
-    description: "Spark native terminal application.",
-    directory: resolve(productsDirectory, "tui"),
-    assetName: `spark-tui-v${releaseVersion}.tgz`,
-    manifestName: "tui-release-manifest.json",
-    bins: { "spark-tui": "spark-tui-entry.js" },
-    bundles: {
-      "spark-tui-entry.js": "apps/spark-tui/src/cli-entry.ts",
-      "spark-tui-worker.js": "apps/spark-tui/src/cli.ts",
-    },
-    modules: {
-      "spark-headless-role-executor.js":
-        'export * from "@zendev-lab/spark-daemon/headless-role-executor";',
-    },
-    files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
-    exactDependencies: ["@zendev-lab/spark-daemon"],
-    exports: {
-      "./executable": "./bin/spark-tui",
-      "./headless-role-executor": "./dist/spark-headless-role-executor.js",
-    },
-    skills: true,
   },
   {
     id: "hub",

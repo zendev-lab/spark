@@ -21,27 +21,14 @@ Nested commands accept `--help` as well. Runtime `--help` is generated from
 Optique parsers. Help is read-only: it must describe the selected command
 without starting a daemon, Hub, or workflow.
 
-Inside the TUI, use:
-
-```text
-/help
-/help commands
-/help all
-```
-
-`/help` gives task-oriented guidance, `/help commands` shows slash commands,
-and `/help all` includes the complete active command surface. Archived
-documentation remains frozen for its release; use current runtime help after an
-upgrade.
-
 ## Command namespaces
 
 | Surface | Purpose | Discovery |
 | --- | --- | --- |
-| `spark` | Start the TUI or invoke top-level foreground, background, installation, diagnostic, and version workflows | `spark --help` |
+| `spark` | Print help or invoke top-level foreground, background, installation, diagnostic, and version workflows | `spark --help` |
+| `spark web` | Open the local loopback browser workbench bound to the daemon | `spark web --help` |
 | `spark daemon` | Operate the daemon-owned execution, session, workspace, model, authentication, and channel state | `spark daemon --help` |
 | `spark hub` | Run and administer Hub coordination and Web surfaces | `spark hub --help` |
-| TUI slash commands | Act on the current interactive session | `/help commands` |
 | ACP and MCP adapters | Connect compatible clients through their configured Spark adapter | See [collaboration and clients](/guides/collaboration/) |
 
 The daemon owns persistent execution state. The top-level dispatcher and Hub
@@ -53,7 +40,7 @@ parallel session or execution state.
 These examples are representative starting points, not an exhaustive catalog:
 
 ```bash
-# Open the interactive terminal.
+# Print dispatcher help. Interactive work uses spark web.
 spark
 
 # Run foreground work or queue durable background work.
@@ -70,51 +57,16 @@ spark daemon --help
 spark hub --help
 ```
 
-## Cue-first DSH web
+## Local web workbench
 
-`spark web` boots the installed DeepSeek Harness web profile and currently
-supports exactly `@deepseek-ai/dsh@0.1.0-rc.7`. Initialize the profile once
-with `dsh web`, then start the Spark surface:
+`spark web` starts the local single-workspace browser workbench. It binds
+loopback only, requires a one-shot token, and talks to the Spark daemon through
+`spark-daemon-client`. Hub remains the cross-workspace browser UI.
 
 ```bash
 spark web
-spark web --host 0.0.0.0 --trusted-host workstation.example:3080
+spark web --port 4310 --no-open
 ```
-
-The boot itself does not need the `dsh` CLI on the `PATH`: Spark spawns the
-profile directly as a Node child with `--expose-internals`, so bare plugin
-specifiers resolve through Node's internal ESM loader rather than the optional
-native addon (whose platform binding breaks under pnpm store-link layouts).
-
-Before DSH starts, Spark verifies the installed package metadata and pinned
-upstream preset digests, bundles the private Cue adapter under the profile, and
-atomically installs `spark-standard` and `spark-code` under
-`$DSH_HOME/.agent-presets`. Both presets remove DSH Bash, Pwsh, and Jobs tools;
-the native and Code Mode catalogs use the same ten Cue tools. The deployment
-default is `spark-standard`, while an existing user `agent-presets.default`
-setting still wins. Upstream `standard` and `code` remain selectable, but do not
-promise Cue-only execution.
-
-Cue calls are allowed only while the calling session resolves to
-`danger-full-access`. This is intentional: `cued` is an external process and
-Spark does not claim that DSH's file sandbox confines it. A foreground timeout
-is only a wait budget and leaves the Cue job running; use `cue_jobs` to inspect
-or stop it.
-
-For an SSH Cue profile, mount the plugin explicitly in
-`$DSH_HOME/profiles/web/cordis.patch.yml` with a remote path:
-
-```yaml
-- insert:
-    - id: dsh-tool-cue
-      name: ./plugins/dsh-tool-cue/index.mjs
-      config:
-        remoteCwd: /absolute/path/on/remote
-```
-
-The adapter never maps the local session cwd onto SSH and never auto-starts a
-remote daemon. Sensitive environment variables are filtered unless the plugin
-is explicitly configured with `forwardSensitiveEnv: true` for a trusted target.
 
 Use `spark daemon auth --help` and `spark daemon model --help` to discover
 the authentication and model operations supported by the installed version.

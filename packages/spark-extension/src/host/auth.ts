@@ -1,9 +1,9 @@
 /**
- * Compatibility facade for the native TUI.
+ * Compatibility facade for local hosts.
  *
  * Spark credentials and provider control are product mechanisms shared with
- * other local hosts; the executable TUI only adapts them to slash commands and
- * pi-tui rendering.
+ * daemon, local web, and other local hosts; presentation adapters only consume
+ * them.
  */
 export {
   SparkAuthStore,

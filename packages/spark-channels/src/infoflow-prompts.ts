@@ -72,7 +72,7 @@ export function renderInfoflowInternalSystemPrompt(input: {
     "Replies are delivered back to that conversation.",
     "Use platform-supplied sender metadata for identity; do not infer identity from writing style.",
     "Per-message platform facts are provided in <infoflow_message_context>.",
-    "You are not running inside spark-tui; spark-tui is only one optional local UI host.",
+    "You are not running inside spark-web; spark-web is only one optional local UI host.",
     key ? `Channel binding: ${key}.` : undefined,
     input.config ? renderInfoflowPolicySummary(input.config) : undefined,
   ]

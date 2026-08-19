@@ -25,7 +25,6 @@ const externalPackages = [
   "@ast-grep/napi",
   "@core-workspace/infoflow-sdk-nodejs",
   "@earendil-works/pi-ai",
-  "@earendil-works/pi-tui",
   "esbuild",
   "@sveltejs/kit",
   "marked",
@@ -176,7 +175,6 @@ function resolvedDependencyPath(specifier) {
 const cliCompanionExecutables = {
   "spark-daemon": "@zendev-lab/spark-daemon/executable",
   "spark-hub": "@zendev-lab/spark-hub/executable",
-  "spark-tui": "@zendev-lab/spark-tui/executable",
   "spark-web": "@zendev-lab/spark-web/executable",
 };
 
@@ -190,7 +188,6 @@ process.env.SPARK_DAEMON_ENTRYPOINT = ${resolvedDependencyPath("@zendev-lab/spar
 process.env.SPARK_HEADLESS_EXECUTOR_MODULE = ${resolvedDependencyPath("@zendev-lab/spark-daemon/headless-role-executor")};
 process.env.SPARK_HUB_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-hub/executable")};
 process.env.SPARK_MCP_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/mcp-executable")};
-process.env.SPARK_TUI_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-tui/executable")};
 process.env.SPARK_WEB_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-web/executable")};
 process.env.SPARK_UPDATE_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/update-executable")};
 process.env.SPARK_WEB_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/web-executable")};
@@ -201,11 +198,6 @@ process.env.SPARK_HEADLESS_EXECUTOR_MODULE = resolve(
   productDist,
   "spark-headless-role-executor.js",
 );
-`;
-    case "tui":
-      return `${common}process.env.SPARK_DAEMON_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-daemon/executable")};
-process.env.SPARK_DAEMON_ENTRYPOINT = ${resolvedDependencyPath("@zendev-lab/spark-daemon/entrypoint")};
-process.env.SPARK_HEADLESS_EXECUTOR_MODULE = ${resolvedDependencyPath("@zendev-lab/spark-daemon/headless-role-executor")};
 `;
     case "hub":
       return `${common}process.env.SPARK_HUB_SERVER_ENTRYPOINT = resolve(

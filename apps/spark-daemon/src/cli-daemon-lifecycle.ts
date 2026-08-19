@@ -4,6 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createSparkProviderControl } from "@zendev-lab/spark-llm/control";
 import { createSparkLlmComposition } from "@zendev-lab/spark-extension/llm-runtime";
 import { createId, type SparkProtocolJsonValue } from "@zendev-lab/spark-protocol";
+import { ensureSparkDaemonRunning } from "@zendev-lab/spark-daemon-client";
 import {
   resolveSparkPaths,
   resolveSparkUserPaths,
@@ -58,8 +59,10 @@ import {
   type LocalHumanInteractionRespondParams,
   type LocalHumanInteractionRespondResult,
   requestTurnSubmit,
+  requestWorkspaceEnsureLocal,
   startLocalRpcServer,
 } from "./local-rpc.js";
+import { localRpcRequest } from "./local-rpc/client-transport.ts";
 import { SparkLoopStore } from "./store/loops.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
@@ -1378,11 +1381,17 @@ export async function daemonSubmit(
   io: CliIo,
 ): Promise<number> {
   prepareSparkDaemonState(paths);
+  if (!io.turnSubmitToService) {
+    await ensureSparkDaemonRunning({ paths });
+  }
   const flags = parseFlags(args);
   const sessionId = flags.session?.trim();
   const prompt = (flags.prompt ?? positionalArgs(args).join(" ")).trim();
   if (!sessionId) throw new Error(STRINGS.submitRequiresSession);
   if (!prompt) throw new Error(STRINGS.submitRequiresPrompt);
+  if (!io.turnSubmitToService) {
+    await ensureDaemonSubmitSession(paths, sessionId);
+  }
   const idempotencyKey = flags["idempotency-key"]?.trim() || createId("idem");
   const submit = io.turnSubmitToService ?? requestTurnSubmit;
   const input = { sessionId, prompt, idempotencyKey };
@@ -1395,12 +1404,108 @@ export async function daemonSubmit(
     // invocation. Retrying once with the same key recovers that invocation.
     result = await submit(paths, input);
   }
+  if (flags.wait === "true") {
+    const waited = await waitForDaemonInvocation(paths, result.invocationId);
+    if (flags.json === "true") {
+      io.stdout.write(`${JSON.stringify(waited, null, 2)}\n`);
+    } else {
+      io.stdout.write(`${waited.status} ${waited.invocationId}\n`);
+    }
+    if (waited.status === "succeeded") return 0;
+    if (waited.status === "cancelled") return 2;
+    return 1;
+  }
   if (flags.json === "true") {
     io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   }
   io.stdout.write(`queued ${result.invocationId}\n`);
   return 0;
+}
+
+async function ensureDaemonSubmitSession(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  sessionId: string,
+): Promise<void> {
+  const cwd = process.cwd();
+  const workspace = await requestWorkspaceEnsureLocal(paths, { localPath: cwd });
+  const sessions = await localRpcRequest(paths, "session.list", { includeArchived: true });
+  const existing = sessions.find((session) => session.sessionId === sessionId);
+  if (existing?.placement === "archived") {
+    throw new Error(`cannot submit to archived session: ${sessionId}`);
+  }
+  if (existing && existing.lifecycle !== "open") {
+    throw new Error(`cannot submit to ${existing.lifecycle} session: ${sessionId}`);
+  }
+  if (
+    existing &&
+    (existing.scope.kind === "daemon" || existing.scope.workspaceId !== workspace.id)
+  ) {
+    throw new Error(
+      `session ${sessionId} belongs to ${
+        existing.scope.kind === "daemon"
+          ? "the daemon scope"
+          : `workspace ${existing.scope.workspaceId}`
+      }, not workspace ${workspace.id}`,
+    );
+  }
+  if (existing) return;
+  const administrator = sessions.find(
+    (session) =>
+      session.scope.kind === "workspace" &&
+      session.scope.workspaceId === workspace.id &&
+      session.lineage.kind === "root",
+  );
+  if (!administrator) {
+    throw new Error(`workspace ${workspace.id} has no reconciled Administrator Session`);
+  }
+  await localRpcRequest(paths, "session.create", {
+    sessionId,
+    scope: { kind: "workspace", workspaceId: workspace.id },
+    supervisorSessionId: administrator.sessionId,
+    roleBinding: { kind: "none" },
+    cwd,
+  });
+}
+
+const WAIT_POLL_INTERVAL_MS = 500;
+const WAIT_POLL_MAX_INTERVAL_MS = 5_000;
+const WAIT_DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
+
+async function waitForDaemonInvocation(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  invocationId: string,
+): Promise<{ invocationId: string; status: string }> {
+  const deadline = Date.now() + WAIT_DEFAULT_TIMEOUT_MS;
+  let interval = WAIT_POLL_INTERVAL_MS;
+  let failureCount = 0;
+  while (Date.now() < deadline) {
+    try {
+      const status = await localRpcRequest(paths, "turn.status", { invocationId });
+      failureCount = 0;
+      if (
+        status.status === "succeeded" ||
+        status.status === "failed" ||
+        status.status === "cancelled"
+      ) {
+        return await localRpcRequest(paths, "turn.result", { invocationId });
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await delay(Math.min(interval, remaining));
+      interval = Math.min(interval * 1.5, WAIT_POLL_MAX_INTERVAL_MS);
+    } catch {
+      failureCount += 1;
+      if (failureCount > 10) {
+        throw new Error(`Too many consecutive failures polling invocation ${invocationId}`);
+      }
+      await delay(Math.min(1000 * failureCount, 5000));
+    }
+  }
+  return {
+    invocationId,
+    status: "failed",
+  };
 }
 
 export async function daemonAsk(
