@@ -24,3 +24,9 @@ await build({
   footer: { js: "} });" },
   logLevel: "info",
 });
+
+// The host half is a build artifact too (the DSH loader imports the package
+// main entry, which must exist in lib/).
+import { mkdirSync, writeFileSync } from "node:fs";
+mkdirSync("lib", { recursive: true });
+writeFileSync("lib/index.js", "function apply() {}\nexport { apply };\n");

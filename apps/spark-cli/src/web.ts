@@ -232,6 +232,12 @@ export async function ensureSparkWebClient(profileDir: string): Promise<SparkWeb
     });
     rebuilt = true;
   }
+  // The DSH loader imports the package main entry, so the host half must
+  // exist next to the client bundle (mirror of the package build script).
+  const hostHalf = join(packageDir, "lib", "index.js");
+  if (!existsSync(hostHalf)) {
+    writeFileSync(hostHalf, "function apply() {}\nexport { apply };\n");
+  }
   let linked = false;
   try {
     if (resolveFromDirectory(profileDir, SPARK_WEB_DHS_PACKAGE) === undefined)
