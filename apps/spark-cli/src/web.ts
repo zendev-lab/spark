@@ -19,10 +19,10 @@
  * Everything else is forwarded to `dsh web` (ports, trusted hosts, app args).
  */
 import { build } from "esbuild";
-import { createRequire } from "node:module";
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Structural twin of the dispatcher launcher, declared here to keep this
@@ -32,7 +32,26 @@ export interface SparkWebLauncher {
   run(target: string, argv: string[], options: { stdio: "inherit" }): Promise<number>;
 }
 
-const require = createRequire(import.meta.url);
+/** Resolve a package.json path from the current module (publish-bundle safe). */
+function resolvePackageJson(specifier: string): string {
+  return fileURLToPath(import.meta.resolve(specifier));
+}
+
+/**
+ * Node-style upward `node_modules` lookup from one directory, used to find a
+ * package installed into a DSH profile without `createRequire` (which the
+ * publish esbuild bundle cannot provide).
+ */
+function resolveFromDirectory(dir: string, specifier: string): string | undefined {
+  let current = dir;
+  while (true) {
+    const candidate = join(current, "node_modules", specifier, "package.json");
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
 
 export interface SparkWebArgs {
   host?: string;
@@ -90,8 +109,7 @@ export function resolveDshProfileDir(
 
 /** Locate the installed `@zendev-lab/spark-llm` package root. */
 export function resolveSparkLlmPackageDir(): string {
-  const pkgJson = require.resolve("@zendev-lab/spark-llm/package.json");
-  return dirname(pkgJson);
+  return dirname(resolvePackageJson("@zendev-lab/spark-llm/package.json"));
 }
 
 export interface SparkLlmBundleResult {
@@ -159,16 +177,29 @@ export interface SparkWebPatch {
  *   `dsh` CLI rejects outright.
  */
 export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): SparkWebPatch {
-  const rows = [
-    "- insert:",
-    "    # spark-llm Baidu OneAPI provider, loaded automatically by `spark web`.",
-    "    - id: spark-llm",
-    "      name: ./plugins/spark-llm/index.mjs",
-    "- id: hmr",
-    "  disabled: false",
-  ];
+  // The Loader rejects duplicate ids inside insert lists, so entries the
+  // user profile already declares are skipped here (the patch layer only
+  // adds what is missing).
+  const userPatchPath = join(profileDir, "cordis.patch.yml");
+  const userPatch = existsSync(userPatchPath) ? readFileSync(userPatchPath, "utf8") : "";
+  const rows = ["- insert:"];
+  if (!userPatch.includes("id: spark-llm")) {
+    rows.push(
+      "    # spark-llm Baidu OneAPI provider, loaded automatically by `spark web`.",
+      "    - id: spark-llm",
+      "      name: ./plugins/spark-llm/index.mjs",
+    );
+  }
+  rows.push("- id: hmr", "  disabled: false");
   if (args.host !== undefined && args.host !== "127.0.0.1") {
-    rows.push("- id: webserver", `  config:\n    host: ${args.host}`);
+    // Restating the row replaces its whole config, so the port keeps the
+    // webStartup fallback (the `--port` flag still flows through it).
+    rows.push(
+      "- id: webserver",
+      "  config:",
+      `    host: ${args.host}`,
+      "    port: !!js ctx.webStartup.port ?? 3080",
+    );
   }
   const path = join(tmpdir(), `spark-web-patch-${process.pid}.yml`);
   writeFileSync(path, `${rows.join("\n")}\n`);
