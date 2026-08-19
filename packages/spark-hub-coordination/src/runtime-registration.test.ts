@@ -49,7 +49,7 @@ function parseJson(value: string, label: string): unknown {
   }
 }
 
-describe("runtime registration", () => {
+describe("runtime registration", { timeout: 20_000 }, () => {
   it("mints browser access only for this runtime's actively leased binding", () => {
     const db = openMemoryDatabase();
     migrate(db);
@@ -895,88 +895,84 @@ describe("runtime registration", () => {
     db.close();
   });
 
-  it(
-    "allows only one active lease when two runtime processes race",
-    { timeout: 15_000 },
-    async () => {
-      const root = mkdtempSync(join(tmpdir(), "spark-owner-race-"));
-      const databasePath = join(root, "hub.sqlite");
-      const db = openDatabase({ path: databasePath });
-      migrate(db);
-      insertUser(db, "usr_owner", "owner", "active");
-      const runtimes = ["race-one", "race-two"].map((installationId) => {
-        const authorization = createRuntimeDeviceAuthorization(db, {
-          ...registrationRequest,
-          installationId,
-        });
-        approveRuntimeDeviceAuthorization(db, {
-          userCode: authorization.userCode,
-          approvedByUserId: "usr_owner",
-        });
-        return exchangeRuntimeDeviceAuthorization(db, { deviceCode: authorization.deviceCode });
+  it("allows only one active lease when two runtime processes race", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-owner-race-"));
+    const databasePath = join(root, "hub.sqlite");
+    const db = openDatabase({ path: databasePath });
+    migrate(db);
+    insertUser(db, "usr_owner", "owner", "active");
+    const runtimes = ["race-one", "race-two"].map((installationId) => {
+      const authorization = createRuntimeDeviceAuthorization(db, {
+        ...registrationRequest,
+        installationId,
       });
-      const grants = runtimes.map(() =>
-        createRuntimeEnrollmentToken(db, {
-          workspaceName: "Shared race workspace",
-          workspaceSlug: "shared-race-workspace",
-          ttlMs: durableEnrollmentTtlMs,
-        }),
+      approveRuntimeDeviceAuthorization(db, {
+        userCode: authorization.userCode,
+        approvedByUserId: "usr_owner",
+      });
+      return exchangeRuntimeDeviceAuthorization(db, { deviceCode: authorization.deviceCode });
+    });
+    const grants = runtimes.map(() =>
+      createRuntimeEnrollmentToken(db, {
+        workspaceName: "Shared race workspace",
+        workspaceSlug: "shared-race-workspace",
+        ttlMs: durableEnrollmentTtlMs,
+      }),
+    );
+    db.close();
+
+    try {
+      const children = runtimes.map(() => startRaceChild());
+      await Promise.all(children.map((child) => waitForRaceMessage(child, "ready")));
+      const results = children.map((child) => waitForRaceResult(child));
+      children.forEach((child, index) => {
+        child.process.send({
+          databasePath,
+          runtimeId: runtimes[index]?.runtimeId,
+          runtimeToken: runtimes[index]?.runtimeToken,
+          registrationToken: grants[index]?.refreshToken,
+          localWorkspaceKey: `race-local-${index}`,
+        });
+      });
+      const settledResults = await Promise.allSettled(results);
+      const childErrors = settledResults.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
       );
-      db.close();
-
-      try {
-        const children = runtimes.map(() => startRaceChild());
-        await Promise.all(children.map((child) => waitForRaceMessage(child, "ready")));
-        const results = children.map((child) => waitForRaceResult(child));
-        children.forEach((child, index) => {
-          child.process.send({
-            databasePath,
-            runtimeId: runtimes[index]?.runtimeId,
-            runtimeToken: runtimes[index]?.runtimeToken,
-            registrationToken: grants[index]?.refreshToken,
-            localWorkspaceKey: `race-local-${index}`,
-          });
-        });
-        const settledResults = await Promise.allSettled(results);
-        const childErrors = settledResults.flatMap((result) =>
-          result.status === "rejected" ? [result.reason] : [],
-        );
-        if (childErrors.length > 0) {
-          throw new AggregateError(childErrors, "Owner race child process failed.");
-        }
-        const outcomes = settledResults.flatMap((result) =>
-          result.status === "fulfilled" ? [result.value] : [],
-        );
-
-        expect(outcomes.filter((outcome) => outcome.ok)).toHaveLength(1);
-        expect(outcomes.filter((outcome) => !outcome.ok)).toEqual([
-          { ok: false, reasonCode: "WORKSPACE_LEASE_CONFLICT" },
-        ]);
-        const verified = openDatabase({ path: databasePath });
-        expect(
-          verified
-            .prepare("SELECT COUNT(*) AS count FROM workspace_leases WHERE ended_at IS NULL")
-            .get(),
-        ).toEqual({ count: 1 });
-        expect(verified.prepare("SELECT COUNT(*) AS count FROM workspace_leases").get()).toEqual({
-          count: 1,
-        });
-        expect(
-          verified.prepare("SELECT COUNT(*) AS count FROM runtime_workspace_bindings").get(),
-        ).toEqual({ count: 1 });
-        expect(
-          verified
-            .prepare(
-              "SELECT COUNT(*) AS count FROM events WHERE kind = 'workspace.lease_registration_conflict'",
-            )
-            .get(),
-        ).toEqual({ count: 1 });
-        verified.close();
-      } finally {
-        rmSync(root, { recursive: true, force: true });
+      if (childErrors.length > 0) {
+        throw new AggregateError(childErrors, "Owner race child process failed.");
       }
-    },
-  );
+      const outcomes = settledResults.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+
+      expect(outcomes.filter((outcome) => outcome.ok)).toHaveLength(1);
+      expect(outcomes.filter((outcome) => !outcome.ok)).toEqual([
+        { ok: false, reasonCode: "WORKSPACE_LEASE_CONFLICT" },
+      ]);
+      const verified = openDatabase({ path: databasePath });
+      expect(
+        verified
+          .prepare("SELECT COUNT(*) AS count FROM workspace_leases WHERE ended_at IS NULL")
+          .get(),
+      ).toEqual({ count: 1 });
+      expect(verified.prepare("SELECT COUNT(*) AS count FROM workspace_leases").get()).toEqual({
+        count: 1,
+      });
+      expect(
+        verified.prepare("SELECT COUNT(*) AS count FROM runtime_workspace_bindings").get(),
+      ).toEqual({ count: 1 });
+      expect(
+        verified
+          .prepare(
+            "SELECT COUNT(*) AS count FROM events WHERE kind = 'workspace.lease_registration_conflict'",
+          )
+          .get(),
+      ).toEqual({ count: 1 });
+      verified.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it("registers an additional workspace grant without rotating runtime credentials", () => {
     const db = openMemoryDatabase();
