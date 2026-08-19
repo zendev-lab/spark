@@ -4,13 +4,11 @@ import {
   sparkInvocationRetryResultSchema,
 } from "@zendev-lab/spark-protocol";
 import { SparkInvocationStore } from "../../store/invocations.ts";
-import { executeSparkDaemonSessionControl } from "../../session-control.ts";
 import {
-  invocationListResult,
-  invocationResult,
-  sessionControlOptions,
-  settleManagedSessionTurn,
-} from "../helpers.ts";
+  executeSparkDaemonSessionControl,
+  invocationListControlResult,
+} from "../../session-control.ts";
+import { invocationResult, sessionControlOptions, settleManagedSessionTurn } from "../helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
 import {
   parseLocalRpcServiceOutput,
@@ -64,7 +62,7 @@ export async function handleTurnRequest(
       return invocationResult(new SparkInvocationStore(db), request.params.invocationId);
     }
     case "invocation.list": {
-      return invocationListResult(new SparkInvocationStore(db), request.params);
+      return invocationListControlResult(new SparkInvocationStore(db), request.params);
     }
     case "invocation.retry": {
       const store = new SparkInvocationStore(db);

@@ -31,7 +31,7 @@ export type SparkTrustedLoopEvaluator = (
 
 type SparkLoopEvaluatorCheckpoint = "before_tick" | "after_tick";
 
-export interface SparkTrustedLoopEvaluatorRegistration {
+interface SparkTrustedLoopEvaluatorRegistration {
   evaluator: SparkTrustedLoopEvaluator;
   checkpoints: readonly SparkLoopEvaluatorCheckpoint[];
 }
@@ -142,7 +142,7 @@ export class SparkLoopEvaluatorRegistry {
   }
 }
 
-export function evaluateLoopBooleanExpression(
+function evaluateLoopBooleanExpression(
   expression: SparkLoopBooleanExpression,
   context: Record<string, unknown>,
 ): boolean {

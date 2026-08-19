@@ -228,6 +228,72 @@ describe("daemon migration registry", () => {
     }
   });
 
+  it("drops the write-only lens observation dispositions table idempotently", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      runDaemonMigrations(db, [
+        {
+          id: "schema.current-foundation",
+          owner: "daemon-schema",
+          up(target) {
+            target.exec(`
+              CREATE TABLE daemon_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+              );
+              CREATE TABLE lens_observation_dispositions (
+                observation_ref TEXT PRIMARY KEY,
+                workspace_root TEXT NOT NULL,
+                revision_digest TEXT NOT NULL,
+                disposition TEXT NOT NULL,
+                patch_proposal_ref TEXT,
+                updated_at TEXT NOT NULL
+              );
+            `);
+          },
+        },
+        {
+          id: "migration.drop-lens-observation-dispositions-v1",
+          owner: "daemon-schema",
+          up: (target) =>
+            target.exec(
+              "DROP TABLE IF EXISTS lens_observation_dispositions;\n" +
+                "DROP INDEX IF EXISTS lens_observation_dispositions_revision_idx;",
+            ),
+        },
+      ]);
+      const table = db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'lens_observation_dispositions'",
+        )
+        .get();
+      expect(table).toBeUndefined();
+      // Idempotent: a second pass skips the once migration.
+      runDaemonMigrations(db, [
+        {
+          id: "schema.current-foundation",
+          owner: "daemon-schema",
+          up: (target) => target.exec("SELECT 1"),
+        },
+        {
+          id: "migration.drop-lens-observation-dispositions-v1",
+          owner: "daemon-schema",
+          up: () => {
+            throw new Error("drop migration must not run twice");
+          },
+        },
+      ]);
+      expect(
+        db
+          .prepare("SELECT value FROM daemon_meta WHERE key = ?")
+          .get("migration.drop-lens-observation-dispositions-v1"),
+      ).toMatchObject({ value: "complete" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("runs migrations sequentially and rejects duplicate ids before any write", () => {
     const db = new DatabaseSync(":memory:");
     const calls: string[] = [];

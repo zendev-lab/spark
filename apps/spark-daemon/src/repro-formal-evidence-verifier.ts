@@ -6,7 +6,7 @@ import {
   type SparkReproFormalEvidenceCandidate,
 } from "@zendev-lab/spark-protocol/repro-formal-evidence";
 
-export interface SparkReproFormalEvidenceVerifierResult {
+interface SparkReproFormalEvidenceVerifierResult {
   verifierId: string;
   verifierVersion: string;
   verifiedAt: string;

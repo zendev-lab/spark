@@ -671,7 +671,6 @@ function createServingLoopGate(): ServingLoopGate {
 async function prepareDaemonServing(runtime: PreparedDaemonRuntime): Promise<void> {
   const { options, runtimeSignal, channelIngress } = runtime;
   await reconcileMainTaskClaimsBeforeAdmission(runtime);
-  await reconcileSessionRetention(runtime);
   if (!runtimeSignal.aborted) {
     await options.onReady?.({
       channelIngress,
@@ -727,10 +726,12 @@ async function runMainTaskClaimReconcileLoop(runtime: PreparedDaemonRuntime): Pr
 async function runSessionRetentionReconcileLoop(runtime: PreparedDaemonRuntime): Promise<void> {
   const intervalMs =
     runtime.options.sessionRetentionReconcileIntervalMs ?? SESSION_RETENTION_RECONCILE_INTERVAL_MS;
+  // First pass runs immediately so the former pre-admission startup call and
+  // the 24 h loop share one implementation and one cadence.
   while (!runtime.runtimeSignal.aborted) {
-    await delayUnlessAborted(intervalMs, runtime.runtimeSignal);
-    if (runtime.runtimeSignal.aborted) return;
     await reconcileSessionRetention(runtime);
+    if (runtime.runtimeSignal.aborted) return;
+    await delayUnlessAborted(intervalMs, runtime.runtimeSignal);
   }
 }
 
@@ -785,7 +786,7 @@ async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<
 
 function reconcileDaemonExecutionState(
   runtime: PreparedDaemonRuntime,
-  trigger: "startup" | "periodic_tick" | "planned_shutdown" | "daemon_crash",
+  trigger: "startup" | "planned_shutdown" | "daemon_crash",
 ): void {
   try {
     const result = reconcileExecutionState({
@@ -802,9 +803,7 @@ function reconcileDaemonExecutionState(
   } catch (error) {
     console.error("[spark-daemon] execution reconcile failed", error);
     // Startup recovery is fail-closed: admission must not open while durable
-    // execution state is unreadable. Periodic ticks run inside the scheduler
-    // loop, where rethrowing would kill the loop permanently, so they log and
-    // retry on the next tick instead.
+    // execution state is unreadable.
     if (trigger === "startup") throw error;
   }
 }
@@ -897,11 +896,11 @@ async function runSchedulerLoop(runtime: PreparedDaemonRuntime): Promise<void> {
     if (Date.now() >= runtime.nextStorageMaintenanceAtMs) {
       runStorageMaintenance(runtime);
     }
-    if (runtime.admission.open) {
-      // Same durable path as startup: recover orphaned attempts/invocations
-      // without waiting for another daemon restart.
-      reconcileDaemonExecutionState(runtime, "periodic_tick");
-    }
+    // No periodic execution reconcile: the daemon lock makes this process the
+    // only writer, and every attempt is written under this process's
+    // generation, so a stale-generation row can only exist right after a
+    // crash/restart, which the startup trigger already reconciles. If a
+    // second writer is ever introduced, restore a periodic tick here.
     if (runtime.admission.open) await reconcilePendingHumanAnswerEvidence(runtime);
     if (runtime.admission.open) await reconcileLoopGoalSettlements(runtime.loopStore);
     if (runtime.admission.open && Date.now() >= runtime.nextWorkbenchReconcileAtMs) {
@@ -1925,7 +1924,10 @@ async function runSparkDaemonUplinkSupervisor(
   const unsubscribeReconfigure = options.uplinkControl?.subscribe((serverUrl) =>
     reconcile(serverUrl ?? ""),
   );
-  const poll = setInterval(() => reconcile(), 500);
+  // In-process park/unpark/prefer and relocation already publish
+  // requestReconfigure; this poll is only the safety net for profile or
+  // server_url changes written by another process.
+  const poll = setInterval(() => reconcile(), 5_000);
   const aborted = new Promise<void>((resolve) => {
     signal.addEventListener("abort", () => resolve(), { once: true });
   });

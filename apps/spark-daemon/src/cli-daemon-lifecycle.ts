@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { createSparkProviderControl } from "@zendev-lab/spark-llm/control";
 import { createSparkLlmComposition } from "@zendev-lab/spark-extension/llm-runtime";
-import { createId } from "@zendev-lab/spark-protocol";
+import { createId, type SparkProtocolJsonValue } from "@zendev-lab/spark-protocol";
 import {
   resolveSparkPaths,
   resolveSparkUserPaths,
@@ -44,7 +44,6 @@ import {
   SparkDaemonInvocationRegistry,
   INVOCATION_SCHEDULER_QUESTION_OVERFLOW,
   acquireSparkDaemonLock,
-  legacySparkDaemonQueueRoot,
   type SparkDaemonDrainProgress,
   type SparkDaemonHumanInteractionResponder,
   type SparkDaemonLifecycleSnapshot,
@@ -65,7 +64,6 @@ import {
   requestTurnSubmit,
   startLocalRpcServer,
 } from "./local-rpc.js";
-import { migrateLegacyQueueHistory } from "./store/legacy-queue-migration.ts";
 import { SparkLoopStore } from "./store/loops.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
@@ -113,6 +111,7 @@ import {
   startSparkDaemonProcess,
   errorMessage,
 } from "./cli-shared.ts";
+import { isRecord } from "./local-rpc/is-record.ts";
 
 // logs is provided by the caller to avoid a cycle with cli.ts
 let logsCommand: (
@@ -220,7 +219,6 @@ export async function start(
   process.once("SIGTERM", onSigterm);
   const localEventBus = createSparkDaemonLocalEventBus();
   const invocationRegistry = new SparkDaemonInvocationRegistry();
-  await migrateLegacyQueueHistory({ db, queueRoot: legacySparkDaemonQueueRoot({ paths }) });
   const config = existsSync(paths.configFile)
     ? readSparkDaemonConfig(paths)
     : defaultSparkDaemonConfig();
@@ -1462,7 +1460,7 @@ export async function daemonAsk(
   return 0;
 }
 
-function parseAnswers(raw: string | undefined): Record<string, unknown> {
+function parseAnswers(raw: string | undefined): Record<string, SparkProtocolJsonValue> {
   if (!raw) throw new Error("spark daemon ask answer requires --answers <json>");
   let parsed: unknown;
   try {
@@ -1473,11 +1471,7 @@ function parseAnswers(raw: string | undefined): Record<string, unknown> {
   if (!isRecord(parsed)) {
     throw new Error("spark daemon ask answer requires a JSON object in --answers");
   }
-  return parsed;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return parsed as Record<string, SparkProtocolJsonValue>;
 }
 
 function renderHumanInteractionList(result: LocalHumanInteractionListResult): string {

@@ -5,7 +5,8 @@ import type { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
-import { createDaemonSessionRegistry, handleLocalRpcLine } from "./local-rpc.js";
+import { createDaemonSessionRegistry } from "./local-rpc.js";
+import { handleLocalRpcLine } from "./local-rpc/dispatch.ts";
 import { MAX_PENDING_SESSION_REQUEST_QUEUE } from "./session-mail-execution.ts";
 import { drainSessionMailRequestQueue } from "./session-mail-queue.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
@@ -203,7 +204,7 @@ describe("session.send queue|interrupt", () => {
       expect(response.result?.submitted).toBeUndefined();
       expect(harness.invocations.require(current.invocationId).cancelReason).toBeUndefined();
       expect(harness.invocations.listPendingForSession("sess_worker")).toHaveLength(1);
-      expect(await harness.mailStore.pendingRequests()).toHaveLength(1);
+      expect(await harness.mailStore.pendingRequestHeads()).toHaveLength(1);
     } finally {
       cleanup();
     }
@@ -269,7 +270,9 @@ describe("session.send queue|interrupt", () => {
         });
 
       // While the current turn is still running the queue is not drained.
-      expect(await drain()).toEqual({ drained: 0, skippedBusy: 2 });
+      // Heads return one request per session, so the busy session contributes
+      // a single skipped head rather than one skip per queued mail.
+      expect(await drain()).toEqual({ drained: 0, skippedBusy: 1 });
 
       // The current turn completes: the FIRST queued mail drains; the second
       // mail of the same session stays queued for the next pass.
@@ -296,6 +299,53 @@ describe("session.send queue|interrupt", () => {
           : "unaccepted",
       );
       expect(new Set(admittedIds).size).toBe(2);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("never lets a busy-session backlog starve an idle session drain window", async () => {
+    const { harness, cleanup } = await createHarness();
+    try {
+      // The busy session holds three queued mails while its current turn runs;
+      // the idle session holds one. A window of two heads must still reach the
+      // idle session instead of filling both slots with busy-session mails.
+      runningInvocation(harness);
+      await send(harness, sendParams({ body: "busy 1", onActive: "queue" }));
+      await send(harness, sendParams({ body: "busy 2", onActive: "queue" }));
+      await send(harness, sendParams({ body: "busy 3", onActive: "queue" }));
+      await createDaemonWorkspaceSession(harness.registry, {
+        sessionId: "sess_idle",
+        workspaceId: "ws_mail_queue",
+      });
+      await harness.mailStore.send({
+        toSessionId: "sess_idle",
+        fromSessionId: "sess_origin",
+        kind: "request",
+        intent: "work.request",
+        payload: { body: "investigate" },
+        idempotencyKey: "session.send:mail-queue:idle-1",
+        body: "idle task",
+        source: "tool",
+      });
+
+      const result = await drainSessionMailRequestQueue(
+        {
+          control: controlFor(harness),
+          invocationStore: harness.invocations,
+          mailStore: harness.mailStore,
+        },
+        // A window that the pre-fix message-based scan would have filled with
+        // busy-session mails (three pending messages for one session).
+        2,
+      );
+      expect(result).toEqual({ drained: 1, skippedBusy: 1 });
+      const idleMessages = await harness.mailStore.list("sess_idle", { includeAcked: true });
+      expect(idleMessages[0].requestAdmission).toMatchObject({ status: "accepted" });
+      const busyMessages = await harness.mailStore.list("sess_worker", { includeAcked: true });
+      expect(busyMessages.every((message) => message.requestAdmission?.status === "pending")).toBe(
+        true,
+      );
     } finally {
       cleanup();
     }
@@ -351,10 +401,9 @@ describe("session.send queue|interrupt", () => {
       expect(overflow.ok).toBe(false);
       expect(overflow.error).toMatchObject({ code: "session_mail_queue_full" });
       // Fail-closed: the rejected send persisted nothing; the queue stays at
-      // exactly the bound with no orphaned pending mail.
-      expect(await harness.mailStore.pendingRequests()).toHaveLength(
-        MAX_PENDING_SESSION_REQUEST_QUEUE,
-      );
+      // exactly the bound with no orphaned pending mail. Heads return one
+      // request per session, so the single queued session yields one head.
+      expect(await harness.mailStore.pendingRequestHeads()).toHaveLength(1);
       expect(await harness.mailStore.list("sess_worker", { includeAcked: true })).toHaveLength(
         MAX_PENDING_SESSION_REQUEST_QUEUE,
       );
@@ -467,9 +516,7 @@ describe("session.send queue|interrupt", () => {
       const overflow = await send(harness, sendParams({ body: "overflow", onActive: "queue" }));
       expect(overflow.ok).toBe(false);
       expect(overflow.error).toMatchObject({ code: "session_mail_queue_full" });
-      expect(await harness.mailStore.pendingRequests()).toHaveLength(
-        MAX_PENDING_SESSION_REQUEST_QUEUE,
-      );
+      expect(await harness.mailStore.pendingRequestHeads()).toHaveLength(1);
 
       // The replay of the accepted request is NOT a fresh send: it returns the
       // original acceptance even though the queue is currently full.

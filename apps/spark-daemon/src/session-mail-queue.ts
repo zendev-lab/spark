@@ -10,7 +10,7 @@ import {
 export interface SessionMailQueueDrainDependencies extends SessionMailTurnSubmitDependencies {
   invocationStore: Pick<SparkInvocationStore, "listPendingForSession">;
   mailStore: SessionMailTurnSubmitDependencies["mailStore"] &
-    Pick<SparkSessionMailStore, "pendingRequests">;
+    Pick<SparkSessionMailStore, "pendingRequestHeads">;
 }
 
 export interface SessionMailQueueDrainResult {
@@ -21,8 +21,9 @@ export interface SessionMailQueueDrainResult {
 /**
  * Drain the durable session-request queue: after a target session becomes
  * idle, submit its oldest pending request mail as a turn ("FIFO drain after
- * current"). At most one request per session is drained per pass so the
- * invocation queue of an idle session never grows ahead of the current work.
+ * current"). The store returns one pending request head per session, so at
+ * most one request per session is drained per pass and the invocation queue
+ * of an idle session never grows ahead of the current work.
  *
  * Restart-safe: pending mails live in the mailbox.json files and each drained
  * turn is idempotent on `session.mail:<messageId>`, so a drain interrupted by
@@ -32,25 +33,17 @@ export async function drainSessionMailRequestQueue(
   deps: SessionMailQueueDrainDependencies,
   limit = 100,
 ): Promise<SessionMailQueueDrainResult> {
-  const pending = await deps.mailStore.pendingRequests(limit);
+  const pending = await deps.mailStore.pendingRequestHeads(limit);
   let drained = 0;
   let skippedBusy = 0;
-  const drainedSessions = new Set<string>();
   for (const message of pending) {
-    if (drainedSessions.has(message.toSessionId)) continue;
     if (deps.invocationStore.listPendingForSession(message.toSessionId).length > 0) {
       skippedBusy += 1;
       continue;
     }
     const params = sessionSendRequestFromMessage(message);
     await submitSessionMailTurn(deps, params, message);
-    drainedSessions.add(message.toSessionId);
     drained += 1;
   }
   return { drained, skippedBusy };
-}
-
-/** True when the mail is an executable request still waiting in the durable queue. */
-export function isPendingSessionRequest(message: SparkSessionMailMessage): boolean {
-  return message.kind === "request" && message.requestAdmission?.status === "pending";
 }
