@@ -4,6 +4,7 @@ import {
   isSparkInvocationTerminalStatus,
   parseSparkSessionView,
   sparkTurnResultSchema,
+  type SparkInvocationStatus,
   type SparkSessionMailChannelDeliveryView,
   type SparkSessionView,
 } from "@zendev-lab/spark-protocol";

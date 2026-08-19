@@ -17,6 +17,7 @@ import {
   executeSparkDaemonSessionControl,
   readSparkDaemonSessionPromptHistory,
   readSparkDaemonSessionRetryTarget,
+  requireSessionRegistry,
 } from "../../session-control.ts";
 import { SparkLoopStore } from "../../store/loops.ts";
 import { WorkbenchArtifactBindingStore } from "../../store/workbench-artifact-bindings.ts";
@@ -34,7 +35,6 @@ import {
   requireModelControl,
   sessionControlOptions,
 } from "../helpers.ts";
-import { requireSessionRegistry } from "../session-notification-helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
 import {
   parseLocalRpcServiceOutput,
