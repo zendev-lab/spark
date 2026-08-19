@@ -10,15 +10,31 @@ import { test } from "vitest";
 const PI_SPARK_EXTENSION = fileURLToPath(new URL("./extension.ts", import.meta.url));
 const PI_NATIVE_FILE_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
 
-test("the production Pi loader loads pi-spark without registering Pi-native file tools", async () => {
+test("the production Pi loader exposes only additive compatibility capabilities", async () => {
   const agentDir = await mkdtemp(join(tmpdir(), "spark-pi-spark-files-"));
   try {
     const loaded = await discoverAndLoadExtensions([PI_SPARK_EXTENSION], process.cwd(), agentDir);
     assert.deepEqual(loaded.errors, []);
-    const registeredFileTools = loaded.extensions
-      .flatMap((extension) => [...extension.tools.keys()])
-      .filter((name) => PI_NATIVE_FILE_TOOLS.has(name));
+    const registeredTools = loaded.extensions.flatMap((extension) => [...extension.tools.keys()]);
+    const registeredFileTools = registeredTools.filter((name) => PI_NATIVE_FILE_TOOLS.has(name));
     assert.deepEqual(registeredFileTools, []);
+    assert.ok(registeredTools.includes("cue_exec"));
+    assert.equal(registeredTools.includes("goal"), false);
+    assert.equal(registeredTools.includes("repro"), false);
+
+    const registeredCommands = loaded.extensions.flatMap((extension) => [
+      ...extension.commands.keys(),
+    ]);
+    assert.equal(registeredCommands.includes("goal"), false);
+    assert.equal(registeredCommands.includes("repro"), false);
+    assert.equal(registeredCommands.includes("loop"), false);
+
+    const registeredHandlers = new Set(
+      loaded.extensions.flatMap((extension) => [...extension.handlers.keys()]),
+    );
+    assert.equal(registeredHandlers.has("before_agent_start"), false);
+    assert.equal(registeredHandlers.has("turn_start"), false);
+    assert.equal(registeredHandlers.has("agent_end"), false);
   } finally {
     await rm(agentDir, { recursive: true, force: true });
   }

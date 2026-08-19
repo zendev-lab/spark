@@ -23,10 +23,10 @@ application UI, and daemon lifecycle do not.
   `SparkHostAPI`.
 - Do not recreate a second Spark composition root, parallel policy
   implementation, or Spark-owned `package.json#pi` discovery path.
-  `@zendev-lab/pi-spark` may wrap this package for the external Pi product
-  loader; it must not own Spark commands, tools, or host policy.
+  `@zendev-lab/pi-spark` is a bounded additive compatibility profile and must
+  not load this product composition, its driver lifecycle, Goal, or Repro.
 - Builtin loading for Spark-native hosts remains explicit. Compatibility
-  discovery may resolve to the same Spark implementation but must not grow a
+  discovery may load individual host-neutral capabilities but must not grow a
   separate product surface.
 - Durable state and side effects remain with their authoritative capability or
   daemon owner. Extension hooks coordinate through owner APIs.

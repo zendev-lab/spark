@@ -13,6 +13,11 @@ commitment. Spark-native TUI, Hub, channels, ACP, and daemon interfaces are
 the supported product surfaces and may add behavior without extending Pi
 compatibility.
 
+The compatibility entry must not load `spark-extension` or register Spark's
+driver lifecycle, Goal, Loop, or Repro surfaces. Those features depend on the
+Spark product composition and daemon ownership model. Pi compatibility is
+limited to individually admitted additive capabilities such as Cue.
+
 ## Admission rule
 
 A capability may remain in the Pi compatibility manifest only when all of the

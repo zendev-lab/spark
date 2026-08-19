@@ -2,7 +2,7 @@
   "name": "@zendev-lab/pi-spark",
   "version": "0.4.0",
   "private": true,
-  "description": "Pi product compatibility adapter: the only package.json#pi owner, composing spark-extension plus the Pi compatibility profile.",
+  "description": "Minimal Pi product compatibility adapter for additive Spark capabilities.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [
@@ -24,7 +24,6 @@
     "@zendev-lab/spark-ask": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-cue": "workspace:^",
-    "@zendev-lab/spark-extension": "workspace:^",
     "@zendev-lab/spark-llm": "workspace:^",
     "@zendev-lab/spark-memory": "workspace:^",
     "@zendev-lab/spark-roles": "workspace:^",
