@@ -114,9 +114,6 @@ export interface SparkHostRuntimeOptions {
   taskExecutionScope?: SparkHostContext["taskExecutionScope"];
   /** Private current-turn authority supplied by the executable host. */
   memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
-  stateBindingSessionId?: string;
-  /** @deprecated Compatibility input; normalized into stateBindingSessionId. */
-  stateOwnerSessionId?: string;
   loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
   /** When present, this host instance must never activate tools outside this allowlist. */
@@ -191,7 +188,6 @@ export class SparkHostRuntime implements SparkHostAPI {
       }
     | undefined;
   readonly invocationId: string | undefined;
-  readonly stateBindingSessionId: string | undefined;
   readonly taskExecutionScope: SparkHostContext["taskExecutionScope"];
   readonly loop: SparkHostLoopContext | undefined;
   readonly sessionQuestionChain: readonly string[] | undefined;
@@ -231,8 +227,6 @@ export class SparkHostRuntime implements SparkHostAPI {
     this.invocationId = options.invocationId?.trim() || undefined;
     this.taskExecutionScope = options.taskExecutionScope;
     this.#memoryDirectIntentAuthority = options.memoryDirectIntentAuthority;
-    this.stateBindingSessionId =
-      options.stateBindingSessionId?.trim() || options.stateOwnerSessionId?.trim() || undefined;
     this.loop = options.loop;
     this.sessionQuestionChain = options.sessionQuestionChain
       ?.map((entry) => entry.trim())
@@ -649,9 +643,7 @@ export class SparkHostRuntime implements SparkHostAPI {
     return {
       cwd: this.cwd,
       ...(this.workspaceId ? { workspaceId: this.workspaceId } : {}),
-      ...(this.stateBindingSessionId || this.sessionId
-        ? { sessionId: this.stateBindingSessionId ?? this.sessionId }
-        : {}),
+      ...(this.sessionId ? { sessionId: this.sessionId } : {}),
       ...(this.sparkStateRoot ? { sparkStateRoot: this.sparkStateRoot } : {}),
       ...(this.sessionSurface ? { sessionSurface: this.sessionSurface } : {}),
       ...(this.sessionSource ? { sessionSource: this.sessionSource } : {}),
@@ -692,11 +684,7 @@ export class SparkHostRuntime implements SparkHostAPI {
         ? { roleNativeCompatibilityRecovery: { ...this.roleNativeCompatibilityRecovery } }
         : {}),
       ...extra,
-      // A caller may supply the execution/view Session as part of a turn-local
-      // context. Durable tools must nevertheless remain bound to the explicit
-      // state owner selected when this host was created.
-      ...(this.sessionId ? { executionSessionId: this.sessionId } : {}),
-      ...(this.stateBindingSessionId ? { sessionId: this.stateBindingSessionId } : {}),
+      ...(this.sessionId ? { sessionId: this.sessionId } : {}),
     };
   }
 

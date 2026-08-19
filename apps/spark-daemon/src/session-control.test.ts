@@ -848,6 +848,73 @@ describe("daemon session control admission", () => {
     }
   });
 
+  it("shares one durable serialization key between a driver child and its parent turns", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-session-driver-serialization-"));
+    const db = openMemoryDatabase();
+    migrateSparkDaemonDatabase(db);
+    const paths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const sessionRegistry = createDaemonSessionRegistry(join(root, ".spark"), {
+      daemonId: "driver-serialization-test",
+      daemonCwd: root,
+    });
+    const administrator = await sessionRegistry.ensureWorkspaceAdministrator(
+      "workspace-driver-serialization",
+    );
+    const parent = await sessionRegistry.create({
+      sessionId: "session-driver-parent",
+      scope: { kind: "workspace", workspaceId: "workspace-driver-serialization" },
+      supervisorSessionId: administrator.sessionId,
+      cwd: root,
+    });
+    const driver = await sessionRegistry.createSupervised({
+      sessionId: "session-driver-child",
+      scope: parent.scope,
+      lineage: {
+        kind: "child",
+        parentSessionId: parent.sessionId,
+        origin: { kind: "driver", driverId: "driver:serialization", generation: 1 },
+      },
+      visibility: "internal",
+      retention: "discard_on_close",
+      purpose: "driver",
+    });
+
+    try {
+      const driverSubmission = await executeSparkDaemonSessionControl(
+        { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
+        {
+          kind: "turn.submit.request",
+          scope: "any",
+          sessionId: driver.sessionId,
+          payload: { sessionId: driver.sessionId, prompt: "scheduled driver work" },
+        },
+      );
+      const parentSubmission = await executeSparkDaemonSessionControl(
+        { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
+        {
+          kind: "turn.submit.request",
+          scope: "any",
+          sessionId: parent.sessionId,
+          payload: { sessionId: parent.sessionId, prompt: "manual parent turn" },
+        },
+      );
+      const store = new SparkInvocationStore(db);
+      const driverInvocation = store.require(driverSubmission.invocationId!);
+      const parentInvocation = store.require(parentSubmission.invocationId!);
+
+      expect(driverInvocation.serializationKey).toBe(parent.sessionId);
+      expect(parentInvocation.serializationKey).toBe(parent.sessionId);
+      expect(parentSubmission.result).toMatchObject({
+        blockedBySessionId: driver.sessionId,
+      });
+      expect(store.claimNext("driver-worker")?.invocationId).toBe(driverInvocation.invocationId);
+      expect(store.claimNext("parent-worker")).toBeUndefined();
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("persists an explicit causal parent for a child turn and rejects replay ancestry drift", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-parent-invocation-"));
     const db = openMemoryDatabase();

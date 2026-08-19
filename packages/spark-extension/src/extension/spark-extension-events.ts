@@ -474,7 +474,6 @@ export function reproOwnerContext(ctx: SparkToolContext): SparkToolContext {
   return {
     ...ctx,
     sessionId: ownerSessionId,
-    executionSessionId: ctx.executionSessionId?.trim() || ctx.sessionId,
   };
 }
 

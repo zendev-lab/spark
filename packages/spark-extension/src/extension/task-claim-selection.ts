@@ -3,13 +3,8 @@ import { sparkSessionKey, type SparkSessionContext } from "@zendev-lab/spark-loo
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import { isClaimOwnedBySession } from "./task-ownership.ts";
 
-export function sparkTaskClaimSessionKey(
-  ctx?: SparkSessionContext & { executionSessionId?: string },
-): string {
-  return sparkSessionKey({
-    ...ctx,
-    sessionId: ctx?.executionSessionId?.trim() || ctx?.sessionId,
-  });
+export function sparkTaskClaimSessionKey(ctx?: SparkSessionContext): string {
+  return sparkSessionKey(ctx);
 }
 
 export function resolveSessionClaimedTask(

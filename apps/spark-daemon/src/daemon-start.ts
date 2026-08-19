@@ -1273,9 +1273,9 @@ function createDaemonScheduler(input: {
           },
         },
         channelReplyDelivery: input.channelReplyDeliveryStore,
-        interact: (request, task, context) =>
+        interact: (request, task, context, ownerSessionId) =>
           input.humanInteractions.interact(request, {
-            sessionId: task.sessionId,
+            sessionId: ownerSessionId,
             invocationId: context.invocationId,
             sessionSource: sessionSourceForTask(task),
             workspaceBindingId: task.workspaceBindingId,
@@ -1319,8 +1319,7 @@ function completeScheduledInvocation(
   if (task.type === "loop.tick") {
     const completed = input.loopStore.completeTick(invocation, task, completion);
     emitLoopUpdate(input, completed.loop, invocation.invocationId);
-    const sessionLifetime =
-      task.sessionLifetime ?? (task.continuity === "fresh" ? "driver_tick" : "driver");
+    const sessionLifetime = task.sessionLifetime;
     if (
       sessionLifetime === "driver_tick" ||
       completed.loop.status === "completed" ||

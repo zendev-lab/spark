@@ -81,9 +81,6 @@ export interface SparkCliHostServicesOptions {
   /** Host-private Skill discovery seam for isolated hosts and tests. */
   skillResolver?: SparkSkillResolver;
   tokenUsage?: SparkHeadlessTokenUsageContext;
-  stateBindingSessionId?: string;
-  /** @deprecated Compatibility input. */
-  stateOwnerSessionId?: string;
   loop?: SparkHostRuntimeOptions["loop"];
   sessionQuestionChain?: readonly string[];
   allowedTools?: readonly string[];

@@ -32,7 +32,6 @@ import {
   defaultUserRoleModelSettingsStore,
   hydrateDefaultRoleRegistry,
   resolveRoleModelSetting,
-  RoleModelTypeUnconfiguredError,
   type RoleSpec,
 } from "@zendev-lab/spark-roles";
 import type { SparkPaths } from "@zendev-lab/spark-system";
@@ -199,6 +198,7 @@ export interface SparkDaemonTaskExecutorOptions {
     request: SparkInteractionRequest,
     task: SparkDaemonSessionRunTask,
     context: SparkDaemonTaskExecutionContext,
+    ownerSessionId: string,
   ) => Promise<SparkInteractionResponse>;
 }
 
@@ -347,7 +347,7 @@ export function createSparkDaemonTaskExecutor(
           cwd: loopTask.cwd,
         });
       }
-      const presentationSessionId = sessionTask.presentationSessionId ?? sessionTask.sessionId;
+      const presentationSessionId = sessionTask.sessionId;
       let projectedFailure = false;
       let terminalProjectionBundleOpen = false;
       let terminalProjectionClosing: Promise<void> | undefined;
@@ -540,17 +540,13 @@ function closesTerminalProjectionBundle(event: SparkDaemonEvent): boolean {
 }
 
 function loopTaskSessionLifetime(task: SparkDaemonLoopTickTask): "driver" | "driver_tick" {
-  return task.sessionLifetime ?? (task.continuity === "fresh" ? "driver_tick" : "driver");
+  return task.sessionLifetime;
 }
 
 function sessionRunTaskFromLoopTick(task: SparkDaemonLoopTickTask): SparkDaemonSessionRunTask {
-  const legacyExecutionSessionId = task.executionSessionId?.trim();
   return {
     type: "session.run",
-    sessionId: legacyExecutionSessionId || task.sessionId,
-    stateBindingSessionId: task.ownerSessionId,
-    presentationSessionId: task.ownerSessionId,
-    ...(legacyExecutionSessionId && !task.sessionLifetime ? { hiddenExecution: true } : {}),
+    sessionId: task.sessionId,
     prompt: task.prompt,
     cwd: task.cwd,
     workspaceBindingId: task.workspaceBindingId,
@@ -701,15 +697,7 @@ async function withEffectiveTaskProfile(
         userStore: defaultUserRoleModelSettingsStore(),
       })
     : undefined;
-  if (sessionContext.role && !task.model && !sessionContext.session?.model && !roleModel) {
-    throw new RoleModelTypeUnconfiguredError(
-      sessionContext.role.ref,
-      sessionContext.role.modelType,
-    );
-  }
-  const inheritedModel = sessionContext.role
-    ? undefined
-    : await inheritedSessionModel(sessionContext.session, registry);
+  const inheritedModel = await inheritedSessionModel(sessionContext.session, registry);
   const model = task.model
     ? modelRefFromValue(task.model)
     : sessionContext.session?.model
@@ -721,9 +709,7 @@ async function withEffectiveTaskProfile(
   const thinkingLevel =
     task.thinkingLevel ??
     sessionContext.session?.thinkingLevel ??
-    (sessionContext.role
-      ? undefined
-      : await inheritedSessionThinkingLevel(sessionContext.session, registry));
+    (await inheritedSessionThinkingLevel(sessionContext.session, registry));
   return {
     ...task,
     model: `${model.providerName}/${model.modelId}`,
@@ -1128,24 +1114,24 @@ function interactionForSessionRun(
   taskOwnerSessionId?: string,
 ) {
   if (!options.interact) return undefined;
-  return (request: unknown) => {
+  return async (request: unknown) => {
     const parsed = parseSparkInteractionRequest(request);
     const evidenceOwnerSessionId =
       parsed.kind === "askFlow" ? parsed.evidenceRequest?.ownerSessionId.trim() : undefined;
-    if (
-      evidenceOwnerSessionId &&
-      evidenceOwnerSessionId !== task.sessionId &&
-      evidenceOwnerSessionId !== task.stateBindingSessionId &&
-      evidenceOwnerSessionId !== taskOwnerSessionId
-    ) {
-      throw new Error("evidence-bound interaction owner does not match the Session state owner");
+    if (evidenceOwnerSessionId && evidenceOwnerSessionId !== task.sessionId) {
+      if (evidenceOwnerSessionId !== taskOwnerSessionId) {
+        const session = await options.sessionRegistry?.get?.(task.sessionId);
+        if (
+          !session ||
+          session.lineage.kind !== "child" ||
+          session.lineage.parentSessionId !== evidenceOwnerSessionId
+        ) {
+          throw new Error("evidence-bound interaction owner is not the execution Session parent");
+        }
+      }
     }
-    const presentationSessionId = evidenceOwnerSessionId ?? task.presentationSessionId?.trim();
-    const interactionTask =
-      presentationSessionId && presentationSessionId !== task.sessionId
-        ? { ...task, sessionId: presentationSessionId }
-        : task;
-    const operation = () => options.interact!(parsed, interactionTask, context);
+    const ownerSessionId = evidenceOwnerSessionId ?? task.sessionId;
+    const operation = () => options.interact!(parsed, task, context, ownerSessionId);
     return context.withPausedTimeout ? context.withPausedTimeout(operation) : operation();
   };
 }
@@ -1177,7 +1163,7 @@ async function sessionExecutionIdentity(
           task,
           workspaceId,
           workspaceRoot,
-          executionSessionId: task.executionSessionId ?? task.sessionId,
+          executionSessionId: task.sessionId,
           binding: sessionContext.fleetWorker,
           resolveSessionCwd: options.resolveSessionCwd,
         })
@@ -1185,7 +1171,7 @@ async function sessionExecutionIdentity(
         ? await resolveWorkspaceTaskExecutionScope({
             task,
             workspaceRoot,
-            executionSessionId: task.executionSessionId ?? task.sessionId,
+            executionSessionId: task.sessionId,
           })
         : undefined;
   return {
@@ -1195,20 +1181,12 @@ async function sessionExecutionIdentity(
     ...(taskExecutionScope ? { taskExecutionScope } : {}),
     sparkHome: options.paths.sessionRuntimeDir,
     sessionId: task.sessionId,
-    ...(!task.hiddenExecution && sessionContext.sessionPath
-      ? { sessionPath: sessionContext.sessionPath }
-      : {}),
+    ...(sessionContext.sessionPath ? { sessionPath: sessionContext.sessionPath } : {}),
     ...(task.model ? { model: task.model } : {}),
     ...(task.thinkingLevel
       ? { thinkingLevel: sparkThinkingLevelSchema.parse(task.thinkingLevel) }
       : {}),
     reset: task.reset,
-    ...(task.hiddenExecution
-      ? {
-          sessionVisibility: "internal" as const,
-          sessionPurpose: "loop_tick" as const,
-        }
-      : {}),
     ...(task.resumeFromInterrupt ? { resumeFromInterrupt: true } : {}),
   };
 }
@@ -1418,7 +1396,6 @@ function sessionExecutionPolicy(
     ...(sessionContext.surface ? { sessionSurface: sessionContext.surface } : {}),
     sessionSource: sessionSourceForTask(task),
     ...(binding ? { channelBinding: binding } : {}),
-    ...(task.stateBindingSessionId ? { stateBindingSessionId: task.stateBindingSessionId } : {}),
     ...(loop ? { loop } : {}),
     ...(sessionQuestionChainForTask(task)
       ? { sessionQuestionChain: sessionQuestionChainForTask(task) }
@@ -1473,12 +1450,6 @@ export async function executeSparkDaemonSessionCompactTask(
     session.placement === "archived"
   ) {
     throw sessionCompactionFenceError(task, session);
-  }
-  if (session.lineage.kind === "child" && session.lineage.origin.kind === "side_thread") {
-    throw new SparkSessionRegistryError(
-      "side_thread_mutation_forbidden",
-      `session.compact cannot mutate side thread ${task.sessionId}`,
-    );
   }
   const workspaceId =
     session.scope.kind === "workspace" ? session.scope.workspaceId : task.workspaceId;
@@ -1592,8 +1563,7 @@ export async function executeSparkDaemonSessionRunTask(
     typeof context.yieldForRestartIfRequested === "function"
       ? (checkpoint: SparkTurnResumeCheckpoint) => context.yieldForRestartIfRequested?.(checkpoint)
       : undefined;
-  const canCheckpointRestart =
-    !loop && !task.reset && !task.hiddenExecution && !binding && Boolean(checkpointRestart);
+  const canCheckpointRestart = !loop && !task.reset && !binding && Boolean(checkpointRestart);
   const usageExecutionKind = sessionContext.sideThread
     ? "side_thread"
     : sessionContext.taskSession
@@ -1649,10 +1619,8 @@ export async function executeSparkDaemonSessionRunTask(
             kind: usageExecutionKind,
             ...(loop ? { detailKind: "loop_tick" } : {}),
             persistence:
-              task.hiddenExecution || sessionContext.retention === "discard_on_close"
-                ? "anonymous"
-                : "persistent",
-            sessionId: loop?.ownerSessionId ?? task.sessionId,
+              sessionContext.retention === "discard_on_close" ? "anonymous" : "persistent",
+            sessionId: task.sessionId,
             ...(context.registerTokenUsageExecution
               ? { register: context.registerTokenUsageExecution }
               : {}),
@@ -1898,7 +1866,7 @@ async function sessionContextForTask(
   registry: SparkDaemonTaskExecutorOptions["sessionRegistry"],
   sparkHome: string | undefined,
 ): Promise<SessionInvocationContext> {
-  const session = await registry?.get?.(task.executionSessionId ?? task.sessionId);
+  const session = await registry?.get?.(task.sessionId);
   if (session && (session.lifecycle !== "open" || session.placement !== "active")) {
     throw new SparkSessionRegistryError(
       session.lifecycle === "closing"
@@ -1913,7 +1881,7 @@ async function sessionContextForTask(
     ? await resolveInvocationRole(registry, session, session.cwd ?? task.cwd ?? process.cwd())
     : undefined;
   const sessionPath =
-    !task.hiddenExecution && session && sparkHome && registry?.bindTranscriptPath
+    session && sparkHome && registry?.bindTranscriptPath
       ? await ensureDaemonSessionTranscript({
           session,
           sparkHome,
@@ -2208,7 +2176,7 @@ function emitHeadlessEvent(
   const artifact = artifactDaemonProjectionEventFromToolResult(raw, {
     ...(task.workspaceId ? { workspaceId: task.workspaceId } : {}),
     ...(task.projectId ? { projectId: task.projectId } : {}),
-    sessionId: task.presentationSessionId ?? task.sessionId,
+    sessionId: task.sessionId,
     invocationId: context.invocationId,
     metadata: daemonTaskRouteMetadata(task),
   });
@@ -2238,11 +2206,6 @@ function daemonEventFromHeadlessEvent(
   if (raw.type === "view_event") {
     try {
       const view = parseSparkViewModelEvent(raw.event);
-      const presentationSessionId = task.presentationSessionId ?? task.sessionId;
-      const projectsOwnedSession = presentationSessionId !== task.sessionId;
-      if ((task.hiddenExecution || projectsOwnedSession) && view.type === "session.snapshot") {
-        return undefined;
-      }
       const correlatedView =
         view.type === "session.message" && view.message.role === "user"
           ? {
@@ -2253,10 +2216,6 @@ function daemonEventFromHeadlessEvent(
               },
             }
           : view;
-      const projectedView =
-        task.hiddenExecution || projectsOwnedSession
-          ? projectHiddenLoopView(correlatedView, presentationSessionId)
-          : correlatedView;
       return {
         version: SPARK_PROTOCOL_VERSION,
         type: "daemon.view_event",
@@ -2265,9 +2224,9 @@ function daemonEventFromHeadlessEvent(
         ...(task.workspaceId ? { workspaceId: task.workspaceId } : {}),
         ...(task.projectId ? { projectId: task.projectId } : {}),
         metadata: daemonTaskRouteMetadata(task),
-        sessionId: presentationSessionId,
+        sessionId: task.sessionId,
         invocationId,
-        view: projectedView,
+        view: correlatedView,
       };
     } catch {
       return undefined;
@@ -2276,37 +2235,16 @@ function daemonEventFromHeadlessEvent(
   if (raw.type === "daemon_event") {
     try {
       const event = parseSparkDaemonEvent(raw.event);
-      const presentationSessionId = task.presentationSessionId ?? task.sessionId;
-      const projectsOwnedSession = presentationSessionId !== task.sessionId;
-      if (
-        (task.hiddenExecution || projectsOwnedSession) &&
-        event.type === "daemon.view_event" &&
-        event.view.type === "session.snapshot"
-      ) {
-        return undefined;
-      }
-      const projectedEvent =
-        (task.hiddenExecution || projectsOwnedSession) && event.type === "daemon.view_event"
-          ? {
-              ...event,
-              view: projectHiddenLoopView(event.view, presentationSessionId),
-            }
-          : event;
       return {
-        ...projectedEvent,
-        emittedAt: projectedEvent.emittedAt ?? new Date().toISOString(),
-        ...(task.workspaceId && !projectedEvent.workspaceId
-          ? { workspaceId: task.workspaceId }
-          : {}),
-        ...(task.projectId && !projectedEvent.projectId ? { projectId: task.projectId } : {}),
-        sessionId:
-          task.hiddenExecution || projectsOwnedSession
-            ? presentationSessionId
-            : (projectedEvent.sessionId ?? task.sessionId),
-        invocationId: projectedEvent.invocationId ?? invocationId,
+        ...event,
+        emittedAt: event.emittedAt ?? new Date().toISOString(),
+        ...(task.workspaceId && !event.workspaceId ? { workspaceId: task.workspaceId } : {}),
+        ...(task.projectId && !event.projectId ? { projectId: task.projectId } : {}),
+        sessionId: event.sessionId ?? task.sessionId,
+        invocationId: event.invocationId ?? invocationId,
         metadata: {
           ...daemonTaskRouteMetadata(task),
-          ...projectedEvent.metadata,
+          ...event.metadata,
         },
       };
     } catch {
@@ -2314,33 +2252,6 @@ function daemonEventFromHeadlessEvent(
     }
   }
   return undefined;
-}
-
-function projectHiddenLoopView(
-  view: ReturnType<typeof parseSparkViewModelEvent>,
-  ownerSessionId: string,
-): ReturnType<typeof parseSparkViewModelEvent> {
-  if (view.type === "session.message") {
-    return {
-      ...view,
-      sessionId: ownerSessionId,
-      message: {
-        ...view.message,
-        metadata: {
-          ...view.message.metadata,
-          loopExecution: true,
-          stateOwnerSessionId: ownerSessionId,
-        },
-      },
-    };
-  }
-  if (view.type === "run.update") {
-    return { ...view, sessionId: ownerSessionId };
-  }
-  if (view.type === "loop.update") {
-    return { ...view, sessionId: ownerSessionId };
-  }
-  return view;
 }
 
 async function recordCompletedSessionCompaction(
@@ -2383,10 +2294,6 @@ async function recordCompletedSessionRun(
   refreshSessionSnapshotIndex: typeof refreshSparkSessionSnapshotIndex,
 ): Promise<{ result: unknown; indexed: boolean }> {
   if (!registry) return { result, indexed: false };
-  if (task.hiddenExecution) {
-    await registry.recordTurnSettled(task.stateBindingSessionId ?? task.sessionId);
-    return { result, indexed: false };
-  }
   const sessionPath =
     isRecord(result) && typeof result.sessionPath === "string" && result.sessionPath.trim()
       ? result.sessionPath.trim()
@@ -2435,17 +2342,17 @@ async function closeLoopGenerationSession(
   task: SparkDaemonLoopTickTask | undefined,
   supervisor: SessionSupervisor | undefined,
 ): Promise<void> {
-  if (task?.continuity !== "fresh" || !task.executionSessionId || !supervisor) {
+  if (task?.sessionLifetime !== "driver_tick" || !supervisor) {
     return;
   }
   try {
     await supervisor.close({
-      sessionId: task.executionSessionId,
+      sessionId: task.sessionId,
       reason: `loop ${task.loopId} generation ${task.generation} terminated`,
     });
   } catch (error) {
     console.error(
-      `[spark-daemon] failed to close Loop generation Session ${task.executionSessionId}: ${errorMessage(error)}`,
+      `[spark-daemon] failed to close Loop generation Session ${task.sessionId}: ${errorMessage(error)}`,
     );
   }
 }

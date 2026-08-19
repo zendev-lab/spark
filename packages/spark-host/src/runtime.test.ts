@@ -42,18 +42,15 @@ describe("SparkHostRuntime effect contract", () => {
     });
   });
 
-  it("keeps an explicit driver state binding authoritative over a turn-local view Session", () => {
-    const host = new SparkHostRuntime({
-      cwd: "/workspace",
-      stateBindingSessionId: "session:state-owner",
-    });
+  it("keeps the execution Session authoritative over a turn-local context override", () => {
+    const host = new SparkHostRuntime({ cwd: "/workspace" });
 
     host.setSessionId("session:driver");
 
     expect(host.makeContext({ sessionId: "session:view" })).toMatchObject({
-      sessionId: "session:state-owner",
-      executionSessionId: "session:driver",
+      sessionId: "session:driver",
     });
+    expect(host.makeContext()).not.toHaveProperty("executionSessionId");
   });
 
   it("fails closed without replacing or re-announcing a duplicate tool", () => {
