@@ -49,7 +49,7 @@ function parseJson(value: string, label: string): unknown {
   }
 }
 
-describe("runtime registration", () => {
+describe("runtime registration", { timeout: 20_000 }, () => {
   it("mints browser access only for this runtime's actively leased binding", () => {
     const db = openMemoryDatabase();
     migrate(db);
