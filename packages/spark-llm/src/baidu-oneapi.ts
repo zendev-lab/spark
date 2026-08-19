@@ -240,6 +240,34 @@ function isBaiduContextOverflowMessage(message: AssistantMessage): boolean {
   return BAIDU_CONTEXT_OVERFLOW_PATTERNS.some((pattern) => pattern.test(message.errorMessage!));
 }
 
+/**
+ * Redact plaintext chain-of-thought in Baidu OneAPI assistant messages.
+ *
+ * The Baidu gateway's anthropic dialect streams deepseek-v4-flash thinking as
+ * ordinary `thinking` content blocks (full plaintext CoT) instead of
+ * `redacted_thinking` blocks; pi-ai only marks `redacted_thinking` as redacted,
+ * so the raw chain-of-thought otherwise flows into Spark session history and
+ * artifacts verbatim. Collapse such thinking to the opaque placeholder:
+ * keep `thinkingSignature` (the encrypted payload needed for multi-turn
+ * continuity) and set `redacted: true` so downstream projections render a
+ * folded "[…]" rather than the plaintext. Thinking that is already empty or
+ * already marked redacted stays untouched.
+ */
+export function redactBaiduOneApiThinking(
+  content: AssistantMessage["content"],
+): AssistantMessage["content"] {
+  if (!Array.isArray(content)) return content;
+  let changed = false;
+  const next = content.map((part) => {
+    if (part.type !== "thinking" || part.redacted === true) return part;
+    const thinking = part.thinking;
+    if (typeof thinking !== "string" || thinking.trim().length === 0) return part;
+    changed = true;
+    return { ...part, thinking: "", redacted: true } as AssistantMessage["content"][number];
+  });
+  return changed ? next : content;
+}
+
 export function normalizeBaiduOneApiMessage(message: AssistantMessage): AssistantMessage {
   const errorMessage =
     isBaiduContextOverflowMessage(message) &&
@@ -249,6 +277,9 @@ export function normalizeBaiduOneApiMessage(message: AssistantMessage): Assistan
   return {
     ...message,
     ...(errorMessage !== undefined ? { errorMessage } : {}),
+    ...(Array.isArray(message.content)
+      ? { content: redactBaiduOneApiThinking(message.content) }
+      : {}),
     api: BAIDU_ONEAPI_API,
     provider: BAIDU_ONEAPI_PROVIDER,
   };
