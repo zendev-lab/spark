@@ -86,39 +86,31 @@ receiving either receipt as a transcript message.
 
 ## Repro
 
-Repro organizes evidence-gated work into Implementation Explore, Exactness
-Explore, and Formalize. The two Explore lanes may proceed independently but do
-not advance normative progress. Only an accepted Formalize retirement updates
-`formalizedTip`; that value is distinct from the current Git Change stack tip.
-
-Implementation hands candidates forward to Exactness, and Exactness hands
-verified candidates to Formalize. Resolutions flow backward to retire temporary
-work. An Exactness mismatch records the first bad boundary, classification,
-confidence, and disposition; skipping a check requires both isolation and a
-resynchronization point. Repro pauses instead of guessing when a baseline,
-material authority decision, or `required` approval is missing. Use
-`/inspect repro` to inspect the bounded daemon projection in the TUI.
+Repro organizes evidence-gated work into three stable child Sessions:
+Implementation, Exactness, and Formalize. It follows five daemon-owned
+checkpoints: Implementation, Exactness, Formalize, Exactness refresh, and
+Implementation refresh. Only Formalize may set the accepted
+`formalizedRevision`. Use `/inspect repro` to inspect the bounded projection.
 
 `/repro <objective>` immediately reserves three stable child Sessions in the
 owning Workspace. The Workspace may contain zero, one, or many repositories;
 launch does not assume that cwd is a repository and does not preselect a Git
 Change. Each lane discovers and constructs the repository/worktree topology its
-work needs. Implementation runs first; terminal TaskRuns automatically advance
-Exactness, Formalize, and the two backward refreshes. Persisted routes, bindings,
-receipts, Evidence refs, and logical revisions are the checkpoints. They do not
-live in the Root transcript.
+work needs. Implementation runs first; strict terminal TaskRun Evidence
+automatically advances the remaining checkpoints. The daemon-owned v10 record,
+TaskGraph, Evidence, and Session registry are recovery truth. They do not live
+in the Root transcript.
 
 You may compact the Root or a lane Session while Repro is active. A continuation
 reloads the durable checkpoint and reuses the same lane Sessions; it must not
 replay the launch. If a lane needs attention, the Ask appears on Root and
-survives daemon restart or context compaction. Your answer resumes the original
-lane Session and Git Change.
+survives daemon restart or context compaction. Your answer creates a new attempt
+in the same checkpoint and lane Session.
 
 ```text
 /repro <objective>
 /repro status
 /repro stop
-/repro restart [objective]
 ```
 
 `/repro start <objective>` remains an explicit spelling of the same start.

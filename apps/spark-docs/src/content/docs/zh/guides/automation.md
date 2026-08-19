@@ -72,33 +72,27 @@ Loop 用于刻意保持开放的重复工作。只有当前步骤明确调度下
 
 ## Repro
 
-Repro 把证据门控工作组织为 Implementation Explore、Exactness Explore 和 Formalize。
-两条 Explore 线可以独立推进，但不会改变正式进度；只有 Formalize 接受一次 retirement
-才会更新 `formalizedTip`，它与正在演进的 Git Change stack tip 不同。
-
-Implementation 把候选改动向前交给 Exactness，Exactness 把验证过的候选交给
-Formalize；resolution 反向流动，用来消除临时工作。Exactness mismatch 必须记录首个
-异常边界、分类、置信度和处置；跳过检查必须同时声明 isolate 与 resync。缺少基线、
-关键权限决定或 `required` 批准时，Repro 会暂停询问，而不是猜测。可以用
-`/inspect repro` 在 TUI 查看有界 daemon 投影。
+Repro 把证据门控工作放入三个稳定的子 Session：Implementation、Exactness 和
+Formalize。daemon 按五个 checkpoint 推进：Implementation、Exactness、Formalize、
+Exactness refresh、Implementation refresh。只有 Formalize 可以设置已接受的
+`formalizedRevision`。可以用 `/inspect repro` 查看有界投影。
 
 `/repro <目标>` 会立即在 owning Workspace 中预留三个稳定的子 Session。Workspace
 可以包含零个、一个或多个仓库；启动不会假设 cwd 是 Git 仓库，也不会预先选择 Git
 Change。各 lane 根据实际工作自主发现并构建所需的 repository/worktree topology。
-Implementation 先运行；terminal TaskRun 会自动推进 Exactness、Formalize 和两次反向
-refresh。持久化的 route、binding、receipt、Evidence ref 与逻辑 revision 才是
-checkpoint，不依赖 Root transcript。
+Implementation 先运行；严格的 terminal TaskRun Evidence 会自动推进其余 checkpoint。
+daemon-owned v10 状态、TaskGraph、Evidence 与 Session registry 才是恢复真相，
+不依赖 Root transcript。
 
 Repro 活动期间可以压缩 Root 或 lane Session 上下文。continuation 会重载持久化
 checkpoint 并复用原来的 lane Session，不会重放启动。如果某条 lane 需要人工注意，
 Ask 会投影到 Root，并能跨 daemon 重启或上下文压缩保留；回答后继续原 lane Session
-和原 Git Change。
+并在同一 checkpoint 中创建新的 attempt。
 
 ```text
 /repro <目标>
 /repro status
 /repro stop
-/repro restart [目标]
 ```
 
 `/repro start <目标>` 仍是同一启动动作的显式写法。

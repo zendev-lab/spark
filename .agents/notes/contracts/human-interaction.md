@@ -87,12 +87,12 @@ independent work when possible. A WorkflowRun inherits the continuation driver
 that started it only while that driver's authority remains active, and never
 creates or retains authority by itself.
 
-## Autonomous Goal/Repro evidence requests
+## Autonomous Goal and Repro evidence requests
 
-The autonomous contract is owned by
-[`autonomous-three-lane.md`](./autonomous-three-lane.md). Active Goal/Repro turns
-must persist detached asynchronous evidence requests and continue independent
-work. Their pending decision status is orthogonal to daemon scheduler activity.
+The Repro contract is owned by
+[`autonomous-three-lane.md`](./autonomous-three-lane.md). Active Goal turns and
+Repro checkpoints persist detached asynchronous evidence requests and continue
+independent work. Their pending decision status is orthogonal to daemon scheduler activity.
 A blocking human wait still occupies a scheduler slot, but a requested daemon
 restart must yield the last persistable ask-only checkpoint instead of holding
 drain forever. Mixed batches that already executed non-replayable tools fail
@@ -105,10 +105,10 @@ submitted question ids, required answers, options, and cardinalities against the
 durable canonical request, then stores only the normalized owner answer in the
 AnswerEvent. A side-question answer cannot release the bound Goal/Repro action.
 AnswerEvents retain this specification's request/response correlation and
-direct-user provenance rules. An answer accepted while the owner loop is
-`running` or `scheduled` remains wake-pending until reconciliation commits a
-later wake or observes the owner terminal; projection alone never acknowledges
-wake completion.
+direct-user provenance rules. Goal answers wake their owner Loop. Repro answers
+are consumed directly by the daemon v10 owner, which creates a new TaskRun
+attempt in the same checkpoint Session; it does not create a Loop wake or resume
+route. Projection alone never acknowledges wake completion.
 
 Ordinary non-autonomous sessions retain the existing interaction contract.
 

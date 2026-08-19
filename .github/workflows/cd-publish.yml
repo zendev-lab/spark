@@ -106,6 +106,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - name: Verify live-model Repro capability
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          SPARK_REPRO_LIVE_MODEL: ${{ vars.SPARK_REPRO_LIVE_MODEL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: pnpm run test:capability:repro-live
+
       - name: Resolve release tag
         run: |
           node -e '

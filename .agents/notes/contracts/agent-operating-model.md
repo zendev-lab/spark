@@ -107,7 +107,7 @@ The continuation driver answers **who owns another turn**:
 - `goal`: a Goal contract owns autonomous continuation and reviewer-gated
   completion;
 - `loop`: an open-ended scheduler owns cadence but has no completion protocol;
-- `repro`: the Repro protocol owns Stage/Gate progression and settlement.
+- `repro`: the daemon Repro v10 owner advances a fixed five-checkpoint chain.
 
 A WorkflowRun is not a continuation driver. It is an execution mechanism that
 may be started by a manual turn, Goal, Loop, or Repro. A WorkflowRun can finish
@@ -130,9 +130,11 @@ priority, the user decides.
 
 ### Repro
 
-Repro owns its Goal Contract, typed Stages, Steps, Evidence requirements,
-Gates, and settlement policy. It may dispatch independent safe-local frontier
-work while keeping decision and approval Steps with the owning Session.
+Repro owns one objective-scoped WorkItem, three stable child Sessions, three
+Tasks, and the fixed Implementation → Exactness → Formalize → Exactness refresh
+→ Implementation refresh chain. It is not a Goal/Loop facade and does not own
+Stage, Step, subgoal, or generic frontier scheduling. Attention stays on the
+current checkpoint and is answered through the Root-owned Ask.
 
 ### Workflow
 

@@ -17,7 +17,7 @@ provides:
 Inside a conversation, the inspector separates Summary, Artifacts, Changes,
 Tasks, and Lanes. For an active Repro, Lanes renders three bounded cards for
 Implementation, Exactness, and Formalize, plus forward handoffs, backward
-resolutions, and `formalizedTip`. The document comes from the daemon's existing
+checkpoint receipts, and `formalizedRevision`. The document comes from the daemon's existing
 A2UI projection; Hub does not keep a second Repro store or schedule lane work.
 Summary shows status and counts first; working directory, model, session ID,
 and timestamps remain under Technical details.

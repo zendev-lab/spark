@@ -1,22 +1,23 @@
 ---
 title: 协作与渠道
-description: 在协调工作前，先区分 Role、Session、Side Thread 和消息平台 Channel。
+description: 在协调工作前，先区分 Role 定义、Session lineage 与消息平台路由。
 ---
 
-## 四种协作对象
+## 三种协作概念
 
 | 对象 | 用途 | 生命周期与权限 |
 | --- | --- | --- |
 | Role | 单一可复用职责、权限叠加与可选预载 Skill | 每次 Invocation 冻结定义与精确 Skill 组合 |
 | Session | 执行上下文、历史、队列和 mailbox | 由 Owner 派生 persistent、scoped 或 ephemeral 生命周期 |
-| Side Thread | 绑定到父 Session 的只读旁支问题 | scoped 子 Session，通过显式 handoff 回传 |
 | Channel | 飞书（Feishu）、如流（Infoflow）或 QQ Bot 对话 | 绑定到 scoped Session 的路由别名 |
 
 行为和能力策略需要复用时选择 Role。Role Session 直接遵循其声明的预载 Skill；
 `skill_agent` 只用于没有预定义 Role 的临时、自包含能力。Session 默认使用 `none`，不增加 Role prompt；
 每个 Workspace 有一个受保护的 persistent Administrator，其他持续对话是 scoped
 Session，Role call 使用仅一次 Invocation 的 ephemeral Session。
-受限的只读旁支问题使用 [Side Thread](/zh/guides/side-threads/)。
+受限的只读旁支问题使用 [Side Thread](/zh/guides/side-threads/)；它是 origin 为
+`side_thread` 的子 Session，不是另一种运行时实体。所有 child origin 都作为
+subsession 显示在同一棵递归 TUI/Hub Session tree 中。
 
 ## Session request 与 notification
 
