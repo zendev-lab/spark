@@ -590,6 +590,7 @@ describe("SparkInvocationScheduler", () => {
         scope: { kind: "repro", reproId: "repro-driver-1" },
         kind: "root_session",
         persistence: "anonymous",
+        sessionId: "driver-session-repro",
         status: "complete",
       });
       expect(
