@@ -50,14 +50,7 @@ type SessionNotificationDeliveryDeps = {
   deliveryQueue?: SessionNotificationDeliveryQueue;
 };
 
-export async function deliverSessionNotification(
-  input: { sessionId: string; messageId: string },
-  deps: SessionNotificationDeliveryDeps,
-): Promise<SessionNotificationDeliveryResult> {
-  return await deliverSelectedSessionNotificationTargets(input, deps);
-}
-
-async function deliverSelectedSessionNotificationTargets(
+export async function deliverSelectedSessionNotificationTargets(
   input: { sessionId: string; messageId: string },
   deps: SessionNotificationDeliveryDeps,
   selectedTargets?: ReadonlySet<string>,
@@ -254,7 +247,41 @@ export async function reconcileSessionNotificationDeliveries(
   },
   limit = 50,
 ): Promise<{ attempted: number; delivered: number; failed: number }> {
-  const pending = await deps.mailStore.pendingChannelDeliveries(limit);
+  const pending = await deps.mailStore.pendingChannelDeliveries(limit, {
+    // Targets already owned by a live channel_deliveries row have no
+    // actionable work this pass (their terminal projection still happens when
+    // the row settles), so they must not consume the bounded scan window.
+    isEnqueued: deps.deliveryQueue
+      ? async (message, target) => {
+          const session = await deps.sessionRegistry.get(message.toSessionId);
+          if (!session || session.scope.kind !== "workspace") return false;
+          const status = deps.channelIngress.status(session.scope.workspaceId);
+          const resolvedAdapter = resolveNotificationAdapter(status, target);
+          const idempotencyKey = sessionNotificationDeliveryIdempotencyKey({
+            sessionId: message.toSessionId,
+            messageId: message.id,
+            correlationId: message.correlationId,
+            adapter: target.adapter,
+            externalKey: target.externalKey,
+            adapterAccountIdentity: resolvedAdapter.adapterAccountIdentity,
+          });
+          const row = [
+            idempotencyKey,
+            ...accountlessCompatibilityKeys({
+              sessionId: message.toSessionId,
+              messageId: message.id,
+              correlationId: message.correlationId,
+              target,
+              status,
+              idempotencyKey,
+            }),
+          ]
+            .map((key) => deps.deliveryQueue!.store.findByIdempotencyKey(key))
+            .find((delivery) => delivery !== undefined);
+          return row !== undefined && row.status !== "delivered" && row.status !== "uncertain";
+        }
+      : undefined,
+  });
   const messages = new Map<
     string,
     {

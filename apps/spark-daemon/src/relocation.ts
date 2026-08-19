@@ -22,6 +22,9 @@ import {
   type SparkDaemonServerProfile,
 } from "./server-profiles.ts";
 
+import { stringValue } from "./text.ts";
+import { isRecord } from "./local-rpc/is-record.ts";
+
 export interface SparkDaemonRelocationRequest {
   fromServerUrl?: string;
   toServerUrl: string;
@@ -577,12 +580,4 @@ function requireConfig(value: string | undefined, name: string): string {
     );
   }
   return value;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

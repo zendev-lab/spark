@@ -9,6 +9,9 @@ import {
   writeTextFileAtomic,
 } from "@zendev-lab/spark-core";
 
+import { errorMessage } from "./text.ts";
+import { isRecord } from "./local-rpc/is-record.ts";
+
 const LEGACY_ROLE_REFS = new Map([
   ["role:builtin-scout", "role:builtin-explorer"],
   ["role:builtin-researcher", "role:builtin-explorer"],
@@ -627,10 +630,6 @@ function deepEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function safeFileName(value: string): string {
   return value.replace(/[^0-9A-Za-z._-]/gu, "_");
 }
@@ -641,8 +640,4 @@ function shellQuote(value: string): string {
 
 function errorCode(error: unknown): string | undefined {
   return isRecord(error) && typeof error.code === "string" ? error.code : undefined;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

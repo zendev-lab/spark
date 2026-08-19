@@ -8,6 +8,7 @@ import type { SparkPaths } from "@zendev-lab/spark-system";
 
 import { localRpcRequest } from "./local-rpc/client.js";
 import { padColumn, shortTimestamp, truncateColumn, yesNo, type CliIo } from "./cli-shared.ts";
+import { isRecord } from "./local-rpc/is-record.ts";
 
 type ControlCommand =
   | "model"
@@ -486,10 +487,6 @@ function writeResult(
   }
   io.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
   return 0;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function recordArray(value: unknown): Record<string, unknown>[] | undefined {

@@ -35,6 +35,8 @@ import {
 } from "./side-thread-transcript.ts";
 import { SparkInvocationStore, type SparkInvocationRecord } from "./store/invocations.ts";
 
+import { stringValue } from "./text.ts";
+
 const MAX_HANDOFF_BYTES = 48 * 1024;
 const sideThreadMutationTails = new Map<string, Promise<void>>();
 
@@ -708,10 +710,6 @@ function requiredString(value: unknown, field: string): string {
   const parsed = stringValue(value);
   if (!parsed) throw new Error(`Side Thread admission result is missing ${field}.`);
   return parsed;
-}
-
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {

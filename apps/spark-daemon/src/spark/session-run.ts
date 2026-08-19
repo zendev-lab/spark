@@ -92,6 +92,9 @@ import { assignCompletedSessionName } from "./session-title.ts";
 import type { SessionSupervisor } from "../session-supervisor.ts";
 import { createSupervisedRoleRunner } from "../supervised-role-runner.ts";
 
+import { errorMessage } from "../text.ts";
+import { isRecord } from "../local-rpc/is-record.ts";
+
 export const CHANNEL_REPLY_EMPTY_ERROR_CODE = "CHANNEL_REPLY_EMPTY";
 export const CHANNEL_REPLY_TERMINAL_PRESENTED_ERROR_CODE = "CHANNEL_REPLY_TERMINAL_PRESENTED";
 
@@ -2479,14 +2482,6 @@ function sessionCompactionFenceError(
       `(expected incarnation ${task.sessionIncarnation} open, found ` +
       `${session.incarnation} ${session.lifecycle}/${session.placement})`,
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {

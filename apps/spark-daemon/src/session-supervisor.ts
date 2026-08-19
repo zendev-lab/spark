@@ -1,6 +1,5 @@
 import { rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import { isSparkInvocationTerminalStatus } from "@zendev-lab/spark-protocol";
 import {
   sparkSessionCloseCandidateSchema,
   sparkSessionCloseReceiptSchema,
@@ -786,10 +785,10 @@ export class SessionSupervisor {
     const terminal = this.invocations
       .listPage({
         sessionId: session.sessionId,
+        terminalOnly: true,
         limit: 100,
       })
-      .invocations.filter(isTerminalInvocation)
-      .slice(0, 64);
+      .invocations.slice(0, 64);
 
     if (completion) {
       const candidate = sparkSessionCloseCandidateSchema.safeParse(completion);
@@ -1023,10 +1022,6 @@ function sessionTranscriptPaths(session: SparkSessionState): string[] {
 
 function isPresentString(value: string | undefined): value is string {
   return typeof value === "string" && value.length > 0;
-}
-
-function isTerminalInvocation(invocation: SparkInvocationRecord): boolean {
-  return isSparkInvocationTerminalStatus(invocation.status);
 }
 
 function assistantText(result: unknown): string | undefined {

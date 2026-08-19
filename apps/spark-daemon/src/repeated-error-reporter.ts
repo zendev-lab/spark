@@ -1,10 +1,10 @@
-export interface RepeatedErrorReporter {
+interface RepeatedErrorReporter {
   report(error: unknown): void;
   recovered(): void;
   flush(): void;
 }
 
-export interface RepeatedErrorReporterOptions {
+interface RepeatedErrorReporterOptions {
   intervalMs?: number;
   now?: () => number;
   log?: (message: string, error?: unknown) => void;
