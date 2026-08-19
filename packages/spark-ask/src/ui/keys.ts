@@ -102,7 +102,7 @@ export function decodeAskKittyPrintable(data: string): string | undefined {
   const modValue = match[4] ? Number.parseInt(match[4], 10) : 1;
   const modifier = Number.isFinite(modValue) ? modValue - 1 : 0;
   const effectiveMod = modifier & ~LOCK_MASK;
-  if ((effectiveMod & ~(SHIFT)) !== 0) return undefined;
+  if ((effectiveMod & ~SHIFT) !== 0) return undefined;
   if (effectiveMod & (ALT | CTRL)) return undefined;
 
   let effectiveCodepoint = codepoint;
