@@ -2775,6 +2775,63 @@ test("background cleanup does not cancel role-runs without an owned task graph",
   }
 });
 
+test("background cleanup leaves daemon-owned TaskRuns unchanged when no process was killed", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-daemon-task-shutdown-"));
+  try {
+    await mkdir(join(dir, ".spark"), { recursive: true });
+    const ctx = testSparkContext(dir, "daemon-task-owner");
+    const sessionId = sparkSessionOwnerKey(ctx);
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Daemon", description: "daemon" });
+    const task = graph.createTask({
+      projectRef: project.ref,
+      title: "Managed task",
+      description: "managed",
+      roleRef: builtinRoleRef("executor"),
+      status: "running",
+      plan: executionReadyPlan("Managed task"),
+    });
+    const runRef = "run:daemon-managed" as RunRef;
+    graph.claimTask(task.ref, {
+      kind: "role-run",
+      claimedBy: sessionId,
+      sessionId,
+      runName: "daemon-managed",
+      runRef,
+      roleRef: builtinRoleRef("executor"),
+      leaseMs: 60_000,
+    });
+    graph.recordRun({
+      ref: runRef,
+      projectRef: project.ref,
+      taskRef: task.ref,
+      ownerSessionId: "session:root",
+      roleRef: builtinRoleRef("executor"),
+      runName: "daemon-managed",
+      execution: {
+        ownerSessionId: "session:root",
+        executionSessionId: sessionId,
+        sessionGoalId: "goal:managed",
+        jobId: "job:managed",
+        attempt: 1,
+        invocationId: "inv:managed",
+      },
+      status: "running",
+      startedAt: nowIso(),
+      outputEvidenceRefs: [],
+    });
+    await defaultTaskGraphStore(dir).save(graph);
+
+    assert.equal(await cleanupOwnedBackgroundSubroles(dir, ctx, "test"), 0);
+    const reloaded = await defaultTaskGraphStore(dir).load();
+    assert.equal(reloaded?.getTask(task.ref).status, "running");
+    assert.equal(reloaded?.getTask(task.ref).claim?.runRef, runRef);
+    assert.equal(reloaded?.runs(project.ref)[0]?.status, "running");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("background resume persists plan items through the task graph without a TODO sidecar", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-resume-persistence-"));
   try {

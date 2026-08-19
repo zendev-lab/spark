@@ -461,6 +461,14 @@ describe("daemon native session execution", () => {
           mode: "execute",
           taskExecutionScope: {
             isolation: "isolated_worktree",
+            binding: {
+              ownerSessionId: "sess_owner",
+              projectRef: project.ref,
+              taskRef: taskRecord.ref,
+              runRef,
+              jobId: "task-job:fleet-1",
+              attempt: 1,
+            },
             primaryArtifactRef: firstRef,
             writableArtifactRefs: [firstRef, secondRef],
             writableRoots: [firstRoot, secondRoot],
@@ -561,17 +569,12 @@ describe("daemon native session execution", () => {
       workspaceId: "ws_repro",
       prompt: "execute Repro implementation",
       messageMetadata: {
-        sessionMail: {
-          fromSessionId: "sess_owner",
-          requestPayload: {
-            kind: "task_execution",
-            projectRef: project.ref,
-            taskRef: taskRecord.ref,
-            runRef,
-            jobId: "task-job:repro-workspace-1",
-            attempt,
-          },
-        },
+        kind: "task_execution",
+        projectRef: project.ref,
+        taskRef: taskRecord.ref,
+        runRef,
+        jobId: "task-job:repro-workspace-1",
+        attempt,
       },
     });
     const options = {
@@ -596,6 +599,14 @@ describe("daemon native session execution", () => {
           mode: "execute",
           taskExecutionScope: {
             isolation: "workspace",
+            binding: {
+              ownerSessionId: "sess_owner",
+              projectRef: project.ref,
+              taskRef: taskRecord.ref,
+              runRef,
+              jobId: "task-job:repro-workspace-1",
+              attempt: 1,
+            },
             writableArtifactRefs: [],
             writableRoots: [workspaceRoot],
           },

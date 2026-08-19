@@ -169,7 +169,7 @@ export function registerSparkExtensionEvents(
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await syncGoalAskAutoAnswerPolicy(ctx);
     await syncGoalInteractiveToolAvailability(pi, ctx, goalToolBaselines);
-    await deps.ensureActiveReproLoop?.(ctx);
+    await deps.ensureActiveReproLoop?.(reproOwnerContext(ctx));
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
   // turn_end also fires between normal tool-call iterations. Only a successful
@@ -192,7 +192,7 @@ export function registerSparkExtensionEvents(
     await ensureLocalSparkDirectory(ctx.cwd, ctx);
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await resumeOwnedBackgroundSubroles(ctx.cwd, ctx);
-    await deps.ensureActiveReproLoop?.(ctx);
+    await deps.ensureActiveReproLoop?.(reproOwnerContext(ctx));
     await reconcileReproLaneRuntimeSafely(deps, ctx);
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
@@ -240,7 +240,16 @@ async function reconcileReproLaneRuntimeSafely(
   ctx: SparkToolContext,
 ): Promise<void> {
   try {
-    await deps.reconcileReproLaneRuntime?.(ctx);
+    const binding = ctx.taskExecutionScope?.binding;
+    if (binding) {
+      await reconcileManagedTaskSessions({
+        cwd: ctx.cwd,
+        ctx,
+        projectRef: binding.projectRef,
+        ownerSessionId: binding.ownerSessionId,
+      });
+    }
+    await deps.reconcileReproLaneRuntime?.(reproOwnerContext(ctx));
   } catch (error) {
     console.error("[spark] Repro lane reconciliation remains checkpointed for retry", error);
   }
@@ -342,7 +351,8 @@ export async function syncSparkGoalAskAutoAnswerPolicy(
   _deps: SparkExtensionEventDeps,
 ): Promise<void> {
   const activeGoal = await currentActiveSessionGoal(ctx);
-  const repro = await readSessionRepro(ctx.cwd, ctx);
+  const reproCtx = reproOwnerContext(ctx);
+  const repro = await readSessionRepro(ctx.cwd, reproCtx);
   const activeRepro = repro?.status === "active" ? repro : undefined;
   ctx.askWaitTimeoutMs =
     activeRepro || activeGoal
@@ -355,7 +365,7 @@ export async function syncSparkGoalAskAutoAnswerPolicy(
     ctx.sparkAutonomousAsk = {
       modeScope: "repro",
       goalOrReproId: activeRepro.reproId,
-      ownerSessionId: sparkSessionOwnerKey(ctx),
+      ownerSessionId: sparkSessionOwnerKey(reproCtx),
       resolveBinding(request) {
         const binding = decodeReproStepAskBinding(optionalString(request.context));
         if (!binding) {
@@ -425,9 +435,10 @@ async function syncGoalInteractiveToolAvailability(
 ): Promise<void> {
   if (!pi.getActiveTools || !pi.setActiveTools) return;
   const key = `${ctx.cwd}:${sparkSessionOwnerKey(ctx)}`;
+  const reproCtx = reproOwnerContext(ctx);
   const activeAutonomous =
     (await hasActiveCurrentSessionGoal(ctx)) ||
-    (await readSessionRepro(ctx.cwd, ctx))?.status === "active";
+    (await readSessionRepro(ctx.cwd, reproCtx))?.status === "active";
   if (activeAutonomous) {
     // Snapshot the currently *active* tools, not every registered tool. Using
     // getAllTools() here would re-activate tools that other extensions disabled
@@ -451,6 +462,20 @@ async function currentActiveSessionGoal(ctx: SparkToolContext) {
 
 async function hasActiveCurrentSessionGoal(ctx: SparkToolContext): Promise<boolean> {
   return Boolean(await currentActiveSessionGoal(ctx));
+}
+
+/**
+ * Repro callbacks target their explicit TaskRun owner without changing the
+ * child Session identity used by ordinary tools, transcripts, or claims.
+ */
+export function reproOwnerContext(ctx: SparkToolContext): SparkToolContext {
+  const ownerSessionId = ctx.taskExecutionScope?.binding?.ownerSessionId?.trim();
+  if (!ownerSessionId || ownerSessionId === ctx.sessionId) return ctx;
+  return {
+    ...ctx,
+    sessionId: ownerSessionId,
+    executionSessionId: ctx.executionSessionId?.trim() || ctx.sessionId,
+  };
 }
 
 function optionalString(value: unknown): string | undefined {

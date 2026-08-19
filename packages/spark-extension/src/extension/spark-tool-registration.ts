@@ -53,6 +53,7 @@ export interface SparkToolContext {
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
   sessionLease?: () => SparkSessionLeaseIdentity | undefined;
   invocationId?: string;
+  taskExecutionScope?: SparkHostContext["taskExecutionScope"];
   loop?: SparkHostLoopContext;
   /** Command-host bridge for dispatching a turn through an externally owned session runtime. */
   sendUserMessage?: (content: string) => Promise<void>;
