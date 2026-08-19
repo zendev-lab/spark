@@ -1,7 +1,8 @@
 import { projectSparkReproV10 } from "../../repro-owner.ts";
 import { createDaemonSparkReproOwner } from "../../repro-owner-runtime.ts";
+import { requireSessionRegistry } from "../../session-control.ts";
 import { getWorkspaceById } from "../../store/workspaces.ts";
-import { requireModelControl, requireSessionRegistry } from "../helpers.ts";
+import { requireModelControl } from "../helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
 import {
   parseLocalRpcServiceOutput,

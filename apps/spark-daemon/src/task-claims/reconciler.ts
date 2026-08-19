@@ -5,13 +5,13 @@ import {
   isUnfinishedTaskStatus,
   type TaskGraph,
 } from "@zendev-lab/spark-tasks";
-import { listWorkspaceClaimTargets, listWorkspaceClients } from "../store/workspaces.ts";
+import { listWorkspaceClaimTargets } from "../store/workspaces.ts";
 import {
   MAIN_TASK_CLAIM_LEASE_MS,
   mainTaskClaimExpiryBoundary,
   shouldRenewMainTaskClaim,
 } from "./policy.ts";
-import { updateTaskGraph } from "./authority-support.ts";
+import { interactiveConnectedSessionIds, updateTaskGraph } from "./authority-support.ts";
 
 export interface MainTaskClaimReconcileResult {
   observedAt: string;
@@ -39,16 +39,7 @@ export async function reconcileMainTaskClaims(
   };
   for (const workspace of listWorkspaceClaimTargets(db)) {
     result.workspaces += 1;
-    const liveSessions = new Set(
-      listWorkspaceClients(db, workspace.id, now)
-        .filter(
-          (client) =>
-            client.kind === "interactive" &&
-            client.status === "connected" &&
-            Boolean(client.sessionId),
-        )
-        .map((client) => client.sessionId!),
-    );
+    const liveSessions = new Set(interactiveConnectedSessionIds(db, workspace.id, now));
     try {
       await reconcileWorkspaceClaims(
         workspace.localPath,

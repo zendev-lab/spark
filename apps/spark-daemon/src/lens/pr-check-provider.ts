@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 
 import type { LensVerdict } from "@zendev-lab/spark-lens";
 
-export interface GitHubPrCheck {
+interface GitHubPrCheck {
   name: string;
   state: string;
   bucket: "pass" | "fail" | "pending" | "skipping" | "cancel";
@@ -10,7 +10,7 @@ export interface GitHubPrCheck {
   workflow?: string;
 }
 
-export interface GitHubPrCheckReport {
+interface GitHubPrCheckReport {
   provider: "github-pr-checks";
   verdict: LensVerdict;
   localHeadOid: string | null;

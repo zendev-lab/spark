@@ -3,6 +3,8 @@ import type { ChannelReplyRecovery, ChannelReplyTarget } from "@zendev-lab/spark
 import type { DaemonChannelIngressRuntime } from "./ingress.ts";
 import type { SparkInvocationStore } from "../store/invocations.ts";
 
+import { errorMessage } from "../text.ts";
+
 export const CHANNEL_REPLY_DELIVERY_KIND = "channel.reply";
 export const CHANNEL_REPLY_DELIVERY_PENDING_ERROR_CODE = "CHANNEL_REPLY_DELIVERY_PENDING";
 
@@ -586,8 +588,4 @@ function isRecovery(value: unknown): value is ChannelReplyRecovery {
 
 function isDeliveryStatus(value: string): value is ChannelReplyDeliveryStatus {
   return value === "sending" || value === "pending" || value === "acked" || value === "uncertain";
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -43,7 +43,6 @@ import {
   INVOCATION_SCHEDULER_QUESTION_OVERFLOW,
 } from "./invocation-scheduler-policy.ts";
 import { DaemonEventIngress } from "./daemon-event-ingress.ts";
-import { recoverInterruptedInvocations } from "./execution-reconciler.ts";
 
 export { DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY } from "./invocation-scheduler-policy.ts";
 /**
@@ -175,14 +174,6 @@ export class SparkInvocationScheduler {
     this.tokenUsageStore = options.tokenUsageStore;
     this.resolveReproUsageScope = options.resolveReproUsageScope;
     this.accepting = options.initiallyAccepting !== false;
-  }
-
-  recover(now?: string): number {
-    const recovered = recoverInterruptedInvocations({
-      invocationStore: this.store,
-      ...(now ? { now } : {}),
-    });
-    return recovered.invocationRequeues + recovered.invocationFailures;
   }
 
   processBatch(): boolean {

@@ -177,7 +177,20 @@ export class SparkSessionMailStore {
       .sort(compareMailMessages);
   }
 
-  async pendingChannelDeliveries(limit = 100): Promise<SparkSessionPendingChannelDelivery[]> {
+  async pendingChannelDeliveries(
+    limit = 100,
+    options: {
+      /**
+       * Called before the limit is applied so a target that is already owned
+       * by a durable outbox row (and therefore has no actionable work this
+       * pass) never consumes a scan slot.
+       */
+      isEnqueued?: (
+        message: SparkSessionMailMessage,
+        target: SparkSessionMailChannelTarget,
+      ) => boolean | Promise<boolean>;
+    } = {},
+  ): Promise<SparkSessionPendingChannelDelivery[]> {
     const normalizedLimit = Math.max(1, Math.min(500, Math.floor(limit)));
     const messages = await this.allStoredMessages();
     const pending: SparkSessionPendingChannelDelivery[] = [];
@@ -193,7 +206,8 @@ export class SparkSessionMailStore {
         if (
           target.status === "delivered" ||
           target.status === "uncertain" ||
-          !deliveryRetryDue(target, this.options.now?.() ?? Date.now())
+          !deliveryRetryDue(target, this.options.now?.() ?? Date.now()) ||
+          (await options.isEnqueued?.(message, target))
         ) {
           continue;
         }
@@ -205,15 +219,21 @@ export class SparkSessionMailStore {
   }
 
   /**
-   * Durable session-request queue: every executable request mail that has not
-   * been admitted by a turn yet, FIFO by creation. The daemon drains one per
-   * session per pass after the session becomes idle.
+   * Durable session-request queue heads: the oldest executable request mail
+   * per target session that has not been admitted by a turn yet, FIFO by
+   * creation. The daemon drains one per session per pass after the session
+   * becomes idle, so the limit bounds the number of distinct sessions rather
+   * than the number of messages (a busy-session backlog cannot starve idle
+   * sessions behind it).
    */
-  async pendingRequests(limit = 100): Promise<SparkSessionMailMessage[]> {
+  async pendingRequestHeads(limit = 100): Promise<SparkSessionMailMessage[]> {
     const normalizedLimit = Math.max(1, Math.min(500, Math.floor(limit)));
     const pending: SparkSessionMailMessage[] = [];
+    const seenSessions = new Set<string>();
     for (const message of await this.allStoredMessages()) {
       if (message.kind !== "request" || message.requestAdmission?.status !== "pending") continue;
+      if (seenSessions.has(message.toSessionId)) continue;
+      seenSessions.add(message.toSessionId);
       pending.push(message);
       if (pending.length >= normalizedLimit) return pending;
     }

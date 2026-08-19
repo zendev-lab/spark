@@ -103,11 +103,6 @@ export type LocalTurnSubmitResult = SparkTurnSubmitResult;
 export type LocalTurnStatusResult = SparkTurnStatusResult;
 export type LocalTurnStreamResult = SparkTurnStreamPage;
 
-export interface LocalTurnCancelRequest {
-  invocationId: string;
-  reason?: string;
-}
-
 export type LocalTurnCancelResult = SparkTurnCancelResult;
 
 export interface LocalDaemonStopResult {
@@ -233,20 +228,11 @@ export function parseLocalRpcServiceOutput<Method extends SparkLocalRpcMethod>(
 /** Temporary 0.1.x NDJSON envelope; method/input correlation remains protocol-owned. */
 export type LocalRpcRequest = { id: string } & LocalRpcServiceRequest;
 
-export type LocalTurnCancelParams = LocalTurnCancelRequest;
-
 export type LocalHumanInteractionListParams = SparkLocalRpcParsedInput<"human.interaction.list">;
 export type LocalHumanInteractionListResult = SparkLocalRpcOutput<"human.interaction.list">;
 
-export interface LocalHumanInteractionRespondParams {
-  interactionRequestId: string;
-  sessionId?: string;
-  invocationId?: string;
-  humanResponseId?: string;
-  status: "answered" | "cancelled";
-  answers: Record<string, unknown>;
-  responseArtifactRefs: string[];
-}
+export type LocalHumanInteractionRespondParams =
+  SparkLocalRpcParsedInput<"human.interaction.respond">;
 
 export type LocalHumanInteractionRespondResult = SparkLocalRpcOutput<"human.interaction.respond">;
 
@@ -261,26 +247,9 @@ export type LocalRpcResponse =
   | { id: string; ok: true; result: unknown }
   | { id: string; ok: false; error: LocalRpcErrorPayload };
 
-export type LocalTurnSubmitParams = {
-  sessionId: string;
-  prompt: string;
-  idempotencyKey?: string;
-  reset?: boolean;
-  assignment?: SparkAssignment;
-  messageMetadata?: Record<string, unknown>;
-};
+export type LocalTurnSubmitParams = SparkLocalRpcParsedInput<"turn.submit">;
 
-export type LocalWorkspaceRegisterParams = {
-  serverUrl: string;
-  allowInsecureHttp?: boolean;
-  localPath: string;
-  registrationToken?: string;
-  localWorkspaceKey?: string;
-  displayName?: string;
-  workspaceName?: string;
-  workspaceSlug?: string;
-  profile?: NonNullable<SparkDaemonWorkspace["profile"]>;
-};
+export type LocalWorkspaceRegisterParams = SparkLocalRpcParsedInput<"workspace.register">;
 
 export type LocalWorkspaceEnsureLocalParams = LocalWorkspaceEnsureLocalRequest;
 export type LocalWorkspaceClientAttachParams = LocalWorkspaceClientAttachRequest;

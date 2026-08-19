@@ -42,7 +42,7 @@ interface LspProviderRequestInput {
   operation?: string;
 }
 
-export interface BrokeredLspProviderOptions {
+interface BrokeredLspProviderOptions {
   spec: LensProviderSpec;
   providerVersion: ProviderVersion;
   launch(workspace: LensWorkspaceContext): Promise<ProviderLaunchSpec>;

@@ -8,6 +8,9 @@ import {
 } from "@zendev-lab/spark-roles";
 import { killActiveSparkRoleRunProcesses, runSparkTask } from "@zendev-lab/spark-runtime";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+
+import { errorMessage } from "../text.ts";
+
 type EvidenceRef = `evidence:${string}`;
 type ProjectRef = `proj:${string}`;
 type RunRef = `run:${string}`;
@@ -650,7 +653,7 @@ function invocationStatusForRun(run: TaskRun): "succeeded" | "failed" | "cancell
 }
 
 function errorMessageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return errorMessage(error);
 }
 
 function eventTypeOf(event: unknown): string | undefined {
