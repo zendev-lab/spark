@@ -19,11 +19,24 @@
  * Everything else is forwarded to `dsh web` (ports, trusted hosts, app args).
  */
 import { build } from "esbuild";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  assertSupportedDshPackage,
+  installManagedCuePresets,
+} from "@zendev-lab/dsh-tool-cue/presets";
 
 /**
  * Structural twin of the dispatcher launcher, declared here to keep this
@@ -124,6 +137,119 @@ export function resolveSparkLlmPackageDir(): string {
   return resolvePackageDir("@zendev-lab/spark-llm");
 }
 
+/** Locate the installed `@zendev-lab/dsh-tool-cue` package root. */
+export function resolveDshToolCuePackageDir(): string {
+  return resolvePackageDir("@zendev-lab/dsh-tool-cue");
+}
+
+function packageRootFrom(start: string, expectedName: string): string | undefined {
+  let current = start;
+  while (true) {
+    const packagePath = join(current, "package.json");
+    if (existsSync(packagePath)) {
+      try {
+        const metadata = JSON.parse(readFileSync(packagePath, "utf8")) as { name?: unknown };
+        if (metadata.name === expectedName) return current;
+      } catch {
+        // Keep walking: an unrelated or malformed package is not the DSH install.
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
+
+function executableOnPath(command: string): string | undefined {
+  if (command.includes("/")) return existsSync(command) ? command : undefined;
+  for (const entry of (process.env.PATH ?? "").split(":")) {
+    const candidate = join(entry, command);
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+/** Resolve the actual installed `@deepseek-ai/dsh` package owning the CLI. */
+export function resolveInstalledDshPackageDir(
+  command = process.env.SPARK_WEB_COMMAND?.trim() || "dsh",
+  searchFrom = process.cwd(),
+): string {
+  const installed = resolveFromDirectory(searchFrom, "@deepseek-ai/dsh");
+  if (installed !== undefined) return dirname(installed);
+  const executable = executableOnPath(command);
+  if (executable !== undefined) {
+    const realExecutable = realpathSync(executable);
+    const direct = packageRootFrom(dirname(realExecutable), "@deepseek-ai/dsh");
+    if (direct !== undefined) return direct;
+    const nested = resolveFromDirectory(dirname(realExecutable), "@deepseek-ai/dsh");
+    if (nested !== undefined) return dirname(nested);
+  }
+  throw new Error(
+    `spark web: cannot locate installed @deepseek-ai/dsh package metadata for ${JSON.stringify(command)}`,
+  );
+}
+
+function hashSourceTree(paths: readonly string[]): string {
+  const hash = createHash("sha256");
+  const visit = (path: string, label: string): void => {
+    const stats = statSync(path);
+    if (stats.isDirectory()) {
+      for (const name of readdirSync(path).sort()) {
+        if (name === "node_modules" || name === "dist" || name === "lib") continue;
+        visit(join(path, name), `${label}/${name}`);
+      }
+      return;
+    }
+    hash.update(label).update("\0").update(readFileSync(path)).update("\0");
+  };
+  paths.forEach((path, index) => visit(path, `source-${index}`));
+  return hash.digest("hex");
+}
+
+export interface DshToolCueBundleResult {
+  entry: string;
+  bundle: string;
+  sourceDigest: string;
+  rebuilt: boolean;
+}
+
+/** Bundle the host-neutral Cue operations and rc.7 adapter into the DSH profile. */
+export async function ensureDshToolCueBundle(profileDir: string): Promise<DshToolCueBundleResult> {
+  const packageDir = resolveDshToolCuePackageDir();
+  const sparkCuePackage = resolveFromDirectory(packageDir, "@zendev-lab/spark-cue");
+  if (sparkCuePackage === undefined) {
+    throw new Error(`spark web: cannot locate @zendev-lab/spark-cue from ${packageDir}`);
+  }
+  const sparkCueDir = dirname(sparkCuePackage);
+  const entry = join(packageDir, "src", "index.ts");
+  const sourceDigest = hashSourceTree([
+    entry,
+    join(packageDir, "package.json"),
+    join(sparkCueDir, "src"),
+    sparkCuePackage,
+  ]);
+  const pluginDir = join(profileDir, "plugins", "dsh-tool-cue");
+  const bundle = join(pluginDir, "index.mjs");
+  const digestPath = join(pluginDir, ".source-sha256");
+  const previousDigest = existsSync(digestPath) ? readFileSync(digestPath, "utf8").trim() : "";
+  const rebuilt = !existsSync(bundle) || previousDigest !== sourceDigest;
+  if (rebuilt) {
+    mkdirSync(pluginDir, { recursive: true });
+    await build({
+      entryPoints: [entry],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      target: "node22",
+      outfile: bundle,
+      external: ["@deepseek-ai/*"],
+      logLevel: "silent",
+    });
+    writeFileSync(digestPath, `${sourceDigest}\n`);
+  }
+  return { entry, bundle, sourceDigest, rebuilt };
+}
+
 export interface SparkLlmBundleResult {
   entry: string;
   bundle: string;
@@ -188,7 +314,7 @@ export interface SparkWebPatch {
  * Compose the patch overlay for one `spark web` run and write it to a
  * temporary file. Rows:
  *
- * - `spark-llm` host plugin (relative to the profile root, so the DSH loader
+ * - `spark-llm` and `dsh-tool-cue` host plugins (relative to the profile root, so the DSH loader
  *   resolves it without an install);
  * - `hmr` re-enabled (the web-app bundle ships it disabled);
  * - the `webserver` row restated with the requested host when it is not the
@@ -243,7 +369,8 @@ export async function ensureSparkWebClient(profileDir: string): Promise<SparkWeb
     if (resolveFromDirectory(profileDir, SPARK_WEB_DHS_PACKAGE) === undefined)
       throw new Error("not linked");
   } catch {
-    const dsh = spawnSync("dsh", ["plugin", "--profile", "web", "add", `link:${packageDir}`], {
+    const dshCommand = process.env.SPARK_WEB_COMMAND?.trim() || "dsh";
+    const dsh = spawnSync(dshCommand, ["plugin", "--profile", "web", "add", `link:${packageDir}`], {
       stdio: "inherit",
     });
     if (dsh.status !== 0) {
@@ -284,8 +411,18 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
       "      name: ./plugins/spark-llm/index.mjs",
     );
   }
+  if (!userPatch.includes("id: dsh-tool-cue")) {
+    rows.push(
+      "    # Cue-first command, script, job, and scope tools, managed by `spark web`.",
+      "    - id: dsh-tool-cue",
+      "      name: ./plugins/dsh-tool-cue/index.mjs",
+    );
+  }
   if (!userPatch.includes("id: spark-web-dsh")) {
     rows.push("    - id: spark-web-dsh", `      name: ${JSON.stringify(SPARK_WEB_DHS_PACKAGE)}`);
+  }
+  if (!userPatch.includes("id: agent-presets")) {
+    rows.push("- id: agent-presets", "  config:", "    default: spark-standard");
   }
   rows.push("- id: hmr", "  disabled: false");
   if (args.host !== undefined && args.host !== "127.0.0.1") {
@@ -308,11 +445,23 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
  * patch overlay, and return the `dsh web` argument list.
  */
 export async function prepareSparkWebDispatch(args: SparkWebArgs): Promise<string[]> {
-  const profileDir = resolveDshProfileDir();
+  const dshHome = process.env.DSH_HOME ?? join(homedir(), ".dsh");
+  const profileDir = resolveDshProfileDir(dshHome);
   if (!existsSync(join(profileDir, "cordis.patch.yml"))) {
     throw new Error(
       `spark web: DSH profile not found at ${profileDir} — run "dsh web" once to initialize it first`,
     );
+  }
+  const dshPackageDir = resolveInstalledDshPackageDir(undefined, profileDir);
+  // Metadata and upstream source verification happen before any managed write.
+  assertSupportedDshPackage(dshPackageDir);
+  const presets = installManagedCuePresets(dshHome, dshPackageDir);
+  for (const preset of presets) {
+    if (preset.updated) process.stderr.write(`[spark web] installed managed preset ${preset.id}\n`);
+  }
+  const cue = await ensureDshToolCueBundle(profileDir);
+  if (cue.rebuilt) {
+    process.stderr.write(`[spark web] built dsh-tool-cue plugin bundle -> ${cue.bundle}\n`);
   }
   const bundle = await ensureSparkLlmBundle(profileDir);
   if (bundle.rebuilt) {

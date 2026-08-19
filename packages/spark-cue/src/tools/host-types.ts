@@ -31,8 +31,17 @@ export interface SparkCueToolContext {
   cueResolvedTransport?: CueResolvedTransport;
   /** Explicit remote cwd; local session paths are never mapped onto SSH hosts. */
   cueRemoteCwd?: string;
+  /** Whether an unreachable local daemon may be auto-started. Defaults to true. */
+  cueAutoStartLocal?: boolean;
+  /** Explicit per-host override for forwarding sensitive environment variables. */
+  cueForwardSensitiveEnv?: boolean;
   taskExecutionScope?: SparkTaskExecutionScope;
   ui?: { notify?: (msg: string, level: SparkCueNotifyLevel) => void };
+}
+
+export interface SparkCueToolRegistration {
+  releaseSession(ctx?: SparkCueToolContext): void;
+  dispose(): void;
 }
 
 export interface SparkCueToolConfig {

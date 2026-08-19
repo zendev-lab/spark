@@ -71,7 +71,13 @@ export function cueSessionOptionsFromContext(
 ): Required<CueSessionOptions> {
   const cwd = resolveCueWorkingDirectory(undefined, ctx?.cwd);
   const sessionId = cueSessionIdFromContext(ctx, cwd);
-  return { sessionId, cwd, env: ctx?.env ?? process.env, refresh: false };
+  return {
+    sessionId,
+    cwd,
+    env: ctx?.env ?? process.env,
+    refresh: false,
+    forwardSensitiveEnv: ctx?.cueForwardSensitiveEnv ?? false,
+  };
 }
 
 function cueSessionIdFromContext(ctx: SparkCueToolContext | undefined, cwd: string): string {
@@ -118,6 +124,13 @@ export function releaseClientOwner(owner: CueClientOwner, ctx?: SparkCueToolCont
   }
 }
 
+export function releaseAllClientOwner(owner: CueClientOwner): void {
+  for (const entry of Array.from(clientRegistry.values())) {
+    if (!entry.owners.delete(owner)) continue;
+    if (entry.owners.size === 0) closeClientRegistryEntry(entry);
+  }
+}
+
 async function connectClient(
   transport: CueResolvedTransport,
   session: Required<CueSessionOptions>,
@@ -129,6 +142,7 @@ async function connectClient(
     if (error instanceof CueError && error.code === "UNSUPPORTED_PROTOCOL") throw error;
     if (transport.transport === "ssh") throw error;
     if (!(error instanceof CueError) || error.code !== "DAEMON_UNREACHABLE") throw error;
+    if (ctx?.cueAutoStartLocal === false) throw error;
     // Local socket could not be reached — auto-start local/unix transports only.
     ctx?.ui?.notify?.("cue-shell: auto-starting daemon…", "info");
     try {

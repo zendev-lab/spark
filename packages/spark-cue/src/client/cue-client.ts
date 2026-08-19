@@ -721,9 +721,11 @@ export function isSensitiveCueEnvKey(key: string): boolean {
 
 function normalizeSessionEnv(
   input: Record<string, string | undefined> | undefined,
+  forwardSensitiveEnv?: boolean,
 ): Record<string, string> {
   const source = input ?? process.env;
-  const forwardSensitive = process.env.SPARK_CUE_FORWARD_SENSITIVE_ENV === "1";
+  const forwardSensitive =
+    forwardSensitiveEnv ?? process.env.SPARK_CUE_FORWARD_SENSITIVE_ENV === "1";
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(source)) {
     if (!forwardSensitive && isSensitiveCueEnvKey(key)) continue;
@@ -740,7 +742,8 @@ function normalizeCueSessionOptions(
   return {
     sessionId,
     cwd,
-    env: normalizeSessionEnv(options?.env),
+    env: normalizeSessionEnv(options?.env, options?.forwardSensitiveEnv),
+    forwardSensitiveEnv: options?.forwardSensitiveEnv ?? false,
     refresh: options?.refresh ?? false,
   };
 }
@@ -1122,7 +1125,7 @@ export class CueClient {
         Handshake: {
           session_id: session.sessionId,
           cwd: session.cwd,
-          env: normalizeSessionEnv(session.env),
+          env: normalizeSessionEnv(session.env, session.forwardSensitiveEnv),
           refresh: session.refresh,
         },
       });

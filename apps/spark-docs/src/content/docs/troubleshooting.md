@@ -77,3 +77,24 @@ browser-key scope independently.
 Do not assume a timeout means nothing was sent. Spark fails closed when an
 external delivery outcome is uncertain. Retry only when the recorded result
 proves the work was not sent or the provider supplies a deduplicated identity.
+
+## `spark web` stops before DSH starts
+
+The Cue adapter deliberately fails before writing a bundle or preset when the
+installed DSH package is not exactly `0.1.0-rc.7` or its shipped preset sources
+do not match the pinned digest. Install the supported DSH version; do not edit
+its shipped preset directory.
+
+Spark also refuses to overwrite an unmarked `spark-standard` or `spark-code`
+directory, or a managed directory whose files changed after installation. Move
+the conflicting directory to a different preset id, then retry. Spark never
+silently replaces user edits.
+
+If a Cue call says it requires `danger-full-access`, change the current DSH
+session policy before retrying. Approval is not offered by this adapter because
+the external daemon is outside DSH's file sandbox.
+
+For SSH, configure an explicit `remoteCwd` and start `cued` on the remote host.
+A local cwd is never reused remotely and only a local unreachable daemon may be
+auto-started. Connection/protocol errors are infrastructure failures; a failed
+or cancelled job is instead returned as a structured Cue result.

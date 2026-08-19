@@ -71,3 +71,20 @@ spark daemon workspace ls --json
 
 不要假设超时代表没有发送。外部投递结果不确定时，Spark 会 fail closed。
 只有记录结果证明没有发送，或 provider 提供可去重 identity 时，才应重试。
+
+## `spark web` 在 DSH 启动前停止
+
+如果已安装 DSH 不是精确的 `0.1.0-rc.7`，或其自带 preset 源文件与锁定摘要不一致，
+Cue adapter 会在写入 bundle 或 preset 前失败。请安装受支持版本，不要修改 DSH 自带
+preset 目录。
+
+如果已有未带 Spark marker 的 `spark-standard` / `spark-code`，或者受管目录在安装后
+被用户修改，Spark 也会拒绝覆盖。把冲突目录移动到其他 preset id 后重试；Spark
+绝不会静默覆盖用户修改。
+
+Cue 调用提示需要 `danger-full-access` 时，应先修改当前 DSH Session policy。此
+adapter 不会发起 approval，因为外部 daemon 不在 DSH 文件沙箱内。
+
+SSH 模式必须配置显式 `remoteCwd`，并在远端先启动 `cued`。本地 cwd 永不复用于
+远端，只有本地 daemon 不可达时才可能自动启动。连接或协议错误属于基础设施失败；
+job 失败或取消则作为可检查的结构化 Cue 结果返回。

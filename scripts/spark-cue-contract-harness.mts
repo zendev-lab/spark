@@ -7,6 +7,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import { CueClient } from "../packages/spark-cue/src/cue-client.ts";
+import { createCueToolRuntime } from "../packages/spark-cue/src/operations/index.ts";
 
 const execFileAsync = promisify(execFile);
 const LOG_LIMIT_BYTES = 128 * 1024;
@@ -556,6 +557,175 @@ export async function runSparkCueContractHarness(
           elapsedMs,
           errorName: abortError.name,
         };
+      });
+
+      await recordCheck(report, "canonicalOperationRuntime", async () => {
+        const sessionId = "spark-cue-contract-a";
+        const runtime = createCueToolRuntime({ client: first, autoStartLocal: false });
+        let operationIndex = 0;
+        const context = () => ({
+          sessionId,
+          cwd: workspaceA,
+          env: { PATH: process.env.PATH, LC_ALL: "C", SPARK_CUE_CONTRACT: "1" },
+          operationId: `spark-cue-contract-operation-${operationIndex++}`,
+        });
+        const cuePath = join(workspaceA, "operation-runtime.cue");
+        const pythonPath = join(workspaceA, "operation-runtime.py");
+        await Promise.all([
+          writeFile(cuePath, "printf spark-cue-operation-file\n", "utf8"),
+          writeFile(pythonPath, 'print("spark-cue-operation-python-file")\n', "utf8"),
+        ]);
+
+        try {
+          const foreground = await runtime.execute(
+            "cue_exec",
+            { command: "printf spark-cue-operation-foreground" },
+            context(),
+          );
+          requireContract(foreground.ok, foreground.text);
+          requireContract(
+            foreground.stdout.text === "spark-cue-operation-foreground",
+            `unexpected canonical stdout ${JSON.stringify(foreground.stdout)}`,
+          );
+
+          const background = await runtime.execute(
+            "cue_exec",
+            { command: "sleep 29", background: true },
+            context(),
+          );
+          requireContract(background.ok && background.jobId, background.text);
+          const jobId = background.jobId;
+          const listedJobs = await runtime.execute(
+            "cue_jobs",
+            { action: "list", status: "running" },
+            context(),
+          );
+          const jobStatus = await runtime.execute(
+            "cue_jobs",
+            { action: "status", id: jobId },
+            context(),
+          );
+          const wait = await runtime.execute(
+            "cue_jobs",
+            { action: "wait", id: jobId, timeout: 0.05 },
+            context(),
+          );
+          requireContract(wait.timedOut, `expected wait timeout, got ${wait.text}`);
+          await runtime.execute("cue_jobs", { action: "stop", id: jobId }, context());
+
+          const cueRun = await runtime.execute("cue_run", { path: cuePath }, context());
+          const cueScript = await runtime.execute(
+            "cue_script",
+            { script: "printf spark-cue-operation-inline" },
+            context(),
+          );
+          const scriptRun = await runtime.execute(
+            "script_run",
+            { path: pythonPath, language: "python" },
+            context(),
+          );
+          const scriptEval = await runtime.execute(
+            "script_eval",
+            { script: 'print("spark-cue-operation-python-inline")', language: "python" },
+            context(),
+          );
+          for (const result of [cueRun, cueScript, scriptRun, scriptEval]) {
+            requireContract(result.ok, result.text);
+          }
+
+          const providers = await runtime.execute(
+            "cue_resources",
+            { action: "providers" },
+            context(),
+          );
+          const resources = await runtime.execute(
+            "cue_resources",
+            { action: "resources" },
+            context(),
+          );
+          requireContract(providers.action === "providers", providers.text);
+          requireContract(resources.action === "resources", resources.text);
+
+          const scheduled = await runtime.execute(
+            "cue_schedule",
+            { action: "add", schedule: "in 1h", command: "true" },
+            context(),
+          );
+          requireContract(scheduled.cronId, scheduled.text);
+          const cronId = scheduled.cronId;
+          await runtime.execute("cue_schedule", { action: "list" }, context());
+          await runtime.execute("cue_schedule", { action: "pause", id: cronId }, context());
+          await runtime.execute("cue_schedule", { action: "resume", id: cronId }, context());
+          await runtime.execute("cue_schedule", { action: "remove", id: cronId }, context());
+
+          await runtime.execute("cue_scope", { action: "list", includeEnv: true }, context());
+          await runtime.execute("cue_scope", { action: "env", tail_bytes: 4096 }, context());
+          await runtime.execute("cue_scope", { action: "config", tail_bytes: 4096 }, context());
+          await runtime.execute(
+            "cue_scope",
+            { action: "env_set", key: "SPARK_CUE_RUNTIME_E2E", value: "1" },
+            context(),
+          );
+          await runtime.execute(
+            "cue_scope",
+            { action: "env_unset", key: "SPARK_CUE_RUNTIME_E2E" },
+            context(),
+          );
+          await runtime.execute(
+            "cue_scope",
+            { action: "path_prepend", path: "/usr/bin" },
+            context(),
+          );
+          await runtime.execute("cue_scope", { action: "cd", path: workspaceB }, context());
+          await runtime.execute("cue_scope", { action: "refresh" }, context());
+          const scopeStatus = await runtime.execute("cue_scope", { action: "status" }, context());
+          requireContract(scopeStatus.cwd === workspaceA, scopeStatus.text);
+
+          const history = await runtime.execute(
+            "cue_history",
+            { id: foreground.jobId, limit: 20, tail_bytes: 4096 },
+            context(),
+          );
+          requireContract(history.shownChars <= history.rawChars, history.text);
+          requireContract(
+            listedJobs.action === "list" && jobStatus.action === "status",
+            "bad jobs union",
+          );
+
+          return {
+            tools: [
+              foreground.tool,
+              cueRun.tool,
+              cueScript.tool,
+              scriptRun.tool,
+              scriptEval.tool,
+              listedJobs.tool,
+              providers.tool,
+              scheduled.tool,
+              scopeStatus.tool,
+              history.tool,
+            ],
+            jobActions: ["list", "status", "wait", "stop"],
+            scheduleActions: ["add", "list", "pause", "resume", "remove"],
+            scopeActions: [
+              "list",
+              "env",
+              "config",
+              "env_set",
+              "env_unset",
+              "path_prepend",
+              "cd",
+              "refresh",
+              "status",
+            ],
+            foregroundJobId: foreground.jobId,
+            backgroundJobId: jobId,
+            scheduleId: cronId,
+          };
+        } finally {
+          runtime.releaseSession(sessionId);
+          runtime.dispose();
+        }
       });
     }
   } catch (error) {

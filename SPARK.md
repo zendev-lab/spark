@@ -93,5 +93,8 @@ updated: 2026-08-18
 - Goal/Loop/Repro 的 `manual_only` 旁路需要 Session 级 `driverAuthority`：交互
   启动 ask 一次，CLI/API/daemon tick 静默授予；拒绝则退化为逐工具批准。绑定本身
   不是同意。
-- 下一阶段 DSH 渐进引入以 SystemPrompt + Tools 为中心；compaction / jobs /
-  subagent 等待 SessionStore 适配器决策。不接管 `dsh-session`。
+- DSH Phase 2 已通过私有 `@zendev-lab/dsh-tool-cue` adapter 接入
+  SystemPrompt + Tools：`spark-cue/operations` 仍唯一拥有 Cue 语义，DSH
+  只适配 rc.7 的 host ABI、权限和 presenter；`spark-standard` / `spark-code`
+  用 Cue 取代 DSH Bash/Pwsh/Jobs。compaction / DSH subagent 继续等待
+  SessionStore 适配器决策，不接管 `dsh-session`。

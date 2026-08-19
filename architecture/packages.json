@@ -97,14 +97,22 @@
       "temporaryDependencyExceptions": []
     },
     "packageBudget": {
-      "current": 43,
-      "ceiling": 43,
+      "current": 44,
+      "ceiling": 44,
       "nonGrowth": true,
-      "reason": "spark-web-dsh client plugin (DSH onboarding) is a hard browser-runtime boundary for the dual-product web surface; budget raised by one with the spark web PR stack."
+      "reason": "The DSH runtime adapter is a separate host ABI, permission, presentation, and lifecycle boundary from spark-cue's Cue semantics owner; budget raised by one for the private rc.7 adapter after the spark-web-dsh client boundary."
     },
     "compositionRoots": ["@zendev-lab/spark-extension"]
   },
   "packages": {
+    "@zendev-lab/dsh-tool-cue": {
+      "path": "packages/dsh-tool-cue",
+      "layer": "adapter",
+      "owner": "execution-adapters",
+      "stability": "internal",
+      "stateWriter": "none",
+      "distribution": "private"
+    },
     "@zendev-lab/pi-spark": {
       "path": "packages/pi-spark",
       "layer": "application",
