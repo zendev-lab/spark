@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import { test } from "vitest";
 
 import plugin, { inject, name } from "./client.tsx";
@@ -7,4 +9,27 @@ test("spark-web-dsh client plugin exposes the onboarding registration shape", ()
   assert.equal(name, "spark-web-dsh");
   assert.deepEqual(inject, ["slots", "locale", "connection", "remote"]);
   assert.equal(typeof plugin.apply, "function");
+});
+
+test("generated client bundle returns an applicable plugin from its loader factory", () => {
+  const source = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
+  let entry: { factory: (require: (id: string) => unknown) => unknown } | undefined;
+
+  runInNewContext(source, {
+    window: {
+      __ModuleLoader__: {
+        load(value: typeof entry) {
+          entry = value;
+        },
+      },
+    },
+  });
+
+  assert.ok(entry);
+  const loaded = entry.factory(() => ({})) as {
+    apply?: unknown;
+    default?: { apply?: unknown };
+  };
+  assert.equal(typeof loaded.apply, "function");
+  assert.equal(typeof loaded.default?.apply, "function");
 });

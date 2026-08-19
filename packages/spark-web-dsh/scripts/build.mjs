@@ -21,7 +21,9 @@ await build({
   banner: {
     js: `window.__ModuleLoader__.load({ id: ${JSON.stringify(PACKAGE_ID)}, factory: (require) => { var module = { exports: {} }; var exports = module.exports;`,
   },
-  footer: { js: "} });" },
+  footer: {
+    js: `module.exports = { default: { name, inject, apply }, name, inject, apply }; return module.exports; } });`,
+  },
   logLevel: "info",
 });
 
