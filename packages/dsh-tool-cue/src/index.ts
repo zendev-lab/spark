@@ -35,6 +35,17 @@ export const Config = z.object({
   forwardSensitiveEnv: z.boolean().default(false),
 }) as z<Config>;
 
+/**
+ * Shared "not bash" guidance appended to every cue-* tool description so the
+ * LLM sees it before the first call. Keep this in one place; the DSH adapter
+ * owns only the host ABI, spark-cue remains the semantic owner.
+ */
+const CUE_BASH_NOTICE =
+  "cue-shell is direct-exec (execvp), not bash — do not use raw '|', ';', '<', '>', '$()' or backticks. " +
+  "Composition operators: '|>' pipes stdout in one job, '&&'/'||' are job-internal logic, " +
+  "'->' serial-on-success, '~>' serial ignoring failure, '|||' parallel, '|?|' any-success race. " +
+  "Example: 'cargo build |> grep error -> cargo test'. Rewrite bash-style pipes/redirection before calling.";
+
 const streamSchema = {
   type: "object",
   additionalProperties: false,
@@ -194,7 +205,8 @@ const historyOutput = {
 const definitions = {
   cue_exec: {
     description:
-      "Execute a direct command or Cue composition through cued; timeout detaches rather than killing the job.",
+      "Execute a direct command or Cue composition through cued; timeout detaches rather than killing the job. " +
+      CUE_BASH_NOTICE,
     parameters: {
       command: { type: "string", required: true },
       background: { type: "boolean" },
@@ -433,7 +445,11 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.systemPrompt.section({
     name: "tool:cue",
     order: 105,
-    text: "Use Cue tools for command, script, job, resource, schedule, scope, and history operations. Cue is direct-exec rather than Bash; use Cue composition operators. A foreground timeout detaches the durable job instead of killing it.",
+    text:
+      "Use Cue tools for command, script, job, resource, schedule, scope, and history operations. " +
+      "Cue is direct-exec rather than Bash; use Cue composition operators. " +
+      "If a command contains bash-style pipe/redirection/semicolon, rewrite it to Cue operators first — never retry raw bash syntax. " +
+      "A foreground timeout detaches the durable job instead of killing it.",
   });
 
   registerCueToolDefinitions(ctx, runtime);

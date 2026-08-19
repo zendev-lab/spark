@@ -1808,6 +1808,7 @@ test("resolveCueTransport finds uv-installed cue-client outside a service PATH",
   const originalHome = process.env.HOME;
   const originalPath = process.env.PATH;
   const originalUvToolBinDir = process.env.UV_TOOL_BIN_DIR;
+  const originalCargoHome = process.env.CARGO_HOME;
   try {
     await mkdir(restrictedBin, { recursive: true });
     await mkdir(userBin, { recursive: true });
@@ -1821,6 +1822,7 @@ test("resolveCueTransport finds uv-installed cue-client outside a service PATH",
     );
     process.env.HOME = home;
     process.env.PATH = restrictedBin;
+    process.env.CARGO_HOME = join(home, "cargo");
     delete process.env.UV_TOOL_BIN_DIR;
 
     const resolved = await resolveCueTransport();
@@ -1835,6 +1837,8 @@ test("resolveCueTransport finds uv-installed cue-client outside a service PATH",
     else process.env.PATH = originalPath;
     if (originalUvToolBinDir === undefined) delete process.env.UV_TOOL_BIN_DIR;
     else process.env.UV_TOOL_BIN_DIR = originalUvToolBinDir;
+    if (originalCargoHome === undefined) delete process.env.CARGO_HOME;
+    else process.env.CARGO_HOME = originalCargoHome;
     await rm(home, { force: true, recursive: true });
   }
 });

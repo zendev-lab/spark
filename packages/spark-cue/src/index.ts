@@ -90,6 +90,7 @@ export {
   resolveCueWorkingDirectory,
   normalizeCueResourceNeeds,
   resolvePythonRunner,
+  cueShellCommandIssue,
   cueShellCommandSyntaxIssue,
 } from "./tools/register.ts";
 
