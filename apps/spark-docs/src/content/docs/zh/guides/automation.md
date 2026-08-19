@@ -23,9 +23,13 @@ description: 只有普通 Plan 与 Implement 路径不够时，才选择 Goal、
 
 ## Driver 活动期间的权限
 
-启动 Goal、Loop 或 Repro 后，该 driver 会在已确认的目标、Workspace、仓库和可写 target
-范围内获得有界权限。driver 活动期间可以直接执行 `manual_only` 操作，无需重复询问。
-这类操作必须低风险且可撤销；创建、更新和同步 Draft PR 都属于这一类。
+在交互式会话中启动 Goal、Loop 或 Repro 时，会询问一次该 Session 是否可以使用
+driver 权限。同意后，driver 活动期间可以直接执行 `manual_only` 操作，无需重复询问。
+CLI、API 和其他非交互启动会静默写入同一条 Session 授权，并且不会弹窗。如果选择保留
+逐工具批准，即使 driver 仍在活动，`manual_only` 操作也仍需人工批准。
+
+这类操作必须低风险且可撤销；创建、更新和同步 Draft PR 都属于这一类。driver 权限仍
+限制在已确认的目标、Workspace、仓库和可写 target 范围内。
 
 该权限不包含 `required` 操作。破坏性、不可逆、安全敏感、高成本、高影响或实质扩大
 范围的操作始终需要人工批准；发布、部署、合并和把 Draft PR 提升为 Ready 也一样。

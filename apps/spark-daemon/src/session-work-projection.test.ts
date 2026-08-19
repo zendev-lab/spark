@@ -6,6 +6,7 @@ import type { EvidenceRef, TaskRef } from "@zendev-lab/spark-core";
 import {
   sessionGoalStorePathV2,
   sessionReproStorePathV2,
+  sparkSessionWorkspaceState,
   writeSparkSessionWorkspaceState,
 } from "@zendev-lab/spark-loop";
 import {
@@ -266,10 +267,11 @@ describe("session work projection", () => {
     });
     graph.addDependency(dependent.ref, prerequisite.ref);
     await defaultTaskGraphStore(cwd).save(graph);
-    await writeSparkSessionWorkspaceState(cwd, context, {
-      version: 3,
-      projectRef: project.ref,
-    });
+    await writeSparkSessionWorkspaceState(
+      cwd,
+      context,
+      sparkSessionWorkspaceState({ projectRef: project.ref }),
+    );
 
     const work = await projectSparkSessionWork({
       cwd,

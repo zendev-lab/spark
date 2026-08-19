@@ -2,6 +2,7 @@
  * Tool policy / dispatch helpers for SparkAgentLoop.
  */
 import {
+  hasActiveDriverBinding,
   resolveToolPolicy,
   resolveToolPolicyForArgs,
   type ResolvedToolPolicy,
@@ -199,18 +200,14 @@ export function resolvedRegisteredToolPolicy(
 export function toolRequiresApproval(
   tool: SparkTurnRegisteredTool,
   args?: Readonly<Record<string, unknown>>,
-  context?: Pick<SparkHostContext, "loop">,
+  context?: Pick<SparkHostContext, "loop" | "driverAuthority">,
 ): boolean {
   const approval = resolvedRegisteredToolPolicy(tool, args).approval;
   if (approval === "required") return true;
-  if (approval === "manual_only") return !hasActiveDriverAuthority(context?.loop);
+  if (approval === "manual_only") {
+    return !(hasActiveDriverBinding(context?.loop) && context?.driverAuthority === "granted");
+  }
   return false;
-}
-
-function hasActiveDriverAuthority(loop: SparkHostContext["loop"]): boolean {
-  if (!loop) return false;
-  const { goalId, reproId, workflowRunId } = loop.binding;
-  return Boolean(goalId || reproId || !workflowRunId);
 }
 
 export function legacyApprovalPolicyRequiresApproval(config: ToolConfig): boolean {

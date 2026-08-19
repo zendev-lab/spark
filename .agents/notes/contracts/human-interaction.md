@@ -75,10 +75,13 @@ Cross-session agent-to-agent traffic is **messages** (session inspector tab) plu
 
 ## Driver-aware approvals
 
-Approval classes are owned by [`tools.md`](./tools.md). In a manual
-continuation, a `manual_only` operation creates a human approval request. While
-a Goal, Loop, or Repro driver is active, its bounded authority resolves that
-class without creating a human wait. A `required` operation still creates a
+Approval classes are owned by [`tools.md`](./tools.md). Binding a Goal, Loop,
+or Repro is not consent. Interactive surfaces ask once via `askFlow`
+(`spark.driver-authority`) and persist Session `driverAuthority`. Non-interactive
+callers (CLI, API, daemon ticks) persist a silent grant and must not prompt.
+The daemon broker has no `confirmation` path, so this consent uses `askFlow`.
+Denied or unresolved consent does not fail the driver; `manual_only` then
+creates a human approval request. A `required` operation still creates a
 durable human request bound to the exact action, and the driver continues
 independent work when possible. A WorkflowRun inherits the continuation driver
 that started it only while that driver's authority remains active, and never

@@ -67,13 +67,15 @@ export type {
 
 import { createHash } from "node:crypto";
 
-import type {
-  SparkHostDelegationEnvelope,
-  SparkHostContext,
-  SparkDelegationThinkingLevel,
-  ToolExecutionResult,
-  ToolExecutionReconciliation,
-  ToolExecutionRetryability,
+import {
+  hasActiveDriverBinding,
+  type SparkDriverAuthority,
+  type SparkHostDelegationEnvelope,
+  type SparkHostContext,
+  type SparkDelegationThinkingLevel,
+  type ToolExecutionResult,
+  type ToolExecutionReconciliation,
+  type ToolExecutionRetryability,
 } from "@zendev-lab/spark-core";
 export { compactToolResultContent } from "./tool-result-compaction.ts";
 
@@ -511,6 +513,14 @@ export interface SparkTurnHost {
   getTool(name: string): SparkTurnRegisteredTool | undefined;
   makeContext(extra?: Partial<SparkHostContext>): SparkHostContext;
   requestInteraction(request: SparkInteractionRequest): Promise<SparkInteractionResponse>;
+  /**
+   * Resolve Session consent for driver `manual_only` bypass. Interactive
+   * hosts ask once; headless hosts persist a silent grant.
+   */
+  ensureDriverAuthority?(
+    ctx: SparkHostContext,
+    signal?: AbortSignal,
+  ): Promise<SparkDriverAuthority>;
   listTools(): SparkTurnRegisteredTool[];
   drainOutbox(): SparkTurnOutboxEnvelope[];
   setIdle(idle: boolean): void;
@@ -1734,6 +1744,16 @@ export class SparkAgentLoop {
     signal: AbortSignal,
   ): Promise<{ approved: true } | { approved: false; message: string }> {
     if (!toolRequiresApproval(tool, toolCall.arguments, ctx)) return { approved: true };
+
+    if (
+      resolvedRegisteredToolPolicy(tool, toolCall.arguments).approval === "manual_only" &&
+      hasActiveDriverBinding(ctx.loop) &&
+      this.host.ensureDriverAuthority
+    ) {
+      ctx.driverAuthority = await this.host.ensureDriverAuthority(ctx, signal);
+      throwIfSignalAborted(signal);
+      if (!toolRequiresApproval(tool, toolCall.arguments, ctx)) return { approved: true };
+    }
 
     const reason = `Tool "${toolCall.name}" requires approval before execution.`;
     switch (this.approvalMethod) {

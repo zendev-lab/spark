@@ -94,9 +94,12 @@ Approval requirements have three canonical values:
 
 - `none` needs no human approval;
 - `manual_only` covers bounded, low-risk, reversible external operations. A
-  manual continuation needs human approval for the exact operation; an active
-  Goal, Loop, or Repro driver may dispatch it without another approval when it
-  remains within the driver's confirmed objective and targets;
+  manual continuation needs human approval for the exact operation. An active
+  Goal, Loop, or Repro driver may dispatch it without another approval only
+  after the owning Session has persisted `driverAuthority: "granted"`, and only
+  when the call remains within the driver's confirmed objective and targets. A
+  live loop binding without that fact is not a grant. Denied consent degrades
+  `manual_only` to per-tool approval for that Session;
 - `required` needs human approval under every continuation driver.
 
 Creating, updating, and synchronizing a Draft PR are canonical `manual_only`
@@ -107,11 +110,11 @@ the approval context of the continuation driver that started it only while that
 authority remains active.
 
 The host resolves driver-aware approval from authoritative continuation state
-immediately before dispatch. Prompt or transcript text, a tool name, Workflow
-metadata, and automated review cannot grant or widen authority. Driver stop,
-completion, or replacement expires that driver's authority. Each later
-dispatch re-resolves the current driver and uses manual approval behavior when
-none is active.
+and the Session consent fact immediately before dispatch. Prompt or transcript
+text, a tool name, Workflow metadata, and automated review cannot grant or
+widen authority. Driver stop, completion, or replacement expires that driver's
+authority. Each later dispatch re-resolves the current driver and uses manual
+approval behavior when none is active or consent is not `granted`.
 
 A batch executes concurrently only when every concrete call resolves to an
 active, approval-free read tool with `executionMode=parallel`. Mixed, unknown,

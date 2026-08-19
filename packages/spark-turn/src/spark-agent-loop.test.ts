@@ -3479,11 +3479,33 @@ test("manual_only authority excludes standalone WorkflowRuns and includes real d
   });
 
   assert.equal(toolRequiresApproval(tool), true);
-  assert.equal(toolRequiresApproval(tool, {}, { loop: loop({}) }), false);
-  assert.equal(toolRequiresApproval(tool, {}, { loop: loop({ goalId: "goal-1" }) }), false);
-  assert.equal(toolRequiresApproval(tool, {}, { loop: loop({ reproId: "repro-1" }) }), false);
+  assert.equal(toolRequiresApproval(tool, {}, { loop: loop({}) }), true);
   assert.equal(
-    toolRequiresApproval(tool, {}, { loop: loop({ workflowRunId: "workflow-run-1" }) }),
+    toolRequiresApproval(tool, {}, { loop: loop({}), driverAuthority: "granted" }),
+    false,
+  );
+  assert.equal(
+    toolRequiresApproval(
+      tool,
+      {},
+      { loop: loop({ goalId: "goal-1" }), driverAuthority: "granted" },
+    ),
+    false,
+  );
+  assert.equal(
+    toolRequiresApproval(
+      tool,
+      {},
+      { loop: loop({ reproId: "repro-1" }), driverAuthority: "granted" },
+    ),
+    false,
+  );
+  assert.equal(
+    toolRequiresApproval(
+      tool,
+      {},
+      { loop: loop({ workflowRunId: "workflow-run-1" }), driverAuthority: "granted" },
+    ),
     true,
   );
   assert.equal(
@@ -3492,9 +3514,14 @@ test("manual_only authority excludes standalone WorkflowRuns and includes real d
       {},
       {
         loop: loop({ goalId: "goal-1", workflowRunId: "workflow-run-1" }),
+        driverAuthority: "granted",
       },
     ),
     false,
+  );
+  assert.equal(
+    toolRequiresApproval(tool, {}, { loop: loop({ goalId: "goal-1" }), driverAuthority: "denied" }),
+    true,
   );
 });
 
@@ -3644,6 +3671,188 @@ test("SparkAgentLoop lets a driver run manual_only tools but keeps required gate
   assert.equal(destructiveCalls, 0);
   assert.equal(interactionRequests.length, 1);
   assert.equal((interactionRequests[0] as { toolName?: string }).toolName, "cleanup_driver");
+});
+
+test("SparkAgentLoop asks interactive sessions once before driver manual_only bypass", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-driver-consent-ask-"));
+  try {
+    const kinds: string[] = [];
+    const host = new SparkHostRuntime({
+      cwd: dir,
+      hasUI: true,
+      loop: {
+        loopId: "goal-loop",
+        binding: { goalId: "goal-1" },
+        generation: 1,
+        ownerSessionId: "session-owner",
+        schedule: async () => undefined,
+        stop: async () => undefined,
+      },
+      ui: {
+        interaction: async (request) => {
+          kinds.push(request.kind);
+          if (request.kind === "askFlow") {
+            return {
+              version: SPARK_PROTOCOL_VERSION,
+              kind: "askFlow",
+              requestId: request.requestId,
+              status: "answered",
+              answers: { driver_authority: { values: ["grant"] } },
+            };
+          }
+          return {
+            version: SPARK_PROTOCOL_VERSION,
+            kind: "toolApproval",
+            requestId: request.requestId,
+            status: "blocked",
+            approved: false,
+            message: "should not be asked",
+          };
+        },
+      },
+    });
+    host.setSessionId("session:consent");
+    let toolCalls = 0;
+    host.registerTool({
+      name: "draft_pr_consent",
+      description: "creates a bounded draft PR",
+      parameters: { type: "object" },
+      policy: { effect: "external_write", executionMode: "sequential", approval: "manual_only" },
+      async execute() {
+        toolCalls += 1;
+        return { content: [{ type: "text", text: "draft created" }] };
+      },
+    } as never);
+    const fake = makeFakeStream({
+      rounds: [
+        [
+          {
+            type: "done",
+            reason: "toolUse",
+            message: buildAssistant(
+              [
+                {
+                  type: "toolCall",
+                  id: "tc-draft-pr-consent",
+                  name: "draft_pr_consent",
+                  arguments: {},
+                },
+              ],
+              "toolUse",
+            ),
+          },
+        ],
+        [
+          {
+            type: "done",
+            reason: "stop",
+            message: buildAssistant([{ type: "text", text: "done" }]),
+          },
+        ],
+      ],
+    });
+    const loop = new SparkAgentLoop({
+      host,
+      llm: asSparkTurnLlm(fake),
+      getModel: () => TEST_MODEL,
+    });
+    await loop.submit("continue goal delivery");
+    assert.equal(toolCalls, 1);
+    assert.deepEqual(kinds, ["askFlow"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentLoop treats denied driver authority as required for manual_only tools", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-driver-consent-deny-"));
+  try {
+    const kinds: string[] = [];
+    const host = new SparkHostRuntime({
+      cwd: dir,
+      hasUI: true,
+      loop: {
+        loopId: "goal-loop",
+        binding: { goalId: "goal-1" },
+        generation: 1,
+        ownerSessionId: "session-owner",
+        schedule: async () => undefined,
+        stop: async () => undefined,
+      },
+      ui: {
+        interaction: async (request) => {
+          kinds.push(request.kind);
+          if (request.kind === "askFlow") {
+            return {
+              version: SPARK_PROTOCOL_VERSION,
+              kind: "askFlow",
+              requestId: request.requestId,
+              status: "answered",
+              answers: { driver_authority: { values: ["deny"] } },
+            };
+          }
+          return {
+            version: SPARK_PROTOCOL_VERSION,
+            kind: "toolApproval",
+            requestId: request.requestId,
+            status: "blocked",
+            approved: false,
+            message: "per-tool approval withheld",
+          };
+        },
+      },
+    });
+    host.setSessionId("session:denied");
+    let toolCalls = 0;
+    host.registerTool({
+      name: "draft_pr_denied",
+      description: "creates a bounded draft PR",
+      parameters: { type: "object" },
+      policy: { effect: "external_write", executionMode: "sequential", approval: "manual_only" },
+      async execute() {
+        toolCalls += 1;
+        return { content: [{ type: "text", text: "draft created" }] };
+      },
+    } as never);
+    const fake = makeFakeStream({
+      rounds: [
+        [
+          {
+            type: "done",
+            reason: "toolUse",
+            message: buildAssistant(
+              [
+                {
+                  type: "toolCall",
+                  id: "tc-draft-pr-denied",
+                  name: "draft_pr_denied",
+                  arguments: {},
+                },
+              ],
+              "toolUse",
+            ),
+          },
+        ],
+        [
+          {
+            type: "done",
+            reason: "stop",
+            message: buildAssistant([{ type: "text", text: "done" }]),
+          },
+        ],
+      ],
+    });
+    const loop = new SparkAgentLoop({
+      host,
+      llm: asSparkTurnLlm(fake),
+      getModel: () => TEST_MODEL,
+    });
+    await loop.submit("continue goal delivery");
+    assert.equal(toolCalls, 0);
+    assert.deepEqual(kinds, ["askFlow", "toolApproval"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("SparkAgentLoop skip approvalMethod executes requiresApproval tools without interaction", async () => {

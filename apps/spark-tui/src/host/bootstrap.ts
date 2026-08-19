@@ -347,8 +347,8 @@ export async function createSparkCliHostServices(
     promptManifest: {
       getSelectedSkills: () => selectedSkillMatches.map((match) => match.skill.name),
     },
-    // Manual turns require human approval; trusted driver context bypasses only
-    // tools whose owner explicitly classifies them as `manual_only`.
+    // Manual turns require human approval. A driver bypasses `manual_only`
+    // only after the Session has a persisted `driverAuthority: "granted"` fact.
     approvalMethod: options.approvalMethod ?? "human",
     ...(options.approvalRejectAction ? { approvalRejectAction: options.approvalRejectAction } : {}),
     reviewToolApproval: async (request, signal) => {

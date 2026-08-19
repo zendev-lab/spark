@@ -25,28 +25,30 @@
  *     every UI method is a no-op so extensions that call `ctx.ui.notify()`
  *     defensively keep working.
  *
- * The host runtime is intentionally process-private state; no file I/O lives
- * here. Tests construct one runtime per test, register a few tools, drive
+ * The host runtime is intentionally process-private state. Session workspace
+ * file I/O for driver-authority consent lives in `driver-authority.ts`.
+ * Tests construct one runtime per test, register a few tools, drive
  * `emit("session_start", ...)`, and assert observable state.
  */
 
-import {
-  type CommandConfig,
-  type SparkHostAPI,
-  type SparkHostContext,
-  type SparkHostLoopContext,
-  type SparkSessionLeaseIdentity,
-  type SparkHostRuntimeMessage,
-  type SparkHostHookOptions,
-  type ExtensionUi,
-  type LeafCapabilityRunner,
-  type ExtensionRoleRunner,
-  type ToolConfig,
-  type ToolInfo,
-  resolveToolPolicy,
-  type ResolvedToolPolicy,
-  type ToolEffect,
+import type {
+  CommandConfig,
+  SparkDriverAuthority,
+  SparkHostAPI,
+  SparkHostContext,
+  SparkHostLoopContext,
+  SparkSessionLeaseIdentity,
+  SparkHostRuntimeMessage,
+  SparkHostHookOptions,
+  ExtensionUi,
+  LeafCapabilityRunner,
+  ExtensionRoleRunner,
+  ToolConfig,
+  ToolInfo,
+  ResolvedToolPolicy,
+  ToolEffect,
 } from "@zendev-lab/spark-core";
+import { resolveToolPolicy } from "@zendev-lab/spark-core";
 import {
   SPARK_PROTOCOL_VERSION,
   createBlockedInteractionResponse,
@@ -60,6 +62,13 @@ import {
 } from "@zendev-lab/spark-protocol";
 
 import type { SparkMemoryDirectIntentTurnAuthority } from "./memory-direct-intent.js";
+import {
+  createDriverAuthorityAskRequest,
+  driverAuthorityFromAskResponse,
+  hostSessionContext,
+  loadPersistedDriverAuthority,
+  persistDriverAuthority,
+} from "./driver-authority.ts";
 import {
   SparkKeybindings,
   type SparkKeybindingContext,
@@ -207,6 +216,7 @@ export class SparkHostRuntime implements SparkHostAPI {
   private sessionLeaseProvider: (() => SparkSessionLeaseIdentity | undefined) | undefined;
   private sessionId: string | undefined;
   private shutdownPromise: Promise<void> | undefined;
+  private driverAuthorityInflight: Promise<SparkDriverAuthority> | undefined;
   private idle = true;
   private readonly keybindings: SparkKeybindings;
 
@@ -552,6 +562,38 @@ export class SparkHostRuntime implements SparkHostAPI {
     return response;
   }
 
+  async ensureDriverAuthority(
+    ctx: SparkHostContext,
+    signal?: AbortSignal,
+  ): Promise<SparkDriverAuthority> {
+    if (this.driverAuthorityInflight) return await this.driverAuthorityInflight;
+    const pending = this.resolveDriverAuthority(ctx, signal);
+    this.driverAuthorityInflight = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.driverAuthorityInflight === pending) this.driverAuthorityInflight = undefined;
+    }
+  }
+
+  private async resolveDriverAuthority(
+    ctx: SparkHostContext,
+    signal?: AbortSignal,
+  ): Promise<SparkDriverAuthority> {
+    if (ctx.driverAuthority) return ctx.driverAuthority;
+    const sessionCtx = hostSessionContext(ctx, this.cwd);
+    const persisted = await loadPersistedDriverAuthority(this.cwd, sessionCtx);
+    if (persisted) return persisted;
+    if (!this.hasUI) {
+      return await persistDriverAuthority(this.cwd, sessionCtx, "granted");
+    }
+    throwIfSignalAborted(signal);
+    const response = await this.requestInteraction(createDriverAuthorityAskRequest());
+    const decided = driverAuthorityFromAskResponse(response);
+    if (!decided) return "denied";
+    return await persistDriverAuthority(this.cwd, sessionCtx, decided);
+  }
+
   publishView(event: SparkViewModelEvent): void {
     this.uiTransport.publishView?.(event);
   }
@@ -778,6 +820,11 @@ export class SparkHostRuntime implements SparkHostAPI {
       handler: config.handler as RegisteredCommand["handler"],
     };
   }
+}
+
+function throwIfSignalAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
 }
 
 export function createSparkHostRuntime(options: SparkHostRuntimeOptions): SparkHostRuntime {

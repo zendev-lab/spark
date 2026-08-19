@@ -7,6 +7,7 @@ import {
   type TaskRef,
 } from "@zendev-lab/spark-core";
 import {
+  sparkSessionWorkspaceState,
   legacyCurrentProjectStorePath,
   loadSparkSessionWorkspaceState,
   rebuildSessionIndex,
@@ -70,12 +71,16 @@ export async function saveCurrentProjectRef(
   currentTaskRef?: TaskRef,
 ): Promise<void> {
   const existing = await loadCurrentProjectState(cwd, ctx);
-  await saveCurrentProjectState(cwd, ctx, {
-    version: 3,
-    projectRef,
-    ...(currentTaskRef ? { currentTaskRef } : {}),
-    ...(existing?.mode ? { mode: existing.mode } : {}),
-  });
+  await saveCurrentProjectState(
+    cwd,
+    ctx,
+    sparkSessionWorkspaceState({
+      projectRef,
+      ...(currentTaskRef ? { currentTaskRef } : {}),
+      ...(existing?.mode ? { mode: existing.mode } : {}),
+      ...(existing?.driverAuthority ? { driverAuthority: existing.driverAuthority } : {}),
+    }),
+  );
 }
 
 export function sparkRunStrategyMaxConcurrency(strategy: SparkRunStrategy): number {
@@ -92,7 +97,14 @@ export async function clearCurrentProjectRef(
 ): Promise<void> {
   const existing = await loadCurrentProjectState(cwd, ctx);
   if (existing?.mode) {
-    await saveCurrentProjectState(cwd, ctx, { version: 3, mode: existing.mode });
+    await saveCurrentProjectState(
+      cwd,
+      ctx,
+      sparkSessionWorkspaceState({
+        mode: existing.mode,
+        ...(existing.driverAuthority ? { driverAuthority: existing.driverAuthority } : {}),
+      }),
+    );
     return;
   }
   await rm(currentProjectStorePath(cwd, ctx), { force: true });

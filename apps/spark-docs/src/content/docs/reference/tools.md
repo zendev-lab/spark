@@ -149,9 +149,11 @@ Unknown or conflicting policy fails closed.
   serialized unless their owning contract proves a safe alternative.
 - `none` operations need no human approval.
 - `manual_only` operations are bounded, low-risk, and reversible. Manual
-  continuation asks for approval; an active Goal, Loop, or Repro driver may
+  continuation asks for approval. An active Goal, Loop, or Repro driver may
   execute them within its confirmed objective and targets without asking
-  again. Creating, updating, and synchronizing a Draft PR are examples.
+  again only after the Session has granted driver authority. Interactive
+  starts ask once; CLI and API starts grant silently. Creating, updating, and
+  synchronizing a Draft PR are examples.
 - `required` operations always need human approval. These include destructive,
   irreversible, security-sensitive, costly, high-impact, or materially
   scope-expanding actions, plus release, deployment, merge, and promotion of a
