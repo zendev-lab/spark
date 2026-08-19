@@ -404,10 +404,9 @@ describe("local-rpc direct oRPC service", () => {
       sessionId: child.sessionId,
       externalKey: "qqbot:c2c:side-thread",
     };
-    const bindError = await rejectionOf(
+    await expect(
       invokeSparkDaemonOrpcLiveMethod(handle.client, "session.bind", bindInput),
-    );
-    expect(bindError).toMatchObject({ code: "side_thread_mutation_forbidden" });
+    ).resolves.toMatchObject({ sessionId: child.sessionId });
     await expect(
       handleLocalRpcLine(
         JSON.stringify({ id: "legacy-bind", method: "session.bind", params: bindInput }),
@@ -416,19 +415,15 @@ describe("local-rpc direct oRPC service", () => {
         undefined,
         { sessionRegistry },
       ),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "side_thread_mutation_forbidden" },
-    });
+    ).resolves.toMatchObject({ ok: true });
 
     const submitInput = {
       sessionId: child.sessionId,
       prompt: "must use the Side Thread controller",
     };
-    const submitError = await rejectionOf(
+    await expect(
       invokeSparkDaemonOrpcLiveMethod(handle.client, "turn.submit", submitInput),
-    );
-    expect(submitError).toMatchObject({ code: "side_thread_direct_submit_forbidden" });
+    ).resolves.toMatchObject({ status: "queued" });
     await expect(
       handleLocalRpcLine(
         JSON.stringify({ id: "legacy-submit", method: "turn.submit", params: submitInput }),
@@ -437,10 +432,7 @@ describe("local-rpc direct oRPC service", () => {
         undefined,
         { sessionRegistry },
       ),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "side_thread_direct_submit_forbidden" },
-    });
+    ).resolves.toMatchObject({ ok: true });
 
     const mismatchPath = join(dir, "mismatched-session.jsonl");
     writeFileSync(

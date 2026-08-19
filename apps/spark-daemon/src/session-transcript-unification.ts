@@ -40,7 +40,6 @@ export async function unifyDaemonSessionTranscripts(
 ): Promise<UnifyDaemonSessionTranscriptsResult> {
   const sessions = await input.registry.list({
     includeArchived: true,
-    includeSideThreads: true,
   });
   const createStore =
     input.createStore ??

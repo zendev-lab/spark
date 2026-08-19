@@ -72,7 +72,7 @@ describe("daemon Side Thread control", () => {
           }),
         ]),
       );
-      expect(await fixture.sessionRegistry.list({ includeSideThreads: true })).toEqual(
+      expect(await fixture.sessionRegistry.list()).toEqual(
         expect.arrayContaining([expect.objectContaining({ sessionId: ensured.sessionId })]),
       );
       const ordinaryList = await executeSparkDaemonSessionControl(fixture.options, {
@@ -90,7 +90,7 @@ describe("daemon Side Thread control", () => {
           }),
         ]),
       );
-      expect(ordinaryList.result.sessions).not.toEqual(
+      expect(ordinaryList.result.sessions).toEqual(
         expect.arrayContaining([expect.objectContaining({ sessionId: ensured.sessionId })]),
       );
       await expect(
@@ -100,7 +100,9 @@ describe("daemon Side Thread control", () => {
           sessionId: ensured.sessionId,
           payload: { sessionId: ensured.sessionId },
         }),
-      ).rejects.toMatchObject({ code: "side_thread_not_found" });
+      ).resolves.toMatchObject({
+        result: { session: { sessionId: ensured.sessionId } },
+      });
       await expect(
         executeSparkDaemonSessionControl(fixture.options, {
           kind: "session.snapshot.request",
@@ -108,7 +110,9 @@ describe("daemon Side Thread control", () => {
           sessionId: ensured.sessionId,
           payload: { sessionId: ensured.sessionId },
         }),
-      ).rejects.toMatchObject({ code: "side_thread_not_found" });
+      ).resolves.toMatchObject({
+        result: { snapshot: { sessionId: ensured.sessionId } },
+      });
 
       childRecord.entries = childRecord.entries.filter(
         (entry) =>
@@ -198,34 +202,30 @@ describe("daemon Side Thread control", () => {
           sessionId: ensured.sessionId,
           payload: { sessionId: ensured.sessionId, prompt: "bypass the Side Thread API" },
         }),
-      ).rejects.toMatchObject({ code: "side_thread_direct_submit_forbidden" });
-      for (const controlRequest of [
-        {
-          kind: "turn.status.request" as const,
+      ).resolves.toMatchObject({ result: { status: "queued" } });
+      await expect(
+        executeSparkDaemonSessionControl(fixture.options, {
+          kind: "turn.status.request",
+          scope: "any",
           payload: { invocationId: submitted.invocationId },
-          expectedCode: "side_thread_not_found",
-        },
-        {
-          kind: "turn.stream.subscribe" as const,
+        }),
+      ).resolves.toMatchObject({ result: { status: "queued" } });
+      await expect(
+        executeSparkDaemonSessionControl(fixture.options, {
+          kind: "turn.stream.subscribe",
+          scope: "any",
           payload: { invocationId: submitted.invocationId },
-          expectedCode: "side_thread_not_found",
-        },
-        {
-          kind: "turn.cancel.request" as const,
+        }),
+      ).resolves.toMatchObject({ result: { events: [] } });
+      await expect(
+        executeSparkDaemonSessionControl(fixture.options, {
+          kind: "turn.cancel.request",
+          scope: "any",
           payload: { invocationId: submitted.invocationId },
-          expectedCode: "side_thread_mutation_forbidden",
-        },
-      ]) {
-        await expect(
-          executeSparkDaemonSessionControl(fixture.options, {
-            kind: controlRequest.kind,
-            scope: "any",
-            payload: controlRequest.payload,
-          }),
-        ).rejects.toMatchObject({ code: controlRequest.expectedCode });
-      }
+        }),
+      ).resolves.toMatchObject({ result: { status: "cancelled" } });
       expect(new SparkInvocationStore(fixture.db).require(submitted.invocationId).status).toBe(
-        "queued",
+        "cancelled",
       );
 
       const reset = sparkSideThreadSnapshotSchema.parse(
@@ -578,7 +578,6 @@ describe("daemon Side Thread control", () => {
       const generations = await fixture.sessionRegistry.list({
         includeArchived: true,
         includeClosed: true,
-        includeSideThreads: true,
       });
       const sideThreadGenerations = generations.filter(
         (session) =>

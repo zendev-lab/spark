@@ -112,9 +112,10 @@ describe("workbench session scope", () => {
       { session: parentB, ariaLevel: 1, orphaned: false },
       {
         session: orphan,
-        ariaLevel: 2,
+        ariaLevel: 1,
         parentSessionId: "missing-parent",
         orphaned: true,
+        diagnostic: "orphan",
       },
     ]);
     expect(
@@ -122,5 +123,43 @@ describe("workbench session scope", () => {
         ({ session }) => session.sessionId,
       ),
     ).toEqual(["parent-a", "child-a", "child-archived", "parent-b"]);
+  });
+
+  it("diagnoses arbitrary-depth lineage cycles without looping", () => {
+    const first = {
+      sessionId: "cycle-first",
+      placement: "active",
+      lineage: {
+        kind: "child" as const,
+        parentSessionId: "cycle-second",
+        origin: { kind: "driver" },
+      },
+    };
+    const second = {
+      sessionId: "cycle-second",
+      placement: "active",
+      lineage: {
+        kind: "child" as const,
+        parentSessionId: "cycle-first",
+        origin: { kind: "driver_tick" },
+      },
+    };
+
+    expect(buildSessionRailTree([first, second])).toEqual([
+      {
+        session: first,
+        ariaLevel: 1,
+        parentSessionId: second.sessionId,
+        orphaned: true,
+        diagnostic: "cycle",
+      },
+      {
+        session: second,
+        ariaLevel: 1,
+        parentSessionId: first.sessionId,
+        orphaned: true,
+        diagnostic: "cycle",
+      },
+    ]);
   });
 });

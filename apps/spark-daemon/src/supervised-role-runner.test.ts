@@ -113,7 +113,6 @@ describe("supervised Role runner", () => {
       const sessions = await registry.list({
         includeArchived: true,
         includeClosed: true,
-        includeSideThreads: true,
       });
       const child = sessions.find(
         (session) =>

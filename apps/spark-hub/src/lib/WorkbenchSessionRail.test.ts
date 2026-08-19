@@ -143,7 +143,7 @@ describe("WorkbenchSessionRail component contract", () => {
     });
 
     expect(body.indexOf(messages.sessionTypes.administrator)).toBeLessThan(
-      body.indexOf(messages.sessionTypes.workspace),
+      body.indexOf("Regular conversation"),
     );
     expect(body).toContain('href="/spark/sessions/sess_admin_workspace_1"');
     expect(body).not.toContain('action="/spark/sessions?/archiveSession"');
@@ -168,7 +168,7 @@ describe("WorkbenchSessionRail component contract", () => {
     expect(body).toContain('href="/spark/sessions?new=workspace"');
   });
 
-  it("renders an adjacent ARIA hierarchy and keeps Side Thread links parent-authorized", () => {
+  it("renders an adjacent ARIA hierarchy and links every child to its own Session", () => {
     const body = renderRail({
       sessions: hierarchySessions,
       archivedToggleHref: "/spark/sessions?archived=1",
@@ -189,7 +189,8 @@ describe("WorkbenchSessionRail component contract", () => {
       body.indexOf('data-session-id="beta-context"'),
     );
     expect(body).toContain("generation=1 • lifecycle=open • activity=idle");
-    expect(body).toContain('href="/spark/sessions/parent-alpha"');
+    expect(body).toContain('href="/spark/sessions/alpha-context"');
+    expect(body).toContain('href="/spark/sessions/alpha-tangent"');
     expect(body).not.toContain('data-session-id="alpha-archived"');
     expect(body).toContain(`${messages.showArchived} (1)`);
     expect(body).toMatchSnapshot();
@@ -211,7 +212,7 @@ describe("WorkbenchSessionRail component contract", () => {
 
     expect(body).toContain('data-session-id="orphan-child"');
     expect(body).toContain('role="listitem"');
-    expect(body).toContain('aria-level="2"');
+    expect(body).toContain('aria-level="1"');
     expect(body).toContain('aria-disabled="true"');
     expect(body).toContain(messages.orphanedSideThreads);
     expect(body).not.toContain('href="/spark/sessions/missing-parent"');

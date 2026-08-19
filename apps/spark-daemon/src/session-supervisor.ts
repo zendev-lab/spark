@@ -421,7 +421,6 @@ export class SessionSupervisor {
     const sessions = await this.registry.list({
       includeArchived: true,
       includeClosed: true,
-      includeSideThreads: true,
     });
     const closedSessionIds: string[] = [];
     const closingSessionIds: string[] = [];
@@ -561,7 +560,7 @@ export class SessionSupervisor {
     const invocationSessionIds = [
       ...new Set([closing.sessionId, ...(quiesced?.invocationSessionIds ?? [])]),
     ];
-    const all = await this.registry.list({ includeArchived: false, includeSideThreads: true });
+    const all = await this.registry.list({ includeArchived: false });
     const children = all.filter(
       (session) =>
         session.sessionId !== current.sessionId &&
