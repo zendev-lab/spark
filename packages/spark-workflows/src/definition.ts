@@ -19,13 +19,6 @@ import { parseWorkflowScript } from "./metadata.ts";
 import { userWorkflowDir, workspaceWorkflowDir } from "./registry-paths.ts";
 
 export const SPARK_WORKFLOW_DEFINITION_SCHEMA = "spark.workflow/v2" as const;
-export const SPARK_REPRO_WORKFLOW_STAGES = [
-  "contract",
-  "reference",
-  "target",
-  "alignment",
-  "delivery",
-] as const;
 
 export type WorkflowSource = "builtin" | "workspace" | "user";
 export type WorkflowSelector = `${WorkflowSource}:${string}`;
@@ -301,7 +294,6 @@ function builtinWorkflowDefinition(id: string): {
     id: normalizeStageId(stage.title),
     title: stage.title,
   }));
-  const isRepro = id === "repro";
   return {
     source: "builtin",
     path: workflowSelector("builtin", id),
@@ -316,31 +308,9 @@ function builtinWorkflowDefinition(id: string): {
       roles: [],
       handler: undefined,
       stages,
-      loop: isRepro
-        ? {
-            cadence: "30s",
-            retry: { maxAttempts: 3, delays: ["30s", "1m", "2m"] },
-            beforeTick: [
-              {
-                id: "repro-pending-decision",
-                when: {
-                  kind: "evaluator",
-                  selector: "builtin:repro-pending-decision",
-                  input: {},
-                },
-                then: { action: "block" },
-              },
-            ],
-            completion: { selector: "builtin:repro-reviewer", input: {} },
-          }
-        : undefined,
-      workbench: isRepro ? "live" : "none",
-      instructions: isRepro
-        ? [
-            "Advance the canonical Repro work summary by one evidence-backed tick.",
-            "Never weaken formal gates, accept narration as proof, or complete while a typed decision is pending.",
-          ].join("\n")
-        : meta.description,
+      loop: undefined,
+      workbench: "none",
+      instructions: meta.description,
     },
   };
 }
@@ -484,10 +454,8 @@ function finalizeWorkflowDefinition(input: {
   const ownPolicy = normalizeWorkflowLoop(raw.loop);
   const stages = mergeStages(parent?.stages ?? [], input.handlers);
   const ancestry = [...(parent?.ancestry ?? []), ...(parent ? [parent.selector] : [])];
-  const reproDerived = input.selector === "builtin:repro" || ancestry.includes("builtin:repro");
   const loop = parent ? mergeLoopPolicy(parent.loop, ownPolicy, raw.loop) : ownPolicy;
   const workbench = raw.workbench ?? parent?.workbench ?? "none";
-  if (reproDerived) assertReproDefinition(stages, loop, workbench, input.selector);
   const instructions = [parent?.instructions, raw.instructions].filter(Boolean).join("\n\n");
   const handler = input.orchestrationHandler ?? parent?.handler;
   if (handler && stages.some((stage) => stage.handler)) {
@@ -590,24 +558,6 @@ function mergeLoopPolicy(
     afterTick: [...parent.afterTick, ...own.afterTick],
     completion: Object.hasOwn(raw, "completion") ? own.completion : parent.completion,
   });
-}
-
-function assertReproDefinition(
-  stages: WorkflowStageDefinition[],
-  loop: SparkLoopPolicy,
-  workbench: WorkflowWorkbenchPolicy,
-  selector: string,
-): void {
-  const prefix = stages.slice(0, SPARK_REPRO_WORKFLOW_STAGES.length).map((stage) => stage.id);
-  if (JSON.stringify(prefix) !== JSON.stringify(SPARK_REPRO_WORKFLOW_STAGES)) {
-    throw new Error(`${selector} cannot remove, reorder, or replace builtin:repro stages`);
-  }
-  if (loop.completion?.selector !== "builtin:repro-reviewer") {
-    throw new Error(`${selector} cannot remove or replace the builtin:repro completion reviewer`);
-  }
-  if (workbench !== "live") {
-    throw new Error(`${selector} cannot weaken builtin:repro workbench policy below live`);
-  }
 }
 
 function mergeStages(

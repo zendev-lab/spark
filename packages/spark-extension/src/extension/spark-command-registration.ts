@@ -8,7 +8,7 @@ import { sparkStateCwd, type ProjectRef } from "@zendev-lab/spark-core";
 import type { SparkLoopSessionLifetime, SparkLoopView } from "@zendev-lab/spark-protocol";
 import type { SparkEntryIntent } from "./spark-entry.ts";
 
-type LoopDomain = "goal" | "loop" | "repro" | "workflow";
+type LoopDomain = "goal" | "loop" | "workflow";
 import { applySparkEntryResolution } from "./spark-entry-application.ts";
 import { detectSparkProjectState, resolveSparkEntry } from "./spark-entry-resolution.ts";
 import { currentSparkProject, loadSparkGraph } from "./session-state.ts";
@@ -26,16 +26,7 @@ import {
   setSessionLoop,
   updateSessionLoopStatus,
 } from "./spark-session-loops.ts";
-import {
-  reproPhaseToSessionMode,
-  clearSessionRepro,
-  currentReproStage,
-  readSessionRepro,
-  reviseReproPlan,
-  writeSessionRepro,
-} from "./spark-session-repro.ts";
-import { createProjectBackedSessionRepro } from "./spark-repro-project.ts";
-import { launchSparkReproThreeLaneRuntime } from "./spark-repro-lane-runtime.ts";
+import type { SparkReproMutationResult } from "@zendev-lab/spark-protocol/repro";
 import { goalNotifications, sparkLanguageForProject, type SparkLanguage } from "./spark-i18n.ts";
 import { goalContextStrings, goalInstructions } from "./spark-model-prompts.ts";
 import { renderSparkGoalLoopPrompt } from "./spark-phase-prompts.ts";
@@ -57,7 +48,6 @@ import {
   parseDynamicWorkflowRunRefArg,
   parseGoalCommandAction,
   parseLoopCommandAction,
-  parseReproCommandArgs,
 } from "./spark-command-parser-utils.ts";
 import { registerSparkWorkflowCommands } from "./spark-command-workflow-registration.ts";
 import {
@@ -197,14 +187,14 @@ export function registerSparkCommands(
   });
 
   pi.registerCommand("repro", {
-    description: "Run an evidence-gated reproduction from contract through delivery.",
-    argumentHint: "[start|status|stop|restart] [objective]",
+    description: "Start, inspect, or stop the daemon-owned three-Session Repro workflow.",
+    argumentHint: "[start|status|stop] [objective]",
     metadata: {
       source: "extension",
       extensionId: "spark-loop",
       plane: "daemon",
       resource: "repro",
-      verbs: ["start", "status", "stop", "restart"],
+      verbs: ["start", "status", "stop"],
     },
     async handler(args, ctx) {
       await handleSparkReproCommand(pi, ctx, args.trim());
@@ -373,112 +363,33 @@ export function registerSparkCommands(
     ctx: SparkCommandContext,
     rawArgs: string,
   ): Promise<void> {
-    const parsed = parseReproCommandArgs(rawArgs);
-    const { action } = parsed;
-    const objective = parsed.objective.trim();
+    const ownerSessionId = ctx.sessionId?.trim();
+    if (!ownerSessionId) throw new Error("/repro requires a persistent owner Session");
+    const parsed = parseReproV10Command(rawArgs);
+    const { action, objective } = parsed;
 
     if (action === "stop") {
-      const existing = await readSessionRepro(ctx.cwd, ctx);
-      await stopLoopForDomain(ctx, "repro", "repro stopped by user");
-      await clearSessionRepro(ctx.cwd, ctx);
-      ctx.sparkActiveMode = sparkActiveMode(ctx.sparkActiveMode?.mode ?? "plan");
-      await deps.refreshSparkWidget(ctx.cwd, ctx);
-      ctx.ui?.notify?.(
-        existing
-          ? `Spark repro stopped: ${currentReproStage(existing).title}`
-          : "No Spark Repro is active.",
-        "info",
-      );
+      const result = await deps.reproControl.stop({ ownerSessionId });
+      ctx.ui?.notify?.(renderReproCommandStatus(result.repro), "info");
       return;
     }
 
     if (action === "status") {
-      const existing = await readSessionRepro(ctx.cwd, ctx);
-      if (!existing) {
+      const result = await deps.reproControl.status({ ownerSessionId });
+      if (!result.repro) {
         ctx.ui?.notify?.(
           "No Spark Repro is active. Use /repro <objective> or /repro start to begin.",
           "info",
         );
         return;
       }
-      const stage = currentReproStage(existing);
-      const daemon = await loopForDomain(ctx, "repro");
-      const objectiveLabel = existing.objective
-        ? ` objective=${compactInline(existing.objective)},`
-        : "";
-      ctx.ui?.notify?.(
-        `Spark repro ${daemon?.status ?? existing.status}:${objectiveLabel} ${stage.title} (${existing.currentStageIndex + 1}/${existing.stages.length}), phase=${existing.currentPhase}${daemon?.dueAt ? `, next=${daemon.dueAt}` : ""}`,
-        "info",
-      );
+      ctx.ui?.notify?.(renderReproCommandStatus(result.repro), "info");
       return;
     }
 
-    const ownerSessionId = await prepareSparkDaemonLoopOwner(ctx, deps.loopControl);
-    await stopLoopForDomain(ctx, "goal", "replaced by repro");
-    await stopLoopForDomain(ctx, "loop", "replaced by repro");
-    await clearSessionGoal(ctx.cwd, ctx);
-    await clearSessionLoop(ctx.cwd, ctx);
-    if (action === "restart") {
-      await stopLoopForDomain(ctx, "repro", "repro restarted by user");
-      await clearSessionRepro(ctx.cwd, ctx);
-    }
-
-    const existing = await readSessionRepro(ctx.cwd, ctx);
-    const active =
-      existing?.status === "active"
-        ? existing.projectRef
-          ? existing
-          : (
-              await createProjectBackedSessionRepro(ctx.cwd, ctx, {
-                existing,
-                mode: "three_lane",
-              })
-            ).repro
-        : (
-            await createProjectBackedSessionRepro(ctx.cwd, ctx, {
-              objective,
-              mode: "three_lane",
-            })
-          ).repro;
-    const repro =
-      objective && active.objective !== objective
-        ? reviseReproPlan(active, {
-            reason: "Repro objective updated by command",
-            goalContract: {
-              objective,
-              constraints: active.goalContract.constraints,
-              nonGoals: active.goalContract.nonGoals,
-              successCriteria: active.goalContract.successCriteria,
-              evidenceRequired: active.goalContract.evidenceRequired,
-            },
-          })
-        : active;
-    if (repro !== active) await writeSessionRepro(ctx.cwd, repro, ctx);
-
-    const topology = await (deps.launchReproThreeLaneRuntime ?? launchSparkReproThreeLaneRuntime)({
-      cwd: ctx.cwd,
-      ctx,
-      ownerSessionId,
-      repro,
-    });
-    const launchedRepro = topology.repro;
-    await writeSessionRepro(ctx.cwd, launchedRepro, ctx);
-    await setSessionGoal(ctx.cwd, ctx, {
-      objective: launchedRepro.goalContract.objective,
-      source: "explicit",
-      status: launchedRepro.status === "complete" ? "complete" : "active",
-      contract: launchedRepro.goalContract,
-      workflowSelector: "builtin:repro",
-    });
-
-    const stage = currentReproStage(launchedRepro);
-    const objectivePrefix = launchedRepro.objective
-      ? `${compactInline(launchedRepro.objective)} · `
-      : "";
-    const visible = `Spark repro active: ${objectivePrefix}${stage.title} (${launchedRepro.currentStageIndex + 1}/${launchedRepro.stages.length}), phase=${launchedRepro.currentPhase} · lanes=3`;
-    ctx.sparkActiveMode = sparkActiveMode(reproPhaseToSessionMode(launchedRepro.currentPhase));
-    await deps.refreshSparkWidget(ctx.cwd, ctx);
-    ctx.ui?.notify?.(visible, "info");
+    if (!objective) throw new Error("/repro start requires an objective");
+    const result = await deps.reproControl.start({ ownerSessionId, objective });
+    ctx.ui?.notify?.(renderReproCommandStatus(result.repro), "info");
   }
 
   async function handleSparkGoalCommand(
@@ -897,14 +808,12 @@ export function registerSparkCommands(
 
   function loopBindingForDomain(domain: LoopDomain, loopId: string) {
     if (domain === "goal") return { goalId: loopId };
-    if (domain === "repro") return { reproId: loopId };
     if (domain === "workflow") return { workflowRunId: loopId };
     return {};
   }
 
   function loopMatchesDomain(loop: SparkLoopView, domain: LoopDomain): boolean {
     if (domain === "goal") return Boolean(loop.binding.goalId);
-    if (domain === "repro") return Boolean(loop.binding.reproId);
     if (domain === "workflow") return Boolean(loop.binding.workflowRunId);
     return !loop.binding.goalId && !loop.binding.reproId && !loop.binding.workflowRunId;
   }
@@ -928,4 +837,32 @@ export function registerSparkCommands(
     tokens.splice(freshIndex, 1);
     return { args: tokens.join(" "), sessionLifetime: "driver_tick" };
   }
+}
+
+function parseReproV10Command(rawArgs: string): {
+  action: "start" | "status" | "stop";
+  objective: string;
+} {
+  const trimmed = rawArgs.trim();
+  if (!trimmed) return { action: "status", objective: "" };
+  const [head = "", ...tail] = trimmed.split(/\s+/u);
+  const normalized = head.toLocaleLowerCase();
+  if (normalized === "status" || normalized === "状态")
+    return { action: "status", objective: tail.join(" ").trim() };
+  if (normalized === "stop" || normalized === "停止")
+    return { action: "stop", objective: tail.join(" ").trim() };
+  if (normalized === "start" || normalized === "开始")
+    return { action: "start", objective: tail.join(" ").trim() };
+  if (normalized === "restart" || normalized === "重启")
+    throw new Error(
+      "/repro restart was removed; stop the current Repro, then start a new objective",
+    );
+  return { action: "start", objective: trimmed };
+}
+
+function renderReproCommandStatus(repro: SparkReproMutationResult["repro"]): string {
+  const checkpoint = repro.checkpoint
+    ? ` · ${repro.checkpoint.kind}:${repro.checkpoint.status} attempt=${repro.checkpoint.attempt}`
+    : "";
+  return `Spark Repro ${repro.reproId} [${repro.status}] ${repro.progress.accepted}/${repro.progress.total}${checkpoint}\n${repro.objective}`;
 }

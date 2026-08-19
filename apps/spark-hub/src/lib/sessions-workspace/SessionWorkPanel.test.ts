@@ -36,69 +36,52 @@ describe("SessionWorkPanel", () => {
     const session = parseSparkSessionView({
       sessionId: "session-repro",
       status: "idle",
-      loops: [
-        {
-          loopId: "repro-driver",
-          binding: { reproId: "repro-1" },
-          ownerSessionId: "session-repro",
-          status: "blocked",
-          continuity: "session",
-          generation: 2,
-          cycleStep: "after_tick",
-          checkpoint: {
-            cycleId: "cycle-2",
-            generation: 2,
-            step: "after_tick",
-            startedAt: "2026-07-28T00:00:00.000Z",
-            updatedAt: "2026-07-28T00:01:00.000Z",
-            receipts: [],
-            beforeAttempt: 0,
-            afterAttempt: 1,
-          },
-          policy: {},
-          counters: {},
-          attempt: 2,
-          reason: "Waiting for a decision",
-        },
-      ],
       work: {
-        primary: { loopId: "repro-driver" },
         repro: {
+          version: 10,
           reproId: "repro-1",
-          status: "active",
-          contractStatus: "frozen",
+          status: "waiting_attention",
           objective: "Reproduce target logits",
-          successCriteria: ["20-step parity"],
-          evidenceRequired: ["Bound result"],
-          stage: { name: "target", title: "Reproduce", index: 2, total: 5, phase: "implement" },
-          plan: {
-            revision: 2,
-            completedSteps: 5,
-            totalSteps: 11,
-            currentStep: {
-              id: "bitwise-pass-20",
-              stage: "target",
-              goal: "Reach 20-step parity",
-              status: "blocked",
-              authority: "safe_local",
-              doneWhen: ["20 steps pass"],
-              evidenceRequired: ["Alignment result"],
-              blocker: "GPU unavailable",
+          workItemId: "work:repro-1",
+          lanes: {
+            implementation: {
+              sessionId: "session:implementation",
+              taskRef: "task:implementation",
+              roleRef: "role:implementation",
+            },
+            exactness: {
+              sessionId: "session:exactness",
+              taskRef: "task:exactness",
+              roleRef: "role:exactness",
+            },
+            formalize: {
+              sessionId: "session:formalize",
+              taskRef: "task:formalize",
+              roleRef: "role:formalize",
             },
           },
-          stopGuard: { decision: "ask", stagnationCount: 3, limit: 3 },
+          checkpoint: {
+            checkpointId: "checkpoint:exactness",
+            kind: "exactness",
+            lane: "exactness",
+            status: "attention",
+            sessionId: "session:exactness",
+            taskRef: "task:exactness",
+            runRef: "run:exactness",
+            attempt: 2,
+            evidenceRefs: ["evidence:baseline"],
+            summary: "Reach 20-step parity",
+            attention: {
+              decisionKey: "gpu-access",
+              question: "GPU unavailable",
+              expectedAnswerKind: "single",
+            },
+          },
+          progress: { accepted: 1, total: 5 },
           workbench: {
             artifactRef: "artifact:workbench-repro-1",
             revision: 4,
             lifecycle: "live",
-            loopId: "repro-driver",
-            generation: 2,
-          },
-          latestVerification: {
-            stepId: "baseline-probe",
-            proofKind: "evidence",
-            verifiedDoneWhen: ["Baseline executes"],
-            evidenceRefs: ["evidence:baseline"],
           },
           tokenUsage: {
             scope: { kind: "repro", reproId: "repro-1" },
@@ -139,9 +122,7 @@ describe("SessionWorkPanel", () => {
     const body = render(SessionWorkPanel, { props: { host: hostFor(session) } }).body;
 
     expect(body).toContain("Reach 20-step parity");
-    expect(body).toContain("20 steps pass");
     expect(body).toContain("GPU unavailable");
-    expect(body).toContain("baseline-probe");
     expect(body).toContain("evidence:baseline");
     expect(body).toContain("127,431 tokens");
     expect(body).toContain("124,800 reported");
@@ -153,8 +134,9 @@ describe("SessionWorkPanel", () => {
     expect(body).toContain("27,431 ·");
     expect(body).toContain("Persistent sessions");
     expect(body).toContain("Loading trusted Repro Workbench");
-    expect(body).toContain("Cycle checkpoint");
-    expect(body).toContain("after_tick");
+    expect(body).toContain("session:implementation");
+    expect(body).toContain("session:exactness");
+    expect(body).toContain("session:formalize");
     expect(body).not.toContain("lastProgressDigest");
   });
 

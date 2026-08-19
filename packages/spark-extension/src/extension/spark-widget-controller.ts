@@ -30,7 +30,6 @@ import { sparkActiveMode } from "./spark-mode-state.ts";
 import { ensureSparkGraphInvariants, isPlaceholderProjectTitle } from "./spark-graph-invariants.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { clearSessionLoop, loadSessionLoop } from "./spark-session-loops.ts";
-import { readSessionRepro } from "./spark-session-repro.ts";
 import { latestRunsByTaskRef, taskPlanSummary } from "./task-display.ts";
 import { deriveTaskRoleLabel, isClaimOwnedBySession, taskClaimedBy } from "./task-ownership.ts";
 
@@ -59,7 +58,6 @@ const piExtensionWidgetControllerDeps: SparkWidgetControllerDeps = {
   loadSessionGoal: (cwd, ctx) => loadSessionGoal(cwd, ctx),
   loadSessionLoop: (cwd, ctx) => loadSessionLoop(cwd, ctx),
   clearSessionLoop: (cwd, ctx) => clearSessionLoop(cwd, ctx),
-  readSessionRepro: (cwd, ctx) => readSessionRepro(cwd, ctx),
   loadSparkMode: (cwd, ctx) => loadSparkMode(cwd, ctx),
   sparkActiveMode,
   renderSparkProjectKindDisplay,

@@ -654,11 +654,6 @@ describe("daemon native session execution", () => {
           sessionSource: "daemon",
         }),
       );
-      expect(executeSession).toHaveBeenCalledWith(
-        expect.not.objectContaining({
-          stateBindingSessionId: "sess_workspace_administrator",
-        }),
-      );
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -3140,47 +3135,11 @@ describe("daemon native session execution", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("keeps the normal tool catalog active for a daemon-owned Repro tick", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "spark-session-cwd-repro-"));
-    const task: SparkDaemonLoopTickTask = {
-      type: "loop.tick",
-      sessionId: "owner-session",
-      loopId: "repro:active",
-      binding: {
-        goalId: "goal:active",
-        workflowRunId: "workflow-run:repro:active",
-        workflowSelector: "builtin:repro",
-        reproId: "repro:active",
-      },
-      ownerSessionId: "owner-session",
-      generation: 2,
-      sessionLifetime: "driver",
-      prompt: "repro tick",
-      cwd,
-    };
-    const executeSession = vi.fn(async () => ({ assistantText: "advanced" }));
-    const executor = createSparkDaemonTaskExecutor({
-      paths,
-      loopControl: {
-        schedule: vi.fn(),
-        stop: vi.fn(),
-      },
-      createSparkHeadlessSessionExecutor: () => executeSession,
-    });
-
-    await executor(task, context(task));
-
-    expect(executeSession).toHaveBeenCalledWith(
-      expect.not.objectContaining({ allowedTools: expect.anything() }),
-    );
-    rmSync(cwd, { recursive: true, force: true });
-  });
-
   it("reports driver Session token usage with discard-on-close persistence", async () => {
     const task: SparkDaemonSessionRunTask = {
       type: "session.run",
       sessionId: "driver_repro_1",
-      prompt: "repro tick",
+      prompt: "driver tick",
     };
     const executeSession = vi.fn(async () => ({ assistantText: "advanced" }));
     const executionContext = context(task);

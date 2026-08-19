@@ -2071,8 +2071,8 @@ function formatNativeTuiStatus(
     const repro = session.work.repro;
     lines.push(
       `repro: ${repro.status} ${repro.reproId} — ${repro.objective}`,
-      `repro-stage: ${repro.stage.index + 1}/${repro.stage.total} ${repro.stage.name} phase=${repro.stage.phase}`,
-      `repro-plan: ${repro.plan.completedSteps}/${repro.plan.totalSteps} stop=${repro.stopGuard.decision}`,
+      `repro-checkpoints: ${repro.progress.accepted}/${repro.progress.total} current=${repro.checkpoint?.kind ?? "none"}`,
+      `repro-lanes: implementation=${repro.lanes.implementation.sessionId} exactness=${repro.lanes.exactness.sessionId} formalize=${repro.lanes.formalize.sessionId}`,
     );
   }
   if (session.activeLeafId) lines.push(`active-leaf: ${session.activeLeafId}`);

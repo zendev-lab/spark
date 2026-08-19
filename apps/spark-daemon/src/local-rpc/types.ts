@@ -27,7 +27,6 @@ import type { SparkDaemonHumanWaitRegistry } from "../core/human-waits.ts";
 import type { SparkDaemonLeaseTransferBroker } from "../core/lease-transfer.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";
 import type { SparkDaemonRelocationRequest, SparkDaemonRelocationResult } from "../relocation.ts";
-import type { SparkReproFormalEvidenceVerifier } from "../repro-formal-evidence-verifier.ts";
 import type { DaemonSessionRegistry } from "../session-registry.ts";
 import type { SessionSupervisor } from "../session-supervisor.ts";
 import type { SessionNotificationDeliveryQueue } from "../session-notification-delivery.ts";
@@ -179,7 +178,6 @@ export interface LocalRpcHandlerOptions {
   sessionSupervisor?: SessionSupervisor;
   modelControl?: SparkDaemonModelControl;
   humanWaits?: SparkDaemonHumanWaitRegistry;
-  reproFormalEvidenceVerifier?: SparkReproFormalEvidenceVerifier;
   respondHumanInteraction?: SparkDaemonHumanInteractionResponder;
   leaseTransfers?: SparkDaemonLeaseTransferBroker;
   onHumanRequestOutboxReady?: () => void;

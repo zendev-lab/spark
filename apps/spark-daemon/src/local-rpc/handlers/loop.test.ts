@@ -1,9 +1,8 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
 import type { SparkSessionState } from "@zendev-lab/spark-protocol";
 import { describe, expect, it } from "vitest";
 
@@ -12,7 +11,6 @@ import { createDaemonSessionRegistry, type DaemonSessionRegistry } from "../../s
 import { SparkInvocationStore } from "../../store/invocations.ts";
 import { SparkLoopStore } from "../../store/loops.ts";
 import { migrateSparkDaemonDatabase } from "../../store/schema.ts";
-import { WorkbenchArtifactBindingStore } from "../../store/workbench-artifact-bindings.ts";
 import { registerWorkspace } from "../../store/workspaces.ts";
 import { handleLoopRequest } from "./loop.ts";
 

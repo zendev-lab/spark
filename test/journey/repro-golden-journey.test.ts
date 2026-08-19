@@ -4,6 +4,7 @@ import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "no
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, test } from "vitest";
@@ -11,12 +12,13 @@ import { afterEach, test } from "vitest";
 import {
   defaultArtifactStore,
   type Artifact,
-  type GitChangeArtifactBody,
+  type DocumentArtifactBody,
 } from "@zendev-lab/spark-artifacts";
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-db";
 import { createRuntimeEnrollmentToken } from "@zendev-lab/spark-hub-coordination/runtime-registration";
-import { sessionReproStorePathV2 } from "@zendev-lab/spark-loop";
+import type { SparkSessionRepro } from "@zendev-lab/spark-repro";
+import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 
 import { runSparkProcess, type SparkProcessTarget } from "../support/spark-process-harness.ts";
@@ -35,7 +37,7 @@ interface ScriptedToolCall {
 
 interface ScriptedRound {
   label: string;
-  audience: "root" | "implementation" | "exactness" | "formalize";
+  audience: "implementation" | "exactness" | "formalize";
   text?: string;
   toolCalls?: ScriptedToolCall[];
 }
@@ -44,17 +46,8 @@ interface ScriptedLedger {
   schema: "spark.repro.scripted-provider-ledger/v1";
   cursor: number;
   rounds: ScriptedRound[];
-  requests: Array<{
-    round: number;
-    label?: string;
-    messageRoles: string[];
-    toolNames: string[];
-  }>;
-  auxiliaryRequests?: Array<{
-    label: string;
-    messageRoles: string[];
-    toolNames: string[];
-  }>;
+  requests: Array<{ round: number; label?: string; messageRoles: string[]; toolNames: string[] }>;
+  auxiliaryRequests?: Array<{ label: string; messageRoles: string[]; toolNames: string[] }>;
   vars: Record<string, string>;
   cursors?: Record<string, number>;
   lastLabels?: Record<string, string>;
@@ -70,7 +63,19 @@ interface JourneyFixture {
   port: number;
 }
 
+interface DurableSnapshot {
+  repro: SparkSessionRepro;
+  projection?: {
+    stateUpdatedAt: string;
+    reportArtifactRef: string;
+    reportRevision: number;
+    workbenchArtifactRef: string;
+    workbenchRevision: number;
+  };
+}
+
 let retainedFailureFixture: string | undefined;
+const liveModelId = process.env.SPARK_REPRO_LIVE_MODEL?.trim();
 
 afterEach(() => {
   if (retainedFailureFixture) {
@@ -78,141 +83,49 @@ afterEach(() => {
   }
 });
 
-test("/repro opens three durable lane Sessions and completes the five-run checkpoint chain", async () => {
+test("direct Repro start survives compaction and restarts across five daemon checkpoints", async () => {
   const fixture = await createJourneyFixture();
   retainedFailureFixture = fixture.temporary;
   const observedProcessPids: number[] = [];
   try {
-    await assert.rejects(gitOutput(fixture.workspaceRoot, ["rev-parse", "--show-toplevel"]));
-    for (const repository of ["reference", "target"]) {
-      assert.match(
-        await gitOutput(resolve(fixture.workspaceRoot, `repos/${repository}`), [
-          "rev-parse",
-          "--show-toplevel",
-        ]),
-        new RegExp(`/repos/${repository}\\n$`, "u"),
-      );
-    }
-    const referenceBefore = await runFixtureVerification(fixture.workspaceRoot, "reference");
-    const targetBefore = await runFixtureVerification(fixture.workspaceRoot, "target");
-    assert.equal(referenceBefore.exitCode, 0);
-    assert.equal(targetBefore.exitCode, 1);
+    await assertMultiRepositoryWorkspace(fixture);
+    const rootSessionId = await startRegisteredWorkspace(fixture, observedProcessPids);
 
-    const enrollmentToken = seedHubEnrollment(fixture.sparkHome);
-    const hubStarted = jsonObject(
-      (await runSparkProcess(fixture.target, ["hub", "web", "start", "--json"])).stdout,
+    const started = await requestSparkDaemon(
+      "repro.start",
+      { ownerSessionId: rootSessionId, objective: "复现 glm52" },
+      { env: fixture.target.env },
     );
-    observedProcessPids.push(numberField(hubStarted, "pid"));
-    const started = jsonObject(
-      (await runSparkProcess(fixture.target, ["daemon", "start", "--json"])).stdout,
-    );
-    observedProcessPids.push(numberField(objectField(started, "daemon"), "pid"));
+    assert.equal(started.changed, true);
 
-    await runSparkProcess(fixture.target, [
-      "daemon",
-      "workspace",
-      "register",
-      fixture.workspaceRoot,
-      "--server-url",
-      `http://127.0.0.1:${fixture.port}`,
-      "--token",
-      enrollmentToken,
-      "--name",
-      "Repro Golden Journey",
-      "--allow-insecure-http",
-    ]);
-
-    const sessionsBefore = jsonArray(
-      (await runSparkProcess(fixture.target, ["daemon", "session", "list", "--json"])).stdout,
-    );
-    assert.equal(sessionsBefore.length, 1);
-    const rootSessionId = stringField(sessionsBefore[0]!, "sessionId");
-    const seeded = jsonObject(
-      (
-        await runSparkProcess(fixture.target, [
-          "daemon",
-          "submit",
-          "--session",
-          rootSessionId,
-          "--prompt",
-          "Prepare a clean context boundary before starting Repro.",
-          "--idempotency-key",
-          "idem_repro_glm52_compaction_seed",
-          "--json",
-        ])
-      ).stdout,
-    );
-    await waitForInvocation(fixture.target, stringField(seeded, "invocationId"), "succeeded");
-    const submitted = jsonObject(
-      (
-        await runSparkProcess(fixture.target, [
-          "daemon",
-          "submit",
-          "--session",
-          rootSessionId,
-          "--prompt",
-          "/repro 复现 glm52",
-          "--idempotency-key",
-          "idem_repro_glm52_three_lane",
-          "--json",
-        ])
-      ).stdout,
-    );
-    await waitForInvocation(fixture.target, stringField(submitted, "invocationId"), "succeeded");
-
-    const reproPath = sessionReproStorePathV2(fixture.workspaceRoot, { sessionId: rootSessionId });
-    const beforeCompact = await waitForReproCheckpoint(reproPath, (candidate) => {
-      const receipts = arrayField(objectField(candidate, "threeLane"), "resultReceipts");
-      return receipts.length > 0 && receipts.length < 5;
-    });
-    assert.ok(arrayField(objectField(beforeCompact, "threeLane"), "resultReceipts").length < 5);
-    await compactReproRootSession(fixture, rootSessionId);
-    const continued = jsonObject(
-      (
-        await runSparkProcess(fixture.target, [
-          "daemon",
-          "submit",
-          "--session",
-          rootSessionId,
-          "--prompt",
-          "Continue the durable Repro checkpoint after context compaction.",
-          "--idempotency-key",
-          "idem_repro_glm52_after_compaction",
-          "--json",
-        ])
-      ).stdout,
-    );
-    await waitForInvocation(fixture.target, stringField(continued, "invocationId"), "succeeded");
-
-    const repro = await waitForReproCheckpoint(reproPath, (candidate) => {
-      const state = objectField(candidate, "threeLane");
-      const workItem = arrayField(state, "workItems")[0];
-      return workItem?.status === "completed" && arrayField(state, "resultReceipts").length === 5;
-    });
-    await assertCompletedTopology(fixture, rootSessionId, repro);
-
-    const beforeFinalRestart = await durableCounts(fixture, rootSessionId, repro);
-    const providerBeforeFinalRestart = await readProviderLedger(fixture.providerLedgerPath);
-    assert.equal(
-      providerBeforeFinalRestart.requests.filter(
-        (request) => request.label === "root.repro.continued.status",
-      ).length,
-      1,
-      "the first post-compaction action must reload Repro from the durable owner",
-    );
-    assert.equal(
-      providerBeforeFinalRestart.requests.filter(
-        (request) => request.label === "root.repro.continued",
-      ).length,
-      1,
-    );
+    const firstAccepted = await waitForRepro(fixture, (repro) => repro.receipts.length >= 1);
+    const implementationSessionId = firstAccepted.lanes.implementation.sessionId;
+    await seedLaneForCompaction(fixture, implementationSessionId);
+    await compactLaneSession(fixture, implementationSessionId);
     observedProcessPids.push(await restartDaemon(fixture.target));
-    const afterFinalRestart = await durableCounts(fixture, rootSessionId, repro);
-    const providerAfterFinalRestart = await readProviderLedger(fixture.providerLedgerPath);
-    assert.deepEqual(afterFinalRestart, beforeFinalRestart);
+
+    const formalized = await waitForRepro(
+      fixture,
+      (repro) => repro.formalizedRevision === "revision:formalized",
+    );
+    assert.ok(formalized.receipts.length >= 3);
+    assert.equal(formalized.receipts[2]?.checkpointId, formalized.checkpoints[2]?.checkpointId);
+    observedProcessPids.push(await restartDaemon(fixture.target));
+
+    const complete = await waitForRepro(
+      fixture,
+      (repro) => repro.status === "complete" && repro.receipts.length === 5,
+    );
+    await assertCompletedTopology(fixture, rootSessionId, complete);
+
+    const beforeIdempotentRestart = await durableCounts(fixture, rootSessionId);
+    const providerBefore = await readProviderLedger(fixture.providerLedgerPath);
+    observedProcessPids.push(await restartDaemon(fixture.target));
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
+    assert.deepEqual(await durableCounts(fixture, rootSessionId), beforeIdempotentRestart);
     assert.equal(
-      providerAfterFinalRestart.requests.length,
-      providerBeforeFinalRestart.requests.length,
+      (await readProviderLedger(fixture.providerLedgerPath)).requests.length,
+      providerBefore.requests.length,
     );
 
     retainedFailureFixture = undefined;
@@ -224,83 +137,41 @@ test("/repro opens three durable lane Sessions and completes the five-run checkp
   }
 }, 240_000);
 
-test("lane attention survives daemon restart and resumes the original Session", async () => {
+test("attention answer resumes the same checkpoint Session after daemon restart", async () => {
   const fixture = await createJourneyFixture(
-    createJourneyRounds({ compactRoot: false, implementationAttention: true }),
+    createJourneyRounds({ implementationAttention: true }),
   );
   retainedFailureFixture = fixture.temporary;
   const observedProcessPids: number[] = [];
   try {
-    const enrollmentToken = seedHubEnrollment(fixture.sparkHome);
-    const hubStarted = jsonObject(
-      (await runSparkProcess(fixture.target, ["hub", "web", "start", "--json"])).stdout,
+    const rootSessionId = await startRegisteredWorkspace(fixture, observedProcessPids);
+    await requestSparkDaemon(
+      "repro.start",
+      { ownerSessionId: rootSessionId, objective: "复现 glm52" },
+      { env: fixture.target.env },
     );
-    observedProcessPids.push(numberField(hubStarted, "pid"));
-    const started = jsonObject(
-      (await runSparkProcess(fixture.target, ["daemon", "start", "--json"])).stdout,
-    );
-    observedProcessPids.push(numberField(objectField(started, "daemon"), "pid"));
-    await runSparkProcess(fixture.target, [
-      "daemon",
-      "workspace",
-      "register",
-      fixture.workspaceRoot,
-      "--server-url",
-      `http://127.0.0.1:${fixture.port}`,
-      "--token",
-      enrollmentToken,
-      "--allow-insecure-http",
-    ]);
 
-    const sessions = jsonArray(
-      (await runSparkProcess(fixture.target, ["daemon", "session", "list", "--json"])).stdout,
-    );
-    assert.equal(sessions.length, 1);
-    const rootSessionId = stringField(sessions[0]!, "sessionId");
-    const submitted = jsonObject(
-      (
-        await runSparkProcess(fixture.target, [
-          "daemon",
-          "submit",
-          "--session",
-          rootSessionId,
-          "--prompt",
-          "/repro 复现 glm52",
-          "--idempotency-key",
-          "idem_repro_glm52_attention",
-          "--json",
-        ])
-      ).stdout,
-    );
-    await waitForInvocation(fixture.target, stringField(submitted, "invocationId"), "succeeded");
-
-    const pendingBeforeRestart = await waitForSinglePendingAsk(fixture.target, rootSessionId);
-    const reproPath = sessionReproStorePathV2(fixture.workspaceRoot, { sessionId: rootSessionId });
-    const attentionCheckpoint = await waitForReproCheckpoint(reproPath, (candidate) =>
-      arrayField(objectField(candidate, "threeLane"), "routes").some(
-        (route) => route.action === "root_attention" && route.status === "pending",
-      ),
-    );
-    const implementationSessionId = await implementationLaneSessionId(fixture, attentionCheckpoint);
-
+    const waiting = await waitForRepro(fixture, (repro) => repro.status === "waiting_attention");
+    const implementationSessionId = waiting.lanes.implementation.sessionId;
+    const pendingBefore = await waitForSinglePendingAsk(fixture.target, rootSessionId);
     observedProcessPids.push(await restartDaemon(fixture.target));
-    const pendingAfterRestart = await waitForSinglePendingAsk(fixture.target, rootSessionId);
-    assert.equal(
-      pendingAfterRestart.interactionRequestId,
-      pendingBeforeRestart.interactionRequestId,
-    );
+    const pendingAfter = await waitForSinglePendingAsk(fixture.target, rootSessionId);
+    assert.equal(pendingAfter.interactionRequestId, pendingBefore.interactionRequestId);
+    const question = arrayField(pendingAfter, "questions")[0];
+    assert.ok(question);
+
     const answered = jsonObject(
       (
         await runSparkProcess(fixture.target, [
           "daemon",
           "ask",
           "answer",
-          stringField(pendingAfterRestart, "interactionRequestId"),
+          stringField(pendingAfter, "interactionRequestId"),
           "--session",
           rootSessionId,
           "--answers",
           JSON.stringify({
-            "glm52-reference": {
+            [stringField(question, "id")]: {
               values: [],
               customText: "Use the official upstream GLM-5.2 implementation.",
             },
@@ -311,36 +182,17 @@ test("lane attention survives daemon restart and resumes the original Session", 
     );
     assert.equal(answered.outcome, "accepted");
 
-    const completed = await waitForReproCheckpoint(reproPath, (candidate) => {
-      const state = objectField(candidate, "threeLane");
-      const workItem = arrayField(state, "workItems")[0];
-      return workItem?.status === "completed" && arrayField(state, "resultReceipts").length === 6;
-    });
-    const state = objectField(completed, "threeLane");
-    assert.deepEqual(
-      arrayField(state, "routes").map((route) => route.action),
-      [
-        "start_binding",
-        "root_attention",
-        "resume_binding",
-        "materialize_binding",
-        "materialize_binding",
-        "refresh_binding",
-        "refresh_binding",
-      ],
+    const complete = await waitForRepro(
+      fixture,
+      (repro) => repro.status === "complete" && repro.receipts.length === 5,
     );
-    assert.ok(arrayField(state, "routes").every((route) => route.status === "acknowledged"));
-    assert.equal(await implementationLaneSessionId(fixture, completed), implementationSessionId);
+    assert.equal(complete.lanes.implementation.sessionId, implementationSessionId);
+    assert.equal(complete.checkpoints[0]?.attempt, 2);
     const graph = await defaultTaskGraphStore(fixture.workspaceRoot).load();
     assert.ok(graph);
-    const projectRef = stringField(completed, "projectRef") as Parameters<typeof graph.runs>[0];
-    const implementationTaskRef = stringField(
-      arrayField(state, "bindings").find((binding) => binding.lane === "implementation")!,
-      "taskRef",
-    );
     const implementationRuns = graph
-      .runs(projectRef)
-      .filter((run) => run.taskRef === implementationTaskRef);
+      .runs(complete.projectRef)
+      .filter((run) => run.taskRef === complete.lanes.implementation.taskRef);
     assert.equal(implementationRuns.length, 3);
     assert.equal(
       new Set(
@@ -361,200 +213,238 @@ test("lane attention survives daemon restart and resumes the original Session", 
   }
 }, 240_000);
 
+test("stop durably cancels Repro runs and closes all lane Sessions", async () => {
+  const fixture = await createJourneyFixture(createJourneyRounds({ implementationDelayMs: 5_000 }));
+  retainedFailureFixture = fixture.temporary;
+  const observedProcessPids: number[] = [];
+  try {
+    const rootSessionId = await startRegisteredWorkspace(fixture, observedProcessPids);
+    await requestSparkDaemon(
+      "repro.start",
+      { ownerSessionId: rootSessionId, objective: "复现 glm52" },
+      { env: fixture.target.env },
+    );
+    const stoppedResponse = await requestSparkDaemon(
+      "repro.stop",
+      { ownerSessionId: rootSessionId, reason: "Golden Journey stop checkpoint" },
+      { env: fixture.target.env },
+    );
+    assert.equal(stoppedResponse.changed, true);
+
+    const stopped = readDurableSnapshot(fixture, rootSessionId).repro;
+    assert.equal(stopped.status, "stopped");
+    assert.equal(stopped.receipts.length, 0);
+    const graph = await defaultTaskGraphStore(fixture.workspaceRoot).load();
+    assert.ok(graph);
+    assert.equal(graph.tasks(stopped.projectRef).length, 3);
+    assert.ok(graph.tasks(stopped.projectRef).every((task) => task.status === "cancelled"));
+    assert.equal(graph.runs(stopped.projectRef).length, 3);
+    assert.ok(graph.runs(stopped.projectRef).every((run) => run.status === "cancelled"));
+
+    for (const lane of Object.values(stopped.lanes)) {
+      const session = await requestSparkDaemon(
+        "session.get",
+        { sessionId: lane.sessionId },
+        { env: fixture.target.env },
+      );
+      assert.equal(session.lifecycle, "closed");
+      assert.ok((session.closeReceipts?.length ?? 0) >= 1);
+    }
+
+    observedProcessPids.push(await restartDaemon(fixture.target));
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 500));
+    const restarted = readDurableSnapshot(fixture, rootSessionId).repro;
+    assert.equal(restarted.updatedAt, stopped.updatedAt);
+    const restartedGraph = await defaultTaskGraphStore(fixture.workspaceRoot).load();
+    assert.ok(restartedGraph?.runs(stopped.projectRef).every((run) => run.status === "cancelled"));
+
+    retainedFailureFixture = undefined;
+  } finally {
+    await stopProcesses(fixture.target, observedProcessPids);
+    if (retainedFailureFixture !== fixture.temporary) {
+      await rm(fixture.temporary, { recursive: true, force: true });
+    }
+  }
+}, 240_000);
+
+test.skipIf(!liveModelId)(
+  "real configured model completes a compacted multi-repository Repro",
+  async () => {
+    assert.ok(liveModelId);
+    const fixture = await createJourneyFixture(createJourneyRounds(), { liveModelId });
+    retainedFailureFixture = fixture.temporary;
+    const observedProcessPids: number[] = [];
+    try {
+      await assertMultiRepositoryWorkspace(fixture);
+      const rootSessionId = await startRegisteredWorkspace(fixture, observedProcessPids);
+      await requestSparkDaemon(
+        "repro.start",
+        {
+          ownerSessionId: rootSessionId,
+          objective:
+            "Reproduce the normalization behavior from repos/reference in repos/target. Inspect the two repositories and verify.mjs, make the smallest required correction, and attach strict Evidence for all five checkpoints.",
+        },
+        { env: fixture.target.env },
+      );
+      const firstAccepted = await waitForRepro(fixture, (repro) => repro.receipts.length >= 1);
+      await seedLaneForCompaction(fixture, firstAccepted.lanes.implementation.sessionId);
+      await compactLaneSession(fixture, firstAccepted.lanes.implementation.sessionId);
+      observedProcessPids.push(await restartDaemon(fixture.target));
+      const complete = await waitForRepro(
+        fixture,
+        (repro) => repro.status === "complete" && repro.receipts.length === 5,
+      );
+      await assertCompletedTopology(fixture, rootSessionId, complete, {
+        expectedModel: parseModelId(liveModelId),
+        scriptedProvider: false,
+      });
+      retainedFailureFixture = undefined;
+    } finally {
+      await stopProcesses(fixture.target, observedProcessPids);
+      if (retainedFailureFixture !== fixture.temporary) {
+        await rm(fixture.temporary, { recursive: true, force: true });
+      }
+    }
+  },
+  600_000,
+);
+
 async function assertCompletedTopology(
   fixture: JourneyFixture,
   rootSessionId: string,
-  repro: Record<string, unknown>,
+  repro: SparkSessionRepro,
+  options: {
+    expectedModel?: { providerName: string; modelId: string };
+    scriptedProvider?: boolean;
+  } = {},
 ): Promise<void> {
-  assert.equal(repro.version, 9);
+  assert.equal(repro.version, 10);
+  assert.equal(repro.schema, "spark.repro.session/v10");
   assert.equal(repro.objective, "复现 glm52");
-  const state = objectField(repro, "threeLane");
-  assert.equal(state.schema, "spark.repro.three-lane-session/v2");
+  assert.equal(repro.formalizedRevision, "revision:formalized");
+  assert.deepEqual(
+    repro.checkpoints.map((checkpoint) => checkpoint.kind),
+    ["implementation", "exactness", "formalize", "exactness_refresh", "implementation_refresh"],
+  );
+  assert.ok(repro.checkpoints.every((checkpoint) => checkpoint.status === "accepted"));
+  assert.equal(repro.receipts.length, 5);
+  assert.deepEqual(
+    repro.receipts.map((receipt) => receipt.checkpointId),
+    repro.checkpoints.map((checkpoint) => checkpoint.checkpointId),
+  );
+  assert.equal(repro.checkpoints[3]?.parentCheckpointId, repro.checkpoints[2]?.checkpointId);
+  assert.equal(repro.checkpoints[4]?.parentCheckpointId, repro.checkpoints[2]?.checkpointId);
 
-  const workItems = arrayField(state, "workItems");
-  const routes = arrayField(state, "routes");
-  const bindings = arrayField(state, "bindings");
-  const receipts = arrayField(state, "resultReceipts");
-  const handoffs = arrayField(state, "handoffs");
-  const resolutions = arrayField(state, "resolutions");
-  assert.equal(workItems.length, 1);
-  assert.equal(workItems[0]?.status, "completed");
-  assert.deepEqual(
-    routes.map((route) => route.action),
-    [
-      "start_binding",
-      "materialize_binding",
-      "materialize_binding",
-      "refresh_binding",
-      "refresh_binding",
-    ],
-  );
-  assert.ok(routes.every((route) => route.status === "acknowledged"));
-  assert.equal(bindings.length, 3);
-  assert.equal(receipts.length, 5);
-  assert.ok(receipts.every((receipt) => receipt.status === "accepted"));
-  assert.equal(handoffs.length, 2);
-  assert.deepEqual(
-    handoffs.map((handoff) => `${String(handoff.from)}:${String(handoff.to)}`),
-    ["implementation:exactness", "exactness:formalize"],
-  );
-  assert.equal(resolutions.length, 2);
-  assert.deepEqual(
-    resolutions.map((resolution) => `${String(resolution.from)}:${String(resolution.to)}`),
-    ["formalize:exactness", "exactness:implementation"],
-  );
-  assert.equal(resolutions[1]?.parentResolutionId, resolutions[0]?.resolutionId);
-
-  const formalizedTip = stringField(objectField(state, "formalize"), "formalizedTip");
-  assert.equal(stringField(workItems[0]!, "sourceRevision"), formalizedTip);
   const graph = await defaultTaskGraphStore(fixture.workspaceRoot).load();
   assert.ok(graph);
-  const projectRef = stringField(repro, "projectRef") as Parameters<typeof graph.tasks>[0];
-  const tasks = graph.tasks(projectRef);
-  const runs = graph.runs(projectRef);
+  const tasks = graph.tasks(repro.projectRef);
+  const runs = graph.runs(repro.projectRef);
   assert.equal(tasks.length, 3);
   assert.equal(runs.length, 5);
   assert.ok(runs.every((run) => run.status === "succeeded"));
-
-  const runSessionIds = runs.map((run) => {
-    const sessionId = run.execution?.sessionId ?? run.execution?.executionSessionId;
-    assert.ok(sessionId);
-    return sessionId;
-  });
+  const runSessionIds = runs.map(
+    (run) => run.execution?.sessionId ?? run.execution?.executionSessionId,
+  );
   assert.equal(new Set(runSessionIds).size, 3);
-  assert.ok(!runSessionIds.includes(rootSessionId));
-  const activeSessions = jsonArray(
-    (await runSparkProcess(fixture.target, ["daemon", "session", "list", "--json"])).stdout,
-  );
-  assert.equal(activeSessions.length, 4);
-  assert.ok(activeSessions.some((session) => session.sessionId === rootSessionId));
-  assert.ok(
-    runSessionIds.every((sessionId) =>
-      activeSessions.some((session) => session.sessionId === sessionId),
-    ),
-  );
-  for (const binding of bindings) {
-    const taskRef = stringField(binding, "taskRef");
-    const laneRuns = runs.filter((run) => run.taskRef === taskRef);
-    const lane = stringField(binding, "lane");
-    assert.equal(laneRuns.length, lane === "formalize" ? 1 : 2);
-    assert.equal(
-      new Set(laneRuns.map((run) => run.execution?.sessionId ?? run.execution?.executionSessionId))
-        .size,
-      1,
+  for (const lane of Object.values(repro.lanes)) {
+    const laneRuns = runs.filter((run) => run.taskRef === lane.taskRef);
+    assert.equal(laneRuns.length, lane.lane === "formalize" ? 1 : 2);
+    assert.deepEqual(
+      new Set(runSessionIds.filter((sessionId) => sessionId === lane.sessionId)),
+      new Set([lane.sessionId]),
     );
   }
 
-  const artifacts = (await defaultArtifactStore(fixture.workspaceRoot).list()).filter(
-    isGitChangeArtifact,
-  );
-  assert.equal(artifacts.length, 0);
-  assert.ok(bindings.every((binding) => binding.gitChangeRef === undefined));
-
-  const forge = jsonObject(await readFile(fixture.forgeLedgerPath, "utf8"));
-  assert.equal(forge.draftPrCreates, 0);
-  assert.equal(forge.nonDraftPrCreates, 0);
-
-  const provider = await readProviderLedger(fixture.providerLedgerPath);
-  assert.equal(provider.cursor, provider.rounds.length);
-  assert.deepEqual(
-    provider.requests
-      .map((request) => request.label)
-      .toSorted((left, right) => (left ?? "").localeCompare(right ?? "")),
-    provider.rounds
-      .map((round) => round.label)
-      .toSorted((left, right) => left.localeCompare(right)),
-  );
-  assert.equal(
-    provider.rounds
-      .filter((round) => round.label === "root.repro.start")
-      .flatMap((round) => round.toolCalls ?? [])
-      .filter((call) => call.name === "repro").length,
-    1,
-  );
-  assert.equal(
-    provider.rounds
-      .filter((round) => round.label === "root.repro.continued.status")
-      .flatMap((round) => round.toolCalls ?? [])
-      .filter((call) => call.name === "repro").length,
-    1,
-  );
-  assert.equal(
-    provider.requests.filter((request) => request.label === "root.repro.start").length,
-    1,
-  );
-  assert.match(provider.vars.BASELINE_REVISION ?? "", /^[a-f0-9]{40}$/u);
-  assert.match(provider.vars.CANDIDATE_REVISION ?? "", /^[a-f0-9]{40}$/u);
-  assert.notEqual(provider.vars.BASELINE_REVISION, provider.vars.CANDIDATE_REVISION);
-  assert.notEqual(provider.vars.CANDIDATE_REVISION, provider.vars.CANONICAL_REVISION);
-  assert.equal(provider.vars.CANONICAL_REVISION, formalizedTip);
-
-  const targetAfter = await runFixtureVerification(fixture.workspaceRoot, "target");
-  assert.equal(targetAfter.exitCode, 0);
-}
-
-async function durableCounts(
-  fixture: JourneyFixture,
-  rootSessionId: string,
-  repro: Record<string, unknown>,
-): Promise<Record<string, number>> {
-  const graph = await defaultTaskGraphStore(fixture.workspaceRoot).load();
-  assert.ok(graph);
-  const projectRef = stringField(repro, "projectRef") as Parameters<typeof graph.tasks>[0];
-  const state = objectField(repro, "threeLane");
   const sessions = jsonArray(
     (await runSparkProcess(fixture.target, ["daemon", "session", "list", "--json"])).stdout,
   );
-  assert.ok(sessions.some((session) => session.sessionId === rootSessionId));
-  return {
-    tasks: graph.tasks(projectRef).length,
-    runs: graph.runs(projectRef).length,
-    artifacts: (await defaultArtifactStore(fixture.workspaceRoot).list()).length,
-    routes: arrayField(state, "routes").length,
-    receipts: arrayField(state, "resultReceipts").length,
-    handoffs: arrayField(state, "handoffs").length,
-    resolutions: arrayField(state, "resolutions").length,
-  };
+  assert.equal(sessions.length, 4);
+  for (const lane of Object.values(repro.lanes)) {
+    const session = sessions.find((candidate) => candidate.sessionId === lane.sessionId);
+    assert.ok(session, `${lane.lane} Session must be visible`);
+    const lineage = objectField(session, "lineage");
+    assert.equal(lineage.kind, "child");
+    assert.equal(lineage.parentSessionId, rootSessionId);
+    assert.equal(objectField(lineage, "origin").kind, "task_revision");
+    assert.equal(objectField(lineage, "origin").projectRef, repro.projectRef);
+    assert.equal(objectField(lineage, "origin").taskRef, lane.taskRef);
+    assert.deepEqual(
+      objectField(session, "model"),
+      options.expectedModel ?? {
+        providerName: "spark-scripted",
+        modelId: "spark-scripted-provider",
+      },
+    );
+  }
+
+  const durable = readDurableSnapshot(fixture, rootSessionId);
+  assert.equal(durable.projection?.stateUpdatedAt, repro.updatedAt);
+  const artifacts = await defaultArtifactStore(fixture.workspaceRoot).list();
+  const projected = artifacts.filter(isDocumentArtifact);
+  assert.equal(projected.length, 2);
+  assert.deepEqual(
+    new Set(projected.map((artifact) => artifact.body.mediaType)),
+    new Set(["text/markdown", "application/vnd.a2ui+json"]),
+  );
+  assert.ok(projected.every((artifact) => artifact.body.management?.lifecycle === "sealed"));
+
+  if (options.scriptedProvider !== false) {
+    const provider = await readProviderLedger(fixture.providerLedgerPath);
+    assert.equal(provider.cursor, provider.rounds.length);
+    assert.deepEqual(
+      provider.requests.map((request) => request.label).toSorted(compareOptionalText),
+      provider.rounds.map((round) => round.label).toSorted(compareOptionalText),
+    );
+    assert.ok(
+      provider.auxiliaryRequests?.some((request) => request.label === "auxiliary.compaction"),
+    );
+  }
+  const forge = jsonObject(await readFile(fixture.forgeLedgerPath, "utf8"));
+  assert.equal(forge.draftPrCreates, 0);
+  assert.equal(forge.nonDraftPrCreates, 0);
 }
 
 function createJourneyRounds(
-  options: { compactRoot?: boolean; implementationAttention?: boolean } = {},
+  options: { implementationAttention?: boolean; implementationDelayMs?: number } = {},
 ): ScriptedRound[] {
   const rounds: ScriptedRound[] = [];
-  const audience = (label: string): ScriptedRound["audience"] => {
-    if (label.startsWith("root.")) return "root";
-    if (label.startsWith("implementation")) return "implementation";
-    if (label.startsWith("exactness")) return "exactness";
-    return "formalize";
-  };
-  const tool = (label: string, name: string, arguments_: Record<string, unknown>) => {
-    rounds.push({
-      label,
-      audience: audience(label),
-      toolCalls: [{ id: label, name, arguments: arguments_ }],
-    });
-  };
-  const text = (label: string, value: string) =>
-    rounds.push({ label, audience: audience(label), text: value });
+  const tool = (
+    audience: ScriptedRound["audience"],
+    label: string,
+    name: string,
+    arguments_: Record<string, unknown>,
+  ) => rounds.push({ audience, label, toolCalls: [{ id: label, name, arguments: arguments_ }] });
+  const text = (audience: ScriptedRound["audience"], label: string, value: string) =>
+    rounds.push({ audience, label, text: value });
   const provenance = {
     producer: "role",
     taskRef: "${BINDING_TASK_REF}",
     runRef: "${BINDING_RUN_REF}",
   };
-  const common = (lane: "implementation" | "exactness" | "formalize") => ({
-    schema: "spark.repro.lane-result/v1",
+  const common = (
+    lane: ScriptedRound["audience"],
+    checkpoint: string,
+    source: boolean,
+    parent: boolean,
+  ) => ({
+    schema: "spark.repro.lane-result/v2",
     reproId: "${BINDING_REPRO_ID}",
-    workItemId: "${BINDING_WORK_ITEM_ID}",
-    lane,
-    planRevision: "${BINDING_PLAN_REVISION}",
-    bindingRevision: "${BINDING_REVISION}",
+    checkpointId: "${BINDING_CHECKPOINT_ID}",
+    ...(source ? { sourceCheckpointId: "${BINDING_SOURCE_CHECKPOINT_ID}" } : {}),
+    ...(parent ? { parentCheckpointId: "${BINDING_PARENT_CHECKPOINT_ID}" } : {}),
+    sessionId: "${BINDING_SESSION_ID}",
     taskRef: "${BINDING_TASK_REF}",
     runRef: "${BINDING_RUN_REF}",
-    sourceRevision: "${BINDING_SOURCE_REVISION}",
-    originRouteId: "${BINDING_ROUTE_ID}",
+    lane,
+    checkpoint,
   });
-  const recordEvidence = (label: string, title: string, body: Record<string, unknown>) => {
-    tool(label, "evidence", {
+  const record = (
+    audience: ScriptedRound["audience"],
+    label: string,
+    title: string,
+    body: Record<string, unknown>,
+  ) =>
+    tool(audience, label, "evidence", {
       action: "record",
       kind: "record",
       title,
@@ -562,69 +452,79 @@ function createJourneyRounds(
       body,
       provenance,
     });
-  };
-  const complete = (
+  const checkpoint = (
     prefix: string,
-    lane: "implementation" | "exactness" | "formalize",
-    validationRef: string,
-    resultRef: string,
+    audience: ScriptedRound["audience"],
+    kind: string,
+    source: boolean,
+    parent: boolean,
+    proofVariable: string,
+    resultVariable: string,
+    verifyCommand: string,
   ) => {
-    tool(`${prefix}.plan`, "impl_update_task_plan_items", {
-      ops: [
-        { op: "done", id: `${lane}-execute`, evidenceRefs: [validationRef] },
-        { op: "done", id: `${lane}-validate`, evidenceRefs: [validationRef] },
-        { op: "done", id: `${lane}-record`, evidenceRefs: [resultRef] },
-      ],
+    tool(audience, `${prefix}.verify`, "cue_exec", { command: verifyCommand, timeout: 30 });
+    record(audience, `${prefix}.proof`, `${kind} proof`, {
+      checkpoint: kind,
+      passed: true,
+      repositories: ["repos/reference", "repos/target"],
     });
-    tool(`${prefix}.finish`, "impl_finish_task", {
-      summary: `${lane} checkpoint completed with strict TaskRun-bound Evidence.`,
-      evidenceRefs: [validationRef, resultRef],
+    record(audience, `${prefix}.result`, `${kind} lane result`, {
+      ...common(audience, kind, source, parent),
+      kind: "checkpoint_result",
+      summary: `${kind} accepted after bounded multi-repository verification`,
+      evidenceRefs: [proofVariable],
+      ...(kind === "formalize" ? { formalizedRevision: "revision:formalized" } : {}),
     });
-    text(`${prefix}.complete`, `${lane} checkpoint is terminal; the daemon owner may advance.`);
+    tool(audience, `${prefix}.plan`, "impl_update_task_plan_items", {
+      ops: [{ op: "done", id: "item-1", evidenceRefs: [proofVariable, resultVariable] }],
+    });
+    tool(audience, `${prefix}.finish`, "impl_finish_task", {
+      summary: `${kind} checkpoint completed with TaskRun-bound Evidence.`,
+      evidenceRefs: [proofVariable, resultVariable],
+    });
+    text(audience, `${prefix}.complete`, `${kind} is terminal; daemon owner may advance.`);
   };
 
-  if (options.compactRoot !== false) {
-    text("root.compaction.seed", "The next turn may start a durable Repro workflow.");
-  }
-  tool("root.repro.start", "repro", {
-    action: "start",
-    objective: "复现 glm52",
-  });
-  text("root.repro.started", "The daemon owns the three-lane checkpoint chain.");
   if (options.implementationAttention) {
-    text("root.attention.waiting", "The Root attention checkpoint is durable and dormant.");
-    text("root.attention.answered", "The direct user AnswerEvent resumed the owner checkpoint.");
-  }
-  if (options.compactRoot !== false) {
-    tool("root.repro.continued.status", "repro", { action: "status" });
-    text(
-      "root.repro.continued",
-      "The compacted transcript resumed from the daemon-owned Repro checkpoint without replaying launch.",
-    );
-  }
-
-  if (options.implementationAttention) {
-    recordEvidence("implementation-attention.context", "Implementation attention context", {
-      summary: "Two runnable GLM-5.2 references disagree and require a direct user decision",
+    record("implementation", "implementation-attention.proof", "Attention proof", {
+      summary: "Two references disagree and require a user decision",
     });
-    recordEvidence("implementation-attention.result", "Implementation attention request", {
-      ...common("implementation"),
+    record("implementation", "implementation-attention.result", "Attention request", {
+      ...common("implementation", "implementation", false, false),
       kind: "attention_request",
-      evidenceRefs: ["${IMPLEMENTATION_ATTENTION_CONTEXT_EVIDENCE}"],
+      evidenceRefs: ["${IMPLEMENTATION_ATTENTION_PROOF_EVIDENCE}"],
       decisionKey: "glm52-reference",
       question: "Which GLM-5.2 reference should be authoritative?",
-      reason: "Two runnable references disagree on the attention contract.",
+      reason: "Two runnable references disagree on the normalization contract.",
       expectedAnswerKind: "freeform",
     });
-    complete(
-      "implementation-attention",
+    tool("implementation", "implementation-attention.plan", "impl_update_task_plan_items", {
+      ops: [
+        {
+          op: "done",
+          id: "item-1",
+          evidenceRefs: [
+            "${IMPLEMENTATION_ATTENTION_PROOF_EVIDENCE}",
+            "${IMPLEMENTATION_ATTENTION_RESULT_EVIDENCE}",
+          ],
+        },
+      ],
+    });
+    tool("implementation", "implementation-attention.finish", "impl_finish_task", {
+      summary: "Implementation paused at a durable attention checkpoint.",
+      evidenceRefs: [
+        "${IMPLEMENTATION_ATTENTION_PROOF_EVIDENCE}",
+        "${IMPLEMENTATION_ATTENTION_RESULT_EVIDENCE}",
+      ],
+    });
+    text(
       "implementation",
-      "${IMPLEMENTATION_ATTENTION_CONTEXT_EVIDENCE}",
-      "${IMPLEMENTATION_ATTENTION_RESULT_EVIDENCE}",
+      "implementation-attention.complete",
+      "The attention attempt is terminal and awaits an AnswerEvent.",
     );
   }
 
-  tool("implementation.edit", "edit", {
+  tool("implementation", "implementation.edit", "edit", {
     path: "target/normalize.mjs",
     edits: [
       {
@@ -633,130 +533,66 @@ function createJourneyRounds(
       },
     ],
   });
-  tool("implementation.verify", "cue_exec", { command: "node verify.mjs target", timeout: 30 });
-  recordEvidence("implementation.validation.evidence", "Implementation validation", {
-    summary: "node verify.mjs target passed after the bounded normalization repair",
-  });
-  recordEvidence("implementation.result", "Implementation lane result", {
-    ...common("implementation"),
-    kind: "implementation_candidate",
-    evidenceRefs: ["${IMPLEMENTATION_VALIDATION_EVIDENCE}"],
-    scope: "glm52 normalization boundary",
-    candidateRevisions: ["${CANDIDATE_REVISION}"],
-    dependsOnHandoffIds: [],
-    doneWhen: ["Exactness independently validates the candidate revision"],
-  });
-  complete(
+  checkpoint(
     "implementation",
     "implementation",
-    "${IMPLEMENTATION_VALIDATION_EVIDENCE}",
+    "implementation",
+    false,
+    false,
+    "${IMPLEMENTATION_PROOF_EVIDENCE}",
     "${IMPLEMENTATION_RESULT_EVIDENCE}",
+    'node -e "setTimeout(() => {}, 300)" && node verify.mjs target',
   );
-
-  tool("exactness.verify", "cue_exec", { command: "node verify.mjs target", timeout: 30 });
-  recordEvidence("exactness.validation.evidence", "Exactness validation", {
-    summary: "Exactness independently reproduced the passing target vectors",
-    firstBadBoundary: "target.normalize.denominator",
-  });
-  recordEvidence("exactness.result", "Exactness lane result", {
-    ...common("exactness"),
-    kind: "exactness_finding",
-    evidenceRefs: ["${EXACTNESS_VALIDATION_EVIDENCE}"],
-    finding: {
-      findingId: "finding:glm52-normalization-denominator",
-      firstBadBoundary: "target.normalize.denominator",
-      classification: "implementation_defect",
-      disposition: "fix",
-      confidence: "confirmed",
-      evidenceRefs: ["${EXACTNESS_VALIDATION_EVIDENCE}"],
-    },
-    scope: "glm52 normalization exactness",
-    candidateRevisions: ["${CANDIDATE_REVISION}"],
-    dependsOnHandoffIds: [],
-    doneWhen: ["Formalize records the confirmed mechanism in the canonical layer"],
-  });
-  complete(
+  checkpoint(
     "exactness",
     "exactness",
-    "${EXACTNESS_VALIDATION_EVIDENCE}",
+    "exactness",
+    true,
+    false,
+    "${EXACTNESS_PROOF_EVIDENCE}",
     "${EXACTNESS_RESULT_EVIDENCE}",
+    'node -e "setTimeout(() => {}, 800)" && node verify.mjs target',
   );
-
-  tool("formalize.write", "write", {
-    path: "FORMALIZED.md",
-    expectedVersion: "missing",
-    content:
-      "# Formalized normalization mechanism\n\nThe target uses sqrt(variance + epsilon), matching the independently verified reference boundary.\n",
-  });
-  tool("formalize.verify", "cue_exec", { command: "node verify.mjs target", timeout: 30 });
-  recordEvidence("formalize.validation.evidence", "Formalize validation", {
-    summary:
-      "The canonical layer passed the target vectors after importing Exactness-approved history",
-  });
-  recordEvidence("formalize.result", "Formalize lane result", {
-    ...common("formalize"),
-    kind: "formalized",
-    evidenceRefs: ["${FORMALIZE_VALIDATION_EVIDENCE}"],
-    canonicalRevision: "${CANONICAL_REVISION}",
-    supersededRevisions: ["${CANDIDATE_REVISION}"],
-  });
-  complete(
+  checkpoint(
     "formalize",
     "formalize",
-    "${FORMALIZE_VALIDATION_EVIDENCE}",
+    "formalize",
+    true,
+    false,
+    "${FORMALIZE_PROOF_EVIDENCE}",
     "${FORMALIZE_RESULT_EVIDENCE}",
+    `${
+      options.implementationDelayMs
+        ? `node -e "setTimeout(() => {}, ${options.implementationDelayMs})" && `
+        : ""
+    }node verify.mjs target`,
   );
-
-  tool("exactness-refresh.verify", "cue_exec", {
-    command: "node verify.mjs target && test -f FORMALIZED.md",
-    timeout: 30,
-  });
-  recordEvidence("exactness-refresh.validation.evidence", "Exactness refresh validation", {
-    summary: "Exactness worktree refreshed to and validated the canonical revision",
-  });
-  recordEvidence("exactness-refresh.result", "Exactness refresh result", {
-    ...common("exactness"),
-    kind: "refresh",
-    evidenceRefs: ["${EXACTNESS_REFRESH_VALIDATION_EVIDENCE}"],
-    canonicalRevision: "${CANONICAL_REVISION}",
-    supersededRevisions: ["${CANDIDATE_REVISION}"],
-    outcome: "refreshed",
-  });
-  complete(
+  checkpoint(
     "exactness-refresh",
     "exactness",
-    "${EXACTNESS_REFRESH_VALIDATION_EVIDENCE}",
+    "exactness_refresh",
+    true,
+    true,
+    "${EXACTNESS_REFRESH_PROOF_EVIDENCE}",
     "${EXACTNESS_REFRESH_RESULT_EVIDENCE}",
+    'node -e "setTimeout(() => {}, 800)" && node verify.mjs target',
   );
-
-  tool("implementation-refresh.verify", "cue_exec", {
-    command: "node verify.mjs target && test -f FORMALIZED.md",
-    timeout: 30,
-  });
-  recordEvidence(
-    "implementation-refresh.validation.evidence",
-    "Implementation refresh validation",
-    { summary: "Implementation worktree refreshed to and validated the canonical revision" },
-  );
-  recordEvidence("implementation-refresh.result", "Implementation refresh result", {
-    ...common("implementation"),
-    kind: "refresh",
-    evidenceRefs: ["${IMPLEMENTATION_REFRESH_VALIDATION_EVIDENCE}"],
-    canonicalRevision: "${CANONICAL_REVISION}",
-    supersededRevisions: ["${CANDIDATE_REVISION}"],
-    outcome: "refreshed",
-  });
-  complete(
+  checkpoint(
     "implementation-refresh",
     "implementation",
-    "${IMPLEMENTATION_REFRESH_VALIDATION_EVIDENCE}",
+    "implementation_refresh",
+    true,
+    true,
+    "${IMPLEMENTATION_REFRESH_PROOF_EVIDENCE}",
     "${IMPLEMENTATION_REFRESH_RESULT_EVIDENCE}",
+    "node verify.mjs target",
   );
   return rounds;
 }
 
 async function createJourneyFixture(
   rounds: ScriptedRound[] = createJourneyRounds(),
+  options: { liveModelId?: string } = {},
 ): Promise<JourneyFixture> {
   const temporary = await realpath(
     await mkdtemp(join(process.platform === "darwin" ? "/tmp" : tmpdir(), "spark-repro-journey-")),
@@ -767,20 +603,20 @@ async function createJourneyFixture(
   const binDir = resolve(temporary, "bin");
   const providerLedgerPath = resolve(temporary, "provider-ledger.json");
   const forgeLedgerPath = resolve(temporary, "forge-ledger.json");
-  const fixtureRepositories = [
+  const repositories = [
     resolve(workspaceRoot, "repos/reference"),
     resolve(workspaceRoot, "repos/target"),
   ];
   await Promise.all([
     mkdir(workspaceRoot, { recursive: true }),
-    ...fixtureRepositories.map((repository) => mkdir(repository, { recursive: true })),
+    ...repositories.map((repository) => mkdir(repository, { recursive: true })),
     mkdir(resolve(sparkHome, "apps/daemon"), { recursive: true }),
     mkdir(binDir, { recursive: true }),
     mkdir(resolve(temporary, "home"), { recursive: true }),
     mkdir(resolve(temporary, "xdg/run/cue-shell"), { recursive: true, mode: 0o700 }),
   ]);
   await cp(fixtureRoot, workspaceRoot, { recursive: true });
-  for (const [index, repository] of fixtureRepositories.entries()) {
+  for (const [index, repository] of repositories.entries()) {
     await writeFile(resolve(repository, "README.md"), `fixture repository ${index + 1}\n`);
     await git(repository, ["init", "-b", "main"]);
     await git(repository, ["config", "user.name", "Spark Journey"]);
@@ -795,19 +631,15 @@ async function createJourneyFixture(
   await chmod(ghPath, 0o755);
   await writeFile(
     forgeLedgerPath,
-    `${JSON.stringify(
-      {
-        schema: "spark.repro.forge-ledger/v1",
-        trunk: "main",
-        branches: [],
-        draftPrCreates: 0,
-        nonDraftPrCreates: 0,
-        pullRequest: null,
-        events: [],
-      },
-      null,
-      2,
-    )}\n`,
+    `${JSON.stringify({
+      schema: "spark.repro.forge-ledger/v1",
+      trunk: "main",
+      branches: [],
+      draftPrCreates: 0,
+      nonDraftPrCreates: 0,
+      pullRequest: null,
+      events: [],
+    })}\n`,
     { mode: 0o600 },
   );
   await writeFile(
@@ -818,39 +650,21 @@ async function createJourneyFixture(
         cursor: 0,
         rounds,
         requests: [],
-        vars: {
-          CANDIDATE_REVISION: "2222222222222222222222222222222222222222",
-          CANONICAL_REVISION: "3333333333333333333333333333333333333333",
-        },
+        vars: {},
       } satisfies ScriptedLedger,
       null,
       2,
     )}\n`,
     { mode: 0o600 },
   );
-  await writeFile(
-    resolve(sparkHome, "role-model-settings.json"),
-    `${JSON.stringify(
-      {
-        version: 2,
-        modelTypes: {
-          coordination: "spark-scripted/spark-scripted-provider",
-          verification: "spark-scripted/spark-scripted-provider",
-          implementation: "spark-scripted/spark-scripted-provider",
-          exploration: "spark-scripted/spark-scripted-provider",
-        },
-      },
-      null,
-      2,
-    )}\n`,
-  );
+  const configuredModel = options.liveModelId ?? "spark-scripted/spark-scripted-provider";
   await writeFile(
     resolve(sparkHome, "config.json"),
     `${JSON.stringify(
       {
-        providers: [providerPlugin],
-        enabledModels: ["spark-scripted/spark-scripted-provider"],
-        activeModelId: "spark-scripted/spark-scripted-provider",
+        ...(options.liveModelId ? {} : { providers: [providerPlugin] }),
+        enabledModels: [configuredModel],
+        activeModelId: configuredModel,
         activeThinkingLevel: "off",
         skills: [],
         compact: { keepRecentTokens: 1 },
@@ -862,11 +676,7 @@ async function createJourneyFixture(
   );
   await writeFile(
     resolve(sparkHome, "apps/daemon/config.toml"),
-    [
-      'installationId = "spark-daemon-repro-golden-journey"',
-      'displayName = "Repro Golden Journey"',
-      "",
-    ].join("\n"),
+    'installationId = "spark-daemon-repro-golden-journey"\ndisplayName = "Repro Golden Journey"\n',
     { mode: 0o600 },
   );
 
@@ -912,23 +722,216 @@ async function createJourneyFixture(
   };
 }
 
-async function waitForReproCheckpoint(
-  path: string,
-  predicate: (repro: Record<string, unknown>) => boolean,
-): Promise<Record<string, unknown>> {
+function parseModelId(value: string): { providerName: string; modelId: string } {
+  const separator = value.indexOf("/");
+  if (separator <= 0 || separator === value.length - 1) {
+    throw new Error("SPARK_REPRO_LIVE_MODEL must use provider/model format");
+  }
+  return { providerName: value.slice(0, separator), modelId: value.slice(separator + 1) };
+}
+
+async function assertMultiRepositoryWorkspace(fixture: JourneyFixture): Promise<void> {
+  await assert.rejects(gitOutput(fixture.workspaceRoot, ["rev-parse", "--show-toplevel"]));
+  for (const repository of ["reference", "target"]) {
+    assert.match(
+      await gitOutput(resolve(fixture.workspaceRoot, `repos/${repository}`), [
+        "rev-parse",
+        "--show-toplevel",
+      ]),
+      new RegExp(`/repos/${repository}\\n$`, "u"),
+    );
+  }
+  assert.equal((await runFixtureVerification(fixture.workspaceRoot, "reference")).exitCode, 0);
+  assert.equal((await runFixtureVerification(fixture.workspaceRoot, "target")).exitCode, 1);
+}
+
+async function startRegisteredWorkspace(
+  fixture: JourneyFixture,
+  observedProcessPids: number[],
+): Promise<string> {
+  const enrollmentToken = seedHubEnrollment(fixture.sparkHome);
+  const hubTarget = {
+    ...fixture.target,
+    env: {
+      ...fixture.target.env,
+      // The source Hub executes its built SvelteKit handler, while the
+      // migration owner remains the spark-hub-db source package. Point only
+      // the Hub process at that real asset directory; the daemon keeps its
+      // ordinary source-workspace environment.
+      SPARK_PRODUCT_DIST: resolve(root, "packages/spark-hub-db/src"),
+    },
+  } satisfies SparkProcessTarget;
+  const hubStarted = jsonObject(
+    (await runSparkProcess(hubTarget, ["hub", "web", "start", "--json"])).stdout,
+  );
+  observedProcessPids.push(numberField(hubStarted, "pid"));
+  const daemonStarted = jsonObject(
+    (await runSparkProcess(fixture.target, ["daemon", "start", "--json"])).stdout,
+  );
+  observedProcessPids.push(numberField(objectField(daemonStarted, "daemon"), "pid"));
+  await runSparkProcess(fixture.target, [
+    "daemon",
+    "workspace",
+    "register",
+    fixture.workspaceRoot,
+    "--server-url",
+    `http://127.0.0.1:${fixture.port}`,
+    "--token",
+    enrollmentToken,
+    "--name",
+    "Repro Golden Journey",
+    "--allow-insecure-http",
+  ]);
+  const sessions = jsonArray(
+    (await runSparkProcess(fixture.target, ["daemon", "session", "list", "--json"])).stdout,
+  );
+  assert.equal(sessions.length, 1);
+  return stringField(sessions[0]!, "sessionId");
+}
+
+function readDurableSnapshot(fixture: JourneyFixture, ownerSessionId: string): DurableSnapshot {
+  const databasePath = resolveSparkPaths({
+    app: "daemon",
+    sparkHome: fixture.sparkHome,
+  }).databasePath;
+  const db = new DatabaseSync(databasePath, { readOnly: true });
+  try {
+    const row = db
+      .prepare(
+        `SELECT state_json
+         FROM daemon_repro_runs
+         WHERE owner_session_id = ?
+         ORDER BY updated_at DESC, repro_id DESC
+         LIMIT 1`,
+      )
+      .get(ownerSessionId) as { state_json: string } | undefined;
+    if (!row) throw new Error("Repro v10 state is unavailable");
+    const repro = JSON.parse(row.state_json) as SparkSessionRepro;
+    const projection = db
+      .prepare(
+        `SELECT state_updated_at, report_artifact_ref, report_revision,
+                workbench_artifact_ref, workbench_revision
+         FROM daemon_repro_projections
+         WHERE repro_id = ?`,
+      )
+      .get(repro.reproId) as
+      | {
+          state_updated_at: string;
+          report_artifact_ref: string;
+          report_revision: number;
+          workbench_artifact_ref: string;
+          workbench_revision: number;
+        }
+      | undefined;
+    return {
+      repro,
+      ...(projection
+        ? {
+            projection: {
+              stateUpdatedAt: projection.state_updated_at,
+              reportArtifactRef: projection.report_artifact_ref,
+              reportRevision: projection.report_revision,
+              workbenchArtifactRef: projection.workbench_artifact_ref,
+              workbenchRevision: projection.workbench_revision,
+            },
+          }
+        : {}),
+    };
+  } finally {
+    db.close();
+  }
+}
+
+async function waitForRepro(
+  fixture: JourneyFixture,
+  predicate: (repro: SparkSessionRepro) => boolean,
+): Promise<SparkSessionRepro> {
   return await waitFor(
     async () => {
       try {
-        const snapshot = jsonObject(await readFile(path, "utf8"));
-        const repro = objectField(snapshot, "repro");
+        const repro = readDurableSnapshot(
+          fixture,
+          stringField(
+            jsonArray(
+              (await runSparkProcess(fixture.target, ["daemon", "session", "list", "--json"]))
+                .stdout,
+            ).find((session) => objectField(session, "lineage").kind === "root")!,
+            "sessionId",
+          ),
+        ).repro;
         return predicate(repro) ? repro : undefined;
       } catch {
         return undefined;
       }
     },
     120_000,
-    "Repro durable checkpoint",
+    "Repro v10 checkpoint",
   );
+}
+
+async function compactLaneSession(fixture: JourneyFixture, sessionId: string): Promise<void> {
+  const submitted = await requestSparkDaemon(
+    "session.compact",
+    {
+      sessionId,
+      customInstructions:
+        "Preserve the active Repro objective and reload checkpoint bindings from daemon owner state.",
+      idempotencyKey: "idem_repro_glm52_lane_compaction",
+    },
+    { env: fixture.target.env },
+  );
+  const result = await waitForInvocation(fixture.target, submitted.invocationId, "succeeded");
+  assert.match(stringField(result, "assistantText"), /Compacted daemon session/u);
+  const session = await requestSparkDaemon(
+    "session.get",
+    { sessionId },
+    { env: fixture.target.env },
+  );
+  assert.ok(session.sessionPath, "compacted lane Session must expose its durable transcript path");
+  const entries = (await readFile(session.sessionPath, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => jsonObject(line));
+  assert.ok(
+    entries.some((entry) => entry.type === "compaction"),
+    "compaction must persist a summary boundary in the reused lane Session",
+  );
+}
+
+async function seedLaneForCompaction(fixture: JourneyFixture, sessionId: string): Promise<void> {
+  const submitted = await requestSparkDaemon(
+    "turn.submit",
+    {
+      sessionId,
+      prompt: "Record a bounded continuation checkpoint before Repro compaction.",
+      idempotencyKey: "idem_repro_glm52_lane_compaction_seed",
+    },
+    { env: fixture.target.env },
+  );
+  await waitForInvocation(fixture.target, submitted.invocationId, "succeeded");
+}
+
+async function durableCounts(
+  fixture: JourneyFixture,
+  rootSessionId: string,
+): Promise<Record<string, unknown>> {
+  const durable = readDurableSnapshot(fixture, rootSessionId);
+  const graph = await defaultTaskGraphStore(fixture.workspaceRoot).load();
+  assert.ok(graph);
+  const sessions = jsonArray(
+    (await runSparkProcess(fixture.target, ["daemon", "session", "list", "--json"])).stdout,
+  );
+  const artifacts = await defaultArtifactStore(fixture.workspaceRoot).list();
+  return {
+    reproUpdatedAt: durable.repro.updatedAt,
+    status: durable.repro.status,
+    receipts: durable.repro.receipts.length,
+    tasks: graph.tasks(durable.repro.projectRef).length,
+    runs: graph.runs(durable.repro.projectRef).length,
+    sessions: sessions.length,
+    artifacts: artifacts.length,
+    projection: durable.projection,
+  };
 }
 
 async function listPendingAsks(
@@ -956,57 +959,21 @@ async function waitForSinglePendingAsk(
   );
 }
 
-async function implementationLaneSessionId(
-  fixture: JourneyFixture,
-  repro: Record<string, unknown>,
-): Promise<string> {
-  const graph = await defaultTaskGraphStore(fixture.workspaceRoot).load();
-  assert.ok(graph);
-  const projectRef = stringField(repro, "projectRef") as Parameters<typeof graph.runs>[0];
-  const implementationBinding = arrayField(objectField(repro, "threeLane"), "bindings").find(
-    (binding) => binding.lane === "implementation",
-  );
-  assert.ok(implementationBinding);
-  const taskRef = stringField(implementationBinding, "taskRef");
-  const sessionIds = graph
-    .runs(projectRef)
-    .filter((run) => run.taskRef === taskRef)
-    .map((run) => run.execution?.sessionId ?? run.execution?.executionSessionId)
-    .filter((sessionId): sessionId is string => Boolean(sessionId));
-  assert.ok(sessionIds.length > 0);
-  assert.equal(new Set(sessionIds).size, 1);
-  return sessionIds[0]!;
-}
-
 async function restartDaemon(target: SparkProcessTarget): Promise<number> {
-  await runSparkProcess(target, ["daemon", "restart", "--yes", "--wait"]);
   const status = jsonObject((await runSparkProcess(target, ["daemon", "status", "--json"])).stdout);
-  return numberField(objectField(status, "daemon"), "pid");
-}
-
-async function compactReproRootSession(fixture: JourneyFixture, sessionId: string): Promise<void> {
-  const submitted = await requestSparkDaemon(
-    "session.compact",
-    {
-      sessionId,
-      customInstructions:
-        "Preserve only durable identifiers; Repro continuation must reload owner checkpoints.",
-      idempotencyKey: "idem_repro_glm52_root_compaction",
-    },
-    { env: fixture.target.env },
+  const previousPid = numberField(objectField(status, "daemon"), "pid");
+  try {
+    process.kill(process.platform === "win32" ? previousPid : -previousPid, "SIGKILL");
+  } catch {
+    process.kill(previousPid, "SIGKILL");
+  }
+  await waitFor(
+    async () => (isProcessAlive(previousPid) ? undefined : true),
+    10_000,
+    `daemon ${previousPid} to exit at the crash window`,
   );
-  const terminal = await waitForInvocation(fixture.target, submitted.invocationId, "succeeded");
-  assert.match(stringField(terminal, "assistantText"), /Compacted daemon session/u);
-  const snapshot = await requestSparkDaemon(
-    "session.snapshot",
-    { sessionId, messageLimit: 10_000 },
-    { env: fixture.target.env },
-  );
-  assert.ok(snapshot.work?.repro, "compacted snapshot must retain the Repro work projection");
-  assert.ok(
-    JSON.stringify(snapshot.work.repro).length < 32_000,
-    "compacted snapshot must expose only the bounded Repro projection",
-  );
+  const started = jsonObject((await runSparkProcess(target, ["daemon", "start", "--json"])).stdout);
+  return numberField(objectField(started, "daemon"), "pid");
 }
 
 async function waitForInvocation(
@@ -1020,9 +987,7 @@ async function waitForInvocation(
         (await runSparkProcess(target, ["daemon", "invocation", "result", invocationId, "--json"]))
           .stdout,
       );
-      return value.status === "succeeded" ||
-        value.status === "failed" ||
-        value.status === "cancelled"
+      return ["succeeded", "failed", "cancelled"].includes(String(value.status))
         ? value
         : undefined;
     },
@@ -1040,7 +1005,6 @@ async function waitForInvocation(
 async function stopProcesses(target: SparkProcessTarget, pids: number[]): Promise<void> {
   await runSparkProcess(target, ["daemon", "stop", "--yes"]).catch(() => undefined);
   await runSparkProcess(target, ["hub", "web", "stop", "--json"]).catch(() => undefined);
-  await runSparkProcess(target, ["hub", "web", "stop", "--json"]).catch(() => undefined);
   await Promise.all(
     [...new Set(pids)]
       .filter((pid) => pid > 0)
@@ -1048,7 +1012,7 @@ async function stopProcesses(target: SparkProcessTarget, pids: number[]): Promis
         await waitFor(
           async () => (isProcessAlive(pid) ? undefined : true),
           10_000,
-          `daemon process ${pid} to stop`,
+          `process ${pid} to stop`,
         ).catch(() => undefined);
       }),
   );
@@ -1094,7 +1058,7 @@ async function waitFor<T>(
     } catch (error) {
       lastError = error;
     }
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
   }
   const detail = lastError instanceof Error ? lastError.message : "";
   throw new Error(`Timed out waiting for ${label}${detail ? `: ${detail}` : ""}`);
@@ -1119,22 +1083,17 @@ async function reservePort(): Promise<number> {
 async function runFixtureVerification(
   cwd: string,
   implementation: "reference" | "target",
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+): Promise<{ exitCode: number }> {
   try {
-    const result = await execFileAsync(
-      process.execPath,
-      [resolve(cwd, "verify.mjs"), implementation],
-      { cwd, env: process.env, encoding: "utf8" },
-    );
-    return { exitCode: 0, stdout: result.stdout.trim(), stderr: result.stderr.trim() };
+    await execFileAsync(process.execPath, [resolve(cwd, "verify.mjs"), implementation], {
+      cwd,
+      env: process.env,
+      encoding: "utf8",
+    });
+    return { exitCode: 0 };
   } catch (error) {
-    const failure = error as { code?: number | string; stdout?: string; stderr?: string };
-    const exitCode = typeof failure.code === "number" ? failure.code : Number(failure.code);
-    return {
-      exitCode: Number.isInteger(exitCode) ? exitCode : 1,
-      stdout: failure.stdout?.trim() ?? "",
-      stderr: failure.stderr?.trim() ?? "",
-    };
+    const code = (error as { code?: number | string }).code;
+    return { exitCode: typeof code === "number" ? code : Number(code) || 1 };
   }
 }
 
@@ -1185,10 +1144,6 @@ function numberField(record: Record<string, unknown>, key: string): number {
   return value;
 }
 
-function isGitChangeArtifact(artifact: Artifact): artifact is Artifact<GitChangeArtifactBody> {
-  return artifact.kind === "git_change" && artifact.body.kind === "git_change";
-}
-
 function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -1196,4 +1151,12 @@ function isProcessAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+function isDocumentArtifact(artifact: Artifact): artifact is Artifact<DocumentArtifactBody> {
+  return artifact.kind === "document" && artifact.body.kind === "document";
+}
+
+function compareOptionalText(left: string | undefined, right: string | undefined): number {
+  return (left ?? "").localeCompare(right ?? "");
 }

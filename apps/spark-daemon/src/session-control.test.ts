@@ -832,7 +832,7 @@ describe("daemon session control admission", () => {
       );
       const invocation = new SparkInvocationStore(db).require(submitted.invocationId!);
       expect(invocation.task).toMatchObject({ type: "session.run", sessionId: child.sessionId });
-      expect(invocation.task).not.toHaveProperty("stateBindingSessionId");
+      expect(invocation.serializationKey).toBe(child.sessionId);
       const ordinarySubmission = await executeSparkDaemonSessionControl(
         { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
         {
@@ -845,7 +845,7 @@ describe("daemon session control admission", () => {
       const ordinaryInvocation = new SparkInvocationStore(db).require(
         ordinarySubmission.invocationId!,
       );
-      expect(ordinaryInvocation.task).not.toHaveProperty("stateBindingSessionId");
+      expect(ordinaryInvocation.serializationKey).toBe(ordinary.sessionId);
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });

@@ -896,7 +896,6 @@ const messages = {
           "loop-stop": "Stop loop",
           "repro-status": "Inspect repro",
           "repro-start": "Start repro",
-          "repro-restart": "Restart repro",
           "repro-stop": "Stop repro",
           "open-workflows": "Open runs",
           "inspect-workflow": "Inspect selected run",

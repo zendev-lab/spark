@@ -22,8 +22,6 @@ import {
   type SparkInteractionResponse,
   type SparkMessageView,
   type SparkRunView,
-  type SparkSessionReproLaneItemView,
-  type SparkSessionReproLaneSummaryView,
   type SparkSessionReproWorkView,
   type SparkSessionPromptHistoryEntry,
   type SparkSessionView,
@@ -629,9 +627,6 @@ export class SparkNativeTuiApp implements Component, Focusable {
       ...(this.hub.repro ? { reproId: this.hub.repro.reproId } : {}),
       reproProjectionStatus: this.hub.reproProjectionStatus,
       selectedReproLane: this.hub.selectedReproLane,
-      ...(this.hub.selectedReproWorkItemId
-        ? { selectedReproWorkItemId: this.hub.selectedReproWorkItemId }
-        : {}),
       reproDetailExpanded: this.hub.reproDetailExpanded,
       workflows: this.hub.workflows.size,
       workflowRuns: [...this.hub.runs.values()].filter((run) => run.kind === "workflow").length,
@@ -651,7 +646,6 @@ export class SparkNativeTuiApp implements Component, Focusable {
     if (state.activeHubPanel === "runs" || state.activeHubPanel === "workflows") {
       this.ensureWorkflowRunSelection();
     }
-    if (state.activeHubPanel === "repro") this.ensureReproWorkItemSelection();
     this.invalidate();
     this.tui.requestRender();
     return state.activeHubPanel !== undefined;
@@ -662,7 +656,6 @@ export class SparkNativeTuiApp implements Component, Focusable {
       this.controller.dispatch({ type: "hub.cycle", panels: this.availableHubPanels() })
         .activeHubPanel ?? "overview";
     if (next === "runs" || next === "workflows") this.ensureWorkflowRunSelection();
-    if (next === "repro") this.ensureReproWorkItemSelection();
     this.invalidate();
     this.tui.requestRender();
     return next;
@@ -733,20 +726,10 @@ export class SparkNativeTuiApp implements Component, Focusable {
       );
       return true;
     }
-    if (matchesKey(data, Key.up) || data === "k") {
-      this.moveReproWorkItemSelection(-1);
-      return true;
-    }
-    if (matchesKey(data, Key.down) || data === "j") {
-      this.moveReproWorkItemSelection(1);
-      return true;
-    }
     if (matchesKey(data, Key.enter)) {
-      if (this.selectedReproWorkItem()) {
-        this.hub.reproDetailExpanded = true;
-        this.invalidate();
-        this.tui.requestRender();
-      }
+      this.hub.reproDetailExpanded = true;
+      this.invalidate();
+      this.tui.requestRender();
       return true;
     }
     return false;
@@ -764,21 +747,6 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   private selectReproLane(lane: SparkNativeHubState["selectedReproLane"]): void {
     this.hub.selectedReproLane = lane;
-    this.hub.selectedReproWorkItemId = this.selectedReproLaneSummary()?.items[0]?.workItemId;
-    this.hub.reproDetailExpanded = false;
-    this.invalidate();
-    this.tui.requestRender();
-  }
-
-  private moveReproWorkItemSelection(delta: number): void {
-    const items = this.selectedReproLaneSummary()?.items ?? [];
-    if (items.length === 0) return;
-    const current = Math.max(
-      0,
-      items.findIndex((item) => item.workItemId === this.hub.selectedReproWorkItemId),
-    );
-    const next = items[(current + delta + items.length) % items.length];
-    this.hub.selectedReproWorkItemId = next?.workItemId;
     this.hub.reproDetailExpanded = false;
     this.invalidate();
     this.tui.requestRender();
@@ -916,7 +884,6 @@ export class SparkNativeTuiApp implements Component, Focusable {
         return "loop";
       case "repro.status":
       case "repro.start":
-      case "repro.restart":
       case "repro.stop":
         return "repro";
       case "workflow.inspect":
@@ -1002,7 +969,6 @@ export class SparkNativeTuiApp implements Component, Focusable {
         case "loop.stop":
         case "repro.status":
         case "repro.start":
-        case "repro.restart":
         case "repro.stop": {
           const [command, operation] = action.intent.split(".", 2) as [string, string];
           await this.invokeRegisteredSlashCommand(command, operation, operation === "status");
@@ -1443,26 +1409,13 @@ export class SparkNativeTuiApp implements Component, Focusable {
     }
     const changedRepro = !sameSession || current?.reproId !== incoming.reproId;
     this.hub.repro = incoming;
-    this.hub.reproProjectionStatus = incoming.lanes ? "current" : "unavailable";
+    this.hub.reproProjectionStatus = "current";
     if (changedRepro) this.resetReproPresentation();
-    this.ensureReproWorkItemSelection();
   }
 
   private resetReproPresentation(): void {
     this.hub.selectedReproLane = "implementation";
-    this.hub.selectedReproWorkItemId = undefined;
     this.hub.reproDetailExpanded = false;
-  }
-
-  private ensureReproWorkItemSelection(): void {
-    const items = this.selectedReproLaneSummary()?.items ?? [];
-    if (
-      !this.hub.selectedReproWorkItemId ||
-      !items.some((item) => item.workItemId === this.hub.selectedReproWorkItemId)
-    ) {
-      this.hub.selectedReproWorkItemId = items[0]?.workItemId;
-      this.hub.reproDetailExpanded = false;
-    }
   }
 
   private recordRunView(run: SparkRunView): void {
@@ -1774,26 +1727,16 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private renderReproSummary(width: number): string[] {
     const repro = this.hub.repro;
     if (!repro) return [];
-    if (!repro.lanes) {
-      return [
-        truncateToWidth(
-          this.renderTheme.fg("warning", `Repro ${repro.reproId} · lanes unavailable`),
-          width,
-        ),
-      ];
-    }
-    const lane = (label: string, summary: SparkSessionReproLaneSummaryView) =>
-      `${label}${summary.totalCount}` +
-      (summary.blockedCount > 0 ? ` !${summary.blockedCount}` : "") +
-      (summary.pendingHandoffCount > 0 ? ` H${summary.pendingHandoffCount}` : "") +
-      (summary.resolutionCount > 0 ? ` R${summary.resolutionCount}` : "");
     const projection = this.hub.reproProjectionStatus === "stale" ? " · stale ignored" : "";
-    const tip = repro.lanes.formalizedTip ? ` · tip ${repro.lanes.formalizedTip}` : "";
+    const checkpoint = repro.checkpoint
+      ? ` · ${repro.checkpoint.kind}:${repro.checkpoint.status}`
+      : "";
+    const revision = repro.formalizedRevision ? ` · revision ${repro.formalizedRevision}` : "";
     return [
       truncateToWidth(
         this.renderTheme.fg(
           "muted",
-          `Repro · ${lane("I", repro.lanes.implementation)} · ${lane("E", repro.lanes.exactness)} · ${lane("F", repro.lanes.formalize)}${tip}${projection}`,
+          `Repro · ${repro.status} · ${repro.progress.accepted}/${repro.progress.total} checkpoints${checkpoint}${revision}${projection}`,
         ),
         width,
       ),
@@ -2156,18 +2099,16 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private renderReproHub(): string[] {
     const lines = [
       "◆ Session inspector: repro",
-      "│  Keys: 1/2/3 lane · ↑/↓ or j/k work item · Enter details · Esc details/panel",
+      "│  Keys: 1/2/3 lane · Enter details · Esc details/panel",
     ];
     const repro = this.hub.repro;
     if (!repro) {
       lines.push("└─ No active Repro projection is available from the daemon.");
       return lines;
     }
-    lines.push(`│  ${repro.reproId} [${repro.status}] · plan r${repro.plan.revision}`);
-    if (!repro.lanes) {
-      lines.push("└─ Three-lane projection is unavailable for this Session snapshot.");
-      return lines;
-    }
+    lines.push(
+      `│  ${repro.reproId} [${repro.status}] · checkpoints ${repro.progress.accepted}/${repro.progress.total}`,
+    );
     if (this.hub.reproProjectionStatus === "stale") {
       lines.push("│  Stale Repro projection ignored; showing the newest daemon snapshot.");
     }
@@ -2176,83 +2117,34 @@ export class SparkNativeTuiApp implements Component, Focusable {
       ["exactness", "2 Exactness", repro.lanes.exactness],
       ["formalize", "3 Formalize", repro.lanes.formalize],
     ] as const;
-    for (const [lane, label, summary] of lanes) {
+    for (const [lane, label, binding] of lanes) {
       const marker = lane === this.hub.selectedReproLane ? "▸" : "├";
+      const checkpoint = repro.checkpoint?.lane === lane ? repro.checkpoint : undefined;
       lines.push(
-        `${marker}─ ${label} [${summary.status}] total=${summary.totalCount} open=${summary.openCount} blocked=${summary.blockedCount} handoff=${summary.pendingHandoffCount} resolution=${summary.resolutionCount}`,
+        `${marker}─ ${label} [${checkpoint?.status ?? "idle"}] session=${binding.sessionId} task=${binding.taskRef}`,
       );
     }
-    if (repro.lanes.formalizedTip) {
-      lines.push(`│  Formalized tip: ${repro.lanes.formalizedTip}`);
-    }
-
-    const selectedLane = this.selectedReproLaneSummary();
-    const selectedLaneLabel = reproLaneTitle(this.hub.selectedReproLane);
-    if (!selectedLane || selectedLane.items.length === 0) {
-      lines.push(`└─ ${selectedLaneLabel} has no projected work items.`);
-      return lines;
-    }
-    const selectedItem = this.selectedReproWorkItem();
-    const visibleItems =
-      this.hub.reproDetailExpanded && selectedItem ? [selectedItem] : selectedLane.items;
-    for (const item of visibleItems) {
-      const marker = item.workItemId === this.hub.selectedReproWorkItemId ? "▸" : "├";
-      const refs = [item.taskRef, item.runRef, item.gitChangeRef].filter(Boolean).length;
-      lines.push(
-        `${marker}─ ${item.workItemId} [${item.status}] refs=${refs} evidence=${item.evidenceRefs.length} H${item.handoffCount}/R${item.resolutionCount} ${item.title}`,
-      );
+    if (repro.formalizedRevision) {
+      lines.push(`│  Formalized revision: ${repro.formalizedRevision}`);
     }
     if (this.hub.reproDetailExpanded) {
-      if (selectedItem) lines.push(...this.renderReproWorkItemDetails(selectedItem));
+      const binding = repro.lanes[this.hub.selectedReproLane];
+      lines.push("│  Selected lane details:");
+      lines.push(`│  Role ${binding.roleRef}`);
+      const checkpoint =
+        repro.checkpoint?.lane === this.hub.selectedReproLane ? repro.checkpoint : undefined;
+      if (checkpoint) {
+        lines.push(
+          `│  Checkpoint ${checkpoint.checkpointId} [${checkpoint.status}] attempt=${checkpoint.attempt}`,
+        );
+        if (checkpoint.runRef) lines.push(`│  TaskRun ${checkpoint.runRef}`);
+        if (checkpoint.summary) lines.push(`│  ${checkpoint.summary}`);
+        for (const evidenceRef of checkpoint.evidenceRefs) lines.push(`│  Evidence ${evidenceRef}`);
+        if (checkpoint.attention) lines.push(`│  Attention: ${checkpoint.attention.question}`);
+      } else {
+        lines.push("│  No current checkpoint is assigned to this lane.");
+      }
     }
-    return lines;
-  }
-
-  private selectedReproLaneSummary(): SparkSessionReproLaneSummaryView | undefined {
-    return this.hub.repro?.lanes?.[this.hub.selectedReproLane];
-  }
-
-  private selectedReproWorkItem(): SparkSessionReproLaneItemView | undefined {
-    return this.selectedReproLaneSummary()?.items.find(
-      (item) => item.workItemId === this.hub.selectedReproWorkItemId,
-    );
-  }
-
-  private renderReproWorkItemDetails(item: SparkSessionReproLaneItemView): string[] {
-    const lines = ["│  Details from existing owner projections:"];
-    if (item.taskRef) {
-      const task = this.hub.tasks.get(item.taskRef);
-      lines.push(
-        task
-          ? `│  Task ${task.ref} [${task.status}] ${task.title}`
-          : `│  Task ${item.taskRef}: projection unavailable`,
-      );
-    }
-    if (item.runRef) {
-      const run = this.hub.runs.get(item.runRef);
-      lines.push(
-        run
-          ? `│  Run ${run.id} [${run.status}] ${run.title ?? run.summary ?? ""}`.trimEnd()
-          : `│  Run ${item.runRef}: projection unavailable`,
-      );
-    }
-    if (item.gitChangeRef) {
-      const artifact = this.hub.artifacts.get(item.gitChangeRef);
-      lines.push(
-        artifact
-          ? `│  GitChange ${artifact.ref} [${artifact.status ?? "recorded"}] ${artifact.title}`
-          : `│  GitChange ${item.gitChangeRef}: projection unavailable`,
-      );
-    }
-    for (const evidenceRef of item.evidenceRefs) {
-      const evidence = this.hub.evidence.get(evidenceRef);
-      lines.push(
-        evidence
-          ? `│  Evidence ${evidence.ref} [${evidence.status ?? "recorded"}] ${evidence.title}`
-          : `│  Evidence ${evidenceRef}: projection unavailable`,
-      );
-    }
-    if (lines.length === 1) lines.push("│  No associated Task, Run, GitChange, or Evidence refs.");
     return lines;
   }
 
@@ -2821,7 +2713,6 @@ export class SparkNativeTuiApp implements Component, Focusable {
   openHubPanel(panel: SparkNativeHubPanel): string | false {
     this.controller.dispatch({ type: "hub.open", panel });
     if (panel === "runs" || panel === "workflows") this.ensureWorkflowRunSelection();
-    if (panel === "repro") this.ensureReproWorkItemSelection();
     this.invalidate();
     this.tui.requestRender();
     return false;
@@ -2912,17 +2803,6 @@ function taskStatusRank(status: SparkTaskView["status"]): number {
       return 5;
     case "cancelled":
       return 6;
-  }
-}
-
-function reproLaneTitle(lane: SparkNativeHubState["selectedReproLane"]): string {
-  switch (lane) {
-    case "implementation":
-      return "Implementation";
-    case "exactness":
-      return "Exactness";
-    case "formalize":
-      return "Formalize";
   }
 }
 

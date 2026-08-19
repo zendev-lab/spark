@@ -13,12 +13,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./lane-result": "./src/lane-result.ts",
-    "./three-lane": "./src/three-lane.ts",
-    "./three-lane-projection": "./src/three-lane-projection.ts",
-    "./three-lane-work-summary": "./src/three-lane-work-summary.ts",
-    "./work-summary": "./src/work-summary.ts",
-    "./workbench": "./src/workbench.ts"
+    "./v10": "./src/v10.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",

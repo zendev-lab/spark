@@ -65,7 +65,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "invocation.retention.apply",
   ],
   usage: ["usage.summary"],
-  repro: ["repro.formal-evidence.record"],
+  repro: ["repro.start", "repro.status", "repro.stop"],
   loop: ["loop.start", "loop.status", "loop.stop", "loop.restart", "loop.wake", "loop.schedule"],
   delegation: ["delegation.execute"],
   uplink: ["uplink.park", "uplink.unpark", "uplink.prefer", "uplink.status"],

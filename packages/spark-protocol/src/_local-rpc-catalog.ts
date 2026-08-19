@@ -119,14 +119,15 @@ import {
 } from "./task-claim.ts";
 import {
   sparkTokenUsageAggregateSchema,
-  sparkTokenUsageByPersistenceSchema,
-  sparkTokenUsagePersistenceRequestSchema,
   sparkTokenUsageSummaryRequestSchema,
 } from "./token-usage.ts";
 import {
-  sparkReproFormalEvidenceRecordRequestSchema,
-  sparkReproFormalEvidenceRecordResultSchema,
-} from "./repro-formal-evidence.ts";
+  sparkReproMutationResultSchema,
+  sparkReproStartRequestSchema,
+  sparkReproStatusRequestSchema,
+  sparkReproStatusResultSchema,
+  sparkReproStopRequestSchema,
+} from "./repro.ts";
 import { sparkSessionPromptHistorySchema, sparkSessionViewSchema } from "./protocol.ts";
 import { SPARK_PROTOCOL_VERSION } from "./version.ts";
 import {
@@ -274,10 +275,6 @@ export const sparkLocalRpcLoopOrpcErrors = {
   loop_not_found: { status: 404 },
   loop_schedule_invalid: { status: 422 },
   loop_generation_conflict: { status: 409 },
-  workbench_binding_not_found: { status: 404 },
-  workbench_action_stale: { status: 409 },
-  workbench_action_untrusted: { status: 403 },
-  workbench_action_conflict: { status: 409 },
 } as const satisfies Record<SparkLoopRpcErrorCode, SparkLocalRpcErrorSpec>;
 
 export const sparkLocalRpcInvocationOrpcErrors = {
@@ -1464,9 +1461,17 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkTokenUsageSummaryRequestSchema,
     output: sparkTokenUsageAggregateSchema,
   },
-  "repro.formal-evidence.record": {
-    input: sparkReproFormalEvidenceRecordRequestSchema,
-    output: sparkReproFormalEvidenceRecordResultSchema,
+  "repro.start": {
+    input: sparkReproStartRequestSchema,
+    output: sparkReproMutationResultSchema,
+  },
+  "repro.status": {
+    input: sparkReproStatusRequestSchema,
+    output: sparkReproStatusResultSchema,
+  },
+  "repro.stop": {
+    input: sparkReproStopRequestSchema,
+    output: sparkReproMutationResultSchema,
   },
   "loop.start": { input: sparkLoopStartRequestSchema, output: sparkLoopMutationResultSchema },
   "loop.status": { input: sparkLoopStatusRequestSchema, output: sparkLoopListResultSchema },
@@ -1866,14 +1871,9 @@ export const sparkLocalRpcOrpcContract = {
     summary: procedure("GET", "/usage/summary", p["usage.summary"], sparkLocalRpcNoOrpcErrors),
   },
   repro: {
-    formalEvidence: {
-      record: procedure(
-        "POST",
-        "/repro/formal-evidence/record",
-        p["repro.formal-evidence.record"],
-        sparkLocalRpcReadinessOrpcErrors,
-      ),
-    },
+    start: procedure("POST", "/repro/start", p["repro.start"], sparkLocalRpcReadinessOrpcErrors),
+    status: procedure("GET", "/repro/status", p["repro.status"], sparkLocalRpcReadinessOrpcErrors),
+    stop: procedure("POST", "/repro/stop", p["repro.stop"], sparkLocalRpcReadinessOrpcErrors),
   },
   loop: {
     start: procedure(

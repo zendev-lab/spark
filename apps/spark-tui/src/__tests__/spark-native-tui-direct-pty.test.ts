@@ -111,16 +111,17 @@ test("direct PTY renders and navigates the daemon-projected Repro inspector", as
   });
   try {
     await harness.waitForReport((report) => report.event === "ready");
-    await harness.waitForOutput("Repro · I2 !1 H1 · E2 H1 R1 · F1 R1");
+    await harness.waitForOutput("Repro · active · 1/5 checkpoints · exactness:running");
 
     harness.write("/inspect repro\r");
     await harness.waitForOutput("Session inspector: repro");
     harness.write("2");
-    await harness.waitForOutput("▸─ 2 Exactness [active]");
-    harness.write("j");
-    await harness.waitForOutput("▸─ work:exactness-resync [open]");
-    harness.write("k\r");
-    await harness.waitForOutput("Run run:exactness [running] Verify RMSNorm boundary");
+    await harness.waitForOutput(
+      "▸─ 2 Exactness [running] session=session:repro-exactness task=task:exactness",
+    );
+    harness.write("\r");
+    await harness.waitForOutput("Checkpoint checkpoint:exactness [running] attempt=1");
+    await harness.waitForOutput("TaskRun run:exactness");
 
     harness.write(ESC);
     await new Promise((resolve) => setTimeout(resolve, 50));

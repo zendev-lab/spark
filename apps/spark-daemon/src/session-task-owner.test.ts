@@ -64,6 +64,32 @@ describe("Task Session origin validity", () => {
       }),
     ).resolves.toBe(false);
   });
+
+  it("keeps an owner-terminal revision Session until its owner closes it", async () => {
+    const run = taskRun({ sessionLifetime: "task_revision", status: "succeeded" });
+    const subject = {
+      origin: {
+        kind: "task_revision",
+        projectRef: run.projectRef,
+        taskRef: run.taskRef,
+        revisionRef: run.execution!.jobId,
+        originatingRunRef: run.ref,
+        sessionGoalId: run.execution!.sessionGoalId,
+        roleRef: "role:executor",
+        jobId: run.execution!.jobId,
+        attempt: 1,
+      } as const,
+      workspaceId: "ws-test",
+      sessionId: run.execution!.sessionId!,
+    };
+
+    await expect(
+      isTaskSessionOwnerValid(subject, {
+        resolveWorkspaceCwd: () => "/workspace",
+        loadGraph: async () => graph(run, "done", "owner_terminal"),
+      }),
+    ).resolves.toBe(true);
+  });
 });
 
 function taskRun(
@@ -87,9 +113,16 @@ function taskRun(
   };
 }
 
-function graph(run: TaskRun, taskStatus: Task["status"] = "running") {
+function graph(
+  run: TaskRun,
+  taskStatus: Task["status"] = "running",
+  sessionRetention?: "task_terminal" | "owner_terminal",
+) {
   return {
     runs: () => [run],
-    getTask: () => ({ status: taskStatus }),
+    getTask: () => ({
+      status: taskStatus,
+      ...(sessionRetention ? { executionPolicy: { sessionRetention } } : {}),
+    }),
   };
 }

@@ -3,7 +3,10 @@ import type { TaskRun } from "@zendev-lab/spark-core";
 import { defaultTaskGraphStore, isUnfinishedTaskStatus } from "@zendev-lab/spark-tasks";
 
 interface TaskOwnerGraph {
-  getTask(ref: string): { status: Parameters<typeof isUnfinishedTaskStatus>[0] };
+  getTask(ref: string): {
+    status: Parameters<typeof isUnfinishedTaskStatus>[0];
+    executionPolicy?: { sessionRetention?: "task_terminal" | "owner_terminal" };
+  };
   runs(projectRef?: string): TaskRun[];
 }
 
@@ -43,9 +46,11 @@ export async function isTaskSessionOwnerValid(
     return run.status === "queued" || run.status === "running";
   }
   try {
+    const task = graph.getTask(run.taskRef);
     return (
       run.execution?.sessionLifetime === "task_revision" &&
-      isUnfinishedTaskStatus(graph.getTask(run.taskRef).status)
+      (task.executionPolicy?.sessionRetention === "owner_terminal" ||
+        isUnfinishedTaskStatus(task.status))
     );
   } catch {
     return false;

@@ -135,37 +135,11 @@ test("spark-workflows lists and reads builtin workflows without frontmatter mode
   assert.deepEqual(listing.errors, []);
   assert.deepEqual(
     listing.workflows.map((workflow) => workflow.selector),
-    [
-      "builtin:research",
-      "builtin:review",
-      "builtin:repro",
-      "builtin:repro-stage-orchestrate",
-      "builtin:repro-module-sweep",
-      "builtin:repro-first-divergence",
-      "builtin:repro-change-loop",
-      "builtin:repro-long-horizon",
-      "builtin:repro-axis-qualify",
-      "builtin:repro-topology-compose",
-      "builtin:repro-evidence-review",
-      "builtin:repro-delivery-sync",
-    ],
+    ["builtin:research", "builtin:review"],
   );
   assert.deepEqual(
     listing.workflows.map((workflow) => workflow.phase),
-    [
-      "plan",
-      "plan",
-      "implement",
-      "implement",
-      "implement",
-      "implement",
-      "implement",
-      "implement",
-      "implement",
-      "implement",
-      "plan",
-      "implement",
-    ],
+    ["plan", "plan"],
   );
 
   const { descriptor, script } = await readSavedWorkflow({
@@ -218,66 +192,6 @@ test("spark-workflows rejects legacy top-level saved workflow scripts during dis
       listing.errors[0]?.error ?? "",
       /legacy top-level workflow script under_score\.js is rejected/u,
     );
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("WORKFLOW.md v2 extends builtin:repro additively and hashes handler content", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-workflow-v2-repro-"));
-  const root = join(dir, "workflows");
-  const workflowDir = join(root, "strict-repro");
-  try {
-    await mkdir(workflowDir, { recursive: true });
-    await writeFile(
-      join(workflowDir, "WORKFLOW.md"),
-      `---
-id: strict-repro
-title: Strict Repro
-extends: builtin:repro
-skills: [numerical-review]
-roles: [role:reviewer]
-stages:
-  - id: independent-review
-    handler: review.js
-loop:
-  beforeTick:
-    - id: workspace-ready
-      when:
-        kind: expression
-        expression: { op: literal, value: true }
-      then: { action: proceed }
----
-Add an independent numerical review without weakening Repro gates.
-`,
-      "utf8",
-    );
-    await writeFile(join(workflowDir, "review.js"), "return { reviewed: true }\n", "utf8");
-
-    const first = await resolveWorkflowDefinition({
-      cwd: dir,
-      selector: "workspace:strict-repro",
-      includeUser: false,
-      workspaceWorkflowDir: root,
-    });
-    assert.deepEqual(
-      first.stages.map((stage) => stage.id),
-      ["contract", "reference", "target", "alignment", "delivery", "independent-review"],
-    );
-    assert.equal(first.loop.completion?.selector, "builtin:repro-reviewer");
-    assert.equal(first.loop.beforeTick[0]?.id, "repro-pending-decision");
-    assert.equal(first.loop.beforeTick[1]?.id, "workspace-ready");
-    assert.equal(first.workbench, "live");
-    assert.match(first.script, /reviewed: true/u);
-
-    await writeFile(join(workflowDir, "review.js"), "return { reviewed: 'again' }\n", "utf8");
-    const changed = await resolveWorkflowDefinition({
-      cwd: dir,
-      selector: "workspace:strict-repro",
-      includeUser: false,
-      workspaceWorkflowDir: root,
-    });
-    assert.notEqual(changed.digest, first.digest);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -358,7 +272,7 @@ return { scoped, verified: true }
   }
 });
 
-test("WORKFLOW.md v2 fails closed on unknown fields and weakened Repro policy", async () => {
+test("WORKFLOW.md v2 fails closed on unknown fields", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-workflow-v2-invalid-"));
   const root = join(dir, "workflows");
   try {
@@ -375,28 +289,6 @@ test("WORKFLOW.md v2 fails closed on unknown fields and weakened Repro policy", 
           workspaceWorkflowDir: root,
         }),
       /unknown fields: command/u,
-    );
-
-    await mkdir(join(root, "weak-repro"), { recursive: true });
-    await writeFile(
-      join(root, "weak-repro", "WORKFLOW.md"),
-      `---
-id: weak-repro
-title: Weak Repro
-extends: builtin:repro
-workbench: checkpoint
----
-Attempt to weaken the live workbench.
-`,
-    );
-    await assert.rejects(
-      () =>
-        resolveWorkflowDefinition({
-          cwd: dir,
-          selector: "workspace:weak-repro",
-          workspaceWorkflowDir: root,
-        }),
-      /cannot weaken builtin:repro workbench policy/u,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });

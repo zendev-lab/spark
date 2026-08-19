@@ -22,51 +22,6 @@ export const sparkA2uiClientActionSchema = z.object({
   }),
 });
 
-export const sparkWorkbenchActionIdSchema = z.enum([
-  "pause",
-  "resume",
-  "run_now",
-  "retry_checkpoint",
-  "stop",
-]);
-
-/**
- * Spark's closed Workbench action vocabulary carried inside the official
- * A2UI v0.9 action envelope. This is a control request, never a generic
- * action-to-tool bridge.
- */
-export const sparkWorkbenchActionRequestSchema = z
-  .object({
-    version: sparkA2uiVersionSchema,
-    action: z.object({
-      name: z.literal("spark.loop.control"),
-      surfaceId: z.string().min(1),
-      sourceComponentId: z.string().min(1),
-      timestamp: isoDateTimeSchema,
-      context: z.object({
-        actionId: sparkWorkbenchActionIdSchema,
-        artifactRef: z
-          .string()
-          .regex(/^artifact:.+/u)
-          .transform((value) => value as `artifact:${string}`),
-        revision: z.number().int().positive(),
-        loopId: z.string().min(1),
-        generation: z.number().int().positive(),
-        idempotencyKey: z.string().min(1).max(256),
-        confirm: z.literal(true).optional(),
-      }),
-    }),
-  })
-  .superRefine((request, context) => {
-    if (request.action.context.actionId === "stop" && request.action.context.confirm !== true) {
-      context.addIssue({
-        code: "custom",
-        path: ["action", "context", "confirm"],
-        message: "stop requires explicit confirmation",
-      });
-    }
-  });
-
 export interface SparkA2uiComponent {
   id: string;
   component: string;
@@ -324,5 +279,3 @@ function isUnsafeObjectKey(value: string): boolean {
 }
 
 export type SparkA2uiClientAction = z.infer<typeof sparkA2uiClientActionSchema>;
-export type SparkWorkbenchActionId = z.infer<typeof sparkWorkbenchActionIdSchema>;
-export type SparkWorkbenchActionRequest = z.infer<typeof sparkWorkbenchActionRequestSchema>;

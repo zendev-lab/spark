@@ -20,7 +20,7 @@ import {
   requireSessionRegistry,
 } from "../../session-control.ts";
 import { SparkLoopStore } from "../../store/loops.ts";
-import { WorkbenchArtifactBindingStore } from "../../store/workbench-artifact-bindings.ts";
+import { SparkReproV10Store } from "../../store/repro-v10.ts";
 import { SparkTokenUsageStore } from "../../store/token-usage.ts";
 import { type SparkInvocationRecord, SparkInvocationStore } from "../../store/invocations.ts";
 import {
@@ -167,30 +167,25 @@ export async function handleSessionRequest(
           error: loop.error,
         }));
       const tokenUsageStore = new SparkTokenUsageStore(db);
-      const workbenchBindings = new WorkbenchArtifactBindingStore(db);
+      const reproStore = new SparkReproV10Store(db);
       const work = await projectSparkSessionWork({
+        db,
         cwd: snapshot.cwd,
         sessionId: request.params.sessionId,
         loops,
         tokenUsage: (scope) => tokenUsageStore.summarize({ scope }),
         tokenUsageByPersistence: (scope) => tokenUsageStore.summarizeByPersistence({ scope }),
         workbench: (reproId) => {
-          const binding = workbenchBindings
-            .list()
-            .find(
-              (candidate) =>
-                candidate.ownerSessionId === request.params.sessionId &&
-                candidate.reproId === reproId &&
-                candidate.revision > 0 &&
-                (candidate.lifecycle === "live" || candidate.lifecycle === "sealed"),
-            );
-          return binding
+          const projection = reproStore.projection(reproId);
+          const state = reproStore.get(reproId);
+          return projection && projection.stateUpdatedAt === state?.updatedAt
             ? {
-                artifactRef: binding.artifactRef,
-                revision: binding.revision,
-                lifecycle: binding.lifecycle === "live" ? "live" : "sealed",
-                loopId: binding.loopId,
-                generation: binding.generation,
+                artifactRef: projection.workbenchArtifactRef,
+                revision: projection.workbenchRevision,
+                lifecycle:
+                  state && ["complete", "stopped", "blocked"].includes(state.status)
+                    ? "sealed"
+                    : "live",
               }
             : undefined;
         },

@@ -228,10 +228,20 @@ const invocationLoopInvokers = {
       sparkLocalRpcProcedureSchemas["usage.summary"].output,
       client.usage.summary(input, options),
     ),
-  "repro.formal-evidence.record": (client, input, options) =>
+  "repro.start": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["repro.formal-evidence.record"].output,
-      client.repro.formalEvidence.record(input, options),
+      sparkLocalRpcProcedureSchemas["repro.start"].output,
+      client.repro.start(input, options),
+    ),
+  "repro.status": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["repro.status"].output,
+      client.repro.status(input, options),
+    ),
+  "repro.stop": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["repro.stop"].output,
+      client.repro.stop(input, options),
     ),
   "loop.start": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
@@ -270,7 +280,9 @@ const invocationLoopInvokers = {
   | "invocation.retention.preview"
   | "invocation.retention.apply"
   | "usage.summary"
-  | "repro.formal-evidence.record"
+  | "repro.start"
+  | "repro.status"
+  | "repro.stop"
   | "loop.start"
   | "loop.status"
   | "loop.stop"

@@ -1166,7 +1166,6 @@ export const hubMessageKeySnapshot = [
   "sessions.workbench.slashActions.actions.loop-status",
   "sessions.workbench.slashActions.actions.loop-stop",
   "sessions.workbench.slashActions.actions.open-workflows",
-  "sessions.workbench.slashActions.actions.repro-restart",
   "sessions.workbench.slashActions.actions.repro-start",
   "sessions.workbench.slashActions.actions.repro-status",
   "sessions.workbench.slashActions.actions.repro-stop",

@@ -11,7 +11,6 @@ import {
 import type { SparkModeMessageApi } from "./spark-mode-entry.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { loadSessionLoop } from "./spark-session-loops.ts";
-import { readSessionRepro } from "./spark-session-repro.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 import { resolveSessionClaimedTask, sparkTaskClaimSessionKey } from "./task-claim-selection.ts";
 
@@ -126,19 +125,21 @@ async function collectImplementReconciliation(
 }
 
 async function hasActiveForegroundDrive(ctx: SparkToolContext): Promise<boolean> {
-  const [goal, loop, repro] = await Promise.all([
+  const [goal, loop] = await Promise.all([
     loadSessionGoal(ctx.cwd, ctx),
     loadSessionLoop(ctx.cwd, ctx),
-    readSessionRepro(ctx.cwd, ctx),
   ]);
-  return goal?.status === "active" || loop?.status === "active" || repro?.status === "active";
+  return goal?.status === "active" || loop?.status === "active";
 }
 
 async function loadImplementFrontier(ctx: SparkToolContext) {
   const graph = await loadSparkGraph(ctx.cwd, ctx);
   if (!graph) return undefined;
   const project = await currentSparkProject(ctx.cwd, ctx, graph);
-  if (!project) return undefined;
+  // Repro v10 checkpoints are advanced exclusively by the daemon owner after
+  // it accepts the terminal TaskRun envelope. The generic execute-mode hook
+  // must not scan sibling lane Tasks or continue them in this Session.
+  if (!project || project.kind === "repro") return undefined;
   const claimed = resolveSessionClaimedTask(graph, project.ref, sparkTaskClaimSessionKey(ctx));
   const running = claimed?.status === "running" ? claimed : undefined;
   const ready = graph.readyTasks(project.ref);

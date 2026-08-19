@@ -64,7 +64,41 @@ test("native TUI projection signature tracks pending turns, messages, and work s
     projectionView({
       work: {
         repro: {
-          stage: { index: 2, phase: "implement" },
+          version: 10,
+          reproId: "repro:test",
+          status: "active",
+          objective: "Reproduce the target",
+          workItemId: "work:test",
+          lanes: {
+            implementation: {
+              sessionId: "session:implementation",
+              taskRef: "task:implementation",
+              roleRef: "role:implementation",
+            },
+            exactness: {
+              sessionId: "session:exactness",
+              taskRef: "task:exactness",
+              roleRef: "role:exactness",
+            },
+            formalize: {
+              sessionId: "session:formalize",
+              taskRef: "task:formalize",
+              roleRef: "role:formalize",
+            },
+          },
+          checkpoint: {
+            checkpointId: "checkpoint:exactness",
+            kind: "exactness",
+            lane: "exactness",
+            status: "running",
+            sessionId: "session:exactness",
+            taskRef: "task:exactness",
+            runRef: "run:exactness",
+            attempt: 1,
+            evidenceRefs: [],
+          },
+          progress: { accepted: 1, total: 5 },
+          updatedAt: "2026-08-17T00:00:03.000Z",
         },
       },
     }),

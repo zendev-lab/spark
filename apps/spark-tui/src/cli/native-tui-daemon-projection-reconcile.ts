@@ -21,7 +21,9 @@ export function nativeTuiDaemonProjectionSignature(snapshot: SparkSessionView): 
     pending,
     lastMessage?.id ?? "",
     lastMessage?.updatedAt ?? "",
-    repro ? `${repro.stage.index}:${repro.stage.phase}` : "",
+    repro
+      ? `${repro.status}:${repro.checkpoint?.checkpointId ?? "terminal"}:${repro.checkpoint?.status ?? ""}:${repro.progress.accepted}`
+      : "",
     goal ? `${goal.goalId}:${goal.status}` : "",
     loops,
   ].join("|");

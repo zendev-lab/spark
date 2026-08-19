@@ -115,6 +115,41 @@ export class TaskGraph {
     return project;
   }
 
+  /**
+   * Owner-only idempotent materialization for crash-recoverable topology.
+   * A reused ref with different content fails closed instead of silently
+   * attaching a durable execution to another logical project.
+   */
+  ensureProject(ref: ProjectRef, input: CreateProjectInput): Project {
+    const existing = this.#projects.get(ref);
+    if (existing) {
+      if (
+        existing.title !== input.title ||
+        existing.description !== input.description ||
+        existing.kind !== (input.kind?.trim() || "generic")
+      ) {
+        throw new Error(`project ref ${ref} is already bound to different content`);
+      }
+      return existing;
+    }
+    if (!input.title.trim()) throw new Error("project title is required");
+    const now = nowIso();
+    const project: Project = {
+      ref,
+      title: input.title,
+      description: input.description,
+      purpose: input.purpose?.trim() || undefined,
+      outputLanguage: input.outputLanguage,
+      kind: input.kind?.trim() || "generic",
+      kindState: input.kindState,
+      roadmap: createDefaultProjectRoadmap(input.title, now),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.#projects.set(ref, normalizeProject(project));
+    return this.#projects.get(ref)!;
+  }
+
   createTask(input: CreateTaskInput): Task {
     this.getProject(input.projectRef);
     if (!input.title.trim()) throw new Error("task title is required");
@@ -160,6 +195,59 @@ export class TaskGraph {
     };
     assertTaskWorktreeTargetArtifacts(task.executionPolicy, task.artifactRefs);
     this.#tasks.set(task.ref, task);
+    return task;
+  }
+
+  /** Idempotent counterpart to createTask for daemon-owned recovery. */
+  ensureTask(ref: TaskRef, input: CreateTaskInput): Task {
+    const existing = this.#tasks.get(ref);
+    if (existing) {
+      const requestedRoleRef = normalizeRoleRef(input.roleRef);
+      if (
+        existing.projectRef !== input.projectRef ||
+        existing.title !== input.title ||
+        existing.description !== input.description ||
+        existing.roleRef !== requestedRoleRef
+      ) {
+        throw new Error(`task ref ${ref} is already bound to different content`);
+      }
+      return existing;
+    }
+    this.getProject(input.projectRef);
+    if (!input.title.trim()) throw new Error("task title is required");
+    const now = nowIso();
+    const name = input.name?.trim() || taskNameFromTitle(input.title);
+    assertUniqueTaskName(this.tasks(input.projectRef), name);
+    const supersededBy = normalizeTaskRefs(input.supersededBy);
+    const requestedStatus = input.status ?? (input.kind === "interaction" ? "running" : "ready");
+    const status =
+      supersededBy.length > 0 && requestedStatus !== "done" ? "cancelled" : requestedStatus;
+    const task: Task = {
+      ref,
+      projectRef: input.projectRef,
+      name,
+      title: input.title,
+      description: input.description,
+      kind: input.kind ?? "generic",
+      status,
+      roleRef: normalizeRoleRef(input.roleRef),
+      executionPolicy: normalizeTaskExecutionPolicy(input.executionPolicy, input.kind ?? "generic"),
+      finishedBy: input.finishedBy,
+      cancellation:
+        status === "cancelled"
+          ? (normalizeTaskCancellation(input.cancellation, now) ?? { at: now })
+          : undefined,
+      supersededBy,
+      claim: isUnfinishedTaskStatus(status) ? input.claim : undefined,
+      artifactRefs: normalizeArtifactRefs(input.artifactRefs),
+      inputEvidenceRefs: input.inputEvidenceRefs ?? [],
+      outputEvidenceRefs: [],
+      plan: normalizeTaskPlan(input.plan, input.description, input.title),
+      createdAt: now,
+      updatedAt: now,
+    };
+    assertTaskWorktreeTargetArtifacts(task.executionPolicy, task.artifactRefs);
+    this.#tasks.set(ref, task);
     return task;
   }
 

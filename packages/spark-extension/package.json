@@ -13,10 +13,10 @@
   "type": "module",
   "exports": {
     "./extension": "./src/extension/index.ts",
+    "./repro-roles": "./src/extension/spark-repro-roles.ts",
     "./extension/memory-approval-verifier": "./src/extension/memory-approval-verifier.ts",
     "./host-support": "./src/host-support.ts",
-    "./llm-runtime": "./src/llm-runtime.ts",
-    "./repro-test-support": "./src/repro-test-support.ts"
+    "./llm-runtime": "./src/llm-runtime.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run --config vitest.config.ts",

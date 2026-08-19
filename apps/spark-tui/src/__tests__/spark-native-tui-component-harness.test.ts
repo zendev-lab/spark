@@ -2922,7 +2922,7 @@ test("native TUI renders and navigates the daemon-projected Repro lanes at 80x24
   let rendered = stripAnsi(lines.join("\n"));
   assert.ok(lines.length <= 24);
   assert.ok(lines.every((line) => visibleWidth(line) <= 80));
-  assert.match(rendered, /Repro · I2 !1 H1 · E2 H1 R1 · F1 R1 · tip commit:canonical-rmsnorm/u);
+  assert.match(rendered, /Repro · active · 1\/5 checkpoints · exactness:running/u);
   assert.match(rendered, /latest daemon-projected answer/u);
 
   assert.equal(await keybindings.executeKey("ctrl+k", {}), true);
@@ -2932,47 +2932,25 @@ test("native TUI renders and navigates the daemon-projected Repro lanes at 80x24
   await harness.submit("/inspect repro");
   rendered = stripAnsi(harness.render());
   assert.match(rendered, /Session inspector: repro/u);
-  assert.match(rendered, /▸─ 1 Implementation \[blocked\]/u);
-  assert.match(rendered, /work:implementation-ready \[open\]/u);
+  assert.match(rendered, /▸─ 1 Implementation \[idle\].*session:repro-implementation/u);
 
   await harness.press("2");
-  assert.deepEqual(
-    {
-      lane: harness.app.hubSnapshot().selectedReproLane,
-      item: harness.app.hubSnapshot().selectedReproWorkItemId,
-    },
-    { lane: "exactness", item: "work:exactness-rmsnorm" },
-  );
-  await harness.press("j");
-  assert.equal(harness.app.hubSnapshot().selectedReproWorkItemId, "work:exactness-resync");
-  await harness.press("k");
+  assert.equal(harness.app.hubSnapshot().selectedReproLane, "exactness");
   await harness.press("\r");
   assert.equal(harness.app.hubSnapshot().reproDetailExpanded, true);
-  assert.match(
-    stripAnsi(harness.render()),
-    /Run run:exactness \[running\] Verify RMSNorm boundary/u,
-  );
-  assert.match(
-    stripAnsi(harness.render()),
-    /Evidence evidence:exactness \[accepted\] Exactness comparison/u,
-  );
+  assert.match(stripAnsi(harness.render()), /TaskRun run:exactness/u);
+  assert.match(stripAnsi(harness.render()), /Evidence evidence:exactness/u);
 
   await harness.press("\x1B");
   assert.equal(harness.app.hubSnapshot().reproDetailExpanded, false);
   assert.equal(harness.app.hubSnapshot().activePanel, "repro");
   await harness.press("3");
   await harness.press("\r");
-  assert.match(
-    stripAnsi(harness.render()),
-    /GitChange artifact:formalize-stack \[active\] Canonical Formalize stack/u,
-  );
+  assert.match(stripAnsi(harness.render()), /No current checkpoint is assigned to this lane/u);
   await harness.press("\x1B");
   await harness.press("1");
   await harness.press("\r");
-  assert.match(
-    stripAnsi(harness.render()),
-    /Task task:implementation \[running\] Localize RMSNorm divergence/u,
-  );
+  assert.match(stripAnsi(harness.render()), /Role role:extension-repro-implementation-explorer/u);
   await harness.press("\x1B");
   await harness.press("\x1B");
   assert.equal(harness.app.hubSnapshot().activePanel, undefined);
@@ -2987,7 +2965,7 @@ test("native TUI renders and navigates the daemon-projected Repro lanes at 80x24
   assert.match(rendered, /narrow composer survives/u);
 });
 
-test("native TUI handles empty, stale, and unavailable Repro projections without parsing text", async () => {
+test("native TUI handles terminal, stale, and unavailable Repro projections without parsing text", async () => {
   const harness = createSparkNativeTuiComponentHarness({ cols: 100, rows: 24 });
   const unavailable = sparkNativeReproSessionView();
   delete unavailable.work;
@@ -3013,53 +2991,32 @@ test("native TUI handles empty, stale, and unavailable Repro projections without
     /No active Repro projection is available from the daemon/u,
   );
 
-  const lanesUnavailable = sparkNativeReproSessionView({
-    updatedAt: "2026-08-13T07:30:00.000Z",
-  });
-  if (!lanesUnavailable.work?.repro) throw new Error("missing Repro fixture");
-  delete lanesUnavailable.work.repro.lanes;
-  harness.app.applyViewModelEvent({
-    version: SPARK_PROTOCOL_VERSION,
-    type: "session.snapshot",
-    session: lanesUnavailable,
-  });
-  assert.equal(harness.app.hubSnapshot().reproProjectionStatus, "unavailable");
-  assert.match(
-    stripAnsi(harness.render()),
-    /Three-lane projection is unavailable for this Session snapshot/u,
-  );
-
   const empty = sparkNativeReproSessionView({ updatedAt: "2026-08-13T08:00:00.000Z" });
-  const emptyLanes = empty.work?.repro?.lanes;
-  if (!emptyLanes) throw new Error("missing Repro lane fixture");
-  for (const lane of [emptyLanes.implementation, emptyLanes.exactness, emptyLanes.formalize]) {
-    lane.status = "empty";
-    lane.totalCount = 0;
-    lane.openCount = 0;
-    lane.blockedCount = 0;
-    lane.completedCount = 0;
-    lane.supersededCount = 0;
-    lane.pendingHandoffCount = 0;
-    lane.resolutionCount = 0;
-    lane.items = [];
-  }
-  delete emptyLanes.formalizedTip;
+  if (!empty.work?.repro) throw new Error("missing Repro fixture");
+  empty.work.repro.status = "complete";
+  empty.work.repro.progress = { accepted: 5, total: 5 };
+  delete empty.work.repro.checkpoint;
+  empty.work.repro.formalizedRevision = "revision:canonical";
   harness.app.applyViewModelEvent({
     version: SPARK_PROTOCOL_VERSION,
     type: "session.snapshot",
     session: empty,
   });
-  assert.match(stripAnsi(harness.render()), /Implementation has no projected work items/u);
+  await harness.press("\r");
+  assert.match(stripAnsi(harness.render()), /No current checkpoint is assigned to this lane/u);
+  await harness.press("\x1B");
 
   const current = sparkNativeReproSessionView({ updatedAt: "2026-08-13T09:00:00.000Z" });
+  if (!current.work?.repro) throw new Error("missing current Repro fixture");
+  current.work.repro.formalizedRevision = "revision:canonical";
   harness.app.applyViewModelEvent({
     version: SPARK_PROTOCOL_VERSION,
     type: "session.snapshot",
     session: current,
   });
   const stale = sparkNativeReproSessionView({ updatedAt: "2026-08-13T08:30:00.000Z" });
-  if (!stale.work?.repro?.lanes) throw new Error("missing stale Repro lane fixture");
-  stale.work.repro.lanes.formalizedTip = "commit:stale-projection";
+  if (!stale.work?.repro) throw new Error("missing stale Repro fixture");
+  stale.work.repro.formalizedRevision = "revision:stale-projection";
   harness.app.applyViewModelEvent({
     version: SPARK_PROTOCOL_VERSION,
     type: "session.snapshot",
@@ -3068,8 +3025,8 @@ test("native TUI handles empty, stale, and unavailable Repro projections without
   const snapshot = harness.app.hubSnapshot();
   assert.equal(snapshot.reproProjectionStatus, "stale");
   assert.match(stripAnsi(harness.render()), /Stale Repro projection ignored/u);
-  assert.match(stripAnsi(harness.render()), /commit:canonical-rmsnorm/u);
-  assert.doesNotMatch(stripAnsi(harness.render()), /commit:stale-projection/u);
+  assert.match(stripAnsi(harness.render()), /revision:canonical/u);
+  assert.doesNotMatch(stripAnsi(harness.render()), /revision:stale-projection/u);
 });
 
 test("task updates stay below the composer instead of entering the transcript", () => {

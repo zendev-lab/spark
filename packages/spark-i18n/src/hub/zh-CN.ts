@@ -874,7 +874,6 @@ const messages = {
           "loop-stop": "停止循环",
           "repro-status": "查看复现任务",
           "repro-start": "启动复现",
-          "repro-restart": "重启复现",
           "repro-stop": "停止复现",
           "open-workflows": "打开运行列表",
           "inspect-workflow": "查看选中运行",

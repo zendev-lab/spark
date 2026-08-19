@@ -38,7 +38,6 @@ export interface SparkNativeHubState {
   repro?: SparkSessionReproWorkView;
   reproProjectionStatus: "current" | "stale" | "unavailable";
   selectedReproLane: "implementation" | "exactness" | "formalize";
-  selectedReproWorkItemId?: string;
   reproDetailExpanded: boolean;
   readonly workflows: Map<string, SparkNativeWorkflowOption>;
   readonly runs: Map<string, SparkRunView>;
@@ -68,7 +67,6 @@ export interface SparkNativeHubSnapshot {
   reproId?: string;
   reproProjectionStatus: "current" | "stale" | "unavailable";
   selectedReproLane: "implementation" | "exactness" | "formalize";
-  selectedReproWorkItemId?: string;
   reproDetailExpanded: boolean;
   workflows: number;
   workflowRuns: number;
