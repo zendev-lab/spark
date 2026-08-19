@@ -1,7 +1,7 @@
 /**
  * spark-web-dsh client plugin: provider onboarding for the DSH web profile.
  *
- * Mounted by `spark web` alongside the spark-llm host plugin. It registers an
+ * Mounted by `spark web-dsh` alongside the spark-llm host plugin. It registers an
  * earlier `settings.onboarding` step (`spark-provider-select`, order -50)
  * than the shipped DeepSeek-key dialog (order 0). The step:
  *
@@ -47,6 +47,42 @@ export function installRandomUuidPolyfill(cryptoApi: Crypto | undefined = global
 
 installRandomUuidPolyfill();
 
+const ONBOARDING_LOCALE_NS = "spark.provider-onboarding";
+
+export const providerOnboardingMessages = {
+  zh: {
+    title: "选择 Provider 并配置",
+    description:
+      "选择一个已配置的模型提供商。API Key provider 可直接在这里配置，OAuth provider 请使用登录流程。",
+    empty: "当前没有可配置的 provider。",
+    oauthRequired: "该 provider 使用 OAuth，请通过 Spark 的 OAuth 登录流程配置。",
+    saveFailed: "保存失败",
+    oauthPlaceholder: "OAuth provider，请使用 Spark 登录",
+    apiKeyPlaceholder: "API Key",
+    skip: "跳过",
+    saving: "保存中…",
+    oauthLoginRequired: "需要 OAuth 登录",
+    saveAndStart: "保存并开始",
+  },
+  en: {
+    title: "Choose and configure a provider",
+    description:
+      "Choose a configured model provider. API-key providers can be configured here; use the sign-in flow for OAuth providers.",
+    empty: "No configurable providers are available.",
+    oauthRequired: "This provider uses OAuth. Configure it through Spark's OAuth sign-in flow.",
+    saveFailed: "Failed to save",
+    oauthPlaceholder: "OAuth provider — sign in through Spark",
+    apiKeyPlaceholder: "API Key",
+    skip: "Skip",
+    saving: "Saving…",
+    oauthLoginRequired: "OAuth sign-in required",
+    saveAndStart: "Save and start",
+  },
+} as const;
+
+type OnboardingMessageKey = keyof (typeof providerOnboardingMessages)["en"];
+type Translate = (key: OnboardingMessageKey) => string;
+
 /** Provider routes already wired into the Spark DSH plugin. */
 const BAIDU_ONEAPI_PROVIDER = "baidu-oneapi";
 const KIMI_CODING_PROVIDER = "kimi-coding";
@@ -60,7 +96,7 @@ function deriveKeyRef(provider: string): string {
 }
 
 /** API-key reference for a provider; OAuth-only routes return undefined. */
-function apiKeyRef(provider: string): string | undefined {
+export function providerApiKeyRef(provider: string): string | undefined {
   if (provider === OPENAI_CODEX_PROVIDER) return undefined;
   if (provider === BAIDU_ONEAPI_PROVIDER) return DEFAULT_API_KEY_ENV;
   if (provider === KIMI_CODING_PROVIDER) return KIMI_API_KEY_ENV;
@@ -75,7 +111,7 @@ interface ProviderRow {
   declared: boolean;
 }
 
-function isOAuthProvider(provider: string): boolean {
+export function isOAuthProvider(provider: string): boolean {
   return provider === OPENAI_CODEX_PROVIDER;
 }
 
@@ -98,6 +134,7 @@ interface OnboardingApi {
 interface OnboardingProps {
   complete: () => void;
   api: OnboardingApi;
+  t: Translate;
 }
 
 export function isCredentialsAccessDenied(error: unknown): boolean {
@@ -142,7 +179,7 @@ const rowStyle: Record<string, string> = {
   marginTop: "16px",
 };
 
-function ProviderSelectOnboarding({ complete, api }: OnboardingProps) {
+function ProviderSelectOnboarding({ complete, api, t }: OnboardingProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderRow[]>([]);
@@ -158,7 +195,7 @@ function ProviderSelectOnboarding({ complete, api }: OnboardingProps) {
         const pv = await api.llm.providers({});
         const rows = pv.result.ok ? pv.result.value.providers : [];
         const refs = rows.flatMap((row) => {
-          const ref = apiKeyRef(row.provider);
+          const ref = providerApiKeyRef(row.provider);
           return ref === undefined ? [] : [ref];
         });
         let cv: WireResult<{ credentials: Record<string, unknown> }> | undefined;
@@ -206,15 +243,15 @@ function ProviderSelectOnboarding({ complete, api }: OnboardingProps) {
     setSaving(true);
     setSaveError(null);
     try {
-      const ref = apiKeyRef(selected);
+      const ref = providerApiKeyRef(selected);
       if (ref === undefined) {
-        setSaveError("该 provider 使用 OAuth，请通过 Spark 的 OAuth 登录流程配置。");
+        setSaveError(t("oauthRequired"));
         setSaving(false);
         return;
       }
       const response = await api.credentials.set({ ref, value: key.trim() });
       if (!response.result.ok) {
-        setSaveError(response.result.error?.message ?? "保存失败");
+        setSaveError(response.result.error?.message ?? t("saveFailed"));
       } else {
         complete();
       }
@@ -230,13 +267,12 @@ function ProviderSelectOnboarding({ complete, api }: OnboardingProps) {
   return (
     <div style={modalStyle}>
       <div style={cardStyle}>
-        <h2 style={{ margin: "0 0 4px", fontSize: "18px" }}>选择 Provider 并配置</h2>
+        <h2 style={{ margin: "0 0 4px", fontSize: "18px" }}>{t("title")}</h2>
         <p style={{ margin: "0 0 12px", fontSize: "13px", color: "#666" }}>
-          {error ??
-            "选择一个已配置的模型提供商。API Key provider 可直接在这里配置，OAuth provider 请使用登录流程。"}
+          {error ?? t("description")}
         </p>
         {!error && providers.length === 0 ? (
-          <p style={{ fontSize: "13px", color: "#b45309" }}>当前没有可配置的 provider。</p>
+          <p style={{ fontSize: "13px", color: "#b45309" }}>{t("empty")}</p>
         ) : null}
         {!error && providers.length > 0 ? (
           <>
@@ -255,7 +291,7 @@ function ProviderSelectOnboarding({ complete, api }: OnboardingProps) {
               style={fieldStyle}
               type="password"
               placeholder={
-                isOAuthProvider(selected) ? "OAuth provider，请使用 Spark 登录" : "API Key"
+                isOAuthProvider(selected) ? t("oauthPlaceholder") : t("apiKeyPlaceholder")
               }
               value={key}
               disabled={isOAuthProvider(selected)}
@@ -277,7 +313,7 @@ function ProviderSelectOnboarding({ complete, api }: OnboardingProps) {
             }}
             onClick={complete}
           >
-            跳过
+            {t("skip")}
           </button>
           {!error && providers.length > 0 ? (
             <button
@@ -292,7 +328,11 @@ function ProviderSelectOnboarding({ complete, api }: OnboardingProps) {
               disabled={saving || isOAuthProvider(selected) || !selected || key.trim().length === 0}
               onClick={save}
             >
-              {saving ? "保存中…" : isOAuthProvider(selected) ? "需要 OAuth 登录" : "保存并开始"}
+              {saving
+                ? t("saving")
+                : isOAuthProvider(selected)
+                  ? t("oauthLoginRequired")
+                  : t("saveAndStart")}
             </button>
           ) : null}
         </div>
@@ -309,10 +349,14 @@ interface ClientContext {
         name: string;
         id: string;
         order: number;
+        locale: string;
         inject: () => Record<string, unknown>;
       },
       component: unknown,
     ): unknown;
+  };
+  locale: {
+    register(namespace: string, dictionaries: typeof providerOnboardingMessages): () => void;
   };
   connection: { api: OnboardingApi };
 }
@@ -321,12 +365,14 @@ export const name = "spark-web-dsh";
 export const inject = ["slots", "locale", "connection", "remote"];
 
 export function apply(ctx: ClientContext): void {
+  ctx.locale.register(ONBOARDING_LOCALE_NS, providerOnboardingMessages);
   ctx.slots.inject("settings.onboarding", () =>
     ctx.slots.register(
       {
         name: "settings.onboarding",
         id: "spark-provider-select",
         order: -50,
+        locale: ONBOARDING_LOCALE_NS,
         inject: () => ({ api: ctx.connection.api }),
       },
       ProviderSelectOnboarding,
