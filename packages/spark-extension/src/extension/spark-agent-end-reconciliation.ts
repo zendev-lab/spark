@@ -136,7 +136,10 @@ async function loadImplementFrontier(ctx: SparkToolContext) {
   const graph = await loadSparkGraph(ctx.cwd, ctx);
   if (!graph) return undefined;
   const project = await currentSparkProject(ctx.cwd, ctx, graph);
-  if (!project) return undefined;
+  // Repro v10 checkpoints are advanced exclusively by the daemon owner after
+  // it accepts the terminal TaskRun envelope. The generic execute-mode hook
+  // must not scan sibling lane Tasks or continue them in this Session.
+  if (!project || project.kind === "repro") return undefined;
   const claimed = resolveSessionClaimedTask(graph, project.ref, sparkTaskClaimSessionKey(ctx));
   const running = claimed?.status === "running" ? claimed : undefined;
   const ready = graph.readyTasks(project.ref);

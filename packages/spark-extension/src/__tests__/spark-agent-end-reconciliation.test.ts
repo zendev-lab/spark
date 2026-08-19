@@ -145,6 +145,46 @@ test("agent-end reconciliation continues an implement ready frontier without a d
   }
 });
 
+test("agent-end reconciliation leaves Repro checkpoint advancement to the daemon owner", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "spark-repro-reconciliation-"));
+  const ctx: SparkToolContext = {
+    cwd,
+    sessionId: "repro-lane",
+    sparkActiveMode: { mode: "execute" },
+  };
+  const sent: SentMessage[] = [];
+  const controller = createSparkAgentEndReconciliationController({
+    sendMessage(message, options) {
+      sent.push({ message, options });
+    },
+  });
+
+  try {
+    const graph = new TaskGraph();
+    const project = graph.createProject({
+      title: "Daemon-owned Repro",
+      description: "Only the Repro owner advances lane checkpoints.",
+      kind: "repro",
+      kindState: { reproId: "repro:test", version: 10 },
+    });
+    graph.createTask({
+      projectRef: project.ref,
+      name: "exactness-checkpoint",
+      title: "Exactness checkpoint",
+      description: "A ready sibling lane must not be claimed by the current lane Session.",
+      status: "ready",
+    });
+    await defaultTaskGraphStore(cwd).save(graph);
+    await saveCurrentProjectRef(cwd, ctx, project.ref);
+    await saveSparkMode(cwd, ctx, { mode: "execute", projectRef: project.ref });
+
+    assert.equal(await controller.reconcile(ctx), false);
+    assert.deepEqual(sent, []);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("agent-end TODO reconciliation does not continue blocked or terminal checklists", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "spark-todo-reconciliation-terminal-"));
   const ctx: SparkToolContext = { cwd, sessionId: "todo-reconciliation-terminal" };

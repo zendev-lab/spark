@@ -76,6 +76,7 @@ import {
 } from "./spark-daemon-repro-client.ts";
 import { registerSparkReproRoles } from "./spark-repro-roles.ts";
 import { registerSparkDelegationTool } from "./spark-delegation-tool-registration.ts";
+import { sessionModelName } from "./session-model.ts";
 
 interface SparkProductFacadeApi extends SparkCommandApi {
   /** Host/test override; production defaults to the daemon local RPC client. */
@@ -260,7 +261,8 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkFinishTaskTool(registerSparkImplementationTool, {
     refreshSparkWidget,
     createReviewerRunner: createTaskFinishDeepReviewerRunner,
-    resolveReviewerModel: (cwd) => resolveBuiltinReviewerModel(cwd),
+    resolveReviewerModel: async (cwd, ctx) =>
+      (await resolveBuiltinReviewerModel(cwd)) ?? sessionModelName(ctx.model),
     taskClaimDaemonClient,
   });
 

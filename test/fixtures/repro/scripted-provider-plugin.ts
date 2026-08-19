@@ -64,6 +64,12 @@ export default function registerScriptedJourneyProvider(api: {
           ? (context as { tools: unknown[] }).tools
           : [];
         const serializedContext = JSON.stringify(context);
+        const latestMessage = Array.isArray((context as { messages?: unknown[] }).messages)
+          ? ((context as { messages: unknown[] }).messages.at(-1) ?? {})
+          : {};
+        const continuationSeed = JSON.stringify(latestMessage).includes(
+          "Record a bounded continuation checkpoint before Repro compaction.",
+        );
         const toolApprovalReview = serializedContext.includes(
           "Review this Spark tool-call approval request before execution.",
         );
@@ -73,7 +79,9 @@ export default function registerScriptedJourneyProvider(api: {
         const taskCompletionReview =
           !toolApprovalReview &&
           (reviewerRequest || serializedContext.includes("spark.task-finish-review-packet/v1"));
-        if (availableTools.length === 0 || toolApprovalReview || taskCompletionReview) {
+        const compactionRequest =
+          availableTools.length === 0 && !toolApprovalReview && !taskCompletionReview;
+        if (continuationSeed || compactionRequest || toolApprovalReview || taskCompletionReview) {
           const toolApprovalOutcomeRecorded = serializedContext.includes(
             "Recorded completed outcome (journey_tool_approval_approved).",
           );
@@ -94,14 +102,34 @@ export default function registerScriptedJourneyProvider(api: {
                   blockers: [],
                   confidence: "high",
                 })
-              : "The deterministic Repro Journey is active and its durable owner state remains authoritative.";
+              : compactionRequest
+                ? JSON.stringify({
+                    version: 1,
+                    objective: "Continue the daemon-owned Repro v10 checkpoint sequence",
+                    completed: ["The current lane checkpoint has terminal TaskRun Evidence"],
+                    inProgress: ["Resume from the daemon-owned current checkpoint binding"],
+                    decisions: [
+                      "Session transcript is context; Repro owner state is authoritative",
+                    ],
+                    changedFiles: [],
+                    commands: [],
+                    failures: [],
+                    preservedFacts: [
+                      "Reuse the same lane Session and reload TaskRef and RunRef from the next prompt",
+                    ],
+                    unresolved: [],
+                    memoryRefs: [],
+                  })
+                : "Continuation checkpoint recorded; daemon-owned Repro state remains authoritative.";
           const auxiliaryLabel = taskCompletionReview
             ? "auxiliary.task-review"
             : toolApprovalReview
               ? toolApprovalOutcomeRecorded
                 ? "auxiliary.tool-approval.verdict"
                 : "auxiliary.tool-approval.outcome"
-              : "auxiliary.compaction";
+              : compactionRequest
+                ? "auxiliary.compaction"
+                : "auxiliary.continuation-seed";
           const auxiliaryContent =
             toolApprovalReview && !toolApprovalOutcomeRecorded
               ? [
@@ -280,6 +308,31 @@ type ScriptedAudience = "root" | "implementation" | "exactness" | "formalize";
 
 function collectRefs(value: unknown): ContextRefs {
   const serialized = JSON.stringify(value);
+  const text = collectStrings(value).join("\n");
+  const binding = Object.fromEntries(
+    [
+      ["reproId", "Repro"],
+      ["workItemId", "WorkItem"],
+      ["checkpointId", "Checkpoint"],
+      ["sourceCheckpointId", "Source checkpoint"],
+      ["parentCheckpointId", "Parent checkpoint"],
+      ["sessionId", "Session"],
+      ["taskRef", "TaskRef"],
+      ["runRef", "RunRef"],
+    ].flatMap(([key, label]) => {
+      const match = [...text.matchAll(new RegExp(`^${label}: (.+)$`, "gmu"))].at(-1)?.[1]?.trim();
+      return match && match !== "none" ? [[key, match]] : [];
+    }),
+  );
+  const checkpoint = [...text.matchAll(/Execute Repro v10 checkpoint ([a-z_]+)/gu)].at(-1)?.[1];
+  if (checkpoint) {
+    binding.checkpoint = checkpoint;
+    binding.lane = checkpoint.startsWith("implementation")
+      ? "implementation"
+      : checkpoint.startsWith("exactness")
+        ? "exactness"
+        : "formalize";
+  }
   return {
     artifacts: uniqueMatches(serialized, /artifact:[a-z0-9-]+/giu),
     evidence: uniqueMatches(serialized, /evidence:[a-z0-9-]+/giu),
@@ -288,24 +341,15 @@ function collectRefs(value: unknown): ContextRefs {
     routes: uniqueMatches(serialized, /route:[a-z0-9._:-]+/giu),
     workItems: uniqueMatches(serialized, /work:[a-z0-9._:-]+/giu),
     revisions: uniqueMatches(serialized, /\b[a-f0-9]{40}\b/giu),
-    binding: Object.fromEntries(
-      [
-        "reproId",
-        "workItemId",
-        "lane",
-        "originRouteId",
-        "planRevision",
-        "bindingRevision",
-        "taskRef",
-        "runRef",
-        "gitChangeRef",
-        "sourceRevision",
-      ].flatMap((key) => {
-        const value = [...serialized.matchAll(new RegExp(`${key}=([^\\\\"]+)`, "gu"))].at(-1)?.[1];
-        return value ? [[key, value]] : [];
-      }),
-    ),
+    binding,
   };
+}
+
+function collectStrings(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(collectStrings);
+  if (!value || typeof value !== "object") return [];
+  return Object.values(value).flatMap(collectStrings);
 }
 
 function scriptedAudience(refs: ContextRefs): ScriptedAudience {
@@ -323,13 +367,6 @@ function interpolateValue(
   refs: ContextRefs,
 ): unknown {
   if (typeof value === "string") {
-    if (value === "${BINDING_PLAN_REVISION}" || value === "${BINDING_REVISION}") {
-      const number = Number(interpolate(value, ledger, refs));
-      if (!Number.isSafeInteger(number) || number < 1) {
-        throw new Error(`Scripted provider placeholder ${value} is not a positive integer`);
-      }
-      return number;
-    }
     return interpolate(value, ledger, refs);
   }
   if (Array.isArray(value)) return value.map((entry) => interpolateValue(entry, ledger, refs));
@@ -351,7 +388,7 @@ function interpolate(value: string, ledger: ScriptedProviderLedger, refs: Contex
     if (name === "LAST_WORK_ITEM_ID") return refs.workItems.at(-1) ?? missing(name);
     if (name === "LAST_REVISION") return refs.revisions.at(-1) ?? missing(name);
     const bindingKey =
-      /^BINDING_(REPRO_ID|WORK_ITEM_ID|ROUTE_ID|PLAN_REVISION|REVISION|TASK_REF|RUN_REF|GIT_CHANGE_REF|SOURCE_REVISION)$/u.exec(
+      /^BINDING_(REPRO_ID|WORK_ITEM_ID|CHECKPOINT_ID|SOURCE_CHECKPOINT_ID|PARENT_CHECKPOINT_ID|SESSION_ID|TASK_REF|RUN_REF|LANE|CHECKPOINT)$/u.exec(
         name,
       )?.[1];
     if (bindingKey) {
@@ -359,13 +396,14 @@ function interpolate(value: string, ledger: ScriptedProviderLedger, refs: Contex
         {
           REPRO_ID: "reproId",
           WORK_ITEM_ID: "workItemId",
-          ROUTE_ID: "originRouteId",
-          PLAN_REVISION: "planRevision",
-          REVISION: "bindingRevision",
+          CHECKPOINT_ID: "checkpointId",
+          SOURCE_CHECKPOINT_ID: "sourceCheckpointId",
+          PARENT_CHECKPOINT_ID: "parentCheckpointId",
+          SESSION_ID: "sessionId",
           TASK_REF: "taskRef",
           RUN_REF: "runRef",
-          GIT_CHANGE_REF: "gitChangeRef",
-          SOURCE_REVISION: "sourceRevision",
+          LANE: "lane",
+          CHECKPOINT: "checkpoint",
         }[bindingKey] ?? "";
       return refs.binding[key] ?? missing(name);
     }
@@ -390,23 +428,20 @@ function rememberPreviousRoundOutput(
   refs: ContextRefs,
   previous: string | undefined,
 ): void {
-  if (!(ledger.vars ??= {}).BASELINE_REVISION && refs.binding.sourceRevision) {
-    ledger.vars.BASELINE_REVISION = refs.binding.sourceRevision;
-  }
   const evidenceVariable =
     previous &&
     {
-      "implementation.validation.evidence": "IMPLEMENTATION_VALIDATION_EVIDENCE",
+      "implementation.proof": "IMPLEMENTATION_PROOF_EVIDENCE",
       "implementation.result": "IMPLEMENTATION_RESULT_EVIDENCE",
-      "implementation-attention.context": "IMPLEMENTATION_ATTENTION_CONTEXT_EVIDENCE",
+      "implementation-attention.proof": "IMPLEMENTATION_ATTENTION_PROOF_EVIDENCE",
       "implementation-attention.result": "IMPLEMENTATION_ATTENTION_RESULT_EVIDENCE",
-      "exactness.validation.evidence": "EXACTNESS_VALIDATION_EVIDENCE",
+      "exactness.proof": "EXACTNESS_PROOF_EVIDENCE",
       "exactness.result": "EXACTNESS_RESULT_EVIDENCE",
-      "formalize.validation.evidence": "FORMALIZE_VALIDATION_EVIDENCE",
+      "formalize.proof": "FORMALIZE_PROOF_EVIDENCE",
       "formalize.result": "FORMALIZE_RESULT_EVIDENCE",
-      "exactness-refresh.validation.evidence": "EXACTNESS_REFRESH_VALIDATION_EVIDENCE",
+      "exactness-refresh.proof": "EXACTNESS_REFRESH_PROOF_EVIDENCE",
       "exactness-refresh.result": "EXACTNESS_REFRESH_RESULT_EVIDENCE",
-      "implementation-refresh.validation.evidence": "IMPLEMENTATION_REFRESH_VALIDATION_EVIDENCE",
+      "implementation-refresh.proof": "IMPLEMENTATION_REFRESH_PROOF_EVIDENCE",
       "implementation-refresh.result": "IMPLEMENTATION_REFRESH_RESULT_EVIDENCE",
     }[previous];
   const evidenceRef = refs.evidence.at(-1);
