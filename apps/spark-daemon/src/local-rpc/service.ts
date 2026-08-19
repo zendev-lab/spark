@@ -64,17 +64,9 @@ export const localRpcServiceHandlerMethodGroups = {
     "invocation.retention.preview",
     "invocation.retention.apply",
   ],
-  usage: ["usage.summary", "usage.persistence", "usage.backfill"],
+  usage: ["usage.summary"],
   repro: ["repro.formal-evidence.record"],
-  loop: [
-    "loop.start",
-    "loop.status",
-    "loop.stop",
-    "loop.restart",
-    "loop.wake",
-    "loop.schedule",
-    "loop.control",
-  ],
+  loop: ["loop.start", "loop.status", "loop.stop", "loop.restart", "loop.wake", "loop.schedule"],
   delegation: ["delegation.execute"],
   uplink: ["uplink.park", "uplink.unpark", "uplink.prefer", "uplink.status"],
   workspace: [
@@ -95,7 +87,6 @@ export const localRpcServiceHandlerMethodGroups = {
   ],
   taskClaim: ["task.claim.acquire", "task.claim.release", "task.claim.recover"],
   session: [
-    "session.notification.deliver",
     "session.list",
     "session.get",
     "session.lookup",
@@ -116,7 +107,6 @@ export const localRpcServiceHandlerMethodGroups = {
     "session.mail.read",
     "session.mail.ack",
     "session.model.set",
-    "session.mode.set",
     "session.thinking.set",
   ],
   sideThread: [
@@ -175,14 +165,7 @@ export async function invokeLocalRpcService<M extends SparkLocalRpcMethod>(
  * Invoke an already parsed, method-correlated request. This is the legacy
  * adapter entrypoint and keeps its NDJSON envelope out of the domain service.
  */
-export async function invokeLocalRpcServiceRequest(
-  request: LocalRpcServiceRequest,
-  serviceOptions: LocalRpcServiceOptions,
-): Promise<LocalRpcServiceOutput<LocalRpcServiceRequest>> {
-  return await invokeParsedLocalRpcService(request, serviceOptions);
-}
-
-async function invokeParsedLocalRpcService<Method extends SparkLocalRpcMethod>(
+export async function invokeParsedLocalRpcService<Method extends SparkLocalRpcMethod>(
   request: { method: Method; params: SparkLocalRpcParsedInput<Method> },
   serviceOptions: LocalRpcServiceOptions,
 ): Promise<SparkLocalRpcOutput<Method>> {

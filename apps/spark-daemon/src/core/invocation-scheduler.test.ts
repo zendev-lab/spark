@@ -13,6 +13,7 @@ import {
 } from "../execution/adapter.ts";
 import type { ExecutionOwnerHandlers } from "../execution/owner-capabilities.ts";
 import { ExecutionAttemptStore } from "../execution/state.ts";
+import { recoverInterruptedInvocations } from "./execution-reconciler.ts";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";
 import { SparkTokenUsageStore } from "../store/token-usage.ts";
@@ -55,6 +56,15 @@ function testExecutionOwners(): ExecutionOwnerHandlers {
     loopSchedule: async () => ({}),
     loopStop: async () => ({}),
   };
+}
+
+/** Recovery count helper replacing the removed scheduler.recover() surface. */
+function recoveredCount(invocationStore: SparkInvocationStore, now?: string): number {
+  const recovered = recoverInterruptedInvocations({
+    invocationStore,
+    ...(now ? { now } : {}),
+  });
+  return recovered.invocationRequeues + recovered.invocationFailures;
 }
 
 describe("SparkInvocationScheduler", () => {
@@ -679,7 +689,7 @@ describe("SparkInvocationScheduler", () => {
         expect.stringContaining("execution attempt terminal commit is blocked"),
         expect.objectContaining({ code: "execution_attempt_high_water_invalid" }),
       );
-      expect(scheduler.recover("2026-08-07T00:00:10.000Z")).toBe(1);
+      expect(recoveredCount(store, "2026-08-07T00:00:10.000Z")).toBe(1);
       expect(store.require(invocation.invocationId)).toMatchObject({
         status: "queued",
         sourceKind: "invocation.resume",
@@ -838,7 +848,7 @@ describe("SparkInvocationScheduler", () => {
         task: { type: "session.run", sessionId: "queued-session", prompt: "already queued" },
       });
       expect(store.claimNext("dead-worker")?.invocationId).toBe(interrupted.invocationId);
-      expect(scheduler.recover("2026-07-14T00:00:00.000Z")).toBe(1);
+      expect(recoveredCount(store, "2026-07-14T00:00:00.000Z")).toBe(1);
       expect(store.require(interrupted.invocationId)).toMatchObject({
         status: "queued",
         sourceKind: "invocation.resume",
@@ -859,7 +869,7 @@ describe("SparkInvocationScheduler", () => {
         attemptCount: 1,
       });
       const terminalRows = store.list();
-      expect(scheduler.recover("2026-07-14T00:01:00.000Z")).toBe(0);
+      expect(recoveredCount(store, "2026-07-14T00:01:00.000Z")).toBe(0);
       expect(scheduler.processBatch()).toBe(false);
       expect(store.list()).toEqual(terminalRows);
     } finally {
@@ -889,7 +899,7 @@ describe("SparkInvocationScheduler", () => {
       });
       expect(store.claimNext("dead-worker")?.invocationId).toBe(interrupted.invocationId);
 
-      expect(scheduler.recover("2026-07-30T00:00:00.000Z")).toBe(1);
+      expect(recoveredCount(store, "2026-07-30T00:00:00.000Z")).toBe(1);
       expect(store.getSummary(historical.invocationId)).toMatchObject({ status: "succeeded" });
       expect(store.require(interrupted.invocationId)).toMatchObject({
         status: "queued",
@@ -912,7 +922,7 @@ describe("SparkInvocationScheduler", () => {
       expect(store.claimNext("dead-worker")?.invocationId).toBe(invocation.invocationId);
       store.markDurableCommitStarted(invocation.invocationId);
 
-      expect(scheduler.recover("2026-08-12T00:00:00.000Z")).toBe(1);
+      expect(recoveredCount(store, "2026-08-12T00:00:00.000Z")).toBe(1);
       expect(store.require(invocation.invocationId)).toMatchObject({
         status: "failed",
         errorCode: "DURABLE_COMMIT_OUTCOME_UNKNOWN",
@@ -950,7 +960,7 @@ describe("SparkInvocationScheduler", () => {
       expect(store.claimNext("dead-worker")?.invocationId).toBe(invocation.invocationId);
       store.markDurableCommitStarted(invocation.invocationId);
 
-      expect(scheduler.recover("2026-08-12T00:00:00.000Z")).toBe(1);
+      expect(recoveredCount(store, "2026-08-12T00:00:00.000Z")).toBe(1);
       expect(store.require(invocation.invocationId)).toMatchObject({ status: "queued" });
       expect(store.requestCancellation(invocation.invocationId, "too late")).toBe("terminal");
       expect(scheduler.processBatch()).toBe(true);

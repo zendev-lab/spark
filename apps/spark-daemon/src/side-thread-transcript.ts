@@ -29,6 +29,8 @@ import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { SparkDaemonSessionControlOptions } from "./session-control.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 
+import { errorMessage, stringValue } from "./text.ts";
+
 const DEFAULT_EXCHANGE_LIMIT = 32;
 const SIDE_THREAD_SEED_BOUNDARY = "spark.side-thread.seed-boundary";
 const MAX_SNAPSHOT_BYTES = 24 * 1024;
@@ -788,17 +790,9 @@ function transcriptError(code: SparkSideThreadErrorCode, message: string) {
   return new SparkSessionRegistryError(code, message);
 }
 
-function stringValue(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
 function truncate(value: string, limit: number): string {
   const characters = Array.from(value.trim());
   return characters.length <= limit
     ? characters.join("")
     : `${characters.slice(0, limit).join("")}…`;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

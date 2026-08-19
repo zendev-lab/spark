@@ -1,4 +1,4 @@
-export type SparkDaemonPromptEvent = unknown;
+type SparkDaemonPromptEvent = unknown;
 
 export function extractTextDelta(event: SparkDaemonPromptEvent): string | null {
   if (!event || typeof event !== "object") return null;

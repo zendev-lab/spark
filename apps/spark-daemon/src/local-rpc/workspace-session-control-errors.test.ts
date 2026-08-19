@@ -208,11 +208,7 @@ describe("workspace and session local RPC control errors", () => {
         "session_mail_target_not_local",
       );
 
-      for (const method of [
-        "session.mail.read",
-        "session.mail.ack",
-        "session.notification.deliver",
-      ] as const) {
+      for (const method of ["session.mail.read", "session.mail.ack"] as const) {
         await expectCode(
           request(
             paths,

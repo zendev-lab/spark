@@ -15,7 +15,7 @@ import {
   reconcileDaemonChannelDeliveries,
 } from "./channels/delivery-outbox.ts";
 import {
-  deliverSessionNotification,
+  deliverSelectedSessionNotificationTargets,
   reconcileSessionNotificationDeliveries,
   sessionNotificationDeliveryIdempotencyKey,
   sessionNotificationLegacyDeliveryIdempotencyKey,
@@ -78,25 +78,25 @@ describe("daemon session notification delivery reconciliation", () => {
     };
 
     await expect(
-      deliverSessionNotification(
+      deliverSelectedSessionNotificationTargets(
         { sessionId: session.sessionId, messageId: request.message.id },
         deps,
       ),
     ).rejects.toMatchObject({ code: "session_mail_not_notification" });
     await expect(
-      deliverSessionNotification(
+      deliverSelectedSessionNotificationTargets(
         { sessionId: session.sessionId, messageId: internal.message.id },
         deps,
       ),
     ).rejects.toMatchObject({ code: "session_mail_not_user_visible" });
     await expect(
-      deliverSessionNotification(
+      deliverSelectedSessionNotificationTargets(
         { sessionId: session.sessionId, messageId: mailbox.message.id },
         deps,
       ),
     ).rejects.toMatchObject({ code: "session_mail_not_channel_delivery" });
     await expect(
-      deliverSessionNotification(
+      deliverSelectedSessionNotificationTargets(
         { sessionId: session.sessionId, messageId: routed.message.id },
         deps,
       ),
@@ -109,7 +109,7 @@ describe("daemon session notification delivery reconciliation", () => {
       ]),
     );
     await expect(
-      deliverSessionNotification(
+      deliverSelectedSessionNotificationTargets(
         { sessionId: session.sessionId, messageId: routed.message.id },
         deps,
       ),
@@ -251,7 +251,7 @@ describe("daemon session notification delivery reconciliation", () => {
         body: "Outcome may be external",
         source: "tool",
       });
-      await deliverSessionNotification(
+      await deliverSelectedSessionNotificationTargets(
         { sessionId: session.sessionId, messageId: sent.message.id },
         deps,
       );
@@ -608,11 +608,11 @@ describe("daemon session notification delivery reconciliation", () => {
         source: "tool",
       });
 
-      await deliverSessionNotification(
+      await deliverSelectedSessionNotificationTargets(
         { sessionId: session.sessionId, messageId: first.message.id },
         deps,
       );
-      await deliverSessionNotification(
+      await deliverSelectedSessionNotificationTargets(
         { sessionId: session.sessionId, messageId: replay.message.id },
         deps,
       );
@@ -686,7 +686,7 @@ describe("daemon session notification delivery reconciliation", () => {
         source: "tool",
       });
 
-      await deliverSessionNotification(
+      await deliverSelectedSessionNotificationTargets(
         { sessionId: session.sessionId, messageId: sent.message.id },
         {
           mailStore,
@@ -776,7 +776,7 @@ describe("daemon session notification delivery reconciliation", () => {
       source: "tool",
     });
 
-    await deliverSessionNotification(
+    await deliverSelectedSessionNotificationTargets(
       { sessionId: session.sessionId, messageId: sent.message.id },
       {
         mailStore,
@@ -843,7 +843,7 @@ describe("daemon session notification delivery reconciliation", () => {
         text: sent.message.body,
       });
 
-      await deliverSessionNotification(
+      await deliverSelectedSessionNotificationTargets(
         { sessionId: session.sessionId, messageId: sent.message.id },
         {
           mailStore,
