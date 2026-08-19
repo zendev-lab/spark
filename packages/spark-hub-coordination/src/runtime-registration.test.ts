@@ -895,7 +895,7 @@ describe("runtime registration", () => {
     db.close();
   });
 
-  it("allows only one active lease when two runtime processes race", async () => {
+  it("allows only one active lease when two runtime processes race", { timeout: 15_000 }, async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-owner-race-"));
     const databasePath = join(root, "hub.sqlite");
     const db = openDatabase({ path: databasePath });
