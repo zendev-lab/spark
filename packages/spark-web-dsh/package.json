@@ -20,6 +20,9 @@
     "check": "vp check --no-fmt --no-lint . && vp test run",
     "test": "vp test run"
   },
+  "dependencies": {
+    "react": "^19.0.0"
+  },
   "devDependencies": {
     "@types/react": "^19.0.0",
     "esbuild": "^0.28.0",
