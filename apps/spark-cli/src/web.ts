@@ -24,7 +24,13 @@ import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import type { SparkDispatcherLauncher } from "./cli.ts";
+/**
+ * Structural twin of the dispatcher launcher, declared here to keep this
+ * module free of an import edge back into `cli.ts`.
+ */
+export interface SparkWebLauncher {
+  run(target: string, argv: string[], options: { stdio: "inherit" }): Promise<number>;
+}
 
 const require = createRequire(import.meta.url);
 
@@ -193,10 +199,7 @@ export async function prepareSparkWebDispatch(args: SparkWebArgs): Promise<strin
 }
 
 /** Boot the DSH web profile through the dispatcher launcher. */
-export async function runSparkWeb(
-  args: SparkWebArgs,
-  launcher: SparkDispatcherLauncher,
-): Promise<number> {
+export async function runSparkWeb(args: SparkWebArgs, launcher: SparkWebLauncher): Promise<number> {
   const dshArgv = await prepareSparkWebDispatch(args);
   return launcher.run("web", dshArgv, { stdio: "inherit" });
 }
