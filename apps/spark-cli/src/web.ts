@@ -357,7 +357,12 @@ export async function ensureSparkWebClient(profileDir: string): Promise<SparkWeb
       banner: {
         js: `window.__ModuleLoader__.load({ id: ${JSON.stringify(SPARK_WEB_DHS_PACKAGE)}, factory: (require) => { var module = { exports: {} }; var exports = module.exports;`,
       },
-      footer: { js: "} });" },
+      footer: {
+        js: `module.exports = { default: { name, inject, apply }, name, inject, apply };
+return module.exports;
+}
+});`,
+      },
       logLevel: "silent",
     });
     rebuilt = true;
