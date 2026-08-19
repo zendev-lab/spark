@@ -81,6 +81,11 @@ spark web
 spark web --host 0.0.0.0 --trusted-host workstation.example:3080
 ```
 
+The boot itself does not need the `dsh` CLI on the `PATH`: Spark spawns the
+profile directly as a Node child with `--expose-internals`, so bare plugin
+specifiers resolve through Node's internal ESM loader rather than the optional
+native addon (whose platform binding breaks under pnpm store-link layouts).
+
 Before DSH starts, Spark verifies the installed package metadata and pinned
 upstream preset digests, bundles the private Cue adapter under the profile, and
 atomically installs `spark-standard` and `spark-code` under

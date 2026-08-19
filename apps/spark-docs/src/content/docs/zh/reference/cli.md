@@ -76,6 +76,10 @@ spark web
 spark web --host 0.0.0.0 --trusted-host workstation.example:3080
 ```
 
+启动本身不要求 `PATH` 上存在 `dsh` CLI：Spark 直接以带 `--expose-internals`
+的 Node 子进程拉起 profile，裸插件名通过 Node 内部 ESM loader 解析，不依赖
+可选原生 addon（其平台绑定在 pnpm store-link 布局下会失效）。
+
 DSH 启动前，Spark 会校验已安装 package metadata 与锁定的 upstream preset
 摘要，把私有 Cue adapter 打包进 profile，并原子安装
 `$DSH_HOME/.agent-presets/{spark-standard,spark-code}`。两个 preset 都移除
