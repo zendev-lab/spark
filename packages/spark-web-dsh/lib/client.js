@@ -31,6 +31,7 @@ window.__ModuleLoader__.load({
       default: () => client_default,
       inject: () => inject,
       installRandomUuidPolyfill: () => installRandomUuidPolyfill,
+      isCredentialsAccessDenied: () => isCredentialsAccessDenied,
       name: () => name,
     });
     module.exports = __toCommonJS(client_exports);
@@ -61,6 +62,10 @@ window.__ModuleLoader__.load({
     var DEFAULT_API_KEY_ENV = "BAIDU_ONEAPI_API_KEY";
     function deriveKeyRef(provider) {
       return `${provider.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_API_KEY`;
+    }
+    function isCredentialsAccessDenied(error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return message.includes("/api/credentials.") && /HTTP\s+403\b/i.test(message);
     }
     var modalStyle = {
       position: "fixed",
@@ -107,10 +112,17 @@ window.__ModuleLoader__.load({
         let stale = false;
         void (async () => {
           try {
-            const [pv, cv] = await Promise.all([
-              api.llm.providers({}),
-              api.credentials.describe({ refs: [DEFAULT_API_KEY_ENV] }),
-            ]);
+            const pv = await api.llm.providers({});
+            let cv;
+            try {
+              cv = await api.credentials.describe({ refs: [DEFAULT_API_KEY_ENV] });
+            } catch (caught) {
+              if (isCredentialsAccessDenied(caught)) {
+                complete();
+                return;
+              }
+              throw caught;
+            }
             if (stale) return;
             if (cv.result.ok && cv.result.value.credentials[DEFAULT_API_KEY_ENV] !== void 0) {
               complete();

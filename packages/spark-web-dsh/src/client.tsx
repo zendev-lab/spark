@@ -85,6 +85,11 @@ interface OnboardingProps {
   api: OnboardingApi;
 }
 
+export function isCredentialsAccessDenied(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("/api/credentials.") && /HTTP\s+403\b/i.test(message);
+}
+
 const modalStyle: Record<string, string> = {
   position: "fixed",
   inset: "0",
@@ -135,10 +140,20 @@ function ProviderSelectOnboarding({ complete, api }: OnboardingProps) {
     let stale = false;
     void (async () => {
       try {
-        const [pv, cv] = await Promise.all([
-          api.llm.providers({}),
-          api.credentials.describe({ refs: [DEFAULT_API_KEY_ENV] }),
-        ]);
+        const pv = await api.llm.providers({});
+        let cv: WireResult<{ credentials: Record<string, unknown> }>;
+        try {
+          cv = await api.credentials.describe({ refs: [DEFAULT_API_KEY_ENV] });
+        } catch (caught) {
+          // DSH deliberately keeps credential reads loopback-only. A remote
+          // browser must use credentials already resolved by the Spark host,
+          // rather than opening or failing the local secret configuration UI.
+          if (isCredentialsAccessDenied(caught)) {
+            complete();
+            return;
+          }
+          throw caught;
+        }
         if (stale) return;
         if (cv.result.ok && cv.result.value.credentials[DEFAULT_API_KEY_ENV] !== undefined) {
           complete();
