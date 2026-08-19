@@ -47,7 +47,7 @@
     "@zendev-lab/spark-tasks": "workspace:^",
     "@zendev-lab/spark-tui-adapter": "workspace:^",
     "@zendev-lab/spark-turn": "workspace:^",
-    "@zendev-lab/spark-web": "workspace:^",
+    "@zendev-lab/spark-tool-web": "workspace:^",
     "@zendev-lab/spark-workflows": "workspace:^"
   },
   "devDependencies": {

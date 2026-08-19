@@ -11,7 +11,7 @@
  *   the key through the host credentials service (the derived reference, e.g.
  *   `BAIDU_ONEAPI_API_KEY` for `baidu-oneapi`) and completes the step.
  *
- * The bundle is built with `pnpm --filter @zendev-lab/spark-web-dsh run build`
+ * The bundle is built with `pnpm --filter @zendev-lab/spark-web run build`
  * into `lib/client.js` as a `window.__ModuleLoader__.load({...})` module;
  * `react` and `@deepseek-ai/*` stay external and resolve from the DSH web
  * runtime at load time.

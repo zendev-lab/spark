@@ -1,8 +1,11 @@
-# @zendev-lab/spark-web
+# @zendev-lab/spark-tool-web
 
-Native Spark web capability package and pi-web-access replacement surface.
+Native Spark web search/fetch **tool family** and pi-web-access replacement
+surface. This is a stateless tool adapter (`spark-tool-<family>`), not the
+`spark web` application.
 
-It registers the public network tool names expected by Spark roles, Pi workflows, and existing web-access prompts:
+It registers the public network tool names expected by Spark roles, Pi
+workflows, and existing web-access prompts:
 
 - `web_search`
 - `code_search`
@@ -21,6 +24,10 @@ The package is conservative by default:
 
 Search provider support starts with Brave Search via `BRAVE_API_KEY`; tests and hosts can inject a deterministic provider. When no provider is configured, search/code-search return a graceful no-provider result rather than failing startup.
 
+Persisted cache keys keep the `spark-web:` `responseId` prefix and the
+`.spark/web/content.json` store path so existing sessions remain recoverable
+after the package rename.
+
 ## Compatibility notes
 
 `web_search` accepts pi-web-access compatibility parameters including `provider`, `recencyFilter`, `domainFilter`, and `workflow`. Spark currently runs headless/no-curator and treats unsupported provider-specific filters as accepted compatibility metadata.
@@ -37,3 +44,6 @@ Search provider support starts with Brave Search via `BRAVE_API_KEY`; tests and 
 `code_search` is implemented through the configured Spark web search providers with a code/docs-oriented query rewrite and cached responseId output.
 
 If another host already owns one of these tool names, registration skips it by default. Spark also retries registration at `session_start` when host inspection is unavailable, preserving coexistence without replacing the existing tool.
+
+Persisted Spark configs that still list `@zendev-lab/spark-web/extension` are
+rewritten to `@zendev-lab/spark-tool-web/extension` during profile migration.

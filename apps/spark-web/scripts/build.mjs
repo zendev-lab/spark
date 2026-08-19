@@ -1,5 +1,5 @@
 /**
- * Build the spark-web-dsh client bundle for the DSH web runtime.
+ * Build the spark-web DSH client bundle for the DSH web runtime.
  *
  * Output: `lib/client.js` — a `window.__ModuleLoader__.load({...})` module
  * (the DSH client plugin wire format). `react`, `react/jsx-runtime`, and
