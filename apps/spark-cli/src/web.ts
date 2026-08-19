@@ -32,9 +32,20 @@ export interface SparkWebLauncher {
   run(target: string, argv: string[], options: { stdio: "inherit" }): Promise<number>;
 }
 
-/** Resolve a package.json path from the current module (publish-bundle safe). */
-function resolvePackageJson(specifier: string): string {
-  return fileURLToPath(import.meta.resolve(specifier));
+/**
+ * Locate a package root relative to this module's own location. Works both
+ * from the source checkout (workspace node_modules links) and from the
+ * publish bundle (whose node_modules carries the package), because it only
+ * uses `import.meta.url` — esbuild replaces `import.meta.resolve` with a
+ * dynamic require, which the publish bundle cannot provide.
+ */
+function resolvePackageDir(specifier: string): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const pkgJson = resolveFromDirectory(here, specifier);
+  if (pkgJson === undefined) {
+    throw new Error(`spark web: cannot locate ${specifier} from ${here}`);
+  }
+  return dirname(pkgJson);
 }
 
 /**
@@ -109,7 +120,7 @@ export function resolveDshProfileDir(
 
 /** Locate the installed `@zendev-lab/spark-llm` package root. */
 export function resolveSparkLlmPackageDir(): string {
-  return dirname(resolvePackageJson("@zendev-lab/spark-llm/package.json"));
+  return resolvePackageDir("@zendev-lab/spark-llm");
 }
 
 export interface SparkLlmBundleResult {
