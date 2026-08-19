@@ -77,7 +77,7 @@ export interface SparkLlmConfig {
 }
 
 /** The section schema; the cast keeps the all-optional profile fields optional. */
-const Config = z.object({
+export const Config = z.object({
   providers: z.dict(providerProfile).default({}),
 }) as unknown as z<SparkLlmConfig>;
 
@@ -247,4 +247,4 @@ export function apply(ctx: Context, config: SparkLlmConfig): void {
   });
 }
 
-export default { name, inject, apply };
+export default { name, inject, apply, Config };
