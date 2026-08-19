@@ -30,7 +30,6 @@ export async function migrateSessionRegistryLineage(input: {
   const sessions = await registry.list({
     includeArchived: true,
     includeClosed: true,
-    includeSideThreads: true,
   });
   return {
     changed: sourceVersion !== null && sourceVersion !== SPARK_SESSION_REGISTRY_VERSION,

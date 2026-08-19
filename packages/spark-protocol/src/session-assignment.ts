@@ -471,6 +471,15 @@ const sparkSessionProjectionBaseSchema = z
     ...sparkSessionStateShape,
     lifetime: sparkSessionLifetimeSchema,
     activity: sparkSessionActivitySchema,
+    descendantActivity: z
+      .object({
+        activity: sparkSessionActivitySchema,
+        descendantCount: z.number().int().nonnegative().max(10_000),
+        activeCount: z.number().int().nonnegative().max(10_000),
+        truncated: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -606,6 +615,7 @@ export const sparkSessionForkRequestSchema = sparkManagedChildSessionRequestSche
 const sparkSessionListRequestBaseSchema = z
   .object({
     includeArchived: z.boolean().optional(),
+    parentSessionId: z.string().trim().min(1).optional(),
     query: z.string().trim().min(1).max(256).optional(),
     tags: z.array(sparkSessionTagSchema).max(16).optional(),
     cursor: z.string().trim().min(1).optional(),

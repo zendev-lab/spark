@@ -232,13 +232,13 @@ test("Spark session selector uses the Hub fallback for untitled sessions", () =>
   );
 });
 
-test("Spark session selector hides internal task execution sessions and leaked builtin RoleRefs", () => {
+test("Spark session selector shows runtime child Sessions without leaking builtin RoleRefs", () => {
   const legacyRoleSession = {
     ...sessionRecord("technical-role", "role:builtin-executor", "2026-07-20T06:00:00.000Z"),
     role: "role:builtin-executor",
   };
   const component = createSparkSessionSelectorComponent({
-    sessions: [legacyRoleSession, taskExecutionSession, untitledSession],
+    sessions: [legacyRoleSession, sessions[0]!, taskExecutionSession, fleetWorkerSession],
     workspaces: [workspaces[0]!],
     suggestedWorkspaceId: "workspace-1",
     maxVisible: 10,
@@ -246,11 +246,11 @@ test("Spark session selector hides internal task execution sessions and leaked b
   });
 
   const rendered = component.render(160).join("\n");
-  assert.doesNotMatch(rendered, /technical-role|session-task-worker|role:builtin-executor/u);
-  assert.match(rendered, /New conversation/u);
+  assert.doesNotMatch(rendered, /technical-role|role:builtin-executor/u);
+  assert.match(rendered, /session-task-worker|Executor session/u);
   assert.equal(isSelectableSparkSession(legacyRoleSession), false);
-  assert.equal(isSelectableSparkSession(taskExecutionSession), false);
-  assert.equal(isSelectableSparkSession(fleetWorkerSession), false);
+  assert.equal(isSelectableSparkSession(taskExecutionSession), true);
+  assert.equal(isSelectableSparkSession(fleetWorkerSession), true);
 });
 
 test("Spark session selector keeps 10,000 internal task transcripts out of the interactive list", () => {
@@ -451,7 +451,7 @@ test("Spark session selector renders parent and Side Thread hierarchy snapshot",
   assert.match(rendered, /\[spark \(5\)\]/u);
   assert.match(
     rendered,
-    /└─ Context research.*parent=parent-alpha.*mode=contextual.*generation=1.*lifecycle=open.*activity=idle/u,
+    /└─ Context research.*origin=side_thread.*parent=parent-alpha.*generation=1.*lifecycle=open.*activity=idle/u,
   );
   assert.ok(rendered.indexOf("Parent Alpha") < rendered.indexOf("Context research"));
   assert.ok(rendered.indexOf("Context research") < rendered.indexOf("Tangent spike"));
@@ -502,11 +502,11 @@ test("Spark session selector isolates orphan Side Threads in a diagnostic group"
     onSelect: () => undefined,
   });
   let rendered = component.render(180).join("\n");
-  assert.match(rendered, /Orphans \(1\)/u);
+  assert.match(rendered, /Lineage \(1\)/u);
   component.handleInput?.("\u001b[C");
   rendered = component.render(180).join("\n");
-  assert.match(rendered, /\[Orphans \(1\)\]/u);
-  assert.match(rendered, /orphan=missing-parent/u);
+  assert.match(rendered, /\[Lineage \(1\)\]/u);
+  assert.match(rendered, /lineage=missing-parent/u);
 });
 
 function sessionRecord(

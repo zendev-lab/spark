@@ -242,7 +242,7 @@ describe("daemon session control admission", () => {
     }
   });
 
-  it("rejects compaction for closed and Side Thread sessions", async () => {
+  it("rejects compaction only for closed Sessions", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-compact-boundary-"));
     const db = openMemoryDatabase();
     migrateSparkDaemonDatabase(db);
@@ -281,10 +281,11 @@ describe("daemon session control admission", () => {
       await expect(compact("session-compact-closed")).rejects.toMatchObject({
         code: "session_archived",
       });
-      await expect(compact(sideThread.sessionId)).rejects.toMatchObject({
-        code: "side_thread_mutation_forbidden",
-      });
-      expect(new SparkInvocationStore(db).list()).toHaveLength(0);
+      const sideThreadCompaction = await compact(sideThread.sessionId);
+      expect(sideThreadCompaction.result).toMatchObject({ status: "queued" });
+      expect(new SparkInvocationStore(db).list()).toEqual([
+        expect.objectContaining({ sessionId: sideThread.sessionId }),
+      ]);
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });
@@ -339,16 +340,18 @@ describe("daemon session control admission", () => {
           },
         ),
       ).rejects.toMatchObject({ code: "session_scope_mismatch" });
-      await expect(
-        executeSparkDaemonSessionControl(
-          { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
-          {
-            kind: "turn.status.request",
-            scope: "any",
-            payload: { invocationId: sideThreadInvocation.invocationId },
-          },
-        ),
-      ).rejects.toMatchObject({ code: "side_thread_not_found" });
+      const sideThreadStatus = await executeSparkDaemonSessionControl(
+        { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
+        {
+          kind: "turn.status.request",
+          scope: "any",
+          payload: { invocationId: sideThreadInvocation.invocationId },
+        },
+      );
+      expect(sideThreadStatus.result).toMatchObject({
+        invocationId: sideThreadInvocation.invocationId,
+        sessionId: sideThread.sessionId,
+      });
       expect(ordinaryGet).not.toHaveBeenCalled();
     } finally {
       db.close();
@@ -558,7 +561,7 @@ describe("daemon session control admission", () => {
     }
   });
 
-  it("hides ephemeral Role Sessions from public Session APIs while preserving Invocation receipts", async () => {
+  it("projects every runtime child as a visible Session", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-ephemeral-visibility-"));
     const db = openMemoryDatabase();
     migrateSparkDaemonDatabase(db);
@@ -600,25 +603,26 @@ describe("daemon session control admission", () => {
         scope: "any",
         payload: {},
       });
-      expect(listed.result.sessions).not.toEqual(
+      expect(listed.result.sessions).toEqual(
         expect.arrayContaining([expect.objectContaining({ sessionId: ephemeralSessionId })]),
       );
-      await expect(
-        executeSparkDaemonSessionControl(options, {
-          kind: "session.get.request",
-          scope: "any",
-          sessionId: ephemeralSessionId,
-          payload: { sessionId: ephemeralSessionId },
-        }),
-      ).rejects.toMatchObject({ code: "session_not_found" });
-      await expect(
-        executeSparkDaemonSessionControl(options, {
-          kind: "session.close.request",
-          scope: "any",
-          sessionId: ephemeralSessionId,
-          payload: { sessionId: ephemeralSessionId },
-        }),
-      ).rejects.toMatchObject({ code: "session_not_found" });
+      const detail = await executeSparkDaemonSessionControl(options, {
+        kind: "session.get.request",
+        scope: "any",
+        sessionId: ephemeralSessionId,
+        payload: { sessionId: ephemeralSessionId },
+      });
+      expect(detail.result.session).toMatchObject({ sessionId: ephemeralSessionId });
+      const closed = await executeSparkDaemonSessionControl(options, {
+        kind: "session.close.request",
+        scope: "any",
+        sessionId: ephemeralSessionId,
+        payload: { sessionId: ephemeralSessionId },
+      });
+      expect(closed.result.session).toMatchObject({
+        sessionId: ephemeralSessionId,
+        lifecycle: "closing",
+      });
 
       const status = await executeSparkDaemonSessionControl(options, {
         kind: "turn.status.request",
@@ -909,6 +913,83 @@ describe("daemon session control admission", () => {
       });
       expect(store.claimNext("driver-worker")?.invocationId).toBe(driverInvocation.invocationId);
       expect(store.claimNext("parent-worker")).toBeUndefined();
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("filters children before pagination and projects bounded descendant activity", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-session-descendant-activity-"));
+    const db = openMemoryDatabase();
+    migrateSparkDaemonDatabase(db);
+    const paths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const sessionRegistry = createDaemonSessionRegistry(join(root, ".spark"));
+    const administrator = await sessionRegistry.ensureWorkspaceAdministrator(
+      "workspace-descendant-activity",
+    );
+    if (administrator.scope.kind !== "workspace") {
+      throw new Error("test administrator must be workspace-scoped");
+    }
+    const parent = await sessionRegistry.create({
+      sessionId: "session-tree-parent",
+      scope: administrator.scope,
+      supervisorSessionId: administrator.sessionId,
+      cwd: root,
+    });
+    const createChild = (sessionId: string, parentSessionId: string) =>
+      sessionRegistry.createSupervised({
+        sessionId,
+        scope: parent.scope,
+        lineage: { kind: "child", parentSessionId, origin: { kind: "session" } },
+        visibility: "public",
+        retention: "retain",
+        purpose: "interactive",
+      });
+    const first = await createChild("session-tree-first", parent.sessionId);
+    const second = await createChild("session-tree-second", parent.sessionId);
+    const grandchild = await createChild("session-tree-grandchild", first.sessionId);
+    const store = new SparkInvocationStore(db);
+    const running = store.submit({ sessionId: first.sessionId, prompt: "running descendant" });
+    store.claimNext("descendant-worker");
+    store.submit({ sessionId: grandchild.sessionId, prompt: "queued descendant" });
+
+    try {
+      const page = await executeSparkDaemonSessionControl(
+        { paths, db, sessionRegistry, actor: "spark-daemon-runtime-ws" },
+        {
+          kind: "session.list.request",
+          scope: "any",
+          payload: { parentSessionId: parent.sessionId, limit: 1 },
+        },
+      );
+      expect(page.result).toMatchObject({ hasMore: true });
+      expect(page.result.sessions).toHaveLength(1);
+      expect(page.result.sessions).toEqual([
+        expect.objectContaining({
+          lineage: expect.objectContaining({ parentSessionId: parent.sessionId }),
+        }),
+      ]);
+
+      const detail = await executeSparkDaemonSessionControl(
+        { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
+        {
+          kind: "session.get.request",
+          scope: "any",
+          sessionId: parent.sessionId,
+          payload: { sessionId: parent.sessionId },
+        },
+      );
+      expect(detail.result.session).toMatchObject({
+        activity: "idle",
+        descendantActivity: {
+          activity: "running",
+          descendantCount: 3,
+          activeCount: 2,
+        },
+      });
+      expect(store.require(running.invocationId).status).toBe("running");
+      expect(second.sessionId).toBe("session-tree-second");
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });

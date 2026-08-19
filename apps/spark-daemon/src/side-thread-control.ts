@@ -140,7 +140,6 @@ export async function executeSparkDaemonSideThreadControl(
           scope: "any",
           sessionId: child.sessionId,
           idempotencyKey,
-          allowSideThread: true,
           payload: {
             sessionId: child.sessionId,
             prompt: parsed.prompt,
@@ -370,7 +369,6 @@ async function findSideThread(
   const sessions = await requireRegistryValue(registry).list({
     includeArchived: true,
     includeClosed: true,
-    includeSideThreads: true,
   });
   return sessions
     .filter(

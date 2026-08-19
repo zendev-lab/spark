@@ -19,7 +19,7 @@ export const CREATE_SPARK_SESSION_SELECTION = "__spark_create_session__";
 export const LAUNCH_CWD_WORKSPACE_SELECTION = "__spark_launch_cwd_workspace__";
 
 const UNTITLED_SESSION_LABEL = "New conversation";
-const ORPHAN_GROUP_KEY = "diagnostic:orphan-side-threads";
+const ORPHAN_GROUP_KEY = "diagnostic:session-lineage";
 
 /** Native selection exposes active workspace sessions only. */
 export function isSelectableSparkSession(session: SparkSessionProjection): boolean {
@@ -36,11 +36,7 @@ function isUserFacingWorkspaceSession(session: SparkSessionProjection): boolean 
     legacy.role === undefined &&
     legacy.relation === undefined &&
     legacy.status === undefined &&
-    session.scope.kind === "workspace" &&
-    session.visibility === "public" &&
-    (session.lineage.kind === "root" ||
-      session.lineage.origin.kind === "session" ||
-      session.lineage.origin.kind === "side_thread")
+    session.scope.kind === "workspace"
   );
 }
 
@@ -355,34 +351,45 @@ function sessionSelectionGroups(
         selectorWorkspaceMatches(workspace, session.scope.workspaceId, options.workspaces),
     );
     const byId = new Map(workspaceSessions.map((session) => [session.sessionId, session]));
+    const orphanRoots: SparkSessionProjection[] = [];
     const roots = workspaceSessions
-      .filter((session) => sideThreadRelation(session) === undefined)
+      .filter(
+        (session) =>
+          session.lineage.kind === "root" ||
+          (!byId.has(session.lineage.parentSessionId) &&
+            isImplicitWorkspaceAdministrator(session.lineage.parentSessionId)),
+      )
       .sort(compareSessions);
     const children = new Map<string, SparkSessionProjection[]>();
     for (const session of workspaceSessions) {
-      const sideThread = sideThreadRelation(session);
-      if (!sideThread) continue;
-      if (!byId.has(sideThread.parentSessionId)) {
-        orphans.push(sessionSelectionItem(session, true));
+      const relation = childRelation(session);
+      if (!relation) continue;
+      if (!byId.has(relation.parentSessionId)) {
+        if (isImplicitWorkspaceAdministrator(relation.parentSessionId)) continue;
+        orphanRoots.push(session);
         continue;
       }
-      const siblings = children.get(sideThread.parentSessionId) ?? [];
+      const siblings = children.get(relation.parentSessionId) ?? [];
       siblings.push(session);
-      children.set(sideThread.parentSessionId, siblings);
+      children.set(relation.parentSessionId, siblings);
     }
+    const emitted = new Set<string>();
     for (const root of roots) {
-      group.items.push(sessionSelectionItem(root, false));
-      for (const child of (children.get(root.sessionId) ?? []).sort(compareSideThreads)) {
-        group.items.push(sessionSelectionItem(child, false));
-      }
+      appendSessionTree(group.items, root, children, emitted, 0);
+    }
+    for (const orphan of orphanRoots.sort(compareSessions)) {
+      appendDiagnosticSessionTree(orphans, orphan, children, emitted, "orphan");
+    }
+    for (const cyclic of workspaceSessions.filter((session) => !emitted.has(session.sessionId))) {
+      appendDiagnosticSessionTree(orphans, cyclic, children, emitted, "cycle");
     }
   }
 
   if (orphans.length > 0) {
     byKey.set(ORPHAN_GROUP_KEY, {
       key: ORPHAN_GROUP_KEY,
-      label: "Orphaned Side Threads • missing visible parent",
-      tabLabel: "Orphans",
+      label: "Session lineage diagnostics",
+      tabLabel: "Lineage",
       suggested: false,
       items: orphans.sort((left, right) => left.value.localeCompare(right.value)),
     });
@@ -441,13 +448,16 @@ function archivedSessionCount(options: SparkSessionSelectorOptions): number {
 
 function sessionSelectionItem(
   session: SparkSessionProjection,
-  orphan: boolean,
+  depth: number,
+  diagnostic?: "orphan" | "cycle",
 ): SparkSessionSelectionItem {
   if (session.scope.kind !== "workspace") {
     throw new Error(`Session selector cannot render daemon session ${session.sessionId}.`);
   }
   const channel = session.bindings[0];
-  const sideThread = sideThreadRelation(session);
+  const child = childRelation(session);
+  const relation =
+    child && !isImplicitWorkspaceAdministrator(child.parentSessionId) ? child : undefined;
   const archived = session.placement === "archived" ? " [archived]" : "";
   return {
     value: session.sessionId,
@@ -456,19 +466,20 @@ function sessionSelectionItem(
       sessionId: session.sessionId,
       workspaceId: session.scope.workspaceId,
     },
-    label: `${sideThread ? "  └─ " : ""}${sessionDisplayTitle(session)}${archived}`,
+    label: `${depth > 0 ? `${"  ".repeat(depth)}└─ ` : ""}${sessionDisplayTitle(session)}${archived}`,
     description: [
-      sideThread ? `parent=${sideThread.parentSessionId}` : undefined,
-      sideThread && session.sideThreadMode ? `mode=${session.sideThreadMode}` : undefined,
-      sideThread ? `generation=${sideThread.generation}` : undefined,
-      orphan ? "orphan=missing-parent" : undefined,
+      relation ? `origin=${relation.kind}` : undefined,
+      relation ? `parent=${relation.parentSessionId}` : undefined,
+      relation && "generation" in relation ? `generation=${relation.generation}` : undefined,
+      diagnostic === "orphan" ? "lineage=missing-parent" : undefined,
+      diagnostic === "cycle" ? "lineage=cycle" : undefined,
       session.sessionId,
       channel ? channel.adapter : undefined,
       session.model ? `${session.model.providerName}/${session.model.modelId}` : undefined,
       session.thinkingLevel ? `thinking=${session.thinkingLevel}` : undefined,
       `lifecycle=${session.lifecycle}`,
       `activity=${session.activity ?? "idle"}`,
-      sideThread ? undefined : `updated=${session.updatedAt}`,
+      `updated=${session.updatedAt}`,
     ]
       .filter(Boolean)
       .join(" • "),
@@ -499,14 +510,55 @@ function compareSessions(left: SparkSessionProjection, right: SparkSessionProjec
   );
 }
 
-function compareSideThreads(left: SparkSessionProjection, right: SparkSessionProjection): number {
-  const leftGeneration = sideThreadRelation(left)?.generation ?? 0;
-  const rightGeneration = sideThreadRelation(right)?.generation ?? 0;
-  return leftGeneration - rightGeneration || compareSessions(left, right);
-}
-
-function sideThreadRelation(session: SparkSessionProjection) {
-  return session.lineage.kind === "child" && session.lineage.origin.kind === "side_thread"
+function childRelation(session: SparkSessionProjection) {
+  return session.lineage.kind === "child"
     ? { ...session.lineage.origin, parentSessionId: session.lineage.parentSessionId }
     : undefined;
+}
+
+function appendSessionTree(
+  items: SparkSessionSelectionItem[],
+  session: SparkSessionProjection,
+  children: ReadonlyMap<string, SparkSessionProjection[]>,
+  emitted: Set<string>,
+  depth: number,
+): void {
+  if (emitted.has(session.sessionId)) return;
+  emitted.add(session.sessionId);
+  items.push(sessionSelectionItem(session, depth));
+  for (const child of (children.get(session.sessionId) ?? []).sort(compareChildSessions)) {
+    appendSessionTree(items, child, children, emitted, depth + 1);
+  }
+}
+
+function appendDiagnosticSessionTree(
+  items: SparkSessionSelectionItem[],
+  session: SparkSessionProjection,
+  children: ReadonlyMap<string, SparkSessionProjection[]>,
+  emitted: Set<string>,
+  diagnostic: "orphan" | "cycle",
+): void {
+  if (emitted.has(session.sessionId)) return;
+  emitted.add(session.sessionId);
+  items.push(sessionSelectionItem(session, 0, diagnostic));
+  for (const child of (children.get(session.sessionId) ?? []).sort(compareChildSessions)) {
+    appendSessionTree(items, child, children, emitted, 1);
+  }
+}
+
+function isImplicitWorkspaceAdministrator(sessionId: string): boolean {
+  return /(?:^|[_:-])admin(?:istrator)?(?:[_:-]|$)/iu.test(sessionId);
+}
+
+function compareChildSessions(left: SparkSessionProjection, right: SparkSessionProjection): number {
+  const leftOrigin = left.lineage.kind === "child" ? left.lineage.origin : undefined;
+  const rightOrigin = right.lineage.kind === "child" ? right.lineage.origin : undefined;
+  const leftGeneration =
+    leftOrigin && "generation" in leftOrigin ? leftOrigin.generation : undefined;
+  const rightGeneration =
+    rightOrigin && "generation" in rightOrigin ? rightOrigin.generation : undefined;
+  if (leftGeneration !== undefined && rightGeneration !== undefined) {
+    return leftGeneration - rightGeneration || compareSessions(left, right);
+  }
+  return compareSessions(left, right);
 }

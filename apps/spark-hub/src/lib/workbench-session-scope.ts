@@ -22,9 +22,10 @@ export interface WorkbenchSessionRailLike extends WorkbenchSessionScopeLike {
 
 export interface WorkbenchSessionRailRow<T extends WorkbenchSessionRailLike> {
   session: T;
-  ariaLevel: 1 | 2;
+  ariaLevel: number;
   parentSessionId?: string;
   orphaned: boolean;
+  diagnostic?: "orphan" | "cycle";
 }
 
 /**
@@ -79,8 +80,8 @@ export function workspaceSessionsForWorkbench<T extends WorkbenchSessionScopeLik
 }
 
 /**
- * Flatten parent conversations and their Side Threads into a stable ARIA tree.
- * Orphans remain diagnostic rows and are never promoted to a parent control surface.
+ * Flatten the daemon-owned Session lineage into a stable recursive ARIA tree.
+ * Missing parents and lineage cycles remain explicit diagnostic rows.
  */
 export function buildSessionRailTree<T extends WorkbenchSessionRailLike>(
   sessions: readonly T[],
@@ -89,20 +90,15 @@ export function buildSessionRailTree<T extends WorkbenchSessionRailLike>(
   const visible = sessions.filter(
     (session) => options.includeArchived || session.placement !== "archived",
   );
-  const parents = visible.filter(
-    (session) =>
-      session.lineage?.kind !== "child" || session.lineage.origin?.kind !== "side_thread",
-  );
-  const parentIds = new Set(parents.map((session) => session.sessionId));
+  const byId = new Map(visible.map((session) => [session.sessionId, session]));
   const childrenByParent = new Map<string, T[]>();
   const orphans: T[] = [];
 
   for (const session of visible) {
-    if (session.lineage?.kind !== "child" || session.lineage.origin?.kind !== "side_thread") {
-      continue;
-    }
+    if (session.lineage?.kind !== "child") continue;
     const parentSessionId = session.lineage.parentSessionId?.trim();
-    if (!parentSessionId || !parentIds.has(parentSessionId)) {
+    if (!parentSessionId || !byId.has(parentSessionId)) {
+      if (parentSessionId && isImplicitWorkspaceAdministrator(parentSessionId)) continue;
       orphans.push(session);
       continue;
     }
@@ -112,25 +108,80 @@ export function buildSessionRailTree<T extends WorkbenchSessionRailLike>(
   }
 
   const rows: WorkbenchSessionRailRow<T>[] = [];
-  for (const parent of parents) {
-    rows.push({ session: parent, ariaLevel: 1, orphaned: false });
-    for (const child of childrenByParent.get(parent.sessionId) ?? []) {
+  const emitted = new Set<string>();
+  const append = (session: T, ariaLevel: number, ancestors: ReadonlySet<string>): void => {
+    if (emitted.has(session.sessionId)) return;
+    if (ancestors.has(session.sessionId)) {
       rows.push({
-        session: child,
-        ariaLevel: 2,
-        parentSessionId: parent.sessionId,
-        orphaned: false,
+        session,
+        ariaLevel,
+        parentSessionId:
+          session.lineage?.kind === "child" ? session.lineage.parentSessionId : undefined,
+        orphaned: true,
+        diagnostic: "cycle",
       });
+      emitted.add(session.sessionId);
+      return;
     }
+    emitted.add(session.sessionId);
+    rows.push({
+      session,
+      ariaLevel,
+      ...(session.lineage?.kind === "child"
+        ? { parentSessionId: session.lineage.parentSessionId }
+        : {}),
+      orphaned: false,
+    });
+    const nextAncestors = new Set(ancestors).add(session.sessionId);
+    for (const child of childrenByParent.get(session.sessionId) ?? []) {
+      append(child, ariaLevel + 1, nextAncestors);
+    }
+  };
+  for (const root of visible.filter((session) => isRootRailSession(session, byId))) {
+    append(root, 1, new Set());
   }
   for (const orphan of orphans) {
     rows.push({
       session: orphan,
-      ariaLevel: 2,
+      ariaLevel: 1,
       parentSessionId:
         orphan.lineage?.kind === "child" ? orphan.lineage.parentSessionId : undefined,
       orphaned: true,
+      diagnostic: "orphan",
     });
+    emitted.add(orphan.sessionId);
+    for (const child of childrenByParent.get(orphan.sessionId) ?? []) {
+      append(child, 2, new Set([orphan.sessionId]));
+    }
+  }
+  for (const cyclic of visible.filter((session) => !emitted.has(session.sessionId))) {
+    rows.push({
+      session: cyclic,
+      ariaLevel: 1,
+      ...(cyclic.lineage?.kind === "child"
+        ? { parentSessionId: cyclic.lineage.parentSessionId }
+        : {}),
+      orphaned: true,
+      diagnostic: "cycle",
+    });
+    emitted.add(cyclic.sessionId);
   }
   return rows;
+}
+
+function isImplicitWorkspaceAdministrator(sessionId: string): boolean {
+  return /(?:^|[_:-])admin(?:istrator)?(?:[_:-]|$)/iu.test(sessionId);
+}
+
+function isRootRailSession<T extends WorkbenchSessionRailLike>(
+  session: T,
+  byId: ReadonlyMap<string, T>,
+): boolean {
+  if (session.lineage?.kind !== "child") return true;
+  const parentSessionId = session.lineage.parentSessionId?.trim();
+  return Boolean(
+    parentSessionId &&
+    !byId.has(parentSessionId) &&
+    isImplicitWorkspaceAdministrator(parentSessionId),
+  );
 }

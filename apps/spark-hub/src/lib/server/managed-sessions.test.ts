@@ -202,7 +202,7 @@ describe("managed sessions for hub", () => {
     expect(client.snapshot).not.toHaveBeenCalled();
   });
 
-  it("returns related workspace sessions only when the rail requests them", async () => {
+  it("returns every workspace Session regardless of lineage origin", async () => {
     const client = daemonClient();
     const activeChildren = [
       sideThread("sess_a_context", session.sessionId, 1, "contextual"),
@@ -218,7 +218,7 @@ describe("managed sessions for hub", () => {
     };
 
     await expect(listManagedSessionsForHub(workspace, client)).resolves.toMatchObject({
-      sessions: [session, secondParent],
+      sessions: [session, ...activeChildren, secondParent],
     });
     await expect(
       listManagedSessionsForHub({ ...workspace, related: true }, client),

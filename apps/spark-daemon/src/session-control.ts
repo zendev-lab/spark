@@ -7,7 +7,6 @@ import {
   parseSparkAssignment,
   parseSparkSessionState,
   projectSparkSessionState,
-  sparkSessionLifetimeForLineage,
   sparkSessionParentId,
   sparkInvocationListRequestSchema,
   sparkInvocationListResultSchema,
@@ -127,8 +126,6 @@ export interface SparkDaemonSessionControlRequest {
   workspaceBindingId?: string;
   sessionId?: string;
   idempotencyKey?: string;
-  /** Internal capability used only by the daemon-owned Side Thread control path. */
-  allowSideThread?: boolean;
 }
 
 export interface SparkDaemonSessionControlResult {
@@ -163,15 +160,16 @@ export async function executeSparkDaemonSessionControl(
       const parsed = sparkSessionListRequestSchema.parse(request.payload);
       assertScopeInput(request, parsed.scope);
       const visibleSessions = await listSessionsForRequest(options, request, parsed);
-      const sessions = projectSessionInvocationActivity(
+      const projectedSessions = projectSessionInvocationActivity(
         new SparkInvocationStore(options.db),
         visibleSessions,
       );
-      const records = sessions;
-      const page =
-        options.actor === "spark-daemon-runtime-ws"
-          ? boundedSessionList(records, parsed.cursor, parsed.limit)
-          : { sessions: records, hasMore: false };
+      const records = parsed.parentSessionId
+        ? projectedSessions.filter(
+            (session) => sparkSessionParentId(session.lineage) === parsed.parentSessionId,
+          )
+        : projectedSessions;
+      const page = boundedSessionList(records, parsed.cursor, parsed.limit);
       const data = publicObject(page);
       return { result: data, projection: { kind: "session.list", data } };
     }
@@ -183,9 +181,7 @@ export async function executeSparkDaemonSessionControl(
       });
       const owned = await requireSession(options, parsed.sessionId, request);
       assertOrdinarySessionVisible(owned);
-      const session = projectSessionInvocationActivity(new SparkInvocationStore(options.db), [
-        owned,
-      ])[0]!;
+      const session = await projectSessionWithDescendantActivity(options, owned);
       const data = publicObject({ session });
       return { result: data, projection: { kind: "session.detail", data } };
     }
@@ -202,10 +198,7 @@ export async function executeSparkDaemonSessionControl(
           "Spark daemon native session storage is not available.",
         );
       }
-      const projectedSession = projectSessionInvocationActivity(
-        new SparkInvocationStore(options.db),
-        [session],
-      )[0]!;
+      const projectedSession = await projectSessionWithDescendantActivity(options, session);
       const snapshotInput = {
         sessionsRoot: join(options.paths.sessionRuntimeDir, "sessions"),
         session,
@@ -496,22 +489,6 @@ export async function executeSparkDaemonSessionControl(
       const session = options.sessionRegistry
         ? await requireSession(options, parsed.sessionId, request)
         : undefined;
-      if (
-        session?.lineage.kind === "child" &&
-        session.lineage.origin.kind === "side_thread" &&
-        request.allowSideThread !== true
-      ) {
-        throw new SparkSessionRegistryError(
-          "side_thread_direct_submit_forbidden",
-          `side thread ${parsed.sessionId} only accepts turns through side-thread.submit`,
-        );
-      }
-      if (session && sparkSessionLifetimeForLineage(session.lineage) === "ephemeral") {
-        throw new SparkSessionRegistryError(
-          "session_not_found",
-          `unknown session: ${session.sessionId}`,
-        );
-      }
       if (!session && request.scope !== "any") {
         throw new SparkDaemonControlError(
           "session_registry_unavailable",
@@ -741,7 +718,6 @@ export async function reconcileClosingSessionLifecycles(
   if (!supervisor) return;
   const sessions = await supervisor.registry.list({
     includeArchived: true,
-    includeSideThreads: true,
   });
   const closingIds = new Set(
     sessions
@@ -874,9 +850,11 @@ async function listSessionsForRequest(
 ): Promise<SparkSessionState[]> {
   const registry = requireSessionRegistry(options);
   if (request.scope !== "workspace") {
-    return (await registry.list(parsed)).filter(
-      (session) => sparkSessionLifetimeForLineage(session.lineage) !== "ephemeral",
-    );
+    return await registry.list({
+      includeArchived: parsed.includeArchived,
+      query: parsed.query,
+      tags: parsed.tags,
+    });
   }
 
   const sessions = await registry.list({
@@ -885,7 +863,6 @@ async function listSessionsForRequest(
     tags: parsed.tags,
   });
   return sessions.flatMap((session) => {
-    if (sparkSessionLifetimeForLineage(session.lineage) === "ephemeral") return [];
     try {
       return [projectSessionForRequest(options.db, session, request)];
     } catch (error) {
@@ -1096,27 +1073,12 @@ async function requireInvocationSession(
 }
 
 function assertOrdinarySessionVisible(
-  session: SparkSessionState | undefined,
-  mutation = false,
-  allowEphemeral = false,
+  _session: SparkSessionState | undefined,
+  _mutation = false,
+  _allowEphemeral = false,
 ): void {
-  if (
-    session &&
-    sparkSessionLifetimeForLineage(session.lineage) === "ephemeral" &&
-    !allowEphemeral
-  ) {
-    throw new SparkSessionRegistryError(
-      "session_not_found",
-      `unknown session: ${session.sessionId}`,
-    );
-  }
-  if (session?.lineage.kind !== "child" || session.lineage.origin.kind !== "side_thread") return;
-  throw new SparkSessionRegistryError(
-    mutation ? "side_thread_mutation_forbidden" : "side_thread_not_found",
-    mutation
-      ? `side thread ${session.sessionId} is mutated only through its dedicated controller`
-      : `unknown session: ${session.sessionId}`,
-  );
+  // Every runtime child is a normal Session. Lineage origin records provenance;
+  // it does not create a second visibility or mutation policy.
 }
 
 function assertOriginBindingTarget(
@@ -1599,14 +1561,73 @@ function projectSessionInvocationActivity(
   sessions: SparkSessionState[],
 ): SparkSessionProjection[] {
   const activities = store.sessionActivities(sessions.map((session) => session.sessionId));
-  return sessions.map((session) =>
-    projectSparkSessionState(
-      session,
-      session.placement === "archived"
-        ? "idle"
-        : (activities.get(session.sessionId)?.activity ?? "idle"),
-    ),
+  const children = new Map<string, SparkSessionState[]>();
+  for (const session of sessions) {
+    const parentSessionId = sparkSessionParentId(session.lineage);
+    if (!parentSessionId) continue;
+    const siblings = children.get(parentSessionId) ?? [];
+    siblings.push(session);
+    children.set(parentSessionId, siblings);
+  }
+  return sessions.map((session) => {
+    const descendants = descendantSessionIds(session.sessionId, children);
+    let activeCount = 0;
+    let activity: "idle" | "queued" | "running" = "idle";
+    for (const sessionId of descendants.ids) {
+      const descendantActivity = activities.get(sessionId)?.activity ?? "idle";
+      if (descendantActivity === "idle") continue;
+      activeCount += 1;
+      if (descendantActivity === "running") activity = "running";
+      else if (activity === "idle") activity = "queued";
+    }
+    return {
+      ...projectSparkSessionState(
+        session,
+        session.placement === "archived"
+          ? "idle"
+          : (activities.get(session.sessionId)?.activity ?? "idle"),
+      ),
+      descendantActivity: {
+        activity,
+        descendantCount: descendants.ids.length,
+        activeCount,
+        ...(descendants.truncated ? { truncated: true } : {}),
+      },
+    };
+  });
+}
+
+async function projectSessionWithDescendantActivity(
+  options: SparkDaemonSessionControlOptions,
+  session: SparkSessionState,
+): Promise<SparkSessionProjection> {
+  const related = await requireSessionRegistry(options).list({
+    includeArchived: true,
+    includeClosed: true,
+    scope: session.scope,
+  });
+  return (
+    projectSessionInvocationActivity(new SparkInvocationStore(options.db), related).find(
+      (candidate) => candidate.sessionId === session.sessionId,
+    ) ?? projectSessionInvocationActivity(new SparkInvocationStore(options.db), [session])[0]!
   );
+}
+
+function descendantSessionIds(
+  sessionId: string,
+  children: ReadonlyMap<string, readonly SparkSessionState[]>,
+): { ids: string[]; truncated: boolean } {
+  const ids: string[] = [];
+  const visited = new Set([sessionId]);
+  const pending = [...(children.get(sessionId) ?? [])];
+  while (pending.length > 0 && ids.length < 10_000) {
+    const descendant = pending.shift()!;
+    if (visited.has(descendant.sessionId)) continue;
+    visited.add(descendant.sessionId);
+    ids.push(descendant.sessionId);
+    pending.push(...(children.get(descendant.sessionId) ?? []));
+  }
+  return { ids, truncated: pending.length > 0 };
 }
 
 async function settleManagedSessionTurn(

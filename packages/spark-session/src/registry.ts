@@ -538,7 +538,6 @@ export class SparkSessionRegistry {
     options: {
       includeArchived?: boolean;
       includeClosed?: boolean;
-      includeSideThreads?: boolean;
       scope?: SparkSessionScope;
       workspaceId?: string;
       query?: string;
@@ -550,7 +549,6 @@ export class SparkSessionRegistry {
       .filter((session) => {
         if (!options.includeArchived && session.placement === "archived") return false;
         if (!options.includeClosed && session.lifecycle === "closed") return false;
-        if (!options.includeSideThreads && isSessionOrigin(session, "side_thread")) return false;
         const scope =
           options.scope ??
           (options.workspaceId
@@ -612,12 +610,6 @@ export class SparkSessionRegistry {
       );
     }
     const current = file.sessions[index]!;
-    if (isSessionOrigin(current, "side_thread")) {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `side thread ${input.sessionId} cannot own a channel binding`,
-      );
-    }
     assertSessionInvocable(current, "bind");
     if (current.placement === "archived") {
       throw new SparkSessionRegistryError(
@@ -693,12 +685,6 @@ export class SparkSessionRegistry {
       throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
     }
     const current = file.sessions[index]!;
-    if (isSessionOrigin(current, "side_thread")) {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `side thread ${sessionId} cannot own a channel binding`,
-      );
-    }
     const normalizedAccountIdentity = adapterAccountIdentity?.trim() || undefined;
     const externalMatches = current.bindings.filter(
       (binding) => binding.externalKey === normalized,
@@ -752,12 +738,6 @@ export class SparkSessionRegistry {
       return current;
     }
     if (archiveInput.requireUnassigned && !isInactiveRetentionCandidate(current)) return current;
-    if (isSessionOrigin(current, "side_thread")) {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `side thread ${sessionId} is archived only with its parent`,
-      );
-    }
     if (current.lineage.kind === "root") {
       throw new SparkSessionRegistryError(
         "workspace_administrator_session_mutation_forbidden",
@@ -967,12 +947,6 @@ export class SparkSessionRegistry {
       throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
     }
     const current = file.sessions[index]!;
-    if (isSessionOrigin(current, "side_thread")) {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `side thread ${sessionId} cannot be restored independently`,
-      );
-    }
     if (current.lineage.kind === "root") {
       throw new SparkSessionRegistryError(
         "workspace_administrator_session_mutation_forbidden",
@@ -1114,12 +1088,6 @@ export class SparkSessionRegistry {
       throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
     }
     const current = file.sessions[index]!;
-    if (isSessionOrigin(current, "side_thread")) {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `configure side-thread model through the side-thread control surface: ${sessionId}`,
-      );
-    }
     assertSessionInvocable(current, "change model for");
     const updated: SparkSessionState = {
       ...current,
@@ -1142,12 +1110,6 @@ export class SparkSessionRegistry {
       throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
     }
     const current = file.sessions[index]!;
-    if (isSessionOrigin(current, "side_thread")) {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `configure side-thread thinking through the side-thread control surface: ${sessionId}`,
-      );
-    }
     assertSessionInvocable(current, "change thinking level for");
     const updated: SparkSessionState = {
       ...current,
@@ -1245,12 +1207,6 @@ export class SparkSessionRegistry {
       );
     }
     const current = file.sessions[index]!;
-    if (isSessionOrigin(current, "side_thread")) {
-      throw new SparkSessionRegistryError(
-        "side_thread_mutation_forbidden",
-        `relocate side-thread transcript through its generation control: ${input.sessionId}`,
-      );
-    }
     const expectedPath = input.expectedSessionPath
       ? normalizedSessionPath(input.expectedSessionPath, input.sessionId)
       : undefined;

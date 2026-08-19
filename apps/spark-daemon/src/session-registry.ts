@@ -145,10 +145,8 @@ export interface CommitDaemonClosedTranscriptDiscardInput {
   now?: Date;
 }
 
-/** Diagnostic child visibility is daemon-internal and absent from the wire schema. */
 export type DaemonSessionListRequest = SparkSessionListRequest & {
   includeClosed?: boolean;
-  includeSideThreads?: boolean;
 };
 
 export interface CreateDaemonSessionRegistryOptions {
@@ -602,7 +600,6 @@ function resolveListRequest(
 ): {
   includeArchived?: boolean;
   includeClosed?: boolean;
-  includeSideThreads?: boolean;
   query?: string;
   tags?: string[];
   scope?: SparkSessionScope;
@@ -612,9 +609,6 @@ function resolveListRequest(
     return {
       ...(input.includeArchived !== undefined ? { includeArchived: input.includeArchived } : {}),
       ...(input.includeClosed !== undefined ? { includeClosed: input.includeClosed } : {}),
-      ...(input.includeSideThreads !== undefined
-        ? { includeSideThreads: input.includeSideThreads }
-        : {}),
       ...(input.query ? { query: input.query } : {}),
       ...(input.tags?.length ? { tags: input.tags } : {}),
       scope: input.scope,
@@ -630,9 +624,6 @@ function resolveListRequest(
   return {
     ...(input.includeArchived !== undefined ? { includeArchived: input.includeArchived } : {}),
     ...(input.includeClosed !== undefined ? { includeClosed: input.includeClosed } : {}),
-    ...(input.includeSideThreads !== undefined
-      ? { includeSideThreads: input.includeSideThreads }
-      : {}),
     ...(input.query ? { query: input.query } : {}),
     ...(input.tags?.length ? { tags: input.tags } : {}),
     scope: { kind: "daemon", daemonId },
