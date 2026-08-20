@@ -10,7 +10,7 @@ export default defineConfig({
     environment: "node",
     include: ["packages/spark-extension/src/**/*.test.ts"],
     pool: "forks",
-    fileParallelism: false,
+    fileParallelism: true,
     maxWorkers: 2,
     testTimeout: 120_000,
     hookTimeout: 120_000,
