@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { runInNewContext } from "node:vm";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 
 import {
   ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE,
@@ -465,49 +465,57 @@ for (const terminal of [
   });
 }
 
-test("runSparkHeadlessSession classifies provider stream read errors as transient", async () => {
-  const assistant = terminalAssistant("error", "stream_read_error");
+for (const transient of [
+  {
+    name: "classifies provider stream read errors",
+    sessionId: "session-stream-read-error",
+    outcome: () => terminalOutcome(terminalAssistant("error", "stream_read_error")),
+    expectedMessage: /stream_read_error/u,
+  },
+  {
+    name: "preserves an exhausted empty-response code",
+    sessionId: "session-empty-response",
+    outcome: () => ({
+      status: "failed" as const,
+      assistant: successfulOutcome("").assistant,
+      roundtrips: 4,
+      errorMessage: "model completed without a displayable response",
+      errorCode: "MODEL_EMPTY_RESPONSE",
+    }),
+    expectedMessage: /without a displayable response/u,
+  },
+]) {
+  test(`runSparkHeadlessSession ${transient.name} as transient`, async () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    try {
+      const rejected = assert.rejects(
+        runSparkHeadlessSession(
+          { cwd: process.cwd(), sessionId: transient.sessionId, prompt: "hello" },
+          {
+            createServices: async () =>
+              headlessServices(async () => {
+                attempts += 1;
+                return transient.outcome();
+              }) as never,
+          },
+        ),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.equal((error as Error & { code?: string }).code, "EXECUTION_TRANSIENT");
+          assert.match(error.message, transient.expectedMessage);
+          return true;
+        },
+      );
 
-  await assert.rejects(
-    runSparkHeadlessSession(
-      { cwd: process.cwd(), sessionId: "session-stream-read-error", prompt: "hello" },
-      {
-        createServices: async () =>
-          headlessServices(async () => terminalOutcome(assistant)) as never,
-      },
-    ),
-    (error: unknown) => {
-      assert.ok(error instanceof Error);
-      assert.equal((error as Error & { code?: string }).code, "EXECUTION_TRANSIENT");
-      assert.match(error.message, /stream_read_error/u);
-      return true;
-    },
-  );
-}, 15_000);
-
-test("runSparkHeadlessSession preserves an exhausted empty-response code as transient", async () => {
-  await assert.rejects(
-    runSparkHeadlessSession(
-      { cwd: process.cwd(), sessionId: "session-empty-response", prompt: "hello" },
-      {
-        createServices: async () =>
-          headlessServices(async () => ({
-            status: "failed",
-            assistant: successfulOutcome("").assistant,
-            roundtrips: 4,
-            errorMessage: "model completed without a displayable response",
-            errorCode: "MODEL_EMPTY_RESPONSE",
-          })) as never,
-      },
-    ),
-    (error: unknown) => {
-      assert.ok(error instanceof Error);
-      assert.equal((error as Error & { code?: string }).code, "EXECUTION_TRANSIENT");
-      assert.match(error.message, /without a displayable response/u);
-      return true;
-    },
-  );
-}, 15_000);
+      await vi.runAllTimersAsync();
+      await rejected;
+      assert.equal(attempts, 4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+}
 
 test("runSparkHeadlessSession preserves an active caller cancellation", async () => {
   const controller = new AbortController();
