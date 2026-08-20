@@ -13,7 +13,7 @@ export default defineConfig({
     include: ["test/**/*.test.ts", "packages/spark-protocol/src/memory-approval.test.ts"],
     exclude: ["test/process/**/*.test.ts", "test/journey/**/*.test.ts"],
     pool: "forks",
-    fileParallelism: false,
+    fileParallelism: true,
     maxWorkers: 2,
     setupFiles: [resolve(import.meta.dirname, "test/support/hermetic-env.ts")],
     testTimeout: 120_000,
