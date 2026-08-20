@@ -1,12 +1,11 @@
 # @zendev-lab/dsh-tool-fusion
 
-Cordis-native, bounded multi-model deliberation over the invocation-scoped
-`ctx.sparkExecution.runLeaf` capability.
+Cordis-native, bounded multi-model deliberation over the DSH LLM service.
 
 The capability runs two to four independent panel calls concurrently, asks a
 separate judge for a strict comparison, and returns that comparison to the
 calling model. The judge does not write the user-facing answer: the active
-Spark model remains the writer and must verify the advisory result.
+agent remains the writer and must verify the advisory result.
 
 The package is a thin, stateless DSH ToolRuntime adapter. It owns no provider,
 credential, Session, Invocation, workflow, or persistence state.
@@ -24,17 +23,16 @@ tool requires approval because explicit model choices can cross provider
 boundaries and every deliberation incurs additional model cost. Invalid model
 output is never accepted as a successful panel or judge result.
 
-The Cordis plugin registers the `fusion` DSH tool, its prompt guidance, and
-Spark effect/mode/approval metadata. Parameter bounds remain enforced by the
-same TypeBox contract as the prior Spark tool even though rc.8's supported DSH
-JSON Schema subset cannot advertise numeric or string-length keywords.
+The Cordis plugin registers the `fusion` DSH tool and its prompt guidance.
+Parameter bounds remain enforced by its TypeBox contract even when the supported
+DSH JSON Schema subset cannot advertise numeric or string-length keywords.
 
 ## Owner boundary
 
-Model calls enter through the injected leaf runner. The result is neither
-runtime evidence nor an Artifact, and it cannot satisfy a workflow proof or
-gate.
+Model calls enter through `ctx.llm` using the invoking Agent's provider/model,
+or an explicit tool argument. They create no child Agent or Session and do not
+write durable scheduling state.
 
-The temporary `@zendev-lab/dsh-tool-fusion/legacy` export exists only for the
-stack-internal `SparkHostAPI` loader. It is removed when product composition
-loads the Cordis plugin directly; it is not a public compatibility ABI.
+`spark-extension` recognizes the root package specifier as a Cordis Agent
+plugin, attaches product policy in the Spark composition layer, and mounts it
+in the invocation scope. There is no SparkHostAPI factory or legacy subpath.

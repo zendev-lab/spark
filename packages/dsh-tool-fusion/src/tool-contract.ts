@@ -1,6 +1,5 @@
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
-import type { SessionModelRef } from "@zendev-lab/spark-core";
 
 import {
   DEFAULT_FUSION_TIMEOUT_MS,
@@ -9,7 +8,7 @@ import {
   MAX_FUSION_PANELS,
   MIN_FUSION_PANELS,
 } from "./deliberate.ts";
-import type { FusionPanelInput, SparkFusionDeliberationRequest } from "./types.ts";
+import type { FusionModelRef, FusionPanelInput, SparkFusionDeliberationRequest } from "./types.ts";
 
 export const FUSION_TOOL_DESCRIPTION =
   "Run bounded independent model opinions and a structured comparison; the active model remains the final writer.";
@@ -69,7 +68,7 @@ export function assertFusionToolParameters(value: unknown): asserts value is Fus
 export function fusionToolRequest(
   params: FusionToolParameters,
   signal: AbortSignal,
-  model: SessionModelRef | undefined,
+  model: FusionModelRef | undefined,
 ): SparkFusionDeliberationRequest {
   return {
     question: params.question,
@@ -79,7 +78,7 @@ export function fusionToolRequest(
     panelMaxTokens: params.panelMaxTokens ?? DEFAULT_PANEL_MAX_TOKENS,
     judgeMaxTokens: params.judgeMaxTokens ?? DEFAULT_JUDGE_MAX_TOKENS,
     timeoutMs: params.timeoutMs ?? DEFAULT_FUSION_TIMEOUT_MS,
-    ...(model ? { sessionModel: `${model.provider}/${model.id}` } : {}),
+    ...(model ? { sessionModel: model } : {}),
     signal,
   };
 }

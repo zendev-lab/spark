@@ -1,15 +1,11 @@
 import type { Context } from "@deepseek-ai/cordis";
+import { BlockAssembler, createUserMessage } from "@deepseek-ai/dsh-llm";
 import {
   defineTool,
   type JsonValue,
   type ParameterSchemaSpec,
   type ToolDefinition,
 } from "@deepseek-ai/dsh-tools";
-import {
-  callLeafOrDegrade,
-  type SparkDshToolPolicyMetadata,
-  type SparkExecutionService,
-} from "@zendev-lab/spark-core";
 
 import { deliberateSparkFusion } from "./deliberate.ts";
 import {
@@ -18,22 +14,22 @@ import {
   FUSION_TOOL_GUIDANCE,
   fusionToolRequest,
 } from "./tool-contract.ts";
+import type { FusionModelCallRequest, FusionModelCallResult, FusionModelRef } from "./types.ts";
 
-declare module "@deepseek-ai/cordis" {
-  interface Context {
-    sparkExecution: SparkExecutionService;
-  }
-}
-
-declare module "@deepseek-ai/dsh-tools" {
-  interface ToolDefinition {
-    /** Spark's fail-closed execution policy, omitted from the model schema. */
-    readonly sparkPolicy?: SparkDshToolPolicyMetadata;
-  }
-}
+export { FUSION_TOOL_GUIDANCE } from "./tool-contract.ts";
 
 export const name = "dsh-tool-fusion";
-export const inject = ["tools", "systemPrompt", "sparkExecution"];
+export const inject = ["llm", "tools", "systemPrompt"];
+
+export interface Config {
+  /** Fallback for diagnostics or direct ToolRuntime use without an Agent. */
+  defaultModel?: FusionModelRef;
+  /** Host route mapping for private or scoped provider namespaces. */
+  resolveModel?: (
+    override: string | undefined,
+    fallback: FusionModelRef | undefined,
+  ) => FusionModelRef | undefined;
+}
 
 const FUSION_DSH_PARAMETERS = {
   action: { type: "string", const: "deliberate", required: true },
@@ -66,17 +62,8 @@ const FUSION_DSH_PARAMETERS = {
   timeoutMs: { type: "integer", description: "Overall timeout in milliseconds (1000-600000)." },
 } as const satisfies ParameterSchemaSpec;
 
-const FUSION_POLICY = Object.freeze({
-  effect: "read",
-  executionMode: "sequential",
-  domains: ["models", "deliberation"],
-  modes: ["plan", "execute"],
-  approval: "required",
-  reconcile: "none",
-} as const satisfies SparkDshToolPolicyMetadata);
-
-export function createDshFusionTool(ctx: Context): ToolDefinition {
-  const definition = defineTool({
+export function createDshFusionTool(ctx: Context, config: Config = {}): ToolDefinition {
+  return defineTool({
     name: "fusion",
     description: FUSION_TOOL_DESCRIPTION,
     parameters: FUSION_DSH_PARAMETERS,
@@ -87,26 +74,98 @@ export function createDshFusionTool(ctx: Context): ToolDefinition {
     isConcurrencySafe: () => false,
     async execute(args, exec) {
       assertFusionToolParameters(args);
-      const execution = ctx.get("sparkExecution");
-      if (!execution) throw new Error("fusion requires invocation-scoped ctx.sparkExecution");
+      const agentModel = exec.agent?.options;
+      const sessionModel =
+        nonEmpty(agentModel?.provider) && nonEmpty(agentModel?.model)
+          ? { provider: agentModel.provider, model: agentModel.model }
+          : config.defaultModel;
       const result = await deliberateSparkFusion(
-        fusionToolRequest(args, exec.signal, execution.model),
+        fusionToolRequest(args, exec.signal, sessionModel),
         {
-          runLeaf: (request) => callLeafOrDegrade(execution, request),
+          runLeaf: (request) => runDshModelCall(ctx, request, config.resolveModel),
         },
       );
       if (result.status === "failed") throw new Error(JSON.stringify(result, null, 2));
       return result as unknown as JsonValue;
     },
   });
-  return { ...definition, sparkPolicy: FUSION_POLICY };
 }
 
-export function apply(ctx: Context): void {
-  ctx.tools.register(createDshFusionTool(ctx));
+export function apply(ctx: Context, config: Config = {}): void {
+  ctx.tools.register(createDshFusionTool(ctx, config));
   ctx.systemPrompt.section({
     name: "tool:fusion",
     order: 120,
     text: FUSION_TOOL_GUIDANCE.join(" "),
   });
+}
+
+async function runDshModelCall(
+  ctx: Context,
+  request: FusionModelCallRequest,
+  resolver: Config["resolveModel"],
+): Promise<FusionModelCallResult> {
+  const selected = resolver
+    ? resolver(request.model, request.sessionModel)
+    : resolveModel(request.model, request.sessionModel);
+  if (!selected) return { degraded: true, text: "", reasonCode: "no-model" };
+  const model = `${selected.provider}/${selected.model}`;
+  const assembler = new BlockAssembler();
+  try {
+    for await (const chunk of ctx.llm.stream({
+      provider: selected.provider,
+      model: selected.model,
+      system: request.brief,
+      messages: [
+        createUserMessage({
+          content: [{ type: "text", text: request.input }],
+          source: { kind: "user" },
+        }),
+      ],
+      ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
+      ...(request.signal ? { signal: request.signal } : {}),
+    })) {
+      assembler.push(chunk);
+    }
+  } catch {
+    return {
+      degraded: true,
+      text: "",
+      model,
+      reasonCode: request.signal?.aborted ? "aborted" : "model-call-failed",
+    };
+  }
+  const finish = assembler.finish;
+  if (finish.kind === "aborted") {
+    return { degraded: true, text: "", model, reasonCode: "aborted" };
+  }
+  if (finish.kind === "error") {
+    return {
+      degraded: true,
+      text: "",
+      model,
+      reasonCode: finish.failure.code === "NO_ADAPTER" ? "route-unavailable" : "model-call-failed",
+    };
+  }
+  const text = assembler
+    .blocks()
+    .flatMap((block) => (block.type === "text" ? [block.text] : []))
+    .join("");
+  return { degraded: false, text, model };
+}
+
+function resolveModel(
+  override: string | undefined,
+  fallback: FusionModelRef | undefined,
+): FusionModelRef | undefined {
+  if (!override) return fallback;
+  const separator = override.indexOf("/");
+  if (separator < 1) return fallback ? { provider: fallback.provider, model: override } : undefined;
+  const provider = override.slice(0, separator).trim();
+  const model = override.slice(separator + 1).trim();
+  return provider && model ? { provider, model } : undefined;
+}
+
+function nonEmpty(value: string | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }

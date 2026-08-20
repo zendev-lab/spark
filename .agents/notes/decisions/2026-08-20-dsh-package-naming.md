@@ -49,7 +49,7 @@ recovery path through the existing owner.
 | `spark-core` | rename in place to `spark-invocation` after host-contract consumers move | The surviving owner is the immutable Invocation Cordis service, not a generic host-contract bag. |
 | `spark-tool-web` | retain | Its cache, `code_search`, `get_search_content`, and response identity are Spark product contracts beyond the upstream Web tool family. |
 | `spark-files` | retain as a Spark domain owner | Atomic/versioned workspace IO and Artifact-root semantics exceed a tool adapter. Prefer official `dsh-tool-fs` and `dsh-tool-fs-search` over a Spark filesystem service adapter; do not rename the owner. |
-| `spark-fusion` | renamed to `dsh-tool-fusion` in this stack | It is a stateless, model-facing tool family with no official DSH equivalent or durable state owner. Its root ABI is a Cordis plugin; the `/legacy` export is stack-internal and exits with the legacy loader. |
+| `spark-fusion` | renamed to `dsh-tool-fusion` in this stack | It is a stateless, model-facing tool family with no official DSH equivalent or durable state owner. Its only ABI is the Cordis plugin root; the SparkHostAPI bridge has been removed. |
 | `spark-graft` | retain pending an owner split | It owns an external client and sandbox adapter in addition to tools. Renaming the combined package would misstate its boundary. |
 | `spark-ask`, `spark-artifacts`, `spark-memory`, `spark-session`, `spark-tasks`, `spark-workflows`, `spark-roles`, `spark-loop`, `spark-repro`, `spark-llm` | retain | These packages own Spark product/domain/provider semantics. They may export Cordis plugins without becoming `dsh-tool-*`. |
 

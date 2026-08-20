@@ -32,7 +32,6 @@
       "@zendev-lab/dsh-tool-fusion/deliberation": [
         "./packages/dsh-tool-fusion/src/deliberation.ts"
       ],
-      "@zendev-lab/dsh-tool-fusion/legacy": ["./packages/dsh-tool-fusion/src/legacy.ts"],
       "@zendev-lab/spark-graft": ["./packages/spark-graft/src/index.ts"],
       "@zendev-lab/spark-graft/extension": ["./packages/spark-graft/src/extension.ts"],
       "@zendev-lab/spark-loop": ["./packages/spark-loop/src/index.ts"],

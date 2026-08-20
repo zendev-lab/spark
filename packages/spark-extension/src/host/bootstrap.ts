@@ -46,7 +46,7 @@ import {
   loadSparkConfig,
   saveSparkConfig,
 } from "./config.ts";
-import { SparkExtensionLoader } from "./extension-loader.ts";
+import { SparkExtensionLoader, selectSparkAgentPlugins } from "./extension-loader.ts";
 import { SparkKeybindings } from "@zendev-lab/spark-host/keybindings";
 import {
   SparkModelSelector,
@@ -227,11 +227,13 @@ export async function createSparkCliHostServices(
     options.sessionManager ?? createSparkCliSessionManagerStub(sessionStore, cwd),
   );
 
+  const agentPluginSelection = selectSparkAgentPlugins(options.extensions ?? config.extensions);
   const extensionLoadResult = await new SparkExtensionLoader({
     api: runtime as SparkHostAPI,
-    extensions: options.extensions ?? config.extensions,
+    extensions: agentPluginSelection.extensionSpecs,
     importer: options.extensionImporter,
   }).load();
+  extensionLoadResult.outcomes.push(...agentPluginSelection.outcomes);
   for (const outcome of extensionLoadResult.outcomes) {
     if (!outcome.ok)
       diagnostics.push({
@@ -294,6 +296,7 @@ export async function createSparkCliHostServices(
     host: runtime,
     llm: llmComposition.llm,
     dshContext: options.dshContext,
+    agentPlugins: agentPluginSelection.agentPlugins,
     getModel: () => {
       const model = providerRegistry.buildActiveModel();
       if (!model) throw new Error("No active Spark model selected");

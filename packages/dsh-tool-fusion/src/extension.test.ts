@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { Context } from "@deepseek-ai/cordis";
-import { CallId } from "@deepseek-ai/dsh-llm";
+import LlmRuntime, {
+  CallId,
+  LlmAdapter,
+  type GenerateOptions,
+  type StreamChunk,
+} from "@deepseek-ai/dsh-llm";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
-import type { LeafCapabilityRequest, SparkExecutionService } from "@zendev-lab/spark-core";
 
 import * as FusionPlugin from "./extension.ts";
 
@@ -32,37 +36,31 @@ function analysis(): string {
 }
 
 describe("dsh-tool-fusion", () => {
-  it("registers a policy-bearing DSH tool over ctx.sparkExecution", async () => {
+  it("runs bounded calls through the native DSH LLM service", async () => {
     const ctx = new Context();
-    let calls = 0;
+    const requests: GenerateOptions[] = [];
     try {
+      await ctx.plugin(LlmRuntime);
       await ctx.plugin(SystemPrompt);
       await ctx.plugin(ToolRuntime);
-      const execution: SparkExecutionService = {
-        cwd: "/tmp/dsh-tool-fusion",
-        sessionId: "session-fusion",
-        model: { provider: "test", id: "model" },
-        async runLeaf(_request: LeafCapabilityRequest) {
-          calls += 1;
-          return {
-            degraded: false,
-            text: calls === 3 ? analysis() : opinion(),
-            model: "test/model",
-          };
-        },
-      };
-      ctx.provide("sparkExecution", execution);
-      await ctx.plugin(FusionPlugin);
+      ctx.llm.registerAdapter(
+        ["test"],
+        new (class extends LlmAdapter {
+          async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+            requests.push(options);
+            const text = requests.length === 3 ? analysis() : opinion();
+            yield { type: "block-start", index: 0, blockType: "text" };
+            yield { type: "text-delta", index: 0, text };
+            yield { type: "block-end", index: 0, block: { type: "text", text } };
+            yield { type: "finish", reason: { kind: "stop" } };
+          }
+        })(),
+      );
+      await ctx.plugin(FusionPlugin, { defaultModel: { provider: "test", model: "model" } });
 
       const definition = ctx.tools.get("fusion");
-      expect(definition?.sparkPolicy).toEqual({
-        effect: "read",
-        executionMode: "sequential",
-        domains: ["models", "deliberation"],
-        modes: ["plan", "execute"],
-        approval: "required",
-        reconcile: "none",
-      });
+      expect(definition).toBeDefined();
+      expect(definition).not.toHaveProperty("sparkPolicy");
       const result = await ctx.tools.execute({
         callId: CallId("fusion-call"),
         name: "fusion",
@@ -80,7 +78,11 @@ describe("dsh-tool-fusion", () => {
       expect(result.isError).toBe(false);
       if (result.isError) throw new Error(result.error.message);
       expect(result.value).toMatchObject({ status: "complete" });
-      expect(calls).toBe(3);
+      expect(requests).toHaveLength(3);
+      expect(requests.every((request) => request.provider === "test")).toBe(true);
+      expect(requests[0]).toMatchObject({ model: "model", maxTokens: 2048 });
+      expect(requests[0]?.system).toContain("independent panelist");
+      expect(requests[2]?.system).toContain("comparison judge");
       expect((await ctx.systemPrompt.assemble()).sections).toContainEqual(
         expect.objectContaining({ name: "tool:fusion" }),
       );
@@ -94,10 +96,7 @@ describe("dsh-tool-fusion", () => {
     try {
       await ctx.plugin(SystemPrompt);
       await ctx.plugin(ToolRuntime);
-      ctx.provide("sparkExecution", {
-        cwd: "/tmp/dsh-tool-fusion",
-        sessionId: "session-fusion-invalid",
-      } satisfies SparkExecutionService);
+      await ctx.plugin(LlmRuntime);
       await ctx.plugin(FusionPlugin);
       const result = await ctx.tools.execute({
         callId: CallId("fusion-invalid"),

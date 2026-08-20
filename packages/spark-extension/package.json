@@ -50,6 +50,7 @@
     "@deepseek-ai/dsh-invariants": "catalog:dsh",
     "@deepseek-ai/dsh-llm": "catalog:dsh",
     "@deepseek-ai/dsh-timeout": "catalog:dsh",
+    "@deepseek-ai/dsh-tools": "catalog:dsh",
     "@zendev-lab/dsh-tool-fusion": "workspace:^",
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-ask": "workspace:^",

@@ -313,7 +313,7 @@ function applyChunk(message: AssistantMessage, chunk: StreamChunk): AssistantMes
     return upsertToolCall(message, chunk.id, chunk.name, chunk.argumentsDelta);
   }
   if (chunk.type === "block-end" && chunk.block.type === "tool-call") {
-    return upsertToolCall(message, chunk.block.id, chunk.block.name, chunk.block.arguments);
+    return finalizeToolCall(message, chunk.block.id, chunk.block.name, chunk.block.arguments);
   }
   return message;
 }
@@ -722,6 +722,28 @@ function upsertToolCall(
         arguments: parseArguments(argumentsDelta),
       } as ToolCall,
     ],
+  };
+}
+
+function finalizeToolCall(
+  message: AssistantMessage,
+  id: string,
+  name: string,
+  argumentsJson: string,
+): AssistantMessage {
+  const existing = message.content.find(
+    (part): part is ToolCall => part.type === "toolCall" && part.id === id,
+  );
+  const toolCall = {
+    type: "toolCall" as const,
+    id,
+    name,
+    arguments: parseArguments(argumentsJson),
+  };
+  if (!existing) return { ...message, content: [...message.content, toolCall] };
+  return {
+    ...message,
+    content: message.content.map((part) => (part === existing ? toolCall : part)),
   };
 }
 

@@ -121,6 +121,42 @@ test("piEventToLlmChunks converts a start event without waiting for result()", (
   assert.equal(chunks[0]?.type, "text-delta");
 });
 
+test("a DSH tool-call block end replaces its argument deltas with canonical JSON", async () => {
+  const chunks: StreamChunk[] = [
+    { type: "block-start", index: 0, blockType: "tool-call" },
+    {
+      type: "tool-call-delta",
+      index: 0,
+      id: "tc-dsh" as never,
+      name: "echo",
+      argumentsDelta: '{"x":1}',
+    },
+    {
+      type: "block-end",
+      index: 0,
+      block: {
+        type: "tool-call",
+        id: "tc-dsh" as never,
+        name: "echo",
+        arguments: '{"x":1}',
+      },
+    },
+    { type: "finish", reason: { kind: "tool-calls" } },
+  ];
+  const stream = llmChunksToPiAiStream(
+    (async function* () {
+      yield* chunks;
+    })(),
+    MODEL,
+  );
+  let completed: AssistantMessage | undefined;
+  for await (const event of stream) {
+    if (event.type === "done") completed = event.message;
+  }
+  const toolCall = completed?.content.find((part) => part.type === "toolCall");
+  assert.deepEqual(toolCall?.arguments, { x: 1 });
+});
+
 test("an empty pi-ai iterator does not throw while converting to chunks", async () => {
   const chunks: StreamChunk[] = [];
   for await (const chunk of piEventsToLlmChunks(

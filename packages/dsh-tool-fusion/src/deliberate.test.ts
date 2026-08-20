@@ -1,6 +1,6 @@
-import type { LeafCapabilityRequest, LeafCapabilityRunner } from "@zendev-lab/spark-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_FUSION_PANELS, deliberateSparkFusion } from "./deliberate.ts";
+import type { FusionModelCallRequest, FusionModelCallRunner } from "./types.ts";
 
 function opinion(conclusion: string): string {
   return JSON.stringify({
@@ -26,10 +26,14 @@ function analysis(): string {
   });
 }
 
-function successfulRunner(calls: LeafCapabilityRequest[] = []): LeafCapabilityRunner {
+function successfulRunner(calls: FusionModelCallRequest[] = []): FusionModelCallRunner {
   return async (request) => {
     calls.push(request);
-    const model = request.model ?? request.sessionModel;
+    const model =
+      request.model ??
+      (request.sessionModel
+        ? `${request.sessionModel.provider}/${request.sessionModel.model}`
+        : undefined);
     if (request.role === "fusion-judge") {
       return { degraded: false, text: analysis(), ...(model ? { model } : {}) };
     }
@@ -47,9 +51,12 @@ afterEach(() => {
 
 describe("deliberateSparkFusion", () => {
   it("runs the default independent panels before a strict judge and preserves panel order", async () => {
-    const calls: LeafCapabilityRequest[] = [];
+    const calls: FusionModelCallRequest[] = [];
     const result = await deliberateSparkFusion(
-      { question: "Which probe best localizes the first divergence?", sessionModel: "local/main" },
+      {
+        question: "Which probe best localizes the first divergence?",
+        sessionModel: { provider: "local", model: "main" },
+      },
       { runLeaf: successfulRunner(calls) },
     );
 
@@ -100,7 +107,7 @@ describe("deliberateSparkFusion", () => {
   });
 
   it("honors explicit heterogeneous panel and judge models while retaining the session fallback", async () => {
-    const calls: LeafCapabilityRequest[] = [];
+    const calls: FusionModelCallRequest[] = [];
     const result = await deliberateSparkFusion(
       {
         question: "Compare two hypotheses.",
@@ -110,27 +117,32 @@ describe("deliberateSparkFusion", () => {
           { id: "second", perspective: "Argue hypothesis B." },
         ],
         judgeModel: "provider/judge",
-        sessionModel: "provider/session",
+        sessionModel: { provider: "provider", model: "session" },
       },
       { runLeaf: successfulRunner(calls) },
     );
 
     expect(result.status).toBe("complete");
-    expect(calls[0]).toMatchObject({ model: "provider/a", sessionModel: "provider/session" });
-    expect(calls[1]).toMatchObject({ sessionModel: "provider/session" });
+    expect(calls[0]).toMatchObject({
+      model: "provider/a",
+      sessionModel: { provider: "provider", model: "session" },
+    });
+    expect(calls[1]).toMatchObject({
+      sessionModel: { provider: "provider", model: "session" },
+    });
     expect(calls[1]).not.toHaveProperty("model");
     expect(calls[2]).toMatchObject({
       role: "fusion-judge",
       model: "provider/judge",
-      sessionModel: "provider/session",
+      sessionModel: { provider: "provider", model: "session" },
     });
     expect(result.panels.map((panel) => panel.model)).toEqual(["provider/a", "provider/session"]);
     expect(result.judge?.model).toBe("provider/judge");
   });
 
   it("returns partial without invoking a judge when fewer than two panels are valid", async () => {
-    const calls: LeafCapabilityRequest[] = [];
-    const runLeaf: LeafCapabilityRunner = async (request) => {
+    const calls: FusionModelCallRequest[] = [];
+    const runLeaf: FusionModelCallRunner = async (request) => {
       calls.push(request);
       return request.role.endsWith(":valid")
         ? { degraded: false, text: opinion("Only valid opinion") }
@@ -153,7 +165,7 @@ describe("deliberateSparkFusion", () => {
   });
 
   it("returns a judged partial result when some panels fail but two remain valid", async () => {
-    const calls: LeafCapabilityRequest[] = [];
+    const calls: FusionModelCallRequest[] = [];
     const result = await deliberateSparkFusion(
       {
         question: "A bounded question",

@@ -6,25 +6,29 @@
  */
 import { randomUUID } from "node:crypto";
 
-import type { Context } from "@deepseek-ai/cordis";
+import type { Context, Plugin } from "@deepseek-ai/cordis";
 import { type AgentHandle } from "@deepseek-ai/dsh-agent";
 import {
   CallId,
   LlmAdapter,
   LlmError,
   createUserMessage,
+  isAgentLoopRequest,
   type GenerateOptions,
   type StreamChunk,
+  type ToolResultMessage as DshToolResultMessage,
+  type ToolSchema,
 } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import { idleWatchdog } from "@deepseek-ai/dsh-timeout";
 import { defineTool, type PreToolDecision } from "@deepseek-ai/dsh-tools";
-import type { SparkExecutionService } from "@zendev-lab/spark-core";
+import type { SparkDshToolPolicyMetadata, SparkExecutionService } from "@zendev-lab/spark-core";
 import type {
   AssistantMessage,
   AssistantMessageEvent,
   Context as PiContext,
   Model,
+  Tool,
   ToolCall,
   ToolResultMessage,
 } from "@zendev-lab/spark-llm";
@@ -51,6 +55,7 @@ export interface SparkTurnDriverCheckpoint {
 }
 
 const SPARK_TURN_PROVIDER = "spark-turn";
+const SPARK_AUXILIARY_MODEL_PREFIX = "spark-auxiliary-model:";
 const STREAM_IDLE_TIMEOUT_CODE = "STREAM_IDLE_TIMEOUT";
 const SPARK_TURN_RESTART_YIELD_ERROR_CODE = "SPARK_TURN_RESTART_YIELD";
 
@@ -61,6 +66,13 @@ export interface SparkTurnDriverTool {
   timeoutMs?: number;
 }
 
+/** Encode an explicit model behind one invocation-private Spark driver route. */
+export function encodeSparkAuxiliaryModelRoute(model: string, provider?: string): string {
+  const normalizedModel = model.trim();
+  if (!normalizedModel) throw new Error("Spark auxiliary model id is required");
+  return `${SPARK_AUXILIARY_MODEL_PREFIX}${encodeURIComponent(provider?.trim() ?? "")}/${encodeURIComponent(normalizedModel)}`;
+}
+
 export interface SparkAssembledTurn {
   model: Model<string>;
   context: PiContext;
@@ -68,8 +80,25 @@ export interface SparkAssembledTurn {
   reasoning?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 }
 
+export interface SparkDshToolDescriptor {
+  readonly schema: ToolSchema;
+  readonly policy: SparkDshToolPolicyMetadata | undefined;
+}
+
+export interface SparkPreparedTurn {
+  context: PiContext;
+  requestedOutputTokens: number;
+}
+
 export interface SparkTurnDriverHooks {
   assemble(): Promise<SparkAssembledTurn>;
+  /** Resolve the Spark provider behind the Agent's private driver route. */
+  resolveAuxiliaryModel?(): Model<string>;
+  prepareRequest?(
+    assembled: SparkAssembledTurn,
+    context: PiContext,
+    dshTools: readonly SparkDshToolDescriptor[],
+  ): Promise<SparkPreparedTurn>;
   dispatchToolCall(toolCall: ToolCall, signal: AbortSignal): Promise<ToolResultMessage>;
   onStreamEvent?(event: { type: string; [key: string]: unknown }): void;
   onAssistant?(assistant: unknown): void | Promise<void>;
@@ -81,7 +110,9 @@ export interface SparkTurnDriverHooks {
     name: string,
     args: Readonly<Record<string, unknown>>,
     signal: AbortSignal,
+    registration: SparkTurnToolRegistration,
   ): Promise<PreToolDecision>;
+  isDshToolAvailable?(name: string, policy: SparkDshToolPolicyMetadata | undefined): boolean;
   collectToolCalls?(assistant: unknown): ToolCall[];
   promptItems(): readonly SparkPromptItem[];
   roundtrips(): number;
@@ -94,6 +125,8 @@ export interface RunSparkDshTurnInput {
   sessionId: string;
   sessionMetadata?: SparkDshSessionMetadata;
   execution: SparkExecutionService;
+  /** Cordis plugins composed into this invocation's unpublished Agent scope. */
+  agentPlugins?: readonly Plugin[];
   cwd?: string;
   followupText: string;
   tools: readonly SparkTurnDriverTool[];
@@ -101,6 +134,14 @@ export interface RunSparkDshTurnInput {
   signal: AbortSignal;
   hooks: SparkTurnDriverHooks;
 }
+
+export type SparkTurnToolRegistration =
+  | { readonly owner: "spark-host" }
+  | {
+      readonly owner: "dsh";
+      readonly callId: string;
+      readonly policy: SparkDshToolPolicyMetadata | undefined;
+    };
 
 export interface SparkDshSessionMetadata {
   timestamp: string;
@@ -147,7 +188,7 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
     );
     const concurrency: SparkTurnConcurrencyGate = { sequential: false };
     const driverProvider = `${SPARK_TURN_PROVIDER}/${randomUUID()}`;
-    const setup = (agentCtx: Context): void => {
+    const setup = async (agentCtx: Context): Promise<void> => {
       const executionCtx = agentCtx.isolate("sparkExecution", executionLabel);
       if (!persisted && input.sessionMetadata) {
         const agent = executionCtx.agent;
@@ -155,7 +196,7 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
         appendSparkSessionMetadata(agent.session, input.sessionMetadata);
       }
       installSparkHangTimeoutPlugin(executionCtx, input.streamIdleTimeoutMs);
-      installSparkConsentPlugin(executionCtx, input.hooks);
+      installSparkConsentPlugin(executionCtx, input.hooks, registeredNames);
       installSparkHostGuardPlugin(executionCtx, (signal) => {
         if (signal.aborted) {
           throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
@@ -167,6 +208,7 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
       executionCtx.llm.registerAdapter(
         [driverProvider],
         new SparkTurnLlmAdapter(
+          driverProvider,
           input.llm,
           input.hooks,
           input.signal,
@@ -180,6 +222,10 @@ export async function runSparkDshTurn(input: RunSparkDshTurnInput): Promise<void
       for (const tool of input.tools) {
         executionCtx.tools.register(sparkHostToolDefinition(tool, input.hooks, concurrency));
       }
+      for (const plugin of input.agentPlugins ?? []) {
+        await executionCtx.plugin(plugin);
+      }
+      installNativeDshToolResultProjection(executionCtx, input.hooks, registeredNames);
     };
     const sessionId = SessionId(input.sessionId);
     const persistence = ctx.get("sessionPersistence");
@@ -238,11 +284,22 @@ function appendSparkSessionMetadata(
   );
 }
 
-export function installSparkConsentPlugin(ctx: Context, hooks: SparkTurnDriverHooks): void {
+export function installSparkConsentPlugin(
+  ctx: Context,
+  hooks: SparkTurnDriverHooks,
+  sparkHostTools: ReadonlySet<string> = new Set(),
+): void {
   ctx.on("tools/pre-execute", async (exec, next) => {
     if (!hooks.preExecute) return next();
     const args = isPlainRecord(exec.arguments) ? exec.arguments : {};
-    const decision = await hooks.preExecute(exec.name, args, exec.signal);
+    const registration: SparkTurnToolRegistration = sparkHostTools.has(exec.name)
+      ? { owner: "spark-host" }
+      : {
+          owner: "dsh",
+          callId: String(exec.callId),
+          policy: sparkDshToolPolicy(ctx, exec.name, exec.agent),
+        };
+    const decision = await hooks.preExecute(exec.name, args, exec.signal, registration);
     if (decision.kind === "allow") return next();
     return decision;
   });
@@ -277,6 +334,7 @@ export function installSparkHangTimeoutPlugin(ctx: Context, idleTimeoutMs: numbe
 }
 
 class SparkTurnLlmAdapter extends LlmAdapter {
+  private readonly driverProvider: string;
   private readonly llm: SparkTurnLlm;
   private readonly hooks: SparkTurnDriverHooks;
   private readonly signal: AbortSignal;
@@ -287,6 +345,7 @@ class SparkTurnLlmAdapter extends LlmAdapter {
   private readonly captured: SparkTurnDriverCapture;
 
   constructor(
+    driverProvider: string,
     llm: SparkTurnLlm,
     hooks: SparkTurnDriverHooks,
     signal: AbortSignal,
@@ -297,6 +356,7 @@ class SparkTurnLlmAdapter extends LlmAdapter {
     captured: SparkTurnDriverCapture,
   ) {
     super();
+    this.driverProvider = driverProvider;
     this.llm = llm;
     this.hooks = hooks;
     this.signal = signal;
@@ -320,12 +380,44 @@ class SparkTurnLlmAdapter extends LlmAdapter {
   }
 
   async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
+    if (!isAgentLoopRequest(options)) {
+      const activeModel = this.hooks.resolveAuxiliaryModel?.();
+      if (!activeModel) {
+        throw new LlmError("Spark auxiliary model route is unavailable", "NO_ADAPTER");
+      }
+      const usesDriverRoute = options.provider === this.driverProvider;
+      const explicit = usesDriverRoute ? decodeSparkAuxiliaryModelRoute(options.model) : undefined;
+      const provider =
+        explicit?.provider || (usesDriverRoute ? activeModel.provider : options.provider);
+      const model =
+        explicit?.model ??
+        (usesDriverRoute && options.model === this.driverProvider ? activeModel.id : options.model);
+      const maxTokens =
+        options.maxTokens === undefined
+          ? activeModel.maxTokens
+          : Math.min(options.maxTokens, activeModel.maxTokens);
+      yield* this.llm.stream({ ...options, provider, model, maxTokens });
+      return;
+    }
     await this.hooks.onRoundtrip?.();
     const assembled = await this.hooks.assemble();
-    const cacheKey = readPromptCacheKey(assembled.context);
-    const generate = sparkContextToGenerateOptions(assembled.model, assembled.context, {
+    const composition = mergeNativeDshComposition(
+      assembled.context,
+      options,
+      this.ctx,
+      this.registeredNames,
+      this.hooks,
+    );
+    const prepared = this.hooks.prepareRequest
+      ? await this.hooks.prepareRequest(assembled, composition.context, composition.tools)
+      : {
+          context: composition.context,
+          requestedOutputTokens: assembled.requestedOutputTokens,
+        };
+    const cacheKey = readPromptCacheKey(prepared.context);
+    const generate = sparkContextToGenerateOptions(assembled.model, prepared.context, {
       signal: options.signal ?? this.signal,
-      maxTokens: assembled.requestedOutputTokens,
+      maxTokens: prepared.requestedOutputTokens,
       ...(assembled.reasoning !== undefined ? { reasoning: assembled.reasoning } : {}),
       ...(cacheKey ? { promptCacheKey: cacheKey, prompt_cache_key: cacheKey } : {}),
     } as Parameters<typeof sparkContextToGenerateOptions>[2]);
@@ -383,10 +475,141 @@ class SparkTurnLlmAdapter extends LlmAdapter {
 
   private ensureHostTool(name: string): void {
     if (this.registeredNames.has(name)) return;
+    // A Cordis-native plugin owns this name in the Agent scope. Do not shadow
+    // it with the compatibility dispatcher after the model selects it.
+    if (this.ctx.tools.get(name, this.ctx.agent)) return;
     this.registeredNames.add(name);
     this.ctx.tools.register(
       sparkHostToolDefinition({ name, description: name }, this.hooks, this.concurrency),
     );
+  }
+}
+
+function decodeSparkAuxiliaryModelRoute(
+  value: string,
+): { provider?: string; model: string } | undefined {
+  if (!value.startsWith(SPARK_AUXILIARY_MODEL_PREFIX)) return undefined;
+  const encoded = value.slice(SPARK_AUXILIARY_MODEL_PREFIX.length);
+  const separator = encoded.indexOf("/");
+  if (separator < 0) return undefined;
+  try {
+    const provider = decodeURIComponent(encoded.slice(0, separator));
+    const model = decodeURIComponent(encoded.slice(separator + 1));
+    return model ? { ...(provider ? { provider } : {}), model } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function mergeNativeDshComposition(
+  context: PiContext,
+  options: GenerateOptions,
+  ctx: Context,
+  sparkHostTools: ReadonlySet<string>,
+  hooks: SparkTurnDriverHooks,
+): { context: PiContext; tools: SparkDshToolDescriptor[] } {
+  const existingTools = context.tools ?? [];
+  const existingNames = new Set(existingTools.map((tool) => tool.name));
+  const nativeTools = (options.tools ?? []).flatMap((schema): SparkDshToolDescriptor[] => {
+    if (sparkHostTools.has(schema.name) || existingNames.has(schema.name)) return [];
+    const policy = sparkDshToolPolicy(ctx, schema.name, ctx.agent);
+    if (hooks.isDshToolAvailable?.(schema.name, policy) === false) return [];
+    return [{ schema, policy }];
+  });
+  if (nativeTools.length === 0) return { context, tools: [] };
+  const systemPrompt = joinPromptSections(context.systemPrompt, options.system);
+  return {
+    context: {
+      ...context,
+      ...(systemPrompt ? { systemPrompt } : {}),
+      tools: [...existingTools, ...nativeTools.map((entry) => dshSchemaToPiTool(entry.schema))],
+    } as PiContext,
+    tools: nativeTools,
+  };
+}
+
+function dshSchemaToPiTool(schema: ToolSchema): Tool {
+  return {
+    name: schema.name,
+    description: schema.description,
+    parameters: schema.parameters,
+  } as Tool;
+}
+
+function joinPromptSections(primary: string | undefined, secondary: string | undefined): string {
+  const sections = [primary?.trim(), secondary?.trim()].filter((section): section is string =>
+    Boolean(section),
+  );
+  return [...new Set(sections)].join("\n\n");
+}
+
+function sparkDshToolPolicy(
+  ctx: Context,
+  name: string,
+  scope: unknown,
+): SparkDshToolPolicyMetadata | undefined {
+  const definition = ctx.tools.get(name, scope as Parameters<typeof ctx.tools.get>[1]);
+  return (definition as { sparkPolicy?: SparkDshToolPolicyMetadata } | undefined)?.sparkPolicy;
+}
+
+function installNativeDshToolResultProjection(
+  ctx: Context,
+  hooks: SparkTurnDriverHooks,
+  sparkHostTools: ReadonlySet<string>,
+): void {
+  const callNames = new Map<string, string>();
+  ctx.on("session/event", (_session, event) => {
+    if (event.type === "tool/call") {
+      callNames.set(String(event.data.callId), event.data.name);
+      return;
+    }
+    if (event.type !== "tool/result") return;
+    const callId = String(event.data.message.source.callId);
+    const name = callNames.get(callId);
+    callNames.delete(callId);
+    if (!name || sparkHostTools.has(name)) return;
+    hooks.onToolResult?.(sparkToolResultFromDsh(event.data.message, name, event.data.meta));
+  });
+}
+
+function sparkToolResultFromDsh(
+  message: DshToolResultMessage,
+  toolName: string,
+  meta: unknown,
+): ToolResultMessage {
+  const block = message.content[0];
+  const content = block.content.flatMap((part) => {
+    if (part.type === "text") return [{ type: "text" as const, text: part.text }];
+    if (part.type === "image") {
+      return [
+        {
+          type: "text" as const,
+          text: `[DSH image attachment ${String(part.attachment.attachmentId)}]`,
+        },
+      ];
+    }
+    return [];
+  });
+  return {
+    role: "toolResult",
+    toolCallId: String(block.toolCallId),
+    toolName,
+    content,
+    ...(meta !== undefined ? { details: meta } : parsedJsonDetails(content)),
+    isError: Boolean(block.isError),
+    timestamp: Date.now(),
+  };
+}
+
+function parsedJsonDetails(content: readonly { type: "text"; text: string }[]): {
+  details?: Record<string, unknown>;
+} {
+  if (content.length !== 1) return {};
+  try {
+    const value: unknown = JSON.parse(content[0]?.text ?? "");
+    return isPlainRecord(value) ? { details: value } : {};
+  } catch {
+    return {};
   }
 }
 

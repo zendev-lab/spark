@@ -161,6 +161,7 @@ export {
   getBuiltinExtensionFactory,
   loadBuiltinExtensionFactories,
   loadSparkExtensions,
+  selectSparkAgentPlugins,
 } from "./extension-loader.ts";
 export {
   BUILTIN_SPARK_THEMES,
@@ -247,6 +248,7 @@ export type {
   SparkExtensionLoadOutcome,
   SparkExtensionLoadResult,
   SparkExtensionLoaderOptions,
+  SparkAgentPluginSelection,
 } from "./extension-loader.ts";
 export type {
   SparkHtmlExportInput,
