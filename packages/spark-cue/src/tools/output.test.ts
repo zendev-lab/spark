@@ -6,6 +6,7 @@ import { test } from "vitest";
 
 import {
   CueError,
+  cueShellCommandIssue,
   cueShellCommandSyntaxIssue,
   defaultSocketPath,
   type JobInfo,
@@ -585,6 +586,32 @@ test("cue-shell command preflight explains bash syntax before dispatch", () => {
   assert.match(cueShellCommandSyntaxIssue("git status; git diff") ?? "", /bash ';' syntax/u);
   assert.match(cueShellCommandSyntaxIssue("git status 2>/dev/null") ?? "", /redirection/u);
   assert.equal(cueShellCommandSyntaxIssue("echo 'a | b'"), undefined);
+});
+
+test("structured preflight carries a verbatim rewrite suggestion", () => {
+  assert.equal(cueShellCommandIssue("cargo build |> grep error"), undefined);
+  assert.equal(cueShellCommandIssue("echo 'a | b'"), undefined);
+  assert.equal(cueShellCommandIssue("(a ||| b) -> c"), undefined);
+
+  const pipe = cueShellCommandIssue("git status | head");
+  assert.ok(pipe);
+  assert.match(pipe!.reason, /bare bash pipe/u);
+  assert.equal(pipe!.suggestion, "git status |> head");
+
+  const semi = cueShellCommandIssue("git status; git diff");
+  assert.ok(semi);
+  assert.match(semi!.reason, /bash ';' syntax/u);
+  assert.equal(semi!.suggestion, "git status ~> git diff");
+
+  const redirect = cueShellCommandIssue("git status 2>/dev/null");
+  assert.ok(redirect);
+  assert.match(redirect!.reason, /redirection/u);
+  assert.equal(redirect!.suggestion, undefined);
+
+  // Multi-bare-pipe chains rewrite only the first flagged pipe (the model
+  // can re-issue and get the next one); quotes and legal operators survive.
+  assert.equal(cueShellCommandIssue("ls | head | wc")?.suggestion, "ls |> head | wc");
+  assert.equal(cueShellCommandIssue('echo "a|b" | c')?.suggestion, 'echo "a|b" |> c');
 });
 
 test("cue_jobs exposes chain IDs for status and wait", async () => {

@@ -223,6 +223,7 @@ setInterval(() => {}, 1000);
         },
         "2026-08-08T00:01:00.000Z",
         {
+          helperReadyTimeoutMs: 30_000,
           helperCommand: [stableLauncher, "daemon"],
           helperEnv: {
             SPARK_DAEMON_COMMAND: target,

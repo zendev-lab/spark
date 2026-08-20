@@ -23,7 +23,9 @@ function harness(
         return () => undefined;
       },
     },
-    systemPrompt: { section: vi.fn(() => () => undefined) },
+    systemPrompt: {
+      section: vi.fn((_section: { name: string; text: string }) => () => undefined),
+    },
     sandboxPolicy: { resolve: vi.fn(() => ({ mode, workspaceRoot: "/workspace" })) },
     shellEnv: { collect: vi.fn(() => ({ DSH_SHELL: "1" })) },
     on(
@@ -163,5 +165,19 @@ describe("dsh-tool-cue rc.7 plugin", () => {
         isError: false,
       }),
     ).toEqual({ card: "terminal", output: "done" });
+  });
+
+  it("exposes the not-bash guidance to the model before any call", () => {
+    const { context, tools, dispose } = harness();
+    const cueExec = tools.find((tool) => tool.name === "cue_exec");
+    expect(cueExec?.description).toContain("not bash");
+    expect(cueExec?.description).toContain("direct-exec");
+    expect(cueExec?.description).toContain("|'");
+    const sections = (
+      context.systemPrompt.section.mock.calls as Array<[{ name: string; text: string }]>
+    ).map((call) => call[0]);
+    const cueSection = sections.find((section) => section.name === "tool:cue");
+    expect(cueSection?.text).toContain("rewrite it to Cue operators first");
+    for (const cleanup of dispose) cleanup();
   });
 });

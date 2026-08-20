@@ -682,7 +682,14 @@ async function authorizeTaskCueTarget(
   throw new Error(`Cue cwd escapes the daemon-authorized Task scope: ${cwd}`);
 }
 
-export function cueShellCommandSyntaxIssue(command: string): string | undefined {
+export interface CueShellCommandIssue {
+  reason: string;
+  /** Optional suggested cue-shell rewrite for the flagged command. */
+  suggestion?: string;
+}
+
+/** Rewrite the first bare `|` (outside quotes) to the cue-shell `|>` pipe. */
+function rewriteBarePipe(command: string): string | undefined {
   let quote: "single" | "double" | undefined;
   for (let index = 0; index < command.length; index += 1) {
     const char = command[index];
@@ -706,17 +713,105 @@ export function cueShellCommandSyntaxIssue(command: string): string | undefined 
       quote = "double";
       continue;
     }
-    if (char === ";")
-      return "cue_exec received bash ';' syntax. Use cue-shell '->' or '~>' between jobs, or make separate cue_exec calls.";
+    if (char !== "|") continue;
+    if (command[index + 1] === ">") continue;
+    if (command[index + 1] === "&" && command[index + 2] === ">") continue;
+    if (command[index + 1] === "?" && command[index + 2] === "|") continue;
+    if (command[index + 1] === "|") continue;
+    return `${command.slice(0, index)}|>${command.slice(index + 1)}`;
+  }
+  return undefined;
+}
+
+/** Replace the first bare `;` (outside quotes) with the `~>` chain operator, keeping spacing natural. */
+function rewriteSemicolon(command: string): string | undefined {
+  let quote: "single" | "double" | undefined;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    if (char === "\\" && quote !== "single") {
+      index += 1;
+      continue;
+    }
+    if (quote === "single") {
+      if (char === "'") quote = undefined;
+      continue;
+    }
+    if (quote === "double") {
+      if (char === '"') quote = undefined;
+      continue;
+    }
+    if (char === "'") {
+      quote = "single";
+      continue;
+    }
+    if (char === '"') {
+      quote = "double";
+      continue;
+    }
+    if (char === ";") {
+      const before = index > 0 ? command[index - 1] : "";
+      const after = index + 1 < command.length ? command[index + 1] : "";
+      const lead = before && !/\s/u.test(before) ? " " : "";
+      const trail = after && !/\s/u.test(after) ? " " : "";
+      return `${command.slice(0, index)}${lead}~>${trail}${command.slice(index + 1)}`;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Structured bash-syntax guard for cue_exec commands. Returns the first
+ * shell-only construct found (outside quotes) plus an optional concrete
+ * rewrite the model can re-issue verbatim. `|>` / `|&>` / `|?|` / `|||` /
+ * `->` / `~>` and quoted text are never flagged.
+ */
+export function cueShellCommandIssue(command: string): CueShellCommandIssue | undefined {
+  let quote: "single" | "double" | undefined;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    if (char === "\\" && quote !== "single") {
+      index += 1;
+      continue;
+    }
+    if (quote === "single") {
+      if (char === "'") quote = undefined;
+      continue;
+    }
+    if (quote === "double") {
+      if (char === '"') quote = undefined;
+      continue;
+    }
+    if (char === "'") {
+      quote = "single";
+      continue;
+    }
+    if (char === '"') {
+      quote = "double";
+      continue;
+    }
+    if (char === ";") {
+      const suggestion = rewriteSemicolon(command);
+      return {
+        reason:
+          "cue_exec received bash ';' syntax. Use cue-shell '->' or '~>' between jobs, or make separate cue_exec calls.",
+        ...(suggestion === undefined ? {} : { suggestion }),
+      };
+    }
     if (char === "<")
-      return "cue_exec received shell redirection '<'. cue-shell is direct-exec; pass input through a file tool or a supported command argument instead.";
+      return {
+        reason:
+          "cue_exec received shell redirection '<'. cue-shell is direct-exec; pass input through a file tool or a supported command argument instead.",
+      };
     if (
       char === ">" &&
       command[index - 1] !== "|" &&
       command[index - 1] !== "-" &&
       command[index - 1] !== "~"
     )
-      return "cue_exec received shell redirection '>'. cue-shell is direct-exec; inspect stderr with the returned job output instead of redirecting it.";
+      return {
+        reason:
+          "cue_exec received shell redirection '>'. cue-shell is direct-exec; inspect stderr with the returned job output instead of redirecting it.",
+      };
     if (char !== "|") continue;
     if (command[index + 1] === ">") {
       index += 1;
@@ -734,9 +829,19 @@ export function cueShellCommandSyntaxIssue(command: string): string | undefined 
       while (command[index + 1] === "|") index += 1;
       continue;
     }
-    return "cue_exec received a bare bash pipe '|'. Use cue-shell '|>' for stdout piping, or use separate cue_exec/file-tool calls.";
+    const suggestion = rewriteBarePipe(command);
+    return {
+      reason:
+        "cue_exec received a bare bash pipe '|'. Use cue-shell '|>' for stdout piping, or use separate cue_exec/file-tool calls.",
+      ...(suggestion === undefined ? {} : { suggestion }),
+    };
   }
   return undefined;
+}
+
+/** Backwards-compatible string-form guard (reason only). */
+export function cueShellCommandSyntaxIssue(command: string): string | undefined {
+  return cueShellCommandIssue(command)?.reason;
 }
 
 function normalizeRequiredCueString(value: unknown, field: string): string {
@@ -1179,8 +1284,14 @@ export function registerCueOperationDefinitions(pi: SparkCueHostApi) {
     ) {
       rejectRemovedCueParam(params, "tail", "tail_bytes", "cue_exec");
       const command = normalizeRequiredCueString(params.command, "cue_exec command");
-      const syntaxIssue = cueShellCommandSyntaxIssue(command);
-      if (syntaxIssue) throw new Error(syntaxIssue);
+      const syntaxIssue = cueShellCommandIssue(command);
+      if (syntaxIssue) {
+        throw new Error(
+          syntaxIssue.suggestion === undefined
+            ? syntaxIssue.reason
+            : `${syntaxIssue.reason}\nTry: ${syntaxIssue.suggestion}`,
+        );
+      }
       const background = normalizeCueBoolean(params.background, false, "cue_exec background");
       const pty = normalizeCueBoolean(params.pty, false, "cue_exec pty");
       const requestedCwd = normalizeOptionalCueString(params.cwd, "cue_exec cwd");

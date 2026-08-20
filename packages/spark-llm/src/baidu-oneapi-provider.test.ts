@@ -6,6 +6,7 @@ import type {
   Model,
   ProviderStreams,
 } from "@earendil-works/pi-ai";
+import * as piAi from "@earendil-works/pi-ai";
 import { expect, test } from "vitest";
 
 import registerBaiduOneApiProvider from "./baidu-oneapi-provider.ts";
@@ -448,4 +449,85 @@ test("Baidu Anthropic disables thinking for an explicit off level", async () => 
 
   expect(capturedOptions?.thinkingEnabled).toBe(false);
   expect(capturedOptions?.effort).toBeUndefined();
+});
+
+test("Baidu normalize redacts plaintext thinking from assistant messages", () => {
+  const model = testModel("deepseek-v4-flash");
+  const message: AssistantMessage = {
+    ...terminalMessage(model),
+    content: [
+      { type: "text", text: "answer" },
+      {
+        type: "thinking",
+        thinking: "leaked chain-of-thought",
+        thinkingSignature: "opaque-encrypted-payload",
+      },
+    ],
+  };
+  const normalized = normalizeBaiduOneApiMessage(message);
+  expect(normalized.content).toEqual([
+    { type: "text", text: "answer" },
+    {
+      type: "thinking",
+      thinking: "",
+      thinkingSignature: "opaque-encrypted-payload",
+      redacted: true,
+    },
+  ]);
+});
+
+test("Baidu normalize leaves empty or already-redacted thinking untouched", () => {
+  const model = testModel("deepseek-v4-flash");
+  const message: AssistantMessage = {
+    ...terminalMessage(model),
+    content: [
+      { type: "thinking", thinking: "", thinkingSignature: "s1" },
+      { type: "thinking", thinking: "[Reasoning redacted]", redacted: true },
+    ],
+  };
+  const normalized = normalizeBaiduOneApiMessage(message);
+  expect(normalized.content).toBe(message.content);
+});
+
+test("Baidu stream done event carries redacted thinking in the final message", async () => {
+  const model = testModel("deepseek-v4-flash");
+  const payload: AssistantMessage = {
+    ...terminalMessage(model),
+    content: [
+      {
+        type: "thinking",
+        thinking: "hidden chain-of-thought",
+        thinkingSignature: "sig-1",
+      },
+      { type: "text", text: "final" },
+    ],
+  };
+  let lastMessage: AssistantMessage | undefined;
+  const finalMessage: AssistantMessage = {
+    ...payload,
+    content: [...(payload.content ?? [])],
+  };
+  const anthropicMessages: ProviderStreams = {
+    stream: (m) => {
+      const stream = piAi.createAssistantMessageEventStream();
+      stream.push({ type: "thinking_start", contentIndex: 0, partial: payload });
+      stream.push({ type: "done", reason: "stop", message: finalMessage });
+      stream.end(finalMessage);
+      return stream;
+    },
+    streamSimple: (m) => terminalStream(m),
+  };
+  const openAIResponses: ProviderStreams = {
+    stream: (m) => terminalStream(m),
+    streamSimple: (m) => terminalStream(m),
+  };
+  const adapter = createBaiduOneApiProviderAdapter({ anthropicMessages, openAIResponses });
+  const stream = adapter.streamAnthropic(model, { messages: [], tools: [] });
+  for await (const event of stream) {
+    if (event.type === "done") lastMessage = event.message;
+  }
+  expect(lastMessage?.content).toEqual([
+    { type: "thinking", thinking: "", thinkingSignature: "sig-1", redacted: true },
+    { type: "text", text: "final" },
+  ]);
 });
