@@ -15,7 +15,7 @@ import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-ho
 import {
   DEFAULT_SPARK_IDENTITY_PROMPT,
   renderAgentRuntimeContextPrompt,
-} from "@zendev-lab/spark-host/system-prompt";
+} from "../system-prompt.ts";
 import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
 import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
 import {
