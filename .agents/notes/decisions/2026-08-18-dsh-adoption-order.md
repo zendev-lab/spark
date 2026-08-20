@@ -25,6 +25,10 @@ Hard constraints:
   session audit log.
 - Do not take over `dsh-session`. SessionStore / sessionProjections stay a
   Phase 4 gate. Agent-loop, compaction, jobs, and subagent wait on that gate.
+  **Superseded for persistence by
+  [`2026-08-20-dsh-session-persistence.md`](./2026-08-20-dsh-session-persistence.md):**
+  daemon `ctx.sessions` and Spark's `PersistenceBackend` are now in effect.
+  Session projections remain Spark-owned until a later decision.
 - `dsh-jobs` / `dsh-subagent` are in-process and do not replace daemon durable
   Fleet.
 

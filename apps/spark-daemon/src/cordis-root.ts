@@ -1,17 +1,19 @@
 /**
- * Process-local Cordis root for daemon store composition.
+ * Process-local Cordis root for daemon store composition and session persistence.
  *
  * Invocation, channel, loop, and retry data authority stays in Spark SQLite.
- * This module only mounts already-constructed stores as services and owns
- * fiber dispose. It does not replace Session transcripts or the LLM island.
+ * Live sessions are `ctx.sessions`; JSONL durability is dsh-session-persistence
+ * with Spark's PersistenceBackend. This module does not own the LLM island.
  */
 import { Context } from "@deepseek-ai/cordis";
+import { SessionStore } from "@deepseek-ai/dsh-session";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 
 import { ChannelReplyDeliveryStore } from "./channels/reply-delivery.ts";
 import { SparkDaemonInvocationRegistry } from "./core/index.ts";
 import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
 import { ExecutionAttemptStore } from "./execution/state.ts";
+import { mountSparkDaemonSessionPersistence } from "./session-persistence.ts";
 import { SparkChannelDeliveryStore } from "./store/channel-deliveries.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { SparkLoopStore } from "./store/loops.ts";
@@ -46,6 +48,10 @@ export interface SparkDaemonStoreServices {
 export interface SparkDaemonCordisRoot {
   ctx: Context;
   dispose(): Promise<void>;
+}
+
+export interface SparkDaemonCordisRootOptions {
+  sessionsRoot: string;
 }
 
 const STORE_NAMES = [
@@ -85,11 +91,14 @@ export async function mountSparkDaemonStorePlugin(
 
 export async function createSparkDaemonCordisRoot(
   stores: SparkDaemonStoreServices,
+  options: SparkDaemonCordisRootOptions,
 ): Promise<SparkDaemonCordisRoot> {
   const ctx = openSparkDaemonCordisContext();
   const dispose = createSparkDaemonCordisDispose(ctx);
   try {
     await mountSparkDaemonStorePlugin(ctx, stores);
+    await ctx.plugin(SessionStore);
+    await mountSparkDaemonSessionPersistence(ctx, options.sessionsRoot);
   } catch (error) {
     await dispose().catch(() => undefined);
     throw error;

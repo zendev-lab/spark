@@ -6,7 +6,6 @@ import { test } from "vitest";
 import { SparkSessionStore as CanonicalSparkSessionStore } from "@zendev-lab/spark-host/session-store";
 
 import {
-  CURRENT_SPARK_SESSION_VERSION,
   SparkSessionStore,
   parseSparkSessionEntries,
   workspaceSessionHash,
@@ -35,7 +34,7 @@ test("SparkSessionStore uses ~/.spark-style sessions root and workspace hash, ne
   }
 });
 
-test("SparkSessionStore save/load round-trips current Pi JSONL header and entries", async () => {
+test("SparkSessionStore save/load round-trips current DSH JSONL header and Spark entries", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-session-roundtrip-"));
   try {
     const store = new SparkSessionStore({ cwd: join(dir, "repo"), sparkHome: join(dir, ".spark") });
@@ -58,26 +57,15 @@ test("SparkSessionStore save/load round-trips current Pi JSONL header and entrie
     const lines = raw
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line) as { type: string; [key: string]: unknown });
-    assert.deepEqual(lines[0], {
-      type: "session",
-      version: CURRENT_SPARK_SESSION_VERSION,
-      id: "session-roundtrip",
-      timestamp: "2026-06-03T01:02:03.004Z",
-      cwd: store.cwd,
-    });
-    assert.equal(lines[1]!.type, "message");
-    assert.equal(lines[1]!.id, userId);
-    assert.equal(lines[1]!.parentId, null);
-    assert.equal(lines[2]!.type, "model_change");
-    assert.equal(lines[2]!.parentId, userId);
-    assert.equal(lines[3]!.type, "thinking_level_change");
-    assert.equal(lines[4]!.type, "custom");
-    assert.equal(lines[5]!.type, "custom_message");
+      .map((line) => JSON.parse(line) as { type?: string; version?: number; id?: string });
+    assert.equal(lines[0]?.type, undefined);
+    assert.equal(lines[0]?.version, 0);
+    assert.equal(lines[0]?.id, "session-roundtrip");
 
     const loaded = await store.load(record.path);
     assert.deepEqual(loaded.header, record.header);
     assert.equal(loaded.entries.length, 5);
+    assert.equal(loaded.entries[0]?.id, userId);
     assert.equal(loaded.entries.at(-1)?.type, "custom_message");
   } finally {
     await rm(dir, { recursive: true, force: true });

@@ -80,6 +80,58 @@ test("reflection scanner extracts user/custom/summary observations and tolerates
   }
 });
 
+test("reflection scanner reads DSH session JSONL spark/entry events", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-reflection-dsh-"));
+  try {
+    const sessionDir = join(dir, "--workspaces-demo--");
+    await mkdir(sessionDir, { recursive: true });
+    const file = join(sessionDir, "sess_dsh.jsonl");
+    const createdAt = Date.parse("2026-08-20T00:00:00.000Z");
+    await writeFile(
+      file,
+      [
+        JSON.stringify({
+          version: 0,
+          id: "session-dsh",
+          createdAt,
+          cwd: "/workspaces/demo",
+        }),
+        JSON.stringify({
+          type: "spark/meta",
+          seq: 0,
+          time: createdAt,
+          data: { timestamp: "2026-08-20T00:00:00.000Z", sparkVersion: 3 },
+          ignorable: true,
+        }),
+        JSON.stringify({
+          type: "spark/entry",
+          seq: 1,
+          time: createdAt + 1,
+          data: {
+            entry: {
+              type: "message",
+              id: "u1",
+              timestamp: "2026-08-20T00:00:01.000Z",
+              message: { role: "user", content: "TODO: scan dsh transcripts" },
+            },
+          },
+          ignorable: true,
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+    const result = await scanSparkSessionHistory({
+      sessionRoot: dir,
+      cursor: emptyReflectionScanCursor("2026-08-20T00:00:00.000Z"),
+    });
+    assert.equal(result.stats.userMessages, 1);
+    assert.equal(result.observations[0]?.source.sessionId, "session-dsh");
+    assert.equal(result.observations[0]?.source.entryId, "u1");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("reflection scanner cursor prevents duplicate scans and recovers appended lines", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-reflection-cursor-"));
   try {

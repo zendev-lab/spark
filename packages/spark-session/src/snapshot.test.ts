@@ -177,6 +177,73 @@ describe("loadSparkSessionSnapshot", () => {
     expect(history.truncated).toBe(true);
   });
 
+  it("projects DSH session JSONL spark/entry events as native messages", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-session-dsh-snapshot-"));
+    roots.push(root);
+    const transcriptPath = join(root, "session.jsonl");
+    const sessionId = "sess_dsh_snapshot";
+    const createdAt = Date.parse("2026-08-20T00:00:00.000Z");
+    await writeFile(
+      transcriptPath,
+      `${[
+        JSON.stringify({ version: 0, id: sessionId, createdAt, cwd: root }),
+        JSON.stringify({
+          type: "spark/meta",
+          seq: 0,
+          time: createdAt,
+          data: { timestamp: "2026-08-20T00:00:00.000Z", sparkVersion: 3 },
+          ignorable: true,
+        }),
+        JSON.stringify({
+          type: "spark/entry",
+          seq: 1,
+          time: createdAt + 1,
+          data: {
+            entry: {
+              type: "message",
+              id: "user-1",
+              parentId: null,
+              timestamp: "2026-08-20T00:00:01.000Z",
+              message: { role: "user", content: "dsh user" },
+            },
+          },
+          ignorable: true,
+        }),
+        JSON.stringify({
+          type: "spark/entry",
+          seq: 2,
+          time: createdAt + 2,
+          data: {
+            entry: {
+              type: "message",
+              id: "assistant-1",
+              parentId: "user-1",
+              timestamp: "2026-08-20T00:00:02.000Z",
+              message: { role: "assistant", content: "dsh assistant" },
+            },
+          },
+          ignorable: true,
+        }),
+      ].join("\n")}\n`,
+      "utf8",
+    );
+    const session = promptHistorySession({
+      sessionId,
+      workspaceId: "ws_dsh_snapshot",
+      sessionPath: transcriptPath,
+      createdAt: "2026-08-20T00:00:00.000Z",
+      updatedAt: "2026-08-20T00:00:02.000Z",
+    });
+    const snapshot = await loadSparkSessionSnapshot({
+      sessionsRoot: root,
+      session,
+      resolveGitBranch: async () => undefined,
+    });
+    expect(snapshot.messages.map((message) => message.id)).toEqual(["user-1", "assistant-1"]);
+    expect(snapshot.messages[0]?.text).toBe("dsh user");
+    expect(snapshot.messages[1]?.text).toBe("dsh assistant");
+  });
+
   it("rebuilds an older additive index once before bounded prompt reads", async () => {
     const fixture = await createLinearTranscript(64, "sess_legacy_prompt_index");
     const refreshed = await refreshSparkSessionSnapshotIndex({
