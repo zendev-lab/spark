@@ -34,10 +34,11 @@ module.exports = {
     {
       name: "no-direct-cordis",
       comment:
-        "Cordis is the process-local composition root for dsh-llm and daemon store services. Only spark-extension, spark-llm, and spark-daemon may import it.",
+        "Cordis is the composition root for dsh-llm, daemon store services, and the spark-turn agent-loop driver.",
       severity: "error",
       from: {
-        pathNot: "^(packages/spark-extension/|packages/spark-llm/|apps/spark-daemon/)",
+        pathNot:
+          "^(packages/spark-extension/|packages/spark-llm/|packages/spark-turn/|apps/spark-daemon/)",
       },
       to: {
         path: "node_modules/.*/@deepseek-ai/cordis(?:/|$)|/node_modules/@deepseek-ai/cordis(?:/|$)|^@deepseek-ai/cordis(?:/|$)",
@@ -46,7 +47,7 @@ module.exports = {
     {
       name: "no-direct-dsh-llm",
       comment:
-        "dsh-llm is limited to the composition root, the provider adapter family, and the turn-loop consumer.",
+        "dsh-llm is limited to the composition root, the provider adapter family, and the turn-loop driver.",
       severity: "error",
       from: {
         pathNot: "^(packages/spark-extension/|packages/spark-llm/|packages/spark-turn/)",
@@ -58,10 +59,10 @@ module.exports = {
     {
       name: "no-direct-dsh-session",
       comment:
-        "dsh-session and dsh-session-persistence are limited to the daemon Cordis root that mounts ctx.sessions.",
+        "dsh-session and dsh-session-persistence are limited to the daemon Cordis root and the spark-turn agent-loop driver.",
       severity: "error",
       from: {
-        pathNot: "^(apps/spark-daemon/)",
+        pathNot: "^(apps/spark-daemon/|packages/spark-turn/)",
       },
       to: {
         path: "node_modules/.*/@deepseek-ai/dsh-session(?:-persistence)?(?:/|$)|/node_modules/@deepseek-ai/dsh-session(?:-persistence)?(?:/|$)|^@deepseek-ai/dsh-session(?:-persistence)?(?:/|$)",

@@ -97,12 +97,3 @@ export {
   createBaiduOneApiLlmAdapter,
   createOpenAiCodexLlmAdapter,
 } from "./llm-adapter.ts";
-export {
-  generateOptionsToPiContext,
-  generateOptionsToPiModel,
-  generateOptionsToPiStreamOptions,
-  llmChunksToPiAiStream,
-  piEventsToLlmChunks,
-  readSparkPiGenerateCarrier,
-  sparkContextToGenerateOptions,
-} from "./dsh-pi-bridge.ts";

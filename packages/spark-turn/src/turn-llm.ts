@@ -1,4 +1,11 @@
 import type { GenerateOptions, LlmRuntime, StreamChunk } from "@deepseek-ai/dsh-llm";
+import type {
+  AssistantMessage,
+  AssistantMessageEvent,
+  Context,
+  Model,
+  StreamOptions,
+} from "@zendev-lab/spark-llm";
 import {
   generateOptionsToPiContext,
   generateOptionsToPiModel,
@@ -6,12 +13,7 @@ import {
   llmChunksToPiAiStream,
   piEventsToLlmChunks,
   sparkContextToGenerateOptions,
-  type AssistantMessage,
-  type AssistantMessageEvent,
-  type Context,
-  type Model,
-  type StreamOptions,
-} from "@zendev-lab/spark-llm";
+} from "@zendev-lab/spark-llm/pi-ai-stream";
 
 export type SparkAgentStreamFunction = (
   model: Model<string>,

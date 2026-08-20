@@ -6,10 +6,11 @@ import type { StreamChunk } from "@deepseek-ai/dsh-llm";
 
 import {
   llmChunksToPiAiStream,
+  piEventToLlmChunks,
   piEventsToLlmChunks,
   readSparkPiGenerateCarrier,
   sparkContextToGenerateOptions,
-} from "./dsh-pi-bridge.ts";
+} from "./pi-ai-stream.ts";
 
 const MODEL: Model<string> = {
   id: "model-a",
@@ -113,6 +114,11 @@ test("sparkContextToGenerateOptions forwards reasoningEffort for reasoning model
   );
   assert.equal(options.reasoningEffort, "high");
   assert.equal(readSparkPiGenerateCarrier(options)?.options.reasoning, "high");
+});
+
+test("piEventToLlmChunks converts a start event without waiting for result()", () => {
+  const chunks = piEventToLlmChunks({ type: "start", partial: assistant("hello") });
+  assert.equal(chunks[0]?.type, "text-delta");
 });
 
 test("an empty pi-ai iterator does not throw while converting to chunks", async () => {

@@ -15,7 +15,7 @@ import {
   generateOptionsToPiStreamOptions,
   piEventsToLlmChunks,
   readSparkPiGenerateCarrier,
-} from "./dsh-pi-bridge.ts";
+} from "./pi-ai-stream.ts";
 import type { SparkProviderRegistry } from "./provider-registry.ts";
 import {
   createProviderRegistryStreamFunction,
