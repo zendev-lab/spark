@@ -1,12 +1,12 @@
 # Human interaction
 
-Canonical contract for structured human asks and approvals across daemon, Hub, channels, and in-turn TUI UI.
+Canonical contract for structured human asks and approvals across daemon, Hub, channels, and in-turn UI (local workbench overlay).
 
 ## Ownership
 
 - **Daemon is truth** for durable waits (`daemon_human_waits`) and whether an interaction is still open.
 - **Hub** owns a read model (`human_requests`, inbox items) plus an outbox for operator responses (`human_responses` delivery).
-- **`spark-ask`** owns only the in-turn terminal UI state machine (tabs, drafts, focus). It must not become a second durable store.
+- **`spark-ask`** owns only the in-turn UI state machine (tabs, drafts, focus) and ask answer encoding. It must not become a second durable store. The local workbench (`spark-web`) and Hub both settle the same daemon wait; they must submit option `value`s, not labels, and an explicit `answered` / `cancelled` status.
 - **Channels** (e.g. QQ buttons) project and settle the same daemon wait; they do not invent terminal statuses.
 
 ## Supported interaction kinds (daemon broker)
@@ -16,7 +16,7 @@ The durable daemon broker currently settles:
 - `askFlow` — structured questions (primary Hub / channel path)
 - `toolApproval` — approve/reject a tool call (projected as a single-choice ask wait, then mapped back to a `toolApproval` response)
 
-Other protocol kinds (`confirmation`, `diffApproval`, `modelSelect`, `workflowPicker`) remain host/TUI-local until a broker path exists. Do not assume Hub inbox can settle them.
+Other protocol kinds (`confirmation`, `diffApproval`, `modelSelect`, `workflowPicker`) remain host-local until a broker path exists. Do not assume Hub inbox or the local workbench can settle them.
 
 ## Status vocabulary
 
@@ -65,9 +65,10 @@ async request or reviewer-timeout takeover.
 
 Whether an answer “counts” (option selected or non-empty custom text) is defined once by `hasSparkAskAnswerContent` / `parseSparkAskChoice` in `spark-protocol` (`ask-semantics.ts`).
 
-- TUI (`spark-ask`) re-exports those helpers for the flow controller and presents asks as an in-turn overlay.
+- `spark-ask` re-exports those helpers for the flow controller. In-turn overlay presentation is host-local; durable settlement always goes through the daemon wait.
+- The local workbench (`spark-web`) lists pending user-addressed daemon waits on the owning session and answers them with the same structured payload Hub uses (`values` / `labels` / `customText`). A freeform textarea is only for waits that carry no questions.
 - Hub shows pending **User** asks inline in the owning session (timeline `ask` tool part + composer `SessionAskPanel`); the workspace Inbox page remains the list/detail fallback. There is no global ask dialog. Inbox remains agent→user only.
-- Session-addressed asks (`ask({ toSessionId })`) share the same delivery kernel as `session.send` and register `respondent.kind=session`. The asked Session settles them with `ask({ action: "answer" })` using provenance `session`. Session answers must not mint `spark.evidence-answer-event/v1`. They do not appear in Hub Inbox. User-addressed asks stay Hub/TUI/channel.
+- Session-addressed asks (`ask({ toSessionId })`) share the same delivery kernel as `session.send` and register `respondent.kind=session`. The asked Session settles them with `ask({ action: "answer" })` using provenance `session`. Session answers must not mint `spark.evidence-answer-event/v1`. They do not appear in Hub Inbox. User-addressed asks stay Hub / local workbench / channel.
 - Invocation wait (`session({ action: "wait" })`) is a durable invocation predicate. Ask durable wait is a separate **reply-wait**. Do not merge mailbox SQLite with `daemon_human_waits`.
 - Approval-center builds decision payloads with the shared response status enum; it does not re-derive answer content rules.
 

@@ -53,5 +53,13 @@ spark daemon status --json
 spark daemon session list --json
 ```
 
+## Structured asks
+
+When the agent needs a choice, the session page shows the pending daemon wait
+on that session. Options submit their stable `value`, not the visible label.
+Cancel is explicit. A freeform box appears only when the wait has no
+questions. Hub Inbox can still answer the same wait; both surfaces settle the
+daemon record, they do not keep a second copy.
+
 See [surfaces and ownership](/concepts/surfaces/) and
 [runs and sessions](/guides/runs-and-sessions/).

@@ -9,7 +9,7 @@ documented until a later surface pass; they are not treated as done.
 | Local workspace register | yes (path + optional name; no Hub token) | CLI | n/a |
 | Sessions list / create | yes (per daemon workspace) | yes | yes |
 | Transcript / composer / queue / stop / retry | yes | yes | yes |
-| Ask / approval parts | render | yes | yes |
+| Ask / approval parts | structured session panel (option `value`, cancel, custom text) | yes | yes |
 | Model / thinking / mode | model+thinking; mode is read-only (claimed command) | yes | yes |
 | Slash catalog | prefix menu | full | full |
 | Provider API keys | settings page | TUI + daemon | dsh Models page |

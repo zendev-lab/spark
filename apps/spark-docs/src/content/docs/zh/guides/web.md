@@ -50,4 +50,11 @@ spark daemon status --json
 spark daemon session list --json
 ```
 
+## 结构化提问
+
+当 agent 需要选择时，会话页会显示该会话上未完成的 daemon wait。选项提交的是
+稳定的 `value`，不是可见 label。取消是显式状态。只有 wait 不含问题时才出现
+自由文本框。Hub Inbox 仍可回答同一条 wait；两个界面都结算 daemon 记录，
+不另存一份。
+
 详见[界面与所有权](/zh/concepts/surfaces/)和[运行与会话](/zh/guides/runs-and-sessions/)。

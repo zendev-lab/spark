@@ -32,14 +32,16 @@
   } from "@zendev-lab/spark-protocol";
   import { conversationMessageFromView } from "$lib/conversation";
   import { attachWebSessionEvents } from "$lib/live-events";
+  import SessionAskPanel from "$lib/SessionAskPanel.svelte";
+  import { parseWebAskQuestions, type PendingWebAsk } from "$lib/pending-ask";
   import { webRpc } from "$lib/web-rpc";
 
   let { data } = $props();
   let snapshot = $state<SparkSessionView>(data.snapshot);
   let prompt = $state("");
   let submitting = $state(false);
-  let askWaits = $state<Array<{ interactionRequestId: string; title: string; prompt: string }>>([]);
-  let askDraft = $state<Record<string, string>>({});
+  let askWaits = $state<PendingWebAsk[]>([]);
+  let submittingAskId = $state<string | null>(null);
   let modelValue = $state(
     data.snapshot.model
       ? `${data.snapshot.model.providerName}/${data.snapshot.model.modelId}`
@@ -99,9 +101,12 @@
     askWaits = listed.waits
       .filter((wait) => wait.status === "pending")
       .map((wait) => ({
+        humanRequestId: wait.humanRequestId,
         interactionRequestId: wait.interactionRequestId,
+        sessionId: wait.sessionId,
         title: wait.title,
         prompt: wait.prompt,
+        questions: parseWebAskQuestions(wait.questions),
       }));
   }
 
@@ -166,17 +171,24 @@
     snapshot = await webRpc("session.snapshot", { sessionId: snapshot.sessionId });
   }
 
-  async function answerAsk(interactionRequestId: string) {
-    const text = askDraft[interactionRequestId]?.trim();
-    if (!text) return;
-    await webRpc("human.interaction.respond", {
-      interactionRequestId,
-      sessionId: snapshot.sessionId,
-      status: "answered",
-      answers: { text },
-    });
-    askDraft[interactionRequestId] = "";
-    await refreshAsks();
+  async function respondAsk(
+    wait: PendingWebAsk,
+    input: { status: "answered" | "cancelled"; answers: Record<string, unknown> },
+  ) {
+    if (submittingAskId) return;
+    submittingAskId = wait.interactionRequestId;
+    try {
+      await webRpc("human.interaction.respond", {
+        interactionRequestId: wait.interactionRequestId,
+        humanRequestId: wait.humanRequestId,
+        sessionId: snapshot.sessionId,
+        status: input.status,
+        answers: input.answers,
+      });
+      await refreshAsks();
+    } finally {
+      submittingAskId = null;
+    }
   }
 
   function mediaHref(item: ConversationMessageView, contentIndex: number): string {
@@ -294,21 +306,13 @@
   />
 
   {#if askWaits.length > 0}
-    <section class="asks">
+    <section class="asks" aria-label="Pending asks">
       {#each askWaits as wait (wait.interactionRequestId)}
-        <article>
-          <h2>{wait.title}</h2>
-          <p>{wait.prompt}</p>
-          <form
-            onsubmit={(event) => {
-              event.preventDefault();
-              void answerAsk(wait.interactionRequestId);
-            }}
-          >
-            <textarea bind:value={askDraft[wait.interactionRequestId]} rows="3"></textarea>
-            <button type="submit">Answer</button>
-          </form>
-        </article>
+        <SessionAskPanel
+          ask={wait}
+          submitting={submittingAskId === wait.interactionRequestId}
+          onRespond={(input) => void respondAsk(wait, input)}
+        />
       {/each}
     </section>
   {/if}
@@ -399,9 +403,15 @@
   .workbench {
     height: calc(100vh - 53px);
     display: grid;
-    grid-template-rows: 1fr auto auto auto;
+    grid-template-rows: 1fr auto auto auto auto;
     gap: 8px;
     padding: 12px;
+  }
+  .asks {
+    display: grid;
+    gap: 8px;
+    max-height: 42vh;
+    overflow: auto;
   }
   .controls {
     display: flex;
