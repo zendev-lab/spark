@@ -191,16 +191,12 @@ operation. Most tools are adapters over an owning domain:
 - `spark-files`, `spark-memory`, `spark-tasks`, and `spark-artifacts` remain
   domain packages because they own vocabulary, policy, and state semantics;
 - a package whose primary reusable contract is one stateless tool family uses
-  the singular form `spark-tool-<family>`;
+  the singular form `spark-tool-<family>`; `spark-tool-web` is the search and
+  fetch adapter (persisted `responseId` values keep the `spark-web:` prefix and
+  `.spark/web/content.json`);
 - `spark-tools-*` is avoided because the plural prefix does not identify an
   owner or boundary. The bare `spark-tools` name is reserved for a future
   composition-only aggregator and must not own behavior.
-
-A rename to `spark-tool-*` therefore requires evidence that the package is a
-tool adapter rather than a domain owner. The current `spark-web` search/fetch
-capability is the first candidate for a separate `spark-tool-web` migration;
-that migration is intentionally outside the Hub/executable rename because it
-changes extension specifiers and user configuration compatibility.
 
 ## Layer meanings
 

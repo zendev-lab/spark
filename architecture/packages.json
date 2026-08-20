@@ -366,6 +366,13 @@
       "stability": "supported",
       "stateWriter": "none"
     },
+    "@zendev-lab/spark-tool-web": {
+      "path": "packages/spark-tool-web",
+      "layer": "capability",
+      "owner": "web",
+      "stability": "supported",
+      "stateWriter": "user"
+    },
     "@zendev-lab/spark-tui": {
       "path": "apps/spark-tui",
       "layer": "application",
@@ -402,13 +409,6 @@
       "stability": "supported",
       "stateWriter": "external",
       "allowedWorkspaceDependencies": ["@zendev-lab/spark-protocol", "@zendev-lab/spark-system"]
-    },
-    "@zendev-lab/spark-web": {
-      "path": "packages/spark-web",
-      "layer": "capability",
-      "owner": "web",
-      "stability": "supported",
-      "stateWriter": "user"
     },
     "@zendev-lab/spark-web-dsh": {
       "path": "packages/spark-web-dsh",

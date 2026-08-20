@@ -7,7 +7,7 @@ import registerNativeBaiduOneApiProvider from "@zendev-lab/spark-llm/baidu-oneap
 import sparkRolesExtension from "@zendev-lab/spark-roles/extension";
 import sparkSessionExtension from "@zendev-lab/spark-session/extension";
 import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
-import sparkWebExtension from "@zendev-lab/spark-web/extension";
+import sparkWebExtension from "@zendev-lab/spark-tool-web/extension";
 
 /**
  * Minimal Pi product discovery entry for additive, host-neutral capabilities.
