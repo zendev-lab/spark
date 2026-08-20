@@ -45,12 +45,14 @@ export const npmDistributions = [
       "spark-mcp": "spark-mcp.js",
       "spark-tui": "spark-tui-companion.js",
       "spark-update": "spark-update.js",
+      "spark-web": "spark-web.js",
     },
     bundles: {
       "spark-cli.js": "apps/spark-cli/src/cli.ts",
       "spark-acp.js": "packages/spark-acp/bin/spark-acp.ts",
       "spark-mcp.js": "packages/spark-mcp/bin/spark-mcp.ts",
       "spark-update.js": "packages/spark-update/src/entry.ts",
+      "spark-web.js": "apps/spark-web/src/cli-entry.ts",
     },
     files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [
@@ -63,6 +65,7 @@ export const npmDistributions = [
       "./mcp-executable": "./bin/spark-mcp",
       "./executable": "./bin/spark",
       "./update-executable": "./bin/spark-update",
+      "./web-executable": "./bin/spark-web",
     },
     skills: true,
     migrationSource: resolve(root, "apps/spark-daemon/dist/migrations"),

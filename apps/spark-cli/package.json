@@ -20,12 +20,8 @@
   },
   "dependencies": {
     "@optique/core": "catalog:",
-    "@zendev-lab/dsh-tool-cue": "workspace:^",
     "@zendev-lab/spark-i18n": "workspace:^",
-    "@zendev-lab/spark-llm": "workspace:^",
-    "@zendev-lab/spark-system": "workspace:^",
-    "@zendev-lab/spark-web-dsh": "workspace:^",
-    "esbuild": "^0.28.0"
+    "@zendev-lab/spark-system": "workspace:^"
   },
   "devDependencies": {
     "typescript": "catalog:",

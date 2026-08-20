@@ -1,6 +1,6 @@
 import type { SparkLanguage } from "./index.ts";
 
-export type SparkCliDispatcherTarget = "tui" | "daemon" | "hub" | "acp" | "update";
+export type SparkCliDispatcherTarget = "tui" | "daemon" | "hub" | "acp" | "mcp" | "update" | "web";
 
 export interface SparkCliDispatcherStrings {
   unknownSubcommand: (subcommand: string, originalArgs: readonly string[]) => string;
@@ -34,6 +34,8 @@ Usage:
   spark daemon <command> [args...]
   spark hub [command] [args...]
   spark acp
+  spark mcp
+  spark web [--host <host>] [--port <port>] [--trusted-host <authority...>] [args...]
   spark update status|check|apply|rollback|retry|configure
   spark version [--json]
   spark --help
@@ -44,6 +46,8 @@ Companion executables:
   spark-daemon    local execution plane
   spark-hub       global control plane and embedded management UI
   spark-acp       ACP NDJSON stdio adapter
+  spark-mcp       read-only MCP stdio adapter
+  spark-web       DSH web profile boot
   spark-update    managed installation and rollback owner
 
 The spaced plane forms are dispatcher aliases for the matching spark-* executable.
@@ -61,8 +65,12 @@ Unknown subcommands fail loudly instead of being interpreted as prompts.
           return "Spark Hub";
         case "acp":
           return "Spark ACP adapter";
+        case "mcp":
+          return "Spark MCP adapter";
         case "update":
           return "Spark updater";
+        case "web":
+          return "Spark web";
       }
     },
   },
@@ -88,6 +96,8 @@ Unknown subcommands fail loudly instead of being interpreted as prompts.
   spark daemon <命令> [参数...]
   spark hub [命令] [参数...]
   spark acp
+  spark mcp
+  spark web [--host <host>] [--port <port>] [--trusted-host <authority...>] [参数...]
   spark update status|check|apply|rollback|retry|configure
   spark version [--json]
   spark --help
@@ -98,6 +108,8 @@ Unknown subcommands fail loudly instead of being interpreted as prompts.
   spark-daemon    本地执行平面
   spark-hub       全局控制平面和内置管理界面
   spark-acp       ACP NDJSON 标准输入输出适配器
+  spark-mcp       只读 MCP 标准输入输出适配器
+  spark-web       DSH web profile 启动器
   spark-update    托管安装和回滚所有者
 
 空格形式的 plane 命令仅负责分发到对应的 spark-* 可执行程序。
@@ -115,8 +127,12 @@ Unknown subcommands fail loudly instead of being interpreted as prompts.
           return "Spark Hub";
         case "acp":
           return "Spark ACP adapter";
+        case "mcp":
+          return "Spark MCP adapter";
         case "update":
           return "Spark 更新器";
+        case "web":
+          return "Spark web";
       }
     },
   },

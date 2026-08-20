@@ -30,7 +30,7 @@ Hard constraints:
 
 Phase 2 lands as runtime composition, register bridge, prompt assembly,
 `ctx.tools.execute`, `ctx.tools.guard()` for driver-target binding, then
-native `spark-files` / `spark-web` plugins. Composition-only spikes are not
+native `spark-files` / `spark-tool-web` plugins. Composition-only spikes are not
 standalone product PRs.
 
 ## Rationale

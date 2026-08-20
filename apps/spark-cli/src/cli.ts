@@ -10,8 +10,6 @@ import { command, constant, option, passThrough } from "@optique/core/primitives
 import { sparkCliDispatcherStrings } from "@zendev-lab/spark-i18n/cli";
 import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
-import { parseSparkWebArgs, runSparkWeb } from "./web.ts";
-
 const dispatcherStrings = sparkCliDispatcherStrings();
 
 export type SparkDispatcherTarget = "tui" | "daemon" | "hub" | "acp" | "mcp" | "update" | "web";
@@ -189,14 +187,6 @@ export async function runSparkDispatcher(
       ) {
         stderr.write(`${dispatcherStrings.tuiRequiresTty}\n`);
         return 2;
-      }
-      if (command.target === "web") {
-        try {
-          return await runSparkWeb(parseSparkWebArgs(dispatchArgv));
-        } catch (error) {
-          stderr.write(`spark web: ${error instanceof Error ? error.message : String(error)}\n`);
-          return 1;
-        }
       }
       return await launcher.run(
         command.target,
@@ -489,13 +479,13 @@ function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | un
     acp: "../../packages/spark-acp/bin/spark-acp.ts",
     mcp: "../../packages/spark-mcp/bin/spark-mcp.ts",
     update: "../../packages/spark-update/bin/spark-update",
+    web: "../spark-web/bin/spark-web",
   };
   const entry = entryByTarget[target];
   return entry ? resolve(cliRoot, entry) : undefined;
 }
 
 function targetExecutable(target: SparkDispatcherTarget): string {
-  if (target === "web") return "dsh";
   return `spark-${target}`;
 }
 

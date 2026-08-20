@@ -39,6 +39,7 @@ supported packages.
 | `apps/spark-tui` | Native terminal host and interaction adapters |
 | `apps/spark-daemon` | Durable sessions, invocations, channels, and execution |
 | `apps/spark-hub` | Browser presentation and control |
+| `apps/spark-web` | DSH web profile boot |
 | `apps/spark-docs` | Public bilingual user documentation |
 | `packages/spark-*` | Shared contracts, capabilities, runtimes, clients, and adapters |
 | `architecture/packages.json` | Machine-readable layer, state-writer, exception, Pi ownership, composition-root, and package-budget inventory |

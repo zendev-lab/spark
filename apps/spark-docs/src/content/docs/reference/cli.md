@@ -73,8 +73,8 @@ spark hub --help
 ## Cue-first DSH web
 
 `spark web` boots the installed DeepSeek Harness web profile and currently
-supports exactly `@deepseek-ai/dsh@0.1.0-rc.7`. Initialize the profile once with
-`dsh web`, then start the Spark surface:
+supports exactly `@deepseek-ai/dsh@0.1.0-rc.7`. Initialize the profile once
+with `dsh web`, then start the Spark surface:
 
 ```bash
 spark web
