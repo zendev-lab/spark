@@ -44,8 +44,12 @@ spark bg --json "Run the repository validation."
 
 ## 设置与模型控制
 
-在工作台的 Settings 中查看绑定的 workspace 与 daemon 身份。Provider 认证
-和模型选择仍由 daemon 拥有：
+在工作台的 Settings 中查看 daemon 上的 provider。API key provider（Baidu
+OneAPI、Kimi For Coding）可以直接在该页保存。OAuth provider（如 OpenAI Codex）
+走 `/settings/oauth/<provider>`，密钥仍留在 daemon 的 auth store。Spark web
+不会回显已存储的 secret。
+
+同一套 daemon 存储也可以继续用 CLI：
 
 ```bash
 spark daemon auth --help

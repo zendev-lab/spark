@@ -73,6 +73,12 @@ export {
   OPENAI_CODEX_PROVIDER_ID,
   default as registerOpenAICodexProvider,
 } from "./openai-codex-provider.ts";
+export {
+  KIMI_CODING_API_KEY_ENV,
+  KIMI_CODING_BASE_URL,
+  KIMI_CODING_PROVIDER_ID,
+  default as registerKimiCodingProvider,
+} from "./kimi-coding-provider.ts";
 export { piAiProviderConfig, registerSparkAiProvider } from "./spark-provider-adapter.ts";
 export type { SparkProviderAdapterOptions } from "./spark-provider-adapter.ts";
 export {

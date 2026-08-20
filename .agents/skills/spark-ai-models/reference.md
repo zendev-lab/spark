@@ -64,16 +64,18 @@ Pi compat and native adapters share `baidu-oneapi.ts`. Do not fork the catalog.
 ## Other spark-ai providers
 
 OpenAI Codex is adapted from pi-ai's maintained catalog
-(`openai-codex-provider`). Do not duplicate Codex rows into Baidu. New
-standalone providers need a provider plugin, registry tests, and a README
-section; they are out of scope unless the user asked for a new provider.
+(`openai-codex-provider`). Kimi For Coding is the same pattern
+(`kimi-coding-provider`, API key `KIMI_API_KEY`). Do not duplicate those rows
+into Baidu. New standalone providers need a provider plugin, registry tests,
+and a README section; they are out of scope unless the user asked for a new
+provider.
 
 ## Validation
 
 From the repo root (narrowest first):
 
 ```text
-pnpm --filter @zendev-lab/spark-llm test src/baidu-oneapi-provider.test.ts src/control/provider-catalog.test.ts src/spark-provider-control.test.ts
+pnpm --filter @zendev-lab/spark-llm test src/baidu-oneapi-provider.test.ts src/kimi-coding-provider.test.ts src/control/provider-catalog.test.ts src/spark-provider-control.test.ts
 pnpm --filter @zendev-lab/spark-extension test src/__tests__/spark-provider-registry.test.ts src/__tests__/spark-config.test.ts
 ```
 

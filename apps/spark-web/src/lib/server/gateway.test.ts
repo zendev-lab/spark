@@ -33,6 +33,10 @@ test("token comparison rejects missing and mismatched values", () => {
 test("RPC allowlist forwards known methods and rejects unknown ones", async () => {
   assert.equal(isAllowedSparkWebRpcMethod("turn.submit"), true);
   assert.equal(isAllowedSparkWebRpcMethod("workspace.register"), true);
+  assert.equal(isAllowedSparkWebRpcMethod("provider.auth.login.start"), true);
+  assert.equal(isAllowedSparkWebRpcMethod("provider.auth.login.status"), true);
+  assert.equal(isAllowedSparkWebRpcMethod("provider.auth.login.respond"), true);
+  assert.equal(isAllowedSparkWebRpcMethod("provider.auth.login.cancel"), true);
   assert.equal(isAllowedSparkWebRpcMethod("file.execute"), false);
   const calls: Array<{ method: string; input: unknown }> = [];
   const result = await invokeSparkWebRpc("session.list", { limit: 10 }, async (method, input) => {
