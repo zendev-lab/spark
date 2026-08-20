@@ -109,6 +109,7 @@ import { migrateLegacyReproV9Snapshots } from "./repro-v9-migration.ts";
 import { loopUpdateEvent, SparkLoopStore, type SparkLoopRecord } from "./store/loops.ts";
 import { SparkLoopEvaluatorRegistry } from "./store/loop-evaluators.ts";
 import { migrateLegacyLoopState } from "./store/loop-state-migration.ts";
+import { createSparkDaemonCordisRoot, type SparkDaemonCordisRoot } from "./cordis-root.ts";
 import { createGoalLoopCompletionEvaluator } from "./spark/goal-loop-evaluator.ts";
 import {
   createGitHubMergedPrsLoopEvaluator,
@@ -252,6 +253,7 @@ interface PreparedDaemonRuntime {
   stopScheduler: () => void;
   stopDirectInvocations: () => void;
   stopChannelIngress: () => void;
+  cordisRoot: SparkDaemonCordisRoot;
 }
 
 async function createPreparedDaemonRuntime(
@@ -485,6 +487,17 @@ async function createPreparedDaemonRuntime(
   const stopScheduler = () => scheduler?.stop();
   const stopDirectInvocations = () => invocationRegistry.stop();
   const stopChannelIngress = () => void shutdownChannelIngress("runtime-abort");
+  const cordisRoot = await createSparkDaemonCordisRoot({
+    sparkInvocations: invocationStore,
+    sparkLoops: loopStore,
+    sparkChannelDeliveries: channelDeliveryStore,
+    sparkChannelReplyDeliveries: channelReplyDeliveryStore,
+    sparkExecutionAttempts: executionAttemptStore,
+    sparkSessionMail: mailStore,
+    sparkHumanWaits: humanWaits,
+    sparkSessionCompletions: sessionCompletionDeliveryStore,
+    sparkInvocationRegistry: invocationRegistry,
+  });
   runtimeSignal.addEventListener("abort", stopScheduler, { once: true });
   runtimeSignal.addEventListener("abort", stopDirectInvocations, { once: true });
   runtimeSignal.addEventListener("abort", stopChannelIngress, { once: true });
@@ -524,6 +537,7 @@ async function createPreparedDaemonRuntime(
     stopScheduler,
     stopDirectInvocations,
     stopChannelIngress,
+    cordisRoot,
   };
 }
 
@@ -1059,6 +1073,7 @@ async function cleanupPreparedDaemonRuntime(runtime: PreparedDaemonRuntime): Pro
   if (options.managePidFile !== false && existsSync(options.paths.pidFile)) {
     rmSync(options.paths.pidFile, { force: true });
   }
+  await runtime.cordisRoot.dispose();
 }
 
 function createDaemonScheduler(input: {

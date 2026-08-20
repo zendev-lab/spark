@@ -34,10 +34,10 @@ module.exports = {
     {
       name: "no-direct-cordis",
       comment:
-        "Cordis is a process-local island for dsh-llm. Only spark-extension (Context owner) and spark-llm (LlmAdapter implementations) may import it.",
+        "Cordis is the process-local composition root for dsh-llm and daemon store services. Only spark-extension, spark-llm, and spark-daemon may import it.",
       severity: "error",
       from: {
-        pathNot: "^(packages/spark-extension/|packages/spark-llm/)",
+        pathNot: "^(packages/spark-extension/|packages/spark-llm/|apps/spark-daemon/)",
       },
       to: {
         path: "node_modules/.*/@deepseek-ai/cordis(?:/|$)|/node_modules/@deepseek-ai/cordis(?:/|$)|^@deepseek-ai/cordis(?:/|$)",
