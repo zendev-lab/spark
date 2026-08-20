@@ -35,8 +35,8 @@ authorization remain in their owning records. There is no `owner` union,
 Every Workspace has one protected Administrator root. All other Sessions are
 children. The daemon validates same-Workspace ancestry, rejects missing parents
 and cycles, and derives parentage only through `sparkSessionParentId(lineage)`.
-TUI and Hub render the same bounded recursive tree. Any origin may nest to any
-depth. Orphans and cycles are diagnostics, not silently reparented nodes.
+Local web and Hub render the same bounded recursive tree. Any origin may nest
+to any depth. Orphans and cycles are diagnostics, not silently reparented nodes.
 
 ## Registry and projection
 
@@ -70,6 +70,15 @@ the Workspace root, a descendant, or an attached GitChange worktree. The
 Workspace may contain zero, one, or many repositories; Session admission never
 assumes cwd itself is Git. Missing, escaping, cross-Workspace, or disappeared
 paths fail closed.
+
+## Transcript persistence
+
+Canonical Session transcripts are DSH session JSONL. `packages/spark-host`
+`SparkSessionStore` is the Spark codec: it writes Spark entries as ignorable
+`spark/entry` events. The daemon implements `PersistenceBackend` only;
+`dsh-session-persistence` owns the coordinator. Pi JSONL v3 is a one-shot
+idempotent hard-cut on first load. Session projections remain Spark-owned.
+See [`.agents/notes/decisions/2026-08-20-dsh-session-persistence.md`](../decisions/2026-08-20-dsh-session-persistence.md).
 
 ## Invocation serialization
 
@@ -140,5 +149,5 @@ may retry automatically; ambiguous delivery is durable `uncertain`.
 
 Channel-bound hosts expose only canonical `session`, `ask`, `context`, and
 `todo` tools. Shell execution, Role fan-out, assignment, and Workflow
-execution remain disabled. TUI, Hub, ACP, MCP, and channel transports call daemon
+execution remain disabled. Local web, Hub, ACP, MCP, and channel transports call daemon
 owner APIs and never open registry, transcript, or mailbox storage directly.

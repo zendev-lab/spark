@@ -298,7 +298,7 @@ The design borrows three useful patterns without adopting their toolchains:
 
 - [VS Code Extension Host](https://code.visualstudio.com/api/advanced-topics/extension-host)
   separates extension execution from UI placement and distinguishes local,
-  web, and remote hosts. Spark similarly keeps TUI/Hub adapters outside the
+  web, and remote hosts. Spark similarly keeps local-web/Hub adapters outside the
   daemon-owned execution truth.
 - [Backstage package roles](https://backstage.io/docs/tutorials/package-role-migration/)
   make package purpose machine-readable so repository tooling can select the

@@ -42,7 +42,9 @@ A micro pass is stateless and model-free. It compacts eligible old tool output a
 
 A full pass writes a versioned compaction entry into the session JSONL. The
 on-disk artifact is DSH session JSONL; Spark still persists the compaction
-record as a Spark entry inside that log. The entry contains the summary, cut
+record as a Spark entry inside that log. See
+[`.agents/notes/decisions/2026-08-20-dsh-session-persistence.md`](../decisions/2026-08-20-dsh-session-persistence.md).
+The entry contains the summary, cut
 point, active-replay token count before compaction, structured details when Smart
 summarization succeeded, and outcome metadata. Context-overflow recovery may compact a previous compaction leaf. That pass replaces the previous summary while inheriting its protected-recent cut point, so retained user turns, tool receipts, and Memory checkpoints are not discarded. Each accepted retry must reduce the same replay meter by at least `minUsefulReduction`. A low-yield candidate entry is removed and provider retry stops, bounding repeated overflow recovery; protected recent context is never silently sacrificed merely to make a retry fit.
 

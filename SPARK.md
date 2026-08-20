@@ -36,7 +36,7 @@ updated: 2026-08-20
 [`architecture/packages.json`](./architecture/packages.json) 为准；包创建、合并与依赖
 规则由 [`.agents/notes/contracts/package-architecture.md`](./.agents/notes/contracts/package-architecture.md) 约束。
 
-- Pi SDK 仅保留 `pi-ai` 作为模型 transport 内核，由 `spark-llm` 拥有；Spark 不重建独立的 Pi 产品 facade，也不再提供 `package.json#pi` 发现路径。LLM abstraction 由 `dsh-llm` 拥有；`spark-llm` 只作为 provider / `LlmAdapter` 实现族。Cordis 目前仍作为承载 `dsh-llm` 的 process-local 小岛，由 `spark-extension` 拥有 Context。
+- Pi SDK 仅保留 `pi-ai` 作为模型 transport 内核，由 `spark-llm` 拥有；Spark 不重建独立的 Pi 产品 facade，也不再提供 `package.json#pi` 发现路径。LLM abstraction 由 `dsh-llm` 拥有；`spark-llm` 只作为 provider / `LlmAdapter` 实现族。Cordis 是 daemon 根、`dsh-llm` 小岛与 `spark-turn` driver 的 process-local 组合运行时，不是 Spark Session；详见 [`.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md`](.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md)。
 - daemon 是持久会话、调用、通道、本地执行、自治计时、重试与恢复的唯一 owner。
 - 跨表面 schema 与语义进入 `spark-protocol`，传输层只校验和翻译。
 - `packages/spark-extension` 是唯一产品 extension 组合根。
@@ -87,14 +87,16 @@ updated: 2026-08-20
 - 完善自治 driver 的部署、诊断、更新与日志运维，但不形成第二个运行时 owner。
 - Hub 能力继续留在现有 owner 中，直到独立迁移能证明新的硬边界。
 - Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。包预算关闭在 41，新增 workspace 需要新的 architecture 决策。
-- 第一阶段 DSH 化只引入 Cordis 小岛承载 `dsh-llm`：`spark-extension` 拥有
-  Context，`spark-llm` 实现 adapter，`spark-turn` 消费 `LlmRuntime` 而不是
-  `Context`。不接入 `dsh-llm-pi-ai`，不把 Spark Session 绑到 Cordis Fiber。
+- DSH 组合已越过 LLM 小岛：daemon Cordis root 挂 Spark store 与 `ctx.sessions`；
+  `spark-turn` 用 `dsh-agent-loop` 做低层 turn driver；`spark-loop` 仍拥有
+  goal/tick。不接入 `dsh-llm-pi-ai` 或 `dsh-goal`，不把 Spark Session 绑到
+  Cordis Fiber。Invocation / channel / fleet / retry 数据权威仍是 Spark SQLite。
+- 会话 transcript 已切到 DSH session JSONL；Spark 只实现 `PersistenceBackend`。
+  Session 投影仍由 Spark 拥有，不采用 `dsh-session-projection`。
 - Goal/Loop/Repro 的 `manual_only` 旁路需要 Session 级 `driverAuthority`：交互
   启动 ask 一次，CLI/API/daemon tick 静默授予；拒绝则退化为逐工具批准。绑定本身
   不是同意。
 - DSH Phase 2 已通过私有 `@zendev-lab/dsh-tool-cue` adapter 接入
   SystemPrompt + Tools：`spark-cue/operations` 仍唯一拥有 Cue 语义，DSH
   只适配 rc.7 的 host ABI、权限和 presenter；`spark-standard` / `spark-code`
-  用 Cue 取代 DSH Bash/Pwsh/Jobs。compaction / DSH subagent 继续等待
-  SessionStore 适配器决策，不接管 `dsh-session`。
+  用 Cue 取代 DSH Bash/Pwsh/Jobs。

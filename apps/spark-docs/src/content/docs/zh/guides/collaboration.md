@@ -17,7 +17,7 @@ description: 在协调工作前，先区分 Role 定义、Session lineage 与消
 Session，Role call 使用仅一次 Invocation 的 ephemeral Session。
 受限的只读旁支问题使用 [Side Thread](/zh/guides/side-threads/)；它是 origin 为
 `side_thread` 的子 Session，不是另一种运行时实体。所有 child origin 都作为
-subsession 显示在同一棵递归 TUI/Hub Session tree 中。
+subsession 显示在同一棵递归本地 Web / Hub Session tree 中。
 
 ## Session request 与 notification
 

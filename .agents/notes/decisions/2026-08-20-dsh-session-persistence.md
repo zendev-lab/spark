@@ -46,4 +46,5 @@ paths without forking the coordinator.
   keep a sidecar. Operators who need a copy must snapshot `sessions/` before
   upgrade.
 - Stage 6 replaces the older Cordis-island wording. This note only lifts the
-  dsh-session persistence gate.
+  dsh-session persistence gate. See
+  [`2026-08-20-dsh-cordis-composition.md`](./2026-08-20-dsh-cordis-composition.md).
