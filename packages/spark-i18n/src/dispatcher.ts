@@ -47,7 +47,7 @@ Companion executables:
   spark-hub       global control plane and embedded management UI
   spark-acp       ACP NDJSON stdio adapter
   spark-mcp       read-only MCP stdio adapter
-  spark-web       DSH web profile boot with Spark-owned Cue and LLM plugins
+  spark-web       DSH web profile boot
   spark-update    managed installation and rollback owner
 
 The spaced plane forms are dispatcher aliases for the matching spark-* executable.
@@ -109,7 +109,7 @@ Unknown subcommands fail loudly instead of being interpreted as prompts.
   spark-hub       全局控制平面和内置管理界面
   spark-acp       ACP NDJSON 标准输入输出适配器
   spark-mcp       只读 MCP 标准输入输出适配器
-  spark-web       带 Spark Cue / LLM 插件的 DSH web profile 启动器
+  spark-web       DSH web profile 启动器
   spark-update    托管安装和回滚所有者
 
 空格形式的 plane 命令仅负责分发到对应的 spark-* 可执行程序。
