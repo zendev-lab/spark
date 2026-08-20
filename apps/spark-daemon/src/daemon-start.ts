@@ -1938,7 +1938,7 @@ function desiredSparkDaemonUplinks(
     profiles.set(profile.serverUrl, profile);
   }
   const providedProfile = sparkDaemonServerProfileFromConfig(options.config);
-  if (providedProfile && !profiles.has(providedProfile.serverUrl)) {
+  if (providedProfile && profiles.size === 0) {
     profiles.set(providedProfile.serverUrl, providedProfile);
   }
 
