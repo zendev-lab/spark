@@ -67,7 +67,7 @@ import {
   SparkSkillResolver,
   formatSelectedSparkSkillsForPrompt,
   type SparkSkillPromptMatch,
-} from "@zendev-lab/spark-host/skill-resolver";
+} from "@zendev-lab/spark-roles/skill-resolver";
 import { loadSparkThemeCatalog } from "./theme.ts";
 
 import { SparkAgentLoop } from "./agent-loop.ts";
