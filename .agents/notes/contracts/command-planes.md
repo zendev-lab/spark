@@ -33,13 +33,12 @@ second CLI catalog.
 | `spark-acp` | `spark acp` | ACP stdio adapter | protocol translation for new/prompt/cancel/permission | durable sessions, invocations, provider policy, or execution truth |
 | `spark-mcp` | `spark mcp` | read-only MCP stdio adapter | bounded projection of canonical workspace Memory | memory writes, daemon execution, or another memory store |
 | `spark-update` | `spark update` | installation and update surface | build-info inspection, install/update policy, release transition | daemon or Hub state |
-| slash `system` | n/a | TUI kernel command source | `/help`, `/exit`, `/quit`, `/clear`, `/reload` | project/task/goal/session/workflow commands |
-| slash `extension` | n/a | extension command source | extension-owned resource commands | TUI kernel lifecycle |
+| slash `system` | n/a | interactive kernel command source | `/help`, `/exit`, `/quit`, `/clear` | project/task/goal/session/workflow commands |
+| slash `extension` | n/a | extension command source | extension-owned resource commands | surface process lifecycle |
 
-`/reload` is a TUI process-lifecycle operation. The current worker must release
-its terminal and client leases before a supervisor starts a new worker on the
-same terminal. The replacement reattaches the exact daemon Session and reads
-its current workspace/cwd projection; it does not replay the initial prompt,
+The retired native TUI `/reload` worker-handoff is not a local-web or Hub
+lifecycle operation. Surfaces reattach the exact daemon Session by reading its
+current workspace/cwd projection; they do not replay the initial prompt,
 cancel daemon-owned work, or restart the daemon.
 
 The application formerly named Cockpit is the Hub application because it
@@ -97,20 +96,20 @@ session id and only connection-local active-invocation routing is retained.
 
 | Domain | Authoritative owner | Adapters and projections |
 | --- | --- | --- |
-| Session registry/lifecycle, Invocations, Side Threads, channel execution | `apps/spark-daemon` using the shared registry/store contracts | local RPC, runtime WebSocket, TUI, Hub, ACP, channel transports |
-| autonomous goal/loop/repro/execute/workflow cadence, retry, and recovery | `apps/spark-daemon`; capability packages provide registered success/retry policy | TUI, Hub, and compatible hosts send controls and render `loop.update` |
+| Session registry/lifecycle, Invocations, Side Threads, channel execution | `apps/spark-daemon` using the shared registry/store contracts | local RPC, runtime WebSocket, local web, Hub, ACP, channel transports |
+| autonomous goal/loop/repro/execute/workflow cadence, retry, and recovery | `apps/spark-daemon`; capability packages provide registered success/retry policy | local web, Hub, and compatible hosts send controls and render `loop.update` |
 | model/tool turn execution and effect policy | `spark-turn` and `spark-host` | daemon and native host runners provide session context |
 | cross-surface schemas and semantics | `spark-protocol` | each transport performs validation and translation only |
 | projects, tasks, goals, reviews, workflows, and evidence coordination | `spark-hub-coordination` and the capability package named for the domain | Hub routes and Web UI are replaceable projections |
 | cross-workspace delegation, routing, and bounded receipts | Hub modules in `spark-hub-coordination` / `spark-hub-db` | `spark-hub`; target daemon retains execution truth |
-| terminal presentation and interaction | `apps/spark-tui` behind `spark-tui` / `spark-text` boundaries | no durable business-state ownership |
+| local browser presentation and interaction | `apps/spark-web` behind `spark-web` / `spark-ui` boundaries | no durable business-state ownership |
 | extension composition | `spark-extension` | compatible loaders may call the same host-neutral contract; no second facade owns behavior |
 
-TUI, Hub, ACP, and Channel adapters create or select daemon Sessions through
+Local web, Hub, ACP, and Channel adapters create or select daemon Sessions through
 the same protocol. They do not author lifecycle or activity: the daemon derives
 visible activity from queued/running Invocations, rolls owned child activity up
 to its parent, and emits the projection consumed by every surface. An attached
-idle native TUI reconciles later `session.snapshot` results on a bounded
+idle local web workbench reconciles later `session.snapshot` results on a bounded
 interval so daemon-owned Goal, Loop, and Repro ticks reach the transcript,
 inspector, and widget. Occupancy heartbeat does not carry that projection. Live
 `turn.stream` owns an in-flight turn, so idle reconcile must not replace the
@@ -185,7 +184,7 @@ tag:
 | Complete Spark | `@zendev-lab/spark` | thin `spark` forwarding launcher | full-installation meta package and managed-update identity; pins the matching CLI and app packages but contains no dispatcher implementation |
 | Spark CLI | `@zendev-lab/spark-cli` | `spark`, `spark-acp`, `spark-mcp`, `spark-update`, plus app companion shims | owns the real dispatcher and local command adapters |
 | Spark daemon | `@zendev-lab/spark-daemon` | `spark-daemon` | durable local execution, daemon migrations, and headless turns |
-| Spark TUI | `@zendev-lab/spark-tui` | `spark-tui` | local terminal host; depends on the matching daemon package |
+| Spark Web | `@zendev-lab/spark-web` | `spark-web` | local daemon browser workbench; depends on the matching daemon package |
 | Spark Hub | `@zendev-lab/spark-hub` | `spark-hub` | control-plane host with authentication, coordination, and embedded Web UI |
 
 The split does **not** move implementation ownership out of the private source
@@ -216,7 +215,7 @@ The distribution stage of `pnpm run check:static` validates the generated
 manifest inventory, app names, lockstep versions, exact dependency edges, and
 cross-distribution assets. `pnpm run smoke` installs all five candidate tarballs,
 checks the real CLI and complete meta installation, then exercises independent
-daemon, TUI, and Hub installations. `pnpm run release:pack` creates five
+daemon, web, and Hub installations. `pnpm run release:pack` creates five
 immutable tarballs, bounded release manifests, and one checksum file. Only
 `.github/workflows/cd-publish.yml`, triggered by a version-matching tag, may
 publish those exact artifacts to npm and GitHub Releases; `main` and source
@@ -266,5 +265,5 @@ rejects repeated workspaces, including self-delegation.
 
 State commands must provide stable `--json` output. Human-readable output is not
 an automation contract. CLI owns canonical placement; slash commands are
-interactive aliases. The component and Direct PTY test lanes validate terminal
-behavior; no terminal multiplexer is a runtime or validation dependency.
+interactive aliases. Local-web validation is owned by
+[`../runbooks/spark-web-validation.md`](../runbooks/spark-web-validation.md).

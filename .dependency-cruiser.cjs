@@ -174,18 +174,6 @@ module.exports = {
     },
 
     // --- Spark product extension composition root ---
-    {
-      name: "spark-extension-no-spark-tui",
-      comment:
-        "spark-extension is shared by native and compatible hosts; use spark-text instead of spark-tui.",
-      severity: "error",
-      from: {
-        path: "^packages/spark-extension/",
-      },
-      to: {
-        path: "node_modules/.*/@zendev-lab/spark-tui-adapter|/node_modules/@zendev-lab/spark-tui-adapter|^packages/spark-tui/",
-      },
-    },
 
     // --- spark foundation packages (exclude Hub-private spark-hub-* packages) ---
     {
@@ -319,18 +307,6 @@ module.exports = {
 
     // --- daemon-app ---
     {
-      name: "daemon-no-tui-app",
-      comment:
-        "spark-daemon must use @zendev-lab/spark-host/headless-loader instead of @zendev-lab/spark-tui.",
-      severity: "error",
-      from: {
-        path: "^apps/spark-daemon/",
-      },
-      to: {
-        path: "node_modules/.*/@zendev-lab/spark-tui|/node_modules/@zendev-lab/spark-tui|^apps/spark-tui/",
-      },
-    },
-    {
       name: "execution-worker-import-boundary",
       comment:
         "Daemon-private execution worker modules may import only their wire contract and the host, protocol, and turn boundaries.",
@@ -416,9 +392,6 @@ function piAllowedSparkFoundationDirs() {
     "spark-tasks",
     "spark-turn",
     "spark-workflows",
-    // Old script treated spark-tui as non-spark for the foundation allowlist check
-    // (isSparkSpecifier returned false for spark-tui). Keep spark-text similarly allowed.
-    "spark-tui",
     "spark-text",
   ];
 }
@@ -436,9 +409,9 @@ function sparkAppInternalResolvedPathPattern() {
   return [
     "node_modules/.*/@zendev-lab/spark-cli(?:/|$)",
     "/node_modules/@zendev-lab/spark-cli(?:/|$)",
-    "node_modules/.*/@zendev-lab/spark-tui(?:/|$)",
-    "/node_modules/@zendev-lab/spark-tui(?:/|$)",
-    "^apps/spark-tui/",
+    "node_modules/.*/@zendev-lab/spark-web(?:/|$)",
+    "/node_modules/@zendev-lab/spark-web(?:/|$)",
+    "^apps/spark-web/",
     "^apps/spark-cli/",
   ].join("|");
 }
