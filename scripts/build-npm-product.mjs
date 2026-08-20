@@ -176,6 +176,7 @@ const cliCompanionExecutables = {
   "spark-daemon": "@zendev-lab/spark-daemon/executable",
   "spark-hub": "@zendev-lab/spark-hub/executable",
   "spark-web": "@zendev-lab/spark-web/executable",
+  "spark-web-dsh": "@zendev-lab/spark-web-dsh/executable",
 };
 
 function distributionPrelude(distribution, executableName) {
@@ -189,6 +190,7 @@ process.env.SPARK_HEADLESS_EXECUTOR_MODULE = ${resolvedDependencyPath("@zendev-l
 process.env.SPARK_HUB_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-hub/executable")};
 process.env.SPARK_MCP_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/mcp-executable")};
 process.env.SPARK_WEB_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-web/executable")};
+process.env.SPARK_WEB_DSH_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-web-dsh/executable")};
 process.env.SPARK_UPDATE_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/update-executable")};
 `;
     case "daemon":
@@ -278,6 +280,7 @@ await run("node", ["scripts/sync-workspace-versions.mjs"]);
 await run("pnpm", ["--filter", "@zendev-lab/spark-daemon", "run", "build"]);
 await run("pnpm", ["--filter", "@zendev-lab/spark-hub", "run", "build"]);
 await run("pnpm", ["--filter", "@zendev-lab/spark-web", "run", "build"]);
+await run("pnpm", ["--filter", "@zendev-lab/spark-web-dsh", "run", "build"]);
 
 await Promise.all(
   npmDistributions.flatMap((distribution) => [
@@ -293,8 +296,9 @@ await Promise.all(
 const daemon = npmDistributions.find((distribution) => distribution.id === "daemon");
 const hub = npmDistributions.find((distribution) => distribution.id === "hub");
 const web = npmDistributions.find((distribution) => distribution.id === "web");
-if (!daemon || !hub || !web)
-  throw new Error("Missing daemon, Hub, or web distribution configuration");
+const webDsh = npmDistributions.find((distribution) => distribution.id === "web-dsh");
+if (!daemon || !hub || !web || !webDsh)
+  throw new Error("Missing daemon, Hub, web, or DSH web distribution configuration");
 await Promise.all([
   cp(
     resolve(root, "apps/spark-daemon/dist/cli.js"),
@@ -304,6 +308,9 @@ await Promise.all([
     recursive: true,
   }),
   cp(resolve(root, "apps/spark-web/build"), resolve(web.directory, "build"), {
+    recursive: true,
+  }),
+  cp(resolve(root, "apps/spark-web-dsh/lib"), resolve(webDsh.directory, "lib"), {
     recursive: true,
   }),
   ...npmDistributions.map(copyCommonFiles),

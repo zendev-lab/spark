@@ -361,6 +361,10 @@ module.exports = {
         "reports",
         "coverage",
         "\\.git",
+        // Prebuilt DSH runtime bundles intentionally preserve host-resolved
+        // externals. Their source ownership is checked in packages/spark-llm;
+        // cruising generated imports would report the app as a second owner.
+        "^apps/spark-web-dsh/lib/",
         // package-internal relative imports into own src are fine; deep-link rule
         // already scopes local deps. Keep generated / lock noise out.
       ],

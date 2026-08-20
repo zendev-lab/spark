@@ -198,6 +198,9 @@ test("dispatcher resolves source companion executables without importing app CLI
   const web = resolveTargetCommand("web");
   assert.match(web.command, /apps\/spark-web\/bin\/spark-web$/u);
   assert.deepEqual(web.args, []);
+  const webDsh = resolveTargetCommand("web-dsh");
+  assert.match(webDsh.command, /apps\/spark-web-dsh\/bin\/spark-web-dsh$/u);
+  assert.deepEqual(webDsh.args, []);
 });
 
 test("dispatcher honors an explicit packaged updater command", () => {

@@ -25,6 +25,7 @@ spark hub --help
 | --- | --- | --- |
 | `spark` | 打印帮助，或调用前台、后台、安装、诊断和版本工作流 | `spark --help` |
 | `spark web` | 打开绑定 daemon 的本地回环浏览器工作台 | `spark web --help` |
+| `spark web-dsh` | 打开可选的 DeepSeek Harness 兼容工作台 | `spark web-dsh --help` |
 | `spark daemon` | 操作 daemon 拥有的执行、会话、工作区、模型、认证和 Channel 状态 | `spark daemon --help` |
 | `spark hub` | 运行和管理 Hub 协调与 Web 表面 | `spark hub --help` |
 | ACP 与 MCP adapter | 通过配置好的 Spark adapter 连接兼容客户端 | 阅读[协作与客户端](/zh/guides/collaboration/) |
@@ -63,6 +64,13 @@ token，并通过 `spark-daemon-client` 连接 Spark daemon。显式传入 `--ho
 ```bash
 spark web
 spark web --port 4310 --no-open
+```
+
+额外的 `spark web-dsh` 命令会启动独立打包的 DSH 兼容应用，不会修改
+`spark web`：
+
+```bash
+spark web-dsh --host 0.0.0.0 --port 8888
 ```
 
 使用 `spark daemon auth --help` 和 `spark daemon model --help` 发现当前版本

@@ -12,7 +12,7 @@ import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-syst
 
 const dispatcherStrings = sparkCliDispatcherStrings();
 
-export type SparkDispatcherTarget = "daemon" | "hub" | "acp" | "mcp" | "update" | "web";
+export type SparkDispatcherTarget = "daemon" | "hub" | "acp" | "mcp" | "update" | "web" | "web-dsh";
 
 export type SparkDispatcherCommand =
   | {
@@ -70,6 +70,7 @@ const sparkDispatcherParser = or(
     command("mcp", object({ kind: constant("mcp" as const), argv: remainingArgv() })),
     command("server", object({ kind: constant("server" as const), argv: remainingArgv() })),
     command("web", object({ kind: constant("web" as const), argv: remainingArgv() })),
+    command("web-dsh", object({ kind: constant("web-dsh" as const), argv: remainingArgv() })),
   ),
   object({ kind: constant("empty" as const) }),
 );
@@ -94,6 +95,7 @@ const knownDispatcherCommands = new Set([
   "mcp",
   "server",
   "web",
+  "web-dsh",
 ]);
 
 export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand {
@@ -144,6 +146,8 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
       return errorCommand('The "spark server" namespace was removed. Use "spark hub" instead.');
     case "web":
       return { kind: "dispatch", target: "web", argv: [...parsed.argv] };
+    case "web-dsh":
+      return { kind: "dispatch", target: "web-dsh", argv: [...parsed.argv] };
     default: {
       const exhaustive: never = parsed;
       return exhaustive;
@@ -463,6 +467,7 @@ function packagedTargetCommand(target: SparkDispatcherTarget): string | undefine
     mcp: "SPARK_MCP_COMMAND",
     update: "SPARK_UPDATE_COMMAND",
     web: "SPARK_WEB_COMMAND",
+    "web-dsh": "SPARK_WEB_DSH_COMMAND",
   };
   const variable = variableByTarget[target];
   return variable ? process.env[variable]?.trim() : undefined;
@@ -487,6 +492,7 @@ function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | un
     mcp: "../../packages/spark-mcp/bin/spark-mcp.ts",
     update: "../../packages/spark-update/bin/spark-update",
     web: "../spark-web/bin/spark-web",
+    "web-dsh": "../spark-web-dsh/bin/spark-web-dsh",
   };
   const entry = entryByTarget[target];
   return entry ? resolve(cliRoot, entry) : undefined;

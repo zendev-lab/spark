@@ -43,11 +43,12 @@ function suppliedTarballs() {
     daemon: argumentValue("--daemon-tarball"),
     hub: argumentValue("--hub-tarball"),
     web: argumentValue("--web-tarball"),
+    "web-dsh": argumentValue("--web-dsh-tarball"),
   };
   const count = Object.values(values).filter(Boolean).length;
   if (count !== 0 && count !== npmDistributions.length) {
     throw new Error(
-      "Supply all five release tarballs: --spark-tarball, --cli-tarball, --daemon-tarball, --hub-tarball, and --web-tarball",
+      "Supply all six release tarballs: --spark-tarball, --cli-tarball, --daemon-tarball, --hub-tarball, --web-tarball, and --web-dsh-tarball",
     );
   }
   return count === 0 ? undefined : values;
@@ -345,22 +346,25 @@ try {
   );
   const allIds = npmDistributions.map(({ id }) => id);
   const cliIds = allIds.filter((id) => id !== "spark");
-  const [completeRoot, cliRoot, daemonRoot, hubRoot, webRoot] = await Promise.all([
+  const [completeRoot, cliRoot, daemonRoot, hubRoot, webRoot, webDshRoot] = await Promise.all([
     installCandidates(temporary, "complete", allIds, tarballs),
     installCandidates(temporary, "cli", cliIds, tarballs),
     installCandidates(temporary, "daemon", ["daemon"], tarballs),
     installCandidates(temporary, "hub", ["hub"], tarballs),
     installCandidates(temporary, "web", ["web"], tarballs),
+    installCandidates(temporary, "web-dsh", ["web-dsh"], tarballs),
   ]);
 
   const spark = installedBin(completeRoot, "@zendev-lab/spark", "spark");
   const completeDaemon = installedBin(completeRoot, "@zendev-lab/spark-daemon", "spark-daemon");
   const completeHub = installedBin(completeRoot, "@zendev-lab/spark-hub", "spark-hub");
   const completeWeb = installedBin(completeRoot, "@zendev-lab/spark-web", "spark-web");
+  const completeWebDsh = installedBin(completeRoot, "@zendev-lab/spark-web-dsh", "spark-web-dsh");
   const cli = installedBin(cliRoot, "@zendev-lab/spark-cli", "spark");
   const daemon = installedBin(daemonRoot, "@zendev-lab/spark-daemon", "spark-daemon");
   const hub = installedBin(hubRoot, "@zendev-lab/spark-hub", "spark-hub");
   const web = installedBin(webRoot, "@zendev-lab/spark-web", "spark-web");
+  const webDsh = installedBin(webDshRoot, "@zendev-lab/spark-web-dsh", "spark-web-dsh");
   const nodeEnvironment = {
     ...process.env,
     PATH: cleanPath(),
@@ -426,6 +430,10 @@ try {
       cwd: completeRoot,
       env: nodeEnvironment,
     }),
+    run(completeWebDsh.command, [...completeWebDsh.argvPrefix, "--help"], {
+      cwd: completeRoot,
+      env: nodeEnvironment,
+    }),
   ]);
   await run(cli.command, [...cli.argvPrefix, "--help"], {
     cwd: cliRoot,
@@ -449,6 +457,10 @@ try {
     cwd: completeRoot,
     env: nodeEnvironment,
   });
+  await run(spark.command, [...spark.argvPrefix, "web-dsh", "--help"], {
+    cwd: completeRoot,
+    env: nodeEnvironment,
+  });
   await exerciseSparkDaemonLifecycle({
     command: spark.command,
     argvPrefix: spark.argvPrefix,
@@ -465,6 +477,10 @@ try {
   await run(web.command, [...web.argvPrefix, "--help"], {
     cwd: webRoot,
     env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-web-home") },
+  });
+  await run(webDsh.command, [...webDsh.argvPrefix, "--help"], {
+    cwd: webDshRoot,
+    env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-web-dsh-home") },
   });
 
   const port = await availablePort();

@@ -1,6 +1,13 @@
 import type { SparkLanguage } from "./index.ts";
 
-export type SparkCliDispatcherTarget = "daemon" | "hub" | "acp" | "mcp" | "update" | "web";
+export type SparkCliDispatcherTarget =
+  | "daemon"
+  | "hub"
+  | "acp"
+  | "mcp"
+  | "update"
+  | "web"
+  | "web-dsh";
 
 export interface SparkCliDispatcherStrings {
   unknownSubcommand: (subcommand: string, originalArgs: readonly string[]) => string;
@@ -35,6 +42,7 @@ Usage:
   spark acp
   spark mcp
   spark web [--host 127.0.0.1] [--port 4310] [--no-open]
+  spark web-dsh [--host 127.0.0.1] [--port 3080]
   spark --help
   spark --version
 
@@ -50,6 +58,7 @@ Dispatches to Spark surfaces:
   spark acp         ACP NDJSON stdio adapter backed by canonical daemon sessions
   spark mcp         read-only MCP stdio adapter backed by canonical Memory
   spark web         local single-workspace browser workbench bound to loopback and the daemon
+  spark web-dsh     optional DeepSeek Harness compatibility workbench
 
 Companion executables:
   spark-daemon    local execution plane
@@ -57,6 +66,7 @@ Companion executables:
   spark-acp       ACP NDJSON stdio adapter
   spark-mcp       read-only MCP stdio adapter
   spark-web       local single-workspace browser workbench
+  spark-web-dsh   optional DeepSeek Harness compatibility workbench
   spark-update    managed installation and rollback owner
 
 Flags:
@@ -78,6 +88,8 @@ Unknown subcommands fail loudly instead of being interpreted as prompts. Use "sp
           return "Spark updater";
         case "web":
           return "Spark web";
+        case "web-dsh":
+          return "Spark DSH web";
         default: {
           const exhaustive: never = target;
           return exhaustive;
@@ -109,6 +121,7 @@ Unknown subcommands fail loudly instead of being interpreted as prompts. Use "sp
   spark acp
   spark mcp
   spark web [--host 127.0.0.1] [--port 4310] [--no-open]
+  spark web-dsh [--host 127.0.0.1] [--port 3080]
   spark --help
   spark --version
 
@@ -124,6 +137,7 @@ Unknown subcommands fail loudly instead of being interpreted as prompts. Use "sp
   spark acp         使用 canonical daemon session 的 ACP NDJSON stdio adapter
   spark mcp         使用 canonical Memory 的只读 MCP stdio adapter
   spark web         本地单 workspace 浏览器工作台：仅绑定回环并直连 daemon
+  spark web-dsh     可选的 DeepSeek Harness 兼容工作台
 
 配套可执行程序：
   spark-daemon    本地执行平面
@@ -131,6 +145,7 @@ Unknown subcommands fail loudly instead of being interpreted as prompts. Use "sp
   spark-acp       ACP NDJSON 标准输入输出适配器
   spark-mcp       只读 MCP 标准输入输出适配器
   spark-web       本地单 workspace 浏览器工作台
+  spark-web-dsh   可选的 DeepSeek Harness 兼容工作台
   spark-update    托管安装和回滚所有者
 
 Flags：
@@ -152,6 +167,8 @@ Flags：
           return "Spark 更新器";
         case "web":
           return "Spark web";
+        case "web-dsh":
+          return "Spark DSH web";
         default: {
           const exhaustive: never = target;
           return exhaustive;

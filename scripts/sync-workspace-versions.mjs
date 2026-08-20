@@ -27,6 +27,7 @@ const expectedApplicationNames = new Map([
   ["apps/spark-hub", "@zendev-lab/spark-hub"],
   ["apps/spark-daemon", "@zendev-lab/spark-daemon"],
   ["apps/spark-web", "@zendev-lab/spark-web"],
+  ["apps/spark-web-dsh", "@zendev-lab/spark-web-dsh"],
 ]);
 const expectedProducts = new Set([rootManifest.name, ...expectedApplicationNames.values()]);
 const configuredProducts = new Set(

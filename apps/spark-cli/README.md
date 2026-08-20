@@ -10,6 +10,7 @@ that pins this package and the executable apps.
 ```sh
 spark
 spark web
+spark web-dsh --host 0.0.0.0
 spark run --wait --json "headless Spark prompt"
 spark daemon auth import pi --json
 spark daemon model status --json
@@ -22,6 +23,7 @@ The dispatcher does not own browser rendering, daemon execution, provider/model 
 
 - `spark` to this help text.
 - `spark web ...` to the local loopback browser workbench.
+- `spark web-dsh ...` to the optional DeepSeek Harness compatibility workbench.
 - `spark run ...` and `spark bg ...` to daemon-native headless execution.
 - `spark daemon ...` to daemon execution, authentication, model, session, and
   administration surfaces.
@@ -34,6 +36,6 @@ for daemon/Hub. The former `spark tui` surface has been removed.
 
 Unknown subcommands fail loudly. The dispatcher has no direct implementation
 dependency on companion app CLIs. A generated complete installation injects
-exact daemon, Hub, and web app entrypoints; source checkouts use adjacent
-executables and standalone installs may resolve canonical `spark-*` commands
-from `PATH`.
+exact daemon, Hub, native web, and DSH compatibility app entrypoints; source
+checkouts use adjacent executables and standalone installs may resolve canonical
+`spark-*` commands from `PATH`.
