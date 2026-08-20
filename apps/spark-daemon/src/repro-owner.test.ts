@@ -11,6 +11,7 @@ import {
 import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
 import { currentSparkReproCheckpoint } from "@zendev-lab/spark-repro";
 import { registerSparkReproRoles } from "@zendev-lab/spark-extension/repro-roles";
+import { gitCommand } from "@zendev-lab/spark-system";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import { SparkReproOwner } from "./repro-owner.ts";
@@ -19,6 +20,7 @@ import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { migrateSparkDaemonDatabase } from "./store/schema.ts";
 import { SparkReproV10Store } from "./store/repro-v10.ts";
 import { registerWorkspace } from "./store/workspaces.ts";
+import { gitEnvironmentWithoutRepository, gitRepositoryArguments } from "./test-support/git.ts";
 
 const roots: string[] = [];
 
@@ -33,7 +35,10 @@ describe("daemon-owned Repro v10", () => {
     for (const name of ["model", "framework"]) {
       const repository = join(root, "repos", name);
       await mkdir(repository, { recursive: true });
-      execFileSync("git", ["init", "--quiet"], { cwd: repository });
+      execFileSync(gitCommand(), [...gitRepositoryArguments(repository), "init", "--quiet"], {
+        cwd: repository,
+        env: gitEnvironmentWithoutRepository(),
+      });
     }
     await expect(access(join(root, ".git"))).rejects.toThrow();
 

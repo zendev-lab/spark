@@ -15,16 +15,21 @@ import {
   type ProviderId,
   type WorkspaceRevision,
 } from "@zendev-lab/spark-lens";
+import { gitCommand } from "@zendev-lab/spark-system";
 import { expect, test } from "vitest";
 
 import { DaemonLensPatchService } from "./patch-service.ts";
 import { DaemonLensPatchStore } from "./patch-store.ts";
 import { DaemonLensReadIntegration, requireSuccessfulProviderRun } from "./read-integration.ts";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
+import { gitEnvironmentWithoutRepository, gitRepositoryArguments } from "../test-support/git.ts";
 
 test("read preflight previews a provider fix without modifying or persisting a proposal", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-lens-read-annotation-"));
-  await execFileAsync("git", ["init", "-q"], { cwd: root });
+  await execFileAsync(gitCommand(), [...gitRepositoryArguments(root), "init", "-q"], {
+    cwd: root,
+    env: gitEnvironmentWithoutRepository(),
+  });
   const path = join(root, "value.ts");
   await writeFile(path, "export const  value=1\n", "utf8");
   const snapshot = await readRegularFileSnapshot(path);
@@ -80,7 +85,10 @@ test("read preflight previews a provider fix without modifying or persisting a p
 
 test("read repair promotes the provider patch by CAS and returns the final version", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-lens-read-repair-"));
-  await execFileAsync("git", ["init", "-q"], { cwd: root });
+  await execFileAsync(gitCommand(), [...gitRepositoryArguments(root), "init", "-q"], {
+    cwd: root,
+    env: gitEnvironmentWithoutRepository(),
+  });
   const path = join(root, "value.ts");
   await writeFile(path, "export const  value=1\n", "utf8");
   const snapshot = await readRegularFileSnapshot(path);
