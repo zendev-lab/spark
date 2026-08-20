@@ -128,19 +128,7 @@ export function dshDocumentToSparkRecord(
   document: SparkDshSessionDocument,
 ): SparkSessionRecord {
   const meta = readSparkMeta(document.events);
-  const timestamp = meta?.timestamp ?? new Date(document.header.createdAt).toISOString();
-  const header: SparkSessionHeader = {
-    type: "session",
-    version: meta?.sparkVersion ?? CURRENT_SPARK_SESSION_VERSION,
-    id: document.header.id,
-    timestamp,
-    cwd: document.header.cwd ?? "",
-    ...((meta?.parentSessionPath ?? document.header.parentSession)
-      ? { parentSession: meta?.parentSessionPath ?? document.header.parentSession }
-      : {}),
-    ...(meta?.visibility ? { visibility: meta.visibility } : {}),
-    ...(meta?.purpose ? { purpose: meta.purpose } : {}),
-  };
+  const header = sparkHeaderFromDshLine(document.header, meta);
   const entries: SparkSessionEntry[] = [];
   for (const event of document.events) {
     if (event.type !== SPARK_DSH_ENTRY_EVENT_TYPE) continue;

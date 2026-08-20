@@ -15,6 +15,10 @@ import {
   type DocumentArtifactBody,
 } from "@zendev-lab/spark-artifacts";
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
+import {
+  decodeSparkDshSessionJsonl,
+  dshDocumentToSparkRecord,
+} from "@zendev-lab/spark-host/session-store";
 import { defaultDatabasePath, migrate, openDatabase } from "@zendev-lab/spark-hub-db";
 import { createRuntimeEnrollmentToken } from "@zendev-lab/spark-hub-coordination/runtime-registration";
 import type { SparkSessionRepro } from "@zendev-lab/spark-repro";
@@ -891,12 +895,11 @@ async function compactLaneSession(fixture: JourneyFixture, sessionId: string): P
     { env: fixture.target.env },
   );
   assert.ok(session.sessionPath, "compacted lane Session must expose its durable transcript path");
-  const entries = (await readFile(session.sessionPath, "utf8"))
-    .trim()
-    .split("\n")
-    .map((line) => jsonObject(line));
+  const document = decodeSparkDshSessionJsonl(await readFile(session.sessionPath, "utf8"));
+  assert.ok(document, "compacted lane Session must be DSH JSONL");
+  const record = dshDocumentToSparkRecord(session.sessionPath, document);
   assert.ok(
-    entries.some((entry) => entry.type === "compaction"),
+    record.entries.some((entry) => entry.type === "compaction"),
     "compaction must persist a summary boundary in the reused lane Session",
   );
 }

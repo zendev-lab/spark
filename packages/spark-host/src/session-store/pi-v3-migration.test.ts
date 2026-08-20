@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SPARK_DSH_ENTRY_EVENT_TYPE, SPARK_DSH_SESSION_FORMAT_VERSION } from "./dsh-format.ts";
+import {
+  SPARK_DSH_ENTRY_EVENT_TYPE,
+  SPARK_DSH_SESSION_FORMAT_VERSION,
+  decodeSparkDshSessionJsonl,
+  dshDocumentToSparkRecord,
+} from "./dsh-format.ts";
 import { migrateSparkSessionJsonlToDsh } from "./pi-v3-migration.ts";
 import { SparkSessionStore } from "./store.ts";
 import { CURRENT_SPARK_SESSION_VERSION } from "./types.ts";
@@ -62,6 +67,14 @@ describe("Pi JSONL v3 to DSH session migration", () => {
     });
     expect(lines[0]?.type).toBeUndefined();
     expect(lines.some((line) => line.type === SPARK_DSH_ENTRY_EVENT_TYPE)).toBe(true);
+
+    const decoded = decodeSparkDshSessionJsonl(await readFile(path, "utf8"));
+    expect(decoded).toBeDefined();
+    if (!decoded) return;
+    expect(dshDocumentToSparkRecord(path, decoded).entries).toEqual([
+      expect.objectContaining({ type: "message", id: "m1" }),
+      expect.objectContaining({ type: "compaction", id: "c1", summary: "kept" }),
+    ]);
 
     const store = new SparkSessionStore({ cwd: "/workspace", sparkHome: join(root, "home") });
     const loaded = await store.load(path);
