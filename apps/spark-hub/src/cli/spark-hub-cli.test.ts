@@ -1,15 +1,34 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 
-const execFileAsync = promisify(execFile);
+import { runSparkHubAppCli } from "../cli.ts";
+import { runSparkHubCli } from "./hub.ts";
 
-test("spark-hub is the canonical executable surface", async () => {
-  const executable = fileURLToPath(new URL("../../bin/spark-hub", import.meta.url));
-  const { stdout, stderr } = await execFileAsync(executable, ["--help"]);
+test("spark-hub dispatches coordination and web parser behavior in process", async () => {
+  await assert.rejects(
+    runSparkHubCli(["access", "not-a-real-op", "--json"]),
+    /unknown spark hub access operation|create, list, or revoke/iu,
+  );
 
-  assert.match(stdout, /spark-hub - Spark control plane and embedded management UI/u);
-  assert.equal(stderr, "");
+  const stdout: string[] = [];
+  const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation(((
+    chunk: string | Uint8Array,
+  ) => {
+    stdout.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write);
+  try {
+    await assert.rejects(
+      runSparkHubAppCli(["web", "not-a-real-op"]),
+      /Unknown spark hub web command/u,
+    );
+    assert.equal(await runSparkHubAppCli(["web", "status", "--help"]), 0);
+    assert.match(stdout.join(""), /spark hub web - manage the background Hub Web service/u);
+    await assert.rejects(
+      runSparkHubAppCli(["web", "logs", "--lines", "not-a-number"]),
+      /Invalid --lines value\. Pass a non-negative integer\./u,
+    );
+  } finally {
+    stdoutWrite.mockRestore();
+  }
 });
