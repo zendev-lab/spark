@@ -73,6 +73,7 @@ import {
   type SparkDriverAuthority,
   type SparkHostDelegationEnvelope,
   type SparkHostContext,
+  type SparkExecutionService,
   type SparkDelegationThinkingLevel,
   type ToolExecutionResult,
   type ToolExecutionReconciliation,
@@ -1248,12 +1249,28 @@ export class SparkAgentLoop {
     if (!dshContext) {
       throw new Error("SparkAgentLoop requires the daemon shared DSH context");
     }
+    const executionContext = this.host.makeContext();
+    const activeModel = this.getModel();
+    const execution: SparkExecutionService = Object.freeze({
+      ...(executionContext.workspaceId ? { workspaceId: executionContext.workspaceId } : {}),
+      cwd: executionContext.cwd ?? process.cwd(),
+      sessionId: this.viewSessionId,
+      ...(executionContext.invocationId ? { invocationId: executionContext.invocationId } : {}),
+      ...(this.currentMode ? { mode: this.currentMode } : {}),
+      ...(executionContext.driverAuthority
+        ? { driverAuthority: executionContext.driverAuthority }
+        : {}),
+      model: { provider: activeModel.provider, id: activeModel.id },
+      ...(executionContext.runLeaf ? { runLeaf: executionContext.runLeaf } : {}),
+      ...(executionContext.ui?.interaction ? { interaction: executionContext.ui.interaction } : {}),
+    });
     const driveOperation = runSparkDshTurn({
       ctx: dshContext,
       llm: this.llm,
       sessionId: this.viewSessionId,
       ...(this.dshSessionMetadata ? { sessionMetadata: this.dshSessionMetadata } : {}),
-      cwd: this.host.makeContext().cwd,
+      execution,
+      cwd: execution.cwd,
       followupText: this.followupTextForDriver(),
       tools,
       streamIdleTimeoutMs: this.streamIdleTimeoutMs,

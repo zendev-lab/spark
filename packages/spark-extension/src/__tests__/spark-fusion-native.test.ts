@@ -6,7 +6,7 @@ import {
   SparkProviderRegistry,
   type ProviderConfig,
 } from "@zendev-lab/spark-llm";
-import { createSparkFusionTool } from "@zendev-lab/spark-fusion/extension";
+import { createSparkFusionTool } from "@zendev-lab/dsh-tool-fusion/legacy";
 import { SparkHostRuntime } from "../host/index.ts";
 
 function panelOpinion(): string {

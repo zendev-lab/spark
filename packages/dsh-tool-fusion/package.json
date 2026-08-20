@@ -1,8 +1,8 @@
 {
-  "name": "@zendev-lab/spark-fusion",
+  "name": "@zendev-lab/dsh-tool-fusion",
   "version": "0.5.0",
   "private": true,
-  "description": "Spark-native bounded multi-model deliberation capability.",
+  "description": "Cordis-native bounded multi-model deliberation tool for DeepSeek Harness.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [
@@ -12,18 +12,23 @@
   ],
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./extension": "./src/extension.ts"
+    ".": "./src/extension.ts",
+    "./deliberation": "./src/deliberation.ts",
+    "./legacy": "./src/legacy.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
     "test": "vp test run"
   },
   "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-system-prompt": "catalog:dsh",
+    "@deepseek-ai/dsh-tools": "catalog:dsh",
     "@zendev-lab/spark-core": "workspace:^",
     "typebox": "catalog:"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-llm": "catalog:dsh",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

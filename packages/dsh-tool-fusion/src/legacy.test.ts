@@ -4,7 +4,7 @@ import {
   type ToolConfig,
 } from "@zendev-lab/spark-core";
 import { describe, expect, it, vi } from "vitest";
-import sparkFusionExtension, { createSparkFusionTool } from "./extension.ts";
+import sparkFusionExtension, { createSparkFusionTool } from "./legacy.ts";
 
 function opinion(role: string): string {
   return JSON.stringify({

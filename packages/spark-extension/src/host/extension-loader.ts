@@ -10,7 +10,7 @@ import sparkArtifactsExtension from "@zendev-lab/spark-artifacts/extension";
 import sparkCueExtension from "@zendev-lab/spark-cue/extension";
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import sparkFilesExtension from "@zendev-lab/spark-files/extension";
-import sparkFusionExtension from "@zendev-lab/spark-fusion/extension";
+import sparkFusionExtension from "@zendev-lab/dsh-tool-fusion/legacy";
 import sparkMemoryExtension, {
   type SparkMemoryExtensionApi,
 } from "@zendev-lab/spark-memory/extension";
@@ -31,7 +31,7 @@ export type SparkBuiltinExtensionName =
   | "@zendev-lab/spark-artifacts"
   | "@zendev-lab/spark-cue"
   | "@zendev-lab/spark-files"
-  | "@zendev-lab/spark-fusion"
+  | "@zendev-lab/dsh-tool-fusion"
   | "@zendev-lab/spark-graft"
   | "@zendev-lab/spark-memory"
   | "@zendev-lab/spark-roles"
@@ -92,8 +92,8 @@ const BUILTIN_EXTENSION_FACTORIES: readonly SparkBuiltinCapabilityFactory[] = [
     factory: sparkFilesExtension as SparkCapabilityFactory,
   },
   {
-    name: "@zendev-lab/spark-fusion",
-    specifier: "@zendev-lab/spark-fusion/extension",
+    name: "@zendev-lab/dsh-tool-fusion",
+    specifier: "@zendev-lab/dsh-tool-fusion/legacy",
     factory: sparkFusionExtension as SparkCapabilityFactory,
   },
   {
