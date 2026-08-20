@@ -219,7 +219,7 @@ Commands:
   spark daemon --workspace <id>
   login --server-url <url> [--no-open] [--allow-insecure-http]
   workspace register [path] [--name <name>] [--profile <path-or-git-url>]
-  workspace register [path] --server-url <url> --token <workspace-registration-token|-> [--name <name>]
+  workspace register [path] --token <workspace-registration-token|-> [--name <name>] [--server-url <url>]
   workspace relocate --to-server-url <https-origin> [--from-server-url <origin>] [--yes] [--json]
   workspace migrate-evidence [--workspace <id-or-path>] [--apply] [--json]
   workspace ls [--json] [--all] [--full]
@@ -266,7 +266,7 @@ export function printWorkspaceHelp(io: CliIo): void {
 
 Commands:
   register [path] [--name <name>] [--profile <path-or-git-url>]
-  register [path] --server-url <url> --token <workspace-registration-token|-> [--name <name>]
+  register [path] --token <workspace-registration-token|-> [--name <name>] [--server-url <url>]
   relocate --to-server-url <https-origin> [--from-server-url <origin>] [--yes] [--json]
   migrate-evidence [--workspace <id-or-path>] [--apply] [--json]
   ls [--json] [--all] [--full]
@@ -291,8 +291,8 @@ export function printLoginHelp(io: CliIo): void {
   io.stdout.write(`Usage: spark daemon login --server-url <url> [--no-open] [--allow-insecure-http]
 
 Authorize this daemon machine in Spark Hub. The stored machine credential is
-only for connectivity and refresh. Every workspace registration still consumes
-a fresh one-time workspace registration token.
+only for connectivity and refresh. Hub uplink is scheduled from this origin;
+local workspaces stay local until announced with a fresh one-time workspace token.
 Non-loopback Hub URLs require HTTPS unless --allow-insecure-http is supplied.
 `);
 }

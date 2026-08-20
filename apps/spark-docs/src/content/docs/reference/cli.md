@@ -170,8 +170,9 @@ frames; startup diagnostics go to stderr.
 ## Workspaces and remote Hub
 
 ```text
-spark daemon workspace register . --name <name>
 spark daemon login --server-url <url>
+spark daemon workspace register . --name <name>
+spark daemon workspace register . --token <token>
 spark daemon workspace ls --json
 spark daemon workspace move <id> <new-path> --dry-run
 spark daemon workspace unregister <id> --dry-run

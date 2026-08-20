@@ -114,6 +114,29 @@ export function listSparkDaemonServerProfiles(paths: SparkPaths): SparkDaemonSer
   );
 }
 
+/**
+ * Hub origin this daemon will schedule. Workspace rows do not own this.
+ * `requested` is only an origin selector (or first-enroll target), never workspace identity.
+ */
+export function scheduledSparkDaemonHubOrigin(
+  paths: SparkPaths,
+  requested?: string,
+): { serverUrl?: string; ambiguous: boolean } {
+  if (requested?.trim()) {
+    return { serverUrl: requested.trim(), ambiguous: false };
+  }
+  const runnable = listSparkDaemonServerProfiles(paths).filter((profile) =>
+    Boolean(profile.runtimeId && profile.runtimeToken),
+  );
+  if (runnable.length === 1) {
+    return { serverUrl: runnable[0]!.serverUrl, ambiguous: false };
+  }
+  if (runnable.length > 1) {
+    return { ambiguous: true };
+  }
+  return { ambiguous: false };
+}
+
 /** Look up one Hub profile by its normalized origin. */
 export function getSparkDaemonServerProfile(
   paths: SparkPaths,

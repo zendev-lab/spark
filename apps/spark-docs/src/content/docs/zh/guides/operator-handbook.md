@@ -122,10 +122,9 @@ spark hub web status --json
 生成命令的形式如下：
 
 ```bash
+spark daemon login --server-url http://127.0.0.1:5174
 spark daemon workspace register . --name <workspace-name>
-spark daemon workspace register . \
-  --server-url http://127.0.0.1:5174 \
-  --token <one-time-workspace-token>
+spark daemon workspace register . --token <one-time-workspace-token>
 ```
 
 Token 只显示一次，只授权一个目录。它不是 provider 凭证，也不是可复用的 daemon login。

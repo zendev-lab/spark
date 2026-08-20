@@ -118,7 +118,6 @@ import { reconcileLoopGoalSettlements } from "./spark/loop-goal-settlements.ts";
 import {
   getWorkspaceById,
   listWorkspaceBindingIdsForServer,
-  listWorkspaceUplinkServerUrls,
   listWorkspaces,
   listWorkspacesForServer,
   markSparkDaemonServerConnected,
@@ -1884,8 +1883,8 @@ async function runSparkDaemonUplinkSupervisor(
     reconcile(serverUrl ?? ""),
   );
   // In-process park/unpark/prefer and relocation already publish
-  // requestReconfigure; this poll is only the safety net for profile or
-  // server_url changes written by another process.
+  // requestReconfigure; this poll is only the safety net for profile
+  // changes written by another process.
   const poll = setInterval(() => reconcile(), 5_000);
   const aborted = new Promise<void>((resolve) => {
     signal.addEventListener("abort", () => resolve(), { once: true });
@@ -1956,11 +1955,10 @@ function desiredSparkDaemonUplinks(
   }
 
   const desired = new Map<string, DesiredSparkDaemonUplink>();
-  for (const candidateUrl of listWorkspaceUplinkServerUrls(options.db)) {
-    const serverUrl = normalizeSparkDaemonServerUrl(candidateUrl);
+  for (const profile of profiles.values()) {
+    if (profile.parked) continue;
+    const serverUrl = normalizeSparkDaemonServerUrl(profile.serverUrl);
     if (desired.has(serverUrl)) continue;
-    const profile = profiles.get(serverUrl);
-    if (!profile || profile.parked) continue;
     const config = sparkDaemonConfigForServerProfile(identity, profile);
     if (!canAttemptServerConnection(config)) continue;
     desired.set(serverUrl, {

@@ -14,6 +14,7 @@ import {
   sparkDaemonServerProfilesFile,
   SparkDaemonServerProfilesLockTimeoutError,
   upsertSparkDaemonServerProfile,
+  scheduledSparkDaemonHubOrigin,
   withSparkDaemonServerProfilesLock,
 } from "./server-profiles.js";
 
@@ -296,6 +297,39 @@ describe("Spark daemon server profiles", () => {
       runtimeId: "rt_target",
       runtimeToken: "spark_rt_target",
     });
+  });
+
+  it("schedules a unique Hub origin from daemon login, not workspace input", async () => {
+    const { root, paths } = tempSparkPaths();
+    writeSparkDaemonConfig(paths, {
+      installationId: "install-test",
+      displayName: "Test daemon",
+    });
+
+    try {
+      expect(scheduledSparkDaemonHubOrigin(paths)).toEqual({ ambiguous: false });
+      await upsertSparkDaemonServerProfile(paths, {
+        serverUrl: "https://hub.example.test",
+        runtimeId: "rt_hub",
+        runtimeToken: "spark_rt_hub",
+      });
+      expect(scheduledSparkDaemonHubOrigin(paths)).toEqual({
+        serverUrl: "https://hub.example.test/",
+        ambiguous: false,
+      });
+      expect(scheduledSparkDaemonHubOrigin(paths, "https://other.example.test")).toEqual({
+        serverUrl: "https://other.example.test",
+        ambiguous: false,
+      });
+      await upsertSparkDaemonServerProfile(paths, {
+        serverUrl: "https://second.example.test",
+        runtimeId: "rt_second",
+        runtimeToken: "spark_rt_second",
+      });
+      expect(scheduledSparkDaemonHubOrigin(paths)).toEqual({ ambiguous: true });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

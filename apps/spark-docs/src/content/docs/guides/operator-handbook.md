@@ -137,10 +137,9 @@ separately.
 The generated command has this shape:
 
 ```bash
+spark daemon login --server-url http://127.0.0.1:5174
 spark daemon workspace register . --name <workspace-name>
-spark daemon workspace register . \
-  --server-url http://127.0.0.1:5174 \
-  --token <one-time-workspace-token>
+spark daemon workspace register . --token <one-time-workspace-token>
 ```
 
 The token is shown once and authorizes one directory. It is not a provider

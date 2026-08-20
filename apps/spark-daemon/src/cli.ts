@@ -30,6 +30,7 @@ import { sparkDaemonVersion } from "./daemon.js";
 import {
   getSparkDaemonServerProfile,
   listSparkDaemonServerProfiles,
+  scheduledSparkDaemonHubOrigin,
   sparkDaemonConfigForServerProfile,
   type SparkDaemonServerProfile,
 } from "./server-profiles.js";
@@ -1072,17 +1073,14 @@ async function registerWorkspaceCommand(
   const localPath = resolveWorkspacePath(pathArg);
   assertDirectory(localPath);
 
-  const config = readSparkDaemonConfig(paths);
-  const profiles = listSparkDaemonServerProfiles(paths);
-  const registrationDefault =
-    profiles.length === 1 ? sparkDaemonConfigForServerProfile(config, profiles[0]!) : config;
-  const wantsHubAnnounce = Boolean(
-    flags["server-url"] || flags.server || registrationToken(flags) || flags.token === "-",
-  );
+  const wantsHubAnnounce = Boolean(registrationToken(flags) || flags.token === "-");
+  if ((flags["server-url"] || flags.server) && !wantsHubAnnounce) {
+    throw new Error(
+      "Hub origin is owned by this daemon. Run spark daemon login --server-url <url>. Pass --token to announce a Hub projection.",
+    );
+  }
   const serverUrl = wantsHubAnnounce
-    ? await resolveRegistrationServerUrl(flags, registrationDefault, io, {
-        interactive,
-      })
+    ? await resolveWorkspaceAnnounceServerUrl(paths, flags)
     : undefined;
   const registrationTokenValue = wantsHubAnnounce
     ? await resolveRegistrationToken(flags, io, {
@@ -2398,6 +2396,28 @@ async function resolveRegistrationServerUrl(
   }
 
   throw new Error("Missing server URL. Pass --server-url <url> with the registration command.");
+}
+
+async function resolveWorkspaceAnnounceServerUrl(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  flags: Record<string, string>,
+): Promise<string> {
+  const flagged = flags["server-url"] ?? flags.server;
+  const validationOptions = {
+    allowInsecureHttp: flags["allow-insecure-http"] === "true",
+  };
+  const scheduled = scheduledSparkDaemonHubOrigin(paths, flagged);
+  if (scheduled.ambiguous) {
+    throw new Error(
+      "This daemon has multiple Hub origins. Pass --server-url to select which origin to project onto.",
+    );
+  }
+  if (!scheduled.serverUrl) {
+    throw new Error(
+      "Hub workspace token requires a daemon Hub origin. Run spark daemon login --server-url <url>.",
+    );
+  }
+  return validateRegistrationServerUrl(scheduled.serverUrl, validationOptions);
 }
 
 function registrationToken(flags: Record<string, string>): string | undefined {

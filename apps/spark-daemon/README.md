@@ -18,7 +18,7 @@ spark daemon restart --yes
 spark daemon sync
 ```
 
-Use `--token -` to read a one-line registration token from stdin. Browser/device login stores a private machine credential for connectivity and refresh only; every workspace registration consumes a fresh workspace token. A successful registration prints a separate one-time browser key for `/{slug}/login`. Mint additional workspace browser keys on the Hub host with `spark hub workspace access create --workspace <id>` (list/revoke there too; name is display-only). Hub-level remote login uses `spark hub access create` and `/login`. Remote Hub URLs require HTTPS unless both login and registration explicitly use `--allow-insecure-http` on a trusted private network.
+Use `--token -` to read a one-line registration token from stdin. Browser/device login stores a private machine credential for connectivity and refresh only; Hub origin is daemon-owned and schedules uplink. Hub workspace announce consumes a fresh workspace token. A successful registration prints a separate one-time browser key for `/{slug}/login`. Mint additional workspace browser keys on the Hub host with `spark hub workspace access create --workspace <id>` (list/revoke there too; name is display-only). Hub-level remote login uses `spark hub access create` and `/login`. Remote Hub URLs require HTTPS unless both login and registration explicitly use `--allow-insecure-http` on a trusted private network.
 
 The daemon owns workspace arbitration, the Session registry and Owner-derived lifecycle, Administrator provisioning, channels, SQLite Invocations/receipts, per-Session execution fencing, cancellation, timeout, restart recovery, and the runtime WebSocket uplink. Hub receives projections; it is not execution truth.
 

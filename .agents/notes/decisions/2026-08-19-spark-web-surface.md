@@ -27,7 +27,8 @@ capability rename avoids two packages competing for `spark-web`.
 
 - `spark web` starts `apps/spark-web` with loopback bind and a one-shot token.
 - Workspace identity is daemon-local. Hub `serverUrl` belongs to daemon
-  login/uplink scheduling, not the workspace row.
+  login/uplink scheduling, not the workspace row. The supervisor dials
+  enrolled daemon profiles even when workspaces are still local-only.
 - Shared command/event vocabulary stays in `spark-protocol`; each browser
   surface owns only its carrier.
 - Do not vendor dsh web packages, introduce `ctx.sessionProjections`, or keep a
