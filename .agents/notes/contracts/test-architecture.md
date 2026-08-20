@@ -87,6 +87,23 @@ Test ownership is structural instead of ledger-driven:
 
 Mutation CE selection is also package-owned: either a `test:mutation` script or `stryker.config.json` requires the complete command, config, and dependency set. Shared Stryker dependencies alone do not enroll a package. This keeps pnpm recursive `--if-present` discovery fail-closed without a second workspace inventory.
 
+## Concurrency and expensive boundaries
+
+The root integration suite and `spark-extension` use the fork pool with at most two workers. Their
+shared hermetic setup assigns every worker an isolated HOME, Spark home, and XDG root, so files may
+run concurrently without sharing runtime state. Workspace test discovery remains serial: running
+complete workspaces concurrently makes transform-heavy Svelte suites and SQLite/process suites
+compete for the same machine without changing the contract under test.
+
+Use fake timers for retry and backoff tests when the contract is the attempt sequence, terminal
+classification, or scheduled delay rather than elapsed wall time. Keep real timers for deadline,
+cancellation, and ordering behavior whose semantics depend on actual passage of time.
+
+Use real files, SQLite databases, sockets, and child processes only when persistence, migration,
+reopen, locking, atomic replacement, argv, transport, or process lifecycle is the contract. Pure
+validation and state-transition cases should exercise their owning function or in-memory boundary
+instead of paying for an unrelated operating-system boundary.
+
 ## Tests versus static policy
 
 Code tests assert observable functionality: return values, state transitions, persisted effects,
