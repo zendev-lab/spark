@@ -65,7 +65,7 @@ export interface SparkTurnDriverHooks {
   assemble(): Promise<SparkAssembledTurn>;
   dispatchToolCall(toolCall: ToolCall, signal: AbortSignal): Promise<ToolResultMessage>;
   onStreamEvent?(event: { type: string; [key: string]: unknown }): void;
-  onAssistant?(assistant: unknown): void;
+  onAssistant?(assistant: unknown): void | Promise<void>;
   onToolResult?(result: ToolResultMessage): void;
   onTooling?(): void;
   onRoundtrip?(): void | Promise<void>;
@@ -275,24 +275,15 @@ class SparkTurnLlmAdapter extends LlmAdapter {
     const hooks = this.hooks;
     try {
       const piStream = llmChunksToPiAiStream(this.llm.stream(generate), assembled.model);
-      let sawToolCallEvent = false;
-      let streamedContent = false;
       for await (const event of piStream) {
         hooks.onStreamEvent?.(event);
-        if (event.type === "toolcall_start" || event.type === "toolcall_end") {
-          sawToolCallEvent = true;
-        }
         if (event.type === "error") {
-          hooks.onAssistant?.(event.error);
+          await hooks.onAssistant?.(event.error);
           yield* piEventToLlmChunks(event);
           return;
         }
-        if (event.type !== "done") {
-          if (event.type !== "start") streamedContent = true;
-          yield* piEventToLlmChunks(event);
-          continue;
-        }
-        hooks.onAssistant?.(event.message);
+        if (event.type !== "done") continue;
+        await hooks.onAssistant?.(event.message);
         const toolCalls = hooks.collectToolCalls?.(event.message) ?? [];
         if (toolCalls.length === 0) {
           yield* piEventToLlmChunks(event);
@@ -319,11 +310,7 @@ class SparkTurnLlmAdapter extends LlmAdapter {
         this.concurrency.sequential = !toolCalls.every((call) =>
           this.parallelSafeNames.has(call.name),
         );
-        if (sawToolCallEvent) {
-          yield* piEventToLlmChunks(event);
-          return;
-        }
-        yield* dshChunksFromAssistant(event.message, streamedContent ? "tool-calls" : "all");
+        yield* dshChunksFromAssistant(event.message);
         return;
       }
     } catch (error) {
@@ -380,10 +367,7 @@ function sparkHostToolDefinition(
   });
 }
 
-function* dshChunksFromAssistant(
-  message: AssistantMessage,
-  parts: "all" | "tool-calls",
-): Iterable<StreamChunk> {
+function* dshChunksFromAssistant(message: AssistantMessage): Iterable<StreamChunk> {
   let index = 0;
   for (const part of message.content) {
     if (part.type === "toolCall") {
@@ -403,11 +387,11 @@ function* dshChunksFromAssistant(
         index,
         block: { type: "tool-call", id, name: toolCall.name, arguments: args },
       };
-    } else if (parts === "all" && part.type === "text") {
+    } else if (part.type === "text") {
       yield { type: "block-start", index, blockType: "text" };
       yield { type: "text-delta", index, text: part.text };
       yield { type: "block-end", index, block: { type: "text", text: part.text } };
-    } else if (parts === "all" && part.type === "thinking") {
+    } else if (part.type === "thinking") {
       const text = "thinking" in part && typeof part.thinking === "string" ? part.thinking : "";
       yield { type: "block-start", index, blockType: "reasoning" };
       yield { type: "reasoning-delta", index, text };

@@ -1242,13 +1242,15 @@ export class SparkAgentLoop {
       hooks: {
         assemble: async () => {
           flushToolResults();
+          // Tool-enqueued follow-ups belong in this model request, not a second AgentLoop.
+          this.drainOutboxIntoMessages();
           return this.assembleSparkTurnRequest();
         },
         dispatchToolCall: (toolCall, signal) => this.dispatchToolCall(toolCall, signal),
         onStreamEvent: (event) => {
           this.publish({ type: "stream_event", event: event as AssistantMessageEvent });
         },
-        onAssistant: (assistant) => {
+        onAssistant: async (assistant) => {
           flushToolResults();
           lastAssistant = assistant as AssistantMessage;
           if (lastAssistant.stopReason === "error" || lastAssistant.stopReason === "aborted") {
@@ -1261,7 +1263,7 @@ export class SparkAgentLoop {
             assistant: lastAssistant,
             reason: lastAssistant.stopReason,
           });
-          void this.host.emit("turn_end", { message: lastAssistant, toolResults: [] });
+          await this.host.emit("turn_end", { message: lastAssistant, toolResults: [] });
         },
         onToolResult: (result) => {
           pendingToolResults.set(result.toolCallId, result);
