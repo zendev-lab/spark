@@ -27,6 +27,7 @@ import {
 } from "./local-rpc.js";
 import { handleLocalRpcLine } from "./local-rpc/dispatch.ts";
 import { parseSparkDaemonLifecycleSnapshot } from "./local-rpc/results.ts";
+import { upsertSparkDaemonServerProfile } from "./server-profiles.js";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { SparkChannelDeliveryStore } from "./store/channel-deliveries.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
@@ -946,6 +947,133 @@ describe("Spark daemon local RPC", () => {
       expect(JSON.stringify(listWorkspaces(db))).not.toContain("spark_wsreg_local_rpc");
       expect(onUplinkReconfigure).toHaveBeenCalledOnce();
       expect(onUplinkReconfigure).toHaveBeenCalledWith("http://127.0.0.1:5173/");
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("registers a local workspace without contacting Hub", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-"));
+    const workspacePath = join(root, "workspace");
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    try {
+      mkdirSync(workspacePath);
+      const ensureRegistration = vi.fn();
+      const response = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "rpc_register_local",
+          method: "workspace.register",
+          params: {
+            localPath: realpathSync(workspacePath),
+            displayName: "Local",
+          },
+        }),
+        paths,
+        db,
+        undefined,
+        { ensureSparkDaemonRegistrationForWorkspace: ensureRegistration },
+      );
+      expect(response).toMatchObject({
+        id: "rpc_register_local",
+        ok: true,
+        result: {
+          displayName: "Local",
+          serverUrl: "",
+          localPath: realpathSync(workspacePath),
+        },
+      });
+      expect(ensureRegistration).not.toHaveBeenCalled();
+      expect(listWorkspaces(db)).toHaveLength(1);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("announces a Hub projection from daemon login when workspace register has only a token", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-"));
+    const workspacePath = join(root, "workspace");
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    try {
+      mkdirSync(workspacePath);
+      await upsertSparkDaemonServerProfile(paths, {
+        serverUrl: "http://127.0.0.1:5173/",
+        runtimeId: "rt_11111111111141111111111111111111",
+        runtimeToken: "spark_rt_token_00000000000000000000000000000000",
+      });
+      const ensureRegistration = vi.fn(async () => ({
+        config: {
+          installationId: "install-test",
+          displayName: "Test Spark daemon",
+          serverUrl: "http://127.0.0.1:5173/",
+          runtimeId: "rt_11111111111141111111111111111111",
+          runtimeToken: "spark_rt_token_00000000000000000000000000000000",
+          refreshToken: "spark_rt_refresh_000000000000000000000000000000",
+          webSocketUrl:
+            "ws://127.0.0.1:5173/api/v1/runtime/runtimes/rt_11111111111141111111111111111111/ws",
+        },
+        workspaceBinding: {
+          workspaceId: "ws_22222222222241112222222222222222",
+          bindingId: "rtwb_33333333333341113333333333333333",
+          localWorkspaceKey: "local",
+          displayName: "Local",
+          status: "indexing" as const,
+        },
+      }));
+      const response = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "rpc_register_token_only",
+          method: "workspace.register",
+          params: {
+            localPath: realpathSync(workspacePath),
+            displayName: "Local",
+            registrationToken: "spark_wsreg_local_rpc",
+          },
+        }),
+        paths,
+        db,
+        undefined,
+        {
+          ensureSparkDaemonRegistrationForWorkspace: ensureRegistration,
+          verifySparkDaemonWorkspaceConnection: vi.fn(async () => undefined),
+        },
+      );
+      expect(response).toMatchObject({
+        id: "rpc_register_token_only",
+        ok: true,
+        result: {
+          displayName: "Local",
+          serverUrl: "http://127.0.0.1:5173/",
+        },
+      });
+      expect(ensureRegistration).toHaveBeenCalledWith(
+        paths,
+        expect.objectContaining({
+          serverUrl: "http://127.0.0.1:5173/",
+          registrationToken: "spark_wsreg_local_rpc",
+        }),
+      );
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });

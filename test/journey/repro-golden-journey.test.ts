@@ -696,7 +696,10 @@ async function createJourneyFixture(
         }
       : {}),
     SPARK_DAEMON_SERVICE_MODE: "detached",
-    SPARK_HEADLESS_EXECUTOR_MODULE: resolve(root, "apps/spark-tui/src/headless-role-executor.ts"),
+    SPARK_HEADLESS_EXECUTOR_MODULE: resolve(
+      root,
+      "packages/spark-extension/src/headless-role-executor.ts",
+    ),
     SPARK_REPRO_SCRIPTED_PROVIDER_LEDGER: providerLedgerPath,
     SPARK_REPRO_FORGE_LEDGER: forgeLedgerPath,
     PATH: [binDir, originalHome ? resolve(originalHome, ".cargo/bin") : undefined, process.env.PATH]

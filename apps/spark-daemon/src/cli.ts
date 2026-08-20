@@ -30,6 +30,7 @@ import { sparkDaemonVersion } from "./daemon.js";
 import {
   getSparkDaemonServerProfile,
   listSparkDaemonServerProfiles,
+  scheduledSparkDaemonHubOrigin,
   sparkDaemonConfigForServerProfile,
   type SparkDaemonServerProfile,
 } from "./server-profiles.js";
@@ -1072,26 +1073,30 @@ async function registerWorkspaceCommand(
   const localPath = resolveWorkspacePath(pathArg);
   assertDirectory(localPath);
 
-  const config = readSparkDaemonConfig(paths);
-  const profiles = listSparkDaemonServerProfiles(paths);
-  const registrationDefault =
-    profiles.length === 1 ? sparkDaemonConfigForServerProfile(config, profiles[0]!) : config;
-  const serverUrl = await resolveRegistrationServerUrl(flags, registrationDefault, io, {
-    interactive,
-  });
-  const registrationToken = await resolveRegistrationToken(flags, io, {
-    interactive,
-  });
-  if (!registrationToken) {
+  const wantsHubAnnounce = Boolean(registrationToken(flags) || flags.token === "-");
+  if ((flags["server-url"] || flags.server) && !wantsHubAnnounce) {
+    throw new Error(
+      "Hub origin is owned by this daemon. Run spark daemon login --server-url <url>. Pass --token to announce a Hub projection.",
+    );
+  }
+  const serverUrl = wantsHubAnnounce
+    ? await resolveWorkspaceAnnounceServerUrl(paths, flags)
+    : undefined;
+  const registrationTokenValue = wantsHubAnnounce
+    ? await resolveRegistrationToken(flags, io, {
+        interactive,
+      })
+    : undefined;
+  if (serverUrl && !registrationTokenValue) {
     throw new Error(STRINGS.workspaceTokenRequired(serverUrl));
   }
   const displayName =
     flags.name ?? (interactive ? await promptWorkspaceName(localPath, io) : undefined);
   const workspaceOptions: WorkspaceRegistrationRequest = {
-    serverUrl,
     localPath,
+    ...(serverUrl ? { serverUrl } : {}),
     ...(flags["allow-insecure-http"] === "true" ? { allowInsecureHttp: true } : {}),
-    ...(registrationToken ? { registrationToken } : {}),
+    ...(registrationTokenValue ? { registrationToken: registrationTokenValue } : {}),
     ...(flags.key || flags["local-key"]
       ? { localWorkspaceKey: flags.key ?? flags["local-key"] }
       : {}),
@@ -1108,11 +1113,13 @@ async function registerWorkspaceCommand(
   io.stdout.write(
     `✓ workspace '${added.displayName}' registered\n` +
       `  path     ${formatPathForDisplay(added.localPath)}\n` +
-      `  server   ${added.serverUrl}\n` +
+      `  server   ${added.serverUrl || "—"}\n` +
       profileTextLine(added.profile) +
       `  status   ${workspaceStatusLabel(added)}\n` +
-      workspaceAuthorizationText(added, serverUrl) +
-      `  note     Hub can unbind this projection; rerun workspace register to bind it again.\n`,
+      (serverUrl ? workspaceAuthorizationText(added, serverUrl) : "") +
+      (added.serverUrl
+        ? `  note     Hub can unbind this projection; rerun workspace register to bind it again.\n`
+        : `  note     Local daemon workspace. Hub projection is scheduled by daemon login/uplink.\n`),
   );
 
   if (readRunningPid(paths) !== null) {
@@ -1353,9 +1360,7 @@ async function defaultWorkspace(
   const flags = parseFlags(args);
   const workspaces = await loadWorkspaceList(paths, io);
   if (workspaces.length === 0) {
-    io.stdout.write(
-      "no workspaces registered.\n  spark daemon workspace register . --server-url <url> --token <workspace-token> --name <ws>\n",
-    );
+    io.stdout.write("no workspaces registered.\n  spark daemon workspace register . --name <ws>\n");
     return 0;
   }
 
@@ -1367,7 +1372,7 @@ async function defaultWorkspace(
   if (!workspace) {
     io.stdout.write(
       `${cwd} is not under a registered workspace.\n` +
-        "  spark daemon workspace register . --server-url <url> --token <workspace-token> --name <ws>\n" +
+        "  spark daemon workspace register . --name <ws>\n" +
         "or cd into a registered workspace, or pass --workspace <id>.\n",
     );
     return 2;
@@ -1375,11 +1380,13 @@ async function defaultWorkspace(
 
   assertDirectory(workspace.localPath);
   const config = readSparkDaemonConfig(paths);
-  const serverConfig = configForHubServer(paths, config, workspace.serverUrl);
-  if (!hasRunnableSparkDaemonCredentialsForServer(serverConfig, workspace.serverUrl)) {
-    throw new Error(
-      `Workspace '${workspace.displayName}' is registered locally, but daemon credentials for ${workspace.serverUrl} are missing. Run spark daemon login --server-url ${shellQuote(workspace.serverUrl)}, then retry.`,
-    );
+  if (workspace.serverUrl) {
+    const serverConfig = configForHubServer(paths, config, workspace.serverUrl);
+    if (!hasRunnableSparkDaemonCredentialsForServer(serverConfig, workspace.serverUrl)) {
+      throw new Error(
+        `Workspace '${workspace.displayName}' is bound on this daemon, but Hub credentials for ${workspace.serverUrl} are missing. Run spark daemon login --server-url ${shellQuote(workspace.serverUrl)}, then retry.`,
+      );
+    }
   }
 
   const wasDetached = isUserDetachedWorkspace(workspace);
@@ -1417,9 +1424,7 @@ async function listWorkspaceCommand(
   }
 
   if (workspaces.length === 0) {
-    io.stdout.write(
-      "no workspaces registered.\n  spark daemon workspace register . --server-url <url> --token <workspace-token> --name <ws>\n",
-    );
+    io.stdout.write("no workspaces registered.\n  spark daemon workspace register . --name <ws>\n");
     return 0;
   }
 
@@ -1802,9 +1807,7 @@ function resolveWorkspaceForShow(
   }
 
   if (workspaces.length === 0) {
-    throw new Error(
-      "No workspace found. Run spark daemon workspace register . --server-url <url>.",
-    );
+    throw new Error("No workspace found. Run spark daemon workspace register . --name <ws>.");
   }
 
   const cwd = resolveInvocationCwd();
@@ -1857,9 +1860,7 @@ function resolveWorkspace(
       return workspaces[0]!;
     }
     if (workspaces.length === 0) {
-      throw new Error(
-        "No workspace found. Run spark daemon workspace register . --server-url <url>.",
-      );
+      throw new Error("No workspace found. Run spark daemon workspace register . --name <ws>.");
     }
     throw new Error(
       `Multiple workspaces are registered. Pass --workspace <id>. Available: ${workspaces
@@ -2395,6 +2396,28 @@ async function resolveRegistrationServerUrl(
   }
 
   throw new Error("Missing server URL. Pass --server-url <url> with the registration command.");
+}
+
+async function resolveWorkspaceAnnounceServerUrl(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  flags: Record<string, string>,
+): Promise<string> {
+  const flagged = flags["server-url"] ?? flags.server;
+  const validationOptions = {
+    allowInsecureHttp: flags["allow-insecure-http"] === "true",
+  };
+  const scheduled = scheduledSparkDaemonHubOrigin(paths, flagged);
+  if (scheduled.ambiguous) {
+    throw new Error(
+      "This daemon has multiple Hub origins. Pass --server-url to select which origin to project onto.",
+    );
+  }
+  if (!scheduled.serverUrl) {
+    throw new Error(
+      "Hub workspace token requires a daemon Hub origin. Run spark daemon login --server-url <url>.",
+    );
+  }
+  return validateRegistrationServerUrl(scheduled.serverUrl, validationOptions);
 }
 
 function registrationToken(flags: Record<string, string>): string | undefined {

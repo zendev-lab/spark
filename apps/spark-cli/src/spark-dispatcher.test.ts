@@ -15,14 +15,12 @@ import {
 
 test("parseSparkDispatcherArgs routes canonical planes and rejects removed aliases", () => {
   assert.deepEqual(parseSparkDispatcherArgs([]), {
-    kind: "dispatch",
-    target: "tui",
-    argv: [],
+    kind: "help",
   });
   assert.deepEqual(parseSparkDispatcherArgs(["tui", "build", "this"]), {
-    kind: "dispatch",
-    target: "tui",
-    argv: ["build", "this"],
+    kind: "error",
+    message:
+      'The Spark TUI was removed. Use "spark web" for the local browser workbench or "spark run <prompt>" for headless turns.',
   });
   assert.deepEqual(parseSparkDispatcherArgs(["daemon", "status", "--json"]), {
     kind: "dispatch",
@@ -73,8 +71,8 @@ test("parseSparkDispatcherArgs routes canonical planes and rejects removed alias
   assert.equal(parseSparkDispatcherArgs(["tui", "--mode", "rpc"]).kind, "error");
   assert.deepEqual(parseSparkDispatcherArgs(["run", "--json", "--resume", "s1", "hello"]), {
     kind: "dispatch",
-    target: "tui",
-    argv: ["run", "--json", "--resume", "s1", "hello"],
+    target: "daemon",
+    argv: ["submit", "--json", "--session", "s1", "hello"],
   });
   assert.deepEqual(parseSparkDispatcherArgs(["paths", "--json"]), {
     kind: "paths",
@@ -133,7 +131,8 @@ test("parseSparkDispatcherArgs keeps help local and forwards version to spark-up
   const command = parseSparkDispatcherArgs(["build", "this"]);
   assert.equal(command.kind, "error");
   assert.match(command.kind === "error" ? command.message : "", /Unknown spark subcommand: build/u);
-  assert.match(command.kind === "error" ? command.message : "", /spark tui build this/u);
+  assert.match(command.kind === "error" ? command.message : "", /spark web/u);
+  assert.match(command.kind === "error" ? command.message : "", /spark run <prompt>/u);
 });
 
 test("spark paths reports canonical Hub paths", async () => {
@@ -181,9 +180,6 @@ test("spark paths reports canonical Hub paths", async () => {
 });
 
 test("dispatcher resolves source companion executables without importing app CLIs", () => {
-  const tui = resolveTargetCommand("tui");
-  assert.match(tui.command, /apps\/spark-tui\/bin\/spark-tui$/u);
-  assert.deepEqual(tui.args, []);
   const daemon = resolveTargetCommand("daemon");
   assert.match(daemon.command, /apps\/spark-daemon\/bin\/spark-daemon$/u);
   assert.deepEqual(daemon.args, []);
@@ -334,12 +330,19 @@ setInterval(() => {}, 1000);
   }
 });
 
-test("runSparkDispatcher fails fast for non-TTY TUI while preserving canonical headless commands", async () => {
+test("runSparkDispatcher fails fast for removed TUI while preserving headless run", async () => {
   const stderr: string[] = [];
+  const stdout: string[] = [];
   const calls: Array<{ target: string; argv: string[] }> = [];
   const io = {
     stdin: { isTTY: false },
-    stdout: { isTTY: true, write: () => true },
+    stdout: {
+      isTTY: true,
+      write: (text: string) => {
+        stdout.push(text);
+        return true;
+      },
+    },
     stderr: {
       write: (text: string) => {
         stderr.push(text);
@@ -348,25 +351,27 @@ test("runSparkDispatcher fails fast for non-TTY TUI while preserving canonical h
     },
   };
   const launcher = {
-    run: async (target: "tui" | "daemon" | "hub" | "acp" | "mcp" | "update", argv: string[]) => {
+    run: async (target: "daemon" | "hub" | "acp" | "mcp" | "update" | "web", argv: string[]) => {
       calls.push({ target, argv });
       return 0;
     },
   };
 
-  assert.equal(await runSparkDispatcher([], io, launcher), 2);
-  assert.deepEqual(calls, []);
-  assert.match(stderr.join(""), /requires an interactive terminal/u);
-  assert.match(stderr.join(""), /spark run <prompt>/u);
+  assert.equal(await runSparkDispatcher([], io, launcher), 0);
+  assert.equal(calls.length, 0);
+  assert.match(stdout.join(""), /spark - Spark command dispatcher/u);
 
-  assert.equal(await runSparkDispatcher(["tui", "--help"], io, launcher), 0);
+  assert.equal(await runSparkDispatcher(["tui", "--help"], io, launcher), 2);
+  assert.match(stderr.join(""), /TUI was removed/u);
   assert.equal(await runSparkDispatcher(["run", "--json", "hello"], io, launcher), 0);
   assert.equal(await runSparkDispatcher(["--print", "hello"], io, launcher), 2);
   assert.equal(await runSparkDispatcher(["sessions", "list"], io, launcher), 2);
-  assert.deepEqual(calls, [
-    { target: "tui", argv: ["--help"] },
-    { target: "tui", argv: ["run", "--json", "hello"] },
-  ]);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.target, "daemon");
+  assert.equal(calls[0]?.argv[0], "submit");
+  assert.equal(calls[0]?.argv[1], "--session");
+  assert.match(calls[0]?.argv[2] ?? "", /^spark-run-/u);
+  assert.deepEqual(calls[0]?.argv.slice(3), ["--json", "hello"]);
 });
 
 test("runSparkDispatcher generates a daemon session id for spark bg", async () => {

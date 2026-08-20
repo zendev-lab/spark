@@ -35,7 +35,6 @@
     "src/hub-queries.ts",
     "src/events.ts",
     "src/liveness.ts",
-    "src/project-hub.ts",
     "src/projection-services.ts",
     "src/runtime-control.ts",
     "src/runtime-model-channel-control.ts",

@@ -15,6 +15,7 @@ import {
 import { SparkDaemonControlError } from "../../control-error.ts";
 import { resolveSessionCwdOwner, SessionCwdResolutionError } from "../../session-cwd.ts";
 import { relocateSparkDaemonHub } from "../../relocation.ts";
+import { scheduledSparkDaemonHubOrigin } from "../../server-profiles.ts";
 import { ensureWorkspaceAdministratorSession } from "../../workspace-administrator-session.ts";
 import { workspaceClientResult } from "../helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
@@ -123,10 +124,39 @@ export async function handleWorkspaceRequest(
       // daemon-local workspace id so existing sessions keep resolving after
       // correcting or intentionally changing its path.
       const allowLocalPathRebind = Boolean(request.params.registrationToken);
+      const scheduled = scheduledSparkDaemonHubOrigin(
+        paths,
+        request.params.registrationToken ? request.params.serverUrl : undefined,
+      );
+      if (request.params.registrationToken && scheduled.ambiguous) {
+        throw new SparkDaemonControlError(
+          "workspace_registration_failed",
+          "This daemon has multiple Hub origins. Pass --server-url to select which origin to project onto.",
+        );
+      }
+      const hubUrl = request.params.registrationToken ? (scheduled.serverUrl ?? "").trim() : "";
       const planned = planWorkspaceRegistration(db, {
         ...request.params,
+        serverUrl: hubUrl,
         ...(allowLocalPathRebind ? { allowLocalPathRebind: true } : {}),
       });
+      if (request.params.registrationToken && !hubUrl) {
+        throw new SparkDaemonControlError(
+          "workspace_registration_failed",
+          "Hub workspace token requires a daemon Hub origin. Run spark daemon login --server-url <url>.",
+        );
+      }
+      if (!hubUrl) {
+        const workspace = registerWorkspace(db, {
+          ...request.params,
+          serverUrl: "",
+          ...(allowLocalPathRebind ? { allowLocalPathRebind: true } : {}),
+        });
+        if (options.sessionRegistry) {
+          await ensureWorkspaceAdministratorSession(db, options.sessionRegistry, workspace.id);
+        }
+        return parseLocalRpcServiceOutput(request.method, workspace);
+      }
       if (planned.previousServerUrl && planned.previousServerBindingId) {
         await unbindWorkspaceFromHub(paths, {
           serverUrl: planned.previousServerUrl,
@@ -164,6 +194,7 @@ export async function handleWorkspaceRequest(
       });
       const workspace = registerWorkspace(db, {
         ...request.params,
+        serverUrl: planned.serverUrl,
         ...(allowLocalPathRebind ? { allowLocalPathRebind: true } : {}),
         ...(request.params.registrationToken
           ? { consumedRegistrationToken: request.params.registrationToken }

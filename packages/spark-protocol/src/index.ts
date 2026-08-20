@@ -1,4 +1,7 @@
 export * from "./protocol.ts";
+export * from "./session-activity.ts";
+export * from "./session-live-cursor.ts";
+export * from "./session-projection.ts";
 export * from "./agent-tracing.ts";
 export * from "./conversation.ts";
 export * from "./local-rpc-orpc-contract.ts";

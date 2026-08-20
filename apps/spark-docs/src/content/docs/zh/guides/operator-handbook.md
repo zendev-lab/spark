@@ -8,7 +8,7 @@ description: 端到端运行 Spark、连接 Hub、创建会话、检查 invocati
 ## 先分清状态由谁拥有
 
 - **daemon** 拥有执行、会话、invocation、工作区绑定和恢复状态。
-- **TUI** 是交互式终端宿主；它展示 daemon 状态，并把用户意图提交给 daemon。
+- **本地 Web 工作台** 是交互式宿主；它展示 daemon 状态，并把用户意图提交给 daemon。
 - **Hub Web** 是浏览器协调与投影界面，不能根据浏览器计时器或 transcript 文本推断执行状态。
 - 产品 Artifact 只有 Issue、Git Change 和 Document；一个 Git Change 拥有一个
   worktree 及其 PR stack，Preview 是 Document 的视图。内部验证 Evidence 使用独立
@@ -122,10 +122,9 @@ spark hub web status --json
 生成命令的形式如下：
 
 ```bash
-spark daemon workspace register . \
-  --server-url http://127.0.0.1:5174 \
-  --token <one-time-workspace-token> \
-  --name <workspace-name>
+spark daemon login --server-url http://127.0.0.1:5174
+spark daemon workspace register . --name <workspace-name>
+spark daemon workspace register . --token <one-time-workspace-token>
 ```
 
 Token 只显示一次，只授权一个目录。它不是 provider 凭证，也不是可复用的 daemon login。
@@ -158,7 +157,7 @@ spark daemon session show <session-id> --json
 独立副本时，才使用同一组 flag 调用 `fork`。请在同一个规范工作区目录中附着：
 
 ```bash
-spark tui --session-id <session-id>
+spark web
 ```
 
 Hub Web 的 Conversations 会列出同一个 daemon 会话；打开第二个前端不会创建第二个 executor。
@@ -203,40 +202,21 @@ fail closed，不能自动 replay。
 
 ## 7. 体验产品工作流
 
-在 TUI 中使用：
-
-```text
-/plan <goal>
-/execute [focus]
-/inspect
-/goal start <objective>
-/repro <目标>
-/workflow list
-/help commands
-```
-
-`/help` 始终在本地渲染，绝不会作为 agent prompt 提交。不带参数的 slash control
-会直接进入最终界面，selector 或 palette 的普通动作一次 Enter 即执行。prompt
-history、对话 viewport 滚动和空闲态双 Esc session navigation 都由 TUI 自身处理；
-当前键盘契约以 [TUI 指南](/zh/guides/tui/) 为准。
+在[本地 Web 工作台](/zh/guides/web/)或用 `spark run` 描述预期结果。Plan、
+Implement、inspect、Goal、Repro 和 Workflow 仍是 daemon 拥有的操作；用
+`spark daemon --help` 发现对应 CLI。
 
 这些界面应协同工作：
 
-- **Conversations** 与 TUI 展示 daemon 拥有的会话和 turn。
+- **Conversations** 与本地 Web 工作台展示 daemon 拥有的会话和 turn。
 - **Inbox** 展示内联问题与审批；Ask 不应变成全局 modal。
 - **Artifacts** 只包含 Issue、Git Change 和 Document。
 - **Resources** 包含工作区仓库、文档、URL、文件、工具和 secret reference。
 - Goal、Repro、Workflow 与后台 Loop 保持不同语义；不能合并 scheduled、running、
   retry-waiting、dormant、blocked 和 stopped 状态。
 
-继续阅读 [TUI](/zh/guides/tui/)、[运行与会话](/zh/guides/runs-and-sessions/)、
+继续阅读 [本地 Web](/zh/guides/web/)、[运行与会话](/zh/guides/runs-and-sessions/)、
 [Hub Web](/zh/guides/hub/) 和 [长期工作](/zh/guides/automation/)。
-
-### Renderer 状态
-
-Spark 0.2.0 继续在私有 `SparkTerminalController` 后使用 Pi TUI kernel。
-OpenTUI 只是隔离候选，不是生产依赖。切换 renderer 需要独立的架构决策，并提供
-component、Direct PTY、打包产物和受支持平台验证的实际证据。
 
 ## 8. 远程访问
 

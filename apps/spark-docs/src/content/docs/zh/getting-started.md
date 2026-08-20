@@ -8,7 +8,7 @@ sidebar:
 ## 环境要求
 
 Spark 当前要求 Node.js `>=24`。`@zendev-lab/spark` 是完整安装包，并会
-安装版本匹配的 daemon、TUI 与 Hub app package。仅部署单个进程时，也可以独立
+安装版本匹配的 daemon、Hub 与本地 Web app package。仅部署单个进程时，也可以独立
 安装对应 app。
 
 ## 安装
@@ -31,7 +31,7 @@ spark --help
 如果某个 host 只需要一个可执行程序，可以直接安装对应 app package：
 
 ```bash
-npm install --global @zendev-lab/spark-daemon  # 或 spark-tui / spark-hub
+npm install --global @zendev-lab/spark-daemon  # 或 spark-hub / spark-web
 spark-daemon --help
 ```
 
@@ -46,15 +46,17 @@ spark doctor
 
 ## 配置模型
 
-打开交互式 TUI：
+Provider 认证和模型选择由 daemon 拥有。先发现当前安装支持的命令，再查看或设置
+当前模型：
 
 ```bash
-spark
+spark daemon auth --help
+spark daemon model --help
+spark daemon model status --json
 ```
 
-使用 `/login` 查看可用 provider 的认证状态并启动交互式登录流程，使用 `/model`
-查看或选择当前模型。Spark 请求 API key 时应在提示框中输入；不要把密钥写进项目文件、
-`config.json` 或 shell 历史。
+Spark 请求 API key 时应在提示中输入；不要把密钥写进项目文件、`config.json`
+或 shell 历史。
 
 ## 完成第一次运行
 
@@ -70,10 +72,10 @@ spark run "总结这个仓库，并找出它的验证命令。"
 spark run --json "列出顶层 packages。"
 ```
 
-需要交互式会话时，可以停留在 `spark` 中，或运行：
+需要交互式会话时，从目标 workspace 打开本地工作台：
 
 ```bash
-spark tui "在提出修改前先检查当前项目。"
+spark web
 ```
 
 Spark 会按需启动或连接本地 daemon。应使用 `spark daemon status --json`
@@ -85,7 +87,6 @@ Spark 会按需启动或连接本地 daemon。应使用 `spark daemon status --j
   会话和持久执行的完整路径。
 - [规划并实现第一个修改](/zh/guides/plan-and-execute/)。
 - 查看[完整功能地图](/zh/concepts/feature-map/)，不必先背全部命令。
-- 了解 [TUI 的渐进式控制](/zh/guides/tui/)。
+- 了解[本地 Web 工作台](/zh/guides/web/)。
 - 在[前台运行、后台工作和会话](/zh/guides/runs-and-sessions/)之间选择。
 - 打开 [Hub Web 界面](/zh/guides/hub/)。
-- 只有普通 Plan 和 Implement 不够时才使用[自动推进](/zh/guides/automation/)。

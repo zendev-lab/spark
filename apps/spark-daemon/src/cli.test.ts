@@ -430,7 +430,7 @@ describe("Spark daemon CLI", () => {
     expect(capture.stderr()).toBe("");
   });
 
-  it("requires an explicit server URL for scripted workspace registration", async () => {
+  it("requires daemon login before a Hub workspace token", async () => {
     const capture = createCliIo();
 
     const code = await withTempSparkEnv(async (root) => {
@@ -440,7 +440,36 @@ describe("Spark daemon CLI", () => {
     });
 
     expect(code).toBe(1);
-    expect(capture.stderr()).toContain("Missing server URL");
+    expect(capture.stderr()).toContain("spark daemon login --server-url");
+  });
+
+  it("registers a local daemon workspace without a Hub origin", async () => {
+    const capture = createCliIo();
+
+    await withTempSparkEnv(async (root) => {
+      const checkout = join(root, "checkout");
+      mkdirSync(checkout);
+      process.env.INIT_CWD = root;
+      await expect(
+        main(["ws", "register", "checkout", "--name", "Local", "--no-service"], capture.io),
+      ).resolves.toBe(0);
+      expect(capture.stdout()).toContain("✓ workspace 'Local' registered");
+      expect(capture.stdout()).toContain("server   —");
+      expect(capture.stdout()).toContain("Local daemon workspace");
+
+      const listCapture = createCliIo();
+      await expect(main(["ws", "ls", "--json", "--no-service"], listCapture.io)).resolves.toBe(0);
+      const [workspace] = JSON.parse(listCapture.stdout()) as Array<{
+        name: string;
+        serverUrl: string;
+        path: string;
+      }>;
+      expect(workspace).toMatchObject({
+        name: "Local",
+        serverUrl: "",
+        path: realpathSync(checkout),
+      });
+    });
   });
 
   it("accepts the workspace registration token environment variable", async () => {
@@ -1160,17 +1189,18 @@ describe("Spark daemon CLI", () => {
     });
   });
 
-  it("prompts for the full workspace registration form interactively", async () => {
+  it("prompts for the local workspace registration form interactively", async () => {
     await withTempSparkEnv(async (root) => {
       process.env.INIT_CWD = root;
       const capture = createCliIo({
-        stdin: interactiveStdin(["", "http://127.0.0.1:5173", "spark_wsreg_interactive", "Spore"]),
+        stdin: interactiveStdin(["", "Spore"]),
       });
 
       await expect(main(["ws", "register"], capture.io)).resolves.toBe(0);
 
       expect(capture.stdout()).toContain("✓ workspace 'Spore' registered");
-      expect(capture.stdout()).toContain("server   http://127.0.0.1:5173/");
+      expect(capture.stdout()).toContain("server   —");
+      expect(capture.stdout()).toContain("Local daemon workspace");
 
       const listCapture = createCliIo();
       await expect(main(["ws", "ls", "--json"], listCapture.io)).resolves.toBe(0);
@@ -1178,11 +1208,13 @@ describe("Spark daemon CLI", () => {
         name: string;
         slug: string;
         path: string;
+        serverUrl: string;
       }>;
       expect(workspace).toMatchObject({
         name: "Spore",
         slug: "spore",
         path: realpathSync(root),
+        serverUrl: "",
       });
     });
   });
@@ -1734,7 +1766,7 @@ describe("Spark daemon CLI", () => {
 
   it("asks before importing a detected workspace profile in interactive registration", async () => {
     const capture = createCliIo({
-      stdin: interactiveStdin(["checkout", "", "spark_wsreg_interactive", "", "y"]),
+      stdin: interactiveStdin(["checkout", "", "y"]),
     });
 
     await withTempSparkEnv(async (root) => {
@@ -1903,7 +1935,7 @@ describe("Spark daemon CLI", () => {
     }
   });
 
-  it("requires a one-time token before every workspace registration", async () => {
+  it("requires a workspace token to announce a Hub projection", async () => {
     const capture = createCliIo();
 
     await withTempSparkEnv(async (root) => {
@@ -1917,9 +1949,21 @@ describe("Spark daemon CLI", () => {
       });
 
       await expect(
-        main(["ws", "register", "checkout", "--name", "Spark Dev", "--no-service"], capture.io),
+        main(
+          [
+            "ws",
+            "register",
+            "checkout",
+            "--name",
+            "Spark Dev",
+            "--server-url",
+            "http://127.0.0.1:5173",
+            "--no-service",
+          ],
+          capture.io,
+        ),
       ).resolves.toBe(1);
-      expect(capture.stderr()).toContain("requires a new one-time workspace token");
+      expect(capture.stderr()).toContain("Pass --token to announce a Hub projection");
 
       const listCapture = createCliIo();
       await expect(main(["ws", "ls", "--json", "--no-service"], listCapture.io)).resolves.toBe(0);

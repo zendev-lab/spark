@@ -17,14 +17,11 @@
     "./baidu-oneapi-provider": "./src/baidu-oneapi-provider.ts",
     "./openai-codex-provider": "./src/openai-codex-provider.ts",
     "./models-extension": "./src/models-extension.ts",
-    "./dsh-plugin": "./src/dsh-plugin.ts",
     "./package.json": "./package.json"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
-    "test": "vp test run",
-    "build:dsh-plugin": "esbuild src/dsh-plugin.ts --bundle --format=esm --platform=node --target=node22 --outfile=dist/dsh-plugin.mjs --external:@deepseek-ai/* --external:@earendil-works/pi-ai --external:@earendil-works/pi-ai/*",
-    "install:dsh-plugin": "pnpm run build:dsh-plugin && node scripts/install-dsh-plugin.mjs"
+    "test": "vp test run"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.1",

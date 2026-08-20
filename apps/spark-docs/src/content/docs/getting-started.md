@@ -8,8 +8,8 @@ sidebar:
 ## Requirements
 
 Spark currently requires Node.js `>=24`. `@zendev-lab/spark` is the complete
-installation and brings matching daemon, TUI, and Hub app packages. Those apps
-can also be installed independently for single-process deployments.
+installation and brings matching daemon, Hub, and local web app packages. Those
+apps can also be installed independently for single-process deployments.
 
 ## Install
 
@@ -32,7 +32,7 @@ spark --help
 Install an app package directly when a host needs only that executable:
 
 ```bash
-npm install --global @zendev-lab/spark-daemon  # or spark-tui / spark-hub
+npm install --global @zendev-lab/spark-daemon  # or spark-hub / spark-web
 spark-daemon --help
 ```
 
@@ -48,16 +48,17 @@ spark doctor
 
 ## Configure a model
 
-Open the interactive TUI:
+Provider authentication and model selection are daemon-owned. Discover the
+installed commands, then inspect or set the active model:
 
 ```bash
-spark
+spark daemon auth --help
+spark daemon model --help
+spark daemon model status --json
 ```
 
-Use `/login` to inspect available provider authentication and start the
-provider's interactive login flow. Use `/model` to inspect or select the active
-model. When Spark prompts for an API key, enter it in the prompt; do not put
-secrets in project files, `config.json`, or shell history.
+When Spark prompts for an API key, enter it in the prompt; do not put secrets
+in project files, `config.json`, or shell history.
 
 ## Complete a first run
 
@@ -73,10 +74,10 @@ Use JSON mode for scripts:
 spark run --json "List the top-level packages."
 ```
 
-For an interactive session, stay in `spark` or run:
+For an interactive session, open the local workbench from the target workspace:
 
 ```bash
-spark tui "Inspect the current project before proposing a change."
+spark web
 ```
 
 Spark starts or contacts the local daemon as needed. Run `spark daemon status
@@ -88,7 +89,6 @@ Spark starts or contacts the local daemon as needed. Run `spark daemon status
   daemon, Hub, workspace, session, and durable execution path.
 - [Plan and implement your first change](/guides/plan-and-execute/).
 - Browse the [complete feature map](/concepts/feature-map/) without learning every command.
-- Learn the [TUI's progressive controls](/guides/tui/).
+- Learn the [local web workbench](/guides/web/).
 - Choose between [foreground runs, background work, and sessions](/guides/runs-and-sessions/).
-- Open the [Hub Web surface](/guides/hub/).
-- Use [automation](/guides/automation/) only when ordinary Plan and Implement are not enough.
+- Open the [Hub Web interface](/guides/hub/).

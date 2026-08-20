@@ -36,10 +36,9 @@ supported packages.
 | Path | Responsibility |
 | --- | --- |
 | `apps/spark-cli` | Thin public `spark` command dispatcher |
-| `apps/spark-tui` | Native terminal host and interaction adapters |
 | `apps/spark-daemon` | Durable sessions, invocations, channels, and execution |
-| `apps/spark-hub` | Browser presentation and control |
-| `apps/spark-web` | DSH web profile boot |
+| `apps/spark-web` | Local daemon browser workbench: every workspace bound to this daemon |
+| `apps/spark-hub` | Multi-daemon proxy, auth, registry, and management UI |
 | `apps/spark-docs` | Public bilingual user documentation |
 | `packages/spark-*` | Shared contracts, capabilities, runtimes, clients, and adapters |
 | `architecture/packages.json` | Machine-readable layer, state-writer, exception, Pi ownership, composition-root, and package-budget inventory |
@@ -65,9 +64,9 @@ and keep transports and presentation layers thin.
 | Sessions, invocations, channels, local execution, retry, and recovery | `apps/spark-daemon` |
 | Cross-workspace registry, delegation, delivery, and bounded receipts | Hub modules in `spark-hub-coordination` and `spark-hub-db` |
 | Cross-surface schemas and semantics | `packages/spark-protocol` |
-| Product extension composition and policy | `packages/spark-extension` |
-| Terminal presentation | `apps/spark-tui` behind shared TUI boundaries |
-| Browser presentation | `apps/spark-hub` |
+| Product extension composition and host runtime | `packages/spark-extension` |
+| Local daemon workbench | `apps/spark-web` via daemon-client |
+| Multi-daemon proxy and management | `apps/spark-hub` |
 
 When behavior is shared by multiple surfaces, define its schema and semantics in
 the existing protocol or owner API before adding surface-specific adapters.
@@ -174,8 +173,9 @@ Create a workspace only for a hard runtime, state, permission, protocol,
 adapter, or experimental-lifecycle boundary. Otherwise add a module to the
 existing owner. Adding, removing, renaming, or reclassifying a workspace
 requires updating `architecture/packages.json` and passing the architecture and
-boundary checks. The budget is closed at 42 after landing `@zendev-lab/pi-spark`.
-Raising or replacing that budget requires an architecture rationale and inventory change.
+boundary checks. The budget is closed at 41 after retiring `spark-tui`,
+`spark-tui-adapter`, and `pi-spark`. Raising or replacing that budget requires
+an architecture rationale and inventory change.
 
 ## Documentation ownership
 

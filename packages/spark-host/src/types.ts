@@ -1,5 +1,5 @@
 /**
- * Internal types backing the spark-tui native SparkHostAPI host.
+ * Internal types backing the native SparkHostAPI host.
  *
  * Public-facing extension contracts come from `spark-core`. The shapes
  * declared here are private to the host runtime: they describe how registered
@@ -114,9 +114,9 @@ export interface OutboxEnvelope {
 }
 
 /**
- * UI bridge plugged into the SparkHostRuntime by the surrounding TUI shell.
- * In the spark-tui native host the implementation forwards calls onto the
- * pi-tui application; in tests a stub returning undefined is enough to keep
+ * UI bridge plugged into the SparkHostRuntime by the surrounding host.
+ * In the native host the implementation forwards calls onto the
+ * presentation surface; in tests a stub returning undefined is enough to keep
  * extensions running without crashes (every call site uses optional chaining).
  */
 export interface SparkHostCustomMessage {

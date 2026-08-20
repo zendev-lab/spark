@@ -41,13 +41,13 @@ function suppliedTarballs() {
     spark: argumentValue("--spark-tarball", "--node-tarball", "--tarball"),
     cli: argumentValue("--cli-tarball"),
     daemon: argumentValue("--daemon-tarball"),
-    tui: argumentValue("--tui-tarball"),
     hub: argumentValue("--hub-tarball"),
+    web: argumentValue("--web-tarball"),
   };
   const count = Object.values(values).filter(Boolean).length;
   if (count !== 0 && count !== npmDistributions.length) {
     throw new Error(
-      "Supply all five release tarballs: --spark-tarball, --cli-tarball, --daemon-tarball, --tui-tarball, and --hub-tarball",
+      "Supply all five release tarballs: --spark-tarball, --cli-tarball, --daemon-tarball, --hub-tarball, and --web-tarball",
     );
   }
   return count === 0 ? undefined : values;
@@ -345,22 +345,22 @@ try {
   );
   const allIds = npmDistributions.map(({ id }) => id);
   const cliIds = allIds.filter((id) => id !== "spark");
-  const [completeRoot, cliRoot, daemonRoot, tuiRoot, hubRoot] = await Promise.all([
+  const [completeRoot, cliRoot, daemonRoot, hubRoot, webRoot] = await Promise.all([
     installCandidates(temporary, "complete", allIds, tarballs),
     installCandidates(temporary, "cli", cliIds, tarballs),
     installCandidates(temporary, "daemon", ["daemon"], tarballs),
-    installCandidates(temporary, "tui", ["tui", "daemon"], tarballs),
     installCandidates(temporary, "hub", ["hub"], tarballs),
+    installCandidates(temporary, "web", ["web"], tarballs),
   ]);
 
   const spark = installedBin(completeRoot, "@zendev-lab/spark", "spark");
   const completeDaemon = installedBin(completeRoot, "@zendev-lab/spark-daemon", "spark-daemon");
   const completeHub = installedBin(completeRoot, "@zendev-lab/spark-hub", "spark-hub");
-  const completeTui = installedBin(completeRoot, "@zendev-lab/spark-tui", "spark-tui");
+  const completeWeb = installedBin(completeRoot, "@zendev-lab/spark-web", "spark-web");
   const cli = installedBin(cliRoot, "@zendev-lab/spark-cli", "spark");
   const daemon = installedBin(daemonRoot, "@zendev-lab/spark-daemon", "spark-daemon");
-  const tui = installedBin(tuiRoot, "@zendev-lab/spark-tui", "spark-tui");
   const hub = installedBin(hubRoot, "@zendev-lab/spark-hub", "spark-hub");
+  const web = installedBin(webRoot, "@zendev-lab/spark-web", "spark-web");
   const nodeEnvironment = {
     ...process.env,
     PATH: cleanPath(),
@@ -372,11 +372,8 @@ try {
     SPARK_HOME: resolve(temporary, "spark-hub-home"),
   };
 
-  console.log("Probing installed daemon and TUI headless role executor exports...");
-  await Promise.all([
-    probeInstalledHeadlessExecutor(daemonRoot, "@zendev-lab/spark-daemon", nodeEnvironment),
-    probeInstalledHeadlessExecutor(tuiRoot, "@zendev-lab/spark-tui", nodeEnvironment),
-  ]);
+  console.log("Probing installed daemon headless role executor exports...");
+  await probeInstalledHeadlessExecutor(daemonRoot, "@zendev-lab/spark-daemon", nodeEnvironment);
 
   console.log("Probing the complete meta package and the real spark CLI package...");
   await run(spark.command, [...spark.argvPrefix, "--help"], {
@@ -425,7 +422,7 @@ try {
       cwd: completeRoot,
       env: nodeEnvironment,
     }),
-    run(completeTui.command, [...completeTui.argvPrefix, "--help"], {
+    run(completeWeb.command, [...completeWeb.argvPrefix, "--help"], {
       cwd: completeRoot,
       env: nodeEnvironment,
     }),
@@ -448,7 +445,7 @@ try {
   if (!rootMcpHelp.stdout.includes("Spark Model Context Protocol stdio adapter")) {
     throw new Error("complete meta package did not expose the spark-mcp companion");
   }
-  await run(spark.command, [...spark.argvPrefix, "tui", "--help"], {
+  await run(spark.command, [...spark.argvPrefix, "web", "--help"], {
     cwd: completeRoot,
     env: nodeEnvironment,
   });
@@ -460,14 +457,14 @@ try {
     timeoutMs: 120_000,
   });
 
-  console.log("Probing independently installed daemon and TUI packages...");
+  console.log("Probing independently installed daemon and web packages...");
   await run(daemon.command, [...daemon.argvPrefix, "--help"], {
     cwd: daemonRoot,
     env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-daemon-home") },
   });
-  await run(tui.command, [...tui.argvPrefix, "--help"], {
-    cwd: tuiRoot,
-    env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-tui-home") },
+  await run(web.command, [...web.argvPrefix, "--help"], {
+    cwd: webRoot,
+    env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-web-home") },
   });
 
   const port = await availablePort();

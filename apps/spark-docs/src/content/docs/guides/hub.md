@@ -107,15 +107,13 @@ identity, so re-register affected workspaces deliberately.
 
 ## Register a remote workspace
 
-Authorize the daemon machine, then register each workspace with its own fresh
-registration token:
+Workspace identity is local to the daemon. Authorize the daemon machine first;
+Hub projection is daemon-scheduled, not a workspace property:
 
 ```bash
 spark daemon login --server-url https://hub.example
-spark daemon workspace register . \
-  --server-url https://hub.example \
-  --token <workspace-token> \
-  --name <workspace-name>
+spark daemon workspace register . --name <workspace-name>
+spark daemon workspace register . --token <workspace-token>
 ```
 
 Machine connectivity credentials and one-time workspace registration tokens

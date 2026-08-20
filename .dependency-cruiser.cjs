@@ -24,12 +24,9 @@ module.exports = {
     },
     {
       name: "no-direct-pi-tui",
-      comment:
-        "Direct pi-tui imports are limited to the inventory-declared owner and temporary exact exceptions.",
+      comment: "pi-tui was retired with spark-tui-adapter; no package may import it.",
       severity: "error",
-      from: {
-        pathNot: piSdkAllowedSourcePattern("@earendil-works/pi-tui"),
-      },
+      from: {},
       to: {
         path: "node_modules/.*/@earendil-works/pi-tui|/node_modules/@earendil-works/pi-tui|^@earendil-works/pi-tui",
       },

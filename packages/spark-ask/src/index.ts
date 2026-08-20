@@ -775,6 +775,7 @@ export type { AskConfigStoreOptions } from "./config/store.ts";
 export type { AskConfig, AskConfigStore } from "./config/schema.ts";
 export { SparkAskFlowController, normalizeAskKey, printableAskText } from "./ui/controller.ts";
 export type { SparkAskTui, SparkAskView } from "./ui/controller.ts";
+export { askFlowAnswersFromResult, askFlowRequestFromInteraction } from "./from-interaction.ts";
 export { createInitialState, buildExtendedOptions } from "./state/state.ts";
 export type { AskState } from "./state/state.ts";
 export { reduce } from "./state/reducer.ts";

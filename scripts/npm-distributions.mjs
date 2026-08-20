@@ -15,7 +15,7 @@ export const npmDistributions = [
     id: "spark",
     packageName: "@zendev-lab/spark",
     description:
-      "Complete Spark installation metadata that pins the CLI, daemon, TUI, and Hub apps.",
+      "Complete Spark installation metadata that pins the CLI, daemon, Hub, and web apps.",
     directory: resolve(productsDirectory, "spark"),
     assetName: `spark-v${releaseVersion}.tgz`,
     manifestName: "release-manifest.json",
@@ -26,7 +26,7 @@ export const npmDistributions = [
       "@zendev-lab/spark-cli",
       "@zendev-lab/spark-daemon",
       "@zendev-lab/spark-hub",
-      "@zendev-lab/spark-tui",
+      "@zendev-lab/spark-web",
     ],
     exports: {},
   },
@@ -43,22 +43,20 @@ export const npmDistributions = [
       "spark-daemon": "spark-daemon-companion.js",
       "spark-hub": "spark-hub-companion.js",
       "spark-mcp": "spark-mcp.js",
-      "spark-tui": "spark-tui-companion.js",
+      "spark-web": "spark-web-companion.js",
       "spark-update": "spark-update.js",
-      "spark-web": "spark-web.js",
     },
     bundles: {
       "spark-cli.js": "apps/spark-cli/src/cli.ts",
       "spark-acp.js": "packages/spark-acp/bin/spark-acp.ts",
       "spark-mcp.js": "packages/spark-mcp/bin/spark-mcp.ts",
       "spark-update.js": "packages/spark-update/src/entry.ts",
-      "spark-web.js": "apps/spark-web/src/cli-entry.ts",
     },
     files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [
       "@zendev-lab/spark-daemon",
       "@zendev-lab/spark-hub",
-      "@zendev-lab/spark-tui",
+      "@zendev-lab/spark-web",
     ],
     exports: {
       "./cli": "./dist/spark-cli.js",
@@ -79,7 +77,7 @@ export const npmDistributions = [
     manifestName: "daemon-release-manifest.json",
     bins: { "spark-daemon": "spark-daemon.js" },
     bundles: {
-      "spark-headless-role-executor.js": "apps/spark-tui/src/headless-role-executor.ts",
+      "spark-headless-role-executor.js": "packages/spark-extension/src/headless-role-executor.ts",
     },
     files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
@@ -90,30 +88,6 @@ export const npmDistributions = [
     },
     skills: true,
     migrationSource: resolve(root, "apps/spark-daemon/dist/migrations"),
-  },
-  {
-    id: "tui",
-    packageName: "@zendev-lab/spark-tui",
-    description: "Spark native terminal application.",
-    directory: resolve(productsDirectory, "tui"),
-    assetName: `spark-tui-v${releaseVersion}.tgz`,
-    manifestName: "tui-release-manifest.json",
-    bins: { "spark-tui": "spark-tui-entry.js" },
-    bundles: {
-      "spark-tui-entry.js": "apps/spark-tui/src/cli-entry.ts",
-      "spark-tui-worker.js": "apps/spark-tui/src/cli.ts",
-    },
-    modules: {
-      "spark-headless-role-executor.js":
-        'export * from "@zendev-lab/spark-daemon/headless-role-executor";',
-    },
-    files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
-    exactDependencies: ["@zendev-lab/spark-daemon"],
-    exports: {
-      "./executable": "./bin/spark-tui",
-      "./headless-role-executor": "./dist/spark-headless-role-executor.js",
-    },
-    skills: true,
   },
   {
     id: "hub",
@@ -132,6 +106,21 @@ export const npmDistributions = [
     exactDependencies: [],
     exports: { "./executable": "./bin/spark-hub" },
     migrationSource: resolve(root, "packages/spark-hub-db/src/migrations"),
+  },
+  {
+    id: "web",
+    packageName: "@zendev-lab/spark-web",
+    description: "Local single-workspace Spark browser workbench bound to the daemon.",
+    directory: resolve(productsDirectory, "web"),
+    assetName: `spark-web-v${releaseVersion}.tgz`,
+    manifestName: "web-release-manifest.json",
+    bins: { "spark-web": "spark-web.js" },
+    bundles: {
+      "spark-web.js": "apps/spark-web/src/product-entry.ts",
+    },
+    files: ["bin", "dist", "build", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    exactDependencies: [],
+    exports: { "./executable": "./bin/spark-web" },
   },
 ];
 

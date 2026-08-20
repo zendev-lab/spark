@@ -355,7 +355,11 @@ function validatePiOwnership(inventory, manifests, rootManifest) {
   const violations = [];
   const registeredExceptions = [];
 
-  if (!manifests[policy.productManifestOwner] && policy.productManifestOwner !== approvedPackage) {
+  if (
+    policy.productManifestOwner &&
+    !manifests[policy.productManifestOwner] &&
+    policy.productManifestOwner !== approvedPackage
+  ) {
     failures.push(
       `Pi product manifest owner ${policy.productManifestOwner} is neither registered nor approved`,
     );

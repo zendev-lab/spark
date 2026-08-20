@@ -4,10 +4,10 @@ import { describe, test } from "vitest";
 import { parseSparkInteractionRequest } from "@zendev-lab/spark-protocol";
 
 import { parseHumanQuestions } from "../apps/spark-hub/src/lib/pending-ask.ts";
-import { nativeAskFlowRequest } from "../apps/spark-tui/src/native-tui/ask-helpers.ts";
+import { askFlowRequestFromInteraction } from "@zendev-lab/spark-ask";
 
 describe("Repro Journey Ask surface reachability", () => {
-  test("Hub and native TUI preserve one canonical decision schema", () => {
+  test("Hub and native Ask overlay preserve one canonical decision schema", () => {
     const interaction = parseSparkInteractionRequest({
       requestId: "ask_flow:repro-golden-journey-repair",
       kind: "askFlow",
@@ -33,7 +33,7 @@ describe("Repro Journey Ask surface reachability", () => {
     assert.equal(interaction.kind, "askFlow");
     if (interaction.kind !== "askFlow") throw new Error("expected askFlow interaction");
 
-    const nativeRequest = nativeAskFlowRequest(interaction);
+    const nativeRequest = askFlowRequestFromInteraction(interaction);
     const hubQuestions = parseHumanQuestions(JSON.stringify(interaction.questions));
     assert.deepEqual(
       nativeRequest.questions.map(({ id, type, options }) => ({ id, type, options })),

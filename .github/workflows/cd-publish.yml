@@ -143,8 +143,8 @@ jobs:
           --spark-tarball "dist/release/spark-${RELEASE_TAG}.tgz"
           --cli-tarball "dist/release/spark-cli-${RELEASE_TAG}.tgz"
           --daemon-tarball "dist/release/spark-daemon-${RELEASE_TAG}.tgz"
-          --tui-tarball "dist/release/spark-tui-${RELEASE_TAG}.tgz"
           --hub-tarball "dist/release/spark-hub-${RELEASE_TAG}.tgz"
+          --web-tarball "dist/release/spark-web-${RELEASE_TAG}.tgz"
 
       - name: Verify declared N-1 migration policy
         run: >-
@@ -152,8 +152,8 @@ jobs:
           --tarball "dist/release/spark-${RELEASE_TAG}.tgz"
           --cli-tarball "dist/release/spark-cli-${RELEASE_TAG}.tgz"
           --daemon-tarball "dist/release/spark-daemon-${RELEASE_TAG}.tgz"
-          --tui-tarball "dist/release/spark-tui-${RELEASE_TAG}.tgz"
           --hub-tarball "dist/release/spark-hub-${RELEASE_TAG}.tgz"
+          --web-tarball "dist/release/spark-web-${RELEASE_TAG}.tgz"
 
       - name: Upload release artifacts
         if: github.ref_type == 'tag'
@@ -234,11 +234,11 @@ jobs:
           tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
           provenance: true
 
-      - name: Publish the exact TUI artifact to npm
-        if: steps.release.outputs.npm_tui_published != 'true'
+      - name: Publish the exact Web artifact to npm
+        if: steps.release.outputs.npm_web_published != 'true'
         uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
         with:
-          package: dist/release/spark-tui-${{ github.ref_name }}.tgz
+          package: dist/release/spark-web-${{ github.ref_name }}.tgz
           access: public
           tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
           provenance: true

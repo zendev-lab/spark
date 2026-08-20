@@ -26,12 +26,7 @@ export default defineConfig({
     // only those two rules through CLI overrides for an advisory hotspot scan.
     overrides: [
       {
-        files: [
-          "packages/**/*.ts",
-          "apps/spark-cli/**/*.ts",
-          "apps/spark-tui/**/*.ts",
-          "test/**/*.ts",
-        ],
+        files: ["packages/**/*.ts", "apps/spark-cli/**/*.ts", "test/**/*.ts"],
         env: { node: true },
       },
       {

@@ -55,8 +55,8 @@ test("release migration arguments support automatic and explicit published basel
       "dist/release/spark-daemon-v0.1.1.tgz",
       "--hub-tarball",
       "dist/release/spark-hub-v0.1.1.tgz",
-      "--tui-tarball",
-      "dist/release/spark-tui-v0.1.1.tgz",
+      "--web-tarball",
+      "dist/release/spark-web-v0.1.1.tgz",
       "--baseline-version",
       "0.1.0",
     ]),
@@ -66,7 +66,7 @@ test("release migration arguments support automatic and explicit published basel
       cliTarball: "dist/release/spark-cli-v0.1.1.tgz",
       daemonTarball: "dist/release/spark-daemon-v0.1.1.tgz",
       hubTarball: "dist/release/spark-hub-v0.1.1.tgz",
-      tuiTarball: "dist/release/spark-tui-v0.1.1.tgz",
+      webTarball: "dist/release/spark-web-v0.1.1.tgz",
     },
   );
   assert.equal(selectPublishedBaselineVersion(["0.0.9", "0.1.0"], "0.1.1", "0.1.0"), "0.1.0");

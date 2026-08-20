@@ -51,8 +51,8 @@ supersets of these types:
    change set.
 3. **Keep the runtime surface tiny.** Prefer types; only add dependency-light
    helpers that belong next to the host contract.
-4. **Keep slices narrow.** If a feature is only needed by the native Spark TUI
-   host, put it behind host-only helpers in `apps/spark-tui/src/host/`
+4. **Keep slices narrow.** If a feature is only needed by the native Spark host,
+   put it behind host-only helpers in `packages/spark-extension/src/host/`
    rather than widening this contract. If an extension package needs it on
    both hosts, add the smallest optional method here and test both hosts.
 
@@ -61,15 +61,15 @@ supersets of these types:
 | Host                                      | Status                                                                         |
 | ----------------------------------------- | ------------------------------------------------------------------------------ |
 | `@earendil-works/pi-coding-agent` runtime | Subset implemented (registerCommand, registerTool, on, sendUserMessage, ui.*) |
-| `@zendev-lab/spark-host` SparkHostRuntime | Retained extension surface implemented for Spark native TUI/headless/daemon hosts |
+| `@zendev-lab/spark-host` SparkHostRuntime | Retained extension surface implemented for Spark native web/headless/daemon hosts |
 
 ## Adding a new capability
 
 1. Decide whether the capability is shared extension contract or host-only
-   Spark TUI behavior. Host-only behavior should stay out of this package.
+   Spark host behavior. Host-only behavior should stay out of this package.
 2. Add shared methods/types to `src/index.ts` with `optional` semantics.
-3. Update the contract test (`test/spark-ext-host-contract.test.ts`) to
+3. Update the contract test (`packages/spark-extension/src/__tests__/spark-ext-host-contract.test.ts`) to
    exercise both hosts via the new shape.
 4. Implement on both hosts; only land the change once both pass.
-5. If the change touches native Spark TUI boot/loading, also run the relevant
-   `@zendev-lab/spark-tui` host tests (extension loader, runtime contract, and bootstrap).
+5. If the change touches native Spark boot/loading, also run the relevant
+   `@zendev-lab/spark-extension` host tests (extension loader, runtime contract, and bootstrap).

@@ -40,7 +40,7 @@ export const runtimeConnectionProjectionSchema = z.object({
 
 export const workspaceClientKindSchema = z.enum(["interactive", "headless", "executor"]);
 export const workspaceClientStatusSchema = z.enum(["connected", "disconnected"]);
-export const workspaceSessionSurfaceSchema = z.enum(["tui", "hub", "unknown"]);
+export const workspaceSessionSurfaceSchema = z.enum(["tui", "hub", "web", "unknown"]);
 
 export const workspaceClientProjectionSchema = z.object({
   clientId: z.string().min(1),

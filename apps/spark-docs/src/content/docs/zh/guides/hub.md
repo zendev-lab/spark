@@ -97,14 +97,12 @@ loopback proxy 后使用。公网 origin 改变会改变 daemon 的 server ident
 
 ## 注册远程 workspace
 
-先授权 daemon 机器，再用独立的新 registration token 注册每个 workspace：
+workspace 身份在 daemon 上。先授权 daemon 机器；Hub 投影由 daemon 调度，不是 workspace 属性：
 
 ```bash
 spark daemon login --server-url https://hub.example
-spark daemon workspace register . \
-  --server-url https://hub.example \
-  --token <workspace-token> \
-  --name <workspace-name>
+spark daemon workspace register . --name <workspace-name>
+spark daemon workspace register . --token <workspace-token>
 ```
 
 机器连接凭据和一次性 workspace registration token 的 scope 不同，不能互相复用。

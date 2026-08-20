@@ -74,7 +74,7 @@ operation.
 Spark separates dispatch, presentation, coordination, and execution:
 
 ```text
-spark CLI / spark-tui ─────────► local spark-daemon ───► workspace + providers
+spark CLI / spark web ─────────► local spark-daemon ───► workspace + providers
 channels / spark-acp ────────────────────────┘
 
 browser / future app ──────────► spark-hub ◄────────── registered spark-daemon
@@ -85,7 +85,7 @@ browser / future app ──────────► spark-hub ◄────
 | Component | Responsibility | Does not own |
 | --- | --- | --- |
 | `spark` | Stable command dispatch to companion executables | Product state |
-| `spark-tui` | Local interactive presentation and session attachment | Durable business state |
+| `spark-web` | Local interactive presentation and session attachment | Durable business state |
 | `spark-daemon` | Sessions, invocations, channels, execution, retry, and recovery | Cross-workspace coordination |
 | `spark-hub` | Authentication, daemon gateway, workspace registry, delegation, audit, and embedded management UI | Target execution, repositories, or internal evidence |
 | `spark-acp` | Stateless protocol translation | Sessions or invocations |
@@ -98,7 +98,7 @@ dependency direction and state writers are defined by
 
 ## Typical workflow
 
-1. Describe the intended outcome in the TUI or with `spark run`.
+1. Describe the intended outcome in `spark web` or with `spark run`.
 2. Use Plan to turn the intent into durable, inspectable tasks.
 3. Use Implement for ordinary execution, or opt into Goal, Loop, Repro, or
    Workflow when the work needs autonomous progress.
@@ -113,13 +113,13 @@ knowledge of internal packages or storage.
 
 | Interface | Best suited for |
 | --- | --- |
-| `spark` / `spark-tui` | Interactive local coding sessions |
+| `spark` / `spark web` | Interactive local coding sessions |
 | `spark run` / `spark bg` | Foreground scripts and background work |
 | `spark-daemon` | Execution inspection and operator control |
 | `spark-hub` | Global browser management, coordination, and delegation |
 | `spark-acp` | ACP-compatible clients over canonical daemon sessions |
 
-The top-level dispatcher accepts `spark daemon`, `spark hub`, `spark tui`,
+The top-level dispatcher accepts `spark daemon`, `spark hub`, `spark web`,
 `spark acp`, and `spark mcp` as convenience forms and executes the matching
 `spark-*` companion. The complete meta package installs every companion; the
 real dispatcher remains in `@zendev-lab/spark-cli`. Run `spark --help` for the
@@ -146,13 +146,13 @@ Spark publishes five lockstep-versioned npm distributions from the same private
 monorepo:
 
 - `@zendev-lab/spark` is the **complete installation meta package**. It pins the
-  matching CLI, daemon, TUI, and Hub packages and keeps `spark` available through
+  matching CLI, daemon, Hub, and web app packages and keeps `spark` available through
   a thin forwarding launcher, but contains no dispatcher or app implementation.
 - `@zendev-lab/spark-cli` owns the real `spark` dispatcher, ACP, MCP and updater
   entrypoints, and companion command shims.
 
-- `@zendev-lab/spark-daemon`, `@zendev-lab/spark-tui`, and
-  `@zendev-lab/spark-hub` are independently installable executable apps.
+- `@zendev-lab/spark-daemon`, `@zendev-lab/spark-hub`, and
+  `@zendev-lab/spark-web` are independently installable executable apps.
 
 The split is a deployment and trust boundary, not a source-code ownership split.
 The private app composition roots and internal adapter/capability workspaces

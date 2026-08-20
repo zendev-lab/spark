@@ -12,7 +12,7 @@ import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-syst
 
 const dispatcherStrings = sparkCliDispatcherStrings();
 
-export type SparkDispatcherTarget = "tui" | "daemon" | "hub" | "acp" | "mcp" | "update" | "web";
+export type SparkDispatcherTarget = "daemon" | "hub" | "acp" | "mcp" | "update" | "web";
 
 export type SparkDispatcherCommand =
   | {
@@ -109,7 +109,7 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
   const parsed = result.value;
   switch (parsed.kind) {
     case "empty":
-      return { kind: "dispatch", target: "tui", argv: [] };
+      return { kind: "help" };
     case "help":
       return { kind: "help" };
     case "version":
@@ -129,7 +129,9 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
     case "doctor":
       return { kind: "dispatch", target: "daemon", argv: ["doctor", ...parsed.argv] };
     case "tui":
-      return parseSparkTuiCommand([...parsed.argv]);
+      return errorCommand(
+        'The Spark TUI was removed. Use "spark web" for the local browser workbench or "spark run <prompt>" for headless turns.',
+      );
     case "daemon":
       return { kind: "dispatch", target: "daemon", argv: [...parsed.argv] };
     case "hub":
@@ -180,14 +182,6 @@ export async function runSparkDispatcher(
       const dispatchArgv = command.autoSessionPrefix
         ? withGeneratedSession(command.argv, command.autoSessionPrefix)
         : command.argv;
-      if (
-        command.target === "tui" &&
-        !isSparkTuiHeadlessCompatibilityCommand(dispatchArgv) &&
-        !isInteractiveTerminal(io)
-      ) {
-        stderr.write(`${dispatcherStrings.tuiRequiresTty}\n`);
-        return 2;
-      }
       return await launcher.run(
         command.target,
         dispatchArgv,
@@ -206,19 +200,54 @@ export function helpText(): string {
 }
 
 function parseSparkRunCommand(argv: string[]): SparkDispatcherCommand {
+  const mapped = ["submit"];
+  let hasSession = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
-    if (arg === "--resume") {
+    if (arg === "--") {
+      mapped.push(...argv.slice(index));
+      break;
+    }
+    if (arg === "--wait" || arg === "-w") {
+      mapped.push("--wait");
+      continue;
+    }
+    if (arg === "--resume" || arg === "--session" || arg === "-s") {
       const session = argv[++index];
-      if (!session) return errorCommand("spark run --resume requires a session id");
+      if (!session) return errorCommand(`spark run ${arg} requires a session id`);
+      mapped.push("--session", session);
+      hasSession = true;
+      continue;
+    }
+    if (arg === "--session-id") {
+      const session = argv[++index];
+      if (!session) return errorCommand("spark run --session-id requires a session id");
+      mapped.push("--session", session);
+      hasSession = true;
       continue;
     }
     if (arg.startsWith("--resume=")) {
       const session = arg.slice("--resume=".length);
       if (!session) return errorCommand("spark run --resume requires a session id");
+      mapped.push(`--session=${session}`);
+      hasSession = true;
+      continue;
     }
+    if (arg.startsWith("--session=") || arg.startsWith("--session-id=")) {
+      const session = arg.slice(arg.indexOf("=") + 1);
+      if (!session) return errorCommand("spark run --session requires a session id");
+      mapped.push(`--session=${session}`);
+      hasSession = true;
+      continue;
+    }
+    mapped.push(arg);
   }
-  return { kind: "dispatch", target: "tui", argv: ["run", ...argv] };
+  return {
+    kind: "dispatch",
+    target: "daemon",
+    argv: mapped,
+    ...(hasSession ? {} : { autoSessionPrefix: "spark-run" }),
+  };
 }
 
 function parseSparkBackgroundCommand(argv: string[]): SparkDispatcherCommand {
@@ -268,16 +297,6 @@ function parseSparkBackgroundCommand(argv: string[]): SparkDispatcherCommand {
   };
 }
 
-function parseSparkTuiCommand(argv: string[]): SparkDispatcherCommand {
-  return argv.some(
-    (arg) => arg === "--print" || arg === "-p" || arg === "--mode" || arg === "--list-models",
-  )
-    ? errorCommand(
-        'Legacy TUI flags were removed. Use "spark run", "spark acp", or "spark-daemon model list".',
-      )
-    : { kind: "dispatch", target: "tui", argv };
-}
-
 function parseSparkPathsCommand(json: boolean, argv: readonly string[]): SparkDispatcherCommand {
   if (argv.length > 0) return errorCommand('spark paths accepts only the optional "--json" flag');
   return { kind: "paths", json };
@@ -315,21 +334,11 @@ function generatedSessionId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function isSparkTuiHeadlessCompatibilityCommand(argv: readonly string[]): boolean {
-  return argv[0] === "run" || argv.includes("--help") || argv.includes("-h");
-}
-
 function publicSparkPaths(
   paths: ReturnType<typeof resolveSparkPaths>,
 ): Omit<ReturnType<typeof resolveSparkPaths>, "sessionRuntimeDir"> {
   const { sessionRuntimeDir: _sessionRuntimeDir, ...publicPaths } = paths;
   return publicPaths;
-}
-
-function isInteractiveTerminal(io: SparkDispatcherIo): boolean {
-  return Boolean(
-    (io.stdin?.isTTY ?? process.stdin.isTTY) && (io.stdout?.isTTY ?? process.stdout.isTTY),
-  );
 }
 
 const defaultLauncher: SparkDispatcherLauncher = {
@@ -452,7 +461,6 @@ function packagedTargetCommand(target: SparkDispatcherTarget): string | undefine
     daemon: "SPARK_DAEMON_COMMAND",
     hub: "SPARK_HUB_COMMAND",
     mcp: "SPARK_MCP_COMMAND",
-    tui: "SPARK_TUI_COMMAND",
     update: "SPARK_UPDATE_COMMAND",
     web: "SPARK_WEB_COMMAND",
   };
@@ -473,7 +481,6 @@ function adjacentTargetCommand(target: SparkDispatcherTarget): string | undefine
 function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | undefined {
   const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const entryByTarget: Partial<Record<SparkDispatcherTarget, string>> = {
-    tui: "../spark-tui/bin/spark-tui",
     daemon: "../spark-daemon/bin/spark-daemon",
     hub: "../spark-hub/bin/spark-hub",
     acp: "../../packages/spark-acp/bin/spark-acp.ts",

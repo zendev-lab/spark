@@ -101,7 +101,9 @@
       "additionalProperties": false,
       "required": ["productManifestOwner", "registeredExceptions", "violations"],
       "properties": {
-        "productManifestOwner": { "$ref": "#/$defs/packageName" },
+        "productManifestOwner": {
+          "anyOf": [{ "$ref": "#/$defs/packageName" }, { "type": "null" }]
+        },
         "registeredExceptions": {
           "type": "array",
           "items": {
@@ -127,7 +129,9 @@
               "package": { "$ref": "#/$defs/packageIdentity" },
               "kind": { "enum": ["product-manifest-owner", "sdk-manifest-owner"] },
               "dependency": { "type": "string" },
-              "expectedOwner": { "$ref": "#/$defs/packageName" }
+              "expectedOwner": {
+                "anyOf": [{ "$ref": "#/$defs/packageName" }, { "type": "null" }]
+              }
             }
           }
         }
