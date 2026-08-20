@@ -6,6 +6,7 @@ documented until a later surface pass; they are not treated as done.
 | Capability | Spark Web | TUI | Former dsh web |
 | --- | --- | --- | --- |
 | Daemon workspace list | yes | mixed | yes |
+| Local workspace register | yes (path + optional name; no Hub token) | CLI | n/a |
 | Sessions list / create | yes (per daemon workspace) | yes | yes |
 | Transcript / composer / queue / stop / retry | yes | yes | yes |
 | Ask / approval parts | render | yes | yes |

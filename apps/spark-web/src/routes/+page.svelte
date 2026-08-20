@@ -1,8 +1,37 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
   import { ordinarySessionsForWorkspace, type SparkWebSession } from "$lib/daemon-surface";
+  import { webRpc } from "$lib/web-rpc";
 
   let { data } = $props();
   const sessions = $derived(data.sessions as SparkWebSession[]);
+  let localPath = $state(data.launchCwd);
+  let displayName = $state("");
+  let registering = $state(false);
+  let registerError = $state("");
+
+  async function registerWorkspace(event: SubmitEvent) {
+    event.preventDefault();
+    const path = localPath.trim();
+    if (!path) {
+      registerError = "Local path is required.";
+      return;
+    }
+    registering = true;
+    registerError = "";
+    try {
+      const name = displayName.trim();
+      const created = await webRpc("workspace.register", {
+        localPath: path,
+        ...(name ? { displayName: name } : {}),
+      });
+      await goto(`/workspaces/${created.id}`);
+    } catch (caught) {
+      registerError = caught instanceof Error ? caught.message : String(caught);
+    } finally {
+      registering = false;
+    }
+  }
 </script>
 
 <section class="page">
@@ -11,11 +40,7 @@
     <p>Every workspace bound to this daemon.</p>
   </header>
   {#if data.workspaces.length === 0}
-    <p>
-      No workspaces on this daemon yet. Register one with
-      <code>spark daemon workspace register</code>
-      — cwd is not a web identity.
-    </p>
+    <p>No workspaces on this daemon yet. Register a local directory below.</p>
   {:else}
     <ul>
       {#each data.workspaces as workspace (workspace.id)}
@@ -33,6 +58,28 @@
       {/each}
     </ul>
   {/if}
+  <form class="register" onsubmit={(event) => void registerWorkspace(event)}>
+    <h2>Register a local workspace</h2>
+    <p class="hint">
+      Binds a directory to this daemon. Hub origin stays on
+      <code>spark daemon login</code>
+      — this form does not send a server URL or token.
+    </p>
+    <label>
+      Local path
+      <input type="text" autocomplete="off" bind:value={localPath} required />
+    </label>
+    <label>
+      Display name
+      <input type="text" autocomplete="off" bind:value={displayName} placeholder="optional" />
+    </label>
+    {#if registerError}
+      <p class="error">{registerError}</p>
+    {/if}
+    <button type="submit" disabled={registering}>
+      {registering ? "Registering…" : "Register"}
+    </button>
+  </form>
 </section>
 
 <style>
@@ -80,5 +127,43 @@
   }
   code {
     font-size: 0.9em;
+  }
+  form.register {
+    display: grid;
+    gap: 12px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 16px;
+    max-width: 640px;
+  }
+  form.register h2 {
+    margin: 0;
+    font-size: 1rem;
+  }
+  .hint {
+    margin: 0;
+    color: var(--color-ink-muted);
+    font-size: 0.9rem;
+  }
+  form.register label {
+    display: grid;
+    gap: 4px;
+  }
+  form.register input {
+    min-width: 0;
+    width: 100%;
+  }
+  form.register button {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+    border: 0;
+    border-radius: 8px;
+    padding: 8px 12px;
+    justify-self: start;
+  }
+  .error {
+    color: var(--color-danger, #f87171);
+    margin: 0;
   }
 </style>

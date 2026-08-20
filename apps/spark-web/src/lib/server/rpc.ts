@@ -21,6 +21,16 @@ export type SparkWebDaemonInvoker = <M extends SparkWebRpcMethod>(
   input: SparkLocalRpcInput<M>,
 ) => Promise<SparkLocalRpcOutput<M>>;
 
+/** Local path binding only. Hub origin and enrollment tokens stay on daemon login. */
+export function sanitizeSparkWebRpcInput(method: string, input: unknown): unknown {
+  if (method !== "workspace.register") return input;
+  const record =
+    input !== null && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  const localPath = typeof record.localPath === "string" ? record.localPath : "";
+  const displayName = typeof record.displayName === "string" ? record.displayName.trim() : "";
+  return displayName.length > 0 ? { localPath, displayName } : { localPath };
+}
+
 export async function invokeSparkWebRpc<M extends SparkWebRpcMethod>(
   method: M,
   input: SparkLocalRpcInput<M>,
@@ -39,5 +49,8 @@ export async function invokeSparkWebRpc(
   if (!isAllowedSparkWebRpcMethod(method)) {
     throw new SparkWebRpcForbiddenError(method);
   }
-  return await invoke(method, input as SparkLocalRpcInput<typeof method>);
+  return await invoke(
+    method,
+    sanitizeSparkWebRpcInput(method, input) as SparkLocalRpcInput<typeof method>,
+  );
 }

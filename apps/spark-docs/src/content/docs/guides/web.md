@@ -14,8 +14,10 @@ opens a one-shot token URL such as `http://127.0.0.1:4310/?token=...`.
 Non-loopback hosts including `0.0.0.0` are rejected.
 
 Use `--host`, `--port`, and `--no-open` only when you need to change the
-loopback bind or skip opening a browser. Hub remains the cross-workspace
-browser UI; this workbench is one workspace talking to one local daemon.
+loopback bind or skip opening a browser. This workbench lists every workspace
+bound to this local daemon. Register a local directory from the home page; Hub
+origin and announce stay on `spark daemon login`, not this form. Hub remains
+the multi-daemon proxy and management UI.
 
 ## Start with the outcome
 
