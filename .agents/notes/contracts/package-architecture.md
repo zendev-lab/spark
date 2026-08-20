@@ -198,18 +198,36 @@ assets do not bundle Node or define a second deployment state owner.
 
 ### Agent tool packages
 
-Do not add `tools` to every package that happens to expose an agent-callable
-operation. Most tools are adapters over an owning domain:
+Package names describe the dependency closure and owner, not merely whether a
+Cordis plugin happens to be exported:
 
-- `spark-files`, `spark-memory`, `spark-tasks`, and `spark-artifacts` remain
-  domain packages because they own vocabulary, policy, and state semantics;
-- a package whose primary reusable contract is one stateless tool family uses
-  the singular form `spark-tool-<family>`; `spark-tool-web` is the search and
-  fetch adapter. `spark web` lives in `apps/spark-web` and must not own those
-  tools;
-- `spark-tools-*` is avoided because the plural prefix does not identify an
-  owner or boundary. The bare `spark-tools` name is reserved for a future
-  composition-only aggregator and must not own behavior.
+- a local `dsh-*` workspace must run outside Spark, must not depend on a local
+  `spark-*` workspace, and must expose the real-host smoke required by the
+  inventory. `dsh-tool-*` is the normal name for a reusable model-facing tool
+  consumer because Spark does not define another tool mechanism;
+- a `spark-*` workspace owns Spark product state, policy, daemon/protocol
+  behavior, or a Spark-specific provider. Exporting a Cordis plugin does not
+  change that owner;
+- an official `@deepseek-ai/dsh-*` package is preferred when it satisfies the
+  Spark owner and lifecycle contract. Spark must not publish a differently
+  scoped duplicate of an official tool family;
+- `dsh-tool-*` must have `stateWriter: "none"` and must not own a product
+  command, UI, provider registry, scheduler, durable store, or second policy
+  implementation;
+- for a generic DSH consumer/provider family, put the seam before the
+  implementation (`dsh-<seam>-<implementation>`). The generic
+  `dsh-plugin-*` form is not used because plugin is a composition mechanism,
+  not an owner;
+- a Spark product application hosted on DSH remains
+  `spark-<surface>-dsh`. `spark-web-dsh` is therefore an application, not a
+  candidate for `dsh-tool-*` naming;
+- an exceptional retained name must carry its reason in that package's
+  `architecture/packages.json` entry. A temporary DSH independence exception
+  names its exact local Spark dependencies and exit condition; the architecture
+  gate rejects unregistered or stale edges.
+
+The selected migration names and replacement order are explained in the dated
+[`DSH package reuse and naming decision`](../decisions/2026-08-20-dsh-package-naming.md).
 
 ## Layer meanings
 

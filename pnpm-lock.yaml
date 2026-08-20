@@ -572,12 +572,6 @@ importers:
       '@tencent-connect/qqbot-connector':
         specifier: 1.2.0
         version: 1.2.0
-      '@zendev-lab/spark-protocol':
-        specifier: workspace:^
-        version: link:../spark-protocol
-      '@zendev-lab/spark-retry':
-        specifier: workspace:^
-        version: link:../spark-retry
       ws:
         specifier: 'catalog:'
         version: 8.21.3

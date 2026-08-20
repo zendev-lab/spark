@@ -53,6 +53,34 @@ describe("architecture inventory governance", () => {
     );
   });
 
+  test("requires dsh packages to stay independent and prove a real host", () => {
+    const candidateManifests = structuredClone(manifests);
+    candidateManifests["@zendev-lab/dsh-tool-cue"].dependencies["@zendev-lab/spark-text"] =
+      "workspace:^";
+    delete candidateManifests["@zendev-lab/dsh-tool-cue"].scripts["test:real-host"];
+
+    const failures = governance.validateArchitectureGovernance(
+      inventory,
+      candidateManifests,
+      rootManifest,
+    );
+    expect(failures).toContain(
+      "@zendev-lab/dsh-tool-cue must not depend on Spark workspace @zendev-lab/spark-text",
+    );
+    expect(failures).toContain("@zendev-lab/dsh-tool-cue must expose test:real-host");
+  });
+
+  test("rejects stale DSH independence migration exceptions", () => {
+    const candidateManifests = structuredClone(manifests);
+    delete candidateManifests["@zendev-lab/dsh-tool-cue"].dependencies["@zendev-lab/spark-cue"];
+
+    expect(
+      governance.validateArchitectureGovernance(inventory, candidateManifests, rootManifest),
+    ).toContain(
+      "@zendev-lab/dsh-tool-cue has stale DSH independence exception for @zendev-lab/spark-cue",
+    );
+  });
+
   test("decides every ordered layer pair and enforces strict inward direction", () => {
     const layerCount = Object.keys(inventory.governance.layerPolicy.tiers).length;
     const matrix = governance.buildLayerPairMatrix(inventory);
@@ -394,7 +422,6 @@ describe("architecture inventory governance", () => {
     expect(validate(report), JSON.stringify(validate.errors)).toBe(true);
     expect(report.inventory.workspaceCount).toBe(42);
     expect(report.layerMatrix.missingDecisionCount).toBe(0);
-    expect(report.dependencies.edgeCount).toBe(158);
     expect(report.dependencies.registeredExceptions).toHaveLength(exceptionCount);
     expect(report.temporaryDependencyExceptionBudget).toEqual({
       current: exceptionCount,

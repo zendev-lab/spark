@@ -85,6 +85,9 @@
       "nonGrowth": true,
       "reason": "Retained native spark-web and restored spark-web-dsh as an explicit optional compatibility application."
     },
+    "packageNaming": {
+      "temporaryDshDependencyExceptionsNonGrowth": true
+    },
     "compositionRoots": ["@zendev-lab/spark-extension"]
   },
   "packages": {
@@ -101,14 +104,20 @@
       "owner": "execution-adapters",
       "stability": "internal",
       "stateWriter": "none",
-      "distribution": "private"
+      "distribution": "private",
+      "dshIndependenceException": {
+        "dependencies": ["@zendev-lab/spark-cue"],
+        "reason": "The existing Cue tool adapter still consumes the pre-Cordis Spark Cue execution kernel.",
+        "exitCondition": "Remove when the Cue execution kernel becomes the independent dsh-cue service."
+      }
     },
     "@zendev-lab/spark-acp": {
       "path": "packages/spark-acp",
       "layer": "adapter",
       "owner": "acp",
       "stability": "supported",
-      "stateWriter": "none"
+      "stateWriter": "none",
+      "namingRationale": "Spark ACP preserves daemon-owned durable admission because the upstream adapter drives agents directly."
     },
     "@zendev-lab/spark-artifacts": {
       "path": "packages/spark-artifacts",
@@ -346,7 +355,8 @@
       "layer": "capability",
       "owner": "web",
       "stability": "supported",
-      "stateWriter": "user"
+      "stateWriter": "user",
+      "namingRationale": "Spark Web tools retain product cache, code search, content retrieval, and response identity contracts."
     },
     "@zendev-lab/spark-turn": {
       "path": "packages/spark-turn",
@@ -388,7 +398,8 @@
       "owner": "web",
       "stability": "supported",
       "stateWriter": "none",
-      "distribution": "public-npm"
+      "distribution": "public-npm",
+      "namingRationale": "Spark Web DSH is a retained Spark application surface, not a reusable DSH tool consumer."
     },
     "@zendev-lab/spark-workflows": {
       "path": "packages/spark-workflows",

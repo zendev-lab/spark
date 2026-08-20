@@ -88,7 +88,7 @@ updated: 2026-08-21
 - 将 PR、CI、review 与 conflict 读取收敛成幂等 delivery feedback 事件。
 - 完善自治 driver 的部署、诊断、更新与日志运维，但不形成第二个运行时 owner。
 - Hub 能力继续留在现有 owner 中，直到独立迁移能证明新的硬边界。
-- Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。包预算关闭在 42，新增 workspace 需要新的 architecture 决策。
+- Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。包预算以 `architecture/packages.json` 为唯一事实源，新增 workspace 需要新的 architecture 决策。
 - DSH 组合已越过 LLM 小岛：daemon Cordis root 挂 Spark store 与 `ctx.sessions`；
   `spark-turn` 用 `dsh-agent-loop` 做低层 turn driver；`spark-loop` 仍拥有
   goal/tick。不接入 `dsh-llm-pi-ai` 或 `dsh-goal`，不把 Spark Session 绑到
@@ -105,3 +105,9 @@ updated: 2026-08-21
   SystemPrompt + Tools：`spark-cue/operations` 仍唯一拥有 Cue 语义，DSH
   只适配 rc.7 的 host ABI、权限和 presenter；`spark-standard` / `spark-code`
   用 Cue 取代 DSH Bash/Pwsh/Jobs。
+- DSH 包命名以依赖闭包区分 owner 与 consumer：本地 `dsh-*` 必须可脱离 Spark
+  运行且通过 real-host smoke，通用模型工具通常命名为 `dsh-tool-*`；`spark-*`
+  承载 Spark 产品状态、策略、daemon/protocol 或专用 provider。`spark-web-dsh`、
+  `spark-acp` 与 `spark-tool-web` 保持产品 owner；特殊命名理由只登记在
+  `architecture/packages.json`。完整处置见
+  [`.agents/notes/decisions/2026-08-20-dsh-package-naming.md`](.agents/notes/decisions/2026-08-20-dsh-package-naming.md)。
