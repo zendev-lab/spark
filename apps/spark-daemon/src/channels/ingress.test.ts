@@ -288,6 +288,7 @@ describe("daemon-global Channel runtime", () => {
     expect(ctx.channels.generationNumber).toBe(1);
     await runtime.stop();
     expect(ctx.get("channels")).toBeUndefined();
+    await ctx.fiber.dispose();
   });
 
   it("drains accepted ingress before the Cordis transport fiber closes", async () => {
@@ -296,8 +297,10 @@ describe("daemon-global Channel runtime", () => {
     const transport = new FakeChannelTransport();
     const assignment = deferred<void>();
     const onAssignment = vi.fn(async () => await assignment.promise);
+    const ctx = new Context();
     const runtime = createDaemonChannelIngressRuntime({
       sparkHome,
+      ctx,
       hooks: { onAssignment },
       sessionRegistry: { resolveChannelSession: async () => channelSession() },
       createTransport: () => transport,
@@ -325,6 +328,7 @@ describe("daemon-global Channel runtime", () => {
     expect(transport.isRunning).toBe(true);
     await runtime.close?.();
     expect(transport.isRunning).toBe(false);
+    await ctx.fiber.dispose();
   });
 
   it("loads an absent daemon-global config as null", async () => {

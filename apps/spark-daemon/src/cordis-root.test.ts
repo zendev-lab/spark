@@ -56,6 +56,11 @@ describe("spark daemon Cordis root", () => {
       expect(sparkDaemonStoresFromContext(root.ctx).sparkHumanWaits).toBe(stores.sparkHumanWaits);
       expect(root.ctx.sessions).toBeDefined();
       expect(root.ctx.sessionPersistence).toBeDefined();
+      expect(root.ctx.llm).toBeDefined();
+      expect(root.ctx.systemPrompt).toBeDefined();
+      expect(root.ctx.tools).toBeDefined();
+      expect(root.ctx.agents).toBeDefined();
+      expect(root.ctx.agentLoop).toBeDefined();
     } finally {
       await root.dispose();
     }
@@ -67,6 +72,11 @@ describe("spark daemon Cordis root", () => {
     await root.dispose();
     await root.dispose();
     expect(root.ctx.get("sparkInvocations")).toBeUndefined();
+    expect(root.ctx.get("llm")).toBeUndefined();
+    expect(root.ctx.get("systemPrompt")).toBeUndefined();
+    expect(root.ctx.get("tools")).toBeUndefined();
+    expect(root.ctx.get("agents")).toBeUndefined();
+    expect(root.ctx.get("agentLoop")).toBeUndefined();
     expect(() => sparkDaemonStoresFromContext(root.ctx)).toThrow(
       /missing service sparkInvocations/,
     );
