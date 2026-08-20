@@ -2,9 +2,11 @@
 
 ## Decision
 
-Add `apps/spark-web` as the local single-workspace browser workbench. It talks
+Add `apps/spark-web` as the local daemon browser workbench. It talks
 to the daemon over `spark-daemon-client` and shares presentation with Hub
-through `packages/spark-ui`. Hub remains the cross-workspace browser UI.
+through `packages/spark-ui`. Workspace identity is bound to the daemon: web
+shows every workspace on this daemon. Hub is a multi-daemon proxy plus
+management, not the cross-workspace owner.
 
 The search/fetch capability is `@zendev-lab/spark-tool-web`; `spark-web` is the app.
 
@@ -24,6 +26,8 @@ capability rename avoids two packages competing for `spark-web`.
 ## Consequences
 
 - `spark web` starts `apps/spark-web` with loopback bind and a one-shot token.
+- The UI lists daemon workspaces; cwd is only a launch context and may be
+  unregistered.
 - Shared command/event vocabulary stays in `spark-protocol`; each browser
   surface owns only its carrier.
 - Do not vendor dsh web packages, introduce `ctx.sessionProjections`, or keep a

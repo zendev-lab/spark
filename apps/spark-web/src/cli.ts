@@ -29,6 +29,7 @@ export async function runSparkWebCli(argv: string[] = process.argv.slice(2)): Pr
   await ensureSparkDaemonRunning();
   const lease = await attachSparkWebLease({ localPath: process.cwd() });
   const heartbeat = setInterval(() => {
+    if (!lease) return;
     void heartbeatSparkWebLease(lease).catch(() => undefined);
   }, 15_000);
   heartbeat.unref();
@@ -38,7 +39,7 @@ export async function runSparkWebCli(argv: string[] = process.argv.slice(2)): Pr
 
   const stop = async () => {
     clearInterval(heartbeat);
-    await releaseSparkWebLease(lease).catch(() => undefined);
+    if (lease) await releaseSparkWebLease(lease).catch(() => undefined);
   };
   process.once("SIGINT", () => {
     void stop().then(() => process.exit(0));
@@ -84,12 +85,13 @@ export async function runSparkWebCli(argv: string[] = process.argv.slice(2)): Pr
 }
 
 export function sparkWebHelpText(): string {
-  return `spark-web - local Spark workbench
+  return `spark-web - local Spark daemon workbench
 
 Usage:
   spark-web [--host 127.0.0.1] [--port 4310] [--no-open]
 
 Binds loopback only. Non-loopback hosts including 0.0.0.0 are rejected.
-Requires a reachable Spark daemon and a one-shot access token.
+Shows every workspace bound to the local daemon. Hub remains the
+multi-daemon proxy and management plane.
 `;
 }

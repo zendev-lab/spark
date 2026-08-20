@@ -2,7 +2,7 @@
   "name": "@zendev-lab/spark-web",
   "version": "0.4.0",
   "private": true,
-  "description": "Local single-workspace Spark browser workbench bound to the daemon.",
+  "description": "Local Spark browser workbench for every workspace bound to this daemon.",
   "license": "MIT",
   "author": "zrr1999",
   "bin": {

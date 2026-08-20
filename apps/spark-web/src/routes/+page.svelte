@@ -1,38 +1,34 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
-  import { webRpc } from "$lib/web-rpc";
+  import { ordinarySessionsForWorkspace, type SparkWebSession } from "$lib/daemon-surface";
 
   let { data } = $props();
-  let creating = $state(false);
-
-  async function createSession() {
-    creating = true;
-    try {
-      const created = await webRpc("session.create", {
-        scope: { kind: "workspace", workspaceId: data.workspaceId },
-      });
-      await goto(`/sessions/${created.sessionId}`);
-    } finally {
-      creating = false;
-    }
-  }
+  const sessions = $derived(data.sessions as SparkWebSession[]);
 </script>
 
 <section class="page">
   <header>
-    <h1>Sessions</h1>
-    <button type="button" onclick={() => void createSession()} disabled={creating}>
-      {creating ? "Creating…" : "New session"}
-    </button>
+    <h1>Workspaces</h1>
+    <p>Every workspace bound to this daemon.</p>
   </header>
-  {#if data.sessions.length === 0}
-    <p>No sessions yet. Create one to start a local daemon turn.</p>
+  {#if data.workspaces.length === 0}
+    <p>
+      No workspaces on this daemon yet. Register one with
+      <code>spark daemon workspace register</code>
+      — cwd is not a web identity.
+    </p>
   {:else}
     <ul>
-      {#each data.sessions as session (session.sessionId)}
+      {#each data.workspaces as workspace (workspace.id)}
+        {@const count = ordinarySessionsForWorkspace(sessions, workspace.id).length}
         <li>
-          <a href="/sessions/{session.sessionId}">{session.name ?? session.sessionId}</a>
-          <span>{session.activity}</span>
+          <a href="/workspaces/{workspace.id}">
+            <strong>{workspace.displayName}</strong>
+            <span>{workspace.localPath}</span>
+          </a>
+          <span class="meta">
+            {count} session{count === 1 ? "" : "s"}
+            {#if data.cwdWorkspaceId === workspace.id}· cwd{/if}
+          </span>
         </li>
       {/each}
     </ul>
@@ -45,10 +41,9 @@
     display: grid;
     gap: 16px;
   }
-  header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  header p {
+    margin: 4px 0 0;
+    color: var(--color-ink-muted);
   }
   ul {
     list-style: none;
@@ -60,16 +55,30 @@
   li {
     display: flex;
     justify-content: space-between;
+    gap: 16px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 10px;
     padding: 12px 16px;
   }
-  button {
-    background: var(--color-primary);
-    color: var(--color-on-primary);
-    border: 0;
-    border-radius: 8px;
-    padding: 8px 12px;
+  a {
+    display: grid;
+    gap: 4px;
+    color: inherit;
+    text-decoration: none;
+    min-width: 0;
+  }
+  span {
+    color: var(--color-ink-muted);
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .meta {
+    white-space: nowrap;
+    align-self: center;
+  }
+  code {
+    font-size: 0.9em;
   }
 </style>

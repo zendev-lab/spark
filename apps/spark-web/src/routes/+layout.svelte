@@ -12,7 +12,8 @@
   <header class="top">
     <a href="/" class="brand">Spark</a>
     <nav>
-      <a href="/">Sessions</a>
+      <a href="/">Workspaces</a>
+      <a href="/sessions">Sessions</a>
       <a href="/settings">Settings</a>
     </nav>
   </header>

@@ -9,9 +9,9 @@ executors.
 | Surface | Use it for | What it owns |
 | --- | --- | --- |
 | `spark` CLI | Stable public command routing | Dispatch only |
-| Local web | Interactive prompts, session attach, local settings | Browser presentation bound to one workspace |
+| Local web | Interactive prompts and session UI for this daemon | Browser presentation of every workspace bound to the local daemon |
 | Daemon | Durable sessions, invocations, local RPC, channels, recovery | Execution truth and persistent local runtime state |
-| Hub | Browser control, projections, cross-daemon coordination | Web presentation and Hub-owned coordination state |
+| Hub | Multi-daemon proxy, auth, registry, audit, remote access | Control-plane presentation and Hub-owned coordination state |
 | Updater | Managed install, update policy, atomic switching, rollback | Installed-version and update transaction state |
 
 ## One execution owner
@@ -32,9 +32,9 @@ spark daemon session list --json
 
 ## Workspace binding
 
-Sessions are bound to a canonical workspace. Run commands from the intended
-workspace and do not attach a session created for another canonical working
-directory.
+A workspace identity is bound to one daemon. Local web lists every workspace
+on that daemon; cwd is only a launch context. Hub forwards to many daemons
+and does not own workspace identity. Sessions stay inside a daemon workspace.
 
 Workspace-local Spark state lives under `.spark/`. User configuration and
 service state use `SPARK_HOME` when explicitly set, otherwise standard XDG

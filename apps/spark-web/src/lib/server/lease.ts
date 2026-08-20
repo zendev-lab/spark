@@ -1,5 +1,7 @@
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 
+import { isUnregisteredWorkspaceError } from "../daemon-surface.ts";
+
 export type SparkWebLease = {
   clientId: string;
   workspaceId: string;
@@ -10,22 +12,27 @@ export type SparkWebLease = {
 export async function attachSparkWebLease(input: {
   localPath: string;
   displayName?: string;
-}): Promise<SparkWebLease> {
-  const workspace = await requestSparkDaemon("workspace.ensure-local", {
-    localPath: input.localPath,
-  });
-  const attached = await requestSparkDaemon("workspace.client.attach", {
-    workspaceId: workspace.id,
-    kind: "interactive",
-    displayName: input.displayName ?? "Spark Web",
-    metadata: { surface: "web" },
-  });
-  return {
-    clientId: attached.client.id,
-    workspaceId: attached.workspace.id,
-    ...(attached.client.leaseFence ? { leaseFence: attached.client.leaseFence } : {}),
-    cwd: attached.workspace.localPath,
-  };
+}): Promise<SparkWebLease | null> {
+  try {
+    const workspace = await requestSparkDaemon("workspace.ensure-local", {
+      localPath: input.localPath,
+    });
+    const attached = await requestSparkDaemon("workspace.client.attach", {
+      workspaceId: workspace.id,
+      kind: "interactive",
+      displayName: input.displayName ?? "Spark Web",
+      metadata: { surface: "web" },
+    });
+    return {
+      clientId: attached.client.id,
+      workspaceId: attached.workspace.id,
+      ...(attached.client.leaseFence ? { leaseFence: attached.client.leaseFence } : {}),
+      cwd: attached.workspace.localPath,
+    };
+  } catch (error) {
+    if (isUnregisteredWorkspaceError(error)) return null;
+    throw error;
+  }
 }
 
 export async function heartbeatSparkWebLease(lease: SparkWebLease): Promise<void> {

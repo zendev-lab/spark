@@ -37,8 +37,8 @@ supported packages.
 | --- | --- |
 | `apps/spark-cli` | Thin public `spark` command dispatcher |
 | `apps/spark-daemon` | Durable sessions, invocations, channels, and execution |
-| `apps/spark-web` | Local single-workspace browser workbench, loopback daemon gateway |
-| `apps/spark-hub` | Cross-workspace browser presentation and Hub coordination |
+| `apps/spark-web` | Local daemon browser workbench: every workspace bound to this daemon |
+| `apps/spark-hub` | Multi-daemon proxy, auth, registry, and management UI |
 | `apps/spark-docs` | Public bilingual user documentation |
 | `packages/spark-*` | Shared contracts, capabilities, runtimes, clients, and adapters |
 | `architecture/packages.json` | Machine-readable layer, state-writer, exception, Pi ownership, composition-root, and package-budget inventory |
@@ -65,8 +65,8 @@ and keep transports and presentation layers thin.
 | Cross-workspace registry, delegation, delivery, and bounded receipts | Hub modules in `spark-hub-coordination` and `spark-hub-db` |
 | Cross-surface schemas and semantics | `packages/spark-protocol` |
 | Product extension composition and host runtime | `packages/spark-extension` |
-| Local browser workbench | `apps/spark-web` via daemon-client |
-| Cross-workspace browser presentation | `apps/spark-hub` |
+| Local daemon workbench | `apps/spark-web` via daemon-client |
+| Multi-daemon proxy and management | `apps/spark-hub` |
 
 When behavior is shared by multiple surfaces, define its schema and semantics in
 the existing protocol or owner API before adding surface-specific adapters.

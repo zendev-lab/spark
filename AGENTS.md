@@ -42,9 +42,10 @@ for interpreting this file.
 - Hub owns cross-workspace registry, delegation, delivery, idempotency, audit,
   and bounded receipts. It does not own target execution, repositories, local
   artifacts, or internal evidence.
-- Local web, the Hub Web UI, channels, ACP, RPC, and compatibility transports are
-  presentations or adapters. They must translate through owner APIs and must
-  not infer execution state from prompts, transcript text, elapsed time, or
+- Local web presents every workspace bound to this daemon. Hub proxies many
+  daemons and adds auth, registry, audit, and remote access. Channels, ACP, RPC,
+  and other transports are adapters. They must translate through owner APIs and
+  must not infer execution state from prompts, transcript text, elapsed time, or
   frontend timers.
 - Dependencies point inward: applications may depend on composition, clients,
   capabilities, runtimes, contracts, and foundations; lower layers must not

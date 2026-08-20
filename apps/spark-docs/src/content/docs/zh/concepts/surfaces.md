@@ -8,9 +8,9 @@ Spark 提供的是同一个系统的多个视图，而不是多个可以互换�
 | 界面 | 用途 | 所有权 |
 | --- | --- | --- |
 | `spark` CLI | 稳定的公开命令路由 | 只负责分发 |
-| 本地 Web | 交互式 prompt、会话 attach、本地设置 | 绑定单个 workspace 的浏览器展示 |
+| 本地 Web | 这颗 daemon 上的交互式 prompt 与会话 UI | 该 daemon 所绑定全部 workspace 的浏览器展示 |
 | Daemon | 持久会话、invocation、本地 RPC、channel、恢复 | 执行真相与持久本地运行状态 |
-| Hub | 浏览器控制、投影、跨 daemon 协调 | Web 展示与 Hub 自有协调状态 |
+| Hub | 多 daemon 代理、认证、注册表、审计、远程接入 | 控制面展示与 Hub 自有协调状态 |
 | Updater | managed install、升级策略、原子切换、回滚 | 已安装版本与升级 transaction 状态 |
 
 ## 唯一执行所有者
@@ -30,8 +30,9 @@ spark daemon session list --json
 
 ## Workspace 绑定
 
-会话与 canonical workspace 绑定。请从目标 workspace 运行命令，不要 attach
-由另一个 canonical 工作目录创建的会话。
+workspace 身份绑定到一颗 daemon。本地 Web 列出该 daemon 上的全部
+workspace；cwd 只是启动上下文。Hub 转发到多颗 daemon，不拥有
+workspace 身份。会话仍落在 daemon workspace 内。
 
 Workspace 内的 Spark 状态位于 `.spark/`。用户配置和服务状态在显式设置时使用
 `SPARK_HOME`，否则使用标准 XDG 根目录。详情见[配置与路径](/zh/reference/configuration-and-paths/)。
