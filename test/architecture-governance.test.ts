@@ -53,6 +53,18 @@ describe("architecture inventory governance", () => {
     );
   });
 
+  test("keeps DSH dependency versions in the named catalog", () => {
+    const candidateManifests = structuredClone(manifests);
+    candidateManifests["@zendev-lab/spark-turn"].dependencies["@deepseek-ai/dsh-agent"] =
+      "0.0.0-copied-version";
+
+    expect(
+      governance.validateArchitectureGovernance(inventory, candidateManifests, rootManifest),
+    ).toContain(
+      "@zendev-lab/spark-turn must resolve @deepseek-ai/dsh-agent through the named DSH catalog",
+    );
+  });
+
   test("requires dsh packages to stay independent and prove a real host", () => {
     const candidateManifests = structuredClone(manifests);
     candidateManifests["@zendev-lab/dsh-tool-cue"].dependencies["@zendev-lab/spark-text"] =

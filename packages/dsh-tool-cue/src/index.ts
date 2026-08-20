@@ -409,7 +409,7 @@ function registerDefinition<Name extends CueToolName>(
   );
 }
 
-/** Register the ten rc.7 definitions against an operation executor. */
+/** Register the ten supported definitions against an operation executor. */
 export function registerCueToolDefinitions(
   ctx: Context,
   runtime: Pick<CueToolRuntime, "execute">,

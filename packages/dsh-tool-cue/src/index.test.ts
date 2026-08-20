@@ -88,8 +88,8 @@ function validOutput(name: string): Record<string, unknown> {
   };
 }
 
-describe("dsh-tool-cue rc.7 plugin", () => {
-  it("keeps the namespace contract intact for the rc.7 loader", () => {
+describe("dsh-tool-cue plugin", () => {
+  it("keeps the namespace contract intact for the supported loader", () => {
     expect("default" in plugin).toBe(false);
     expect(plugin).toMatchObject({
       name: "dsh-tool-cue",
