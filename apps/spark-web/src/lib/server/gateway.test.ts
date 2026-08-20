@@ -1,18 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { assertLoopbackBindHost, isLoopbackBindHost, parseSparkWebBindArgs } from "./bind.ts";
+import { parseSparkWebBindArgs } from "./bind.ts";
 import { tokensMatch, tokenFromRequest } from "./auth.ts";
 import { isAllowedSparkWebRpcMethod } from "./rpc-allowlist.ts";
 import { invokeSparkWebRpc, sanitizeSparkWebRpcInput, SparkWebRpcForbiddenError } from "./rpc.ts";
 import { collectSessionLiveEvents, formatSseFrame, sessionSnapshotCursor } from "./sse.ts";
 
-test("loopback bind accepts localhost and rejects 0.0.0.0", () => {
-  assert.equal(isLoopbackBindHost("127.0.0.1"), true);
-  assert.equal(isLoopbackBindHost("localhost"), true);
-  assert.equal(isLoopbackBindHost("0.0.0.0"), false);
-  assert.throws(() => assertLoopbackBindHost("0.0.0.0"), /refuses non-loopback/);
-  assert.throws(() => parseSparkWebBindArgs(["--host", "0.0.0.0"]), /refuses non-loopback/);
+test("bind arguments default to loopback and accept an explicit network host", () => {
+  assert.deepEqual(parseSparkWebBindArgs(["--host", "0.0.0.0", "--port", "4311"]), {
+    host: "0.0.0.0",
+    port: 4311,
+    open: true,
+    argv: [],
+  });
   assert.deepEqual(parseSparkWebBindArgs(["--port", "4311", "--no-open"]), {
     host: "127.0.0.1",
     port: 4311,

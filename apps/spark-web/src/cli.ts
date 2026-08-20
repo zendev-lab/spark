@@ -105,8 +105,8 @@ export function sparkWebHelpText(): string {
 Usage:
   spark-web [--host 127.0.0.1] [--port 4310] [--no-open]
 
-Binds loopback only. Non-loopback hosts including 0.0.0.0 are rejected.
-Shows every workspace bound to the local daemon. Hub remains the
-multi-daemon proxy and management plane.
+Binds to 127.0.0.1 by default. An explicit --host may expose the token-protected
+workbench on another interface. Shows every workspace bound to the local daemon.
+Hub remains the multi-daemon proxy and management plane.
 `;
 }

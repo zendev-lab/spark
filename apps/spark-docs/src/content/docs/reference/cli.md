@@ -60,8 +60,9 @@ spark hub --help
 ## Local web workbench
 
 `spark web` starts the local single-workspace browser workbench. It binds
-loopback only, requires a one-shot token, and talks to the Spark daemon through
-`spark-daemon-client`. Hub remains the cross-workspace browser UI.
+loopback by default, requires a one-shot token, and talks to the Spark daemon
+through `spark-daemon-client`. An explicit `--host` may expose it on another
+interface. Hub remains the cross-workspace browser UI.
 
 ```bash
 spark web

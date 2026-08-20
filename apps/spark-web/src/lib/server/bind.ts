@@ -1,19 +1,5 @@
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost", "::ffff:127.0.0.1"]);
-
 export const SPARK_WEB_DEFAULT_HOST = "127.0.0.1";
 export const SPARK_WEB_DEFAULT_PORT = 4310;
-
-export function isLoopbackBindHost(host: string): boolean {
-  return LOOPBACK_HOSTS.has(host.trim().toLowerCase());
-}
-
-export function assertLoopbackBindHost(host: string): void {
-  if (!isLoopbackBindHost(host)) {
-    throw new Error(
-      `spark web refuses non-loopback bind host ${JSON.stringify(host)}; use 127.0.0.1`,
-    );
-  }
-}
 
 export function parseSparkWebBindArgs(argv: readonly string[]): {
   host: string;
@@ -59,6 +45,5 @@ export function parseSparkWebBindArgs(argv: readonly string[]): {
     }
     rest.push(arg);
   }
-  assertLoopbackBindHost(host);
   return { host, port, open, argv: rest };
 }
