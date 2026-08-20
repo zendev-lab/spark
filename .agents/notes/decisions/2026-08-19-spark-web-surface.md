@@ -8,9 +8,9 @@ through `packages/spark-ui`. Hub remains the cross-workspace browser UI.
 
 The search/fetch capability is `@zendev-lab/spark-tool-web`; `spark-web` is the app.
 
-Raise `packageBudget` to 45 for this hard browser-runtime boundary, then reduce
-it to 44 when `spark-web-dsh` retires. Later retirement of `spark-tui`,
-`spark-tui-adapter`, and `pi-spark` is expected to net-reduce the inventory.
+Raise `packageBudget` for the browser-runtime boundary, then reduce it when
+`spark-web-dsh`, `spark-tui`, `spark-tui-adapter`, and `pi-spark` retire. The
+closed budget after those retirements is 41.
 
 `private-adapter` (`spark-ui`) may be imported from `@zendev-lab/spark-hub` and
 `@zendev-lab/spark-web` only.

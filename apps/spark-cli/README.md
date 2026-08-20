@@ -26,7 +26,6 @@ The dispatcher does not own browser rendering, daemon execution, provider/model 
 - `spark daemon ...` to daemon execution, authentication, model, session, and
   administration surfaces.
 - `spark version`, `spark install`, and `spark update` to the update executable.
-- `spark web ...` to the `spark-web` companion, which boots the DSH web profile.
 
 Spark 0.2 rejects the former Pi-style `--print`, `--mode`, `--list-models`,
 root session aliases, and resource-management commands. Provider authentication

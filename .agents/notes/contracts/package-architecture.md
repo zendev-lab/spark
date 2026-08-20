@@ -122,7 +122,7 @@ public boundary:
 ```text
 spark-daemon
 spark-hub
-spark-tui
+spark-web
 spark-acp
 spark-mcp
 spark-update
@@ -161,8 +161,8 @@ public package.
 @zendev-lab/spark-daemon
   spark-daemon + daemon migrations + headless executor
 
-@zendev-lab/spark-tui
-  spark-tui
+@zendev-lab/spark-web
+  spark-web
 
 @zendev-lab/spark-hub
   spark-hub + embedded Web build + Hub migrations
@@ -170,8 +170,8 @@ public package.
 
 The root package is the complete-installation meta package and managed-update
 identity; it contains no dispatcher implementation. `spark-cli` owns the real
-`spark` dispatcher, ACP, MCP and updater entrypoints. Daemon, TUI, and Hub are also
-independently installable deployment closures. All public packages share a
+`spark` dispatcher, ACP, MCP and updater entrypoints. Daemon, Hub, and local web
+are also independently installable deployment closures. All public packages share a
 version and protocol contract during v0.x. Each app artifact must omit the other
 apps' implementation assets, while the CLI and root meta package pin exact
 lockstep dependencies instead of repackaging those assets.
