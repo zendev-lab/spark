@@ -92,9 +92,10 @@ updated: 2026-08-21
 - DSH 组合已越过 LLM 小岛：daemon Cordis root 一次挂 Spark store、Session
   persistence、attachment、LLM、SystemPrompt、ToolRuntime、AgentRegistry 与
   AgentLoop。transcript v4 已把模型可见内容迁入原生 DSH surface，并在 daemon
-  admission 前完成带备份和 journal 的 v3 硬切；Invocation 暂仍经 `spark-turn`
-  的兼容 driver 执行，下一层再切 shared-root Agent resume/dispose。`spark-loop`
-  仍拥有 goal/tick；不接入
+  admission 前完成带备份和 journal 的 v3 硬切；Invocation 已在共享 root 上按
+  Session ID create/resume Agent，flush 后释放 handle，并用 Invocation 隔离的
+  provider route 避免共享 registry 冲突。`spark-turn` 暂只保留 host facade 和
+  投影兼容职责，顶层清理时删除。`spark-loop` 仍拥有 goal/tick；不接入
   `dsh-llm-pi-ai` 或 `dsh-goal`。Invocation / channel / fleet / retry 数据权威仍是
   Spark SQLite。
 - 会话 transcript 已切到 DSH session JSONL；Spark 只实现 `PersistenceBackend`。

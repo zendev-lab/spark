@@ -316,6 +316,11 @@ async function createPreparedDaemonRuntime(
   const eventHub = createInvocationEventHub(options);
   const invocationStore = new SparkInvocationStore(options.db);
   const userPaths = resolveSparkUserPaths({ sparkHome: options.sparkHome });
+  let dshContext: SparkDaemonCordisRoot["ctx"] | undefined;
+  const requireDshContext = (): SparkDaemonCordisRoot["ctx"] => {
+    if (!dshContext) throw new Error("Spark daemon DSH root is not mounted");
+    return dshContext;
+  };
   const loopEvaluators = new SparkLoopEvaluatorRegistry({
     [GITHUB_MERGED_PRS_LOOP_EVALUATOR]: createGitHubMergedPrsLoopEvaluator({
       stateRoot: userPaths.stateRoot,
@@ -324,6 +329,7 @@ async function createPreparedDaemonRuntime(
       evaluator: createGoalLoopCompletionEvaluator({
         sparkHome: options.paths.sessionRuntimeDir,
         controlSparkHome: userPaths.configRoot,
+        getDshContext: requireDshContext,
       }),
       checkpoints: ["after_tick"],
     },
@@ -445,6 +451,21 @@ async function createPreparedDaemonRuntime(
   };
   const executionAttemptStore = new ExecutionAttemptStore(options.db);
   const executionAttemptGeneration = executionAttemptStore.allocateDaemonGeneration();
+  const cordisRoot = await createSparkDaemonCordisRoot(
+    {
+      sparkInvocations: invocationStore,
+      sparkLoops: loopStore,
+      sparkChannelDeliveries: channelDeliveryStore,
+      sparkChannelReplyDeliveries: channelReplyDeliveryStore,
+      sparkExecutionAttempts: executionAttemptStore,
+      sparkSessionMail: mailStore,
+      sparkHumanWaits: humanWaits,
+      sparkSessionCompletions: sessionCompletionDeliveryStore,
+      sparkInvocationRegistry: invocationRegistry,
+    },
+    { sessionsRoot: defaultSparkSessionsRoot(options.sparkHome), ctx: cordisContext },
+  );
+  dshContext = cordisRoot.ctx;
   const scheduler = createDaemonScheduler({
     options,
     runtimeSignal,
@@ -465,6 +486,7 @@ async function createPreparedDaemonRuntime(
     humanWaits,
     executionAttemptStore,
     executionAttemptGeneration,
+    dshContext: cordisRoot.ctx,
   });
   if (scheduler) sessionSupervisor?.attachScheduler(scheduler);
   const closeRestartAdmission = () => {
@@ -492,20 +514,6 @@ async function createPreparedDaemonRuntime(
     channelIngress?.beginDrain?.();
     if (!channelIngress?.beginDrain) void shutdownChannelIngress("runtime-abort");
   };
-  const cordisRoot = await createSparkDaemonCordisRoot(
-    {
-      sparkInvocations: invocationStore,
-      sparkLoops: loopStore,
-      sparkChannelDeliveries: channelDeliveryStore,
-      sparkChannelReplyDeliveries: channelReplyDeliveryStore,
-      sparkExecutionAttempts: executionAttemptStore,
-      sparkSessionMail: mailStore,
-      sparkHumanWaits: humanWaits,
-      sparkSessionCompletions: sessionCompletionDeliveryStore,
-      sparkInvocationRegistry: invocationRegistry,
-    },
-    { sessionsRoot: defaultSparkSessionsRoot(options.sparkHome), ctx: cordisContext },
-  );
   runtimeSignal.addEventListener("abort", stopScheduler, { once: true });
   runtimeSignal.addEventListener("abort", stopDirectInvocations, { once: true });
   runtimeSignal.addEventListener("abort", stopChannelIngress, { once: true });
@@ -1053,6 +1061,7 @@ function daemonServerConnectionOptions(
     respondHumanInteraction: (wait, input) => runtime.humanInteractions.respond(wait, input),
     channelIngress: runtime.channelIngress ?? undefined,
     sessionSupervisor: runtime.sessionSupervisor ?? undefined,
+    dshContext: runtime.cordisRoot.ctx,
     registerInvocationEventTarget: (sink) => runtime.eventHub.register(sink),
     registerHumanRequestOutboxTarget: runtime.registerHumanRequestOutboxTarget,
   };
@@ -1115,6 +1124,7 @@ function createDaemonScheduler(input: {
   humanWaits: SparkDaemonHumanWaitRegistry;
   executionAttemptStore: ExecutionAttemptStore;
   executionAttemptGeneration: number;
+  dshContext: SparkDaemonCordisRoot["ctx"];
 }): SparkInvocationScheduler | null {
   if (input.options.runScheduler === false) return null;
   const { options } = input;
@@ -1151,6 +1161,7 @@ function createDaemonScheduler(input: {
       options.executeInvocation ??
       createChannelAwareTaskExecutor({
         paths: options.paths,
+        dshContext: input.dshContext,
         cwd: process.cwd(),
         resolveWorkspaceCwd: (workspaceId) => resolveWorkspaceLocalPath(options.db, workspaceId),
         resolveSessionCwd: (request) => resolveSessionCwdForWorkspaceId(options.db, request),
@@ -1803,6 +1814,7 @@ interface SparkDaemonServerConnectionOptions extends StartSparkDaemonOptions {
   respondHumanInteraction: SparkDaemonHumanInteractionResponder;
   channelIngress?: DaemonChannelIngressRuntime;
   sessionSupervisor?: SessionSupervisor;
+  dshContext: SparkDaemonCordisRoot["ctx"];
   registerInvocationEventTarget?: (
     sink: (event: SparkInvocationEvent) => void | Promise<void>,
   ) => () => void;
@@ -2301,6 +2313,7 @@ async function runSparkDaemonServerConnection(
         cancelSparkInvocation: options.cancelSparkInvocation ?? cancelSparkBridgeInvocation,
         sparkHome: userPaths.dataRoot,
         controlSparkHome: userPaths.configRoot,
+        dshContext: options.dshContext,
         ...(options.modelControl ? { modelControl: options.modelControl } : {}),
         ...(options.channelIngress ? { channelIngress: options.channelIngress } : {}),
         ...(options.sessionRegistry ? { sessionRegistry: options.sessionRegistry } : {}),

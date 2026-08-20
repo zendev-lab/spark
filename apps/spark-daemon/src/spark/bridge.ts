@@ -8,6 +8,7 @@ import {
 } from "@zendev-lab/spark-roles";
 import { killActiveSparkRoleRunProcesses, runSparkTask } from "@zendev-lab/spark-runtime";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+import type { SparkDshTurnRuntime } from "@zendev-lab/spark-turn";
 
 import { errorMessage } from "../text.ts";
 
@@ -34,6 +35,7 @@ type SparkRoleInstructionExecutorLike = (
 type CreateSparkHeadlessRoleExecutorFn = (options?: {
   sparkHome?: string;
   controlSparkHome?: string;
+  dshContext?: SparkDshTurnRuntime["ctx"];
 }) => SparkRoleInstructionExecutorLike;
 
 type TaskGraphStoreLike = {
@@ -111,6 +113,8 @@ export interface SparkDaemonBridgeInput {
   model?: string;
   /** Global provider config/auth root, separate from daemon role session files. */
   controlSparkHome?: string;
+  /** Shared daemon DSH root for native Role execution. */
+  dshContext?: SparkDshTurnRuntime["ctx"];
   db: DatabaseSync;
   emit(message: unknown): void;
   invocationId?: string;
@@ -288,6 +292,7 @@ export async function runSparkCommandBridge(
                 ? { sparkHome: input.paths.sessionRuntimeDir }
                 : {}),
               ...(input.controlSparkHome ? { controlSparkHome: input.controlSparkHome } : {}),
+              ...(input.dshContext ? { dshContext: input.dshContext } : {}),
             }),
           }
         : {}),

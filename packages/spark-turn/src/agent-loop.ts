@@ -66,6 +66,7 @@ export type {
 } from "@zendev-lab/spark-llm";
 
 import { createHash } from "node:crypto";
+import type { Context as CordisContext } from "@deepseek-ai/cordis";
 
 import {
   hasActiveDriverBinding,
@@ -193,11 +194,12 @@ export type {
 } from "./turn-types.ts";
 
 import { type SparkTurnLlm } from "./turn-llm.ts";
-import { runSparkDshTurn } from "./dsh-turn-driver.ts";
+import { runSparkDshTurn, type SparkDshSessionMetadata } from "./dsh-turn-driver.ts";
 export {
   asSparkTurnLlm,
   sparkTurnLlmStream,
   type SparkAgentStreamFunction,
+  type SparkDshTurnRuntime,
   type SparkTurnLlm,
 } from "./turn-llm.ts";
 
@@ -594,6 +596,8 @@ export interface SparkAgentLoopOptions {
   host: SparkTurnHost;
   /** dsh-llm runtime stream surface. Tests may pass a structural fake. */
   llm: SparkTurnLlm;
+  /** Shared daemon DSH root. Omitted only by isolated test/scripted providers. */
+  dshContext?: CordisContext;
   /** Resolves the current model. May be replaced at runtime via setModel. */
   getModel: () => Model<string>;
   systemPrompt?: string;
@@ -671,6 +675,7 @@ export type SparkAgentLoopEvent =
 export class SparkAgentLoop {
   readonly host: SparkTurnHost;
   private readonly llm: SparkTurnLlm;
+  private readonly dshContext: CordisContext | undefined;
   private readonly getModel: () => Model<string>;
   private readonly streamTimeoutMs: number;
   private readonly streamIdleTimeoutMs: number;
@@ -709,6 +714,7 @@ export class SparkAgentLoop {
   private triggerTurnRunning = false;
   private triggerTurnDeferred = false;
   private viewSessionId = "spark-agent";
+  private dshSessionMetadata: SparkDshSessionMetadata | undefined;
   private viewRunCounter = 0;
   private currentViewRunId: string | undefined;
   private currentViewRunUsage: SparkRunUsageTotals | undefined;
@@ -720,6 +726,7 @@ export class SparkAgentLoop {
   constructor(options: SparkAgentLoopOptions) {
     this.host = options.host;
     this.llm = options.llm;
+    this.dshContext = options.dshContext;
     this.getModel = options.getModel;
     this.systemPrompt = options.systemPrompt ?? "";
     this.promptCacheOptions = options.promptCache ?? {};
@@ -759,6 +766,10 @@ export class SparkAgentLoop {
 
   setApprovalRejectAction(action: SparkToolApprovalRejectAction): void {
     this.approvalRejectAction = normalizeApprovalRejectAction(action);
+  }
+
+  setDshSessionMetadata(metadata: SparkDshSessionMetadata): void {
+    this.dshSessionMetadata = structuredClone(metadata);
   }
 
   /**
@@ -1230,13 +1241,21 @@ export class SparkAgentLoop {
         ...(this.toolTimeoutMs > 0 ? { timeoutMs: this.toolTimeoutMs } : {}),
       };
     });
-    const drive = runSparkDshTurn({
+    const testRuntime = this.dshContext
+      ? undefined
+      : await this.llm.createDshTestRuntime?.(this.maxParallelToolCalls);
+    const dshContext = this.dshContext ?? testRuntime?.ctx;
+    if (!dshContext) {
+      throw new Error("SparkAgentLoop requires the daemon shared DSH context");
+    }
+    const driveOperation = runSparkDshTurn({
+      ctx: dshContext,
       llm: this.llm,
       sessionId: this.viewSessionId,
+      ...(this.dshSessionMetadata ? { sessionMetadata: this.dshSessionMetadata } : {}),
       cwd: this.host.makeContext().cwd,
       followupText: this.followupTextForDriver(),
       tools,
-      maxParallelToolCalls: this.maxParallelToolCalls,
       streamIdleTimeoutMs: this.streamIdleTimeoutMs,
       signal: abortController.signal,
       hooks: {
@@ -1286,6 +1305,9 @@ export class SparkAgentLoop {
         roundtrips: () => this.lastPromptManifest?.roundtrip.index ?? 1,
       },
     });
+    const drive = testRuntime
+      ? driveOperation.finally(async () => await testRuntime.dispose())
+      : driveOperation;
     try {
       if (this.streamTimeoutMs > 0) {
         await runWithTimeout(

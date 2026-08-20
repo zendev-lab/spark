@@ -110,7 +110,7 @@ describe("native DSH transcript v4", () => {
     expect(dshDocumentToSparkRecord(record.path, document).entries).toEqual(record.entries);
   });
 
-  it("repairs an unfinished tool call as an interrupted DSH turn without inventing a Spark entry", async () => {
+  it("projects an unfinished tool-call repair once without a spark/record copy", async () => {
     const { store, record } = await fixture("unfinished-tool");
     record.entries = [
       message("u1", null, { role: "user", content: "inspect" }),
@@ -140,7 +140,18 @@ describe("native DSH transcript v4", () => {
       data: { reason: { kind: "interrupted" } },
     });
     expect(document.events.filter((event) => event.type === "spark/record")).toHaveLength(0);
-    expect(dshDocumentToSparkRecord(record.path, document).entries).toEqual(record.entries);
+    const projected = dshDocumentToSparkRecord(record.path, document).entries;
+    expect(projected.slice(0, 2)).toEqual(record.entries);
+    expect(projected[2]).toMatchObject({
+      type: "message",
+      parentId: "a1",
+      message: {
+        role: "toolResult",
+        toolCallId: "call-unfinished",
+        toolName: "write",
+        isError: true,
+      },
+    });
     expect(() =>
       Session.fromRestore(
         SessionId(record.header.id),

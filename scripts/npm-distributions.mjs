@@ -129,7 +129,7 @@ export const npmDistributions = [
     manifestName: "daemon-release-manifest.json",
     bins: { "spark-daemon": "spark-daemon.js" },
     bundles: {
-      "spark-headless-role-executor.js": "packages/spark-extension/src/headless-role-executor.ts",
+      "spark-headless-role-executor.js": "apps/spark-daemon/src/headless-role-executor.ts",
     },
     files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],

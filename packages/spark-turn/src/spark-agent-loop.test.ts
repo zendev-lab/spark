@@ -39,6 +39,7 @@ import {
   type SparkTurnLlm,
 } from "./agent-loop.ts";
 import { asSparkTurnLlm } from "./turn-llm.ts";
+import { createSparkDshTurnTestRuntime } from "./testing/dsh-runtime.ts";
 import { evaluateSparkBehavior } from "./behavior-eval.ts";
 import {
   lowerSparkPromptItem,
@@ -5011,7 +5012,7 @@ test("SIDE-EFFECT-003 SparkAgentLoop rechecks host effect policy immediately bef
   assert.match(toolResultText(results[1]), /denied by host policy: mutate/u);
 });
 
-test("SparkAgentLoop runs a scripted turn from llm without Context", async () => {
+test("SparkAgentLoop runs a structural llm through an explicit isolated test runtime", async () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-llm-only" });
   const llm: SparkTurnLlm = {
     async *stream() {
@@ -5019,6 +5020,7 @@ test("SparkAgentLoop runs a scripted turn from llm without Context", async () =>
       yield { type: "usage", usage: { inputTokens: 1, outputTokens: 2 } };
       yield { type: "finish", reason: { kind: "stop" } };
     },
+    createDshTestRuntime: createSparkDshTurnTestRuntime,
   };
   const loop = new SparkAgentLoop({
     host,
