@@ -193,7 +193,8 @@ operation. Most tools are adapters over an owning domain:
 - a package whose primary reusable contract is one stateless tool family uses
   the singular form `spark-tool-<family>`; `spark-tool-web` is the search and
   fetch adapter (persisted `responseId` values keep the `spark-web:` prefix and
-  `.spark/web/content.json`);
+  `.spark/web/content.json`). The `spark web` executable lives in
+  `apps/spark-web` and must not own those tools;
 - `spark-tools-*` is avoided because the plural prefix does not identify an
   owner or boundary. The bare `spark-tools` name is reserved for a future
   composition-only aggregator and must not own behavior.

@@ -30,6 +30,7 @@ second CLI catalog.
 | `spark-daemon` | `spark daemon` | daemon execution plane | persistent sessions, channel listeners, SQLite invocations, autonomous Loop timing/retry/recovery, events, logs, process state | domain goal/review/task definitions |
 | `spark-hub` | `spark hub` | global control plane and management host | user/daemon authentication, workspace registry, cross-workspace delegation state, delivery outbox, idempotency, audit, bounded receipts, and embedded Web lifecycle | target execution state, local repositories, or internal evidence bodies |
 | `spark-tui` | `spark tui` | local terminal control surface | interactive terminal UI, attach/resume, visible transcript, theme, export | canonical business-state ownership |
+| `spark-web` | `spark web` | DSH web profile boot | Spark-owned boot of the installed DeepSeek Harness web profile, Cue/LLM plugins, and provider onboarding | Hub UI, daemon execution, or the `web_search`/`fetch_content` tool family |
 | `spark-acp` | `spark acp` | ACP stdio adapter | protocol translation for new/prompt/cancel/permission | durable sessions, invocations, provider policy, or execution truth |
 | `spark-mcp` | `spark mcp` | read-only MCP stdio adapter | bounded projection of canonical workspace Memory | memory writes, daemon execution, or another memory store |
 | `spark-update` | `spark update` | installation and update surface | build-info inspection, install/update policy, release transition | daemon or Hub state |

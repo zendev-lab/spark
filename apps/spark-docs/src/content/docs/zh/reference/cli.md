@@ -69,7 +69,8 @@ spark hub --help
 ## Cue-first DSH Web
 
 `spark web` 启动已安装的 DeepSeek Harness Web profile，目前只支持
-`@deepseek-ai/dsh@0.1.0-rc.7`。先用 `dsh web` 初始化一次 profile，再启动：
+`@deepseek-ai/dsh@0.1.0-rc.7`。配套可执行程序是 `spark-web`，`spark web`
+是分发器别名。先用 `dsh web` 初始化一次 profile，再启动：
 
 ```bash
 spark web

@@ -13,8 +13,10 @@
  *    no manual install or copy step.
  * 2. **dsh-tool-cue plugin plus the managed spark-standard / spark-code
  *    presets**, so Cue replaces DSH Bash/Pwsh/Jobs without manual setup.
- * 3. **spark-web-dsh client plugin**, linked into the profile's node_modules
- *    so the onboarding flow offers Spark's provider selection step.
+ * 3. **spark-web-dsh client plugin**, linked from this application into the
+ *    profile's node_modules so the onboarding flow offers Spark's provider
+ *    selection step. Existing profiles that already declare
+ *    `id: spark-web-dsh` skip a second insert.
  * 4. **Any bind host, including 0.0.0.0.** `dsh web` rejects `--host 0.0.0.0`
  *    outright for safety; the patch overlay restates the `webserver` row with
  *    the requested host instead. This is a deliberate bypass of that guard —
@@ -193,7 +195,7 @@ function executableOnPath(command: string): string | undefined {
 
 /** Resolve the actual installed `@deepseek-ai/dsh` package owning the CLI. */
 export function resolveInstalledDshPackageDir(
-  command = process.env.SPARK_WEB_COMMAND?.trim() || "dsh",
+  command = process.env.SPARK_DSH_COMMAND?.trim() || "dsh",
   searchFrom = process.cwd(),
 ): string {
   const installed = resolveFromDirectory(searchFrom, "@deepseek-ai/dsh");
@@ -319,10 +321,16 @@ export async function ensureSparkLlmBundle(profileDir: string): Promise<SparkLlm
 }
 
 const SPARK_WEB_DHS_PACKAGE = "@zendev-lab/spark-web-dsh";
+const SPARK_WEB_PACKAGE = "@zendev-lab/spark-web";
 
-/** Locate the installed `@zendev-lab/spark-web-dsh` package root. */
+/** Locate this application's package root (the DSH client plugin lives here). */
 export function resolveSparkWebDshPackageDir(): string {
-  return resolvePackageDir(SPARK_WEB_DHS_PACKAGE);
+  const here = dirname(fileURLToPath(import.meta.url));
+  const root = packageRootFrom(here, SPARK_WEB_PACKAGE);
+  if (root === undefined) {
+    throw new Error(`spark web: cannot locate ${SPARK_WEB_PACKAGE} from ${here}`);
+  }
+  return root;
 }
 
 export interface SparkWebPatch {
