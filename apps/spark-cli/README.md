@@ -24,7 +24,7 @@ The dispatcher does not own browser rendering, daemon execution, provider/model 
 
 - `spark` to this help text.
 - `spark web ...` to the local loopback browser workbench.
-- `spark web-dsh ...` to the optional DeepSeek Harness compatibility workbench.
+- `spark web-dsh ...` to the Spark product workbench hosted by DeepSeek Harness.
 - `spark run ...` and `spark bg ...` to daemon-native headless execution.
 - `spark daemon ...` to daemon execution, authentication, model, session, and
   administration surfaces.
