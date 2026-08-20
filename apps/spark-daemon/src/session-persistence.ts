@@ -15,7 +15,7 @@ import SessionPersistence, {
 } from "@deepseek-ai/dsh-session-persistence";
 import { SessionId, type SessionEvent, type SessionHeader } from "@deepseek-ai/dsh-session";
 import type { Context } from "@deepseek-ai/cordis";
-import { SparkJsonlSessionFiles } from "@zendev-lab/spark-host/session-store";
+import { SparkJsonlSessionFiles } from "@zendev-lab/spark-session/transcript";
 
 export class SparkDaemonSessionPersistence
   extends SessionPersistence

@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
+import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import type { SparkSessionState } from "@zendev-lab/spark-protocol";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 

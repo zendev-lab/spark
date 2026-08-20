@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
-import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
+import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import {
   sparkLocalRpcProcedureSchemas,
   type SparkLocalRpcMethod,

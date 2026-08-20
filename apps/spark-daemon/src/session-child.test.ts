@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
-import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
+import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import type { SparkSessionState } from "@zendev-lab/spark-protocol";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";

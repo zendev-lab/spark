@@ -14,7 +14,7 @@ import type {
   SparkHostLoopContext,
 } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
-import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
+import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import type {
   SparkHeadlessSessionCompactInput,
   SparkHeadlessSessionRunInput,

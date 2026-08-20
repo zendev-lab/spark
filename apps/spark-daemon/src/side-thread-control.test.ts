@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
-import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
+import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import {
   runtimeCommandResultPayloadSchema,
   sparkSideThreadHandoffResultSchema,

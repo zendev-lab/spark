@@ -1,7 +1,7 @@
 import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
+import { SparkSessionStore } from "@zendev-lab/spark-session/transcript";
 import { afterEach, describe, expect, it } from "vitest";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { ensureDaemonSessionTranscript } from "./session-transcript-control.ts";

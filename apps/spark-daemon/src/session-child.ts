@@ -5,7 +5,7 @@ import {
   SparkSessionStore,
   stableSparkSessionContextEntries,
   type SparkSessionEntry,
-} from "@zendev-lab/spark-host/session-store";
+} from "@zendev-lab/spark-session/transcript";
 import { createId, type SparkSessionState } from "@zendev-lab/spark-protocol";
 import { createSparkRoleRegistry } from "@zendev-lab/spark-roles";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";

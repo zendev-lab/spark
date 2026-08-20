@@ -10,7 +10,7 @@ import {
   CURRENT_SPARK_SESSION_VERSION,
   SPARK_DSH_SESSION_FORMAT_VERSION,
   SparkSessionStore,
-} from "@zendev-lab/spark-host/session-store";
+} from "@zendev-lab/spark-session/transcript";
 import type { Model } from "@zendev-lab/spark-llm";
 import { SparkAgentLoop, type SparkTurnLlm } from "@zendev-lab/spark-turn";
 

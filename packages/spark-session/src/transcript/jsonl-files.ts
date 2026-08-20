@@ -1,4 +1,4 @@
-/** Filesystem primitives behind Spark's DSH JSONL PersistenceBackend. */
+/** Session-owned filesystem primitives behind Spark's DSH JSONL PersistenceBackend. */
 
 import { createHash } from "node:crypto";
 import { open, readdir, readFile, stat, truncate } from "node:fs/promises";

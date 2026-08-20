@@ -6,7 +6,7 @@ import {
   SparkSessionStore,
   stableSparkSessionContextEntries,
   type SparkSessionEntry,
-} from "@zendev-lab/spark-host/session-store";
+} from "@zendev-lab/spark-session/transcript";
 import {
   sparkSideThreadSnapshotSchema,
   sparkSideThreadExchangeSchema,

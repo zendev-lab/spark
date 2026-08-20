@@ -1,5 +1,5 @@
 /**
- * Spark transcript v4 on the native DSH session surface.
+ * Spark Session transcript v4 on the native DSH session surface.
  *
  * Model-visible records are DSH user/assistant/tool events. Spark-only state is
  * carried by ignorable metadata events; the legacy envelope is read only by

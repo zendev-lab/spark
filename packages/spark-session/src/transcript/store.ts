@@ -1,4 +1,4 @@
-/** Filesystem JSONL SparkSessionStore for host-managed sessions. */
+/** Filesystem JSONL SparkSessionStore for daemon-managed sessions. */
 
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
