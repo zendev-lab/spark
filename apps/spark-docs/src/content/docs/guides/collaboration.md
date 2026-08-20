@@ -19,7 +19,7 @@ has one protected persistent Administrator; other continuing conversations are
 scoped Sessions. A Role call uses a one-Invocation ephemeral Session. Use a
 [Side Thread](/guides/side-threads/) for a bounded read-only tangent; it is a
 child Session with `side_thread` origin, not another runtime entity. Every child
-origin is shown as a subsession in the same recursive TUI and Hub tree.
+origin is shown as a subsession in the same recursive local-web and Hub tree.
 
 ## Session requests and notifications
 

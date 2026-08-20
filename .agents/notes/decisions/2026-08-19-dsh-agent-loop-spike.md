@@ -8,9 +8,8 @@ in Stage 5. Do not implement a second Spark `AgentFactory`. Keep
 
 Spark-specific turn policy stays Spark-owned and lands as Cordis plugins on
 upstream hooks. Daemon invocation, channel, fleet, and retry **data authority
-stays Spark SQLite**. This spike does not change production dependencies or
-supersede the Cordis-island decision; Stage 3 expands the daemon composition
-root, and Stage 6 replaces the older "do not take over dsh-session" notes.
+stays Spark SQLite**. Stage 5 landed the production driver. Stage 6 replaces
+the Cordis-island and remaining `dsh-session` gate notes.
 
 ## Spike evidence
 

@@ -63,7 +63,7 @@ comes from queued/running Invocations, not UI timers. Native session view
 Invocation is not collapsed to `running`. Owned temporary children
 close with their owner and normally discard full transcripts; retained public
 Sessions alone can be restored with the same stable ID, incarnation, and transcript.
-New TUI, Hub, and ACP conversations are retained scoped children of that root.
+New local-web, Hub, and ACP conversations are retained scoped children of that root.
 Channel conversations use the same parent but keep Channel routing. Parent self
 activity remains separate from bounded descendant activity. A driver or
 driver-tick child shares the parent's durable FIFO serialization key, so a tick

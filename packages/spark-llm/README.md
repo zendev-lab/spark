@@ -5,12 +5,15 @@ Codex), model routing, auth/catalog, and the `models` tool.
 
 This package is not the LLM abstraction owner. That role belongs to
 `@deepseek-ai/dsh-llm` (`LlmRuntime` / `LlmAdapter`). `spark-llm` implements
-those adapters and registers them on the process-local Cordis island owned by
-`spark-extension`. `spark-turn` consumes `LlmRuntime.stream`, not Cordis
-`Context`. `SparkProviderRegistry` remains the catalog/auth loader used to
+those adapters and registers them on the process-local Cordis LLM island owned
+by `spark-extension`. `spark-turn` consumes `LlmRuntime` through
+`dsh-agent-loop`; it also mounts its own short-lived Cordis root for the
+driver. See
+[`.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md`](../../.agents/notes/decisions/2026-08-20-dsh-cordis-composition.md).
+`SparkProviderRegistry` remains the catalog/auth loader used to
 construct adapters; it is not the turn-loop injection point.
 
-The package stays host-neutral so TUI, daemon, and tests can drive providers
+The package stays host-neutral so local web, daemon, and tests can drive providers
 without importing Spark app internals. It does not own credentials beyond
 reading configured env keys, and it never imports Spark app hosts.
 
@@ -121,8 +124,8 @@ spark-llm does not alias `oneapi` credentials or `OPENAI_API_KEY` into `baidu-on
 ## OpenAI Codex provider
 
 `@zendev-lab/spark-llm/openai-codex-provider` is the thin Spark adapter over
-pi-ai's maintained OpenAI Codex catalog and transport. The daemon and native
-TUI load it as a bundled provider, while Spark's shared provider control owns
+pi-ai's maintained OpenAI Codex catalog and transport. The daemon and local
+web load it as a bundled provider, while Spark's shared provider control owns
 model selection and its own OAuth credential store. Configure it from Hub
 or the native login flow; Spark does not read Pi or Codex CLI auth files at
 runtime.

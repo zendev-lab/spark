@@ -1,5 +1,11 @@
 # 2026-08-18: dsh-llm Cordis island
 
+**Superseded** by
+[`2026-08-20-dsh-cordis-composition.md`](./2026-08-20-dsh-cordis-composition.md).
+Cordis is no longer limited to a process-local `dsh-llm` island: the daemon
+root, LLM composition, and spark-turn driver each mount a Cordis `Context`.
+The LLM ownership split below remains accurate.
+
 ## Decision
 
 Spark mounts `@deepseek-ai/dsh-llm` on a process-local Cordis `Context` and
