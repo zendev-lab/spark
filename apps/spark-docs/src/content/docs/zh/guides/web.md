@@ -14,8 +14,9 @@ URL，例如 `http://127.0.0.1:4310/?token=...`。包括 `0.0.0.0` 在内的非�
 主机都会被拒绝。
 
 只有在需要改回环绑定或跳过打开浏览器时，才使用 `--host`、`--port` 和
-`--no-open`。Hub 仍是跨 workspace 的浏览器界面；本工作台只服务一个
-workspace、一台本地 daemon。
+`--no-open`。本工作台列出这台本地 daemon 上的全部 workspace。从首页注册
+本地目录即可；Hub origin 与宣布仍走 `spark daemon login`，不走这个表单。
+Hub 仍是多 daemon 代理与管理界面。
 
 ## 从结果开始
 

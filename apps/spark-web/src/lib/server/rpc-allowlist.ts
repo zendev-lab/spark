@@ -27,6 +27,7 @@ export const SPARK_WEB_RPC_ALLOWLIST = [
   "human.interaction.respond",
   "workspace.ensure-local",
   "workspace.list",
+  "workspace.register",
   "workspace.client.attach",
   "workspace.client.heartbeat",
   "workspace.client.release",

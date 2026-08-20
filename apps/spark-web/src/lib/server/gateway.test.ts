@@ -4,7 +4,7 @@ import { test } from "vitest";
 import { assertLoopbackBindHost, isLoopbackBindHost, parseSparkWebBindArgs } from "./bind.ts";
 import { tokensMatch, tokenFromRequest } from "./auth.ts";
 import { isAllowedSparkWebRpcMethod } from "./rpc-allowlist.ts";
-import { invokeSparkWebRpc, SparkWebRpcForbiddenError } from "./rpc.ts";
+import { invokeSparkWebRpc, sanitizeSparkWebRpcInput, SparkWebRpcForbiddenError } from "./rpc.ts";
 import { collectSessionLiveEvents, formatSseFrame, sessionSnapshotCursor } from "./sse.ts";
 
 test("loopback bind accepts localhost and rejects 0.0.0.0", () => {
@@ -31,6 +31,7 @@ test("token comparison rejects missing and mismatched values", () => {
 
 test("RPC allowlist forwards known methods and rejects unknown ones", async () => {
   assert.equal(isAllowedSparkWebRpcMethod("turn.submit"), true);
+  assert.equal(isAllowedSparkWebRpcMethod("workspace.register"), true);
   assert.equal(isAllowedSparkWebRpcMethod("file.execute"), false);
   const calls: Array<{ method: string; input: unknown }> = [];
   const result = await invokeSparkWebRpc("session.list", { limit: 10 }, async (method, input) => {
@@ -43,6 +44,43 @@ test("RPC allowlist forwards known methods and rejects unknown ones", async () =
     () => invokeSparkWebRpc("file.execute", {}, async () => ({}) as never),
     (error: unknown) => error instanceof SparkWebRpcForbiddenError,
   );
+});
+
+test("workspace.register from web keeps only local path identity", async () => {
+  assert.deepEqual(
+    sanitizeSparkWebRpcInput("workspace.register", {
+      localPath: "/tmp/spore",
+      displayName: " Spore ",
+      serverUrl: "https://hub.example",
+      registrationToken: "tok_secret",
+      allowInsecureHttp: true,
+      workspaceSlug: "nope",
+    }),
+    { localPath: "/tmp/spore", displayName: "Spore" },
+  );
+  assert.deepEqual(sanitizeSparkWebRpcInput("workspace.register", { localPath: "/tmp/spore" }), {
+    localPath: "/tmp/spore",
+  });
+  assert.deepEqual(sanitizeSparkWebRpcInput("workspace.list", { includeInactive: true }), {
+    includeInactive: true,
+  });
+  const calls: Array<{ method: string; input: unknown }> = [];
+  await invokeSparkWebRpc(
+    "workspace.register",
+    {
+      localPath: "/tmp/spore",
+      displayName: "Spore",
+      serverUrl: "https://hub.example",
+      registrationToken: "tok_secret",
+    },
+    async (method, input) => {
+      calls.push({ method, input });
+      return { id: "ws_1" } as never;
+    },
+  );
+  assert.deepEqual(calls, [
+    { method: "workspace.register", input: { localPath: "/tmp/spore", displayName: "Spore" } },
+  ]);
 });
 
 test("SSE collector emits whole-value snapshots and turn events", async () => {
