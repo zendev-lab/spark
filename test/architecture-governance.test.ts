@@ -356,6 +356,8 @@ describe("architecture inventory governance", () => {
     expect(report.piOwnership.violations).toEqual([]);
     expect(Object.keys(report.workspaces)).toHaveLength(44);
     expect(report.workspaces["@zendev-lab/spark-daemon"].stateWriter).toBe("daemon");
+    expect(report.workspaces["@zendev-lab/spark-tool-web"].layer).toBe("capability");
+    expect(report.workspaces["@zendev-lab/spark-web-dsh"].layer).toBe("capability");
     expect(compactMarkdown).toContain(`exceptionBudget: ${exceptionCount}/${exceptionCount}`);
     expect(digest).toMatch(/^[0-9a-f]{64}$/);
     // Stable digest for the projected health report body.

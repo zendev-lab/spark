@@ -69,6 +69,9 @@ const CURRENT_SPARK_EXTENSION_FACADE = "@zendev-lab/spark-extension/extension";
 const STANDALONE_WORKFLOW_EXTENSION = "@zendev-lab/spark-workflows/extension";
 /** Pi product / prior Spark-native facade; rewrite to the Spark-native boundary. */
 const LEGACY_PI_EXTENSION_FACADE = "@zendev-lab/pi-extension/extension";
+/** Search/fetch tools moved from spark-web to spark-tool-web. */
+const LEGACY_WEB_EXTENSION = "@zendev-lab/spark-web/extension";
+const CURRENT_WEB_EXTENSION = "@zendev-lab/spark-tool-web/extension";
 const LEGACY_DEFAULT_EXTENSION_CORE = [
   "@zendev-lab/spark-ask/extension",
   "@zendev-lab/spark-cue/extension",
@@ -84,7 +87,7 @@ const SPARK_EXTENSION_PROFILE_V1 = [
   "@zendev-lab/spark-memory/extension",
   "@zendev-lab/spark-roles/extension",
   "@zendev-lab/spark-session/extension",
-  "@zendev-lab/spark-web/extension",
+  "@zendev-lab/spark-tool-web/extension",
   CURRENT_SPARK_EXTENSION_FACADE,
 ] as const;
 const SPARK_EXTENSION_PROFILE_V2 = [
@@ -95,7 +98,7 @@ const SPARK_EXTENSION_PROFILE_V2 = [
   "@zendev-lab/spark-memory/extension",
   "@zendev-lab/spark-roles/extension",
   "@zendev-lab/spark-session/extension",
-  "@zendev-lab/spark-web/extension",
+  "@zendev-lab/spark-tool-web/extension",
   "@zendev-lab/spark-workflows/extension",
   CURRENT_SPARK_EXTENSION_FACADE,
 ] as const;
@@ -313,9 +316,11 @@ export function migrateSparkExtensionProfile(
 ): string[] {
   const version = typeof rawVersion === "number" && Number.isInteger(rawVersion) ? rawVersion : 0;
   const normalized = dedupeStrings(
-    extensions.map((specifier) =>
-      specifier === LEGACY_PI_EXTENSION_FACADE ? CURRENT_SPARK_EXTENSION_FACADE : specifier,
-    ),
+    extensions.map((specifier) => {
+      if (specifier === LEGACY_PI_EXTENSION_FACADE) return CURRENT_SPARK_EXTENSION_FACADE;
+      if (specifier === LEGACY_WEB_EXTENSION) return CURRENT_WEB_EXTENSION;
+      return specifier;
+    }),
   );
   const conflictFree = removeWorkflowCompositionConflict(normalized);
   if (version >= CURRENT_SPARK_EXTENSION_PROFILE_VERSION) return conflictFree;
@@ -331,7 +336,8 @@ export function migrateSparkExtensionProfile(
       ...LEGACY_DEFAULT_EXTENSION_CORE,
       "@zendev-lab/spark-memory/extension",
       "@zendev-lab/spark-session/extension",
-      "@zendev-lab/spark-web/extension",
+      LEGACY_WEB_EXTENSION,
+      CURRENT_WEB_EXTENSION,
       STANDALONE_WORKFLOW_EXTENSION,
       "@zendev-lab/spark-graft/extension",
       CURRENT_SPARK_EXTENSION_FACADE,
@@ -348,7 +354,8 @@ export function migrateSparkExtensionProfile(
       ...LEGACY_DEFAULT_EXTENSION_CORE,
       "@zendev-lab/spark-memory/extension",
       "@zendev-lab/spark-session/extension",
-      "@zendev-lab/spark-web/extension",
+      LEGACY_WEB_EXTENSION,
+      CURRENT_WEB_EXTENSION,
       STANDALONE_WORKFLOW_EXTENSION,
       "@zendev-lab/spark-graft/extension",
       CURRENT_SPARK_EXTENSION_FACADE,
