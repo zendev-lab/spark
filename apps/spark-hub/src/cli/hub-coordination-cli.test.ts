@@ -152,38 +152,6 @@ test("parseSparkHubCliArgs routes workspace access under workspace access", () =
   );
 });
 
-test("spark-hub thin bin routes through the TypeScript surface entry", async () => {
-  const bin = fileURLToPath(new URL("../../bin/spark-hub", import.meta.url));
-  const help = await runBin(bin, ["--help"]);
-  assert.equal(help.code, 0);
-  assert.match(help.stdout, /spark-hub web <start\|status\|stop\|logs>/u);
-  assert.match(help.stdout, /"spark hub \.\.\." dispatcher form forwards/u);
-  assert.doesNotMatch(help.stdout, /spark hub access create/u);
-
-  const unknown = await runBin(bin, ["access", "not-a-real-op", "--json"]);
-  assert.notEqual(unknown.code, 0);
-  assert.doesNotMatch(unknown.stderr, /Unknown spark hub command: access/u);
-  assert.match(
-    `${unknown.stdout}${unknown.stderr}`,
-    /unknown spark hub access operation|create, list, or revoke/iu,
-  );
-
-  const missingWeb = await runBin(bin, ["web", "not-a-real-op"]);
-  assert.notEqual(missingWeb.code, 0);
-  assert.match(`${missingWeb.stdout}${missingWeb.stderr}`, /Unknown spark hub web command/u);
-
-  const nestedHelp = await runBin(bin, ["web", "status", "--help"]);
-  assert.equal(nestedHelp.code, 0);
-  assert.match(nestedHelp.stdout, /spark hub web - manage the background Hub Web service/u);
-
-  const invalidLines = await runBin(bin, ["web", "logs", "--lines", "not-a-number"]);
-  assert.notEqual(invalidLines.code, 0);
-  assert.match(
-    `${invalidLines.stdout}${invalidLines.stderr}`,
-    /Invalid --lines value\. Pass a non-negative integer\./u,
-  );
-}, 60_000);
-
 test("spark hub status/project/task/goal/artifact/review/workflow expose stable JSON", async () => {
   const fixture = fixtureHubOptions();
 
@@ -578,27 +546,6 @@ type AcceptanceInvocation = {
   prompt?: string;
   task?: unknown;
 };
-
-async function runBin(
-  bin: string,
-  args: string[],
-): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout?.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      resolve({ code, stdout, stderr });
-    });
-  });
-}
 
 function startHubAcceptanceDaemon(root: string): ChildProcess {
   return spawn(

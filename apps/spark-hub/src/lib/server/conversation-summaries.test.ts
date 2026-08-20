@@ -9,29 +9,34 @@ import {
 import { conversationActivityStatus, loadConversationSummaries } from "./conversation-summaries";
 import { workspaceSessionRecord } from "../../../../../test/support/session-fixtures.ts";
 
+function conversationFixture() {
+  const db = openMemoryDatabase();
+  migrate(db);
+  const now = "2026-07-10T00:00:00.000Z";
+  const runtimeId = createId("rt");
+  const bindingId = createId("rtwb");
+  db.prepare(
+    `INSERT INTO runtime_connections
+      (id, installation_id, name, status, protocol_version, capabilities_json, labels_json, created_at, updated_at)
+     VALUES (?, 'install', 'Runtime', 'online', ?, '{}', '{}', ?, ?)`,
+  ).run(runtimeId, runtimeProtocolVersion, now, now);
+  db.prepare(
+    `INSERT INTO runtime_workspace_bindings
+      (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
+     VALUES (?, ?, 'local', 'Local', 'available', '{}', '{}', ?, ?)`,
+  ).run(bindingId, runtimeId, now, now);
+  const workspace = createWorkspaceWithLease(db, {
+    slug: "local",
+    name: "Local",
+    runtimeWorkspaceBindingId: bindingId,
+    createdAt: now,
+  });
+  return { db, now, bindingId, workspace };
+}
+
 describe("conversation summaries", () => {
   it("does not let a stale Hub invocation override settled daemon truth", () => {
-    const db = openMemoryDatabase();
-    migrate(db);
-    const now = "2026-07-10T00:00:00.000Z";
-    const runtimeId = createId("rt");
-    const bindingId = createId("rtwb");
-    db.prepare(
-      `INSERT INTO runtime_connections
-        (id, installation_id, name, status, protocol_version, capabilities_json, labels_json, created_at, updated_at)
-       VALUES (?, 'install', 'Runtime', 'online', ?, '{}', '{}', ?, ?)`,
-    ).run(runtimeId, runtimeProtocolVersion, now, now);
-    db.prepare(
-      `INSERT INTO runtime_workspace_bindings
-        (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
-       VALUES (?, ?, 'local', 'Local', 'available', '{}', '{}', ?, ?)`,
-    ).run(bindingId, runtimeId, now, now);
-    const workspace = createWorkspaceWithLease(db, {
-      slug: "local",
-      name: "Local",
-      runtimeWorkspaceBindingId: bindingId,
-      createdAt: now,
-    });
+    const { db, now, bindingId, workspace } = conversationFixture();
     const workspaceId = workspace.id;
 
     const command = queueCommandForWorkspaceLease(db, {
@@ -79,27 +84,7 @@ describe("conversation summaries", () => {
   });
 
   it("keeps settled daemon truth when stale activity exceeds the old row window", () => {
-    const db = openMemoryDatabase();
-    migrate(db);
-    const now = "2026-07-10T00:00:00.000Z";
-    const runtimeId = createId("rt");
-    const bindingId = createId("rtwb");
-    db.prepare(
-      `INSERT INTO runtime_connections
-        (id, installation_id, name, status, protocol_version, capabilities_json, labels_json, created_at, updated_at)
-       VALUES (?, 'install', 'Runtime', 'online', ?, '{}', '{}', ?, ?)`,
-    ).run(runtimeId, runtimeProtocolVersion, now, now);
-    db.prepare(
-      `INSERT INTO runtime_workspace_bindings
-        (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
-       VALUES (?, ?, 'local', 'Local', 'available', '{}', '{}', ?, ?)`,
-    ).run(bindingId, runtimeId, now, now);
-    const workspace = createWorkspaceWithLease(db, {
-      slug: "local",
-      name: "Local",
-      runtimeWorkspaceBindingId: bindingId,
-      createdAt: now,
-    });
+    const { db, now, bindingId, workspace } = conversationFixture();
 
     const visibleCommand = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
@@ -161,27 +146,7 @@ describe("conversation summaries", () => {
   });
 
   it("uses newer daemon conversation state instead of stale Web-only command state", () => {
-    const db = openMemoryDatabase();
-    migrate(db);
-    const now = "2026-07-10T00:00:00.000Z";
-    const runtimeId = createId("rt");
-    const bindingId = createId("rtwb");
-    db.prepare(
-      `INSERT INTO runtime_connections
-        (id, installation_id, name, status, protocol_version, capabilities_json, labels_json, created_at, updated_at)
-       VALUES (?, 'install', 'Runtime', 'online', ?, '{}', '{}', ?, ?)`,
-    ).run(runtimeId, runtimeProtocolVersion, now, now);
-    db.prepare(
-      `INSERT INTO runtime_workspace_bindings
-        (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
-       VALUES (?, ?, 'local', 'Local', 'available', '{}', '{}', ?, ?)`,
-    ).run(bindingId, runtimeId, now, now);
-    const workspace = createWorkspaceWithLease(db, {
-      slug: "local",
-      name: "Local",
-      runtimeWorkspaceBindingId: bindingId,
-      createdAt: now,
-    });
+    const { db, now, bindingId, workspace } = conversationFixture();
     const command = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       createdAt: "2026-07-10T00:01:00.000Z",
