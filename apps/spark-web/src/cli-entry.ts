@@ -1,10 +1,4 @@
-import { runSparkWebCli } from "./cli.ts";
+import { runSparkWebProcess } from "./cli.ts";
+import { startSparkWebDevelopmentServer } from "./vite-server.ts";
 
-runSparkWebCli()
-  .then((code) => {
-    process.exitCode = code;
-  })
-  .catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  });
+runSparkWebProcess({ startDevelopmentServer: startSparkWebDevelopmentServer });

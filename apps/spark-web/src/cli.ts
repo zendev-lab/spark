@@ -4,7 +4,6 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ensureSparkDaemonRunning } from "@zendev-lab/spark-daemon-client";
-import { createServer as createViteServer } from "vite";
 
 import { resolveSparkWebToken, SPARK_WEB_TOKEN_ENV } from "./lib/server/auth.ts";
 import { parseSparkWebBindArgs } from "./lib/server/bind.ts";
@@ -16,7 +15,20 @@ import {
 
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-export async function runSparkWebCli(argv: string[] = process.argv.slice(2)): Promise<number> {
+export interface SparkWebDevelopmentServerOptions {
+  appDir: string;
+  host: string;
+  port: number;
+}
+
+export interface SparkWebCliOptions {
+  startDevelopmentServer?: (options: SparkWebDevelopmentServerOptions) => Promise<void>;
+}
+
+export async function runSparkWebCli(
+  argv: string[] = process.argv.slice(2),
+  options: SparkWebCliOptions = {},
+): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
     process.stdout.write(sparkWebHelpText());
     return 0;
@@ -61,18 +73,10 @@ export async function runSparkWebCli(argv: string[] = process.argv.slice(2)): Pr
       server.on("error", reject);
       server.listen(bind.port, bind.host, () => resolveListen());
     });
+  } else if (options.startDevelopmentServer) {
+    await options.startDevelopmentServer({ appDir, host: bind.host, port: bind.port });
   } else {
-    const vite = await createViteServer({
-      configFile: join(appDir, "vite.config.ts"),
-      root: appDir,
-      server: {
-        host: bind.host,
-        port: bind.port,
-        strictPort: true,
-        allowedHosts: ["127.0.0.1", "localhost"],
-      },
-    });
-    await vite.listen();
+    throw new Error(`Spark web build is missing at ${handlerPath}`);
   }
 
   process.stdout.write(`Spark web listening on ${url}\n`);
@@ -82,6 +86,17 @@ export async function runSparkWebCli(argv: string[] = process.argv.slice(2)): Pr
     );
   }
   return await new Promise<number>(() => undefined);
+}
+
+export function runSparkWebProcess(options: SparkWebCliOptions = {}): void {
+  runSparkWebCli(process.argv.slice(2), options)
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((error: unknown) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
 }
 
 export function sparkWebHelpText(): string {

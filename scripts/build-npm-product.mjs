@@ -190,7 +190,6 @@ process.env.SPARK_HUB_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-hub/
 process.env.SPARK_MCP_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/mcp-executable")};
 process.env.SPARK_WEB_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-web/executable")};
 process.env.SPARK_UPDATE_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/update-executable")};
-process.env.SPARK_WEB_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/web-executable")};
 `;
     case "daemon":
       return `${common}process.env.SPARK_DAEMON_ENTRYPOINT = resolve(productDist, "spark-daemon.js");
