@@ -90,13 +90,16 @@ updated: 2026-08-21
 - Hub 能力继续留在现有 owner 中，直到独立迁移能证明新的硬边界。
 - Pi 产品兼容适配器 `pi-spark` 已退场；`package.json#pi` owner 为空。包预算以 `architecture/packages.json` 为唯一事实源，新增 workspace 需要新的 architecture 决策。
 - DSH 组合已越过 LLM 小岛：daemon Cordis root 一次挂 Spark store、Session
-  persistence、LLM、SystemPrompt、ToolRuntime、AgentRegistry 与 AgentLoop；在
-  transcript v4 落地前，Invocation 仍经 `spark-turn` 的兼容 driver 执行，不从
-  shared root resume Agent。`spark-loop` 仍拥有 goal/tick；不接入
+  persistence、attachment、LLM、SystemPrompt、ToolRuntime、AgentRegistry 与
+  AgentLoop。transcript v4 已把模型可见内容迁入原生 DSH surface，并在 daemon
+  admission 前完成带备份和 journal 的 v3 硬切；Invocation 暂仍经 `spark-turn`
+  的兼容 driver 执行，下一层再切 shared-root Agent resume/dispose。`spark-loop`
+  仍拥有 goal/tick；不接入
   `dsh-llm-pi-ai` 或 `dsh-goal`。Invocation / channel / fleet / retry 数据权威仍是
   Spark SQLite。
 - 会话 transcript 已切到 DSH session JSONL；Spark 只实现 `PersistenceBackend`。
-  Session 投影仍由 Spark 拥有，不采用 `dsh-session-projection`。
+  Session 投影仍由 Spark 拥有，不采用 `dsh-session-projection`；模型可见消息不再
+  双写 `spark/record`，Spark 扩展事件只保留投影元数据、非模型记录和非活跃分支。
 - Channel 已原位迁移为 `dsh-channels` Cordis 插件；配置、Session、cwd、delivery、
   human wait 与控制面均为 daemon scope。旧 Workspace Channel 只保留一次性、
   fail-closed 的 v7→v8 数据迁移，不保留新行为兼容层。

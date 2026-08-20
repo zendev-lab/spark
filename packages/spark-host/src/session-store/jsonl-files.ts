@@ -13,8 +13,7 @@ import {
   type SparkDshSessionHeader,
 } from "./dsh-format.ts";
 import { writeJsonLinesAtomically } from "./jsonl-io.ts";
-import { migrateSparkSessionJsonlToDsh } from "./pi-v3-migration.ts";
-import type { SparkSessionHeader } from "./types.ts";
+import { CURRENT_SPARK_SESSION_VERSION, type SparkSessionHeader } from "./types.ts";
 
 export interface SparkJsonlStoredPrefix {
   meta: SparkDshSessionHeader;
@@ -57,8 +56,6 @@ export class SparkJsonlSessionFiles {
     signal?.throwIfAborted();
     const path = await this.findPath(id);
     if (!path) return undefined;
-    await migrateSparkSessionJsonlToDsh(path);
-    signal?.throwIfAborted();
     const content = await readFile(path, "utf8");
     const parsed = parseJsonlObjects(content);
     const header = parsed.objects[0];
@@ -74,7 +71,21 @@ export class SparkJsonlSessionFiles {
         time: typeof value.time === "number" ? value.time : 0,
         data: value.data,
         ...(value.ignorable === true ? { ignorable: true as const } : {}),
+        ...(Array.isArray(value.sourceEventSeqs)
+          ? { sourceEventSeqs: value.sourceEventSeqs as number[] }
+          : {}),
+        ...(value.surfaceOp === "append" || isSurfaceReplacement(value.surfaceOp)
+          ? { surfaceOp: value.surfaceOp }
+          : {}),
       });
+    }
+    const sparkMeta = events.find((event) => event.type === "spark/meta");
+    if (
+      !sparkMeta ||
+      !isRecord(sparkMeta.data) ||
+      sparkMeta.data.sparkVersion !== CURRENT_SPARK_SESSION_VERSION
+    ) {
+      throw new Error(`Spark JSONL persistence refuses pre-v4 transcript: ${path}`);
     }
     this.paths.set(id, path);
     const revision = await this.revisionFor(path);
@@ -237,7 +248,6 @@ export async function readDshOrPiSessionHeader(
 }
 
 async function readDshHeader(path: string): Promise<SparkDshSessionHeader | undefined> {
-  await migrateSparkSessionJsonlToDsh(path).catch(() => undefined);
   const first = await readFirstJsonLine(path);
   return isDshSessionHeader(first) ? first : undefined;
 }
@@ -272,6 +282,17 @@ async function readNthJsonLine(path: string, index: number): Promise<unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSurfaceReplacement(
+  value: unknown,
+): value is { op: "replace"; start: number; end: number } {
+  return (
+    isRecord(value) &&
+    value.op === "replace" &&
+    typeof value.start === "number" &&
+    typeof value.end === "number"
+  );
 }
 
 function workspaceSessionHash(cwd: string): string {

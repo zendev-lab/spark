@@ -13,6 +13,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./dsh-message-projection": "./src/dsh-message-projection.ts",
     "./extension": "./src/extension.ts"
   },
   "scripts": {

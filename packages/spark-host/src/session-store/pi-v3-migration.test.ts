@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  SPARK_DSH_ENTRY_EVENT_TYPE,
+  SPARK_DSH_MESSAGE_META_EVENT_TYPE,
   SPARK_DSH_SESSION_FORMAT_VERSION,
   decodeSparkDshSessionJsonl,
   dshDocumentToSparkRecord,
@@ -29,7 +29,7 @@ describe("Pi JSONL v3 to DSH session migration", () => {
       [
         JSON.stringify({
           type: "session",
-          version: CURRENT_SPARK_SESSION_VERSION,
+          version: 3,
           id: "sess_legacy",
           timestamp: "2026-08-01T00:00:00.000Z",
           cwd: "/workspace",
@@ -66,7 +66,7 @@ describe("Pi JSONL v3 to DSH session migration", () => {
       cwd: "/workspace",
     });
     expect(lines[0]?.type).toBeUndefined();
-    expect(lines.some((line) => line.type === SPARK_DSH_ENTRY_EVENT_TYPE)).toBe(true);
+    expect(lines.some((line) => line.type === SPARK_DSH_MESSAGE_META_EVENT_TYPE)).toBe(true);
 
     const decoded = decodeSparkDshSessionJsonl(await readFile(path, "utf8"));
     expect(decoded).toBeDefined();
@@ -110,5 +110,24 @@ describe("Pi JSONL v3 to DSH session migration", () => {
     const loaded = await store.load(record.path);
     expect(loaded.header).toEqual(record.header);
     expect(loaded.entries).toEqual(record.entries);
+  });
+
+  it("rejects malformed v3 input without replacing the source", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-session-corrupt-v3-"));
+    roots.push(root);
+    const path = join(root, "corrupt.jsonl");
+    const source = `${JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "sess_corrupt",
+      timestamp: "2026-08-01T00:00:00.000Z",
+      cwd: "/workspace",
+    })}\n{broken\n`;
+    await writeFile(path, source, "utf8");
+
+    await expect(migrateSparkSessionJsonlToDsh(path)).rejects.toThrow(
+      "Invalid Spark transcript v3 JSON",
+    );
+    expect(await readFile(path, "utf8")).toBe(source);
   });
 });

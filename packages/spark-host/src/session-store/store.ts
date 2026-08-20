@@ -2,18 +2,22 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { resolveSparkHome } from "@zendev-lab/spark-system";
 
 import {
   decodeSparkDshSessionJsonl,
   dshDocumentToSparkRecord,
   encodeSparkRecordAsDsh,
+  isSparkDshV4Document,
   serializeDshSessionDocument,
 } from "./dsh-format.ts";
 import { readDshOrPiSessionHeader } from "./jsonl-files.ts";
 import { parseSparkSessionEntries, writeJsonLinesAtomically } from "./jsonl-io.ts";
-import { migrateSparkSessionJsonlToDsh } from "./pi-v3-migration.ts";
+import {
+  legacySessionJsonlToSparkRecord,
+  legacySparkDshDocumentToRecord,
+} from "./pi-v3-migration.ts";
 import {
   CURRENT_SPARK_SESSION_VERSION,
   type NewSparkSessionOptions,
@@ -37,12 +41,14 @@ export class SparkSessionStore {
   readonly sessionsRoot: string;
   readonly workspaceHash: string;
   readonly sessionDir: string;
+  readonly attachmentRoot: string;
 
   constructor(options: SparkSessionStoreOptions) {
     this.cwd = resolve(options.cwd);
     this.sessionsRoot = options.sessionsRoot ?? defaultSparkSessionsRoot(options.sparkHome);
     this.workspaceHash = workspaceSessionHash(this.cwd);
     this.sessionDir = join(this.sessionsRoot, this.workspaceHash);
+    this.attachmentRoot = join(dirname(this.sessionsRoot), "attachments", "v1");
   }
 
   createSession(options: NewSparkSessionOptions = {}): SparkSessionRecord {
@@ -86,17 +92,20 @@ export class SparkSessionStore {
     record: SparkSessionRecord,
     options: SparkSessionAtomicWriteOptions = {},
   ): Promise<void> {
-    const document = encodeSparkRecordAsDsh(record);
+    const document = await encodeSparkRecordAsDsh(record, {
+      attachmentRoot: this.attachmentRoot,
+    });
     await writeJsonLinesAtomically(record.path, serializeDshSessionDocument(document), options);
   }
 
   async load(path: string): Promise<SparkSessionRecord> {
-    await migrateSparkSessionJsonlToDsh(path);
-    const document = decodeSparkDshSessionJsonl(await readFile(path, "utf8"));
-    if (!document) {
-      throw new Error(`Invalid Spark session file: ${path}`);
+    const content = await readFile(path, "utf8");
+    const document = decodeSparkDshSessionJsonl(content);
+    if (document && isSparkDshV4Document(document)) {
+      return dshDocumentToSparkRecord(path, document);
     }
-    return dshDocumentToSparkRecord(path, document);
+    if (document) return legacySparkDshDocumentToRecord(path, document);
+    return legacySessionJsonlToSparkRecord(path, content);
   }
 
   async list(): Promise<SparkSessionInfo[]> {

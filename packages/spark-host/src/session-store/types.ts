@@ -6,7 +6,7 @@
  * an append-only local host transcript.
  */
 
-export const CURRENT_SPARK_SESSION_VERSION = 3;
+export const CURRENT_SPARK_SESSION_VERSION = 4;
 
 export interface SparkSessionHeader {
   type: "session";
