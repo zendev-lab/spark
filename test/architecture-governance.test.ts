@@ -175,6 +175,18 @@ describe("architecture inventory governance", () => {
     );
     expect(rule).toBeDefined();
     expect(rule.from.pathNot).toContain("apps/spark-daemon/");
+    expect(rule.from.pathNot).toContain("packages/spark-turn/");
+    expect(rule.from.pathNot).toContain("packages/spark-extension/");
+    expect(rule.from.pathNot).toContain("packages/spark-llm/");
+  });
+
+  test("allows spark-turn to import dsh-llm as the agent-loop driver", () => {
+    const dependencyCruiserConfig = require("../.dependency-cruiser.cjs");
+    const rule = dependencyCruiserConfig.forbidden.find(
+      ({ name }: NamedRule) => name === "no-direct-dsh-llm",
+    );
+    expect(rule).toBeDefined();
+    expect(rule.from.pathNot).toContain("packages/spark-turn/");
     expect(rule.from.pathNot).toContain("packages/spark-extension/");
     expect(rule.from.pathNot).toContain("packages/spark-llm/");
   });
@@ -186,6 +198,7 @@ describe("architecture inventory governance", () => {
     );
     expect(rule).toBeDefined();
     expect(rule.from.pathNot).toContain("apps/spark-daemon/");
+    expect(rule.from.pathNot).toContain("packages/spark-turn/");
   });
 
   test("rejects growing or stale exception metadata", () => {

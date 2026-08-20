@@ -4260,6 +4260,54 @@ test("SparkAgentLoop drainOutboxIntoMessages turns sendUserMessage envelopes int
   assert.equal((messages[3] as AssistantMessage).content[0]!.type, "text");
 });
 
+test("SparkAgentLoop includes tool-enqueued outbox in the next model request", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-tool-outbox" });
+  const toolCall: ToolCall = {
+    type: "toolCall",
+    id: "outbox-1",
+    name: "enqueue_followup",
+    arguments: {},
+  };
+  host.registerTool({
+    name: "enqueue_followup",
+    description: "enqueue an outbox user message",
+    parameters: { type: "object" },
+    async execute() {
+      host.sendUserMessage("tool follow-up", { deliverAs: "steer" });
+      return { content: [{ type: "text", text: "enqueued" }] };
+    },
+  });
+  const contexts: Message[][] = [];
+  let calls = 0;
+  const fake: SparkAgentStreamFunction = (_model, context) => {
+    contexts.push([...(context.messages ?? [])]);
+    calls += 1;
+    const message =
+      calls === 1
+        ? buildAssistant([toolCall], "toolUse")
+        : buildAssistant([{ type: "text", text: "after tool outbox" }]);
+    return {
+      async *[Symbol.asyncIterator]() {
+        yield {
+          type: "done" as const,
+          reason: (calls === 1 ? "toolUse" : "stop") as "toolUse" | "stop",
+          message,
+        };
+      },
+      result: async () => message,
+    } as ReturnType<SparkAgentStreamFunction>;
+  };
+  const loop = new SparkAgentLoop({
+    host,
+    llm: asSparkTurnLlm(fake),
+    getModel: () => TEST_MODEL,
+  });
+  const outcome = await loop.submitWithOutcome("start");
+  assert.equal(outcome.status, "completed");
+  assert.equal(calls, 2);
+  assert.match(JSON.stringify(contexts[1]), /tool follow-up/);
+});
+
 test("SparkAgentLoop consumes a non-triggering turn_end follow-up inside the current run", async () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-turn-end-follow-up-test" });
   const firstAssistant = buildAssistant([{ type: "text", text: "premature final" }]);

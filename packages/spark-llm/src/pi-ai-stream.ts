@@ -1,10 +1,8 @@
 /**
- * Lossless-enough bridge between pi-ai stream events and dsh-llm StreamChunk.
+ * Private pi-ai stream transport used by SparkProviderLlmAdapter.
  *
- * SparkAgentLoop still builds a pi-ai Context. That original request is carried
- * on GenerateOptions so adapters and test fakes can round-trip without losing
- * tool names, prompt-cache keys, or assistant stop reasons. The Spark/pi-ai
- * assistant message is also retained in finish.replayState.
+ * dsh-llm StreamChunk is the live wire. These helpers keep the bundled pi-ai
+ * provider runners working without a public reverse dsh↔pi bridge.
  */
 import type { CallId } from "@deepseek-ai/dsh-llm";
 import {
@@ -122,6 +120,10 @@ export function generateOptionsToPiStreamOptions(options: GenerateOptions): Stre
     ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
     ...(options.reasoningEffort ? { reasoning: options.reasoningEffort } : {}),
   } as StreamOptions;
+}
+
+export function piEventToLlmChunks(event: AssistantMessageEvent): StreamChunk[] {
+  return [...chunksForPiEvent(event)];
 }
 
 export async function* piEventsToLlmChunks(stream: SparkPiAiStream): AsyncIterable<StreamChunk> {

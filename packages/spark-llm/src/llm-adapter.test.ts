@@ -5,7 +5,7 @@ import { SparkProviderRegistry, SparkProviderLlmAdapter } from "./index.ts";
 import type { ProviderConfig } from "./provider-registry.ts";
 import type { StreamChunk } from "@deepseek-ai/dsh-llm";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
-import { sparkContextToGenerateOptions } from "./dsh-pi-bridge.ts";
+import { sparkContextToGenerateOptions } from "./pi-ai-stream.ts";
 
 function fakeAssistant(stopReason: "stop" | "error" | "aborted", text = "ok") {
   return {
