@@ -55,6 +55,18 @@ module.exports = {
         path: "node_modules/.*/@deepseek-ai/dsh-llm(?:/|$)|/node_modules/@deepseek-ai/dsh-llm(?:/|$)|^@deepseek-ai/dsh-llm(?:/|$)",
       },
     },
+    {
+      name: "no-direct-dsh-session",
+      comment:
+        "dsh-session and dsh-session-persistence are limited to the daemon Cordis root that mounts ctx.sessions.",
+      severity: "error",
+      from: {
+        pathNot: "^(apps/spark-daemon/)",
+      },
+      to: {
+        path: "node_modules/.*/@deepseek-ai/dsh-session(?:-persistence)?(?:/|$)|/node_modules/@deepseek-ai/dsh-session(?:-persistence)?(?:/|$)|^@deepseek-ai/dsh-session(?:-persistence)?(?:/|$)",
+      },
+    },
 
     // --- deep-link: @zendev-lab/*/src/* specifier (bypass package exports) ---
     {

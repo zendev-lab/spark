@@ -1,4 +1,4 @@
-/** Pi-compatible JSONL session store for Spark host implementations. */
+/** DSH session JSONL transcript storage shared by Spark host implementations. */
 
 export {
   CURRENT_SPARK_SESSION_VERSION,
@@ -21,10 +21,17 @@ export {
   type SparkSessionInfo,
   type SparkSessionStoreOptions,
   type NewSparkSessionOptions,
+  type SparkSessionAtomicWriteOptions,
 } from "./types.ts";
 export {
+  SPARK_DSH_SESSION_FORMAT_VERSION,
+  SPARK_DSH_META_EVENT_TYPE,
+  SPARK_DSH_ENTRY_EVENT_TYPE,
+  decodeSparkDshSessionJsonl,
+  dshDocumentToSparkRecord,
+} from "./dsh-format.ts";
+export {
   SparkSessionStore,
-  type SparkSessionAtomicWriteOptions,
   defaultSparkSessionsRoot,
   defaultSparkHome,
   workspaceSessionHash,
@@ -32,3 +39,5 @@ export {
   stableSparkSessionContextEntries,
   writeJsonLinesAtomically,
 } from "./store.ts";
+export { SparkJsonlSessionFiles } from "./jsonl-files.ts";
+export { migrateSparkSessionJsonlToDsh } from "./pi-v3-migration.ts";

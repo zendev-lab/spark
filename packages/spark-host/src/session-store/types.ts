@@ -1,9 +1,9 @@
 /**
- * Pi-compatible JSONL session record types shared by Spark hosts.
- *
- * This is deliberately separate from @zendev-lab/spark-session: that package
- * owns daemon registry/mailbox/session({action}), while this format is an
- * append-only local host transcript with Pi-compatible key names.
+ * Pi JSONL session record types shared by Spark hosts, persisted as DSH session
+ * JSONL (`SESSION_FORMAT_VERSION` 0) with Spark entries stored as ignorable
+ * events. This is deliberately separate from @zendev-lab/spark-session: that
+ * package owns daemon registry/mailbox/session({action}), while this format is
+ * an append-only local host transcript.
  */
 
 export const CURRENT_SPARK_SESSION_VERSION = 3;
@@ -155,4 +155,16 @@ export interface NewSparkSessionOptions {
   timestamp?: string;
   visibility?: "internal";
   purpose?: "side_thread" | "loop_tick";
+}
+
+export interface SparkSessionAtomicWriteOptions {
+  /** Abort is accepted only before the atomic transcript replacement begins. */
+  signal?: AbortSignal;
+  /** Synchronous linearization hook invoked immediately before the atomic rename. */
+  beforeCommit?: () => void;
+  /**
+   * Run the transcript replacement inside an async owner-controlled commit boundary.
+   * The wrapper must await `replace`; repeated calls share the same replacement.
+   */
+  commitTranscriptReplacement?: (replace: () => Promise<void>) => Promise<void>;
 }

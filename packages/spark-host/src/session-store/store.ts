@@ -1,16 +1,24 @@
 /** Filesystem JSONL SparkSessionStore for host-managed sessions. */
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { resolveSparkHome } from "@zendev-lab/spark-system";
 
+import {
+  decodeSparkDshSessionJsonl,
+  dshDocumentToSparkRecord,
+  encodeSparkRecordAsDsh,
+  serializeDshSessionDocument,
+} from "./dsh-format.ts";
+import { readDshOrPiSessionHeader } from "./jsonl-files.ts";
+import { parseSparkSessionEntries, writeJsonLinesAtomically } from "./jsonl-io.ts";
+import { migrateSparkSessionJsonlToDsh } from "./pi-v3-migration.ts";
 import {
   CURRENT_SPARK_SESSION_VERSION,
   type NewSparkSessionOptions,
   type SparkCustomMessageEntry,
   type SparkSessionEntry,
-  type SparkSessionFileEntry,
   type SparkSessionHeader,
   type SparkSessionInfo,
   type SparkSessionInfoEntry,
@@ -18,19 +26,11 @@ import {
   type SparkSessionMessageEntry,
   type SparkSessionRecord,
   type SparkSessionStoreOptions,
+  type SparkSessionAtomicWriteOptions,
 } from "./types.ts";
 
-export interface SparkSessionAtomicWriteOptions {
-  /** Abort is accepted only before the atomic transcript replacement begins. */
-  signal?: AbortSignal;
-  /** Synchronous linearization hook invoked immediately before the atomic rename. */
-  beforeCommit?: () => void;
-  /**
-   * Run the transcript replacement inside an async owner-controlled commit boundary.
-   * The wrapper must await `replace`; repeated calls share the same replacement.
-   */
-  commitTranscriptReplacement?: (replace: () => Promise<void>) => Promise<void>;
-}
+export type { SparkSessionAtomicWriteOptions } from "./types.ts";
+export { parseSparkSessionEntries, writeJsonLinesAtomically };
 
 export class SparkSessionStore {
   readonly cwd: string;
@@ -86,16 +86,17 @@ export class SparkSessionStore {
     record: SparkSessionRecord,
     options: SparkSessionAtomicWriteOptions = {},
   ): Promise<void> {
-    await writeJsonLinesAtomically(record.path, [record.header, ...record.entries], options);
+    const document = encodeSparkRecordAsDsh(record);
+    await writeJsonLinesAtomically(record.path, serializeDshSessionDocument(document), options);
   }
 
   async load(path: string): Promise<SparkSessionRecord> {
-    const entries = parseSparkSessionEntries(await readFile(path, "utf8"));
-    if (entries.length === 0 || entries[0]?.type !== "session") {
+    await migrateSparkSessionJsonlToDsh(path);
+    const document = decodeSparkDshSessionJsonl(await readFile(path, "utf8"));
+    if (!document) {
       throw new Error(`Invalid Spark session file: ${path}`);
     }
-    const header = entries[0] as SparkSessionHeader;
-    return { path, header, entries: entries.slice(1) as SparkSessionEntry[] };
+    return dshDocumentToSparkRecord(path, document);
   }
 
   async list(): Promise<SparkSessionInfo[]> {
@@ -179,7 +180,7 @@ export class SparkSessionStore {
     for (const name of names) {
       if (!name.endsWith(".jsonl")) continue;
       const path = join(this.sessionDir, name);
-      const header = await readSessionHeader(path);
+      const header = await readDshOrPiSessionHeader(path);
       if (!header || header.visibility === "internal") continue;
       const matches = matchesById.get(header.id) ?? [];
       matches.push({ path, header });
@@ -280,22 +281,6 @@ export function workspaceSessionHash(cwd: string): string {
   return createHash("sha256").update(resolve(cwd)).digest("hex").slice(0, 16);
 }
 
-export function parseSparkSessionEntries(content: string): SparkSessionFileEntry[] {
-  const entries: SparkSessionFileEntry[] = [];
-  for (const line of content.trim().split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      entries.push(JSON.parse(line) as SparkSessionFileEntry);
-    } catch {
-      /* Pi skips malformed lines. */
-    }
-  }
-  if (entries.length === 0) return entries;
-  const header = entries[0];
-  if (header.type !== "session" || typeof header.id !== "string") return [];
-  return entries;
-}
-
 /**
  * Return the transcript prefix that is safe to seed into another Session.
  *
@@ -323,75 +308,6 @@ export function stableSparkSessionContextEntries(
     lastStableAssistant = index;
   }
   return lastStableAssistant < 0 ? [] : entries.slice(0, lastStableAssistant + 1);
-}
-
-async function readSessionHeader(path: string): Promise<SparkSessionHeader | undefined> {
-  let handle: Awaited<ReturnType<typeof open>> | undefined;
-  try {
-    handle = await open(path, "r");
-    const buffer = Buffer.allocUnsafe(64 * 1024);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    const newline = buffer.subarray(0, bytesRead).indexOf(0x0a);
-    if (newline < 0 && bytesRead === buffer.length) return undefined;
-    return parseSessionHeaderLine(buffer.subarray(0, newline >= 0 ? newline : bytesRead));
-  } catch {
-    // Match list(): invalid, incomplete, or inaccessible transcripts are skipped.
-    return undefined;
-  } finally {
-    await handle?.close().catch(() => undefined);
-  }
-}
-
-function parseSessionHeaderLine(line: Buffer): SparkSessionHeader | undefined {
-  const trimmed = line.toString("utf8").trim();
-  if (!trimmed) return undefined;
-  try {
-    const value = JSON.parse(trimmed) as SparkSessionFileEntry;
-    return value.type === "session" && typeof value.id === "string" ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-export async function writeJsonLinesAtomically(
-  path: string,
-  entries: SparkSessionFileEntry[],
-  options: SparkSessionAtomicWriteOptions = {},
-): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  let committed = false;
-  try {
-    await writeFile(tmp, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
-    throwIfAtomicWriteAborted(options.signal);
-    let replacement: Promise<void> | undefined;
-    const replace = (): Promise<void> => {
-      replacement ??= (async () => {
-        throwIfAtomicWriteAborted(options.signal);
-        options.beforeCommit?.();
-        throwIfAtomicWriteAborted(options.signal);
-        await rename(tmp, path);
-        committed = true;
-      })();
-      return replacement;
-    };
-    if (options.commitTranscriptReplacement) {
-      await options.commitTranscriptReplacement(replace);
-      if (!replacement) {
-        throw new Error("Session transcript commit wrapper did not invoke replacement");
-      }
-      await replacement;
-    } else {
-      await replace();
-    }
-  } finally {
-    if (!committed) await rm(tmp, { force: true }).catch(() => undefined);
-  }
-}
-
-function throwIfAtomicWriteAborted(signal: AbortSignal | undefined): void {
-  if (!signal?.aborted) return;
-  throw signal.reason instanceof Error ? signal.reason : new Error("Session write aborted");
 }
 
 function appendEntry(

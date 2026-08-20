@@ -74,6 +74,8 @@ interface NativeSessionRecord {
 }
 
 const SNAPSHOT_INDEX_MESSAGE_LIMIT = 200;
+/** Host DSH JSONL wraps Spark entries as ignorable `spark/entry` events. */
+const SPARK_DSH_ENTRY_EVENT_TYPE = "spark/entry";
 
 interface NativeSessionSnapshotIndex {
   version: 1;
@@ -854,6 +856,7 @@ function parseNativeSessionRecord(
   const entries: NativeSessionEntry[] = [];
   const entryLocations = new Map<string, NativeSessionEntryLocation>();
   for (const line of lines.slice(1)) {
+    if (isIgnorableDshSessionEvent(line.value)) continue;
     const entry = parseEntry(line.value, path);
     entries.push(entry);
     entryLocations.set(entry.id, {
@@ -931,31 +934,48 @@ function positiveInteger(value: unknown): number | undefined {
 }
 
 function parseHeader(value: unknown, path: string): NativeSessionHeader {
-  if (
-    !isRecord(value) ||
-    value.type !== "session" ||
-    typeof value.id !== "string" ||
-    typeof value.timestamp !== "string"
-  ) {
+  const header = nativeSessionHeaderFromValue(value);
+  if (!header) {
     throw new SparkSessionRegistryError(
       "invalid_session_snapshot",
       `invalid native session header: ${path}`,
     );
   }
-  return {
-    type: "session",
-    id: value.id,
-    timestamp: value.timestamp,
-    ...(typeof value.cwd === "string" ? { cwd: value.cwd } : {}),
-  };
+  return header;
+}
+
+function nativeSessionHeaderFromValue(value: unknown): NativeSessionHeader | undefined {
+  if (!isRecord(value) || typeof value.id !== "string") return undefined;
+  if (value.type === "session" && typeof value.timestamp === "string") {
+    return {
+      type: "session",
+      id: value.id,
+      timestamp: value.timestamp,
+      ...(typeof value.cwd === "string" ? { cwd: value.cwd } : {}),
+    };
+  }
+  if (
+    value.type !== "session" &&
+    typeof value.version === "number" &&
+    typeof value.createdAt === "number"
+  ) {
+    return {
+      type: "session",
+      id: value.id,
+      timestamp: new Date(value.createdAt).toISOString(),
+      ...(typeof value.cwd === "string" ? { cwd: value.cwd } : {}),
+    };
+  }
+  return undefined;
 }
 
 function parseEntry(value: unknown, path: string): NativeSessionEntry {
+  const record = unwrapSparkDshEntry(value) ?? value;
   if (
-    !isRecord(value) ||
-    typeof value.type !== "string" ||
-    typeof value.id !== "string" ||
-    !(typeof value.parentId === "string" || value.parentId === null)
+    !isRecord(record) ||
+    typeof record.type !== "string" ||
+    typeof record.id !== "string" ||
+    !(typeof record.parentId === "string" || record.parentId === null)
   ) {
     throw new SparkSessionRegistryError(
       "invalid_session_snapshot",
@@ -963,12 +983,24 @@ function parseEntry(value: unknown, path: string): NativeSessionEntry {
     );
   }
   return {
-    type: value.type,
-    id: value.id,
-    parentId: value.parentId,
-    ...(typeof value.timestamp === "string" ? { timestamp: value.timestamp } : {}),
-    ...(isRecord(value.message) ? { message: value.message } : {}),
+    type: record.type,
+    id: record.id,
+    parentId: record.parentId,
+    ...(typeof record.timestamp === "string" ? { timestamp: record.timestamp } : {}),
+    ...(isRecord(record.message) ? { message: record.message } : {}),
   };
+}
+
+function unwrapSparkDshEntry(value: unknown): unknown {
+  if (!isRecord(value) || value.type !== SPARK_DSH_ENTRY_EVENT_TYPE || !isRecord(value.data)) {
+    return undefined;
+  }
+  return value.data.entry;
+}
+
+function isIgnorableDshSessionEvent(value: unknown): boolean {
+  if (!isRecord(value) || value.type === SPARK_DSH_ENTRY_EVENT_TYPE) return false;
+  return typeof value.seq === "number" && typeof value.time === "number" && "data" in value;
 }
 
 function activeBranchEntriesNewestFirst(entries: NativeSessionEntry[]): NativeSessionEntry[] {

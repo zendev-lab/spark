@@ -6,6 +6,7 @@ import {
   parseSparkDaemonEvent,
   runtimeProtocolVersion,
 } from "@zendev-lab/spark-protocol";
+import { defaultSparkSessionsRoot } from "@zendev-lab/spark-host/session-store";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import { resolveSparkUserPaths, writePrivateFile } from "@zendev-lab/spark-system";
 import { resolveWorkflowDefinition } from "@zendev-lab/spark-workflows";
@@ -487,17 +488,20 @@ async function createPreparedDaemonRuntime(
   const stopScheduler = () => scheduler?.stop();
   const stopDirectInvocations = () => invocationRegistry.stop();
   const stopChannelIngress = () => void shutdownChannelIngress("runtime-abort");
-  const cordisRoot = await createSparkDaemonCordisRoot({
-    sparkInvocations: invocationStore,
-    sparkLoops: loopStore,
-    sparkChannelDeliveries: channelDeliveryStore,
-    sparkChannelReplyDeliveries: channelReplyDeliveryStore,
-    sparkExecutionAttempts: executionAttemptStore,
-    sparkSessionMail: mailStore,
-    sparkHumanWaits: humanWaits,
-    sparkSessionCompletions: sessionCompletionDeliveryStore,
-    sparkInvocationRegistry: invocationRegistry,
-  });
+  const cordisRoot = await createSparkDaemonCordisRoot(
+    {
+      sparkInvocations: invocationStore,
+      sparkLoops: loopStore,
+      sparkChannelDeliveries: channelDeliveryStore,
+      sparkChannelReplyDeliveries: channelReplyDeliveryStore,
+      sparkExecutionAttempts: executionAttemptStore,
+      sparkSessionMail: mailStore,
+      sparkHumanWaits: humanWaits,
+      sparkSessionCompletions: sessionCompletionDeliveryStore,
+      sparkInvocationRegistry: invocationRegistry,
+    },
+    { sessionsRoot: defaultSparkSessionsRoot(options.sparkHome) },
+  );
   runtimeSignal.addEventListener("abort", stopScheduler, { once: true });
   runtimeSignal.addEventListener("abort", stopDirectInvocations, { once: true });
   runtimeSignal.addEventListener("abort", stopChannelIngress, { once: true });

@@ -179,6 +179,15 @@ describe("architecture inventory governance", () => {
     expect(rule.from.pathNot).toContain("packages/spark-llm/");
   });
 
+  test("allows the daemon to import dsh-session persistence on the Cordis root", () => {
+    const dependencyCruiserConfig = require("../.dependency-cruiser.cjs");
+    const rule = dependencyCruiserConfig.forbidden.find(
+      ({ name }: NamedRule) => name === "no-direct-dsh-session",
+    );
+    expect(rule).toBeDefined();
+    expect(rule.from.pathNot).toContain("apps/spark-daemon/");
+  });
+
   test("rejects growing or stale exception metadata", () => {
     const candidate = structuredClone(inventory);
     candidate.governance.temporaryDependencyExceptions[0].nonGrowth = false;

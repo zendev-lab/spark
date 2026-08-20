@@ -86,7 +86,11 @@ interface SessionHeaderLike {
   type?: unknown;
   id?: unknown;
   cwd?: unknown;
+  version?: unknown;
+  createdAt?: unknown;
 }
+
+const SPARK_DSH_ENTRY_EVENT_TYPE = "spark/entry";
 
 interface SessionEntryLike {
   type?: unknown;
@@ -97,6 +101,12 @@ interface SessionEntryLike {
   customType?: unknown;
   content?: unknown;
   summary?: unknown;
+  data?: unknown;
+  seq?: unknown;
+  time?: unknown;
+  version?: unknown;
+  createdAt?: unknown;
+  cwd?: unknown;
 }
 
 interface MessageLike {
@@ -211,10 +221,12 @@ export async function scanSparkSessionHistory(
     for (let index = startLine; index < endLineExclusive; index += 1) {
       const line = lines[index];
       if (!line?.trim()) continue;
-      const entry = parseJsonLine<SessionEntryLike>(file, index + 1, line, parseErrors);
-      if (!entry) continue;
+      const raw = parseJsonLine<SessionEntryLike>(file, index + 1, line, parseErrors);
+      if (!raw) continue;
       advanced = true;
       stats.linesScanned += 1;
+      const entry = sparkTranscriptEntryFromLine(raw);
+      if (!entry) continue;
       if (typeof entry.id === "string") lastEntryId = entry.id;
       if (entry.type !== "session") stats.entriesScanned += 1;
 
@@ -424,11 +436,35 @@ function parseSessionHeader(
 ): { sessionId?: string; cwd?: string } {
   if (!line) return {};
   const parsed = parseJsonLine<SessionHeaderLike>(file, 1, line, parseErrors);
-  if (!parsed || parsed.type !== "session") return {};
-  return {
-    sessionId: typeof parsed.id === "string" ? parsed.id : undefined,
-    cwd: typeof parsed.cwd === "string" ? parsed.cwd : undefined,
-  };
+  if (!parsed) return {};
+  if (parsed.type === "session" || isDshSessionHeader(parsed)) {
+    return {
+      sessionId: typeof parsed.id === "string" ? parsed.id : undefined,
+      cwd: typeof parsed.cwd === "string" ? parsed.cwd : undefined,
+    };
+  }
+  return {};
+}
+
+function isDshSessionHeader(value: SessionHeaderLike): boolean {
+  return (
+    value.type !== "session" &&
+    typeof value.version === "number" &&
+    typeof value.id === "string" &&
+    typeof value.createdAt === "number"
+  );
+}
+
+function sparkTranscriptEntryFromLine(value: SessionEntryLike): SessionEntryLike | undefined {
+  if (isDshSessionHeader(value)) return undefined;
+  if (value.type === SPARK_DSH_ENTRY_EVENT_TYPE) {
+    if (!isRecord(value.data)) return undefined;
+    return value.data.entry as SessionEntryLike;
+  }
+  if (typeof value.seq === "number" && typeof value.time === "number" && "data" in value) {
+    return undefined;
+  }
+  return value;
 }
 
 function parseJsonLine<T>(
