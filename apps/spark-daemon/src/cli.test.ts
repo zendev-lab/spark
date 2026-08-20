@@ -14,6 +14,7 @@ import { RegistrationGrantRefusedError } from "./registration.js";
 import { getSparkDaemonServerProfile, upsertSparkDaemonServerProfile } from "./server-profiles.js";
 import { publishSparkDaemonProcessOwnership } from "./service.js";
 import { openSparkDaemonDatabase } from "./store/schema.js";
+import { gitEnvironmentWithoutRepository, gitRepositoryArguments } from "./test-support/git.ts";
 import {
   addWorkspace,
   applyWorkspaceLifecycleMutation,
@@ -1720,7 +1721,7 @@ describe("Spark daemon CLI", () => {
     await withTempSparkEnv(async (root) => {
       const workspacePath = join(root, "checkout");
       mkdirSync(workspacePath, { recursive: true });
-      const profile = createGitProfile(workspacePath);
+      const profile = createCommittedGitProfile(workspacePath);
       process.env.INIT_CWD = root;
       writeSparkDaemonConfig(resolveSparkPaths({ app: "daemon" }), testSparkDaemonConfig());
 
@@ -1772,7 +1773,7 @@ describe("Spark daemon CLI", () => {
     await withTempSparkEnv(async (root) => {
       const workspacePath = join(root, "checkout");
       mkdirSync(workspacePath, { recursive: true });
-      const profile = createGitProfile(workspacePath);
+      createProfileFiles(workspacePath);
       process.env.INIT_CWD = root;
       writeSparkDaemonConfig(resolveSparkPaths({ app: "daemon" }), testSparkDaemonConfig());
 
@@ -1785,12 +1786,10 @@ describe("Spark daemon CLI", () => {
       const detail = JSON.parse(showCapture.stdout()) as {
         profile?: {
           ref: string;
-          commit: string;
         };
       };
       expect(detail.profile).toMatchObject({
         ref: "./spark-profile",
-        commit: profile.commit,
       });
     });
   });
@@ -1801,7 +1800,7 @@ describe("Spark daemon CLI", () => {
     await withTempSparkEnv(async (root) => {
       const workspacePath = join(root, "checkout");
       mkdirSync(workspacePath, { recursive: true });
-      createGitProfile(workspacePath);
+      createProfileFiles(workspacePath);
       process.env.INIT_CWD = root;
       writeSparkDaemonConfig(resolveSparkPaths({ app: "daemon" }), testSparkDaemonConfig());
 
@@ -3772,7 +3771,7 @@ function interactiveStdin(lines: string[]): NodeJS.ReadStream {
   return stdin;
 }
 
-function createGitProfile(workspacePath: string): { ref: string; commit: string } {
+function createProfileFiles(workspacePath: string): { ref: string; profilePath: string } {
   const ref = "spark-profile";
   const profilePath = join(workspacePath, ref);
   mkdirSync(profilePath, { recursive: true });
@@ -3785,34 +3784,21 @@ id = "spark-dev"
 name = "Spark Dev"
 `,
   );
+  return { ref, profilePath };
+}
+
+function createCommittedGitProfile(workspacePath: string): { ref: string; commit: string } {
+  const { ref, profilePath } = createProfileFiles(workspacePath);
   const git = gitCommand();
-  const gitEnv = { ...process.env };
-  for (const name of [
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_CONFIG",
-    "GIT_CONFIG_PARAMETERS",
-    "GIT_CONFIG_COUNT",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_IMPLICIT_WORK_TREE",
-    "GIT_GRAFT_FILE",
-    "GIT_INDEX_FILE",
-    "GIT_NO_REPLACE_OBJECTS",
-    "GIT_REPLACE_REF_BASE",
-    "GIT_PREFIX",
-    "GIT_INTERNAL_SUPER_PREFIX",
-    "GIT_SHALLOW_FILE",
-    "GIT_COMMON_DIR",
-  ]) {
-    delete gitEnv[name];
-  }
+  const gitEnv = gitEnvironmentWithoutRepository();
+  const repositoryArgs = gitRepositoryArguments(profilePath);
   const gitOptions = { cwd: profilePath, env: gitEnv, stdio: "ignore" as const };
-  execFileSync(git, ["init"], gitOptions);
-  execFileSync(git, ["add", "settings.toml"], gitOptions);
+  execFileSync(git, [...repositoryArgs, "init"], gitOptions);
+  execFileSync(git, [...repositoryArgs, "add", "settings.toml"], gitOptions);
   execFileSync(
     git,
     [
+      ...repositoryArgs,
       "-c",
       "user.email=spark@example.test",
       "-c",
@@ -3823,7 +3809,7 @@ name = "Spark Dev"
     ],
     gitOptions,
   );
-  const commit = execFileSync(git, ["rev-parse", "HEAD"], {
+  const commit = execFileSync(git, [...repositoryArgs, "rev-parse", "HEAD"], {
     cwd: profilePath,
     env: gitEnv,
     encoding: "utf8",
