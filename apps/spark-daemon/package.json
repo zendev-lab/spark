@@ -25,6 +25,7 @@
   "dependencies": {
     "@ast-grep/napi": "^0.45.0",
     "@core-workspace/infoflow-sdk-nodejs": "2026.6.12-beta.1",
+    "@deepseek-ai/cordis": "4.0.1",
     "@optique/core": "catalog:",
     "@orpc/server": "catalog:",
     "@zendev-lab/spark-artifacts": "workspace:^",

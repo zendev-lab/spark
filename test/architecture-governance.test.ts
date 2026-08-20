@@ -168,6 +168,17 @@ describe("architecture inventory governance", () => {
     ).toBe("unregistered-violation");
   });
 
+  test("allows the daemon to import cordis as the store composition root", () => {
+    const dependencyCruiserConfig = require("../.dependency-cruiser.cjs");
+    const rule = dependencyCruiserConfig.forbidden.find(
+      ({ name }: NamedRule) => name === "no-direct-cordis",
+    );
+    expect(rule).toBeDefined();
+    expect(rule.from.pathNot).toContain("apps/spark-daemon/");
+    expect(rule.from.pathNot).toContain("packages/spark-extension/");
+    expect(rule.from.pathNot).toContain("packages/spark-llm/");
+  });
+
   test("rejects growing or stale exception metadata", () => {
     const candidate = structuredClone(inventory);
     candidate.governance.temporaryDependencyExceptions[0].nonGrowth = false;
