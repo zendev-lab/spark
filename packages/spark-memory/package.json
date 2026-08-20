@@ -14,6 +14,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./extension": "./src/extension.ts",
+    "./direct-intent": "./src/direct-intent.ts",
     "./recall": "./src/recall-store.ts",
     "./candidate-lifecycle": "./src/candidate-lifecycle.ts",
     "./retrieval-telemetry": "./src/retrieval-telemetry.ts",

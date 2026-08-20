@@ -489,9 +489,6 @@ importers:
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:*
         version: link:../../packages/spark-daemon-client
-      '@zendev-lab/spark-host':
-        specifier: workspace:*
-        version: link:../../packages/spark-host
       '@zendev-lab/spark-hub-coordination':
         specifier: workspace:*
         version: link:../../packages/spark-hub-coordination
@@ -501,6 +498,9 @@ importers:
       '@zendev-lab/spark-i18n':
         specifier: workspace:*
         version: link:../../packages/spark-i18n
+      '@zendev-lab/spark-memory':
+        specifier: workspace:*
+        version: link:../../packages/spark-memory
       '@zendev-lab/spark-protocol':
         specifier: workspace:*
         version: link:../../packages/spark-protocol
@@ -1071,6 +1071,9 @@ importers:
       '@zendev-lab/spark-loop':
         specifier: workspace:^
         version: link:../spark-loop
+      '@zendev-lab/spark-memory':
+        specifier: workspace:^
+        version: link:../spark-memory
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
