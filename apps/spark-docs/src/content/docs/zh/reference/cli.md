@@ -56,9 +56,9 @@ spark hub --help
 
 ## 本地 Web 工作台
 
-`spark web` 启动本地单 workspace 浏览器工作台。它只绑定回环、需要一次性
-token，并通过 `spark-daemon-client` 连接 Spark daemon。Hub 仍是跨
-workspace 的浏览器界面。
+`spark web` 启动本地单 workspace 浏览器工作台。它默认绑定回环、需要一次性
+token，并通过 `spark-daemon-client` 连接 Spark daemon。显式传入 `--host`
+可将工作台暴露到其他网络接口。Hub 仍是跨 workspace 的浏览器界面。
 
 ```bash
 spark web

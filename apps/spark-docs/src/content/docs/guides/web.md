@@ -1,6 +1,6 @@
 ---
 title: Local web workbench
-description: Open the loopback browser workbench bound to the local Spark daemon.
+description: Open the browser workbench bound to the local Spark daemon.
 ---
 
 Start the local workbench from the workspace where Spark should operate:
@@ -9,12 +9,13 @@ Start the local workbench from the workspace where Spark should operate:
 spark web
 ```
 
-`spark web` binds loopback only, starts or reconnects the local daemon, and
-opens a one-shot token URL such as `http://127.0.0.1:4310/?token=...`.
-Non-loopback hosts including `0.0.0.0` are rejected.
+`spark web` binds loopback by default, starts or reconnects the local daemon,
+and opens a one-shot token URL such as `http://127.0.0.1:4310/?token=...`.
+An explicit `--host` may expose the token-protected workbench on another
+interface, including `0.0.0.0`.
 
-Use `--host`, `--port`, and `--no-open` only when you need to change the
-loopback bind or skip opening a browser. This workbench lists every workspace
+Use `--host`, `--port`, and `--no-open` when you need to change the bind or skip
+opening a browser. This workbench lists every workspace
 bound to this local daemon. Register a local directory from the home page; Hub
 origin and announce stay on `spark daemon login`, not this form. Hub remains
 the multi-daemon proxy and management UI.

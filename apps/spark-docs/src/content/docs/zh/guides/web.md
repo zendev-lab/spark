@@ -1,6 +1,6 @@
 ---
 title: 本地 Web 工作台
-description: 打开绑定本地 Spark daemon 的回环浏览器工作台。
+description: 打开绑定本地 Spark daemon 的浏览器工作台。
 ---
 
 在 Spark 应当操作的工作空间中启动本地工作台：
@@ -9,11 +9,11 @@ description: 打开绑定本地 Spark daemon 的回环浏览器工作台。
 spark web
 ```
 
-`spark web` 只绑定回环地址，会启动或重连本地 daemon，并打开一次性 token
-URL，例如 `http://127.0.0.1:4310/?token=...`。包括 `0.0.0.0` 在内的非回环
-主机都会被拒绝。
+`spark web` 默认绑定回环地址，会启动或重连本地 daemon，并打开一次性 token
+URL，例如 `http://127.0.0.1:4310/?token=...`。显式传入 `--host` 可将受 token
+保护的工作台暴露到其他网络接口，包括 `0.0.0.0`。
 
-只有在需要改回环绑定或跳过打开浏览器时，才使用 `--host`、`--port` 和
+需要改变绑定、端口或跳过打开浏览器时，使用 `--host`、`--port` 和
 `--no-open`。本工作台列出这台本地 daemon 上的全部 workspace。从首页注册
 本地目录即可；Hub origin 与宣布仍走 `spark daemon login`，不走这个表单。
 Hub 仍是多 daemon 代理与管理界面。
