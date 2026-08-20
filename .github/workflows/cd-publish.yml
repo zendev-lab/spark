@@ -145,6 +145,7 @@ jobs:
           --daemon-tarball "dist/release/spark-daemon-${RELEASE_TAG}.tgz"
           --hub-tarball "dist/release/spark-hub-${RELEASE_TAG}.tgz"
           --web-tarball "dist/release/spark-web-${RELEASE_TAG}.tgz"
+          --web-dsh-tarball "dist/release/spark-web-dsh-${RELEASE_TAG}.tgz"
 
       - name: Verify declared N-1 migration policy
         run: >-
@@ -154,6 +155,7 @@ jobs:
           --daemon-tarball "dist/release/spark-daemon-${RELEASE_TAG}.tgz"
           --hub-tarball "dist/release/spark-hub-${RELEASE_TAG}.tgz"
           --web-tarball "dist/release/spark-web-${RELEASE_TAG}.tgz"
+          --web-dsh-tarball "dist/release/spark-web-dsh-${RELEASE_TAG}.tgz"
 
       - name: Upload release artifacts
         if: github.ref_type == 'tag'

@@ -527,6 +527,31 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
 
+  apps/spark-web-dsh:
+    dependencies:
+      '@zendev-lab/dsh-tool-cue':
+        specifier: workspace:^
+        version: link:../../packages/dsh-tool-cue
+      '@zendev-lab/spark-llm':
+        specifier: workspace:^
+        version: link:../../packages/spark-llm
+      esbuild:
+        specifier: ^0.28.0
+        version: 0.28.2
+      react:
+        specifier: ^19.0.0
+        version: 19.2.8
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.18
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.23)(tsx@4.23.12)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
+
   packages/dsh-tool-cue:
     dependencies:
       '@deepseek-ai/cordis':
@@ -7536,6 +7561,10 @@ packages:
 
   react-is@17.0.1:
     resolution: {integrity: sha512-NAnt2iGDXohE5LI7uBnLnqvLQMtzhkiAOLXTmv+qnF9Ky7xAPcX8Up/xWIhxvLVGJvuLiNc4xQLtuqDRzb4fSA==}
+
+  react@19.2.8:
+    resolution: {integrity: sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==}
+    engines: {node: '>=0.10.0'}
 
   readdirp@4.1.2:
     resolution: {integrity: sha512-GDhwkLfywWL2s6vEjyhri+eXmfH6j1L7JE27WhqLeYzoh/A3DBaYGEj2H/HFZCn/kMfim73FXxEJTw06WtxQwg==}
@@ -14898,6 +14927,8 @@ snapshots:
       unpipe: 1.0.0
 
   react-is@17.0.1: {}
+
+  react@19.2.8: {}
 
   readdirp@4.1.2: {}
 

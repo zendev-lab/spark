@@ -80,10 +80,10 @@
       "temporaryDependencyExceptions": []
     },
     "packageBudget": {
-      "current": 41,
-      "ceiling": 41,
+      "current": 42,
+      "ceiling": 42,
       "nonGrowth": true,
-      "reason": "Retired spark-tui, spark-tui-adapter, and pi-spark after the local spark-web workbench became the interactive surface."
+      "reason": "Retained native spark-web and restored spark-web-dsh as an explicit optional compatibility application."
     },
     "compositionRoots": ["@zendev-lab/spark-extension"]
   },
@@ -372,6 +372,14 @@
     },
     "@zendev-lab/spark-web": {
       "path": "apps/spark-web",
+      "layer": "application",
+      "owner": "web",
+      "stability": "supported",
+      "stateWriter": "none",
+      "distribution": "public-npm"
+    },
+    "@zendev-lab/spark-web-dsh": {
+      "path": "apps/spark-web-dsh",
       "layer": "application",
       "owner": "web",
       "stability": "supported",

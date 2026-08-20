@@ -27,6 +27,7 @@ export const npmDistributions = [
       "@zendev-lab/spark-daemon",
       "@zendev-lab/spark-hub",
       "@zendev-lab/spark-web",
+      "@zendev-lab/spark-web-dsh",
     ],
     exports: {},
   },
@@ -44,6 +45,7 @@ export const npmDistributions = [
       "spark-hub": "spark-hub-companion.js",
       "spark-mcp": "spark-mcp.js",
       "spark-web": "spark-web-companion.js",
+      "spark-web-dsh": "spark-web-dsh-companion.js",
       "spark-update": "spark-update.js",
     },
     bundles: {
@@ -57,6 +59,7 @@ export const npmDistributions = [
       "@zendev-lab/spark-daemon",
       "@zendev-lab/spark-hub",
       "@zendev-lab/spark-web",
+      "@zendev-lab/spark-web-dsh",
     ],
     exports: {
       "./cli": "./dist/spark-cli.js",
@@ -64,6 +67,7 @@ export const npmDistributions = [
       "./executable": "./bin/spark",
       "./update-executable": "./bin/spark-update",
       "./web-executable": "./bin/spark-web",
+      "./web-dsh-executable": "./bin/spark-web-dsh",
     },
     skills: true,
     migrationSource: resolve(root, "apps/spark-daemon/dist/migrations"),
@@ -121,6 +125,21 @@ export const npmDistributions = [
     files: ["bin", "dist", "build", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
     exports: { "./executable": "./bin/spark-web" },
+  },
+  {
+    id: "web-dsh",
+    packageName: "@zendev-lab/spark-web-dsh",
+    description: "Optional DeepSeek Harness compatibility workbench for Spark.",
+    directory: resolve(productsDirectory, "web-dsh"),
+    assetName: `spark-web-dsh-v${releaseVersion}.tgz`,
+    manifestName: "web-dsh-release-manifest.json",
+    bins: { "spark-web-dsh": "spark-web-dsh.js" },
+    bundles: {
+      "spark-web-dsh.js": "apps/spark-web-dsh/src/cli-entry.ts",
+    },
+    files: ["bin", "dist", "lib", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    exactDependencies: [],
+    exports: { "./executable": "./bin/spark-web-dsh" },
   },
 ];
 
