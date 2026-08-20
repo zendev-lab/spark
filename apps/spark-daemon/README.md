@@ -5,7 +5,7 @@ Spark's local execution service. Public operator commands use `spark daemon`.
 ```bash
 spark daemon status
 spark daemon login --server-url http://127.0.0.1:5173
-spark daemon workspace register /path/to/workspace --server-url http://127.0.0.1:5173 --token <workspace-token>
+spark daemon workspace register /path/to/workspace --name <workspace-name>
 spark daemon workspace stop <workspace-name>
 spark daemon workspace unregister <workspace-id> --dry-run
 spark daemon workspace move <workspace-id> /new/path --dry-run

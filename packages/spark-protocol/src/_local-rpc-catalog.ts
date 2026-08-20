@@ -1130,7 +1130,7 @@ const sparkLocalRpcWorkspaceLifecycleMutationResultSchema = z.object({
 });
 
 export const sparkLocalRpcWorkspaceRegisterRequestSchema = z.object({
-  serverUrl: z.string(),
+  serverUrl: z.string().optional(),
   allowInsecureHttp: z.boolean().optional(),
   localPath: z.string().min(1),
   registrationToken: z.string().min(1).optional(),

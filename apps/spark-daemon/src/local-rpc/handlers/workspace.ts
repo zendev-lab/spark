@@ -127,6 +127,24 @@ export async function handleWorkspaceRequest(
         ...request.params,
         ...(allowLocalPathRebind ? { allowLocalPathRebind: true } : {}),
       });
+      const hubUrl = planned.serverUrl.trim();
+      if (request.params.registrationToken && !hubUrl) {
+        throw new SparkDaemonControlError(
+          "workspace_registration_failed",
+          "Hub workspace token requires a daemon Hub origin. Run spark daemon login --server-url <url>.",
+        );
+      }
+      if (!hubUrl) {
+        const workspace = registerWorkspace(db, {
+          ...request.params,
+          serverUrl: "",
+          ...(allowLocalPathRebind ? { allowLocalPathRebind: true } : {}),
+        });
+        if (options.sessionRegistry) {
+          await ensureWorkspaceAdministratorSession(db, options.sessionRegistry, workspace.id);
+        }
+        return parseLocalRpcServiceOutput(request.method, workspace);
+      }
       if (planned.previousServerUrl && planned.previousServerBindingId) {
         await unbindWorkspaceFromHub(paths, {
           serverUrl: planned.previousServerUrl,

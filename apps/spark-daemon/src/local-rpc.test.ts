@@ -952,6 +952,54 @@ describe("Spark daemon local RPC", () => {
     }
   });
 
+  it("registers a local workspace without contacting Hub", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-"));
+    const workspacePath = join(root, "workspace");
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    try {
+      mkdirSync(workspacePath);
+      const ensureRegistration = vi.fn();
+      const response = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "rpc_register_local",
+          method: "workspace.register",
+          params: {
+            localPath: realpathSync(workspacePath),
+            displayName: "Local",
+          },
+        }),
+        paths,
+        db,
+        undefined,
+        { ensureSparkDaemonRegistrationForWorkspace: ensureRegistration },
+      );
+      expect(response).toMatchObject({
+        id: "rpc_register_local",
+        ok: true,
+        result: {
+          displayName: "Local",
+          serverUrl: "",
+          localPath: realpathSync(workspacePath),
+        },
+      });
+      expect(ensureRegistration).not.toHaveBeenCalled();
+      expect(listWorkspaces(db)).toHaveLength(1);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rolls back workspace registration when websocket verification fails", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-"));
     const workspacePath = join(root, "workspace");

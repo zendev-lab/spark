@@ -218,7 +218,8 @@ Commands:
   spark daemon
   spark daemon --workspace <id>
   login --server-url <url> [--no-open] [--allow-insecure-http]
-  workspace register [path] --server-url <url> --token <workspace-registration-token|-> --name <name> [--profile <path-or-git-url>] [--allow-insecure-http]
+  workspace register [path] [--name <name>] [--profile <path-or-git-url>]
+  workspace register [path] --server-url <url> --token <workspace-registration-token|-> [--name <name>]
   workspace relocate --to-server-url <https-origin> [--from-server-url <origin>] [--yes] [--json]
   workspace migrate-evidence [--workspace <id-or-path>] [--apply] [--json]
   workspace ls [--json] [--all] [--full]
@@ -254,7 +255,7 @@ Workspace markers use id; name is display-only.
 
 Example:
   spark daemon login --server-url http://127.0.0.1:5173
-  spark daemon workspace register . --server-url http://127.0.0.1:5173 --token <workspace-token> --name <ws>
+  spark daemon workspace register . --name <ws>
   spark daemon uplink park --server-url https://prod.example/
   spark daemon uplink prefer --workspace rtwb_… --server-url http://127.0.0.1:5173/
 `);
@@ -264,7 +265,8 @@ export function printWorkspaceHelp(io: CliIo): void {
   io.stdout.write(`Usage: spark daemon workspace <command>
 
 Commands:
-  register [path] --server-url <url> --token <workspace-registration-token|-> --name <name> [--profile <path-or-git-url>] [--allow-insecure-http]
+  register [path] [--name <name>] [--profile <path-or-git-url>]
+  register [path] --server-url <url> --token <workspace-registration-token|-> [--name <name>]
   relocate --to-server-url <https-origin> [--from-server-url <origin>] [--yes] [--json]
   migrate-evidence [--workspace <id-or-path>] [--apply] [--json]
   ls [--json] [--all] [--full]

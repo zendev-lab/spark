@@ -443,6 +443,35 @@ describe("Spark daemon CLI", () => {
     expect(capture.stderr()).toContain("Missing server URL");
   });
 
+  it("registers a local daemon workspace without a Hub origin", async () => {
+    const capture = createCliIo();
+
+    await withTempSparkEnv(async (root) => {
+      const checkout = join(root, "checkout");
+      mkdirSync(checkout);
+      process.env.INIT_CWD = root;
+      await expect(
+        main(["ws", "register", "checkout", "--name", "Local", "--no-service"], capture.io),
+      ).resolves.toBe(0);
+      expect(capture.stdout()).toContain("✓ workspace 'Local' registered");
+      expect(capture.stdout()).toContain("server   —");
+      expect(capture.stdout()).toContain("Local daemon workspace");
+
+      const listCapture = createCliIo();
+      await expect(main(["ws", "ls", "--json", "--no-service"], listCapture.io)).resolves.toBe(0);
+      const [workspace] = JSON.parse(listCapture.stdout()) as Array<{
+        name: string;
+        serverUrl: string;
+        path: string;
+      }>;
+      expect(workspace).toMatchObject({
+        name: "Local",
+        serverUrl: "",
+        path: realpathSync(checkout),
+      });
+    });
+  });
+
   it("accepts the workspace registration token environment variable", async () => {
     const registerWorkspaceInService = vi.fn(
       async (
