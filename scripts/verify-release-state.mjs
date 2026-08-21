@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { appendFile, readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { appendFile, readFile, readdir, stat } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import {
   npmDistributions,
@@ -13,7 +12,6 @@ import {
   releaseVersion,
 } from "./npm-distributions.mjs";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const artifactOnly = process.argv.includes("--artifact-only");
 const expectedTag = `v${releaseVersion}`;
 const tag = process.env.GITHUB_REF_NAME?.trim() || expectedTag;
@@ -24,12 +22,14 @@ const releases = await Promise.all(
     manifest: await readJson(resolve(releaseDirectory, distribution.manifestName)),
   })),
 );
+const nativeRelease = await readJson(resolve(releaseDirectory, "native-release-manifest.json"));
 
 assertEqual(tag, expectedTag, "Git tag");
 for (const release of releases) {
   verifyManifestIdentity(release);
   await verifyLocalArtifact(release.manifest);
 }
+const releaseFiles = await verifyNativeRelease(nativeRelease);
 
 if (artifactOnly) {
   console.log(
@@ -54,7 +54,7 @@ if (githubPublished && !npmPublished) {
   throw new Error(`GitHub Release ${tag} is published, but npm is missing ${missing.join(", ")}.`);
 }
 if (githubPublished) {
-  for (const release of releases) await verifyGithubAsset(githubRelease, release.manifest);
+  for (const file of releaseFiles) await verifyGithubFile(githubRelease, file);
   assertEqual(
     githubRelease.prerelease === true,
     releaseVersion.includes("-"),
@@ -98,6 +98,85 @@ async function verifyLocalArtifact(manifest) {
   assertEqual(manifest.npmIntegrity, npmIntegrity, `${manifest.packageName} npm integrity`);
 }
 
+async function verifyNativeRelease(manifest) {
+  assertEqual(manifest.schemaVersion, 1, "native release schema");
+  assertEqual(manifest.version, releaseVersion, "native release version");
+  assertEqual(manifest.gitSha, releases[0]?.manifest.gitSha, "native release Git SHA");
+  if (gitSha) assertEqual(manifest.gitSha, gitSha, "native release Git SHA");
+  assertEqual(
+    manifest.targets?.length,
+    nativeNpmDistributions.length,
+    "native release target count",
+  );
+  for (const distribution of nativeNpmDistributions) {
+    const entry = manifest.targets?.find((candidate) => candidate.target === distribution.target);
+    if (!entry) throw new Error(`Native release has no ${distribution.target} entry.`);
+    assertEqual(
+      entry.asset,
+      `spark-cli-${distribution.target}.tar.gz`,
+      `${distribution.target} asset name`,
+    );
+    await verifyNativeFile(entry);
+    if (entry.size > 2 * 1024 * 1024) {
+      throw new Error(`${entry.asset} exceeds the 2 MiB compressed size budget.`);
+    }
+  }
+  assertEqual(manifest.installer?.asset, "install.sh", "native installer asset name");
+  await verifyNativeFile(manifest.installer);
+  const installer = await readFile(resolve(releaseDirectory, "install.sh"), "utf8");
+  if (!installer.includes(`VERSION='${releaseVersion}'`)) {
+    throw new Error("install.sh does not embed the exact release version.");
+  }
+  for (const entry of manifest.targets) {
+    if (!installer.includes(entry.asset) || !installer.includes(entry.sha256)) {
+      throw new Error(`install.sh does not pin ${entry.asset}.`);
+    }
+  }
+
+  const names = (await readdir(releaseDirectory)).sort((left, right) => left.localeCompare(right));
+  const checksums = parseChecksums(await readFile(resolve(releaseDirectory, "SHA256SUMS"), "utf8"));
+  const expectedChecksumNames = names.filter((name) => name !== "SHA256SUMS");
+  assertEqual(
+    [...checksums.keys()].sort((left, right) => left.localeCompare(right)).join("\n"),
+    expectedChecksumNames.join("\n"),
+    "SHA256SUMS asset list",
+  );
+  const files = [];
+  for (const name of names) {
+    const path = resolve(releaseDirectory, name);
+    const metadata = await stat(path);
+    if (!metadata.isFile()) continue;
+    const digest = createHash("sha256")
+      .update(await readFile(path))
+      .digest("hex");
+    if (name !== "SHA256SUMS") {
+      assertEqual(checksums.get(name), digest, `${name} SHA256SUMS entry`);
+    }
+    files.push({ asset: name, sha256: digest });
+  }
+  return files;
+}
+
+async function verifyNativeFile(entry) {
+  const path = resolve(releaseDirectory, entry.asset);
+  const metadata = await stat(path);
+  assertEqual(metadata.size, entry.size, `${entry.asset} size`);
+  const digest = createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
+  assertEqual(digest, entry.sha256, `${entry.asset} SHA256`);
+}
+
+function parseChecksums(source) {
+  const entries = new Map();
+  for (const line of source.split(/\r?\n/u).filter(Boolean)) {
+    const match = line.match(/^([a-f0-9]{64})  (.+)$/u);
+    if (!match) throw new Error(`Invalid SHA256SUMS line: ${JSON.stringify(line)}`);
+    entries.set(match[2], match[1]);
+  }
+  return entries;
+}
+
 async function verifyNpmState(manifest) {
   const packagePath = encodeURIComponent(manifest.packageName);
   const versionPath = encodeURIComponent(manifest.version);
@@ -130,12 +209,10 @@ async function findGithubRelease(releaseTag) {
   return releaseEntries.find((release) => release.tag_name === releaseTag) ?? null;
 }
 
-async function verifyGithubAsset(release, manifest) {
-  const releaseAsset = release.assets?.find((asset) => asset.name === manifest.assetName);
+async function verifyGithubFile(release, file) {
+  const releaseAsset = release.assets?.find((asset) => asset.name === file.asset);
   if (!releaseAsset?.url) {
-    throw new Error(
-      `Published GitHub Release ${release.tag_name} has no ${manifest.assetName} asset.`,
-    );
+    throw new Error(`Published GitHub Release ${release.tag_name} has no ${file.asset} asset.`);
   }
   const response = await githubFetch(releaseAsset.url, {
     headers: { accept: "application/octet-stream" },
@@ -145,7 +222,7 @@ async function verifyGithubAsset(release, manifest) {
   }
   const publishedArtifact = Buffer.from(await response.arrayBuffer());
   const publishedSha256 = createHash("sha256").update(publishedArtifact).digest("hex");
-  assertEqual(publishedSha256, manifest.assetSha256, `${manifest.packageName} GitHub asset SHA256`);
+  assertEqual(publishedSha256, file.sha256, `${file.asset} GitHub asset SHA256`);
 }
 
 async function githubFetch(url, options = {}) {

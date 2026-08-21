@@ -14,6 +14,7 @@ import {
   releaseDirectory,
   releaseVersion,
 } from "./npm-distributions.mjs";
+import { buildNativeReleaseAssets } from "./native-release-assets.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -113,22 +114,29 @@ const expectedTarballs = distributions.length;
 if (tarballs.length !== expectedTarballs) {
   throw new Error(`Expected ${expectedTarballs} release tarballs, found ${tarballs.length}`);
 }
-await writeFile(
-  resolve(releaseDirectory, "SHA256SUMS"),
-  `${manifests
-    .map(({ manifest }) => `${manifest.assetSha256}  ${manifest.assetName}`)
-    .join("\n")}\n`,
-);
+let nativeRelease;
 if (containerProductOnly) {
+  await writeFile(
+    resolve(releaseDirectory, "SHA256SUMS"),
+    `${manifests
+      .map(({ manifest }) => `${manifest.assetSha256}  ${manifest.assetName}`)
+      .join("\n")}\n`,
+  );
   await execFileAsync("pnpm", ["exec", "publint", distributions[0].directory], {
     cwd: root,
     env: process.env,
   });
 } else {
+  nativeRelease = await buildNativeReleaseAssets({
+    gitSha: manifests[0]?.manifest.gitSha,
+  });
   await import("./lint-release-packages.mjs");
 }
 console.log(
-  JSON.stringify(
-    Object.fromEntries(manifests.map(({ distribution, manifest }) => [distribution.id, manifest])),
-  ),
+  JSON.stringify({
+    ...Object.fromEntries(
+      manifests.map(({ distribution, manifest }) => [distribution.id, manifest]),
+    ),
+    ...(nativeRelease ? { nativeRelease } : {}),
+  }),
 );

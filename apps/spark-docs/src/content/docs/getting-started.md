@@ -7,20 +7,32 @@ sidebar:
 
 ## Requirements
 
-Spark currently requires Node.js `>=24`. `@zendev-lab/spark` is the complete
-installation and brings matching daemon, Hub, and local web app packages. Those
-apps can also be installed independently for single-process deployments.
+Spark currently requires Node.js `>=24` and npm. `@zendev-lab/spark` is the
+complete product payload and brings matching daemon, Hub, and local web app
+packages. The native bootstrap does not bundle a Node runtime.
 
 ## Install
 
-The managed installation is recommended because it supports atomic upgrades
-and rollback:
+The verified curl bootstrap is recommended. It detects the current macOS/Linux
+x64/arm64 target, verifies the release SHA-256, then asks the exact native CLI
+to install the matching managed npm payload:
 
 ```bash
-pnpm dlx @zendev-lab/spark install --managed
+curl -fsSL https://github.com/zendev-lab/spark/releases/latest/download/install.sh | sh
 spark version --json
 spark update status --json
 ```
+
+The stable launcher defaults to `~/.local/bin/spark`. Use an explicit absolute
+prefix when needed:
+
+```bash
+curl -fsSL https://github.com/zendev-lab/spark/releases/latest/download/install.sh \
+  | sh -s -- --prefix /opt/spark
+```
+
+The installer prints an exact `PATH` repair if another global npm command wins
+command resolution. It never silently runs an older Node dispatcher.
 
 You can instead keep the package manager in charge of the complete installation:
 
@@ -38,7 +50,8 @@ spark-daemon --help
 
 Global npm, pnpm, Yarn, Bun, and Vite+ installations delegate exact-version
 updates to their installation owner. Source checkouts report migration guidance
-but never replace themselves.
+but never replace themselves; their launcher incrementally builds the same Rust
+CLI when its Cargo/source fingerprint changes.
 
 Run the health check before troubleshooting a host:
 

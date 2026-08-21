@@ -58,6 +58,7 @@
     "bench:codspeed:selected": "node --experimental-strip-types scripts/run-selected-benchmarks.mts",
     "build": "pnpm --filter @zendev-lab/spark-daemon run build && pnpm --filter @zendev-lab/spark-hub run build",
     "release:pack": "node scripts/pack-release.mjs",
+    "release:native-assets": "node scripts/native-release-assets.mjs",
     "release:lint": "node scripts/lint-release-packages.mjs",
     "build:docs": "pnpm --filter @zendev-lab/spark-docs run build",
     "check:docs": "pnpm --filter @zendev-lab/spark-docs run check",
