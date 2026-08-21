@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@optique/core": "catalog:",
+    "@zendev-lab/spark-i18n": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^"
   },

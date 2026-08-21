@@ -93,6 +93,23 @@ copying, migrating, or repairing state.
   Browser appearance, transcript text, and elapsed time are not execution
   truth.
 
+Human-readable failures use the same shape across the dispatcher, daemon, Web,
+Hub, ACP, MCP, and updater commands:
+
+```text
+error [DAEMON_START_FAILED]: Spark daemon failed to start
+  Spark web started the daemon service, but it did not become ready.
+hint: Run "spark doctor" to check the daemon installation and state.
+hint: Run "spark daemon logs --lines 100" to inspect the startup log.
+details: no such column: serialization_key
+```
+
+The first line states the outcome and includes a diagnostic code. `hint` lines
+are safe next actions; `details` keeps the low-level cause separate so it can be
+copied into a report. Treat this text as a human interface, not a parsing
+contract. Commands that support `--json` retain their documented JSON payload
+for automation.
+
 `spark daemon stop --wait` returns only after the exact owned daemon process
 has exited or been replaced. Recovery paths use this fence before starting a
 successor.

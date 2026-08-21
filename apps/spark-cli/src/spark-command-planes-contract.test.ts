@@ -21,7 +21,9 @@ const DEPRECATIONS_PATH = new URL(
 test("root dispatcher reaches spark-hub while rejecting removed namespaces", async () => {
   assert.deepEqual(parseSparkDispatcherArgs(["server", "task", "list"]), {
     kind: "error",
-    message: 'The "spark server" namespace was removed. Use "spark hub" instead.',
+    message: 'The "spark server" namespace was removed',
+    code: "COMMAND_REMOVED",
+    hints: ['Use "spark hub" instead.'],
   });
   assert.equal(parseSparkDispatcherArgs(["cockpit", "--help"]).kind, "error");
 

@@ -1,3 +1,5 @@
+import { formatSparkCliError, sparkCliExitCode } from "@zendev-lab/spark-i18n/cli";
+
 import { runSparkHubAppCli } from "./cli.ts";
 
 runSparkHubAppCli()
@@ -5,6 +7,12 @@ runSparkHubAppCli()
     process.exitCode = code;
   })
   .catch((error: unknown) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
+    process.stderr.write(
+      formatSparkCliError(error, {
+        code: "HUB_COMMAND_FAILED",
+        title: "Spark Hub command failed",
+        hints: ['Run "spark hub --help" to inspect the supported commands.'],
+      }),
+    );
+    process.exitCode = sparkCliExitCode(error);
   });

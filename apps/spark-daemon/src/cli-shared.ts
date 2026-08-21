@@ -1,6 +1,11 @@
 import { createInterface } from "node:readline/promises";
 import { ensureSparkPathDirs, resolveSparkPaths } from "@zendev-lab/spark-system";
-import { sparkDaemonCliStrings } from "@zendev-lab/spark-i18n/cli";
+import {
+  formatSparkCliError,
+  sparkDaemonCliStrings,
+  SparkCliError,
+  type SparkCliErrorDescriptor,
+} from "@zendev-lab/spark-i18n/cli";
 import { readSparkDaemonConfig } from "./config.js";
 import {
   listSparkDaemonServerProfiles,
@@ -49,6 +54,26 @@ export interface CliIo {
 
 export const defaultIo: CliIo = { stdout: process.stdout, stderr: process.stderr };
 export const STRINGS = sparkDaemonCliStrings();
+
+export function writeSparkDaemonCliError(
+  io: CliIo,
+  error: unknown,
+  fallback: Partial<SparkCliErrorDescriptor> = {},
+): void {
+  io.stderr.write(formatSparkCliError(error, fallback));
+}
+
+export function writeSparkDaemonUsageError(
+  io: CliIo,
+  title: string,
+  hints: readonly string[],
+): number {
+  writeSparkDaemonCliError(
+    io,
+    new SparkCliError({ code: "INVALID_ARGUMENT", title, hints, exitCode: 2 }),
+  );
+  return 2;
+}
 
 export class SparkDaemonUnavailableError extends Error {
   constructor(cause: unknown, options: { running?: boolean } = {}) {
@@ -177,7 +202,15 @@ export async function confirmAction(
 
   const stdin = io.stdin ?? process.stdin;
   if (!stdin.isTTY) {
-    io.stderr.write(`${question} Pass --yes to confirm in non-interactive environments.\n`);
+    writeSparkDaemonCliError(
+      io,
+      new SparkCliError({
+        code: "CONFIRMATION_REQUIRED",
+        title: question,
+        hints: ["Pass --yes to confirm in non-interactive environments."],
+        exitCode: 2,
+      }),
+    );
     return false;
   }
 
