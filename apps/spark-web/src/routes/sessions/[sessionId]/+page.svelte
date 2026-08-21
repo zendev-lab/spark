@@ -36,7 +36,6 @@
     sparkSlashActionBarForInput,
     sparkSlashCommandDescriptors,
     sparkThinkingLevelOptions,
-    type SparkSessionView,
     type SparkSessionSnapshotPage,
     type SparkSessionProjection,
     type SparkAskQuestionView,
@@ -151,8 +150,8 @@
 
   onMount(() => {
     void refreshAsks();
-    return attachWebSessionEvents(snapshot.sessionId, (view) => {
-      adoptLiveSnapshot(view);
+    return attachWebSessionEvents(snapshot.sessionId, (latest) => {
+      adoptLiveSnapshot(latest);
       void refreshAsks();
     });
   });
@@ -167,7 +166,6 @@
       if (text.startsWith("/")) await applySlash(text);
       else await webRpc("turn.submit", { sessionId: snapshot.sessionId, prompt: text });
       prompt = "";
-      adoptLiveSnapshot(await webRpc("session.snapshot", { sessionId: snapshot.sessionId }));
     } catch (error) {
       actionFeedback = {
         tone: "error",
@@ -251,7 +249,6 @@
         await goto("/settings");
         return;
       case "status.inspect":
-        adoptLiveSnapshot(await webRpc("session.snapshot", { sessionId: snapshot.sessionId }));
         feedback(`Session status: ${snapshot.status}.`);
         return;
       case "session.select":
@@ -333,31 +330,10 @@
 
   async function setThinking(thinkingLevel: SparkThinkingLevel) {
     await webRpc("session.thinking.set", { sessionId: snapshot.sessionId, thinkingLevel });
-    adoptLiveSnapshot(await webRpc("session.snapshot", { sessionId: snapshot.sessionId }));
   }
 
-  function adoptLiveSnapshot(view: SparkSessionView) {
-    const seen = new Set<string>();
-    const messages = [...window.snapshot.messages, ...view.messages].filter((message) => {
-      if (seen.has(message.id)) return false;
-      seen.add(message.id);
-      return true;
-    });
-    const totalMessages = Math.max(window.history.totalMessages, messages.length);
-    const earlierMessages = Math.max(0, totalMessages - messages.length);
-    windowOverride = {
-      ...window,
-      snapshot: { ...view, messages },
-      history: {
-        ...window.history,
-        totalMessages,
-        loadedMessages: messages.length,
-        hiddenMessages: earlierMessages,
-        earlierMessages,
-        laterMessages: 0,
-        hasEarlierMessages: earlierMessages > 0,
-      },
-    };
+  function adoptLiveSnapshot(latest: SparkSessionSnapshotPage) {
+    windowOverride = latest;
   }
 
   async function loadEarlier() {

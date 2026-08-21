@@ -1,18 +1,17 @@
+import { createHash } from "node:crypto";
+import { setTimeout as wait } from "node:timers/promises";
+
 import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
-import type { SparkSessionView } from "@zendev-lab/spark-protocol";
+import type { SparkSessionSnapshotPage } from "@zendev-lab/spark-protocol";
 
 export type SparkWebSseEvent = {
-  event: "spark.session.snapshot" | "spark.turn.event";
-  data: unknown;
+  event: "spark.session.snapshot";
+  data: SparkSessionSnapshotPage;
   cursor: string;
 };
 
-export function sessionSnapshotCursor(view: SparkSessionView): string {
-  return `${view.updatedAt ?? view.createdAt ?? ""}|${view.sessionId}|${view.pendingTurns?.length ?? 0}`;
-}
-
-export async function readSessionSnapshot(sessionId: string): Promise<SparkSessionView> {
-  return await requestSparkDaemon("session.snapshot", { sessionId });
+export function sessionSnapshotCursor(page: SparkSessionSnapshotPage): string {
+  return createHash("sha256").update(JSON.stringify(page)).digest("base64url");
 }
 
 export async function collectSessionLiveEvents(input: {
@@ -21,27 +20,41 @@ export async function collectSessionLiveEvents(input: {
   invoke?: typeof requestSparkDaemon;
 }): Promise<SparkWebSseEvent[]> {
   const invoke = input.invoke ?? requestSparkDaemon;
-  const snapshot = await invoke("session.snapshot", { sessionId: input.sessionId });
-  const cursor = sessionSnapshotCursor(snapshot);
-  const events: SparkWebSseEvent[] = [];
-  if (!input.cursor || input.cursor !== cursor) {
-    events.push({ event: "spark.session.snapshot", data: snapshot, cursor });
-  }
-  for (const turn of snapshot.pendingTurns ?? []) {
-    const page = await invoke("turn.stream", {
-      invocationId: turn.invocationId,
-      after: 0,
-      limit: 100,
+  const page = await invoke("session.snapshot-page", {
+    sessionId: input.sessionId,
+    messageLimit: 32,
+  });
+  const cursor = sessionSnapshotCursor(page);
+  return !input.cursor || input.cursor !== cursor
+    ? [{ event: "spark.session.snapshot", data: page, cursor }]
+    : [];
+}
+
+export async function* streamSessionLiveEvents(input: {
+  sessionId: string;
+  cursor?: string | null;
+  signal: AbortSignal;
+  intervalMs?: number;
+  invoke?: typeof requestSparkDaemon;
+}): AsyncGenerator<SparkWebSseEvent> {
+  let cursor = input.cursor;
+  while (!input.signal.aborted) {
+    const events = await collectSessionLiveEvents({
+      sessionId: input.sessionId,
+      cursor,
+      ...(input.invoke ? { invoke: input.invoke } : {}),
     });
-    for (const item of page.events) {
-      events.push({
-        event: "spark.turn.event",
-        data: item,
-        cursor: `${item.sequence}|${item.createdAt}|${item.invocationId}`,
-      });
+    for (const event of events) {
+      cursor = event.cursor;
+      yield event;
+    }
+    try {
+      await wait(input.intervalMs ?? 750, undefined, { signal: input.signal });
+    } catch (error) {
+      if (input.signal.aborted) return;
+      throw error;
     }
   }
-  return events;
 }
 
 export function formatSseFrame(event: SparkWebSseEvent): string {

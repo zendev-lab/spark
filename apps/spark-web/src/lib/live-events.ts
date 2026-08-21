@@ -1,8 +1,12 @@
-import { sessionEventCursorStorageKey, type SparkSessionView } from "@zendev-lab/spark-protocol";
+import {
+  parseSparkSessionSnapshotWindow,
+  sessionEventCursorStorageKey,
+  type SparkSessionSnapshotPage,
+} from "@zendev-lab/spark-protocol";
 
 export function attachWebSessionEvents(
   sessionId: string,
-  onSnapshot: (view: SparkSessionView) => void,
+  onSnapshot: (window: SparkSessionSnapshotPage) => void,
 ): () => void {
   const storageKey = sessionEventCursorStorageKey("web", sessionId);
   const cursor = storageKey ? window.sessionStorage.getItem(storageKey) : null;
@@ -13,11 +17,13 @@ export function attachWebSessionEvents(
   if (cursor) url.searchParams.set("cursor", cursor);
   const source = new EventSource(url);
   source.addEventListener("spark.session.snapshot", (message) => {
-    const view = JSON.parse((message as MessageEvent<string>).data) as SparkSessionView;
+    const snapshotWindow = parseSparkSessionSnapshotWindow(
+      JSON.parse((message as MessageEvent<string>).data),
+    );
     if (storageKey && "lastEventId" in message && typeof message.lastEventId === "string") {
       window.sessionStorage.setItem(storageKey, message.lastEventId);
     }
-    onSnapshot(view);
+    onSnapshot(snapshotWindow);
   });
   return () => source.close();
 }
