@@ -1,6 +1,8 @@
 import type { Handle } from "@sveltejs/kit";
 import { error, redirect } from "@sveltejs/kit";
 
+import { localeCookieName, resolveLocale } from "$lib/i18n";
+
 import {
   resolveSparkWebToken,
   resolveSparkWebRequestTrust,
@@ -30,8 +32,17 @@ export const handle: Handle = async ({ event, resolve }) => {
     trust: resolveSparkWebRequestTrust(),
   });
   if (trustError) error(403, trustError);
+  const locale = resolveLocale({
+    requestedLocale: event.url.searchParams.get("lang"),
+    cookieLocale: event.cookies.get(localeCookieName),
+    acceptLanguage: event.request.headers.get("accept-language"),
+  });
+  const resolveLocalized = () =>
+    resolve(event, {
+      transformPageChunk: ({ html }) => html.replace("%spark.locale%", locale),
+    });
   if (event.request.method === "GET" && /^\/share\/[A-Za-z0-9_-]{32}$/u.test(event.url.pathname)) {
-    return resolve(event);
+    return resolveLocalized();
   }
   const provided = tokenFromRequest(credentials);
   if (!tokensMatch(expected, provided)) {
@@ -49,5 +60,5 @@ export const handle: Handle = async ({ event, resolve }) => {
     next.searchParams.delete(SPARK_WEB_TOKEN_QUERY);
     redirect(303, `${next.pathname}${next.search}`);
   }
-  return resolve(event);
+  return resolveLocalized();
 };

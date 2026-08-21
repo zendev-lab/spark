@@ -1,18 +1,14 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type {
-    SparkModelCatalogProvider,
     SparkModelControlSnapshot,
     SparkModelRef,
   } from "@zendev-lab/spark-protocol";
-  import {
-    oauthHref,
-    providerAuthKindLabel,
-    providerAuthStatusLabel,
-  } from "$lib/provider-auth";
+  import { oauthHref } from "$lib/provider-auth";
   import { webRpc } from "$lib/web-rpc";
 
   let { data } = $props();
+  let copy = $derived(data.messages.web.settings);
   let catalogOverride = $state<SparkModelControlSnapshot | null>(null);
   let catalog = $derived(catalogOverride ?? data.catalog);
   let daemonOverride = $state<typeof data.daemon | null>(null);
@@ -49,13 +45,6 @@
 
   function modelForValue(value: string): SparkModelRef | undefined {
     return allModels.find((entry) => modelValue(entry.model) === value)?.model;
-  }
-
-  function configuredSource(provider: SparkModelCatalogProvider): string {
-    if (!provider.auth.configured) return "";
-    if (provider.auth.source === "environment") return "from environment";
-    if (provider.auth.source === "literal") return "literal";
-    return "stored";
   }
 
   async function run(label: string, operation: () => Promise<string | void>) {
@@ -131,7 +120,7 @@
   }
 
   async function restartDaemon() {
-    if (typeof globalThis.confirm === "function" && !globalThis.confirm("Restart Spark daemon after draining active work?")) return;
+    if (typeof globalThis.confirm === "function" && !globalThis.confirm(copy.restartConfirm)) return;
     await run("Daemon restart", async () => {
       const result = await webRpc("daemon.restart", {});
       return `Daemon restart ${result.restartId} accepted; active work is draining.`;
@@ -154,78 +143,78 @@
 
 <section class="page">
   <header>
-    <h1>Settings</h1>
-    <p>Credentials stay in the daemon auth store. Spark Web never echoes a stored secret.</p>
+    <h1>{copy.title}</h1>
+    <p>{copy.lede}</p>
   </header>
   {#if status}
     <p class:error={status.tone === "error"} class="status" role={status.tone === "error" ? "alert" : "status"}>{status.message}</p>
   {/if}
 
   <section class="settings-card" aria-labelledby="model-policy-heading">
-    <h2 id="model-policy-heading">Model policy</h2>
-    <label>Default model
+    <h2 id="model-policy-heading">{copy.modelPolicy}</h2>
+    <label>{copy.defaultModel}
       <select bind:value={defaultValue}>
-        <option value="">Choose a default</option>
+        <option value="">{copy.chooseDefault}</option>
         {#each allModels as entry (modelValue(entry.model))}
           <option value={modelValue(entry.model)} disabled={!entry.available}>{entry.model.modelLabel ?? entry.model.modelId} · {entry.model.providerLabel ?? entry.model.providerName}</option>
         {/each}
       </select>
     </label>
-    <button type="button" disabled={!defaultValue || Boolean(busy)} onclick={() => void saveDefaultModel()}>Save default</button>
+    <button type="button" disabled={!defaultValue || Boolean(busy)} onclick={() => void saveDefaultModel()}>{copy.saveDefault}</button>
     <fieldset>
-      <legend>Enabled models</legend>
+      <legend>{copy.enabledModels}</legend>
       <div class="model-grid">
         {#each allModels as entry (modelValue(entry.model))}
           <label class="checkbox"><input type="checkbox" bind:group={enabledValues} value={modelValue(entry.model)} disabled={!entry.available} /><span>{entry.model.modelLabel ?? entry.model.modelId}<small>{entry.model.providerLabel ?? entry.model.providerName}</small></span></label>
         {/each}
       </div>
     </fieldset>
-    <button type="button" disabled={Boolean(busy)} onclick={() => void saveEnabledModels()}>Save enabled models</button>
+    <button type="button" disabled={Boolean(busy)} onclick={() => void saveEnabledModels()}>{copy.saveEnabledModels}</button>
     {#if catalog.diagnostics.length > 0}<ul class="diagnostics">{#each catalog.diagnostics as diagnostic}<li>{diagnostic}</li>{/each}</ul>{/if}
   </section>
 
   <section aria-labelledby="providers-heading">
-    <h2 id="providers-heading">Providers</h2>
+    <h2 id="providers-heading">{copy.providers}</h2>
     <div class="provider-grid">
       {#each catalog.providers as provider (provider.providerName)}
         <article>
-          <header><div><h3>{provider.label}</h3><code>{provider.providerName}</code></div><span>{providerAuthStatusLabel(provider)}</span></header>
-          <p>{providerAuthKindLabel(provider.auth.kind)}{#if provider.auth.reference} · {provider.auth.reference}{/if}{#if configuredSource(provider)} · {configuredSource(provider)}{/if}</p>
+          <header><div><h3>{provider.label}</h3><code>{provider.providerName}</code></div><span>{provider.auth.configured ? copy.configured : copy.notConfigured}</span></header>
+          {#if provider.auth.reference}<p>{copy.source}: {provider.auth.reference}</p>{/if}
           {#if provider.auth.kind === "api_key"}
             <form onsubmit={(event) => { event.preventDefault(); void saveKey(provider.providerName); }}>
-              <label>API key<input type="password" autocomplete="new-password" bind:value={keyByProvider[provider.providerName]} /></label>
-              <button type="submit" disabled={Boolean(busy)}>Save key</button>
+              <label>{copy.apiKey}<input type="password" autocomplete="new-password" bind:value={keyByProvider[provider.providerName]} /></label>
+              <button type="submit" disabled={Boolean(busy)}>{copy.saveKey}</button>
             </form>
           {:else if provider.auth.kind === "oauth"}
-            <a class="button" href={oauthHref(provider.providerName)}>{provider.auth.configured ? "Re-authenticate" : "Sign in with OAuth"}</a>
+            <a class="button" href={oauthHref(provider.providerName)}>{copy.startOAuth}</a>
           {/if}
-          {#if provider.auth.configured}<button type="button" class="secondary danger" disabled={Boolean(busy)} onclick={() => void logout(provider.providerName)}>Logout</button>{/if}
+          {#if provider.auth.configured}<button type="button" class="secondary danger" disabled={Boolean(busy)} onclick={() => void logout(provider.providerName)}>{copy.logout}</button>{/if}
         </article>
       {/each}
     </div>
   </section>
 
   <section class="settings-card" aria-labelledby="pi-import-heading">
-    <h2 id="pi-import-heading">Import Pi credentials</h2>
-    <p>The daemon reads the selected Pi auth file and returns only a credential-free report.</p>
+    <h2 id="pi-import-heading">{copy.importPi}</h2>
+    <p>{copy.importPiHint}</p>
     <form onsubmit={(event) => { event.preventDefault(); void importPiAuth(); }}>
-      <label>Source path<input type="text" autocomplete="off" bind:value={piSourcePath} required /></label>
-      <label class="checkbox"><input type="checkbox" bind:checked={piOverwrite} />Overwrite existing stored credentials</label>
-      <button type="submit" disabled={Boolean(busy)}>Import</button>
+      <label>{copy.sourcePath}<input type="text" autocomplete="off" bind:value={piSourcePath} required /></label>
+      <label class="checkbox"><input type="checkbox" bind:checked={piOverwrite} />{copy.overwriteCredentials}</label>
+      <button type="submit" disabled={Boolean(busy)}>{copy.import}</button>
     </form>
   </section>
 
   <section class="settings-card" aria-labelledby="daemon-heading">
-    <h2 id="daemon-heading">Daemon</h2>
-    <dl><div><dt>Lifecycle</dt><dd>{daemon.lifecycle.state}</dd></div><div><dt>Build</dt><dd>{daemon.buildFingerprint ?? "Unavailable"}</dd></div><div><dt>Invocations</dt><dd>{daemon.invocations.running} running · {daemon.invocations.queued} queued · {daemon.invocations.failed} failed</dd></div><div><dt>Observed</dt><dd>{daemon.observedAt}</dd></div></dl>
-    <div class="row"><button type="button" class="secondary" disabled={Boolean(busy)} onclick={() => void refreshDaemon()}>Refresh</button><button type="button" class="secondary" disabled={Boolean(busy)} onclick={() => void loadDaemonLogs()}>Load redacted logs</button><button type="button" class="danger" disabled={Boolean(busy)} onclick={() => void restartDaemon()}>Restart after drain</button></div>
-    {#if logTail.length > 0}<section class="log-tail" aria-label="Redacted daemon log tail">{#each logTail as source (source.name)}<details open={source.lines.length > 0}><summary>{source.name} · {source.lines.length}</summary><pre>{source.lines.join("\n")}</pre></details>{/each}</section>{/if}
+    <h2 id="daemon-heading">{copy.daemon}</h2>
+    <dl><div><dt>{copy.lifecycle}</dt><dd>{daemon.lifecycle.state}</dd></div><div><dt>{copy.build}</dt><dd>{daemon.buildFingerprint ?? copy.unavailable}</dd></div><div><dt>{copy.invocations}</dt><dd>{daemon.invocations.running} {copy.running} · {daemon.invocations.queued} {copy.queued} · {daemon.invocations.failed} {copy.failed}</dd></div><div><dt>{copy.observed}</dt><dd>{daemon.observedAt}</dd></div></dl>
+    <div class="row"><button type="button" class="secondary" disabled={Boolean(busy)} onclick={() => void refreshDaemon()}>{copy.refresh}</button><button type="button" class="secondary" disabled={Boolean(busy)} onclick={() => void loadDaemonLogs()}>{copy.loadLogs}</button><button type="button" class="danger" disabled={Boolean(busy)} onclick={() => void restartDaemon()}>{copy.restart}</button></div>
+    {#if logTail.length > 0}<section class="log-tail" aria-label={copy.logRegion}>{#each logTail as source (source.name)}<details open={source.lines.length > 0}><summary>{source.name} · {source.lines.length}</summary><pre>{source.lines.join("\n")}</pre></details>{/each}</section>{/if}
   </section>
 
   <section class="settings-card" aria-labelledby="notification-heading">
-    <h2 id="notification-heading">Notifications</h2>
-    <p>Online-only notifications are sent for completed turns and pending Ask interactions. Spark Web never caches Session data for notification delivery.</p>
-    <div class="row"><button type="button" class="secondary" disabled={notificationPermission === "unsupported" || notificationPermission === "granted"} onclick={() => void enableNotifications()}>{notificationPermission === "granted" ? "Notifications enabled" : notificationPermission === "unsupported" ? "Notifications unavailable" : "Enable notifications"}</button><span>{notificationPermission}</span></div>
+    <h2 id="notification-heading">{copy.notifications}</h2>
+    <p>{copy.notificationsHint}</p>
+    <div class="row"><button type="button" class="secondary" disabled={notificationPermission === "unsupported" || notificationPermission === "granted"} onclick={() => void enableNotifications()}>{notificationPermission === "granted" ? copy.notificationsEnabled : notificationPermission === "unsupported" ? copy.notificationsUnavailable : copy.enableNotifications}</button><span>{notificationPermission}</span></div>
   </section>
 </section>
 

@@ -6,9 +6,10 @@
   } from "$lib/daemon-surface";
 
   let { data } = $props();
+  let copy = $derived(data.messages.web.sessions);
   const sessions = $derived(ordinaryDaemonSessions(data.sessions as SparkWebSession[]));
   function workspaceLabel(workspaceId: string | null): string {
-    if (!workspaceId) return "daemon";
+    if (!workspaceId) return copy.daemon;
     return data.workspaces.find((workspace) => workspace.id === workspaceId)?.displayName ?? workspaceId;
   }
 
@@ -16,11 +17,11 @@
 
 <section class="page">
   <header>
-    <h1>Sessions</h1>
-    <p>Ordinary sessions on this daemon.</p>
+    <h1>{copy.title}</h1>
+    <p>{copy.lede}</p>
   </header>
   {#if sessions.length === 0}
-    <p>No sessions yet. Open a workspace to create one.</p>
+    <p>{copy.empty}</p>
   {:else}
     <ul>
       {#each sessions as session (session.sessionId)}
@@ -30,7 +31,7 @@
             {#if sessionWorkspaceId(session)}
               <a href="/workspaces/{sessionWorkspaceId(session)}">{workspaceLabel(sessionWorkspaceId(session))}</a>
             {:else}
-              daemon
+              {copy.daemon}
             {/if}
             · {session.activity}
           </span>

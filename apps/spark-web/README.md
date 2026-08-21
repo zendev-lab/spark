@@ -6,6 +6,13 @@ every workspace bound to that daemon. Register a local directory from the home
 page; Hub origin and announce stay on daemon login, not the workbench form.
 Hub is the multi-daemon proxy plus management, not the cross-workspace owner.
 
+The workbench reads and mutates typed daemon projections for Session history,
+tree lifecycle, Ask/Approval, Work, Artifacts, Role/Skill catalogs, model/auth
+settings, search, export, and diagnostics. It never reads `.spark/` or a Hub
+database in the browser. Process-local Share pages are random, read-only,
+non-persistent HTML; the PWA shell never caches Session, Artifact, or credential
+data.
+
 ```bash
 spark web
 # http://127.0.0.1:4310/?token=...
@@ -22,3 +29,6 @@ page.
 ```bash
 spark web --host 0.0.0.0 --trusted-host spark.lan --no-open
 ```
+
+See [`PARITY.md`](./PARITY.md) for the capability-to-owner/test/runtime-evidence
+index. Rows without real runtime evidence are intentionally not marked complete.

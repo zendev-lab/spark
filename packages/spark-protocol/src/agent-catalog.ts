@@ -70,6 +70,62 @@ export const sparkRoleCreateResultSchema = z
   })
   .strict();
 
+export const sparkRoleModelSettingsSourceSchema = z.enum(["project", "user"]);
+export const sparkRoleModelSettingsEntrySchema = z
+  .object({
+    modelType: sparkRoleModelTypeSchema,
+    model: z
+      .string()
+      .trim()
+      .min(3)
+      .regex(/^[^/\s]+\/[^\s]+$/u),
+    source: sparkRoleModelSettingsSourceSchema,
+  })
+  .strict();
+
+export const sparkRoleModelListRequestSchema = workspaceCatalogInputSchema.extend({
+  source: sparkRoleModelSettingsSourceSchema.optional(),
+});
+export const sparkRoleModelListResultSchema = z
+  .object({
+    workspaceId: z.string().min(1),
+    entries: z.array(sparkRoleModelSettingsEntrySchema),
+  })
+  .strict();
+
+export const sparkRoleModelGetRequestSchema = sparkRoleGetRequestSchema;
+export const sparkRoleModelGetResultSchema = z
+  .object({
+    workspaceId: z.string().min(1),
+    role: sparkRoleCatalogEntrySchema.nullable(),
+    setting: sparkRoleModelSettingsEntrySchema.nullable(),
+  })
+  .strict();
+
+export const sparkRoleModelSetRequestSchema = sparkRoleGetRequestSchema.extend({
+  model: sparkRoleModelSettingsEntrySchema.shape.model,
+  source: sparkRoleModelSettingsSourceSchema.default("project"),
+});
+export const sparkRoleModelSetResultSchema = z
+  .object({
+    workspaceId: z.string().min(1),
+    role: sparkRoleCatalogEntrySchema,
+    setting: sparkRoleModelSettingsEntrySchema,
+  })
+  .strict();
+
+export const sparkRoleModelDeleteRequestSchema = sparkRoleGetRequestSchema.extend({
+  source: sparkRoleModelSettingsSourceSchema,
+});
+export const sparkRoleModelDeleteResultSchema = z
+  .object({
+    workspaceId: z.string().min(1),
+    role: sparkRoleCatalogEntrySchema,
+    source: sparkRoleModelSettingsSourceSchema,
+    deleted: z.boolean(),
+  })
+  .strict();
+
 export const sparkSkillCatalogEntrySchema = z
   .object({
     name: sparkRoleSkillNameSchema,
@@ -101,4 +157,5 @@ export const sparkSkillGetResultSchema = z
 
 export type SparkRoleCatalogEntry = z.infer<typeof sparkRoleCatalogEntrySchema>;
 export type SparkRoleCreateRequest = z.infer<typeof sparkRoleCreateRequestSchema>;
+export type SparkRoleModelSettingsEntry = z.infer<typeof sparkRoleModelSettingsEntrySchema>;
 export type SparkSkillCatalogEntry = z.infer<typeof sparkSkillCatalogEntrySchema>;

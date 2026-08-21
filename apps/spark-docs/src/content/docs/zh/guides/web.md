@@ -25,10 +25,22 @@ spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310 --no-open
 本地目录即可；Hub origin 与宣布仍走 `spark daemon login`，不走这个表单。
 Hub 仍是多 daemon 代理与管理界面。
 
+工作台通过 typed daemon projection 读取和操作 Session 历史及生命周期、
+Ask/Approval 恢复、Work 与 Artifact、Role/Skill catalog、模型与 Provider 设置、
+搜索、导出和诊断。浏览器不会直接读取 `.spark/`、Hub 数据库或任意宿主路径。
+目录选择只能落在已注册 workspace 或 owning Spark worktree 中，并由 daemon 对
+realpath 与 symlink 边界做校验。
+
+可在 rail 中切换中文/英文和浅色、深色、跟随系统主题；macOS 用 `Cmd+K`，
+其他系统用 `Ctrl+K` 打开全局搜索。可安装的 PWA 只缓存静态 shell，不离线缓存
+Session、Artifact、credential 或导出数据。本地 Share 是随机、只读、仅当前进程
+有效的 HTML 预览，不上传也不持久化。
+
 ## DSH 宿主的 Spark 工作台
 
 `spark web-dsh` 启动独立打包、基于 DeepSeek Harness 宿主的 Spark 产品界面；
-它不会替代或修改 `spark web`。需要 DSH workspace 和插件行为时使用：
+它不会替代或修改 `spark web`。在原生 Spark Web 通过替代门槛前，这个界面仍然
+保留：
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
@@ -55,12 +67,12 @@ spark bg --json "Run the repository validation."
 
 ## 设置与模型控制
 
-在工作台的 Settings 中查看 daemon 上的 provider。API key provider（Baidu
-OneAPI、Kimi For Coding）可以直接在该页保存。OAuth provider（如 OpenAI Codex）
-走 `/settings/oauth/<provider>`，密钥仍留在 daemon 的 auth store。Spark web
-不会回显已存储的 secret。
-
-同一套 daemon 存储也可以继续用 CLI：
+在工作台的 Settings 中查看 daemon 生命周期与脱敏日志、配置 Provider 认证和
+为 Baidu OneAPI 或 Kimi For Coding 保存 API key、配置 enabled/default model，
+或在活动 invocation draining 后请求确认重启。OpenAI Codex 等 OAuth
+provider 使用 `/settings/oauth/<provider>`，Role model override 位于 workspace 的
+Role catalog。上述设置仍由 daemon 拥有，secret 不会返回浏览器。同一套
+daemon 存储也可以继续用 CLI：
 
 ```bash
 spark daemon auth --help
@@ -70,8 +82,8 @@ spark daemon model status --json
 
 ## 会话 attach
 
-会话与 canonical workspace 绑定。请进入创建该会话时使用的同一 workspace，
-启动 `spark web`，再从列表打开该会话。不要用浏览器计时器或 transcript
+会话与 canonical workspace 绑定。请连接同一 daemon，启动 `spark web`，再从
+workspace 和 Session 列表打开会话。不要用浏览器计时器或 transcript
 文本推断执行状态；两个视图不一致时先检查 daemon：
 
 ```bash

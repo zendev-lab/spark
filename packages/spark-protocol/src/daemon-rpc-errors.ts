@@ -44,6 +44,7 @@ export const sparkInvocationRpcErrorCodeOptions = [
 
 export const sparkModelRpcErrorCodeOptions = [
   "model_control_unavailable",
+  "role_not_found",
   "role_model_type_unconfigured",
   "model_not_found",
   "model_not_enabled",

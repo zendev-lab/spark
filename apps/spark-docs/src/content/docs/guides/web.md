@@ -23,16 +23,30 @@ need to change the bind or skip opening a browser:
 spark web --host 0.0.0.0 --trusted-host spark.lan --port 4310 --no-open
 ```
 
-This workbench lists every workspace
-bound to this local daemon. Register a local directory from the home page; Hub
+This workbench lists every workspace bound to this local daemon. Register a
+local directory from the home page; Hub
 origin and announce stay on `spark daemon login`, not this form. Hub remains
 the multi-daemon proxy and management UI.
+
+The workbench uses typed daemon projections for Session history and lifecycle,
+Ask and approval recovery, Work and Artifact inspection, Role and Skill
+catalogs, model and provider settings, search, export, and diagnostics. It does
+not read `.spark/`, Hub databases, or arbitrary host paths in the browser.
+Directory selection remains confined to registered workspaces and owning Spark
+worktrees after daemon-side realpath and symlink checks.
+
+Use the language and theme controls in the rail to select English or Chinese
+and light, dark, or system appearance. `Cmd+K` on macOS, or `Ctrl+K` elsewhere,
+opens global search. The installable PWA caches only the static shell: Session,
+Artifact, credential, and export data are never available offline. A local
+Share is a random, read-only, process-lifetime HTML preview; it is not uploaded
+or persisted.
 
 ## DSH-hosted Spark workbench
 
 `spark web-dsh` starts the separately packaged Spark product surface hosted by
-DeepSeek Harness; it does not replace or change `spark web`. Use it when DSH
-workspace and plugin behavior are required:
+DeepSeek Harness; it does not replace or change `spark web`. It remains
+available until the native Spark Web replacement gate has passed:
 
 ```bash
 spark web-dsh --host 0.0.0.0 --port 8888
@@ -62,12 +76,13 @@ spark bg --json "Run the repository validation."
 
 ## Settings and model control
 
-Open Settings in the workbench to inspect daemon providers. API-key providers
-(Baidu OneAPI, Kimi For Coding) can be saved on that page. OAuth providers such
-as OpenAI Codex use `/settings/oauth/<provider>` and keep secrets in the daemon
-auth store. Spark web never echoes a stored secret.
-
-CLI remains available for the same daemon-owned store:
+Open Settings in the workbench to inspect daemon lifecycle and redacted logs,
+save API keys for Baidu OneAPI or Kimi For Coding, configure enabled/default
+models, or request a confirmed restart after active invocations drain. OAuth
+providers such as OpenAI Codex use `/settings/oauth/<provider>`, and Role model
+overrides are available from a workspace's Role catalog. These settings remain
+daemon-owned, and secrets are never returned to the browser. CLI remains
+available for the same store:
 
 ```bash
 spark daemon auth --help
@@ -77,8 +92,8 @@ spark daemon model status --json
 
 ## Session attach
 
-Sessions are workspace-bound. Change into the same canonical workspace used to
-create the session, start `spark web`, and open that session from the list.
+Sessions are workspace-bound. Start `spark web` against the same daemon and
+open the workspace and Session from the list.
 Do not invent execution state from the browser timer or transcript text;
 inspect the daemon when two views disagree:
 

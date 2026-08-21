@@ -90,6 +90,17 @@ const DAEMON_RESUME_NOTICE =
 const CONTEXT_OVERFLOW_RESUME_NOTICE =
   "[Spark context recovery] Continue the current turn from the compacted checkpoint. Do not repeat tool calls or other side effects already recorded in the summary.";
 
+export function sparkMemoryReceiptSurfaceForSession(input: {
+  sessionSurface?: "local" | "channel";
+  sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
+  messageMetadata?: Record<string, unknown>;
+}): "tui" | "hub" | "channel" | "web" {
+  if (input.sessionSurface === "channel" || input.sessionSource === "channel") return "channel";
+  if (input.sessionSource !== "web") return "tui";
+  const origin = recordMetadata(input.messageMetadata?.origin);
+  return origin.product === "spark-web" ? "web" : "hub";
+}
+
 function delay(ms: number): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   return new Promise((resolve) => {
@@ -230,12 +241,11 @@ export class SparkAgentSession {
     const receiptInput =
       promptText && directIntentAuthority
         ? {
-            surface:
-              this.services.runtime.sessionSurface === "channel"
-                ? ("channel" as const)
-                : this.services.runtime.sessionSource === "web"
-                  ? ("hub" as const)
-                  : ("tui" as const),
+            surface: sparkMemoryReceiptSurfaceForSession({
+              sessionSurface: this.services.runtime.sessionSurface,
+              sessionSource: this.services.runtime.sessionSource,
+              messageMetadata: options.messageMetadata,
+            }),
             workspaceId: runtimeContext.sessionLease?.()?.workspaceId ?? this.services.cwd,
             sessionId: record.header.id,
             turnId: `turn:${turnIdentity}`,

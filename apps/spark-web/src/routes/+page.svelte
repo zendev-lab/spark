@@ -4,6 +4,7 @@
   import { webRpc } from "$lib/web-rpc";
 
   let { data } = $props();
+  let copy = $derived(data.messages.web.home);
   const sessions = $derived(data.sessions as SparkWebSession[]);
   let localPath = $state("");
   let displayName = $state("");
@@ -18,7 +19,7 @@
     event.preventDefault();
     const path = localPath.trim();
     if (!path) {
-      registerError = "Local path is required.";
+      registerError = copy.localPathRequired;
       return;
     }
     registering = true;
@@ -40,11 +41,11 @@
 
 <section class="page">
   <header>
-    <h1>Workspaces</h1>
-    <p>Every workspace bound to this daemon.</p>
+    <h1>{copy.title}</h1>
+    <p>{copy.lede}</p>
   </header>
   {#if data.workspaces.length === 0}
-    <p>No workspaces on this daemon yet. Register a local directory below.</p>
+    <p>{copy.empty}</p>
   {:else}
     <ul>
       {#each data.workspaces as workspace (workspace.id)}
@@ -55,33 +56,33 @@
             <span>{workspace.localPath}</span>
           </a>
           <span class="meta">
-            {count} session{count === 1 ? "" : "s"}
-            {#if data.cwdWorkspaceId === workspace.id}· cwd{/if}
+            {count} {count === 1 ? copy.session : copy.sessions}
+            {#if data.cwdWorkspaceId === workspace.id}· {copy.currentDirectory}{/if}
           </span>
         </li>
       {/each}
     </ul>
   {/if}
   <form class="register" onsubmit={(event) => void registerWorkspace(event)}>
-    <h2>Register a local workspace</h2>
+    <h2>{copy.registerTitle}</h2>
     <p class="hint">
-      Binds a directory to this daemon. Hub origin stays on
+      {copy.registerHintBefore}
       <code>spark daemon login</code>
-      — this form does not send a server URL or token.
+      {copy.registerHintAfter}
     </p>
     <label>
-      Local path
+      {copy.localPath}
       <input type="text" autocomplete="off" bind:value={localPath} required />
     </label>
     <label>
-      Display name
-      <input type="text" autocomplete="off" bind:value={displayName} placeholder="optional" />
+      {copy.displayName}
+      <input type="text" autocomplete="off" bind:value={displayName} placeholder={copy.optional} />
     </label>
     {#if registerError}
       <p class="error">{registerError}</p>
     {/if}
     <button type="submit" disabled={registering}>
-      {registering ? "Registering…" : "Register"}
+      {registering ? copy.registering : copy.register}
     </button>
   </form>
 </section>
