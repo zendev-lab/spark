@@ -83,18 +83,24 @@ export function buildConsoleNavGroups(input: {
       label: input.groups.workspace,
       items: [
         { href: `${prefix}/settings`, label: input.nav.workspaceDetails, icon: "folder" },
-        { href: `${prefix}/settings/channels`, label: input.nav.channels, icon: "activity" },
         { href: `${prefix}/settings/registration`, label: input.nav.registration, icon: "play" },
       ],
     });
   }
 
-  if (includeDaemonNav && input.workspaceSlug) {
-    const workspaceQuery = `?workspace=${encodeURIComponent(input.workspaceSlug)}`;
+  if (includeDaemonNav) {
+    const workspaceQuery = input.workspaceSlug
+      ? `?workspace=${encodeURIComponent(input.workspaceSlug)}`
+      : "";
     groups.push({
       id: "daemon",
       label: input.groups.daemon,
       items: [
+        {
+          href: "/settings/channels",
+          label: input.nav.channels,
+          icon: "activity",
+        },
         {
           href: `/settings/models${workspaceQuery}`,
           label: input.nav.modelsProviders,

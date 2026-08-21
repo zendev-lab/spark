@@ -98,14 +98,13 @@ Start with [plan and implement](/guides/plan-and-execute/), then read
 
 Spark has one runtime conversation entity: Session. Roles are reusable
 definitions; subsession means any Session with child lineage. The Side Thread
-feature creates a read-only child Session, and message-platform Channels are
-routing aliases. Feishu, Infoflow, and QQ Bot conversations bind
-to daemon sessions instead of creating another execution owner. Sessions can
-send requests or notifications and receive completion summaries through their
-Inbox.
+feature creates a read-only child Session. Feishu, Infoflow, and QQ Bot
+conversations resolve to daemon-global root Channel Sessions without requiring
+a Workspace or creating another execution owner. Sessions can send requests or
+notifications and receive completion summaries through their Inbox.
 
-See [collaboration and channels](/guides/collaboration/) and
-[Side Threads](/guides/side-threads/).
+See [collaboration](/guides/collaboration/), [daemon-global Channels](/guides/channels/),
+and [Side Threads](/guides/side-threads/).
 
 ## 6. Models, context, extensions, and operations
 

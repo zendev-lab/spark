@@ -68,6 +68,21 @@ function session(
   });
 }
 
+function daemonChannelSession(
+  sessionId: string,
+  bindings: SparkSessionProjection["bindings"] = [],
+): SparkSessionProjection {
+  return {
+    ...session(sessionId, bindings),
+    scope: { kind: "daemon", daemonId: "installation-routing" },
+    lineage: { kind: "root" },
+    lifetime: "persistent",
+    roleBinding: { kind: "none" },
+    purpose: "channel",
+    cwd: `/private/channels/${sessionId}/workspace`,
+  };
+}
+
 describe("session list and inbox progressive disclosure", () => {
   it("pages whole compact session records with an explicit continuation", async () => {
     const longTitle = "x".repeat(600);
@@ -174,7 +189,7 @@ describe("session list and inbox progressive disclosure", () => {
 describe("persistent session channel routing", () => {
   it("locks an asynchronous request result to its originating adapter binding", async () => {
     const mailStore = await createMailStore();
-    const origin = session("sess_origin", [
+    const origin = daemonChannelSession("sess_origin", [
       {
         kind: "channel",
         adapter: "qqbot",
@@ -184,7 +199,7 @@ describe("persistent session channel routing", () => {
       },
       { kind: "channel", adapter: "infoflow", externalKey: "infoflow:user:42" },
     ]);
-    const worker = session("sess_worker");
+    const worker = daemonChannelSession("sess_worker");
     const request = vi.fn(async (method: string, params: unknown) => {
       if (method === "session.get") {
         const sessionId = (params as { sessionId: string }).sessionId;
@@ -225,7 +240,6 @@ describe("persistent session channel routing", () => {
           sessionSurface: "channel",
           sessionSource: "channel",
           channelBinding: {
-            workspaceId: "workspace-qq-A",
             adapter: "qqbot",
             adapterId: "qq-main-A",
             adapterAccountIdentity: "channel-account:qqbot:A",
@@ -239,7 +253,6 @@ describe("persistent session channel routing", () => {
 
     const [requestMessage] = await mailStore.list(worker.sessionId, { includeAcked: true });
     expect(requestMessage?.originBinding).toEqual({
-      workspaceId: "workspace-qq-A",
       adapter: "qqbot",
       adapterId: "qq-main-A",
       adapterAccountIdentity: "channel-account:qqbot:A",
@@ -247,7 +260,6 @@ describe("persistent session channel routing", () => {
       recipient: "c2c:user:A",
     });
     const driftedBinding = {
-      workspaceId: "workspace-infoflow-B",
       adapter: "infoflow",
       adapterId: "info-main-B",
       externalKey: "infoflow:user:B",
@@ -259,7 +271,6 @@ describe("persistent session channel routing", () => {
       expect.objectContaining({
         toSessionId: worker.sessionId,
         originBinding: {
-          workspaceId: "workspace-qq-A",
           adapter: "qqbot",
           adapterId: "qq-main-A",
           adapterAccountIdentity: "channel-account:qqbot:A",

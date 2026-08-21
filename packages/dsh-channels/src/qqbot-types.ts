@@ -25,7 +25,7 @@ export interface QqbotNormalizedInbound {
 
 /**
  * Opaque callback correlation value placed in `action.data` and returned as
- * `button_data`. spark-channels never interprets or rewrites it.
+ * `button_data`. dsh-channels never interprets or rewrites it.
  */
 export type QqbotCallbackToken = string;
 

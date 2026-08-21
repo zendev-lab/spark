@@ -542,7 +542,6 @@ export async function executeSparkDaemonSessionControl(
             ...(parsed.originBinding
               ? {
                   channelReply: {
-                    workspaceId: parsed.originBinding.workspaceId,
                     adapter: parsed.originBinding.adapter,
                     adapterId: parsed.originBinding.adapterId,
                     ...(parsed.originBinding.adapterAccountIdentity
@@ -805,7 +804,6 @@ function assertIdempotentCompactReplay(
 function originBindingFromTask(task: SparkDaemonSessionRunTask) {
   if (!task.channelReply || !task.channelContext) return undefined;
   return {
-    workspaceId: task.channelReply.workspaceId,
     adapter: task.channelReply.adapter,
     adapterId: task.channelReply.adapterId,
     ...(task.channelReply.adapterAccountIdentity
@@ -852,19 +850,22 @@ async function listSessionsForRequest(
   parsed: ReturnType<typeof sparkSessionListRequestSchema.parse>,
 ): Promise<SparkSessionState[]> {
   const registry = requireSessionRegistry(options);
-  if (request.scope !== "workspace") {
-    return await registry.list({
-      includeArchived: parsed.includeArchived,
-      query: parsed.query,
-      tags: parsed.tags,
-    });
-  }
-
-  const sessions = await registry.list({
+  const listOptions = {
     includeArchived: parsed.includeArchived,
     query: parsed.query,
     tags: parsed.tags,
-  });
+  };
+  if (request.scope === "daemon" || parsed.scope?.kind === "daemon") {
+    return await registry.list({ ...listOptions, scope: { kind: "daemon" } });
+  }
+  if (request.scope === "any" && parsed.scope?.kind === "workspace") {
+    return await registry.list({ ...listOptions, scope: parsed.scope });
+  }
+  if (request.scope !== "workspace") {
+    return await registry.list(listOptions);
+  }
+
+  const sessions = await registry.list(listOptions);
   return sessions.flatMap((session) => {
     try {
       return [projectSessionForRequest(options.db, session, request)];
@@ -1003,8 +1004,6 @@ function projectSessionForRequest(
     if (requestWorkspaceAliases(db, request).has(session.scope.workspaceId)) {
       return parseSparkSessionState({
         ...session,
-        lineage:
-          session.lineage.kind === "root" ? { ...session.lineage, workspaceId } : session.lineage,
         scope: { kind: "workspace", workspaceId },
       });
     }

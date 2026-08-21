@@ -5,6 +5,7 @@ import type {
   ChannelAskRequest,
   ChannelAskSendResult,
   ChannelInteractionAckStatus,
+  RoutedChannelInteractionEvent,
 } from "./interaction.ts";
 import { QqbotAdapter } from "./qqbot-adapter.ts";
 import type {
@@ -64,6 +65,7 @@ export class ChannelRegistry {
 
   constructor(options: ChannelRegistryOptions) {
     this.options = options;
+    assertUniqueAdapterAccountIdentities(options.config.adapters);
     this.loadConfig(options.config);
   }
 
@@ -186,7 +188,7 @@ export class ChannelRegistry {
       try {
         await stream.fail("无法开始处理，请重新发送");
       } catch (closeError) {
-        console.error("[spark-channels] failed to close undurable reply stream", closeError);
+        console.error("[dsh-channels] failed to close undurable reply stream", closeError);
       }
       throw error;
     }
@@ -307,7 +309,11 @@ export class ChannelRegistry {
       ? (message: IncomingMessage) =>
           handleMessage({ ...message, adapterId, adapterAccountIdentity })
       : undefined;
-    const onInteraction = this.options.onInteraction;
+    const handleInteraction = this.options.onInteraction;
+    const onInteraction = handleInteraction
+      ? (event: RoutedChannelInteractionEvent) =>
+          handleInteraction({ ...event, adapterAccountIdentity })
+      : undefined;
     switch (config.type) {
       case "feishu":
         return new FeishuAdapter({
@@ -472,6 +478,21 @@ export function channelAdapterAccountIdentity(config: ChannelAdapterConfig): str
   return `channel-account:${config.type}:${digest}`;
 }
 
+function assertUniqueAdapterAccountIdentities(adapters: ChannelsConfig["adapters"]): void {
+  const owners = new Map<string, string>();
+  for (const [adapterId, config] of Object.entries(adapters)) {
+    const identity = channelAdapterAccountIdentity(config);
+    const previous = owners.get(identity);
+    if (previous) {
+      throw new ChannelRegistryError(
+        "invalid_config",
+        `duplicate adapter account identity for ${previous} and ${adapterId}`,
+      );
+    }
+    owners.set(identity, adapterId);
+  }
+}
+
 export function parseChannelsConfig(value: unknown): ChannelsConfig {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new ChannelRegistryError("invalid_config", "channels config must be an object");
@@ -489,6 +510,7 @@ export function parseChannelsConfig(value: unknown): ChannelsConfig {
   for (const [id, config] of Object.entries(adapters as Record<string, unknown>)) {
     parsedAdapters[id] = parseAdapterConfig(config);
   }
+  assertUniqueAdapterAccountIdentities(parsedAdapters);
   const parsedRoutes: ChannelsConfig["routes"] = {};
   for (const [name, route] of Object.entries(routes as Record<string, unknown>)) {
     parsedRoutes[name] = parseRouteConfig(route);

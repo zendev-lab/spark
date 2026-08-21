@@ -236,7 +236,6 @@ export function attachRuntimeWebSocket(
       try {
         recordRuntimeEphemeralSecretProjection(context.db, {
           runtimeId: context.runtimeId,
-          runtimeWorkspaceBindingId: result.workspaceBindingId,
           result: result.payload,
         });
         pending.resolve(result.payload);

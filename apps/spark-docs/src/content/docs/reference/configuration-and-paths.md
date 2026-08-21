@@ -51,6 +51,25 @@ $XDG_RUNTIME_DIR/spark
 
 Platform defaults apply when an individual XDG variable is unset.
 
+## Daemon-global Channel paths
+
+Channel state follows the daemon's effective platform roots reported by
+`spark paths --json`:
+
+```text
+<paths.configDir>/channels.json
+<paths.dataDir>/channels/sessions/<sessionId>/workspace
+<paths.runtimeDir>/channels/
+```
+
+`channels.json` contains daemon-global adapter accounts, routes, and secrets and
+is written with mode `0600`. Each Channel Session workspace is private mode
+`0700`; its path contains only a validated Spark Session ID. Provider user,
+group, and conversation identifiers never become filesystem names. Spark checks
+the absolute real path and expected data-root boundary before each execution.
+Closing or archiving a Channel Session does not delete its directory. See
+[daemon-global Channels](/guides/channels/) for configuration and recovery.
+
 ## Daemon invocation concurrency
 
 The daemon admits up to four root invocations from distinct sessions by

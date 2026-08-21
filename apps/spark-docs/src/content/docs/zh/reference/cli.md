@@ -93,6 +93,20 @@ spark daemon session fork --supervisor <session-id> --role-ref <RoleRef> --json
 独立子 JSONL。两者都不会创建 Invocation。已删除的 `session create`、
 `session clone` 与带源 Session 参数的 transcript fork 不提供 alias。
 
+## Daemon 全局 Channel
+
+```text
+spark daemon channel status --json
+spark daemon channel configure --file <channels.json> --json
+spark daemon channel reload --json
+spark daemon channel notify --action test --json
+```
+
+Channel control 属于 daemon scope，不接受 `--workspace`。configure 会在验证全部账号
+与 route 后替换全局文件。Adapter 专用字段与可用 notify action 以
+`spark daemon channel --help` 为准；迁移凭据前先阅读
+[Daemon 全局 Channel](/zh/guides/channels/)。
+
 ## 退出行为与自动化
 
 - 成功命令退出码为 `0`。

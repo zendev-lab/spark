@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -26,6 +26,54 @@ import { registerWorkspace } from "./store/workspaces.ts";
 import { createDaemonWorkspaceSession } from "../../../test/support/session-fixtures.ts";
 
 describe("daemon session control admission", () => {
+  it("lists only daemon Channel Sessions on a daemon-scoped route", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-session-daemon-list-"));
+    const db = openMemoryDatabase();
+    migrateSparkDaemonDatabase(db);
+    const paths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const sessionRegistry = createDaemonSessionRegistry(join(root, ".spark"), {
+      daemonId: "daemon-list-test",
+      resolveWorkspaceCwd: () => root,
+      resolveChannelSessionCwd: async (sessionId) => {
+        const cwd = join(root, "channels", "sessions", sessionId, "workspace");
+        mkdirSync(cwd, { recursive: true, mode: 0o700 });
+        return cwd;
+      },
+    });
+    await createDaemonWorkspaceSession(sessionRegistry, {
+      sessionId: "session-workspace-hidden",
+      workspaceId: "workspace-hidden",
+      cwd: root,
+    });
+    const channel = await sessionRegistry.resolveChannelSession({
+      externalKey: "infoflow:user:daemon-list",
+      adapterId: "infoflow-primary",
+      adapterAccountIdentity: "channel-account:infoflow:daemon-list",
+    });
+
+    try {
+      const response = await executeSparkDaemonSessionControl(
+        { paths, db, sessionRegistry, actor: "spark-daemon-runtime-ws" },
+        {
+          kind: "session.list.request",
+          scope: "daemon",
+          payload: { scope: { kind: "daemon" }, includeArchived: true },
+        },
+      );
+
+      expect(response.result.sessions).toEqual([
+        expect.objectContaining({
+          sessionId: channel.sessionId,
+          scope: { kind: "daemon", daemonId: "daemon-list-test" },
+          purpose: "channel",
+        }),
+      ]);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("reconciles closing Session content through the lifecycle owner", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-closing-reconcile-"));
     const db = openMemoryDatabase();
@@ -694,7 +742,6 @@ describe("daemon session control admission", () => {
       const invocation = new SparkInvocationStore(db).require(submitted.invocationId!);
       expect(invocation.task).toMatchObject({
         channelReply: {
-          workspaceId: "workspace-original",
           adapter: "qqbot",
           adapterId: "qq-account-original",
           adapterAccountIdentity: "channel-account:qqbot:original",
@@ -710,7 +757,6 @@ describe("daemon session control admission", () => {
           { assistantText: "delegated result" },
         ),
       ).toMatchObject({
-        workspaceId: "workspace-original",
         adapterId: "qq-account-original",
         adapterAccountIdentity: "channel-account:qqbot:original",
         externalKey: "qqbot:c2c:user-original",
@@ -1498,7 +1544,7 @@ describe("daemon session control admission", () => {
             scope: { kind: "workspace", workspaceId: hubWorkspaceId },
           }),
           expect.objectContaining({
-            lineage: { kind: "root", workspaceId: hubWorkspaceId },
+            lineage: { kind: "root" },
             roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
           }),
         ]),
@@ -1534,7 +1580,7 @@ describe("daemon session control admission", () => {
     const entries = [
       {
         type: "session",
-        version: 3,
+        version: 4,
         id: sessionId,
         timestamp: "2026-07-17T00:00:00.000Z",
         cwd: root,
@@ -1992,7 +2038,7 @@ function writeAssistantUsageTranscript(
   const entries = [
     {
       type: "session",
-      version: 3,
+      version: 4,
       id: sessionId,
       timestamp: "2026-08-17T00:00:00.000Z",
       cwd: "/workspace/demo",

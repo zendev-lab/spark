@@ -7,7 +7,7 @@ import { constants as sqliteConstants, type DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it, vi } from "vitest";
 import { parseSparkInteractionRequest } from "@zendev-lab/spark-protocol";
-import type { ChannelNotifyInput, ChannelNotifyResult } from "@zendev-lab/spark-channels";
+import type { ChannelNotifyInput, ChannelNotifyResult } from "@zendev-lab/dsh-channels";
 import {
   SparkSessionMailStore,
   type SparkSessionMailDeliveryReceipt,
@@ -2188,8 +2188,7 @@ describe("Spark daemon local RPC", () => {
     const runningStatus = {
       plane: "daemon" as const,
       resource: "channel" as const,
-      workspaceId: "ws_demo",
-      configPath: join(root, ".spark", "workspaces", "ws_demo", "channels", "config.json"),
+      configPath: join(root, ".spark", "channels.json"),
       available: true as const,
       configured: true,
       ingressEnabled: true,
@@ -2197,7 +2196,7 @@ describe("Spark daemon local RPC", () => {
       adapters: [{ id: "feishu", type: "feishu", running: true, state: "connected" as const }],
       routes: [{ name: "ops", adapter: "feishu", recipient: "oc_ops" }],
       observedAt: "2026-07-10T00:00:00.000Z",
-      text: "channels workspace=ws_demo running adapters=1/1 routes=1 ingress=on\n",
+      text: "channels daemon running adapters=1/1 routes=1 ingress=on\n",
     };
     const channelIngress = {
       status: vi.fn(() => runningStatus),
@@ -2211,7 +2210,7 @@ describe("Spark daemon local RPC", () => {
         JSON.stringify({
           id: "channel_status",
           method: "channel.status",
-          params: { workspaceId: "ws_demo" },
+          params: {},
         }),
         paths,
         db,
@@ -2219,7 +2218,7 @@ describe("Spark daemon local RPC", () => {
         { channelIngress },
       );
       expect(status).toEqual({ id: "channel_status", ok: true, result: runningStatus });
-      expect(channelIngress.status).toHaveBeenCalledWith("ws_demo");
+      expect(channelIngress.status).toHaveBeenCalledWith();
 
       const config = {
         adapters: {
@@ -2237,7 +2236,7 @@ describe("Spark daemon local RPC", () => {
         JSON.stringify({
           id: "channel_configure",
           method: "channel.configure",
-          params: { workspaceId: "ws_demo", config },
+          params: { config },
         }),
         paths,
         db,
@@ -2245,13 +2244,13 @@ describe("Spark daemon local RPC", () => {
         { channelIngress },
       );
       expect(configured).toEqual({ id: "channel_configure", ok: true, result: runningStatus });
-      expect(channelIngress.configure).toHaveBeenCalledWith("ws_demo", config);
+      expect(channelIngress.configure).toHaveBeenCalledWith(config);
 
       const reloaded = await handleLocalRpcLine(
         JSON.stringify({
           id: "channel_reload",
           method: "channel.reload",
-          params: { workspaceId: "ws_demo" },
+          params: {},
         }),
         paths,
         db,
@@ -2259,14 +2258,13 @@ describe("Spark daemon local RPC", () => {
         { channelIngress },
       );
       expect(reloaded).toEqual({ id: "channel_reload", ok: true, result: runningStatus });
-      expect(channelIngress.reload).toHaveBeenCalledWith("ws_demo");
+      expect(channelIngress.reload).toHaveBeenCalledWith();
 
       const invalidConfigure = await handleLocalRpcLine(
         JSON.stringify({
           id: "channel_configure_bad",
           method: "channel.configure",
           params: {
-            workspaceId: "ws_demo",
             config: {
               adapters: {},
               routes: {},
@@ -2975,7 +2973,7 @@ describe("Spark daemon local RPC", () => {
         `${[
           {
             type: "session",
-            version: 3,
+            version: 4,
             id: "sess_view",
             timestamp: "2026-07-10T08:00:00.000Z",
             cwd: "/workspace/view",
@@ -3117,7 +3115,7 @@ describe("Spark daemon local RPC", () => {
         preferredPath,
         `${JSON.stringify({
           type: "session",
-          version: 3,
+          version: 4,
           id: "sess_view",
           timestamp: "2026-07-10T09:00:00.000Z",
           cwd: "/workspace/view",
@@ -3657,8 +3655,7 @@ function notificationChannelStatus(
   return {
     plane: "daemon",
     resource: "channel",
-    workspaceId,
-    configPath: `/tmp/${workspaceId}/channels/config.json`,
+    configPath: `/tmp/channels/${workspaceId}.json`,
     available: true,
     configured: true,
     ingressEnabled: true,
@@ -3670,6 +3667,6 @@ function notificationChannelStatus(
     })),
     routes: [],
     observedAt: "2026-07-15T00:00:00.000Z",
-    text: `channels workspace=${workspaceId} running`,
+    text: "channels daemon running",
   };
 }

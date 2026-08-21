@@ -12,7 +12,7 @@ afterEach(async () => {
 });
 
 describe("daemon Session registry hard-cut migration", () => {
-  it("runs the registry-owned v6 to v7 migration before service admission and is idempotent", async () => {
+  it("runs the registry-owned v6 to v8 migration before service admission and is idempotent", async () => {
     const sparkHome = await mkdtemp(join(tmpdir(), "spark-session-registry-migration-"));
     roots.push(sparkHome);
     const registryRoot = defaultSparkSessionRegistryRoot(sparkHome);
@@ -68,19 +68,19 @@ describe("daemon Session registry hard-cut migration", () => {
     await expect(migrateSessionRegistryLineage({ sparkHome })).resolves.toMatchObject({
       changed: true,
       sourceVersion: 6,
-      targetVersion: 7,
+      targetVersion: 8,
       sessions: 2,
     });
     const migrated = JSON.parse(await readFile(registryPath, "utf8")) as {
       version: number;
       sessions: Array<Record<string, unknown>>;
     };
-    expect(migrated.version).toBe(7);
+    expect(migrated.version).toBe(8);
     expect(migrated.sessions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           sessionId: "sess_main",
-          lineage: { kind: "root", workspaceId: "ws_demo" },
+          lineage: { kind: "root" },
           roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
         }),
         expect.objectContaining({
@@ -98,8 +98,8 @@ describe("daemon Session registry hard-cut migration", () => {
 
     await expect(migrateSessionRegistryLineage({ sparkHome })).resolves.toMatchObject({
       changed: false,
-      sourceVersion: 7,
-      targetVersion: 7,
+      sourceVersion: 8,
+      targetVersion: 8,
       sessions: 2,
     });
   });

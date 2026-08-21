@@ -97,7 +97,6 @@ export interface SparkHeadlessSessionRunInput {
   channelBinding?: {
     adapter: "feishu" | "infoflow" | "qqbot";
     externalKey: string;
-    workspaceId?: string;
     recipient?: string;
     adapterId?: string;
     adapterAccountIdentity?: string;

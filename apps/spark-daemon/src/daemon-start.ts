@@ -23,15 +23,10 @@ import {
   sparkDaemonServerProfileFromConfig,
   type SparkDaemonServerProfile,
 } from "./server-profiles.js";
+import type { ChannelIngressHooks, DaemonChannelIngressRuntime } from "./channels/ingress.ts";
+import { createDaemonChannelIngressRuntime } from "./channels/global-ingress-runtime.ts";
 import {
-  createDaemonChannelIngressRuntime,
-  type ChannelIngressHooks,
-  type DaemonChannelIngressRuntime,
-} from "./channels/ingress.ts";
-import {
-  admitChannelWorkspaceIdentity,
   findChannelInboundInvocation,
-  isPermanentWorkspaceIdentityFailure,
   submitChannelInboundInvocation,
 } from "./channels/admission.ts";
 import {
@@ -110,7 +105,11 @@ import { migrateLegacyReproV9Snapshots } from "./repro-v9-migration.ts";
 import { loopUpdateEvent, SparkLoopStore, type SparkLoopRecord } from "./store/loops.ts";
 import { SparkLoopEvaluatorRegistry } from "./store/loop-evaluators.ts";
 import { migrateLegacyLoopState } from "./store/loop-state-migration.ts";
-import { createSparkDaemonCordisRoot, type SparkDaemonCordisRoot } from "./cordis-root.ts";
+import {
+  createSparkDaemonCordisRoot,
+  openSparkDaemonCordisContext,
+  type SparkDaemonCordisRoot,
+} from "./cordis-root.ts";
 import { createGoalLoopCompletionEvaluator } from "./spark/goal-loop-evaluator.ts";
 import {
   createGitHubMergedPrsLoopEvaluator,
@@ -275,17 +274,19 @@ async function createPreparedDaemonRuntime(
   const humanWaits = options.humanWaits ?? new SparkDaemonHumanWaitRegistry(options.db);
   const channelDeliveryStore = new SparkChannelDeliveryStore(options.db);
   const channelDeliveryOutbox = createDaemonChannelDeliveryOutbox(channelDeliveryStore);
+  const cordisContext = openSparkDaemonCordisContext();
   const channelIngress: DaemonChannelIngressRuntime | null = prepareChannelIngress(
     options,
     channelDeliveryOutbox,
+    cordisContext,
   );
   const shutdownChannelIngress = createChannelIngressShutdown(channelIngress, options);
   const admission = { open: false };
-  channelIngress?.setInboundHandler?.(({ workspaceId, message }) => {
+  channelIngress?.setInboundHandler?.(({ message }) => {
     if (!admission.open) {
       throw new Error("Spark daemon channel admission is closed during startup or drain");
     }
-    channelDeliveryOutbox.enqueueInbound({ workspaceId, message });
+    channelDeliveryOutbox.enqueueInbound({ message });
   });
   const humanRequestOutboxTargets = new Set<() => void>();
   const flushHumanRequestOutbox = () => {
@@ -487,7 +488,10 @@ async function createPreparedDaemonRuntime(
   ).toISOString();
   const stopScheduler = () => scheduler?.stop();
   const stopDirectInvocations = () => invocationRegistry.stop();
-  const stopChannelIngress = () => void shutdownChannelIngress("runtime-abort");
+  const stopChannelIngress = () => {
+    channelIngress?.beginDrain?.();
+    if (!channelIngress?.beginDrain) void shutdownChannelIngress("runtime-abort");
+  };
   const cordisRoot = await createSparkDaemonCordisRoot(
     {
       sparkInvocations: invocationStore,
@@ -500,7 +504,7 @@ async function createPreparedDaemonRuntime(
       sparkSessionCompletions: sessionCompletionDeliveryStore,
       sparkInvocationRegistry: invocationRegistry,
     },
-    { sessionsRoot: defaultSparkSessionsRoot(options.sparkHome) },
+    { sessionsRoot: defaultSparkSessionsRoot(options.sparkHome), ctx: cordisContext },
   );
   runtimeSignal.addEventListener("abort", stopScheduler, { once: true });
   runtimeSignal.addEventListener("abort", stopDirectInvocations, { once: true });
@@ -1063,7 +1067,17 @@ async function cleanupPreparedDaemonRuntime(runtime: PreparedDaemonRuntime): Pro
   runtimeSignal.removeEventListener("abort", runtime.stopScheduler);
   runtimeSignal.removeEventListener("abort", runtime.stopDirectInvocations);
   runtimeSignal.removeEventListener("abort", runtime.stopChannelIngress);
-  await runtime.shutdownChannelIngress("daemon-finally");
+  const splitChannelShutdown = Boolean(
+    runtime.channelIngress?.beginDrain !== undefined &&
+    runtime.channelIngress.drain !== undefined &&
+    runtime.channelIngress.close !== undefined,
+  );
+  if (splitChannelShutdown) {
+    runtime.channelIngress?.beginDrain?.();
+    await runtime.channelIngress?.drain?.();
+  } else {
+    await runtime.shutdownChannelIngress("daemon-finally");
+  }
   runtime.scheduler?.stop();
   await runtime.scheduler?.wait();
   await runtime.restartDrain.wait();
@@ -1074,6 +1088,7 @@ async function cleanupPreparedDaemonRuntime(runtime: PreparedDaemonRuntime): Pro
   await runtime.loops.channelReply;
   await runtime.loops.taskClaims;
   await runtime.loops.sessionRetention;
+  if (splitChannelShutdown) await runtime.channelIngress?.close?.();
   if (options.managePidFile !== false && existsSync(options.paths.pidFile)) {
     rmSync(options.paths.pidFile, { force: true });
   }
@@ -1197,16 +1212,11 @@ function createDaemonScheduler(input: {
           },
         },
         channelIngress: {
-          openReplyStream: async (workspaceId, adapterId, target, streamOptions) =>
-            await input.channelIngress?.openReplyStream(
-              workspaceId,
-              adapterId,
-              target,
-              streamOptions,
-            ),
-          sendReply: async (workspaceId, adapterId, sendInput) => {
+          openReplyStream: async (adapterId, target, streamOptions) =>
+            await input.channelIngress?.openReplyStream(adapterId, target, streamOptions),
+          sendReply: async (adapterId, sendInput) => {
             if (!input.channelIngress) throw new Error("channel ingress is unavailable");
-            return await input.channelIngress.sendReply(workspaceId, adapterId, sendInput);
+            return await input.channelIngress.sendReply(adapterId, sendInput);
           },
         },
         channelReplyDelivery: input.channelReplyDeliveryStore,
@@ -1222,8 +1232,10 @@ function createDaemonScheduler(input: {
             ...(task.channelReply
               ? {
                   channel: {
-                    workspaceId: task.channelReply.workspaceId,
                     adapterId: task.channelReply.adapterId,
+                    ...(task.channelReply.adapterAccountIdentity
+                      ? { adapterAccountIdentity: task.channelReply.adapterAccountIdentity }
+                      : {}),
                     recipient: task.channelReply.recipient,
                     ...(task.channelContext?.senderId
                       ? { actorId: task.channelContext.senderId }
@@ -1575,7 +1587,6 @@ async function handleChannelInteraction(
   if (!input.channelIngress) return;
   try {
     await settleChannelAskInteraction(input.channelIngress, input.humanWaits, interaction, {
-      getRuntimeId: (wait) => runtimeIdForHumanWait(input, wait.workspaceBindingId),
       deliveryOutbox: input.channelDeliveryOutbox,
       onAnswerEvent: async (event, wait) => await projectHumanAnswerForInput(input, event, wait),
     });
@@ -1590,7 +1601,6 @@ async function handleChannelTextAsk(
 ): Promise<ReturnType<NonNullable<ChannelIngressHooks["onTextAskReply"]>>> {
   try {
     return await settleChannelAskTextReply(input.humanWaits, reply, {
-      getRuntimeId: (wait) => runtimeIdForHumanWait(input, wait.workspaceBindingId),
       onAnswerEvent: async (event, wait) => await projectHumanAnswerForInput(input, event, wait),
     });
   } finally {
@@ -1697,6 +1707,7 @@ async function runNotificationReconcileLoop(
 function prepareChannelIngress(
   options: StartSparkDaemonOptions,
   channelDeliveryOutbox: DaemonChannelDeliveryOutbox,
+  ctx: ReturnType<typeof openSparkDaemonCordisContext>,
 ): DaemonChannelIngressRuntime | null {
   if (options.once || options.runScheduler === false) return null;
   const userPaths = resolveSparkUserPaths({ sparkHome: options.sparkHome });
@@ -1705,7 +1716,8 @@ function prepareChannelIngress(
     options.channelIngress ??
     createDaemonChannelIngressRuntime({
       sparkHome: userPaths.dataRoot,
-      createWorkspaceTransport: createDaemonChannelTransportFactory(options.db),
+      ctx,
+      createDaemonTransport: createDaemonChannelTransportFactory(options.db),
       ...(options.sessionRegistry ? { sessionRegistry: options.sessionRegistry } : {}),
       hooks: {
         onRejectedReply: async (rejected) => {
@@ -1714,7 +1726,6 @@ function prepareChannelIngress(
             idempotencyKey: rejected.deliveryIdentity,
             invocationId: rejected.deliveryIdentity,
             sessionId: rejected.sessionId,
-            workspaceId: rejected.workspaceId,
             adapterId: rejected.adapterId,
             adapterAccountIdentity: rejected.adapterAccountIdentity,
             externalKey: rejected.externalKey,
@@ -1734,33 +1745,17 @@ function prepareChannelIngress(
             ? await options.modelControl.effectiveThinkingLevel(assignment.sessionId)
             : undefined;
           const session = await options.sessionRegistry?.get(assignment.sessionId);
-          if (session && session.scope.kind !== "workspace") {
-            throw new Error(`channel session ${assignment.sessionId} has no workspace scope`);
+          if (session && (session.scope.kind !== "daemon" || session.purpose !== "channel")) {
+            throw new Error(`channel session ${assignment.sessionId} is not daemon-owned`);
           }
-          const workspaceId =
-            session?.scope.kind === "workspace"
-              ? session.scope.workspaceId
-              : assignment.channelReply.workspaceId;
           const cwdCandidate =
-            session?.cwd?.trim() && session.cwd.trim() !== "/"
-              ? session.cwd.trim()
-              : resolveWorkspaceLocalPath(options.db, workspaceId);
+            session?.cwd?.trim() && session.cwd.trim() !== "/" ? session.cwd.trim() : undefined;
           const cwd = cwdCandidate?.trim();
           if (!cwd || cwd === "/") {
             throw new Error(
               `channel session ${assignment.sessionId} has no daemon-local execution directory`,
             );
           }
-          // Identity resolution is the durable admission contract: ws_* must map
-          // to a unique owning rtwb_*, while unknown/ambiguous/unregistered are
-          // permanent route failures (never retry_wait).
-          const identityAdmission = admitChannelWorkspaceIdentity(options.db, workspaceId);
-          if (isPermanentWorkspaceIdentityFailure(identityAdmission)) {
-            throw new Error(
-              `channel session ${assignment.sessionId} permanent workspace route failure: ${identityAdmission.reasonCode}`,
-            );
-          }
-          const workspaceBindingId = identityAdmission.workspaceBindingId;
           const task = {
             type: "session.run" as const,
             sessionId: assignment.sessionId,
@@ -1768,8 +1763,6 @@ function prepareChannelIngress(
             ...(model ? { model: `${model.providerName}/${model.modelId}` } : {}),
             ...(thinkingLevel ? { thinkingLevel } : {}),
             assignment: assignment.assignment,
-            workspaceId: identityAdmission.workspaceId,
-            workspaceBindingId,
             cwd,
             channelReply: {
               ...assignment.channelReply,
@@ -1777,9 +1770,6 @@ function prepareChannelIngress(
               adapterAccountIdentity: assignment.adapterAccountIdentity,
             },
             ...(assignment.channelContext ? { channelContext: assignment.channelContext } : {}),
-            ...(assignment.memoryDirectIntent
-              ? { messageMetadata: { memoryDirectIntent: assignment.memoryDirectIntent } }
-              : {}),
           };
           if (options.sessionRegistry) {
             await options.sessionRegistry.commitInvocationAdmission(assignment.sessionId, () =>

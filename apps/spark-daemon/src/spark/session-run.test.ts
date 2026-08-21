@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CHANNEL_DELIVERY_OUTCOME_UNKNOWN_ERROR_CODE,
   channelDeliveryNotSent,
-} from "@zendev-lab/spark-channels";
+} from "@zendev-lab/dsh-channels";
 import type {
   ArtifactRef,
   ProjectRef,
@@ -23,9 +23,10 @@ import {
   SPARK_PROTOCOL_VERSION,
   createBlockedInteractionResponse,
   type SparkDaemonEvent,
+  type SparkSessionState,
 } from "@zendev-lab/spark-protocol";
 import { builtinRoleAllowedToolEffects, builtinRoleAllowedTools } from "@zendev-lab/spark-roles";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { channelSessionWorkspacePath, resolveSparkPaths } from "@zendev-lab/spark-system";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";
 import { SparkTurnRestartYieldError, type SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
 import type {
@@ -77,6 +78,30 @@ function context(
   };
 }
 
+function daemonChannelSession(
+  sessionId: string,
+  bindings: SparkSessionState["bindings"] = [],
+): SparkSessionState {
+  const cwd = channelSessionWorkspacePath(paths, sessionId);
+  mkdirSync(cwd, { recursive: true, mode: 0o700 });
+  return {
+    sessionId,
+    scope: { kind: "daemon", daemonId: "installation-test" },
+    lifecycle: "open",
+    placement: "active",
+    roleBinding: { kind: "none" },
+    lineage: { kind: "root" },
+    incarnation: 1,
+    visibility: "public",
+    retention: "retain",
+    purpose: "channel",
+    cwd,
+    bindings,
+    createdAt: "2026-08-21T00:00:00.000Z",
+    updatedAt: "2026-08-21T00:00:00.000Z",
+  };
+}
+
 function loopContext(
   domain: "goal" | "loop" | "repro" | "workflow",
   generation: number,
@@ -100,6 +125,44 @@ function loopContext(
 }
 
 describe("daemon native session execution", () => {
+  it("revalidates daemon Channel cwd before execution", async () => {
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_channel_cwd",
+      prompt: "hello",
+    };
+    const channel = {
+      sessionId: task.sessionId,
+      scope: { kind: "daemon" as const, daemonId: "installation-demo" },
+      lifecycle: "open" as const,
+      placement: "active" as const,
+      roleBinding: { kind: "none" as const },
+      lineage: { kind: "root" as const },
+      incarnation: 1,
+      visibility: "public" as const,
+      retention: "retain" as const,
+      purpose: "channel",
+      cwd: "/caller/selected/cwd",
+      bindings: [],
+      createdAt: "2026-08-21T00:00:00.000Z",
+      updatedAt: "2026-08-21T00:00:00.000Z",
+    };
+    const sessionRegistry = {
+      get: vi.fn(async () => channel),
+      recordRun: vi.fn(async () => channel),
+      recordTurnQueued: vi.fn(async () => channel),
+      recordTurnSettled: vi.fn(async () => channel),
+    };
+
+    await expect(
+      executeSparkDaemonSessionRunTask(task, context(task), {
+        paths,
+        sessionRegistry,
+        executeSession: vi.fn(async () => ({ assistantText: "must not run" })),
+      }),
+    ).rejects.toThrow(/does not match its daemon-private directory/u);
+  });
+
   it("serializes terminal projection bundles across Sessions with a macrotask fence", async () => {
     const yieldGates: Array<() => void> = [];
     const projected: string[] = [];
@@ -1357,7 +1420,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_incomplete_binding",
       prompt: "do not route by fallback",
       channelReply: {
-        workspaceId: "workspace-qq",
         adapterId: "qq-main",
         recipient: "c2c:user-1",
       },
@@ -1381,7 +1443,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_channel_stream",
       prompt: "请执行",
       channelReply: {
-        workspaceId: "workspace-infoflow",
         adapterId: "infoflow",
         adapter: "infoflow",
         recipient: "group:10838226",
@@ -1484,7 +1545,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_qq_separate",
       prompt: "请检查",
       channelReply: {
-        workspaceId: "workspace-qq",
         adapterId: "qqbot",
         adapter: "qqbot",
         recipient: "c2c:user-1",
@@ -1581,7 +1641,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_channel_fallback",
       prompt: "原始消息",
       channelReply: {
-        workspaceId: "workspace-infoflow",
         adapterId: "infoflow",
         adapter: "infoflow",
         recipient: "group:10838226",
@@ -1627,7 +1686,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_stream_not_sent",
       prompt: "finish safely",
       channelReply: {
-        workspaceId: "workspace-infoflow",
         adapterId: "infoflow",
         adapter: "infoflow",
         recipient: "alice",
@@ -1667,7 +1725,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_stream_unknown",
       prompt: "do not duplicate",
       channelReply: {
-        workspaceId: "workspace-infoflow",
         adapterId: "infoflow",
         adapter: "infoflow",
         recipient: "alice",
@@ -1704,7 +1761,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_inline_model_failure",
       prompt: "fail once",
       channelReply: {
-        workspaceId: "workspace-infoflow",
         adapterId: "infoflow",
         adapter: "infoflow",
         recipient: "alice",
@@ -1747,7 +1803,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_channel_outbox",
       prompt: "finish this",
       channelReply: {
-        workspaceId: "workspace-qq",
         adapterId: "qqbot",
         adapter: "qqbot",
         recipient: "c2c:user-1",
@@ -1780,7 +1835,6 @@ describe("daemon native session execution", () => {
       idempotencyKey: "channel.reply:final:invocation-1",
       invocationId: "invocation-1",
       sessionId: "sess_channel_outbox",
-      workspaceId: "workspace-qq",
       adapterId: "qqbot",
       externalKey: "qqbot:c2c:user-1",
       target: {
@@ -1799,7 +1853,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_channel_delivery_failure",
       prompt: "finish this",
       channelReply: {
-        workspaceId: "workspace-infoflow",
         adapterId: "infoflow",
         adapter: "infoflow",
         recipient: "alice",
@@ -1827,7 +1880,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_channel_model_failure",
       prompt: "fail visibly",
       channelReply: {
-        workspaceId: "workspace-qq",
         adapterId: "qqbot",
         adapter: "qqbot",
         recipient: "c2c:user-1",
@@ -2003,7 +2055,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_channel_empty",
       prompt: "finish silently",
       channelReply: {
-        workspaceId: "workspace-qq",
         adapterId: "qqbot",
         adapter: "qqbot",
         recipient: "c2c:user-1",
@@ -2043,7 +2094,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_channel_complete_fallback",
       prompt: "go",
       channelReply: {
-        workspaceId: "workspace-infoflow",
         adapterId: "infoflow",
         adapter: "infoflow",
         recipient: "alice",
@@ -2088,7 +2138,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_channel_complete_unknown",
       prompt: "go",
       channelReply: {
-        workspaceId: "workspace-infoflow",
         adapterId: "infoflow",
         adapter: "infoflow",
         recipient: "alice",
@@ -2132,7 +2181,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_inline_stage_failure",
       prompt: "finish once",
       channelReply: {
-        workspaceId: "workspace-infoflow",
         adapterId: "infoflow",
         adapter: "infoflow",
         recipient: "alice",
@@ -2199,7 +2247,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_streamed_terminal_text",
       prompt: "stream the answer",
       channelReply: {
-        workspaceId: "workspace-infoflow",
         adapterId: "infoflow",
         adapter: "infoflow",
         recipient: "alice",
@@ -2250,7 +2297,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_inline_ack_failure",
       prompt: "finish once",
       channelReply: {
-        workspaceId: "workspace-infoflow",
         adapterId: "infoflow",
         adapter: "infoflow",
         recipient: "alice",
@@ -2317,7 +2363,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_infoflow",
       prompt: "@神经蛙 你叫什么名字",
       channelReply: {
-        workspaceId: "workspace-infoflow",
         adapterId: "infoflow",
         adapter: "infoflow",
         recipient: "group:10838226",
@@ -2430,7 +2475,6 @@ describe("daemon native session execution", () => {
       sessionId: "sess_qq_origin",
       prompt: "research this",
       channelReply: {
-        workspaceId: "workspace-qq",
         adapter: "qqbot",
         adapterId: "qqbot-account-a",
         adapterAccountIdentity: "channel-account:qqbot:account-a",
@@ -2449,7 +2493,6 @@ describe("daemon native session execution", () => {
       expect.objectContaining({
         sessionSurface: "channel",
         channelBinding: {
-          workspaceId: "workspace-qq",
           adapter: "qqbot",
           externalKey: "qqbot:user:42",
           recipient: "qq:user:42",
@@ -2494,14 +2537,13 @@ describe("daemon native session execution", () => {
     );
   });
 
-  it("intersects the Channel surface allowlist with the Administrator Role ceiling", async () => {
+  it("does not inherit a Workspace Administrator Role into a Channel Session", async () => {
     const executeSession = vi.fn(async () => ({ assistantText: "coordinated" }));
     const task: SparkDaemonSessionRunTask = {
       type: "session.run",
       sessionId: "sess_administrator_channel",
       prompt: "安排一下后续工作",
       channelReply: {
-        workspaceId: "workspace-administrator-channel",
         adapterId: "infoflow",
         adapter: "infoflow",
         recipient: "user:owner",
@@ -2513,13 +2555,7 @@ describe("daemon native session execution", () => {
       paths,
       executeSession,
       sessionRegistry: {
-        get: vi.fn(async () =>
-          workspaceSessionRecord({
-            sessionId: task.sessionId,
-            workspaceId: "workspace-administrator-channel",
-            administrator: true,
-          }),
-        ),
+        get: vi.fn(async () => daemonChannelSession(task.sessionId)),
         recordRun: vi.fn(async () => ({}) as never),
         recordTurnQueued: vi.fn(async () => ({}) as never),
         recordTurnSettled: vi.fn(async () => ({}) as never),
@@ -2529,11 +2565,49 @@ describe("daemon native session execution", () => {
     expect(executeSession).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionSurface: "channel",
-        allowedTools: ["session", "ask", "context"],
-        allowedToolEffects: builtinRoleAllowedToolEffects("administrator"),
+        allowedTools: ["session", "ask", "context", "todo"],
       }),
     );
   });
+
+  it("keeps Workflow unavailable even if a Channel turn receives stale loop context", async () => {
+    const executeSession = vi.fn(async () => ({ assistantText: "safe" }));
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_channel_stale_workflow",
+      prompt: "run the workflow",
+      channelReply: {
+        adapterId: "infoflow",
+        adapter: "infoflow",
+        recipient: "user:owner",
+        externalKey: "infoflow:user:owner",
+      },
+    };
+
+    await executeSparkDaemonSessionRunTask(
+      task,
+      context(task),
+      {
+        paths,
+        executeSession,
+        sessionRegistry: {
+          get: vi.fn(async () => daemonChannelSession(task.sessionId)),
+          recordRun: vi.fn(async () => ({}) as never),
+          recordTurnQueued: vi.fn(async () => ({}) as never),
+          recordTurnSettled: vi.fn(async () => ({}) as never),
+        },
+      },
+      loopContext("workflow", 1, "workflow:stale"),
+    );
+
+    expect(executeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionSurface: "channel",
+        allowedTools: ["session", "ask", "context", "todo"],
+      }),
+    );
+  });
+
   it("keeps direct session requests exact and projects their execution source as session", async () => {
     const messageMetadata = {
       invocationId: "invocation-1",
@@ -2612,17 +2686,13 @@ describe("daemon native session execution", () => {
       executeSession,
       sessionRegistry: {
         get: vi.fn(async () =>
-          workspaceSessionRecord({
-            sessionId: task.sessionId,
-            workspaceId: "workspace-channel",
-            bindings: [
-              {
-                kind: "channel",
-                adapter: "feishu",
-                externalKey: "feishu:chat:oc_1",
-              },
-            ],
-          }),
+          daemonChannelSession(task.sessionId, [
+            {
+              kind: "channel",
+              adapter: "feishu",
+              externalKey: "feishu:chat:oc_1",
+            },
+          ]),
         ),
         recordRun: vi.fn(async () => ({}) as never),
         recordTurnQueued: vi.fn(async () => ({}) as never),

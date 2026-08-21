@@ -6,6 +6,7 @@ import { createSparkLlmComposition } from "@zendev-lab/spark-extension/llm-runti
 import { createId, type SparkProtocolJsonValue } from "@zendev-lab/spark-protocol";
 import { ensureSparkDaemonRunning } from "@zendev-lab/spark-daemon-client";
 import {
+  ensureChannelSessionWorkspace,
   resolveSparkPaths,
   resolveSparkUserPaths,
   writePrivateFile,
@@ -169,11 +170,19 @@ export async function start(
   const db = openSparkDaemonDatabase(paths);
   const userPaths = resolveSparkUserPaths();
   const sparkHome = userPaths.dataRoot;
+  const config = existsSync(paths.configFile)
+    ? readSparkDaemonConfig(paths)
+    : defaultSparkDaemonConfig();
+  if (!existsSync(paths.configFile)) writeSparkDaemonConfig(paths, config);
   try {
     // The daemon process lock is held and the registry owner does not exist yet,
     // so the migration has exclusive mutation authority over registry.json.
     console.error("[spark-daemon] migrating session registry ownership");
-    await migrateSessionRegistryLineage({ sparkHome });
+    await migrateSessionRegistryLineage({
+      sparkHome,
+      daemonId: config.installationId,
+      resolveChannelSessionCwd: (sessionId) => ensureChannelSessionWorkspace(paths, sessionId),
+    });
     console.error("[spark-daemon] migrating role session sqlite data");
     await migrateRoleSessionSqliteData({
       db,
@@ -218,10 +227,6 @@ export async function start(
   process.once("SIGTERM", onSigterm);
   const localEventBus = createSparkDaemonLocalEventBus();
   const invocationRegistry = new SparkDaemonInvocationRegistry();
-  const config = existsSync(paths.configFile)
-    ? readSparkDaemonConfig(paths)
-    : defaultSparkDaemonConfig();
-  if (!existsSync(paths.configFile)) writeSparkDaemonConfig(paths, config);
   const invocationConcurrency = resolveSparkDaemonInvocationConcurrency(config);
   const roleInvocationStore = new SparkInvocationStore(db);
   const roleLoopStore = new SparkLoopStore(db, roleInvocationStore);
@@ -233,6 +238,7 @@ export async function start(
       roleInvocationStore.sessionActivity(sessionId).active ||
       roleLoopStore.list({ ownerSessionId: sessionId }).length > 0,
     resolveSessionCwd: (input) => resolveSessionCwdForWorkspaceId(db, input),
+    resolveChannelSessionCwd: (sessionId) => ensureChannelSessionWorkspace(paths, sessionId),
   });
   for (const workspace of listWorkspaces(db)) {
     await ensureWorkspaceAdministratorSession(db, sessionRegistry, workspace.id);

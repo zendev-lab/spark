@@ -3,9 +3,9 @@
   import { invalidateAll } from "$app/navigation";
   import {
     freshMessagePlatformFormValues,
+    type DaemonMessagePlatformConnection,
     type MessagePlatformAdapter,
     type MessagePlatformFormValues,
-    type WorkspaceMessagePlatformConnection,
   } from "$lib/message-platform";
   import { statusLabel } from "$lib/i18n";
   import { Button, Field, Icon, Input, PageHeader, Select } from "@zendev-lab/spark-ui";
@@ -43,7 +43,7 @@
     structuredClone(untrack(() => form?.values ?? freshPlatformValues())),
   );
   let formMode = $state<"create" | "editCredentials">("create");
-  let editingAdapter = $state<MessagePlatformAdapter | null>(null);
+  let editingAdapterId = $state<string | null>(null);
   let submitState = $state<"idle" | "creating" | "saving" | "saved" | "error">("idle");
   let errorMessage = $state<string | null>(null);
   let statusMessage = $state<string | null>(null);
@@ -70,7 +70,9 @@
         errorMessage = null;
         submitState = "saved";
         formMode = "editCredentials";
-        editingAdapter = values.adapter;
+        editingAdapterId =
+          platforms.find((platform) => platform.adapter === values.adapter && platform.editable)
+            ?.adapterId ?? values.adapter;
         return;
       }
       if (form.message) {
@@ -239,10 +241,10 @@
     }
   }
 
-  function editPlatformSettings(platform: WorkspaceMessagePlatformConnection) {
+  function editPlatformSettings(platform: DaemonMessagePlatformConnection) {
     values.adapter = platform.adapter;
     fillCredentialsFromEditor(platform.adapter);
-    editingAdapter = platform.adapter;
+    editingAdapterId = platform.adapterId;
     formMode = "editCredentials";
     errorMessage = null;
     statusMessage = null;
@@ -256,7 +258,7 @@
   function startConnectPlatform() {
     values = freshPlatformValues();
     formMode = "create";
-    editingAdapter = null;
+    editingAdapterId = null;
     statusMessage = null;
     errorMessage = null;
     submitState = "idle";
@@ -291,7 +293,9 @@
         const payload = result.data as { message?: string } | undefined;
         statusMessage = payload?.message ?? t.savePlatformSuccess;
         formMode = "editCredentials";
-        editingAdapter = values.adapter;
+        editingAdapterId =
+          platforms.find((platform) => platform.adapter === values.adapter && platform.editable)
+            ?.adapterId ?? values.adapter;
         return;
       }
       submitState = "error";
@@ -316,6 +320,28 @@
     statusClass={status.available && status.configured ? "ready" : "offline"}
   />
 
+  <form class="panel runtime-selector" method="GET">
+    <label for="channel-runtime">{t.runtimeLabel}</label>
+    <select
+      id="channel-runtime"
+      name="runtimeId"
+      required
+      onchange={(event) => event.currentTarget.form?.requestSubmit()}
+    >
+      <option value="" disabled selected={!data.selectedRuntimeId}>{t.runtimeSelect}</option>
+      {#each data.runtimes as runtime (runtime.runtimeId)}
+        <option value={runtime.runtimeId} selected={runtime.runtimeId === data.selectedRuntimeId}>
+          {runtime.name} · {runtime.installationId} · {runtime.status}
+        </option>
+      {/each}
+    </select>
+    {#if data.requiresRuntimeSelection}
+      <small>{t.runtimeSelectionHint}</small>
+    {:else if data.runtimes.length === 0}
+      <small>{t.noRuntimes}</small>
+    {/if}
+  </form>
+
   {#if submitState === "error" && errorMessage}
     <div class="form-status" data-state="error" aria-live="polite">{errorMessage}</div>
   {:else if statusMessage}
@@ -330,7 +356,7 @@
       <p class="muted">{t.listEmpty}</p>
     {:else}
       <ul class="channel-rows">
-        {#each platforms as platform (platform.adapter)}
+        {#each platforms as platform (platform.adapterId)}
           <li>
             <div class="channel-row-main">
               <strong>{adapterLabel(platform.adapter)}</strong>
@@ -346,15 +372,47 @@
               {#if platform.runtimeError}<small class="adapter-error">{platform.runtimeError}</small>{/if}
             </div>
             <div class="channel-row-actions">
-              <button
-                type="button"
-                class="row-action"
-                class:active={formMode === "editCredentials" &&
-                  editingAdapter === platform.adapter}
-                onclick={() => editPlatformSettings(platform)}
-              >
-                {t.listSettings}
-              </button>
+              {#if platform.editable}
+                <button
+                  type="button"
+                  class="row-action"
+                  class:active={formMode === "editCredentials" &&
+                    editingAdapterId === platform.adapterId}
+                  onclick={() => editPlatformSettings(platform)}
+                >
+                  {t.listSettings}
+                </button>
+              {:else}
+                <small class="muted">{t.multiAccountReadOnly}</small>
+              {/if}
+            </div>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </section>
+
+  <section class="panel channel-list" aria-labelledby="channel-session-list-title">
+    <div class="panel-heading">
+      <h2 id="channel-session-list-title">{t.sessionListTitle}</h2>
+    </div>
+    {#if data.channelSessions.length === 0}
+      <p class="muted">{t.sessionListEmpty}</p>
+    {:else}
+      <ul class="channel-rows">
+        {#each data.channelSessions as session (session.sessionId)}
+          <li>
+            <div class="channel-row-main">
+              <strong>{session.name || session.sessionId}</strong>
+              <span class="meta-line">
+                <span>{t.sessionIdLabel}</span>
+                <span class="mono">{session.sessionId}</span>
+              </span>
+              <span class="meta-line">
+                <span>{t.sessionAdaptersLabel}</span>
+                <span class="mono">{session.adapterIds.join(", ") || "—"}</span>
+              </span>
+              <small>{statusLabel(session.activity, common)} · {session.lifecycle}</small>
             </div>
           </li>
         {/each}
@@ -369,6 +427,7 @@
     use:enhance={handleEnhance}
     bind:this={editorSection}
   >
+    <input type="hidden" name="runtimeId" value={data.selectedRuntimeId ?? ""} />
     <div class="panel-heading">
       <div class="credentials-heading">
         <h2 id="platform-editor-title">
@@ -409,7 +468,8 @@
         <div>
           <dt>{t.accountIdLabel}</dt>
           <dd class="mono">
-            {platforms.find((platform) => platform.adapter === values.adapter)?.accountId || "—"}
+            {platforms.find((platform) => platform.adapterId === editingAdapterId)?.accountId ||
+              "—"}
           </dd>
         </div>
       </dl>
@@ -523,7 +583,7 @@
             <Button
               type="button"
               variant="secondary"
-              disabled={qrStarting || qrActive}
+              disabled={!data.selectedRuntimeId || qrStarting || qrActive}
               onclick={() => qrStartForm?.requestSubmit()}
             >
               {qrStarting ? t.connectingPlatform : t.qqbotQrStart}
@@ -572,11 +632,11 @@
         <Button type="button" variant="ghost" onclick={startConnectPlatform}>
           {t.cancelEdit}
         </Button>
-        <Button type="submit" disabled={submitState === "saving"}>
+        <Button type="submit" disabled={!data.selectedRuntimeId || submitState === "saving"}>
           {submitState === "saving" ? t.savingPlatform : t.savePlatformSubmit}
         </Button>
       {:else}
-        <Button type="submit" disabled={submitState === "creating"}>
+        <Button type="submit" disabled={!data.selectedRuntimeId || submitState === "creating"}>
           {submitState === "creating" ? t.connectingPlatform : t.connectPlatformSubmit}
         </Button>
       {/if}
@@ -589,7 +649,9 @@
     action="?/startQqbotQrAuth"
     use:enhance={handleQrStartEnhance}
     bind:this={qrStartForm}
-  ></form>
+  >
+    <input type="hidden" name="runtimeId" value={data.selectedRuntimeId ?? ""} />
+  </form>
   <form
     class="visually-hidden"
     method="POST"
@@ -597,6 +659,7 @@
     use:enhance={handleQrStatusEnhance}
     bind:this={qrStatusForm}
   >
+    <input type="hidden" name="runtimeId" value={data.selectedRuntimeId ?? ""} />
     <input type="hidden" name="flowId" value={qrFlow?.id ?? ""} />
   </form>
   <form
@@ -606,6 +669,7 @@
     use:enhance={handleQrCancelEnhance}
     bind:this={qrCancelForm}
   >
+    <input type="hidden" name="runtimeId" value={data.selectedRuntimeId ?? ""} />
     <input type="hidden" name="flowId" value={qrFlow?.id ?? ""} />
   </form>
 

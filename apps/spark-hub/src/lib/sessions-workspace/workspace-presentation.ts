@@ -52,10 +52,8 @@ export function workspaceHref(
 }
 
 export function channelsSettingsHref(
-  workspaces: WorkspaceOption[],
-  workspaceId: string | null,
+  _workspaces: WorkspaceOption[],
+  _workspaceId: string | null,
 ): string | null {
-  if (!workspaceId) return null;
-  const workspace = workspaces.find((item) => item.id === workspaceId);
-  return workspace ? workspacePath(workspace, "/settings/channels") : null;
+  return "/settings/channels";
 }

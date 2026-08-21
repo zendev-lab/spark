@@ -182,7 +182,7 @@ function seedDatabase(db: DatabaseSync): void {
       placement: "active",
       activity: "idle",
       lifetime: "persistent",
-      lineage: { kind: "root", workspaceId },
+      lineage: { kind: "root" },
       roleBinding: { kind: "explicit", roleRef: "role:builtin-administrator" },
       incarnation: 1,
       visibility: "public",

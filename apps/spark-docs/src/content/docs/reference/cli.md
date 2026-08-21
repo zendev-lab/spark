@@ -146,6 +146,21 @@ Provider login exists only under `spark daemon auth login` (or `/login` inside
 the TUI). Reports contain provider IDs, credential kinds, counts, and reason
 codes, never credential values.
 
+## Daemon-global Channels
+
+```text
+spark daemon channel status --json
+spark daemon channel configure --file <channels.json> --json
+spark daemon channel reload --json
+spark daemon channel notify --action test --json
+```
+
+Channel control is daemon-scoped and does not accept `--workspace`. Configure
+replaces the global file after validating all accounts and routes. Use
+`spark daemon channel --help` for adapter-specific fields and supported notify
+actions, and see [daemon-global Channels](/guides/channels/) before migrating
+credentials.
+
 ## Sessions and invocations
 
 ```text

@@ -30,7 +30,7 @@ describe("daemon Session registry", () => {
     expect(new Set(ensured.map((session) => session.sessionId))).toHaveLength(1);
     await expect(registry.list({ includeArchived: true })).resolves.toEqual([
       expect.objectContaining({
-        lineage: { kind: "root", workspaceId: "ws_demo" },
+        lineage: { kind: "root" },
       }),
     ]);
   });
@@ -344,31 +344,36 @@ describe("daemon Session registry", () => {
 });
 
 describe("daemon session registry cwd ownership", () => {
-  it("creates Channel sessions as Administrator-owned children of the workspace root", async () => {
+  it("creates Channel sessions as daemon roots with private derived cwd", async () => {
     const sparkHome = await mkdtemp(join(tmpdir(), "spark-daemon-channel-session-"));
     roots.push(sparkHome);
+    const channelRoot = join(sparkHome, "channels", "sessions");
     const registry = createDaemonSessionRegistry(sparkHome, {
-      resolveWorkspaceCwd: () => "/Users/demo/workspace/channel",
-    });
-
-    const channel = await registry.resolveBinding({
-      externalKey: "feishu:chat:oc_operations",
-      onUnbound: "create",
-      create: {
-        scope: { kind: "workspace", workspaceId: "ws_channel" },
-        name: "Operations",
+      daemonId: "installation-channel",
+      resolveChannelSessionCwd: async (sessionId) => {
+        const cwd = join(channelRoot, sessionId, "workspace");
+        await mkdir(cwd, { recursive: true });
+        return cwd;
       },
     });
-    const root = await registry.ensureWorkspaceAdministrator("ws_channel");
+
+    const channel = await registry.resolveChannelSession({
+      externalKey: "feishu:chat:oc_operations",
+      adapterId: "feishu-primary",
+      adapterAccountIdentity: "feishu:tenant-demo:app-demo",
+      name: "Operations",
+    });
 
     expect(channel).toMatchObject({
-      scope: { kind: "workspace", workspaceId: "ws_channel" },
+      scope: { kind: "daemon", daemonId: "installation-channel" },
       roleBinding: { kind: "none" },
-      lineage: { kind: "child", parentSessionId: root.sessionId, origin: { kind: "session" } },
+      lineage: { kind: "root" },
       visibility: "public",
       retention: "retain",
       purpose: "channel",
+      cwd: join(channelRoot, channel.sessionId, "workspace"),
     });
+    await expect(registry.list({ scope: { kind: "daemon" } })).resolves.toEqual([channel]);
   });
 
   it("ensures one stable workspace main session under concurrent delivery preparation", async () => {
@@ -386,7 +391,7 @@ describe("daemon session registry cwd ownership", () => {
     expect(ensured).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          lineage: { kind: "root", workspaceId: "ws_main" },
+          lineage: { kind: "root" },
           scope: { kind: "workspace", workspaceId: "ws_main" },
         }),
       ]),

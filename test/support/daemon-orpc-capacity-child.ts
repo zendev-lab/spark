@@ -742,7 +742,7 @@ function gitOutput(args: string[]): string {
 }
 
 const report: DaemonOrpcCapacityReport = {
-  version: 3,
+  version: 4,
   environment: {
     platform: process.platform,
     arch: process.arch,

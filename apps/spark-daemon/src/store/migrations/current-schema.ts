@@ -245,12 +245,10 @@ export function prepareCurrentDaemonSchema(db: DatabaseSync): void {
     );
 
     CREATE TABLE IF NOT EXISTS qqbot_gateway_cursors (
-      workspace_id TEXT NOT NULL,
-      adapter_id TEXT NOT NULL,
+      adapter_account_identity TEXT PRIMARY KEY,
       session_id TEXT NOT NULL,
       last_seq INTEGER NOT NULL CHECK (last_seq >= 0),
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY (workspace_id, adapter_id)
+      updated_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS runtime_command_receipts (
@@ -756,6 +754,40 @@ export function migrateChannelDeliverySchema(db: DatabaseSync): void {
         BEGIN
           SELECT RAISE(ABORT, 'channel delivery idempotency_key is immutable');
         END;
+    `);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+/**
+ * Move QQ gateway resume state to the rename-stable provider account key.
+ *
+ * Retired workspace/adapter rows remain in a read-only compatibility table.
+ * The cursor store claims a row only when its legacy adapter label is unique;
+ * ambiguous rows fail closed instead of resuming the wrong provider stream.
+ */
+export function migrateQqbotGatewayCursorSchema(db: DatabaseSync): void {
+  if (!tableExists(db, "qqbot_gateway_cursors")) return;
+  const columns = workspaceColumns(db, "qqbot_gateway_cursors");
+  if (columns.has("adapter_account_identity")) return;
+  if (!columns.has("workspace_id") || !columns.has("adapter_id")) {
+    throw new Error("unsupported QQ gateway cursor schema");
+  }
+
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec(`
+      DROP TABLE IF EXISTS qqbot_gateway_cursors_legacy;
+      ALTER TABLE qqbot_gateway_cursors RENAME TO qqbot_gateway_cursors_legacy;
+      CREATE TABLE qqbot_gateway_cursors (
+        adapter_account_identity TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        last_seq INTEGER NOT NULL CHECK (last_seq >= 0),
+        updated_at TEXT NOT NULL
+      );
     `);
     db.exec("COMMIT");
   } catch (error) {

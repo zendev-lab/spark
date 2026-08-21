@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { ChannelReplyRecovery, ChannelReplyTarget } from "@zendev-lab/spark-channels";
+import type { ChannelReplyRecovery, ChannelReplyTarget } from "@zendev-lab/dsh-channels";
 import type { DaemonChannelIngressRuntime } from "./ingress.ts";
 import type { SparkInvocationStore } from "../store/invocations.ts";
 
@@ -14,8 +14,8 @@ export type ChannelReplyDeliveryMode = "message" | "inline-stream";
 export interface ChannelReplyDeliveryInput {
   invocationId: string;
   sessionId: string;
-  workspaceId: string;
   adapterId: string;
+  adapterAccountIdentity?: string;
   target: ChannelReplyTarget;
   text: string;
   deliveryMode?: ChannelReplyDeliveryMode;
@@ -26,7 +26,7 @@ interface ChannelReplyDeliveryPayload extends Omit<
   ChannelReplyDeliveryInput,
   "deliveryMode" | "recovery"
 > {
-  version: 1;
+  version: 2;
   deliveryMode: ChannelReplyDeliveryMode;
   recovery?: ChannelReplyRecovery;
   attemptCount: number;
@@ -104,7 +104,7 @@ export class ChannelReplyDeliveryStore {
       return existing;
     }
     const payload: ChannelReplyDeliveryPayload = {
-      version: 1,
+      version: 2,
       ...input,
       deliveryMode: input.deliveryMode ?? "message",
       attemptCount: 0,
@@ -330,11 +330,13 @@ export class ChannelReplyDeliveryStore {
   ): ChannelReplyDeliveryRecord {
     const current = this.require(deliveryId);
     const payload: ChannelReplyDeliveryPayload = {
-      version: 1,
+      version: 2,
       invocationId: current.invocationId,
       sessionId: current.sessionId,
-      workspaceId: current.workspaceId,
       adapterId: current.adapterId,
+      ...(current.adapterAccountIdentity
+        ? { adapterAccountIdentity: current.adapterAccountIdentity }
+        : {}),
       target: current.target,
       text: current.text,
       deliveryMode: current.deliveryMode,
@@ -425,7 +427,7 @@ export async function reconcileChannelReplyDeliveries(input: {
           uncertain += 1;
           continue;
         }
-        await input.channelIngress.recoverReply(delivery.workspaceId, delivery.adapterId, {
+        await input.channelIngress.recoverReply(delivery.adapterId, {
           ...delivery.target,
           text: delivery.text,
           deliveryId: delivery.deliveryId,
@@ -433,11 +435,8 @@ export async function reconcileChannelReplyDeliveries(input: {
         });
       } else {
         const replaySafety =
-          input.channelIngress.replyDeliveryFacts?.(
-            delivery.workspaceId,
-            delivery.adapterId,
-            delivery.target,
-          ).replaySafety ?? "unsafe";
+          input.channelIngress.replyDeliveryFacts?.(delivery.adapterId, delivery.target)
+            .replaySafety ?? "unsafe";
         if (replaySafety === "unsafe") {
           input.store.markUncertain(
             delivery.deliveryId,
@@ -449,7 +448,7 @@ export async function reconcileChannelReplyDeliveries(input: {
           uncertain += 1;
           continue;
         }
-        await input.channelIngress.sendReply(delivery.workspaceId, delivery.adapterId, {
+        await input.channelIngress.sendReply(delivery.adapterId, {
           ...delivery.target,
           text: delivery.text,
           deliveryId: delivery.deliveryId,
@@ -486,8 +485,10 @@ function recordFromRow(row: ChannelReplyOutboxRow): ChannelReplyDeliveryRecord {
     status: row.status,
     invocationId: payload.invocationId,
     sessionId: payload.sessionId,
-    workspaceId: payload.workspaceId,
     adapterId: payload.adapterId,
+    ...(payload.adapterAccountIdentity
+      ? { adapterAccountIdentity: payload.adapterAccountIdentity }
+      : {}),
     target: payload.target,
     text: payload.text,
     deliveryMode: payload.deliveryMode,
@@ -503,12 +504,14 @@ function recordFromRow(row: ChannelReplyOutboxRow): ChannelReplyDeliveryRecord {
 }
 
 function parsePayload(value: string): ChannelReplyDeliveryPayload {
-  const payload = JSON.parse(value) as Partial<ChannelReplyDeliveryPayload>;
+  const payload = JSON.parse(value) as Partial<Omit<ChannelReplyDeliveryPayload, "version">> & {
+    version?: number;
+    workspaceId?: string;
+  };
   if (
-    payload.version !== 1 ||
+    (payload.version !== 1 && payload.version !== 2) ||
     typeof payload.invocationId !== "string" ||
     typeof payload.sessionId !== "string" ||
-    typeof payload.workspaceId !== "string" ||
     typeof payload.adapterId !== "string" ||
     typeof payload.text !== "string" ||
     typeof payload.attemptCount !== "number" ||
@@ -519,8 +522,11 @@ function parsePayload(value: string): ChannelReplyDeliveryPayload {
   ) {
     throw new Error("Invalid channel reply delivery payload");
   }
+  const { workspaceId: _legacyWorkspaceId, ...durable } =
+    payload as Partial<ChannelReplyDeliveryPayload> & { workspaceId?: string };
   return {
-    ...(payload as ChannelReplyDeliveryPayload),
+    ...(durable as ChannelReplyDeliveryPayload),
+    version: 2,
     deliveryMode: payload.deliveryMode ?? "message",
   };
 }
@@ -532,8 +538,8 @@ function assertSameDelivery(
   if (
     existing.invocationId !== input.invocationId ||
     existing.sessionId !== input.sessionId ||
-    existing.workspaceId !== input.workspaceId ||
     existing.adapterId !== input.adapterId ||
+    existing.adapterAccountIdentity !== input.adapterAccountIdentity ||
     existing.text !== input.text ||
     existing.deliveryMode !== (input.deliveryMode ?? "message") ||
     JSON.stringify(existing.recovery) !== JSON.stringify(input.recovery) ||
@@ -548,11 +554,13 @@ function payloadFromRecord(
   overrides: Partial<ChannelReplyDeliveryPayload>,
 ): ChannelReplyDeliveryPayload {
   return {
-    version: 1,
+    version: 2,
     invocationId: record.invocationId,
     sessionId: record.sessionId,
-    workspaceId: record.workspaceId,
     adapterId: record.adapterId,
+    ...(record.adapterAccountIdentity
+      ? { adapterAccountIdentity: record.adapterAccountIdentity }
+      : {}),
     target: record.target,
     text: record.text,
     deliveryMode: record.deliveryMode,

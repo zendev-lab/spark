@@ -28,8 +28,8 @@
     "@optique/core": "catalog:",
     "@sveltejs/adapter-node": "^5.3.1",
     "@sveltejs/kit": "^2.28.0",
+    "@zendev-lab/dsh-channels": "workspace:*",
     "@zendev-lab/spark-artifacts": "workspace:*",
-    "@zendev-lab/spark-channels": "workspace:*",
     "@zendev-lab/spark-core": "workspace:*",
     "@zendev-lab/spark-daemon-client": "workspace:*",
     "@zendev-lab/spark-host": "workspace:*",
@@ -60,8 +60,5 @@
     "typescript": "catalog:",
     "vitest": "catalog:",
     "vitest-browser-svelte": "3.0.0"
-  },
-  "engines": {
-    "node": ">=24.0.0"
   }
 }

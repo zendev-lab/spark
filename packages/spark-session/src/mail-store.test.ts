@@ -221,7 +221,6 @@ describe("SparkSessionMailStore channel delivery receipts", () => {
         },
       ],
       originBinding: {
-        workspaceId: "workspace-info",
         adapter: "infoflow",
         externalKey: "infoflow:user:origin",
         recipient: "origin",
@@ -233,7 +232,6 @@ describe("SparkSessionMailStore channel delivery receipts", () => {
     });
 
     expect(sent.message.originBinding).toEqual({
-      workspaceId: "workspace-info",
       adapter: "infoflow",
       externalKey: "infoflow:user:origin",
       recipient: "origin",
@@ -290,7 +288,6 @@ describe("SparkSessionMailStore channel delivery receipts", () => {
         },
       ],
       originBinding: {
-        workspaceId: "workspace-info",
         adapter: "infoflow",
         externalKey: "infoflow:user:origin",
         recipient: "origin",

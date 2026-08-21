@@ -76,7 +76,7 @@ export async function exerciseSparkDaemonLifecycle(
     assert.equal(runningPayload.action, "status");
     assert.equal(objectField(runningPayload, "daemon").running, true);
 
-    const stop = await runSparkProcess(target, ["daemon", "stop", "--yes"]);
+    const stop = await runSparkProcess(target, ["daemon", "stop", "--yes", "--wait"]);
     assertNoUnsupportedTypeScriptSyntax(stop);
 
     const stoppedStatus = await runSparkProcess(target, ["daemon", "status", "--json"]);
@@ -89,7 +89,7 @@ export async function exerciseSparkDaemonLifecycle(
     return { start, runningStatus, stop, stoppedStatus };
   } finally {
     if (cleanupRequired) {
-      await runSparkProcess(target, ["daemon", "stop", "--yes"]).catch(() => undefined);
+      await runSparkProcess(target, ["daemon", "stop", "--yes", "--wait"]).catch(() => undefined);
     }
   }
 }

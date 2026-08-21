@@ -113,7 +113,6 @@ function interactionContext() {
     projectId: PROJECT_ID,
     toolCallId: "tool-call-1",
     channel: {
-      workspaceId: WORKSPACE_ID,
       adapterId: "qq-main",
       recipient: "c2c:user-1",
       actorId: "user-1",
@@ -180,35 +179,12 @@ describe("SparkDaemonHumanInteractionBroker", () => {
         interactionRequestId: `ask_async:${"e".repeat(64)}`,
         delivery: "async",
         status: "pending",
-        workspaceBindingId: WORKSPACE_BINDING_ID,
-        workspaceId: WORKSPACE_ID,
+        workspaceBindingId: "",
+        workspaceId: "",
         evidenceRequest,
       });
-      expect(onOutboxReady).toHaveBeenCalledTimes(1);
-      expect(waits.listPendingOutbox()).toEqual([
-        expect.objectContaining({
-          kind: "human.request.created",
-          envelope: expect.objectContaining({
-            type: "human.request.created",
-            runtimeId: RUNTIME_ID,
-            workspaceBindingId: WORKSPACE_BINDING_ID,
-            workspaceId: WORKSPACE_ID,
-            humanRequestId: response.humanRequestId,
-            payload: expect.objectContaining({
-              delivery: "async",
-              interactionRequestId: `ask_async:${"e".repeat(64)}`,
-              evidenceRequest,
-            }),
-          }),
-        }),
-      ]);
-      const envelope = waits.listPendingOutbox()[0]?.envelope;
-      expect(envelope).toBeDefined();
-      const parsedEnvelope = humanRequestCreatedEnvelopeSchema.parse(envelope);
-      expect(parsedEnvelope.invocationId).toMatch(/^inv_[a-f0-9]{32}$/u);
-      expect(parsedEnvelope.payload.questions[0]?.options?.[0]?.preview).toBe(
-        "Proceed with the current plan.",
-      );
+      expect(onOutboxReady).not.toHaveBeenCalled();
+      expect(waits.listPendingOutbox()).toEqual([]);
 
       expect(opened).toHaveLength(1);
       expect(opened[0]).toMatchObject({
@@ -409,22 +385,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
       });
       expect(answeredResponse.metadata.timedOut).toBeUndefined();
       expect(waits.hasActive(wait!.humanRequestId)).toBe(false);
-      expect(waits.listPendingOutbox()).toEqual([
-        expect.objectContaining({ kind: "human.request.created" }),
-        expect.objectContaining({
-          kind: "human.response.recorded",
-          envelope: expect.objectContaining({
-            type: "human.response.recorded",
-            runtimeId: RUNTIME_ID,
-            workspaceBindingId: WORKSPACE_BINDING_ID,
-            workspaceId: WORKSPACE_ID,
-            payload: expect.objectContaining({
-              source: "daemon",
-              status: "answered",
-            }),
-          }),
-        }),
-      ]);
+      expect(waits.listPendingOutbox()).toEqual([]);
     } finally {
       db.close();
     }
@@ -459,15 +420,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
         },
       });
       expect(waits.listPending()).toEqual([]);
-      expect(waits.listPendingOutbox()).toEqual([
-        expect.objectContaining({ kind: "human.request.created" }),
-        expect.objectContaining({
-          kind: "human.response.recorded",
-          envelope: expect.objectContaining({
-            payload: expect.objectContaining({ status: "cancelled" }),
-          }),
-        }),
-      ]);
+      expect(waits.listPendingOutbox()).toEqual([]);
     } finally {
       db.close();
     }
@@ -717,16 +670,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
         status: "cancelled",
         nextAction: "cancel",
       });
-      expect(waits.listPendingOutbox()).toEqual([
-        expect.objectContaining({ kind: "human.request.created" }),
-        expect.objectContaining({
-          kind: "human.response.recorded",
-          envelope: expect.objectContaining({
-            type: "human.response.recorded",
-            payload: expect.objectContaining({ source: "daemon", status: "cancelled" }),
-          }),
-        }),
-      ]);
+      expect(waits.listPendingOutbox()).toEqual([]);
     } finally {
       db.close();
     }

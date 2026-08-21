@@ -43,7 +43,7 @@ export async function runDaemonOrpcCapacityCase(): Promise<DaemonOrpcCapacityRep
 export function assertDaemonOrpcCapacityCase(report: DaemonOrpcCapacityReport): void {
   const scenario = report.scenario;
 
-  assert.equal(report.version, 3);
+  assert.equal(report.version, 4);
   assert.match(report.environment.sourceCommit, /^[0-9a-f]{40}$/u);
   assert.equal(report.environment.runner, "tsx-source");
   assert.equal(report.transport.kind, "direct-orpc");

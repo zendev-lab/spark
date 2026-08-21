@@ -146,6 +146,29 @@ test("anonymous diagnostics do not add persistent session selector entries", asy
   }
 });
 
+test("Channel hosts do not create Workspace Memory direct-intent authority", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-channel-memory-authority-"));
+  try {
+    const cwd = join(dir, "channel-workspace");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    const services = await makeFakeServices({
+      cwd,
+      sparkHome,
+      sessionSurface: "channel",
+      sessionSource: "channel",
+      allowedTools: ["session", "ask", "context", "todo"],
+    });
+
+    assert.equal(services.memoryDirectIntentAuthority, undefined);
+    assert.equal("memoryDirectIntent" in services.runtime.makeContext(), false);
+    assert.equal("memoryFeedback" in services.runtime.makeContext(), false);
+    await services.disposeLlm?.();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 async function listSessionFileNames(sessionDir: string): Promise<string[]> {
   try {
     return (await readdir(sessionDir)).filter((name) => name.endsWith(".jsonl")).sort();

@@ -334,27 +334,9 @@ async function handleEphemeralSecretRequest(
     sendEphemeralSecretFailure(ws, request, "SECRET_REQUEST_EXPIRED");
     return;
   }
-  let channelWorkspaceId: string | undefined;
-  if (request.payload.operation === "channel.configure") {
-    const workspace = request.workspaceBindingId
-      ? getWorkspaceById(context.db, request.workspaceBindingId)
-      : null;
-    if (
-      !workspace ||
-      !context.serverUrl ||
-      !workspaceBindingBelongsToServer(context.db, workspace.id, context.serverUrl) ||
-      !daemonWorkspaceRouteMatches(
-        context.db,
-        workspace.id,
-        request.workspaceId,
-        request.workspaceBindingId,
-      ) ||
-      request.payload.workspaceId !== request.workspaceId
-    ) {
-      sendEphemeralSecretFailure(ws, request, "SECRET_ROUTE_INVALID");
-      return;
-    }
-    channelWorkspaceId = workspace.id;
+  if (request.workspaceId || request.workspaceBindingId) {
+    sendEphemeralSecretFailure(ws, request, "SECRET_ROUTE_INVALID");
+    return;
   }
 
   const result = await executeSparkDaemonEphemeralSecretControl(
@@ -363,17 +345,8 @@ async function handleEphemeralSecretRequest(
       channelIngress: context.channelIngress,
       sparkHome: context.sparkHome,
     },
-    channelWorkspaceId && request.payload.operation === "channel.configure"
-      ? { ...request.payload, workspaceId: channelWorkspaceId }
-      : request.payload,
+    request.payload,
   );
-  const projectedResult =
-    request.payload.operation === "channel.configure" &&
-    result.operation === "channel.configure" &&
-    result.result &&
-    request.workspaceId
-      ? { ...result, result: { ...result.result, workspaceId: request.workspaceId } }
-      : result;
   sendJson(
     ws,
     runtimeEphemeralSecretResultEnvelopeSchema.parse({
@@ -385,7 +358,7 @@ async function handleEphemeralSecretRequest(
       ...(request.workspaceId ? { workspaceId: request.workspaceId } : {}),
       ...(request.workspaceBindingId ? { workspaceBindingId: request.workspaceBindingId } : {}),
       ephemeralRequestId: request.ephemeralRequestId,
-      payload: projectedResult,
+      payload: result,
     }),
   );
 }

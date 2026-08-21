@@ -29,7 +29,6 @@ const qqbotQrCodeUrlSchema = z
 /** Display-safe projection of a daemon-owned QQ Bot binding ceremony. */
 export const sparkQqbotQrAuthFlowSchema = z.object({
   id: prefixedIdSchema("qrauth"),
-  workspaceId: z.string().trim().min(1),
   status: sparkQqbotQrAuthStatusSchema,
   qrCodeUrl: qqbotQrCodeUrlSchema.optional(),
   appId: z.string().trim().min(1).optional(),
@@ -115,7 +114,6 @@ export const sparkChannelConfigurationProjectionSchema = z.object({
 });
 
 export const sparkChannelControlSnapshotSchema = z.object({
-  workspaceId: z.string().min(1),
   available: z.literal(true),
   configured: z.boolean(),
   ingressEnabled: z.boolean(),

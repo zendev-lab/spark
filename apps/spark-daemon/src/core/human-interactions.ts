@@ -28,8 +28,8 @@ export interface SparkDaemonHumanInteractionContext {
   toolCallId?: string;
   signal?: AbortSignal;
   channel?: {
-    workspaceId: string;
     adapterId: string;
+    adapterAccountIdentity?: string;
     recipient: string;
     actorId?: string;
     messageId?: string;
@@ -242,7 +242,9 @@ export class SparkDaemonHumanInteractionBroker {
     }
     const hubProjected = !sessionAddressed && Boolean(runtimeId && route);
     const operatorAnswerable =
-      context.sessionSource === "daemon" || context.sessionSource === "session";
+      Boolean(context.channel) ||
+      context.sessionSource === "daemon" ||
+      context.sessionSource === "session";
     if (!sessionAddressed && !hubProjected && !localTui && !operatorAnswerable) {
       return createBlockedInteractionResponse(
         request,
@@ -258,6 +260,7 @@ export class SparkDaemonHumanInteractionBroker {
     if (
       !hubProjected &&
       operatorAnswerable &&
+      !context.channel &&
       (durable.ask.delivery ?? "blocking") === "blocking" &&
       durable.ask.timeoutMs === undefined
     ) {
@@ -372,9 +375,11 @@ export class SparkDaemonHumanInteractionBroker {
             interactionRequestId: request.requestId,
             sessionId: context.sessionId,
             invocationId,
-            workspaceBindingId: route?.workspaceBindingId ?? context.workspaceBindingId,
-            workspaceId: route?.workspaceId ?? context.workspaceId,
-            projectId: context.projectId,
+            workspaceBindingId: context.channel
+              ? undefined
+              : (route?.workspaceBindingId ?? context.workspaceBindingId),
+            workspaceId: context.channel ? undefined : (route?.workspaceId ?? context.workspaceId),
+            projectId: context.channel ? undefined : context.projectId,
             toolCallId,
             delivery,
             ...(durable.ask.evidenceRequest
@@ -609,11 +614,8 @@ function resolveHumanInteractionRoute(
   db: DatabaseSync,
   context: SparkDaemonHumanInteractionContext,
 ): SparkDaemonHumanInteractionRoute | null {
-  // Channel ingress already carries the authoritative server workspace id.
-  // Do not let a daemon-local task workspace reference shadow that route.
-  if (context.channel?.workspaceId) {
-    return findUniqueServerRoute(db, { serverWorkspaceId: context.channel.workspaceId });
-  }
+  // Daemon-global Channel interactions deliberately have no Workspace route.
+  if (context.channel) return null;
 
   const localReference = context.workspaceBindingId ?? context.workspaceId;
   const localRoute = localReference ? findLocalWorkspaceRoute(db, localReference) : null;

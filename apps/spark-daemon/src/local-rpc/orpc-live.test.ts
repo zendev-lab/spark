@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ChannelDeliveryError, ChannelRegistryError } from "@zendev-lab/spark-channels";
+import { ChannelDeliveryError, ChannelRegistryError } from "@zendev-lab/dsh-channels";
 import type {
   SparkLocalRpcInput,
   SparkLocalRpcMethod,
@@ -112,7 +112,7 @@ describe("local-rpc direct oRPC service", () => {
       `${[
         {
           type: "session",
-          version: 3,
+          version: 4,
           id: sessionId,
           timestamp: "2026-08-12T00:00:00.000Z",
           cwd: dir,
@@ -575,7 +575,7 @@ describe("local-rpc direct oRPC service", () => {
         status: () => channelStatus,
         configure: async () => channelStatus,
         reload: async () => channelStatus,
-        async notify(_workspaceId, input) {
+        async notify(input) {
           if (input.text === "not-sent") {
             throw new ChannelDeliveryError("provider rejected before send", "not-sent");
           }
@@ -687,7 +687,6 @@ describe("local-rpc direct oRPC service", () => {
       handlerOptions,
       method: "channel.notify",
       params: {
-        workspaceId: "ws_channel",
         action: "send",
         adapter: "missing",
         recipient: "recipient",

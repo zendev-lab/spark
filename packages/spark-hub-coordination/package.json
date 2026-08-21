@@ -50,8 +50,5 @@
     "tsx": "^4.20.5",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "engines": {
-    "node": ">=24.0.0"
   }
 }

@@ -107,7 +107,7 @@ describe("Side Thread local-rpc oRPC integration", () => {
           expect.arrayContaining([
             expect.objectContaining({ sessionId: "parent-session" }),
             expect.objectContaining({
-              lineage: { kind: "root", workspaceId: resolvedWorkspace.id },
+              lineage: { kind: "root" },
               roleBinding: {
                 kind: "explicit",
                 roleRef: "role:builtin-administrator",

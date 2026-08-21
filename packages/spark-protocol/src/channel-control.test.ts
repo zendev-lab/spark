@@ -4,7 +4,6 @@ import { parseSparkQqbotQrAuthFlow } from "./channel-control.ts";
 describe("QQ Bot QR auth flow", () => {
   const flow = {
     id: "qrauth_0123456789abcdef0123456789abcdef",
-    workspaceId: "ws_0123456789abcdef0123456789abcdef",
     status: "pending",
     qrCodeUrl: "https://q.qq.com/qqbot/openclaw/connect.html?task_id=task",
     createdAt: "2026-08-03T12:00:00.000Z",

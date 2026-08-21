@@ -30,9 +30,9 @@
     "@deepseek-ai/dsh-session-persistence": "0.1.0-rc.7",
     "@optique/core": "catalog:",
     "@orpc/server": "catalog:",
+    "@zendev-lab/dsh-channels": "workspace:^",
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-ask": "workspace:^",
-    "@zendev-lab/spark-channels": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-daemon-client": "workspace:^",
     "@zendev-lab/spark-extension": "workspace:^",
@@ -63,8 +63,5 @@
     "esbuild": "^0.28.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "engines": {
-    "node": ">=24.0.0"
   }
 }
