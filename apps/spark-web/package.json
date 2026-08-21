@@ -37,8 +37,5 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"
-  },
-  "engines": {
-    "node": ">=24.0.0"
   }
 }

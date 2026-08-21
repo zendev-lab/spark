@@ -42,6 +42,17 @@ describe("architecture inventory governance", () => {
     }
   });
 
+  test("keeps the Node engine in the root manifest only", () => {
+    const candidateManifests = structuredClone(manifests);
+    candidateManifests["@zendev-lab/spark-text"].engines = { node: ">=26.0.0 <27" };
+
+    expect(
+      governance.validateArchitectureGovernance(inventory, candidateManifests, rootManifest),
+    ).toContain(
+      "@zendev-lab/spark-text duplicates the root Node engine; private workspaces must inherit it",
+    );
+  });
+
   test("decides every ordered layer pair and enforces strict inward direction", () => {
     const layerCount = Object.keys(inventory.governance.layerPolicy.tiers).length;
     const matrix = governance.buildLayerPairMatrix(inventory);

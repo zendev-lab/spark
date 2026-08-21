@@ -63,8 +63,5 @@
     "esbuild": "^0.28.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
-  },
-  "engines": {
-    "node": ">=24.0.0"
   }
 }

@@ -60,8 +60,5 @@
     "typescript": "catalog:",
     "vitest": "catalog:",
     "vitest-browser-svelte": "3.0.0"
-  },
-  "engines": {
-    "node": ">=24.0.0"
   }
 }
