@@ -43,6 +43,7 @@ import type {
   ExtensionUi,
   LeafCapabilityRunner,
   ExtensionRoleRunner,
+  SparkDshToolPolicyMetadata,
   ToolConfig,
   ToolInfo,
   ResolvedToolPolicy,
@@ -438,6 +439,17 @@ export class SparkHostRuntime implements SparkHostAPI {
    */
   isToolDispatchAllowed(name: string, tool: RegisteredTool): boolean {
     return this.tools.get(name) === tool && tool.active && this.isToolAllowed(name, tool.policy);
+  }
+
+  /** Apply the same request-scoped allowlists to Cordis-native DSH tools. */
+  isDshToolDispatchAllowed(name: string, policy: SparkDshToolPolicyMetadata): boolean {
+    return this.isToolAllowed(name, {
+      effect: policy.effect ?? "unknown",
+      executionMode: policy.executionMode ?? "sequential",
+      domains: policy.domains ?? [],
+      modes: policy.modes ?? [],
+      approval: policy.approval ?? "required",
+    });
   }
 
   private isToolAllowed(name: string, policy?: ResolvedToolPolicy): boolean {

@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { Context } from "@deepseek-ai/cordis";
 import { SESSION_FORMAT_VERSION, SessionId } from "@deepseek-ai/dsh-session";
 import { FakeChannelTransport, parseChannelsConfig } from "@zendev-lab/dsh-channels";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
@@ -219,12 +220,22 @@ describe("spark daemon Cordis root", () => {
       maxTokens: 1_000,
     };
     const host = new SparkHostRuntime({ cwd });
+    let executionSessionId: string | undefined;
     const loop = new SparkAgentLoop({
       host,
       llm,
       dshContext: root.ctx,
       getModel: () => model,
       streamIdleTimeoutMs: 0,
+      agentPlugins: [
+        {
+          name: "capture-spark-execution",
+          inject: ["sparkExecution"],
+          apply(ctx: Context) {
+            executionSessionId = ctx.sparkExecution.sessionId;
+          },
+        },
+      ],
     });
     loop.setViewSessionId(seed.header.id);
     loop.setDshSessionMetadata({
@@ -235,6 +246,7 @@ describe("spark daemon Cordis root", () => {
     try {
       await loop.submit("first prompt");
       expect(root.ctx.agents.list()).toEqual([]);
+      expect(executionSessionId).toBe(seed.header.id);
       const first = await store.load(seed.path);
       expect(first.entries.filter((entry) => entry.type === "message")).toHaveLength(2);
 

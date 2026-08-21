@@ -1,8 +1,3 @@
-import type {
-  LeafCapabilityRequest,
-  LeafCapabilityResult,
-  LeafDegradeReason,
-} from "@zendev-lab/spark-core";
 import { parseFusionAnalysis, parseFusionOpinion } from "./schemas.ts";
 import type {
   FusionAnalysisV1,
@@ -10,6 +5,10 @@ import type {
   FusionPanelReasonCode,
   FusionPanelResult,
   FusionJudgeFailureReasonCode,
+  FusionModelCallFailureReason,
+  FusionModelCallRequest,
+  FusionModelCallResult,
+  FusionModelRef,
   SparkFusionDeliberationRequest,
   SparkFusionDeliberationResult,
   SparkFusionDependencies,
@@ -72,7 +71,7 @@ interface NormalizedRequest {
   context?: string;
   panels: NormalizedPanel[];
   judgeModel?: string;
-  sessionModel?: string;
+  sessionModel?: FusionModelRef;
   panelMaxTokens: number;
   judgeMaxTokens: number;
   timeoutMs: number;
@@ -145,7 +144,6 @@ export async function deliberateSparkFusion(
         ...(normalized.judgeModel ? { model: normalized.judgeModel } : {}),
         ...(normalized.sessionModel ? { sessionModel: normalized.sessionModel } : {}),
         maxTokens: normalized.judgeMaxTokens,
-        reasoning: true,
         signal: controller.signal,
       },
       controller.signal,
@@ -205,7 +203,7 @@ function normalizeRequest(request: SparkFusionDeliberationRequest): NormalizedRe
   const question = requiredBoundedString(request.question, "question", MAX_QUESTION_CHARS);
   const context = optionalBoundedString(request.context, "context", MAX_CONTEXT_CHARS);
   const judgeModel = optionalBoundedString(request.judgeModel, "judgeModel", MAX_MODEL_CHARS);
-  const sessionModel = optionalBoundedString(request.sessionModel, "sessionModel", MAX_MODEL_CHARS);
+  const sessionModel = normalizeModelRef(request.sessionModel);
   const panelMaxTokens = boundedInteger(
     request.panelMaxTokens,
     "panelMaxTokens",
@@ -272,6 +270,15 @@ function normalizePanel(panel: FusionPanelInput, index: number): NormalizedPanel
   };
 }
 
+function normalizeModelRef(value: unknown): FusionModelRef | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) throw new Error("fusion.sessionModel must be a provider/model object");
+  return {
+    provider: requiredBoundedString(value.provider, "sessionModel.provider", MAX_MODEL_CHARS),
+    model: requiredBoundedString(value.model, "sessionModel.model", MAX_MODEL_CHARS),
+  };
+}
+
 async function runPanel(
   panel: NormalizedPanel,
   request: NormalizedRequest,
@@ -301,7 +308,6 @@ async function runPanel(
       ...(panel.model ? { model: panel.model } : {}),
       ...(request.sessionModel ? { sessionModel: request.sessionModel } : {}),
       maxTokens: request.panelMaxTokens,
-      reasoning: true,
       signal,
     },
     signal,
@@ -350,12 +356,12 @@ async function runPanel(
 
 function invokeLeaf(
   runLeaf: SparkFusionDependencies["runLeaf"],
-  request: LeafCapabilityRequest,
+  request: FusionModelCallRequest,
   signal: AbortSignal,
-): Promise<LeafCapabilityResult> {
+): Promise<FusionModelCallResult> {
   return new Promise((resolve) => {
     let settled = false;
-    const finish = (result: LeafCapabilityResult) => {
+    const finish = (result: FusionModelCallResult) => {
       if (settled) return;
       settled = true;
       signal.removeEventListener("abort", onAbort);
@@ -381,7 +387,7 @@ function invokeLeaf(
   });
 }
 
-function normalizeLeafResult(value: unknown): LeafCapabilityResult {
+function normalizeLeafResult(value: unknown): FusionModelCallResult {
   if (!isRecord(value) || typeof value.degraded !== "boolean" || typeof value.text !== "string") {
     return { degraded: true, text: "", reasonCode: "model-call-failed" };
   }
@@ -394,14 +400,12 @@ function normalizeLeafResult(value: unknown): LeafCapabilityResult {
   return { degraded: false, text: value.text, ...(model ? { model } : {}) };
 }
 
-function leafReason(value: unknown): LeafDegradeReason | undefined {
+function leafReason(value: unknown): FusionModelCallFailureReason | undefined {
   switch (value) {
     case "aborted":
     case "no-model":
-    case "model-binding-unavailable":
     case "route-unavailable":
     case "model-call-failed":
-    case "host-unsupported":
       return value;
     default:
       return undefined;

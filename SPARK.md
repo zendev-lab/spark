@@ -115,5 +115,7 @@ updated: 2026-08-21
   运行且通过 real-host smoke，通用模型工具通常命名为 `dsh-tool-*`；`spark-*`
   承载 Spark 产品状态、策略、daemon/protocol 或专用 provider。`spark-web-dsh`、
   `spark-acp` 与 `spark-tool-web` 保持产品 owner；特殊命名理由只登记在
-  `architecture/packages.json`。完整处置见
+  `architecture/packages.json`。`spark-fusion` 已按此规则改名为 Cordis-native
+  `dsh-tool-fusion`，旧 SparkHostAPI bridge 已删除；官方 `dsh-acp` 尚无 daemon
+  durable admission seam，因此 `spark-acp` 暂不替换。完整处置见
   [`.agents/notes/decisions/2026-08-20-dsh-package-naming.md`](.agents/notes/decisions/2026-08-20-dsh-package-naming.md)。

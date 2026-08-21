@@ -161,6 +161,12 @@ export interface ToolPolicy {
   readonly approval?: ToolApprovalPolicy;
 }
 
+/** Spark policy carried by a Cordis-native DSH tool definition. */
+export interface SparkDshToolPolicyMetadata extends ToolPolicy {
+  /** Which owner can reconcile an uncertain post-dispatch outcome. */
+  readonly reconcile: "none" | "tool_owner";
+}
+
 export type ResolvedToolEffect = ToolEffect | "unknown";
 
 /** Normalized, immutable policy snapshot exposed by Spark hosts. */
@@ -299,13 +305,16 @@ export function resolveToolPolicyForArgs(
   if (!config.resolvePolicy) return resolveToolPolicy(config);
   try {
     const policy = config.resolvePolicy(args);
+    const {
+      resolvePolicy: _resolvePolicy,
+      effect: _effect,
+      executionMode: _executionMode,
+      requiresApproval: _requiresApproval,
+      ...canonical
+    } = config;
     const resolved = resolveToolPolicy({
-      ...config,
+      ...canonical,
       policy,
-      resolvePolicy: undefined,
-      effect: undefined,
-      executionMode: undefined,
-      requiresApproval: undefined,
     });
     return resolved.effect === "unknown" ? unknownRequiredToolPolicy() : resolved;
   } catch {
@@ -730,6 +739,29 @@ export async function callLeafOrDegrade(
   const result = await ctx.runLeaf?.(request);
   if (!result) return { degraded: true, text: "", reasonCode: "host-unsupported" };
   return result;
+}
+
+/**
+ * Invocation-scoped Spark authority exposed to Cordis capability plugins.
+ *
+ * This is runtime context, not durable state. The daemon/host creates one
+ * frozen snapshot for an Agent handle; plugins consume it through
+ * `ctx.sparkExecution` and must not construct stores, schedulers, or provider
+ * registries of their own.
+ */
+export interface SparkExecutionService {
+  readonly workspaceId?: string;
+  readonly cwd: string;
+  readonly sessionId: string;
+  readonly invocationId?: string;
+  readonly role?: Readonly<{ id: string; revision?: string }>;
+  readonly mode?: "plan" | "execute" | "fleet";
+  readonly driverAuthority?: SparkDriverAuthority;
+  readonly model?: SessionModelRef;
+  readonly runLeaf?: LeafCapabilityRunner;
+  readonly interaction?: (
+    request: ExtensionInteractionRequest,
+  ) => Promise<ExtensionInteractionResponse>;
 }
 
 export type ExtensionRoleLaunchMode = "fresh" | "forked";

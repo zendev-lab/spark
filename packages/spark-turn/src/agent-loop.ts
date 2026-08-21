@@ -66,13 +66,15 @@ export type {
 } from "@zendev-lab/spark-llm";
 
 import { createHash } from "node:crypto";
-import type { Context as CordisContext } from "@deepseek-ai/cordis";
+import type { Context as CordisContext, Plugin as CordisPlugin } from "@deepseek-ai/cordis";
 
 import {
   hasActiveDriverBinding,
   type SparkDriverAuthority,
   type SparkHostDelegationEnvelope,
   type SparkHostContext,
+  type SparkExecutionService,
+  type SparkDshToolPolicyMetadata,
   type SparkDelegationThinkingLevel,
   type ToolExecutionResult,
   type ToolExecutionReconciliation,
@@ -194,7 +196,13 @@ export type {
 } from "./turn-types.ts";
 
 import { type SparkTurnLlm } from "./turn-llm.ts";
-import { runSparkDshTurn, type SparkDshSessionMetadata } from "./dsh-turn-driver.ts";
+import {
+  encodeSparkAuxiliaryModelRoute,
+  runSparkDshTurn,
+  type SparkAssembledTurn,
+  type SparkDshSessionMetadata,
+  type SparkDshToolDescriptor,
+} from "./dsh-turn-driver.ts";
 export {
   asSparkTurnLlm,
   sparkTurnLlmStream,
@@ -508,6 +516,8 @@ export interface SparkTurnHost {
    * dispatch time as well as when advertising tool schemas.
    */
   isToolDispatchAllowed?(name: string, tool: SparkTurnRegisteredTool): boolean;
+  /** Host-owned allowlist check for a Cordis-native DSH tool. */
+  isDshToolDispatchAllowed?(name: string, policy: SparkDshToolPolicyMetadata): boolean;
   emit(event: string, payload: unknown): Promise<unknown[]>;
   getTool(name: string): SparkTurnRegisteredTool | undefined;
   makeContext(extra?: Partial<SparkHostContext>): SparkHostContext;
@@ -598,6 +608,8 @@ export interface SparkAgentLoopOptions {
   llm: SparkTurnLlm;
   /** Shared daemon DSH root. Omitted only by isolated test/scripted providers. */
   dshContext?: CordisContext;
+  /** Product-composed plugins mounted into each invocation Agent scope. */
+  agentPlugins?: readonly CordisPlugin[];
   /** Resolves the current model. May be replaced at runtime via setModel. */
   getModel: () => Model<string>;
   systemPrompt?: string;
@@ -676,6 +688,7 @@ export class SparkAgentLoop {
   readonly host: SparkTurnHost;
   private readonly llm: SparkTurnLlm;
   private readonly dshContext: CordisContext | undefined;
+  private readonly agentPlugins: readonly CordisPlugin[];
   private readonly getModel: () => Model<string>;
   private readonly streamTimeoutMs: number;
   private readonly streamIdleTimeoutMs: number;
@@ -727,6 +740,7 @@ export class SparkAgentLoop {
     this.host = options.host;
     this.llm = options.llm;
     this.dshContext = options.dshContext;
+    this.agentPlugins = [...(options.agentPlugins ?? [])];
     this.getModel = options.getModel;
     this.systemPrompt = options.systemPrompt ?? "";
     this.promptCacheOptions = options.promptCache ?? {};
@@ -1248,12 +1262,29 @@ export class SparkAgentLoop {
     if (!dshContext) {
       throw new Error("SparkAgentLoop requires the daemon shared DSH context");
     }
+    const executionContext = this.host.makeContext();
+    const activeModel = this.getModel();
+    const execution: SparkExecutionService = Object.freeze({
+      ...(executionContext.workspaceId ? { workspaceId: executionContext.workspaceId } : {}),
+      cwd: executionContext.cwd ?? process.cwd(),
+      sessionId: this.viewSessionId,
+      ...(executionContext.invocationId ? { invocationId: executionContext.invocationId } : {}),
+      ...(this.currentMode ? { mode: this.currentMode } : {}),
+      ...(executionContext.driverAuthority
+        ? { driverAuthority: executionContext.driverAuthority }
+        : {}),
+      model: { provider: activeModel.provider, id: activeModel.id },
+      ...(executionContext.runLeaf ? { runLeaf: executionContext.runLeaf } : {}),
+      ...(executionContext.ui?.interaction ? { interaction: executionContext.ui.interaction } : {}),
+    });
     const driveOperation = runSparkDshTurn({
       ctx: dshContext,
       llm: this.llm,
       sessionId: this.viewSessionId,
       ...(this.dshSessionMetadata ? { sessionMetadata: this.dshSessionMetadata } : {}),
-      cwd: this.host.makeContext().cwd,
+      execution,
+      agentPlugins: this.agentPlugins,
+      cwd: execution.cwd,
       followupText: this.followupTextForDriver(),
       tools,
       streamIdleTimeoutMs: this.streamIdleTimeoutMs,
@@ -1265,6 +1296,9 @@ export class SparkAgentLoop {
           this.drainOutboxIntoMessages();
           return this.assembleSparkTurnRequest();
         },
+        resolveAuxiliaryModel: () => this.getModel(),
+        prepareRequest: (assembled, context, dshTools) =>
+          this.prepareSparkTurnRequest(assembled, context, dshTools),
         dispatchToolCall: (toolCall, signal) => this.dispatchToolCall(toolCall, signal),
         onStreamEvent: (event) => {
           this.publish({ type: "stream_event", event: event as AssistantMessageEvent });
@@ -1296,10 +1330,18 @@ export class SparkAgentLoop {
           bumpRoundtrip();
         },
         beforeToolCalls: hooks?.beforeToolCalls,
-        preExecute: async (_name, _args, signal) => {
+        preExecute: async (name, args, signal, registration) => {
           throwIfSignalAborted(signal);
-          return { kind: "allow" };
+          if (registration.owner === "spark-host") return { kind: "allow" };
+          return await this.preExecuteDshTool(
+            registration.callId,
+            name,
+            args,
+            registration.policy,
+            signal,
+          );
         },
+        isDshToolAvailable: (name, policy) => this.isDshToolAvailable(name, policy),
         collectToolCalls,
         promptItems: () => this.getPromptItems(),
         roundtrips: () => this.lastPromptManifest?.roundtrip.index ?? 1,
@@ -1369,22 +1411,43 @@ export class SparkAgentLoop {
     const turnSystemPrompt = [this.systemPrompt, activeToolGuidance]
       .filter((section): section is string => Boolean(section))
       .join("\n\n");
-    const promptCache = resolveSparkPromptCache({
-      systemPrompt: turnSystemPrompt,
-      sessionId: this.viewSessionId,
-      ...this.promptCacheOptions,
-    });
     const context = {
       systemPrompt: turnSystemPrompt || undefined,
-      systemPromptStable: promptCache.stablePrompt || undefined,
-      systemPromptDynamic: promptCache.dynamicPrompt || undefined,
-      promptCacheKey: promptCache.promptCacheKey,
-      promptCache,
       messages: lowerSparkPromptItems(this.promptItems) as Message[],
       tools,
     } as Context;
     const reasoning = this.getReasoning?.();
     const model = this.getModel();
+    return {
+      model,
+      context,
+      // The driver asks prepareSparkTurnRequest for the exact final budget
+      // after Cordis-native prompt sections and tools have been merged.
+      requestedOutputTokens: model.maxTokens,
+      ...(reasoning !== undefined ? { reasoning } : {}),
+    };
+  }
+
+  private async prepareSparkTurnRequest(
+    assembled: SparkAssembledTurn,
+    context: Context,
+    dshTools: readonly SparkDshToolDescriptor[],
+  ) {
+    const systemPrompt = context.systemPrompt ?? "";
+    const promptCache = resolveSparkPromptCache({
+      systemPrompt,
+      sessionId: this.viewSessionId,
+      ...this.promptCacheOptions,
+    });
+    const preparedContext = {
+      ...context,
+      systemPromptStable: promptCache.stablePrompt || undefined,
+      systemPromptDynamic: promptCache.dynamicPrompt || undefined,
+      promptCacheKey: promptCache.promptCacheKey,
+      promptCache,
+    } as Context;
+    const model = assembled.model;
+    const reasoning = assembled.reasoning;
     const manifest = buildSparkPromptManifest({
       promptVersion: this.promptManifestOptions.promptVersion,
       sessionId: this.viewSessionId,
@@ -1400,26 +1463,37 @@ export class SparkAgentLoop {
       dynamicHash: promptCache.dynamicHash,
       promptCacheKey: promptCache.promptCacheKey,
       promptCacheDisabledReason: promptCache.disabledReason,
-      tools: this.host.listTools().map((tool) => {
-        const policy = resolvedRegisteredToolPolicy(tool);
-        return {
-          name: tool.config.name,
-          active: this.isToolAvailable(tool),
-          effect: policy.effect,
-          executionMode: policy.executionMode,
-          approval: policy.approval,
-          domains: policy.domains,
-          modes: policy.modes,
-          promptGuidelines: tool.config.promptGuidelines,
-        };
-      }),
+      tools: [
+        ...this.host.listTools().map((tool) => {
+          const policy = resolvedRegisteredToolPolicy(tool);
+          return {
+            name: tool.config.name,
+            active: this.isToolAvailable(tool),
+            effect: policy.effect,
+            executionMode: policy.executionMode,
+            approval: policy.approval,
+            domains: policy.domains,
+            modes: policy.modes,
+            promptGuidelines: tool.config.promptGuidelines,
+          };
+        }),
+        ...dshTools.map(({ schema, policy }) => ({
+          name: schema.name,
+          active: true,
+          effect: policy?.effect,
+          executionMode: policy?.executionMode,
+          approval: policy?.approval,
+          domains: policy?.domains,
+          modes: policy?.modes,
+        })),
+      ],
       selectedSkills: safeSelectedSkills(this.promptManifestOptions.getSelectedSkills),
       roundtripIndex: (this.lastPromptManifest?.roundtrip.index ?? 0) + 1,
       maxParallelToolCalls: this.maxParallelToolCalls,
     });
     this.lastPromptManifest = manifest;
     this.publish({ type: "prompt_manifest", manifest });
-    const estimate = estimateSparkProviderContextTokens(context);
+    const estimate = estimateSparkProviderContextTokens(preparedContext);
     const requestedOutputTokens = resolveSparkProviderOutputTokens(
       estimate.tokens,
       model.contextWindow,
@@ -1427,16 +1501,14 @@ export class SparkAgentLoop {
     );
     await this.beforeProviderRequest?.({
       model,
-      context,
+      context: preparedContext,
       requestedOutputTokens,
       estimate,
       roundtrips: manifest.roundtrip.index,
     });
     return {
-      model,
-      context,
+      context: preparedContext,
       requestedOutputTokens,
-      ...(reasoning !== undefined ? { reasoning } : {}),
     };
   }
 
@@ -1850,7 +1922,18 @@ export class SparkAgentLoop {
       if (!toolRequiresApproval(tool, toolCall.arguments, ctx)) return { approved: true };
     }
 
-    const reason = `Tool "${toolCall.name}" requires approval before execution.`;
+    return await this.requestConfiguredToolApproval(
+      toolCall,
+      `Tool "${toolCall.name}" requires approval before execution.`,
+      signal,
+    );
+  }
+
+  private async requestConfiguredToolApproval(
+    toolCall: ToolCall,
+    reason: string,
+    signal: AbortSignal,
+  ): Promise<{ approved: true } | { approved: false; message: string }> {
     switch (this.approvalMethod) {
       case "skip":
         return { approved: true };
@@ -1874,6 +1957,72 @@ export class SparkAgentLoop {
         return _exhaustive;
       }
     }
+  }
+
+  private isDshToolAvailable(
+    name: string,
+    policy: SparkDshToolPolicyMetadata | undefined,
+  ): boolean {
+    if (!policy) return false;
+    const modes = policy.modes ?? [];
+    if (this.currentMode !== undefined && modes.length > 0 && !modes.includes(this.currentMode)) {
+      return false;
+    }
+    return this.host.isDshToolDispatchAllowed?.(name, policy) ?? true;
+  }
+
+  private async preExecuteDshTool(
+    callId: string,
+    name: string,
+    args: Readonly<Record<string, unknown>>,
+    policy: SparkDshToolPolicyMetadata | undefined,
+    signal: AbortSignal,
+  ) {
+    if (!policy) {
+      return {
+        kind: "deny" as const,
+        reason: `DSH tool is missing Spark policy metadata: ${name}`,
+      };
+    }
+    if (!this.isDshToolAvailable(name, policy)) {
+      return { kind: "deny" as const, reason: `DSH tool denied by Spark policy: ${name}` };
+    }
+    if (policy.approval === undefined || policy.approval === "none") {
+      return { kind: "allow" as const };
+    }
+    const ctx = this.host.makeContext({
+      model: this.getModel(),
+      sessionId: this.viewSessionId,
+    });
+    if (
+      policy.approval === "manual_only" &&
+      hasActiveDriverBinding(ctx.loop) &&
+      ctx.driverAuthority !== "granted" &&
+      this.host.ensureDriverAuthority
+    ) {
+      ctx.driverAuthority = await this.host.ensureDriverAuthority(ctx, signal);
+      throwIfSignalAborted(signal);
+    }
+    if (
+      policy.approval === "manual_only" &&
+      hasActiveDriverBinding(ctx.loop) &&
+      ctx.driverAuthority === "granted"
+    ) {
+      return { kind: "allow" as const };
+    }
+    const approval = await this.requestConfiguredToolApproval(
+      {
+        type: "toolCall",
+        id: callId,
+        name,
+        arguments: { ...args },
+      },
+      `Tool "${name}" requires approval before execution.`,
+      signal,
+    );
+    return approval.approved
+      ? { kind: "allow" as const }
+      : { kind: "deny" as const, reason: approval.message };
   }
 
   private async runAutoToolApproval(
@@ -2684,6 +2833,7 @@ function formatAssistantUsageSummary(assistant: AssistantMessage): string | unde
 }
 
 export { SparkAgentLoop as SparkTurnRunner };
+export { encodeSparkAuxiliaryModelRoute };
 
 function renderToolApprovalRejection(
   toolName: string,

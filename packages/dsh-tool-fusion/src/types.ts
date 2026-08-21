@@ -1,5 +1,3 @@
-import type { LeafCapabilityRunner, LeafDegradeReason } from "@zendev-lab/spark-core";
-
 export const SPARK_FUSION_SCHEMA_VERSION = 1 as const;
 
 export type FusionConfidence = "low" | "medium" | "high";
@@ -45,12 +43,46 @@ export interface FusionPanelInput {
   model?: string;
 }
 
+/** Provider/model pair used by a bounded, tool-owned DSH model call. */
+export interface FusionModelRef {
+  provider: string;
+  model: string;
+}
+
+export type FusionModelCallFailureReason =
+  | "aborted"
+  | "no-model"
+  | "route-unavailable"
+  | "model-call-failed";
+
+/** One tool-owned model request. It creates no Session, Agent, or durable work. */
+export interface FusionModelCallRequest {
+  role: string;
+  brief: string;
+  input: string;
+  model?: string;
+  sessionModel?: FusionModelRef;
+  maxTokens?: number;
+  signal?: AbortSignal;
+}
+
+export interface FusionModelCallResult {
+  degraded: boolean;
+  text: string;
+  model?: string;
+  reasonCode?: FusionModelCallFailureReason;
+}
+
+export type FusionModelCallRunner = (
+  request: FusionModelCallRequest,
+) => Promise<FusionModelCallResult>;
+
 export interface SparkFusionDeliberationRequest {
   question: string;
   context?: string;
   panels?: FusionPanelInput[];
   judgeModel?: string;
-  sessionModel?: string;
+  sessionModel?: FusionModelRef;
   panelMaxTokens?: number;
   judgeMaxTokens?: number;
   timeoutMs?: number;
@@ -58,7 +90,7 @@ export interface SparkFusionDeliberationRequest {
 }
 
 export type FusionPanelReasonCode =
-  | LeafDegradeReason
+  | FusionModelCallFailureReason
   | "empty-output"
   | "invalid-output"
   | "timeout";
@@ -79,7 +111,7 @@ export interface FusionJudgeResult {
 }
 
 export type FusionJudgeFailureReasonCode =
-  | LeafDegradeReason
+  | FusionModelCallFailureReason
   | "empty-output"
   | "invalid-output"
   | "timeout";
@@ -106,6 +138,6 @@ export interface SparkFusionDeliberationResult {
 }
 
 export interface SparkFusionDependencies {
-  runLeaf: LeafCapabilityRunner;
+  runLeaf: FusionModelCallRunner;
   now?: () => number;
 }
