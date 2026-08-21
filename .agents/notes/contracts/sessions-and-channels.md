@@ -5,9 +5,11 @@ Status: normative for Session registry v8 / protocol v4.
 ## One runtime entity
 
 Spark has one runtime conversation entity: `Session`. A Role is a reusable
-definition bound through `roleBinding`. “Subsession” is presentation language
-for any Session whose lineage is child; it is not a schema, store, owner kind,
-or package.
+static definition bound at runtime through `roleBinding`. “Subsession” is
+presentation language for any Session whose lineage is child. “Subagent” is
+presentation language for a child Session whose `roleBinding` is explicit.
+Neither word is a schema, store, owner kind, or package. The human operator
+is not a Role.
 
 ```ts
 type SparkSessionLineage =
@@ -41,6 +43,26 @@ missing parents and cycles, and derives parentage only through
 recursive Workspace tree, while daemon Channel roots appear in a separate
 daemon-level collection. Any child origin may nest to any depth. Orphans and
 cycles are diagnostics, not silently reparented nodes.
+
+## Role bind
+
+`roleBinding` is Session state, not Role state. It is `none`, `inherit`, or
+`explicit` with a `role:*` ref. RoleSpec itself never stores a Session id,
+lifetime, or wire role.
+
+- A workspace root must be `{ kind: "explicit", roleRef: "role:builtin-administrator" }`.
+- `session({ action: "spawn" | "fork", roleRef })` always writes an explicit
+  bind. That Role-bound child is the subagent; `send(kind=request)` is the
+  only public execution trigger.
+- `none` remains legal for Skill Agent children and other non-Role origins.
+- Transcript wire stays `system | user | assistant | tool`. `user` is the
+  human; `assistant` is the bound Role or Skill Agent identity.
+
+Role definition representation and catalog ownership are in
+[`../../../packages/spark-roles/README.md`](../../../packages/spark-roles/README.md).
+The dated mapping that registers Spark spawn/fork providers on official
+`dsh-subagent` is
+[`../decisions/2026-08-20-role-session-bind.md`](../decisions/2026-08-20-role-session-bind.md).
 
 ## Registry and projection
 

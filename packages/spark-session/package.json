@@ -15,7 +15,8 @@
     ".": "./src/index.ts",
     "./dsh-message-projection": "./src/dsh-message-projection.ts",
     "./extension": "./src/extension.ts",
-    "./transcript": "./src/transcript/index.ts"
+    "./transcript": "./src/transcript/index.ts",
+    "./subagent": "./src/subagent.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
@@ -23,6 +24,7 @@
     "test:mutation": "stryker run"
   },
   "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/dsh-attachment-local": "catalog:dsh",
     "@deepseek-ai/dsh-llm": "catalog:dsh",
     "@deepseek-ai/dsh-session": "catalog:dsh",

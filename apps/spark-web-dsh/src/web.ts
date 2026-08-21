@@ -4,7 +4,7 @@
  * The profile is booted directly: a plain `node` child imports the installed
  * `@deepseek-ai/dsh` package's `profile-boot-*` module and calls `runProfile`
  * — no `dsh` CLI on the PATH, no dsh-managed wrapper. On top of the stock
- * profile Spark owns five additions:
+ * profile Spark owns six additions:
  *
  * 1. **spark-llm plugin, loaded automatically.** The Baidu OneAPI provider
  *    bundle is built from `@zendev-lab/spark-llm` (esbuild, host externals
@@ -14,15 +14,19 @@
  * 2. **dsh-tool-cue plugin plus the managed spark-standard / spark-code
  *    presets and a verified cue Skill snapshot**, so Cue replaces DSH
  *    Bash/Pwsh/Jobs with canonical guidance and no manual setup.
- * 3. **spark-web-dsh client plugin**, linked from this application into the
+ * 3. **spark-session-subagent plugin**, Role-bound spawn/fork providers
+ *    registered onto the official DSH HOST `ctx.subagents`. The overlay
+ *    disables stock in-process spawn/fork backends so they do not steal
+ *    those names. Daemon mounts the same providers.
+ * 4. **spark-web-dsh client plugin**, linked from this application into the
  *    profile's node_modules so the onboarding flow offers Spark's provider
  *    selection step. Existing profiles that already declare
  *    `id: spark-web-dsh` skip a second insert.
- * 4. **Any bind host, including 0.0.0.0.** `dsh web` rejects `--host 0.0.0.0`
+ * 5. **Any bind host, including 0.0.0.0.** `dsh web` rejects `--host 0.0.0.0`
  *    outright for safety; the patch overlay restates the `webserver` row with
  *    the requested host instead. This is a deliberate bypass of that guard —
  *    a 0.0.0.0-bound harness exposes agent code execution to the network.
- * 5. **Host plugin HMR enabled**, so bundle replacements reload the affected
+ * 6. **Host plugin HMR enabled**, so bundle replacements reload the affected
  *    plugin entry instead of requiring a restart.
  *
  * Boot independence notes:
@@ -157,6 +161,11 @@ export function resolveDshProfileDir(
 /** Locate the installed `@zendev-lab/spark-llm` package root. */
 export function resolveSparkLlmPackageDir(): string {
   return resolvePackageDir("@zendev-lab/spark-llm");
+}
+
+/** Locate the installed `@zendev-lab/spark-session` package root. */
+export function resolveSparkSessionPackageDir(): string {
+  return resolvePackageDir("@zendev-lab/spark-session");
 }
 
 /** Locate the installed `@zendev-lab/dsh-tool-cue` package root. */
@@ -336,6 +345,56 @@ export async function ensureSparkLlmBundle(profileDir: string): Promise<SparkLlm
       index,
       '// Mount point for the spark-llm DSH plugin bundle, maintained by `spark web`.\nexport { default } from "./dsh-plugin.mjs";\n',
     );
+  }
+  return { entry, bundle, rebuilt };
+}
+
+export interface SparkSessionSubagentBundleResult {
+  entry: string;
+  bundle: string;
+  rebuilt: boolean;
+}
+
+/**
+ * Build the spark-session-subagent DSH plugin into `plugins/spark-session-subagent/`.
+ * Host externals stay external so the DSH process resolves cordis / dsh-session.
+ */
+export async function ensureSparkSessionSubagentBundle(
+  profileDir: string,
+): Promise<SparkSessionSubagentBundleResult> {
+  const packagedEntry = join(
+    resolveSparkWebDshPackageDir(),
+    "lib",
+    "spark-session-subagent-plugin.mjs",
+  );
+  const entry = existsSync(packagedEntry)
+    ? packagedEntry
+    : join(resolveSparkSessionPackageDir(), "src", "subagent.ts");
+  if (!existsSync(entry)) {
+    throw new Error(`spark web: spark-session-subagent plugin entry not found at ${entry}`);
+  }
+  const pluginDir = join(profileDir, "plugins", "spark-session-subagent");
+  mkdirSync(pluginDir, { recursive: true });
+  const bundle = join(pluginDir, "index.mjs");
+  let rebuilt = false;
+  const sourceMtime = statSync(entry).mtimeMs;
+  const bundleMtime = existsSync(bundle) ? statSync(bundle).mtimeMs : 0;
+  if (bundleMtime < sourceMtime) {
+    if (entry === packagedEntry) {
+      writeFileSync(bundle, readFileSync(packagedEntry));
+    } else {
+      await build({
+        entryPoints: [entry],
+        bundle: true,
+        format: "esm",
+        platform: "node",
+        target: "node22",
+        outfile: bundle,
+        external: ["@deepseek-ai/*"],
+        logLevel: "silent",
+      });
+    }
+    rebuilt = true;
   }
   return { entry, bundle, rebuilt };
 }
@@ -616,8 +675,11 @@ export async function runSparkWebDirect(
  * Compose the patch overlay for one `spark web` run and write it to a
  * temporary file. Rows:
  *
- * - `spark-llm` and `dsh-tool-cue` host plugins (paths relative to the
- *   profile root, so the DSH loader resolves them without an install);
+ * - `spark-llm`, `dsh-tool-cue`, and `spark-session-subagent` host plugins
+ *   (paths relative to the profile root, so the DSH loader resolves them
+ *   without an install);
+ * - stock in-process spawn/fork backends disabled so Spark providers own
+ *   those names on the official HOST;
  * - `spark-web-dsh` client plugin (package name; the client-modules host
  *   resolves it from the profile's node_modules and serves its bundle);
  * - `agent-presets` defaulting to spark-standard;
@@ -648,6 +710,13 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
       "      name: ./plugins/dsh-tool-cue/index.mjs",
     );
   }
+  if (!userPatch.includes("id: spark-session-subagent")) {
+    rows.push(
+      "    # Spark Role-bound spawn/fork providers on the official HOST.",
+      "    - id: spark-session-subagent",
+      "      name: ./plugins/spark-session-subagent/index.mjs",
+    );
+  }
   if (!userPatch.includes("id: spark-web-dsh")) {
     rows.push("    - id: spark-web-dsh", `      name: ${JSON.stringify(SPARK_WEB_DHS_PACKAGE)}`);
   }
@@ -659,6 +728,12 @@ export function composeSparkWebPatch(profileDir: string, args: SparkWebArgs): Sp
     "  config:",
     "    root: !!js dshHomePath('sessions')",
     "    preparedSessionCacheSize: 1",
+  );
+  rows.push(
+    "- id: subagent-spawn-in-process",
+    "  disabled: true",
+    "- id: subagent-fork-in-process",
+    "  disabled: true",
   );
   rows.push("- id: hmr", "  disabled: false");
   if (args.host !== undefined && args.host !== "127.0.0.1") {
@@ -708,8 +783,9 @@ export function composeWebArgs(args: SparkWebArgs, port = args.port ?? 3080): st
 }
 
 /**
- * Prepare a `spark web` dispatch: ensure the spark-llm bundle, compose the
- * patch overlay, and return the `dsh web` argument list.
+ * Prepare a `spark web` dispatch: ensure the Cue, spark-llm, and
+ * spark-session-subagent bundles, compose the patch overlay, and return the
+ * `dsh web` argument list.
  */
 export interface SparkWebDispatch {
   /** The DSH profile the web server will be booted from. */
@@ -744,6 +820,12 @@ export async function prepareSparkWebDispatch(
   const bundle = await ensureSparkLlmBundle(profileDir);
   if (bundle.rebuilt) {
     process.stderr.write(`[spark web] built spark-llm plugin bundle -> ${bundle.bundle}\n`);
+  }
+  const subagent = await ensureSparkSessionSubagentBundle(profileDir);
+  if (subagent.rebuilt) {
+    process.stderr.write(
+      `[spark web] built spark-session-subagent plugin bundle -> ${subagent.bundle}\n`,
+    );
   }
   const client = await ensureSparkWebClient(profileDir);
   if (client.rebuilt) {

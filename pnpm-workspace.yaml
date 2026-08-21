@@ -56,6 +56,7 @@ catalogs:
     "@deepseek-ai/dsh-skill-filesystem": *dsh-version
     "@deepseek-ai/dsh-settings": *dsh-version
     "@deepseek-ai/dsh-shell-env": *dsh-version
+    "@deepseek-ai/dsh-subagent": *dsh-version
     "@deepseek-ai/dsh-system-prompt": *dsh-version
     "@deepseek-ai/dsh-timeout": *dsh-version
     "@deepseek-ai/dsh-tool-skill": *dsh-version

@@ -3,8 +3,10 @@
  *
  * Invocation, channel, loop, and retry data authority stays in Spark SQLite.
  * Live sessions are `ctx.sessions`; JSONL durability is dsh-session-persistence
- * with Spark's PersistenceBackend. Agent handles remain invocation-owned and
- * are mounted only after transcript migration makes their surface native DSH.
+ * with Spark's PersistenceBackend. Official `dsh-subagent` owns `ctx.subagents`;
+ * spark-session registers Role-bound spawn/fork providers when a durable host
+ * is passed. Agent handles remain invocation-owned and are mounted only after
+ * transcript migration makes their surface native DSH.
  */
 import { lstatSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -18,11 +20,15 @@ import LlmRuntime from "@deepseek-ai/dsh-llm";
 import { SessionStore } from "@deepseek-ai/dsh-session";
 import SkillRegistry from "@deepseek-ai/dsh-skill";
 import * as SkillFileSystem from "@deepseek-ai/dsh-skill-filesystem";
+import SubagentRuntime from "@deepseek-ai/dsh-subagent";
 import SystemPrompt from "@deepseek-ai/dsh-system-prompt";
 import * as SkillTool from "@deepseek-ai/dsh-tool-skill";
 import ToolRuntime from "@deepseek-ai/dsh-tools";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import type { SparkDshToolPolicyMetadata } from "@zendev-lab/spark-core";
+import sparkSessionSubagentPlugin, {
+  type SparkSubagentHost,
+} from "@zendev-lab/spark-session/subagent";
 import { DEFAULT_SPARK_AGENT_LOOP_MAX_PARALLEL_TOOL_CALLS } from "@zendev-lab/spark-turn";
 
 import { ChannelReplyDeliveryStore } from "./channels/reply-delivery.ts";
@@ -72,6 +78,7 @@ export interface SparkDaemonCordisRootOptions {
   cueSkillRoot?: string;
   /** Reuse the process root opened before daemon adapters are constructed. */
   ctx?: Context;
+  subagentHost?: SparkSubagentHost;
 }
 
 export interface SparkDaemonHeadlessCordisRootOptions {
@@ -152,6 +159,10 @@ export async function createSparkDaemonCordisRoot(
       sessionsRoot: options.sessionsRoot,
       cueSkillRoot: resolveCueSkillRoot(options.cueSkillRoot),
     });
+    await ctx.plugin(SubagentRuntime);
+    if (options.subagentHost) {
+      await ctx.plugin(sparkSessionSubagentPlugin, { host: options.subagentHost });
+    }
   } catch (error) {
     await dispose().catch(() => undefined);
     throw error;

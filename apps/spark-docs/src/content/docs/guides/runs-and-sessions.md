@@ -56,9 +56,13 @@ override workspace binding or permission checks.
 
 Every workspace has one protected Administrator root Session. Ordinary
 workspace conversations are retained children of that root. Every runtime
-conversation is a Session. Role is only a definition binding, and any Session
-with child lineage is a subsession regardless of whether its origin is a
-Side Thread, TaskRun, Workflow, driver, driver tick, or Invocation. Their active state
+conversation is a Session. Role is a static definition bound at runtime
+through `roleBinding`. The human operator is not a Role; the Administrator
+root is always bound to builtin `administrator`. Any Session with child
+lineage is a subsession regardless of whether its origin is a Side Thread,
+TaskRun, Workflow, driver, driver tick, or Invocation. A child with an
+explicit Role bind — created by `session spawn|fork` — is a subagent. That
+word is presentation language, not a second runtime type. Their active state
 comes from queued/running Invocations, not UI timers. Native session view
 `status` uses the same three values (`idle`, `queued`, `running`); a queued
 Invocation is not collapsed to `running`. Owned temporary children
