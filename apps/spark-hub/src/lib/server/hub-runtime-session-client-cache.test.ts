@@ -133,6 +133,59 @@ describe("hub runtime session cache", () => {
     }
   });
 
+  it("returns daemon Channel projections only for the explicitly selected offline runtime", async () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    const now = "2026-08-21T00:00:00.000Z";
+    const runtimeId = createId("rt");
+    const session = {
+      sessionId: createId("sess"),
+      scope: { kind: "daemon" as const, daemonId: "offline-channel-daemon" },
+      lifecycle: "open" as const,
+      placement: "active" as const,
+      activity: "idle" as const,
+      lifetime: "persistent" as const,
+      roleBinding: { kind: "none" as const },
+      lineage: { kind: "root" as const },
+      incarnation: 1,
+      visibility: "public" as const,
+      retention: "retain" as const,
+      purpose: "channel",
+      cwd: "/daemon/channels/sessions/session/workspace",
+      bindings: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.prepare(
+      `INSERT INTO runtime_connections
+        (id, installation_id, name, status, protocol_version, capabilities_json, labels_json,
+         created_at, updated_at)
+       VALUES (?, 'offline-channel-daemon', 'Offline Channel daemon', 'offline', ?, '{}', '{}', ?, ?)`,
+    ).run(runtimeId, runtimeProtocolVersion, now, now);
+    db.prepare(
+      `INSERT INTO runtime_session_projections
+        (runtime_id, session_id, scope, lifecycle, placement, activity, lifetime,
+         lineage_origin_kind, record_json, projected_at)
+       VALUES (?, ?, 'daemon', 'open', 'active', 'idle', 'persistent', 'root', ?, ?)`,
+    ).run(runtimeId, session.sessionId, JSON.stringify(session), now);
+
+    try {
+      const client = createHubRuntimeSessionClient(db);
+      await expect(
+        client.listWithControlState({
+          runtimeId,
+          scope: { kind: "daemon" },
+          includeArchived: true,
+        }),
+      ).resolves.toEqual({ sessions: [session], controlAvailable: false });
+      await expect(client.list({ scope: { kind: "daemon" } })).rejects.toThrow(
+        /selected Spark runtime/u,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
   it("rejects direct side-thread submit", async () => {
     const db = openMemoryDatabase();
     migrate(db);

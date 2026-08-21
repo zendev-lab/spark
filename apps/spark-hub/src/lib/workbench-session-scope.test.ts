@@ -54,7 +54,8 @@ describe("workbench session scope", () => {
     };
     const channelSession = {
       sessionId: "sess_channel",
-      scope: { kind: "workspace" as const, workspaceId: "ws_current" },
+      scope: { kind: "daemon" as const, daemonId: "daemon-a" },
+      purpose: "channel",
       bindings: [{ kind: "channel", externalKey: "infoflow:user:u1" }],
     };
     const daemonSession = {
@@ -75,7 +76,7 @@ describe("workbench session scope", () => {
         ],
         "ws_current",
       ),
-    ).toEqual([workspaceSession, channelSession]);
+    ).toEqual([workspaceSession]);
   });
 
   it("builds adjacent parent and Side Thread rows without promoting orphans", () => {

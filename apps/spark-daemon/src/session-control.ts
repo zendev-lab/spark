@@ -850,19 +850,22 @@ async function listSessionsForRequest(
   parsed: ReturnType<typeof sparkSessionListRequestSchema.parse>,
 ): Promise<SparkSessionState[]> {
   const registry = requireSessionRegistry(options);
-  if (request.scope !== "workspace") {
-    return await registry.list({
-      includeArchived: parsed.includeArchived,
-      query: parsed.query,
-      tags: parsed.tags,
-    });
-  }
-
-  const sessions = await registry.list({
+  const listOptions = {
     includeArchived: parsed.includeArchived,
     query: parsed.query,
     tags: parsed.tags,
-  });
+  };
+  if (request.scope === "daemon" || parsed.scope?.kind === "daemon") {
+    return await registry.list({ ...listOptions, scope: { kind: "daemon" } });
+  }
+  if (request.scope === "any" && parsed.scope?.kind === "workspace") {
+    return await registry.list({ ...listOptions, scope: parsed.scope });
+  }
+  if (request.scope !== "workspace") {
+    return await registry.list(listOptions);
+  }
+
+  const sessions = await registry.list(listOptions);
   return sessions.flatMap((session) => {
     try {
       return [projectSessionForRequest(options.db, session, request)];

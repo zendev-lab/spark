@@ -98,7 +98,9 @@ export async function createSparkCliHostServices(
   }
 
   const memoryDirectIntentAuthority =
-    options.memoryDirectIntentAuthority ?? createSparkMemoryDirectIntentTurnAuthority();
+    options.sessionSurface === "channel"
+      ? undefined
+      : (options.memoryDirectIntentAuthority ?? createSparkMemoryDirectIntentTurnAuthority());
   const runtime = new SparkHostRuntime({
     cwd,
     workspaceId: options.workspaceId,

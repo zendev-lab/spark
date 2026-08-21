@@ -7,6 +7,7 @@ import {
   reconcileRuntimeSessionListProjection,
   replaceRuntimeSideThreadProjection,
   runRuntimeSessionControlCommand,
+  runtimeSessionRouteForRuntime,
   runtimeSessionRouteForSession,
   runtimeSessionRouteForWorkspace,
   type RuntimeSessionRoute,
@@ -228,12 +229,12 @@ async function listSessionsWithControlState(
   const { runtimeId, timeoutMs, related = false, ...request } = options;
   const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
   const parsed = sparkSessionListRequestSchema.parse(request);
-  if (parsed.scope?.kind === "daemon") {
-    throw new Error("Hub session lists support workspace scope only.");
+  if (parsed.scope?.kind === "daemon" && !runtimeId?.trim()) {
+    throw new Error("Daemon session lists require one selected Spark runtime.");
   }
   let routes: RuntimeSessionRoute[];
   try {
-    routes = routesForList(db, parsed);
+    routes = routesForList(db, parsed, runtimeId);
   } catch (error) {
     const stale = projectedSessions(db, parsed, runtimeId, related);
     if (stale.length > 0) return { sessions: stale, controlAvailable: false };
@@ -407,8 +408,8 @@ async function listRouteSessions(
   request: ReturnType<typeof sparkSessionListRequestSchema.parse>,
   deadline: number | undefined,
 ): Promise<SparkSessionProjection[]> {
-  if (route.scope !== "workspace" || !route.workspaceId) {
-    throw new Error("Hub session lists require a workspace route.");
+  if (route.scope === "workspace" && !route.workspaceId) {
+    throw new Error("Hub Workspace session lists require a Workspace route.");
   }
   const candidateSessionIds = listRuntimeSessionProjections(db, {
     runtimeId: route.runtimeId,
@@ -428,7 +429,10 @@ async function listRouteSessions(
       payload: {
         kind: "session.list.request",
         payload: {
-          scope: { kind: "workspace", workspaceId: route.workspaceId },
+          scope:
+            route.scope === "daemon"
+              ? { kind: "daemon" as const }
+              : { kind: "workspace" as const, workspaceId: route.workspaceId! },
           ...(request.includeArchived !== undefined
             ? { includeArchived: request.includeArchived }
             : {}),
@@ -839,12 +843,16 @@ async function getTurnStream(
 function routesForList(
   db: DatabaseSync,
   request: ReturnType<typeof sparkSessionListRequestSchema.parse>,
+  runtimeId?: string,
 ): RuntimeSessionRoute[] {
   if (request.scope?.kind === "workspace") {
     return [requireOnlineRoute(db, runtimeSessionRouteForWorkspace(db, request.scope.workspaceId))];
   }
   if (request.scope?.kind === "daemon") {
-    throw new Error("Hub session lists support workspace scope only.");
+    if (!runtimeId?.trim()) {
+      throw new Error("Daemon session lists require one selected Spark runtime.");
+    }
+    return [requireOnlineRoute(db, runtimeSessionRouteForRuntime(runtimeId))];
   }
   return listRuntimeSessionRoutes(db).filter((route) => route.scope === "workspace");
 }

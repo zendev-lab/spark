@@ -103,7 +103,6 @@ export interface SparkHostRuntimeOptions {
   channelBinding?: {
     adapter: "feishu" | "infoflow" | "qqbot";
     externalKey: string;
-    workspaceId?: string;
     recipient?: string;
     /** Runtime/config adapter id. Kept for legacy routing diagnostics. */
     adapterId?: string;
@@ -181,7 +180,6 @@ export class SparkHostRuntime implements SparkHostAPI {
     | {
         adapter: "feishu" | "infoflow" | "qqbot";
         externalKey: string;
-        workspaceId?: string;
         recipient?: string;
         adapterId?: string;
         adapterAccountIdentity?: string;

@@ -1,5 +1,7 @@
 import {
+  channelAdapterAccountIdentity,
   parseChannelsConfig,
+  type ChannelAdapterConfig,
   type ChannelsConfig,
   type FeishuAdapterConfig,
   type InfoflowAdapterConfig,
@@ -304,9 +306,9 @@ export async function channelSnapshot(
 export function channelConfigurationProjection(
   config: ChannelsConfig | null,
 ): SparkChannelConfigurationProjection {
-  const feishu = adapterOfType(config, "feishu");
-  const infoflow = adapterOfType(config, "infoflow");
-  const qqbot = adapterOfType(config, "qqbot");
+  const feishu = uniqueAdapterOfType(config, "feishu");
+  const infoflow = uniqueAdapterOfType(config, "infoflow");
+  const qqbot = uniqueAdapterOfType(config, "qqbot");
   return {
     ...(feishu
       ? {
@@ -362,20 +364,24 @@ async function mergePrivateChannelConfig(
   const previous = options.sparkHome
     ? (await loadDaemonChannelsConfig(options.sparkHome)).config
     : null;
-  const previousByType = {
-    feishu: adapterOfType(previous, "feishu"),
-    infoflow: adapterOfType(previous, "infoflow"),
-    qqbot: adapterOfType(previous, "qqbot"),
-  };
   const adapters: ChannelsConfig["adapters"] = {};
   for (const [id, adapter] of Object.entries(incoming.adapters)) {
+    const needsPrevious =
+      adapter.type === "feishu"
+        ? !adapter.app_secret?.trim()
+        : adapter.type === "infoflow"
+          ? !adapter.app_key?.trim() || !adapter.app_secret?.trim()
+          : !adapter.client_secret?.trim();
+    const previousAdapter = needsPrevious
+      ? previousAdapterForIncoming(previous, id, adapter)
+      : undefined;
     if (adapter.type === "feishu") {
       adapters[id] = {
         ...adapter,
         ...(adapter.app_secret?.trim()
           ? {}
-          : previousByType.feishu?.app_secret
-            ? { app_secret: previousByType.feishu.app_secret }
+          : previousAdapter?.type === "feishu" && previousAdapter.app_secret
+            ? { app_secret: previousAdapter.app_secret }
             : {}),
       };
     } else if (adapter.type === "infoflow") {
@@ -383,13 +389,13 @@ async function mergePrivateChannelConfig(
         ...adapter,
         ...(adapter.app_key?.trim()
           ? {}
-          : previousByType.infoflow?.app_key
-            ? { app_key: previousByType.infoflow.app_key }
+          : previousAdapter?.type === "infoflow" && previousAdapter.app_key
+            ? { app_key: previousAdapter.app_key }
             : {}),
         ...(adapter.app_secret?.trim()
           ? {}
-          : previousByType.infoflow?.app_secret
-            ? { app_secret: previousByType.infoflow.app_secret }
+          : previousAdapter?.type === "infoflow" && previousAdapter.app_secret
+            ? { app_secret: previousAdapter.app_secret }
             : {}),
       };
     } else {
@@ -397,8 +403,8 @@ async function mergePrivateChannelConfig(
         ...adapter,
         ...(adapter.client_secret?.trim()
           ? {}
-          : previousByType.qqbot?.client_secret
-            ? { client_secret: previousByType.qqbot.client_secret }
+          : previousAdapter?.type === "qqbot" && previousAdapter.client_secret
+            ? { client_secret: previousAdapter.client_secret }
             : {}),
       };
     }
@@ -518,27 +524,59 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function adapterOfType(
+function uniqueAdapterOfType(
   config: ChannelsConfig | null,
   type: "feishu",
 ): FeishuAdapterConfig | undefined;
-function adapterOfType(
+function uniqueAdapterOfType(
   config: ChannelsConfig | null,
   type: "infoflow",
 ): InfoflowAdapterConfig | undefined;
-function adapterOfType(
+function uniqueAdapterOfType(
   config: ChannelsConfig | null,
   type: "qqbot",
 ): QqbotAdapterConfig | undefined;
-function adapterOfType(
+function uniqueAdapterOfType(
   config: ChannelsConfig | null,
   type: "feishu" | "infoflow" | "qqbot",
 ): FeishuAdapterConfig | InfoflowAdapterConfig | QqbotAdapterConfig | undefined {
-  return Object.values(config?.adapters ?? {}).find((adapter) => adapter.type === type) as
+  const adapters = Object.values(config?.adapters ?? {}).filter((adapter) => adapter.type === type);
+  if (adapters.length !== 1) return undefined;
+  return adapters[0] as
     | FeishuAdapterConfig
     | InfoflowAdapterConfig
     | QqbotAdapterConfig
     | undefined;
+}
+
+/**
+ * Resolve the one stored account whose private fields may be retained.
+ * Adapter ids are operator-owned and renameable, so stable account identity is
+ * the second choice. Falling back by type is safe only for a single account.
+ */
+function previousAdapterForIncoming(
+  previous: ChannelsConfig | null,
+  adapterId: string,
+  incoming: ChannelAdapterConfig,
+): ChannelAdapterConfig | undefined {
+  const exact = previous?.adapters[adapterId];
+  if (exact?.type === incoming.type) return exact;
+
+  const sameType = Object.values(previous?.adapters ?? {}).filter(
+    (adapter) => adapter.type === incoming.type,
+  );
+  const identity = channelAdapterAccountIdentity(incoming);
+  const identityMatches = sameType.filter(
+    (adapter) => channelAdapterAccountIdentity(adapter) === identity,
+  );
+  if (identityMatches.length === 1) return identityMatches[0];
+  if (identityMatches.length > 1) {
+    throw new Error(`Stored Channel account identity is duplicated for ${adapterId}.`);
+  }
+  if (sameType.length <= 1) return sameType[0];
+  throw new Error(
+    `Cannot retain private Channel fields for ${adapterId}: multiple ${incoming.type} accounts match by type.`,
+  );
 }
 
 function publicFailureMessage(
