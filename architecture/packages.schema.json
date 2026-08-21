@@ -19,7 +19,7 @@
       "type": "object",
       "minProperties": 1,
       "propertyNames": {
-        "pattern": "^@zendev-lab/(?:spark|pi|dsh)-[a-z0-9-]+$"
+        "pattern": "^@zendev-lab/(?:spark|dsh)-[a-z0-9-]+$"
       },
       "additionalProperties": {
         "$ref": "#/$defs/package"
@@ -44,7 +44,7 @@
     },
     "packageName": {
       "type": "string",
-      "pattern": "^@zendev-lab/(?:spark|pi|dsh)-[a-z0-9-]+$"
+      "pattern": "^@zendev-lab/(?:spark|dsh)-[a-z0-9-]+$"
     },
     "taskRef": {
       "type": "string",
@@ -336,6 +336,7 @@
         "temporaryDependencyExceptionBudget",
         "piOwnership",
         "packageBudget",
+        "packageNaming",
         "compositionRoots"
       ],
       "properties": {
@@ -357,6 +358,16 @@
         },
         "packageBudget": {
           "$ref": "#/$defs/packageBudget"
+        },
+        "packageNaming": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["temporaryDshDependencyExceptionsNonGrowth"],
+          "properties": {
+            "temporaryDshDependencyExceptionsNonGrowth": {
+              "const": true
+            }
+          }
         },
         "compositionRoots": {
           "type": "array",
@@ -399,6 +410,34 @@
         },
         "distribution": {
           "enum": ["public-npm", "private"]
+        },
+        "namingRationale": {
+          "type": "string",
+          "minLength": 24
+        },
+        "dshIndependenceException": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dependencies", "reason", "exitCondition"],
+          "properties": {
+            "dependencies": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^@zendev-lab/spark-[a-z0-9-]+$"
+              }
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 24
+            },
+            "exitCondition": {
+              "type": "string",
+              "minLength": 24
+            }
+          }
         }
       }
     }

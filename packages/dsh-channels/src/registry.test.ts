@@ -37,7 +37,7 @@ function createTestRegistry(
 }
 
 describe("createChannelExternalKey", () => {
-  it("aligns with protocol normalizeChannelExternalKey", () => {
+  it("emits canonical adapter, scope, and id segments", () => {
     expect(createChannelExternalKey("feishu", "chat", "oc_demo")).toBe("feishu:chat:oc_demo");
     expect(createChannelExternalKey("infoflow", "user", "u1")).toBe("infoflow:user:u1");
     expect(createChannelExternalKey("qqbot", "c2c", "u1")).toBe("qqbot:c2c:u1");
